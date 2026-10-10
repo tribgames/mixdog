@@ -514,6 +514,8 @@ function renderToolActivityHeader({
 }
 
 const PREVIEW_OUTPUT_LINES = 5;
+// Every box a preview may cut short: plates, the command, plain output.
+const PREVIEW_CUT_SELECTOR = '.tool-panel-body, .tool-panel[data-kind="command"] .tool-code, .tool-activity-item-output';
 
 type ToolActivityPreviewMode = 'lines' | 'height';
 
@@ -765,12 +767,7 @@ function ToolActivityPreview({
       return;
     }
     const cut = (element: Element) => element.scrollHeight > element.clientHeight + 1;
-    const measure = () =>
-      setClipped(
-        mode === 'height'
-          ? cut(frame)
-          : [...frame.querySelectorAll('.tool-panel-body, .tool-activity-item-output')].some(cut)
-      );
+    const measure = () => setClipped([...frame.querySelectorAll(PREVIEW_CUT_SELECTOR)].some(cut));
     measure();
     if (typeof ResizeObserver !== 'function') return;
     const observer = new ResizeObserver(measure);

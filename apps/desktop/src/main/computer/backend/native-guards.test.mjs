@@ -952,6 +952,7 @@ public static class MixWin32 {
 }
 '@
 function Invalidate-RefsForRequest($req) {}
+function Add-ActivationProtection($req, $res) {}
 function Handle($req) {
   if ($null -eq [MixWin32]::PointerProgress -and $req.pointer_feedback -eq $true) { throw 'progress hook missing during handling' }
   [MixWin32]::PointerEventsGenerated = 3

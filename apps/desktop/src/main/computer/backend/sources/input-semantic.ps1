@@ -85,10 +85,10 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
                 [MixWin32]::IsWindowHandle($foregroundBefore)
             # Measured on Windows 11 Settings: the frame raised itself 5-30 ms after
             # the accessibility call returned, disabled or not, so one check made
-            # right away saw nothing to restore. Every self-activating target,
-            # Chromium included, is watched for that short window, and one that
+            # right away saw nothing to restore. Every restorable target, shielded
+            # or not and Chromium included, is watched for that short window; one that
             # takes the foreground again after a restore is restored once more.
-            $watching = $shielded -and $canRestore
+            $watching = $canRestore
             $restores = 0
             $watch = [System.Diagnostics.Stopwatch]::StartNew()
             while ($true) {

@@ -48,7 +48,7 @@ import { WINDOWS_NATIVE_SURFACE_BACKENDS } from '../shared/capture-attempts';
 import { publishPointerProgress } from './pointer-cursor';
 import { createSessionLifecycle } from './session-lifecycle';
 import { createInputResolution } from './input-resolution';
-import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
+import { createSequenceRunner, sequenceHoldReleaseError, suppressCaptureAfter } from './sequence-runner';
 import { createInputPreflight } from './input-preflight';
 import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
@@ -215,6 +215,13 @@ export function createPowerShellComputerHost(
     freshObservedWindowScope: sessionState.freshObservedWindowScope,
     captureAfterAction: captureEngine.captureAfterAction,
     runCommand: (command) => router.runCommand(command),
+    releaseSequenceHolds: async (sessionId) => {
+      const child = powerShellBySession.get(sessionId);
+      // Never start a worker just to release: a retired worker held nothing.
+      if (!child || child.killed) return;
+      const response = await callPowerShell({ action: 'release_sequence_holds', session_id: sessionId, read_only: false });
+      if (response.ok === false) throw sequenceHoldReleaseError(response.error);
+    },
   });
   const router = createCommandRouter({
     policy,

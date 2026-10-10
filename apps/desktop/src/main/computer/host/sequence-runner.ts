@@ -205,6 +205,22 @@ export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAct
   preflightSteps?(command: ComputerCommand, steps: ComputerCommand[]): Promise<void>;
   /** Late-bound: each step goes back through the router. */
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
+  /** Ends the no-activate holds the session's worker keeps across a background
+   *  sequence's steps; sent whenever a background sequence finishes or stops. */
+  releaseSequenceHolds?(sessionId: string): Promise<void>;
+}
+
+function errorMessage(error: unknown): string {
+  return (error as Error)?.message || String(error);
+}
+
+/** A worker reply refusing release_sequence_holds, as the error the sequence
+ *  runner reports: its own code when it has one, else a cleanup failure. */
+export function sequenceHoldReleaseError(error: unknown): Error {
+  const message = String(error || 'the worker did not confirm the release');
+  return new Error(
+    computerErrorCode(message) ? message : `input_cleanup_unconfirmed: sequence holds were not released: ${message}`
+  );
 }
 
 export function createSequenceRunner(host: SequenceRunnerHost) {
@@ -268,24 +284,55 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
     }
     host.recordProgress?.(0);
     const stepsStartedAt = performance.now();
-    const sequence = await executeComputerSequenceSteps(
-      stepCommands,
-      windowId,
-      async (stepCommand, index) => {
-        host.recordProgress?.(index, index);
-        const stepAction = String(stepCommand.action || '');
-        suppressedSequenceCaptures.add(stepCommand);
-        sequenceStepCommands.add(stepCommand);
-        if (index > 0) trustedSequenceContinuations.add(stepCommand);
-        const result = await runCommand(stepCommand);
+    let activationUnprotected = false;
+    let sequence: Awaited<ReturnType<typeof executeComputerSequenceSteps>> | undefined;
+    let holdCleanupError: unknown;
+    let stepsError: unknown;
+    try {
+      sequence = await executeComputerSequenceSteps(
+        stepCommands,
+        windowId,
+        async (stepCommand, index) => {
+          host.recordProgress?.(index, index);
+          const stepAction = String(stepCommand.action || '');
+          suppressedSequenceCaptures.add(stepCommand);
+          sequenceStepCommands.add(stepCommand);
+          if (index > 0) trustedSequenceContinuations.add(stepCommand);
+          const result = await runCommand(stepCommand);
+          try {
+            const parsed = JSON.parse(result.text) as Record<string, unknown>;
+            if (parsed.activation_protection === 'unavailable') activationUnprotected = true;
+            return parsed;
+          } catch {
+            return { ok: true, action: stepAction, message: result.text };
+          }
+        },
+        (completed) => host.recordProgress?.(completed)
+      );
+    } catch (error) {
+      stepsError = error;
+    } finally {
+      // A sequence that stopped early (failed step, target transition, abort)
+      // never sends the last step that would end its hold, so every background
+      // sequence ends the session's sequence holds itself, before the capture.
+      if ((command.delivery || 'background') !== 'foreground' && host.releaseSequenceHolds) {
         try {
-          return JSON.parse(result.text) as Record<string, unknown>;
-        } catch {
-          return { ok: true, action: stepAction, message: result.text };
+          await host.releaseSequenceHolds(sessionIdFor(command));
+        } catch (error) {
+          holdCleanupError = error;
         }
-      },
-      (completed) => host.recordProgress?.(completed)
-    );
+      }
+    }
+    if (!sequence) {
+      // A target that may still be non-activatable outranks why the steps stopped.
+      if (holdCleanupError !== undefined) {
+        throw new Error(
+          `input_cleanup_unconfirmed: ${errorMessage(holdCleanupError)}; the sequence had stopped: ${errorMessage(stepsError)}`,
+          { cause: stepsError }
+        );
+      }
+      throw stepsError;
+    }
     const stepsMs = elapsedMs(stepsStartedAt);
     const { rows, completedSteps, stoppedReason, finalWindowId, lastTransition } = sequence;
     const completed = completedSteps === steps.length && !stoppedReason;
@@ -295,18 +342,32 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
     const { unavailable: observationUnavailable, pixelUnavailable } = classifyComputerSequenceObservation(
       capture.metadata
     );
+    // A hold that may still keep the target non-activatable outranks why the
+    // steps stopped; the stop reason stays in stopped_reason.
+    const holdCleanupCode = holdCleanupError === undefined ? '' : 'input_cleanup_unconfirmed';
     const resultCode =
-      stoppedReason || (observationUnavailable ? String(capture.metadata.code || 'observation_unavailable') : '');
+      holdCleanupCode ||
+      stoppedReason ||
+      (observationUnavailable ? String(capture.metadata.code || 'observation_unavailable') : '');
     let escalation = 'inspect_failed_step';
     if (stoppedReason === 'target_transition') escalation = 'switch_target';
     else if (observationUnavailable) escalation = 'recapture';
     let verdict: Record<string, unknown> = { decision: 'escalate', recommended: escalation };
-    if (completed && !observationUnavailable) {
+    if (completed && !observationUnavailable && !holdCleanupCode) {
       verdict = { decision: 'verify_fresh_state' };
       if (pixelUnavailable) verdict.recommended = 'use_semantic_target';
     }
     const payload: Record<string, unknown> = {
-      ok: completed && !observationUnavailable,
+      ok: completed && !observationUnavailable && !holdCleanupCode,
+      ...(activationUnprotected ? { activation_protection: 'unavailable' } : {}),
+      ...(holdCleanupCode
+        ? {
+            hold_cleanup: {
+              ok: false,
+              message: errorMessage(holdCleanupError),
+            },
+          }
+        : {}),
       action: 'sequence',
       window_id: windowId,
       completed,

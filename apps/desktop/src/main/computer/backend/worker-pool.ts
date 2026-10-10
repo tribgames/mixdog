@@ -150,6 +150,50 @@ export interface WorkerPoolHost {
   spawnProcess?: typeof spawn;
 }
 
+/**
+ * A failed elevated run recovers its ledger only when the worker is known to be
+ * stopped; an unconfirmed termination keeps the ledger pending for a later
+ * confirmed exit or abort cleanup.
+ */
+export function settleElevatedLedgerFailure(
+  error: unknown,
+  path: string,
+  recover: (path: string) => void,
+  keepPending: (path: string) => void
+): void {
+  if (String((error as Error)?.message ?? error).includes('privileged_worker_cleanup_unconfirmed')) keepPending(path);
+  else recover(path);
+}
+
+/**
+ * Ledgers awaiting recovery. An `exited` ledger belongs to a worker confirmed
+ * gone and may be recovered by any consumer; a ledger held for a session
+ * belongs to a possibly-live worker and is listed only to that session's own
+ * confirmed-abort cleanup.
+ */
+export function createInactiveLedgerRegistry() {
+  const owners = new Map<string, string | null>();
+  return {
+    /** The owning worker is confirmed exited. */
+    exited(path: string): void {
+      owners.set(path, null);
+    },
+    /** The owning worker's termination is unconfirmed. */
+    hold(path: string, sessionId: string): void {
+      if (!owners.has(path)) owners.set(path, sessionId);
+    },
+    forget(path: string): void {
+      owners.delete(path);
+    },
+    /** Recoverable now: exited ledgers, plus those held for `confirmedSessionId`. */
+    recoverable(confirmedSessionId?: string): string[] {
+      return [...owners]
+        .filter(([path, owner]) => (owner === null || owner === confirmedSessionId) && existsSync(path))
+        .map(([path]) => path);
+    },
+  };
+}
+
 export function createWorkerPool(host: WorkerPoolHost) {
   const { dataDirectory, onSessionRetired } = host;
 
@@ -170,7 +214,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
   const inputMarker = String(randomBytes(4).readUInt32LE() & 0x7fffffff || 1);
   // WS_EX_NOACTIVATE bits a worker added to other windows are journaled in a
   // per-worker ledger so they can be cleared however the worker ends.
-  const pendingInactiveLedgers = new Set<string>();
+  const pendingInactiveLedgers = createInactiveLedgerRegistry();
   const ledgerByWorker = new Map<ChildProcessWithoutNullStreams, string>();
 
   function newInactiveLedgerPath(): string {
@@ -181,9 +225,9 @@ export function createWorkerPool(host: WorkerPoolHost) {
 
   /** The worker is gone: clear what it left behind, then forget the ledger. */
   function recoverInactiveLedger(path: string): void {
-    pendingInactiveLedgers.add(path);
+    pendingInactiveLedgers.exited(path);
     if (!existsSync(path)) {
-      pendingInactiveLedgers.delete(path);
+      pendingInactiveLedgers.forget(path);
       return;
     }
     const recovery = spawn(
@@ -195,7 +239,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       /* the ledger stays pending for the abort cleanup */
     });
     recovery.once('exit', (code) => {
-      if (code === 0) pendingInactiveLedgers.delete(path);
+      if (code === 0) pendingInactiveLedgers.forget(path);
     });
   }
 
@@ -452,7 +496,18 @@ export function createWorkerPool(host: WorkerPoolHost) {
           },
         };
       },
-    }).finally(() => recoverInactiveLedger(inactiveLedger));
+    }).then(
+      (value) => {
+        recoverInactiveLedger(inactiveLedger);
+        return value;
+      },
+      (error) => {
+        settleElevatedLedgerFailure(error, inactiveLedger, recoverInactiveLedger, (path) =>
+          pendingInactiveLedgers.hold(path, sessionId)
+        );
+        throw error;
+      }
+    );
   }
 
   function residentWorkerPids(): number[] {
@@ -503,10 +558,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
     releaseUnconfirmedElevated(): void {
       elevatedSlots -= elevatedJobs.releaseUnconfirmed() * 3;
     },
-    /** Ledgers of exited workers whose recovery is not yet confirmed. */
-    pendingInactiveLedgers: (): string[] => [...pendingInactiveLedgers].filter((path) => existsSync(path)),
+    /** Ledgers safe to recover: exited workers', plus those of `confirmedSessionId`'s
+     *  elevated worker once that session's own abort has confirmed it stopped. */
+    pendingInactiveLedgers: (confirmedSessionId?: string): string[] =>
+      pendingInactiveLedgers.recoverable(confirmedSessionId),
     inactiveLedgersRecovered(paths: string[]): void {
-      for (const path of paths) pendingInactiveLedgers.delete(path);
+      for (const path of paths) pendingInactiveLedgers.forget(path);
     },
     callPowerShell,
     callPowerShellElevated,

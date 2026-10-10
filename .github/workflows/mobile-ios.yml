@@ -1,6 +1,7 @@
-# Mixdog iOS app: archives with automatic signing through the App Store Connect
-# API key (no certificates or profiles are stored in the repo) and uploads the
-# build to TestFlight. Runs on mobile-v* tags and by hand.
+# Mixdog iOS app: creates a short-lived Apple Distribution certificate and App
+# Store profiles through the App Store Connect API key (nothing is stored in
+# the repo, revoked after the run), archives, and uploads the build to
+# TestFlight. Runs on mobile-v* tags and by hand.
 #
 # Secrets: APPLE_API_KEY_P8, APPLE_API_KEY_ID, APPLE_API_ISSUER.
 # Team Q6C35DQU78, App Store Connect app 6821430566, bundle io.mixdog.app with
@@ -87,12 +88,31 @@ jobs:
           chmod 600 "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
           echo "ASC_KEY_PATH=$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8" >> "$GITHUB_ENV"
 
-      - name: Archive (Release = production APNs)
+      - name: Short-lived distribution certificate and profiles
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography
+          python3 scripts/ios-ci-signing.py setup
+
+      - name: Signing keychain
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "$DIST_P12_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$DIST_P12_PASSWORD" "$keychain"
+          security import "$DIST_P12_PATH" -P "$DIST_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$DIST_P12_PASSWORD" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain"
+
+      - name: Archive (Release = production APNs)
+        run: |
+          set -euo pipefail
+          # Release signing is manual (Apple Distribution + the CI profiles).
           # Build numbers must rise for a given version: the run number does.
           xcodebuild archive \
             -workspace ios/App/App.xcworkspace \
@@ -100,13 +120,6 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Mixdog.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$APPLE_API_KEY_ID" \
-            -authenticationKeyIssuerID "$APPLE_API_ISSUER" \
-            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
 
@@ -124,7 +137,13 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>upload</string>
             <key>teamID</key><string>${DEVELOPMENT_TEAM}</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>io.mixdog.app</key><string>Mixdog CI App Store</string>
+              <key>io.mixdog.app.NotificationService</key><string>Mixdog CI NotificationService App Store</string>
+            </dict>
             <key>uploadSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
           </dict>
@@ -138,6 +157,16 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_ISSUER"
+
+      - name: Revoke short-lived signing
+        if: always()
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -f "$RUNNER_TEMP/ios-signing-state.json" ]; then python3 scripts/ios-ci-signing.py cleanup; fi
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/dist.p12"
 
       - name: Remove API key
         if: always()

@@ -114,6 +114,45 @@ public static class InactiveFixture {
       Check(clock.ElapsedMilliseconds >= 45, "the scope settles before it releases");
       Check(!Bit(h), "the scope's end clears the bit");
       MixWin32.EndInactive(scope);
+      // A bit the ledger cannot record is never written: delivery goes on unprotected.
+      string ledger = System.Environment.GetEnvironmentVariable("MIXDOG_COMPUTER_INACTIVE_LEDGER");
+      System.Environment.SetEnvironmentVariable("MIXDOG_COMPUTER_INACTIVE_LEDGER",
+        System.IO.Path.Combine(ledger + ".missing", "ledger.txt"));
+      try {
+        MixWin32.ActivationUnprotected = false;
+        System.IntPtr unrecorded = MixWin32.HoldInactive(h);
+        Check(unrecorded == System.IntPtr.Zero && !Bit(h) && MixWin32.ActivationUnprotected,
+          "an unrecordable hold leaves the bit unwritten and reports the target unprotected");
+        MixWin32.ReleaseInactive(unrecorded);
+      } finally {
+        System.Environment.SetEnvironmentVariable("MIXDOG_COMPUTER_INACTIVE_LEDGER", ledger);
+        MixWin32.ActivationUnprotected = false;
+      }
+      // Without a configured ledger nothing could clear a killed worker's bit.
+      System.Environment.SetEnvironmentVariable("MIXDOG_COMPUTER_INACTIVE_LEDGER", null);
+      try {
+        Check(!MixWin32.LedgerConfigured, "an unset ledger is not configured");
+        System.IntPtr unledgered = MixWin32.HoldInactive(h);
+        Check(unledgered == System.IntPtr.Zero && !Bit(h) && MixWin32.ActivationUnprotected,
+          "an unconfigured ledger leaves the bit unwritten and reports the target unprotected");
+      } finally {
+        System.Environment.SetEnvironmentVariable("MIXDOG_COMPUTER_INACTIVE_LEDGER", ledger);
+        MixWin32.ActivationUnprotected = false;
+      }
+      Check(MixWin32.LedgerConfigured, "the fixture ledger is configured");
+      // The user's window is left alone only when it is the target's own window;
+      // a same-process sibling of the target is still the user's to get back.
+      System.IntPtr sibling = CreateWindowExW(0, "STATIC", "sibling fixture", 0x80000000, 0, 0, 10, 10,
+        System.IntPtr.Zero, System.IntPtr.Zero, System.IntPtr.Zero, System.IntPtr.Zero);
+      System.IntPtr owned = CreateWindowExW(0, "STATIC", "owned fixture", 0x80000000, 0, 0, 10, 10,
+        h, System.IntPtr.Zero, System.IntPtr.Zero, System.IntPtr.Zero);
+      try {
+        Check(sibling != System.IntPtr.Zero && owned != System.IntPtr.Zero, "fixture siblings");
+        Check(!MixWin32.InactiveRestoreSkipped(h, sibling), "a same-process sibling is restored");
+        Check(MixWin32.InactiveRestoreSkipped(h, h), "the target itself is not restored");
+        Check(MixWin32.InactiveRestoreSkipped(h, owned), "a window the target owns is not restored");
+        Check(MixWin32.InactiveRestoreSkipped(h, System.IntPtr.Zero), "no window, nothing to restore");
+      } finally { DestroyWindow(owned); DestroyWindow(sibling); }
       rows.Add("holds");
     } finally { DestroyWindow(h); }
     // Bounded recovery: two attempts 12 ms apart, re-checked before each one.
@@ -181,15 +220,19 @@ public static class MixInputObservation {
 }
 public static class MixWin32 {
   public static IntPtr Current;
-  public static int FocusCalls, Releases, Resteals;
-  public static bool FailEnable, FailFocus;
-  public static IntPtr Foreground() { return Current; }
+  public static int FocusCalls, Releases, Resteals, StealAfter;
+  public static bool FailEnable, FailFocus, Shield = true;
+  // StealAfter: the target raises itself only on that later foreground read.
+  public static IntPtr Foreground() {
+    if (StealAfter > 0 && --StealAfter == 0) Current = new IntPtr(1);
+    return Current;
+  }
   public static bool IsWithinTopLevel(IntPtr candidate, IntPtr top) { return candidate == top; }
   public static bool IsContainedSameProcess(IntPtr a, IntPtr b) { return false; }
   public static bool IsOwnedBy(IntPtr a, IntPtr b) { return false; }
   public static bool IsWindowHandle(IntPtr value) { return value != IntPtr.Zero; }
   public static bool IsWebContentHost(IntPtr value) { return true; }
-  public static bool SelfActivatesOnSemanticInput(IntPtr value) { return true; }
+  public static bool SelfActivatesOnSemanticInput(IntPtr value) { return Shield; }
   public static bool Focus(IntPtr value) {
     FocusCalls++;
     if (FailFocus) throw new Exception("focus_broken: fixture");
@@ -209,13 +252,18 @@ public static class MixWin32 {
 ${LOAD_FUNCTIONS}
 Import-Functions 'input.ps1' @('Invoke-BackgroundWindow')
 $rows = @()
-foreach ($scenario in @('enable_fails', 'focus_fails', 'resteal')) {
+foreach ($scenario in @('enable_fails', 'focus_fails', 'resteal', 'delayed_unshielded')) {
   [MixWin32]::Releases = 0; [MixWin32]::FocusCalls = 0; [MixWin32]::Current = [IntPtr]2
   [MixWin32]::FailEnable = $scenario -eq 'enable_fails'
   [MixWin32]::FailFocus = $scenario -eq 'focus_fails'
   [MixWin32]::Resteals = if ($scenario -eq 'resteal') { 1 } else { 0 }
+  [MixWin32]::Shield = $scenario -ne 'delayed_unshielded'
+  $operation = if ($scenario -eq 'delayed_unshielded') {
+    # Not a self-activating target, so no shield; it raises itself a few reads later.
+    { [MixWin32]::StealAfter = 3 }
+  } else { { [MixWin32]::Current = [IntPtr]1 } }
   $failure = ''
-  try { $null = Invoke-BackgroundWindow ([IntPtr]1) { [MixWin32]::Current = [IntPtr]1 } }
+  try { $null = Invoke-BackgroundWindow ([IntPtr]1) $operation }
   catch { $failure = $_.Exception.Message }
   $rows += @{ scenario = $scenario; releases = [MixWin32]::Releases; failure = $failure; focus = [MixWin32]::FocusCalls;
     restored = ([MixWin32]::Current -eq [IntPtr]2) }
@@ -235,6 +283,10 @@ foreach ($scenario in @('enable_fails', 'focus_fails', 'resteal')) {
   assert.equal(byName.resteal.failure, '');
   assert.equal(byName.resteal.focus, 2);
   assert.equal(byName.resteal.restored, true);
+  // An unshielded target is watched too, so a late steal is still undone.
+  assert.equal(byName.delayed_unshielded.focus, 1);
+  assert.equal(byName.delayed_unshielded.restored, true);
+  assert.equal(byName.delayed_unshielded.releases, 1);
 });
 
 const DELIVERY_STUBS = `
@@ -300,7 +352,7 @@ test('a background press keeps its target held until the release or the session 
 $ErrorActionPreference = 'Stop'
 ${DELIVERY_STUBS}
 ${LOAD_FUNCTIONS}
-Import-Functions 'input.ps1' @('Do-ClickFamily', 'Record-HeldPointer', 'Release-HeldPointerButtons')
+Import-Functions 'input.ps1' @('Do-ClickFamily', 'Record-HeldPointer', 'Release-HeldPointerButtons', 'Release-SequenceHolds')
 $script:state = @{ Map = @{}; HeldPointerTargets = @{} }
 $request = @{ action = 'mouse_down'; window_id = 'hwnd:0x5'; delivery = 'background' }
 $rows = @()
@@ -319,11 +371,24 @@ $rows += @{ step = 'cleanup'; events = @([MixWin32]::Events); held = $script:sta
 [MixWin32]::Events.Clear(); [MixWin32]::FailPress = $true
 $failed = Do-ClickFamily $request 'press'
 $rows += @{ step = 'failed_press'; events = @([MixWin32]::Events); held = $script:state.HeldPointerInactive.Count; failure = $failed.failure }
+# The host's end-of-sequence request ends sequence holds only, never a held button.
+[MixWin32]::Events.Clear(); [MixWin32]::FailPress = $false
+$null = Do-ClickFamily $request 'press'
+$script:state.SequenceInactive = @{ 'hwnd:0x5' = 'scope'; 'hwnd:0x6' = 'scope' }
+[MixWin32]::Events.Clear()
+$reply = Release-SequenceHolds $script:state
+$rows += @{ step = 'sequence_release'; events = @([MixWin32]::Events); held = $script:state.HeldPointerInactive.Count;
+  buttons = $script:state.HeldPointerTargets.Count; sequences = $script:state.SequenceInactive.Count; released = $reply.released }
 [Console]::WriteLine((ConvertTo-Json @($rows) -Compress -Depth 4))
 `,
     { 'input.ps1': PS_INPUT }
   );
-  const [press, release, cleanup, failed] = rows;
+  const [press, release, cleanup, failed, sequenceRelease] = rows;
+  assert.deepEqual(sequenceRelease.events, ['end', 'end']);
+  assert.equal(sequenceRelease.released, 2);
+  assert.equal(sequenceRelease.sequences, 0);
+  assert.equal(sequenceRelease.held, 1, 'the held button keeps its hold');
+  assert.equal(sequenceRelease.buttons, 1);
   assert.deepEqual(press.events, ['hold', 'pointer:press']);
   assert.equal(press.held, 1, 'the press keeps its hold past its own request');
   assert.deepEqual(release.events, ['pointer:release', 'unhold']);
@@ -363,4 +428,60 @@ $null = Invoke-SequenceStep (Step $false)
   assert.deepEqual(rows.events, ['begin', 'step', 'step', 'step', 'end']);
   assert.equal(rows.open, 1);
   assert.equal(rows.after, 0);
+});
+
+test('a continuing sequence step whose read-back fails ends its hold', windowsOnly, async () => {
+  const rows = await runFixture(
+    `
+$ErrorActionPreference = 'Stop'
+${DELIVERY_STUBS}
+${LOAD_FUNCTIONS}
+Import-Functions 'sequence.ps1' @('Invoke-SequenceStep')
+$script:snapshots = 0
+function Do-WindowSnapshot { $script:snapshots++; if ($script:snapshots -eq 2) { throw 'window_enumeration_failed: fixture' }; return @{ windows = @() } }
+function Handle($step) { [MixWin32]::Events.Add('step'); return @{ delivery_accepted = $true } }
+$script:state = @{ Map = @{} }
+$step = [pscustomobject]@{ action = 'click'; delivery = 'background'; window_id = 'hwnd:0x5'; session_id = 's'; input_continues = $true }
+$failure = ''
+try { $null = Invoke-SequenceStep @{ action = 'sequence_step'; delivery = 'background'; session_id = 's'; step = $step } }
+catch { $failure = $_.Exception.Message }
+[Console]::WriteLine((ConvertTo-Json @{ events = @([MixWin32]::Events); failure = $failure; after = $script:state.SequenceInactive.Count } -Compress))
+`,
+    { 'sequence.ps1': PS_SEQUENCE }
+  );
+  assert.deepEqual(rows.events, ['begin', 'step', 'end']);
+  assert.match(rows.failure, /window_enumeration_failed/);
+  assert.equal(rows.after, 0);
+});
+
+test('an unprotected background delivery is annotated, including inside a sequence step', windowsOnly, async () => {
+  const rows = await runFixture(
+    `
+$ErrorActionPreference = 'Stop'
+Add-Type 'public static class MixWin32 { public static bool ActivationUnprotected; }'
+${LOAD_FUNCTIONS}
+Import-Functions 'runtime.ps1' @('Add-ActivationProtection')
+function Accepted { return @{ delivery_accepted = $true; delivery = 'background'; text = 'sent' } }
+$rows = @()
+foreach ($unprotected in @($true, $false)) {
+  [MixWin32]::ActivationUnprotected = $unprotected
+  $plain = Accepted
+  Add-ActivationProtection ([pscustomobject]@{ action = 'click' }) $plain
+  $step = @{ step_result = (Accepted) }
+  Add-ActivationProtection ([pscustomobject]@{ action = 'sequence_step' }) $step
+  $refused = @{ delivery_accepted = $false; delivery = 'background'; text = 'refused' }
+  Add-ActivationProtection ([pscustomobject]@{ action = 'click' }) $refused
+  $rows += @{ plain = $plain.activation_protection; step = $step.step_result.activation_protection;
+    envelope = $step.activation_protection; refused = $refused.activation_protection }
+}
+[Console]::WriteLine((ConvertTo-Json @($rows) -Compress))
+`,
+    { 'runtime.ps1': PS_RUNTIME }
+  );
+  assert.equal(rows[0].plain, 'unavailable');
+  assert.equal(rows[0].step, 'unavailable');
+  assert.equal(rows[0].envelope, null);
+  assert.equal(rows[0].refused, null, 'an unaccepted delivery claims nothing');
+  assert.equal(rows[1].plain, null);
+  assert.equal(rows[1].step, null);
 });

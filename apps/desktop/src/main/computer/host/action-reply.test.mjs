@@ -46,6 +46,26 @@ test('a native browser refusal preserves the selected browser session', async ()
   assert.equal(payload.escalation, 'foreground');
 });
 
+test('a background delivery whose target refused the no-activate hold says so in the reply', async () => {
+  const reply = await buildActionReply(
+    async () => {
+      throw new Error('unexpected capture');
+    },
+    context({
+      command: { action: 'key', delivery: 'background' },
+      result: { action: 'key', delivery_accepted: true, delivery: 'background', activation_protection: 'unavailable' },
+    })
+  );
+  assert.equal(JSON.parse(reply.text).activation_protection, 'unavailable');
+  const protectedReply = await buildActionReply(
+    async () => {
+      throw new Error('unexpected capture');
+    },
+    context({ command: { action: 'key', delivery: 'background' } })
+  );
+  assert.equal(Object.hasOwn(JSON.parse(protectedReply.text), 'activation_protection'), false);
+});
+
 test('input recovery failure takes precedence over a successful native action', async () => {
   const result = await buildActionReply(
     async () => {

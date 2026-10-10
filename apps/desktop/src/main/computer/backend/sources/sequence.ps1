@@ -52,6 +52,7 @@ function Invoke-SequenceStep($req) {
     }
     $clock = [System.Diagnostics.Stopwatch]::StartNew()
     $holdEnded = $false
+    $observed = $false
     $result = $null
     try {
         $before = Do-WindowSnapshot
@@ -75,13 +76,15 @@ function Invoke-SequenceStep($req) {
             $holdEnded = $true
             & $endHold
         }
+        $settledAt = $clock.Elapsed.TotalMilliseconds
+        $after = Do-WindowSnapshot
+        $finishedAt = $clock.Elapsed.TotalMilliseconds
+        $observed = $true
     }
     finally {
-        if (-not $holdEnded -and (-not $continues -or $null -eq $result)) { & $endHold }
+        # A step the host cannot read back stops its sequence, so its hold ends too.
+        if (-not $holdEnded -and (-not $continues -or -not $observed)) { & $endHold }
     }
-    $settledAt = $clock.Elapsed.TotalMilliseconds
-    $after = Do-WindowSnapshot
-    $finishedAt = $clock.Elapsed.TotalMilliseconds
     return @{
         step_result     = $result
         windows_before  = @($before.windows)

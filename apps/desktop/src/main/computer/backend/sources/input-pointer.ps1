@@ -197,14 +197,28 @@ function Release-HeldPointerButtons($state) {
         }
         $state.HeldPointerInactive.Clear()
     }
-    if ($null -ne $state.SequenceInactive) {
-        foreach ($id in @($state.SequenceInactive.Keys)) {
-            try { [MixWin32]::EndInactive($state.SequenceInactive[$id]) }
-            catch { $failed = $true }
-        }
-        $state.SequenceInactive.Clear()
+    if ($null -ne $state.SequenceInactive -and $state.SequenceInactive.Count -gt 0) {
+        try { $null = Release-SequenceHolds $state } catch { $failed = $true }
     }
     if ($failed) { throw 'input_cleanup_unconfirmed: a held pointer button could not be released' }
+}
+
+# Ends the no-activate holds a background sequence keeps across its steps; the
+# host sends this whenever a sequence finishes or stops early. Held keys and
+# buttons are not touched. Every hold is ended even when another one fails.
+function Release-SequenceHolds($state) {
+    $released = 0
+    $failure = $null
+    if ($null -ne $state.SequenceInactive) {
+        foreach ($id in @($state.SequenceInactive.Keys)) {
+            $scope = $state.SequenceInactive[$id]
+            $state.SequenceInactive.Remove($id)
+            try { [MixWin32]::EndInactive($scope); $released++ }
+            catch { if ($null -eq $failure) { $failure = $_ } }
+        }
+    }
+    if ($null -ne $failure) { throw $failure }
+    return @{ text = 'sequence holds released'; released = $released }
 }
 
 function Release-HeldKeys($state) {

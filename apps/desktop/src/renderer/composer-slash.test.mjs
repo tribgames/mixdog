@@ -245,7 +245,7 @@ test('the composer offers only frequent commands and preserves direct command ex
     assert.deepEqual(calls, []);
 
     for (const [value, expectedCall] of [
-      ['/resume', ['sessions']],
+      ['/theme', ['settings', 'theme']],
       ['/resume saved-chat', ['resume', 'saved-chat']],
       ['/style', ['settings', 'output-style']],
     ]) {

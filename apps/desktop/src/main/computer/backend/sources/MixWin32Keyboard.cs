@@ -89,7 +89,20 @@ public partial class MixWin32
             int style = GetWindowLongW(root, GWL_EXSTYLE);
             if ((style & WS_EX_NOACTIVATE) != 0) return IntPtr.Zero;
             // Recorded before the write: a kill between the two leaves a harmless entry.
-            LedgerAdd(root);
+            // A bit that cannot be recorded is never written, since a killed worker
+            // could not have it cleared; delivery goes on unprotected instead. An
+            // unconfigured ledger records nothing, so it counts as a failed one.
+            bool recorded = LedgerConfigured;
+            if (recorded)
+            {
+                try { LedgerAdd(root); }
+                catch { recorded = false; }
+            }
+            if (!recorded)
+            {
+                ActivationUnprotected = true;
+                return IntPtr.Zero;
+            }
             SetWindowLongW(root, GWL_EXSTYLE, style | WS_EX_NOACTIVATE);
             if (!InactiveStyleSet(root))
             {
@@ -181,17 +194,30 @@ public partial class MixWin32
             ReleaseInactive(scope.Held);
         }
     }
-    static bool BelongsToInactiveTarget(IntPtr window, IntPtr root)
+    /// The target's own windows: its root, a window inside it, or one it owns.
+    static bool IsInactiveTargetWindow(IntPtr window, IntPtr root)
     {
         if (!IsWindowHandle(window) || !IsWindowHandle(root)) return false;
-        return window == root || IsWithinTopLevel(window, root) || IsOwnedBy(window, root) || SharesProcess(window, root);
+        return window == root || IsWithinTopLevel(window, root) || IsOwnedBy(window, root);
+    }
+    /// A foreground the target took: any of its windows, or any window of its
+    /// process (a popup it raised for the input).
+    static bool BelongsToInactiveTarget(IntPtr window, IntPtr root)
+    {
+        return IsInactiveTargetWindow(window, root) || (IsWindowHandle(window) && IsWindowHandle(root) && SharesProcess(window, root));
+    }
+    /// Nothing to give back when the user was already in the target itself. A
+    /// sibling of the same process is the user's window, so a steal from it is restored.
+    internal static bool InactiveRestoreSkipped(IntPtr root, IntPtr before)
+    {
+        return root == IntPtr.Zero || !IsWindowHandle(before) || IsInactiveTargetWindow(before, root);
     }
     /// A target that refused the style, or raised itself anyway, gives the user
     /// their window back: at most two attempts, each only while the target still
     /// holds the foreground and no user input arrived since delivery began.
     static void RecoverInactiveForeground(IntPtr root, IntPtr before, MixInputSnapshot inputBefore)
     {
-        if (root == IntPtr.Zero || !IsWindowHandle(before) || BelongsToInactiveTarget(before, root)) return;
+        if (InactiveRestoreSkipped(root, before)) return;
         if (inputBefore == null || !inputBefore.Ready) return;
         RunInactiveRecovery(
           delegate { return BelongsToInactiveTarget(GetForegroundWindow(), root); },
@@ -201,7 +227,9 @@ public partial class MixWin32
               try
               {
                   MixInputObservation.AssertContinue();
-                  Focus(before);
+                  // One activation try per attempt: Focus would retry, sleep and
+                  // relax the foreground lock with no input check in between.
+                  TryFocusAttached(before);
               }
               finally { MixInputObservation.End(); }
           },

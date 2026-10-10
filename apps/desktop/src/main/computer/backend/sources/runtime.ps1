@@ -42,6 +42,20 @@ function Invalidate-RefsForRequest($req) {
     }
 }
 
+# A target that refused the no-activate style still got the input, but the
+# result must not present that delivery as protected from raising it. A
+# sequence step carries its input's result inside the step envelope.
+function Add-ActivationProtection($req, $res) {
+    if (-not [MixWin32]::ActivationUnprotected) { return }
+    $annotated = $res
+    if ($req.action -eq 'sequence_step' -and $res -is [System.Collections.IDictionary]) { $annotated = $res.step_result }
+    if ($annotated -is [System.Collections.IDictionary] -and
+        $annotated.delivery_accepted -eq $true -and $annotated.delivery -eq 'background') {
+        $annotated.activation_protection = 'unavailable'
+        $annotated.text = "$($annotated.text); the target refused the no-activate hold, so background delivery could not keep it from coming forward"
+    }
+}
+
 function Handle($req) {
     $script:CurrentSession = Get-SessionState $req.session_id
     $script:CurrentRequest = $req
@@ -145,6 +159,7 @@ function Handle($req) {
             'list_installed_apps' { return Do-ListInstalledApps $req }
             'release_session' { return Release-SessionState }
             'release_held_input' { return Release-HeldInput (Get-CurrentSession) }
+            'release_sequence_holds' { return Release-SequenceHolds (Get-CurrentSession) }
             'release_cursor_theme' { return Do-ReleaseCursorTheme }
             default { throw "unknown action: $($req.action)" }
         }
@@ -184,13 +199,7 @@ while ($true) {
             [MixWin32]::PointerProgress = $null
             Invalidate-RefsForRequest $req
         }
-        # A target that refused the no-activate style still got the input, but the
-        # result must not present that delivery as protected from raising it.
-        if ([MixWin32]::ActivationUnprotected -and $res -is [System.Collections.IDictionary] -and
-            $res.delivery_accepted -eq $true -and $res.delivery -eq 'background') {
-            $res.activation_protection = 'unavailable'
-            $res.text = "$($res.text); the target refused the no-activate hold, so background delivery could not keep it from coming forward"
-        }
+        Add-ActivationProtection $req $res
         $envelope = @{ id = $id; ok = $true; result = $res }
         if ($req.pointer_feedback -eq $true) {
             $envelope.pointer_feedback = @{

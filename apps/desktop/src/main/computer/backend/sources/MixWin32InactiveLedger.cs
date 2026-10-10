@@ -8,6 +8,13 @@ public partial class MixWin32
     [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")] static extern uint LedgerGetWindowProcessId(IntPtr h, out uint processId);
     [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)] static extern int LedgerGetClassName(IntPtr h, StringBuilder s, int n);
 
+    /// Without a ledger a killed worker's bits could never be cleared, so no
+    /// bit is written then (HoldInactive reports the target unprotected).
+    public static bool LedgerConfigured
+    {
+        get { return !String.IsNullOrEmpty(Environment.GetEnvironmentVariable("MIXDOG_COMPUTER_INACTIVE_LEDGER")); }
+    }
+
     static void LedgerAppend(char kind, IntPtr root)
     {
         string path = Environment.GetEnvironmentVariable("MIXDOG_COMPUTER_INACTIVE_LEDGER");

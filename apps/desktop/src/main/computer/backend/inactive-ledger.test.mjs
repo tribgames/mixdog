@@ -8,12 +8,48 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 import { INACTIVE_LEDGER_RECOVERY_PROGRAM } from './program.ts';
+import { createInactiveLedgerRegistry, settleElevatedLedgerFailure } from './worker-pool.ts';
 
 const exec = promisify(execFile);
 const STYLE_MEMBERS = `
 [DllImport("user32.dll")] public static extern int GetWindowLongW(IntPtr h, int i);
 [DllImport("user32.dll")] public static extern int SetWindowLongW(IntPtr h, int i, int v);`;
 const NOACTIVATE = 0x08000000;
+
+test('elevated ledger stays pending when worker termination is unconfirmed', () => {
+  const recovered = [];
+  const pending = [];
+  const recover = (path) => recovered.push(path);
+  const keep = (path) => pending.push(path);
+  settleElevatedLedgerFailure(new Error('privileged_worker_cleanup_unconfirmed: not stopped'), 'a', recover, keep);
+  assert.deepEqual({ recovered, pending }, { recovered: [], pending: ['a'] });
+  settleElevatedLedgerFailure(new Error('request failed'), 'b', recover, keep);
+  assert.deepEqual({ recovered, pending }, { recovered: ['b'], pending: ['a'] });
+});
+
+test('held elevated ledgers are isolated per session until their owner is confirmed', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-ledger-registry-'));
+  try {
+    const registry = createInactiveLedgerRegistry();
+    const [live, gone] = [join(directory, 'live.ledger'), join(directory, 'gone.ledger')];
+    await writeFile(live, '');
+    await writeFile(gone, '');
+    registry.hold(live, 'session-a');
+    registry.exited(gone);
+    // Another session's cleanup, or a global one, sees only the exited ledger.
+    assert.deepEqual(registry.recoverable(), [gone]);
+    assert.deepEqual(registry.recoverable('session-b'), [gone]);
+    // unconfirmed -> confirmed: session-a's own confirmed abort releases it.
+    assert.deepEqual(registry.recoverable('session-a').sort(), [gone, live].sort());
+    // A later hold never downgrades an exited ledger; recovery forgets it.
+    registry.hold(gone, 'session-b');
+    assert.deepEqual(registry.recoverable('session-b'), [gone]);
+    registry.forget(live);
+    assert.deepEqual(registry.recoverable('session-a'), [gone]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 function firstLine(child, pattern) {
   return new Promise((resolve, reject) => {

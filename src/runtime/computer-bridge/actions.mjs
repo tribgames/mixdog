@@ -34,6 +34,8 @@ action('release_cursor_theme', { retainNativeRefs: true });
 // Handing held input, focus and pointer back changes no target's content, so a
 // turn's end keeps the refs of its last observation for a follow-up turn.
 action('release_held_input', { retainNativeRefs: true });
+// Ending a sequence's no-activate holds sends no input to any target.
+action('release_sequence_holds', { retainNativeRefs: true });
 action('restore_input_state', { retainNativeRefs: true });
 action('list_apps', { ...hostRead, ...replay, policy: 'list' });
 action('list_installed_apps', { ...nativeRead, ...replay, policy: 'list' });
