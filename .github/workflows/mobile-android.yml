@@ -76,6 +76,10 @@ jobs:
           java-version: 21
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The default list includes the retired `tools` package, which the
+          # current sdkmanager no longer has and fails on.
+          packages: platform-tools
 
       - name: Install and check
         run: |

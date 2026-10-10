@@ -43,10 +43,10 @@ public partial class MixWin32
     // Roots under an open scope: the scope owns the settle and foreground
     // recovery, so deliveries inside it only hold.
     static readonly Dictionary<IntPtr, int> inactiveScopes = new Dictionary<IntPtr, int>();
-    /// True when the latest hold could not make its target non-activatable (the
-    /// window refused the style, e.g. it runs at higher integrity). Delivery still
-    /// happens; the result must not claim the target was protected. Results
-    /// consume and clear it.
+    /// True when a hold in the current request could not make its target
+    /// non-activatable (the window refused the style, e.g. it runs at higher
+    /// integrity). Delivery still happens; the result must not claim the target
+    /// was protected. The request loop clears it before each request and reads it after.
     public static bool ActivationUnprotected;
     public sealed class InactiveScope
     {
@@ -77,7 +77,6 @@ public partial class MixWin32
     {
         lock (inactiveSync)
         {
-            ActivationUnprotected = false;
             IntPtr root = InactiveRootOf(h);
             if (root == IntPtr.Zero) return IntPtr.Zero;
             int holders;

@@ -179,9 +179,17 @@ while ($true) {
                 [Console]::Out.WriteLine('@@MIXDOG_POINTER@@' + $progress)
             }
         }
+        [MixWin32]::ActivationUnprotected = $false
         try { $res = Handle $req } finally {
             [MixWin32]::PointerProgress = $null
             Invalidate-RefsForRequest $req
+        }
+        # A target that refused the no-activate style still got the input, but the
+        # result must not present that delivery as protected from raising it.
+        if ([MixWin32]::ActivationUnprotected -and $res -is [System.Collections.IDictionary] -and
+            $res.delivery_accepted -eq $true -and $res.delivery -eq 'background') {
+            $res.activation_protection = 'unavailable'
+            $res.text = "$($res.text); the target refused the no-activate hold, so background delivery could not keep it from coming forward"
         }
         $envelope = @{ id = $id; ok = $true; result = $res }
         if ($req.pointer_feedback -eq $true) {

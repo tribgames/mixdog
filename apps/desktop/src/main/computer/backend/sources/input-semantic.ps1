@@ -1,13 +1,6 @@
 function New-ActionResult($action, $path, $effect, $verified, $message, $code, $delivery, $windowId) {
     $accepted = $null -eq $code -and $path -ne 'none' -and $effect -ne 'suspected_noop'
-    # A target that refused the no-activate style still got the input, but the
-    # result must not present that delivery as protected from raising it.
-    $unprotected = $accepted -and $delivery -eq 'background' -and [MixWin32]::ActivationUnprotected -eq $true
-    if ($unprotected) {
-        [MixWin32]::ActivationUnprotected = $false
-        $message = "$message; the target refused the no-activate hold, so background delivery could not keep it from coming forward"
-    }
-    $result = @{
+    return @{
         text              = $message
         action            = $action
         path              = $path
@@ -19,8 +12,6 @@ function New-ActionResult($action, $path, $effect, $verified, $message, $code, $
         delivery          = $delivery
         window_id         = $windowId
     }
-    if ($unprotected) { $result.activation_protection = 'unavailable' }
-    return $result
 }
 
 function Get-VerifiedEffect($verified) {
