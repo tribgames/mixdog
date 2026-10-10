@@ -804,13 +804,22 @@
   position: relative;
   min-width: 0;
   overflow: hidden;
-  border-radius: 0;
-  /* Container grammar: cards carry no fill, one hairline — and the list card
-     around a call IS that card. A payload inside it is plain content on the
-     card, with no frame of its own: a hairline inside a hairline read as boxes
-     patched onto boxes (user: 테두리 잘리고 덧대고). */
+  border-radius: var(--mx-radius-md);
   background: transparent;
   box-shadow: none;
+}
+/* Container grammar: cards carry no fill, one hairline — and the list card
+   around a call IS that card. A payload inside it is a flat plate (the header
+   band's tint) with no frame of its own: a hairline inside a hairline read as
+   boxes patched onto boxes (user: 테두리 잘리고 덧대고), and bare content on
+   the card read as empty (user: 텅텅 비어서). Out-ranks the app-wide card rule
+   that clears every .tool-panel fill. */
+:root .tool-activity-item-body .tool-panel,
+:root .tool-activity-item-body .code-diff {
+  background: var(--mx-surface-plate);
+}
+:root .tool-activity-item-body .tool-panel[data-bare="true"] {
+  background: transparent;
 }
 /* Caption row: the full path of the file (the row above shows only its name)
    or the section label, with the copy control parked at its right end. A
@@ -926,16 +935,16 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-/* The card's own tone made opaque (the solid canvas copy under Mica), so
-   scrolled rows never show through the sticky line — and no band on it. */
+/* The plate's own tone made opaque (its tint over the solid canvas copy under
+   Mica), so scrolled rows never show through the sticky line. */
 :root .tool-section-header {
-  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
+  background:
+    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-sheet-ink, var(--mx-workspace-sheet));
 }
-/* A diff inside a call follows the same grammar: content on the list card,
-   its file line a quiet caption, no frame. */
+/* A diff inside a call follows the same grammar: a plate on the list card,
+   its file line a quiet caption on the plate, no frame. */
 .tool-activity-item-body .code-diff {
-  border-radius: 0;
-  background: transparent;
+  border-radius: var(--mx-radius-md);
   box-shadow: none;
 }
 .tool-activity-item-body .diff-file > header,

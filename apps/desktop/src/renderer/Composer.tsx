@@ -472,6 +472,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   }, [transitioning]);
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  const [addMenuRequest, setAddMenuRequest] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
   useEffect(() => setGoalDialogOpen(false), [identityScope, paneActive]);
   const [editingPasteId, setEditingPasteId] = useState<number | null>(null);
@@ -502,6 +503,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     clearNotice,
     showNotice: showComposerNotice,
     openGoalDialog: () => setGoalDialogOpen(true),
+    openSkillMenu: () => setAddMenuRequest((request) => request + 1),
     onNewTask: props.onNewTask,
     onClearToNewTask: props.onClearToNewTask,
     onResumeSession: props.onResumeSession,
@@ -762,6 +764,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           recoveryScope={recoveryScope}
           goalDialogOpen={goalDialogOpen}
           setGoalDialogOpen={setGoalDialogOpen}
+          addMenuRequest={addMenuRequest}
           goalDisabled={goalDisabled}
           executeSlash={executeSlash}
           transitioning={transitioning}

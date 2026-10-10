@@ -75,20 +75,13 @@ while (($command=[Console]::ReadLine()) -ne $null) {
     });
     lines = createInterface({ input: child.stdout });
     const iterator = lines[Symbol.asyncIterator]();
+    // Each snapshot line is the observer's reply; waiting for it (or for the
+    // stream to end when the observer dies) is the synchronization. A wall-clock
+    // cap here only measured PowerShell startup and Add-Type compile time.
     const nextSnapshot = async () => {
-      let timer;
-      try {
-        const line = await Promise.race([
-          iterator.next(),
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error(`observer timed out: ${stderr}`)), 5_000);
-          }),
-        ]);
-        assert.equal(line.done, false, stderr);
-        return JSON.parse(line.value);
-      } finally {
-        clearTimeout(timer);
-      }
+      const line = await iterator.next();
+      assert.equal(line.done, false, stderr);
+      return JSON.parse(line.value);
     };
     const original = await nextSnapshot();
     assert.equal(original.Ready, true);
@@ -109,7 +102,7 @@ try {
 } catch { [Console]::WriteLine($_.Exception.ToString()) }
 `,
         ],
-        { windowsHide: true, timeout: 5_000, env: { ...env, ORIGINAL_OBSERVER: original.Generation } }
+        { windowsHide: true, env: { ...env, ORIGINAL_OBSERVER: original.Generation } }
       );
       return stdout.trim();
     };

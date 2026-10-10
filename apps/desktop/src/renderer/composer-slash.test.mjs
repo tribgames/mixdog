@@ -254,6 +254,22 @@ test('the composer offers only frequent commands and preserves direct command ex
       await key('Enter');
       assert.deepEqual(calls.pop(), expectedCall);
     }
+    // /skills opens the add menu, where a skill is picked for the next message.
+    assert.equal(document.querySelector('.composer-add-menu'), null);
+    await type('/skills');
+    await key('Enter');
+    assert.ok(document.querySelector('.composer-add-menu'));
+    assert.equal(input.value, '');
+    assert.equal(
+      calls.some(([kind]) => kind === 'settings'),
+      false
+    );
+    calls.length = 0;
+    await act(async () => {
+      document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    assert.equal(document.querySelector('.composer-add-menu'), null);
+
     await type('/not-a-command');
     await key('Enter');
     assert.equal(input.value, '/not-a-command');
