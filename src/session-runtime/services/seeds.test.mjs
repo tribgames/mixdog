@@ -85,10 +85,10 @@ test('no-op editor copies of shipped workflows/agents/styles are retired; edited
       join(dataDir, 'workflows', 'solo', 'WORKFLOW.md'),
       '---\nid: solo\nname: Solo\n---\n\nWork alone, quietly.\n'
     );
-    // No-op agent save: the editor drops `permission` and the manifest id/entry.
+    // No-op agent save: the manifest id/entry are dropped; `permission` stays.
     writeAt(
       join(dataDir, 'agents', 'worker', 'AGENT.md'),
-      '---\nname: Worker\ndescription: Implementation agent.\n---\n\nScoped implementation agent.\n'
+      '---\nname: Worker\ndescription: Implementation agent.\npermission: read-write\n---\n\nScoped implementation agent.\n'
     );
     writeAt(
       join(dataDir, 'agents', 'worker', 'agent.json'),

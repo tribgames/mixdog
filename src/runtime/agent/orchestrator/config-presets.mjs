@@ -1,4 +1,6 @@
 // Preset normalization and identity are independent of config storage.
+import { isDeepStrictEqual } from 'node:util';
+
 const ANTHROPIC_FAMILY_MODEL = Object.freeze({
   opus: 'claude-opus-4-8',
   sonnet: 'claude-sonnet-4-6',
@@ -63,6 +65,32 @@ export const DEFAULT_PRESETS = Object.freeze([
     tools: 'full',
   }),
 ]);
+
+const DEFAULT_PRESET_BY_ID = new Map(DEFAULT_PRESETS.map((preset) => [preset.id, preset]));
+
+/** Effective presets: the stored entries in their stored order, then the
+ *  shipped presets missing from storage in shipped order. */
+export function withDefaultPresets(stored) {
+  const list = Array.isArray(stored) ? stored : [];
+  const present = new Set(list.map(presetKey));
+  return [...list, ...DEFAULT_PRESETS.filter((preset) => !present.has(preset.id)).map((preset) => ({ ...preset }))];
+}
+
+/** Stored form of `presets`: only entries that differ from the shipped default of the same id. */
+export function presetsDelta(presets) {
+  return (Array.isArray(presets) ? presets : []).filter((preset) => {
+    const shipped = DEFAULT_PRESET_BY_ID.get(presetKey(preset));
+    return !shipped || !isDeepStrictEqual(normalizePreset(preset), { ...shipped });
+  });
+}
+
+/** Stored form of `maintenance`: only slots that differ from the shipped route. */
+export function maintenanceDelta(maintenance) {
+  const source = maintenance && typeof maintenance === 'object' ? maintenance : {};
+  return Object.fromEntries(
+    Object.entries(source).filter(([slot, route]) => !isDeepStrictEqual(route, DEFAULT_MAINTENANCE[slot]))
+  );
+}
 
 const AGENT_PROVIDER_ALIASES = Object.freeze({
   'openai-api': 'openai',

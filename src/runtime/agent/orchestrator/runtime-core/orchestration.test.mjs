@@ -13,6 +13,7 @@ import { orchestrationInstructions } from './orchestration.mjs';
 import { ORCHESTRATION_MODES, sessionOrchestrationMode } from '../../../shared/orchestration.mjs';
 import { readMarkdownDocument, normalizeAgentPermissionOrNone } from '../../../shared/markdown-frontmatter.mjs';
 import { _sessionForDisk } from '../session/store/serialize.mjs';
+import { applyDeferredToolSurface } from './tool-catalog.mjs';
 
 function fixture(t) {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-orchestration-'));
@@ -35,7 +36,7 @@ test('all modes share Default while only active modes inject instructions and ag
   const body = helpers.loadWorkflowPack(dataDir, 'default').body;
   assert.doesNotMatch(body, /Delegate every substantial|Dispatch all ready/);
   assert.match(body, /user approves the latest plan/);
-  // Reviewer fallback rides with the orchestration instructions, so mode none never sees it.
+  // Reviewer fallback rides with the delegating orchestration instructions, never the pack body.
   assert.doesNotMatch(body, /Lead alone reviews/);
   const expected = {
     focused: /Lead executes the main scope directly/,
@@ -46,11 +47,13 @@ test('all modes share Default while only active modes inject instructions and ag
     const result = helpers.activeWorkflowContext({ workflow: { active: 'default' }, orchestrationMode: mode }, dataDir);
     assert.equal(result.summary.name, 'Default');
     assert.equal(result.orchestrationMode, mode);
-    assert.equal(result.summary.delegatesAgents, mode !== 'none');
-    assert.equal(result.context.includes('# Available Agents'), mode !== 'none');
+    // Solo keeps the agent tool deferred and its catalog listed for explicit user requests.
+    assert.equal(result.summary.delegatesAgents, true);
+    assert.equal(result.context.includes('# Available Agents'), true);
     if (mode === 'none') {
-      assert.equal(orchestrationInstructions(mode), '');
-      assert.doesNotMatch(result.context, /# Orchestration Mode:|Lead alone reviews/);
+      assert.match(orchestrationInstructions(mode), /# Orchestration Mode: Solo/);
+      assert.match(result.context, /Only when the user explicitly asks for delegation/);
+      assert.doesNotMatch(result.context, /Lead alone reviews|Dispatch all ready/);
     } else {
       assert.match(result.context, expected[mode]);
       // The size gate rides with every active mode so swarm cannot split trivial edits across agents.
@@ -59,6 +62,18 @@ test('all modes share Default while only active modes inject instructions and ag
       assert.match(result.context, /Lead alone reviews/);
     }
   }
+});
+
+test('Solo keeps the agent tool deferred while delegating modes expose it eagerly', () => {
+  const surfaceFor = (orchestrationMode) => {
+    const session = { tools: [{ name: 'read' }, { name: 'agent' }], orchestrationMode };
+    applyDeferredToolSurface(session, 'lead', [], { provider: 'openai-oauth' });
+    return session;
+  };
+  const solo = surfaceFor('none');
+  assert.equal(solo.tools.some((tool) => tool.name === 'agent'), false);
+  assert.equal(solo.deferredToolCatalog.some((tool) => tool.name === 'agent'), true);
+  assert.equal(surfaceFor('balanced').tools.some((tool) => tool.name === 'agent'), true);
 });
 
 test('a workflow delegates while agents are available and stops when none are', (t) => {
@@ -161,11 +176,17 @@ test('mode changes refresh an empty session, remove stale tools, and survive ses
     config = { ...config, orchestrationMode: mode };
     await refresh.refreshEmptySessionToolPolicy();
     assert.equal(session.orchestrationMode, mode);
+    // Solo still offers the agent tool (deferred) and its Solo orchestration block.
     assert.equal(
       surface.modelStandaloneTools().some((tool) => tool.name === 'agent'),
-      mode !== 'none'
+      true
     );
-    assert.equal(session.messages[1].content.includes('# Orchestration Mode:'), mode !== 'none');
+    const bp3 = session.messages.find((message) => message.cacheTier === 'tier3');
+    assert.equal(bp3.content.includes('# Orchestration Mode:'), true);
+    if (mode === 'none') {
+      assert.equal(session.tools.some((tool) => tool.name === 'agent'), false);
+      assert.ok(session.messages.some((message) => /<available-deferred-tools>[\s\S]*- agent/.test(message.content)));
+    }
     assert.equal(_sessionForDisk(session).orchestrationMode, mode);
   }
   session.messages.push({ role: 'user', content: 'keep this conversation frozen' });

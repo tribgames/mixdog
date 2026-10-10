@@ -14,9 +14,15 @@ output dependency. Prefer parallel scopes over sequential slices in one agent.
 If the plan has only one scope, Lead executes it directly.`,
 };
 
+const SOLO = `# Orchestration Mode: Solo
+
+Lead executes all work directly and never delegates on its own judgment.
+Only when the user explicitly asks for delegation, load the deferred \`agent\`
+tool and brief each agent as the Lead rules describe.`;
+
 export function orchestrationInstructions(value) {
   const mode = normalizeOrchestrationMode(value);
-  if (mode === 'none') return '';
+  if (mode === 'none') return SOLO;
   return `# Orchestration Mode: ${mode[0].toUpperCase()}${mode.slice(1)}
 
 ${BATCHING[mode]}

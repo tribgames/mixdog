@@ -10,10 +10,29 @@
 import { withGrandfatheredBuiltins } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { webSearchRouteOrDefault } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { applyConfigPatch } from '../runtime/shared/config-patch.mjs';
+import { withEffectiveDisabledAgents, withStoredDisabledAgents } from '../runtime/shared/agent-route-config.mjs';
+import {
+  DEFAULT_MAINTENANCE,
+  maintenanceDelta,
+  presetsDelta,
+  withDefaultPresets,
+} from '../runtime/agent/orchestrator/config-presets.mjs';
 import { createConfigWriters } from './config-lifecycle/config-writers.mjs';
 import { createOutputStyleStatusCache } from './config-lifecycle/output-style-cache.mjs';
 
 export { flushPendingSessionConfigWrites } from './config-lifecycle/config-writers.mjs';
+
+// Stored shape of an effective config: disabled agents, presets and maintenance as deltas.
+function storedForm(config) {
+  const stored = withStoredDisabledAgents(config);
+  const presets = presetsDelta(config.presets);
+  const maintenance = maintenanceDelta(config.maintenance);
+  if (presets.length) stored.presets = presets;
+  else delete stored.presets;
+  if (Object.keys(maintenance).length) stored.maintenance = maintenance;
+  else delete stored.maintenance;
+  return stored;
+}
 
 /**
  * Boot-time config/route state for one runtime. Caller overrides are applied
@@ -107,12 +126,13 @@ export function createConfigLifecycle({
     return adopted;
   }
 
-  // A fresh profile's install markers (an empty `builtins`) and off-by-default
-  // agents equal the defaults, so no diff ever carries them — yet on disk
-  // their absence reads as a grandfathered profile with every agent on. The
-  // first write seeds them where the stored section lacks them.
+  // A fresh profile's install markers (an empty `builtins`) equal the
+  // defaults, so no diff ever carries them — yet on disk their absence reads
+  // as a grandfathered profile. The first write seeds them where the stored
+  // section lacks them. Off-by-default agents are NOT seeded: they live in
+  // code and the file keeps only the user's delta.
   function seedChanges(config, changes) {
-    return ['builtins', 'disabledAgents']
+    return ['builtins']
       .filter((key) => config[key] !== undefined && !changes.some((change) => change.path[0] === key))
       .map((key) => ({ path: [key], value: structuredClone(config[key]), ifAbsent: true }));
   }
@@ -135,7 +155,16 @@ export function createConfigLifecycle({
     if (writers.hasPendingConfigChanges()) {
       // Preserve only our pending edits. Peer changes and fresh secret overlays
       // from the disk load must not be replaced by the rest of our old snapshot.
-      next = applyConfigPatch(loaded, writers.pendingConfigChanges());
+      // Pending changes are in stored shape, where disabledAgents is the
+      // user's delta; patch the stored form, then restore the effective list.
+      // Presets and maintenance are stored as deltas too, so patch their
+      // stored form and rebuild the effective lists on top of the shipped ones.
+      const patched = applyConfigPatch(storedForm(loaded), writers.pendingConfigChanges());
+      next = withEffectiveDisabledAgents({
+        ...patched,
+        presets: withDefaultPresets(patched.presets),
+        maintenance: { ...DEFAULT_MAINTENANCE, ...patched.maintenance },
+      });
     }
     const pendingSkills = writers.pendingSkills();
     if (pendingSkills !== null) {

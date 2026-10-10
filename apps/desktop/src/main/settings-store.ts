@@ -1,8 +1,10 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { DesktopSettingKey, DesktopSettings } from '../shared/contract';
 import {
+  DEFAULT_ACTIVITY_RAIL_PINS,
   normalizeActivityRailPins,
   readActivityRailPinsState,
   type ActivityRailPinsState,
@@ -71,6 +73,68 @@ const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
   'browserInstalled',
 ]);
 
+/** Code defaults of the user-facing `desktop.<key>` toggles; storage holds
+ *  only a value that differs. Install markers are system state: no default. */
+export const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, boolean>>> = {
+  keepAwake: true,
+  runInBackground: true,
+  turnNotifications: true,
+  usagePinned: true,
+  computerControl: false,
+  computerObserveOnly: false,
+  browserControl: false,
+};
+
+/** Marker in the `desktop` section: the one-time defaults separation ran. */
+export const DEFAULTS_SEPARATION_MARKER = 'defaultsSeparationVersion';
+const DEFAULTS_SEPARATION_VERSION = 1;
+/** Every activity-rail default list ever shipped (order matters). */
+const HISTORICAL_ACTIVITY_RAIL_PINS: readonly (readonly string[])[] = [
+  ['sessions', 'agents', 'schedules', 'workflows', 'projects'],
+  DEFAULT_ACTIVITY_RAIL_PINS,
+];
+
+function withFlag(desktop: Record<string, unknown>, key: DesktopSettingKey, enabled: boolean): Record<string, unknown> {
+  const next = { ...desktop };
+  if (DESKTOP_FLAG_DEFAULTS[key] === enabled) delete next[key];
+  else next[key] = enabled;
+  return next;
+}
+
+function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return a.length === b.length && a.every((entry, index) => entry === b[index]);
+}
+
+/** Stored pins: a full state, or a revision alone meaning the default list. */
+function storedPinsState(value: unknown): ActivityRailPinsState | null {
+  const full = readActivityRailPinsState(value);
+  if (full) return full;
+  const stored = record(value);
+  if (Object.hasOwn(stored, 'pins')) return null;
+  const revision = stored.revision;
+  return typeof revision === 'number' && Number.isSafeInteger(revision) && revision > 0
+    ? { pins: [...DEFAULT_ACTIVITY_RAIL_PINS], revision }
+    : null;
+}
+
+/** Write the pre-image to a fresh backup directory; an existing one is never reused. */
+function backupPreImage(dataDir: string, now: Date, preImage: unknown): void {
+  const root = join(dataDir, 'backups');
+  mkdirSync(root, { recursive: true });
+  const base = `defaults-separation-${now.toISOString().replace(/[:.]/g, '-')}`;
+  for (let attempt = 0; ; attempt += 1) {
+    const dir = join(root, attempt ? `${base}-${attempt}` : base);
+    try {
+      mkdirSync(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
+    writeFileSync(join(dir, 'mixdog-config.json'), `${JSON.stringify(preImage, null, 2)}\n`, { flag: 'wx' });
+    return;
+  }
+}
+
 export class DesktopSettingsStore {
   private readonly loadConfig: () => Promise<MixdogConfigModule>;
 
@@ -95,7 +159,7 @@ export class DesktopSettingsStore {
 
   async readActivityRailPins(): Promise<ActivityRailPinsState | null> {
     const config = await this.loadConfig();
-    return readActivityRailPinsState(record(record(config.readConfig()).desktop).activityRailPins);
+    return storedPinsState(record(record(config.readConfig()).desktop).activityRailPins);
   }
 
   async updateActivityRailPins(value: unknown, initializeIfMissing = false): Promise<ActivityRailPinsState> {
@@ -105,13 +169,15 @@ export class DesktopSettingsStore {
     const config = await this.loadConfig();
     const saved = await config.updateConfigAsync((current) => {
       const desktop = record(current.desktop);
-      const previous = readActivityRailPinsState(desktop.activityRailPins);
+      const previous = storedPinsState(desktop.activityRailPins);
       if (initializeIfMissing && previous) return current;
       const revision = (previous?.revision ?? 0) + 1;
       if (!Number.isSafeInteger(revision)) throw new RangeError('Activity rail pin revision is exhausted.');
-      return { ...current, desktop: { ...desktop, activityRailPins: { pins, revision } } };
+      // The default list is never stored; the revision alone keeps ordering.
+      const stored = sameList(pins, DEFAULT_ACTIVITY_RAIL_PINS) ? { revision } : { pins, revision };
+      return { ...current, desktop: { ...desktop, activityRailPins: stored } };
     });
-    const state = readActivityRailPinsState(record(record(saved).desktop).activityRailPins);
+    const state = storedPinsState(record(record(saved).desktop).activityRailPins);
     if (!state) throw new TypeError('The config write did not return valid activity rail pins.');
     return state;
   }
@@ -122,7 +188,11 @@ export class DesktopSettingsStore {
       const next = { ...record(current) };
       const agent = { ...record(next.agent) };
       if (key === 'autoClear') {
-        agent.autoClear = { ...record(agent.autoClear), enabled };
+        const autoClear: Record<string, unknown> = { ...record(agent.autoClear), enabled };
+        // On is the code default: storage keeps only an explicit off.
+        if (enabled) delete autoClear.enabled;
+        if (Object.keys(autoClear).length) agent.autoClear = autoClear;
+        else delete agent.autoClear;
       } else if (key === 'autoCompact') {
         const compaction: Record<string, unknown> = {
           ...record(agent.compaction),
@@ -157,9 +227,11 @@ export class DesktopSettingsStore {
         ]) {
           delete compaction[legacyKey];
         }
-        agent.compaction = compaction;
+        if (enabled) delete compaction.auto;
+        if (Object.keys(compaction).length) agent.compaction = compaction;
+        else delete agent.compaction;
       } else if (DESKTOP_FLAG_KEYS.has(key)) {
-        next.desktop = { ...record(next.desktop), [key]: enabled };
+        next.desktop = withFlag(record(next.desktop), key, enabled);
       } else if (key === 'computerControl') {
         const desktop = { ...record(next.desktop) };
         // A pre-marker profile is considered installed while its control is
@@ -168,20 +240,46 @@ export class DesktopSettingsStore {
         if (desktop.computerInstalled === true || desktop.computerControl === true) {
           desktop.computerInstalled = true;
         }
-        desktop.computerControl = enabled;
-        next.desktop = desktop;
+        next.desktop = withFlag(desktop, 'computerControl', enabled);
       } else if (key === 'browserControl') {
         const desktop = { ...record(next.desktop) };
         if (desktop.browserInstalled === true || desktop.browserControl === true) {
           desktop.browserInstalled = true;
         }
-        desktop.browserControl = enabled;
-        next.desktop = desktop;
+        next.desktop = withFlag(desktop, 'browserControl', enabled);
       }
       next.agent = agent;
       return next;
     });
     return desktopSettingsFromConfig(saved);
+  }
+
+  /** Run once: back up the config, then drop `desktop` values that equal a
+   *  current or historical default plus dead keys. Returns whether it ran. */
+  async separateDefaults(dataDir: string, now: Date = new Date()): Promise<boolean> {
+    const config = await this.loadConfig();
+    const supported = (value: unknown) => typeof value === 'number' && value >= DEFAULTS_SEPARATION_VERSION;
+    if (supported(record(record(config.readConfig()).desktop)[DEFAULTS_SEPARATION_MARKER])) return false;
+    let ran = false;
+    await config.updateConfigAsync((current) => {
+      const desktop = { ...record(current.desktop) };
+      if (supported(desktop[DEFAULTS_SEPARATION_MARKER])) return current;
+      // Inside the config lock: back up the exact pre-image being migrated.
+      backupPreImage(dataDir, now, current);
+      ran = true;
+      for (const [key, value] of Object.entries(DESKTOP_FLAG_DEFAULTS)) {
+        if (desktop[key] === value) delete desktop[key];
+      }
+      delete desktop.zoomFactor;
+      delete desktop.git;
+      const pins = record(desktop.activityRailPins).pins;
+      if (Array.isArray(pins) && HISTORICAL_ACTIVITY_RAIL_PINS.some((list) => sameList(pins, list))) {
+        delete desktop.activityRailPins;
+      }
+      desktop[DEFAULTS_SEPARATION_MARKER] = DEFAULTS_SEPARATION_VERSION;
+      return { ...current, desktop };
+    });
+    return ran;
   }
 
   async readZoom(): Promise<number> {

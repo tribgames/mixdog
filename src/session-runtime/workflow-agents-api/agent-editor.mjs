@@ -11,14 +11,23 @@ import {
   withAgentDisabled,
 } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId, effectiveAgentRoute, oneLine, resolveDataDir } from './shared.mjs';
+import { absorbSaveEqualToShipped } from '../services/defaults-separation.mjs';
+import { STANDALONE_ROOT } from '../runtime-paths.mjs';
 
 const isFixedAgent = (id) => FIXED_AGENT_SLOTS.some((agent) => agent.id === id);
 const hasUserAgentFile = (dataDir, id) => existsSync(join(dataDir, 'agents', id, 'AGENT.md'));
 
-function writeAgentFiles(dir, { name, description, body }) {
+// Frontmatter the editor does not show (e.g. `permission`), taken from the
+// definition in effect: the user's own copy if any, else the shipped one.
+function hiddenFrontmatter(definition) {
+  const { name: _name, description: _description, ...rest } = definition?.frontmatter || {};
+  return rest;
+}
+
+function writeAgentFiles(dir, { name, description, body, extra = {} }) {
   const meta = { name, ...(description ? { description } : {}) };
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'AGENT.md'), serializeFrontmatterDoc(meta, body));
+  writeFileSync(join(dir, 'AGENT.md'), serializeFrontmatterDoc({ ...meta, ...extra }, body));
   // loadAgentDefinition prefers the manifest for name/description.
   writeFileSync(join(dir, 'agent.json'), `${JSON.stringify(meta, null, 2)}\n`);
   rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
@@ -99,8 +108,20 @@ export function createAgentEditorApi(deps) {
     if (!body) throw new Error('AGENT.md body must not be empty');
     const dataDir = resolveDataDir(deps);
     const { id, name, description } = resolveSaveTarget(payload, dataDir);
-    const existed = Boolean(loadAgentDefinition(dataDir, id));
-    writeAgentFiles(join(dataDir, 'agents', id), { name: name || id, description, body });
+    const current = loadAgentDefinition(dataDir, id);
+    const existed = Boolean(current);
+    const definition = { name: name || id, description, body };
+    // Equal to the shipped agent: keep no copy so it follows the shipped version.
+    const absorbed = absorbSaveEqualToShipped({
+      rootDir: deps.rootDir ?? STANDALONE_ROOT,
+      dataDir,
+      dir: 'agents',
+      id,
+      entry: 'AGENT.md',
+      files: ['AGENT.md', 'agent.json'],
+      definition,
+    });
+    if (!absorbed) writeAgentFiles(join(dataDir, 'agents', id), { ...definition, extra: hiddenFrontmatter(current) });
     clearAgentDefinitionCache(id);
     // A newly created agent starts enabled; a stale roster entry left by an
     // earlier agent of the same id must not disable it.

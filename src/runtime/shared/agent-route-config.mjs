@@ -6,10 +6,15 @@ export const DEFAULT_DISABLED_AGENT_IDS = Object.freeze([
   'worker',
   'heavy-worker',
   'reviewer',
+  'advisor',
   'security',
   'front-worker',
   'writer',
 ]);
+
+// The Maintainer also starts off: background upkeep spends model calls, so it
+// runs only once the user turns it on and picks its model.
+export const DEFAULT_DISABLED_AGENT_ROSTER = Object.freeze([...DEFAULT_DISABLED_AGENT_IDS, 'maintainer']);
 
 function record(value) {
   return isPlainObject(value) ? value : {};
@@ -30,8 +35,7 @@ function agentIdKey(value) {
 // only survives canonicalization with a complete provider+model pair, so a
 // disabled agent keeps its stored model and is listed here instead. Turning the
 // agent back on therefore restores the model the user last picked.
-export function disabledAgentIds(config) {
-  const raw = config?.disabledAgents;
+function agentIdList(raw) {
   if (!Array.isArray(raw)) return [];
   const ids = new Set();
   for (const entry of raw) {
@@ -39,6 +43,50 @@ export function disabledAgentIds(config) {
     if (id) ids.add(id);
   }
   return [...ids].sort();
+}
+
+export function disabledAgentIds(config) {
+  return agentIdList(config?.disabledAgents);
+}
+
+// Stored shape is a user delta against DEFAULT_DISABLED_AGENT_ROSTER:
+// `disabledAgents` lists ids the user turned off that are on by default and
+// `enabledAgents` lists default-off ids the user turned on. The in-memory
+// config carries the effective list in `disabledAgents`.
+export function effectiveDisabledAgents(stored) {
+  const enabled = new Set(agentIdList(stored?.enabledAgents));
+  return agentIdList([...DEFAULT_DISABLED_AGENT_ROSTER, ...agentIdList(stored?.disabledAgents)]).filter(
+    (id) => !enabled.has(id)
+  );
+}
+
+export function disabledAgentDelta(effective, defaults = DEFAULT_DISABLED_AGENT_ROSTER) {
+  const wanted = new Set(agentIdList(effective));
+  const base = new Set(defaults);
+  const disabledAgents = [...wanted].filter((id) => !base.has(id)).sort();
+  const enabledAgents = [...base].filter((id) => !wanted.has(id)).sort();
+  return {
+    ...(disabledAgents.length ? { disabledAgents } : {}),
+    ...(enabledAgents.length ? { enabledAgents } : {}),
+  };
+}
+
+function withDisabledKeys(config, delta) {
+  const next = { ...(config || {}) };
+  delete next.disabledAgents;
+  delete next.enabledAgents;
+  return { ...next, ...delta };
+}
+
+/** Stored (delta) form of an in-memory config. */
+export function withStoredDisabledAgents(config) {
+  return withDisabledKeys(config, disabledAgentDelta(config?.disabledAgents));
+}
+
+/** In-memory (effective) form of a stored config. */
+export function withEffectiveDisabledAgents(config) {
+  const effective = effectiveDisabledAgents(config);
+  return withDisabledKeys(config, effective.length ? { disabledAgents: effective } : {});
 }
 
 export function isAgentDisabled(config, agentId) {

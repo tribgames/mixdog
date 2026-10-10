@@ -366,7 +366,7 @@ function buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief = true }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
   const lead = readOptional(path.join(RULES_DIR, 'lead', 'LEAD.md'));
   if (!lead) return '';
-  // Delegation-free workflows (Solo, headless) never expose the `agent` tool,
+  // Delegation-free sessions (headless, no delegatable agents) never expose the `agent` tool,
   // so Lead guidance marked `<!-- tools: agent -->` (briefing, completion
   // notifications) is dropped there and kept verbatim for delegating workflows.
   return omitToolRoutes(lead, includeLeadBrief ? [] : ['agent']);

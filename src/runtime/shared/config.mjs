@@ -42,6 +42,21 @@ function configPath() {
 
 const GENERATED_KEY = '_generated';
 
+// Marker of the one-time "defaults live in code" separation (see
+// defaults-separation.mjs). A file created by this code is born separated, so
+// the first write into an empty config stamps the current version.
+export const DEFAULTS_VERSION = 2;
+export const DEFAULTS_VERSION_KEY = 'defaultsVersion';
+
+function isFreshConfig(root) {
+  return !isPlainObject(root) || Object.keys(root).length === 0;
+}
+
+function withFreshDefaultsVersion(fresh, root) {
+  if (fresh && isPlainObject(root) && !hasOwn(root, DEFAULTS_VERSION_KEY)) root[DEFAULTS_VERSION_KEY] = DEFAULTS_VERSION;
+  return root;
+}
+
 // Process-wide short-TTL cache of the RAW utf8 string of configPath() (never
 // the parsed object). Parallel agent spawns each hit the non-RMW read path
 // (readAll → readSection/readConfig/readCapabilities); without this every
@@ -410,9 +425,10 @@ export function updateConfig(updater) {
   let saved = null;
   withConfigLock(() => {
     const current = stripGeneratedMarker(readAllForRmW()) || {};
+    const fresh = isFreshConfig(current);
     const next = typeof updater === 'function' ? updater({ ...current }) : updater;
     if (!isPlainObject(next)) throw new Error('[config] updateConfig updater must return an object');
-    saved = canonicalizeUnifiedConfig(stripGeneratedMarker(next) || {});
+    saved = withFreshDefaultsVersion(fresh, canonicalizeUnifiedConfig(stripGeneratedMarker(next) || {}));
     writeAll(saved);
   });
   return saved;
@@ -421,9 +437,10 @@ export function updateConfig(updater) {
 export function updateSection(section, updater) {
   withConfigLock(() => {
     const all = readAllForRmW();
+    const fresh = isFreshConfig(all);
     const current = stripGeneratedMarker(all[section] || {});
     all[section] = stripGeneratedMarker(typeof updater === 'function' ? updater(current) : updater);
-    writeAll(all);
+    writeAll(withFreshDefaultsVersion(fresh, all));
   });
 }
 
@@ -495,9 +512,10 @@ export function updateConfigAsync(updater) {
     let saved = null;
     await withConfigLockAsync(async () => {
       const current = stripGeneratedMarker(readAllForRmW()) || {};
+      const fresh = isFreshConfig(current);
       const next = typeof updater === 'function' ? updater({ ...current }) : updater;
       if (!isPlainObject(next)) throw new Error('[config] updateConfigAsync updater must return an object');
-      saved = canonicalizeUnifiedConfig(stripGeneratedMarker(next) || {});
+      saved = withFreshDefaultsVersion(fresh, canonicalizeUnifiedConfig(stripGeneratedMarker(next) || {}));
       await writeAllAsync(saved);
     });
     return saved;
@@ -508,9 +526,10 @@ export function updateSectionAsync(section, updater) {
   return trackConfigWrite(() =>
     withConfigLockAsync(async () => {
       const all = readAllForRmW();
+      const fresh = isFreshConfig(all);
       const current = stripGeneratedMarker(all[section] || {});
       all[section] = stripGeneratedMarker(typeof updater === 'function' ? updater(current) : updater);
-      await writeAllAsync(all);
+      await writeAllAsync(withFreshDefaultsVersion(fresh, all));
     })
   );
 }

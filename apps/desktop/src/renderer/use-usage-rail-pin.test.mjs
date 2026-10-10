@@ -52,5 +52,5 @@ test('one usage pin toggle writes the setting once, even under StrictMode', asyn
 
   assert.equal(state.usagePinned, true);
   assert.deepEqual(writes, [['usagePinned', true]]);
-  assert.equal(window.localStorage.getItem('mixdog.desktop.usage-rail-pin.v1'), '1');
+  assert.equal(window.localStorage.getItem('mixdog.desktop.usage-rail-pin.v1'), null);
 });

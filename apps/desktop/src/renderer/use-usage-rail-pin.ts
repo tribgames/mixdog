@@ -43,13 +43,15 @@ export function useUsageRailPin(
   },
   enabled: boolean
 ) {
+  // The config value (code default: pinned) is the single source; the retired
+  // localStorage mirror is dropped once.
   const [usagePinned, setUsagePinned] = useState(() => {
     try {
-      // Pinned unless the user explicitly unpinned (fresh installs start pinned).
-      return window.localStorage.getItem(USAGE_RAIL_PIN_KEY) !== '0';
+      window.localStorage.removeItem(USAGE_RAIL_PIN_KEY);
     } catch {
-      return true;
+      /* storage-less host */
     }
+    return true;
   });
   const [settingsReady, setSettingsReady] = useState(false);
   const revision = useRef(0);
@@ -63,14 +65,9 @@ export function useUsageRailPin(
         .then((settings) => {
           if (!live || token !== revision.current || typeof settings?.usagePinned !== 'boolean') return;
           setUsagePinned(settings.usagePinned);
-          try {
-            window.localStorage.setItem(USAGE_RAIL_PIN_KEY, settings.usagePinned ? '1' : '0');
-          } catch {
-            /* seed only */
-          }
         })
         .catch(() => {
-          /* preserve the local seed */
+          /* keep the code default */
         })
         .finally(() => {
           if (live) setSettingsReady(true);
@@ -94,11 +91,6 @@ export function useUsageRailPin(
     pinnedRef.current = next;
     setSettingsReady(true);
     setUsagePinned(next);
-    try {
-      window.localStorage.setItem(USAGE_RAIL_PIN_KEY, next ? '1' : '0');
-    } catch {
-      /* the toggle still applies for this session */
-    }
     void window.mixdogDesktop?.updateSetting?.('usagePinned', next)?.catch(() => {
       /* local state still applies */
     });

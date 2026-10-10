@@ -4,6 +4,13 @@ import { setImmediate, setTimeout } from 'node:timers/promises';
 import test from 'node:test';
 import { createConfigLifecycle, resolveInitialConfigState } from './config-lifecycle.mjs';
 import { applyConfigPatch, diffConfig } from '../runtime/shared/config-patch.mjs';
+import { withStoredDisabledAgents } from '../runtime/shared/agent-route-config.mjs';
+import {
+  DEFAULT_MAINTENANCE,
+  maintenanceDelta,
+  presetsDelta,
+  withDefaultPresets,
+} from '../runtime/agent/orchestrator/config-presets.mjs';
 
 function deferred() {
   let resolve;
@@ -86,12 +93,13 @@ test('the first save seeds fresh-profile defaults no diff carries, never over st
   f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'next' });
   await f.lifecycle.flushAllConfigSavesAsync();
   assert.deepEqual(f.disk().agent.builtins, {});
-  assert.deepEqual(f.disk().agent.disabledAgents, ['maintainer', 'worker']);
+  // Off-by-default agents live in code and are never seeded into the file.
+  assert.equal(Object.hasOwn(f.disk().agent, 'disabledAgents'), false);
   // Once stored, the user's own value wins over every later seed.
-  f.disk().agent.disabledAgents = ['worker'];
+  f.disk().agent.builtins = { git: { installed: true } };
   f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'again' });
   await f.lifecycle.flushAllConfigSavesAsync();
-  assert.deepEqual(f.disk().agent.disabledAgents, ['worker']);
+  assert.deepEqual(f.disk().agent.builtins, { git: { installed: true } });
   assert.equal(f.disk().agent.theme, 'again');
 });
 
@@ -292,6 +300,50 @@ test('a pending reload overlays only local edits and preserves fresh peer settin
   await f.lifecycle.flushAllConfigSavesAsync();
   assert.equal(f.disk().agent.profile.language, 'ja');
   assert.equal(f.disk().agent.theme, 'later');
+});
+
+test('a reload during a blocked save keeps the shipped presets and maintenance routes', async () => {
+  const custom = { id: 'mine', name: 'MINE', type: 'agent', provider: 'openai', model: 'gpt-x', tools: 'full' };
+  const extra = { ...custom, id: 'extra', name: 'EXTRA' };
+  const stored = (config) => {
+    const next = { ...config, presets: presetsDelta(config.presets), maintenance: maintenanceDelta(config.maintenance) };
+    for (const key of ['presets', 'maintenance']) if (!Object.keys(next[key]).length) delete next[key];
+    return next;
+  };
+  const f = fixture({
+    config: { presets: withDefaultPresets([custom]), maintenance: { ...DEFAULT_MAINTENANCE } },
+    disk: stored({ presets: withDefaultPresets([custom]), maintenance: { ...DEFAULT_MAINTENANCE } }),
+  });
+  f.cfgMod.loadConfig = () => {
+    const disk = structuredClone(f.disk().agent);
+    return {
+      ...disk,
+      presets: withDefaultPresets(disk.presets),
+      maintenance: { ...DEFAULT_MAINTENANCE, ...disk.maintenance },
+    };
+  };
+  f.cfgMod.createConfigPatch = (before, after) => diffConfig(stored(before), stored(after));
+  f.cfgMod.saveConfigPatch = () => {
+    throw new Error('fixture lock busy');
+  };
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), presets: [...f.config().presets, extra] });
+  const loaded = f.lifecycle.reloadFullConfig();
+  assert.deepEqual(
+    loaded.presets.map((p) => p.id).sort(),
+    ['extra', 'haiku', 'mine', 'opus-high', 'opus-mid', 'sonnet-high', 'sonnet-mid']
+  );
+  assert.deepEqual(loaded.maintenance, DEFAULT_MAINTENANCE);
+});
+
+test('a reload during a blocked save keeps an enabled agent when patches speak the delta domain', async () => {
+  const f = fixture({ config: { disabledAgents: ['worker'] }, disk: { disabledAgents: ['worker'] } });
+  f.cfgMod.createConfigPatch = (before, after) => diffConfig(withStoredDisabledAgents(before), withStoredDisabledAgents(after));
+  f.cfgMod.saveConfigPatch = () => {
+    throw new Error('fixture lock busy');
+  };
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), disabledAgents: [] });
+  const loaded = f.lifecycle.reloadFullConfig();
+  assert.equal(loaded.disabledAgents?.includes('worker') ?? false, false);
 });
 
 test('an in-flight success is not replayed over a newer peer change by the next local write', async () => {

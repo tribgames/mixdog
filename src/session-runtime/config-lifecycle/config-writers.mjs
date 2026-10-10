@@ -13,6 +13,7 @@
  *                   outputStyle would never reach disk via that path)
  */
 import { createDebouncedWriter } from '../../runtime/shared/debounced-writer.mjs';
+import { DEFAULT_OUTPUT_STYLE } from '../../runtime/shared/defaults-separation.mjs';
 
 const CONFIG_SAVE_DEBOUNCE_MS = 150;
 
@@ -29,6 +30,8 @@ export async function flushPendingSessionConfigWrites() {
 /** `root` with a top-level outputStyle; the retired `agent.outputStyle` copy is dropped. */
 export function configWithOutputStyle(root, styleId) {
   const next = { ...(root || {}), outputStyle: styleId };
+  // Defaults live in code: the default style is stored as an absent key.
+  if (styleId === DEFAULT_OUTPUT_STYLE) delete next.outputStyle;
   if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
     const agent = { ...next.agent };
     delete agent.outputStyle;

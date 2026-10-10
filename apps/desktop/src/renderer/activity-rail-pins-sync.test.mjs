@@ -72,6 +72,8 @@ function hub() {
 }
 
 async function mount(t, shared, overrides = {}) {
+  // Desktop no longer writes defaults back, so tests start from a saved order.
+  if (!(await shared.store.readActivityRailPins())) await shared.store.updateActivityRailPins(['projects', 'sessions']);
   const { restore } = installTestDom(null, {
     html: '<!doctype html><div id="root"></div>',
     jsdom: { url: 'https://mixdog.test/' },
@@ -107,7 +109,7 @@ test('only desktop seeds shared pins; both surfaces synchronize changes and reco
   const shared = hub();
   const values = await mount(t, shared);
   assert.deepEqual(await shared.store.readActivityRailPins(), { pins: ['projects', 'sessions'], revision: 1 });
-  assert.deepEqual(shared.calls, [{ name: 'desktop', pins: ['projects', 'sessions'], initializeIfMissing: true }]);
+  assert.deepEqual(shared.calls, []);
   assert.deepEqual(values.web.pins, ['projects', 'sessions']);
   await act(async () => {
     values.desktop.savePins(['sessions', 'search']);
@@ -198,4 +200,86 @@ test('an interrupted save restores the shared order and asks to check the connec
   assert.deepEqual(values.web.pins, ['projects', 'sessions']);
   assert.equal(toasts.at(-1).tone, 'error');
   assert.equal(toasts.at(-1).text, 'Sidebar: Check the connection, then try again.');
+});
+
+test('a successful read with nothing stored means the host default for remote clients too', async (t) => {
+  const shared = hub();
+  const web = { ...shared.api('web'), readActivityRailPins: async () => null };
+  const values = await mount(t, shared, { web });
+  assert.deepEqual(values.web.pins, ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions']);
+});
+
+const DEFAULT_PINS = ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions'];
+
+test('a failed save after an absent read rolls back to the default list', async (t) => {
+  const shared = hub();
+  const web = {
+    ...shared.api('web'),
+    readActivityRailPins: async () => null,
+    updateActivityRailPins: async () => {
+      throw new Error('pin config write rejected');
+    },
+  };
+  const values = await mount(t, shared, { web });
+  assert.deepEqual(values.web.pins, DEFAULT_PINS);
+  await act(async () => values.web.savePins(['search']));
+  assert.deepEqual(values.web.pins, DEFAULT_PINS);
+});
+
+test('after an absent read a lower host revision is accepted', async (t) => {
+  const shared = hub();
+  let push;
+  let stored = { pins: ['search'], revision: 5 };
+  const web = {
+    ...shared.api('web'),
+    readActivityRailPins: async () => stored,
+    subscribeActivityRailPins: (listener) => {
+      push = listener;
+      return () => {};
+    },
+  };
+  const values = await mount(t, shared, { web });
+  assert.deepEqual(values.web.pins, ['search']);
+  stored = null;
+  await act(async () => window.dispatchEvent(new window.Event('mixdog:remote-connection-ready')));
+  assert.deepEqual(values.web.pins, DEFAULT_PINS);
+  await act(async () => push({ pins: ['workflows'], revision: 1 }));
+  assert.deepEqual(values.web.pins, ['workflows']);
+});
+
+test('an absent read does not clobber a pending write', async (t) => {
+  const shared = hub();
+  let resolveRead;
+  const web = shared.api('web');
+  web.readActivityRailPins = () =>
+    new Promise((resolve) => {
+      resolveRead = resolve;
+    });
+  const values = await mount(t, shared, { web });
+  await act(async () => values.web.savePins(['search']));
+  await act(async () => resolveRead(null));
+  assert.deepEqual(values.web.pins, ['search']);
+});
+
+test('an absent read older than a subscription update does not reset the confirmed revision', async (t) => {
+  const shared = hub();
+  let push;
+  let resolveRead;
+  const web = {
+    ...shared.api('web'),
+    readActivityRailPins: () =>
+      new Promise((resolve) => {
+        resolveRead = resolve;
+      }),
+    subscribeActivityRailPins: (listener) => {
+      push = listener;
+      return () => {};
+    },
+  };
+  const values = await mount(t, shared, { web });
+  await act(async () => push({ pins: ['search'], revision: 5 }));
+  await act(async () => resolveRead(null));
+  assert.deepEqual(values.web.pins, ['search']);
+  await act(async () => push({ pins: ['workflows'], revision: 4 }));
+  assert.deepEqual(values.web.pins, ['search']);
 });

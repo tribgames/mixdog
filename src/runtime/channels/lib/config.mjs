@@ -1,5 +1,4 @@
-import { mkdirSync } from 'node:fs';
-import { readSection, updateSection, configPath } from '../../shared/config.mjs';
+import { readSection } from '../../shared/config.mjs';
 import { listSchedules } from './schedules-db.mjs';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 const DATA_DIR = resolvePluginData();
@@ -61,12 +60,8 @@ async function loadConfig() {
       voice: { ...(raw.voice || {}), ...voice },
     });
   } catch (err) {
-    if (err.code === 'ENOENT') {
-      mkdirSync(resolvePluginData(), { recursive: true });
-      updateSection('channels', () => DEFAULT_CONFIG);
-      process.stderr.write(`mixdog: default channels config created in ${configPath()}\n`);
-      return applyDefaults(DEFAULT_CONFIG);
-    }
+    // Defaults live in code; a missing config is never written back.
+    if (err.code === 'ENOENT') return applyDefaults(DEFAULT_CONFIG);
     throw err;
   }
 }

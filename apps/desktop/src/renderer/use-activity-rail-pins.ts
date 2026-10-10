@@ -56,6 +56,9 @@ export function useActivityRailPins(
   const currentPins = useRef(pins);
   const confirmed = useRef<ActivityRailPinsState | null>(null);
   const pending = useRef(0);
+  // Bumped by every local save and every received update; an absent read that
+  // began before either is stale.
+  const saves = useRef(0);
   const writes = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(false);
   const publishConfirmed = useCallback(() => {
@@ -68,7 +71,9 @@ export function useActivityRailPins(
   const receive = useCallback(
     (value: unknown) => {
       const state = readActivityRailPinsState(value);
-      if (!state || state.revision <= (confirmed.current?.revision ?? 0)) return;
+      if (!state) return;
+      saves.current += 1;
+      if (state.revision <= (confirmed.current?.revision ?? 0)) return;
       confirmed.current = state;
       publishConfirmed();
     },
@@ -95,11 +100,19 @@ export function useActivityRailPins(
     let readId = 0;
     const refresh = async () => {
       const id = ++readId;
+      const startedAt = saves.current;
       try {
         let state = await api.readActivityRailPins();
         if (!live || id !== readId) return;
-        if (!state && !remote && pending.current === 0) {
-          state = await api.updateActivityRailPins(currentPins.current, true);
+        // An absent answer cannot be ordered by revision, so a read that began
+        // before a local save or a received update never overrides it.
+        if (!state && pending.current === 0 && saves.current === startedAt) {
+          // Nothing stored means the default list: never written back, so a
+          // later change of the default reaches this user.
+          // The baseline resets too: rollbacks land on the default and any
+          // later host revision (even a lower one after a restart) is accepted.
+          confirmed.current = { pins: DEFAULT_ACTIVITY_RAIL_PINS, revision: 0 };
+          publishConfirmed();
         }
         if (live && id === readId && state) receive(state);
       } catch (error) {
@@ -116,7 +129,7 @@ export function useActivityRailPins(
       unsubscribe();
       window.removeEventListener('mixdog:remote-connection-ready', refresh);
     };
-  }, [api, remote, receive]);
+  }, [api, remote, receive, publishConfirmed]);
 
   const savePins = useCallback(
     (next: string[]) => {
@@ -125,6 +138,7 @@ export function useActivityRailPins(
       cachePins(next);
       if (!api) return;
       pending.current += 1;
+      saves.current += 1;
       // Serialize this client's writes; server revisions order all clients.
       writes.current = writes.current.then(async () => {
         try {

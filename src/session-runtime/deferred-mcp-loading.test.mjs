@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
@@ -27,6 +29,16 @@ import {
   renderToolSearch,
   snapshotProviderRequestTools,
 } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+
+// The agent loop reads and writes the config and session data; keep them out of the user's profile.
+const dataRoot = mkdtempSync(join(tmpdir(), 'mixdog-deferred-mcp-'));
+const previousDataDir = process.env.MIXDOG_DATA_DIR;
+process.env.MIXDOG_DATA_DIR = dataRoot;
+test.after(() => {
+  if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+  else process.env.MIXDOG_DATA_DIR = previousDataDir;
+  rmSync(dataRoot, { recursive: true, force: true });
+});
 
 function fixture(t, provider = 'openai-oauth', { boot = false, mode = 'full' } = {}) {
   const scopeId = randomUUID();
