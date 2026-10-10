@@ -780,7 +780,7 @@ export const ModelSelector = memo(function ModelSelector({
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelPane={() => void loadCatalog()}
         autoEffort={
-          known?.autoEffortCapable && autoEffort?.installed
+          known?.autoEffortCapable && autoEffort?.installed && autoEffort.supported
             ? { enabled: autoEffort.enabled, pending: autoEffortPending }
             : null
         }

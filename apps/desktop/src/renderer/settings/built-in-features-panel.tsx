@@ -234,6 +234,12 @@ function FeatureDetailDialog({
       dataAttributes={{ 'data-feature-id': feature.id }}
       headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}
     >
+      {ready && feature.id === 'autoEffort' && !state.supported ? (
+        <ExtensionNote>{t('Auto effort is not supported on Intel Macs.')}</ExtensionNote>
+      ) : null}
+      {ready && feature.id === 'memory' && state.info.supported === false ? (
+        <ExtensionNote>{t('Semantic search is unavailable on Intel Macs. Memory uses keyword search only.')}</ExtensionNote>
+      ) : null}
       {ready && !installed && requirement ? (
         <ExtensionNote>{t('Requires {{name}}', { name: requirement })}</ExtensionNote>
       ) : null}
@@ -453,8 +459,12 @@ export function BuiltInFeaturesPanel({
   const stateOf = (feature: BuiltInFeatureDefinition): FeatureState => {
     // Local Provider runs where the runtime pins a llama.cpp build (Windows
     // CUDA, Apple Silicon Metal); its catalog says so for this host.
-    const supported = feature.id !== 'localProvider' || localProvider.platformSupported !== false;
+    // Auto effort needs onnxruntime-node, which has no Intel Mac binding.
+    const supported =
+      (feature.id !== 'localProvider' || localProvider.platformSupported !== false) &&
+      (feature.id !== 'autoEffort' || autoEffort.supported !== false);
     const available = feature.id !== 'localProvider' || (supported && localProvider.available !== false);
+    const unsupportedAuto = feature.id === 'autoEffort' && !supported;
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
     let ready = sectionLoaded(data, 'toolModules');
@@ -477,7 +487,7 @@ export function BuiltInFeaturesPanel({
       enabled: optimistic?.id === feature.id ? optimistic.value : enabled[feature.id],
       ready,
       supported,
-      available,
+      available: available && !unsupportedAuto,
       busy,
       // Auto reasoning also installs in the background (boot download), which
       // the card shows as its own Install step.

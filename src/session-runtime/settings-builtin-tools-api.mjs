@@ -9,7 +9,9 @@ import {
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 import { getEmbeddingInfo } from '../runtime/memory/lib/embedding-provider.mjs';
+import { onnxRuntimeSupported } from '../runtime/shared/onnx-runtime-support.mjs';
 import {
+  EFFORT_JUDGE_UNSUPPORTED,
   effortJudgeAvailable,
   effortJudgeInfo,
   effortJudgeInstalling,
@@ -82,6 +84,7 @@ export function createBuiltinToolSettings(
           enabled: memoryToolsEnabledFn(),
           installed: builtinInstalled(config, 'memory'),
           info: getEmbeddingInfo(),
+          semanticSearchSupported: onnxRuntimeSupported(),
         },
         git: { enabled: gitToolsEnabledFn(), installed: builtinInstalled(config, 'git') },
         office: { enabled: officeToolsEnabledFn(), installed: builtinInstalled(config, 'office') },
@@ -96,6 +99,7 @@ export function createBuiltinToolSettings(
           installed: builtinInstalled(config, 'localProvider') && localProviderRuntimeInstalled,
         },
         autoEffort: {
+          supported: onnxRuntimeSupported(),
           enabled: builtinFeatureActive(config, 'autoEffort'),
           // On by default: "installed" means the judge model is on disk;
           // "installing" covers the boot download the settings did not start.
@@ -135,6 +139,9 @@ export function createBuiltinToolSettings(
       if (!TOGGLEABLE_BUILTINS.includes(name)) {
         throw new TypeError('Built-in tool must be git, office, tidy, localProvider, or autoEffort.');
       }
+      if (name === 'autoEffort' && enabled !== false && !onnxRuntimeSupported()) {
+        throw new Error(EFFORT_JUDGE_UNSUPPORTED);
+      }
       if (name === 'localProvider' && enabled !== false && getLocalProviderStatus?.()?.runtime?.installed !== true) {
         await prepareBuiltinFeature?.(name);
       }
@@ -165,6 +172,7 @@ export function createBuiltinToolSettings(
       if (!INSTALLABLE_BUILTIN_IDS.includes(name)) {
         throw new TypeError('Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort.');
       }
+      if (name === 'autoEffort' && !onnxRuntimeSupported()) throw new Error(EFFORT_JUDGE_UNSUPPORTED);
       await prepareBuiltinFeature?.(name);
       const config = getConfig();
       let nextConfig = setBuiltinInstalledInConfig({ ...config }, name, true);

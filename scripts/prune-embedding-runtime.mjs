@@ -3,6 +3,7 @@
 import { access, readdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { onnxRuntimeSupported } from '../src/runtime/shared/onnx-runtime-support.mjs';
 
 const SUPPORTED_TARGETS = new Map([
   ['win32', new Set(['x64', 'arm64'])],
@@ -83,8 +84,9 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
   ).find(Boolean);
   if (!ortRoot) throw new Error('Embedding runtime is incomplete: onnxruntime-node is unavailable');
 
-  const targetBinaryDir = join(ortRoot, 'bin', 'napi-v6', target.platform, target.arch);
-  if (!(await exists(join(targetBinaryDir, 'onnxruntime_binding.node')))) {
+  const onnx = onnxRuntimeSupported(target.platform, target.arch);
+  const targetBinaryDir = onnx ? join(ortRoot, 'bin', 'napi-v6', target.platform, target.arch) : null;
+  if (onnx && !(await exists(join(targetBinaryDir, 'onnxruntime_binding.node')))) {
     throw new Error(`Embedding runtime is incomplete: missing ${target.key} ONNX binding`);
   }
 
@@ -100,10 +102,11 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
   // bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node.
   // Keep one native payload and remove every foreign OS/architecture.
   const napiRoot = join(ortRoot, 'bin', 'napi-v6');
-  await removeChildrenExcept(napiRoot, new Set([target.platform]));
-  await removeChildrenExcept(join(napiRoot, target.platform), new Set([target.arch]));
+  // Targets without an ONNX binding keep no native payload at all.
+  await removeChildrenExcept(napiRoot, new Set(onnx ? [target.platform] : []));
+  if (onnx) await removeChildrenExcept(join(napiRoot, target.platform), new Set([target.arch]));
   const removedTargetFiles = [];
-  if (target.platform === 'win32') {
+  if (onnx && target.platform === 'win32') {
     // The fixed production embedding profile uses CPU inference. Keep
     // DirectML.dll for explicit device overrides, but remove the optional DXC
     // shader compiler payload verified unnecessary by packaged-runtime warmup.
@@ -132,6 +135,7 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
     ...target,
     transformerRoot,
     ortRoot,
+    onnx,
     targetBinaryDir,
     removedTargetFiles,
   };

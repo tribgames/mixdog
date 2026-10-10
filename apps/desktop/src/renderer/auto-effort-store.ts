@@ -4,7 +4,7 @@ import type { RecordValue } from './desktop-types';
 // The app-wide Auto reasoning switch, shared by every route sheet. It is read
 // once on demand (only a model that supports it asks), re-read when a sheet
 // opens, and published by whichever surface changes it.
-export type AutoEffortState = { installed: boolean; enabled: boolean };
+export type AutoEffortState = { installed: boolean; enabled: boolean; supported: boolean };
 
 let current: AutoEffortState | null = null;
 let reading: Promise<void> | null = null;
@@ -14,7 +14,7 @@ const listeners = new Set<() => void>();
 export function publishAutoEffort(settings: unknown): void {
   const entry = (settings as RecordValue | undefined)?.autoEffort as RecordValue | undefined;
   if (!entry) return;
-  current = { installed: entry.installed === true, enabled: entry.enabled === true };
+  current = { installed: entry.installed === true, enabled: entry.enabled === true, supported: entry.supported !== false };
   for (const listener of listeners) listener();
 }
 
