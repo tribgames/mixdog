@@ -13,6 +13,9 @@
   &nbsp;
   <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-macos.svg" alt="Download for macOS" height="48"></a>
 </p>
+<p align="center">
+  <sub>macOS button is for Apple Silicon (M1 and later). Intel Mac? <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg">Download for Intel Mac</a></sub>
+</p>
 
 <p align="center">
   <a href="https://github.com/tribgames/mixdog/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/tribgames/mixdog?style=flat-square"></a>
@@ -54,6 +57,7 @@ Download the desktop app:
 | --- | --- |
 | Windows (x64) | [`mixdog-desktop-win-x64.exe`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe) |
 | macOS (Apple Silicon) | [`mixdog-desktop-mac-arm64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg) |
+| macOS (Intel) | [`mixdog-desktop-mac-x64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg) |
 
 Then sign in with a ChatGPT, Claude, or Grok account, or paste an API key. A
 five-step tutorial walks you through the rest.
