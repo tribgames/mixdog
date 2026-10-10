@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.0.12 - 2026-10-10
+
 - Il registro delle modifiche in Impostazioni > Informazioni elenca le note della versione installata;
   in v1.0.11 si fermava ancora a v1.0.10, sia nell'app desktop sia nella pagina web remota.
 

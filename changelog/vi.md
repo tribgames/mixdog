@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.0.12 - 2026-10-10
+
 - Nhật ký thay đổi trong Cài đặt > Giới thiệu liệt kê ghi chú của phiên bản đã cài đặt; ở v1.0.11 nhật ký vẫn chỉ dừng ở v1.0.10, cả trên ứng dụng desktop lẫn trang web từ xa.
 
 - Nhật ký thay đổi có sẵn bằng mọi ngôn ngữ của ứng dụng, và sau khi cập nhật, ứng dụng hiển thị một lần những điểm mới của phiên bản đó.

@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.0.12 - 2026-10-10
+
 - Das Änderungsprotokoll unter Einstellungen > Über listet die Hinweise der installierten Version auf; in v1.0.11 endete es noch bei v1.0.10, sowohl in der Desktop-App als auch auf der Remote-Webseite.
 
 - Das Änderungsprotokoll ist in jeder App-Sprache verfügbar, und nach einem Update zeigt die App einmalig, was in dieser Version neu ist.

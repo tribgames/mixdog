@@ -1,6 +1,6 @@
 {
   "name": "mixdog",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "private": false,
   "type": "module",
   "description": "Open-source coding agent that matches Codex on Terminal-Bench 2.1 with 63% fewer tokens.",
@@ -58,7 +58,7 @@
   "scripts": {
     "postinstall": "node scripts/prune-embedding-runtime.mjs && node scripts/prepare-native-assets.mjs",
     "prepack": "npm run build:tui",
-    "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled \u2014 run npm run release:patch');process.exit(1)}\"",
+    "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\"",
     "start": "node src/cli.mjs",
     "test": "node scripts/test.mjs",
     "test:slow": "node scripts/test.mjs --lane slow",

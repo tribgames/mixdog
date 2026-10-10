@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.0.12 - 2026-10-10
+
 - El registro de cambios de Ajustes > Acerca de muestra las notas de la versión instalada;
   en v1.0.11 aún terminaba en v1.0.10, tanto en la aplicación de escritorio como
   en la página web remota.

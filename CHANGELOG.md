@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.12 - 2026-10-10
+
 - The changelog in Settings > About lists the installed version's notes;
   in v1.0.11 it still ended at v1.0.10, on the desktop app and the remote
   web page alike.

@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.0.12 - 2026-10-10
+
 - O registro de alterações em Configurações > Sobre lista as notas da versão instalada; na v1.0.11 ele ainda terminava na v1.0.10, tanto no app desktop quanto na página web remota.
 
 - O registro de alterações está disponível em todos os idiomas do app e, após uma atualização, o app mostra uma única vez as novidades daquela versão.

@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.0.12 - 2026-10-10
+
 - Le journal des modifications de Réglages > À propos liste les notes de la version installée ;
   dans la v1.0.11, il s'arrêtait encore à la v1.0.10, aussi bien dans l'application de bureau que
   sur la page web distante.

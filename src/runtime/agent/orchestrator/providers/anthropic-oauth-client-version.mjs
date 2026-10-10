@@ -10,7 +10,7 @@ import { createNpmVersionSource, maxSemver } from './npm-cli-version.mjs';
 // source release just to advance the user-agent version.
 // Claude Opus 5.5 requires 2.1.280 or newer. The release workflow raises this
 // to the published CLI version (scripts/sync-client-version-floors.mjs).
-export const DEFAULT_CLI_VERSION = '2.1.295';
+export const DEFAULT_CLI_VERSION = '2.1.296';
 export const CLAUDE_CLI_NPM_PACKAGE = '@anthropic-ai/claude-code';
 
 const CACHE_SCHEMA_VERSION = 1;

@@ -20,7 +20,7 @@ import { createNpmVersionSource, maxSemver } from './npm-cli-version.mjs';
 // version (gpt-6.1-sol requires >= 0.159.0, measured 2026-10-09), so the
 // release workflow raises this to the published CLI version on every release
 // (scripts/sync-client-version-floors.mjs).
-export const CODEX_CLIENT_VERSION_FLOOR = '0.162.0';
+export const CODEX_CLIENT_VERSION_FLOOR = '0.162.1';
 export const CODEX_CLI_NPM_PACKAGE = '@openai/codex';
 const live = createNpmVersionSource(CODEX_CLI_NPM_PACKAGE, { persistKey: 'codex-cli' });
 
