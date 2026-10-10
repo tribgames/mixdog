@@ -17,18 +17,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { packDefinitionFromDir } from '../../session-runtime/services/defaults-separation.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
-import {
-  DEFAULTS_VERSION,
-  DEFAULTS_VERSION_KEY,
-  configPath,
-  readConfig,
-  updateConfig,
-} from './config.mjs';
-import {
-  DEFAULT_DISABLED_AGENT_ROSTER,
-  disabledAgentDelta,
-  disabledAgentIds,
-} from './agent-route-config.mjs';
+import { DEFAULTS_VERSION, DEFAULTS_VERSION_KEY, configPath, readConfig, updateConfig } from './config.mjs';
+import { DEFAULT_DISABLED_AGENT_ROSTER, disabledAgentDelta, disabledAgentIds } from './agent-route-config.mjs';
 import { DEFAULT_ORCHESTRATION_MODE, legacyWorkflowOrchestrationMode } from './orchestration.mjs';
 
 export { DEFAULTS_VERSION, DEFAULTS_VERSION_KEY };
@@ -186,7 +176,10 @@ function removeLegacyKeys(root, dataDir) {
  * not set the marker. `stripRouteDefaults` drops shipped presets and
  * maintenance routes (their defaults live with the agent config).
  */
-export function separateDefaultsInConfig(root, { stripRouteDefaults = (agent) => agent, dataDir = resolvePluginData() } = {}) {
+export function separateDefaultsInConfig(
+  root,
+  { stripRouteDefaults = (agent) => agent, dataDir = resolvePluginData() } = {}
+) {
   const from = Number(root?.[DEFAULTS_VERSION_KEY]) || 0;
   let next = { ...(root || {}) };
   if (from < 1) {
@@ -233,7 +226,9 @@ export function backupConfigBeforeDefaultsSeparation({ dataDir = resolvePluginDa
 }
 
 function needsSeparation(root) {
-  return isPlainObject(root) && Object.keys(root).length > 0 && !(Number(root[DEFAULTS_VERSION_KEY]) >= DEFAULTS_VERSION);
+  return (
+    isPlainObject(root) && Object.keys(root).length > 0 && !(Number(root[DEFAULTS_VERSION_KEY]) >= DEFAULTS_VERSION)
+  );
 }
 
 /** Separation version of the stored file; a missing/empty file is born current. */

@@ -23,9 +23,8 @@ import profileConfig from '../../shared/profile-config.cjs';
 import {
   DEFAULT_MAINTENANCE,
   DEFAULT_PRESETS,
-  maintenanceDelta,
   normalizePreset,
-  presetsDelta,
+  stripStoredRouteDefaults,
   withDefaultPresets,
 } from './config-presets.mjs';
 import {
@@ -465,22 +464,6 @@ function applyStoredPatch(current, changes) {
   if (storedDefaultsVersion() >= 1) return applyConfigPatch(base, changes);
   const delta = withStoredDisabledAgents({ ...base, disabledAgents: disabledAgentIds(base) });
   return withEffectiveDisabledAgents(applyConfigPatch(delta, changes));
-}
-
-/** Drop shipped presets and maintenance routes that equal their default; loadConfig restores them. */
-function stripStoredRouteDefaults(agent) {
-  const next = { ...agent };
-  if (Object.hasOwn(next, 'presets')) {
-    const presets = presetsDelta(next.presets);
-    if (presets.length) next.presets = presets;
-    else delete next.presets;
-  }
-  if (Object.hasOwn(next, 'maintenance')) {
-    const maintenance = maintenanceDelta(next.maintenance);
-    if (Object.keys(maintenance).length) next.maintenance = maintenance;
-    else delete next.maintenance;
-  }
-  return next;
 }
 // Diff the persisted schema, not runtime defaults, aliases, or secret overlays.
 // Patches always speak the delta domain; an unseparated file's full list is

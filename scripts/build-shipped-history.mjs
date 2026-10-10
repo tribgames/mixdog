@@ -30,7 +30,8 @@ const OUT = join(ROOT, 'src', ...SHIPPED_HISTORY_FILE);
 // --check: write nothing, exit 1 when the committed file differs (release gate).
 const CHECK = process.argv.includes('--check');
 
-const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'inherit'] });
+const git = (...args) =>
+  execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'inherit'] });
 const lines = (buffer) => buffer.toString('utf8').split('\n').filter(Boolean);
 
 if (git('rev-parse', '--is-shallow-repository').toString().trim() === 'true') {
@@ -118,7 +119,9 @@ if (CHECK) {
     committed = '';
   }
   if (committed !== text) {
-    console.error('build-shipped-history: src/defaults/shipped-history.json is stale; run `npm run build:shipped-history` and commit it');
+    console.error(
+      'build-shipped-history: src/defaults/shipped-history.json is stale; run `npm run build:shipped-history` and commit it'
+    );
     process.exit(1);
   }
   console.log('build-shipped-history: committed history is current');

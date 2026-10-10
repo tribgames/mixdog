@@ -52,7 +52,10 @@ export function packDefinitionFrom(read, entry, id = '') {
   // hidden, model/tool fields, manifest keys). An `id` equal to the directory
   // id and the default `entry` are what the loaders assume anyway, so they are
   // not differences.
-  const sameId = (value) => String(value ?? '').trim().toLowerCase() === String(id).toLowerCase();
+  const sameId = (value) =>
+    String(value ?? '')
+      .trim()
+      .toLowerCase() === String(id).toLowerCase();
   const fields = {};
   for (const [key, value] of Object.entries(doc.frontmatter)) {
     if (key === 'name' || key === 'description' || (key === 'id' && sameId(value))) continue;
@@ -71,7 +74,14 @@ export function packDefinitionFrom(read, entry, id = '') {
   };
 }
 
-const fieldsKey = (fields) => JSON.stringify(Object.entries(fields || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+const fieldsKey = (fields) => {
+  const source = fields || {};
+  return JSON.stringify(
+    Object.keys(source)
+      .sort()
+      .map((key) => [key, source[key]])
+  );
+};
 
 /** surfaceOnly: name/description/body, what the editors can express. */
 export const hashDefinition = ({ name, description, body, fields }, { surfaceOnly = false } = {}) =>
@@ -181,7 +191,10 @@ export function absorbSaveEqualToShipped({ rootDir, dataDir, dir, id, entry, fil
   // The editor only expresses name/description/body; the shipped fields it
   // cannot see keep applying because no copy is written.
   const shipped = packDefinitionFromDir(join(rootDir, dir, id), entry, id);
-  if (!shipped || hashDefinition(definition, { surfaceOnly: true }) !== hashDefinition(shipped, { surfaceOnly: true })) {
+  if (
+    !shipped ||
+    hashDefinition(definition, { surfaceOnly: true }) !== hashDefinition(shipped, { surfaceOnly: true })
+  ) {
     return false;
   }
   const copy = join(dataDir, dir, id);
@@ -203,8 +216,7 @@ export const SEPARATION_VERSION = 1;
 export const HISTORY_MARKER_FILE = '.shipped-history-retired';
 
 /** Identity of the history retirement: separation version + history content. */
-export const historyStamp = (rootDir) =>
-  `${SEPARATION_VERSION}:${digest(JSON.stringify(loadShippedHistory(rootDir)))}`;
+export const historyStamp = (rootDir) => `${SEPARATION_VERSION}:${digest(JSON.stringify(loadShippedHistory(rootDir)))}`;
 
 /**
  * Lazily-created `<dataDir>/backups/defaults-separation-<timestamp>` folder.

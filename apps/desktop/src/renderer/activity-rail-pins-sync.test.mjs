@@ -84,8 +84,8 @@ async function mount(t, shared, overrides = {}) {
   const values = {};
   const desktop = overrides.desktop ?? shared.api('desktop');
   const web = overrides.web ?? shared.api('web');
-  function Client({ name, api, remote }) {
-    values[name] = useActivityRailPins(api, remote);
+  function Client({ name, api }) {
+    values[name] = useActivityRailPins(api);
     return React.createElement('output', { 'data-client': name }, JSON.stringify(values[name].pins));
   }
   t.after(async () => {
@@ -97,8 +97,8 @@ async function mount(t, shared, overrides = {}) {
       React.createElement(
         React.Fragment,
         null,
-        React.createElement(Client, { name: 'desktop', api: desktop, remote: false }),
-        React.createElement(Client, { name: 'web', api: web, remote: true })
+        React.createElement(Client, { name: 'desktop', api: desktop }),
+        React.createElement(Client, { name: 'web', api: web })
       )
     )
   );

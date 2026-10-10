@@ -92,6 +92,22 @@ export function maintenanceDelta(maintenance) {
   );
 }
 
+/** Drop shipped presets and maintenance routes that equal their default; loadConfig restores them. */
+export function stripStoredRouteDefaults(agent) {
+  const next = { ...agent };
+  if (Object.hasOwn(next, 'presets')) {
+    const presets = presetsDelta(next.presets);
+    if (presets.length) next.presets = presets;
+    else delete next.presets;
+  }
+  if (Object.hasOwn(next, 'maintenance')) {
+    const maintenance = maintenanceDelta(next.maintenance);
+    if (Object.keys(maintenance).length) next.maintenance = maintenance;
+    else delete next.maintenance;
+  }
+  return next;
+}
+
 const AGENT_PROVIDER_ALIASES = Object.freeze({
   'openai-api': 'openai',
   'gemini-api': 'gemini',

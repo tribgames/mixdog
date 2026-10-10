@@ -1,11 +1,18 @@
 // Lead tool surface: which tools the model sees before a session exists, and
 // how that pre-session selection is replayed once one does. runtime-core keeps
 // the mutable session/route/mode it injects here.
-import { applyDeferredToolSurface, filterDisallowedTools, selectDeferredTools } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import {
+  applyDeferredToolSurface,
+  filterDisallowedTools,
+  selectDeferredTools,
+} from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { LEAD_DISALLOWED_TOOLS } from '../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { loadSkillToolDependencies } from '../runtime/agent/orchestrator/runtime-core/skill-tool-loading.mjs';
-import { disallowedModelToolNamesForProfile, filterModelToolsForProfile } from '../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import {
+  disallowedModelToolNamesForProfile,
+  filterModelToolsForProfile,
+} from '../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { workflowDisallowsAgentTool } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
 

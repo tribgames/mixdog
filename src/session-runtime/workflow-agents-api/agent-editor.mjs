@@ -4,7 +4,12 @@ import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-tex
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';
-import { AGENT_DELETED_MARKER, FIXED_AGENT_SLOTS, availableAgentId, clearAgentDefinitionCache } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import {
+  AGENT_DELETED_MARKER,
+  FIXED_AGENT_SLOTS,
+  availableAgentId,
+  clearAgentDefinitionCache,
+} from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import {
   canonicalizeAgentRouteStorage,
   isAgentDisabled,
