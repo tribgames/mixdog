@@ -79,6 +79,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   else if (displayStatus === 'paused') activityLabel = t('Paused');
   else if (displayStatus === 'active') activityLabel = t('Working');
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId and goal id are triggers that reset the local UI state, not values read in the effect
   useEffect(() => {
     setOpen(false);
     setEditing(null);
@@ -183,6 +184,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             onClick={() => setOpen((value) => !value)}
           >
             <span className="session-goal-title-region">
+              {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role="img" is set whenever activityLabel (the aria-label) is defined */}
               <span
                 className="session-goal-glyph"
                 role={activityLabel ? 'img' : undefined}
@@ -244,6 +246,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
         </div>
         <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
           <div className="session-goal-drawer-clip">
+            {/* biome-ignore lint/a11y/noRedundantRoles: the region role is spelled out for the drawer contract the Goal tests read. */}
             <section id={drawerId} className="session-goal-panel" role="region" aria-label={t('Goal tasks')}>
               <div className="session-goal-content">
                 <div className="session-goal-details" role="status">
@@ -281,6 +284,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                   </p>
                 )}
                 {confirmStop && !terminal && (
+                  // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling
                   <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
                     <p className="session-goal-blocker">
                       {t('Stop this goal? Progress is kept, but it will not resume automatically.')}

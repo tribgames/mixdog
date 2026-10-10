@@ -593,6 +593,7 @@ export default function TerminalPane({
     return undefined;
   }, [active, key]);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop file target; the terminal surface is not a control
     <div
       className="dock-terminal-surface"
       data-dropping={droppingPaths ? 'true' : undefined}

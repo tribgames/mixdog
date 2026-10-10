@@ -122,54 +122,47 @@
   left: 50%;
   /* The scroller extends behind the measured dock. */
   bottom: calc(var(--composer-dock-height, 0px) + var(--pane-chrome-inset));
-  /* Same capsule family as the status island at the opposite corner (user:
-     아일랜드 스타일이랑 비슷하게). The island paints a 28 slot inside 2px of
-     padding, so 32 is the shared resting height, and the surface itself stays
-     bare — the plate belongs to ::before below. */
-  min-height: 32px;
+  /* Ink-inverse circular chip: ink fill, surface-coloured arrow. Stays
+     mounted; showJump toggles aria-hidden, which drives the fade. */
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px;
+  justify-content: center;
+  padding: 0;
   border: 0;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-text);
-  background: transparent;
-  transition: background var(--mx-motion-ink);
+  border-radius: 50%;
+  color: var(--mx-workspace-sheet);
+  background: var(--mx-text);
+  box-shadow: var(--mx-raised);
+  opacity: 1;
+  transition:
+    opacity 150ms ease,
+    translate 150ms ease;
   transform: translateX(-50%);
 }
-/* The island's plate, restated. The tint, blur and hairline MUST stay on this
-   negative layer: on the capsule itself the label would render inside its own
-   backdrop-filter group and lose its crisp text. The pill carries z-index 9,
-   so the layer stays inside its own stacking context. */
-.jump-to-latest::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--mx-bg-base) 62%, transparent);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  backdrop-filter: blur(12px) saturate(140%);
-  box-shadow:
-    inset 0 0 0 var(--mx-hairline) var(--mx-border),
-    var(--mx-raised);
+html[data-window-material="mica"] .jump-to-latest {
+  color: var(--mx-mica-layer);
 }
-/* Hover is the island's slot idiom — one thin ink wash over the plate, not a
-   filled button. (--mx-bg-contrast is #242424 in LIGHT mode and turned the
-   pill black back when hover swapped the whole background.) */
+.jump-to-latest[aria-hidden="true"] {
+  opacity: 0;
+  translate: 0 4px;
+  pointer-events: none;
+}
 .jump-to-latest:hover,
 .jump-to-latest:focus-visible {
-  background: color-mix(in srgb, var(--mx-text) 6%, transparent);
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--mx-workspace-sheet) 14%, transparent),
+    color-mix(in srgb, var(--mx-workspace-sheet) 14%, transparent)
+  );
 }
-/* Same phone reasoning as the island: a live backdrop blur pinned over the
-   transcript re-samples on every scrolled frame, so the projected phone keeps
-   the plate as a near-opaque tint and gives the budget back to scrolling. */
-html[data-mixdog-mobile-tabs] .jump-to-latest::before {
-  background: color-mix(in srgb, var(--mx-bg-base) 92%, transparent);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+@media (prefers-reduced-motion: reduce) {
+  .jump-to-latest {
+    transition: opacity 150ms ease;
+  }
+  .jump-to-latest[aria-hidden="true"] {
+    translate: none;
+  }
 }
 /* Session status island (user: 우상단에 아이폰 다이나믹 아일랜드 같은 섬).
    ONE capsule owns the context gauge and the live Agent/Shell chips at the
@@ -274,8 +267,8 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
    browser toolbar, so the toggles stop reading heavier than their neighbours
    (user: 소스컨트롤·브라우저·터미널 버튼 약간 두껍지 않아?). */
 .pane-dock-toggle svg.lucide {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   stroke-width: 1.5px;
 }
 .pane-dock-toggle:hover,
@@ -347,8 +340,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 /* 02-base pins every lucide stroke to 1px in CSS, which beats the element's
    strokeWidth attribute — a 1px cross reads as a lighter grey than solid
    ink. Both marks share one real-pixel weight here. */
-.workspace-tab-close svg.lucide,
+.workspace-tab-close svg.lucide {
+  stroke-width: 1.5px;
+}
+/* The strip's + and the right-end dock toggles follow the tabs' leading
+   icons: 15px on a 1.5px line, the same as the tabs' leading icons. */
 .workspace-tabs-shell > .workspace-tab-new svg.lucide {
+  width: 15px;
+  height: 15px;
   stroke-width: 1.5px;
 }
 .workspace-tab-close:hover,
@@ -844,6 +843,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .tool-path-link {
   color: var(--mx-md-code);
 }
+.markdown a > .seti-icon,
 .markdown .markdown-path-link .seti-icon,
 .tool-path-link .seti-icon {
   /* Keep the glyph atomic so the link underline stays on the file name. */
@@ -855,15 +855,30 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   vertical-align: middle;
   text-decoration: none;
 }
+.markdown a > .seti-icon,
 .markdown .markdown-path-link .seti-icon {
   /* Reserve glyph geometry even during the first Seti font load. */
   width: 1em;
   height: 1em;
   justify-content: center;
 }
-/* Tool card subject that names a file: same affordance as a chat link, but a
-   span (it sits inside the header button). */
+/* Inline SVG glyphs (folder, globe, slides, archive) fill the same box. */
+.seti-icon.link-glyph > svg {
+  width: 1em;
+  height: 1em;
+}
+/* Tool card subject that names a file: same affordance as a chat link, as a
+   button reset to inline text (it is its own control beside the header's
+   disclosure button). */
 .tool-path-link {
+  display: inline;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
+  letter-spacing: inherit;
   /* The row's own quiet ink: a blue link was the one coloured run in an
      otherwise grey operational line (user: no blue emphasis text). The
      underline carries the affordance, as in chat links. */
@@ -875,6 +890,11 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .tool-path-link:hover {
   text-decoration-color: currentColor;
+}
+.tool-path-link:focus-visible {
+  border-radius: var(--mx-radius-sm);
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
 }
 .markdown a:focus-visible,
 .markdown-table:focus-visible {
@@ -1227,8 +1247,6 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
     content: none;
   }
   .live-activity-status,
-  .live-activity-glyph-spin,
-  .live-activity-glyph-core,
   .turn-status,
   .turn-status::before,
   .turn-status-icon,
@@ -1240,8 +1258,6 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 :root[data-mixdog-motion="paused"] .spin,
 :root[data-mixdog-motion="paused"] .session-row-spinner,
 :root[data-mixdog-motion="paused"] .workspace-tab-status,
-:root[data-mixdog-motion="paused"] .live-activity-glyph-spin,
-:root[data-mixdog-motion="paused"] .live-activity-glyph-core,
 :root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"],
 :root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"]::after,
 :root[data-mixdog-motion="paused"] .tool-card:not(.settled) .tool-icon {

@@ -313,6 +313,7 @@ export const UtilityDock = memo(function UtilityDock({
           </UtilityDockViewSection>
         )}
         {!selectedSurfaceVisible && (
+          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label is only set together with role="status" (source-control tab)
           <div
             className="pane-surface-cover"
             role={tab === 'source-control' ? 'status' : undefined}

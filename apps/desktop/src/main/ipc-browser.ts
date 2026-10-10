@@ -1,4 +1,4 @@
-import { DESKTOP_IPC, type DesktopBrowserViewportConfig } from '../shared/contract';
+import { DESKTOP_IPC, MAIN_BROWSER_PAGE_PREFIX, type DesktopBrowserViewportConfig } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
 import type { IpcHandle as Handle } from './ipc';
@@ -12,6 +12,7 @@ interface BrowserIpcOptions {
     | 'browserImport'
     | 'browserHistorySearch'
     | 'setGuestActive'
+    | 'releaseSession'
     | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'
@@ -52,25 +53,45 @@ function requiredGuestId(value: unknown): number {
 }
 
 export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): void {
+  // Main-tab page ids are unique per tab instance. Once released, a late frame
+  // or control request (still queued in the renderer, or already awaiting page
+  // creation) must not recreate the page, so the id stays closed.
+  const releasedPages = new Set<string>();
+  const live = (pageId: string) => {
+    if (releasedPages.has(pageId)) throw new Error('Browser page was closed.');
+  };
+  const guarded = async <T>(pageId: string, work: () => Promise<T>): Promise<T> => {
+    live(pageId);
+    const result = await work();
+    if (releasedPages.has(pageId)) {
+      // Released while the request was creating the page: drop what it made.
+      browserHost?.releaseSession(pageId);
+      throw new Error('Browser page was closed.');
+    }
+    return result;
+  };
   handle(DESKTOP_IPC.browserPageFrame, (_event, sessionId, previousId, texture) => {
     if (!browserHost) throw new Error('Browser Use is unavailable.');
     if (previousId !== undefined && (typeof previousId !== 'string' || previousId.length > 160)) {
       throw new TypeError('Browser frame id is invalid.');
     }
     if (texture !== undefined && typeof texture !== 'boolean') throw new TypeError('Browser texture mode is invalid.');
-    return browserHost.browserPageFrame(
-      requiredSessionId(sessionId),
-      previousId as string | undefined,
-      texture === true
+    const pageId = requiredSessionId(sessionId);
+    return guarded(pageId, () =>
+      browserHost.browserPageFrame(pageId, previousId as string | undefined, texture === true)
     );
   });
   handle(DESKTOP_IPC.browserPageControl, (_event, sessionId, input) => {
     if (!browserHost) throw new Error('Browser Use is unavailable.');
-    return browserHost.browserPageControl(requiredSessionId(sessionId), normalizeBrowserPageControl(input));
+    const pageId = requiredSessionId(sessionId);
+    live(pageId);
+    const control = normalizeBrowserPageControl(input);
+    return guarded(pageId, async () => browserHost.browserPageControl(pageId, control));
   });
   handle(DESKTOP_IPC.browserPageMetadata, (_event, sessionId) => {
     if (!browserHost) throw new Error('Browser Use is unavailable.');
-    return browserHost.browserPageMetadata(requiredSessionId(sessionId));
+    const pageId = requiredSessionId(sessionId);
+    return guarded(pageId, () => browserHost.browserPageMetadata(pageId));
   });
   handle(DESKTOP_IPC.browserPresentNative, (_event, sessionId, rect) => {
     if (!browserHost) return { enabled: false, shown: false };
@@ -82,6 +103,15 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
     const guestId = requiredGuestId(webContentsId);
     if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
     browserHost.setGuestActive(ownerSessionId, guestId, active);
+  });
+  // The renderer may only release pages it owns: main-workspace browser tabs.
+  // A conversation's own page belongs to the agent's session lifecycle.
+  handle(DESKTOP_IPC.browserReleasePage, (_event, sessionId) => {
+    if (!browserHost) return;
+    const pageId = requiredSessionId(sessionId);
+    if (!pageId.startsWith(MAIN_BROWSER_PAGE_PREFIX)) throw new TypeError('Browser page is not a main tab page.');
+    releasedPages.add(pageId);
+    browserHost.releaseSession(pageId);
   });
   handle(DESKTOP_IPC.browserConfigureGuestViewport, (_event, sessionId, webContentsId, value) => {
     if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');

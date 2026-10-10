@@ -12,6 +12,7 @@ import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } fro
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserPageOwner } from './page-owner';
+import { injectPageScrollbarCss } from './page-scrollbar-css';
 import { adoptBrowserPageWindow, browserPageWindow, createBrowserPageWindow } from './page-window';
 import { assertBackgroundTabCapacity, backgroundPageIdle, normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs-contract';
@@ -54,9 +55,13 @@ function offscreenWindowOptions(nativeView = false): Electron.BrowserWindowConst
   let offscreen: boolean | { useSharedTexture: true } = true;
   if (nativeView) offscreen = false;
   else if (browserSharedTextureRendering()) offscreen = { useSharedTexture: true };
+  const toolWindowType = process.platform === 'win32' ? { type: 'toolbar' as const } : {};
   return {
     show: false,
     focusable: false,
+    // A page's own default, like its view (page-window.ts): the window's
+    // default would be black between pages.
+    backgroundColor: '#ffffff',
     // A native page's window holds nothing but the page, at exactly its
     // content size, and as a tool window never appears in Alt+Tab.
     ...(nativeView
@@ -67,7 +72,7 @@ function offscreenWindowOptions(nativeView = false): Electron.BrowserWindowConst
           roundedCorners: false,
           hasShadow: false,
           skipTaskbar: true,
-          ...(process.platform === 'win32' ? { type: 'toolbar' } : {}),
+          ...toolWindowType,
         }
       : {}),
     width: OFFSCREEN_VIEWPORT.width,
@@ -231,6 +236,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   function initializeGuest(guest: WebContents, deferDebugger = false): void {
     state.for(guest);
     host.onGuest?.(guest);
+    injectPageScrollbarCss(guest);
     const blockNavigation = blockUnsafeNavigation(state, urlPolicy, guest);
     guest.on('will-navigate', blockNavigation);
     guest.on('will-redirect', blockNavigation);

@@ -132,6 +132,7 @@ export function UsageTrend({
   return (
     <section className="stats-trend" aria-label={t('Trend')}>
       <header>
+        {/* biome-ignore lint/a11y/useSemanticElements: chip group is a div styled by .stats-ranges; a fieldset would change the DOM */}
         <div className="stats-ranges stats-grains" role="group" aria-label={t('Metric')}>
           {metrics.map((option) => (
             <button

@@ -2,7 +2,8 @@ import type React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useRef, type ComponentProps } from 'react';
 import { OPEN_DOCTOR_EVENT } from '../command-surface-doctor-event';
 import type { SettingsSection as SlashSettingsSection } from '../slash-commands';
-import type { DesktopModelSelection } from '../../shared/contract';
+import type { DesktopModelSelection, DesktopSessionSummary } from '../../shared/contract';
+import { SessionSearchHost } from '../SessionSearchDialog';
 import { EMPTY_SNAPSHOT, type Snapshot } from '../desktop-types';
 import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
 import { navigationKey } from '../text-format';
@@ -32,6 +33,9 @@ export interface AppShellOverlaysProps {
   workbenchCommands: WorkbenchCommand[];
   openFileTab: (project: string, rel: string, line?: number) => void;
   setQuickAccessMode: (mode: WorkbenchQuickAccessMode | null) => void;
+
+  sessions: readonly DesktopSessionSummary[];
+  openSearchSession: (sessionId: string) => void;
 
   tabSwitcher: { keys: string[]; index: number } | null;
   focusedLeafForShortcuts: PaneLeaf | null | undefined;
@@ -80,6 +84,8 @@ export function AppShellOverlays({
   workbenchCommands,
   openFileTab,
   setQuickAccessMode,
+  sessions,
+  openSearchSession,
   tabSwitcher,
   focusedLeafForShortcuts,
   stripTitleFor,
@@ -151,6 +157,7 @@ export function AppShellOverlays({
           onClose={() => setQuickAccessMode(null)}
         />
       )}
+      <SessionSearchHost sessions={sessions} onOpenSession={openSearchSession} />
       {tabSwitcher && (
         <div className="workspace-tab-switcher" role="listbox" aria-label={t('Open tabs, most recent first')}>
           {tabSwitcher.keys.map((key, index) => {
@@ -160,6 +167,7 @@ export function AppShellOverlays({
               <div
                 key={key}
                 role="option"
+                tabIndex={-1}
                 aria-selected={index === tabSwitcher.index}
                 className={index === tabSwitcher.index ? 'active' : ''}
               >

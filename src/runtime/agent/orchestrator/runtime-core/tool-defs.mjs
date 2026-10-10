@@ -38,6 +38,7 @@ export const CWD_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
+  trigger: 'Show or switch the active Project; not a shell-local cd.',
   description:
     'Show or switch the active Project. list returns the registered projects (name, path); a project name instead of a path → list first, then set the matching path, ask only if several match. path must be an existing directory. A shell-local cd does not change the Project.',
   inputSchema: {

@@ -117,13 +117,31 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
   }
 
   recoverStaleLeadRows();
-  registerExitFlush(() => {
+  function flushLeadIndexOnExit() {
     flushActiveLeadRows();
     // Writes are persisted by an async queue; the loop is gone at exit.
     index.flushSync();
-  });
+  }
+  const unregisterExitFlush = registerExitFlush(flushLeadIndexOnExit);
+  let disposed = false;
+
+  /** Persist queued rows, drop owned reap timers, unregister. `settle` (a real
+   *  teardown) also idles this runtime's own active Lead rows; a dispose that
+   *  keeps background work (idle eviction) leaves them for the next owner. */
+  function dispose({ settle = false } = {}) {
+    if (disposed) return;
+    disposed = true;
+    try {
+      if (settle) flushActiveLeadRows();
+      index.flushSync();
+    } finally {
+      reaps.cancelAll();
+      unregisterExitFlush();
+    }
+  }
 
   return {
+    dispose,
     leadWorkerIndexPath: index.path,
     readLeadWorkerRows: index.read,
     /** Resolves once every queued Lead index write is on disk. */

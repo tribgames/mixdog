@@ -133,6 +133,7 @@ export function ModelCatalog({
     if (!coarsePointer()) search.current?.focus({ preventScroll: true });
     modelList.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
   }, [active]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: query is a deliberate trigger; a new filter resets the list scroll.
   useEffect(() => {
     if (active && modelList.current) modelList.current.scrollTop = 0;
   }, [active, query]);
@@ -169,6 +170,7 @@ export function ModelCatalog({
     ...visibleProviderEntries.flatMap(([, options]) => options.map((option) => modelKey(option))),
   ];
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the derived lists are recomputed each render; the primitive inputs (normalizedQuery, models, recentModelKeys) are the intended triggers.
   useEffect(() => {
     if (!active) return;
     const recent = recentModels.find((option) => option.provider === provider && option.model === model);

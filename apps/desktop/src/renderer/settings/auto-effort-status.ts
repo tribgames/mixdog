@@ -10,6 +10,7 @@ import type { CapabilityApi, RecordValue } from './capability-data';
 export function useAutoEffortStatus(api: CapabilityApi, snapshot: unknown): RecordValue {
   const [live, setLive] = useState<RecordValue | null>(null);
   const installing = record(live ?? snapshot).installing === true;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: snapshot is the trigger: a fresh settings snapshot discards the live override.
   useEffect(() => {
     setLive(null);
   }, [snapshot]);

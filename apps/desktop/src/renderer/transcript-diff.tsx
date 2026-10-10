@@ -75,6 +75,7 @@ export function CodeDiff({ patch }: { patch: string }) {
     () =>
       files.map((file, index) => (
         <DiffView
+          // biome-ignore lint/suspicious/noArrayIndexKey: parsed files are positional and never reorder for a given patch
           key={index}
           data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }}
         />
@@ -97,6 +98,7 @@ export function CodeDiff({ patch }: { patch: string }) {
               .filter((line) => line.startsWith('-') && !line.startsWith('---')).length;
             const operation = fileOperationLabel(file.status);
             return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: parsed files are positional and never reorder for a given patch
               <div className="diff-file" key={`${file.newFile.fileName}-${index}`}>
                 <header>
                   <FileDiff size={16} />
@@ -122,7 +124,12 @@ export function CodeDiff({ patch }: { patch: string }) {
                 {file.renderable ? (
                   <Suspense
                     fallback={
-                      <div className="diff-loading" data-transcript-pending role="status" aria-label={t('Rendering diff…')}>
+                      <div
+                        className="diff-loading"
+                        data-transcript-pending
+                        role="status"
+                        aria-label={t('Rendering diff…')}
+                      >
                         <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
                       </div>
                     }

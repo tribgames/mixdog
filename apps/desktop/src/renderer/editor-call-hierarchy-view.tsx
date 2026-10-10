@@ -201,6 +201,7 @@ export function CallHierarchyPeek({
             />
           )}
         </div>
+        {/* biome-ignore lint/a11y/useSemanticElements: a div resize handle; <hr> would change the element tag. */}
         <div
           className="editor-call-hierarchy-sash"
           role="separator"
@@ -227,6 +228,7 @@ export function CallHierarchyPeek({
             <div
               key={item.key}
               role="treeitem"
+              tabIndex={-1}
               aria-selected={index === state.selectedIndex}
               className={index === state.selectedIndex ? 'selected' : ''}
             >
@@ -257,6 +259,7 @@ export function CallHierarchyPeek({
           ))}
         </div>
       </div>
+      {/* biome-ignore lint/a11y/useSemanticElements: a div resize handle; <hr> would change the element tag. */}
       <div
         className="editor-call-hierarchy-height-sash"
         role="separator"

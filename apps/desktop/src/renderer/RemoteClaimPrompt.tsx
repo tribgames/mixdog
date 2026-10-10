@@ -19,6 +19,7 @@ export function RemoteClaimPrompt() {
   const answeringRef = useRef(false);
   const api = window.mixdogDesktop;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency re-subscribes if the bridge object is replaced.
   useEffect(() => {
     if (typeof api?.subscribeRemoteClientClaim !== 'function') return undefined;
     return api.subscribeRemoteClientClaim((claim) => {
@@ -32,6 +33,7 @@ export function RemoteClaimPrompt() {
 
   useEffect(() => subscribeRemoteClaimPromptActive(setActive), []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency reloads the claims if the bridge object is replaced.
   useEffect(() => {
     if (!active || typeof api?.listRemoteClientClaims !== 'function') return undefined;
     let live = true;

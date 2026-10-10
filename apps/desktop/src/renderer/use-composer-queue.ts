@@ -71,6 +71,7 @@ export function useComposerQueue({
         .join('\n')
     : '';
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: queuedProjectionKey is a content signature of queued and gates re-runs to real queue changes
   useEffect(() => {
     const liveIds = new Set(
       (Array.isArray(queued) ? queued : [])
@@ -255,6 +256,7 @@ export function useComposerQueue({
     queueRestoreInFlightRef.current = false;
     setRestoring(false);
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scope is the trigger that resets queue state
   useEffect(() => {
     resetQueueState();
   }, [resetQueueState, scope]);

@@ -3,7 +3,9 @@ import test, { after } from 'node:test';
 import { JSDOM } from 'jsdom';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://mixdog.test/' });
-const previous = new Map(['window', 'document', 'FileReader'].map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
+const previous = new Map(
+  ['window', 'document', 'FileReader'].map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)])
+);
 Object.defineProperties(globalThis, {
   window: { configurable: true, value: dom.window },
   document: { configurable: true, value: dom.window.document },
@@ -35,7 +37,9 @@ test('Office files are stored as kind office with the inferred OOXML MIME type',
   const file = new File(['PK'], 'brief.docx', { type: 'application/octet-stream' });
   const { attachments, error } = await readAutomationFiles([file], []);
   assert.equal(error, '');
-  assert.deepEqual(attachments, [{ kind: 'office', name: 'brief.docx', mimeType: DOCX, data: Buffer.from('PK').toString('base64') }]);
+  assert.deepEqual(attachments, [
+    { kind: 'office', name: 'brief.docx', mimeType: DOCX, data: Buffer.from('PK').toString('base64') },
+  ]);
 });
 
 test('automation intake rejects empty, legacy and fake PDF files and keeps old pdf-kind Office rows', async () => {

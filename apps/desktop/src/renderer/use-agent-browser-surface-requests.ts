@@ -124,6 +124,7 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
       }),
     [surfaces.browserAutoRevealSuppressed]
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs on owner/focus/select changes; reveal is derived from select, and the ref sets are read at run time
   useEffect(() => {
     for (const sessionId of pendingBrowserAutoReveal.current) {
       if (surfaces.browserAutoRevealSuppressed.current.has(sessionId)) {

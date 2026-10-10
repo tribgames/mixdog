@@ -288,7 +288,9 @@ export function useWorkbenchSideViewLayout(available: readonly WorkbenchSideView
   const [stored, setStored] = useState<WorkbenchSideViewLayout>(() =>
     normalizeWorkbenchSideViewLayout(readLayout(), available)
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: availableKey is the content signature of available, so an equal list does not recompute the layout
   const layout = useMemo(() => normalizeWorkbenchSideViewLayout(stored, available), [availableKey, stored]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: availableKey is the content signature of available, so an equal list keeps commit stable
   const commit = useCallback(
     (update: (current: WorkbenchSideViewLayout) => WorkbenchSideViewLayout) => {
       setStored((current) => {

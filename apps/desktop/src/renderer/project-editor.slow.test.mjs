@@ -101,7 +101,10 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.evaluate(() => document.activeElement.dataset.pinId), 'projects');
   await page.keyboard.press('Enter');
-  assert.equal(await page.$eval('[data-activity-more]', (button) => button.previousElementSibling.dataset.sideView), 'projects');
+  assert.equal(
+    await page.$eval('[data-activity-more]', (button) => button.previousElementSibling.dataset.sideView),
+    'projects'
+  );
   assert.equal(await page.$eval('[data-pin-id="projects"]', (button) => button.getAttribute('aria-checked')), 'true');
   await page.keyboard.press('Escape');
   await page.waitForSelector('[role="menu"]', { hidden: true });
@@ -134,16 +137,34 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   await page.setDragInterception(true);
   await page.mouse.dragAndDrop(source, target);
   await page.setDragInterception(false);
-  await page.waitForFunction(() => document.querySelector('.activity-rail-navigation > button')?.dataset.sideView === 'workflows', { timeout: 5000 }).catch(async (error) => {
-    const state = await page.evaluate(() => ({
-      order: [...document.querySelectorAll('.activity-rail-navigation > [data-side-view]')].map((button) => button.dataset.sideView),
-      events: window.fixture.dragEvents.slice(-20),
-    }));
-    throw new Error(`${error.message}; drag state: ${JSON.stringify(state)}`, { cause: error });
-  });
-  assert.deepEqual(await page.$$eval('.activity-rail-navigation > [data-side-view]', (buttons) => buttons.map((button) => button.dataset.sideView)), ['workflows', 'projects']);
-  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('mixdog.desktop.activity-rail-pins.v1'))), ['sessions', 'agents', 'schedules', 'workflows', 'projects']);
-  assert.equal(await page.$eval('[data-activity-more]', (button) => button === button.parentElement.lastElementChild), true);
+  await page
+    .waitForFunction(
+      () => document.querySelector('.activity-rail-navigation > button')?.dataset.sideView === 'workflows',
+      { timeout: 5000 }
+    )
+    .catch(async (error) => {
+      const state = await page.evaluate(() => ({
+        order: [...document.querySelectorAll('.activity-rail-navigation > [data-side-view]')].map(
+          (button) => button.dataset.sideView
+        ),
+        events: window.fixture.dragEvents.slice(-20),
+      }));
+      throw new Error(`${error.message}; drag state: ${JSON.stringify(state)}`, { cause: error });
+    });
+  assert.deepEqual(
+    await page.$$eval('.activity-rail-navigation > [data-side-view]', (buttons) =>
+      buttons.map((button) => button.dataset.sideView)
+    ),
+    ['workflows', 'projects']
+  );
+  assert.deepEqual(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('mixdog.desktop.activity-rail-pins.v1'))),
+    ['sessions', 'agents', 'schedules', 'workflows', 'projects']
+  );
+  assert.equal(
+    await page.$eval('[data-activity-more]', (button) => button === button.parentElement.lastElementChild),
+    true
+  );
   assert.equal(await page.$eval('.projects-pane', (panel) => panel.getAttribute('data-surface-active')), 'true');
   // All rows, including a row clicked during warm-up, share this one read.
   await page

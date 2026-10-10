@@ -1,18 +1,6 @@
-import {
-  Braces,
-  ChevronLeft,
-  ChevronRight,
-  CircleX,
-  ExternalLink,
-  File as FileIcon,
-  Folder,
-  FolderOpen,
-  Save,
-  TriangleAlert,
-  Undo2,
-} from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { ExternalLink, FolderOpen, Save, Undo2 } from 'lucide-react';
+import type React from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMobileBack } from './mobile-back';
 import type { EditorFileLoad } from './editor-file-loader';
 import type { EditorOutlineItem } from './editor-language-store';
@@ -26,10 +14,61 @@ import {
   type BreadcrumbPickerState,
   type FilePreview,
 } from './editor-pane-model';
-import { ProgressSpinner } from './ProgressSpinner';
 import { openEditorFileExternally } from './editor-external-file';
+import { BreadcrumbPicker, BreadcrumbTrail } from './editor-breadcrumb-parts';
+import { DockOverflowMenu, type DockAction } from './pane-dock-chrome';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
-import type { EditorViewMode } from './editor-delimited';
+
+/** Same grammar as the side header: Save is the only inline button (while
+ *  dirty); everything else is a ⋯ item. */
+function breadcrumbMoreActions({
+  api,
+  projectPath,
+  relPath,
+  accessToken,
+  showOpenDefault,
+  showRevert,
+  revertDisabled,
+  menuActions,
+  onRevert,
+}: {
+  api: typeof window.mixdogDesktop;
+  projectPath: string;
+  relPath: string;
+  accessToken?: string;
+  showOpenDefault: boolean;
+  showRevert: boolean;
+  revertDisabled: boolean;
+  menuActions: readonly DockAction[];
+  onRevert(): void;
+}): DockAction[] {
+  const moreActions: DockAction[] = [];
+  if (!isRemoteBrowserRenderer() && showOpenDefault) {
+    moreActions.push({
+      id: 'open-default',
+      label: t('Open in default app'),
+      icon: ExternalLink,
+      onSelect: () => void openEditorFileExternally(projectPath, relPath, accessToken),
+    });
+  }
+  moreActions.push({
+    id: 'reveal',
+    label: t('Reveal in Explorer'),
+    icon: FolderOpen,
+    onSelect: () => void api?.revealFile?.(projectPath, relPath, accessToken),
+  });
+  if (showRevert) {
+    moreActions.push({
+      id: 'revert',
+      label: t('Revert File'),
+      icon: Undo2,
+      disabled: revertDisabled,
+      onSelect: onRevert,
+    });
+  }
+  moreActions.push(...menuActions);
+  return moreActions;
+}
 
 export function EditorBreadcrumbs({
   projectPath,
@@ -42,14 +81,12 @@ export function EditorBreadcrumbs({
   reverting,
   cursorLine,
   outline,
-  problemStatus,
+  menuActions = [],
   onSave,
   onRevert,
-  onShowProblems,
   onOpenAt,
   onFocusEditor,
   onRevealSymbol,
-  viewToggle,
 }: {
   projectPath: string;
   relPath: string;
@@ -61,19 +98,13 @@ export function EditorBreadcrumbs({
   reverting: boolean;
   cursorLine: number;
   outline: EditorOutlineItem[];
-  problemStatus: { errors: number; warnings: number };
+  /** Extra ⋯ entries (Format Document…), after Reveal / Open in default app. */
+  menuActions?: readonly DockAction[];
   onSave(): void;
   onRevert(): void;
-  onShowProblems(): void;
   onOpenAt?(relPath: string, line: number): void;
   onFocusEditor(): void;
   onRevealSymbol(item: EditorOutlineItem): void;
-  /** Rendered/Source switch for SVG, Markdown and CSV/TSV files. */
-  viewToggle?: {
-    value: EditorViewMode;
-    renderedLabel: string;
-    onChange(value: EditorViewMode): void;
-  };
 }) {
   const api = window.mixdogDesktop;
   const [picker, setPicker] = useState<BreadcrumbPickerState | null>(null);
@@ -91,6 +122,17 @@ export function EditorBreadcrumbs({
   const symbols = [...byLevel.values()];
   const symbol = symbols[symbols.length - 1];
   const editable = Boolean(load && !preview && !load.binary && !load.tooLarge && !load.readOnly);
+  const moreActions = breadcrumbMoreActions({
+    api,
+    projectPath,
+    relPath,
+    accessToken,
+    showOpenDefault: Boolean(preview || load?.binary || load?.tooLarge),
+    showRevert: editable && dirty,
+    revertDisabled: saving || reverting,
+    menuActions,
+    onRevert,
+  });
 
   const closePicker = useCallback(
     (restoreFocus = false) => {
@@ -104,6 +146,7 @@ export function EditorBreadcrumbs({
   );
   useMobileBack(Boolean(picker), () => closePicker(true));
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge, re-read each render and kept as a dependency so a re-installed bridge re-creates this callback.
   const showFiles = useCallback(
     (anchor: BreadcrumbPickerAnchor, directory: string, selectedRelPath: string) => {
       const list = api?.listProjectDir;
@@ -151,6 +194,14 @@ export function EditorBreadcrumbs({
     [accessToken, api, projectPath]
   );
 
+  const showParentFolder = useCallback(
+    (files: Extract<BreadcrumbPickerState, { kind: 'files' }>) => {
+      const parent = files.directory.split('/').slice(0, -1).join('/');
+      showFiles(files.anchor, parent, files.directory);
+    },
+    [showFiles]
+  );
+
   const openPath = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>, index: number) => {
       setFocusIndex(index);
@@ -163,6 +214,7 @@ export function EditorBreadcrumbs({
     [segments, showFiles]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only the active symbol's key is read, so keying on it avoids a new callback when the outline is re-published with equal symbols.
   const openSymbol = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>, sourceIndex: number, selected?: EditorOutlineItem) => {
       setFocusIndex(sourceIndex);
@@ -221,8 +273,7 @@ export function EditorBreadcrumbs({
       }
       if (picker.kind === 'files' && event.key === 'ArrowLeft' && picker.directory) {
         event.preventDefault();
-        const parent = picker.directory.split('/').slice(0, -1).join('/');
-        showFiles(picker.anchor, parent, picker.directory);
+        showParentFolder(picker);
         return;
       }
       if (!count) return;
@@ -241,9 +292,12 @@ export function EditorBreadcrumbs({
         rowRefs.current[picker.activeIndex]?.click();
       }
     },
-    [closePicker, focusRow, picker, showFiles]
+    [closePicker, focusRow, picker, showParentFolder]
   );
 
+  // Focus the active row when the picker opens, changes directory or finishes
+  // loading - not on every activeIndex change, or hovering would steal focus.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency list is the deliberate set of open/directory/loading triggers.
   useEffect(() => {
     if (!picker || (picker.kind === 'files' && picker.loading)) return;
     window.requestAnimationFrame(() => rowRefs.current[picker.activeIndex]?.focus());
@@ -253,6 +307,7 @@ export function EditorBreadcrumbs({
     picker?.kind === 'files' ? picker.loading : false,
   ]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the listener is armed once per open picker (keyed on its presence); it only reads refs and calls setPicker.
   useEffect(() => {
     if (!picker) return undefined;
     const dismiss = (event: PointerEvent) => {
@@ -289,191 +344,44 @@ export function EditorBreadcrumbs({
     [focusIndex, onFocusEditor, segments.length, symbols.length]
   );
 
-  const portal =
-    picker &&
-    createPortal(
-      <div
-        ref={pickerRef}
-        className="editor-breadcrumb-picker"
-        role="dialog"
-        aria-label={picker.kind === 'files' ? t('File Breadcrumbs') : t('Symbol Breadcrumbs')}
-        style={{
-          left: picker.anchor.x,
-          top: picker.anchor.y,
-          width: picker.anchor.width,
-          maxHeight: picker.anchor.maxHeight,
-        }}
-        onKeyDown={handlePickerKeyDown}
-      >
-        {picker.kind === 'files' && (
-          <div className="editor-breadcrumb-picker-header">
-            <button
-              type="button"
-              aria-label={t('Parent Folder')}
-              disabled={!picker.directory}
-              onClick={() => {
-                const parent = picker.directory.split('/').slice(0, -1).join('/');
-                showFiles(picker.anchor, parent, picker.directory);
-              }}
-            >
-              <ChevronLeft size={14} aria-hidden="true" />
-            </button>
-            <span title={picker.directory || projectPath}>{picker.directory || projectPath}</span>
-          </div>
-        )}
-        <div className="editor-breadcrumb-picker-tree" role="tree">
-          {picker.kind === 'files' && picker.loading && (
-            <p>
-              <ProgressSpinner size={14} className="editor-pane-spinner" /> {t('Loading…')}
-            </p>
-          )}
-          {picker.kind === 'files' && !picker.loading && picker.error && <p>{picker.error}</p>}
-          {picker.kind === 'files' && !picker.loading && !picker.error && !picker.rows.length && (
-            <p>{t('No files found.')}</p>
-          )}
-          {picker.kind === 'symbols' && !picker.rows.length && <p>{t('No symbols found.')}</p>}
-          {picker.rows.map((item, index) => {
-            const fileItem = picker.kind === 'files' ? (item as BreadcrumbFileItem) : null;
-            const symbolItem = picker.kind === 'symbols' ? (item as EditorOutlineItem) : null;
-            const selected = index === picker.activeIndex;
-            let RowGlyph = Braces;
-            if (fileItem) RowGlyph = fileItem.dir ? Folder : FileIcon;
-            return (
-              <button
-                key={fileItem?.relPath || symbolItem?.key || index}
-                ref={(node) => {
-                  rowRefs.current[index] = node;
-                }}
-                type="button"
-                role="treeitem"
-                aria-selected={selected}
-                className={selected ? 'selected' : ''}
-                style={symbolItem ? { paddingLeft: `${8 + symbolItem.level * 14}px` } : undefined}
-                onFocus={() => activateRow(index)}
-                onMouseEnter={() => activateRow(index)}
-                onClick={() => {
-                  if (fileItem) {
-                    openFile(fileItem);
-                    return;
-                  }
-                  if (!symbolItem) return;
-                  setPicker(null);
-                  onRevealSymbol(symbolItem);
-                }}
-              >
-                <RowGlyph size={14} aria-hidden="true" />
-                <span>{fileItem?.name || symbolItem?.name}</span>
-                {symbolItem?.detail && <small>{symbolItem.detail}</small>}
-              </button>
-            );
-          })}
-        </div>
-      </div>,
-      document.body
-    );
+  const portal = picker && (
+    <BreadcrumbPicker
+      picker={picker}
+      projectPath={projectPath}
+      pickerRef={pickerRef}
+      rowRefs={rowRefs}
+      onKeyDown={handlePickerKeyDown}
+      onParentFolder={() => {
+        if (picker.kind === 'files') showParentFolder(picker);
+      }}
+      onActivateRow={activateRow}
+      onPickFile={openFile}
+      onPickSymbol={(item) => {
+        setPicker(null);
+        onRevealSymbol(item);
+      }}
+    />
+  );
 
   return (
     <>
       <nav className="editor-breadcrumbs" aria-label={t('Breadcrumbs')} onKeyDown={handleKeyDown}>
-        <span className="editor-breadcrumb-path">
-          {segments.map((segment, index) => (
-            <React.Fragment key={`${index}:${segment}`}>
-              {index > 0 && <ChevronRight size={14} aria-hidden="true" />}
-              <button
-                ref={(node) => {
-                  buttonRefs.current[index] = node;
-                }}
-                type="button"
-                className={`editor-breadcrumb-item${index === segments.length - 1 ? ' editor-breadcrumb-current' : ''}`}
-                title={segments.slice(0, index + 1).join('/')}
-                aria-haspopup={accessToken ? undefined : 'tree'}
-                aria-expanded={picker?.kind === 'files' && picker.anchor.sourceIndex === index}
-                disabled={Boolean(accessToken)}
-                tabIndex={focusIndex === index ? 0 : -1}
-                onFocus={() => setFocusIndex(index)}
-                onClick={(event) => openPath(event, index)}
-              >
-                {index === segments.length - 1 ? (
-                  <FileIcon size={14} aria-hidden="true" />
-                ) : (
-                  <Folder size={14} aria-hidden="true" />
-                )}
-                <span>{segment}</span>
-              </button>
-            </React.Fragment>
-          ))}
-          {symbols.map((item, symbolIndex) => {
-            const index = segments.length + symbolIndex;
-            return (
-              <React.Fragment key={item.key}>
-                <ChevronRight size={14} aria-hidden="true" />
-                <button
-                  ref={(node) => {
-                    buttonRefs.current[index] = node;
-                  }}
-                  type="button"
-                  className="editor-breadcrumb-item editor-breadcrumb-symbol"
-                  title={item.detail || item.name}
-                  aria-haspopup="tree"
-                  aria-expanded={picker?.kind === 'symbols' && picker.anchor.sourceIndex === index}
-                  tabIndex={focusIndex === index ? 0 : -1}
-                  onFocus={() => setFocusIndex(index)}
-                  onClick={(event) => openSymbol(event, index, item)}
-                >
-                  <Braces size={14} aria-hidden="true" />
-                  <span>{item.name}</span>
-                </button>
-              </React.Fragment>
-            );
-          })}
-        </span>
+        <BreadcrumbTrail
+          segments={segments}
+          symbols={symbols}
+          picker={picker}
+          focusIndex={focusIndex}
+          accessToken={accessToken}
+          buttonRefs={buttonRefs}
+          onFocusItem={setFocusIndex}
+          onOpenPath={openPath}
+          onOpenSymbol={openSymbol}
+        />
         <span className="editor-breadcrumb-actions">
-          {viewToggle && (
-            <span className="review-style-toggle editor-view-toggle" role="radiogroup" aria-label={t('View mode')}>
-              {(['rendered', 'source'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={viewToggle.value === mode}
-                  onClick={() => viewToggle.onChange(mode)}
-                >
-                  {mode === 'rendered' ? viewToggle.renderedLabel : t('Source')}
-                </button>
-              ))}
-            </span>
-          )}
-          {!isRemoteBrowserRenderer() && (preview || load?.binary || load?.tooLarge) && (
+          {editable && dirty && (
             <button
               type="button"
-              aria-label={t('Open in default app')}
-              data-tooltip={t('Open in default app')}
-              onClick={() => void openEditorFileExternally(projectPath, relPath, accessToken)}
-            >
-              <ExternalLink size={16} aria-hidden="true" />
-            </button>
-          )}
-          {editable && (
-            <button
-              type="button"
-              className="editor-problems-action"
-              onClick={onShowProblems}
-              aria-label={t('Problems')}
-              data-tooltip={t('Problems')}
-            >
-              <span className="editor-problems-count is-error" aria-hidden="true">
-                <CircleX size={14} />
-                <b>{problemStatus.errors}</b>
-              </span>
-              <span className="editor-problems-count is-warning" aria-hidden="true">
-                <TriangleAlert size={14} />
-                <b>{problemStatus.warnings}</b>
-              </span>
-            </button>
-          )}
-          {editable && (
-            <button
-              type="button"
-              disabled={!dirty || saving || reverting}
+              disabled={saving || reverting}
               onClick={onSave}
               aria-label={t('Save')}
               data-tooltip={t('Save (Ctrl+S)')}
@@ -481,26 +389,7 @@ export function EditorBreadcrumbs({
               <Save size={16} aria-hidden="true" />
             </button>
           )}
-          {editable && dirty && (
-            <button
-              type="button"
-              className="editor-revert-action"
-              disabled={saving || reverting}
-              onClick={onRevert}
-              aria-label={t('Revert')}
-              data-tooltip={t('Revert File')}
-            >
-              <Undo2 size={18} aria-hidden="true" />
-            </button>
-          )}
-          <button
-            type="button"
-            aria-label={t('Reveal in Explorer')}
-            data-tooltip={t('Reveal in Explorer')}
-            onClick={() => void api?.revealFile?.(projectPath, relPath, accessToken)}
-          >
-            <FolderOpen size={16} aria-hidden="true" />
-          </button>
+          <DockOverflowMenu items={moreActions} />
         </span>
       </nav>
       {portal}

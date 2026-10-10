@@ -326,6 +326,11 @@ function reattachBand(metrics: ScrollMetrics): number {
 export function scrollShouldReattachFollow(metrics: ScrollMetrics, previousTop: number): boolean {
   if (!canScroll(metrics)) return true;
   const distance = distanceFromBottom(metrics);
+  // An upward frame is the reader leaving: the first smooth-scroll frame of
+  // the wheel notch that just released follow still lands inside the band,
+  // and re-attaching there kept follow armed for the whole climb, so the next
+  // resize (a card opening, the side panel) yanked the reader to the bottom.
+  if (metrics.top < previousTop) return false;
   if (distance < BOTTOM_THRESHOLD_PX) return true;
   return metrics.top > previousTop && distance <= reattachBand(metrics);
 }

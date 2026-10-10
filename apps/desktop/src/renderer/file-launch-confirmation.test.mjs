@@ -6,7 +6,9 @@ import { openConfirmedFile } from './file-launch-confirmation.tsx';
 
 function fixture(t) {
   const { dom } = installTestDom(t);
-  dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  dom.window.HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
   return dom.window.document;
 }
 

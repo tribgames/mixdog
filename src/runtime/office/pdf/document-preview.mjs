@@ -12,8 +12,8 @@
 // removal instead of a filename convention that has to stay in sync with
 // whatever the renderer happens to write.
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, rm, stat, utimes } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 
 import { renderPdfPages } from './pdf-render.mjs';
 import { renderPortableOoxml } from '../portable/portable-soffice.mjs';
@@ -43,6 +43,12 @@ const CACHE_DIR_NAME = 'document-previews';
 // directory.
 const MAX_CACHED_DOCUMENTS = 24;
 const PREVIEW_PDF_NAME = 'preview.pdf';
+// Rasterized pages live beside, not inside, the PDF directories so their
+// eviction counts stay independent.
+const PAGE_CACHE_DIR_NAME = 'document-preview-pages';
+const MAX_CACHED_PAGE_REVISIONS = 48;
+const MAX_MEMORY_PAGES = 32;
+const MAX_MEMORY_PAGE_BYTES = 48 * 1024 * 1024;
 
 /** The convertible format for this filename, or '' when there is none. */
 export function documentPreviewFormat(path) {
@@ -130,20 +136,135 @@ export async function documentPreviewPdf(path, { cacheRoot, signal = null } = {}
  * show, and the answer carries the page COUNT so it can ask for the rest.
  * @returns {Promise<{ pageCount: number; pages: Array<{ page: number; width: number; height: number; mime: string; base64: string }> }>}
  */
-export async function documentPreviewPages(pdfPath, { pages = [1], maxWidth = 1200, signal = null } = {}) {
-  const rendered = await renderPdfPages(pdfPath, {
-    pages: Array.isArray(pages) && pages.length ? pages : [1],
-    maxWidth,
-    signal,
-  });
-  return {
-    pageCount: rendered.pageCount,
-    pages: (rendered.images || []).map((image) => ({
+export async function documentPreviewPages(
+  pdfPath,
+  { pages = [1], maxWidth = 1200, signal = null, cacheRoot = '', renderPages = renderPdfPages } = {}
+) {
+  const wanted = Array.isArray(pages) && pages.length ? pages : [1];
+  const info = await stat(pdfPath).catch(() => null);
+  const revision = info?.isFile() ? pageRevision(pdfPath, info) : null;
+  const found = new Map();
+  const missing = [];
+  let pageCount = 0;
+  for (const page of wanted) {
+    const hit = revision ? await cachedPage(revision, cacheRoot, page, maxWidth) : null;
+    if (hit) {
+      found.set(page, hit.entry);
+      pageCount = hit.pageCount;
+    } else {
+      missing.push(page);
+    }
+  }
+  if (missing.length) {
+    const rendered = await renderPages(pdfPath, { pages: missing, maxWidth, signal });
+    pageCount = rendered.pageCount;
+    const fresh = (rendered.images || []).map((image) => ({
       page: image.page,
       width: image.width,
       height: image.height,
       mime: image.mimeType || 'image/png',
       base64: image.data,
-    })),
+    }));
+    // Only pixels of the revision that was stat'ed may be stored under it.
+    const after = revision ? await stat(pdfPath).catch(() => null) : null;
+    const unchanged = after && after.mtimeMs === info.mtimeMs && after.size === info.size;
+    for (const entry of fresh) {
+      found.set(entry.page, entry);
+      if (unchanged) await storePage(revision, cacheRoot, entry, pageCount, maxWidth);
+    }
+    if (unchanged && cacheRoot) await prunePageCache(join(cacheRoot, PAGE_CACHE_DIR_NAME), revision);
+  }
+  return { pageCount, pages: wanted.filter((page) => found.has(page)).map((page) => found.get(page)) };
+}
+
+function pageRevision(pdfPath, info) {
+  const path = resolve(pdfPath);
+  const sha = (value) => createHash('sha256').update(value).digest('hex').slice(0, 16);
+  return {
+    path,
+    memory: `${path}\0${info.mtimeMs}\0${info.size}`,
+    directory: `${sha(path)}-${sha(`${info.mtimeMs}\0${info.size}`)}`,
+    owner: sha(path),
   };
+}
+
+const memoryPages = new Map();
+let memoryBytes = 0;
+
+function rememberPage(key, value) {
+  const previous = memoryPages.get(key);
+  if (previous) memoryBytes -= previous.bytes;
+  const bytes = value.entry.base64.length;
+  memoryPages.delete(key);
+  memoryPages.set(key, { ...value, bytes });
+  memoryBytes += bytes;
+  for (const [oldest, old] of memoryPages) {
+    if (memoryBytes <= MAX_MEMORY_PAGE_BYTES && memoryPages.size <= MAX_MEMORY_PAGES) break;
+    memoryPages.delete(oldest);
+    memoryBytes -= old.bytes;
+  }
+}
+
+function pageFile(revision, cacheRoot, page, maxWidth) {
+  return join(cacheRoot, PAGE_CACHE_DIR_NAME, revision.directory, `${page}-${maxWidth}.json`);
+}
+
+async function cachedPage(revision, cacheRoot, page, maxWidth) {
+  const key = `${revision.memory}\0${page}\0${maxWidth}`;
+  const hot = memoryPages.get(key);
+  if (hot) {
+    rememberPage(key, hot);
+    return hot;
+  }
+  if (!cacheRoot) return null;
+  const file = pageFile(revision, cacheRoot, page, maxWidth);
+  try {
+    const stored = JSON.parse(await readFile(file, 'utf8'));
+    if (!stored?.entry?.base64 || stored.entry.page !== page || !(stored.pageCount >= 1)) return null;
+    const now = new Date();
+    await utimes(join(file, '..'), now, now).catch(() => {});
+    rememberPage(key, stored);
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+async function storePage(revision, cacheRoot, entry, pageCount, maxWidth) {
+  const value = { entry, pageCount };
+  rememberPage(`${revision.memory}\0${entry.page}\0${maxWidth}`, value);
+  if (!cacheRoot) return;
+  const file = pageFile(revision, cacheRoot, entry.page, maxWidth);
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await mkdir(join(file, '..'), { recursive: true });
+    await writeFile(temporary, JSON.stringify(value));
+    await rename(temporary, file);
+  } catch {
+    await rm(temporary, { force: true }).catch(() => {});
+  }
+}
+
+// Older revisions of the same PDF can never be requested again, so they go;
+// beyond that the least recently used revisions are dropped past a fixed count.
+async function prunePageCache(root, current) {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const remove = (name) => rm(join(root, name), { recursive: true, force: true }).catch(() => {});
+  const keep = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === current.directory) continue;
+    if (entry.name.startsWith(`${current.owner}-`)) await remove(entry.name);
+    else keep.push(entry.name);
+  }
+  if (keep.length < MAX_CACHED_PAGE_REVISIONS) return;
+  const dated = await Promise.all(
+    keep.map(async (name) => ({ name, usedAt: (await stat(join(root, name)).catch(() => null))?.mtimeMs ?? 0 }))
+  );
+  dated.sort((left, right) => right.usedAt - left.usedAt);
+  await Promise.all(dated.slice(MAX_CACHED_PAGE_REVISIONS - 1).map((entry) => remove(entry.name)));
 }

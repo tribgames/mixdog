@@ -39,7 +39,7 @@ export const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   gif: 'image/gif',
   webp: 'image/webp',
 };
-const SUPPORTED_IMAGE_PATH =/\.(?:png|jpe?g|gif|webp)$/i;
+const SUPPORTED_IMAGE_PATH = /\.(?:png|jpe?g|gif|webp)$/i;
 const TEXT_LIKE_MIME = /^application\/(?:json|ld\+json|toml|x-toml|yaml|x-yaml|xml)$/;
 const TEXT_LIKE_EXTENSION =
   /\.(?:md|mdx|txt|json|jsonl|ya?ml|toml|xml|csv|tsv|[cm]?[jt]sx?|py|rb|rs|go|java|kt|swift|cs|cpp|cc|c|h|hh|hpp|sh|zsh|ps1|bat|cmd|sql|css|scss|sass|html|htm|vue|svelte|log|env|ini|conf|cfg|gql|graphql)$/i;

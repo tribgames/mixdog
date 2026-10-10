@@ -1,6 +1,7 @@
 import type {
   DesktopAbortOptions,
   DesktopAgentPoolRow,
+  DesktopSessionContentMatch,
   DesktopCapability,
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
@@ -255,6 +256,9 @@ export class CaptureService implements DesktopService {
   async codeGraphQuery(): Promise<unknown> {
     return null;
   }
+  async searchSessionContent(_query: string): Promise<DesktopSessionContentMatch[]> {
+    return [];
+  }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
     return [];
   }
@@ -263,6 +267,7 @@ export class CaptureService implements DesktopService {
   }
   async renameSession(): Promise<void> {}
   async setSessionArchived(): Promise<void> {}
+  async setSessionFavorite(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> {
     return null;
   }

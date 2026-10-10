@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, Globe, Maximize2, Minimize2, Plus, X } from 'lucide-react';
+import { ExternalLink, Globe, Plus, X } from 'lucide-react';
 import { ProgressSpinner } from './ProgressSpinner';
 import type { DesktopBrowserTab } from '../shared/contract';
 import { t } from './i18n';
+import { scrollTabListByWheel } from './pane-dock-chrome';
 import { wrappedNavigationIndex } from './list-navigation';
 import './tab-strip.css';
 
@@ -13,20 +14,18 @@ export function BrowserTabStrip({
   onSelect,
   onCreate,
   onClose,
-  expanded = false,
-  onToggleExpanded,
 }: {
   tabs: readonly DesktopBrowserTab[];
   onSelect(id: string): Promise<void>;
-  onCreate(): Promise<void>;
+  /** Omitted when the host cannot open blank tabs (main workspace tab). */
+  onCreate?(): Promise<void>;
   onClose(id: string): Promise<void>;
-  expanded?: boolean;
-  onToggleExpanded?(): void;
 }) {
   const strip = useRef<HTMLDivElement | null>(null);
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const activeId = tabs.find((tab) => tab.active)?.id;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the selected tab changing is the trigger; the body only reads the DOM.
   useEffect(() => {
     strip.current
       ?.querySelector<HTMLElement>('[aria-selected="true"]')
@@ -54,6 +53,7 @@ export function BrowserTabStrip({
         role="tablist"
         aria-label={t('Browser tabs')}
         aria-busy={busy}
+        onWheel={(event) => scrollTabListByWheel(event, strip.current)}
         onKeyDown={(event) => {
           const offset = ARROW_OFFSETS[event.key] ?? 0;
           if ((!offset && event.key !== 'Home' && event.key !== 'End') || !tabs.length) return;
@@ -68,6 +68,7 @@ export function BrowserTabStrip({
           const title = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : t('New tab'));
           const TabGlyph = tab.kind === 'popup' ? ExternalLink : Globe;
           return (
+            // biome-ignore lint/a11y/noStaticElementInteractions: middle-click close is a pointer shortcut; the tab's close button is the keyboard path.
             <div
               key={tab.id}
               className={`browser-tab${tab.active ? ' is-active' : ''}`}
@@ -89,9 +90,9 @@ export function BrowserTabStrip({
                 onClick={() => void run(() => onSelect(tab.id))}
               >
                 {tab.loading ? (
-                  <ProgressSpinner size={14} aria-hidden="true" />
+                  <ProgressSpinner size={15} aria-hidden="true" />
                 ) : (
-                  <TabGlyph size={14} aria-hidden="true" />
+                  <TabGlyph size={15} aria-hidden="true" />
                 )}
                 <span>{title}</span>
                 {tab.kind === 'popup' && <small>{t('Popup')}</small>}
@@ -110,25 +111,16 @@ export function BrowserTabStrip({
           );
         })}
       </div>
-      <button
-        type="button"
-        className="browser-tab-new"
-        disabled={busy || !tabs.length}
-        aria-label={t('New tab')}
-        data-tooltip={t('New tab')}
-        onClick={() => void run(onCreate)}
-      >
-        <Plus size={16} />
-      </button>
-      {onToggleExpanded && (
+      {onCreate && (
         <button
           type="button"
-          className="browser-pane-nav-button browser-tab-trailing"
-          aria-label={expanded ? t('Restore browser') : t('Expand browser')}
-          data-tooltip={expanded ? t('Restore browser') : t('Expand browser')}
-          onClick={onToggleExpanded}
+          className="browser-tab-new"
+          disabled={busy || !tabs.length}
+          aria-label={t('New tab')}
+          data-tooltip={t('New tab')}
+          onClick={() => void run(onCreate)}
         >
-          {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          <Plus size={15} />
         </button>
       )}
     </div>

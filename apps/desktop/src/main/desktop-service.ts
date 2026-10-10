@@ -1,7 +1,12 @@
 import type { DesktopRemoteBrowserStreamFrame, DesktopSessionStateUpdate, SessionSnapshot } from '../shared/contract';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
-import type { MixdogProjectsModule, MixdogSessionStoreModule, StatuslineSegmentsModule } from './desktop-support';
+import type {
+  MixdogProjectsModule,
+  MixdogSessionSearchModule,
+  MixdogSessionStoreModule,
+  StatuslineSegmentsModule,
+} from './desktop-support';
 import { SessionHost, type SessionClient } from './session-host';
 import {
   DESKTOP_SERVICE_METHODS,
@@ -51,6 +56,7 @@ interface DesktopServiceRuntime {
   }): Promise<SessionClient>;
   loadProjects(): Promise<MixdogProjectsModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
+  loadSessionSearch?(): Promise<MixdogSessionSearchModule>;
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   loadConfig(): Promise<import('./settings-store').MixdogConfigModule>;
   /** Office document conversion and page rasterization. Optional: an older

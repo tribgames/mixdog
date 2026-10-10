@@ -52,6 +52,7 @@ function HistoryRow({ entry, remoteName, pushBlocked, pushReason, onOpen, onOpen
     onOpen();
   };
   return (
+    // biome-ignore lint/a11y/useSemanticElements: the row holds nested interactive content, which a button element cannot
     <div
       role="button"
       tabIndex={0}

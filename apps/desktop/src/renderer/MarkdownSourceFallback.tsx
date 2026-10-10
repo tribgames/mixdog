@@ -82,6 +82,7 @@ function sourceBlockNodes(block: string, key: string): ReactNode[] {
     list = null;
     const listKey = `${key}-list-${nodes.length}`;
     const items = current.items.map((item, index) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: list items are positional text lines of a static source and never reorder.
       <li key={`${listKey}-${index}`}>{sourceInlineNodes(item, `${listKey}-${index}`)}</li>
     ));
     nodes.push(current.ordered ? <ol key={listKey}>{items}</ol> : <ul key={listKey}>{items}</ul>);
@@ -237,6 +238,7 @@ export function MarkdownSourceFallback({
       {sourceParts(text).map((part, index) => {
         if (part.kind === 'text') return sourceTextNodes(part.text, `text-${index}`);
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional segments of a static source text and never reorder.
           <div className="markdown-code markdown-code-fallback" key={`code-${index}`}>
             <header>
               <span>{part.language}</span>

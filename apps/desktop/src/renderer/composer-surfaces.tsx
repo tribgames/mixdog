@@ -213,6 +213,7 @@ export function AttachmentChips({
   onError: (message: string) => void;
 }) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the chip list container keeps its tag; the label names the attachments
     <div className="composer-attachments" aria-label={t('Attachments')}>
       {attachments.map((attachment) => {
         const editable = attachment.kind === 'text' && attachment.source === 'paste';
@@ -295,6 +296,7 @@ function DictationMeter({ levelRef }: { levelRef: MutableRefObject<number> }) {
   return (
     <span className="composer-dictation-meter" ref={host} aria-hidden="true">
       {DICTATION_BAR_GAINS.map((gain, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: fixed meter bars are positional and never reorder
         <span key={index} style={{ '--mx-dictation-gain': gain } as CSSProperties} />
       ))}
     </span>
@@ -305,6 +307,7 @@ function DictationProgress() {
   return (
     <span className="composer-dictation-progress" aria-hidden="true">
       {DICTATION_BAR_GAINS.map((_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: fixed progress bars are positional and never reorder
         <span key={index} />
       ))}
     </span>

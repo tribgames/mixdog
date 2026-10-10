@@ -134,10 +134,13 @@ export function BuiltInFeatureInfo({
   if (feature.id === 'localProvider') facts.push(...localProviderFacts(state.localProvider));
   if (feature.id === 'autoEffort') {
     facts.push(
-      ['Model', String(info.model || '')],
+      // Mixdog's own judge, fine-tuned from the backbone calibration.json names.
+      ['Model', t('Mixdog Auto reasoning model')],
+      ['Base model', info.model ? `${String(info.model)} · ${t('fine-tuned')}` : ''],
+      ['Quantization', String(info.quantization || '')],
       ['Engine', String(info.engine || '')],
-      ['Supported models', 'Claude Opus · Sonnet · Fable · GPT-6 · GPT-6.1'],
-      ['Install', t('Install downloads the Auto reasoning model (about 160 MB).')]
+      ['Model size', info.modelBytes ? fileSize(Number(info.modelBytes)) : ''],
+      ['Supported models', 'Claude Opus · Sonnet · Fable · GPT-6 · GPT-6.1']
     );
   }
   if (!facts.some(([, value]) => value)) return null;

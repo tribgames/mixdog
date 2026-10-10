@@ -370,6 +370,7 @@ jobs:
           key: >-
             desktop-out-v4-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
               'CHANGELOG.md',
+              'changelog/*.md',
               'apps/desktop/package.json',
               'apps/desktop/src/**',
               '!apps/desktop/src/**/*.test.mjs',

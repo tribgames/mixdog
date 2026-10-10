@@ -276,7 +276,9 @@ async function runFast(run: SlashRun, argument: string): Promise<boolean | undef
   if (deps.draftMode && deps.onDraftModelSelection && deps.provider && deps.model) {
     deps.onDraftModelSelection(selection);
   } else if (offersTier && deps.provider && deps.model) {
-    const next = await deps.invokeResult(() => window.mixdogDesktop.setModelRoute(selection, deps.sessionId || undefined));
+    const next = await deps.invokeResult(() =>
+      window.mixdogDesktop.setModelRoute(selection, deps.sessionId || undefined)
+    );
     if (next === undefined) return false;
     deps.applySnapshot(next);
     deps.onRoutePreferenceApplied?.(selection);

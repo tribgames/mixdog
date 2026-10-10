@@ -54,6 +54,7 @@ const APP_SCOPE_ENTRY = '/__mixdog-app__/scope';
 const UI_LANGUAGE_ENTRY = '/__mixdog-app__/ui-language';
 const NOTIFICATION_CLICK_ENTRY = '/__mixdog-app__/notification-click';
 // A tap the app never came back for stops meaning anything.
+// biome-ignore lint/correctness/noUnusedVariables: read by sw-test-harness.mjs and push-notification-click.test.mjs as a worker global.
 const NOTIFICATION_CLICK_TTL_MS = 10 * 60 * 1000;
 const OPEN_SESSION_MESSAGE = 'mixdog:open-session';
 

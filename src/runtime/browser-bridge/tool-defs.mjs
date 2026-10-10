@@ -75,6 +75,7 @@ export const TOOL_DEFS = [
   {
     name: 'browser_devtools',
     title: 'Mixdog Browser DevTools',
+    trigger: 'Live browser emulation, cookies and storage; not page interaction (browser).',
     description: BROWSER_DEVTOOLS_DESCRIPTION,
     inputSchema: scopedInputSchema(BROWSER_DEVTOOLS_ACTIONS, DEVTOOLS_FIELD_NOTES),
   },

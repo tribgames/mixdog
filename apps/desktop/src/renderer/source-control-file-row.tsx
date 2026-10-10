@@ -146,6 +146,7 @@ export function SourceControlFileRow({
   const displayName = file.oldPath ? `${fileBaseName(file.oldPath)} → ${fileName}` : fileName;
   const kind = statusKind(file);
   return (
+    // biome-ignore lint/a11y/useFocusableInteractive: focus lives on the row's own checkbox and buttons; making the row focusable would change keyboard flow
     <div
       className="dock-scm-file"
       data-selected={selected || undefined}

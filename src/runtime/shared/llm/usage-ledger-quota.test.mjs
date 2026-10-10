@@ -545,3 +545,30 @@ test('the statistics API names accounts and pages by view', async (t) => {
   assert.equal((await empty.getQuotaHistory({})).selection, null);
   assert.equal((await empty.getQuotaHistory({ page: 0 })).total, 0);
 });
+
+test('the statistics API carries account emails and flags accounts outside the roster', async (t) => {
+  const ledger = store(t);
+  ledger.recordQuota([
+    reading(at(0, 30), 10),
+    reading(at(0, 30), 20, { account: 'kept-id' }),
+    reading(at(0, 30), 30, { account: 'removed-id' }),
+    reading(at(0, 30), 40, { provider: 'opencode-go', account: 'default', label: 'M' }),
+  ]);
+  t.mock.method(Date, 'now', () => at(1));
+  const api = createUsageStatsApi({
+    ledger: () => ledger,
+    importHistory: async () => {},
+    accountPool: (provider) => ({
+      accounts: provider === 'anthropic-oauth' ? [{ id: 'kept-id', label: 'Dev' }] : [],
+    }),
+    accountEmails: () => ({ 'kept-id': 'name@example.com' }),
+  });
+  const { subscriptions } = await api.getQuotaHistory({});
+  const row = (provider, account) => subscriptions.find((entry) => entry.provider === provider && entry.account === account);
+  assert.equal(row('anthropic-oauth', 'kept-id').accountEmail, 'name@example.com');
+  assert.equal(row('anthropic-oauth', 'kept-id').accountInRoster, true);
+  assert.equal(row('anthropic-oauth', 'removed-id').accountInRoster, false);
+  assert.equal(row('anthropic-oauth', 'removed-id').accountEmail, undefined);
+  assert.equal(row('anthropic-oauth', 'default').accountInRoster, false, 'default left a non-empty roster');
+  assert.equal(row('opencode-go', 'default').accountInRoster, true, 'single-account providers stay listed');
+});

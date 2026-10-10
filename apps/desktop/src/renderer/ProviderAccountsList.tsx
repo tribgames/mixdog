@@ -30,6 +30,8 @@ type ProviderAccount = {
   reauthRequired: boolean;
   /** Provider-side identity (email / account id) when the token exposes one. */
   identity?: string;
+  /** Sign-in email of the real account, when the provider exposes one. */
+  email?: string;
   blockedUntil?: number;
   usage?: { windows?: { label?: string; usedPct: number | null; resetAt?: number }[] };
 };
@@ -251,6 +253,7 @@ export function ProviderAccountsList({
     if (moved) reorder(from, to);
   };
   const dragging = drag !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clearGesture is recreated every render but only touches refs and a state setter; the listener must follow `dragging` only.
   useEffect(() => {
     if (!dragging) return;
     const onKey = (event: KeyboardEvent) => {
@@ -359,6 +362,7 @@ export function ProviderAccountsList({
                     onClick={() => void change({ selectedId: account.id })}
                   >
                     <span>{account.label}</span>
+                    {account.email && account.email !== account.label && <small>{account.email}</small>}
                     {account.reauthRequired && <small>{t('Reauth required')}</small>}
                     {selected && <Check size={14} aria-label={t('Active')} />}
                   </button>
@@ -385,6 +389,7 @@ export function ProviderAccountsList({
                               }}
                             >
                               <input
+                                // biome-ignore lint/a11y/noAutofocus: inline rename opens from an explicit action and should take typing at once.
                                 autoFocus
                                 value={name}
                                 maxLength={80}
@@ -429,9 +434,10 @@ export function ProviderAccountsList({
                             </span>
                           )}
                         </div>
-                        {account.identity && account.identity !== account.label && (
-                          <small className="provider-account-meta">{account.identity}</small>
-                        )}
+                        {(account.email || account.identity) &&
+                          (account.email || account.identity) !== account.label && (
+                            <small className="provider-account-meta">{account.email || account.identity}</small>
+                          )}
                       </div>
                     </div>
                     <div className="settings-resource-actions">

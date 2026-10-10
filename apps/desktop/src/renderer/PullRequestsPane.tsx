@@ -81,6 +81,7 @@ export function PullRequestsPane({
   const listEpoch = useRef(0);
   const loadedProject = useRef<string | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api and currentBranch are deliberate triggers; a new api or branch change must produce a fresh loadList so dependent effects reload.
   const loadList = useCallback(async () => {
     if (!projectPath || !surfaceActive) return;
     const epoch = ++listEpoch.current;
@@ -384,6 +385,7 @@ export function PullRequestsPane({
                   aria-label={t('Pull request title')}
                   value={createTitle}
                   maxLength={1024}
+                  // biome-ignore lint/a11y/noAutofocus: the create form opens to type the title immediately.
                   autoFocus
                   onInput={(event) => setCreateTitle(event.currentTarget.value)}
                 />
@@ -417,9 +419,7 @@ export function PullRequestsPane({
                 <span>{t('Create as draft')}</span>
               </label>
               {!prUrl && (
-                <p className="dock-pr-create-note">
-                  {createHint || t('The branch will be pushed before creation.')}
-                </p>
+                <p className="dock-pr-create-note">{createHint || t('The branch will be pushed before creation.')}</p>
               )}
               {createError && (
                 <SourceControlErrorNotice
@@ -475,6 +475,7 @@ export function PullRequestsPane({
                 </div>
               )}
               {pullRequestViews && visiblePullRequests.length > 0 && (
+                // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; <ul> would bring list styling into the results container.
                 <div
                   className="dock-pr-results"
                   role="list"
@@ -484,6 +485,7 @@ export function PullRequestsPane({
                     const checkedOut = Boolean(currentBranch && pr.headRefName === currentBranch);
                     const checkoutKey = `checkout:${pr.number}`;
                     return (
+                      // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; <li> would bring list styling into the row.
                       <div className="dock-pr-row" data-draft={pr.isDraft || undefined} role="listitem" key={pr.number}>
                         <button type="button" className="dock-pr-row-main" onClick={() => openPullRequest(pr)}>
                           <span className="dock-pr-row-icon" aria-hidden="true">

@@ -14,6 +14,7 @@ import {
   t,
   type UiLanguagePreference,
 } from '../i18n';
+import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
 import { record } from '../record-utils';
 import {
   getSidePanelMode,
@@ -77,6 +78,20 @@ function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
       />
       {error && <p role="alert">{error}</p>}
     </Group>
+  );
+}
+
+/** Renderer-only UI preference; applies to open panes without a restart. */
+function LinkPreviewToggle({ pending }: Pick<PanelContext, 'pending'>) {
+  const enabled = useSyncExternalStore(subscribeLinkPreview, getLinkPreview, () => true);
+  return (
+    <ToggleRow
+      title={t('Link preview')}
+      description={t('Open chat links in a preview tab that the next link replaces.')}
+      checked={enabled}
+      disabled={Boolean(pending)}
+      onChange={setLinkPreview}
+    />
   );
 }
 
@@ -148,6 +163,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           disabled={busy}
           onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
         />
+        <LinkPreviewToggle pending={pending} />
       </Group>
       <PushNotificationToggle api={api} />
       <DesktopNotificationToggle />

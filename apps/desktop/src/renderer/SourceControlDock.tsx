@@ -224,6 +224,7 @@ export function SourceControlDock({
     guardStateRef.current = guardState;
     setContextMenu(null);
   }, [guardState]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectPath is the trigger that returns the dock to the changes view
   useEffect(() => {
     setView('changes');
   }, [projectPath]);
@@ -524,6 +525,7 @@ export function SourceControlDock({
               onPopStash={popStash}
               onToggleViewSort={toggleViewSortMenu}
             />
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: the onKeyDown only handles Escape bubbling from focusable rows inside the list */}
             <div
               className="dock-scm-scroll"
               ref={filesScrollRef}

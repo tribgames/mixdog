@@ -7,10 +7,7 @@ import { RowOverflowMenu } from './RowOverflowMenu';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import {
-  desktopAgentActivityState,
-  hasPendingDesktopAgentWork,
-} from '../shared/agent-activity';
+import { desktopAgentActivityState, hasPendingDesktopAgentWork } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { modelDisplayName, ModelRouteLabel, ProviderIcon } from './provider-display';
@@ -199,6 +196,7 @@ function AgentPoolRow({
         </small>
       </span>
       <span className="agent-activity-status">
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name */}
         <time
           className="agent-activity-elapsed"
           aria-label={elapsed}
@@ -343,7 +341,9 @@ function AgentActivityTree({
           ownerSessionId={group.ownerId}
           descendantCount={descendantCount}
           unread={unreadSessionIds?.has(node.sessionId) === true}
-          waitingForTasks={flattenAgentActivityNodes(node.children).some(({ agent }) => hasPendingDesktopAgentWork(agent))}
+          waitingForTasks={flattenAgentActivityNodes(node.children).some(({ agent }) =>
+            hasPendingDesktopAgentWork(agent)
+          )}
           onPrefetchSession={onPrefetchSession}
           onOpenLeadSession={onOpenLeadSession}
           onOpenSession={onOpenSession}

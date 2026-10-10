@@ -138,11 +138,7 @@ export function RouteCells({ route, costValue, speed }: { route: Row; costValue?
       <td className="stats-breakdown">{statsTokens(route.cacheRead, incomplete)}</td>
       <td className="stats-optional">{statsPercent(route.cacheHitRate)}</td>
       <td className="stats-total-cell">{statsTokens(route.tokens, incomplete)}</td>
-      <td
-        className="stats-cost-cell"
-        data-price={priceUnavailable ? 'unavailable' : undefined}
-        title={priceTitle}
-      >
+      <td className="stats-cost-cell" data-price={priceUnavailable ? 'unavailable' : undefined} title={priceTitle}>
         {costValue ?? statsMoney(route)}
       </td>
     </>

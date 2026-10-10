@@ -47,7 +47,9 @@ export function useSourceControlCommit({
     }
     const fresh = await api.gitStatus(projectPath);
     if (fresh.operation) {
-      throw new Error(t('Finish the in-progress {{value0}} before committing.', { value0: fresh.operation.replace('-', ' ') }));
+      throw new Error(
+        t('Finish the in-progress {{value0}} before committing.', { value0: fresh.operation.replace('-', ' ') })
+      );
     }
     const selection = sourceControlCommitSelection(files, fresh.files, isIncluded);
     if (selection.partiallyStaged.length && !window.confirm(partialStagingWarning(selection.partiallyStaged)))

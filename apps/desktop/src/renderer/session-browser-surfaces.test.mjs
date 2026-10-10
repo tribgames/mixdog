@@ -79,6 +79,7 @@ const renderFixture = (props) =>
     React.createElement(
       'button',
       {
+        type: 'button',
         onClick: props.onToggleExpanded,
         'aria-label': props.expanded ? 'Restore browser' : 'Expand browser',
       },

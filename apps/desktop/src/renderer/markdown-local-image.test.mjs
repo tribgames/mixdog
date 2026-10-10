@@ -94,7 +94,9 @@ test('a missing preview API falls back to the path link', async (t) => {
 
 test('an image that fails to load falls back to the path link', async (t) => {
   const broken = await mount(t, '![x](output/a.png)');
-  await act(async () => broken.doc.querySelector('.markdown-local-image img').dispatchEvent(new broken.dom.window.Event('error')));
+  await act(async () =>
+    broken.doc.querySelector('.markdown-local-image img').dispatchEvent(new broken.dom.window.Event('error'))
+  );
   assert.equal(broken.doc.querySelector('img'), null);
   assert.equal(broken.doc.querySelector('a')?.getAttribute('href'), 'output/a.png');
 });
@@ -128,9 +130,9 @@ test('the lightbox navigates across the message images, zooms, pans and closes',
   await f.press(button(f.doc, 'Zoom in'));
   assert.match(dialogImage(f.doc).style.transform, /scale\(1\.25\)/);
   await act(async () =>
-    f.doc.querySelector('.image-lightbox-stage').dispatchEvent(
-      new f.dom.window.WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true })
-    )
+    f.doc
+      .querySelector('.image-lightbox-stage')
+      .dispatchEvent(new f.dom.window.WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }))
   );
   assert.match(dialogImage(f.doc).style.transform, /scale\(1\.5625\)/);
   const stage = f.doc.querySelector('.image-lightbox-stage');

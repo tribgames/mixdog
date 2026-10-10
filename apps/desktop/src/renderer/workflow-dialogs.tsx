@@ -127,6 +127,7 @@ export function WorkflowEditorDialog({
               defaultValue={String(pack?.name || '')}
               placeholder={t('Workflow name')}
               required
+              // biome-ignore lint/a11y/noAutofocus: focuses the first field of the dialog when creating
               autoFocus={!editing}
               disabled={busy}
               maxLength={64}
@@ -251,6 +252,7 @@ export function AgentEditorDialog({
               defaultValue={String(agent?.name || '')}
               placeholder={t('Agent name')}
               required
+              // biome-ignore lint/a11y/noAutofocus: focuses the first field of the dialog when creating
               autoFocus={!editing}
               disabled={busy}
               maxLength={64}

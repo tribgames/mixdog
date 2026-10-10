@@ -38,6 +38,7 @@ export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provi
     };
   }, [open]);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: wrapper only catches Escape bubbling from the trigger/menu inside; it is not itself interactive.
     <span
       onKeyDown={(event) => {
         if (event.key === 'Escape') {

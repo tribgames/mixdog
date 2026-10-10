@@ -1,7 +1,8 @@
 // Effort-judge worker thread: a small multilingual classifier (ONNX) that
 // rates how much reasoning a request needs on four levels (easy, normal,
-// hard, very hard). Loads on start and stays resident while the Auto effort
-// feature is on (the parent terminates the thread when it is turned off),
+// hard, very hard). The parent starts it on the first judged turn; it loads
+// on start and stays resident while the Auto effort feature is on (the parent
+// terminates the thread when it is turned off or the model is updated),
 // answering `judge` messages ({ request, prev, prevRequest } for a turn, or
 // { step } for a tool-result step) with calibrated probabilities.
 // calibration.json holds the temperature, the input format the model was
@@ -55,7 +56,10 @@ function calibration() {
 function judgeText(format, request, prev, prevRequest) {
   if (format === 'rpc') return judgeInputClean(request, prev);
   if (format === 'rpq') {
-    const cps = (text, from, to) => Array.from(String(text || '')).slice(from, to).join('');
+    const cps = (text, from, to) =>
+      Array.from(String(text || ''))
+        .slice(from, to)
+        .join('');
     return `request: ${cps(request, 0, 1500)}\nprevious request: ${cps(prevRequest, 0, 300)}\nprevious reply: ${cps(prev, -1000)}`;
   }
   const req = String(request || '').slice(0, 1500);
@@ -97,7 +101,9 @@ async function load() {
   // The first run allocates buffers and initialises kernels and is several
   // times slower than the rest; doing it before `ready` keeps a turn's first
   // judgment at normal speed.
-  await session.run(feeds(ort, inputIds(tokenizer, settings.inputFormat, settings.maxTokens, { request: 'warm up', prev: '' })));
+  await session.run(
+    feeds(ort, inputIds(tokenizer, settings.inputFormat, settings.maxTokens, { request: 'warm up', prev: '' }))
+  );
   return { ort, tokenizer, session, ...settings };
 }
 

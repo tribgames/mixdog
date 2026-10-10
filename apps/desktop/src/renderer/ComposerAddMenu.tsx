@@ -57,6 +57,7 @@ function useComposerAddMenuDismiss({
   close(): void;
   setOpen(open: boolean): void;
 }): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: must run only when open changes; re-running on callback identity would refocus the first menu item
   useEffect(() => {
     if (!open) return;
     panel.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
@@ -144,6 +145,7 @@ function renderComposerAddMenuPanel({
       role="menu"
       className="composer-add-menu"
     >
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the menu panel wrapper only routes arrow-key focus between its menuitems */}
       <div onKeyDown={(event) => moveComposerAddMenuFocus(event, panel)}>
         <button
           type="button"
@@ -178,6 +180,7 @@ function renderComposerAddMenuPanel({
         {loading && <p role="status">{t('Loading skills…')}</p>}
         {!loading && !skills.length && !error && <p>{t('No enabled skills.')}</p>}
         {skills.map((skill) => renderComposerSkillEntry(skill, dismiss, onSkill))}
+        {/* biome-ignore lint/a11y/useSemanticElements: the divider element must stay a div to keep DOM and styling */}
         <div className="composer-add-divider" role="separator" />
         <button
           type="button"

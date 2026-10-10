@@ -30,6 +30,7 @@ export function ProgressSpinner({ className, size, strokeWidth, style, ...props 
 // The knot stays fixed while its three arms carry a quiet light sweep.
 export function WindowLoadingMark({ className, size = 24, style, ...props }: WindowLoadingMarkProps) {
   return (
+    // biome-ignore lint/a11y/noSvgWithoutTitle: decorative loading mark; callers pass any aria-label/role through props.
     <svg
       {...props}
       viewBox="44 44 168 168"

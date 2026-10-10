@@ -319,6 +319,7 @@ function ScheduleEditor({
               defaultValue={draft.name}
               placeholder="daily-briefing"
               required
+              // biome-ignore lint/a11y/noAutofocus: the schedule name field is the first input of a freshly opened editor form
               autoFocus
               disabled={busy || editing}
               maxLength={64}

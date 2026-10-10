@@ -361,6 +361,7 @@ export function SidebarUsage({
   const codexResetKeys = codexResetRows.map(resetCreditKey);
   const codexResetKeySignature = codexResetKeys.join('\u0000');
   const codexResetOffer = String(codexResetCredits.offerRevision || '');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: codexResetKeySignature is the stable string form of codexResetKeys, so the effect re-runs only when the key set changes
   useEffect(() => {
     if (resetConfirming && !codexResetKeys.includes(resetConfirming)) {
       setResetConfirming(null);

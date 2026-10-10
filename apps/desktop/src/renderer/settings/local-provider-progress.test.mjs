@@ -114,7 +114,8 @@ const pickOption = async (trigger, label) => {
   await act(async () => choice.click());
   return options.map((option) => option.textContent);
 };
-const actionButton = (label) => document.querySelector(`[data-feature-id="localProvider"] button[aria-label="${label}"]`);
+const actionButton = (label) =>
+  document.querySelector(`[data-feature-id="localProvider"] button[aria-label="${label}"]`);
 
 test('context picker offers supported sizes from the agent minimum and applies or resets at once', async () => {
   const current = status({

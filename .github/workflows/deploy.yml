@@ -109,6 +109,7 @@ jobs:
           import { appendFileSync, readFileSync } from 'node:fs';
           import { execFileSync, spawnSync } from 'node:child_process';
           import { RELEASE_CRITICAL_PATHS } from './scripts/release-paths.mjs';
+          import { checkChangelogLocales } from './scripts/check-changelog-locales.mjs';
 
           const output = process.env.GITHUB_OUTPUT;
           const mode = process.env.NATIVE_MODE;
@@ -172,6 +173,13 @@ jobs:
           const unreleasedBody = unreleasedSection ? unreleasedSection.replace(/^Unreleased[^\n]*\n?/, '').trim() : '';
           if (!resume && !unreleasedBody) {
             throw new Error('CHANGELOG.md: the Unreleased section is empty - a release requires changelog entries');
+          }
+          // Every changelog/<lang>.md must carry the same Unreleased entries.
+          if (!resume) {
+            const localeProblems = checkChangelogLocales({ includeUnreleased: true });
+            if (localeProblems.length) {
+              throw new Error(`Translated changelogs are out of step with CHANGELOG.md:\n${localeProblems.join('\n')}`);
+            }
           }
 
           function component({ name, manifestPath, cargoPath, tagPrefix, paths }) {
@@ -478,31 +486,38 @@ jobs:
           fi
           node scripts/sync-client-version-floors.mjs
           node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
+          import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
           const version = process.env.VERSION;
           const date = new Date().toISOString().slice(0, 10);
-          let text = readFileSync('CHANGELOG.md', 'utf8');
-          const versionHeading = `## v${version}`;
-          const unreleasedPattern = /^## Unreleased[^\n]*\n([\s\S]*?)(?=^##\s)/m;
-          const unreleased = text.match(unreleasedPattern);
-          const unreleasedBody = unreleased?.[1].trim() || '';
-          if (!text.includes(`\n${versionHeading}`)) {
-            text = text.replace(/^## Unreleased[^\n]*$/m, `## Unreleased\n\n## v${version} - ${date}`);
-            writeFileSync('CHANGELOG.md', text);
-          } else if (unreleasedBody) {
-            // A failed unpublished release can be resumed at the same version.
-            // Fold recovery notes into that version instead of leaving already
-            // shipped fixes in Unreleased after the draft is published.
-            text = text.replace(unreleasedPattern, '## Unreleased\n\n');
-            // The heading line carries its date: keep the whole line and fold below it.
-            const escaped = versionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            text = text.replace(new RegExp(`^${escaped}[^\\n]*$`, 'm'), (heading) => `${heading}\n\n${unreleasedBody}`);
-            writeFileSync('CHANGELOG.md', text);
+          // CHANGELOG.md and every translated changelog/<lang>.md are stamped alike.
+          const files = [
+            'CHANGELOG.md',
+            ...readdirSync('changelog').filter(name => name.endsWith('.md')).sort().map(name => `changelog/${name}`),
+          ];
+          for (const file of files) {
+            let text = readFileSync(file, 'utf8');
+            const versionHeading = `## v${version}`;
+            const unreleasedPattern = /^## Unreleased[^\n]*\n([\s\S]*?)(?=^##\s)/m;
+            const unreleased = text.match(unreleasedPattern);
+            const unreleasedBody = unreleased?.[1].trim() || '';
+            if (!text.includes(`\n${versionHeading}`)) {
+              text = text.replace(/^## Unreleased[^\n]*$/m, `## Unreleased\n\n## v${version} - ${date}`);
+              writeFileSync(file, text);
+            } else if (unreleasedBody) {
+              // A failed unpublished release can be resumed at the same version.
+              // Fold recovery notes into that version instead of leaving already
+              // shipped fixes in Unreleased after the draft is published.
+              text = text.replace(unreleasedPattern, '## Unreleased\n\n');
+              // The heading line carries its date: keep the whole line and fold below it.
+              const escaped = versionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              text = text.replace(new RegExp(`^${escaped}[^\\n]*$`, 'm'), (heading) => `${heading}\n\n${unreleasedBody}`);
+              writeFileSync(file, text);
+            }
           }
           NODE
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json CHANGELOG.md \
+          git add package.json package-lock.json CHANGELOG.md changelog \
             apps/desktop/package.json apps/desktop/package-lock.json \
             apps/relay/package.json apps/relay/package-lock.json
           # Every floor sync-client-version-floors.mjs raised.

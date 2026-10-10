@@ -89,6 +89,7 @@ async function shellAssetsReady(body, documentUrl) {
   return true;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: used by sw.js, which loads this file via importScripts('/sw-shell.js'), and by sw-cache.test.mjs.
 async function shellFirst(request) {
   const key = shellCacheKey(request);
   if (!key) return { response: await fetch(request), maintenance: null };

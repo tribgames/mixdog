@@ -46,79 +46,481 @@
      and the settled ◈ is now centred by box math too — with the lift the mark
      hopped a pixel at the exact moment the turn settled. */
 }
-/* Shape sweep, verbatim from the TUI spinner (src/tui/spinner-verbs.mjs
-   SPINNER_FRAMES played forward then back): 10 frames × 130ms. Discrete
-   `content` steps keep it a pure CSS animation — no React tick. */
-.live-activity-glyph {
+/* Mixdog logo-flow mark: three arcs chase around the ring while the star
+   breathes. Keyframes are precomputed (48 steps) from the design's buildFlow
+   {dur 2000, headEnd .56, tailStart .26, pow 2.1, drift .26, pop .07}. The
+   gradient stops follow the theme through --logo-a / --logo-b. */
+.live-activity-icon {
+  --logo-a: #5aa2ff;
+  --logo-b: #a9d3ff;
+}
+:root[data-mixdog-theme="light"] .live-activity-icon {
+  --logo-a: #1552b0;
+  --logo-b: #3f86ea;
+}
+.live-activity-logo {
   display: block;
-  width: 12px;
-  height: 12px;
-  /* The MARK stays neutral, in the verb's muted ink. Painting the rhombus
-     with the brand accent put a lone indigo shape in a column of grey text
-     and green tool icons and it read as unrelated chrome (user: 도형색은 너무
-     뜬금없고). Its motion is the signal; the accent is spent on the shimmer
-     head instead, where it travels through the words rather than sitting
-     beside them. */
-  color: var(--mx-text-muted);
+  grid-area: 1 / 1;
+  width: 14px;
+  height: 14px;
   overflow: visible;
 }
-/* The TUI's hollow -> filled -> ring sweep, drawn as ONE morphing rhombus
-   instead of three swapped characters. As text the frames fell back to Segoe
-   UI Symbol, where 12px hinting crushed the strokes and the characters'
-   different ink weights read as a blink; as vector the same three states are
-   the two ends and the middle of a continuous scale, crisp at any DPI.
-   Rotation runs to 90deg only — a rhombus is symmetric there, so the loop has
-   no seam — and follows grok's rule that motion is continuous while the shape
-   itself carries the state (turn_status.rs). */
-.live-activity-glyph-spin {
-  transform-box: fill-box;
-  transform-origin: 50% 50%;
-  /* 2900 against the core's 1300 is deliberately NOT a whole multiple: at the
-     old 2600/1300 the two locked into the same phase every single turn and the
-     mark read as a mechanism ticking. Drifting phases make the same two
-     animations look hand-animated. */
-  animation: live-activity-glyph-spin 2900ms linear infinite;
+.live-activity-logo stop:first-child {
+  stop-color: var(--logo-a);
 }
-.live-activity-glyph-ring {
+.live-activity-logo stop:last-child {
+  stop-color: var(--logo-b);
+}
+.live-activity-logo .arc,
+.turn-status-logo .arc {
   fill: none;
-  stroke: currentColor;
-  stroke-width: 1.25;
-  stroke-linejoin: miter;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  /* Static logo pose; the running animation overrides it. */
+  stroke-dasharray: 80 280;
+  stroke-dashoffset: -20;
 }
-/* Full scale covers the ring exactly (the filled frame), mid-scale reads as
-   the ring-in-ring frame, and the low end leaves the hollow outline. One
-   1300ms round trip keeps the TUI's 10-frame cadence. */
-.live-activity-glyph-core {
-  fill: currentColor;
-  transform-box: fill-box;
-  transform-origin: 50% 50%;
-  animation: live-activity-glyph-core 1300ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.live-activity-logo .star,
+.turn-status-logo .star {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
 }
-@keyframes live-activity-glyph-spin {
+.live-activity-logo .arc {
+  animation: live-activity-logo-arc 2000ms linear infinite;
+}
+/* The breathing star animates a transform. Inside the arcs' <svg> that is an
+   SVG-internal transform, which Chromium resolves with a layout every frame
+   for as long as a turn runs. On its own <svg> box it is an ordinary CSS
+   transform: no layout, and the same pose (the box centre is the viewBox
+   centre). */
+/* Each loop turns the star 90deg: the four-point shape matches the first frame,
+   but the gradient fill would snap back by a quarter turn at every restart.
+   A quarter step per loop (on `rotate`, which composes with the keyframed
+   `transform` about the same origin) carries the turn on, so the gradient
+   stays continuous and only completes a full turn after four loops. */
+.live-activity-star {
+  animation:
+    live-activity-logo-star 2000ms linear infinite,
+    live-activity-logo-star-quarter 8000ms steps(4, end) infinite;
+}
+@keyframes live-activity-logo-star-quarter {
+  from {
+    rotate: 0deg;
+  }
   to {
-    transform: rotate(90deg);
+    rotate: 360deg;
   }
 }
-@keyframes live-activity-glyph-core {
-  /* The TUI plays ◇ ◆ ◈ — three states, not two. Naming the middle rung on
-     both sides restores that beat: the ring-in-ring frame is a real step
-     instead of a value the interpolator merely passes through. */
-  0%,
-  100% {
-    transform: scale(0.12);
-    opacity: var(--mx-op-ghost);
+@keyframes live-activity-logo-arc {
+  0% {
+    stroke-dasharray: 0 360;
+    stroke-dashoffset: 0.64;
   }
-  32% {
-    transform: scale(0.58);
-    opacity: var(--mx-op-secondary);
+  2.08% {
+    stroke-dasharray: 0.19 359.81;
+    stroke-dashoffset: -0.01;
+  }
+  4.17% {
+    stroke-dasharray: 0.81 359.19;
+    stroke-dashoffset: -0.66;
+  }
+  6.25% {
+    stroke-dasharray: 1.9 358.1;
+    stroke-dashoffset: -1.31;
+  }
+  8.33% {
+    stroke-dasharray: 3.48 356.52;
+    stroke-dashoffset: -1.96;
+  }
+  10.42% {
+    stroke-dasharray: 5.57 354.43;
+    stroke-dashoffset: -2.61;
+  }
+  12.5% {
+    stroke-dasharray: 8.16 351.84;
+    stroke-dashoffset: -3.26;
+  }
+  14.58% {
+    stroke-dasharray: 11.28 348.72;
+    stroke-dashoffset: -3.91;
+  }
+  16.67% {
+    stroke-dasharray: 14.94 345.06;
+    stroke-dashoffset: -4.56;
+  }
+  18.75% {
+    stroke-dasharray: 19.13 340.87;
+    stroke-dashoffset: -5.21;
+  }
+  20.83% {
+    stroke-dasharray: 23.86 336.14;
+    stroke-dashoffset: -5.86;
+  }
+  22.92% {
+    stroke-dasharray: 29.15 330.85;
+    stroke-dashoffset: -6.51;
+  }
+  25% {
+    stroke-dasharray: 35 325;
+    stroke-dashoffset: -7.16;
+  }
+  27.08% {
+    stroke-dasharray: 41.38 318.62;
+    stroke-dashoffset: -7.83;
+  }
+  29.17% {
+    stroke-dasharray: 47.94 312.06;
+    stroke-dashoffset: -8.71;
+  }
+  31.25% {
+    stroke-dasharray: 53.8 306.2;
+    stroke-dashoffset: -9.84;
+  }
+  33.33% {
+    stroke-dasharray: 58.83 301.17;
+    stroke-dashoffset: -11.24;
+  }
+  35.42% {
+    stroke-dasharray: 63.03 296.97;
+    stroke-dashoffset: -12.91;
+  }
+  37.5% {
+    stroke-dasharray: 66.39 293.61;
+    stroke-dashoffset: -14.87;
+  }
+  39.58% {
+    stroke-dasharray: 68.92 291.08;
+    stroke-dashoffset: -17.12;
+  }
+  41.67% {
+    stroke-dasharray: 70.61 289.39;
+    stroke-dashoffset: -19.66;
+  }
+  43.75% {
+    stroke-dasharray: 71.48 288.52;
+    stroke-dashoffset: -22.5;
+  }
+  45.83% {
+    stroke-dasharray: 71.52 288.48;
+    stroke-dashoffset: -25.64;
+  }
+  47.92% {
+    stroke-dasharray: 70.75 289.25;
+    stroke-dashoffset: -29.09;
   }
   50% {
-    transform: scale(1);
-    opacity: 1;
+    stroke-dasharray: 69.16 290.84;
+    stroke-dashoffset: -32.85;
   }
-  68% {
-    transform: scale(0.58);
-    opacity: var(--mx-op-secondary);
+  52.08% {
+    stroke-dasharray: 66.78 293.22;
+    stroke-dashoffset: -36.91;
+  }
+  54.17% {
+    stroke-dasharray: 63.62 296.38;
+    stroke-dashoffset: -41.29;
+  }
+  56.25% {
+    stroke-dasharray: 59.71 300.29;
+    stroke-dashoffset: -45.99;
+  }
+  58.33% {
+    stroke-dasharray: 55.35 304.65;
+    stroke-dashoffset: -51.01;
+  }
+  60.42% {
+    stroke-dasharray: 50.66 309.34;
+    stroke-dashoffset: -56.34;
+  }
+  62.5% {
+    stroke-dasharray: 45.65 314.35;
+    stroke-dashoffset: -62;
+  }
+  64.58% {
+    stroke-dasharray: 40.5 319.5;
+    stroke-dashoffset: -67.8;
+  }
+  66.67% {
+    stroke-dasharray: 35.66 324.34;
+    stroke-dashoffset: -73.29;
+  }
+  68.75% {
+    stroke-dasharray: 31.14 328.86;
+    stroke-dashoffset: -78.46;
+  }
+  70.83% {
+    stroke-dasharray: 26.94 333.06;
+    stroke-dashoffset: -83.31;
+  }
+  72.92% {
+    stroke-dasharray: 23.06 336.94;
+    stroke-dashoffset: -87.85;
+  }
+  75% {
+    stroke-dasharray: 19.49 340.51;
+    stroke-dashoffset: -92.06;
+  }
+  77.08% {
+    stroke-dasharray: 16.24 343.76;
+    stroke-dashoffset: -95.97;
+  }
+  79.17% {
+    stroke-dasharray: 13.29 346.71;
+    stroke-dashoffset: -99.56;
+  }
+  81.25% {
+    stroke-dasharray: 10.65 349.35;
+    stroke-dashoffset: -102.85;
+  }
+  83.33% {
+    stroke-dasharray: 8.32 351.68;
+    stroke-dashoffset: -105.84;
+  }
+  85.42% {
+    stroke-dasharray: 6.28 353.72;
+    stroke-dashoffset: -108.52;
+  }
+  87.5% {
+    stroke-dasharray: 4.55 355.45;
+    stroke-dashoffset: -110.91;
+  }
+  89.58% {
+    stroke-dasharray: 3.1 356.9;
+    stroke-dashoffset: -113.01;
+  }
+  91.67% {
+    stroke-dasharray: 1.94 358.06;
+    stroke-dashoffset: -114.82;
+  }
+  93.75% {
+    stroke-dasharray: 1.06 358.94;
+    stroke-dashoffset: -116.34;
+  }
+  95.83% {
+    stroke-dasharray: 0.45 359.55;
+    stroke-dashoffset: -117.6;
+  }
+  97.92% {
+    stroke-dasharray: 0.11 359.89;
+    stroke-dashoffset: -118.6;
+  }
+  100% {
+    stroke-dasharray: 0 360;
+    stroke-dashoffset: -119.36;
+  }
+}
+@keyframes live-activity-logo-star {
+  0% {
+    transform: rotate(-72.34deg) scale(0.84);
+  }
+  2.08% {
+    transform: rotate(-71.71deg) scale(0.84);
+  }
+  4.17% {
+    transform: rotate(-70.75deg) scale(0.84);
+  }
+  6.25% {
+    transform: rotate(-69.45deg) scale(0.84);
+  }
+  8.33% {
+    transform: rotate(-67.77deg) scale(0.84);
+  }
+  10.42% {
+    transform: rotate(-65.72deg) scale(0.85);
+  }
+  12.5% {
+    transform: rotate(-63.29deg) scale(0.85);
+  }
+  14.58% {
+    transform: rotate(-60.46deg) scale(0.86);
+  }
+  16.67% {
+    transform: rotate(-57.23deg) scale(0.86);
+  }
+  18.75% {
+    transform: rotate(-53.6deg) scale(0.87);
+  }
+  20.83% {
+    transform: rotate(-49.56deg) scale(0.87);
+  }
+  22.92% {
+    transform: rotate(-45.11deg) scale(0.88);
+  }
+  25% {
+    transform: rotate(-40.24deg) scale(0.89);
+  }
+  27.08% {
+    transform: rotate(-34.95deg) scale(0.9);
+  }
+  29.17% {
+    transform: rotate(-29.36deg) scale(0.91);
+  }
+  31.25% {
+    transform: rotate(-24.12deg) scale(0.92);
+  }
+  33.33% {
+    transform: rotate(-19.3deg) scale(0.92);
+  }
+  35.42% {
+    transform: rotate(-14.9deg) scale(0.93);
+  }
+  37.5% {
+    transform: rotate(-10.91deg) scale(0.94);
+  }
+  39.58% {
+    transform: rotate(-7.33deg) scale(0.96);
+  }
+  41.67% {
+    transform: rotate(-4.15deg) scale(0.99);
+  }
+  43.75% {
+    transform: rotate(-1.37deg) scale(1.01);
+  }
+  45.83% {
+    transform: rotate(1.02deg) scale(1.01);
+  }
+  47.92% {
+    transform: rotate(3.03deg) scale(0.99);
+  }
+  50% {
+    transform: rotate(4.65deg) scale(0.95);
+  }
+  52.08% {
+    transform: rotate(5.92deg) scale(0.92);
+  }
+  54.17% {
+    transform: rotate(6.83deg) scale(0.91);
+  }
+  56.25% {
+    transform: rotate(7.43deg) scale(0.9);
+  }
+  58.33% {
+    transform: rotate(7.91deg) scale(0.9);
+  }
+  60.42% {
+    transform: rotate(8.4deg) scale(0.9);
+  }
+  62.5% {
+    transform: rotate(8.89deg) scale(0.9);
+  }
+  64.58% {
+    transform: rotate(9.38deg) scale(0.9);
+  }
+  66.67% {
+    transform: rotate(9.86deg) scale(0.89);
+  }
+  68.75% {
+    transform: rotate(10.35deg) scale(0.88);
+  }
+  70.83% {
+    transform: rotate(10.84deg) scale(0.88);
+  }
+  72.92% {
+    transform: rotate(11.33deg) scale(0.87);
+  }
+  75% {
+    transform: rotate(11.81deg) scale(0.87);
+  }
+  77.08% {
+    transform: rotate(12.3deg) scale(0.86);
+  }
+  79.17% {
+    transform: rotate(12.79deg) scale(0.86);
+  }
+  81.25% {
+    transform: rotate(13.28deg) scale(0.85);
+  }
+  83.33% {
+    transform: rotate(13.76deg) scale(0.85);
+  }
+  85.42% {
+    transform: rotate(14.25deg) scale(0.85);
+  }
+  87.5% {
+    transform: rotate(14.74deg) scale(0.85);
+  }
+  89.58% {
+    transform: rotate(15.23deg) scale(0.84);
+  }
+  91.67% {
+    transform: rotate(15.71deg) scale(0.84);
+  }
+  93.75% {
+    transform: rotate(16.2deg) scale(0.84);
+  }
+  95.83% {
+    transform: rotate(16.69deg) scale(0.84);
+  }
+  97.92% {
+    transform: rotate(17.18deg) scale(0.84);
+  }
+  100% {
+    transform: rotate(17.66deg) scale(0.84);
+  }
+}
+/* Completion that happens in view: the muted logo pose fades out as the check
+   draws in and the label fades up. Settled rows never carry data-animate. */
+.turn-status-mark {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-self: center;
+  display: block;
+  color: currentColor;
+}
+.turn-status-mark .turn-status-icon {
+  position: absolute;
+  inset: 0;
+}
+.turn-status-logo {
+  position: absolute;
+  inset: 1px;
+  width: 14px;
+  height: 14px;
+  overflow: visible;
+  color: var(--mx-text-muted);
+}
+.turn-status-logo .arc {
+  stroke: currentColor;
+}
+.turn-status-logo .star {
+  fill: currentColor;
+}
+.turn-status[data-animate="true"] .turn-status-logo {
+  animation: turn-status-logo-out 260ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.turn-status[data-animate="true"] .turn-status-check path {
+  stroke-dasharray: 1;
+  animation: turn-status-check-draw 300ms 80ms cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+.turn-status[data-animate="true"] > span {
+  animation: turn-status-label-in 260ms 90ms ease both;
+}
+@keyframes turn-status-logo-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+}
+@keyframes turn-status-check-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes turn-status-label-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 /* The verb's sweep is the shared comet in 22-markdown.css. */
@@ -361,10 +763,23 @@
 /* Ongoing activity remains readable without its entrance or looping glyphs. */
 @media (prefers-reduced-motion: reduce) {
   .live-activity-status[data-animate="true"],
-  .live-activity-glyph-spin,
-  .live-activity-glyph-core {
+  .live-activity-logo .arc,
+  .live-activity-star,
+  .turn-status[data-animate="true"] > span,
+  .turn-status[data-animate="true"] .turn-status-check path {
     animation: none;
   }
+  .turn-status[data-animate="true"] .turn-status-check path {
+    stroke-dasharray: none;
+  }
+  .turn-status[data-animate="true"] .turn-status-logo {
+    display: none;
+  }
+}
+/* A paused UI freezes the mark in its static logo pose, not mid-frame. */
+:root[data-mixdog-motion="paused"] .live-activity-logo .arc,
+:root[data-mixdog-motion="paused"] .live-activity-star {
+  animation: none;
 }
 /* Prompt-dock rule: approval belongs to the composer stack, never
    outside the virtual timeline's declared height. */

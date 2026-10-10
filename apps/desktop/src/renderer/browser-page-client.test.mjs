@@ -303,6 +303,34 @@ test('tab controls refresh the displayed page while ordinary controls do not', a
   client.dispose();
 });
 
+test('a compositor miss on the display sample after a tab control is not reported as an input failure', async () => {
+  const failures = [];
+  let reads = 0;
+  let missNext = false;
+  const client = createBrowserPageClient({
+    sessionId: 's',
+    update() {},
+    failure: (error) => failures.push(error),
+    api: {
+      browserPageFrame: async () => {
+        if (missNext) {
+          missNext = false;
+          throw new Error("Error invoking remote method 'mixdog:browser-page-frame': Error: VizSentEmptyBitmap");
+        }
+        return frame(`p1:${++reads}`);
+      },
+      browserPageControl: async () => {},
+    },
+  });
+  await client.poll();
+  missNext = true;
+  await client.control({ type: 'new-tab' });
+  assert.deepEqual(failures, []);
+  await client.poll();
+  assert.equal(client.frame().documentId, 'p1:2', 'the next display sample still refreshes the page');
+  client.dispose();
+});
+
 test('fire reports an input admission failure only once', async () => {
   const failures = [];
   const client = createBrowserPageClient({

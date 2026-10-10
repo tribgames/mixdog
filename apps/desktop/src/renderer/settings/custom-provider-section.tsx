@@ -197,6 +197,7 @@ function CustomProviderForm({
   const keyId = `${uid}-key`;
   const formId = `${uid}-form`;
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
     <div
       className="settings-oauth-layer"
       onMouseDown={(event) => {
@@ -230,6 +231,7 @@ function CustomProviderForm({
             value={name}
             disabled={disabled}
             required
+            // biome-ignore lint/a11y/noAutofocus: the dialog's first field takes focus on open.
             autoFocus
             autoComplete="off"
             onChange={(event) => {
@@ -237,6 +239,7 @@ function CustomProviderForm({
               setSaveError('');
             }}
           />
+          {/* biome-ignore lint/a11y/noLabelWithoutControl: labels the custom OpenSelect, which carries its own aria-label. */}
           <label>{t('API format')}</label>
           <OpenSelect
             className="settings-select"

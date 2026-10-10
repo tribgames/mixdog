@@ -6,7 +6,7 @@ import { WorkspaceTabStrip, type NavigationSelection, type WorkspaceSelection, t
 import type { PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { t } from './i18n';
-import { displayProject, navigationKey } from './text-format';
+import { browserTabTitle, displayProject, navigationKey } from './text-format';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 
@@ -69,6 +69,8 @@ export function useAppPaneChrome({
         return t('Studio');
       case 'terminal':
         return t('Terminal');
+      case 'browser':
+        return browserTabTitle(selection);
       case 'project':
         return displayProject(selection.path).name;
       default:
@@ -84,6 +86,7 @@ export function useAppPaneChrome({
     if (
       paneSelection.kind === 'studio' ||
       paneSelection.kind === 'terminal' ||
+      paneSelection.kind === 'browser' ||
       paneSelection.kind === 'diff' ||
       paneSelection.kind === 'pull-request'
     )

@@ -117,6 +117,7 @@ export function SkillEditorDialog({
           name="skill-name"
           defaultValue={name}
           required
+          // biome-ignore lint/a11y/noAutofocus: the dialog's first field takes focus when creating.
           autoFocus={!editing}
           disabled={busy || readOnly}
           maxLength={64}
@@ -158,6 +159,7 @@ export function SkillEditorDialog({
             const updateValue = (value: string) => updateRow({ value });
             const placeholder = entry.type === 'mcp' ? 'figma' : 'office';
             return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: dependency rows have no id, are edited by position and never reorder.
               <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={index}>
                 <select
                   aria-label={t('Dependency type')}

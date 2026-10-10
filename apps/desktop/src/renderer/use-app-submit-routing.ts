@@ -79,6 +79,7 @@ export function useAppSubmitRouting({
       settle(sessionId);
     };
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refs and stable setters are read at call time; the listed callbacks are the only inputs that change the identity
   const submitFromRoute = useCallback(
     async (route: SubmitRoute, content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown> => {
       const host = window.mixdogDesktop;
@@ -192,6 +193,7 @@ export function useAppSubmitRouting({
   );
   const submitFromRouteRef = useRef(submitFromRoute);
   submitFromRouteRef.current = submitFromRoute;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selection/leaf refs are read at call time so submit keeps a stable identity
   const submit = useCallback(
     (content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown> =>
       submitFromRouteRef.current(

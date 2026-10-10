@@ -4,6 +4,7 @@ import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-fe
 import type {
   DesktopAbortOptions,
   DesktopAgentPoolRow,
+  DesktopSessionContentMatch,
   DesktopModelCatalogOptions,
   DesktopModelOption,
   DesktopModelSelection,
@@ -278,9 +279,12 @@ export interface DesktopApi {
   subscribeSessions?(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
   /** Event-driven process-global agent lifecycle pool. */
   listAgentPool?(): Promise<DesktopAgentPoolRow[]>;
+  /** Full-text search over session message content. */
+  searchSessionContent?(query: string): Promise<DesktopSessionContentMatch[]>;
   subscribeAgentPool?(listener: (agents: DesktopAgentPoolRow[]) => void): () => void;
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
+  setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;
   deleteSession(sessionId: string): Promise<SessionSnapshot>;
   /** /inherit — copy this conversation into a NEW session id that runs on the
    *  supplied (currently selected) model. The source session is left as it is,
@@ -494,6 +498,8 @@ export interface DesktopApi {
   onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */
   browserSetActiveGuest?(sessionId: string, webContentsId: number, active: boolean): Promise<void>;
+  /** Free the page behind a closed main-workspace browser tab. */
+  browserReleasePage?(pageId: string): Promise<void>;
   browserPageFrame?(
     sessionId: string,
     previousFrameId?: string

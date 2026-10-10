@@ -27,10 +27,13 @@ async function paletteDeclarations(file, names) {
 
 function luminance(hex) {
   assert.match(hex, /^#[0-9a-f]{6}$/i, 'palette colors must be opaque');
-  const channels = hex.slice(1).match(/../g).map((channel) => {
-    const value = Number.parseInt(channel, 16) / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  });
+  const channels = hex
+    .slice(1)
+    .match(/../g)
+    .map((channel) => {
+      const value = Number.parseInt(channel, 16) / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
   return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
 }
 
@@ -77,7 +80,13 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
   const declarations = await Promise.all([
     paletteDeclarations('./TerminalPane.tsx', ['cssVar', 'terminalTheme']),
     paletteDeclarations('./monaco-setup.ts', [
-      'themeColorProbe', 'colorProbe', 'channelHex', 'alphaHex', 'resolveThemeColor', 'withAlpha', 'currentMonacoColors',
+      'themeColorProbe',
+      'colorProbe',
+      'channelHex',
+      'alphaHex',
+      'resolveThemeColor',
+      'withAlpha',
+      'currentMonacoColors',
     ]),
   ]);
   const { outputText } = ts.transpileModule(declarations.join('\n'), {
@@ -92,23 +101,25 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
   // Return to dark as well: changing the app palette must not recolor a
   // dark terminal or leave an editor selection on its previous palette.
   for (const theme of ['dark', 'light', 'dark']) {
-    samples.push(await page.evaluate((theme) => {
-      document.documentElement.dataset.mixdogTheme = theme;
-      return {
-        theme,
-        terminal: window.themeFixture.terminalTheme(),
-        editor: window.themeFixture.currentMonacoColors(theme === 'light'),
-        labels: ['emphasis', 'preview', 'draft', 'code', 'regular'].map((id) => {
-          const style = getComputedStyle(document.getElementById(id));
-          return {
-            id,
-            fontStyle: style.fontStyle,
-            synthesisStyle: style.fontSynthesisStyle,
-            synthesisWeight: style.fontSynthesisWeight,
-          };
-        }),
-      };
-    }, theme));
+    samples.push(
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.mixdogTheme = theme;
+        return {
+          theme,
+          terminal: window.themeFixture.terminalTheme(),
+          editor: window.themeFixture.currentMonacoColors(theme === 'light'),
+          labels: ['emphasis', 'preview', 'draft', 'code', 'regular'].map((id) => {
+            const style = getComputedStyle(document.getElementById(id));
+            return {
+              id,
+              fontStyle: style.fontStyle,
+              synthesisStyle: style.fontSynthesisStyle,
+              synthesisWeight: style.fontSynthesisWeight,
+            };
+          }),
+        };
+      }, theme)
+    );
   }
 
   await t.test('terminal text and cursor keep contrast on the permanent dark canvas', () => {
@@ -144,7 +155,15 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
       const value = (name) => style.getPropertyValue(`--mx-${name}`).trim();
       return {
         inks: ['text', 'text-muted'].map(value),
-        surfaces: ['bg-deep', 'window-band', 'workspace-sheet', 'bg-base', 'bg-layer-1', 'bg-layer-2', 'bg-layer-3'].map(value),
+        surfaces: [
+          'bg-deep',
+          'window-band',
+          'workspace-sheet',
+          'bg-base',
+          'bg-layer-1',
+          'bg-layer-2',
+          'bg-layer-3',
+        ].map(value),
       };
     });
     for (const color of [...palette.inks, ...palette.surfaces]) {
@@ -159,12 +178,17 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
       }
     }
     assert.ok(luminance(palette.surfaces[1]) < luminance(palette.surfaces[2]), 'sidebar sits under the reading canvas');
-    assert.ok(luminance(palette.surfaces[2]) < luminance(palette.surfaces[3]), 'popups and the prompt card sit above it');
+    assert.ok(
+      luminance(palette.surfaces[2]) < luminance(palette.surfaces[3]),
+      'popups and the prompt card sit above it'
+    );
   });
   await t.test('native Mica connects the frame and sidebar while documents and right docks stay opaque', async () => {
     await page.evaluate(() => {
       document.documentElement.dataset.windowMaterial = 'mica';
-      document.body.insertAdjacentHTML('beforeend', `
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
         <div class="app-shell">
           <header class="topbar" id="mica-titlebar"></header>
           <div class="desktop-body">
@@ -182,7 +206,8 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
             </main>
           </div>
         </div>
-      `);
+      `
+      );
     });
     for (const [theme, dock, workspace, frame] of [
       ['dark', 'rgb(24, 24, 27)', 'rgb(17, 17, 19)', [0, 0, 0, 0]],
@@ -209,8 +234,8 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
             const style = getComputedStyle(document.getElementById(id));
             return { id, background: style.backgroundColor, opacity: style.opacity };
           }),
-          chrome: ['mica-titlebar', 'mica-rail', 'mica-sidebar-content', 'mica-sidebar-list'].map((id) =>
-            getComputedStyle(document.getElementById(id)).backgroundColor
+          chrome: ['mica-titlebar', 'mica-rail', 'mica-sidebar-content', 'mica-sidebar-list'].map(
+            (id) => getComputedStyle(document.getElementById(id)).backgroundColor
           ),
         };
       }, theme);
@@ -235,40 +260,56 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         assert.equal(panel.background, background, `${theme}: ${panel.id}`);
         assert.equal(panel.opacity, '1', theme);
       }
-      assert.ok(surfaces.chrome.every((color) => color === 'rgba(0, 0, 0, 0)'), JSON.stringify(surfaces.chrome));
+      assert.ok(
+        surfaces.chrome.every((color) => color === 'rgba(0, 0, 0, 0)'),
+        JSON.stringify(surfaces.chrome)
+      );
     }
   });
   await t.test('folding the sidebar transfers its seam to the rail without a double main-panel edge', async () => {
-    for (const theme of ['light', 'dark']) {
-      for (const collapsed of [false, true, false]) {
-        const seam = await page.evaluate(({ theme, collapsed }) => {
-          document.documentElement.dataset.mixdogTheme = theme;
-          document.querySelector('.app-shell').classList.toggle('sidebar-collapsed', collapsed);
-          document.getElementById('mica-sidebar').style.display = collapsed ? 'none' : '';
-          const rail = getComputedStyle(document.getElementById('mica-rail'));
-          const panel = getComputedStyle(document.getElementById('mica-main'));
-          const sidebar = getComputedStyle(document.getElementById('mica-sidebar'));
-          return {
-            color: rail.borderRightColor,
-            expected: getComputedStyle(document.documentElement).getPropertyValue('--mx-border-structure').trim(),
-            width: rail.borderRightWidth,
-            shadow: panel.boxShadow,
-            corner: panel.borderTopLeftRadius,
-            sidebarCorner: sidebar.borderTopLeftRadius,
-            sidebarShadow: sidebar.boxShadow,
-          };
-        }, { theme, collapsed });
-        assert.equal(seam.width, '1px');
-        assert.equal(seam.color, collapsed ? seam.expected : 'rgba(0, 0, 0, 0)');
-        assert.match(seam.shadow, /0px 1px 0px 0px inset$/);
-        assert.equal(seam.corner, collapsed ? '8px' : '0px');
-        assert.equal(seam.sidebarCorner, '8px');
-        assert.match(seam.sidebarShadow, /1px 1px 0px 0px inset$/);
+    // The seam corners belong to narrow windows; wider ones use the joined
+    // sheet from pane-layout.css, which this page does not load.
+    const viewport = page.viewport();
+    await page.setViewport({ width: 760, height: 600 });
+    try {
+      for (const theme of ['light', 'dark']) {
+        for (const collapsed of [false, true, false]) {
+          const seam = await page.evaluate(
+            ({ theme, collapsed }) => {
+              document.documentElement.dataset.mixdogTheme = theme;
+              document.querySelector('.app-shell').classList.toggle('sidebar-collapsed', collapsed);
+              document.getElementById('mica-sidebar').style.display = collapsed ? 'none' : '';
+              const rail = getComputedStyle(document.getElementById('mica-rail'));
+              const panel = getComputedStyle(document.getElementById('mica-main'));
+              const sidebar = getComputedStyle(document.getElementById('mica-sidebar'));
+              return {
+                color: rail.borderRightColor,
+                expected: getComputedStyle(document.documentElement).getPropertyValue('--mx-border-structure').trim(),
+                width: rail.borderRightWidth,
+                shadow: panel.boxShadow,
+                corner: panel.borderTopLeftRadius,
+                sidebarCorner: sidebar.borderTopLeftRadius,
+                sidebarShadow: sidebar.boxShadow,
+              };
+            },
+            { theme, collapsed }
+          );
+          assert.equal(seam.width, '1px');
+          assert.equal(seam.color, collapsed ? seam.expected : 'rgba(0, 0, 0, 0)');
+          assert.match(seam.shadow, /0px 1px 0px 0px inset$/);
+          assert.equal(seam.corner, collapsed ? '8px' : '0px');
+          assert.equal(seam.sidebarCorner, '8px');
+          assert.match(seam.sidebarShadow, /1px 1px 0px 0px inset$/);
+        }
       }
+    } finally {
+      await page.setViewport(viewport);
     }
   });
   await t.test('without native Mica both panels stay opaque in their theme tones', async () => {
-    await page.evaluate(() => { delete document.documentElement.dataset.windowMaterial; });
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.windowMaterial;
+    });
     for (const [theme, sidebar, workspace] of [
       ['dark', 'rgb(24, 24, 27)', 'rgb(17, 17, 19)'],
       ['light', 'rgb(252, 252, 252)', 'rgb(252, 252, 252)'],
@@ -282,15 +323,23 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
   });
   await t.test('icons and all usage meter states keep contrast in the rail and popup', async () => {
     await page.evaluate(() => {
-      document.body.insertAdjacentHTML('beforeend', `
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
         <nav class="activity-rail" id="contrast-rail"><button id="contrast-icon" style="transition:none">○</button></nav>
         <div id="contrast-popup"></div>
-      `);
+      `
+      );
       for (const tone of ['', 'tone-warning', 'tone-danger']) {
-        document.getElementById('contrast-rail').insertAdjacentHTML('beforeend',
-          `<div class="rail-usage-pin-brand ${tone}"><i><i></i></i><small>71%</small></div>`);
-        document.getElementById('contrast-popup').insertAdjacentHTML('beforeend',
-          `<div class="sidebar-usage-meter ${tone}"><i><i></i></i><b>71%</b></div>`);
+        document
+          .getElementById('contrast-rail')
+          .insertAdjacentHTML(
+            'beforeend',
+            `<div class="rail-usage-pin-brand ${tone}"><i><i></i></i><small>71%</small></div>`
+          );
+        document
+          .getElementById('contrast-popup')
+          .insertAdjacentHTML('beforeend', `<div class="sidebar-usage-meter ${tone}"><i><i></i></i><b>71%</b></div>`);
       }
     });
     for (const theme of ['light', 'dark']) {
@@ -307,8 +356,13 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
           context.fillRect(0, 0, 1, 1);
           context.fillStyle = color;
           context.fillRect(0, 0, 1, 1);
-          return '#' + [...context.getImageData(0, 0, 1, 1).data].slice(0, 3)
-            .map((value) => value.toString(16).padStart(2, '0')).join('');
+          return (
+            '#' +
+            [...context.getImageData(0, 0, 1, 1).data]
+              .slice(0, 3)
+              .map((value) => value.toString(16).padStart(2, '0'))
+              .join('')
+          );
         };
         const frame = root.getPropertyValue('--mx-window-band').trim();
         const popup = root.getPropertyValue('--mx-bg-base').trim();
@@ -318,14 +372,15 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         const tile = composite(getComputedStyle(icon, '::before').backgroundColor, frame);
         const selected = composite(getComputedStyle(icon).color, tile);
         icon.classList.remove('is-active');
-        const meters = [...document.querySelectorAll('#contrast-rail .rail-usage-pin-brand, #contrast-popup .sidebar-usage-meter')]
-          .map((element) => {
-            const surface = element.closest('#contrast-rail') ? frame : popup;
-            const track = composite(getComputedStyle(element.querySelector(':scope > i')).backgroundColor, surface);
-            const fill = composite(getComputedStyle(element.querySelector('i > i')).backgroundColor, track);
-            const text = composite(getComputedStyle(element.querySelector('small, b')).color, surface);
-            return { name: element.className, surface, track, fill, text };
-          });
+        const meters = [
+          ...document.querySelectorAll('#contrast-rail .rail-usage-pin-brand, #contrast-popup .sidebar-usage-meter'),
+        ].map((element) => {
+          const surface = element.closest('#contrast-rail') ? frame : popup;
+          const track = composite(getComputedStyle(element.querySelector(':scope > i')).backgroundColor, surface);
+          const fill = composite(getComputedStyle(element.querySelector('i > i')).backgroundColor, track);
+          const text = composite(getComputedStyle(element.querySelector('small, b')).color, surface);
+          return { name: element.className, surface, track, fill, text };
+        });
         return { frame, idle, tile, selected, meters };
       }, theme);
       assert.ok(contrast(colors.idle, colors.frame) >= 3, `${theme}: idle icon`);
@@ -339,12 +394,15 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
   });
   await t.test('item containers are hairline frames in both themes; selections stay filled', async () => {
     await page.evaluate(() => {
-      document.body.insertAdjacentHTML('beforeend', `
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
         <div class="sidebar-usage-row" id="item-usage"></div>
         <div class="sidebar-usage-reset-credit" id="item-credit"></div>
         <div class="session-sidebar"><div class="session-row selected" id="item-selected" style="transition:none"></div></div>
         <div class="message user"><div class="message-body" id="item-bubble"></div></div>
-      `);
+      `
+      );
     });
     for (const theme of ['light', 'dark']) {
       const items = await page.evaluate((theme) => {
@@ -376,7 +434,9 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
   });
   await t.test('windows share one grammar in both themes: framed cards, unbanded tables, filled controls', async () => {
     await page.evaluate(() => {
-      document.body.insertAdjacentHTML('beforeend', `
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
         <div id="paper-window">
           <i id="paper-tone"></i>
           <aside class="mixdog-settings__rail" id="paper-rail"></aside>
@@ -395,35 +455,56 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
           <div class="notice" id="paper-notice"></div>
           <div class="markdown"><table><tr><th id="paper-md-th">C</th></tr></table></div>
         </div>
-      `);
-    });
-    const read = (theme) => page.evaluate((theme) => {
-      document.documentElement.dataset.mixdogTheme = theme;
-      const probe = document.getElementById('paper-tone');
-      const tone = (name) => {
-        probe.style.color = `var(--mx-${name})`;
-        return getComputedStyle(probe).color;
-      };
-      const elements = Object.fromEntries(
-        ['paper-rail', 'paper-group', 'paper-table', 'paper-th', 'paper-group-row', 'paper-pager', 'paper-chart',
-          'paper-range', 'paper-range-active', 'paper-arrow', 'paper-tool', 'paper-tool-head', 'paper-notice', 'paper-md-th']
-          .map((id) => {
-            const style = getComputedStyle(document.getElementById(id));
-            return [id, {
-              bg: style.backgroundColor,
-              color: style.color,
-              shadow: style.boxShadow,
-              border: `${style.borderTopWidth} ${style.borderTopColor}`,
-              right: `${style.borderRightWidth} ${style.borderRightColor}`,
-            }];
-          })
+      `
       );
-      return {
-        elements,
-        tones: Object.fromEntries(['bg-base', 'window-band', 'workspace-sheet', 'hover', 'text', 'border-muted', 'surface-plate']
-          .map((name) => [name, tone(name)])),
-      };
-    }, theme);
+    });
+    const read = (theme) =>
+      page.evaluate((theme) => {
+        document.documentElement.dataset.mixdogTheme = theme;
+        const probe = document.getElementById('paper-tone');
+        const tone = (name) => {
+          probe.style.color = `var(--mx-${name})`;
+          return getComputedStyle(probe).color;
+        };
+        const elements = Object.fromEntries(
+          [
+            'paper-rail',
+            'paper-group',
+            'paper-table',
+            'paper-th',
+            'paper-group-row',
+            'paper-pager',
+            'paper-chart',
+            'paper-range',
+            'paper-range-active',
+            'paper-arrow',
+            'paper-tool',
+            'paper-tool-head',
+            'paper-notice',
+            'paper-md-th',
+          ].map((id) => {
+            const style = getComputedStyle(document.getElementById(id));
+            return [
+              id,
+              {
+                bg: style.backgroundColor,
+                color: style.color,
+                shadow: style.boxShadow,
+                border: `${style.borderTopWidth} ${style.borderTopColor}`,
+                right: `${style.borderRightWidth} ${style.borderRightColor}`,
+              },
+            ];
+          })
+        );
+        return {
+          elements,
+          tones: Object.fromEntries(
+            ['bg-base', 'window-band', 'workspace-sheet', 'hover', 'text', 'border-muted', 'surface-plate'].map(
+              (name) => [name, tone(name)]
+            )
+          ),
+        };
+      }, theme);
     const clear = 'rgba(0, 0, 0, 0)';
     for (const theme of ['light', 'dark']) {
       const { elements: paper, tones } = await read(theme);
@@ -459,9 +540,15 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
     }
     await page.evaluate(() => document.getElementById('paper-window').remove());
   });
-  t.diagnostic(JSON.stringify(samples.slice(0, 2).map(({ theme, terminal, editor }) => ({
-    theme,
-    terminalContrast: Number(contrast(terminal.foreground, terminal.background).toFixed(2)),
-    menuSelectionContrast: Number(contrast(editor['menu.selectionForeground'], editor['menu.selectionBackground']).toFixed(2)),
-  }))));
+  t.diagnostic(
+    JSON.stringify(
+      samples.slice(0, 2).map(({ theme, terminal, editor }) => ({
+        theme,
+        terminalContrast: Number(contrast(terminal.foreground, terminal.background).toFixed(2)),
+        menuSelectionContrast: Number(
+          contrast(editor['menu.selectionForeground'], editor['menu.selectionBackground']).toFixed(2)
+        ),
+      }))
+    )
+  );
 });

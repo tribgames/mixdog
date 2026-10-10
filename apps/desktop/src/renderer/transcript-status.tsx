@@ -1,5 +1,5 @@
 import { FoldVertical, GitFork, ListTree, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DesktopModelSelection } from '../shared/contract';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
@@ -249,9 +249,11 @@ export function commandShowsActivity(snapshot: Snapshot): boolean {
 export function LiveActivity({
   snapshot,
   optimisticStartedAt = 0,
+  turnKey = '',
 }: {
   snapshot: Snapshot;
   optimisticStartedAt?: number;
+  turnKey?: string;
 }) {
   const spinner = snapshot.spinner && snapshot.spinner.active !== false ? snapshot.spinner : null;
   const command = snapshot.commandStatus && snapshot.commandStatus.active !== false ? snapshot.commandStatus : null;
@@ -272,6 +274,12 @@ export function LiveActivity({
   // do not restart the phrase rotation.
   const anchorRef = useRef(0);
   const mountedAt = useRef(Date.now());
+  const liveSessionId = String(snapshot.sessionId || '').trim();
+  useLayoutEffect(() => {
+    if (!liveSessionId || !turnKey) return;
+    liveActivityTurns.add(liveTurnKey(liveSessionId, turnKey));
+  }, [liveSessionId, turnKey]);
+  const logoGradientId = `live-logo-${useId().replace(/:/g, '')}`;
   const pauseTurnRef = useRef(0);
   const pausedTotalRef = useRef(0);
   const pauseStartRef = useRef(0);
@@ -342,11 +350,39 @@ export function LiveActivity({
         data-animate={animateEnter ? 'true' : undefined}
       >
         <span className="live-activity-icon" aria-hidden="true">
-          <svg className="live-activity-glyph" viewBox="0 0 12 12" aria-hidden="true">
-            <g className="live-activity-glyph-spin">
-              <path className="live-activity-glyph-ring" d="M6 .9 11.1 6 6 11.1.9 6Z" />
-              <path className="live-activity-glyph-core" d="M6 .9 11.1 6 6 11.1.9 6Z" />
+          <svg className="live-activity-logo" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <defs>
+              <linearGradient id={logoGradientId} x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" />
+                <stop offset="1" />
+              </linearGradient>
+            </defs>
+            <g stroke={`url(#${logoGradientId})`}>
+              {[-120, 0, 120].map((rot) => (
+                <circle
+                  key={rot}
+                  className="arc"
+                  cx="12"
+                  cy="12"
+                  r="8.5"
+                  pathLength="360"
+                  transform={`rotate(${rot} 12 12)`}
+                />
+              ))}
             </g>
+          </svg>
+          <svg
+            className="live-activity-logo live-activity-star"
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            aria-hidden="true"
+          >
+            <path
+              className="star"
+              fill={`url(#${logoGradientId})`}
+              d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z"
+            />
           </svg>
         </span>
         <TextShimmer text={verb} />
@@ -405,7 +441,41 @@ function translateStatusDetail(detail: unknown): string {
 
 // A completion is durable history, not an entrance event. Focus, history
 // hydration and virtual-row remounts must paint it in its final state.
-export function CompletionStatus({ item }: { item: TranscriptItem }) {
+// The core stamps no completion time on turndone rows, so "completed while the
+// user was watching" is decided by identity: a LiveActivity mounted for a session + turn records
+// that pair, and only the completion of that same pair animates. Rows restored
+// by opening or re-entering a session never had a live band in this view.
+const liveActivityTurns = new Set<string>();
+const completedActivityTurns = new Set<string>();
+const liveTurnKey = (sessionId: string, turnKey: string) => `${sessionId}\0${turnKey}`;
+
+export function completionActivityKey(sessionId: string, turnKey: string): string {
+  return sessionId && turnKey ? liveTurnKey(sessionId, turnKey) : '';
+}
+
+/** Did this mounted view show a live activity for the session's turn? */
+export function hadLiveActivity(sessionId: string, turnKey: string): boolean {
+  const key = completionActivityKey(sessionId, turnKey);
+  return Boolean(key) && liveActivityTurns.has(key) && !completedActivityTurns.has(key);
+}
+
+/** `animateComplete` is the caller's explicit decision (see hadLiveActivity);
+ *  consume the turn on commit, not during a render React may discard. */
+export function CompletionStatus({
+  item,
+  animateComplete: animate = false,
+  completionActivityKey: activityKey = '',
+}: {
+  item: TranscriptItem;
+  animateComplete?: boolean;
+  completionActivityKey?: string;
+}) {
+  const [animateComplete] = useState(() => animate && !completedActivityTurns.has(activityKey));
+  useLayoutEffect(() => {
+    if (!activityKey) return;
+    completedActivityTurns.add(activityKey);
+    liveActivityTurns.delete(activityKey);
+  }, [activityKey]);
   const tone = completionTone(item);
   const label = String(item.label || item.status || '');
   if (item.kind === 'statusdone' && item.status === 'inherited') {
@@ -460,23 +530,46 @@ export function CompletionStatus({ item }: { item: TranscriptItem }) {
     completionLabel = translateStatusLabel(label) || label || t('Complete');
   }
   const displayDetail = translateStatusDetail(item.detail);
-  const autoEffort = item.kind === 'turndone' ? autoEffortLabel(item.autoEffort) : '';
   return (
-    <div className="turn-status complete" role="status">
-      <MxIcon name="check" className="turn-status-icon" size={16} />
+    <div className="turn-status complete" role="status" data-animate={animateComplete ? 'true' : undefined}>
+      {animateComplete ? (
+        <span className="turn-status-mark" aria-hidden="true">
+          {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative; the wrapping mark is aria-hidden. */}
+          <svg className="turn-status-logo" viewBox="0 0 24 24">
+            <g>
+              {[-120, 0, 120].map((rot) => (
+                <circle
+                  key={rot}
+                  className="arc"
+                  cx="12"
+                  cy="12"
+                  r="8.5"
+                  pathLength="360"
+                  transform={`rotate(${rot} 12 12)`}
+                />
+              ))}
+            </g>
+            <path className="star" d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z" />
+          </svg>
+          {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative; the wrapping mark is aria-hidden. */}
+          <svg
+            className="turn-status-icon turn-status-check mx-icon lucide-check"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 6 9 17l-5-5" pathLength="1" />
+          </svg>
+        </span>
+      ) : (
+        <MxIcon name="check" className="turn-status-icon" size={16} />
+      )}
       <span>{completionLabel}</span>
       {item.kind === 'statusdone' && displayDetail && <small>· {displayDetail}</small>}
-      {autoEffort && (
-        <small>
-          {t('Auto')} {autoEffort}
-        </small>
-      )}
     </div>
   );
-}
-
-const AUTO_EFFORT_LABELS: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'XHigh' };
-
-function autoEffortLabel(effort: unknown): string {
-  return typeof effort === 'string' ? AUTO_EFFORT_LABELS[effort] || '' : '';
 }

@@ -88,9 +88,21 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, ...workerOption
       const target = ensureWorker();
       clearIdleTimer();
       const id = ++nextRequestId;
-      pending.set(id, { resolve, reject });
+      const owned = pending;
+      owned.set(id, { resolve, reject });
       target.ref();
-      target.postMessage({ id, payload });
+      try {
+        target.postMessage({ id, payload });
+      } catch (error) {
+        // Never posted (e.g. an uncloneable payload): drop the entry and
+        // restore the idle state a settled last request would leave.
+        owned.delete(id);
+        if (owned.size === 0) {
+          target.unref();
+          if (worker === target) armIdleTimer(target);
+        }
+        throw error;
+      }
     });
   }
   request.running = () => worker !== null;

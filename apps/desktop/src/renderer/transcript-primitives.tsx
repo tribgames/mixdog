@@ -59,6 +59,7 @@ function shimmerCells(text: string): number {
 
 export function TextShimmer({ text, active = true }: { text: string; active?: boolean }) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label carries the full text while the inner copy is aria-hidden; adding a role would change semantics
     <span
       data-component="text-shimmer"
       data-active={active ? 'true' : 'false'}
@@ -96,6 +97,7 @@ export function CopyControl({
   const generation = useRef(0);
   const pending = useRef(false);
   const [status, setStatus] = useState<'idle' | 'pending' | 'copied' | 'failed'>('idle');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: value is the reset trigger; the body does not read it
   useLayoutEffect(() => {
     pending.current = false;
     setStatus('idle');

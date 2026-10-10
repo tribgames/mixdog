@@ -49,6 +49,7 @@ test('auxiliary sidebars omit duplicate lists while a visited Sessions surface k
               open: index === 0 && open,
               panelActive: index === 0 ? panelActive : true,
               panelTitle: `Panel ${index}`,
+              // biome-ignore lint/correctness/noChildrenProp: props object passed through to createElement
               children: React.createElement('span', null, `Panel body ${index}`),
             })
           )

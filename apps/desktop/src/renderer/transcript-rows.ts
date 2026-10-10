@@ -77,7 +77,7 @@ interface TranscriptRowBuilder {
  *  rows by key, so the prefix flip must not re-key the submission's rows: a
  *  re-keyed row remounts (the thinking timer restarts) and paints one frame at
  *  the flat row estimate (the turn gap bounced the transcript by 40px). */
-function submissionIdentity(turnKey: string): string {
+export function submissionIdentity(turnKey: string): string {
   if (turnKey.startsWith('pending:')) return turnKey.slice('pending:'.length);
   if (turnKey.startsWith('turn:')) return turnKey.slice('turn:'.length);
   return turnKey;

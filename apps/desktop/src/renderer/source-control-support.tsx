@@ -166,6 +166,7 @@ export function useRowWindow(
     const next = active ? viewport.current : null;
     if (next !== node) setNode(next);
   });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: count and rowHeight are triggers that re-measure the viewport when the list shape changes
   useLayoutEffect(() => {
     if (!node) return undefined;
     const measure = () => {
@@ -185,6 +186,7 @@ export function useRowWindow(
       observer?.disconnect();
     };
   }, [node, count, rowHeight]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resetKey is the trigger that scrolls the window back to the top
   useLayoutEffect(() => {
     if (!node) return;
     node.scrollTop = 0;

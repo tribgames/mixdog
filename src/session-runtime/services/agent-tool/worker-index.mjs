@@ -128,9 +128,25 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   }
 
   recoverStaleWorkerRows();
-  registerExitFlush(flushWorkerIndexOnExit);
+  const unregisterExitFlush = registerExitFlush(flushWorkerIndexOnExit);
+  let disposed = false;
+
+  /** Persist queued rows, then release the exit registration. Active rows are
+   *  NOT settled: they are keyed by process pid, which every inline runtime in
+   *  the daemon shares, so settling here would idle other runtimes' workers. */
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    try {
+      batch.flush();
+      store.flushSync();
+    } finally {
+      unregisterExitFlush();
+    }
+  }
 
   return {
+    dispose,
     workerIndexPath: () => file,
     invalidateWorkerRowsCache: store.invalidate,
     readAllWorkerRows: store.readAll,

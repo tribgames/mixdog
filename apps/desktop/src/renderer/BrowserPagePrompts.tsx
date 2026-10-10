@@ -62,6 +62,7 @@ export function BrowserPagePrompts({
                 }}
                 maxLength={2000}
                 disabled={busy}
+                // biome-ignore lint/a11y/noAutofocus: a page prompt dialog must put focus in its response field
                 autoFocus
               />
             )}
@@ -77,6 +78,7 @@ export function BrowserPagePrompts({
               className="primary"
               disabled={busy}
               onClick={accept}
+              // biome-ignore lint/a11y/noAutofocus: a page dialog must put focus on its default action
               autoFocus={dialog.type !== 'prompt'}
             >
               {t('OK')}
@@ -90,11 +92,7 @@ export function BrowserPagePrompts({
               <h3>{t('Choose files')}</h3>
             </header>
             <footer>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={dismiss}
-              >
+              <button type="button" disabled={busy} onClick={dismiss}>
                 {t('Cancel')}
               </button>
               <button
@@ -107,6 +105,7 @@ export function BrowserPagePrompts({
                     requestId: chooser.id,
                   })
                 }
+                // biome-ignore lint/a11y/noAutofocus: a file-chooser dialog must put focus on its default action
                 autoFocus
               >
                 {t('Choose files')}

@@ -39,6 +39,7 @@ import { createChannelConfigApi } from '../channel-config-api.mjs';
 import { createMediaApi } from '../media-api.mjs';
 import { createProviderAuthApi } from '../provider-auth-api.mjs';
 import { createUsageStatsApi } from '../usage-stats-api.mjs';
+import { listProviderAccounts } from '../services/provider-admin.mjs';
 import { createLifecycleApi } from '../lifecycle-api.mjs';
 import { createResourceApi } from '../resource-api.mjs';
 import { createModelRouteApi } from '../model-route-api.mjs';
@@ -68,7 +69,11 @@ export function wireApis(boot) {
     // though the boot-time autostart window has already passed.
     ensureAutomationRuntime: () => boot.scheduleChannelStart(0),
   });
-  boot.usageStatsApi = createUsageStatsApi({ getSessionId: () => boot.rt.session?.id || null });
+  boot.usageStatsApi = createUsageStatsApi({
+    getSessionId: () => boot.rt.session?.id || null,
+    accountEmails: (provider) =>
+      Object.fromEntries(listProviderAccounts(provider).accounts.map((row) => [row.id, row.email || ''])),
+  });
   boot.providerAuthApi = providerAuthApiFor(boot);
   boot.mediaApi = createMediaApi();
   boot.sessionTitles = createSessionTitleController({

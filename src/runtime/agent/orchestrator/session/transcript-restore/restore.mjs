@@ -47,9 +47,6 @@ function restoredTranscriptMetadata(message) {
   if (completionValue && completionStatus && Number.isFinite(completionElapsedMs)) {
     completion = { status: completionStatus, elapsedMs: Math.max(0, completionElapsedMs) };
     if (typeof completionValue.verb === 'string' && completionValue.verb) completion.verb = completionValue.verb;
-    if (typeof completionValue.autoEffort === 'string' && completionValue.autoEffort) {
-      completion.autoEffort = completionValue.autoEffort;
-    }
   }
   return {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),

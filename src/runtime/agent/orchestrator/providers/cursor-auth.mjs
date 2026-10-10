@@ -6,6 +6,7 @@ import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.m
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
 import { createOAuthPkce } from './lib/oauth-pkce.mjs';
+import { accountIdentityFields, normalizeAccountIdentity } from './lib/oauth-token-utils.mjs';
 
 const LOGIN_URL = 'https://cursor.com/loginDeepControl';
 const POLL_URL = 'https://api2.cursor.sh/auth/poll';
@@ -61,6 +62,18 @@ export function cursorTokenExpiry(token) {
   }
 }
 
+// The access token is a JWT whose `sub` is the Cursor user; no request needed.
+export function cursorTokenIdentity(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3 || !parts[1]) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return normalizeAccountIdentity({ id: payload?.sub, email: payload?.email });
+  } catch {
+    return null;
+  }
+}
+
 function loadStoredCredentials() {
   if (process.env.CURSOR_ACCESS_TOKEN && !boundProviderAuthPath('cursor-oauth')) {
     return {
@@ -78,6 +91,7 @@ function loadStoredCredentials() {
     return {
       ...raw,
       expires_at: Number(raw.expires_at) || cursorTokenExpiry(raw.access_token),
+      identity: normalizeAccountIdentity(raw.identity) || cursorTokenIdentity(raw.access_token),
       source: 'Mixdog token store',
     };
   } catch {
@@ -133,6 +147,7 @@ export function describeCursorOAuthCredentials() {
     status,
     detail: tokens.source || 'Cursor OAuth',
     expiresAt: expiresAt || null,
+    ...accountIdentityFields(tokens.identity),
   };
 }
 
@@ -163,6 +178,7 @@ function tokenRecord(accessToken, refreshToken) {
     access_token: accessToken,
     refresh_token: refreshToken,
     expires_at: cursorTokenExpiry(accessToken) || Date.now() + DEFAULT_TOKEN_LIFETIME_MS,
+    ...(cursorTokenIdentity(accessToken) ? { identity: cursorTokenIdentity(accessToken) } : {}),
   };
 }
 

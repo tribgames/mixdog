@@ -13,6 +13,7 @@ export function useStartupPaneSelection(paneWorkspace: ReturnType<typeof usePane
     focusedPaneSelection &&
     focusedPaneSelection.kind !== 'studio' &&
     focusedPaneSelection.kind !== 'terminal' &&
+    focusedPaneSelection.kind !== 'browser' &&
     focusedPaneSelection.kind !== 'diff' &&
     focusedPaneSelection.kind !== 'pull-request'
       ? focusedPaneSelection

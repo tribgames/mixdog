@@ -42,6 +42,7 @@ export function useComposerExternalDraft({
     [draftRef, setDraft, textarea]
   );
   useComposerShareIntake({ active: shareActive, attachFiles, appendText: appendSharedText });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: listener is mounted once; refs and setters are stable and read at event time
   useEffect(() => {
     const receiveDraft = (event: Event) => {
       const text = String((event as CustomEvent<unknown>).detail || '');

@@ -30,6 +30,7 @@ import type { NavigationSelection, WorkspaceSelection } from './nav-types';
 import { paneActiveSessionIds, paneActiveSelection, paneLeavesInVisualOrder, type PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { defaultSessionLaneStore } from './session-lane-store';
+import { browserTabTitle } from './text-format';
 import type { DropPreview } from './pane-drop-intent';
 
 export { resolvePaneDropIntent } from './pane-drop-intent';
@@ -53,6 +54,8 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
       return t('Studio');
     case 'terminal':
       return t('Terminal');
+    case 'browser':
+      return browserTabTitle(selection);
     case 'pull-request':
       return selection.title || t('Pull Request #{{number}}', { number: selection.number });
     case 'diff':
@@ -309,6 +312,8 @@ export function PaneWorkspace({
       {renderStrip?.(leaf)}
       {renderPaneSurfaceStack(leaf, focused)}
       {renderProblems?.(leaf, focused)}
+      {/* Main-tab file footer (EditorPane portals into it): the sheet's last row. */}
+      <div className="pane-footer-slot" />
       {renderSideDock?.(leaf, focused)}
     </>
   );

@@ -197,6 +197,7 @@ export function GithubActionForm({
           );
         }
         return (
+          // biome-ignore lint/a11y/noLabelWithoutControl: the field control is rendered through the `control` variable inside this label
           <label key={field.key}>
             <span>{t(field.label)}</span>
             {control}

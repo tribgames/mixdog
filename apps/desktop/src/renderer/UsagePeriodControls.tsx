@@ -144,6 +144,7 @@ export function UsagePeriodControls({
     ...(customEndTime ? { endTime: customEndTime } : {}),
   };
   const chips = (
+    // biome-ignore lint/a11y/useSemanticElements: chip group is a div styled by .stats-ranges; a fieldset would change the DOM
     <div className="stats-ranges" role="group" aria-label={t('Period')}>
       {views.map((option) => {
         const chip = (

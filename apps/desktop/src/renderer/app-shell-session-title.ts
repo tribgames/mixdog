@@ -11,6 +11,7 @@ interface AppSessionTitleProps {
   navigationSelection: NavigationSelection;
   sessions: DesktopSessionSummary[];
   tabs: WorkspaceTab[];
+  // biome-ignore lint/suspicious/noConfusingVoidType: callers pass rename callbacks that may return void or a promise
   renameSession: (id: string, title: string) => Promise<unknown> | void;
 }
 

@@ -96,8 +96,20 @@ test('native previews, text and unsafe files retain editor routing without launc
   const external = [];
   const view = await mountNavigation(t, { openFilePath: async (...args) => external.push(args) });
   const names = [
-    'image.png', 'chart.svg', 'Chart.SVG', 'report.pdf', 'audio.mp3', 'movie.mp4', 'deck.pptx', 'legacy.ppt',
-    'report.docx', 'sheet.xlsx', 'note.md', 'run.ps1', 'deck.pptm', 'data.bin',
+    'image.png',
+    'chart.svg',
+    'Chart.SVG',
+    'report.pdf',
+    'audio.mp3',
+    'movie.mp4',
+    'deck.pptx',
+    'legacy.ppt',
+    'report.docx',
+    'sheet.xlsx',
+    'note.md',
+    'run.ps1',
+    'deck.pptm',
+    'data.bin',
   ];
   for (const rel of names) {
     await act(async () => view.current.value.openFileTab('C:/Project/demo', rel));
@@ -150,16 +162,18 @@ test('the external-open escape stays visible even for a successfully loaded PDF 
         reverting: false,
         cursorLine: 1,
         outline: [],
-        problemStatus: { errors: 0, warnings: 0 },
         onSave() {},
         onRevert() {},
-        onShowProblems() {},
         onFocusEditor() {},
         onRevealSymbol() {},
       })
     )
   );
-  const button = host.querySelector('.editor-breadcrumb-actions button');
+  await act(async () => host.querySelector('.dock-header-more').click());
+  // The ⋯ menu is portalled to the document body.
+  const button = [...host.ownerDocument.querySelectorAll('.dock-header-menu [role="menuitem"]')].find(
+    (node) => node.textContent === 'Open in default app'
+  );
   assert.ok(button);
   await act(async () => button.click());
   assert.deepEqual(opened, [['C:/Project/demo', 'report.pdf', 'grant']]);

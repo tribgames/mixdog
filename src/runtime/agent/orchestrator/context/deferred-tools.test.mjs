@@ -37,7 +37,7 @@ test('MCP instructions are sorted, unique per deferred server, and confined to B
       '---',
       '',
       '<available-deferred-tools>',
-      'Deferred tool names and purposes; schemas load on demand.',
+      'Deferred tool names and selection triggers; schemas load on demand.',
       '- mcp__alpha__read',
       '- mcp__alpha__write',
       '- mcp__beta__read',
@@ -79,6 +79,23 @@ test('MCP instruction caps and omission survive manifest rebuilds', () => {
   assert.equal(applyInitialDeferredToolManifestToBp2(session, ['shell'], { rebuild: true }), true);
   assert.equal(
     session.messages[1].content,
-    'BP2\n\n---\n\n<available-deferred-tools>\nDeferred tool names and purposes; schemas load on demand.\n- shell\n</available-deferred-tools>'
+    'BP2\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- shell\n</available-deferred-tools>'
   );
+});
+
+test('deferred manifest prefers a tool trigger over its description', () => {
+  const session = {
+    messages: [
+      { role: 'system', content: 'BP1' },
+      { role: 'system', content: 'BP2' },
+    ],
+    deferredToolCatalog: [
+      { name: 'web_search', trigger: 'Unfamiliar names; search first.', description: 'Cached web search.' },
+      { name: 'mcp__docs__read', description: 'Read a remote document.' },
+    ],
+  };
+  applyInitialDeferredToolManifestToBp2(session, ['web_search', 'mcp__docs__read']);
+  const manifest = session.messages[1].content;
+  assert.match(manifest, /^- web_search: Unfamiliar names; search first\.$/m);
+  assert.match(manifest, /^- mcp__docs__read: Read a remote document\.$/m);
 });

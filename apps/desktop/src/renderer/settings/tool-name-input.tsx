@@ -74,7 +74,7 @@ function useToolNameSuggestionPlacement(
       window.visualViewport?.removeEventListener('scroll', place);
       observer?.disconnect();
     };
-  }, [open, disabled, matchCount]);
+  }, [input, open, disabled, matchCount]);
   return position;
 }
 
@@ -84,6 +84,7 @@ function useDismissOnOutsidePointerDown(
   setOpen: (open: boolean) => void,
   ...inside: ReadonlyArray<RefObject<HTMLElement | null>>
 ): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: inside is a fresh rest array each render and setOpen is the caller's callback; the listener follows open only.
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => {
@@ -159,14 +160,7 @@ function renderToolNameSuggestions({
   select(next: string): void;
 }) {
   return createPortal(
-    <div
-      ref={menu}
-      id={id}
-      role="listbox"
-      aria-label={ariaLabel}
-      className="mx-menu"
-      style={position}
-    >
+    <div ref={menu} id={id} role="listbox" aria-label={ariaLabel} className="mx-menu" style={position}>
       {matches.map((option, index) => (
         <button
           key={option.value}
@@ -221,6 +215,7 @@ export function ToolNameInput({
   const selectedIndex = Math.min(active, matches.length - 1);
   const visible = open && !disabled && matches.length > 0 && position !== null;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedIndex re-scrolls the active option into view; the effect reads it from the DOM data-active marker.
   useEffect(() => {
     if (!visible) return;
     menu.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView?.({ block: 'nearest' });
@@ -278,7 +273,7 @@ export function ToolNameInput({
           menu,
           id,
           ariaLabel,
-          position: position!,
+          position,
           matches,
           value,
           selectedIndex,

@@ -571,7 +571,9 @@ test('Studio select-all covers unloaded pages, so a bulk delete empties the tab'
       if (capability === 'deleteMediaAssets') {
         const filter = args[0];
         const ids = stored
-          .filter((asset) => (!filter.kind || asset.kind === filter.kind) && (!filter.ids || filter.ids.includes(asset.id)))
+          .filter(
+            (asset) => (!filter.kind || asset.kind === filter.kind) && (!filter.ids || filter.ids.includes(asset.id))
+          )
           .map((asset) => asset.id);
         if (!filter.dryRun) stored = stored.filter((asset) => !ids.includes(asset.id));
         return { value: { ids }, snapshot: null };

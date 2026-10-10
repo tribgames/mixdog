@@ -10,6 +10,10 @@ export type WorkspaceSelection =
   | NavigationSelection
   | { kind: 'studio'; id: string }
   | { kind: 'terminal'; id: string; cwd?: string }
+  /** A user-only browser page. `id` is the browser page id (a
+   *  MAIN_BROWSER_PAGE_PREFIX id on the shared sign-in partition); `url` and
+   *  `title` are the last known page, used to reopen it after a restart. */
+  | { kind: 'browser'; id: string; url: string; title?: string }
   | {
       kind: 'pull-request';
       project: string;

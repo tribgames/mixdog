@@ -222,17 +222,20 @@ export function QueueList({
     queued.length === 1 ? t('1 queued follow-up') : t('{{count}} queued follow-ups', { count: queued.length });
   return (
     <section className="queue-list" aria-label={label}>
+      {/* biome-ignore lint/a11y/useSemanticElements: the queue container must stay a div; role="list" gives the follow-ups list semantics */}
       <div className="queue-items" role="list">
         {queued.map((entry, index) => {
           const id = String(asRecord(entry)?.id || '');
           const text = queuedFollowupPreview(entry);
           const imageCount = queuedImageCount(entry);
           return (
+            // biome-ignore lint/a11y/useSemanticElements: the queue item must stay a div; role="listitem" gives it list semantics
             <div className="queue-item" role="listitem" key={id || index}>
               <span className="queue-item-text" title={text}>
                 {text}
               </span>
               {imageCount > 0 && (
+                // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the span stands for the attached-image count and needs a text alternative
                 <span
                   className="queue-item-attachments"
                   aria-label={

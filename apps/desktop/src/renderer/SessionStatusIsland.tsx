@@ -24,6 +24,7 @@ export function SessionStatusIsland({
 }) {
   const [contextOpen, setContextOpen] = useState(false);
   const sessionId = String(snapshot.sessionId || '');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger that closes the context popover when the session changes
   useEffect(() => setContextOpen(false), [sessionId]);
   return (
     <div className="session-status-island">

@@ -129,7 +129,12 @@ function meterRows() {
 
 test('Usage uses the same diagonal outline-to-filled pin without changing its toggle action', async (t) => {
   let toggles = 0;
-  const props = { pinned: false, onTogglePin: () => { toggles++; } };
+  const props = {
+    pinned: false,
+    onTogglePin: () => {
+      toggles++;
+    },
+  };
   const { root, api } = await renderUsage(t, [], props);
   const button = document.querySelector('.sidebar-usage-pin');
   assert.equal(button.getAttribute('aria-pressed'), 'false');

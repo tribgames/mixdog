@@ -52,10 +52,16 @@ function fixture() {
     frame() {
       const pending = [...frames.values()];
       frames.clear();
-      pending.forEach((callback) => callback());
+      pending.forEach((callback) => {
+        callback();
+      });
     },
-    gesture: (active = true) => { gesture = active; },
-    nativeClamp: (value) => { top = value; },
+    gesture: (active = true) => {
+      gesture = active;
+    },
+    nativeClamp: (value) => {
+      top = value;
+    },
   };
 }
 

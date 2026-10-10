@@ -33,6 +33,7 @@ export function useComposerMessageSelector({
   // Rewindable prompts, oldest → newest (the newest row is preselected).
   const messages = Array.isArray(userMessages) ? userMessages : [];
   useMobileBack(open, () => setOpen(false));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: index is the trigger that re-scrolls the selected option into view
   useEffect(() => {
     if (open) scrollSelectedOptionIntoView(palette);
   }, [index, open]);

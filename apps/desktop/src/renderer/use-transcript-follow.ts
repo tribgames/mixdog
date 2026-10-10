@@ -612,6 +612,7 @@ export function useTranscriptFollow({
     if (element) scheduleScrollState(element);
   }, [cancelJumpPin, clearReaderGesture, publish, scheduleScrollState, viewport]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: contentMounted, following and sessionKey are re-attach triggers (a fresh observer re-seeds the baselines) though the body reads following through followingRef
   useEffect(() => {
     const target = content.current;
     const element = viewport.current;

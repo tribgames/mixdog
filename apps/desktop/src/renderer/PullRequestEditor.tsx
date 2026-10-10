@@ -47,10 +47,12 @@ export function PullRequestEditor({
   const [mergeMethod, setMergeMethod] = useState<'merge' | 'squash' | 'rebase'>('merge');
   const [refresh, setRefresh] = useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: opening a different pull request must reset the tab, so `number` is a deliberate trigger.
   useEffect(() => {
     setDetailTab(mode === 'changes' ? 'files' : 'conversation');
   }, [mode, number]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api and refresh are deliberate triggers; a new api or a bumped refresh counter must reload the detail.
   useEffect(() => {
     if (!active || !projectPath || !number) return undefined;
     let live = true;
@@ -273,6 +275,7 @@ export function PullRequestEditor({
                   <div className="dock-pr-body">{detail.body.trim() || t('No description provided.')}</div>
                 </section>
                 {detail.labels.length > 0 && (
+                  // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the label list is a named visual group; its tag and role are left unchanged.
                   <div className="dock-pr-labels" aria-label={t('Labels')}>
                     {detail.labels.map((label) => (
                       <span key={label}>{label}</span>
@@ -288,6 +291,7 @@ export function PullRequestEditor({
                   {detail.timeline.length > 0 ? (
                     <div className="dock-pr-timeline">
                       {detail.timeline.map((item, index) => (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: timeline entries are fetched in order and never reorder; createdAt alone can repeat.
                         <article className="dock-pr-comment" key={`${item.createdAt}:${index}`}>
                           <img src={`https://github.com/${encodeURIComponent(item.author)}.png?size=32`} alt="" />
                           <div>

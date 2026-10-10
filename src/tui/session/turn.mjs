@@ -421,7 +421,6 @@ function turnDoneItem({ turn, stream, cards, getState, nextId }) {
     thinkingElapsedMs: stream.thinkingStartedAt ? stream.accumulatedThinkingMs : 0,
     toolCount: cards.toolCards.length,
     verb: turn.completionVerb,
-    ...(typeof turn.askResult?.autoEffort === 'string' ? { autoEffort: turn.askResult.autoEffort } : {}),
     at: Date.now(),
     ...(turn.failureDetail ? { detail: turn.failureDetail } : {}),
     ...(turn.failureDiagnostic ? { errorDetails: turn.failureDiagnostic } : {}),

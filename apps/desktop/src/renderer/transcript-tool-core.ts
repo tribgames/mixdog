@@ -265,6 +265,8 @@ function namedToolActivityUnit(
   if (category === 'Browser' || category === 'Computer') {
     return { unitKey: category, label: localizedToolActivityCategory(category) };
   }
+  // Repository, PR and issue calls are one unit, named apart from local Git.
+  if (surface.normalizedName === 'github') return { unitKey: 'GitHub', label: 'GitHub' };
   if (category === 'Other') {
     const label = String(surface.label || modeledName || t('Tool'));
     return { unitKey: `Other|${surface.normalizedName}`, label };

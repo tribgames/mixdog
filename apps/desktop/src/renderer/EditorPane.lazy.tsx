@@ -1,21 +1,19 @@
 // Monaco file editor with per-path models, persistent dirty buffers, Ctrl+S,
 // and guarded changed-on-disk handling.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import SharedEditorSurface from './SharedEditorSurface';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
-import { createGitRefreshScheduler, FILE_DIFF_REFRESH_OPTIONS, watchGitRefreshEvidence } from './git-refresh-scheduler';
-import { monaco, resolveThemeColor } from './monaco-setup';
+import { showDesktopToast } from './desktop-toasts';
+import { hasLspProviderFeature } from './editor-lsp-providers';
+import { documentFormatterAvailable, runFormatDocument } from './editor-format-document';
+import { monaco } from './monaco-setup';
 import { EditorBreadcrumbs } from './editor-breadcrumbs';
 import type { SideFileChrome } from './side-surface-strip';
+import { SideFileStatusRow, sideFileHasFooter } from './side-file-status-row';
 import { sideEditorOptions } from './editor-side-options';
 import { useEditorCallHierarchy } from './editor-call-hierarchy';
-import {
-  armMonoFontRemeasure,
-  colorWithAlpha,
-  MIXDOG_EDITOR_SCROLLBAR,
-  QUICK_DIFF_COLOR_TOKENS,
-} from './editor-monaco-bootstrap';
+import { armMonoFontRemeasure, MIXDOG_EDITOR_SCROLLBAR } from './editor-monaco-bootstrap';
 import { EditorPaneDocumentSurface } from './editor-pane-document';
 import {
   EditorPaneAlerts,
@@ -24,159 +22,32 @@ import {
   EditorPaneNoticeSurface,
   EditorPanePreviewSurface,
 } from './editor-pane-surfaces';
-import {
-  delimiterForPath,
-  editorViewKindForPath,
-  svgDataUrl,
-  type EditorViewMode,
-} from './editor-delimited';
-import { EditorDelimitedTable, EditorMarkdownPreview, EditorSvgPreview } from './EditorTextViews';
-import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
-import { nextEditorLayoutDimension, type EditorLayoutDimension } from './editor-layout';
+import { editorViewKindForPath } from './editor-delimited';
+import { EditorPaneTextBody } from './editor-pane-text-body';
+import { useEditorPaneLayout } from './editor-pane-session-layout';
+import { useEditorPaneStatus } from './editor-pane-session-status';
+import { formatEditorDocumentForSave } from './editor-pane-session-format';
 import type { DesktopEditorSettings } from '../shared/contract';
-import { explicitEditorLanguageIdForPath } from '../shared/editor-languages';
 import type { EditorCodeGraphMode } from './editor-code-graph';
 import { normalizedFilePath } from './editor-lsp-conversion';
-import {
-  clearActiveEditorDocument,
-  setActiveEditorDocument,
-  setActiveEditorPosition,
-  type EditorOutlineItem,
-} from './editor-language-store';
-import { editorAnsiDecorationPlan, isAnsiOutputPath } from './editor-ansi';
+import type { EditorOutlineItem } from './editor-language-store';
 import { useForegroundMedia } from './media-lifecycle';
-import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../shared/editor-settings';
-import {
-  focusedGraphEditor,
-  graphContextsByEditor,
-  graphContextsByModel,
-  readEditorViewState,
-  writeEditorViewState,
-  type EditorGraphContext,
-} from './editor-monaco-providers';
+import { readEditorViewState, type EditorGraphContext } from './editor-monaco-providers';
+import { useEditorActiveDocument } from './use-editor-active-document';
+import { useEditorSurfaceLifecycle } from './use-editor-surface-lifecycle';
+import { useEditorFooterSlot } from './use-editor-footer-slot';
 import { ensureEditorLoad, reportEditorLoadStage } from './renderer-load-metrics';
-import { editorLanguageLabel, parseEditorQuickDiffStripes, type EditorFileHandle } from './editor-pane-model';
+import type { EditorFileHandle } from './editor-pane-model';
 import { useEditorFileSession } from './use-editor-file-session';
+import { useEditorAnsiOutput, useEditorQuickDiff } from './use-editor-decorations';
+import { useEditorSettings, useLightTheme } from './use-editor-appearance';
+import { useEditorSideChrome } from './use-editor-side-chrome';
+import { useEditorViewMode } from './use-editor-view-mode';
 import { openEditorFileExternally } from './editor-external-file';
 import { useEditorCommandWiring } from './use-editor-command-wiring';
 import { useEditorModelBinding } from './use-editor-model-binding';
 import { useEditorMountSession } from './use-editor-mount-session';
 import { useEditorLspSession } from './use-editor-lsp-session';
-
-const QUICK_DIFF_TOOLTIPS: Record<keyof typeof QUICK_DIFF_COLOR_TOKENS, () => string> = {
-  add: () => t('Added line'),
-  mod: () => t('Changed line'),
-  del: () => t('Removed line'),
-};
-
-type EditorDecorations = { current: import('monaco-editor').editor.IEditorDecorationsCollection | null };
-type EditorGitDiff = NonNullable<NonNullable<typeof window.mixdogDesktop>['gitDiff']>;
-
-/** ANSI output files render their escape sequences as inline decorations plus
- *  one generated stylesheet; every other file clears both. */
-function applyEditorAnsiDecorations({
-  editor,
-  model,
-  relPath,
-  lightTheme,
-  decorations,
-  styleElement,
-}: {
-  editor: import('monaco-editor').editor.IStandaloneCodeEditor | null;
-  model: import('monaco-editor').editor.ITextModel | null | undefined;
-  relPath: string;
-  lightTheme: boolean;
-  decorations: EditorDecorations;
-  styleElement: { current: HTMLStyleElement | null };
-}): void {
-  if (!editor || !model || !isAnsiOutputPath(relPath) || !model.getValue().includes('\x1b[')) {
-    decorations.current?.clear();
-    if (styleElement.current) styleElement.current.textContent = '';
-    return;
-  }
-  const plan = editorAnsiDecorationPlan(model.getValue(), lightTheme);
-  const next = plan.decorations.map((decoration) => {
-    const start = model.getPositionAt(decoration.start);
-    const end = model.getPositionAt(decoration.end);
-    return {
-      range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
-      options: {
-        inlineClassName: decoration.className,
-        inlineClassNameAffectsLetterSpacing: decoration.className === 'editor-ansi-control',
-      },
-    };
-  });
-  if (decorations.current) decorations.current.set(next);
-  else decorations.current = editor.createDecorationsCollection(next);
-  if (!styleElement.current) {
-    const style = document.createElement('style');
-    style.dataset.mixdogEditorAnsi = 'true';
-    document.head.appendChild(style);
-    styleElement.current = style;
-  }
-  styleElement.current.textContent = plan.cssText;
-}
-
-/** Gutter quick-diff against the Git worktree: file-watch evidence plus a slow
- *  safety pass, paused while the window is hidden. Returns its own teardown. */
-function startEditorQuickDiff({
-  gitDiff,
-  projectPath,
-  relPath,
-  lightTheme,
-  editorRef,
-  decorations,
-}: {
-  gitDiff: EditorGitDiff;
-  projectPath: string;
-  relPath: string;
-  lightTheme: boolean;
-  editorRef: { current: import('monaco-editor').editor.IStandaloneCodeEditor | null };
-  decorations: EditorDecorations;
-}): () => void {
-  let live = true;
-  const refresh = async () => {
-    try {
-      const text = await gitDiff(projectPath, relPath, false);
-      if (!live) return;
-      const editor = editorRef.current;
-      if (!editor) return;
-      const stripes = parseEditorQuickDiffStripes(text);
-      const decos = stripes.map((stripe) => {
-        const [token, darkFallback, lightFallback] = QUICK_DIFF_COLOR_TOKENS[stripe.kind];
-        const color = resolveThemeColor(token, lightTheme ? lightFallback : darkFallback);
-        return {
-          range: new monaco.Range(stripe.line, 1, stripe.line, 1),
-          options: {
-            isWholeLine: stripe.kind !== 'del',
-            linesDecorationsClassName: `editor-dirty-diff editor-dirty-diff-${stripe.kind}`,
-            linesDecorationsTooltip: QUICK_DIFF_TOOLTIPS[stripe.kind](),
-            overviewRuler: {
-              color: colorWithAlpha(color, '99'),
-              position: monaco.editor.OverviewRulerLane.Left,
-            },
-            minimap: {
-              color,
-              position: monaco.editor.MinimapPosition.Gutter,
-            },
-          },
-        };
-      });
-      decorations.current?.clear();
-      decorations.current = editor.createDecorationsCollection(decos);
-    } catch {
-      decorations.current?.clear();
-    }
-  };
-  const stopWatching = watchGitRefreshEvidence(
-    projectPath,
-    createGitRefreshScheduler(refresh, FILE_DIFF_REFRESH_OPTIONS)
-  );
-  return () => {
-    live = false;
-    stopWatching();
-  };
-}
 
 /** The user's editor settings expressed as Monaco construction options; every
  *  value the settings do not own is a deliberate default. */
@@ -230,68 +101,6 @@ function monacoEditorOptions(
   };
 }
 
-/** Problems, cursor/selection and language readout under the editor body. */
-function editorStatusBar({
-  focused,
-  formattingAvailable,
-  languageLabel,
-  problemStatus,
-  selectionLabel,
-  onFormat,
-  onGotoLine,
-  onShowProblems,
-}: {
-  focused: boolean;
-  formattingAvailable: boolean;
-  languageLabel: string;
-  problemStatus: { errors: number; warnings: number };
-  selectionLabel: string;
-  onFormat(): void;
-  onGotoLine(): void;
-  onShowProblems(): void;
-}) {
-  return (
-    <footer
-      className={`editor-statusbar${focused ? '' : ' editor-statusbar-idle'}`}
-      aria-label={t('Editor status')}
-      aria-hidden={focused ? undefined : true}
-    >
-      <div className="editor-statusbar-left">
-        <button
-          type="button"
-          aria-label={t('Show Problems')}
-          data-tooltip={t('{{errors}} Errors, {{warnings}} Warnings', {
-            errors: problemStatus.errors,
-            warnings: problemStatus.warnings,
-          })}
-          onClick={onShowProblems}
-        >
-          <span aria-hidden="true">×</span> {problemStatus.errors}
-          <span aria-hidden="true">△</span> {problemStatus.warnings}
-        </button>
-      </div>
-      <div className="editor-statusbar-right">
-        {formattingAvailable && (
-          <button
-            type="button"
-            aria-label={t('Format Document')}
-            data-tooltip={t('Format Document')}
-            onClick={onFormat}
-          >
-            {t('Formatter')}
-          </button>
-        )}
-        <button type="button" aria-label={t('Go to Line/Column')} data-tooltip={selectionLabel} onClick={onGotoLine}>
-          {selectionLabel}
-        </button>
-        {/* Language stays a quiet read-only indicator until the other format
-        controls have an in-app need. */}
-        <span className="editor-statusbar-language">{languageLabel}</span>
-      </div>
-    </footer>
-  );
-}
-
 export default function EditorPane({
   projectPath,
   relPath,
@@ -341,51 +150,38 @@ export default function EditorPane({
   reportEditorLoadStage(projectPath, relPath, accessToken, 'module');
   const abs = `${projectPath.replace(/[\\/]+$/, '')}/${relPath}`;
   const viewStateKey = normalizedFilePath(abs);
+  // A preview's zoom is remembered per file and surface (dock vs. tab).
+  const zoomKey = `${surfaceKey ?? ''}|${viewStateKey}`;
   const [breadcrumbOutline, setBreadcrumbOutline] = useState<EditorOutlineItem[]>([]);
-  const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
-  const [selectionStatus, setSelectionStatus] = useState({ selections: 1, characters: 0 });
-  const [problemStatus, setProblemStatus] = useState({ errors: 0, warnings: 0 });
-  const onShowProblemsRef = useRef(onShowProblems);
-  onShowProblemsRef.current = onShowProblems;
-  const showProblems = useCallback(() => {
-    // Side dock: the host opens Problems in its own split under this editor
-    // instead of toggling the main pane's bottom panel.
-    if (onShowProblemsRef.current) onShowProblemsRef.current();
-    else window.dispatchEvent(new CustomEvent('mixdog:show-problems'));
-  }, []);
-  const [editorFormat, setEditorFormat] = useState({
-    tabSize: 4,
-    insertSpaces: true,
-    eol: 'LF',
-    languageId: '',
-  });
-  const [editorSettings, setEditorSettings] = useState<DesktopEditorSettings>(DEFAULT_DESKTOP_EDITOR_SETTINGS);
   // Alt+Z override: the Editor options prop is re-applied on every render
   // (monaco-react updateOptions), so a plain editor.updateOptions toggle
   // would be reverted immediately. null follows the settings value.
   const [wordWrapOverride, setWordWrapOverride] = useState<DesktopEditorSettings['wordWrap'] | null>(null);
-  const editorSettingsRef = useRef(editorSettings);
-  editorSettingsRef.current = editorSettings;
   const mediaForeground = useForegroundMedia(active);
   // SVG opens as an image, Markdown and CSV/TSV as text; the toggle shows the
   // other view while the hidden editor (and its unsaved edits) stays mounted.
   const viewKind = editorViewKindForPath(relPath);
-  const [viewMode, setViewMode] = useState<EditorViewMode>(viewKind === 'svg' ? 'rendered' : 'source');
-  const [viewSnapshot, setViewSnapshot] = useState<string | null>(null);
-  // Gutter quick-diff stripes against the Git worktree.
-  const diffDecorations = useRef<import('monaco-editor').editor.IEditorDecorationsCollection | null>(null);
-  const ansiDecorations = useRef<import('monaco-editor').editor.IEditorDecorationsCollection | null>(null);
-  const ansiStyleElement = useRef<HTMLStyleElement | null>(null);
-  const ansiRenderTimer = useRef<number | null>(null);
+  const { footerSlot, bindFooterSlot } = useEditorFooterSlot();
   const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
   const modelRef = useRef<import('monaco-editor').editor.ITextModel | null>(null);
-  const modelChangeListener = useRef<import('monaco-editor').IDisposable | null>(null);
-  const editorLayoutSize = useRef<EditorLayoutDimension | null>(null);
+  const {
+    cursorPosition,
+    setCursorPosition,
+    setSelectionStatus,
+    problemStatus,
+    setProblemStatus,
+    editorFormat,
+    setEditorFormat,
+    syncEditorFormat,
+    showProblems,
+    selectionLabel,
+  } = useEditorPaneStatus(editorRef, onShowProblems);
+  const { editorLayoutSize, editorLayoutObserver, layoutEditorToHost, scheduleEditorLayout } =
+    useEditorPaneLayout(editorRef);
   const activeRef = useRef(active);
   const focusedRef = useRef(focused);
   activeRef.current = active;
   focusedRef.current = focused;
-  const editorLayoutObserver = useRef<ResizeObserver | null>(null);
   const callHierarchyContextKey = useRef<import('monaco-editor').editor.IContextKey<boolean> | null>(null);
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const graphContextRef = useRef<EditorGraphContext>({
@@ -398,90 +194,16 @@ export default function EditorPane({
   onReadyRef.current = onReady;
   const onNavigationLocationRef = useRef(onNavigationLocation);
   onNavigationLocationRef.current = onNavigationLocation;
-  const layoutEditorToHost = useCallback(
-    (editor: import('monaco-editor').editor.IStandaloneCodeEditor, layoutHost: HTMLElement) => {
-      if (editorRef.current !== editor) return;
-      const dimension = nextEditorLayoutDimension(editorLayoutSize.current, layoutHost);
-      if (!dimension) return;
-      editorLayoutSize.current = dimension;
-      editor.layout(dimension);
-    },
-    []
-  );
-  const scheduleEditorLayout = useCallback(
-    (editor: import('monaco-editor').editor.IStandaloneCodeEditor, layoutHost: HTMLElement) => {
-      scheduleLayoutFrame(editor, () => layoutEditorToHost(editor, layoutHost));
-    },
-    [layoutEditorToHost]
-  );
   const notifyReady = useCallback(() => onReadyRef.current?.(), []);
-  useEffect(() => {
-    let live = true;
-    const reader = api?.readEditorSettings;
-    if (!reader || accessToken) {
-      setEditorSettings(DEFAULT_DESKTOP_EDITOR_SETTINGS);
-      return () => {
-        live = false;
-      };
-    }
-    void reader(projectPath, relPath, workspaceFile)
-      .then((settings) => {
-        if (live && settings) setEditorSettings(settings);
-      })
-      .catch(() => {
-        if (live) setEditorSettings(DEFAULT_DESKTOP_EDITOR_SETTINGS);
-      });
-    return () => {
-      live = false;
-    };
-  }, [accessToken, api, projectPath, relPath, workspaceFile]);
-  useEffect(() => {
-    const model = editorRef.current?.getModel();
-    if (!model) return;
-    if (editorSettings.detectIndentation) {
-      model.detectIndentation(editorSettings.insertSpaces, editorSettings.tabSize);
-    } else {
-      model.updateOptions({
-        tabSize: editorSettings.tabSize,
-        insertSpaces: editorSettings.insertSpaces,
-      });
-    }
-  }, [editorSettings.detectIndentation, editorSettings.insertSpaces, editorSettings.tabSize]);
-  // Follow the app theme (default dark; :root[data-mixdog-theme="light"]).
-  const [lightTheme, setLightTheme] = useState(() => document.documentElement.dataset.mixdogTheme === 'light');
-  useEffect(() => {
-    const observer = new MutationObserver(() =>
-      setLightTheme(document.documentElement.dataset.mixdogTheme === 'light')
-    );
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mixdog-theme'] });
-    return () => observer.disconnect();
-  }, []);
-  const renderAnsiOutput = useCallback(
-    (model: import('monaco-editor').editor.ITextModel | null | undefined) => {
-      applyEditorAnsiDecorations({
-        editor: editorRef.current,
-        model,
-        relPath,
-        lightTheme,
-        decorations: ansiDecorations,
-        styleElement: ansiStyleElement,
-      });
-    },
-    [lightTheme, relPath]
-  );
-  const scheduleAnsiOutput = useCallback(
-    (model: import('monaco-editor').editor.ITextModel | null | undefined) => {
-      if (ansiRenderTimer.current !== null) window.clearTimeout(ansiRenderTimer.current);
-      ansiRenderTimer.current = window.setTimeout(() => {
-        ansiRenderTimer.current = null;
-        renderAnsiOutput(model);
-      }, 80);
-    },
-    [renderAnsiOutput]
-  );
-  useEffect(() => {
-    renderAnsiOutput(editorRef.current?.getModel());
-  }, [renderAnsiOutput]);
+  const editorSettings = useEditorSettings({ api, accessToken, projectPath, relPath, workspaceFile, editorRef });
+  const editorSettingsRef = useRef(editorSettings);
+  editorSettingsRef.current = editorSettings;
+  const lightTheme = useLightTheme();
+  const { renderAnsiOutput, scheduleAnsiOutput, releaseAnsiOutput } = useEditorAnsiOutput({
+    editorRef,
+    relPath,
+    lightTheme,
+  });
   const syncLspRef = useRef<(kind?: 'change' | 'save') => Promise<boolean>>(async () => false);
   const {
     load,
@@ -490,6 +212,7 @@ export default function EditorPane({
     previewError,
     documentPreview,
     documentError,
+    documentPageErrors,
     documentPagesLoading,
     loadDocumentPages,
     error,
@@ -518,24 +241,7 @@ export default function EditorPane({
   } = useEditorFileSession({
     editorRef,
     modelRef,
-    formatDocument: async () => {
-      const mounted = editorRef.current;
-      if (mounted) {
-        await mounted.getAction('editor.action.formatDocument')?.run();
-        return;
-      }
-      const model = modelRef.current;
-      if (!model) return;
-      // Saving a hidden tab can still request format-on-save. Its short-lived
-      // command surface must not steal the pane's visible editor or its model.
-      const temporary = monaco.editor.create(document.createElement('div'), { model });
-      try {
-        await temporary.getAction('editor.action.formatDocument')?.run();
-      } finally {
-        temporary.setModel(null);
-        temporary.dispose();
-      }
-    },
+    formatDocument: () => formatEditorDocumentForSave(editorRef, modelRef),
     projectPath,
     relPath,
     accessToken,
@@ -545,6 +251,12 @@ export default function EditorPane({
     onDirty,
     onSaveHandle,
     syncLspRef,
+  });
+  const { viewMode, viewSnapshot, setViewSnapshot, changeViewMode } = useEditorViewMode({
+    viewKind,
+    modelRef,
+    loadedContent: load?.content,
+    contentRevision,
   });
   const {
     modelUri,
@@ -607,56 +319,36 @@ export default function EditorPane({
     if (mediaForeground) return;
     mediaRef.current?.pause();
   }, [mediaForeground]);
-  // Hidden→visible tab switches leave Monaco with a stale layout: the first
-  // scrollbar press then only re-measures instead of grabbing the slider.
-  // A focused file surface also takes the keyboard explicitly after mount or
-  // pane activation, so the first pointer click can immediately type.
-  useLayoutEffect(() => {
-    if (!active || !load) return;
-    const editor = editorRef.current;
-    const layoutHost = editor?.getDomNode()?.parentElement;
-    if (editor && layoutHost) {
-      editorLayoutSize.current = null;
-      layoutEditorToHost(editor, layoutHost);
-    }
-    if (focused && revealed && viewMode === 'source') editor?.focus();
-  }, [active, focused, layoutEditorToHost, load, revealed, viewMode]);
-  useEffect(() => {
-    if (!modelUri) return;
-    const model = editorRef.current?.getModel();
-    if (active && focused && model) {
-      setActiveEditorDocument({
-        projectPath,
-        relPath,
-        uri: modelUri,
-        languageId: model.getLanguageId(),
-      });
-      const position = editorRef.current?.getPosition();
-      setActiveEditorPosition(modelUri, position?.lineNumber ?? 1, position?.column ?? 1);
-      if (position) {
-        onNavigationLocationRef.current?.(relPath, position.lineNumber, position.column);
-      }
-      void updateOutline();
-    } else {
-      clearActiveEditorDocument(modelUri);
-    }
-  }, [active, focused, modelUri, projectPath, relPath, updateOutline]);
+  useEditorActiveDocument({
+    editorRef,
+    editorLayoutSize,
+    layoutEditorToHost,
+    onNavigationLocationRef,
+    active,
+    focused,
+    revealed,
+    loaded: load,
+    viewMode,
+    modelUri,
+    projectPath,
+    relPath,
+    updateOutline,
+  });
   // Quick-diff refresh: file-watch evidence plus a slow safety pass while active.
-  useEffect(() => {
-    const gitDiff = api?.gitDiff;
-    if (!active || !load || load.binary || load.tooLarge || load.readOnly || !gitDiff) return undefined;
-    return startEditorQuickDiff({
-      gitDiff,
-      projectPath,
-      relPath,
-      lightTheme,
-      editorRef,
-      decorations: diffDecorations,
-    });
-  }, [api, active, load, projectPath, relPath, diffTick, lightTheme]);
+  const releaseQuickDiff = useEditorQuickDiff({
+    api,
+    active,
+    load,
+    projectPath,
+    relPath,
+    diffTick,
+    lightTheme,
+    editorRef,
+  });
   // The reveal nonce is a wall-clock stamp, so two jumps raised in the same
   // millisecond carry the same one. The line this body reads therefore keys the
   // jump as well; the nonce still re-runs a repeat jump to the same line.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the jump is keyed on the requested line, column and nonce (pinned by editor-reveal-request.test.mjs) rather than the reveal object, and `load ? 1 : 0` re-runs it once when the file first loads without re-running on every content reload.
   useEffect(() => {
     if (!reveal || !load) return;
     const editor = editorRef.current;
@@ -667,32 +359,12 @@ export default function EditorPane({
     editor.focus();
     onNavigationLocationRef.current?.(relPath, reveal.line, column);
   }, [reveal?.line, reveal?.column, reveal?.nonce, load ? 1 : 0, relPath]);
-  const selectedCharacters = selectionStatus.characters;
-  let selectionLabel: string;
-  if (selectionStatus.selections > 1) {
-    selectionLabel = t('{{count}} selections', { count: selectionStatus.selections });
-    if (selectedCharacters) selectionLabel += ` ${t('({{count}} characters selected)', { count: selectedCharacters })}`;
-  } else {
-    selectionLabel = t('Ln {{line}}, Col {{column}}', { line: cursorPosition.line, column: cursorPosition.column });
-    if (selectedCharacters) selectionLabel += ` ${t('({{count}} selected)', { count: selectedCharacters })}`;
-  }
   const revealBreadcrumbSymbol = useCallback((item: EditorOutlineItem) => {
     const editor = editorRef.current;
     if (!editor) return;
     editor.setPosition({ lineNumber: item.line, column: Math.max(1, item.column) });
     editor.revealLineInCenter(item.line);
     editor.focus();
-  }, []);
-  const syncEditorFormat = useCallback(() => {
-    const model = editorRef.current?.getModel();
-    if (!model) return;
-    const options = model.getOptions();
-    setEditorFormat({
-      tabSize: options.tabSize,
-      insertSpaces: options.insertSpaces,
-      eol: model.getEOL() === '\r\n' ? 'CRLF' : 'LF',
-      languageId: model.getLanguageId(),
-    });
   }, []);
   const bindEditorModel = useEditorModelBinding({
     projectPath,
@@ -748,123 +420,86 @@ export default function EditorPane({
     renderAnsiOutput,
     notifyReady,
   });
-  const onMonacoMount = (editor: import('monaco-editor').editor.IStandaloneCodeEditor) => {
-    modelChangeListener.current?.dispose();
-    const model = editor.getModel();
-    modelRef.current = model;
-    modelChangeListener.current = model?.onDidChangeContent(() => onEditorChange(model.getValue())) ?? null;
-    mountEditorSession(editor);
-  };
-  const releaseEditorSurface = (editor: import('monaco-editor').editor.IStandaloneCodeEditor) => {
-    const model = editor.getModel();
-    const viewState = editor.saveViewState();
-    if (viewState) writeEditorViewState(viewStateKey, viewState);
-    graphContextsByEditor.delete(editor);
-    if (focusedGraphEditor.current === editor) focusedGraphEditor.current = null;
-    disposeLsp(model);
-    if (ansiRenderTimer.current !== null) window.clearTimeout(ansiRenderTimer.current);
-    diffDecorations.current?.clear();
-    diffDecorations.current = null;
-    ansiDecorations.current?.clear();
-    ansiDecorations.current = null;
-    ansiStyleElement.current?.remove();
-    ansiStyleElement.current = null;
-    editorLayoutObserver.current?.disconnect();
-    editorLayoutObserver.current = null;
-    editorLayoutSize.current = null;
-    cancelLayoutFrame(editor);
-    if (editorRef.current === editor) editorRef.current = null;
-  };
-  useEffect(
-    () => () => {
-      modelChangeListener.current?.dispose();
-      const model = modelRef.current;
-      if (model && graphContextsByModel.get(model.uri.toString()) === graphContextRef) {
-        graphContextsByModel.delete(model.uri.toString());
-      }
-      disposeLsp(model);
-    },
-    [disposeLsp]
+  const { onMonacoMount, releaseEditorSurface } = useEditorSurfaceLifecycle({
+    editorRef,
+    modelRef,
+    graphContextRef,
+    editorLayoutObserver,
+    editorLayoutSize,
+    viewStateKey,
+    mountEditorSession,
+    onEditorChange,
+    disposeLsp,
+    releaseAnsiOutput,
+    releaseQuickDiff,
+  });
+  const formattingAvailable = documentFormatterAvailable(
+    lspCapabilities.current,
+    hasLspProviderFeature(editorFormat.languageId, 'formatting')
   );
-  // A reload or revert replaces the model text: a snapshot taken earlier must
-  // follow it or the rendered view keeps showing the old file.
-  useEffect(() => {
-    if (viewMode !== 'rendered') return;
-    setViewSnapshot((current) => (current === null ? current : (modelRef.current?.getValue() ?? current)));
-  }, [contentRevision, viewMode]);
-  const changeViewMode = (next: EditorViewMode) => {
-    if (next === viewMode) return;
-    if (next === 'rendered') setViewSnapshot(modelRef.current?.getValue() ?? load?.content ?? '');
-    setViewMode(next);
-  };
-  const sideChromeRef = useRef({ save, changeViewMode });
-  sideChromeRef.current = { save, changeViewMode };
-  const sideEditable = Boolean(load && !preview && !load.binary && !load.tooLarge && !load.readOnly);
-  const sideViewToggle =
-    viewKind && load && !load.binary && !load.tooLarge && (viewKind !== 'svg' || preview) ? viewKind : null;
-  const sideOpenDefault = Boolean(preview || load?.binary || load?.tooLarge);
-  useEffect(() => {
-    if (!onSideChrome) return;
-    onSideChrome({
-      editable: sideEditable,
-      dirty,
-      saving,
-      viewToggle: sideViewToggle
-        ? {
-            value: viewMode,
-            renderedLabel: sideViewToggle === 'table' ? t('Table') : t('Preview'),
-            onChange: (next) => sideChromeRef.current.changeViewMode(next),
-          }
-        : undefined,
-      save: () => void sideChromeRef.current.save(),
-      reveal: () => void api?.revealFile?.(projectPath, relPath, accessToken),
-      openDefault: sideOpenDefault
-        ? () => void openEditorFileExternally(projectPath, relPath, accessToken)
-        : undefined,
+  const formatDocument = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    void runFormatDocument(editor).then((outcome) => {
+      if (outcome === 'unchanged')
+        showDesktopToast(t('Document is already formatted.'), 'info', { scope: 'editor-format' });
+      else if (outcome === 'unavailable') {
+        showDesktopToast(t('No formatter is available for this file.'), 'warn', { scope: 'editor-format' });
+      }
     });
-  }, [
-    onSideChrome,
-    sideEditable,
-    sideViewToggle,
-    sideOpenDefault,
-    viewMode,
-    dirty,
-    saving,
+  }, []);
+  const gotoLine = useCallback(() => {
+    void editorRef.current?.getAction('editor.action.gotoLine')?.run();
+  }, []);
+  const fileChrome = useEditorSideChrome({
     api,
     projectPath,
     relPath,
     accessToken,
-  ]);
-  useEffect(() => () => onSideChrome?.(null), [onSideChrome]);
+    load,
+    preview,
+    documentPreview,
+    viewKind,
+    viewMode,
+    viewSnapshot,
+    changeViewMode,
+    dirty,
+    saving,
+    save,
+    problemStatus,
+    showProblems,
+    selectionLabel,
+    cursorPosition,
+    languageId: editorFormat.languageId,
+    formattingAvailable,
+    formatDocument,
+    gotoLine,
+    onSideChrome,
+  });
+  const breadcrumbPreview = viewKind === 'svg' ? null : preview;
+  const breadcrumbMenuActions =
+    formattingAvailable && load && !load.binary && !load.tooLarge && !preview && !documentPreview && !load.readOnly
+      ? [{ id: 'format', label: t('Format Document'), onSelect: formatDocument }]
+      : [];
   const editorBreadcrumbs = onSideChrome ? null : (
     <EditorBreadcrumbs
       projectPath={projectPath}
       relPath={relPath}
       accessToken={accessToken}
       load={load}
-      preview={viewKind === 'svg' ? null : preview}
-      viewToggle={
-        viewKind && load && !load.binary && !load.tooLarge && (viewKind !== 'svg' || preview)
-          ? {
-              value: viewMode,
-              renderedLabel: viewKind === 'table' ? t('Table') : t('Preview'),
-              onChange: changeViewMode,
-            }
-          : undefined
-      }
+      preview={breadcrumbPreview}
       dirty={dirty}
       saving={saving}
       reverting={reverting}
       cursorLine={cursorPosition.line}
       outline={breadcrumbOutline}
-      problemStatus={problemStatus}
+      menuActions={breadcrumbMenuActions}
       onSave={() => {
         void save();
       }}
       onRevert={() => {
         void revertFromDisk();
       }}
-      onShowProblems={showProblems}
       onOpenAt={onOpenAt}
       onFocusEditor={() => editorRef.current?.focus()}
       onRevealSymbol={revealBreadcrumbSymbol}
@@ -886,6 +521,7 @@ export default function EditorPane({
         breadcrumbs={editorBreadcrumbs}
         preview={preview}
         relPath={relPath}
+        zoomKey={zoomKey}
         loaded={previewLoaded}
         error={previewError}
         mediaForeground={mediaForeground}
@@ -899,9 +535,12 @@ export default function EditorPane({
   if (documentPreview) {
     return (
       <EditorPaneDocumentSurface
+        key={relPath}
         breadcrumbs={editorBreadcrumbs}
         preview={documentPreview}
+        zoomKey={zoomKey}
         error={documentError}
+        pageErrors={documentPageErrors}
         loading={documentPagesLoading}
         onRequestPages={loadDocumentPages}
         onFirstPageLoad={completePreview}
@@ -914,22 +553,25 @@ export default function EditorPane({
         breadcrumbs={editorBreadcrumbs}
         load={load}
         note={documentError}
+        onRetry={documentError ? reload : undefined}
         onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken)}
       />
     );
   }
-  const showRendered = viewMode === 'rendered' && viewKind !== null && (viewKind !== 'svg' || Boolean(preview));
-  const renderedText = viewSnapshot ?? load.content;
-  const delimiter = delimiterForPath(relPath);
   const baseOptions = monacoEditorOptions(editorSettings, wordWrapOverride);
   const options = {
     ...(onSideChrome ? sideEditorOptions(baseOptions, wordWrapOverride) : baseOptions),
     readOnly: Boolean(load.readOnly),
   };
+  // Main tab only: the footer is the last row of the workspace sheet, below the
+  // pane's Problems panel (PaneWorkspace's footer slot); without a slot it closes
+  // the editor pane itself.
+  const mainFooter = !onSideChrome && active && sideFileHasFooter(fileChrome);
+  const footer = <SideFileStatusRow chrome={fileChrome} />;
   return (
     <>
       {callHierarchyPortal}
-      <div className="editor-pane">
+      <div className="editor-pane" ref={bindFooterSlot}>
         {editorBreadcrumbs}
         {load.readOnly && (
           <p className="editor-pane-readonly-notice" role="status">
@@ -952,60 +594,35 @@ export default function EditorPane({
             void save();
           }}
         />
-        <div className="editor-pane-body stable-surface-preserved stable-editor-surface">
-          {showRendered && viewKind === 'svg' && preview && (
-            <EditorSvgPreview
-              url={viewSnapshot === null ? preview.url : svgDataUrl(viewSnapshot)}
-              name={relPath.split('/').at(-1) || relPath}
-              error={previewError}
-              onComplete={completePreview}
-              onFail={failPreview}
-            />
-          )}
-          {showRendered && viewKind === 'markdown' && (
-            <EditorMarkdownPreview
-              text={renderedText}
-              projectPath={projectPath}
-              relPath={relPath}
-              onOpenFile={onOpenFile}
-            />
-          )}
-          {showRendered && viewKind === 'table' && delimiter && (
-            <EditorDelimitedTable text={renderedText} delimiter={delimiter} />
-          )}
-          <div className="editor-pane-editor-host" style={showRendered ? { display: 'none' } : undefined}>
-            <SharedEditorSurface
-              surfaceKey={surfaceKey ?? abs}
-              active={active}
-              path={abs}
-              modelRef={modelRef}
-              defaultLanguage={explicitEditorLanguageIdForPath(relPath)}
-              defaultValue={load.content}
-              theme={lightTheme ? 'mixdog-light' : 'mixdog-dark'}
-              options={options}
-              onMount={onMonacoMount}
-              onRelease={releaseEditorSurface}
-            />
-          </div>
-        </div>
-        {/* ALWAYS mounted: gating on `focused` resized the editor body by 22px on
-        every focus change — a visible jump right after a pane appears (user:
-        자리를 못 잡고 튄다). Unfocused panes keep the reserved row, hidden. */}
-        {editorStatusBar({
-          focused,
-          formattingAvailable: Boolean(lspCapabilities.current?.formatting),
-          languageLabel: editorLanguageLabel(editorFormat.languageId),
-          problemStatus,
-          selectionLabel,
-          onFormat: () => {
-            void editorRef.current?.getAction('editor.action.formatDocument')?.run();
-          },
-          onGotoLine: () => {
-            void editorRef.current?.getAction('editor.action.gotoLine')?.run();
-          },
-          onShowProblems: showProblems,
-        })}
+        <EditorPaneTextBody
+          load={load}
+          preview={preview}
+          previewError={previewError}
+          viewKind={viewKind}
+          viewMode={viewMode}
+          viewSnapshot={viewSnapshot}
+          onSnapshotChange={setViewSnapshot}
+          projectPath={projectPath}
+          relPath={relPath}
+          path={abs}
+          surfaceKey={surfaceKey ?? abs}
+          zoomKey={zoomKey}
+          active={active}
+          theme={lightTheme ? 'mixdog-light' : 'mixdog-dark'}
+          options={options}
+          modelRef={modelRef}
+          onComplete={completePreview}
+          onFail={failPreview}
+          onOpenFile={onOpenFile}
+          onSave={() => {
+            void save();
+          }}
+          onMount={onMonacoMount}
+          onRelease={releaseEditorSurface}
+        />
+        {mainFooter && !footerSlot && footer}
       </div>
+      {mainFooter && footerSlot && createPortal(footer, footerSlot)}
     </>
   );
 }

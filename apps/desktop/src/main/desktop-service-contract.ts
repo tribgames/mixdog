@@ -1,6 +1,7 @@
 import type {
   DesktopAbortOptions,
   DesktopAgentPoolRow,
+  DesktopSessionContentMatch,
   DesktopCapability,
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
@@ -53,8 +54,10 @@ export interface DesktopService {
   readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
   markSessionRead(sessionId: string, messageCount: number, consumedUnread?: boolean): Promise<boolean>;
   listAgentPool(): Promise<DesktopAgentPoolRow[]>;
+  searchSessionContent(query: string): Promise<DesktopSessionContentMatch[]>;
   renameSession(sessionId: string, title: string): unknown;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
+  setSessionFavorite(sessionId: string, favorite: boolean): unknown;
   deleteSession(sessionId: string): unknown;
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** Transport-only recovery: capture current projections after refreshing
@@ -135,8 +138,10 @@ export const DESKTOP_SERVICE_METHODS = [
   'readSessionFinalAnswer',
   'markSessionRead',
   'listAgentPool',
+  'searchSessionContent',
   'renameSession',
   'setSessionArchived',
+  'setSessionFavorite',
   'deleteSession',
   'prefetchSession',
   'setVisibleSessions',

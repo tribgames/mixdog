@@ -88,6 +88,7 @@ function SearchContentResultList({
                 <button
                   type="button"
                   role="treeitem"
+                  // biome-ignore lint/suspicious/noArrayIndexKey: match list is positional and never reorders; index disambiguates identical line:column
                   key={`${match.line}:${match.column}:${index}`}
                   onPointerEnter={scheduleEditorPanePrefetch}
                   onFocus={scheduleEditorPanePrefetch}

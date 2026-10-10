@@ -36,6 +36,7 @@ function useRowOverflowDismiss({
   trigger: RefObject<HTMLButtonElement | null>;
   setOpen(open: boolean): void;
 }): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: panel/trigger are refs and setOpen is a useState setter (all stable); path is a deliberate trigger that refocuses the first item on each submenu level.
   useEffect(() => {
     if (!menuOpen) return undefined;
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus());
@@ -119,6 +120,7 @@ function renderRowOverflowItem({
   // positional action node stable so focus, hover, and flex layout do not
   // reset while the open menu confirms a destructive action.
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-checked is only set when role is menuitemcheckbox; the role is dynamic.
     <button
       key={item.id}
       type="button"

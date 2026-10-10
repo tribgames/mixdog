@@ -19,6 +19,7 @@ export function useComposerIme({
   setDraft: Dispatch<SetStateAction<string>>;
   setCaretOffset: (offset: number) => void;
 }) {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mounts listeners once on the textarea; refs and setters are stable and read at event time
   useEffect(() => {
     const element = textarea.current;
     if (!element) return undefined;

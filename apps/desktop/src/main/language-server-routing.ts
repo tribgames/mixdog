@@ -136,37 +136,43 @@ export class LanguageServerRouter {
       const state = this.state.state(sessionKey(root, spec)) ?? publicState(spec, 'missing');
       return { available: false, status: state.status, server: state.server, detail: state.detail };
     }
-    const uri = pathToFileURL(projectEntryPathIn(root, relPath)).toString();
-    const capabilities = this.dependencies.capabilitiesWithDynamicRegistrations(
-      session.baseCapabilities,
-      session.registrations.values(),
-      languageId,
-      uri
-    );
-    if (!this.dependencies.methodSupported(method, capabilities)) {
-      return publicState(spec, 'ready', `${spec.name} does not support ${method}.`, capabilities);
-    }
+    // ensure() cancelled any idle shutdown; a request that arrives after the
+    // last document closed must re-arm it or the server outlives every editor.
     try {
-      const result = await this.dependencies.withTimeout(
-        session.connection.sendRequest(method, this.dependencies.languageServerRequestParams(uri, method, params)),
-        15_000,
-        `${spec.name} request timed out.`
+      const uri = pathToFileURL(projectEntryPathIn(root, relPath)).toString();
+      const capabilities = this.dependencies.capabilitiesWithDynamicRegistrations(
+        session.baseCapabilities,
+        session.registrations.values(),
+        languageId,
+        uri
       );
-      return {
-        available: true,
-        status: 'ready',
-        server: spec.name,
-        capabilities,
-        result,
-      };
-    } catch (error) {
-      return {
-        available: true,
-        status: 'error',
-        server: spec.name,
-        capabilities,
-        detail: error instanceof Error ? error.message : String(error),
-      };
+      if (!this.dependencies.methodSupported(method, capabilities)) {
+        return publicState(spec, 'ready', `${spec.name} does not support ${method}.`, capabilities);
+      }
+      try {
+        const result = await this.dependencies.withTimeout(
+          session.connection.sendRequest(method, this.dependencies.languageServerRequestParams(uri, method, params)),
+          15_000,
+          `${spec.name} request timed out.`
+        );
+        return {
+          available: true,
+          status: 'ready',
+          server: spec.name,
+          capabilities,
+          result,
+        };
+      } catch (error) {
+        return {
+          available: true,
+          status: 'error',
+          server: spec.name,
+          capabilities,
+          detail: error instanceof Error ? error.message : String(error),
+        };
+      }
+    } finally {
+      this.process.scheduleIdle(session);
     }
   }
 }

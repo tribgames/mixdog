@@ -56,6 +56,13 @@ export interface DesktopAgentJob extends Readonly<Record<string, unknown>> {
   startedAt?: number | string;
 }
 
+/** Best message-content hit of one session, strongest first. */
+export interface DesktopSessionContentMatch {
+  sessionId: string;
+  snippet: string;
+  rank: number;
+}
+
 /** One active row from the merged child/Lead lifecycle pools. */
 export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   tag: string;

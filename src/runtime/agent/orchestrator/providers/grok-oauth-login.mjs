@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE, oauthSuccessHtml } from './lib/oauth-page.mjs';
+import { emailFromJwts } from './lib/oauth-token-utils.mjs';
 import {
   CLIENT_ID,
   SCOPE,
@@ -67,6 +68,9 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
     user_id: identity.user_id || '',
     principal_type: json.principal_type || identity.principal_type || '',
     principal_id: json.principal_id || identity.principal_id || '',
+    ...(emailFromJwts(json.id_token, json.access_token)
+      ? { email: emailFromJwts(json.id_token, json.access_token) }
+      : {}),
   };
   saveTokens(tokens);
   return tokens;

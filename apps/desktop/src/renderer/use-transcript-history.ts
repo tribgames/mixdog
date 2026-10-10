@@ -28,6 +28,7 @@ export function useTranscriptHistoryFill(
   // A landed page re-checks through the long-lived observer below. Recreating
   // that observer per item count re-delivered (and re-measured) the whole
   // transcript on every page: 1.3 s on a phone growing to 500 items.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: itemCount is the trigger that re-checks after a page lands
   useEffect(() => {
     checkRef.current?.();
   }, [itemCount]);

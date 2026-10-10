@@ -52,7 +52,7 @@ function useStartupSurfaceReady(startupDelayMs: number | undefined): boolean {
       window.clearTimeout(fallbackTimer);
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [host, ready, startupDelayMs]);
+  }, [ready, startupDelayMs]);
   return ready;
 }
 

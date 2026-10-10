@@ -71,6 +71,7 @@ export function useDraftPanePreferences({
   // still its authoritative default. Preserve that route in the same prefs
   // chain so unfocused panes (whose lane snapshot is intentionally empty)
   // render exactly what the focused pane renders.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: lists the snapshot fields the seed reads instead of the snapshot object, whose identity changes on every publication
   const snapshotDraftModelSelection = useMemo(
     // ONLY while the engine snapshot actually owns the draft: a blank engine
     // (no session id) is the new task's own route. A draft focused while the

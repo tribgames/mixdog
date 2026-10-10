@@ -76,7 +76,7 @@ export function buildDeferredToolManifest(entries) {
   list.sort((a, b) => a.name.localeCompare(b.name));
   return [
     '<available-deferred-tools>',
-    'Deferred tool names and purposes; schemas load on demand.',
+    'Deferred tool names and selection triggers; schemas load on demand.',
     ...list.map((entry) => (entry.description ? `- ${entry.name}: ${entry.description}` : `- ${entry.name}`)),
     '</available-deferred-tools>',
   ].join('\n');
@@ -156,7 +156,8 @@ function deferredManifestEntries(session, pool) {
   const descByName = new Map();
   for (const tool of Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []) {
     const name = String(tool?.name || '').trim();
-    if (name && !descByName.has(name)) descByName.set(name, String(tool?.description || ''));
+    // Skill-style selection trigger when the tool declares one; else its description.
+    if (name && !descByName.has(name)) descByName.set(name, String(tool?.trigger || tool?.description || ''));
   }
   const skillRoutedNames = skillRoutedToolNames(session.messages);
   return pool.map((name) => ({

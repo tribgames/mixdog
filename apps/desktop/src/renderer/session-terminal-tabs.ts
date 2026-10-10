@@ -117,8 +117,7 @@ export function closeSessionTerminalTab(sessionId: string, id: string): string |
     tabs.push({ id: sessionTerminalTabId(sessionId, nextN), n: nextN, shell: '' });
     nextN += 1;
   }
-  const activeId =
-    state.activeId === id ? (tabs[Math.min(index, tabs.length - 1)] ?? tabs[0]).id : state.activeId;
+  const activeId = state.activeId === id ? (tabs[Math.min(index, tabs.length - 1)] ?? tabs[0]).id : state.activeId;
   commit(sessionId, { tabs, activeId, nextN });
   return id;
 }

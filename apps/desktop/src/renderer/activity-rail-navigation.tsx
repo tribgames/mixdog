@@ -43,6 +43,7 @@ export function ActivityRailNavigation({
   const descriptors = new Map(entries.map((entry) => [entry.id, entry]));
   const activeInMenu = activeId !== null && !pins.includes(activeId);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the rail container only receives pin drag-and-drop events
     <div
       className="workbench-side-icon-bar is-vertical activity-rail-navigation"
       onDragOver={(event) => {

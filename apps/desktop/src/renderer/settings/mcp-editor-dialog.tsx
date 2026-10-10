@@ -83,6 +83,7 @@ function McpStringListEditor({
       <small>{description}</small>
       <div className="extensions-mcp-list-rows">
         {visible.map((value, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are plain strings edited by position and never reorder.
           <div className="extensions-mcp-list-row" key={`${label}-${index}`}>
             <input
               value={value}
@@ -142,6 +143,7 @@ function McpPairListEditor({
       <small>{description}</small>
       <div className="extensions-mcp-list-rows">
         {visible.map((row, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are key/value pairs edited by position and never reorder.
           <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={`${label}-${index}`}>
             <input
               value={row.key}
@@ -305,6 +307,7 @@ export function McpEditorDialog({
           name="mcp-name"
           defaultValue={name}
           required
+          // biome-ignore lint/a11y/noAutofocus: the dialog's first field takes focus when creating.
           autoFocus={!editing}
           disabled={busy || autoDetect}
           maxLength={80}
@@ -319,6 +322,7 @@ export function McpEditorDialog({
       >
         {autoDetect && <ExtensionNote>{t('Auto-detect')}</ExtensionNote>}
         {!autoDetect && (
+          // biome-ignore lint/a11y/useSemanticElements: a div button group; <fieldset> would change the element tag.
           <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
             <button
               type="button"

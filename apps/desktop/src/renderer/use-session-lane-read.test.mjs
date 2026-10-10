@@ -33,7 +33,8 @@ for (const outcome of ['accepted-without-frame', 'pending', 'rejected', 'resume-
         read,
         reconcileOnMount: outcome !== 'resume-owned',
       });
-      if (state.readUnavailable) return React.createElement('button', { onClick: state.retryRead }, 'Retry');
+      if (state.readUnavailable)
+        return React.createElement('button', { type: 'button', onClick: state.retryRead }, 'Retry');
       return React.createElement('span', null, hasLane ? 'Transcript restored' : 'Loading');
     }
     const root = createRoot(document.getElementById('root'));

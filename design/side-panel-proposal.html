@@ -72,6 +72,21 @@
   body.inset .side { top: 8px; right: 8px; bottom: 8px; width: calc(var(--side-w) - 16px);
     border: 1px solid var(--card-border); border-radius: 12px; }
   body.inset .shead { height: 36px; }
+  /* Variant (?sheet): rail and left sidebar sit flat on a darker base; the
+     conversation and the right dock are two separate rounded sheets with an
+     8px gap between them and an 8px bottom margin. */
+  body.sheet .body { background: #0b0b0d; }
+  body.sheet .sidebar { background: transparent; }
+  body.sheet .main::before { content: ''; position: absolute; left: 0; top: 0; bottom: 8px;
+    right: calc(var(--side-w) + 8px); background: #141417; border: 1px solid var(--card-border);
+    border-radius: 12px; }
+  body.sheet .wtabs, body.sheet .chat { position: relative; z-index: 1; }
+  body.sheet .wtabs { margin-right: calc(var(--side-w) + 8px); }
+  body.sheet .work { padding-right: calc(var(--side-w) + 8px); }
+  body.sheet .composer { bottom: 24px; }
+  body.sheet .side { top: 0; right: 8px; bottom: 8px; width: calc(var(--side-w) - 8px); z-index: 1;
+    border: 1px solid var(--card-border); border-radius: 12px; }
+  body.sheet .shead { height: 44px; }
   /* The left side tab panel follows the same card grammar as the right one;
      the icon rail stays flat. */
   body.inset .sidebar { margin: 8px 0 8px 8px; width: 244px; border: 1px solid var(--card-border);
@@ -360,6 +375,7 @@ PS C:\work\cart&gt; </div>
 
 <script>
   if (/[?&]inset\b/.test(location.search)) document.body.classList.add('inset');
+  if (/[?&]sheet\b/.test(location.search)) document.body.classList.add('sheet');
   // Fit every 1320px scene to the viewer's width, so a narrow viewer (a side
   // browser) shows whole scenes without horizontal scrolling.
   const fit = () => {

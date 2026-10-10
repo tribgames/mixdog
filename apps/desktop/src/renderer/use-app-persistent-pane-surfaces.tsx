@@ -17,6 +17,7 @@ import {
   TERMINAL_STARTUP_DELAY_MS,
 } from './app-shell-components';
 import { DesktopLoadingSurface } from './RendererRecovery';
+import { BrowserPane } from './lazy-widgets';
 
 // A pull-request tab is never part of the default first screen; its editor
 // loads with the tab, behind the same "Loading pull request…" surface.
@@ -30,7 +31,7 @@ type WorkbenchWorkspace = ReturnType<typeof useWorkbenchWorkspace>;
 type UtilitySelection = Extract<
   WorkspaceSelection,
   {
-    kind: 'studio' | 'terminal' | 'diff' | 'pull-request';
+    kind: 'studio' | 'terminal' | 'browser' | 'diff' | 'pull-request';
   }
 >;
 
@@ -43,6 +44,7 @@ function utilityStartupLabel(kind: string): string {
   if (kind === 'studio') return t('Preparing Studio…');
   if (kind === 'diff') return t('Loading diff…');
   if (kind === 'terminal') return t('Loading terminal…');
+  if (kind === 'browser') return t('Loading browser…');
   return t('Loading pull request…');
 }
 
@@ -51,6 +53,7 @@ function isUtilitySelection(selection: WorkspaceSelection): selection is Utility
   return (
     selection.kind === 'studio' ||
     selection.kind === 'terminal' ||
+    selection.kind === 'browser' ||
     selection.kind === 'diff' ||
     selection.kind === 'pull-request'
   );
@@ -265,6 +268,23 @@ export function useAppPersistentPaneSurfaces({
     } else if (utilitySelection.kind === 'terminal') {
       surface = (
         <ReadyTerminalPane cwd={utilitySelection.cwd || null} terminalId={utilitySelection.id} active={utilityActive} />
+      );
+    } else if (utilitySelection.kind === 'browser') {
+      surface = (
+        <Suspense fallback={<DesktopLoadingSurface label={startupLabel} />}>
+          <BrowserPane
+            mode="main"
+            sessionId={utilitySelection.id}
+            active={utilityActive}
+            foreground={utilityActive}
+            focusAddressOnActivate={false}
+            initialUrl={utilitySelection.url}
+            onPageChange={(url, title) => {
+              if (url === utilitySelection.url && title === (utilitySelection.title ?? '')) return;
+              paneWorkspace.updateSelection(leafId, { ...utilitySelection, url, ...(title ? { title } : {}) });
+            }}
+          />
+        </Suspense>
       );
     } else if (utilitySelection.kind === 'diff') {
       surface = <ReadyGitDiffPane selection={utilitySelection} active={utilityActive} onOpenFile={openFileTab} />;

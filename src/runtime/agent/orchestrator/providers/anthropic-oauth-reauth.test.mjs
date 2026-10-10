@@ -137,3 +137,31 @@ test('a successful refresh clears an earlier reauth mark', async (t) => {
   assert.equal(stored.refreshToken, 'refresh-new');
   assert.equal('reauthRequired' in stored, false);
 });
+
+test('a refresh fills the account identity and a later one without it keeps it', async (t) => {
+  writeCredentials(expiring());
+  stubFetch(
+    t,
+    (call) =>
+      new Response(
+        JSON.stringify({
+          access_token: `access-${call}`,
+          refresh_token: `refresh-${call}`,
+          expires_in: 3600,
+          ...(call === 1
+            ? { account: { uuid: 'acct-1', email_address: 'name@example.com' }, organization: { uuid: 'org-1' } }
+            : {}),
+        }),
+        { status: 200 }
+      )
+  );
+  await refreshOAuthCredentials(loadCredentials());
+  const expected = { id: 'acct-1', email: 'name@example.com', organizationId: 'org-1' };
+  assert.deepEqual(readOauth().identity, expected);
+  const described = describeAnthropicOAuthCredentials();
+  assert.deepEqual([described.email, described.identityId], ['name@example.com', 'acct-1']);
+
+  writeCredentials({ ...readOauth(), expiresAt: Date.now() + 1000 });
+  await refreshOAuthCredentials(loadCredentials());
+  assert.deepEqual(readOauth().identity, expected);
+});

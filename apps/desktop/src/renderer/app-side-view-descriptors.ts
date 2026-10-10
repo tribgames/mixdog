@@ -26,10 +26,7 @@ export function createAppSideViewDescriptors(
       'projects',
       { id: 'projects', label: t('Projects'), icon: PanelsTopLeft, onPrefetch: () => onPrefetch('projects') },
     ],
-    [
-      'workflows',
-      { id: 'workflows', label: t('Workflow'), icon: Layers3, onPrefetch: () => onPrefetch('workflows') },
-    ],
+    ['workflows', { id: 'workflows', label: t('Workflow'), icon: Layers3, onPrefetch: () => onPrefetch('workflows') }],
     [
       'extensions',
       { id: 'extensions', label: t('Extensions'), icon: Package, onPrefetch: () => onPrefetch('extensions') },

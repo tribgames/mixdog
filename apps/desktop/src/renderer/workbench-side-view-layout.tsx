@@ -15,6 +15,7 @@ import {
   DESKTOP_UTILITY_DOCK_MIN_WIDTH,
 } from '../shared/window-layout';
 import { t } from './i18n';
+import { useResizeGesture } from './resize-gesture';
 import { useDockIconVisibility } from './dock-icon-visibility';
 import {
   isViewId,
@@ -228,6 +229,7 @@ export function WorkbenchSideIconBar({
     return workbenchSideBarDropTarget(items, orientation === 'vertical' ? clientY : clientX, previous);
   };
   return (
+    // biome-ignore lint/a11y/useSemanticElements: the bar ref, drag handlers and styles are typed and written for a <div>.
     <div
       ref={barRef}
       className={`workbench-side-icon-bar is-${orientation}`}
@@ -477,7 +479,10 @@ export function WorkbenchSidePanel({
    *  the clamped width down; the resize handle reports through onWidthDrag
    *  and the owner persists its own preference. */
   widthOverride?: number;
-  onWidthDrag?(width: number, commit: boolean): void;
+  /** 'preview' while dragging, 'commit' on release, 'cancel' when the gesture
+   *  is aborted: the width then is only the rendered (possibly constrained)
+   *  width at gesture start, so the owner restores its own snapshot instead. */
+  onWidthDrag?(width: number, phase: 'preview' | 'commit' | 'cancel'): void;
   /** Pane docks render ONE unit-wide header themselves (user: 헤더 한 줄),
    *  so the panel's own tab header stays off. */
   hideTabs?: boolean;
@@ -539,6 +544,29 @@ export function WorkbenchSidePanel({
   const effectiveWidth = widthOverride ?? width;
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const dragPending = useRef<number | null>(null);
+  const resizeGesture = useResizeGesture((commit) => {
+    const start = resizeStart.current;
+    if (!start) return;
+    resizeStart.current = null;
+    if (!commit) {
+      // Cancelled: back to the last committed width.
+      if (onWidthDrag) {
+        if (dragPending.current !== null) onWidthDrag(start.width, 'cancel');
+      } else setWidth(start.width);
+      dragPending.current = null;
+      return;
+    }
+    if (onWidthDrag) {
+      onWidthDrag(dragPending.current ?? effectiveWidth, 'commit');
+      dragPending.current = null;
+      return;
+    }
+    try {
+      window.localStorage.setItem(widthKey, String(width));
+    } catch {
+      // A width that cannot persist only resets on the next launch.
+    }
+  });
   const panelBodyRef = useRef<HTMLDivElement | null>(null);
   const [paneDrop, setPaneDrop] = useState<{
     targetRoot: WorkbenchSideViewId;
@@ -607,15 +635,16 @@ export function WorkbenchSidePanel({
         } as React.CSSProperties
       }
     >
+      {/* biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins. */}
       <div
         className="workbench-side-panel-resize"
         role="separator"
         aria-orientation="vertical"
         onPointerDown={(event) => {
           if (event.button !== 0) return;
+          resizeGesture.begin(event);
           resizeStart.current = { x: event.clientX, width: effectiveWidth };
           dragPending.current = null;
-          event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
           const start = resizeStart.current;
@@ -624,28 +653,10 @@ export function WorkbenchSidePanel({
           const next = Math.max(widthMin, Math.min(widthMax, Math.round(start.width + delta)));
           if (onWidthDrag) {
             dragPending.current = next;
-            onWidthDrag(next, false);
+            onWidthDrag(next, 'preview');
           } else setWidth(next);
         }}
-        onPointerUp={(event) => {
-          if (!resizeStart.current) return;
-          resizeStart.current = null;
-          try {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          } catch {
-            // The pointer was already released (cancelled or element detached).
-          }
-          if (onWidthDrag) {
-            onWidthDrag(dragPending.current ?? effectiveWidth, true);
-            dragPending.current = null;
-            return;
-          }
-          try {
-            window.localStorage.setItem(widthKey, String(width));
-          } catch {
-            // A width that cannot persist only resets on the next launch.
-          }
-        }}
+        {...resizeGesture.handlers}
       />
       <div className="workbench-side-panel-content">
         {side === 'right' && !hideTabs && (
@@ -770,6 +781,7 @@ export function WorkbenchSidePanel({
                       {(active, titleDragProps) => renderView(id, active, titleDragProps)}
                     </WorkbenchSideSection>
                     {index < group.length - 1 && (
+                      // biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins.
                       <div
                         className="workbench-side-sash"
                         role="separator"

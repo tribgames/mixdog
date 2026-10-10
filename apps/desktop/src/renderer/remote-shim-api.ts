@@ -57,11 +57,15 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     remoteBrowserStreamAck: (sessionId, seq) => fire('browserRemoteStreamAck', [sessionId, seq]),
     onRemoteBrowserFrame: (listener) => {
       ctx.remoteBrowserFrameListeners.add(listener);
-      return () => { ctx.remoteBrowserFrameListeners.delete(listener); };
+      return () => {
+        ctx.remoteBrowserFrameListeners.delete(listener);
+      };
     },
     onBrowserOpenRequested: (listener) => {
       ctx.browserOpenListeners.add(listener);
-      return () => { ctx.browserOpenListeners.delete(listener); };
+      return () => {
+        ctx.browserOpenListeners.delete(listener);
+      };
     },
     remoteBrowserControl: (sessionId, input) => call('browserRemoteControl', [sessionId, input]),
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
@@ -113,9 +117,11 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       call<boolean>('markSessionRead', [sessionId, messageCount, consumedUnread]),
     subscribeSessions: (listener) => sessionsCatalog.subscribe(listener),
     listAgentPool: () => readCatalog(agentsCatalog, 'listAgentPool'),
+    searchSessionContent: (query) => call('searchSessionContent', [query]),
     subscribeAgentPool: (listener) => agentsCatalog.subscribe(listener),
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
     setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),
+    setSessionFavorite: (sessionId: string, favorite: boolean) => call('setSessionFavorite', [sessionId, favorite]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
     // Cold session lanes fill through a host-side read; the replay frame
     // arrives on the broadcast sessionState event like any live push.
@@ -264,12 +270,16 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     updateActivityRailPins: (pins) => call('updateActivityRailPins', [pins]),
     subscribeActivityRailPins: (listener) => {
       ctx.activityRailPinsListeners.add(listener);
-      return () => { ctx.activityRailPinsListeners.delete(listener); };
+      return () => {
+        ctx.activityRailPinsListeners.delete(listener);
+      };
     },
     notifyProviderModelsChanged: (origin) => fire('notifyProviderModelsChanged', [origin]),
     subscribeProviderModelsChanged: (listener) => {
       ctx.providerModelsListeners.add(listener);
-      return () => { ctx.providerModelsListeners.delete(listener); };
+      return () => {
+        ctx.providerModelsListeners.delete(listener);
+      };
     },
     invokeCapability: <T = unknown>(request: DesktopCapabilityRequest) =>
       call<DesktopCapabilityResult<T>>('invokeCapability', [request]),

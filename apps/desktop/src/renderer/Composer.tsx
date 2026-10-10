@@ -431,6 +431,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   });
   const { setCaretOffset, slash, mention } = palettes;
   useComposerIme({ textarea, composingRef, suppressImeLineBreakRef, draftRef, setDraft, setCaretOffset });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: must switch only when identityScope changes; the other captures are read at that moment and a re-run on their identity would reset the composer
   useLayoutEffect(() => {
     if (activeIdentityScope.current === identityScope) return;
     const previousScope = activeIdentityScope.current;
@@ -462,14 +463,17 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // path forced TWO whole-document synchronous reflows per keystroke
   // (height:auto → scrollHeight read) — the measured source of typing lag on
   // long transcripts.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setDraggingFiles identity is not guaranteed stable here; the effect must run only when transitioning changes
   useEffect(() => {
     if (!transitioning) return;
     setDraggingFiles(false);
   }, [transitioning]);
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
   useEffect(() => setGoalDialogOpen(false), [identityScope, paneActive]);
   const [editingPasteId, setEditingPasteId] = useState<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
   useEffect(() => setEditingPasteId(null), [identityScope, paneActive]);
   const editingPaste = attachments.find((attachment) => attachment.id === editingPasteId);
   const executeSlash = createSlashExecutor({
@@ -592,6 +596,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // A live take turns the send disc into "finish and send"; a running turn
   // still claims that disc for Stop.
   const voiceSend = !stopOnly && dictation.dictationState === 'recording';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: draft is a re-check trigger for the pending voice submit even though the body does not read it
   useEffect(() => {
     if (!voiceSubmitPending.current || dictation.dictationState !== 'idle') return;
     voiceSubmitPending.current = false;
@@ -726,6 +731,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
               </button>
             </span>
           )}
+          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the textarea drives the slash/mention popup and reports whether it is open */}
           <textarea
             ref={textarea}
             value={draft}

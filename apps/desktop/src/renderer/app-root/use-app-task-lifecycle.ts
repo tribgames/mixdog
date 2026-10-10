@@ -173,7 +173,14 @@ export function useAppTaskLifecycle({
       openSelectionInFocusedPane(nextSelection, replaceKey);
       registerWorkspaceSelection(nextSelection, title, replaceKey);
     },
-    [openSelectionInFocusedPane, registerWorkspaceSelection, viewedSessionRef, unreadViewedSessionRef]
+    [
+      openSelectionInFocusedPane,
+      registerWorkspaceSelection,
+      selectionRef,
+      setSelection,
+      viewedSessionRef,
+      unreadViewedSessionRef,
+    ]
   );
 
   useEffect(() => {
@@ -227,6 +234,7 @@ export function useAppTaskLifecycle({
       newTaskDeferred,
       preferredDraftProjectPath,
       resetNewTaskDraft,
+      selectionRef,
       setComposerFocusRequest,
       setRequestedSessionId,
       tabs,
@@ -297,7 +305,10 @@ export function useAppTaskLifecycle({
     const actualSessionId = String(state?.sessionId || '');
     const actualSession = actualSessionId ? sessions.find((session) => session?.id === actualSessionId) : undefined;
     if (actualSession) {
-      activateSelection({ kind: 'session', id: actualSessionId }, sessionSummaryTitle(actualSession, t('Untitled session')));
+      activateSelection(
+        { kind: 'session', id: actualSessionId },
+        sessionSummaryTitle(actualSession, t('Untitled session'))
+      );
     } else if (actualProject) {
       const project = projects.find((item) => item.path === actualProject);
       activateSelection(

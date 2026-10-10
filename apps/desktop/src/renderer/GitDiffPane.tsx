@@ -1,4 +1,6 @@
-import { ArrowLeft, FileDiff, FileText, Minus, Plus, X } from 'lucide-react';
+import { ArrowLeft, FileDiff, Minus, Plus, X } from 'lucide-react';
+import { DiffHeaderControls, useDiffViewState, type DiffViewState } from './diff-header-controls';
+import { ChangeFileRow, FileDiffBody, hunkStats, patchHunks } from './inline-diff';
 import { SideChipStrip } from './side-surface-strip';
 import { fileBaseName } from './text-format';
 import {
@@ -17,15 +19,8 @@ import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import type { WorkspaceSelection } from './nav-types';
-import {
-  type DiffStyle,
-  readDiffStyle,
-  SCM_DIFF_STYLE_KEY,
-  SESSION_DIFF_STYLE_KEY,
-  writeDiffStyle,
-} from './desktop-types';
+import { SCM_DIFF_STYLE_KEY, SESSION_DIFF_STYLE_KEY } from './desktop-types';
 import { ProgressSpinner } from './ProgressSpinner';
-import { GitFileDiff } from './ReviewPane';
 import { createSingleFlightRefresh } from './git-diff-refresh';
 import { createGitRefreshScheduler, FILE_DIFF_REFRESH_OPTIONS, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { prefetchDiffView } from './lazy-widgets';
@@ -50,7 +45,13 @@ export function GitDiffPane({
   onReady,
   chrome,
   onBack,
+  headerControlsExternal,
+  viewState,
 }: {
+  /** The host mounts `DiffHeaderControls` itself: hide the in-pane header. */
+  headerControlsExternal?: boolean;
+  /** The host's Unified/Split state (the pane keeps its own otherwise). */
+  viewState?: DiffViewState;
   /** 'side': the pane-dock host's single-strip chrome (no own header row). */
   chrome?: 'side';
   /** Side chrome in the stacked (narrow) layer: steps back to the list. */
@@ -80,23 +81,22 @@ export function GitDiffPane({
   // Unified/Split persists per surface: the session dock's diff tab and the
   // Source Control diff tab remember their own choice.
   const styleKey = selection.source === 'session' ? SESSION_DIFF_STYLE_KEY : SCM_DIFF_STYLE_KEY;
-  const [mode, setModeState] = useState<DiffStyle>(() => readDiffStyle(styleKey));
+  const ownViewState = useDiffViewState(styleKey);
+  const view = viewState ?? ownViewState;
+  const mode = view.viewMode;
+  // The single selected file opens expanded; its row can fold the diff away.
+  const [expanded, setExpanded] = useState(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: metricKey is the selection identity; a new file re-expands the diff
   useEffect(() => {
-    setModeState(readDiffStyle(styleKey));
-  }, [styleKey]);
-  const setMode = useCallback(
-    (next: DiffStyle) => {
-      setModeState(next);
-      writeDiffStyle(styleKey, next);
-    },
-    [styleKey]
-  );
+    setExpanded(true);
+  }, [metricKey]);
   // One renderer only: @git-diff-view rows with Stage/Unstage Hunk (the
   // Monaco "Editor" mode was dropped — user: 에디터 빼주라).
   const [busyHunk, setBusyHunk] = useState(-1);
   // The shell owns its own visible Loading diff… / error states. Reveal it as
   // soon as it mounts instead of keeping those states hidden behind a
   // full-pane readiness cover until Git and the lazy renderer both finish.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: metricKey is the selection identity; readiness is reported once per selection
   useLayoutEffect(() => {
     onReadyRef.current?.();
   }, [metricKey]);
@@ -107,6 +107,7 @@ export function GitDiffPane({
       epoch.current += 1;
     };
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `selection` is replaced as a whole on every change; `api` is the bridge object.
   const loadOnce = useCallback(async () => {
     if (!activeRef.current || !mountedRef.current) return;
     const request = epoch.current;
@@ -151,11 +152,13 @@ export function GitDiffPane({
   }, [api, metricKey, selection]);
   loadOnceRef.current = loadOnce;
   const load = useCallback(() => refreshQueue.request(), [refreshQueue]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: metricKey is the selection identity; a new file drops the previous patch and in-flight loads
   useEffect(() => {
     epoch.current += 1;
     setPatch(null);
     setError('');
   }, [metricKey]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: metricKey encodes the selection (project included); the watcher restarts per selection
   useEffect(() => {
     if (!active) return undefined;
     if (selection.source === 'commit') {
@@ -202,11 +205,12 @@ export function GitDiffPane({
   } else if (!patch) {
     body = <p className="workspace-git-diff-state">{t('No textual differences.')}</p>;
   } else if (hunks.length === 0) {
-    body = <GitFileDiff patch={patch} mode={mode} />;
+    body = <FileDiffBody patch={patch} mode={mode} />;
   } else {
     body = (
       <div className="workspace-git-diff-hunks">
         {hunks.map((hunk, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: hunk headers can repeat; the position within one patch is the identity.
           <section className="workspace-git-diff-hunk" key={`${hunk.header}:${index}`}>
             <header>
               <code>{hunk.header}</code>
@@ -226,95 +230,78 @@ export function GitDiffPane({
             </header>
             {/* The section header above is the ONE place this hunk's
                 `@@ … @@` line is printed; the body renders rows only. */}
-            <GitFileDiff patch={hunk.patch} mode={mode} hideHunkHeader />
+            <FileDiffBody patch={hunk.patch} mode={mode} hideHunkHeader />
           </section>
         ))}
       </div>
     );
   }
+  const stats = hunkStats(patch ? patchHunks(patch) : []);
+  const fileList =
+    patch === null || error || !patch ? (
+      body
+    ) : (
+      <ul className="session-diff-files">
+        <ChangeFileRow
+          path={selection.rel}
+          additions={stats.additions}
+          deletions={stats.deletions}
+          open={expanded}
+          onToggle={() => setExpanded((open) => !open)}
+          onOpenFile={onOpenFile && (() => onOpenFile(selection.project, selection.rel))}
+        >
+          {body}
+        </ChangeFileRow>
+      </ul>
+    );
+  const controls = <DiffHeaderControls viewMode={view.viewMode} onViewModeChange={view.onViewModeChange} />;
   if (chrome === 'side') {
     // Side dock: the dock header names the surface; the shared strip carries
-    // the file chip and the actions — no second header row.
+    // the file chip and the controls — no second header row. A host that
+    // mounts the controls itself (headerControlsExternal) gets no strip.
     return (
       <div className="workspace-git-diff">
-        <SideChipStrip
-          label={t('Diff')}
-          name={fileBaseName(selection.rel)}
-          title={`${selection.rel}\n${sourceLabel}`}
-          icon={FileDiff}
-          leading={
-            onBack && (
-              <button
-                type="button"
-                className="browser-pane-nav-button"
-                aria-label={t('Back')}
-                data-tooltip={t('Back')}
-                onClick={onBack}
-              >
-                <ArrowLeft size={16} aria-hidden="true" />
-              </button>
-            )
-          }
-        >
-          <button
-            type="button"
-            className="browser-pane-nav-button side-strip-text-button"
-            aria-pressed={mode === 'unified'}
-            onClick={() => setMode('unified')}
+        {!headerControlsExternal && (
+          <SideChipStrip
+            label={t('Diff')}
+            name={fileBaseName(selection.rel)}
+            title={`${selection.rel}\n${sourceLabel}`}
+            icon={FileDiff}
+            leading={
+              onBack && (
+                <button
+                  type="button"
+                  className="browser-pane-nav-button"
+                  aria-label={t('Back')}
+                  data-tooltip={t('Back')}
+                  onClick={onBack}
+                >
+                  <ArrowLeft size={16} aria-hidden="true" />
+                </button>
+              )
+            }
           >
-            {t('Unified')}
-          </button>
-          <button
-            type="button"
-            className="browser-pane-nav-button side-strip-text-button"
-            aria-pressed={mode === 'split'}
-            onClick={() => setMode('split')}
-          >
-            {t('Split')}
-          </button>
-          <button
-            type="button"
-            className="browser-pane-nav-button"
-            aria-label={t('Open file {{file}}', { file: selection.rel })}
-            data-tooltip={t('Open file {{file}}', { file: selection.rel })}
-            onClick={() => onOpenFile?.(selection.project, selection.rel)}
-          >
-            <FileText size={16} aria-hidden="true" />
-          </button>
-        </SideChipStrip>
-        <div className="workspace-git-diff-body">{body}</div>
+            {controls}
+          </SideChipStrip>
+        )}
+        <div className="workspace-git-diff-body">{fileList}</div>
       </div>
     );
   }
   return (
     <div className="workspace-git-diff">
-      <header>
-        <div>
-          <b title={selection.rel}>{selection.rel}</b>
-          <small>{sourceLabel}</small>
-        </div>
-        <div className="workspace-git-diff-actions">
-          <button type="button" aria-pressed={mode === 'unified'} onClick={() => setMode('unified')}>
-            {t('Unified')}
-          </button>
-          <button type="button" aria-pressed={mode === 'split'} onClick={() => setMode('split')}>
-            {t('Split')}
-          </button>
-          <button
-            type="button"
-            aria-label={t('Open file {{file}}', { file: selection.rel })}
-            onClick={() => onOpenFile?.(selection.project, selection.rel)}
-          >
-            <FileText size={14} aria-hidden="true" />
-          </button>
+      {!headerControlsExternal && (
+        <header className="workspace-git-diff-header">
+          <b title={selection.rel}>{sourceLabel}</b>
+          {controls}
           {onClose && (
             <button type="button" aria-label={t('Close diff')} data-tooltip={t('Close diff')} onClick={onClose}>
               <X size={14} aria-hidden="true" />
             </button>
           )}
-        </div>
-      </header>
-      <div className="workspace-git-diff-body">{body}</div>
+        </header>
+      )}
+      <div className="workspace-git-diff-body">{fileList}</div>
     </div>
   );
 }

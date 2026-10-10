@@ -293,13 +293,13 @@ export function useAppWorkspaceWarmup({
       .filter((session) => !session.archived && !session.sourceType && !open.has(session.id))
       .sort((left, right) => (right.activityAt ?? right.updatedAt) - (left.activityAt ?? left.updatedAt))
       .slice(0, RECENT_SESSION_WARMUP_COUNT)
-      .forEach((session, index) =>
+      .forEach((session, index) => {
         scheduleBootWarmup({
           id: `transcript:${session.id}`,
           priority: BOOT_WARMUP.recentTranscript + index,
           run: () => requestSessionRead(session.id),
-        })
-      );
+        });
+      });
   }, [ready, sessions, workspace.focusedLeafId, workspace.leaves]);
   // Code may warm on a normal remote link; it is cached independently of transcripts.
   useEffect(() => {

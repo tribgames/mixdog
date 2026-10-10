@@ -4,6 +4,7 @@
 // the terminal relay, the durable save and the terminal runtime stage
 // (publishAskTurn).
 import { saveSessionAsync, saveSessionAsyncDeferred } from '../store.mjs';
+import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
 import { persistedAssistantTranscriptMetadata } from '../../../../shared/transcript-metadata.mjs';
 import { acknowledgePendingDeferredToolDelta } from '../../runtime-core/deferred-tool-delta.mjs';
 import { acknowledgePendingGoalReminder } from '../../runtime-core/goal-reminder.mjs';
@@ -59,12 +60,7 @@ function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt
         ...meta,
         transcript: {
           ...transcript,
-          completion: {
-            status,
-            verb,
-            elapsedMs,
-            ...(typeof completion.autoEffort === 'string' && completion.autoEffort ? { autoEffort: completion.autoEffort } : {}),
-          },
+          completion: { status, verb, elapsedMs },
         },
       },
     };
@@ -127,7 +123,6 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
     ...result,
     trimmed: messagesDropped > 0,
     messagesDropped,
-    ...(prepared.autoEffort ? { autoEffort: prepared.autoEffort } : {}),
   };
 }
 
@@ -150,7 +145,6 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
         status: 'done',
         verb: rawTranscriptMeta?.completionVerb,
         elapsedMs: Date.now() - turnStartedAt,
-        autoEffort: terminalResultPreview?.autoEffort,
       },
       turnStartedAt
     );
@@ -181,7 +175,10 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
   const saveTerminalSession = terminalRelayed ? saveSessionAsyncDeferred : saveSessionAsync;
   const terminalSave = saveTerminalSession(session, { expectedGeneration: askGeneration });
   terminalSave.then(
-    () => clearTurnCheckpoint(sessionId, turnToken),
+    () => {
+      clearTurnCheckpoint(sessionId, turnToken);
+      ingestSessionTurn(session);
+    },
     () => {}
   );
   finalizePendingMessageDelivery(session, turn.pendingEntries, terminalSave, () =>

@@ -27,5 +27,10 @@ export function createLeadReapTimers({ removeRow }) {
     reapTimers.set(sessionId, handle);
   }
 
-  return { cancel, schedule };
+  function cancelAll() {
+    for (const handle of reapTimers.values()) clearTimeout(handle);
+    reapTimers.clear();
+  }
+
+  return { cancel, cancelAll, schedule };
 }

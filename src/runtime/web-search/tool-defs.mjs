@@ -6,6 +6,7 @@ export const TOOL_DEFS = [
   {
     name: 'web_search',
     title: 'Mixdog Web Search',
+    trigger: 'Unfamiliar names, products, models, recent or external facts; search before answering from memory.',
     description: `Cached web/docs/current-info search; batch queries sharing filters. ${TOOL_SYNC_EXECUTION_CONTRACT}`,
     inputSchema: {
       type: 'object',
@@ -37,6 +38,7 @@ export const TOOL_DEFS = [
   {
     name: 'web_fetch',
     title: 'Mixdog Web Fetch',
+    trigger: 'Page or docs body from a known URL; not discovery (web_search).',
     description: 'Fetch page/docs body from URL; batch known URLs with shared slice options.',
     inputSchema: {
       type: 'object',

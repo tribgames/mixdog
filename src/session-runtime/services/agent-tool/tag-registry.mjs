@@ -23,11 +23,21 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     tagCwds: tagMaps.tagCwds,
   });
   const { readWorkerRows, upsertWorkerSessionDeferred, removeWorkerRow, refreshTagsFromIndex } = index;
-  const { upsertLeadSession } = createLeadWorkerIndex({
+  const leadIndex = createLeadWorkerIndex({
     dataDir,
     cfgMod,
     workerRowFromSession: index.workerRowFromSession,
   });
+
+  const { upsertLeadSession } = leadIndex;
+
+  function dispose(options) {
+    try {
+      index.dispose();
+    } finally {
+      leadIndex.dispose(options);
+    }
+  }
 
   function getLiveSession(sessionId) {
     if (!sessionId) return null;
@@ -84,6 +94,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
   reaper.recoverTerminalReaps();
 
   return {
+    dispose,
     readAllTagTombstones: index.readAllTagTombstones,
     readTagTombstones: index.readTagTombstones,
     readWorkerRows,

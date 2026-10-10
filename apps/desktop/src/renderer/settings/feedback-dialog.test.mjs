@@ -15,11 +15,11 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 window.HTMLElement.prototype.attachEvent = () => {};
 window.HTMLElement.prototype.detachEvent = () => {};
-window.matchMedia =() => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 
 const { createRoot } = await import('react-dom/client');
-const { AboutPanel } =await import('./about-panel.tsx');
+const { AboutPanel } = await import('./about-panel.tsx');
 
 function deferred() {
   let resolve;
@@ -50,7 +50,9 @@ async function setup(t, submitFeedback) {
 
 const dialog = () => document.querySelector('[data-settings-nested-dialog]');
 const button = (label) =>
-  [...dialog().querySelectorAll('button')].find((b) => (b.textContent.trim() || b.getAttribute('aria-label')) === label);
+  [...dialog().querySelectorAll('button')].find(
+    (b) => (b.textContent.trim() || b.getAttribute('aria-label')) === label
+  );
 const field = (selector) => dialog().querySelector(selector);
 
 async function type(element, value) {
@@ -82,7 +84,10 @@ test('Feedback row replaces email support and opens an accessible popup without 
   assert.ok(d.closest('.settings-confirm-layer'));
   assert.ok(field('[data-settings-nested-close]'));
   assert.equal(document.activeElement, field('textarea'));
-  assert.deepEqual([...d.querySelectorAll('input[type=radio]')].map((r) => r.value), ['bug', 'suggestion', 'other']);
+  assert.deepEqual(
+    [...d.querySelectorAll('input[type=radio]')].map((r) => r.value),
+    ['bug', 'suggestion', 'other']
+  );
   assert.equal(calls.length, 0);
   assert.equal(opened.length, 0);
 });
@@ -132,12 +137,15 @@ test('submit sends a normalized payload, blocks duplicates while pending, and re
   });
   assert.equal(calls.length, 1);
   assert.match(calls[0].id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-  assert.deepEqual({ ...calls[0], id: undefined }, {
-    id: undefined,
-    kind: 'suggestion',
-    message: 'Add a dark mode',
-    replyTo: 'me@example.com',
-  });
+  assert.deepEqual(
+    { ...calls[0], id: undefined },
+    {
+      id: undefined,
+      kind: 'suggestion',
+      message: 'Add a dark mode',
+      replyTo: 'me@example.com',
+    }
+  );
   assert.equal(button('Sending…').disabled, true);
   assert.equal(field('[data-settings-nested-close]').disabled, true);
   await act(async () => pending.resolve({ id: calls[0].id, status: 'accepted' }));
@@ -149,7 +157,7 @@ test('submit sends a normalized payload, blocks duplicates while pending, and re
   assert.equal(document.activeElement, opener);
 });
 
-test('blank reply email is omitted from the payload', async (t) => {
+test('blank reply email blocks submission', async (t) => {
   const calls = [];
   const { opener } = await setup(t, async (input) => {
     calls.push(input);
@@ -157,9 +165,12 @@ test('blank reply email is omitted from the payload', async (t) => {
   });
   await openDialog(opener);
   await type(field('textarea'), 'Crash on start');
+  await type(field('input[type=email]'), '   ');
   await act(async () => button('Send feedback').click());
-  assert.equal('replyTo' in calls[0], false);
-  assert.equal(calls[0].kind, 'bug');
+  assert.match(dialog().textContent, /Enter an email address so we can reply\./);
+  assert.equal(field('input[type=email]').getAttribute('aria-invalid'), 'true');
+  assert.equal(field('input[type=email]').required, true);
+  assert.equal(calls.length, 0);
 });
 
 test('failure keeps the draft and id for retry; an edit gets a new id; success rotates the id', async (t) => {
@@ -208,7 +219,9 @@ test('Cancel and the close control dismiss without sending and return focus', as
   });
   assert.ok(dialog(), 'a press inside the card keeps it open');
   await act(async () => {
-    dialog().closest('.settings-confirm-layer').dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    dialog()
+      .closest('.settings-confirm-layer')
+      .dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
   });
   assert.equal(dialog(), null);
   assert.equal(document.activeElement, opener);
@@ -216,7 +229,10 @@ test('Cancel and the close control dismiss without sending and return focus', as
 });
 
 const PNG = Uint8Array.from(
-  Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')
+  Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64'
+  )
 );
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -303,6 +319,7 @@ test('images: select, preview, remove, and send with the payload', async (t) => 
   await act(async () => field('button[aria-label="Remove a.png"]').click());
   assert.deepEqual(names(), ['b.png']);
   await type(field('textarea'), 'with image');
+  await type(field('input[type=email]'), 'me@example.com');
   await act(async () => button('Send feedback').click());
   assert.deepEqual(calls[0].attachments, [
     { name: 'b.png', mimeType: 'image/png', data: Buffer.from(PNG).toString('base64') },
@@ -374,6 +391,7 @@ test('images: draft survives failure, retry keeps id, image edits rotate it, sen
   });
   await openDialog(opener);
   await type(field('textarea'), 'msg');
+  await type(field('input[type=email]'), 'me@example.com');
   await choose([png('a.png')]);
   await reader.finish();
   await act(async () => button('Send feedback').click());
@@ -406,8 +424,6 @@ test('images: closing while reading discards the result without error', async (t
   await openDialog(opener);
   assert.deepEqual(names(), []);
 });
-
-
 
 test('missing host method shows an unavailable state and cannot submit', async (t) => {
   const { opener } = await setup(t, undefined);

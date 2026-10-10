@@ -30,7 +30,10 @@ let exitFlushInstalled = false;
 /** Run every registered flush once on process exit (best effort). */
 export function registerExitFlush(flush) {
   exitFlushes.add(flush);
-  if (exitFlushInstalled) return;
+  const unregister = () => {
+    exitFlushes.delete(flush);
+  };
+  if (exitFlushInstalled) return unregister;
   exitFlushInstalled = true;
   process.on('exit', () => {
     for (const entry of exitFlushes) {
@@ -41,6 +44,12 @@ export function registerExitFlush(flush) {
       }
     }
   });
+  return unregister;
+}
+
+/** Test seam: number of live exit registrations. */
+export function exitFlushCount() {
+  return exitFlushes.size;
 }
 
 /** Unstamped legacy rows report alive: only the freshness window judges them. */

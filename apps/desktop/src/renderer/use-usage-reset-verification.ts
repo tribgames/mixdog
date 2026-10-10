@@ -17,6 +17,7 @@ export function useUsageResetVerification({
   const resetSignature = [...new Set(resetAts)].sort((left, right) => left - right).join('|');
   const failedSignature = [...failedResetAts].sort((left, right) => left - right).join('|');
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: failedSignature is the content signature of failedResetAts and re-runs only when its members change
   useEffect(() => {
     const currentResetAts = resetSignature ? resetSignature.split('|').map((value) => Number(value)) : [];
     const nextResetAt = nextUsageResetVerificationAt(currentResetAts, refreshedAt, failedResetAts);

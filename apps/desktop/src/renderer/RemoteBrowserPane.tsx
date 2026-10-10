@@ -65,6 +65,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   const [actionFailure, setActionFailure] = useState('');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [touchDot, setTouchDot] = useState<{ x: number; y: number; key: number } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency rebuilds the queue if the bridge object is replaced.
   const inputQueue = useMemo(
     () =>
       createRemoteBrowserInputQueue({
@@ -187,6 +188,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
 
   // Newest frame for this session only. A metadata-only frame keeps the last
   // image; a frame is acknowledged once its image is decoded and displayed.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency re-subscribes if the bridge object is replaced.
   useEffect(() => {
     if (!active || !api?.onRemoteBrowserFrame) return undefined;
     let disposed = false;
@@ -243,6 +245,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   }, [active, api, ownerSessionId, inputQueue, client, touch]);
 
   // Live view: start, renew every ~2s while shown, stop when hidden/inactive.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency restarts the stream if the bridge object is replaced.
   useEffect(() => {
     if (!active || !api?.remoteBrowserStream) return undefined;
     setFailure('');
@@ -292,6 +295,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     if (keyboardOpen) keyboardRef.current?.focus();
   }, [keyboardOpen]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency refreshes the callback if the bridge object is replaced.
   const control = useCallback(
     async (next: DesktopRemoteBrowserControl) => {
       if (!api?.remoteBrowserControl) return;
@@ -440,6 +444,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           <X size={16} />
         </button>
       </div>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: remote-page touch/pointer surface; keyboard input goes through the dedicated textarea above. */}
       <div
         ref={contentRef}
         className="browser-pane-content browser-remote-content"

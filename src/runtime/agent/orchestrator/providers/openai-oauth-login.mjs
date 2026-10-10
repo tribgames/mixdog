@@ -36,11 +36,12 @@ function _scrubOAuthLoginBody(text) {
  * @param {string} deps.clientId
  * @param {string} deps.originator
  * @param {(token:string)=>(string|undefined)} deps.extractAccountId
+ * @param {(...tokens:string[])=>(object|null)} deps.identityFromTokens
  * @param {(token:string)=>number} deps.expiryFromAccessToken
  * @param {(tokens:object)=>void} deps.saveTokens
  */
 export function createOpenAIOAuthLogin(deps) {
-  const { clientId, originator, extractAccountId, expiryFromAccessToken, saveTokens } = deps;
+  const { clientId, originator, extractAccountId, identityFromTokens, expiryFromAccessToken, saveTokens } = deps;
 
   async function exchangeAuthorizationCode({ pkce, code }) {
     const cleanCode = String(code || '').trim();
@@ -74,6 +75,7 @@ export function createOpenAIOAuthLogin(deps) {
       refresh_token: json.refresh_token,
       expires_at: expiresAt,
       account_id: extractAccountId(json.access_token),
+      identity: identityFromTokens(json.id_token, json.access_token),
     };
     saveTokens(tokens);
     return tokens;

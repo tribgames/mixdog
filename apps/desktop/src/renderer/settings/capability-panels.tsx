@@ -312,6 +312,7 @@ function DesktopPowerGroup() {
   const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
   const [keepAwake, setKeepAwake] = useState<boolean | null>(null);
   const [runInBackground, setRunInBackground] = useState(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read per render; it is kept as the re-read trigger.
   useEffect(() => {
     let live = true;
     const read = () =>

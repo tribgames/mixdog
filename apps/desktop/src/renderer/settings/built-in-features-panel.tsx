@@ -461,8 +461,7 @@ export function BuiltInFeaturesPanel({
     if (feature.id === 'git') ready = gitStatus !== null && sectionLoaded(data, 'toolModules');
     else if (feature.id === 'browser' || feature.id === 'computer') {
       ready = settings !== null;
-    }
-    else if (feature.id === 'voice') ready = sectionLoaded(data, 'voice');
+    } else if (feature.id === 'voice') ready = sectionLoaded(data, 'voice');
     let progressPercent: number | null = null;
     if (feature.id === 'localProvider') {
       progressPercent = installationPercent(localProviderInstallation(localProvider, 'runtime'));

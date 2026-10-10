@@ -53,10 +53,7 @@ test('background shell jobs never change an agent state or count as waiting', ()
     ['cancelled', 'cancelled'],
     ['cancel-unconfirmed', 'cancel-unconfirmed'],
   ]) {
-    assert.equal(
-      desktopAgentActivityState({ status, stage: status, shellJobCount: 1 }, { unread: true }),
-      expected
-    );
+    assert.equal(desktopAgentActivityState({ status, stage: status, shellJobCount: 1 }, { unread: true }), expected);
   }
   assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 1 }, { unread: true }), 'done');
   assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 1 }), 'idle');
@@ -1071,11 +1068,7 @@ test('Korean Agents pane shows unread completion and idle after reading, regardl
     stage: 'idle',
     shellJobCount,
   });
-  let pool = [
-    agent('lead-shell', null),
-    agent('worker-shell', 'lead-shell', 1),
-    agent('unrelated', null),
-  ];
+  let pool = [agent('lead-shell', null), agent('worker-shell', 'lead-shell', 1), agent('unrelated', null)];
   let push;
   window.mixdogDesktop = {
     async listAgentPool() {
@@ -1087,12 +1080,22 @@ test('Korean Agents pane shows unread completion and idle after reading, regardl
     },
   };
   const sessions = ['lead-shell', 'unrelated'].map((id) => ({
-    id, title: id, preview: '', updatedAt: 1, messageCount: 1,
+    id,
+    title: id,
+    preview: '',
+    updatedAt: 1,
+    messageCount: 1,
   }));
   const renderPane = async (unreadSessionIds) => {
-    await act(async () => dom.root.render(React.createElement(AgentActivityPane, {
-      active: false, sessions, unreadSessionIds,
-    })));
+    await act(async () =>
+      dom.root.render(
+        React.createElement(AgentActivityPane, {
+          active: false,
+          sessions,
+          unreadSessionIds,
+        })
+      )
+    );
   };
   const assertStatus = (id, state, text) => {
     const status = document.querySelector(`[data-agent-session-id="${id}"] .agent-activity-elapsed`);

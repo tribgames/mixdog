@@ -11,7 +11,9 @@ import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { grokClientVersionHeaders } from './grok-client-version.mjs';
 import {
+  accountIdentityFields,
   decodeJwtPayload,
+  emailFromJwts as _emailFromJwts,
   expiryFromAccessToken,
   normalizeExpiresAtMs as _normalizeExpiresAt,
   oauthCredentialStatus,
@@ -190,6 +192,7 @@ export function _loadOwnTokens() {
       user_id: raw.user_id || raw.userId || identity.user_id || '',
       principal_type: raw.principal_type || raw.principalType || identity.principal_type || '',
       principal_id: raw.principal_id || raw.principalId || identity.principal_id || '',
+      email: raw.email || _emailFromJwts(raw.id_token, raw.access_token),
       source: 'own',
       mtimeMs: _mtimeMs(path),
     };
@@ -215,6 +218,7 @@ export function saveTokens(tokens) {
       user_id: tokens.user_id || tokens.userId || identity.user_id || undefined,
       principal_type: tokens.principal_type || tokens.principalType || identity.principal_type || undefined,
       principal_id: tokens.principal_id || tokens.principalId || identity.principal_id || undefined,
+      email: tokens.email || _emailFromJwts(tokens.access_token) || undefined,
     },
     { lock: true, fsyncDir: true, mode: 0o600, secret: true }
   );
@@ -251,7 +255,10 @@ export function describeGrokOAuthCredentials() {
     const hasRefresh = Boolean(tokens.refresh_token);
     const expiresAt = _normalizeExpiresAt(tokens.expires_at);
     const detail = tokens.source === 'own' ? 'Mixdog token store' : tokens.source || 'oauth';
-    return oauthCredentialStatus({ hasRefresh, expiresAt, detail, refreshSkewMs: TOKEN_REFRESH_SKEW_MS });
+    return {
+      ...oauthCredentialStatus({ hasRefresh, expiresAt, detail, refreshSkewMs: TOKEN_REFRESH_SKEW_MS }),
+      ...accountIdentityFields({ id: tokens.user_id, email: tokens.email }),
+    };
   } catch (err) {
     return {
       authenticated: false,
@@ -341,6 +348,7 @@ async function _postRefresh(tokens) {
       user_id: tokens.user_id || tokens.userId || _identityFromAccessToken(accessToken).user_id || '',
       principal_type: json?.principal_type || tokens.principal_type || tokens.principalType || '',
       principal_id: json?.principal_id || tokens.principal_id || tokens.principalId || '',
+      email: _emailFromJwts(json?.id_token, accessToken) || tokens.email || '',
     };
     saveTokens(refreshed);
     return { ...refreshed, source: 'own', mtimeMs: _mtimeMs(getOwnTokenPath()) };

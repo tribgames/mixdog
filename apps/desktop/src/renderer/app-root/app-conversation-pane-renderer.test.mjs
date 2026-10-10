@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { createPaneConversationRenderer } from './app-conversation-pane-renderer.tsx';
+import { setLinkPreview } from '../link-preview-preference.ts';
 
 test('createPaneConversationRenderer builds conversation surface with appropriate titles and props', async () => {
   const { dom } = installTestDom(null, {
@@ -146,7 +147,16 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
     'leaf-1'
   );
   noDock.props.conversationProps.onOpenFile('C:/p', 'src/a.ts', 7);
-  assert.deepEqual(tabCalls, [['C:/p', 'src/a.ts', 7, undefined]]);
+  // Link preview ON (default): the main tab is the preview one.
+  assert.deepEqual(tabCalls, [['C:/p', 'src/a.ts', 7, undefined, true, 'preview']]);
+  // Link preview OFF: every link pins its main tab.
+  setLinkPreview(false);
+  try {
+    noDock.props.conversationProps.onOpenFile('C:/p', 'src/b.ts', 2);
+  } finally {
+    setLinkPreview(true);
+  }
+  assert.deepEqual(tabCalls.at(-1), ['C:/p', 'src/b.ts', 2, undefined, true, 'pinned']);
 
   await act(async () => {
     root.unmount();

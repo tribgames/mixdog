@@ -37,6 +37,7 @@ export const ExtensionsPane = memo(function ExtensionsPane({
   const api = window.mixdogDesktop ?? {};
   // The header's + belongs to the VISIBLE section: switching tabs drops a
   // half-filled form instead of carrying it into a different resource kind.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: section is the trigger: the form closes when the visible section changes.
   useEffect(() => {
     setCreateOpen(false);
   }, [section]);

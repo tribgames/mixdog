@@ -1,6 +1,8 @@
-// Effort-judge client. The judge is preloaded at boot (and when the feature is
-// turned on) and stays resident. A turn waits for a still-loading judge only
-// briefly; when the model is missing, still loading, slow, or failing,
+// Effort-judge client. The judge loads on the first turn that uses it (a model
+// with Auto effort support) and then stays resident until the feature is
+// turned off or a model update replaces its files, so users who never send
+// such a turn never hold it in memory. A turn waits for a still-loading judge
+// only briefly; when the model is missing, still loading, slow, or failing,
 // `judgeTurn` returns a `skipped` reason and the turn keeps its default
 // effort. Decisions are logged locally (lengths and probabilities only, never
 // the request text).
@@ -19,14 +21,18 @@ const MODEL_FILES = ['model.onnx', 'tokenizer.json'];
 // timing out behind each other.
 // MIXDOG_EFFORT_JUDGE_TIMEOUT_MS raises it on a host whose CPUs are shared
 // with heavy work (parallel benchmark containers).
-const WARM_TIMEOUT_MS = Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) > 0 ? Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) : 400;
+const WARM_TIMEOUT_MS =
+  Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) > 0 ? Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) : 400;
 const QUEUE_WAIT_MS = 1000;
 let queueTail = Promise.resolve();
-// A turn that arrives while the judge is still loading (boot, re-enable)
-// waits at most this long; loading takes about 2 s on a desktop CPU.
+// A turn that arrives while the judge is still loading (its first use, or the
+// first turn after a model update) waits at most this long; loading takes about 2 s on a desktop CPU.
 // MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS raises it where a cold load is certain and
 // a slower first turn is acceptable (one-shot headless runs on a busy host).
-const COLD_WAIT_MS = Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS) > 0 ? Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS) : 3000;
+const COLD_WAIT_MS =
+  Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS) > 0
+    ? Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS)
+    : 3000;
 
 let worker = null;
 let workerDir = '';
@@ -161,18 +167,20 @@ function request(target, { request: text, prev, prevRequest, step }) {
 
 // One install at a time (the settings install and the boot refresh can overlap).
 let installing = null;
+let refreshChecked = false;
 
 /**
  * Installs or updates the judge model from the release the bundled manifest
  * names; files that already match are kept. A worker running on replaced
- * files is stopped so the next warm loads the new model. An explicit
+ * files is stopped so the next judged turn loads the new model. An explicit
  * MIXDOG_EFFORT_JUDGE_DIR (benchmarks, experiments) is used as it is.
  */
 export function installEffortJudge() {
   installing ??= (async () => {
     const dir = effortJudgeModelDir();
     if (process.env.MIXDOG_EFFORT_JUDGE_DIR || (effortJudgeAvailable(dir) && effortJudgeInstallCurrent(dir))) {
-      if (!effortJudgeAvailable(dir)) throw new Error(`The Auto reasoning model is not installed (expected in ${dir}).`);
+      if (!effortJudgeAvailable(dir))
+        throw new Error(`The Auto reasoning model is not installed (expected in ${dir}).`);
       return;
     }
     await installEffortJudgeModel(dir);
@@ -183,25 +191,16 @@ export function installEffortJudge() {
   return installing;
 }
 
-/** Boot: bring an outdated install up to date in the background, then load the judge. */
+/**
+ * Download a missing model or bring an outdated install up to date in the
+ * background. Runs on the first judged turn of the process, never at runtime
+ * creation, so booting touches no network.
+ */
 export function refreshEffortJudge() {
-  installEffortJudge().then(
-    () => warmEffortJudge(),
-    (error) => {
-      process.stderr.write(`[effort-judge] model update failed: ${error?.message || error}\n`);
-      // An older complete install still works.
-      warmEffortJudge();
-    }
-  );
-}
-
-/** Start loading the judge (idempotent). False when the model is not installed. */
-export function warmEffortJudge() {
-  const dir = effortJudgeModelDir();
-  // Files may be replaced mid-install; the install warms the judge when done.
-  if (installing || !effortJudgeAvailable(dir)) return false;
-  ensureWorker(dir);
-  return true;
+  installEffortJudge().catch((error) => {
+    // An older complete install still works.
+    process.stderr.write(`[effort-judge] model update failed: ${error?.message || error}\n`);
+  });
 }
 
 export function effortJudgeReady() {
@@ -234,6 +233,12 @@ export function effortJudgeInfo(dir = effortJudgeModelDir()) {
  */
 export async function judgeTurn(input) {
   const dir = effortJudgeModelDir();
+  if (!refreshChecked) {
+    refreshChecked = true;
+    if (!process.env.MIXDOG_EFFORT_JUDGE_DIR && !(effortJudgeAvailable(dir) && effortJudgeInstallCurrent(dir))) {
+      refreshEffortJudge();
+    }
+  }
   if (installing) return { skipped: 'installing' };
   if (!effortJudgeAvailable(dir)) return { skipped: 'model-missing' };
   if (!worker && lastLoadError && Date.now() - lastLoadErrorAt < LOAD_RETRY_MS) {
@@ -262,7 +267,8 @@ export async function judgeTurn(input) {
 // data directory is discarded when the run ends.
 export function recordEffortDecision(entry) {
   try {
-    const file = process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge', 'decisions.jsonl');
+    const file =
+      process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge', 'decisions.jsonl');
     mkdirSync(dirname(file), { recursive: true });
     appendFileSync(file, `${JSON.stringify(entry)}\n`);
   } catch {

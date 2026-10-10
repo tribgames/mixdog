@@ -174,6 +174,7 @@ function turnReviewRevertControl({
     );
   }
   return (
+    // biome-ignore lint/a11y/useSemanticElements: inline span inside a row; a fieldset would change layout and DOM
     <span
       className="turn-review-confirm"
       role="group"
@@ -251,6 +252,7 @@ function turnReviewFileRow({
         aria-expanded={openFile === rowKey}
         onClick={() => setOpenFile((current) => (current === rowKey ? '' : rowKey))}
       >
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label gives the status letter an accessible name; adding a role would change semantics */}
         <span className="turn-review-status" data-status={code} aria-label={label} data-tooltip={label}>
           {code}
         </span>
@@ -286,6 +288,7 @@ function turnReviewFileRow({
       {openFile === rowKey && (
         <div className="turn-review-diff">
           {entry.parts.length > 0 ? (
+            // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional per entry and never reorder
             entry.parts.map((file, index) => <GitDiffBody key={`${rowKey}:${index}`} file={file} mode={diffStyle} />)
           ) : (
             <span className="turn-review-status">{t('Diff detail unavailable')}</span>
@@ -402,6 +405,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   } | null>(null);
   const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(async () => undefined);
   const lastAgentReviewSignature = useRef<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: turnScopeKey is the reset trigger; the body does not read it
   useEffect(() => {
     pendingCapabilityRefresh.current = null;
     lastAgentReviewSignature.current = null;
@@ -577,6 +581,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     [sessionId, turnScopeKey, reviewScope.key, reviewBoundaryKey]
   );
   refreshAgentReviewsRef.current = refreshAgentReviews;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey stands in for items as the re-run trigger
   useEffect(() => {
     // A tool/turn boundary is the authoritative point at which the visible
     // count must catch up. If an older request is still running, the callback
@@ -588,8 +593,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       if (entryPendingRef.current && !busy) void refreshAgentReviews(false);
       void refreshAgentReviews(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- turnBoundaryKey stands in for items
   }, [active, busy, refreshAgentReviews, hasTurnActivity, turnBoundaryKey]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey re-runs the schedule at each turn boundary
   useEffect(() => {
     if (!active || (!hasTurnActivity && agentReviews.length === 0)) return undefined;
     // While a turn is active (or the review is open), keep the display fresh.

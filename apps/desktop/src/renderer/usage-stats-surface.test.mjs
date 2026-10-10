@@ -1006,7 +1006,15 @@ test('unpriced models appear only as actual rows of the selected period, with re
   const stats = snapshot();
   const route = stats.providers[0];
   const priced = { ...route, turns: 2, costUsd: 3, costKnownTurns: 2, model: 'priced-model' };
-  const unpriced = { ...route, turns: 4, tokens: 900, input: 700, costUsd: 0, costKnownTurns: 0, model: 'custom-used-model' };
+  const unpriced = {
+    ...route,
+    turns: 4,
+    tokens: 900,
+    input: 700,
+    costUsd: 0,
+    costKnownTurns: 0,
+    model: 'custom-used-model',
+  };
   stats.providers = [{ ...route, turns: 6, tokens: 2100, costUsd: 3, costKnownTurns: 2, models: [priced, unpriced] }];
   stats.totals = { ...stats.providers[0] };
   stats.unpricedModels = [{ provider: 'openai', model: 'custom-used-model', missingRates: ['input'] }];

@@ -99,6 +99,7 @@ export function usePaneTabClose({
           editorSaveHandles.current.delete(tab.key);
         }
         if (tab.selection.kind === 'terminal') void disposeTerminalPane(tab.selection.id);
+        if (tab.selection.kind === 'browser') void window.mixdogDesktop?.browserReleasePage?.(tab.selection.id);
         setTabs((current) => current.filter((item) => item.key !== tab.key));
       }
       paneWorkspace.closeTab(leafId, tab.key);
@@ -190,7 +191,9 @@ export function usePaneTabClose({
       selection: { kind: 'file', project: target.project, rel: target.rel },
     };
     setUnsavedCloseError('');
-    setPendingUnsavedCloses((queue) => (queue.some((entry) => entry.tab.key === key) ? queue : [...queue, { leafId: '', tab, proceed }]));
+    setPendingUnsavedCloses((queue) =>
+      queue.some((entry) => entry.tab.key === key) ? queue : [...queue, { leafId: '', tab, proceed }]
+    );
   };
 
   const discardAndClosePendingTab = async () => {

@@ -123,6 +123,7 @@ export function ApprovalCard({
   // transcript flow with a warning ring instead of a modal overlay, so the
   // user can keep reading and typing while deciding.
   return (
+    // biome-ignore lint/a11y/useSemanticElements: an <article> must keep its tag; role="group" names the approval region
     <article
       ref={dialog}
       className="approval-card approval-card--inline"
@@ -194,8 +195,10 @@ export function ApprovalCard({
           </dl>
         )}
         {officeTransaction && previewImages.length > 0 && (
+          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the preview strip is a plain container labelled for assistive tech
           <div className="office-approval-preview" aria-label={t('Document preview')}>
             {previewImages.map((image, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: preview pages are positional and never reorder
               <figure key={`${String(image.path)}:${index}`}>
                 <img
                   src={localPreviewUrl(image.path)}

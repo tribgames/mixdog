@@ -25,6 +25,7 @@ export function SidebarSectionToolbar<Id extends string>({
   onChange(section: Id): void;
 }) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: label names the toolbar container without adding a role, which would change screen-reader semantics
     <div className="sidebar-section-toolbar" aria-label={label}>
       {sections.map((item) => {
         const Icon = item.icon;

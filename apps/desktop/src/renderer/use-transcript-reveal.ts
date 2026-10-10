@@ -1,8 +1,8 @@
 import { useLayoutEffect, useState, type RefObject } from 'react';
 import { transcriptScrollPosition } from './use-transcript-follow';
 
-// A streaming session or an unavailable font must not leave the conversation
-// hidden indefinitely. This is only an entry gate, never a live-update gate.
+// Bound row/font settling only after the dock has answered. A slow dock
+// must not reveal the transcript with a temporary bottom inset.
 export const ENTRY_REVEAL_MAX_MS = 2_000;
 
 /**
@@ -39,7 +39,7 @@ export function useTranscriptReveal({
     if (!enabled) return undefined;
     let frame = 0;
     let previous = '';
-    const started = performance.now();
+    let started = performance.now();
     const sample = () => {
       const root = viewport.current;
       const space = content.current;
@@ -65,14 +65,16 @@ export function useTranscriptReveal({
         signature.push(Number(row.dataset.index), start, end);
       });
       const current = JSON.stringify(signature);
+      const chromePending = Boolean(scope?.current?.querySelector('[data-entry-pending]'));
       const pending =
         space.querySelector('[data-transcript-pending]') ||
-        scope?.current?.querySelector('[data-entry-pending]') ||
+        chromePending ||
         document.fonts?.status === 'loading';
       const atEnd = position.maxScrollTop - top <= 1;
       const readerOwnsPosition = hasScrollGesture();
       const settled = visible > 0 && !pending && (atEnd || readerOwnsPosition) && current === previous;
-      if (settled || readerOwnsPosition || performance.now() - started >= ENTRY_REVEAL_MAX_MS) {
+      if (chromePending) started = performance.now();
+      if (!chromePending && (settled || readerOwnsPosition || performance.now() - started >= ENTRY_REVEAL_MAX_MS)) {
         setRevealedIdentity(identity);
         return;
       }

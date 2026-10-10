@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DesktopTitlebar, type NavigationSelection } from './navigation';
 import { usePaneWorkspace } from './pane-workspace-state';
@@ -12,14 +12,14 @@ import { DesktopBootGate } from './PaneSurfaceGate';
 import { usePaneTypingFocus } from './use-composer-focus';
 import { navigationKey } from './text-format';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
-import { useStableEvent } from './use-stable-event';
-import { createSideFileGuard, type OpenFileTab } from './side-file-guard';
+import { useSideFileGuardOpeners } from './app-root/use-side-file-guard';
+import { bindAppFrameSideFileGuard } from './app-root/app-frame-side-file-guard';
+import { useAppFrameEntryIntake } from './app-root/app-frame-entry-intake';
+import { useAppFrameNavigationState } from './app-root/app-frame-navigation-state';
+import { useAppFrameBootEffects } from './app-root/app-frame-boot-effects';
 import { useEditorNavigation } from './use-editor-navigation';
-import { usePaneTabClose, type ConversationHandoff } from './use-pane-tab-close';
+import { usePaneTabClose } from './use-pane-tab-close';
 import { usePaneTabNavigation } from './use-pane-tab-navigation';
-import { usePushNotificationNavigation } from './use-push-notification-navigation';
-import { focusOpenNotificationSession } from './desktop-notification-navigation';
-import { useSharedIntakeBoot } from './share-target-intake';
 import { useAppPaneChrome } from './use-app-pane-chrome';
 import { useAppStartupRestore } from './use-app-startup-restore';
 import { useAppSessionActions } from './use-app-session-actions';
@@ -38,7 +38,7 @@ import { useUnreadSessions } from './app-unread-sessions';
 import { useWorkbenchWorkspace } from './workbench-workspace';
 import { SessionBrowserParkingHost } from './session-browser-surfaces';
 import { useAppSessionOpen } from './app-shell-session-open';
-import { t } from './i18n';
+import { PanelBackdrop, SidebarBackdrop } from './app-root/app-backdrops';
 import { useAppSessionTitle } from './app-shell-session-title';
 import { useAppToolProject, LAST_PROJECT_KEY } from './app-shell-tool-project';
 import { renderPaneDockStripTrailing } from './app-shell-side-dock';
@@ -47,16 +47,7 @@ import { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 import { useAppProjectCatalog } from './use-app-project-catalog';
 import { useDesktopUpdater } from './use-desktop-updater';
 import { useAppSideDocks } from './use-app-side-docks';
-import {
-  useAppModuleWarmup,
-  useAppOnboarding,
-  useAppSettingsMount,
-  useAppSettingsPreload,
-  useAppThemePreference,
-  useAppWorkspaceWarmup,
-  useLaunchTabMeasurements,
-  useStartupCommitMeasurement,
-} from './use-app-boot';
+import { useAppOnboarding, useAppSettingsMount, useAppWorkspaceWarmup, useLaunchTabMeasurements } from './use-app-boot';
 import { AppShellOverlays } from './app-root/AppShellOverlays';
 import { useAppWorkbenchViews } from './app-root/use-app-workbench-views';
 import { useAppTabActions } from './app-root/use-app-tab-actions';
@@ -86,14 +77,8 @@ export function App() {
   const snapshot = useDesktopSnapshotSelector(snapshotStore, selectDesktopSnapshot, desktopChromeSnapshotsEqual);
   const paneWorkspace = usePaneWorkspace();
   const sessionPaneSurfaces = useSessionPaneSurfaces();
-  const {
-    browserSurfaces,
-    releaseDeletedSessionSurfaces,
-    sessionDiffs,
-    setSessionDiff,
-    setSessionSideSurface,
-    terminalSurfaces,
-  } = sessionPaneSurfaces;
+  const { browserSurfaces, releaseDeletedSessionSurfaces, setSessionSideSurface, terminalSurfaces } =
+    sessionPaneSurfaces;
   const shellPanels = useAppShellPanels(paneWorkspace.focusedLeafId);
   const {
     applySidebarOpen,
@@ -162,9 +147,21 @@ export function App() {
   const activeFileKey = focusedPaneSelection?.kind === 'file' ? navigationKey(focusedPaneSelection) : '';
   const [quickAccessMode, setQuickAccessMode] = useState<WorkbenchQuickAccessMode | null>(null);
 
-  const [selection, setSelection] = useState<NavigationSelection>(() => startupNavigationSelection ?? { kind: 'new' });
-  const selectionRef = useRef<NavigationSelection>(selection);
-  selectionRef.current = selection;
+  const {
+    selection,
+    setSelection,
+    selectionRef,
+    requestedSessionId,
+    setRequestedSessionId,
+    pendingConversationHandoff,
+    conversationHandoff,
+    setConversationHandoff,
+    openSessionRef,
+    navigationEpoch,
+    viewedSessionRef,
+    unreadViewedSessionRef,
+    sidebarSelection,
+  } = useAppFrameNavigationState(startupNavigationSelection);
 
   const {
     clearNewTaskPreferences,
@@ -194,42 +191,14 @@ export function App() {
     preferredDraftProjectPath,
     effectiveDraftProjectPath,
   });
-  const [requestedSessionId, setRequestedSessionId] = useState('');
-  // Closing a conversation removes its tab model immediately. The existing
-  // Conversation owner remains visible but inert until the fallback session
-  // is ready, so slow/failed host resumes never make Ctrl+Q feel ignored.
-  const pendingConversationHandoff = useRef<ConversationHandoff | null>(null);
-  const [conversationHandoff, setConversationHandoff] = useState<ConversationHandoff | null>(null);
-  const openSessionRef = useRef<(sessionId: string, force?: boolean) => Promise<void>>(async () => {});
-  // Monotonic navigation stamp: an async switch completion may only activate
-  // its target while no NEWER navigation happened in flight (user: + during a
-  // settling session switch resurrected the old transcript in the new draft).
-  const navigationEpoch = useRef(0);
   const [sessionCatalogReady, setSessionCatalogReady] = useState(false);
   const [startupSettled, setStartupSettled] = useState(() =>
     Boolean((window as typeof window & { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled)
   );
-  // A push notification tapped on the phone opens the session it came from —
-  // the app may not even have been running when it arrived.
-  usePushNotificationNavigation({
-    ready: sessionCatalogReady,
-    openSession: (sessionId) => {
-      void openSessionRef.current(sessionId);
-    },
-    desktopReady: !paneWorkspace.restorePending,
-    focusDesktopSession: (sessionId) => {
-      focusOpenNotificationSession(paneWorkspace, sessionId);
-    },
-  });
-  // A screenshot shared into the app from the phone's share sheet: the service
-  // worker parked it during the launch this claims it from.
-  useSharedIntakeBoot();
+  useAppFrameEntryIntake({ sessionCatalogReady, openSessionRef, paneWorkspace });
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   usePaneTypingFocus(paneWorkspace.focusedLeafId, focusedPaneSelection?.kind);
-  useAppModuleWarmup(startupSettled, trackSidebarPanelModule);
-  useStartupCommitMeasurement();
-  useAppSettingsPreload();
-  useAppThemePreference();
+  useAppFrameBootEffects(startupSettled, trackSidebarPanelModule);
   const { onboardingOpen, setOnboardingOpen, onboardingReady } = useAppOnboarding(setSettingsOpen);
   useSidebarFocusRestore(sidebarOpen);
 
@@ -244,14 +213,6 @@ export function App() {
     },
     [applySidebarOpen, paneSideDocks]
   );
-
-  // The session currently on screen (selection or in-flight switch target):
-  // reconcile must never dot it, and selectionRef lags behind a switch.
-  const viewedSessionRef = useRef('');
-  // Unread consumption additionally treats an IN-FLIGHT switch target
-  // (requestedSessionId) as viewed: a slow resume or a fork-on-resume commits
-  // a different id, which left the clicked row's dot unconsumed (user report).
-  const unreadViewedSessionRef = useRef('');
 
   const { unreadSessionIds, reconcileUnreadSessions, consumeUnread } = useUnreadSessions({
     viewedSessionRef: unreadViewedSessionRef,
@@ -377,7 +338,7 @@ export function App() {
       navigationEpoch.current += 1;
     },
   });
-  const { renameSession, archiveSession, deleteSession } = useAppSessionActions({
+  const { renameSession, archiveSession, favoriteSession, deleteSession } = useAppSessionActions({
     sessions,
     setSessions,
     tabs,
@@ -435,12 +396,6 @@ export function App() {
     applySessionLaneResult,
   });
   const navigationSelection: NavigationSelection = selection;
-  // Stable identity: SessionSidebar is memoised and must not re-render from a
-  // fresh selection object literal on every App commit.
-  const sidebarSelection: NavigationSelection = useMemo(
-    () => (requestedSessionId ? { kind: 'session', id: requestedSessionId } : navigationSelection),
-    [requestedSessionId, navigationSelection]
-  );
   // Viewing a session consumes its unread dot.
   useUnreadViewedSession({
     navigationSelection,
@@ -498,15 +453,8 @@ export function App() {
     setTabs,
     openSelectionInFocusedPane: paneWorkspace.openInFocused,
   });
-  // Every main-tab open passes the side-file guard (assigned below): a file
-  // shown in a side dock is handed over, with its unsaved-changes confirmation.
-  const sideFileGuardRef = useRef<ReturnType<typeof createSideFileGuard> | null>(null);
-  const openFileTab = useStableEvent<Parameters<OpenFileTab>, void>((...args) =>
-    sideFileGuardRef.current ? sideFileGuardRef.current.openFileTab(...args) : openFileTabRaw(...args)
-  );
-  const openFileInSideDock = useStableEvent<Parameters<ReturnType<typeof createSideFileGuard>['openFileInSideDock']>, void>(
-    (...args) => sideFileGuardRef.current?.openFileInSideDock(...args)
-  );
+  // Every main-tab open passes the side-file guard (bound below).
+  const { sideFileGuardRef, openFileTab, openFileInSideDock } = useSideFileGuardOpeners(openFileTabRaw);
 
   const {
     openStudioTab,
@@ -525,6 +473,7 @@ export function App() {
     closeSidebarPanels,
     setSessionSideSurface,
     paneSideDocks,
+    closePaneRightRegion,
     sessionPaneSurfaces,
     openFileTab,
     openSession,
@@ -567,23 +516,15 @@ export function App() {
     setComposerFocusRequest,
     lastSessionStorageKey: LAST_SESSION_KEY,
   });
-  const sideFileGuard = createSideFileGuard({
-    sideFiles: () =>
-      Object.entries(paneSideDocks.docks).flatMap(([leafId, entry]) => (entry.file ? [{ leafId, file: entry.file }] : [])),
-    mainTabKeys: () =>
-      new Set(
-        paneWorkspace.leaves.flatMap((leaf) =>
-          leaf.tabs.filter((selection) => selection.kind === 'file').map((selection) => navigationKey(selection))
-        )
-      ),
-    isDirty: (key) => dirtyFileKeys.has(key),
-    clearDirty: (key) => handleFileDirty(key, false),
-    confirm: confirmSideFileExit,
-    dockOpenFile: paneSideDocks.openFile,
-    dockCloseFile: paneSideDocks.closeFile,
-    openMainTab: openFileTabRaw,
+  const sideFileGuard = bindAppFrameSideFileGuard({
+    sideFileGuardRef,
+    paneSideDocks,
+    paneWorkspace,
+    dirtyFileKeys,
+    handleFileDirty,
+    confirmSideFileExit,
+    openFileTabRaw,
   });
-  sideFileGuardRef.current = sideFileGuard;
   const { activatePaneSurface, paneStripFor, stripTitleFor } = useAppPaneChrome({
     tabs,
     sessions,
@@ -678,6 +619,8 @@ export function App() {
     sessionPaneSurfaces,
   });
 
+  // A phone/web renderer has no side dock to host the editor: it keeps main tabs.
+  const sideDockHostsFiles = !isRemoteBrowserRenderer() && workbenchSideLayout.layout.right.length > 0;
   const paneConversationSurface = usePaneConversationRenderer({
     ...taskLifecycle,
     ...sessionTitle,
@@ -705,9 +648,8 @@ export function App() {
     stageNewTaskOrchestrationMode,
     openConversationCommandSurface,
     openFileTab,
-    // A phone/web renderer has no side dock to host the editor: it keeps main tabs.
-    openFileInSideDock:
-      !isRemoteBrowserRenderer() && workbenchSideLayout.layout.right.length > 0 ? openFileInSideDock : undefined,
+    openFileInSideDock: sideDockHostsFiles ? openFileInSideDock : undefined,
+    openFolderInSideDock: sideDockHostsFiles ? paneSideDocks.openFolder : undefined,
   });
 
   const { paneFileEditors, paneUtilitySurfacePortals, paneUtilityTabs } = useAppPersistentPaneSurfaces({
@@ -750,11 +692,10 @@ export function App() {
     sidebarResumeSession,
     renameSession,
     archiveSession,
+    favoriteSession,
     deleteSession,
     sideViewDescriptors,
     renderSidebarPanel,
-    sessionDiffs,
-    setSessionDiff,
     snapshotStore,
     observedAgentSessionIds,
     quickAccessProjectPath,
@@ -820,15 +761,7 @@ export function App() {
             closeSidebarDiff={closeSidebarDiff}
             openFileTab={openFileTab}
           />
-          <button
-            type="button"
-            className="sidebar-backdrop"
-            data-state={sidebarOpen ? 'open' : 'closed'}
-            aria-hidden={!sidebarOpen}
-            tabIndex={sidebarOpen ? 0 : -1}
-            onClick={() => applySidebarOpen(false)}
-            aria-label={t('Close session sidebar')}
-          />
+          <SidebarBackdrop open={sidebarOpen} onClose={() => applySidebarOpen(false)} />
           <main className="main-panel" ref={mainPanelRef}>
             <AppWorkspaceMain
               {...taskLifecycle}
@@ -868,15 +801,7 @@ export function App() {
           </main>
           <SessionBrowserParkingHost controller={browserSurfaces} />
           <SessionTerminalParkingHost controller={terminalSurfaces} />
-          <button
-            type="button"
-            className="panel-backdrop"
-            data-state={bottomPanel.open ? 'open' : 'closed'}
-            aria-hidden={!bottomPanel.open}
-            tabIndex={bottomPanel.open ? 0 : -1}
-            onClick={() => bottomPanel.setOpen(false)}
-            aria-label={t('Close panel')}
-          />
+          <PanelBackdrop open={bottomPanel.open} onClose={() => bottomPanel.setOpen(false)} />
         </div>
         {paneUtilitySurfacePortals}
         <AppShellOverlays
@@ -887,6 +812,8 @@ export function App() {
           workbenchCommands={workbenchCommands}
           openFileTab={openFileTab}
           setQuickAccessMode={setQuickAccessMode}
+          sessions={sessions}
+          openSearchSession={sidebarResumeSession}
           tabSwitcher={tabSwitcher}
           focusedLeafForShortcuts={focusedLeafForShortcuts}
           stripTitleFor={stripTitleFor}

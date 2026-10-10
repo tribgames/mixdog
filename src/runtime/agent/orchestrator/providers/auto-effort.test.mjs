@@ -50,6 +50,13 @@ test('a split judge avoids an opposite call instead of following the top level',
   assert.equal(judgedStep([0.38, 0.2, 0.42, 0]).step, 0);
 });
 
+test('calling a hard turn easy is avoided harder than calling an easy turn hard', () => {
+  // The same split, mirrored: the risky low falls back to the default...
+  assert.equal(judgedStep([0.7, 0.12, 0.18, 0]).step, 0);
+  // ...while the merely costly high is kept.
+  assert.equal(judgedStep([0.18, 0.12, 0.7, 0]).step, 1);
+});
+
 test('an unsure judge keeps the default', () => {
   const flat = Array(4).fill(1 / 4);
   assert.equal(judgedStep(flat).step, 0);

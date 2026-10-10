@@ -56,13 +56,29 @@ export function localFileMimeTypeForPath(path: string): string {
 // Documents/media/archives open directly; executable packages require an
 // explicit Mixdog confirmation before main hands them to the OS. OS launch
 // prompts are not a security boundary (locally created EXEs may show none).
-const EXECUTABLE_PACKAGE_EXTENSIONS = [
-  'exe', 'msi', 'msix', 'msixbundle', 'appx', 'appxbundle', 'dmg', 'pkg', 'app',
-];
+const EXECUTABLE_PACKAGE_EXTENSIONS = ['exe', 'msi', 'msix', 'msixbundle', 'appx', 'appxbundle', 'dmg', 'pkg', 'app'];
 const FILE_LAUNCH_EXTENSIONS = new Set([
   ...EXECUTABLE_PACKAGE_EXTENSIONS,
-  'com', 'scr', 'bat', 'cmd', 'ps1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh',
-  'hta', 'lnk', 'url', 'appref-ms', 'scf', 'sh', 'command', 'desktop', 'appimage',
+  'com',
+  'scr',
+  'bat',
+  'cmd',
+  'ps1',
+  'vbs',
+  'vbe',
+  'js',
+  'jse',
+  'wsf',
+  'wsh',
+  'hta',
+  'lnk',
+  'url',
+  'appref-ms',
+  'scf',
+  'sh',
+  'command',
+  'desktop',
+  'appimage',
 ]);
 
 export type FileLaunchConfirmation = { confirmationPath: string };
@@ -156,8 +172,33 @@ interface LocalFileLocation {
   column?: number;
 }
 
-const COLON_LOCATION = /:(\d+)(?::(\d+))?(?:-\d+)?$/;
-const HASH_LOCATION = /#L(\d+)(?:C(\d+))?(?:-L?\d+(?:C\d+)?)?$/i;
+const COLON_LOCATION = /:(\d+)(?::(\d+))?(?:-(\d+))?$/;
+const HASH_LOCATION = /#L(\d+)(?:C(\d+))?(?:-L?(\d+)(?:C(\d+))?)?$/i;
+
+const isPosition = (value: string | undefined): boolean => {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0;
+};
+
+/** A recognised suffix with a non-positive/unsafe number or a reversed range
+ *  is invalid: the suffix is dropped and the file opens at its top. */
+function locationOf(
+  path: string,
+  line: string,
+  column: string | undefined,
+  endLine: string | undefined,
+  endColumn: string | undefined
+): LocalFileLocation {
+  const sameLine = endLine === undefined || Number(endLine) === Number(line);
+  const valid =
+    isPosition(line) &&
+    (column === undefined || isPosition(column)) &&
+    (endLine === undefined || (isPosition(endLine) && Number(endLine) >= Number(line))) &&
+    (endColumn === undefined ||
+      (isPosition(endColumn) && (!sameLine || column === undefined || Number(endColumn) >= Number(column))));
+  if (!valid) return { path };
+  return { path, line: Number(line), ...(column !== undefined ? { column: Number(column) } : {}) };
+}
 
 /** Split a file link into its path and the `path:12`, `path:12:4`,
  *  `path:12-20`, `path#L12`, `path#L12C4` or `path#L12-L20` location it
@@ -166,20 +207,18 @@ const HASH_LOCATION = /#L(\d+)(?:C(\d+))?(?:-L?\d+(?:C\d+)?)?$/i;
 export function parseLocalFileLocation(href: string): LocalFileLocation {
   const raw = String(href || '').trim();
   const hash = HASH_LOCATION.exec(raw);
-  if (hash) {
-    return {
-      path: raw.slice(0, hash.index),
-      line: Number(hash[1]),
-      ...(hash[2] ? { column: Number(hash[2]) } : {}),
-    };
-  }
+  if (hash) return locationOf(raw.slice(0, hash.index), hash[1], hash[2], hash[3], hash[4]);
   const colon = COLON_LOCATION.exec(raw);
   if (colon && colon.index > 0 && !/^[a-z]$/i.test(raw.slice(0, colon.index))) {
-    return {
-      path: raw.slice(0, colon.index),
-      line: Number(colon[1]),
-      ...(colon[2] ? { column: Number(colon[2]) } : {}),
-    };
+    // `path:12-20` ends on a line; `path:12:4-9` ends on a column of line 12.
+    const rangeIsLines = colon[2] === undefined;
+    return locationOf(
+      raw.slice(0, colon.index),
+      colon[1],
+      colon[2],
+      rangeIsLines ? colon[3] : undefined,
+      rangeIsLines ? undefined : colon[3]
+    );
   }
   return { path: raw };
 }

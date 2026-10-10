@@ -154,6 +154,7 @@ export function ToolCode({
       style={digits > 0 ? ({ '--tool-code-digits': digits } as CSSProperties) : undefined}
     >
       {rows.map((row, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: code rows are positional and never reorder
         <div className="tool-code-row" data-note={digits > 0 && row.line == null ? 'true' : undefined} key={index}>
           {digits > 0 && (
             <span className="tool-code-no" aria-hidden="true">
@@ -241,6 +242,7 @@ export function ToolCommand({ command }: { command: string }) {
   return (
     <div className="markdown-code tool-code">
       {lines.map((tokens, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: code lines are positional and never reorder
         <div className="tool-code-row" key={index}>
           <code className="tool-code-text">{tokens}</code>
         </div>
@@ -280,6 +282,7 @@ export function ToolSections({ sections }: { sections: readonly ToolOutputSectio
   return (
     <>
       {sections.map((section, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: sections are positional and never reorder
         <div className="tool-section" key={index}>
           {(section.path || section.title) && (
             <header className="tool-section-header">
@@ -310,6 +313,7 @@ export function ToolFileList({ entries }: { entries: readonly ToolFileEntry[] })
       {entries.map((entry, index) => {
         const name = entry.kind === 'dir' ? `${entry.name}/` : entry.name;
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: file rows are positional and never reorder; path alone may repeat
           <li className="tool-file-row" data-kind={entry.kind} key={`${entry.path}:${index}`} title={entry.path}>
             {index < TOOL_FILE_LIST_LINK_MAX ? (
               <ToolFileName path={entry.kind === 'dir' ? `${entry.path}/` : entry.path} name={name} dir={entry.dir} />

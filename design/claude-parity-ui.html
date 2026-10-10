@@ -108,6 +108,18 @@
   @keyframes land-star { 0% { transform:scale(.8); } 55% { transform:scale(1.22); } 100% { transform:scale(1); } }
   .depart { animation:depart calc(420ms * var(--k)) linear forwards; }
   @keyframes depart { 0%,50% { opacity:1; } 100% { opacity:0; } }
+  .done-check { width:16px; height:16px; fill:none; stroke:var(--muted); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .done-check path { stroke-dasharray:24; stroke-dashoffset:0; }
+  .done-check.draw path { animation:check-draw calc(300ms * var(--k)) cubic-bezier(.3,.7,.4,1) calc(80ms * var(--k)) both; }
+  .soft-out { animation:soft-out calc(260ms * var(--k)) cubic-bezier(.4,0,1,1) forwards; transform-origin:50% 50%; }
+  @keyframes soft-out { to { opacity:0; transform:scale(.82); } }
+  .swap { display:inline-grid; align-items:center; }
+  .swap > * { grid-area:1/1; display:inline-flex; align-items:center; gap:7px; white-space:nowrap; }
+  .swap-old { animation:swap-out calc(180ms * var(--k)) ease-out forwards; }
+  .swap-new { animation:swap-in calc(260ms * var(--k)) ease-out calc(90ms * var(--k)) both; }
+  @keyframes swap-out { to { opacity:0; } }
+  @keyframes swap-in { from { opacity:0; } to { opacity:1; } }
+  @keyframes check-draw { from { stroke-dashoffset:24; } to { stroke-dashoffset:0; } }
   .done-enter { animation:done-in calc(250ms * var(--k)) ease-in-out calc(210ms * var(--k)) both; }
   @keyframes done-in { from { opacity:0; } to { opacity:1; } }
   .label-swap { animation:label-rise calc(240ms * var(--k)) cubic-bezier(.3,.7,.4,1); }
@@ -248,22 +260,29 @@
         <div class="card-head"><span class="letter">0</span><h3>현재 · 마름모</h3><span class="tag">비교용</span></div>
         <div class="stage" data-demo="current"></div>
         <div class="card-actions"><button data-act="finish">끝내기</button><button data-act="restart">다시</button></div>
-        <p class="desc">지금 앱의 ◇◆◈ 마름모입니다. 끝나는 순간 마크가 그대로 사라지고 완료 줄로 바뀝니다.</p>
+        <p class="desc">지금 앱의 ◇◆◈ 마름모입니다. 끝나는 순간 마크가 그대로 사라지고 ✓ 완료 줄로 바로 바뀝니다.</p>
         <p class="spec">2.9초 회전 + 1.3초 숨 · 회색</p>
       </article>
-      <article class="card pick">
-        <div class="card-head"><span class="letter">A</span><h3>끝나면 로고로 남기</h3><span class="tag">추천</span></div>
+      <article class="card">
+        <div class="card-head"><span class="letter">A</span><h3>끝나면 로고로 남기</h3><span class="tag">✓ 대신 로고</span></div>
         <div class="stage" data-demo="land"></div>
         <div class="card-actions"><button data-act="finish">끝내기</button><button data-act="restart">다시</button></div>
-        <p class="desc">블루 톤 원호가 천천히 뻗었다 부드럽게 당겨지고, 별은 튀지 않고 살짝 숨 쉬듯 커집니다. 끝나면 세 원호가 로고 자리로 닫히고 회색으로 식어 완료 줄의 아이콘으로 남습니다.</p>
-        <p class="spec">흐름 2.0초(위에서 조절) · 선 1.9 · 로고로 닫힘 0.42초 · 회색 전환 0.6초</p>
+        <p class="desc">블루 톤 원호가 천천히 뻗었다 부드럽게 당겨지고, 별은 튀지 않고 살짝 숨 쉬듯 커집니다. 끝나면 세 원호가 로고 자리로 닫히고 회색으로 식어 완료 줄의 아이콘으로 남습니다. 지금 완료 줄의 ✓ 자리를 로고가 대신합니다.</p>
+        <p class="spec">흐름 2.0초(위에서 조절) · 선 1.9 · 지금 위치에서 로고로 닫힘 0.36초 · 회색 전환 0.6초</p>
       </article>
       <article class="card">
         <div class="card-head"><span class="letter">B</span><h3>끝나면 사라지기</h3><span class="tag">Claude식</span></div>
         <div class="stage" data-demo="depart"></div>
         <div class="card-actions"><button data-act="finish">끝내기</button><button data-act="restart">다시</button></div>
         <p class="desc">Claude처럼 로고로 닫힌 마크가 잠깐 머문 뒤 흐려져 사라지고, 같은 자리에 완료 문구가 들어옵니다. 완료 줄에는 아이콘이 남지 않습니다.</p>
-        <p class="spec">닫힘 후 0.42초 페이드 · 완료 문구 0.21초 지연</p>
+        <p class="spec">로고로 닫힘 0.36초 → 마크 0.26초 페이드 → 빈 자리가 0.22초에 걸쳐 접힘 · 글자는 같은 자리에서 교차</p>
+      </article>
+      <article class="card pick">
+        <div class="card-head"><span class="letter">C</span><h3>끝나면 체크로</h3><span class="tag">지금 ✓ 유지</span></div>
+        <div class="stage" data-demo="check"></div>
+        <div class="card-actions"><button data-act="finish">끝내기</button><button data-act="restart">다시</button></div>
+        <p class="desc">세 원호가 로고 자리로 닫힌 뒤, 마크가 흐려지는 동안 같은 자리에 지금 앱의 체크가 한 획으로 그려집니다. 완료 줄은 지금처럼 ✓로 끝나고, 넘어가는 순간만 매끄러워집니다.</p>
+        <p class="spec">지금 위치에서 0.36초 동안 로고로 닫힘 → 마크 0.26초 페이드 + 체크 0.3초 그리기 · 글자는 같은 자리에서 교차</p>
       </article>
       <article class="card">
         <div class="card-head"><span class="letter">≈</span><h3>속도 비교</h3><span class="tag">이전 ↔ 새</span></div>
@@ -430,30 +449,71 @@
     const kind = stage.dataset.demo;
     const doneText = '<span>12초 만에 작업 완료</span><span class="meta">자동 Medium</span>';
     if (kind === 'current') {
-      stage.innerHTML = `<div class="done-row"><span class="live-icon">${rhombusDone()}</span>${doneText}</div>`;
+      stage.innerHTML = `<div class="done-row"><span class="live-icon"><svg class="done-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>${doneText}</div>`;
       return;
     }
-    // Land: freeze the running row's text, close the arcs onto the logo.
     const live = stage.querySelector('.live');
     if (!live) return;
     const icon = live.querySelector('.live-icon');
-    icon.innerHTML = logo('pose landing to-grey');
-    live.querySelector('.verb').classList.remove('shine');
-    later(stage, 420, () => {
-      if (kind === 'land') {
-        // The landed mark stays in place and cools to grey; only the words swap.
-        icon.querySelector('svg').classList.add('settled');
-        live.querySelector('.verb').remove();
-        live.querySelector('.meta').remove();
-        live.insertAdjacentHTML('beforeend', `<span class="done-text done-enter">${doneText}</span>`);
+    const mark = icon.querySelector('svg');
+    const k = Number(getComputedStyle(document.documentElement).getPropertyValue('--k') || 1);
+    // 1. Settle from wherever the flow is: no reset, each arc glides forward
+    //    to the nearest logo slot (arcs are 120deg apart, so mod 120).
+    settleMark(mark, 360 * k);
+    // 2. Words cross-fade in one cell, so the row never empties or jumps.
+    later(stage, 200, () => swapWords(live, doneText));
+    later(stage, 360, () => {
+      if (kind === 'check') {
+        mark.classList.add('soft-out');
+        icon.insertAdjacentHTML('beforeend', '<svg class="done-check draw" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>');
+      } else if (kind === 'land') {
+        mark.classList.add('to-grey');
+        requestAnimationFrame(() => mark.classList.add('settled'));
       } else {
-        // Claude's order: the whole row departs (half hold, half fade) while
-        // the done line enters on the same cell 0.21s in.
-        live.classList.add('layer', 'depart');
-        stage.insertAdjacentHTML('beforeend', `<div class="layer done-row done-enter">${doneText}</div>`);
-        later(stage, 420, () => live.remove());
+        // The mark leaves, then its slot closes smoothly instead of snapping.
+        mark.classList.add('soft-out');
+        later(stage, 240, () => {
+          icon.style.transition = `flex-basis ${220 * k}ms ease, width ${220 * k}ms ease, margin ${220 * k}ms ease`;
+          icon.style.flexBasis = '0px';
+          icon.style.width = '0px';
+          icon.style.marginRight = '-7px';
+        });
       }
     });
+  }
+  function settleMark(svg, ms) {
+    const parts = [...svg.querySelectorAll('.arc, .star')].map((el) => {
+      const cs = getComputedStyle(el);
+      return { el, arc: el.classList.contains('arc'), da: cs.strokeDasharray, off: parseFloat(cs.strokeDashoffset) || 0, tf: cs.transform };
+    });
+    svg.classList.remove('flow');
+    for (const p of parts) {
+      if (p.arc) { p.el.style.strokeDasharray = p.da; p.el.style.strokeDashoffset = `${p.off}`; }
+      else p.el.style.transform = p.tf === 'none' ? '' : p.tf;
+      p.el.style.animation = 'none';
+    }
+    svg.getBoundingClientRect();
+    const ease = `${ms}ms cubic-bezier(.22,.8,.24,1)`;
+    for (const p of parts) {
+      if (p.arc) {
+        p.el.style.transition = `stroke-dasharray ${ease}, stroke-dashoffset ${ease}`;
+        p.el.style.strokeDasharray = '80 280';
+        p.el.style.strokeDashoffset = `${r2(p.off - ((((p.off + 20) % 120) + 120) % 120))}`;
+      } else {
+        p.el.style.transition = `transform ${ease}`;
+        p.el.style.transform = 'none';
+      }
+    }
+  }
+  function swapWords(live, html) {
+    const verb = live.querySelector('.verb');
+    const meta = live.querySelector('.meta');
+    const swap = document.createElement('span');
+    swap.className = 'swap';
+    swap.innerHTML = `<span class="swap-old"></span><span class="swap-new">${html}</span>`;
+    verb.classList.remove('shine');
+    swap.firstElementChild.append(verb, meta);
+    live.append(swap);
   }
   const STEPS = [[0, 'Thinking'], [15, 'Still thinking'], [30, 'Thinking more'], [45, 'Thinking some more'], [60, 'Almost done thinking']];
   function startEscalate(stage) {
@@ -610,7 +670,7 @@
     mock.update = update;
   }
 
-  document.querySelectorAll('[data-demo="current"],[data-demo="land"],[data-demo="depart"],[data-demo="speed"],[data-demo="escalate"]').forEach(startThinking);
+  document.querySelectorAll('[data-demo="current"],[data-demo="land"],[data-demo="depart"],[data-demo="check"],[data-demo="speed"],[data-demo="escalate"]').forEach(startThinking);
   document.querySelectorAll('[data-demo="dots"],[data-demo="icons"],[data-demo="custom-icons"]').forEach(startDots);
   document.querySelectorAll('.mock').forEach(buildMock);
 

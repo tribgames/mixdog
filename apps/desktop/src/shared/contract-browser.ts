@@ -111,6 +111,11 @@ export interface DesktopRemoteBrowserFrame {
   };
 }
 
+/** Browser page ids of main-workspace browser tabs. They are user-only pages:
+ *  never a conversation id, so agent automation can neither target nor close
+ *  them. */
+export const MAIN_BROWSER_PAGE_PREFIX = 'main-browser-';
+
 /** Local display client. The document token is scoped to the session-owned
  * page, so queued human input cannot land in a replacement document. */
 export interface DesktopBrowserTab {

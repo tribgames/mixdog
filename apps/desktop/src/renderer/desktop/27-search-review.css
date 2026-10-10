@@ -572,51 +572,38 @@
   flex-direction: column;
   overflow: hidden;
 }
-/* Header band = .dock-scm-list-header + .dock-scm-check-all without the
-   checkbox: outside the scroller, so it pays the gutter and the scrollbar
-   reserve itself and its text starts on the rows' text axis. */
+/* The Changes header is the shared one-line DockHeaderRow: title, count and
+   scope on the left (clipped, never wrapped), search/refresh/⋯/close right. */
 .session-diff-header {
-  height: var(--dock-scm-file-row);
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* Right inset: the rows end their 16px status glyph 2px short of the
-     scroller's content edge; the header's 22px icon button is 6px wider, so
-     it sits 3px FURTHER right for the two glyph centres to share one x
-     (user: 새로고침이 아래쪽 아이콘이랑 안 맞아). */
-  padding: 0 calc(var(--dock-scm-gutter) + var(--dock-scm-scrollbar) - 1px) 0
-    calc(var(--dock-scm-gutter) + var(--dock-scm-row-inset) + 2px);
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
+  white-space: nowrap;
 }
 .session-diff-summary {
   min-width: 0;
   flex: 1;
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 7px;
   overflow: hidden;
+  white-space: nowrap;
 }
-.session-diff-summary > span:first-child {
+.session-diff-summary > * {
+  flex: 0 0 auto;
+}
+.session-diff-summary .session-diff-count {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
 }
 .session-diff-summary .diff-stats {
-  flex: 0 0 auto;
   display: inline-flex;
   gap: 5px;
   font-size: var(--mx-font-meta);
   font-variant-numeric: tabular-nums;
-}
-.session-diff-actions {
-  flex: 0 0 auto;
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 1px;
 }
 .session-diff-notice {
   margin: 0;
@@ -629,8 +616,9 @@
   min-height: 0;
   flex: 1;
   margin: 0;
-  padding: 4px var(--dock-scm-gutter) 12px;
-  overflow: auto;
+  padding: 0 0 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   list-style: none;
@@ -646,14 +634,6 @@
   border-radius: var(--mx-radius-pill);
   background: var(--mx-scrollbar-thumb);
   background-clip: padding-box;
-}
-/* No checkbox column: the row still starts on the row inset so its text axis
-   matches the header above and the Source Control rows beside it. The row
-   carries NO per-file counts (the Changes rows carry none); the open file
-   reads as the selected row via .dock-scm-file[data-selected], and its diff
-   shows in the dock's left diff column, not beneath the row. */
-.session-diff-file {
-  padding-left: var(--dock-scm-row-inset);
 }
 .queue-remove {
   width: 20px;
@@ -899,9 +879,7 @@ div.diff-tailwindcss-wrapper .diff-line {
   border-radius: var(--mx-radius-md);
   /* Header-band tint over the opaque sheet: sticky, so rows must not show
      through it. */
-  background:
-    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)),
-    var(--mx-workspace-sheet);
+  background: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-workspace-sheet);
 }
 .review-file[data-open] .review-file-header {
   border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;

@@ -1,3 +1,11 @@
+/** Chromium's compositor reports a display sample it could not produce
+ * (UnknownVizError, VizSentEmptyBitmap, ...). The next sample normally works,
+ * so the pane retries these quietly and only shows one that persists. */
+export function browserCaptureTransient(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\bUnknownVizError\b|\bViz\w*Error\b|\bVizSentEmptyBitmap\b/.test(message);
+}
+
 /** Only explicit, pre-dispatch page-transition errors are recoverable.
  * Transport errors and uncertain input outcomes must never be replayed. */
 export function browserPageTransition(error: unknown, phase: 'capture' | 'input'): boolean {

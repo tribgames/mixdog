@@ -1,6 +1,7 @@
 import type {
   DesktopAbortOptions,
   DesktopAgentPoolRow,
+  DesktopSessionContentMatch,
   DesktopCapability,
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
@@ -681,6 +682,9 @@ export class DesktopServiceClient implements DesktopService {
   markSessionRead(sessionId: string, messageCount: number, consumedUnread = false): Promise<boolean> {
     return this.invoke('markSessionRead', [sessionId, messageCount, consumedUnread]);
   }
+  searchSessionContent(query: string): Promise<DesktopSessionContentMatch[]> {
+    return this.invokeRead('searchSessionContent', [query]);
+  }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
     await this.start();
     if (this.agentPoolCacheFresh && this.cachedAgentPool) {
@@ -697,6 +701,10 @@ export class DesktopServiceClient implements DesktopService {
   readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt]);
   }
+  setSessionFavorite(sessionId: string, favorite: boolean): Promise<unknown> {
+    return this.invoke('setSessionFavorite', [sessionId, favorite]);
+  }
+
   setSessionArchived(sessionId: string, archived: boolean): Promise<unknown> {
     return this.invoke('setSessionArchived', [sessionId, archived]);
   }

@@ -1,167 +1,39 @@
+import { defaultRangeExtractor, elementScroll, observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import {
-  defaultRangeExtractor,
-  elementScroll,
-  observeElementRect,
-  useVirtualizer,
-  type Virtualizer,
-} from '@tanstack/react-virtual';
-import {
+  type MutableRefObject,
+  type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
-  type MutableRefObject,
-  type ReactNode,
-  type RefObject,
 } from 'react';
+import { createTranscriptEndPin } from './transcript-end-pin';
+import { useTranscriptHandles, useRememberVirtualMeasurements, useSelectionDrag } from './transcript-list-handles';
+import { useDeferredResizes } from './transcript-list-deferred-resizes';
+import {
+  SCROLL_END_THRESHOLD_PX,
+  logicalScrollOffset,
+  measureTranscriptRow,
+  type TranscriptVirtualizer,
+  viewportSize,
+} from './transcript-list-geometry';
+import { useReadingAnchor } from './transcript-list-reading-anchor';
+import { useVirtualizerResizePatch } from './transcript-list-resize-patch';
+import { useMountedRowMeasurement } from './transcript-list-row-measure';
+import { useTranscriptScrollGeometry } from './transcript-list-scroll-geometry';
+import { useSelectionPin } from './transcript-list-selection-pin';
 import type { TranscriptRowModel } from './transcript-rows';
+import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import {
   readTranscriptVirtualSnapshot,
-  rememberTranscriptVirtualMeasurements,
   TRANSCRIPT_BOTTOM_SPACER,
   TRANSCRIPT_ROW_ESTIMATE,
   TRANSCRIPT_VIRTUAL_OVERSCAN,
 } from './transcript-virtual-cache';
-import { createTranscriptEndPin } from './transcript-end-pin';
-import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
-import { registerTranscriptScrollGeometry } from './use-transcript-follow';
-import {
-  attachTranscriptSelectionDrag,
-  type TranscriptSelectionEndpoint,
-  type TranscriptSelectionPin,
-} from './transcript-selection-drag';
 
-/** End band while the tail is owned: every append and measured-size delta is
- *  an end pin (see the virtualizer options below). */
-const SCROLL_END_THRESHOLD_PX = 80;
-
-type TranscriptVirtualizer = Virtualizer<HTMLDivElement, HTMLDivElement>;
-
-/** Core state the timeline writes around virtual-core's own scroll path. */
-type CoreScrollState = {
-  scrollOffset: number | null;
-  scrollAdjustments: number;
-  _intendedScrollOffset: number | null;
-  getSize(): number;
-  notify(sync: boolean): void;
-};
-
-const coreScrollState = (instance: TranscriptVirtualizer) => instance as unknown as CoreScrollState;
-
-function rememberRowHeight(element: HTMLElement, height: number): number {
-  // A pending parser/chunk is not a new measurement of the resolved content.
-  // CSS holds the last real box until the pending marker leaves the row.
-  if (!element.querySelector('[data-transcript-pending]')) {
-    element.style.setProperty('--transcript-measured-height', `${height}px`);
-  }
-  return height;
-}
-
-/** Row sizes come from the ResizeObserver's border box only. Every other call
- *  (ref registration, a detached node, a headless layout reporting no box)
- *  keeps the size the timeline already holds: a synchronous rect read per
- *  mounted row forced a layout of the whole list inside every commit. */
-function measureTranscriptRow(
-  element: Element,
-  entry: ResizeObserverEntry | undefined,
-  instance: TranscriptVirtualizer
-): number {
-  const observed = Number(entry?.borderBoxSize?.[0]?.blockSize);
-  if (Number.isFinite(observed) && observed > 0) {
-    return rememberRowHeight(element as HTMLElement, Math.round(observed));
-  }
-  const index = instance.indexFromElement(element as HTMLDivElement);
-  const key = instance.options.getItemKey(index);
-  return instance.itemSizeCache.get(key) ?? instance.measurementsCache[index]?.size ?? TRANSCRIPT_ROW_ESTIMATE;
-}
-
-// Newer virtual cores expose getLogicalScrollOffset(); the resolved core
-// predates it, so read the scrollOffset + pending scrollAdjustments pair here.
-function logicalScrollOffset(instance: TranscriptVirtualizer): number {
-  const adjustments = Number(coreScrollState(instance).scrollAdjustments) || 0;
-  return (instance.scrollOffset ?? 0) + adjustments;
-}
-
-/** Viewport height as virtual-core last observed it (ResizeObserver). */
-function viewportSize(instance: TranscriptVirtualizer): number {
-  return coreScrollState(instance).getSize();
-}
-
-/** How long landed rows may keep re-measuring above a held reading anchor:
- *  from the landing, extended by each late size, never past the maximum. */
-const READING_ANCHOR_HOLD_MS = 2_000;
-const READING_ANCHOR_HOLD_MAX_MS = 6_000;
-
-/** A row the reader is looking at and its offset from the viewport's top. */
-type ReadingAnchor = { key: unknown; offset: number; index: number };
-
-function positionalRowKey(row: TranscriptRowModel): boolean {
-  const missing = (id: unknown) => id === undefined || id === null;
-  if (row._tag === 'UserMessage' || row._tag === 'AssistantPart') return missing(row.item.id);
-  if (row._tag === 'ToolActivity') return row.items.every((item) => missing(item.id));
-  return false;
-}
-
-/** The first row under the reading offset that `nextRows` still carries, or
- *  the next one after it that does. Must run before the virtualizer resolves
- *  `nextRows`: its measurement cache still describes `previousRows`, whose
- *  keys are read from the rows themselves (the cache resolves keys lazily
- *  through the CURRENT rows). */
-function captureReadingAnchor(
-  instance: TranscriptVirtualizer,
-  previousRows: readonly TranscriptRowModel[],
-  nextRows: readonly TranscriptRowModel[],
-  inset: number
-): ReadingAnchor | null {
-  const measurements = instance.measurementsCache;
-  const count = Math.min(previousRows.length, measurements.length);
-  if (count === 0) return null;
-  const reading = logicalScrollOffset(instance);
-  // The first row VISIBLE at the viewport's top edge: rows start `inset`
-  // below the scroll origin, so one ending within that strip is still in view.
-  const visibleTop = reading - inset;
-  let low = 0;
-  let high = count - 1;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if ((measurements[middle]?.end ?? 0) <= visibleTop) low = middle + 1;
-    else high = middle;
-  }
-  let survivors: Set<unknown> | null = null;
-  for (let index = low; index < count; index += 1) {
-    const row = previousRows[index];
-    // A key derived from the row's position in the window (an item without
-    // an id) names a DIFFERENT row once a page is prepended.
-    if (!row || positionalRowKey(row)) continue;
-    const key = row.key;
-    if (!Object.is(nextRows[index]?.key, key)) {
-      survivors ??= new Set<unknown>(nextRows.map((row) => row.key));
-      if (!survivors.has(key)) continue;
-    }
-    return { key, offset: (measurements[index]?.start ?? 0) - reading, index };
-  }
-  return null;
-}
-
-/** Native reader motion is the only scroll authority until it becomes idle.
- *
- *  Ownership means READER ownership, never "the core happens to be moving".
- *  The core sets isScrolling for its OWN corrective writes too, and those can
- *  carry a backward direction with nobody touching the transcript, so deferring
- *  on that flag withheld compensation from an idle reader: rows above the
- *  viewport grew uncompensated, their deltas queued, and the flush then landed
- *  the whole batch in one step — the desktop transcript bounced while no one
- *  was scrolling (user: 가만히 있는데 위아래로 투둑 튄다).
- *
- *  An Android fling that outlives the gesture window is held by the touch latch
- *  in use-transcript-follow (touchScrollLatchOpen). That IS reader ownership and
- *  already arrives through this argument, so no core-direction probe is needed
- *  for the "items jump while scrolling up" shake it was added for. */
-export function shouldDeferTranscriptScrollAdjustment(hasReaderGesture: boolean): boolean {
-  return hasReaderGesture;
-}
+export { shouldDeferTranscriptScrollAdjustment } from './transcript-list-geometry';
 
 /**
  * The virtualized transcript timeline.
@@ -229,54 +101,11 @@ export function TranscriptList({
   markProgrammaticScrollRef.current = markProgrammaticScroll;
   const hasScrollGestureRef = useRef(hasScrollGesture);
   hasScrollGestureRef.current = hasScrollGesture;
-  // Sizes measured DURING a reader gesture for rows fully above the viewport
-  // are deferred here. Applying them mid-gesture shifts the whole timeline
-  // under the reader or competes with native touch motion. Applying them after
-  // the gesture lands the size and its scroll compensation in one pre-paint
-  // transaction instead.
-  const pendingResizes = useRef(new Map<unknown, { index: number; size: number }>());
-  const resizeFlushFrame = useRef(0);
-  const baseResizeItem = useRef<((index: number, size: number) => void) | null>(null);
   // Rows that changed size by more than a viewport stay in the range for two
   // frames: a rewrap must never unmount the rows the reader is looking at.
   const resizePinned = useRef<number[]>([]);
   const resizePinFrame = useRef(0);
-  // Native text selection keeps DOM boundary points. If virtualization
-  // unmounts either endpoint while a drag auto-scrolls, Chromium reconnects
-  // the range to an unrelated surviving node and the highlight appears to
-  // flip back up the transcript. Keep the selected row span mounted until the
-  // browser selection collapses.
-  const selectionPinned = useRef<TranscriptSelectionPin | null>(null);
-  const [, invalidateSelectionPin] = useState(0);
-  const setSelectionPin = useCallback((next: TranscriptSelectionPin | null) => {
-    const current = selectionPinned.current;
-    if (
-      current === next ||
-      (current &&
-        next &&
-        Object.is(current.anchor.key, next.anchor.key) &&
-        Object.is(current.focus.key, next.focus.key))
-    )
-      return;
-    selectionPinned.current = next;
-    invalidateSelectionPin((version) => version + 1);
-  }, []);
-  const selectionPinnedIndexes = () => {
-    const pin = selectionPinned.current;
-    if (!pin) return [];
-    const resolve = (endpoint: TranscriptSelectionEndpoint) => {
-      if (Object.is(rowsRef.current[endpoint.index]?.key, endpoint.key)) {
-        return endpoint.index;
-      }
-      return rowsRef.current.findIndex((row) => Object.is(row.key, endpoint.key));
-    };
-    const anchor = resolve(pin.anchor);
-    const focus = resolve(pin.focus);
-    if (anchor < 0 || focus < 0) return [];
-    const start = Math.min(anchor, focus);
-    const end = Math.max(anchor, focus);
-    return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
-  };
+  const { setSelectionPin, selectionPinnedIndexes } = useSelectionPin(rowsRef);
   const activeIndexesRef = useRef<number[]>([]);
   let activeIndex = -1;
   rows.forEach((row, index) => {
@@ -407,72 +236,6 @@ export function TranscriptList({
       markProgrammaticScrollRef.current?.(landed, intended);
     },
   });
-  const indexForPendingKey = useCallback((key: unknown, hint: number) => {
-    if (rowsRef.current[hint]?.key === key) return hint;
-    return rowsRef.current.findIndex((row) => row.key === key);
-  }, []);
-  // A deferred size changed while its row was out of view: applied, it grows
-  // upward from the viewport top (see shouldAdjustScrollPositionOnItemSizeChange).
-  const applyingDeferred = useRef(false);
-  const applyDeferred = useCallback((index: number, size: number) => {
-    applyingDeferred.current = true;
-    try {
-      baseResizeItem.current?.(index, size);
-    } finally {
-      applyingDeferred.current = false;
-    }
-  }, []);
-  const flushDeferredResizes = useCallback(
-    (only?: (index: number) => boolean) => {
-      const pending = pendingResizes.current;
-      if (!baseResizeItem.current || pending.size === 0) return;
-      pending.forEach((entry, key) => {
-        const at = indexForPendingKey(key, entry.index);
-        if (at >= 0 && only && !only(at)) return;
-        pending.delete(key);
-        if (at >= 0) applyDeferred(at, entry.size);
-      });
-    },
-    [applyDeferred, indexForPendingKey]
-  );
-  const pumpDeferredResizes = useCallback(() => {
-    resizeFlushFrame.current = 0;
-    const pending = pendingResizes.current;
-    if (pending.size === 0) return;
-    // Full flush waits for the gesture window AND the native ramp: the ramp
-    // outlives the window, and sizes applied mid-ramp shift content before
-    // the (deferred) compensation can land — flushing at true scroll idle
-    // keeps size and compensation in one pre-paint transaction.
-    if (!hasScrollGestureRef.current() && !virtualizerRef.current.isScrolling) {
-      flushDeferredResizes();
-      return;
-    }
-    // A pending row the reader scrolled back INTO must not keep painting at
-    // stale geometry. It is no longer fully above the offset, so the resize
-    // applies without a compensation write and cannot reverse the gesture.
-    const instance = virtualizerRef.current;
-    const offset = visibleTop(instance);
-    pending.forEach((entry, key) => {
-      const at = indexForPendingKey(key, entry.index);
-      if (at < 0) {
-        pending.delete(key);
-        return;
-      }
-      const measured = instance.measurementsCache[at];
-      // Scrolled back into, or its new box reaches into view.
-      if (measured && (measured.end > offset || measured.start + entry.size > offset)) {
-        pending.delete(key);
-        applyDeferred(at, entry.size);
-      }
-    });
-    if (pending.size > 0) {
-      resizeFlushFrame.current = window.requestAnimationFrame(pumpDeferredResizes);
-    }
-  }, [applyDeferred, flushDeferredResizes, indexForPendingKey]);
-  const scheduleResizeFlush = useCallback(() => {
-    if (resizeFlushFrame.current) return;
-    resizeFlushFrame.current = window.requestAnimationFrame(pumpDeferredResizes);
-  }, [pumpDeferredResizes]);
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
   // Where the timeline starts inside the scroll content (the thread's top
@@ -483,6 +246,15 @@ export function TranscriptList({
   // still on screen — never "above the reader" (deferred, left uncompensated
   // as if unseen, or skipped as the reading anchor).
   const visibleTop = (instance: TranscriptVirtualizer) => logicalScrollOffset(instance) - scrollInset.current;
+  const {
+    pendingResizes,
+    resizeFlushFrame,
+    baseResizeItem,
+    applyingDeferred,
+    indexForPendingKey,
+    flushDeferredResizes,
+    scheduleResizeFlush,
+  } = useDeferredResizes({ rowsRef, hasScrollGestureRef, virtualizerRef, visibleTop });
   // The committed extent: the spacer height virtual-core last wrote (a style
   // read). It is what the DOM scrolls over, also mid-render, when the core's
   // measurement cache may already describe the next row set.
@@ -512,312 +284,58 @@ export function TranscriptList({
     [maxScrollTop, viewport]
   );
   useLayoutEffect(() => () => endPin.cancel(), [endPin]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: bottomInset is the intentional trigger — a padding change re-publishes the extent and re-requests the end pin
   useLayoutEffect(() => {
     // Padding changes do not move any row. Publish the new extent for readers
     // too; only a following timeline is allowed to move to the new end.
     if (spacer.current) spacer.current.style.height = `${virtualizerRef.current.getTotalSize()}px`;
     endPin.request();
   }, [bottomInset, endPin]);
-  // One pre-paint write of a corrected reading offset. The spacer grows FIRST:
-  // virtualizer.scrollToOffset clamped the target against the previous
-  // scrollHeight, and older pages then dropped the reader a whole page.
-  const writeReadingOffset = useCallback(
-    (instance: TranscriptVirtualizer, target: number) => {
-      const element = viewport.current;
-      if (!element) return;
-      if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
-      const top = Math.max(0, Math.min(target, maxScrollTop()));
-      const core = coreScrollState(instance);
-      core.scrollAdjustments = 0;
-      core.scrollOffset = top;
-      core._intendedScrollOffset = top;
-      element.scrollTop = top;
-      domTop.current = top;
-      markProgrammaticScrollRef.current?.(top, target);
-      // The range on screen was resolved at the previous offset. Never a sync
-      // notify: flushSync cannot run inside a layout effect.
-      core.notify(false);
-    },
-    [maxScrollTop, viewport]
-  );
-  // Older history paged in above a reader who scrolled up must not move what
-  // they read. Compensating size deltas failed whenever a row above changed
-  // identity: a page that supplies a reply folds its "Worked for…" row into
-  // it, a cut tool group or mid-turn window re-keys its head. The reading
-  // ANCHOR is instead the first row under the viewport's top edge that the
-  // new row set still carries (else the next one that does) and its offset in
-  // the viewport. It is taken before the new geometry resolves, restored in
-  // the commit, and held while the landed rows above it are measured, until
-  // the reader scrolls.
-  const laidOutRows = useRef(rows);
-  const pendingAnchor = useRef<{ base: readonly TranscriptRowModel[]; anchor: ReadingAnchor | null } | null>(null);
-  // `start`: where the anchor sat when last applied. `landedAt` bounds how
-  // long late sizes may extend the hold.
-  const anchorHold = useRef<(ReadingAnchor & { until: number; start: number | null; landedAt: number }) | null>(null);
-  const anchorRestoreQueued = useRef(false);
-  // The hold is NOT a reader-gesture decision. A page lands when the reader
-  // reaches the top — inside the wheel/touch window by construction — and the
-  // landed rows (lazy Markdown above all) keep growing for frames after it.
-  // Releasing on the gesture left the row just above the anchor, which still
-  // intersects the viewport top and so is never deferred, free to push the
-  // reader down by its full growth (+2.7k px on desktop, the phone reader
-  // at scrollTop 0 lost to a screen of older rows).
-  const readingAnchorHeld = useCallback(() => {
-    const hold = anchorHold.current;
-    if (!hold) return false;
-    if (performance.now() > hold.until || virtualizerRef.current.options.anchorTo === 'end') {
-      anchorHold.current = null;
-      return false;
-    }
-    return true;
-  }, []);
-  // `landing` (the commit that changed the rows): restore the anchor's
-  // recorded viewport offset, whatever the reader is doing — skipping it drops
-  // the reader by the whole page. Afterwards only the anchor's own movement is
-  // applied, RELATIVE to the live offset, so reader motion between two writes
-  // (a wheel ramp, a fling) is never rolled back.
-  const restoreReadingAnchor = useCallback(
-    (landing = false) => {
-      const hold = anchorHold.current;
-      const instance = virtualizerRef.current;
-      if (!hold || (landing ? instance.options.anchorTo === 'end' : !readingAnchorHeld())) return;
-      const at = indexForPendingKey(hold.key, hold.index);
-      if (at < 0) {
-        anchorHold.current = null;
-        return;
-      }
-      hold.index = at;
-      // Sizes deferred for rows above the anchor belong to this write.
-      flushDeferredResizes((index) => index < at);
-      instance.getTotalSize();
-      const start = instance.measurementsCache[at]?.start ?? 0;
-      const reading = logicalScrollOffset(instance);
-      let target = reading;
-      if (landing || hold.start === null) target = start - hold.offset;
-      else if (Math.abs(start - hold.start) >= 0.5) {
-        target = reading + (start - hold.start);
-        // Sizes still arriving: stay held a little longer, within a bound.
-        hold.until = Math.min(hold.landedAt + READING_ANCHOR_HOLD_MAX_MS, performance.now() + READING_ANCHOR_HOLD_MS);
-      }
-      hold.start = start;
-      if (Math.abs(target - reading) < 0.5) return;
-      if (transcriptScrollDiagnosticsEnabled()) {
-        logTranscriptScroll('reading-anchor', { from: reading, to: target, index: at, start, landing });
-      }
-      writeReadingOffset(instance, target);
-    },
-    [flushDeferredResizes, indexForPendingKey, readingAnchorHeld, writeReadingOffset]
-  );
-  noteScrollOffset.current = (top: number) => {
-    // The held anchor is applied relative to the reader's offset, so reader
-    // motion never fights it; it only ends once the reader has left it a
-    // viewport behind, where it no longer describes what they read.
-    const hold = anchorHold.current;
-    if (hold && hold.start !== null && domTop.current !== null && Math.abs(top - domTop.current) >= 1) {
-      const offset = hold.start - top;
-      const height = viewportSize(virtualizerRef.current);
-      if (offset < -height || offset > 2 * height) anchorHold.current = null;
-    }
-    domTop.current = top;
-  };
-  const queueAnchorRestore = useCallback(() => {
-    if (anchorRestoreQueued.current) return;
-    anchorRestoreQueued.current = true;
-    queueMicrotask(() => {
-      anchorRestoreQueued.current = false;
-      restoreReadingAnchor();
+  const { laidOutRows, pendingAnchor, anchorHold, readingAnchorHeld, restoreReadingAnchor, queueAnchorRestore } =
+    useReadingAnchor({
+      rows,
+      virtualizer,
+      virtualizerRef,
+      viewport,
+      spacer,
+      domTop,
+      scrollInset,
+      markProgrammaticScrollRef,
+      maxScrollTop,
+      noteScrollOffset,
+      flushDeferredResizes,
+      indexForPendingKey,
     });
-  }, [restoreReadingAnchor]);
-  if (rows === laidOutRows.current || virtualizer.options.anchorTo === 'end') {
-    pendingAnchor.current = null;
-  } else if (pendingAnchor.current?.base !== laidOutRows.current) {
-    // Before this render resolves the new geometry: the cache still
-    // describes the rows on screen.
-    pendingAnchor.current = {
-      base: laidOutRows.current,
-      anchor: captureReadingAnchor(virtualizer, laidOutRows.current, rows, scrollInset.current),
-    };
-  }
-  // Rows are measured in their own commits, before paint: left to their
-  // ResizeObserver, a mounted row painted at the flat estimate for a frame or
-  // more — a landing's older rows over the viewport, and every appended row
-  // (a submitted prompt, a reply opening, a tool card) bounced the rows below
-  // it by estimate-vs-real before settling. A landing re-reads every mounted
-  // row (and applies directly: its anchor restore owns the offset); any other
-  // commit reads only the rows without a size yet, through the list's own
-  // resize path so the end pin, deferral, and anchor rules still apply.
-  const landingMeasure = useRef(false);
-  const measureMountedRows = useCallback(
-    (landing: boolean) => {
-      const root = spacer.current;
-      const apply = landing ? baseResizeItem.current : virtualizerRef.current.resizeItem;
-      if (!root || !apply) return false;
-      const instance = virtualizerRef.current;
-      const mounted = [...root.children].filter(
-        (row): row is HTMLElement =>
-          row instanceof HTMLElement &&
-          row.dataset.timelineKey !== undefined &&
-          (landing ||
-            (!instance.itemSizeCache.has(row.dataset.timelineKey) &&
-              !pendingResizes.current.has(row.dataset.timelineKey)))
-      );
-      if (mounted.length === 0) return false;
-      // One batched read: the first lays out what this commit needs anyway,
-      // every later one is free. New rows and rows whose content the page
-      // changed (a group that gained its head, a reply that took its
-      // completion) both land here; the observer's later delivery of the same
-      // box is then a no-op, so each size still lands exactly once.
-      const sizes = mounted.map((row) =>
-        rememberRowHeight(row, Math.round(row.getBoundingClientRect().height))
-      );
-      let measured = false;
-      mounted.forEach((row, position) => {
-        const size = sizes[position] ?? 0;
-        const key = row.dataset.timelineKey as string;
-        const at = indexForPendingKey(key, Number(row.dataset.index));
-        if (size <= 0 || at < 0 || instance.itemSizeCache.get(key) === size) return;
-        pendingResizes.current.delete(key);
-        apply(at, size);
-        measured = true;
-      });
-      return measured;
-    },
-    [indexForPendingKey]
-  );
-  useLayoutEffect(() => {
-    laidOutRows.current = rows;
-    const pending = pendingAnchor.current;
-    pendingAnchor.current = null;
-    if (!pending?.anchor || virtualizerRef.current.options.anchorTo === 'end') return;
-    const landedAt = performance.now();
-    anchorHold.current = { ...pending.anchor, until: landedAt + READING_ANCHOR_HOLD_MS, start: null, landedAt };
-    // Only a row set that moved the anchor (rows landed or left above it) is
-    // a landing; a streamed append below the reader reads no layout. The
-    // restore re-renders the range at the reading offset in this same task;
-    // the effect below measures the rows that commit mounts.
-    if (indexForPendingKey(pending.anchor.key, pending.anchor.index) !== pending.anchor.index) {
-      landingMeasure.current = true;
-      window.requestAnimationFrame(() => {
-        landingMeasure.current = false;
-      });
-      measureMountedRows(true);
-    }
-    restoreReadingAnchor(true);
-  }, [rows]);
-  useLayoutEffect(() => {
-    if (!landingMeasure.current) measureMountedRows(false);
-    else if (measureMountedRows(true)) restoreReadingAnchor();
+  useMountedRowMeasurement({
+    rows,
+    spacer,
+    virtualizerRef,
+    baseResizeItem,
+    pendingResizes,
+    indexForPendingKey,
+    laidOutRows,
+    pendingAnchor,
+    anchorHold,
+    restoreReadingAnchor,
   });
-  // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
-  // once instead of wrapping the previous wrapper again on every render.
-  const patchedVirtualizer = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
-  if (patchedVirtualizer.current !== virtualizer) {
-    patchedVirtualizer.current = virtualizer;
-    const resizeItem = virtualizer.resizeItem;
-    baseResizeItem.current = resizeItem;
-    virtualizer.scrollToEnd = () => {
-      endPin.request();
-    };
-    // The core reads scrollHeight/clientHeight here, and setOptions asks it
-    // (isAtEnd) during every render that changes the row count: a forced
-    // layout inside render while the transcript grows. The committed spacer
-    // height and the observed viewport height give the same answer.
-    (virtualizer as unknown as { getMaxScrollOffset(): number }).getMaxScrollOffset = maxScrollTop;
-    virtualizer.resizeItem = (index, size) => {
-      const element = viewport.current;
-      const measured = virtualizer.measurementsCache[index];
-      // Reader gesture + row fully above the reading offset: DEFER. Never
-      // drop — a dropped delta leaves the reader displaced by exactly that
-      // delta once the geometry it saw is recomputed.
-      // Rows above a held reading anchor are never deferred: the anchor's
-      // relative re-apply compensates them in the same pre-paint write, and a
-      // deferred one would draw over the reader until motion stops.
-      const anchoredAbove = readingAnchorHeld() && index < (anchorHold.current?.index ?? -1);
-      if (
-        measured &&
-        !anchoredAbove &&
-        shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current()) &&
-        // Its NEW box must stay above the visible top too: a deferred row
-        // that already reaches into view is drawn over the reader's rows at
-        // its stale slot, and a landing then anchors on stale geometry.
-        measured.start + size <= visibleTop(virtualizer)
-      ) {
-        pendingResizes.current.set(measured.key, { index, size });
-        scheduleResizeFlush();
-        return;
-      }
-      pendingResizes.current.delete(measured?.key ?? index);
-      const previous = measured ? (virtualizer.itemSizeCache.get(measured.key) ?? measured.size) : undefined;
-      if (transcriptScrollDiagnosticsEnabled() && previous !== undefined && Math.abs(size - previous) >= 4) {
-        logTranscriptScroll('row-resize', {
-          index,
-          prev: previous,
-          next: size,
-          delta: size - previous,
-          above: measured ? measured.end <= visibleTop(virtualizer) : false,
-          top: element ? element.scrollTop : -1,
-        });
-      }
-      if (element && previous !== undefined && Math.abs(size - previous) > viewportSize(virtualizer)) {
-        const view = element.getBoundingClientRect();
-        resizePinned.current = [...element.querySelectorAll<HTMLElement>('.transcript-virtual-row')]
-          .filter((row) => {
-            const rect = row.getBoundingClientRect();
-            return rect.bottom > view.top && rect.top < view.bottom;
-          })
-          .map((row) => Number(row.dataset.index))
-          .filter(Number.isFinite);
-        if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);
-        resizePinFrame.current = window.requestAnimationFrame(() => {
-          resizePinFrame.current = window.requestAnimationFrame(() => {
-            resizePinFrame.current = 0;
-            resizePinned.current = [];
-          });
-        });
-      }
-      resizeItem(index, size);
-      if (virtualizer.options.followOnAppend || virtualizer.options.anchorTo === 'end') {
-        endPin.request();
-      } else if (anchoredAbove) {
-        // Late sizes of landed rows: one coalesced re-apply per delivery.
-        queueAnchorRestore();
-      }
-    };
-  }
-  // Rows measured above the reading offset keep the reader's content still.
-  // During wheel/touch/scrollbar motion a row that stays wholly above the
-  // viewport is deferred instead (resizeItem above): its correction would add
-  // to Chromium's wheel ramp and briefly reverse the visible direction near
-  // the history boundary. Only a row whose new box reaches into view is
-  // corrected mid-motion. The follow hook tracks only non-programmatic reader
-  // motion, so virtual-core's own corrective scroll does not block the next
-  // idle measurement in a settling burst.
-  // The end-anchor (wasAtEnd) total-size delta bypasses this predicate by
-  // design. The vendored core also consulted a shouldDeferScrollAdjustment
-  // hook to hold THAT write until motion was idle; upstream virtual-core has
-  // no such hook and never reads it, so only the core's own isScrolling
-  // deferral guards the bottom pin now. Watch for the "tears and snaps back at
-  // the bottom" symptom if the end anchor starts fighting a live wheel ramp.
-  // A row set in flight or a held reading anchor resolves every size above
-  // the reader in one absolute write instead (see restoreReadingAnchor).
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
-    if (instance.options.anchorTo !== 'end') {
-      if (pendingAnchor.current) return false;
-      if (readingAnchorHeld() && item.index < (anchorHold.current?.index ?? -1)) return false;
-    }
-    // A row wholly above the visible top keeps the reader's content still.
-    // During reader motion such a row only gets here once its new box
-    // reaches into view (smaller changes are deferred above); left
-    // uncompensated it was drawn over the rows the reader is looking at.
-    const top = visibleTop(instance);
-    if (item.end <= top) return true;
-    // A row crossing the visible top grows upward instead when the size is
-    // its FIRST measurement (mounted at the estimate while scrolling toward
-    // older rows) or was deferred while it was out of view: uncompensated,
-    // the rows in view jumped by the difference (18/40 px and more) against
-    // the finger.
-    return item.start < top && (applyingDeferred.current || !instance.itemSizeCache.has(item.key));
-  };
+  useVirtualizerResizePatch({
+    virtualizer,
+    viewport,
+    hasScrollGestureRef,
+    visibleTop,
+    maxScrollTop,
+    endPin,
+    resizePinned,
+    resizePinFrame,
+    pendingResizes,
+    baseResizeItem,
+    applyingDeferred,
+    scheduleResizeFlush,
+    pendingAnchor,
+    anchorHold,
+    readingAnchorHeld,
+    queueAnchorRestore,
+  });
   const measureRow = useCallback((element: HTMLDivElement | null) => {
     // Registration only: the row's ResizeObserver delivers its box after this
     // frame's layout and before its paint, so no layout is read here.
@@ -839,113 +357,17 @@ export function TranscriptList({
     [content]
   );
 
-  // The follow hook, reveal and history fill read this viewport's extent and
-  // offset from here, never from layout on a scroll event or frame. The
-  // viewport's ref attaches AFTER this list's layout effects when both mount
-  // in one commit, so registration is retried on every commit (layout, then
-  // passive — before the parent's passive effects read it) until it holds.
-  const geometry = useRef<{ root: HTMLDivElement; release(): void } | null>(null);
-  const ensureScrollGeometry = () => {
-    const root = viewport.current;
-    const space = spacer.current;
-    if (!root || !space || geometry.current?.root === root) return;
-    geometry.current?.release();
-    const instance = virtualizerRef.current;
-    // Wire the core to the viewport now instead of on the next render, so
-    // its observed viewport height backs the geometry from the start.
-    if (instance.scrollElement !== root) instance._willUpdate();
-    // The timeline starts below the thread's top padding (its only in-flow
-    // content above the spacer). A style read, not a layout read.
-    const thread = space.parentElement;
-    scrollInset.current = thread ? Number.parseFloat(window.getComputedStyle(thread).paddingTop) || 0 : 0;
-    // Unknown until the first scroll event or write; the core's offset stands in.
-    domTop.current = null;
-    const unregister = registerTranscriptScrollGeometry(root, {
-      viewportHeight: () => viewportSize(virtualizerRef.current),
-      contentHeight,
-      scrollTop: () => domTop.current ?? logicalScrollOffset(virtualizerRef.current),
-    });
-    geometry.current = { root, release: unregister };
-  };
-  useLayoutEffect(ensureScrollGeometry);
-  useEffect(ensureScrollGeometry);
-  useLayoutEffect(
-    () => () => {
-      geometry.current?.release();
-      geometry.current = null;
-    },
-    []
-  );
-
-  useLayoutEffect(
-    () => () => {
-      // Pending gesture-deferred sizes are part of the truth this snapshot
-      // promises to replay on re-entry.
-      flushDeferredResizes();
-      rememberTranscriptVirtualMeasurements(sessionKey, virtualizerRef.current.takeSnapshot());
-    },
-    [flushDeferredResizes, sessionKey, viewport]
-  );
-
-  useLayoutEffect(() => {
-    const scrollToEnd = () => {
-      endPin.request();
-    };
-    scrollToEndRef.current = scrollToEnd;
-    return () => {
-      if (scrollToEndRef.current === scrollToEnd) {
-        scrollToEndRef.current = () => {};
-      }
-    };
-  }, [endPin, scrollToEndRef]);
-
-  useLayoutEffect(() => {
-    if (!setAnchorBottomRef) return undefined;
-    const setAnchorBottom = (bottom: boolean) => {
-      anchorOverride.current = bottom;
-      const instance = virtualizerRef.current;
-      const anchorTo = bottom ? 'end' : 'start';
-      if (
-        instance.options.anchorTo === anchorTo &&
-        instance.options.followOnAppend === bottom &&
-        instance.options.scrollEndThreshold === SCROLL_END_THRESHOLD_PX
-      )
-        return;
-      instance.setOptions({
-        ...instance.options,
-        anchorTo,
-        followOnAppend: bottom,
-        scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
-      });
-    };
-    setAnchorBottomRef.current = setAnchorBottom;
-    return () => {
-      if (setAnchorBottomRef.current === setAnchorBottom) {
-        setAnchorBottomRef.current = () => {};
-      }
-    };
-  }, [setAnchorBottomRef]);
-
-  // Chromium owns the drag range; transcript-selection-drag.ts only pins the
-  // rows it spans and reports native autoscroll to the follow hook.
-  useEffect(() => {
-    const root = viewport.current;
-    if (!root) return undefined;
-    return attachTranscriptSelectionDrag({
-      root,
-      getBottomInset: () => bottomInsetRef.current,
-      rowKeyAt: (index) => rowsRef.current[index]?.key,
-      setPin: setSelectionPin,
-      onAutoScroll: onSelectionAutoScroll,
-    });
-  }, [onSelectionAutoScroll, sessionKey, setSelectionPin, viewport]);
+  useTranscriptScrollGeometry({ viewport, spacer, virtualizerRef, domTop, scrollInset, contentHeight });
+  useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes });
+  useTranscriptHandles({ endPin, scrollToEndRef, setAnchorBottomRef, virtualizerRef, anchorOverride });
+  useSelectionDrag({ viewport, sessionKey, bottomInsetRef, rowsRef, setSelectionPin, onSelectionAutoScroll });
 
   useEffect(
     () => () => {
       if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);
       if (resizeFlushFrame.current) window.cancelAnimationFrame(resizeFlushFrame.current);
     },
-    []
+    [resizeFlushFrame]
   );
 
   const virtualRows = virtualizer.getVirtualItems();

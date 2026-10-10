@@ -65,6 +65,7 @@ const SURFACE_PREFETCH: Partial<Record<WorkspaceSelection['kind'], () => Promise
   file: prefetchEditorPane,
   diff: prefetchDiffView,
   terminal: prefetchTerminalPane,
+  browser: prefetchBrowserPane,
 };
 
 export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void {

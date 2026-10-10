@@ -3,6 +3,8 @@ import * as monaco from 'monaco-editor';
 import type { DesktopLspServerState } from '../shared/contract';
 import { explicitEditorLanguageIdForPath } from '../shared/editor-languages';
 import {
+  acquireEditorDocument,
+  releaseEditorDocument,
   getEditorLanguageSnapshot,
   ensureEditorLanguageStore,
   setActiveEditorPosition,
@@ -85,6 +87,9 @@ export function useEditorModelBinding({
         monaco.editor.setModelLanguage(model, expectedLanguageId);
       }
       ensureEditorLanguageStore();
+      const documentUri = model.uri.toString();
+      acquireEditorDocument(projectPath, relPath, documentUri);
+      languageDisposables.current.push({ dispose: () => releaseEditorDocument(documentUri) });
       setModelUri(model.uri.toString());
       graphContextsByModel.set(model.uri.toString(), graphContextRef);
       graphContextsByEditor.set(editor, graphContextRef);

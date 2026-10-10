@@ -2,8 +2,17 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
-import { createSessionSwitching } from './session-switch.mjs';
+import test, { mock } from 'node:test';
+
+const forgotten = [];
+mock.module('../../runtime/session-search/session-search-ingest.mjs', {
+  namedExports: {
+    forgetSessionSearch: async (id) => {
+      forgotten.push(id);
+    },
+  },
+});
+const { createSessionSwitching } = await import('./session-switch.mjs');
 
 // listLeadSessions reads heartbeat sidecars from the store dir: keep the
 // catalog lookups inside a scratch data dir.
@@ -110,6 +119,7 @@ test('deleting a session that is not current unlinks it and every valid linked c
     ['delete', 'child-a'],
     ['delete', 'child-b'],
   ]);
+  assert.deepEqual(forgotten, ['parent']);
 });
 
 test('deleting the current session releases its work, tombstones parent and children, and recreates', async () => {

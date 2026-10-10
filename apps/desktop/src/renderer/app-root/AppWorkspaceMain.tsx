@@ -129,6 +129,7 @@ export function AppWorkspaceMain({
 }: AppWorkspaceMainProps) {
   const workspaceSurface = (
     <div className="workspace">
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the header keeps its tag; the label names the current task */}
       <header className="session-header" aria-label={t('Current task')}>
         <div className="session-header-content">
           <h1 data-tooltip={visibleSessionTitle}>

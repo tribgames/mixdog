@@ -78,6 +78,7 @@ export function createQueueOps(bag, { kickDrain }) {
     pending,
     pendingNotificationKeys,
     removeQueuedEntries,
+    leadSessionId: () => bag.runtime.id,
   });
 
   // `now` promotes one visible queued prompt ahead of its

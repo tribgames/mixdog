@@ -63,6 +63,7 @@ export function DesktopUpdateDialog({
   }, [onCancel]);
 
   return createPortal(
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss; keyboard dismissal is handled by the Escape listener above.
     <div
       ref={surfaceRef}
       className="settings-confirm-layer"

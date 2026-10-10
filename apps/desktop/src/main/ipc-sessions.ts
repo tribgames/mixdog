@@ -10,6 +10,7 @@ import {
   requiredModelSelection,
   requiredNewTaskDraft,
   requiredPromptContent,
+  requiredSessionContentQuery,
   requiredString,
   requiredSubmitOptions,
   requiredSessionMessageCount,
@@ -49,6 +50,9 @@ export function registerSessionIpc({
     );
   });
   handle(DESKTOP_IPC.listAgentPool, () => host.listAgentPool());
+  handle(DESKTOP_IPC.searchSessionContent, (_event, query) =>
+    host.searchSessionContent(requiredSessionContentQuery(query))
+  );
   // Settings → Connection: pairing card (null while the bridge is off).
   handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
@@ -72,6 +76,10 @@ export function registerSessionIpc({
   handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
     if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
     return host.setSessionArchived(requiredSessionId(sessionId), archived);
+  });
+  handle(DESKTOP_IPC.setSessionFavorite, (_event, sessionId, favorite) => {
+    if (typeof favorite !== 'boolean') throw new TypeError('favorite must be a boolean.');
+    return host.setSessionFavorite(requiredSessionId(sessionId), favorite);
   });
   handle(DESKTOP_IPC.deleteSession, async (_event, sessionId) => {
     const ownerSessionId = requiredSessionId(sessionId);

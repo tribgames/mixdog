@@ -15,8 +15,19 @@ function mount(t) {
   const { dom, root } = installTestDom(t, {
     html: '<!doctype html><div id="root"></div>',
     jsdom: { pretendToBeVisual: true },
-    expose: ['HTMLElement', 'Element', 'Node', 'CustomEvent'],
+    expose: ['HTMLElement', 'Element', 'Node', 'CustomEvent', 'MutationObserver'],
     rootId: 'root',
+  });
+  // jsdom has no layout, so nothing ever resizes: the review lift observer
+  // only needs to exist.
+  const previousResizeObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  t.after(() => {
+    globalThis.ResizeObserver = previousResizeObserver;
   });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   dom.window.mixdogDesktop = {};
@@ -127,16 +138,19 @@ test('a transcript tail without its prompt row keeps the turn review of that tur
   const render = (reviewItems) =>
     act(async () =>
       root.render(
-        React.createElement(ComposerDock, {
-          goalSubmissionId: '',
-          showProjectSelector: false,
-          reviewActive: true,
-          reviewBusy: false,
-          reviewSessionId: sessionId,
-          reviewCwd: 'C:/work',
-          reviewItems,
-          children: React.createElement('textarea'),
-        })
+        React.createElement(
+          ComposerDock,
+          {
+            goalSubmissionId: '',
+            showProjectSelector: false,
+            reviewActive: true,
+            reviewBusy: false,
+            reviewSessionId: sessionId,
+            reviewCwd: 'C:/work',
+            reviewItems,
+          },
+          React.createElement('textarea')
+        )
       )
     );
   const answer = (checkpointId, path) =>
@@ -212,7 +226,9 @@ test('media cards keep the requested ratio until decoded and turn four or more i
   });
   const width = (figure) => figure.style.getPropertyValue('--artifact-width');
   await act(async () =>
-    root.render(React.createElement(TranscriptArtifacts, { items: [generated('wide', '16:9'), generated('tall', '9:16')] }))
+    root.render(
+      React.createElement(TranscriptArtifacts, { items: [generated('wide', '16:9'), generated('tall', '9:16')] })
+    )
   );
   assert.ok(document.querySelector('.transcript-artifact-row'));
   const [wide, tall] = document.querySelectorAll('.transcript-artifact-media');

@@ -16,7 +16,6 @@ test('tab chrome selects and closes exact pages, creates a tab, and exposes rest
   document.body.append(host);
   const root = createRoot(host);
   const calls = [];
-  let expanded = false;
   let tabs = [
     { id: 'p1', title: 'Original', url: 'https://a.test', active: true, loading: false, kind: 'page' },
     { id: 'p2', title: 'Login', url: 'https://a.test/login', active: false, loading: false, kind: 'popup' },
@@ -25,7 +24,6 @@ test('tab chrome selects and closes exact pages, creates a tab, and exposes rest
     root.render(
       React.createElement(BrowserTabStrip, {
         tabs,
-        expanded,
         async onSelect(id) {
           calls.push(['select', id]);
           tabs = tabs.map((tab) => ({ ...tab, active: tab.id === id }));
@@ -36,10 +34,6 @@ test('tab chrome selects and closes exact pages, creates a tab, and exposes rest
         },
         async onCreate() {
           calls.push(['create']);
-        },
-        onToggleExpanded() {
-          expanded = !expanded;
-          render();
         },
       })
     );
@@ -58,8 +52,8 @@ test('tab chrome selects and closes exact pages, creates a tab, and exposes rest
     assert.equal(host.querySelector('[role="tab"]').getAttribute('aria-selected'), 'true');
     await act(async () => host.querySelector('[aria-label="Close tab: Login"]').click());
     await act(async () => host.querySelector('[aria-label="New tab"]').click());
-    await act(async () => host.querySelector('[aria-label="Expand browser"]').click());
-    assert.ok(host.querySelector('[aria-label="Restore browser"]'));
+    // Expand/restore moved to the shared header row beside the tab strip.
+    assert.equal(host.querySelector('[aria-label="Expand browser"]'), null);
     assert.deepEqual(calls, [['select', 'p2'], ['select', 'p1'], ['close', 'p2'], ['create']]);
   } finally {
     await act(async () => root.unmount());

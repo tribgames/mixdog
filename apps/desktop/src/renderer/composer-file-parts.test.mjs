@@ -72,9 +72,16 @@ test('restore returns PDF and Office file parts from the record', () => {
   const docx = OFFICE_MIME_BY_EXTENSION.docx;
   const record = {
     pastedFiles: { 3: { id: 3, filename: 'a.docx', mimeType: docx, data: 'UEs=' } },
-    content: [{ type: 'text', text: 'x' }, { type: 'file', data: 'JVBERg==', mimeType: 'application/pdf', filename: 'b.pdf' }],
+    content: [
+      { type: 'text', text: 'x' },
+      { type: 'file', data: 'JVBERg==', mimeType: 'application/pdf', filename: 'b.pdf' },
+    ],
   };
-  const { attachments, text } = restoreAttachmentsFromRecord(record, 'see [File #3: a.docx] and [PDF #4: b.pdf]', ids());
+  const { attachments, text } = restoreAttachmentsFromRecord(
+    record,
+    'see [File #3: a.docx] and [PDF #4: b.pdf]',
+    ids()
+  );
   assert.deepEqual(
     attachments.map(({ id, kind, mimeType, token }) => ({ id, kind, mimeType, token })),
     [
@@ -93,5 +100,8 @@ test('restore removes file tokens whose bytes are unavailable but keeps restored
     ids()
   );
   assert.equal(text, 'read and then [File #5: n.txt]');
-  assert.deepEqual(attachments.map((attachment) => attachment.kind), ['text']);
+  assert.deepEqual(
+    attachments.map((attachment) => attachment.kind),
+    ['text']
+  );
 });

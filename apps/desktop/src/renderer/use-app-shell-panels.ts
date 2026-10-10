@@ -132,6 +132,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     [bottomPanel]
   );
   const appliedSidePanelMode = useRef(activeSidePanelMode);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: applies only when the side-panel mode changes; layout and applySidebarOpen are read at that moment
   useEffect(() => {
     // Existing installs retain their last folding state on launch. A mode
     // CHANGE applies immediately; navigation applies the same exact policy.

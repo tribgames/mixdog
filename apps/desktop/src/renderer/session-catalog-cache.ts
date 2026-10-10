@@ -45,6 +45,7 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     // Live-process facts are never durable startup truth. A stale cache must
     // not show a dead worker as still running.
     ...(row.archived === true ? { archived: true } : {}),
+    ...(row.favorite === true ? { favorite: true } : {}),
     ...(sourceType ? { sourceType } : {}),
     ...(sourceName ? { sourceName } : {}),
   };

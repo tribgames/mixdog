@@ -33,6 +33,7 @@ export function useSourceControlFiles({ projectPath, status, active }: SourceCon
   const isIncluded = useCallback((file: DesktopGitFile) => !file.conflicted && !excluded.has(file.path), [excluded]);
   const includedFiles = useMemo(() => files.filter(isIncluded), [files, isIncluded]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectPath is the trigger that clears selection state
   useEffect(() => {
     setSelected(new Set());
     setExcluded(new Set());

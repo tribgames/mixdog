@@ -207,12 +207,16 @@
   animation: none;
   transition: none;
 }
+/* The panel clips its overflow (and the sheet frames it), so the hit area sits
+   INSIDE the panel's top edge: a 6px band over the 1px divider (the panel's
+   border-top), never outside where it would be clipped. Hover/drag paints the
+   same --mx-focus line as the pane resize handles, 2px thick. */
 .bottom-panel-resize {
   position: absolute;
-  top: -2px;
+  top: 0;
   left: 0;
   right: 0;
-  height: 5px;
+  height: 6px;
   cursor: row-resize;
   z-index: 4;
   background: transparent;
@@ -220,7 +224,7 @@
 }
 .bottom-panel-resize:hover,
 .bottom-panel-resize.is-dragging {
-  background: var(--mx-focus);
+  background: linear-gradient(var(--mx-focus), var(--mx-focus)) top / 100% 2px no-repeat;
 }
 .bottom-panel-tabs {
   position: relative;
@@ -607,7 +611,9 @@
   /* The MAIN content keeps the workspace floor (user: 최소 넓이 보장) — side
      columns yield or overlay before the conversation can be crushed. */
   grid-template-columns: minmax(min(360px, 100%), 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr);
+  /* strip | surface stack | bottom panel (Problems…). The dock spans all
+     three rows, so it keeps the cell's full height with or without a panel. */
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   flex: 1 1 0%;
   min-width: 0;
   min-height: 0;
@@ -624,9 +630,37 @@
   grid-column: 1;
   grid-row: 2;
 }
-.pane-cell > .pane-side-dock {
+.pane-cell > .bottom-panel {
+  grid-column: 1;
+  grid-row: 3;
+}
+.pane-cell > .pane-footer-slot {
+  grid-column: 1;
+  grid-row: 4;
+  min-width: 0;
+}
+.pane-cell > .pane-footer-slot:empty {
+  display: none;
+}
+.pane-cell > .pane-side-dock,
+.pane-cell > .pane-side-dock-spacer {
   grid-column: 2;
-  grid-row: 1 / -1;
+  grid-row: 1 / span 4;
+}
+/* Holds the dock's column while an in-flow surface (file, diff, Changes) is
+   expanded over the main panel, so the conversation never reflows. */
+.pane-side-dock-spacer {
+  box-sizing: border-box;
+  pointer-events: none;
+  visibility: hidden;
+}
+/* Expanded in-flow dock: a fixed sheet over the main panel (inline left/top/
+   width/height, set from expandedDockRect), above the pane strip like an
+   expanded browser/terminal. */
+.pane-side-dock[data-expanded="true"] {
+  z-index: 40;
+  margin: 0;
+  box-shadow: var(--mx-floating);
 }
 
 /* ── Per-pane right dock ──
@@ -828,6 +862,20 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   display: flex;
   flex-direction: column;
 }
+/* Files surface: header row over the explorer tree, which fills and scrolls. */
+.pane-dock-files {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-dock-files-body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .pane-side-file-editor {
   position: relative;
   flex: 1 1 0;
@@ -836,10 +884,23 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   display: flex;
   flex-direction: column;
 }
-.pane-side-file-editor > .editor-pane {
+.pane-side-file-editor > .editor-pane,
+.pane-side-file-tab > .editor-pane {
   flex: 1 1 0;
   height: auto;
   min-height: 0;
+}
+/* One mounted editor per file tab (unsaved edits survive a tab switch); only
+   the active tab's editor shows. */
+.pane-side-file-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-side-file-tab[hidden] {
+  display: none;
 }
 .pane-side-file-problems {
   position: relative;
@@ -972,6 +1033,504 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
 html[data-mixdog-mobile-tabs] .pane-dock-diff-column {
   display: none;
 }
+/* ── Sheet framing (desktop) ──
+   The icon rail sits flat on a darker base; the LEFT side tab panel, the
+   pane cells and the right docks form ONE joined, rounded surface (Codex
+   style) with single 1px dividers and --mx-sheet-gap only on its outer left /
+   right / bottom edges. Expanded and overlay docks float as separate sheets.
+   The dock column reserves its width (grid column 2), so the conversation is
+   never overlapped. Phone/remote keep their own layout. */
+:root {
+  /* The dock header row and the pane tab strip row share this height. */
+  --mx-dock-header-height: 44px;
+  /* Codex-tight: the window frame already adds its own edge, so the sheets sit
+     2px from the rail, the window edges and each other. */
+  --mx-sheet-gap: 2px;
+  --mx-sheet-radius: 10px;
+  --mx-sheet-surface: var(--mx-sheet-ink, var(--mx-workspace-sheet));
+  --mx-shell-base: color-mix(in srgb, var(--mx-workspace-sheet) 68%, #000);
+}
+:root[data-mixdog-theme="light"] {
+  --mx-shell-base: var(--mx-window-band);
+}
+html[data-window-material="mica"],
+html[data-window-material="mica"][data-mixdog-theme="light"] {
+  --mx-shell-base: transparent;
+}
+@media (min-width: 761px) {
+  :root:not([data-mixdog-mobile-tabs]) .app-shell,
+  :root:not([data-mixdog-mobile-tabs]) .desktop-body,
+  :root:not([data-mixdog-mobile-tabs]) .activity-rail {
+    background: var(--mx-shell-base);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .desktop-body {
+    border-top-color: transparent;
+  }
+  /* ONE joined surface: left panel | workspace cell(s) | dock. The left
+     panel and .main-panel share a single divider (the panel's right border);
+     .main-panel draws the outer top / right / bottom edge and its overflow
+     clip rounds the rightmost element, so inner corners stay square. Splits
+     and docks add one 1px divider each (resize handle / dock border-left).
+     The outer edges keep --mx-sheet-gap from the rail, the window's right
+     edge and its bottom. */
+  :root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] {
+    /* The base rule's height:100% would push the margin below the window. */
+    height: calc(100% - var(--mx-sheet-gap));
+    align-self: flex-start;
+    margin: 0 0 var(--mx-sheet-gap) var(--mx-sheet-gap);
+    border: 1px solid var(--mx-border);
+    border-radius: var(--mx-sheet-radius) 0 0 var(--mx-sheet-radius);
+    background: var(--mx-sheet-surface);
+    box-shadow: none;
+    /* Visible so the resize handle can straddle the right border; the content
+       wrapper below clips and rounds the panel's own body. */
+    overflow: visible;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] > .workbench-side-panel-content {
+    border-radius: calc(var(--mx-sheet-radius) - 1px) 0 0 calc(var(--mx-sheet-radius) - 1px);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .session-sidebar {
+    --mx-rail-pin-bg: var(--mx-shell-base);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .session-sidebar .task-link,
+  :root:not([data-mixdog-mobile-tabs]) .session-sidebar .session-row {
+    --session-row-action-surface: var(--mx-shell-base);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .main-panel {
+    margin: 0 var(--mx-sheet-gap) var(--mx-sheet-gap) 0;
+    border: 1px solid var(--mx-border);
+    /* The left panel's right border is the divider. */
+    border-left: 0;
+    border-radius: 0 var(--mx-sheet-radius) var(--mx-sheet-radius) 0;
+    background: var(--mx-sheet-surface);
+    box-shadow: none;
+  }
+  /* The rail is flat: the sheets carry every border. Mica draws its own seam
+     whenever the sidebar folds; it sat beside the first border, a double line. */
+  :root:not([data-mixdog-mobile-tabs]) .app-shell .activity-rail,
+  :root:not([data-mixdog-mobile-tabs]) .app-shell.sidebar-collapsed .activity-rail {
+    border-right-color: transparent;
+  }
+  /* Folded sidebar: the workspace is the leftmost element and takes the left
+     corners and its own left edge. */
+  :root:not([data-mixdog-mobile-tabs]) .app-shell.sidebar-collapsed .main-panel {
+    margin-left: var(--mx-sheet-gap);
+    border-left: 1px solid var(--mx-border);
+    border-radius: var(--mx-sheet-radius);
+  }
+  /* Workspace cell = strip + surface stack + footer: flat rows of the joined
+     surface (no borders, gaps or radii of their own). */
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .workspace-tabs-shell,
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-surface-stack,
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-footer-slot {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--mx-sheet-surface);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .pane-footer-slot {
+    overflow: hidden;
+  }
+  /* Split cells meet on ONE hairline: the resize handle, whose hover / drag
+     accent line stays. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-resize-handle::after {
+    background: var(--mx-border);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-resize-handle:is(:hover, .is-dragging)::after {
+    background: var(--mx-focus);
+  }
+  /* While an inline dock is open the workspace is NOT wrapped by .main-panel's
+     frame (the dock must stay outside it): each pane cell draws its own sheet
+     frame instead (::before = surface, ::after = border), with the same joined
+     rules as before. A side of the frame is drawn only on the composite's
+     outer edge, next to the left panel divider (none), or where a dock follows
+     (its right border and corners). Flags: 1 = outer edge, 0 = neighbour. */
+  :root:not([data-mixdog-mobile-tabs]):not(
+    :has(
+      .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+      .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+    )
+  ) .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])) {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell {
+    isolation: isolate;
+    --no-top: 1;
+    --no-bottom: 1;
+    --no-left: 1;
+    --open-right: 1;
+    --folded: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]):has(.app-shell.sidebar-collapsed):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell {
+    --folded: 1;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-split-column
+    > .pane-split-cell:last-child
+    .pane-cell {
+    --no-top: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-split-column
+    > .pane-split-cell:first-child
+    .pane-cell {
+    --no-bottom: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-split-row
+    > .pane-split-cell:last-child
+    .pane-cell {
+    --no-left: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-split-row
+    > .pane-split-cell:first-child
+    .pane-cell {
+    --open-right: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell:has(> .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])) {
+    --open-right: 1;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell::before,
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell::after {
+    content: "";
+    grid-column: 1;
+    grid-row: 1 / -1;
+    pointer-events: none;
+    border-radius: calc(var(--mx-sheet-radius) * var(--no-top) * var(--no-left) * var(--folded))
+      calc(var(--mx-sheet-radius) * var(--no-top) * var(--open-right))
+      calc(var(--mx-sheet-radius) * var(--no-bottom) * var(--open-right))
+      calc(var(--mx-sheet-radius) * var(--no-bottom) * var(--no-left) * var(--folded));
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell::before {
+    z-index: -1;
+    background: var(--mx-sheet-surface);
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell::after {
+    z-index: 3;
+    border: 0 solid var(--mx-border);
+    border-top-width: calc(1px * var(--no-top));
+    border-right-width: calc(1px * var(--open-right));
+    border-bottom-width: calc(1px * var(--no-bottom));
+    border-left-width: calc(1px * var(--no-left) * var(--folded));
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell
+    > .workspace-tabs-shell,
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell
+    > .pane-surface-stack,
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell
+    > .pane-footer-slot,
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell
+    > .bottom-panel:not([data-state="closed"]) {
+    background: transparent;
+  }
+  /* The dock: a separate floating sheet. Overlay: inset inside the pane with
+     its shadow. Inline: --mx-sheet-gap from the workspace sheet on its left
+     (the main panel's own margins give the window-edge and bottom gaps),
+     level with the workspace top. Expanded: flush in .main-panel's content
+     box (see expandedSheetBounds): no border, gap or shadow, only the inner
+     radius of the panel's outer corners (fixed boxes are not clipped by it). */
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock {
+    background: transparent;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock[data-open="true"] {
+    margin: 0 var(--mx-sheet-gap) var(--mx-sheet-gap) 0;
+    border: 1px solid var(--mx-border);
+    border-radius: var(--mx-sheet-radius);
+    background: var(--mx-sheet-surface);
+  }
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]) {
+    margin: 0 0 0 var(--mx-sheet-gap);
+    box-shadow: none;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-split-row
+    > .pane-split-cell:first-child
+    .pane-cell
+    > .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]) {
+    margin-right: var(--mx-sheet-gap);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock[data-open="true"][data-expanded="true"] {
+    margin: 0;
+    border: 0;
+    border-radius: 0 calc(var(--mx-sheet-radius) - 1px) calc(var(--mx-sheet-radius) - 1px) 0;
+    box-shadow: none;
+    overflow: hidden;
+  }
+  :root:not([data-mixdog-mobile-tabs]):has(.app-shell.sidebar-collapsed)
+    .pane-side-dock[data-open="true"][data-expanded="true"] {
+    border-radius: calc(var(--mx-sheet-radius) - 1px);
+  }
+  /* Holds the dock's column (gap included) while the dock is expanded. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock-spacer {
+    margin: 0 0 0 var(--mx-sheet-gap);
+  }
+  /* Every corner of a sheet dock follows the sheet radius without clipping the
+     resize edges that sit just outside it. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock:not([data-expanded="true"]) .pane-side-dock-main,
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock:not([data-expanded="true"]) .workbench-side-panel-content,
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock:not([data-expanded="true"]) .workbench-side-surface-slot {
+    border-radius: calc(var(--mx-sheet-radius) - 1px);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock .workbench-side-surface-slot {
+    overflow: hidden;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock:not([data-expanded="true"]) .pane-side-dock-chrome {
+    border-radius: calc(var(--mx-sheet-radius) - 1px) calc(var(--mx-sheet-radius) - 1px) 0 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock-header[data-surface-expanded="true"] {
+    border-radius: 0 calc(var(--mx-sheet-radius) - 1px) 0 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]):has(.app-shell.sidebar-collapsed)
+    .pane-side-dock-header[data-surface-expanded="true"] {
+    border-radius: calc(var(--mx-sheet-radius) - 1px) calc(var(--mx-sheet-radius) - 1px) 0 0;
+  }
+  /* Under Mica the left sheet keeps the panel plate it had before the sheet
+     framing (03-titlebar.css), so only a faint trace of the material shows. */
+  html[data-window-material="mica"]:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] {
+    background: var(--mx-mica-panel-solid);
+  }
+  html[data-window-material="mica"][data-mixdog-theme="light"]:not([data-mixdog-mobile-tabs])
+    .workbench-side-panel[data-side="left"] {
+    background: color-mix(in srgb, var(--mx-sheet-ink) 94%, transparent);
+  }
+  /* Terminal and browser roots are fixed overlays measured from the dock
+     slot, so no ancestor clip reaches them: round them to the dock sheet.
+     Expanded, they fill .main-panel's content box flush: no border or shadow,
+     only the inner corners of the panel's frame. */
+  :root:not([data-mixdog-mobile-tabs]) .session-terminal-surface-container,
+  :root:not([data-mixdog-mobile-tabs]) .session-browser-surface-container {
+    border-radius: calc(var(--mx-sheet-radius) - 1px);
+    overflow: hidden;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .session-terminal-surface-container[data-expanded="true"],
+  :root:not([data-mixdog-mobile-tabs]) .session-browser-surface-container[data-expanded="true"] {
+    border: 0;
+    border-radius: 0 calc(var(--mx-sheet-radius) - 1px) calc(var(--mx-sheet-radius) - 1px) 0;
+    box-shadow: none;
+  }
+  :root:not([data-mixdog-mobile-tabs]):has(.app-shell.sidebar-collapsed)
+    .session-terminal-surface-container[data-expanded="true"],
+  :root:not([data-mixdog-mobile-tabs]):has(.app-shell.sidebar-collapsed)
+    .session-browser-surface-container[data-expanded="true"] {
+    border-radius: calc(var(--mx-sheet-radius) - 1px);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock .workbench-side-panel[data-embedded="true"] {
+    border-left: 0;
+    background: transparent;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-dock-diff-column {
+    border-left: 0;
+    border-right: 1px solid var(--mx-border);
+    background: var(--mx-sheet-surface);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock:not([data-expanded="true"]) .pane-dock-diff-column,
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock:not([data-expanded="true"]) .pane-dock-diff-body {
+    border-bottom-left-radius: calc(var(--mx-sheet-radius) - 1px);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-side-dock-chrome {
+    flex: 0 0 var(--mx-dock-header-height);
+  }
+  /* Vertical resize handles. Left panel and the diff-pair divider: a 13px hit
+     area centred on the 1px divider, accent 1px at rest / 3px active over its
+     pixel. Dock: a 12px hit area centred in the --mx-sheet-gap (2px) between
+     the workspace sheet and the dock sheet (it overlaps both borders), accent
+     2px centred in that gap. Past the divider the hit area may sit under a native browser /
+     terminal view, which paints above the DOM; the part before it stays usable. */
+  :root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] > .workbench-side-panel-resize {
+    right: -7px;
+    width: 13px;
+  }
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock
+    .workbench-side-panel[data-side="right"]
+    > .workbench-side-panel-resize,
+  :root:not([data-mixdog-mobile-tabs]) .pane-dock-diff-resize {
+    /* Gap [D-2, D), padding edge D+1: D-7 .. D+5, centre D-1. */
+    left: -8px;
+    width: 12px;
+  }
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock
+    .pane-dock-diff-column:not([hidden])
+    ~ .workbench-side-panel[data-side="right"]
+    > .workbench-side-panel-resize {
+    left: -7px;
+    width: 13px;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] > .workbench-side-panel-resize::after,
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock
+    .workbench-side-panel[data-side="right"]
+    > .workbench-side-panel-resize::after,
+  :root:not([data-mixdog-mobile-tabs]) .pane-dock-diff-resize::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(50% - 1px);
+    right: auto;
+    width: 2px;
+    background: transparent;
+    pointer-events: none;
+    transition: background var(--mx-motion-chrome);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] > .workbench-side-panel-resize::after,
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock
+    .pane-dock-diff-column:not([hidden])
+    ~ .workbench-side-panel[data-side="right"]
+    > .workbench-side-panel-resize::after {
+    left: calc(50% - 0.5px);
+    width: 1px;
+  }
+  :root:not([data-mixdog-mobile-tabs])
+    .workbench-side-panel[data-side="left"]
+    > .workbench-side-panel-resize:is(:hover, :active)::after,
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock
+    .pane-dock-diff-column:not([hidden])
+    ~ .workbench-side-panel[data-side="right"]
+    > .workbench-side-panel-resize:is(:hover, :active)::after {
+    left: calc(50% - 1.5px);
+    width: 3px;
+  }
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock
+    .workbench-side-panel[data-side="right"]
+    > .workbench-side-panel-resize:is(:hover, :active)::after,
+  :root:not([data-mixdog-mobile-tabs]) .pane-dock-diff-resize:is(:hover, :active)::after {
+    background: var(--mx-focus);
+  }
+  :root:not([data-mixdog-mobile-tabs])
+    .workbench-side-panel[data-side="left"]
+    > .workbench-side-panel-resize:is(:hover, :active)::after,
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-side-dock
+    .pane-dock-diff-column:not([hidden])
+    ~ .workbench-side-panel[data-side="right"]
+    > .workbench-side-panel-resize:is(:hover, :active)::after {
+    background: var(--mx-focus);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-resize-handle::before {
+    left: -6px;
+    right: -6px;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-resize-handle:is(:hover, .is-dragging)::after {
+    width: 3px;
+  }
+}
+
 /* ── Left sidebar diff column ──
    Source Control on the LEFT opens its diff paired to the RIGHT of the
    sidebar (user: 왼쪽 소스컨트롤도 우측 확장 스타일), the same column grammar
@@ -1274,4 +1833,17 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
+}
+
+/* Inline bottom panel (Problems…) is the workspace's last row above the
+   footer, divided by one hairline; flat like every other row of the joined
+   surface. Above 940px only; below it the panel is a fixed overlay sheet. */
+@media (min-width: 941px) {
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell > .bottom-panel:not([data-state="closed"]) {
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--mx-border);
+    border-radius: 0;
+    background: var(--mx-sheet-surface);
+  }
 }

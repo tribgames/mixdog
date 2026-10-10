@@ -19,7 +19,11 @@ import { promptContentText } from './prompt-utils.mjs';
 // MIXDOG_AUTO_EFFORT_STEPS=off keeps auto effort to the turn's first request
 // (no per-step judgment), e.g. to compare the two in a benchmark.
 export function autoEffortStepsEnabled() {
-  return String(process.env.MIXDOG_AUTO_EFFORT_STEPS || '').trim().toLowerCase() !== 'off';
+  return (
+    String(process.env.MIXDOG_AUTO_EFFORT_STEPS || '')
+      .trim()
+      .toLowerCase() !== 'off'
+  );
 }
 
 export function autoEffortMode() {
@@ -43,8 +47,9 @@ function lastText(messages, role) {
 
 /**
  * `{ base, effort, step, level, confidence, applied, mode, request }` for this
- * turn, or null when auto effort does not apply. The judge never delays the
- * turn: a missing, warming, or slow model yields null and the default effort.
+ * turn, or null when auto effort does not apply. The judge delays a turn only
+ * briefly (its first-use load is the longest wait): a missing, still-loading,
+ * or slow model yields null and the default effort.
  */
 export async function resolveTurnAutoEffort({ sessionId, session, provider, input }) {
   const mode = autoEffortMode();

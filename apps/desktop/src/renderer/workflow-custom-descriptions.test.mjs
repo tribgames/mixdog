@@ -76,7 +76,9 @@ test('only built-in workflow descriptions translate; names and other sources sta
   const named = (name) => summary.filter((entry) => entry.name === name);
   // Built-in Default and a user pack with the same name both keep the name.
   assert.deepEqual(
-    named('Default').map((entry) => entry.description).sort(),
+    named('Default')
+      .map((entry) => entry.description)
+      .sort(),
     ['History', '기록']
   );
   assert.deepEqual(named('Other'), [{ name: 'Other', description: 'History' }]);

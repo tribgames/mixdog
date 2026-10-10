@@ -93,6 +93,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     [api]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api, refreshNonce and revision are re-read triggers; load itself only reads api.
   useEffect(() => {
     // A hidden panel adopts the shared cache without another sweep. Every
     // opening refreshes it: a two-second cache grace period could otherwise

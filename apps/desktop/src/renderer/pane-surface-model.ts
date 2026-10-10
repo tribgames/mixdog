@@ -46,6 +46,7 @@ function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): bool
   return (
     selection?.kind === 'studio' ||
     selection?.kind === 'terminal' ||
+    selection?.kind === 'browser' ||
     selection?.kind === 'diff' ||
     selection?.kind === 'pull-request'
   );

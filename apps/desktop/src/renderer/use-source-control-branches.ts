@@ -113,6 +113,7 @@ export function useSourceControlBranches({
       document.removeEventListener('keydown', keydown, true);
     };
   }, [pickerVisible, contextMenu]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectPath is the trigger that clears branch state
   useEffect(() => {
     setBranches([]);
     setDefaultBranchName('');

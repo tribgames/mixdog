@@ -9,7 +9,8 @@ test('compact chrome preserves input growth, readable rows and accessible action
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
       loader: 'css',
-      contents: '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./desktop/composer-add-menu.css";',
+      contents:
+        '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./desktop/composer-add-menu.css";',
     },
     outfile: 'compact-chrome.css',
     bundle: true,
@@ -62,13 +63,14 @@ test('compact chrome preserves input growth, readable rows and accessible action
     <div class="message-body" id="prose">한글 English</div>
   </body></html>`);
   await page.addStyleTag({ content: styles.outputFiles[0].text });
-  const settle = () => page.evaluate(() => new Promise((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(resolve))
-  ));
+  const settle = () =>
+    page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
   for (const theme of ['light', 'dark']) {
     await t.test(`${theme}: compact input grows without moving controls or overflowing narrow panes`, async () => {
-      await page.evaluate((theme) => { document.documentElement.dataset.mixdogTheme = theme; }, theme);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.mixdogTheme = theme;
+      }, theme);
       for (const width of [700, 340]) {
         await page.evaluate((width) => {
           document.querySelector('.workspace').style.width = `${width}px`;
@@ -96,7 +98,9 @@ test('compact chrome preserves input growth, readable rows and accessible action
         assert.equal(resting.footerHeight, 40);
         assert.equal(resting.overflow, false);
         assert.equal(resting.controlsFit, true);
-        await page.evaluate(() => { document.querySelector('textarea').value = '한글 English\n'.repeat(20); });
+        await page.evaluate(() => {
+          document.querySelector('textarea').value = '한글 English\n'.repeat(20);
+        });
         await settle();
         const expanded = await page.evaluate(() => ({
           form: document.querySelector('.composer').getBoundingClientRect().height,
@@ -173,7 +177,14 @@ test('compact chrome preserves input growth, readable rows and accessible action
         menu: document.querySelector('.row-overflow-menu > button').getBoundingClientRect().height,
       };
     });
-    assert.deepEqual(desktop, { question: '24px', answer: '8px', turnGap: '20px', font: '15px', line: '24px', menu: 30 });
+    assert.deepEqual(desktop, {
+      question: '24px',
+      answer: '8px',
+      turnGap: '20px',
+      font: '15px',
+      line: '24px',
+      menu: 30,
+    });
     await page.evaluate(() => {
       document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
       document.documentElement.style.setProperty('--mx-device-scale', '1');

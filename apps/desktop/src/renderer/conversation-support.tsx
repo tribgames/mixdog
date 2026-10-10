@@ -2,9 +2,11 @@ import {
   useCallback,
   type Dispatch,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type SetStateAction,
 } from 'react';
+import { ArrowDown } from 'lucide-react';
 import type {
   DesktopAbortOptions,
   DesktopPromptContent,
@@ -16,9 +18,9 @@ import { describeError, ErrorNotice } from './ErrorNotice';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
-import { turnPromptText, type TranscriptRowModel } from './transcript-rows';
+import { submissionIdentity, turnPromptText, type TranscriptRowModel } from './transcript-rows';
 import { TranscriptRow } from './transcript-row';
-import { LiveActivity } from './transcript-status';
+import { completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { ToolActivityGroup } from './transcript-tool-ui';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
@@ -39,6 +41,43 @@ export type ConversationComposerActions = {
   onClearToNewTask?: (sessionId: string) => void;
   onInherit: () => Promise<boolean>;
 };
+
+/** Chromium defers a press that lands INSIDE the live selection: it waits for
+ *  a drag it is no longer allowed to start, so the next drag-select is
+ *  swallowed. Collapsing the selection first makes every press begin a fresh
+ *  range; shift-extend, the right-click menu and text fields keep theirs. */
+export function collapseSelectionOnPress(event: ReactMouseEvent<HTMLElement>) {
+  if (event.button !== 0 || event.shiftKey) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) selection.removeAllRanges();
+}
+
+export function JumpToLatestButton({ visible, onJump }: { visible: boolean; onJump: () => void }) {
+  return (
+    <button
+      type="button"
+      className="jump-to-latest"
+      aria-hidden={visible ? undefined : true}
+      tabIndex={visible ? undefined : -1}
+      onPointerDown={(event) => {
+        if (!event.isPrimary || event.button !== 0) return;
+        // A live wheel/fling can cancel the later click. Take the tail on the
+        // press itself so the jump also stops the remaining scroll frames.
+        event.preventDefault();
+        onJump();
+      }}
+      // Native keyboard activation has no pointerdown and reports detail 0.
+      onClick={(event) => {
+        if (event.detail === 0) onJump();
+      }}
+      aria-label={t('Jump to latest message')}
+    >
+      <ArrowDown size={14} />
+    </button>
+  );
+}
 
 export function useConversationComposerActions({
   armFollowOnSubmitRef,
@@ -63,6 +102,9 @@ export function useConversationComposerActions({
   settledUsersRef: { current: number };
   suppressDraftSubmitPaintHandoff: { current: boolean };
 }) {
+  // Every handler below is wired once and reads the latest props through the
+  // stable refs passed in, so none of them lists a ref's `.current` as a dependency.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs and state setters, read at call time.
   const composerSubmit = useCallback(async (content: DesktopPromptContent, options?: DesktopSubmitOptions) => {
     const submittedAt = Number(options?.submittedAt);
     const trackedSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
@@ -123,6 +165,7 @@ export function useConversationComposerActions({
     );
     return accepted;
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerAbort = useCallback(
     (options: DesktopAbortOptions = {}) =>
       composerActions.current.invokeResult(() => {
@@ -132,10 +175,12 @@ export function useConversationComposerActions({
       }),
     []
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerInvokeResult = useCallback(
     <T,>(action: () => T | Promise<T>) => composerActions.current.invokeResult(action),
     []
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable state setter.
   const composerQueuedRestored = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
     const restored = new Set(ids);
@@ -144,28 +189,37 @@ export function useConversationComposerActions({
       return next.length === current.length ? current : next;
     });
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerApplySnapshot = useCallback(
     (next: SessionSnapshot | null) => composerActions.current.applySnapshot(next),
     []
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnNewTask = useCallback(() => composerActions.current.onNewTask(), []);
   // A session pane's /clear · /new addresses ITS OWN session (pane-local
   // route), never the globally focused one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnClearToNewTask = useCallback(() => {
     const sessionId = routeSessionIdRef.current;
     if (sessionId) composerActions.current.onClearToNewTask?.(sessionId);
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnResumeSession = useCallback((id: string) => composerActions.current.onResumeSession(id), []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnOpenSessions = useCallback(() => composerActions.current.onOpenSessions(), []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnOpenProjects = useCallback(() => composerActions.current.onOpenProjects(), []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnOpenSettings = useCallback(
     (section?: SettingsSection | null) => composerActions.current.onOpenSettings(section),
     []
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnOpenCommandSurface = useCallback(
     (surface: CommandSurfaceName) => composerActions.current.onOpenCommandSurface(surface),
     []
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
   const composerOnInherit = useCallback(() => composerActions.current.onInherit(), []);
   return {
     composerAbort,
@@ -308,7 +362,11 @@ export function transcriptRowNode(
   if (row._tag === 'Thinking') {
     return (
       <div className="live-activity-slot" data-busy="true">
-        <LiveActivity snapshot={snapshot} optimisticStartedAt={optimisticActivityStartedAt} />
+        <LiveActivity
+          snapshot={snapshot}
+          optimisticStartedAt={optimisticActivityStartedAt}
+          turnKey={submissionIdentity(row.turnKey)}
+        />
       </div>
     );
   }
@@ -322,6 +380,8 @@ export function transcriptRowNode(
     item: row.item,
     live: Boolean(row.live),
     completion: row.completion,
+    animateComplete: hadLiveActivity(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
+    completionActivityKey: completionActivityKey(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
     disclosureScope,
   };
   return renderAssistantRow ? renderAssistantRow(assistantProps) : <TranscriptAssistantRow {...assistantProps} />;

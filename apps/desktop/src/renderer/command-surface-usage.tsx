@@ -103,6 +103,8 @@ export function UsageSkeleton() {
       </p>
       <UsageTableFrame>
         {[104, 88, 64, 112, 72, 96].map((width, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed skeleton rows are positional and never reorder
+          // biome-ignore lint/a11y/noAriaHiddenOnFocusable: skeleton rows contain no focusable content
           <tr className="usage-skeleton-row" key={index} aria-hidden="true">
             <td className="usage-provider-cell">
               <span className="usage-skeleton" style={{ width }} />
@@ -172,6 +174,7 @@ export function UsageBody({ data }: { data: Record<string, unknown> }) {
                 {windows.map((window, windowIndex) => {
                   const reset = usageEstimated(window) ? '' : usageClock(window.resetAt);
                   return (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: usage windows have no stable id and the list never reorders
                     <span className="usage-chip" key={windowIndex} data-tone={usageTone(window)}>
                       <em>{String(window.label || 'USE').toUpperCase()}</em>
                       <b>{usageWindowValue(window) || '—'}</b>

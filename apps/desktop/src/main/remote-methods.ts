@@ -39,6 +39,7 @@ import {
   requiredModelSelection,
   requiredNewTaskDraft,
   requiredPromptContent,
+  requiredSessionContentQuery,
   requiredString,
   requiredSubmitOptions,
   requiredSessionMessageCount,
@@ -698,10 +699,15 @@ export function createRemoteMethods({
       );
     },
     listAgentPool: () => host.listAgentPool(),
+    searchSessionContent: ([query]) => host.searchSessionContent(requiredSessionContentQuery(query)),
     renameSession: ([sessionId, title]) => host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)),
     setSessionArchived: ([sessionId, archived]) => {
       if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
       return host.setSessionArchived(requiredSessionId(sessionId), archived);
+    },
+    setSessionFavorite: ([sessionId, favorite]) => {
+      if (typeof favorite !== 'boolean') throw new TypeError('favorite must be a boolean.');
+      return host.setSessionFavorite(requiredSessionId(sessionId), favorite);
     },
     deleteSession: async ([sessionId]) => {
       const ownerSessionId = requiredSessionId(sessionId);

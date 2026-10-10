@@ -15,16 +15,9 @@ import {
   effortJudgeInstalling,
   effortJudgeReady,
   shutdownEffortJudge,
-  warmEffortJudge,
 } from '../runtime/effort-judge/judge-client.mjs';
 
 const TOGGLEABLE_BUILTINS = ['git', 'office', 'tidy', 'localProvider', 'autoEffort'];
-
-// The judge stays resident only while the feature is on.
-async function syncEffortJudge(active) {
-  if (active) warmEffortJudge();
-  else await shutdownEffortJudge();
-}
 
 function setLocalProviderEnabledInConfig(configLike, enabled) {
   const next = { ...(configLike || {}) };
@@ -160,7 +153,8 @@ export function createBuiltinToolSettings(
       if (name === 'localProvider') {
         await syncLocalProviderRegistry?.(enabled !== false);
       }
-      if (name === 'autoEffort') await syncEffortJudge(enabled !== false);
+      // Turning Auto on loads nothing: the judge starts on its first turn.
+      if (name === 'autoEffort' && enabled === false) await shutdownEffortJudge();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
@@ -185,7 +179,6 @@ export function createBuiltinToolSettings(
       if (name === 'localProvider') {
         await syncLocalProviderRegistry?.(true);
       }
-      if (name === 'autoEffort') await syncEffortJudge(true);
       if (name === 'memory') invalidateContextStatusCache();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();

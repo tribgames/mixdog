@@ -100,7 +100,10 @@ test('artifact images open in the shared lightbox and navigate within the strip'
     resolveLocalPaths: async ([absolutePath]) => [
       { absolutePath, dir: false, projectPath: 'C:/work', relPath: absolutePath.slice('C:/work/'.length) },
     ],
-    previewProjectFile: async (_project, relPath) => ({ url: `mixdog-media://preview/token/${relPath}`, kind: 'image' }),
+    previewProjectFile: async (_project, relPath) => ({
+      url: `mixdog-media://preview/token/${relPath}`,
+      kind: 'image',
+    }),
   };
   const root = createRoot(dom.window.document.getElementById('root'));
   try {

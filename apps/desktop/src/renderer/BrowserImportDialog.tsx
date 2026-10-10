@@ -84,6 +84,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
     );
   }, [open, requestClose]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: desktopApi is the constant window bridge read once per render; listing it is harmless and only matters if the bridge object is replaced
   useEffect(() => {
     if (!open || !desktopApi?.browserProfileImportSources) return undefined;
     let live = true;
@@ -115,6 +116,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
     };
   }, [desktopApi, open]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: desktopApi is the constant window bridge read once per render; listing it is harmless and only matters if the bridge object is replaced
   useEffect(() => {
     if (!desktopApi?.onBrowserProfileImportProgress) return undefined;
     return desktopApi.onBrowserProfileImportProgress((update) => {
@@ -130,6 +132,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
   const selectedItems = checkedItems(items);
   const sensitiveSelected = includesSensitiveItem(selectedItems, selectedSource);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: desktopApi is the constant window bridge read once per render; listing it is harmless and only matters if the bridge object is replaced
   const startImport = useCallback(() => {
     if (!desktopApi?.browserProfileImportStart || busyRef.current) return;
     const requestedItems = checkedItems(items);
@@ -211,6 +214,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
     );
     if (showProgress) {
       control = (
+        // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the state icon span needs an accessible name for the import progress
         <span className={`browser-import-state is-${progressState}`} aria-label={progressStateLabel(progressState)}>
           <ProgressStateIcon state={progressState} />
         </span>
@@ -219,6 +223,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
       control = <span className="browser-import-skipped">{t('Excluded')}</span>;
     }
     return (
+      // biome-ignore lint/a11y/noLabelWithoutControl: the checkbox control is rendered through the `control` variable inside this label
       <label className={`browser-import-item${supported ? '' : ' is-disabled'}`}>
         <span className="browser-import-item-icon">{icon}</span>
         <span className="browser-import-item-label">
@@ -248,6 +253,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
   else if (finished) description = error ? t('Some data could not be imported') : t('Browser data imported');
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss is a pointer convenience; keyboard dismissal is handled by the dialog focus watcher
     <div
       className="browser-import-backdrop"
       onMouseDown={(event) => {

@@ -65,7 +65,10 @@ import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
 import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
 import { createDaemonLog } from './daemon-log.mjs';
 import { daemonCrashCaptureDir } from '../session-runtime/services/daemon-crash-capture/paths.mjs';
-import { installDaemonExitRecorder, reconcileLostDaemonCaptures } from '../session-runtime/services/daemon-crash-capture/daemon-exit-record.mjs';
+import {
+  installDaemonExitRecorder,
+  reconcileLostDaemonCaptures,
+} from '../session-runtime/services/daemon-crash-capture/daemon-exit-record.mjs';
 import { createDaemonTelemetry } from './daemon-telemetry.mjs';
 import { createLagProfiler } from './daemon-lag-profiler.mjs';
 import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
@@ -609,6 +612,13 @@ async function main() {
   // The daemon owns prompt attachments; its census runs off the boot path
   // (first attempt after the store's start delay, then per its interval).
   void import('../runtime/attachments/store.mjs').then((store) => store.startAttachmentGc()).catch(() => {});
+  // Session-search backfill: once per run, well after boot, low priority.
+  const sessionSearchBackfillTimer = setTimeout(() => {
+    void import('../runtime/session-search/session-search-ingest.mjs')
+      .then((search) => search.backfillSessionSearch())
+      .catch((error) => log(`session-search backfill failed: ${error?.message || error}`));
+  }, 60_000);
+  sessionSearchBackfillTimer.unref?.();
   // The first session per repository would otherwise run `git status` and
   // `git check-ignore` synchronously while composing its prompt. Registered
   // projects (a small JSON list, most recently selected first) are the cwds

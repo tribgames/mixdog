@@ -49,7 +49,9 @@ function mount(t) {
     act(() => {
       const scheduled = [...frames.values()];
       frames.clear();
-      scheduled.forEach((callback) => callback(time));
+      scheduled.forEach((callback) => {
+        callback(time);
+      });
     });
   };
   return {
@@ -79,10 +81,28 @@ test('entry waits past one second for dock chrome, then reveals only after stabl
   assert.equal(entry.revealed(), true, 'live updates never cover an entered conversation again');
 });
 
-test('an unanswered dock read cannot hide a loaded conversation beyond two seconds', (t) => {
+test('a slow dock stays covered past two seconds and reveals at its settled height', (t) => {
   const entry = mount(t);
   entry.tick(1_999);
   assert.equal(entry.revealed(), false);
   entry.tick(2_000);
+  assert.equal(entry.revealed(), false);
+  entry.tick(5_000);
+  assert.equal(entry.revealed(), false);
+  entry.ready();
+  entry.tick(5_016);
+  assert.equal(entry.revealed(), false);
+  entry.tick(5_032);
+  assert.equal(entry.revealed(), true);
+});
+
+test('row settling still has a bounded wait after dock readiness', (t) => {
+  const entry = mount(t);
+  entry.tick(3_000);
+  entry.ready();
+  document.getElementById('content').setAttribute('data-transcript-pending', '');
+  entry.tick(3_016);
+  assert.equal(entry.revealed(), false);
+  entry.tick(5_000);
   assert.equal(entry.revealed(), true);
 });

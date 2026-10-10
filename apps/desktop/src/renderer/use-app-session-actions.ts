@@ -123,6 +123,33 @@ export function useAppSessionActions({
     [invalidateSessionListings, pendingArchives, sessions, setError, setSessions]
   );
 
+  const favoriteSession = useCallback(
+    async (sessionId: string, favorite: boolean) => {
+      const previousSession = sessions.find((session) => session.id === sessionId);
+      if (!previousSession || Boolean(previousSession.favorite) === favorite) return;
+      invalidateSessionListings();
+      setSessions((current) =>
+        current.map((session) => (session.id === sessionId ? { ...session, favorite } : session))
+      );
+      setError('');
+      try {
+        await window.mixdogDesktop.setSessionFavorite?.(sessionId, favorite);
+      } catch (reason) {
+        invalidateSessionListings();
+        setSessions((current) =>
+          current.map((session) =>
+            session.id === sessionId && session.favorite === favorite
+              ? { ...session, favorite: previousSession.favorite }
+              : session
+          )
+        );
+        setError(reason instanceof Error ? reason.message : String(reason));
+        throw reason;
+      }
+    },
+    [invalidateSessionListings, sessions, setError, setSessions]
+  );
+
   const deleteSession = useCallback(
     async (sessionId: string) => {
       const previousSession = sessions.find((session) => session.id === sessionId);
@@ -178,5 +205,5 @@ export function useAppSessionActions({
     ]
   );
 
-  return { renameSession, archiveSession, deleteSession };
+  return { renameSession, archiveSession, favoriteSession, deleteSession };
 }

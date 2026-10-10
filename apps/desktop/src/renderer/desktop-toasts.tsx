@@ -67,6 +67,7 @@ export function DesktopToastRegion({
     ...(bridgeError ? [{ id: 'desktop-bridge', text: bridgeError, tone: 'error', lifetime: 'state' }] : []),
   ];
   const hostToken = JSON.stringify(hostToasts);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hostToken is the serialized content of hostToasts; a fresh array identity alone must not re-dispatch.
   useEffect(() => {
     dispatch({ type: 'host', toasts: hostToasts });
   }, [hostToken]);
@@ -135,6 +136,7 @@ export function DesktopToastRegion({
   }, [shownErrors]);
   const entryCount = entries.length;
   const hasEntries = entryCount > 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hasEntries/entryCount re-measure the lane when toasts appear or disappear; measure reads the DOM, not these values.
   useLayoutEffect(() => {
     // Anchor to the single main panel, below its tab strip. Every open tab
     // keeps its own `.workspace` sheet mounted (parked ones included), so the

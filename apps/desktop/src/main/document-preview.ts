@@ -8,6 +8,8 @@
 // belongs to the desktop: resolving a project-relative request to a real file
 // without letting it escape the project, and bounding what one call may ask
 // for.
+import { stat } from 'node:fs/promises';
+
 import { projectEntryPathIn } from './project-files';
 
 interface DocumentPreviewPdf {
@@ -34,7 +36,10 @@ interface DocumentPreviewPages {
 export interface DocumentPreviewModule {
   documentPreviewFormat(path: string): string;
   documentPreviewPdf(path: string, options: { cacheRoot: string }): Promise<DocumentPreviewPdf>;
-  documentPreviewPages(pdfPath: string, options: { pages: number[]; maxWidth: number }): Promise<DocumentPreviewPages>;
+  documentPreviewPages(
+    pdfPath: string,
+    options: { pages: number[]; maxWidth: number; cacheRoot: string }
+  ): Promise<DocumentPreviewPages>;
 }
 
 // A viewer asks for the pages it is about to show. The ceiling keeps one call
@@ -42,7 +47,8 @@ export interface DocumentPreviewModule {
 // remote surface carries these images inside a single reply.
 const MAX_PAGES_PER_CALL = 4;
 const MIN_PAGE_WIDTH = 320;
-const MAX_PAGE_WIDTH = 1600;
+// Wide enough for a 400% zoom on a high-DPI panel to stay crisp.
+const MAX_PAGE_WIDTH = 2400;
 const DEFAULT_PAGE_WIDTH = 1200;
 
 function requestedPages(value: unknown): number[] {
@@ -78,6 +84,13 @@ export function createDocumentPreviewOperations({
   };
   const convert = async (root: string, relPath: string): Promise<DocumentPreviewPdf> => {
     const file = projectEntryPathIn(String(root || ''), String(relPath || ''));
+    // A PDF needs no conversion: it is rasterized in place, so the editor can
+    // show it with the same page viewer as converted documents.
+    if (/\.pdf$/i.test(file)) {
+      const info = await stat(file);
+      if (!info.isFile()) throw new Error('Not a file.');
+      return { path: file, format: 'pdf', mtimeMs: info.mtimeMs, size: info.size, cached: true };
+    }
     const office = await runtime();
     if (!office.documentPreviewFormat(file)) {
       throw new Error('This file type has no built-in document preview.');
@@ -97,9 +110,19 @@ export function createDocumentPreviewOperations({
     ) => {
       const pages = requestedPages(options.pages);
       const maxWidth = requestedWidth(options.maxWidth);
-      const pdf = await convert(root, relPath);
+      let pdf = await convert(root, relPath);
       const office = await runtime();
-      const rendered = await office.documentPreviewPages(pdf.path, { pages, maxWidth });
+      let rendered = await office.documentPreviewPages(pdf.path, { pages, maxWidth, cacheRoot });
+      // The PDF is mutable: if it changed while rasterizing, the pixels may
+      // belong to either revision. Re-render once against the new one and
+      // report that revision so the renderer's binding resets.
+      const after = await stat(pdf.path);
+      if (after.mtimeMs !== pdf.mtimeMs || after.size !== pdf.size) {
+        pdf = { ...pdf, mtimeMs: after.mtimeMs, size: after.size };
+        rendered = await office.documentPreviewPages(pdf.path, { pages, maxWidth, cacheRoot });
+        const settled = await stat(pdf.path);
+        pdf = { ...pdf, mtimeMs: settled.mtimeMs, size: settled.size };
+      }
       return {
         format: pdf.format,
         mtimeMs: pdf.mtimeMs,

@@ -235,11 +235,15 @@ export const TranscriptRow = memo(
   function TranscriptRow({
     item,
     completion,
+    animateComplete = false,
+    completionActivityKey = '',
     attachedUser = false,
     disclosureScope = '',
   }: {
     item: TranscriptItem;
     completion?: TranscriptItem;
+    animateComplete?: boolean;
+    completionActivityKey?: string;
     attachedUser?: boolean;
     disclosureScope?: string;
   }) {
@@ -290,11 +294,13 @@ export const TranscriptRow = memo(
           aria-busy={item.pending === true ? 'true' : undefined}
         >
           {sourceLabel && <small className="message-source">{sourceLabel}</small>}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control. */}
           <div className="message-body" onDragStart={(event) => event.preventDefault()}>
             {user && (
               <>
                 {(attachedImages.length > 0 || markerChips.length > 0 || pastedFold.chips.length > 0) && (
-                  <div className="message-image-chips" aria-label={t('Attachments')}>
+                  // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the chip row.
+                  <div className="message-image-chips" role="group" aria-label={t('Attachments')}>
                     {attachedImages.map((image, index) => {
                       const preview = imagePreviewCache.peek(imagePreviewKey(image.id, image.bytes));
                       const name = image.name || t('Attached image');
@@ -302,6 +308,7 @@ export const TranscriptRow = memo(
                         <button
                           type="button"
                           className="message-image-chip message-image-chip-button"
+                          // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
                           key={`${image.id ?? 'img'}-${index}`}
                           title={name}
                           aria-label={t('Open image')}
@@ -313,6 +320,7 @@ export const TranscriptRow = memo(
                           <img src={preview} alt={name} />
                         </button>
                       ) : (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
                         <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`} title={name}>
                           <span className="message-image-fallback">
                             <MxIcon name="photo" size={14} />
@@ -322,6 +330,7 @@ export const TranscriptRow = memo(
                       );
                     })}
                     {markerChips.map((chip, index) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
                       <span className="message-image-chip" key={`marker-${index}`} title={chip.title}>
                         <span className="message-image-fallback">
                           <MxIcon name="photo" size={14} />
@@ -333,6 +342,7 @@ export const TranscriptRow = memo(
                     {pastedFold.chips.map((chip, index) => (
                       <span
                         className="message-image-chip message-pasted-chip"
+                        // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
                         key={`pasted-${index}`}
                         title={chip.name}
                       >
@@ -350,12 +360,11 @@ export const TranscriptRow = memo(
             {!user && <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
           </div>
           {!user && !item.streaming && completion && (
-            <footer className="response-footer" aria-label={t('Response details')}>
-              <CompletionStatus item={completion} />
+            // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.
+            <footer className="response-footer" role="group" aria-label={t('Response details')}>
+              <CompletionStatus item={completion} animateComplete={animateComplete} completionActivityKey={completionActivityKey} />
               {metadata.shortTime && <time className="message-time">{metadata.shortTime}</time>}
-              {text && (
-                <CopyControl value={text} label="Copy response" className="message-actions response-copy" />
-              )}
+              {text && <CopyControl value={text} label="Copy response" className="message-actions response-copy" />}
             </footer>
           )}
         </article>
@@ -370,6 +379,8 @@ export const TranscriptRow = memo(
   (previous, next) =>
     transcriptItemsEqual(previous.item, next.item) &&
     transcriptItemsEqual(previous.completion, next.completion) &&
+    previous.animateComplete === next.animateComplete &&
+    previous.completionActivityKey === next.completionActivityKey &&
     previous.attachedUser === next.attachedUser &&
     previous.disclosureScope === next.disclosureScope
 );

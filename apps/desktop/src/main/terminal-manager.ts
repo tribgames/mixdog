@@ -141,6 +141,7 @@ export class TerminalManager {
   private readonly terminals = new Map<string, ManagedTerminal>();
   private readonly listeners = new Set<(event: TerminalDataEvent) => void>();
   private readonly cursorFloors = new Map<string, number>();
+  private readonly spawning = new Map<string, Promise<{ id: string; replay: string }>>();
   private sequence = 0;
   private ptyModule: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> | null = null;
   private disposed = false;
@@ -155,7 +156,8 @@ export class TerminalManager {
    * later terminal in this service to the first failure, so the view's retry
    * loop can never recover without restarting the whole daemon. */
   private loadPtyBindings(): Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> {
-    const pending: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> = (this.ptyModule ??= import(
+    if (this.ptyModule) return this.ptyModule;
+    const pending: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> = import(
       '@homebridge/node-pty-prebuilt-multiarch'
     ).catch((error: unknown) => {
       if (this.ptyModule === pending) this.ptyModule = null;
@@ -163,7 +165,8 @@ export class TerminalManager {
         'The terminal service could not load its PTY bindings: ' +
           (error instanceof Error ? error.message : String(error))
       );
-    }));
+    });
+    this.ptyModule = pending;
     return pending;
   }
 
@@ -177,7 +180,30 @@ export class TerminalManager {
     if (id) {
       const existing = this.terminals.get(id);
       if (existing && !existing.disposed) return { id, replay: existing.buffer.read() };
+      // Concurrent ensures for one id (remount, retry timer, second surface)
+      // must share a single spawn; each extra spawn printed another banner
+      // through the same id and orphaned the earlier PTY.
+      const inFlight = this.spawning.get(id);
+      if (inFlight) {
+        await inFlight.catch(() => undefined);
+        return this.ensure(id, cwd, profile);
+      }
+      const spawning = this.spawnTerminal(id, cwd, profile);
+      this.spawning.set(id, spawning);
+      try {
+        return await spawning;
+      } finally {
+        if (this.spawning.get(id) === spawning) this.spawning.delete(id);
+      }
     }
+    return this.spawnTerminal(id, cwd, profile);
+  }
+
+  private async spawnTerminal(
+    id: string | null,
+    cwd: string | null,
+    profile?: TerminalSpawnProfile | null
+  ): Promise<{ id: string; replay: string }> {
     const { spawn } = await this.loadPtyBindings();
     if (this.disposed) throw new Error('Terminal manager is disposed.');
     const requestedId = id && (/^term_[A-Za-z0-9_-]{1,120}$/.test(id) || SESSION_TERMINAL_ID.test(id)) ? id : '';

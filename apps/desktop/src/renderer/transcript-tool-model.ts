@@ -250,9 +250,7 @@ export function desktopToolActivityItemPresentation(
   if (normalizedName === 'agent') {
     // A response is only a completion notification; status/read are checks.
     const resultText = String(item.result ?? item.rawResult ?? '');
-    agentTitle = model.isAgentResponse
-      ? agentResponseTitle(args, 1, resultText)
-      : agentActionTitle(args, resultText);
+    agentTitle = model.isAgentResponse ? agentResponseTitle(args, 1, resultText) : agentActionTitle(args, resultText);
   }
   const subject = toolActivityRedactInlineSecrets(
     agentTitle || toolActivitySubject(normalizedName, args, oneLine(String(model.summaryText || ''))),

@@ -172,6 +172,13 @@ export class SessionHostLifecycle {
     await this.owner.publishCatalogs();
   }
 
+  async setSessionFavorite(sessionId: string, favorite: boolean): Promise<void> {
+    const id = sessionIdOf(sessionId);
+    await this.owner.sessionMetadata.load();
+    if (!(await this.owner.sessionMetadata.setFavorite(id, favorite))) return;
+    await this.republishSessionCatalog();
+  }
+
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
     const id = sessionIdOf(sessionId);
     await this.owner.sessionMetadata.load();

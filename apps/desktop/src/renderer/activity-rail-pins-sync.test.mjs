@@ -15,7 +15,10 @@ function hub() {
     loadConfig: async () => ({
       readConfig: () => config,
       updateConfigAsync: (update) => {
-        const saved = tail.then(() => { config = update(config); return config; });
+        const saved = tail.then(() => {
+          config = update(config);
+          return config;
+        });
         tail = saved.catch(() => {});
         return saved;
       },
@@ -31,14 +34,19 @@ function hub() {
     readActivityRailPins: () => store.readActivityRailPins(),
     updateActivityRailPins: async (pins, initializeIfMissing = false) => {
       calls.push({ name, pins, initializeIfMissing });
-      if (fail) { fail = false; throw new Error('pin config write rejected'); }
+      if (fail) {
+        fail = false;
+        throw new Error('pin config write rejected');
+      }
       const saved = await store.updateActivityRailPins(pins, initializeIfMissing);
       for (const [client, callbacks] of listeners) {
         if (!offline.has(client)) for (const callback of callbacks) callback(saved);
       }
       if (hold && name === 'desktop' && !initializeIfMissing) {
         hold = false;
-        return new Promise((resolve) => { release = () => resolve(saved); });
+        return new Promise((resolve) => {
+          release = () => resolve(saved);
+        });
       }
       return saved;
     },
@@ -48,7 +56,19 @@ function hub() {
       return () => listeners.get(name).delete(listener);
     },
   });
-  return { api, store, calls, offline, failNext: () => { fail = true; }, holdNext: () => { hold = true; }, release: () => release() };
+  return {
+    api,
+    store,
+    calls,
+    offline,
+    failNext: () => {
+      fail = true;
+    },
+    holdNext: () => {
+      hold = true;
+    },
+    release: () => release(),
+  };
 }
 
 async function mount(t, shared, overrides = {}) {
@@ -66,11 +86,20 @@ async function mount(t, shared, overrides = {}) {
     values[name] = useActivityRailPins(api, remote);
     return React.createElement('output', { 'data-client': name }, JSON.stringify(values[name].pins));
   }
-  t.after(async () => { await act(async () => root.unmount()); restore(); });
-  await act(async () => root.render(React.createElement(React.Fragment, null,
-    React.createElement(Client, { name: 'desktop', api: desktop, remote: false }),
-    React.createElement(Client, { name: 'web', api: web, remote: true }),
-  )));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    restore();
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(Client, { name: 'desktop', api: desktop, remote: false }),
+        React.createElement(Client, { name: 'web', api: web, remote: true })
+      )
+    )
+  );
   return values;
 }
 
@@ -105,7 +134,10 @@ test('a delayed read or acknowledgement cannot replace the last saved order', as
   const web = shared.api('web');
   const read = web.readActivityRailPins;
   let resolveRead;
-  web.readActivityRailPins = () => new Promise((resolve) => { resolveRead = resolve; });
+  web.readActivityRailPins = () =>
+    new Promise((resolve) => {
+      resolveRead = resolve;
+    });
   const values = await mount(t, shared, { web });
   await act(async () => values.desktop.savePins(['projects', 'search']));
   await act(async () => resolveRead(old));
@@ -139,7 +171,10 @@ test('an interrupted read stays quiet and the next connection reads the shared o
   const web = shared.api('web');
   const read = web.readActivityRailPins;
   let interrupt;
-  web.readActivityRailPins = () => new Promise((_, reject) => { interrupt = () => reject(remoteConnectionInterruptedError()); });
+  web.readActivityRailPins = () =>
+    new Promise((_, reject) => {
+      interrupt = () => reject(remoteConnectionInterruptedError());
+    });
   const values = await mount(t, shared, { web });
   const toasts = [];
   window.addEventListener(DESKTOP_TOAST_EVENT, (event) => toasts.push(event.detail));
@@ -153,7 +188,9 @@ test('an interrupted read stays quiet and the next connection reads the shared o
 test('an interrupted save restores the shared order and asks to check the connection', async (t) => {
   const shared = hub();
   const web = shared.api('web');
-  web.updateActivityRailPins = async () => { throw remoteConnectionInterruptedError(); };
+  web.updateActivityRailPins = async () => {
+    throw remoteConnectionInterruptedError();
+  };
   const values = await mount(t, shared, { web });
   const toasts = [];
   window.addEventListener(DESKTOP_TOAST_EVENT, (event) => toasts.push(event.detail));

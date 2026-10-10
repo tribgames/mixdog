@@ -285,6 +285,7 @@ function WebhookEditor({
               defaultValue={draft.name}
               placeholder="github-issues"
               required
+              // biome-ignore lint/a11y/noAutofocus: focuses the first field of the dialog on open
               autoFocus
               disabled={busy || editing}
               maxLength={64}
@@ -376,6 +377,7 @@ function WebhookEditor({
           {/* Connection details (user decision): the endpoint URL stays
             visible; the signing secret shows only when freshly minted —
             create pre-mints it, edit offers Regenerate instead. */}
+          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain details container for assistive tech; adding a role would change semantics */}
           <div className="webhook-connection" aria-label={t('Connection details')}>
             <ConnectionRow
               label={t('Endpoint URL')}
@@ -544,6 +546,7 @@ export function WebhooksPane({
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
         </div>
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain filter container for assistive tech; adding a role would change semantics */}
         <div className="schedules-filters" aria-label={t('Webhook filter')}>
           {(
             [

@@ -34,6 +34,8 @@ const PARALLEL_READS = new Set([
 const SLOW_READS = new Set([
   'searchProjectFiles',
   'searchWorkspaceText',
+  // Full-text scan of every stored conversation (session_search schema).
+  'searchSessionContent',
   'previewDocumentPages',
   // GitHub CLI reads (gh process + GitHub API round trip). Observed at 20s as
   // an unknown-method barrier, holding Settings reads ~10s behind it.

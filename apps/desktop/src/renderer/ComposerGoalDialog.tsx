@@ -94,6 +94,7 @@ export function ComposerGoalDialog({
           <label className="schedules-field">
             <span>{t('Goal objective')}</span>
             <textarea
+              // biome-ignore lint/a11y/noAutofocus: the goal dialog opens to type the objective, so focus goes to the field
               autoFocus
               required
               rows={4}

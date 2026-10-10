@@ -110,13 +110,15 @@ export function FeedbackDialog({
     setReading(true);
     try {
       const read = await Promise.all(
-        accepted.map(async (file): Promise<AttachmentItem> => ({
-          key: crypto.randomUUID(),
-          name: file.name,
-          mimeType: file.type as DesktopFeedbackAttachment['mimeType'],
-          data: await readBase64(file),
-          size: file.size,
-        }))
+        accepted.map(
+          async (file): Promise<AttachmentItem> => ({
+            key: crypto.randomUUID(),
+            name: file.name,
+            mimeType: file.type as DesktopFeedbackAttachment['mimeType'],
+            data: await readBase64(file),
+            size: file.size,
+          })
+        )
       );
       if (!mountedRef.current) return;
       const next = [...attachmentsRef.current, ...read];
@@ -143,10 +145,11 @@ export function FeedbackDialog({
   else if (trimmedMessage.length > FEEDBACK_MESSAGE_MAX) {
     messageError = t('Message must be {{max}} characters or fewer.', { max: FEEDBACK_MESSAGE_MAX });
   }
-  const emailError =
-    trimmedEmail && (trimmedEmail.length > FEEDBACK_EMAIL_MAX || !FEEDBACK_REPLY_EMAIL_PATTERN.test(trimmedEmail))
-      ? t('Enter a valid email address or leave it blank.')
-      : '';
+  let emailError = '';
+  if (!trimmedEmail) emailError = t('Enter an email address so we can reply.');
+  else if (trimmedEmail.length > FEEDBACK_EMAIL_MAX || !FEEDBACK_REPLY_EMAIL_PATTERN.test(trimmedEmail)) {
+    emailError = t('Enter a valid email address.');
+  }
 
   const close = () => {
     if (!pendingRef.current) onClose();
@@ -181,7 +184,7 @@ export function FeedbackDialog({
     const payload = {
       kind,
       message: trimmedMessage,
-      ...(trimmedEmail ? { replyTo: trimmedEmail } : {}),
+      replyTo: trimmedEmail,
       ...(images.length ? { attachments: images } : {}),
     };
     // An identical payload keeps its id so a retry is deduplicated; any edit
@@ -217,6 +220,7 @@ export function FeedbackDialog({
   const emailId = `${uid}-email`;
   const sent = phase === 'sent';
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a backdrop press closes the dialog; Escape and the close button are the keyboard routes.
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
@@ -290,6 +294,7 @@ export function FeedbackDialog({
                   disabled={pending}
                   autoComplete="email"
                   spellCheck={false}
+                  required
                   aria-invalid={attempted && emailError ? 'true' : undefined}
                   aria-describedby={attempted && emailError ? `${emailId}-error` : undefined}
                   onChange={(event) => setEmail(event.target.value)}
@@ -392,6 +397,3 @@ export function FeedbackDialog({
     </div>
   );
 }
-
-
-

@@ -13,6 +13,7 @@ export class DesktopSessionMetadata {
   private titleMap: Record<string, string> | null = null;
   private nameMap: Record<string, string> | null = null;
   private archivedMap: Record<string, number> | null = null;
+  private favoriteMap: Record<string, number> | null = null;
   private readMap: Record<string, SessionReadCursor> | null = null;
   private loadRequest: Promise<void> | null = null;
   private readonly writer: DebouncedWriter<Parameters<typeof writeSessionMetadata>[1]>;
@@ -63,6 +64,7 @@ export class DesktopSessionMetadata {
       this.titleMap = maps.titles;
       this.nameMap = maps.names;
       this.archivedMap = maps.archived;
+      this.favoriteMap = maps.favorites;
       this.readMap = maps.reads;
       // A stored title the current generator would render differently is
       // rewritten in memory; persist it so the next read is stable.
@@ -99,6 +101,21 @@ export class DesktopSessionMetadata {
     return true;
   }
 
+  /** True when the favorite state actually changed (and was persisted). */
+  async setFavorite(sessionId: string, favorite: boolean): Promise<boolean> {
+    await this.load();
+    this.favoriteMap ??= Object.create(null) as Record<string, number>;
+    const map = this.favoriteMap;
+    if (favorite === Object.hasOwn(map, sessionId)) {
+      await this.flush();
+      return false;
+    }
+    if (favorite) map[sessionId] = Date.now();
+    else delete map[sessionId];
+    await this.queueWrite();
+    return true;
+  }
+
   /** Advance the shared read cursor. `consumedUnread` also records a
    * completion-only read when the message count did not move. */
   async markRead(sessionId: string, messageCount: number, consumedUnread: boolean): Promise<boolean> {
@@ -129,10 +146,12 @@ export class DesktopSessionMetadata {
       Object.hasOwn(this.titles, sessionId) ||
       Object.hasOwn(this.names, sessionId) ||
       Object.hasOwn(this.archivedMap || {}, sessionId) ||
+      Object.hasOwn(this.favoriteMap || {}, sessionId) ||
       Object.hasOwn(this.readMap || {}, sessionId);
     delete this.titleMap?.[sessionId];
     delete this.nameMap?.[sessionId];
     if (this.archivedMap) delete this.archivedMap[sessionId];
+    if (this.favoriteMap) delete this.favoriteMap[sessionId];
     if (this.readMap) delete this.readMap[sessionId];
     if (had) await this.queueWrite();
     else await this.flush();
@@ -160,6 +179,13 @@ export class DesktopSessionMetadata {
     return summaries.map((row) => (Object.hasOwn(archived, row.id) ? { ...row, archived: true } : row));
   }
 
+  /** Mark favorite rows in a session listing. */
+  withFavoriteFlags<T extends { id: string }>(summaries: T[]): T[] {
+    const favorites = this.favoriteMap;
+    if (!favorites) return summaries;
+    return summaries.map((row) => (Object.hasOwn(favorites, row.id) ? { ...row, favorite: true } : row));
+  }
+
   /** Project shared read cursors into the catalog pushed to every surface. */
   withReadCursors<T extends { id: string }>(
     summaries: T[]
@@ -181,8 +207,9 @@ export class DesktopSessionMetadata {
     const titles = { ...this.titles };
     const names = { ...this.names };
     const archived = { ...(this.archivedMap || {}) };
+    const favorites = { ...(this.favoriteMap || {}) };
     const reads = { ...this.reads };
-    this.writer.schedule({ titles, names, archived, reads });
+    this.writer.schedule({ titles, names, archived, favorites, reads });
     return this.flush();
   }
 }

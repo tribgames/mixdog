@@ -49,6 +49,7 @@ export function usePaneConversationRenderer(options: RendererOptions) {
       options.openConversationCommandSurface,
       options.openFileTab,
       options.openFileInSideDock,
+      options.openFolderInSideDock,
       options.replaceWithInheritedSession,
     ]
   );

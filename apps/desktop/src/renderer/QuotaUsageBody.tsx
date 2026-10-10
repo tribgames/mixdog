@@ -520,9 +520,12 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
     .map((id) => ({ value: id, label: subscriptionLabel(id) ?? usageProviderLabel(providerDisplayName(id)) }));
   const rosterRank = (row: Row) => (typeof row.accountRank === 'number' ? row.accountRank : Number.MAX_SAFE_INTEGER);
   const accountOptions = subscriptions
-    .filter((row) => row.provider === provider)
+    .filter((row) => row.provider === provider && row.accountInRoster !== false)
     .sort((a, b) => Number(b.account === account) - Number(a.account === account) || rosterRank(a) - rosterRank(b))
-    .map((row) => ({ value: String(row.account || ''), label: String(row.accountLabel || row.account || '') }));
+    .map((row) => {
+      const name = String(row.accountLabel || row.account || '');
+      return { value: String(row.account || ''), label: row.accountEmail ? `${name} · ${row.accountEmail}` : name };
+    });
   const windowLabels = subscriptions
     .filter((row) => row.provider === provider && row.account === account)
     .flatMap((row) => (Array.isArray(row.windows) ? row.windows.map(String) : []));
@@ -621,6 +624,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
           }}
         />
       )}
+      {/* biome-ignore lint/a11y/useSemanticElements: tag must stay a div; <fieldset> brings its own border and padding. */}
       <div className="quota-windows" role="group" aria-label={t('Limit window')}>
         {windowLabels.map((option) => (
           <button

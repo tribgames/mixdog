@@ -16,8 +16,10 @@ type PinsApi = Pick<DesktopApi, 'readActivityRailPins' | 'updateActivityRailPins
 
 function readLocalPins(): string[] {
   try {
-    return normalizeActivityRailPins(JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null'))
-      ?? DEFAULT_ACTIVITY_RAIL_PINS;
+    return (
+      normalizeActivityRailPins(JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null')) ??
+      DEFAULT_ACTIVITY_RAIL_PINS
+    );
   } catch {
     return DEFAULT_ACTIVITY_RAIL_PINS;
   }
@@ -45,7 +47,10 @@ function reportSyncError(error: unknown): void {
 }
 
 /** The host owns the order; localStorage only seeds Electron and paints boot. */
-export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesktop, remote = isRemoteBrowserRenderer()) {
+export function useActivityRailPins(
+  api: PinsApi | undefined = window.mixdogDesktop,
+  remote = isRemoteBrowserRenderer()
+) {
   const [pins, setPins] = useState(readLocalPins);
   const initialPins = useRef(pins);
   const currentPins = useRef(pins);
@@ -60,12 +65,15 @@ export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesk
     setPins(next);
     cachePins(next);
   }, []);
-  const receive = useCallback((value: unknown) => {
-    const state = readActivityRailPinsState(value);
-    if (!state || state.revision <= (confirmed.current?.revision ?? 0)) return;
-    confirmed.current = state;
-    publishConfirmed();
-  }, [publishConfirmed]);
+  const receive = useCallback(
+    (value: unknown) => {
+      const state = readActivityRailPinsState(value);
+      if (!state || state.revision <= (confirmed.current?.revision ?? 0)) return;
+      confirmed.current = state;
+      publishConfirmed();
+    },
+    [publishConfirmed]
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -110,24 +118,27 @@ export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesk
     };
   }, [api, remote, receive]);
 
-  const savePins = useCallback((next: string[]) => {
-    currentPins.current = next;
-    setPins(next);
-    cachePins(next);
-    if (!api) return;
-    pending.current += 1;
-    // Serialize this client's writes; server revisions order all clients.
-    writes.current = writes.current.then(async () => {
-      try {
-        const saved = await api.updateActivityRailPins(next);
-        if (mounted.current) receive(saved);
-      } catch (error) {
-        if (mounted.current) reportSyncError(error);
-      } finally {
-        pending.current -= 1;
-        publishConfirmed();
-      }
-    });
-  }, [api, receive, publishConfirmed]);
+  const savePins = useCallback(
+    (next: string[]) => {
+      currentPins.current = next;
+      setPins(next);
+      cachePins(next);
+      if (!api) return;
+      pending.current += 1;
+      // Serialize this client's writes; server revisions order all clients.
+      writes.current = writes.current.then(async () => {
+        try {
+          const saved = await api.updateActivityRailPins(next);
+          if (mounted.current) receive(saved);
+        } catch (error) {
+          if (mounted.current) reportSyncError(error);
+        } finally {
+          pending.current -= 1;
+          publishConfirmed();
+        }
+      });
+    },
+    [api, receive, publishConfirmed]
+  );
   return { pins, savePins };
 }

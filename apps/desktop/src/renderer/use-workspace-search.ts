@@ -52,6 +52,7 @@ export function useWorkspaceSearch(projectPath: string, active: boolean) {
     window.addEventListener('mixdog:focus-dock-search', focusSearch);
     return () => window.removeEventListener('mixdog:focus-dock-search', focusSearch);
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: searchProjectsKey is the content signature of searchProjects, so equal folder lists do not restart the search
   useEffect(() => {
     const current = ++searchGeneration.current;
     const trimmed = query.trim();

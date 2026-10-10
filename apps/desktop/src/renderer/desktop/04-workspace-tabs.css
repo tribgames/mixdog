@@ -367,7 +367,10 @@
   background: color-mix(in srgb, var(--mx-text) 10%, transparent);
   box-shadow: none;
 }
-:root[data-mixdog-theme="light"] .pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active:not(.drop-target-right)::before {
+:root[data-mixdog-theme="light"]
+  .pane-split
+  .workspace-tabs-shell[data-focused="false"]
+  .workspace-tab.active:not(.drop-target-right)::before {
   background: color-mix(in srgb, var(--mx-text) 6%, transparent);
 }
 /* Every tab, the selected one included, shows its X only under the pointer
@@ -404,10 +407,13 @@
 /* Glyph, spinner, X and + all sit on the cell centre line — no optical lift
    (user: 라벨 안의 아이콘이랑 스피너도 같은 선상에). */
 .workspace-tab-main > svg {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
   color: currentColor;
+}
+.workspace-tab-main > svg.lucide {
+  stroke-width: 1.5px;
 }
 /* Tab labels share the 14px item tier with the sidebar's session rows — at
    13px the label read cramped in its plate (user: 탭이 살짝 좁아 보인다).
@@ -453,7 +459,7 @@
   border-radius: var(--mx-radius-md);
 }
 .workspace-tab-new svg {
-  padding: 4px;
+  padding: 4.5px;
 }
 /* Codicon add: native 16px grid, pixel-crisp like Chrome's own +. */
 .workspace-tab-new .codicon {

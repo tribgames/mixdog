@@ -248,6 +248,40 @@ export function automationsSection({
   );
 }
 
+/** Favorites section: starred, non-archived sessions pinned above Recent. */
+export function favoritesSection({
+  rows,
+  open,
+  onToggleOpen,
+  renderSessionRow,
+}: {
+  rows: DesktopSessionSummary[];
+  open: boolean;
+  onToggleOpen(): void;
+  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+}) {
+  return (
+    <section className="sidebar-recent sidebar-favorites" aria-label={t('Favorites')}>
+      <div className="sidebar-category-header">
+        <button
+          type="button"
+          className="sidebar-recent-heading sidebar-heading-toggle"
+          aria-expanded={open}
+          onClick={onToggleOpen}
+        >
+          <span>{t('Favorites')}</span>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+      </div>
+      {open && (
+        <nav className="session-list favorite-session-list" aria-label={t('Favorites')}>
+          {rows.map(renderSessionRow)}
+        </nav>
+      )}
+    </section>
+  );
+}
+
 /** Recent section: the primary session catalog. Owns the invisible end
  *  sentinel that reveals the next page — pagination has NO control of its own
  *  (user decision: no "Show more"). */
@@ -424,6 +458,7 @@ export function sidebarResizeHandle({
   onFinishResize(): void;
 }) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: focusable, draggable splitter handle; an hr cannot take focus or children semantics here
     <div
       className="session-sidebar-resize"
       role="separator"

@@ -20,15 +20,13 @@ import { type RouteSpeed, routeSpeed } from './model-route-utils';
 import { formatContextWindow, ModelRouteLabel } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
 import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
+import { RouteAutoEffortToggle } from './route-editor-auto-effort';
+import { useContextDraft } from './route-editor-context';
+import { useRouteDismissal, useRouteFontWarmup } from './route-editor-effects';
+import { useRouteLayout } from './route-editor-layout';
 import {
   ROUTE_PANEL_PADDING,
-  ROUTE_PANEL_WIDTH,
   ROUTE_SHEET_ROW_HEIGHT,
-  routeDrillBox,
-  routeDrillHeight,
-  routeFlyoutBox,
-  routeFlyoutFitsBeside,
-  routeSheetBox,
   routeSheetRows,
   type RoutePanelBox,
   type RouteSheetPane,
@@ -38,9 +36,6 @@ import {
   naturalTriggerWidth,
   modelParameterLabel,
   currentViewport,
-  sheetAnchor,
-  preferredFlyoutHeight,
-  preferredFlyoutWidth,
   moveRouteFocus,
   routeEffortPane,
   routeSpeedPane,
@@ -164,9 +159,6 @@ export function RouteEditor({
   // the sheet — and the pill morphing into it — never comes out narrower
   // than the label it shows, so a long model name stays whole while open.
   const labelWidth = useRef<number | null>(null);
-  // Context slider drag preview: local until commit (pointer/key release);
-  // the routed contextPercent takes over once the snapshot catches up.
-  const [contextDraft, setContextDraft] = useState<number | null>(null);
   const clickGuard = useImmediateOverlayClickGuard();
   const surfaceActive = useSurfaceActive();
   const sheetId = useId().replace(/:/g, '');
@@ -180,7 +172,9 @@ export function RouteEditor({
   }, [modelCatalogReady, models.length, sheetId]);
   const selectedEffort = effortOptions.find((option) => option.value === effort);
   const autoEffortOn = autoEffort?.enabled === true;
-  const effortLabel = autoEffortOn ? t('Auto') : selectedEffort?.label || '';
+  // "Auto" is the effort's name (like "Fast"), shown untranslated on the model
+  // chip and the Reasoning effort row.
+  const effortLabel = autoEffortOn ? 'Auto' : selectedEffort?.label || '';
   const ultrafastAvailable = modelParameterOptions.some(
     (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
   );
@@ -204,28 +198,16 @@ export function RouteEditor({
   const sheetHeight = (rows.length + (autoEffortRow ? 1 : 0)) * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
-  const shownContextPercent = contextDraft ?? contextPercent;
-  let shownContextTokens = contextTokens;
-  if (shownContextPercent !== contextPercent) {
-    if (shownContextPercent === contextDefaultPercent && contextDefaultTokens) {
-      shownContextTokens = contextDefaultTokens;
-    } else if (contextMaxTokens) {
-      shownContextTokens = Math.max(1, Math.floor((contextMaxTokens * shownContextPercent) / 100));
-    }
-  }
-  const defaultContextTokens =
-    contextDefaultTokens ||
-    (contextMaxTokens ? Math.max(1, Math.floor((contextMaxTokens * contextDefaultPercent) / 100)) : contextTokens);
-  const commitContextDraft = () => {
-    if (contextDraft === null || contextDraft === contextPercent) return;
-    onChangeContext(contextDraft);
-  };
-  useEffect(() => {
-    // A closed/left pane or a snapshot that caught up releases the preview.
-    if (contextDraft !== null && (pane !== 'context' || contextDraft === contextPercent)) {
-      setContextDraft(null);
-    }
-  }, [pane, contextDraft, contextPercent]);
+  const { setContextDraft, shownContextPercent, shownContextTokens, defaultContextTokens, commitContextDraft } =
+    useContextDraft({
+      pane,
+      contextPercent,
+      contextDefaultPercent,
+      contextTokens,
+      contextMaxTokens,
+      contextDefaultTokens,
+      onChangeContext,
+    });
 
   const finishClose = useCallback(() => {
     hoverLock.current = null;
@@ -283,81 +265,17 @@ export function RouteEditor({
     }
   }, []);
 
-  // One geometry for every opening: a second column beside the sheet where it
-  // fits, and a drilled pane inside the sheet's own footprint where it does
-  // not (phones), so the menu never breaks into two detached panels.
-  const paneLayout = useCallback(
-    (
-      nextSheet: RoutePanelBox,
-      next: RouteSheetPane,
-      viewport: { left: number; top: number; width: number; height: number }
-    ): { box: RoutePanelBox; drilled: boolean } => {
-      const width = preferredFlyoutWidth(next);
-      const height = preferredFlyoutHeight(next, effortOptions.length);
-      if (routeFlyoutFitsBeside(nextSheet, viewport, width)) {
-        return {
-          box: routeFlyoutBox(
-            nextSheet,
-            height,
-            viewport,
-            rowButtons.current[next]?.getBoundingClientRect().top,
-            width,
-            'right'
-          ),
-          drilled: false,
-        };
-      }
-      return {
-        box: routeDrillBox(nextSheet, routeDrillHeight(height, viewport), viewport),
-        drilled: true,
-      };
-    },
-    [effortOptions.length]
-  );
-
-  // The sheet anchors to the pill's LEFT edge: the pill expands rightwards
-  // to the sheet width, so both share the same left edge and width. That
-  // width is the panel's, or the label's natural width when a long model
-  // name needs more — measured once per opening (user: 모델명 긴 거 잘림).
-  const measureSheet = useCallback(
-    (
-      triggerRect: { left: number; top: number; bottom: number },
-      viewport: { left: number; top: number; width: number; height: number },
-      remeasure = false
-    ): RoutePanelBox => {
-      if (remeasure || labelWidth.current === null) {
-        labelWidth.current = trigger.current ? naturalTriggerWidth(trigger.current) : ROUTE_PANEL_WIDTH;
-      }
-      return routeSheetBox(
-        sheetAnchor(triggerRect, viewport, labelWidth.current),
-        sheetHeight,
-        viewport,
-        labelWidth.current
-      );
-    },
-    [sheetHeight]
-  );
-
-  /** Place the sheet and, when a pane is open, its flyout or drilled box. */
-  const layoutFor = useCallback(
-    (target: RouteSheetPane | null) => {
-      const triggerRect = trigger.current?.getBoundingClientRect();
-      if (!triggerRect) return;
-      const viewport = currentViewport(trigger.current);
-      const nextSheet = measureSheet(triggerRect, viewport);
-      setSheetBox(nextSheet);
-      if (!target) {
-        setFlyoutBox(null);
-        setDrill(false);
-        return;
-      }
-      const nextBox = paneLayout(nextSheet, target, viewport);
-      setFlyoutBox(nextBox.box);
-      setDrill(nextBox.drilled);
-    },
-    [measureSheet, paneLayout]
-  );
-  const layout = useCallback(() => layoutFor(pane), [layoutFor, pane]);
+  const { measureSheet, layoutFor, layout } = useRouteLayout({
+    trigger,
+    rowButtons,
+    labelWidth,
+    effortCount: effortOptions.length,
+    sheetHeight,
+    pane,
+    setSheetBox,
+    setFlyoutBox,
+    setDrill,
+  });
 
   const show = (focusRow: 'first' | 'last' | null = null) => {
     onOpenSheet?.();
@@ -434,48 +352,7 @@ export function RouteEditor({
     if (pane) closePane(pane, true);
   });
 
-  useEffect(() => {
-    if (!mounted) return undefined;
-    layout();
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        trigger.current?.contains(target) ||
-        sheet.current?.contains(target) ||
-        modelFlyout.current?.contains(target) ||
-        optionFlyout.current?.contains(target)
-      )
-        return;
-      closeAll();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (pane) closePane(pane, true);
-      else closeAll(true);
-    };
-    const onViewport = () => layout();
-    // A phone keyboard resizes and offsets the VISUAL viewport, which fires
-    // no window resize on iOS: without these the panel kept its old box while
-    // the composer moved and the two drifted apart (user: 타이핑창 올라오면서
-    // 분리되어버린다).
-    const visual = window.visualViewport;
-    window.addEventListener('pointerdown', onPointerDown, true);
-    window.addEventListener('keydown', onKeyDown, true);
-    window.addEventListener('resize', onViewport);
-    window.addEventListener('scroll', onViewport, true);
-    visual?.addEventListener('resize', onViewport);
-    visual?.addEventListener('scroll', onViewport);
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown, true);
-      window.removeEventListener('keydown', onKeyDown, true);
-      window.removeEventListener('resize', onViewport);
-      window.removeEventListener('scroll', onViewport, true);
-      visual?.removeEventListener('resize', onViewport);
-      visual?.removeEventListener('scroll', onViewport);
-    };
-  }, [closeAll, closePane, layout, mounted, pane]);
+  useRouteDismissal({ mounted, pane, layout, closeAll, closePane, trigger, sheet, modelFlyout, optionFlyout });
 
   useEffect(() => {
     if (!visible || !pane) return;
@@ -490,32 +367,7 @@ export function RouteEditor({
     []
   );
 
-  // Pretendard splits Hangul into lazy unicode-range subsets, so a first open
-  // painted fallback glyphs and swapped mid-animation (user: 처음 열 때
-  // 폰트가 튄다). Warming the exact sheet/flyout strings at mount lands the
-  // real faces long before the picker ever opens.
-  useEffect(() => {
-    try {
-      void document.fonts.load(
-        '400 13px "Pretendard Variable"',
-        [
-          t('Model'),
-          t('Reasoning effort'),
-          t('Context'),
-          t('Speed'),
-          t('Standard'),
-          t('Fast'),
-          t('Default speed'),
-          t('Increased speed, increased usage'),
-          t('Search models…'),
-          t('Loading models…'),
-          t('Select model'),
-        ].join('')
-      );
-    } catch {
-      /* font readiness stays cosmetic */
-    }
-  }, []);
+  useRouteFontWarmup();
 
   const focusPane = (next: RouteSheetPane) => {
     window.setTimeout(() => {
@@ -803,19 +655,11 @@ export function RouteEditor({
                 )}
                 {rows.includes('speed') && row('speed', t('Speed'), speedLabel, tuningDisabled)}
                 {autoEffortRow && autoEffort && (
-                  <label className="route-sheet-row route-sheet-toggle">
-                    <span className="route-sheet-label">{t('Auto reasoning')}</span>
-                    <span className="mixdog-settings__switch compact-switch">
-                      <input
-                        type="checkbox"
-                        aria-label={t('Auto reasoning')}
-                        checked={autoEffort.enabled}
-                        disabled={tuningDisabled || autoEffort.pending}
-                        onChange={(event) => onChangeAutoEffort(event.target.checked)}
-                      />
-                      <span aria-hidden="true" />
-                    </span>
-                  </label>
+                  <RouteAutoEffortToggle
+                    enabled={autoEffort.enabled}
+                    disabled={tuningDisabled || autoEffort.pending}
+                    onChange={onChangeAutoEffort}
+                  />
                 )}
               </div>
             )}

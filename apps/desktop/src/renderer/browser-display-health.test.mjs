@@ -26,6 +26,19 @@ test('ongoing geometry changes do not flash errors but a stalled transition is b
   assert.equal(health.failed(transition, 20_000, '800:400'), '');
 });
 
+test('transient compositor capture errors are retried silently and surface only when persistent', () => {
+  for (const name of ['UnknownVizError', 'VizSentEmptyBitmap']) {
+    const health = createBrowserDisplayHealth();
+    const error = new Error(`Error invoking remote method 'mixdog:browser-page-frame': Error: ${name}`);
+    assert.equal(health.failed(error, 0, '600:400'), '');
+    assert.equal(health.failed(error, 2600, '600:400'), '');
+    assert.equal(health.failed(error, 4999, '600:400'), '');
+    assert.equal(health.failed(error, 5000, '600:400'), error.message);
+    health.recovered();
+    assert.equal(health.failed(error, 6000, '600:400'), '');
+  }
+});
+
 test('real failures remain visible after the grace window despite changing pane geometry', () => {
   const health = createBrowserDisplayHealth();
   const failure = new Error('Browser connection lost.');

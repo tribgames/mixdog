@@ -125,6 +125,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   const [readError, setReadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: cwd is the trigger; switching project clears the stale action error.
   useEffect(() => setActionError(''), [cwd]);
   // Single-open accordion (user decision): opening a file closes the rest
   // and snaps the opened card flush under the sticky header.
@@ -411,6 +412,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
             }
             return (
               <section className="review-file" data-open={open || undefined} key={file.path}>
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: context-menu shortcut on the header; the trigger button inside carries the keyboard interaction. */}
                 <div
                   className="review-file-header"
                   onContextMenu={(event) => {

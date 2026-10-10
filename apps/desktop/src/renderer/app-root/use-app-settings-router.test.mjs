@@ -34,12 +34,20 @@ test('useAppSettingsRouter handles openSettings and UI requests routing', async 
         settingsOpen = open;
       },
       setCommandSurface: () => {},
-      mountSidebarPanel: (panel) => { mountedPanel = panel; },
-      trackSidebarPanelModule: (panel) => { loadedPanel = panel; },
+      mountSidebarPanel: (panel) => {
+        mountedPanel = panel;
+      },
+      trackSidebarPanelModule: (panel) => {
+        loadedPanel = panel;
+      },
       paneSideDocks: { open: () => {} },
       focusedLeafIdRef: { current: 'leaf-1' },
-      setActiveSideViews: (update) => { activeSideViews = update(activeSideViews); },
-      applySidebarOpen: (open) => { sidebarOpen = open; },
+      setActiveSideViews: (update) => {
+        activeSideViews = update(activeSideViews);
+      },
+      applySidebarOpen: (open) => {
+        sidebarOpen = open;
+      },
       setSettingsSection: (s) => {
         settingsSection = s;
       },

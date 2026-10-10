@@ -119,6 +119,7 @@ export function SidebarDiffColumn({
           </DeferredPersistentSurface>
         </div>
       </div>
+      {/* biome-ignore lint/a11y/useSemanticElements: draggable splitter handle; the tag must stay a div */}
       <div
         className="sidebar-diff-resize"
         role="separator"

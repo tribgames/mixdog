@@ -198,7 +198,9 @@ function TableRow({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent ?? undefined}
-            aria-valuetext={phase === 'verify' ? t('Verifying {{name}}…', { name }) : t('Installing {{name}}…', { name })}
+            aria-valuetext={
+              phase === 'verify' ? t('Verifying {{name}}…', { name }) : t('Installing {{name}}…', { name })
+            }
             data-indeterminate={percent === null ? 'true' : undefined}
           >
             <i style={percent === null ? undefined : { width: `${percent}%` }} />
@@ -216,7 +218,9 @@ function TableRow({
           {state.label}
         </span>
       </td>
-      <td>{usable && model ? <LocalProviderContext model={model} actions={actions} /> : contextSize(model?.contextWindow)}</td>
+      <td>
+        {usable && model ? <LocalProviderContext model={model} actions={actions} /> : contextSize(model?.contextWindow)}
+      </td>
       <td>
         <span className="local-provider-actions">{controls}</span>
       </td>

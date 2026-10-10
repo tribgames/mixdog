@@ -13,7 +13,11 @@
 //
 // The answer comes from three durable signals — the in-process runtime entry,
 // the `.own` presence sidecar and the `.hb` heartbeat — each verified against
-// the recorded owner pid so a force-killed owner can never look live.
+// the pid the sidecar recorded so a force-killed owner can never look live.
+// The session file's own `lastHeartbeatAt`/`clientHostPid` are NOT liveness
+// evidence: the file outlives its writer, and its host pid can name an older
+// process (or a recycled pid), so a restart within the freshness window
+// reopened the session as a viewer whose prompts spooled to nobody.
 import {
   loadSession,
   saveSession,
@@ -24,26 +28,13 @@ import {
   isSessionHeartbeatOwnerDead,
   readSessionHeartbeatOwnerPid,
   deleteHeartbeat,
-  isProcessAlive,
 } from '../store.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
 import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
 
 const ACTIVE_OWNER_HB_FRESH_MS = 2 * 60 * 1000; // heartbeat freshness window
 
-// Owner-pid hint for liveness signals that carry NO pid of their own:
-// `session.lastHeartbeatAt` is persisted in the session file and therefore
-// survives its writer forever, and pre-pid `.hb` sidecars only hold a
-// timestamp. The recorded client host is the process that created/claimed the
-// runtime for this session; the session-id prefix is the legacy fallback.
-function _recordedOwnerPid(session, sessionId) {
-  const recorded = Number(session?.clientHostPid) || 0;
-  if (recorded > 0) return recorded;
-  const match = /^sess_(\d+)_/.exec(String(sessionId || ''));
-  return Number(match?.[1]) || 0;
-}
-
-export function _isActivelyOwnedElsewhere(session, sessionId) {
+export function _isActivelyOwnedElsewhere(_session, sessionId) {
   // This process already owns the runtime for the id — switching back to
   // one of our own sessions (desktop tab switch, TUI /resume) never attaches.
   const entry = _getRuntimeEntry(sessionId);
@@ -75,20 +66,11 @@ export function _isActivelyOwnedElsewhere(session, sessionId) {
     void deleteHeartbeat(sessionId);
     return false;
   }
+  // Fresh sidecar whose recorded pid is alive: a real owner is driving this
+  // session right now. Anything weaker (no sidecar, a pid-less legacy one)
+  // proves no live owner, whatever the session file remembers.
   const sidecarAt = Number(readSessionHeartbeatMtime(sessionId)) || 0;
-  if (sidecarAt > 0 && now - sidecarAt <= ACTIVE_OWNER_HB_FRESH_MS && readSessionHeartbeatOwnerPid(sessionId) > 0) {
-    // Fresh sidecar whose recorded pid is alive: a real owner is driving
-    // this session right now, whatever the session file remembers.
-    return true;
-  }
-  const heartbeatAt = Math.max(sidecarAt, Number(session.lastHeartbeatAt) || 0);
-  if (!(heartbeatAt > 0 && now - heartbeatAt <= ACTIVE_OWNER_HB_FRESH_MS)) return false;
-  // Pid-less evidence only (persisted field / legacy sidecar): fall back to
-  // the recorded client-host pid. A dead host means no owner; an unknown pid
-  // keeps the conservative attach.
-  const ownerPid = _recordedOwnerPid(session, sessionId);
-  if (ownerPid > 0 && !isProcessAlive(ownerPid)) return false;
-  return true;
+  return sidecarAt > 0 && now - sidecarAt <= ACTIVE_OWNER_HB_FRESH_MS && readSessionHeartbeatOwnerPid(sessionId) > 0;
 }
 
 // Viewer self-heal probe: true when a re-resume of this session would NO

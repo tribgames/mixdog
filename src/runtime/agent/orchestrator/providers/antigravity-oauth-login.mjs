@@ -103,19 +103,20 @@ async function requestCodeAssist(action, body, context, timeoutMs = PROJECT_TIME
   return payload;
 }
 
-async function fetchAccountEmail(accessToken, { fetchFn = fetch, signal = null } = {}) {
+// The userinfo response carries the Google account's email and stable user id.
+async function fetchAccountInfo(accessToken, { fetchFn = fetch, signal = null } = {}) {
   try {
     const res = await fetchFn(USERINFO_URL, {
       headers: { Authorization: `Bearer ${accessToken}` },
       redirect: 'error',
       signal: withTimeoutSignal(signal, TOKEN_TIMEOUT_MS),
     });
-    if (!res.ok) return '';
+    if (!res.ok) return { email: '', userId: '' };
     const json = await res.json();
-    return String(json?.email || '');
+    return { email: String(json?.email || ''), userId: String(json?.id || json?.sub || '') };
   } catch {
     signal?.throwIfAborted();
-    return '';
+    return { email: '', userId: '' };
   }
 }
 
@@ -266,7 +267,7 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
   if (!json?.access_token || !json?.refresh_token) {
     throw new Error('[antigravity-oauth] token exchange response missing access_token or refresh_token');
   }
-  const email = await fetchAccountEmail(json.access_token, { fetchFn, signal });
+  const { email, userId } = await fetchAccountInfo(json.access_token, { fetchFn, signal });
   const projectId = await discoverProject(json.access_token, { fetchFn, onProgress, signal, email });
   const tokens = {
     access_token: json.access_token,
@@ -274,6 +275,7 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
     expires_at: typeof json.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0,
     project_id: projectId,
     email,
+    user_id: userId,
   };
   signal?.throwIfAborted();
   saveTokens(tokens);

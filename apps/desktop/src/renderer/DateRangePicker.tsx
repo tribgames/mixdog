@@ -188,6 +188,7 @@ export function DateRangePicker({
           <span key={day}>{weekdayFormat.format(parseDay(day))}</span>
         ))}
       </div>
+      {/* biome-ignore lint/a11y/useSemanticElements: ARIA grid over day buttons; a <table> would change the rendered DOM. */}
       <div
         className="mx-daterange-grid"
         ref={grid}

@@ -223,6 +223,78 @@ html[data-mixdog-mobile-tabs] .conversation {
      covered most of the scroll approach. Selection and copy are untouched —
      only the pointer shape is pinned. */
   cursor: default;
+  /* Drives the shell's edge fade strips (no JS listeners). */
+  scroll-timeline: --mx-transcript-scroll block;
+}
+/* Scroll fade strips. Absolute siblings of the scroller, so scroll geometry
+   and the virtual list's measurements are untouched. The bottom strip sits
+   above the dock's own 16px ::before fade (15-composer.css) and continues it
+   rather than stacking a second one. */
+.transcript-shell {
+  --mx-scroll-fade-surface: var(--mx-workspace-sheet);
+  timeline-scope: --mx-transcript-scroll;
+}
+html[data-window-material="mica"] .transcript-shell {
+  --mx-scroll-fade-surface: var(--mx-mica-layer);
+}
+.transcript-shell::before,
+.transcript-shell::after {
+  content: "";
+  position: absolute;
+  z-index: 8;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  /* A transcript too short to scroll leaves the timeline inactive; the
+     strips then stay hidden instead of fading the first/last message. */
+  opacity: 0;
+  animation-timeline: --mx-transcript-scroll;
+  animation-fill-mode: both;
+  animation-timing-function: linear;
+}
+.transcript-shell::before {
+  top: 0;
+  height: 32px;
+  background: linear-gradient(
+    to bottom,
+    var(--mx-scroll-fade-surface) 0,
+    color-mix(in srgb, var(--mx-scroll-fade-surface) 85%, transparent) 13%,
+    color-mix(in srgb, var(--mx-scroll-fade-surface) 50%, transparent) 40%,
+    color-mix(in srgb, var(--mx-scroll-fade-surface) 15%, transparent) 70%,
+    transparent 100%
+  );
+  animation-name: mx-scroll-fade-in;
+  animation-range: 0 32px;
+}
+.transcript-shell::after {
+  bottom: calc(var(--composer-dock-height, 0px) + 16px);
+  height: 48px;
+  background: linear-gradient(
+    to top,
+    var(--mx-scroll-fade-surface) 0,
+    color-mix(in srgb, var(--mx-scroll-fade-surface) 85%, transparent) 13%,
+    color-mix(in srgb, var(--mx-scroll-fade-surface) 50%, transparent) 40%,
+    color-mix(in srgb, var(--mx-scroll-fade-surface) 15%, transparent) 70%,
+    transparent 100%
+  );
+  animation-name: mx-scroll-fade-out;
+  animation-range: calc(100% - 48px) 100%;
+}
+@keyframes mx-scroll-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes mx-scroll-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 /* cursor inherits: anchors and any embedded fields resolved their shapes from
    `auto` before, so pin them back under the transcript's arrow. */

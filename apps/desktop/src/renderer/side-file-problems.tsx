@@ -26,6 +26,7 @@ export function SideFileProblems({
   const drag = useRef<{ y: number; height: number } | null>(null);
   return (
     <section className="pane-side-file-problems" style={{ height }} aria-label={t('Problems')}>
+      {/* biome-ignore lint/a11y/useSemanticElements: draggable splitter handle; the tag must stay a div */}
       <div
         className="pane-side-file-problems-resize"
         role="separator"

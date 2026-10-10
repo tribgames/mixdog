@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
+import { CompletionStatus, completionActivityKey, hadLiveActivity } from './transcript-status.tsx';
 import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows.ts';
 import {
   desktopToolActivityCategory,
@@ -68,10 +69,43 @@ function project(items, turnKeys = items.map(() => 'turn')) {
   });
 }
 
+test('the running logo animates its star on its own <svg>, never an SVG-internal transform', async () => {
+  // A CSS transform animation on an element INSIDE an <svg> forced a layout
+  // every animation frame for as long as a turn ran (measured: LayoutCount
+  // equal to the frame count). On its own <svg> box it is a plain CSS transform.
+  const { readFile } = await import('node:fs/promises');
+  const css = await readFile(new URL('./desktop/14-live-activity.css', import.meta.url), 'utf8');
+  const tsx = await readFile(new URL('./transcript-status.tsx', import.meta.url), 'utf8');
+  assert.match(css, /\.live-activity-star\s*\{[^}]*animation:\s*live-activity-logo-star/);
+  assert.doesNotMatch(css, /\.live-activity-logo \.star\s*\{[^}]*animation:/);
+  assert.match(tsx, /className="live-activity-logo live-activity-star"/);
+});
+
 test('transcript row memoization retains no value-copy signature', () => {
   const item = { kind: 'assistant', text: 'large tool output' };
   assert.equal(transcriptItemsEqual(item, item), true);
   assert.equal(transcriptItemsEqual(item, { ...item }), false);
+});
+
+test('a running tool shows its elapsed time from the transcript `at` start', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'elapsed',
+          // Transcript items carry their start as `at` (no `startedAt`).
+          items: [{ kind: 'tool', id: 'sh', name: 'shell', args: { command: 'npm test' }, at: Date.now() - 12_000 }],
+        })
+      );
+    });
+    const elapsed = document.querySelector('.tool-activity-header .tool-working-elapsed');
+    assert.ok(elapsed, 'elapsed time is shown once a call runs past 5s');
+    assert.match(elapsed.textContent, /1[12]/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
 });
 
 test('desktop and mobile tool groups share details and a static task icon', async () => {
@@ -100,8 +134,12 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
       });
       const group = document.querySelector('.tool-activity');
       assert.equal(group?.dataset.surface, 'desktop');
-      assert.ok(group?.querySelector('.tool-activity-header .lucide-list-tree'));
-      assert.equal(group?.querySelector('.live-activity-glyph'), null);
+      assert.ok(group?.querySelector('.tool-activity-header .tool-icon svg.tool-group-icon'));
+      // No leading-icon animation and no trailing dots: the shimmering title carries the state.
+      assert.equal(group?.querySelector('.tool-activity-header .tool-icon')?.hasAttribute('data-running'), false);
+      assert.equal(group?.querySelector('.tool-working-dots'), null);
+      assert.equal(group?.querySelector('.tool-activity-item-spinner'), null);
+      assert.equal(group?.querySelector('.live-activity-logo'), null);
 
       await act(async () => {
         group
@@ -284,6 +322,61 @@ test('the thinking clock keeps the submit time when the spinner arrives', async 
   }
 });
 
+test('only the completion of a live activity turn in this view animates', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const item = { kind: 'turndone', status: 'complete', elapsedMs: 20_000 };
+  const animated = () => document.querySelector('.turn-status')?.getAttribute('data-animate') === 'true';
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(LiveActivity, {
+          snapshot: { sessionId: 'live-s', spinner: { active: true, startedAt: Date.now(), mode: 'requesting' } },
+          turnKey: 'live-t',
+        })
+      );
+    });
+    assert.equal(hadLiveActivity('live-s', 'live-t'), true);
+    assert.equal(hadLiveActivity('live-s', 'old-t'), false);
+    assert.equal(hadLiveActivity('other-s', 'live-t'), false);
+    // The completion replaces the live band at once, with no unmount grace.
+    await act(async () => {
+      dom.root.render(
+        React.createElement(CompletionStatus, {
+          item,
+          animateComplete: hadLiveActivity('live-s', 'live-t'),
+          completionActivityKey: completionActivityKey('live-s', 'live-t'),
+        })
+      );
+    });
+    assert.equal(animated(), true);
+    assert.equal(hadLiveActivity('live-s', 'live-t'), false, 'completion consumes the live turn');
+    await act(async () => {
+      dom.root.render(
+        React.createElement(CompletionStatus, {
+          key: 'reentered',
+          item,
+          animateComplete: true,
+          completionActivityKey: completionActivityKey('live-s', 'live-t'),
+        })
+      );
+    });
+    assert.equal(animated(), false, 'even a stale animation prop cannot replay a completed turn');
+    await act(async () => {
+      dom.root.render(
+        React.createElement(CompletionStatus, {
+          key: 'history',
+          item,
+          animateComplete: hadLiveActivity('live-s', 'old-t'),
+        })
+      );
+    });
+    assert.equal(animated(), false);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test('thinking remains a separate row after grouped tool activity', () => {
   const settled = project([{ kind: 'tool', id: 'tool', name: 'shell', result: 'ok' }]);
   const rows = appendLiveTranscriptRows({
@@ -446,10 +539,7 @@ test('desktop activity lists every call as one row under the summary, without ca
       );
     });
     const group = document.querySelector('.tool-activity');
-    assert.equal(
-      group?.querySelector('.tool-activity-title')?.textContent?.trim(),
-      'Search 2 patterns · Run command'
-    );
+    assert.equal(group?.querySelector('.tool-activity-title')?.textContent?.trim(), 'Search 2 patterns · Run command');
     assert.equal(group?.querySelector('.tool-activity-failed'), null);
 
     await act(async () => {
@@ -988,7 +1078,15 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
 
 test('desktop labels name the operation actually called and its real outcome', async () => {
   const { desktopToolActivitySummary, desktopToolActivityRowVerb } = await import('./transcript-tool-core.ts');
-  const item = (name, args, result = 'ok', extra = {}) => ({ kind: 'tool', id: name, name, args, result, completedAt: 1, ...extra });
+  const item = (name, args, result = 'ok', extra = {}) => ({
+    kind: 'tool',
+    id: name,
+    name,
+    args,
+    result,
+    completedAt: 1,
+    ...extra,
+  });
 
   // Media: a failed job read shows the job error, and actions have their own unit.
   const failedJob = desktopToolActivityItemPresentation(
@@ -997,7 +1095,10 @@ test('desktop labels name the operation actually called and its real outcome', a
   assert.equal(failedJob.tone, 'error');
   assert.equal(failedJob.resultLabel, 'quota');
   assert.equal(failedJob.title, 'Media status');
-  assert.equal(desktopToolActivityItemPresentation(item('media', { action: 'cancel', job: 'j' })).title, 'Media cancellation');
+  assert.equal(
+    desktopToolActivityItemPresentation(item('media', { action: 'cancel', job: 'j' })).title,
+    'Media cancellation'
+  );
 
   // Batch read entries keep their own window and do not gain the call's.
   const batch = desktopToolActivityItemPresentation(
@@ -1017,15 +1118,23 @@ test('desktop labels name the operation actually called and its real outcome', a
   );
 
   // Group summaries use the canonical work-unit counts and categories.
-  assert.equal(
-    desktopToolActivitySummary([item('read', { file_path: ['a.ts', 'b.ts', 'c.ts'] })]),
-    'Read 3 files'
-  );
+  assert.equal(desktopToolActivitySummary([item('read', { file_path: ['a.ts', 'b.ts', 'c.ts'] })]), 'Read 3 files');
   assert.equal(desktopToolActivitySummary([item('task', { action: 'cancel', task_id: 't' })]), 'Cancel task');
   assert.equal(desktopToolActivitySummary([item('code_graph', { mode: 'overview', files: 'a.ts' })]), 'Code structure');
   assert.equal(
     desktopToolActivitySummary([item('agent', { type: 'result', agent: 'worker', status: 'completed' })]),
     'Agent response'
+  );
+
+  // GitHub calls of any action count as one unit, named apart from local Git.
+  assert.equal(
+    desktopToolActivitySummary([
+      item('github', { action: 'pr.list', state: 'open' }),
+      item('github', { action: 'pr.comments', number: 11 }),
+      item('github', { action: 'pr.comments', number: 9 }),
+      item('github', { action: 'pr.view', number: 7 }),
+    ]),
+    'GitHub 4'
   );
 
   // Terminal is its own category with action verbs, never "External tools".
@@ -1037,7 +1146,8 @@ test('desktop labels name the operation actually called and its real outcome', a
 
   // Public-schema subjects instead of first-field fallbacks.
   assert.equal(
-    desktopToolActivityItemPresentation(item('github', { action: 'issue.create', repo: 'owner/repo', title: 'Bug' })).subject,
+    desktopToolActivityItemPresentation(item('github', { action: 'issue.create', repo: 'owner/repo', title: 'Bug' }))
+      .subject,
     'Create issue owner/repo · Bug'
   );
   assert.equal(

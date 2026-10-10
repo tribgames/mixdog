@@ -191,6 +191,7 @@ export function BottomPanel({
       panel.dataset.overlaying = 'false';
     }
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: height is not read inside; a height change must re-measure the overlay
   useLayoutEffect(() => {
     if (open) syncOverlay();
   }, [open, height, syncOverlay]);

@@ -100,6 +100,7 @@ export const SettingsView = memo(function SettingsView({
 
   // Every (re)open starts fresh: explicit section when given, else General
   // (user: the kept-mounted dialog must not resume the last-visited page).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: remoteSettings is the trigger (resolveCategory depends on it); resolveCategory is recreated every render.
   useEffect(() => {
     if (!open) return;
     setCategory(resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general'));
@@ -133,6 +134,7 @@ export const SettingsView = memo(function SettingsView({
       if (active) setRemoteClaimPromptActive(false);
     };
   }, [open, remoteSettings, category]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: category is the trigger: scroll to the top on every page change.
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [category]);
@@ -145,6 +147,7 @@ export const SettingsView = memo(function SettingsView({
     queueMicrotask(restoreFocus);
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restoreFocus only reads refs, so one registration per open is enough.
   useLayoutEffect(() => {
     if (!open) return undefined;
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -172,6 +175,7 @@ export const SettingsView = memo(function SettingsView({
     );
   }, [open]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: onClose is the trigger for re-binding; requestClose is a per-render closure over it.
   useEffect(() => {
     if (!open) return undefined;
     const handleKey = (event: KeyboardEvent) => {

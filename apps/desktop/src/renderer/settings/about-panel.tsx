@@ -25,6 +25,7 @@ export function AboutPanel() {
         setChangelogDialog(() => module.default);
       })
       .catch(() => undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: host is the window bridge read per render; it is kept as the re-query trigger.
   useEffect(() => {
     if (readGithubStarred()) return;
     let live = true;

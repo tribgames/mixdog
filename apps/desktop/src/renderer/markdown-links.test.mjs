@@ -5,7 +5,12 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import MarkdownBody from './MarkdownBody';
 import MarkdownAstBody from './MarkdownAstBody';
 import { parseMarkdownToHast } from './markdown-ast';
-import { MarkdownOpenFileContext, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
+import {
+  MarkdownOpenFileContext,
+  MarkdownOpenFolderContext,
+  MarkdownProjectContext,
+  MarkdownSessionContext,
+} from './MarkdownLink';
 import { onBrowserPageAddressRequested, onBrowserPageRevealRequested } from './browser-page-request';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts';
 import { healStreamingMarkdownTail } from './streaming-markdown';
@@ -34,6 +39,7 @@ async function mount(t, render, text, project = 'C:/Project/conversation', confi
   const toasts = [];
   const opened = [];
   const files = [];
+  const folders = [];
   // What main reports back: documents launch ('file'), folders open
   // ('folder'), anything else is handed to the editor ('editor').
   const openResult = (href) => (/[\\/]$/.test(href) || !/\.[a-z0-9]+$/i.test(href) ? 'folder' : 'file');
@@ -58,13 +64,17 @@ async function mount(t, render, text, project = 'C:/Project/conversation', confi
           MarkdownProjectContext.Provider,
           { value: nextProject },
           React.createElement(
-            MarkdownOpenFileContext.Provider,
-            {
-              value: (...args) => {
-                opened.push(args);
+            MarkdownOpenFolderContext.Provider,
+            { value: fixture.dockFolders ? (...args) => folders.push(args) : null },
+            React.createElement(
+              MarkdownOpenFileContext.Provider,
+              {
+                value: (...args) => {
+                  opened.push(args);
+                },
               },
-            },
-            render(nextText)
+              render(nextText)
+            )
           )
         )
       );
@@ -83,13 +93,47 @@ async function mount(t, render, text, project = 'C:/Project/conversation', confi
       links()[index].dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
     });
   };
-  const fixture = { dom, local, external, popups, toasts, opened, files, links, labels, click, hover, update };
+  const fixture = { dom, local, external, popups, toasts, opened, folders, files, links, labels, click, hover, update };
   configure(fixture);
   await update(project);
   return fixture;
 }
 
 const PROJECT = 'C:/Project/conversation';
+
+test('hovering a document link prefetches its first page once; other links and touch do not', async (t) => {
+  const f = await mount(
+    t,
+    renderers.settled,
+    '[Report](docs/report.docx) [Again](docs/report.docx) [Source](src/app.ts) [Scan](docs/a.pdf)',
+    PROJECT,
+    (fixture) => {
+      fixture.prefetched = [];
+      fixture.dom.window.mixdogDesktop.previewDocumentPages = async (...args) => {
+        fixture.prefetched.push(args);
+        throw new Error('ignored');
+      };
+    }
+  );
+  installProjectFiles(f, { [PROJECT]: ['docs/report.docx', 'src/app.ts', 'docs/a.pdf'] });
+  const enter = async (index, pointerType) => {
+    const event = new f.dom.window.MouseEvent('pointerover', { bubbles: true });
+    Object.defineProperty(event, 'pointerType', { value: pointerType });
+    await act(async () => {
+      f.links()[index].dispatchEvent(event);
+    });
+  };
+  await enter(0, 'touch');
+  await enter(2, 'mouse');
+  await enter(3, 'mouse');
+  assert.equal(f.prefetched.length, 0);
+  await enter(0, 'mouse');
+  await enter(1, 'mouse');
+  await enter(0, 'mouse');
+  assert.equal(f.prefetched.length, 1);
+  assert.deepEqual(f.prefetched[0].slice(0, 2), [PROJECT, 'docs/report.docx']);
+  assert.deepEqual(f.prefetched[0][3], { pages: [1] });
+});
 
 function installProjectFiles(f, entries) {
   const api = f.dom.window.mixdogDesktop;
@@ -164,6 +208,84 @@ test('transcript link formats land in the side editor, side browser or OS as tab
   }
 });
 
+test('a Project folder link reveals the dock Files tree, never the file manager', async (t) => {
+  const f = await mount(
+    t,
+    renderers.settled,
+    [`[a](assets/)`, `[b](output)`, `[c](${PROJECT}/assets/)`, `[d](Makefile)`].join('\n\n'),
+    PROJECT,
+    (fixture) => {
+      fixture.dockFolders = true;
+      installProjectFiles(fixture, { [PROJECT]: ['assets', 'assets/', 'output', 'Makefile'] });
+      // Only directories list; a file fails like a real ENOTDIR.
+      fixture.dom.window.mixdogDesktop.listProjectDir = async (_project, rel) => {
+        if (rel === 'output') return [];
+        throw new Error('ENOTDIR');
+      };
+    }
+  );
+  for (let index = 0; index < 3; index++) await f.click(index);
+  assert.deepEqual(
+    f.folders.map(([project, rel]) => [project, rel.replace(/\/+$/, '')]),
+    [
+      [PROJECT, 'assets'],
+      [PROJECT, 'output'],
+      [PROJECT, 'assets'],
+    ]
+  );
+  assert.deepEqual(f.local, [], 'the OS file manager is not used');
+  assert.deepEqual(f.opened, []);
+});
+
+test('an absolute folder opens the dock tree through its deepest registered Project', async (t) => {
+  const nested = 'D:/work/app/docs/';
+  const f = await mount(t, renderers.settled, `[x](${nested})`, PROJECT, (fixture) => {
+    fixture.dockFolders = true;
+    const api = fixture.dom.window.mixdogDesktop;
+    api.listProjects = async () => [
+      { path: 'D:/work', name: 'work' },
+      { path: 'D:/work/app', name: 'app' },
+    ];
+    api.resolveLocalPaths = async ([absolutePath]) => [{ absolutePath, dir: true, name: 'docs', size: 0 }];
+  });
+  await f.click();
+  assert.deepEqual(f.folders, [['D:/work/app', 'docs']]);
+  assert.deepEqual(f.local, []);
+});
+
+test('an absolute folder in no registered Project keeps the file manager', async (t) => {
+  const f = await mount(t, renderers.settled, '[x](C:/unregistered/docs/)', PROJECT, (fixture) => {
+    fixture.dockFolders = true;
+    const api = fixture.dom.window.mixdogDesktop;
+    api.listProjects = async () => [{ path: PROJECT, name: 'conversation' }];
+    api.resolveLocalPaths = async ([absolutePath]) => [{ absolutePath, dir: true, name: 'docs', size: 0 }];
+  });
+  await f.click();
+  assert.deepEqual(f.folders, []);
+  assert.equal(f.local.length, 1);
+});
+
+test('folders outside the Project, or without a dock, keep the file manager', async (t) => {
+  const outside = await mount(t, renderers.settled, '[x](D:/elsewhere/)', PROJECT, (fixture) => {
+    fixture.dockFolders = true;
+    fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
+      { absolutePath, dir: true, name: 'elsewhere', size: 0 },
+    ];
+  });
+  await outside.click();
+  assert.deepEqual(outside.folders, []);
+  assert.equal(outside.local.length, 1);
+});
+
+test('a folder link without a dock keeps the file manager', async (t) => {
+  const phone = await mount(t, renderers.settled, '[x](assets/)', PROJECT, (fixture) => {
+    installProjectFiles(fixture, { [PROJECT]: ['assets', 'assets/'] });
+  });
+  await phone.click();
+  assert.deepEqual(phone.folders, []);
+  assert.equal(phone.local.length, 1);
+});
+
 test('a path outside the Project opens in the side editor with its access token', async (t) => {
   const f = await mount(t, renderers.settled, '[x](C:/private/source.ts:7)', PROJECT, (fixture) => {
     fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
@@ -180,16 +302,26 @@ test('html goes to the side browser; http(s) to the side browser with a session,
     React.createElement(MarkdownSessionContext.Provider, { value: 'sess-routes' }, renderers.settled(text));
   const stopReveal = onBrowserPageRevealRequested(() => {});
   t.after(stopReveal);
-  const f = await mount(t, withSession, '[page](site/index.html) [web](https://example.com/a) [plain](http://example.com/b)', PROJECT, (fixture) => {
-    installProjectFiles(fixture, { [PROJECT]: ['site/index.html'] });
-    fixture.dom.window.mixdogDesktop.localPageUrl = async (project, rel) => `http://127.0.0.1:9/token/${rel}`;
-  });
+  const f = await mount(
+    t,
+    withSession,
+    '[page](site/index.html) [web](https://example.com/a) [plain](http://example.com/b)',
+    PROJECT,
+    (fixture) => {
+      installProjectFiles(fixture, { [PROJECT]: ['site/index.html'] });
+      fixture.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => `http://127.0.0.1:9/token/${rel}`;
+    }
+  );
   const loaded = [];
   for (let index = 0; index < 3; index++) {
     await f.click(index);
     onBrowserPageAddressRequested('sess-routes', (url) => loaded.push(url))();
   }
-  assert.deepEqual(loaded, ['http://127.0.0.1:9/token/site/index.html', 'https://example.com/a', 'http://example.com/b']);
+  assert.deepEqual(loaded, [
+    'http://127.0.0.1:9/token/site/index.html',
+    'https://example.com/a',
+    'http://example.com/b',
+  ]);
   assert.deepEqual(f.external, []);
   assert.deepEqual(f.opened, []);
 });
@@ -372,7 +504,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     );
     assert.equal(readableText(f.dom.window.document.querySelector('p')), 'See mixdog-refs-9a64/ or C:\\missing\\refs.');
     assert.deepEqual(f.labels(), ['mixdog-refs-9a64/']);
-    assert.equal(f.links()[0].querySelector('.seti-icon'), null);
+    assert.equal(f.links()[0].querySelector('.seti-icon').getAttribute('data-icon-kind'), 'folder');
     await f.click(0);
     assert.deepEqual(f.local, [[folder, '.']]);
     assert.equal(f.opened.length + f.toasts.length, 0);
@@ -510,7 +642,10 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       [PROJECT, paths[3]],
       [PROJECT, paths[4]],
     ]);
-    assert.deepEqual(f.opened, paths.slice(0, 3).map((path) => [PROJECT, path, undefined]));
+    assert.deepEqual(
+      f.opened,
+      paths.slice(0, 3).map((path) => [PROJECT, path, undefined])
+    );
     await f.update('D:/Project/other-conversation');
     await f.click();
     await f.click(2);
@@ -596,7 +731,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
         .slice(0, 4)
         .every((a) => a.className === 'markdown-path-link' && a.querySelector('.seti-icon'))
     );
-    assert.equal(f.links()[4].querySelector('.seti-icon'), null);
+    assert.equal(f.links()[4].querySelector('.seti-icon').getAttribute('data-icon-kind'), 'external');
     assert.equal(f.links()[0].getAttribute('title'), 'C:/Project/conversation/src/runtime/agent.mjs:269');
     for (let index = 0; index < 4; index++) {
       assert.equal((await f.click(index)).defaultPrevented, true);
@@ -629,7 +764,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.labels(), ['수정 요약', 'app.ts', 'deck', 'deck.pptx']);
     assert.deepEqual(
       f.links().map((a) => Boolean(a.querySelector('.seti-icon'))),
-      [false, true, false, true]
+      [true, true, true, true]
     );
     assert.deepEqual(
       f.links().map((a) => a.getAttribute('title')),
@@ -680,11 +815,11 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(
       f
         .links()
-        .find((a) => a.querySelector('.seti-icon'))
+        .find((a) => a.querySelector('.seti-icon:not([data-icon-kind])'))
         ?.querySelector('.seti-icon')?.textContent.length,
       1
     );
-    assert.equal(f.links()[0].querySelector('.seti-icon'), null);
+    assert.equal(f.links()[0].querySelector('.seti-icon').getAttribute('data-icon-kind'), 'folder');
     assert.deepEqual(
       f.links().map((a) => a.getAttribute('href')),
       [
@@ -798,10 +933,13 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     );
     assert.equal(f.links().length, 0);
     const document = f.dom.window.document;
-    assert.deepEqual([...document.querySelectorAll('p')].map((p) => p.textContent), [
-      '스펙 문서(special_offer_server_spec.md)를 작성하겠습니다.',
-      'See docs/planned.md (line 12), missing.ts, dup.ts, missing/ and missing-folder/.',
-    ]);
+    assert.deepEqual(
+      [...document.querySelectorAll('p')].map((p) => p.textContent),
+      [
+        '스펙 문서(special_offer_server_spec.md)를 작성하겠습니다.',
+        'See docs/planned.md (line 12), missing.ts, dup.ts, missing/ and missing-folder/.',
+      ]
+    );
     assert.equal(document.querySelectorAll('.markdown-link-pending, .seti-icon').length, 0);
     const missing = [...document.querySelectorAll('.markdown-path-missing')];
     assert.equal(missing.length, 6);
@@ -953,7 +1091,12 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     const menuItems = () => [...f.dom.window.document.querySelectorAll('[role="menu"] [role="menuitem"]')];
     const labelsOf = () => menuItems().map((item) => item.textContent);
     const contextMenu = async (index) => {
-      const event = new f.dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 6 });
+      const event = new f.dom.window.MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 5,
+        clientY: 6,
+      });
       await act(async () => f.links()[index].dispatchEvent(event));
       return event;
     };
@@ -962,7 +1105,9 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     // A remote browser has no OS bridge, so only the in-app actions appear.
     assert.equal((await contextMenu(0)).defaultPrevented, true);
     assert.deepEqual(labelsOf(), ['Open', 'Copy path']);
-    await act(async () => f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' })));
+    await act(async () =>
+      f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
+    );
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: desktopNavigator });
     await contextMenu(0);
     assert.deepEqual(labelsOf(), ['Open', 'Open in default app', 'Reveal in Explorer', 'Copy path']);
@@ -1019,7 +1164,10 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       await act(async () => item.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
     }
     // A local image whose file is missing stays its original text.
-    assert.equal(f.dom.window.document.querySelector('.markdown-path-missing').textContent, 'file:///C:/private/secret.png');
+    assert.equal(
+      f.dom.window.document.querySelector('.markdown-path-missing').textContent,
+      'file:///C:/private/secret.png'
+    );
     assert.equal(f.external.length, 2);
     assert.equal(f.popups.length, 0);
     assert.notEqual(f.dom.window.document.querySelector('img')?.getAttribute('src'), 'file:///C:/private/secret.png');
@@ -1162,10 +1310,11 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
   });
 
   test(`${pipeline}: web pages open in the session browser pane, or the system browser without one`, async (t) => {
-    const inSession = (text) => React.createElement(MarkdownSessionContext.Provider, { value: 'sess-page' }, render(text));
+    const inSession = (text) =>
+      React.createElement(MarkdownSessionContext.Provider, { value: 'sess-page' }, render(text));
     const f = await mount(t, inSession, '[page](site/index.html) and [draft](site/draft.htm)', PROJECT, (f) => {
       installProjectFiles(f, { [PROJECT]: ['site/index.html', 'site/draft.htm'] });
-      f.dom.window.mixdogDesktop.localPageUrl = async (project, rel) => `http://127.0.0.1:9/token/${rel}`;
+      f.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => `http://127.0.0.1:9/token/${rel}`;
     });
     // No pane to reveal: the system browser takes the loopback address.
     await f.click(1);
@@ -1183,7 +1332,8 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
   });
 
   test(`${pipeline}: web links open in the session side browser, else the system browser`, async (t) => {
-    const inSession = (text) => React.createElement(MarkdownSessionContext.Provider, { value: 'sess-web' }, render(text));
+    const inSession = (text) =>
+      React.createElement(MarkdownSessionContext.Provider, { value: 'sess-web' }, render(text));
     const f = await mount(t, inSession, '[web](https://example.com/docs)');
     // No shell can reveal a pane: the system browser takes it.
     await f.click();

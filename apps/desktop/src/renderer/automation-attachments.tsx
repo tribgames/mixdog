@@ -8,12 +8,7 @@ import {
   officeMimeForName,
   SUPPORTED_IMAGE_TYPES,
 } from './composer-attachments';
-import {
-  ATTACHMENT_ACCEPT,
-  MAX_IMAGE_FILE_BYTES,
-  MAX_OFFICE_FILE_BYTES,
-  MAX_PDF_FILE_BYTES,
-} from './composer-support';
+import { ATTACHMENT_ACCEPT, MAX_IMAGE_FILE_BYTES, MAX_OFFICE_FILE_BYTES, MAX_PDF_FILE_BYTES } from './composer-support';
 import { fileLooksLikeText } from './file-content';
 import { canonicalPromptFileMimeType, MAX_PROMPT_FILE_BASE64_TOTAL, PDF_MIME_TYPE } from '../shared/prompt-limits';
 import { t } from './i18n';
@@ -221,6 +216,7 @@ export function AutomationAttachmentChips({
 }) {
   if (attachments.length === 0) return null;
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the chip list container keeps its tag; the label names the attachments
     <div className="composer-attachments schedules-attachments" aria-label={t('Attachments')}>
       {attachments.map((attachment, index) => (
         <div className={`attachment-chip ${attachment.kind}`} key={attachmentDomKey(attachment)}>

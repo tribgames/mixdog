@@ -316,6 +316,7 @@ export function useComposerAttachments({
     [replaceAttachments]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: submissionRecoveryVersion is the trigger that re-drains rejected-submission recoveries
   useLayoutEffect(() => {
     const recoveries = takeRejectedComposerSubmissionRecoveries(recoveryScope);
     if (!recoveries.length) return;

@@ -68,7 +68,10 @@ export function speedRouteFields(
   offersTier: boolean
 ): { fast: boolean; modelParameters: Record<string, string> } {
   if (!offersTier || speed === 'standard') return { fast: speed !== 'standard', modelParameters };
-  return { fast: true, modelParameters: { ...modelParameters, serviceTier: speed === 'ultrafast' ? 'ultrafast' : 'priority' } };
+  return {
+    fast: true,
+    modelParameters: { ...modelParameters, serviceTier: speed === 'ultrafast' ? 'ultrafast' : 'priority' },
+  };
 }
 
 export function preferredModelParameters(

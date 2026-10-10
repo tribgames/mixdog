@@ -165,29 +165,33 @@ export function ScmContextMenu({
       onContextMenu={(event) => event.preventDefault()}
     >
       {state.items.map((item) => {
-        const action = <button
-          type="button"
-          key={item.id}
-          data-action-id={item.id}
-          role={item.checked === undefined ? 'menuitem' : (item.checkRole ?? 'menuitemradio')}
-          aria-checked={item.checked}
-          aria-current={item.active ? 'page' : undefined}
-          className={
-            [item.danger ? 'danger' : '', item.separatorBefore ? 'menu-separator' : '', item.active ? 'active' : ''].filter(Boolean).join(' ') ||
-            undefined
-          }
-          disabled={item.disabled}
-          title={item.title}
-          onClick={() => {
-            onClose();
-            item.onSelect?.();
-          }}
-        >
-          <span className={`dock-scm-context-check${item.icon ? ' is-icon' : ''}`}>
-            {item.icon ?? (item.checked && <Check size={12} aria-hidden="true" />)}
-          </span>
-          <span className="dock-scm-context-label">{item.label}</span>
-        </button>;
+        const action = (
+          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is menuitemradio/menuitemcheckbox whenever checked is defined
+          <button
+            type="button"
+            key={item.id}
+            data-action-id={item.id}
+            role={item.checked === undefined ? 'menuitem' : (item.checkRole ?? 'menuitemradio')}
+            aria-checked={item.checked}
+            aria-current={item.active ? 'page' : undefined}
+            className={
+              [item.danger ? 'danger' : '', item.separatorBefore ? 'menu-separator' : '', item.active ? 'active' : '']
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
+            disabled={item.disabled}
+            title={item.title}
+            onClick={() => {
+              onClose();
+              item.onSelect?.();
+            }}
+          >
+            <span className={`dock-scm-context-check${item.icon ? ' is-icon' : ''}`}>
+              {item.icon ?? (item.checked && <Check size={12} aria-hidden="true" />)}
+            </span>
+            <span className="dock-scm-context-label">{item.label}</span>
+          </button>
+        );
         if (!item.onTogglePin) return action;
         return (
           <div className="dock-scm-context-menu-row" role="none" key={item.id}>

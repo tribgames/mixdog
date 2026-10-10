@@ -140,6 +140,7 @@ export function useEditorCallHierarchy({
     editor.changeViewZones((accessor) => accessor.layoutZone(current.id));
   }, [editorRef, layout]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: contextKey is a ref prop whose .current is read at unmount; removeZone alone defines the lifetime.
   useEffect(
     () => () => {
       removeZone();
@@ -213,6 +214,7 @@ export function useEditorCallHierarchy({
 
   const selected = state?.rows[Math.max(0, Math.min(state.selectedIndex, state.rows.length - 1))] ?? null;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selected?.key is the intended trigger (same item = same preview); api is read for its stable methods.
   useEffect(() => {
     const item = selected;
     const generation = ++previewGeneration.current;
@@ -254,6 +256,7 @@ export function useEditorCallHierarchy({
       });
   }, [accessToken, api, projectPath, selected?.key]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focus only when the loaded root, loading or error status changes, not on selection changes in state.
   useEffect(() => {
     if (!state || state.loading || state.error) return;
     window.requestAnimationFrame(() => treeRef.current?.focus({ preventScroll: true }));

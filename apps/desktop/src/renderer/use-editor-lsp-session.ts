@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { DesktopLspCapabilities, DesktopLspRequestMethod, DesktopLspServerState } from '../shared/contract';
 import { parseCodeGraphSymbols, type EditorCodeGraphMode } from './editor-code-graph';
+import { documentFormatterAvailable } from './editor-format-document';
+import { hasLspProviderFeature } from './editor-lsp-providers';
 import {
   acceptEditorLspState,
   clearActiveEditorDocument,
@@ -77,12 +79,14 @@ export function useEditorLspSession({
       lspReady.current = state.available;
       lspCapabilities.current = state.capabilities ?? null;
       callHierarchyContextKey.current?.set(Boolean(state.available && state.capabilities?.callHierarchy));
-      const key = JSON.stringify(state.capabilities ?? null);
       if (state.available && state.capabilities) {
         lspCapabilitiesByLanguage.set(languageId, state.capabilities);
         lspReadyLanguages.add(languageId);
         ensureGraphProviders(languageId);
       }
+      // The provider claim is part of the key: the toolbar's Format item
+      // depends on it, and a claim can land with unchanged capabilities.
+      const key = `${JSON.stringify(state.capabilities ?? null)}|${documentFormatterAvailable(state.capabilities, hasLspProviderFeature(languageId, 'formatting'))}`;
       if (key !== lspCapabilitiesKey.current) {
         lspCapabilitiesKey.current = key;
         setFeatureRevision((revision) => revision + 1);
@@ -91,6 +95,7 @@ export function useEditorLspSession({
     [callHierarchyContextKey, projectPath, relPath]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `api` is the bridge object; its methods are read at call time.
   const syncLsp = useCallback(
     async (kind: 'change' | 'save' = 'change'): Promise<boolean> => {
       const model = readModel();
@@ -137,6 +142,7 @@ export function useEditorLspSession({
     [acceptLspState, api, readModel, projectPath, relPath]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `api` is the bridge object; its methods are read at call time.
   const requestLsp = useCallback(
     async (method: DesktopLspRequestMethod, params: Record<string, unknown> = {}): Promise<unknown> => {
       const model = readModel();
@@ -189,6 +195,7 @@ export function useEditorLspSession({
 
   /** Detaches the open document and tells the server to close it once any
    *  in-flight open has settled. */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `api` is the bridge object; its methods are read at call time.
   const closeAttachedDocument = useCallback(
     (model: import('monaco-editor').editor.ITextModel) => {
       lspAttached.current = false;
@@ -213,6 +220,7 @@ export function useEditorLspSession({
     [api, projectPath, relPath]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `modelUri` re-runs the attach when the editor swaps models; `api` is the bridge object.
   useEffect(() => {
     const model = readModel();
     if (!model || !api?.lspDocument) return;
@@ -247,6 +255,7 @@ export function useEditorLspSession({
     closeAttachedDocument(model);
   }, [acceptLspState, active, api, closeAttachedDocument, readModel, modelUri, projectPath, relPath, updateOutline]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `api` is the bridge object; its methods are read at call time.
   const disposeLsp = useCallback(
     (model: import('monaco-editor').editor.ITextModel | null | undefined) => {
       if (lspChangeTimer.current !== null) window.clearTimeout(lspChangeTimer.current);

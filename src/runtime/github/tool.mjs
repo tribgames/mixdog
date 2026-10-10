@@ -211,6 +211,7 @@ export const GITHUB_TOOL_DEF = {
     openWorldHint: true,
     compressible: false,
   },
+  trigger: 'GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).',
   description:
     'GitHub repositories, issues, PRs and reviews, Actions/logs, releases, and notifications through the signed-in GitHub CLI. Local Git history/diffs/staging belong to git. One action per call; writes are serialized and never retried. Obtain user approval before writes; workflow runs and published releases may deploy. repo is owner/name; omit to resolve the current Project. Lists use page/limit. Review/merge requires the current PR head sha. Install/connect in Extensions → Plugin → Git & GitHub. Results omit API-only URLs and node ids and name users/repos by login/full_name; `raw` is a readable file with the full response, and long results state what is shown.',
   inputSchema: {

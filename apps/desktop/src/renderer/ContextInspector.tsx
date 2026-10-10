@@ -285,6 +285,7 @@ export function ContextInspector({
         {preview.truncated ? (
           <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p>
         ) : null}
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable preview region must be keyboard-focusable to scroll */}
         <div className="context-preview-content markdown" data-scrollable tabIndex={0}>
           <MarkdownBody
             key={preview.id}
@@ -386,6 +387,7 @@ export function ContextInspector({
         {/* The map is one image for assistive tech — the per-block hover copy is
             a pointer affordance, so the native title is gone (it would double
             up with the bubble) and the note rides the label. */}
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: the block map click is a pointer affordance; the same categories are reachable from the keyboard-operable nav list */}
         <div
           className="context-block-map"
           role="img"
@@ -402,6 +404,7 @@ export function ContextInspector({
           }}
         >
           {map.cells.map((key: string, index: number) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: map cells are positional blocks and never reorder
             <i key={index} data-context-key={key} data-muted={hovered && hovered !== key ? 'true' : undefined} />
           ))}
           {bubble && (

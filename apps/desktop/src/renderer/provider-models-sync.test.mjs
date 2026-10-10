@@ -18,7 +18,9 @@ function fakeHost() {
   const notified = [];
   return {
     notified,
-    emit: (change) => { for (const listener of listeners) listener(change); },
+    emit: (change) => {
+      for (const listener of listeners) listener(change);
+    },
     api: {
       notifyProviderModelsChanged: (origin) => notified.push(origin),
       subscribeProviderModelsChanged: (listener) => {
@@ -48,7 +50,9 @@ test('a peer notification reloads pickers without echoing; own echo is ignored',
   const host = fakeHost();
   globalThis.window = { mixdogDesktop: host.api };
   let woke = 0;
-  const unwatch = subscribeModelCatalogInvalidation(() => { woke += 1; });
+  const unwatch = subscribeModelCatalogInvalidation(() => {
+    woke += 1;
+  });
   const unsubscribe = subscribeProviderModelsSync(host.api);
   try {
     host.emit({ origin: PROVIDER_MODELS_INSTANCE_ID });

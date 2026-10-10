@@ -2895,6 +2895,238 @@ i.dock-pr-row-checks[data-checks="pending"] {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }
+/* Changes view: file rows that expand an inline unified diff (design/
+   side-panel-proposal.html, scene 2). Monochrome icons; the tints and the 2px
+   bars are the only colour. */
+.workspace-git-diff-header {
+  min-height: 42px;
+}
+.diff-header-controls {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.diff-header-spacer {
+  flex: 1;
+}
+.diff-scope {
+  position: relative;
+  min-width: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.diff-icon-button {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.diff-icon-button {
+  width: 26px;
+  padding: 0;
+}
+.diff-icon-button:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.diff-scope-menu {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  min-width: 140px;
+  display: grid;
+  padding: 4px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-workspace-sheet);
+}
+.diff-scope-menu button {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.diff-scope-menu button:hover,
+.diff-scope-menu button[aria-checked="true"] {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.diff-header-controls {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.diff-more-menu {
+  left: auto;
+  right: 0;
+}
+.changes-file {
+  list-style: none;
+}
+.changes-file-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.changes-file[data-open] > .changes-file-row {
+  background: var(--mx-hover);
+}
+.changes-file-main {
+  min-width: 0;
+  height: 32px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+.changes-file-main > svg {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.changes-file-main > b {
+  flex: none;
+  font-weight: var(--mx-weight-semibold);
+}
+.changes-file-dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  text-overflow: ellipsis;
+}
+.changes-file-stats {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.changes-file-stats i {
+  color: var(--mx-success);
+  font-style: normal;
+}
+.changes-file-stats em {
+  color: var(--mx-danger);
+  font-style: normal;
+}
+.changes-file-open {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  margin-right: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.changes-file-open:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.changes-file-body {
+  min-width: 0;
+}
+.inline-diff {
+  min-width: 0;
+  font-family: var(--mx-font-mono);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+.inline-diff-row {
+  display: flex;
+}
+.inline-diff-ln {
+  width: 40px;
+  flex: none;
+  padding-right: 8px;
+  color: var(--mx-text-faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.inline-diff-mk {
+  width: 16px;
+  flex: none;
+  color: var(--mx-text-faint);
+}
+/* Long lines wrap inside the code column: no horizontal scrolling. */
+.inline-diff-code {
+  min-width: 0;
+  flex: 1;
+  padding-right: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.inline-diff-row[data-kind="add"] {
+  background: color-mix(in srgb, var(--mx-success) 16%, transparent);
+  box-shadow: inset 2px 0 var(--mx-success);
+}
+.inline-diff-row[data-kind="add"] .inline-diff-ln,
+.inline-diff-row[data-kind="add"] .inline-diff-mk {
+  color: var(--mx-success);
+}
+.inline-diff-row[data-kind="del"] {
+  background: color-mix(in srgb, var(--mx-danger) 14%, transparent);
+  box-shadow: inset 2px 0 var(--mx-danger);
+}
+.inline-diff-row[data-kind="del"] .inline-diff-ln,
+.inline-diff-row[data-kind="del"] .inline-diff-mk {
+  color: var(--mx-danger);
+}
+.inline-diff-fold {
+  width: 100%;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 0 12px;
+  border: 0;
+  color: var(--mx-text-muted);
+  background: var(--mx-surface-plate);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+button.inline-diff-fold {
+  cursor: pointer;
+}
+button.inline-diff-fold:hover {
+  color: var(--mx-text);
+}
+.inline-diff-empty {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
 /* Ctrl+Tab MRU switcher: most recent first; releasing
    Ctrl commits the highlighted row. */
 .workspace-tab-switcher {

@@ -173,3 +173,175 @@ test('a remote document that cannot be converted keeps the binary notice', async
     await act(async () => root.unmount());
   }
 });
+
+test('a PDF opens in the page viewer, never through the native preview', async (t) => {
+  surface(t, true);
+  const requested = [];
+  const api = {
+    previewProjectFile: async () => {
+      throw new Error('the iframe preview must not be requested');
+    },
+    previewDocumentPages: async (_projectPath, _relPath, _accessToken, options) => {
+      requested.push({ ...options });
+      return { format: 'pdf', mtimeMs: 1, size: 2, pageCount: 2, pages: options.pages.map(renderedPage) };
+    },
+  };
+  const { root, session } = await mountSession(api, 'docs/report.pdf');
+  try {
+    assert.deepEqual(
+      requested.map((entry) => entry.pages),
+      [[1]]
+    );
+    assert.equal(session.current.preview, null);
+    assert.equal(session.current.documentPreview.format, 'pdf');
+    await act(async () => session.current.loadDocumentPages([2], 2000));
+    assert.equal(requested.at(-1).maxWidth, 2000, 'zoomed pages are requested at the wider resolution');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('a PDF without the page API falls back to the binary notice, not an iframe', async (t) => {
+  surface(t, true);
+  const api = {
+    previewProjectFile: async () => {
+      throw new Error('the iframe preview must not be requested');
+    },
+    readProjectFile: async () => ({ content: '', mtimeMs: 11, binary: true, tooLarge: false, encoding: 'utf8' }),
+    readEditorBackup: async () => null,
+  };
+  const { root, session } = await mountSession(api, 'docs/report.pdf');
+  try {
+    assert.equal(session.current.preview, null);
+    assert.equal(session.current.documentPreview, null);
+    assert.equal(session.current.load.binary, true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+const revisionOf =
+  (mtimeMs, size, pageCount = 3) =>
+  (options) => ({
+    format: 'docx',
+    mtimeMs,
+    size,
+    pageCount,
+    pages: options.pages.map(renderedPage),
+  });
+
+test('a page result of another revision replaces the preview instead of mixing with it', async (t) => {
+  surface(t, true);
+  let serve = revisionOf(1, 10);
+  const api = { previewDocumentPages: async (_p, _r, _a, options) => serve(options) };
+  const { root, session } = await mountSession(api, 'docs/report.docx');
+  try {
+    assert.deepEqual(
+      session.current.documentPreview.pages.map((p) => p.page),
+      [1]
+    );
+    serve = revisionOf(2, 10, 5);
+    await act(async () => session.current.loadDocumentPages([2]));
+    const preview = session.current.documentPreview;
+    assert.equal(preview.mtimeMs, 2);
+    assert.equal(preview.pageCount, 5);
+    assert.deepEqual(
+      preview.pages.map((p) => p.page),
+      [2],
+      'page 1 of the old revision is dropped'
+    );
+    serve = revisionOf(2, 11, 5);
+    await act(async () => session.current.loadDocumentPages([3]));
+    assert.equal(session.current.documentPreview.size, 11, 'a changed size is a new revision too');
+    assert.deepEqual(
+      session.current.documentPreview.pages.map((p) => p.page),
+      [3]
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('an edited document refreshes after the change is seen twice, keeping the viewer mounted', async (t) => {
+  surface(t, true);
+  const intervals = new Map();
+  let nextId = 1;
+  const original = [window.setInterval, window.clearInterval];
+  window.setInterval = (callback, ms) => {
+    if (ms !== 2500) return original[0].call(window, callback, ms);
+    intervals.set(nextId, callback);
+    return nextId++;
+  };
+  window.clearInterval = (id) => {
+    if (!intervals.delete(id)) original[1].call(window, id);
+  };
+  t.after(() => {
+    [window.setInterval, window.clearInterval] = original;
+  });
+  let disk = { mtimeMs: 1, size: 10 };
+  const requests = [];
+  const api = {
+    statProjectFile: async () => ({ ...disk }),
+    previewDocumentPages: async (_p, _r, _a, options) => {
+      requests.push([...options.pages]);
+      return revisionOf(disk.mtimeMs, disk.size)(options);
+    },
+  };
+  const { root, session } = await mountSession(api, 'docs/report.docx');
+  const poll = () => act(async () => Promise.all([...intervals.values()].map((tick) => tick())));
+  try {
+    await poll();
+    assert.deepEqual(requests, [[1]], 'an unchanged file costs no page request');
+    disk = { mtimeMs: 2, size: 12 };
+    await poll();
+    assert.deepEqual(requests, [[1]], 'the first sighting only waits (the file may still be written)');
+    await poll();
+    assert.deepEqual(requests, [[1], [1]]);
+    assert.equal(session.current.documentPreview.mtimeMs, 2);
+    assert.equal(session.current.documentPreview.size, 12);
+    await poll();
+    assert.equal(requests.length, 2, 'settled: no further requests');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('a failed batch keeps the pages that arrived and Retry re-requests just that batch', async (t) => {
+  surface(t, true);
+  let fail = false;
+  const requests = [];
+  const api = {
+    previewDocumentPages: async (_p, _r, _a, options) => {
+      requests.push([...options.pages]);
+      if (fail) throw new Error('rasterizer crashed');
+      return revisionOf(1, 10)(options);
+    },
+  };
+  const { root, session } = await mountSession(api, 'docs/report.docx');
+  try {
+    await act(async () => session.current.loadDocumentPages([2]));
+    fail = true;
+    await act(async () => session.current.loadDocumentPages([3, 4]));
+    assert.deepEqual(
+      session.current.documentPreview.pages.map((p) => p.page),
+      [1, 2],
+      'earlier pages stay'
+    );
+    assert.equal(session.current.documentError, '', 'a page failure is not a document failure');
+    assert.deepEqual(Object.keys(session.current.documentPageErrors), ['3', '4']);
+    assert.deepEqual(session.current.documentPageErrors[3].batch, [3, 4]);
+    assert.match(session.current.documentPageErrors[3].message, /rasterizer crashed/);
+
+    fail = false;
+    const { batch } = session.current.documentPageErrors[3];
+    await act(async () => session.current.loadDocumentPages(batch));
+    assert.deepEqual(requests.at(-1), [3, 4]);
+    assert.deepEqual(session.current.documentPageErrors, {});
+    assert.deepEqual(
+      session.current.documentPreview.pages.map((p) => p.page),
+      [1, 2, 3, 4]
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

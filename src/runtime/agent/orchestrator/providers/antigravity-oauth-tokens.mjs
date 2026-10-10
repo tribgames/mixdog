@@ -18,7 +18,11 @@ import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
-import { normalizeExpiresAtMs as _normalizeExpiresAt, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import {
+  accountIdentityFields,
+  normalizeExpiresAtMs as _normalizeExpiresAt,
+  scrubOAuthSecrets,
+} from './lib/oauth-token-utils.mjs';
 import { ANTIGRAVITY_MODELS } from '../../../shared/llm/provider-model-identities.mjs';
 import { readLastKnownVersion, rememberLastKnownVersion } from './client-version-store.mjs';
 import { maxSemver } from './npm-cli-version.mjs';
@@ -199,6 +203,7 @@ export function loadTokens() {
       expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt),
       project_id: String(raw.project_id || raw.projectId || ''),
       email: String(raw.email || ''),
+      user_id: String(raw.user_id || raw.userId || ''),
       source: 'own',
       mtimeMs: mtimeMs(path),
     };
@@ -216,6 +221,7 @@ export function saveTokens(tokens) {
       expires_at: tokens.expires_at || 0,
       project_id: tokens.project_id || tokens.projectId || '',
       email: tokens.email || '',
+      user_id: tokens.user_id || tokens.userId || '',
     },
     { lock: true, fsyncDir: true, mode: 0o600, secret: true }
   );
@@ -263,6 +269,7 @@ export function describeAntigravityOAuthCredentials() {
       reauthRequired: !usable,
       status: usable ? 'Signed In' : 'Reauth Required',
       detail,
+      ...accountIdentityFields({ id: tokens.user_id, email: tokens.email }),
       email: tokens.email || '',
       projectId: tokens.project_id || '',
     };
@@ -332,6 +339,7 @@ export function refreshTokens({ fetchFn = fetch } = {}) {
       expires_at: typeof json.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0,
       project_id: current.project_id,
       email: current.email,
+      user_id: current.user_id,
     };
     saveTokens(next);
     return next;

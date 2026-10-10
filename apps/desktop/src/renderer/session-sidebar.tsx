@@ -1,10 +1,11 @@
-import { Plus, Sparkles, SquarePen } from 'lucide-react';
+import { Plus, Search, Sparkles, SquarePen } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import type { NavigationSelection } from './nav-types';
 import { sessionListInsertedAtTop, sessionListKeepsExistingTopInsert } from './first-submit-stability';
+import { openSessionSearch } from './session-search';
 import { sessionLabel, SessionSidebarRow } from './session-sidebar-rows';
 import {
   MIN_SIDEBAR_WIDTH,
@@ -18,6 +19,7 @@ import {
   automationsSection,
   recentSection,
   archivedSection,
+  favoritesSection,
   sidebarResizeHandle,
   type SidebarResizeStart,
 } from './session-sidebar-sections';
@@ -48,6 +50,7 @@ function useSessionListPaging(
       return;
     revealMore();
   }, [enabled, scrollerRef, sentinelRef, revealMore]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: visibleCount re-arms the observer after a page is revealed
   useEffect(() => {
     if (!enabled) return;
     const scroller = scrollerRef.current;
@@ -95,6 +98,8 @@ interface SessionSidebarProps {
   onRenameSession(sessionId: string, title: string): Promise<void>;
   /** Archive: the row leaves Recent but the session file stays. */
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
+  /** Favorite: the row is pinned to the Favorites section above Recent. */
+  onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
   onDeleteSession(sessionId: string): Promise<void>;
 }
 
@@ -115,6 +120,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   onResumeSession,
   onRenameSession,
   onArchiveSession,
+  onFavoriteSession,
   onDeleteSession,
 }: SessionSidebarProps) {
   // Each rail destination owns its own sidebar shell. Auxiliary destinations
@@ -167,10 +173,17 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             }),
     [hasSessionSurface, sessions]
   );
-  const rows = useMemo(
-    () => allRows.filter((session) => session.archived !== true && !isAutomationRow(session)),
+  const favoriteRows = useMemo(
+    () =>
+      allRows.filter((session) => session.favorite === true && session.archived !== true && !isAutomationRow(session)),
     [allRows]
   );
+  const rows = useMemo(
+    () =>
+      allRows.filter((session) => session.archived !== true && session.favorite !== true && !isAutomationRow(session)),
+    [allRows]
+  );
+  const [favoritesOpen, setFavoritesOpen] = useState(true);
   // allRows is activity-desc, which is the order the grouped runs keep.
   const automationGroups = useMemo(() => groupAutomationSessions(allRows), [allRows]);
   // Tracks the COLLAPSED groups, so every automation group — including one that
@@ -185,11 +198,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       return next;
     });
   }, []);
-  const archivedRows = useMemo(
-    () =>
-      allRows.filter((session) => session.archived === true),
-    [allRows]
-  );
+  const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);
   const automationRows = useMemo(() => automationGroups.flatMap(({ runs }) => runs), [automationGroups]);
   const deletableArchivedRows = useMemo(
     () => archivedRows.filter((session) => session.archived === true),
@@ -320,6 +329,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     revealWhenSentinelNear();
     revealWhenArchivedSentinelNear();
   }, [captureRecentScrollAnchor, revealWhenSentinelNear, revealWhenArchivedSentinelNear]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: list layout inputs (sections, counts, rows) trigger scroll-anchor compensation
   useLayoutEffect(() => {
     if (!open || panelActive) return;
     const scroller = recentScrollerRef.current;
@@ -465,6 +475,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       onSetDeleting={setDeletingSessionId}
       onDeleteSession={onDeleteSession}
       onArchiveSession={onArchiveSession}
+      onFavoriteSession={onFavoriteSession}
     />
   );
   const displayedSidebarWidth = resizeStart.current?.pendingWidth ?? sidebarWidth;
@@ -501,15 +512,26 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             portal their own primary action into the same title-row slot. */}
         <div className="session-panel-header-actions" ref={setPanelActionSlot}>
           {!panelActive && (
-            <button
-              type="button"
-              className="session-panel-action session-new-task"
-              aria-label={t('New task')}
-              data-tooltip={t('New task')}
-              onClick={onNewTask}
-            >
-              <Plus size={16} aria-hidden="true" />
-            </button>
+            <>
+              <button
+                type="button"
+                className="session-panel-action session-search-open"
+                aria-label={t('Search sessions')}
+                data-tooltip={t('Search sessions')}
+                onClick={openSessionSearch}
+              >
+                <Search size={16} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="session-panel-action session-new-task"
+                aria-label={t('New task')}
+                data-tooltip={t('New task')}
+                onClick={onNewTask}
+              >
+                <Plus size={16} aria-hidden="true" />
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -539,6 +561,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </button>
           </nav>
           <div className="session-sidebar-scroll" ref={recentScrollerRef} onScroll={handleRecentScroll}>
+            {favoriteRows.length > 0 &&
+              favoritesSection({
+                rows: favoriteRows,
+                open: favoritesOpen,
+                onToggleOpen: () => setFavoritesOpen((open) => !open),
+                renderSessionRow,
+              })}
             {automationGroups.length > 0 &&
               automationsSection({
                 groups: automationGroups,

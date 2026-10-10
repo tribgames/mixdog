@@ -1,6 +1,5 @@
 import { ChevronRight, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import changelogSource from '../../../../../CHANGELOG.md?raw';
 import { version as appVersion } from '../../../package.json';
 import MarkdownBody from '../MarkdownBody';
 import { parseStreamingMarkdownAst } from '../markdown-worker-client';
@@ -8,17 +7,25 @@ import { t } from '../i18n';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CopyControl } from '../transcript-primitives';
-import { parseChangelog, type ChangelogRelease } from './changelog';
+import type { ChangelogRelease } from './changelog';
+import { loadReleases } from './changelog-source';
 import './changelog-dialog.css';
 
-const RELEASES = parseChangelog(changelogSource);
+let RELEASES: ChangelogRelease[] = [];
 
 // Markdown parses off-thread; parse a release before it is shown so it opens
 // fully rendered instead of growing a tick later.
-const prepareRelease = (body: string) => parseStreamingMarkdownAst(body).then(() => undefined, () => undefined);
+const prepareRelease = (body: string) =>
+  parseStreamingMarkdownAst(body).then(
+    () => undefined,
+    () => undefined
+  );
 
 /** Resolves once the initially expanded (newest) release is ready to paint. */
-export const prepareChangelog = () => (RELEASES[0] ? prepareRelease(RELEASES[0].body) : Promise.resolve());
+export const prepareChangelog = async () => {
+  RELEASES = await loadReleases();
+  if (RELEASES[0]) await prepareRelease(RELEASES[0].body);
+};
 
 export default function ChangelogDialog({ onClose }: { onClose(): void }) {
   const uid = useId();
@@ -43,6 +50,7 @@ export default function ChangelogDialog({ onClose }: { onClose(): void }) {
     return () => opener?.focus();
   }, []);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
@@ -68,6 +76,7 @@ export default function ChangelogDialog({ onClose }: { onClose(): void }) {
             <X aria-hidden="true" size={16} />
           </button>
         </header>
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region must be keyboard-focusable to scroll. */}
         <div className="settings-changelog-list" data-scrollable tabIndex={0}>
           {RELEASES.map((release) => {
             const expanded = open.has(release.version);
@@ -75,12 +84,7 @@ export default function ChangelogDialog({ onClose }: { onClose(): void }) {
             return (
               <article key={release.version} className="settings-changelog-release">
                 <h4>
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    aria-controls={bodyId}
-                    onClick={() => toggle(release)}
-                  >
+                  <button type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={() => toggle(release)}>
                     <ChevronRight aria-hidden="true" size={14} className="settings-changelog-chevron" />
                     <span>{release.version}</span>
                     {release.date && <span className="settings-changelog-date">{release.date}</span>}

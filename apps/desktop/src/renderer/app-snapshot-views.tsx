@@ -42,7 +42,6 @@ import {
   conversationMarkdownPending,
 } from './first-submit-stability';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
-import { ENTRY_REVEAL_MAX_MS } from './use-transcript-reveal';
 import { ContextUsageIndicator } from './transcript-status';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 
@@ -259,14 +258,8 @@ export const PaneConversation = memo(function PaneConversation({
     setEnteredSessions((current) => (current.has(sessionKey) ? current : new Set(current).add(sessionKey)));
   }, []);
   const entryPending = !hidden && Boolean(sessionId) && !promotingFromDraft && !enteredSessions.has(sessionId);
-  // The transcript's own reveal is bounded; this bounds a report that never
-  // names this pane's session, so the cover can never outlive a loaded lane.
-  const entryWaitsOnLayout = entryPending && paintGate.reveal;
-  useEffect(() => {
-    if (!entryWaitsOnLayout) return undefined;
-    const timer = window.setTimeout(() => onEntryRevealed(sessionId), ENTRY_REVEAL_MAX_MS);
-    return () => window.clearTimeout(timer);
-  }, [entryWaitsOnLayout, onEntryRevealed, sessionId]);
+  // Only the conversation can declare its dock and row geometry ready.
+  // A parallel timer would uncover a slow diff/Goal before its height lands.
   // Sidebar session registration remounts the virtualizer. Keep the sheet
   // cover up until the incoming lane exists and one frame has committed it.
   const surfaceReady = paintGate.reveal && !entryPending;

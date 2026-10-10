@@ -586,7 +586,8 @@
      tile's delete action (user: 중단은 빨간 계통). */
   color: var(--mx-danger);
   background: var(--mx-action-bg);
-  box-shadow: none,
+  box-shadow:
+    none,
     inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 34%, transparent);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);

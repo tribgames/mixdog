@@ -24,6 +24,12 @@ export const SETTINGS_ITEMS = [
     kind: 'toggle',
   },
   {
+    value: 'link-preview',
+    label: 'Link preview',
+    description: 'Open chat links in a preview tab that the next link replaces.',
+    kind: 'toggle',
+  },
+  {
     value: 'memory-enabled',
     label: 'Memory',
     description: 'Memory tools, core-memory injection, and background upkeep.',
@@ -86,7 +92,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'general',
     label: 'General',
     group: 'Mixdog',
-    items: ['profile', 'theme', 'web-search-enabled', 'memory-enabled', 'voice'],
+    items: ['profile', 'theme', 'web-search-enabled', 'link-preview', 'memory-enabled', 'voice'],
   },
   // Context owns session lifecycle. The Memory master itself lives once in
   // General; curated memories are managed with their project.

@@ -18,9 +18,7 @@ const SETUP_SECTION_TARGETS: Readonly<Record<string, SlashSettingsSection>> = {
 
 /** Session-lane publications, already limited by the caller to the sessions
  *  this window shows. */
-export type SetupLaneSource = (
-  listener: (update: { sessionId: string; snapshot: unknown }) => void
-) => () => void;
+export type SetupLaneSource = (listener: (update: { sessionId: string; snapshot: unknown }) => void) => () => void;
 
 interface UiOpenRequestProps {
   uiOpenRequest: Snapshot['uiOpenRequest'];

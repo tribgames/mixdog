@@ -86,7 +86,15 @@ async function showFrame(state) {
   await flush();
   const image = document.querySelector('.browser-remote-content img');
   image.getBoundingClientRect = () => ({
-    left: 0, top: 0, right: 200, bottom: 100, width: 200, height: 100, x: 0, y: 0, toJSON() {},
+    left: 0,
+    top: 0,
+    right: 200,
+    bottom: 100,
+    width: 200,
+    height: 100,
+    x: 0,
+    y: 0,
+    toJSON() {},
   });
   const content = document.querySelector('.browser-remote-content');
   content.setPointerCapture = () => {};
@@ -166,14 +174,24 @@ test('mouse maps to hover, press/release, wheel, and keyboard/IME through the sh
     const mouse = pointers(state);
     assert.deepEqual(
       mouse.map((input) => [input.phase, input.button]),
-      [['mouseMoved', 'none'], ['mousePressed', 'left'], ['mouseReleased', 'left']]
+      [
+        ['mouseMoved', 'none'],
+        ['mousePressed', 'left'],
+        ['mouseReleased', 'left'],
+      ]
     );
     assert.equal(mouse[1].x, 50);
     assert.equal(mouse[1].y, 25);
     assert.ok(state.controls.every(({ input }) => input.documentId === 'd1'));
 
     await act(async () => {
-      const wheel = new window.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 50, clientY: 25, deltaY: 40 });
+      const wheel = new window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 50,
+        clientY: 25,
+        deltaY: 40,
+      });
       content.dispatchEvent(wheel);
     });
     await flush();
@@ -186,11 +204,12 @@ test('mouse maps to hover, press/release, wheel, and keyboard/IME through the sh
     await flush();
     assert.deepEqual(state.controls.at(-1).input, { type: 'text', text: 'A', documentId: 'd1' });
     await act(async () => {
-      textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+      textarea.dispatchEvent(
+        new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
+      );
     });
     await flush();
     assert.deepEqual(state.controls.at(-1).input, { type: 'key', key: 'Backspace', documentId: 'd1' });
-
   } finally {
     await pane.unmount();
   }
@@ -201,7 +220,8 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
   const pane = await mount();
   try {
     const content = await showFrame(state);
-    const touch = (type, id, x, y) => content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
+    const touch = (type, id, x, y) =>
+      content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
 
     // Tap: move + press + release, left button, with an immediate local dot.
     await act(async () => {
@@ -212,7 +232,11 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     await flush();
     assert.deepEqual(
       pointers(state).map((input) => [input.phase, input.button]),
-      [['mouseMoved', 'none'], ['mousePressed', 'left'], ['mouseReleased', 'left']]
+      [
+        ['mouseMoved', 'none'],
+        ['mousePressed', 'left'],
+        ['mouseReleased', 'left'],
+      ]
     );
 
     // Long-press without movement: right click.
@@ -223,7 +247,11 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     await flush();
     assert.deepEqual(
       pointers(state).map((input) => [input.phase, input.button]),
-      [['mouseMoved', 'none'], ['mousePressed', 'right'], ['mouseReleased', 'right']]
+      [
+        ['mouseMoved', 'none'],
+        ['mousePressed', 'right'],
+        ['mouseReleased', 'right'],
+      ]
     );
 
     // One-finger drag: press at the start, streamed left-button moves, release last.
@@ -241,7 +269,9 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     assert.equal(phases.indexOf('mouseReleased'), phases.length - 1);
     assert.equal(drag[1].x, 10);
     assert.equal(drag.at(-1).x, 90);
-    assert.ok(drag.slice(2, -1).every((input) => input.phase === 'mouseMoved' && input.button === 'left' && input.buttons === 1));
+    assert.ok(
+      drag.slice(2, -1).every((input) => input.phase === 'mouseMoved' && input.button === 'left' && input.buttons === 1)
+    );
 
     // Two-finger pan scrolls instead of clicking.
     state.controls.length = 0;
@@ -257,7 +287,10 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     assert.equal(pointers(state).length, 0);
     const wheels = state.controls.map(({ input }) => input).filter((input) => input.type === 'wheel');
     assert.ok(wheels.length > 0);
-    assert.equal(wheels.reduce((sum, wheel) => sum + wheel.deltaY, 0), 20);
+    assert.equal(
+      wheels.reduce((sum, wheel) => sum + wheel.deltaY, 0),
+      20
+    );
   } finally {
     await pane.unmount();
   }
@@ -311,13 +344,26 @@ test('a document change applies metadata at once and drops input for the old doc
       // Coalesced motion is still waiting for its animation frame when the
       // desktop reports a different document.
       content.dispatchEvent(pointerEvent('pointermove', { clientX: 80, clientY: 25, buttons: 1 }));
-      state.listener(streamFrame({ seq: 2, documentId: 'd2', url: 'https://next.test/', title: 'Next', canGoBack: true, image: undefined }));
+      state.listener(
+        streamFrame({
+          seq: 2,
+          documentId: 'd2',
+          url: 'https://next.test/',
+          title: 'Next',
+          canGoBack: true,
+          image: undefined,
+        })
+      );
     });
     assert.equal(document.querySelector('.browser-pane-address').value, 'https://next.test/');
     assert.equal(document.querySelector('button[aria-label="Back"]').disabled, false);
     await flush();
     const sent = pointers(state);
-    assert.deepEqual(sent.map((input) => input.phase), ['mouseReleased'], 'pending move dropped, press released');
+    assert.deepEqual(
+      sent.map((input) => input.phase),
+      ['mouseReleased'],
+      'pending move dropped, press released'
+    );
     assert.equal(sent[0].documentId, 'd1');
     state.controls.length = 0;
     await act(async () => content.dispatchEvent(pointerEvent('pointermove', { clientX: 20, clientY: 20, buttons: 0 })));

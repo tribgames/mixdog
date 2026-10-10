@@ -146,6 +146,7 @@ function projectAddDialog({
           name="project-name"
           value={addName}
           maxLength={120}
+          // biome-ignore lint/a11y/noAutofocus: the add-project dialog opens to type the name immediately.
           autoFocus
           disabled={addBusy}
           placeholder={t('my-project')}
@@ -279,6 +280,7 @@ function memoryAddRow({
       <textarea
         aria-label={t('Memory text')}
         value={addMemoryDraft}
+        // biome-ignore lint/a11y/noAutofocus: the row is revealed by an explicit "add memory" action and should take typing at once.
         autoFocus
         rows={3}
         disabled={memoryBusy}
@@ -544,6 +546,7 @@ export function ProjectListSection({
   const readersRef = useRef({ readMemories });
   readersRef.current = { readMemories };
   const memoriesSupported = Boolean(onMemoryControl);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectPathsKey and memoriesCache are deliberate restart triggers; the read itself goes through readersRef.
   useEffect(() => {
     if (!active || !memoriesSupported) return;
     void readersRef.current.readMemories(null, true).catch(() => {});
@@ -703,6 +706,7 @@ export function ProjectListSection({
                 name="project-alias"
                 value={editName}
                 maxLength={120}
+                // biome-ignore lint/a11y/noAutofocus: the edit dialog opens to rename the project immediately.
                 autoFocus
                 disabled={editBusy}
                 aria-label={t('Project display name')}

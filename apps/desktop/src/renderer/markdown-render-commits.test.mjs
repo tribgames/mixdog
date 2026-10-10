@@ -70,7 +70,7 @@ function countingCopyControl() {
     React.useEffect(() => {
       counts.mounts += 1;
     }, []);
-    return React.createElement('button', { className, 'aria-label': label, 'data-copy': value });
+    return React.createElement('button', { type: 'button', className, 'aria-label': label, 'data-copy': value });
   }
   return { CopyControl, counts };
 }

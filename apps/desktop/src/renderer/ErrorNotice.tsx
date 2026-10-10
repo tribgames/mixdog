@@ -78,6 +78,7 @@ export function ErrorNotice({
           <span>{summary}</span>
         </div>
         {total > 1 && (
+          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the count badge keeps its label; the span tag and role stay unchanged.
           <span className="error-notice-count" aria-label={t('Errors')}>
             ×{total}
           </span>
@@ -120,6 +121,7 @@ export function ErrorNotice({
         <div className="error-notice-details" data-scrollable>
           {total > details.length && <span>{t('Recent errors')}</span>}
           {details.map((detail, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: details are plain strings that may repeat; the list is positional and never reorders.
             <pre key={index}>
               {details.length > 1 ? `${total - details.length + index + 1}. ` : ''}
               {detail}

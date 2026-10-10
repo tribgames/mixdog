@@ -1,43 +1,63 @@
-import { useMemo, useState } from 'react';
-import { parseDelimited } from './editor-delimited';
-import { t } from './i18n';
+import { useState, type ComponentProps } from 'react';
+import { EditorDelimitedGrid } from './editor-delimited-grid';
 import MarkdownBody from './MarkdownBody';
 import { MarkdownDocumentDirContext, MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
 import { CopyControl } from './transcript-primitives';
+import { ZoomFrame, ZoomImage, useImageSize } from './ZoomFrame';
 
 /** SVG as an image only: its source is never injected as markup. */
 export function EditorSvgPreview({
   url,
   name,
   error,
+  zoomKey,
   onComplete,
   onFail,
 }: {
   url: string;
   name: string;
   error: string;
+  /** Remembers the zoom while this file stays open in its surface. */
+  zoomKey?: string;
   onComplete(): void;
   onFail(): void;
 }) {
   // The failure belongs to the source that failed: a changed URL or snapshot
   // gets a fresh attempt.
   const [failedUrl, setFailedUrl] = useState('');
+  const [loadedUrl, setLoadedUrl] = useState('');
+  const { natural, onNatural } = useImageSize(url);
   return (
-    <div className="editor-pane-preview is-image editor-svg-preview">
-      {error && failedUrl === url ? (
-        <p role="alert">{error}</p>
-      ) : (
-        <img
-          src={url}
-          alt={name}
-          onLoad={onComplete}
-          onError={() => {
-            setFailedUrl(url);
-            onFail();
-          }}
-        />
-      )}
-    </div>
+    <ZoomFrame
+      ready={loadedUrl === url && !(error && failedUrl === url)}
+      intrinsicWidth={natural?.width}
+      intrinsicHeight={natural?.height}
+      memoryKey={zoomKey}
+      clickToggle
+      scrollerClassName="editor-pane-preview is-image editor-svg-preview"
+    >
+      {({ scale }) =>
+        error && failedUrl === url ? (
+          <p role="alert">{error}</p>
+        ) : (
+          <ZoomImage
+            src={url}
+            alt={name}
+            natural={natural}
+            scale={scale}
+            onNatural={onNatural}
+            onLoad={() => {
+              setLoadedUrl(url);
+              onComplete();
+            }}
+            onError={() => {
+              setFailedUrl(url);
+              onFail();
+            }}
+          />
+        )
+      }
+    </ZoomFrame>
   );
 }
 
@@ -68,44 +88,7 @@ export function EditorMarkdownPreview({
   );
 }
 
-/** Read-only table of a CSV/TSV file; the first row is the header. */
-export function EditorDelimitedTable({ text, delimiter }: { text: string; delimiter: string }) {
-  const { rows, truncated, columnsTruncated } = useMemo(() => parseDelimited(text, delimiter), [text, delimiter]);
-  const [header = [], ...body] = rows;
-  const columns = rows.reduce((max, row) => Math.max(max, row.length), 0);
-  const cells = (row: string[]) => Array.from({ length: columns }, (_, column) => row[column] ?? '');
-  return (
-    <div className="editor-text-view editor-table-view">
-      {truncated && (
-        <p className="editor-table-notice" role="status">
-          {t('Showing the first {{count}} rows of this file.', { count: rows.length })}
-        </p>
-      )}
-      {columnsTruncated && (
-        <p className="editor-table-notice" role="status">
-          {t('Showing the first {{count}} columns of this file.', { count: columns })}
-        </p>
-      )}
-      <div className="editor-table-scroll">
-        <table>
-          <thead>
-            <tr>
-              {cells(header).map((cell, column) => (
-                <th key={column}>{cell}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {body.map((row, index) => (
-              <tr key={index}>
-                {cells(row).map((cell, column) => (
-                  <td key={column}>{cell}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+/** Editable table of a CSV/TSV file (see editor-delimited-grid.tsx). */
+export function EditorDelimitedTable(props: ComponentProps<typeof EditorDelimitedGrid>) {
+  return <EditorDelimitedGrid {...props} />;
 }

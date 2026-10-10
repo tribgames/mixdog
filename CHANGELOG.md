@@ -9,6 +9,60 @@ the Unreleased section is empty, and stamps it with the released version.
   in v1.0.11 it still ended at v1.0.10, on the desktop app and the remote
   web page alike.
 
+- The changelog is available in every app language, and after an update
+  the app shows what is new in that version once.
+
+- Auto reasoning is on by default on supported models: each message and
+  each tool step gets the reasoning effort it needs. Its model downloads in
+  the background on first use instead of at startup, and the Built-in card
+  shows the model and what it is based on.
+
+- File links in a conversation open beside it in the side panel as tabs. A
+  new link replaces the preview tab, so links no longer pile up tabs; a tab
+  is kept once you double-click it, choose Keep open, or edit the file. At
+  most eight file tabs stay open. Settings > General > Link preview turns
+  this off.
+
+- CSV and TSV files open as an editable table: copy and paste cells, add or
+  remove rows and columns, save with Ctrl+S, and undo or redo with Ctrl+Z
+  and Ctrl+Y.
+
+- PDF and Office files (Word, PowerPoint, Excel) preview in the side panel.
+  Office pages reopen instantly, and a link starts converting its document
+  as soon as you point at it.
+
+- Conversations can be starred: favorites stay at the top of the session
+  list, and the star appears when you hover a row.
+
+- Search finds text across past conversations. A deleted conversation
+  leaves no search results behind, whichever way it was removed.
+
+- Scrolling up while a reply streams keeps your place instead of jumping
+  back to the bottom.
+
+- GitHub actions in a reply are grouped into one GitHub card, and the
+  thinking indicator's loop no longer jumps when it restarts.
+
+- Provider accounts show their sign-in email, and connecting the same
+  account again keeps its name and usage history instead of adding a new
+  entry. The usage dialog no longer lists accounts that were disconnected.
+
+- A prompt pulled back from the queue into the draft no longer reappears
+  after a restart, and reopening the app quickly keeps the conversation
+  editable instead of opening it read-only.
+
+- Translation fixes: wrong labels such as Git in Italian, Models in
+  Vietnamese and Effort in Chinese and Japanese now read correctly.
+
+- On the phone web UI, Enter inserts a line break and the send button
+  sends.
+
+- Memory starts on Windows profiles whose user folder name is not plain
+  ASCII.
+
+- Security updates for the image-size and js-yaml dependencies
+  (CVE-2025-71329, CVE-2026-84375).
+
 ## v1.0.11 - 2026-10-08
 
 - The built-in browser shows pages again on Windows displays scaled above
@@ -1917,11 +1971,11 @@ the Unreleased section is empty, and stamps it with the released version.
   recover pending requests when that panel opens, and finish only after the
   browser proves its authenticated E2EE connection.
 
-## v0.9.142
+## v0.9.142 - 2026-08-20
 
 - Linux desktop packaging validates the target architecture in the ABI
   prebuild directory that `node-pty` actually loads, while compiled Windows and
-  macOS packages keep their `build/Release` validation path. - 2026-08-20
+  macOS packages keep their `build/Release` validation path.
 
 - Installed web apps resume one pending desktop approval across reloads, while
   the desktop replaces stale prompts, expires them with the relay request, and

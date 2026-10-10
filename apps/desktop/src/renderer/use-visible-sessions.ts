@@ -12,6 +12,7 @@ export function currentVisibleSessionIds(): readonly string[] {
 
 export function useVisibleSessions(sessionIds: string[]): void {
   const key = sessionIds.join('\0');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: key is the content signature of sessionIds, so a new array with the same ids does not re-register
   useLayoutEffect(() => {
     shownSessionIds = sessionIds;
     const register = window.mixdogDesktop?.setVisibleSessions;

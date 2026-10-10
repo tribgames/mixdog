@@ -42,7 +42,7 @@ export function readRemoteBrowserStreamFrame(value: unknown): DesktopRemoteBrows
   return frame as DesktopRemoteBrowserStreamFrame;
 }
 
-export const installRemoteDispatch =(ctx: RemoteShimContext): void => {
+export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
   /** Fan a push out to one lane's listeners. A faulting renderer listener
    *  must never stop the frame from reaching the rest. */
   const fanOut = <T>(listeners: Set<(value: T) => void>, value: T): void => {

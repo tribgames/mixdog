@@ -5,8 +5,6 @@ import { createSessionLifecycle } from '../session-lifecycle.mjs';
 import { createNewSessionConfig } from '../new-session-config.mjs';
 import { modelToolSchemaAllowlist } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { bootProfile } from '../boot-profile.mjs';
-import { autoEffortMode } from '../../runtime/agent/orchestrator/session/manager/ask-turn-auto-effort.mjs';
-import { refreshEffortJudge } from '../../runtime/effort-judge/judge-client.mjs';
 import { resolveRoute, workflowHelpers } from './shared.mjs';
 
 export function wireSessionLifecycle(boot) {
@@ -123,9 +121,6 @@ export function wireSessionLifecycle(boot) {
   scheduleModelCatalogWarmup();
   scheduleStatuslineUsageWarmup();
   scheduleAutomationAutostart(tunables.remoteAutoStartDelayMs);
-  // Auto effort keeps its judge resident, so it loads now rather than on the
-  // first turn (the worker thread does not hold the process open), after an
-  // install from an older release is brought up to date. The same mode check
-  // as the turns, so an env-enabled run (headless exec) warms too.
-  if (autoEffortMode() !== 'off') refreshEffortJudge();
+  // Auto effort touches neither network nor memory at boot: the first judged
+  // turn fetches/updates the model and loads the judge (judge-client.mjs).
 }

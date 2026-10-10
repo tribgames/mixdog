@@ -6,6 +6,7 @@ import { navigationKey } from '../text-format';
 import type { usePaneWorkspace } from '../pane-workspace-state';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from '../sidebar-view-layout';
 import type { SidebarPanelKey } from '../app-shell-components';
+import { requestPaneDockClose } from '../pane-dock-chrome';
 import { SessionDiffPane } from '../SessionDiffPane';
 import { prefetchDiffView } from '../lazy-widgets';
 import { SnapshotUtilityDock } from '../app-snapshot-views';
@@ -43,12 +44,11 @@ export interface UseAppWorkbenchViewsOptions {
   sidebarResumeSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   archiveSession: (sessionId: string, archived: boolean) => Promise<void>;
+  favoriteSession: (sessionId: string, favorite: boolean) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
 
   sideViewDescriptors: ReturnType<typeof createAppSideViewDescriptors>;
   renderSidebarPanel: (id: SidebarPanelKey, active: boolean) => React.ReactNode;
-  sessionDiffs: ReturnType<typeof useSessionPaneSurfaces>['sessionDiffs'];
-  setSessionDiff: ReturnType<typeof useSessionPaneSurfaces>['setSessionDiff'];
 
   snapshotStore: DesktopSnapshotStore;
   observedAgentSessionIds: readonly string[];
@@ -111,11 +111,10 @@ export function useAppWorkbenchViews({
   sidebarResumeSession,
   renameSession,
   archiveSession,
+  favoriteSession,
   deleteSession,
   sideViewDescriptors,
   renderSidebarPanel,
-  sessionDiffs,
-  setSessionDiff,
   snapshotStore,
   observedAgentSessionIds,
   quickAccessProjectPath,
@@ -177,6 +176,7 @@ export function useAppWorkbenchViews({
       onResumeSession: sidebarResumeSession,
       onRenameSession: renameSession,
       onArchiveSession: archiveSession,
+      onFavoriteSession: favoriteSession,
       onDeleteSession: deleteSession,
     };
     if (id === 'sessions') return <SessionSidebar {...sessionSidebarProps} />;
@@ -194,21 +194,8 @@ export function useAppWorkbenchViews({
         <SessionDiffPane
           sessionId={sessionId}
           active={active}
-          openRel={sessionDiffs.get(sessionId)?.rel ?? ''}
-          onOpenDiff={
-            sessionId && pane.projectPath
-              ? (rel) => {
-                  void prefetchDiffView().catch(() => {});
-                  setSessionDiff(sessionId, {
-                    kind: 'diff',
-                    project: pane.projectPath,
-                    rel,
-                    source: 'session',
-                    hash: sessionId,
-                  });
-                }
-              : undefined
-          }
+          onClose={() => requestPaneDockClose('session-diff')}
+          onOpenFile={pane.projectPath ? (rel) => openFileTab(pane.projectPath, rel) : undefined}
         />
       );
     }
@@ -305,6 +292,7 @@ export function useAppWorkbenchViews({
       moveWorkbenchSideView,
       openFileTab,
       sideFileGuard,
+      renameProjectEntry,
       renderFileProblems: (file) => (
         <WorkbenchProblemsPane
           projectPath={file.project}

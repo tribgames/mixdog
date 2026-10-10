@@ -485,6 +485,35 @@
      proportional figures made the whole row twitch. */
   font-variant-numeric: tabular-nums;
 }
+/* The row is a container; the disclosure button is stretched over it and the
+   row's content (including the file link button) paints above it. */
+.tool-header.tool-activity-item-header {
+  position: relative;
+}
+.tool-header.tool-activity-item-header[data-disclosure="false"] {
+  cursor: default;
+}
+.tool-activity-item-header > :not(.tool-activity-item-toggle) {
+  position: relative;
+}
+.tool-activity-item-toggle {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-hair);
+  background: transparent;
+  cursor: pointer;
+}
+.tool-activity-item-toggle:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.tool-activity-item-header:has(> .tool-activity-item-toggle:focus-visible) .tool-activity-item-title b {
+  color: var(--mx-text);
+}
 .tool-activity-item-title {
   min-width: 0;
   display: inline-flex;
@@ -578,12 +607,50 @@
 .tool-activity-item-result em[data-delta="-"] {
   color: var(--mx-danger);
 }
-/* A call that is still running turns a small spinner at the end of its row:
-   in a list of a dozen calls the shimmer on the verb alone did not say which
-   one the turn was waiting on. It leaves with the result. */
-.tool-activity-item-spinner {
+/* A running call (or group) shows its elapsed time (from 5s) before the
+   chevron; it leaves with the result. A group's leading icon stays still (its
+   title shimmers); a call row shows a small twinkling sparkle here. */
+.tool-working {
+  display: inline-flex;
   flex: 0 0 auto;
-  color: var(--mx-text-faint);
+  align-items: center;
+  gap: 6px;
+}
+.tool-working-elapsed {
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tool-working-spark {
+  flex: none;
+  color: var(--mx-accent);
+}
+/* Sparkle: twinkles (scale + quarter turn). */
+.tool-working-spark .tool-group-icon-star {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tool-spark-twinkle 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes tool-spark-twinkle {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.72) rotate(0deg);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.08) rotate(90deg);
+  }
+  70% {
+    opacity: 0.9;
+    transform: scale(0.95) rotate(90deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-working-spark .tool-group-icon-star {
+    animation: none;
+    opacity: 1;
+  }
 }
 /* The disclosure arrow sits right after the text, so it stays visible. */
 .tool-activity-item-header .tool-chevron {
@@ -822,8 +889,7 @@
    so scrolled rows never show through it. */
 :root .tool-section-header {
   background:
-    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)),
-    var(--mx-sheet-ink, var(--mx-workspace-sheet));
+    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-sheet-ink, var(--mx-workspace-sheet));
 }
 .tool-section-title {
   min-width: 0;

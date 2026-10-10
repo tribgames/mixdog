@@ -1,6 +1,6 @@
 import { createContext, isValidElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { showDesktopToast } from './desktop-toasts';
-import { SetiFileIcon } from './SetiFileIcon';
+import { LinkKindIcon } from './link-kind-icon';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { localPathMentionHref, PATH_LINK_CLASS } from './markdown-plugins';
@@ -8,8 +8,14 @@ import { isLocalMarkdownLink, localMarkdownPath, projectRelativeFilePath } from 
 import { prefetchEditorPane, scheduleEditorPanePrefetch } from './lazy-widgets';
 import { resolveLocalLink, verifyLocalLink, type ResolvedLocalLink } from './local-link-resolver';
 import { isLocalWebPage, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
-import { editorFileOpener } from '../shared/file-preview';
-import { ScmContextMenu, elementMenuPoint, isContextMenuKey, pointerMenuPoint, type ScmContextMenuState } from './ScmContextMenu';
+import { documentPreviewFormatForPath, editorFileOpener } from '../shared/file-preview';
+import {
+  ScmContextMenu,
+  elementMenuPoint,
+  isContextMenuKey,
+  pointerMenuPoint,
+  type ScmContextMenuState,
+} from './ScmContextMenu';
 import { copyTextToClipboard } from './text-format';
 import { openEditorFileExternally } from './editor-external-file';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
@@ -72,6 +78,37 @@ type MarkdownOpenFile = (
   column?: number
 ) => void;
 export const MarkdownOpenFileContext = createContext<MarkdownOpenFile | null>(null);
+/** Reveals a Project folder in the conversation pane's side-dock Files tree;
+ *  absent where there is no dock (phone/remote), so folders keep the OS file
+ *  manager. */
+export const MarkdownOpenFolderContext = createContext<((project: string, rel: string) => void) | null>(null);
+
+/** A directory the dock can reveal: a trailing separator names one, an
+ *  extension-less name is probed by listing it (a file fails to list). */
+async function isProjectFolder(project: string, rel: string, kind: 'folder' | 'file' | 'unknown'): Promise<boolean> {
+  if (kind === 'folder') return true;
+  if (kind !== 'unknown') return false;
+  try {
+    await window.mixdogDesktop?.listProjectDir?.(project, rel);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** An absolute folder as the deepest registered Project containing it plus
+ *  its path inside that Project; null when no registered Project owns it (the
+ *  dock tree can only list registered Projects). */
+async function owningProjectFolder(folder: string): Promise<{ project: string; rel: string } | null> {
+  const projects = (await window.mixdogDesktop?.listProjects?.()) || [];
+  let owner: { project: string; rel: string } | null = null;
+  for (const { path } of projects) {
+    const rel = projectRelativeFilePath(path, folder);
+    if (rel === null || rel.startsWith('..')) continue;
+    if (!owner || path.length > owner.project.length) owner = { project: path, rel };
+  }
+  return owner;
+}
 
 function displayPath(project: string, rel: string, suffix: string): string {
   const separator = project.includes('\\') ? '\\' : '/';
@@ -85,6 +122,8 @@ interface LocalLinkTarget {
   verified: boolean;
   /** True once an automatic mention's verification has failed. */
   missing: boolean;
+  /** Why the last verification failed (tooltip of the plain-text fallback). */
+  missingReason: string;
   path: string;
   kind: 'folder' | 'file' | 'unknown';
   /** Display name: file name, or `folder/`. */
@@ -100,14 +139,44 @@ interface LocalLinkTarget {
   onPointerDown: (event: LinkPress) => void;
   onPointerUp: (event: LinkPress) => void;
   onPointerCancel: () => void;
+  /** Mouse hover / keyboard focus on a convertible document link. */
+  prefetchDocument?: () => void;
   open: () => Promise<void>;
   openDefault: () => Promise<void>;
   reveal: () => Promise<void>;
   copyPath: () => Promise<void>;
 }
 
+const DOCUMENT_PREFETCH_WINDOW_MS = 30_000;
+const documentPrefetches = new Map<string, number>();
+
+/** True once per (project, path) per window, so hovering back and forth over
+ *  one link starts a single conversion. */
+function claimDocumentPrefetch(project: string, file: string): boolean {
+  const now = Date.now();
+  for (const [key, at] of documentPrefetches) {
+    if (now - at >= DOCUMENT_PREFETCH_WINDOW_MS) documentPrefetches.delete(key);
+  }
+  const key = `${project}\0${file}`;
+  if (documentPrefetches.has(key)) return false;
+  documentPrefetches.set(key, now);
+  return true;
+}
+
+/** Focus from the keyboard, not from the press of a mouse or finger. */
+function focusIsKeyboard(element: Element): boolean {
+  try {
+    return element.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
 type LinkPress = { pointerType: string; pointerId: number; clientX: number; clientY: number };
 const TAP_SLOP_PX = 10;
+/** Backoff of a failed mention lookup; the first step outlasts the resolver's
+ *  3s cache of a miss, so each retry asks the file service again. */
+const LINK_VERIFY_RETRY_MS = [3_500, 10_000, 30_000];
 
 /** Which press is an open intent. A mouse press is one. A touch or pen press
  *  usually starts a scroll, and evaluating the editor's 4 MB chunk under it
@@ -149,6 +218,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const projectPath = useContext(MarkdownProjectContext);
   const sessionId = useContext(MarkdownSessionContext);
   const openFile = useContext(MarkdownOpenFileContext);
+  const openFolder = useContext(MarkdownOpenFolderContext);
   const documentDir = useContext(MarkdownDocumentDirContext);
   const [resolved, setResolved] = useState<{ key: string; title: string; target: ResolvedLocalLink | null }>({
     key: '',
@@ -157,6 +227,10 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   });
   const [verifiedKey, setVerifiedKey] = useState('');
   const [missingKey, setMissingKey] = useState('');
+  const [missingReason, setMissingReason] = useState('');
+  // Failed verifications retry on a backoff: one transient file-service
+  // failure must not leave a real file as plain text for the whole session.
+  const [retry, setRetry] = useState({ key: '', attempt: 0 });
   const [press] = useState(createLinkPressIntent);
   const resolutionKey = `${projectPath}\0${documentDir}\0${target}`;
   const resolvedTitle = resolved.key === resolutionKey ? resolved.title : '';
@@ -186,11 +260,16 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   // in another Project stays text): searching every registered Project per
   // rendered mention would flood the file service. Repeated mentions of one
   // name share a single verification.
+  const attempt = retry.key === resolutionKey ? retry.attempt : 0;
   useEffect(() => {
     if (!verify || !local) return;
-    setVerifiedKey('');
-    setMissingKey('');
+    // A retry keeps the current (missing) paint until it has an answer.
+    if (attempt === 0) {
+      setVerifiedKey('');
+      setMissingKey('');
+    }
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     verifyLocalLink(projectPath, location.path)
       .then((match) => {
         if (!active) return;
@@ -199,17 +278,25 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
           title: displayPath(match.project, match.path, suffix),
           target: match,
         });
+        setMissingKey('');
         setVerifiedKey(resolutionKey);
       })
-      // Missing, ambiguous, inaccessible or unverified mentions remain text;
-      // a click retries the lookup and says why it cannot open.
-      .catch(() => {
-        if (active) setMissingKey(resolutionKey);
+      // Missing, ambiguous, inaccessible or unverified mentions remain text
+      // (the reason is the tooltip) and are looked up again on a backoff.
+      .catch((error: unknown) => {
+        if (!active) return;
+        setMissingReason(errorMessageText(error));
+        setMissingKey(resolutionKey);
+        const delay = LINK_VERIFY_RETRY_MS[attempt];
+        if (delay !== undefined) {
+          timer = setTimeout(() => setRetry({ key: resolutionKey, attempt: attempt + 1 }), delay);
+        }
       });
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
-  }, [verify, local, projectPath, location.path, resolutionKey, suffix]);
+  }, [verify, local, projectPath, location.path, resolutionKey, suffix, attempt]);
 
   // The first paint (verified mentions) and hover both resolve this exact
   // link already. Reusing that result keeps the click from paying a second
@@ -229,6 +316,21 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const warmEditor = () => {
     if (editorTarget) void prefetchEditorPane().catch(() => {});
   };
+  // Hover or keyboard focus on a document link: start its conversion now so
+  // the click finds the pages ready. Errors are the click's to report.
+  const documentTarget = local && kind === 'file' && Boolean(documentPreviewFormatForPath(location.path));
+  const prefetchDocument = documentTarget
+    ? () => {
+        resolveTarget()
+          .then(({ project, path: file, accessToken, directory }) => {
+            if (directory || !documentPreviewFormatForPath(file)) return;
+            const reader = window.mixdogDesktop?.previewDocumentPages;
+            if (!reader || !claimDocumentPrefetch(project, file)) return;
+            return reader(project, file, accessToken, { pages: [1] });
+          })
+          .catch(() => {});
+      }
+    : undefined;
   const open = async () => {
     warmEditor();
     try {
@@ -243,6 +345,18 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         else await window.mixdogDesktop.openExternal(url);
         return;
       }
+      // A Project folder opens beside the conversation as the dock's Files
+      // tree with the folder revealed; folders outside any Project (or behind
+      // an access token) keep the file manager.
+      if (openFolder && !accessToken) {
+        let folder: Awaited<ReturnType<typeof owningProjectFolder>> = null;
+        if (directory) folder = await owningProjectFolder(project);
+        else if (await isProjectFolder(project, file, kind)) folder = { project, rel: file };
+        if (folder) {
+          openFolder(folder.project, folder.rel);
+          return;
+        }
+      }
       // A text file with an extension opens in the editor directly. Documents,
       // folders and extension-less names go through main, which launches the
       // OS app or file manager and hands text files back as 'editor'.
@@ -255,9 +369,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         // `report%20%231.docx` or the `#` would start a fragment.
         const href = file.split('/').map(encodeURIComponent).join('/');
         const opened = await openConfirmedFile((confirmedPath) =>
-          confirmedPath
-            ? api.openLocalFileLink!(project, href, confirmedPath)
-            : api.openLocalFileLink!(project, href)
+          confirmedPath ? api.openLocalFileLink!(project, href, confirmedPath) : api.openLocalFileLink!(project, href)
         );
         if (opened !== 'editor') return;
       }
@@ -316,12 +428,14 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     local,
     verified: verifiedKey === resolutionKey,
     missing: missingKey === resolutionKey,
+    missingReason,
     path: authored.path,
     kind,
     name,
     suffix,
     title,
     revealTitle,
+    prefetchDocument,
     onPointerDown: (event) => {
       if (press.down(event)) warmEditor();
     },
@@ -334,20 +448,21 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
 }
 
 /** The explorer's file glyph, so a file reads the same in chat as in the
- *  tree. Folders carry no glyph there either. */
+ *  tree; folders get the folder glyph. */
 function LocalLinkIcon({ target }: { target: LocalLinkTarget }) {
-  if (target.kind === 'folder') return null;
-  return <SetiFileIcon name={target.name} />;
+  return <LinkKindIcon kind={target.kind === 'folder' ? 'folder' : 'file'} name={target.name} />;
 }
 
 /** Tool-card subject that names a file: same rule and look as a chat link,
- *  as a span because it sits inside the card's header button. */
+ *  as its own focusable button (callers keep it out of the header's
+ *  disclosure button). Enter/Space open it; its events never reach a
+ *  disclosure around it. */
 export function LocalPathMention({ path, line, children }: { path: string; line?: number; children: ReactNode }) {
   const link = useLocalLinkTarget(line ? `${path}:${line}` : path);
   if (!link.local) return <>{children}</>;
   return (
-    <span
-      role="link"
+    <button
+      type="button"
       className="tool-path-link"
       title={link.title}
       onMouseEnter={link.revealTitle}
@@ -357,6 +472,8 @@ export function LocalPathMention({ path, line, children }: { path: string; line?
       }}
       onPointerUp={link.onPointerUp}
       onPointerCancel={link.onPointerCancel}
+      onKeyDown={(event) => event.stopPropagation()}
+      onKeyUp={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -365,7 +482,7 @@ export function LocalPathMention({ path, line, children }: { path: string; line?
     >
       <LocalLinkIcon target={link} />
       {children}
-    </span>
+    </button>
   );
 }
 
@@ -420,18 +537,38 @@ export function MarkdownLink({
   const linkClass = pathLike
     ? [...new Set([...String(className || '').split(/\s+/), PATH_LINK_CLASS])].filter(Boolean).join(' ')
     : className;
-  const label = pathLike ? (
-    <>
-      <LocalLinkIcon target={link} />
-      {link.name}
-      {link.suffix}
-    </>
-  ) : (
-    children
-  );
+  let label: ReactNode = children;
+  if (pathLike) {
+    label = (
+      <>
+        <LocalLinkIcon target={link} />
+        {link.name}
+        {link.suffix}
+      </>
+    );
+  } else if (local) {
+    label = (
+      <>
+        <LocalLinkIcon target={link} />
+        {children}
+      </>
+    );
+  } else if (external) {
+    label = (
+      <>
+        <LinkKindIcon kind="external" />
+        {children}
+      </>
+    );
+  }
   // An automatic mention whose lookup failed names no file the app can open:
   // it falls back to its original text, with no icon, link ink or click.
-  if (verify && local && link.missing) return <span className="markdown-path-missing">{children}</span>;
+  if (verify && local && link.missing)
+    return (
+      <span className="markdown-path-missing" title={link.missingReason || undefined}>
+        {children}
+      </span>
+    );
   // Paint the final icon and caption on the FIRST render. File verification
   // only enables clicking; a mention still being verified keeps the same inert
   // geometry. A healed explicit link may preview a path caption, never open its
@@ -457,63 +594,77 @@ export function MarkdownLink({
 
   return (
     <>
-    {menu && <ScmContextMenu state={menu} onClose={() => setMenu(null)} />}
-    <a
-      href={target}
-      className={linkClass}
-      title={local ? title || link.title : title}
-      onMouseEnter={link.revealTitle}
-      onContextMenu={
-        local
-          ? (event) => {
-              event.preventDefault();
-              openMenu(pointerMenuPoint(event));
-            }
-          : undefined
-      }
-      onKeyDown={
-        local
-          ? (event) => {
-              if (!isContextMenuKey(event)) return;
-              event.preventDefault();
-              openMenu(elementMenuPoint(event.currentTarget));
-            }
-          : undefined
-      }
-      onPointerDown={local ? link.onPointerDown : undefined}
-      onPointerUp={local ? link.onPointerUp : undefined}
-      onPointerCancel={local ? link.onPointerCancel : undefined}
-      onAuxClick={local ? (event) => event.preventDefault() : undefined}
-      onClick={(event) => {
-        if (local) {
-          // A local link must never navigate the renderer, including modified clicks.
-          event.preventDefault();
-          if (event.button === 0) void openLocal();
-          return;
+      {menu && <ScmContextMenu state={menu} onClose={() => setMenu(null)} />}
+      <a
+        href={target}
+        className={linkClass}
+        title={local ? title || link.title : title}
+        onMouseEnter={link.revealTitle}
+        onPointerEnter={
+          link.prefetchDocument
+            ? (event) => {
+                if (event.pointerType === 'mouse') link.prefetchDocument?.();
+              }
+            : undefined
         }
-        if (event.button !== undefined && event.button !== 0) return;
-        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        event.preventDefault();
-        const fallback = () => {
-          try {
-            window.open(target, '_blank', 'noopener');
-          } catch {
-            /* popup blocked */
+        onFocus={
+          link.prefetchDocument
+            ? (event) => {
+                if (focusIsKeyboard(event.currentTarget)) link.prefetchDocument?.();
+              }
+            : undefined
+        }
+        onContextMenu={
+          local
+            ? (event) => {
+                event.preventDefault();
+                openMenu(pointerMenuPoint(event));
+              }
+            : undefined
+        }
+        onKeyDown={
+          local
+            ? (event) => {
+                if (!isContextMenuKey(event)) return;
+                event.preventDefault();
+                openMenu(elementMenuPoint(event.currentTarget));
+              }
+            : undefined
+        }
+        onPointerDown={local ? link.onPointerDown : undefined}
+        onPointerUp={local ? link.onPointerUp : undefined}
+        onPointerCancel={local ? link.onPointerCancel : undefined}
+        onAuxClick={local ? (event) => event.preventDefault() : undefined}
+        onClick={(event) => {
+          if (local) {
+            // A local link must never navigate the renderer, including modified clicks.
+            event.preventDefault();
+            if (event.button === 0) void openLocal();
+            return;
           }
-        };
-        // The conversation's own side-panel browser takes web links; a draft
-        // (no session) or a surface without a reveal shell uses the system browser.
-        if (sessionId && browserPageRequestsAvailable()) {
-          requestBrowserPage(sessionId, target);
-          return;
-        }
-        const api = window.mixdogDesktop;
-        if (api?.openExternal) void api.openExternal(target).catch(fallback);
-        else fallback();
-      }}
-    >
-      {label}
-    </a>
+          if (event.button !== undefined && event.button !== 0) return;
+          if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          const fallback = () => {
+            try {
+              window.open(target, '_blank', 'noopener');
+            } catch {
+              /* popup blocked */
+            }
+          };
+          // The conversation's own side-panel browser takes web links; a draft
+          // (no session) or a surface without a reveal shell uses the system browser.
+          if (sessionId && browserPageRequestsAvailable()) {
+            requestBrowserPage(sessionId, target);
+            return;
+          }
+          const api = window.mixdogDesktop;
+          if (api?.openExternal) void api.openExternal(target).catch(fallback);
+          else fallback();
+        }}
+      >
+        {label}
+      </a>
     </>
   );
 }

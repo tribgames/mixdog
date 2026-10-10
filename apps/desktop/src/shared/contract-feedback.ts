@@ -23,7 +23,7 @@ export interface DesktopFeedbackInput {
   id: string;
   kind: 'bug' | 'suggestion' | 'other';
   message: string;
-  replyTo?: string;
+  replyTo: string;
   attachments?: DesktopFeedbackAttachment[];
 }
 
@@ -50,11 +50,11 @@ export function normalizeDesktopFeedback(value: unknown): DesktopFeedbackInput {
   ) {
     throw new TypeError('Feedback is invalid.');
   }
-  if (input.replyTo !== undefined && typeof input.replyTo !== 'string') {
+  if (typeof input.replyTo !== 'string') {
     throw new TypeError('Reply email is invalid.');
   }
-  const replyTo = typeof input.replyTo === 'string' ? input.replyTo.trim() : '';
-  if (replyTo && (replyTo.length > 254 || !FEEDBACK_REPLY_EMAIL_PATTERN.test(replyTo))) {
+  const replyTo = input.replyTo.trim();
+  if (!replyTo || replyTo.length > 254 || !FEEDBACK_REPLY_EMAIL_PATTERN.test(replyTo)) {
     throw new TypeError('Reply email is invalid.');
   }
   const attachments = normalizeFeedbackAttachments(input.attachments);
@@ -62,7 +62,7 @@ export function normalizeDesktopFeedback(value: unknown): DesktopFeedbackInput {
     id: input.id.toLowerCase(),
     kind: input.kind as DesktopFeedbackInput['kind'],
     message: input.message.trim(),
-    ...(replyTo ? { replyTo } : {}),
+    replyTo,
     ...(attachments.length ? { attachments } : {}),
   };
 }

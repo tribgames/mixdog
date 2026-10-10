@@ -44,6 +44,7 @@ export function PaneDockToggles({
   );
   if (roots.length === 0) return null;
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the toggle strip.
     <div
       className="pane-dock-toggles"
       role="group"
@@ -77,7 +78,7 @@ export function PaneDockToggles({
           >
             {/* Claude Desktop tier (user: 클로드 대비 너무 조밀하고 큰 것 같다):
             a 16px mark in a 28px slot, slots set 6px apart. */}
-            <Icon size={16} aria-hidden="true" />
+            <Icon size={15} aria-hidden="true" />
           </button>
         );
       })}

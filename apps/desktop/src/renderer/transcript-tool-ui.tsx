@@ -9,7 +9,6 @@ import {
   GitBranch,
   Globe,
   Layers3,
-  ListTree,
   Monitor,
   PackageOpen,
   Plug,
@@ -22,7 +21,7 @@ import { t } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { LocalPathMention } from './MarkdownLink';
 import { MxIcon } from './MxIcon';
-import { ProgressSpinner } from './ProgressSpinner';
+import { formatElapsed } from './text-format';
 import { CodeDiff } from './transcript-diff';
 import { CopyControl, TextShimmer } from './transcript-primitives';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
@@ -147,6 +146,77 @@ function sameToolActivityGroupProps(previous: ToolActivityGroupProps, next: Tool
   );
 }
 
+/** The tool-group sparkle (4-point star) path, centred on (cx, cy). */
+function sparklePath(cx: number, cy: number, r: number): string {
+  const k = (value: number) => Math.round(value * 100) / 100;
+  return `M${cx} ${cy - r}Q${k(cx + r * 0.16)} ${k(cy - r * 0.16)} ${cx + r} ${cy} ${k(cx + r * 0.16)} ${k(cy + r * 0.16)} ${cx} ${cy + r} ${k(cx - r * 0.16)} ${k(cy + r * 0.16)} ${cx - r} ${cy} ${k(cx - r * 0.16)} ${k(cy - r * 0.16)} ${cx} ${cy - r}Z`;
+}
+
+/** Running mark of a call row (which has no leading icon): the group icon's
+ *  sparkle, twinkling until the result lands. */
+function ToolWorkingSpark() {
+  return (
+    <svg className="tool-working-spark" width={12} height={12} viewBox="0 0 12 12" aria-hidden="true">
+      <path className="tool-group-icon-star" d={sparklePath(6, 6, 5)} fill="currentColor" />
+    </svg>
+  );
+}
+
+/** When a tool call started (epoch ms). Transcript items carry their start as
+ *  `at`; `startedAt` wins where a projection provides one. */
+function toolItemStartedAt(item: { startedAt?: unknown; at?: unknown }): number {
+  const value = Number(item.startedAt || item.at || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** Elapsed (from 5s) while the work is pending, so the one-second tick stops
+ *  with it. A group header animates its leading icon instead; a call row,
+ *  which has none, carries the twinkling sparkle here (`spark`). */
+function ToolWorkingStatus({ startedAt, spark = false }: { startedAt: number; spark?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  const elapsedMs = startedAt ? now - startedAt : 0;
+  const showElapsed = elapsedMs >= 5_000;
+  if (!showElapsed && !spark) return null;
+  return (
+    <span className="tool-working">
+      {showElapsed && <span className="tool-working-elapsed">{formatElapsed(elapsedMs)}</span>}
+      {spark && <ToolWorkingSpark />}
+    </span>
+  );
+}
+
+/** Sparkle + list glyph of a tool group. It stays still while the group runs:
+ *  the shimmering title already carries the running state. */
+function ToolGroupIcon() {
+  const d = sparklePath(5, 6, 3.2);
+  return (
+    <svg
+      className="tool-group-icon"
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path className="tool-group-icon-star" d={d} fill="currentColor" stroke="none" />
+      <circle className="tool-group-icon-dot" cx="5" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      <circle className="tool-group-icon-dot" cx="5" cy="18" r="1.25" fill="currentColor" stroke="none" />
+      <path className="tool-group-icon-line" d="M11 6h10" />
+      <path className="tool-group-icon-line" d="M11 12h8" />
+      <path className="tool-group-icon-line" d="M11 18h10" />
+    </svg>
+  );
+}
+
 /** Memoized: every TranscriptList render re-invokes renderRow for each row. */
 export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   items,
@@ -161,6 +231,13 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
   const label = summary || t('Tool use');
+  const pendingStartedAt = useMemo(() => {
+    const starts = calls
+      .filter((item) => !toolItemDone(item))
+      .map(toolItemStartedAt)
+      .filter((value) => value > 0);
+    return starts.length ? Math.min(...starts) : 0;
+  }, [calls]);
 
   return (
     <article className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
@@ -173,7 +250,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         aria-controls={contentId}
       >
         <span className="tool-icon">
-          <ListTree size={16} />
+          <ToolGroupIcon />
         </span>
         <span className="tool-title tool-activity-title" title={label}>
           <b>
@@ -185,6 +262,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
             {t('Running')}
           </span>
         )}
+        {pending && <ToolWorkingStatus startedAt={pendingStartedAt} />}
         <span className="tool-chevron" aria-hidden="true">
           <ChevronRight size={16} />
         </span>
@@ -252,6 +330,7 @@ function ToolActivityDetails({ items, disclosureKey }: { items: readonly Transcr
     return index >= 0 ? activityItemKey(items[index], index) : null;
   };
   const [openItem, setOpenItem] = useState<string | null>(rememberedItem);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-sync only when the disclosure scope or the items change; rememberedItem is a fresh closure every render.
   useLayoutEffect(() => {
     setOpenItem(rememberedItem());
   }, [disclosureKey, items]);
@@ -338,6 +417,7 @@ function ToolRowOutcome({ presentation }: { presentation: ToolActivityPresentati
   return (
     <span className="tool-activity-item-result">
       {deltas.map((part, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: tokens of one label string; the position is the identity.
         <em key={index} data-delta={part.delta}>
           {part.text}
         </em>
@@ -351,22 +431,39 @@ function renderToolActivityHeader({
   open,
   onToggle,
   contentId,
+  startedAt,
 }: {
   presentation: ToolActivityPresentation;
   open: boolean;
   onToggle: () => void;
   contentId: string;
+  startedAt: number;
 }) {
+  // The row is a plain container: the disclosure is a stretched sibling
+  // button and the file link a separate button, so controls never nest.
+  // Clicks on the row's text reach the container and toggle like before.
   return (
-    <button
-      type="button"
+    // biome-ignore lint/a11y/noStaticElementInteractions: the stretched sibling button is the keyboard path; this click only widens the target.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: same as above.
+    <div
       className="tool-header tool-activity-item-header"
-      disabled={!presentation.hasDetails}
+      data-disclosure={presentation.hasDetails ? 'true' : 'false'}
       onPointerDown={(event) => event.stopPropagation()}
-      onClick={onToggle}
-      aria-expanded={presentation.hasDetails ? open : undefined}
-      aria-controls={presentation.hasDetails ? contentId : undefined}
+      onClick={presentation.hasDetails ? onToggle : undefined}
     >
+      {presentation.hasDetails && (
+        <button
+          type="button"
+          className="tool-activity-item-toggle"
+          aria-label={[presentation.verb, presentation.headerSubject].filter(Boolean).join(' ')}
+          aria-expanded={open}
+          aria-controls={contentId}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+        />
+      )}
       <span
         className="tool-title tool-activity-item-title"
         title={[presentation.title, presentation.subject, presentation.resultLabel].filter(Boolean).join(' · ')}
@@ -389,7 +486,7 @@ function renderToolActivityHeader({
           )}
       </span>
       <ToolRowOutcome presentation={presentation} />
-      {presentation.pending && <ProgressSpinner className="tool-activity-item-spinner" size={12} aria-hidden="true" />}
+      {presentation.pending && <ToolWorkingStatus startedAt={startedAt} spark />}
       {presentation.pending && (
         <span className="sr-only" role="status">
           {t('Running')}
@@ -400,7 +497,7 @@ function renderToolActivityHeader({
           <ChevronRight size={16} />
         </span>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -433,6 +530,7 @@ function renderToolActivityStructured(presentation: ToolActivityPresentation) {
       <span>{structuredKindLabel(presentation.structuredKind)}</span>
       <div className="tool-activity-structured-list">
         {presentation.structuredRows.map((row, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: row text can repeat; the position within the list is the identity.
           <div className="tool-activity-structured-row" data-status={row.status} key={`${row.text}:${index}`}>
             <span className="tool-activity-structured-marker" aria-hidden="true">
               {toolActivityIsCompleted(row.status) ? '✓' : '○'}
@@ -535,58 +633,59 @@ function renderToolActivityDetails(presentation: ToolActivityPresentation, conte
   return (
     <div className="tool-activity-item-body" id={contentId}>
       <div className="tool-activity-item-body-inner">
-      {(presentation.metaText ||
-        (presentation.tone === 'neutral' && presentation.resultLabel && !rowShowsOutcome(presentation)) ||
-        (presentation.fieldsInline && presentation.fields.length > 0)) && (
-        <p className="tool-activity-item-meta">
-          {[
-            presentation.metaText,
-            presentation.tone === 'neutral' && !rowShowsOutcome(presentation) ? presentation.resultLabel : '',
-            ...(presentation.fieldsInline ? presentation.fields.map((field) => `${field.label} ${field.value}`) : []),
-          ]
-            .filter(Boolean)
-            .map(shortMachineId)
-            .join(' · ')}
-        </p>
-      )}
-      {presentation.targets.length > 0 && presentation.sections.length === 0 && (
-        <section className="tool-activity-item-section">
-          <span>{TOOL_DETAIL_LABELS.targets}</span>
-          <ul className="tool-activity-targets">
-            {presentation.targets.map((target, index) => (
-              <li key={`${target}:${index}`}>{target}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {presentation.structuredRows.length > 0 && renderToolActivityStructured(presentation)}
-      {presentation.promptText && (
-        <ToolPanel
-          className="tool-activity-item-section"
-          kind="prose"
-          label={TOOL_DETAIL_LABELS.prompt}
-          copyValue={presentation.promptText}
-        >
-          <ToolActivityBody text={presentation.promptText} className="tool-activity-item-prompt" />
-        </ToolPanel>
-      )}
-      {presentation.sections.length > 0 && (
-        <ToolPanel
-          className="tool-activity-item-section tool-activity-item-result-block"
-          kind="code"
-          copyValue={presentation.sectionCopyText}
-        >
-          <ToolSections sections={presentation.sections} />
-        </ToolPanel>
-      )}
-      {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation)}
-      {presentation.fields.length > 0 && !presentation.fieldsInline && renderToolActivityFields(presentation)}
-      {presentation.command && renderToolActivityTerminal(presentation)}
-      {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
-      {presentation.outputText &&
-        !presentation.command &&
-        presentation.sections.length === 0 &&
-        renderToolActivityOutput(presentation)}
+        {(presentation.metaText ||
+          (presentation.tone === 'neutral' && presentation.resultLabel && !rowShowsOutcome(presentation)) ||
+          (presentation.fieldsInline && presentation.fields.length > 0)) && (
+          <p className="tool-activity-item-meta">
+            {[
+              presentation.metaText,
+              presentation.tone === 'neutral' && !rowShowsOutcome(presentation) ? presentation.resultLabel : '',
+              ...(presentation.fieldsInline ? presentation.fields.map((field) => `${field.label} ${field.value}`) : []),
+            ]
+              .filter(Boolean)
+              .map(shortMachineId)
+              .join(' · ')}
+          </p>
+        )}
+        {presentation.targets.length > 0 && presentation.sections.length === 0 && (
+          <section className="tool-activity-item-section">
+            <span>{TOOL_DETAIL_LABELS.targets}</span>
+            <ul className="tool-activity-targets">
+              {presentation.targets.map((target, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: targets can repeat; the position within the list is the identity.
+                <li key={`${target}:${index}`}>{target}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {presentation.structuredRows.length > 0 && renderToolActivityStructured(presentation)}
+        {presentation.promptText && (
+          <ToolPanel
+            className="tool-activity-item-section"
+            kind="prose"
+            label={TOOL_DETAIL_LABELS.prompt}
+            copyValue={presentation.promptText}
+          >
+            <ToolActivityBody text={presentation.promptText} className="tool-activity-item-prompt" />
+          </ToolPanel>
+        )}
+        {presentation.sections.length > 0 && (
+          <ToolPanel
+            className="tool-activity-item-section tool-activity-item-result-block"
+            kind="code"
+            copyValue={presentation.sectionCopyText}
+          >
+            <ToolSections sections={presentation.sections} />
+          </ToolPanel>
+        )}
+        {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation)}
+        {presentation.fields.length > 0 && !presentation.fieldsInline && renderToolActivityFields(presentation)}
+        {presentation.command && renderToolActivityTerminal(presentation)}
+        {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
+        {presentation.outputText &&
+          !presentation.command &&
+          presentation.sections.length === 0 &&
+          renderToolActivityOutput(presentation)}
       </div>
     </div>
   );
@@ -613,7 +712,7 @@ function ToolActivityItem({
       data-open={open ? 'true' : 'false'}
       data-expanded={expanded ? 'true' : 'false'}
     >
-      {renderToolActivityHeader({ presentation, open, onToggle, contentId })}
+      {renderToolActivityHeader({ presentation, open, onToggle, contentId, startedAt: toolItemStartedAt(item) })}
       {rendered && presentation.hasDetails && renderToolActivityDetails(presentation, contentId)}
     </article>
   );
@@ -730,10 +829,12 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
           <span className="tool-detail-text" data-placeholder={model.detailIsPlaceholder || undefined}>
             {(splitLineDeltaTokens(model.detailLine) as DetailLinePart[]).map((part, index) =>
               part.delta ? (
+                // biome-ignore lint/suspicious/noArrayIndexKey: tokens of one detail line; the position is the identity.
                 <em key={index} data-delta={part.delta}>
                   {part.text}
                 </em>
               ) : (
+                // biome-ignore lint/suspicious/noArrayIndexKey: tokens of one detail line; the position is the identity.
                 <React.Fragment key={index}>{part.text}</React.Fragment>
               )
             )}

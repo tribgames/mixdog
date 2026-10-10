@@ -219,6 +219,7 @@ test('response footer copy writes the exact response Markdown', async () => {
 test('rich Markdown and source-fallback code blocks copy exact code, with denied-write retry', async () => {
   for (const element of [
     React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(SOURCE), copyControl: CopyControl }),
+    // biome-ignore lint/correctness/useJsxKeyInIterable: fixed two-element list iterated directly, not rendered as siblings
     React.createElement(MarkdownSourceFallback, { text: SOURCE, copyControl: CopyControl }),
   ]) {
     let calls = 0;
@@ -260,7 +261,7 @@ test('streaming code block copies the latest content after it changes', async ()
 
 async function openToolDetails(view) {
   await view.click('.tool-activity-header');
-  const row = view.host.querySelector('.tool-activity-details button, .tool-activity-item-header');
+  const row = view.host.querySelector('.tool-activity-details button, .tool-activity-item-toggle');
   if (row && !view.host.querySelector('.tool-activity-item-body')) await act(async () => row.click());
 }
 
@@ -280,10 +281,34 @@ test('tool terminal and output copy exact command/output payloads, including cha
     await view.click('.tool-activity-terminal .tool-activity-copy');
     await view.render(React.createElement(ToolActivityGroup, { items: [bash('line1\n  line2\nline3')] }));
     await view.click('.tool-activity-terminal .tool-activity-copy');
-    assert.deepEqual(writes, [
-      'echo "hi"\nls\n\nline1\n  line2',
-      'echo "hi"\nls\n\nline1\n  line2\nline3',
-    ]);
+    assert.deepEqual(writes, ['echo "hi"\nls\n\nline1\n  line2', 'echo "hi"\nls\n\nline1\n  line2\nline3']);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('tool file link is its own focusable button outside the disclosure and never toggles it', async () => {
+  const view = await mountSurface(
+    React.createElement(ToolActivityGroup, {
+      items: [{ kind: 'tool', id: 'r1', name: 'read', args: { path: 'src/app.ts' }, result: 'line', completedAt: 1 }],
+    })
+  );
+  try {
+    await openToolDetails(view);
+    const toggle = view.host.querySelector('.tool-activity-item-toggle');
+    const link = view.host.querySelector('.tool-path-link');
+    assert.ok(toggle && link);
+    assert.equal(link.tagName, 'BUTTON');
+    assert.equal(link.tabIndex, 0);
+    assert.equal(link.closest('button.tool-activity-item-toggle'), null);
+    assert.equal(link.parentElement.closest('button'), null);
+    const before = toggle.getAttribute('aria-expanded');
+    await act(async () => {
+      link.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      link.dispatchEvent(new window.KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+      link.click();
+    });
+    assert.equal(toggle.getAttribute('aria-expanded'), before);
   } finally {
     await view.cleanup();
   }

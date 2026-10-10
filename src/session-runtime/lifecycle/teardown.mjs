@@ -165,6 +165,11 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
         agentTool.closeAll(reason, scope.scopedTeardown ? { callerSessionId: scope.closingSessionId } : {});
       } catch {}
     }
+    // Release the worker/lead index exit registrations (persists pending rows
+    // first). Idempotent, so repeated closes of one runtime dispose once.
+    try {
+      agentTool.dispose?.({ settle: scope.teardownReapsWork === true });
+    } catch {}
     const { ok, stops } = await inOwnLoopTurn(() => {
       const runtimeStops = startRuntimeStops(deps, reason, scope);
       const closed = closeOwnSession(deps, closeSurfaceSession, reason);

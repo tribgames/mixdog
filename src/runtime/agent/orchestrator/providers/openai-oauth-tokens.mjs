@@ -18,7 +18,13 @@ import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
-import { decodeJwtPayload, expiryFromAccessToken, oauthCredentialStatus } from './lib/oauth-token-utils.mjs';
+import {
+  accountIdentityFields,
+  decodeJwtPayload,
+  expiryFromAccessToken,
+  normalizeAccountIdentity,
+  oauthCredentialStatus,
+} from './lib/oauth-token-utils.mjs';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
 import { CODEX_OAUTH_ORIGINATOR } from './openai-codex-endpoints.mjs';
 
@@ -63,6 +69,28 @@ export function extractAccountId(token) {
   return decodeJwtPayload(token)?.['https://api.openai.com/auth']?.chatgpt_account_id;
 }
 
+/**
+ * Who the tokens belong to, from the claims they already carry (id_token first,
+ * then the access token). The id is `<sub>:<chatgpt_account_id>`: the ChatGPT
+ * account id alone is shared by every member of a workspace, `sub` alone by
+ * every workspace of one user.
+ */
+export function identityFromTokens(...tokens) {
+  let email = '';
+  let accountId = '';
+  let sub = '';
+  for (const token of tokens) {
+    const claims = decodeJwtPayload(token);
+    if (!claims) continue;
+    const auth = claims['https://api.openai.com/auth'] || {};
+    const profile = claims['https://api.openai.com/profile'] || {};
+    email ||= claims.email || profile.email || '';
+    accountId ||= auth.chatgpt_account_id || '';
+    sub ||= claims.sub || '';
+  }
+  return normalizeAccountIdentity({ id: [sub, accountId].filter(Boolean).join(':'), email });
+}
+
 /** mtime of the token file, 0 when it is missing or unreadable. */
 export function tokensFileMtimeMs() {
   try {
@@ -79,8 +107,10 @@ export function loadTokens() {
     const stat = statSync(ownPath);
     const own = JSON.parse(readFileSync(ownPath, 'utf-8'));
     if (own.access_token && own.refresh_token) {
+      const identity = identityFromTokens(own.id_token, own.access_token);
       return {
         ...own,
+        identity: normalizeAccountIdentity(own.identity) || identity,
         expires_at: _normalizeExpiresAt(own.expires_at ?? own.expiresAt) || expiryFromAccessToken(own.access_token),
         account_id: own.account_id || extractAccountId(own.access_token),
         source: 'Mixdog token store',
@@ -126,15 +156,13 @@ export function describeOpenAIOAuthCredentials() {
     const hasRefresh = Boolean(tokens.refresh_token);
     const expiresAt = _normalizeExpiresAt(tokens.expires_at ?? tokens.expiresAt);
     const source = tokens.source || 'oauth';
-    // Account identity for multi-account rosters: the id_token's email
-    // when present, else a short prefix of the ChatGPT account id.
-    const claims = tokens.id_token ? decodeJwtPayload(tokens.id_token) || {} : {};
-    const email = typeof claims.email === 'string' ? claims.email : '';
+    // Account identity for multi-account rosters: the stored email and stable
+    // id, plus a short prefix of the ChatGPT account id as a display fallback.
     const accountId = tokens.account_id ? `${String(tokens.account_id).slice(0, 8)}…` : '';
-    const identity = { ...(email ? { email } : {}), ...(accountId ? { accountId } : {}) };
     return {
       ...oauthCredentialStatus({ hasRefresh, expiresAt, detail: source, refreshSkewMs: TOKEN_REFRESH_SKEW_MS }),
-      ...identity,
+      ...accountIdentityFields(tokens.identity),
+      ...(accountId ? { accountId } : {}),
     };
   } catch (err) {
     return {
@@ -159,7 +187,7 @@ export function forgetOpenAIOAuthCredentials() {
 }
 
 // --- Token refresh ---
-async function exchangeRefreshToken(refreshToken) {
+async function exchangeRefreshToken(refreshToken, previousIdentity = null) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TOKEN_REFRESH_TIMEOUT_MS);
   try {
@@ -202,6 +230,7 @@ async function exchangeRefreshToken(refreshToken) {
       refresh_token: json.refresh_token || refreshToken,
       expires_at: expiresAt,
       account_id: extractAccountId(json.access_token),
+      identity: identityFromTokens(json.id_token, json.access_token) || normalizeAccountIdentity(previousIdentity),
     };
     saveTokens(tokens);
     return tokens;
@@ -265,7 +294,7 @@ async function refreshUnderLock({ currentToken, force, reason, startingTokens })
       process.stderr.write(`[agent-trace] auth-refresh-needed expiringInMs=${_expiringInMs}\n`);
     }
     process.stderr.write(`[openai-oauth] Token ${reason}, refreshing...\n`);
-    const refreshed = await exchangeRefreshToken(latest.refresh_token);
+    const refreshed = await exchangeRefreshToken(latest.refresh_token, latest.identity);
     if (process.env.MIXDOG_DEBUG_AGENT) {
       process.stderr.write(`[agent-trace] auth-refresh-done elapsed=${Date.now() - _refreshT0}ms ok=${!!refreshed}\n`);
     }
@@ -332,6 +361,7 @@ const { beginOAuthLogin, loginOAuth } = createOpenAIOAuthLogin({
   clientId: CLIENT_ID,
   originator: CODEX_OAUTH_ORIGINATOR,
   extractAccountId,
+  identityFromTokens,
   expiryFromAccessToken,
   saveTokens,
 });

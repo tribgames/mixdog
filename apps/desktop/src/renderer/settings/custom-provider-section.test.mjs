@@ -56,7 +56,10 @@ function mount(t, { calls, handlers = {}, api = [BUILTIN, CUSTOM] } = {}) {
   return { render, confirms };
 }
 
-const button = (label) => [...document.querySelectorAll('button')].find((el) => (el.getAttribute('aria-label') || el.textContent.trim()) === label);
+const button = (label) =>
+  [...document.querySelectorAll('button')].find(
+    (el) => (el.getAttribute('aria-label') || el.textContent.trim()) === label
+  );
 const click = (el) => act(async () => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
 async function type(el, value) {
   const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement : window.HTMLInputElement;
@@ -66,7 +69,11 @@ async function type(el, value) {
     el.dispatchEvent(new window.Event('change', { bubbles: true }));
   });
 }
-const field = (label) => document.getElementById(document.querySelector(`label`) && [...document.querySelectorAll('label')].find((l) => l.textContent === label).htmlFor);
+const field = (label) =>
+  document.getElementById(
+    document.querySelector(`label`) &&
+      [...document.querySelectorAll('label')].find((l) => l.textContent === label).htmlFor
+  );
 const customForm = () => document.querySelector('form.settings-custom-provider-form');
 const submit = () =>
   act(async () => customForm().dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
@@ -77,7 +84,9 @@ test('custom section ends the list with a registration row, a popup and separate
   await render();
   const headings = [...document.querySelectorAll('section h3')].map((h) => h.textContent);
   assert.equal(headings.at(-1), 'Custom providers');
-  const apiGroup = [...document.querySelectorAll('section')].find((s) => s.querySelector('h3')?.textContent === 'API-key providers');
+  const apiGroup = [...document.querySelectorAll('section')].find(
+    (s) => s.querySelector('h3')?.textContent === 'API-key providers'
+  );
   assert.ok(!apiGroup.textContent.includes('Acme'));
   const section = [...document.querySelectorAll('section')].at(-1);
   assert.ok(section.textContent.includes('Acme'));
@@ -88,14 +97,20 @@ test('custom section ends the list with a registration row, a popup and separate
   assert.ok(add.querySelector('svg'));
   assert.equal([...section.querySelectorAll('button')][0], add);
   const cards = [...section.querySelectorAll(':scope > .settings-group-body')];
-  assert.deepEqual(cards.map(card => card.querySelector('.settings-resource-title b').textContent), ['Add custom provider', 'Acme', 'Second']);
+  assert.deepEqual(
+    cards.map((card) => card.querySelector('.settings-resource-title b').textContent),
+    ['Add custom provider', 'Acme', 'Second']
+  );
   await click(add);
   assert.ok(add.disabled);
   assert.ok(customForm());
   const dialog = document.querySelector('[role=dialog]');
   assert.equal(dialog.getAttribute('aria-modal'), 'true');
   assert.ok(dialog.contains(customForm()));
-  assert.equal(cards.some(card => card.contains(customForm())), false);
+  assert.equal(
+    cards.some((card) => card.contains(customForm())),
+    false
+  );
   await click(button('Cancel'));
   assert.equal(add.disabled, false);
   assert.equal(customForm(), null);
@@ -110,18 +125,22 @@ test('form offers the three formats and masks the API key', async (t) => {
   const format = button('API format');
   await click(format);
   const options = [...document.querySelectorAll('[role=option]')].map((o) => o.textContent);
-  assert.deepEqual(options, [
-    'OpenAI Chat Completions',
-    'OpenAI Responses',
-    'Anthropic Messages',
-  ]);
+  assert.deepEqual(options, ['OpenAI Chat Completions', 'OpenAI Responses', 'Anthropic Messages']);
   assert.equal(document.querySelector('[role=option][aria-selected=true]').textContent, 'OpenAI Chat Completions');
   await click(button('OpenAI Responses'));
   assert.equal(format.textContent, 'OpenAI Responses');
   assert.equal(document.querySelector('[role=listbox]'), null);
   await click(format);
-  await act(async () => document.querySelector('[role=listbox]').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'End', bubbles: true })));
-  await act(async () => document.querySelector('[role=listbox]').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  await act(async () =>
+    document
+      .querySelector('[role=listbox]')
+      .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+  );
+  await act(async () =>
+    document
+      .querySelector('[role=listbox]')
+      .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  );
   assert.equal(format.textContent, 'Anthropic Messages');
   await type(field('Display name'), 'Manual');
   await type(field('Base URL'), 'https://manual.test/v1');
@@ -133,7 +152,10 @@ test('form offers the three formats and masks the API key', async (t) => {
   assert.equal(customForm().querySelector('textarea'), null);
   assert.equal(button('Discover models'), undefined);
   const footer = document.querySelector('[role=dialog] > footer');
-  assert.deepEqual([...footer.querySelectorAll('button')].map(el => el.textContent), ['Test connection', 'Cancel', 'Save']);
+  assert.deepEqual(
+    [...footer.querySelectorAll('button')].map((el) => el.textContent),
+    ['Test connection', 'Cancel', 'Save']
+  );
   assert.equal(footer.querySelector('[type=submit]').form, customForm());
 });
 
@@ -161,7 +183,7 @@ test('registration saves without model IDs and relies on the shared catalog refr
     apiKey: 'sk-secret',
     models: [],
   });
-  assert.equal(calls.filter(call => call.capability === 'discoverCustomProviderModels').length, 1);
+  assert.equal(calls.filter((call) => call.capability === 'discoverCustomProviderModels').length, 1);
   assert.equal(customForm(), null);
 });
 
@@ -182,13 +204,20 @@ test('discovery failure on save blocks save, opens manual entry and categorizes 
   for (const [next, pattern, open] of [
     [{ kind: 'authentication', status: 401, message: 'x' }, /Check the API key/, false],
     [{ kind: 'request', message: 'timeout' }, /Model discovery failed: timeout.*retry/, false],
-    [{ kind: 'unavailable', status: 404, message: 'x' }, /could not be loaded \(HTTP 404\).*add model IDs manually/, true],
+    [
+      { kind: 'unavailable', status: 404, message: 'x' },
+      /could not be loaded \(HTTP 404\).*add model IDs manually/,
+      true,
+    ],
   ]) {
     error = next;
     await submit();
     assert.match(alerts(), pattern);
     assert.equal(document.querySelector('details').open, open);
-    assert.equal(calls.some((c) => c.capability === 'saveCustomProvider'), false);
+    assert.equal(
+      calls.some((c) => c.capability === 'saveCustomProvider'),
+      false
+    );
   }
 });
 
@@ -210,7 +239,10 @@ test('empty discovery on save asks for manual models; manual models are saved wi
   await click(button('Remove m-2'));
   calls.length = 0;
   await submit();
-  assert.equal(calls.some((c) => c.capability === 'discoverCustomProviderModels'), false);
+  assert.equal(
+    calls.some((c) => c.capability === 'discoverCustomProviderModels'),
+    false
+  );
   assert.deepEqual(calls.find((c) => c.capability === 'saveCustomProvider').args[0].models, [{ id: 'm-1' }]);
 });
 
@@ -252,12 +284,21 @@ test('editing shows explicit models expanded and preserves metadata', async (t) 
   await click(button('Add model'));
   await submit();
   assert.deepEqual(calls.find((c) => c.capability === 'saveCustomProvider').args[0].models, [meta, { id: 'extra' }]);
-  assert.equal(calls.some((c) => c.capability === 'discoverCustomProviderModels'), false);
+  assert.equal(
+    calls.some((c) => c.capability === 'discoverCustomProviderModels'),
+    false
+  );
 });
 
 test('visible explicit models are still submitted after the URL changes, and editing the draft clears errors', async (t) => {
   const calls = [];
-  const { render } = mount(t, { calls, handlers: { saveCustomProvider: (i) => i, testCustomProvider: () => ({ ok: false, phase: 'discovery', error: { kind: 'empty' } }) } });
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      saveCustomProvider: (i) => i,
+      testCustomProvider: () => ({ ok: false, phase: 'discovery', error: { kind: 'empty' } }),
+    },
+  });
   await render();
   await click(button('Edit'));
   await type(field('Base URL'), 'https://other.test/v1');
@@ -268,7 +309,10 @@ test('visible explicit models are still submitted after the URL changes, and edi
   await type(document.querySelector('details input'), 'z');
   assert.equal(alerts(), '');
   await submit();
-  assert.deepEqual(calls.find((c) => c.capability === 'saveCustomProvider').args[0].models, [...CUSTOM.models, { id: 'z' }]);
+  assert.deepEqual(calls.find((c) => c.capability === 'saveCustomProvider').args[0].models, [
+    ...CUSTOM.models,
+    { id: 'z' },
+  ]);
 });
 
 test('failed connection test and save show errors without reporting success', async (t) => {
@@ -340,15 +384,24 @@ test('edit keeps secret blank, sends id; delete is confirmed', async (t) => {
   assert.deepEqual(save.models, CUSTOM.models);
 
   await click(button('Delete'));
-  assert.equal(calls.some((c) => c.capability === 'removeCustomProvider'), false);
+  assert.equal(
+    calls.some((c) => c.capability === 'removeCustomProvider'),
+    false
+  );
   assert.equal(confirms.length, 1);
   await confirms[0].onConfirm();
   assert.deepEqual(calls.at(-1), { capability: 'removeCustomProvider', args: ['custom:acme'] });
 });
 
 test('custom providers invalidate caches and feed model selection', () => {
-  assert.deepEqual(sidebarReferenceKeysForMutation('saveCustomProvider'), sidebarReferenceKeysForMutation('forgetProviderAuth'));
-  assert.deepEqual(sidebarReferenceKeysForMutation('removeCustomProvider'), sidebarReferenceKeysForMutation('forgetProviderAuth'));
+  assert.deepEqual(
+    sidebarReferenceKeysForMutation('saveCustomProvider'),
+    sidebarReferenceKeysForMutation('forgetProviderAuth')
+  );
+  assert.deepEqual(
+    sidebarReferenceKeysForMutation('removeCustomProvider'),
+    sidebarReferenceKeysForMutation('forgetProviderAuth')
+  );
   const models = [
     { provider: 'custom:acme', model: 'acme-1' },
     { provider: 'custom:off', model: 'x' },

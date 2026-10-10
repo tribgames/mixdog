@@ -6,7 +6,7 @@ import { t } from './i18n';
 import { copyTextToClipboard } from './text-format';
 import type { DesktopBrowserPageFrame } from '../shared/contract';
 import { browserInputNotice } from '../shared/browser-input-policy';
-import { browserPageTransition } from './browser-page-recovery';
+import { browserCaptureTransient, browserPageTransition } from './browser-page-recovery';
 import { createBrowserDisplayHealth } from './browser-display-health';
 import { createBrowserPresentationLoop } from './browser-presentation-loop';
 import { createBrowserPixelPresentation } from './browser-pixel-presentation';
@@ -109,6 +109,7 @@ export const IsolatedBrowserView = forwardRef<
       failed(error) {
         const node = element.current;
         setFailure(health.failed(error, Date.now(), `${node?.clientWidth}:${node?.clientHeight}`));
+        if (browserCaptureTransient(error)) return 250;
         return browserPageTransition(error, 'capture') ? 1000 / 60 : 1000;
       },
     });
@@ -234,6 +235,7 @@ export const IsolatedBrowserView = forwardRef<
     };
   }, [active, native, client, sessionId]);
   // A new page frame (tab switch, page dialog) can change what may be shown.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new frame is the trigger; the body only calls the latest recheck.
   useEffect(() => recheckNative.current(), [frame]);
 
   useEffect(() => {
@@ -265,6 +267,7 @@ export const IsolatedBrowserView = forwardRef<
   }, [active, client, presentation, frame?.documentId, nativeShown]);
   return (
     <div ref={element} className={`${className || ''} browser-isolated-view`}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the pointer surface forwards raw page input; keyboard input goes through the textarea below. */}
       <div
         ref={surface}
         className="browser-isolated-surface"

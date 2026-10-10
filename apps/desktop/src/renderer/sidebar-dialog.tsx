@@ -11,6 +11,7 @@ import { acquireTitleBarDim } from './titlebar-dim';
  *  closes it. */
 function dialogLayerPortal(className: string, host: HTMLElement, onClose: () => void, children: ReactNode) {
   return createPortal(
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim container; backdrop press and Escape dismissal are delegated here for the dialog inside
     <div
       className={className}
       onMouseDown={(event) => {

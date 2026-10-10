@@ -43,6 +43,26 @@ test('a cursor from before a daemon restart falls below a new terminal epoch', (
   assert.deepEqual(after.readSince(before.cursor), { text: 'fresh', cursor: after.cursor, reset: true });
 });
 
+test('concurrent ensure for one terminal id spawns exactly one PTY', async () => {
+  const manager = new TerminalManager();
+  let spawns = 0;
+  manager.loadPtyBindings = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return {
+      spawn: () => {
+        spawns += 1;
+        return { onData() {}, onExit() {}, write() {}, resize() {}, kill() {} };
+      },
+    };
+  };
+  const id = 'session-terminal:abc';
+  const results = await Promise.all(Array.from({ length: 7 }, () => manager.ensure(id, null)));
+  assert.equal(spawns, 1);
+  assert.ok(results.every((r) => r.id === id));
+  assert.equal((await manager.ensure(id, null)).id, id);
+  assert.equal(spawns, 1);
+});
+
 test('sessionTabs lists only one session in tab order and snapshot is read-only', () => {
   const manager = new TerminalManager();
   const entry = (shell, disposed = false, cwd = null) => {

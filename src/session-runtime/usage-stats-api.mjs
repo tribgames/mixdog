@@ -19,8 +19,19 @@ const quotaText = (value) => (typeof value === 'string' ? value.slice(0, 200) : 
 
 // What the ledger cannot know: each subscription account's label and place in
 // its provider's account pool, the order the account picker lists them in.
-function labelQuotaHistory(history, accountPool) {
+function labelQuotaHistory(history, accountPool, accountEmails) {
   const rosters = new Map();
+  const emails = new Map();
+  const emailsOf = (provider) => {
+    if (!emails.has(provider)) {
+      try {
+        emails.set(provider, accountEmails(provider) || {});
+      } catch {
+        emails.set(provider, {});
+      }
+    }
+    return emails.get(provider);
+  };
   const rosterOf = (provider) => {
     if (!ACCOUNT_PROVIDERS.includes(provider)) return [];
     if (!rosters.has(provider)) {
@@ -37,7 +48,19 @@ function labelQuotaHistory(history, accountPool) {
     subscriptions: (history.subscriptions || []).map((row) => {
       const roster = rosterOf(row.provider);
       const rank = roster.findIndex((entry) => entry.id === row.account);
-      return { ...row, accountLabel: roster[rank]?.label || '', accountRank: rank < 0 ? null : rank };
+      const email = rank < 0 ? '' : quotaText(emailsOf(row.provider)[row.account]);
+      // History of an account that left the roster stays stored, but the
+      // picker must not offer it. The implicit `default` account of a provider
+      // with no stored roster is still current.
+      const inRoster =
+        !ACCOUNT_PROVIDERS.includes(row.provider) || rank >= 0 || (row.account === 'default' && !roster.length);
+      return {
+        ...row,
+        accountLabel: roster[rank]?.label || '',
+        accountRank: rank < 0 ? null : rank,
+        accountInRoster: inRoster,
+        ...(email ? { accountEmail: email } : {}),
+      };
     }),
   };
 }
@@ -122,6 +145,8 @@ export function createUsageStatsApi({
   ledger = getUsageLedger,
   importHistory = importUsageHistory,
   accountPool = readProviderAccountPool,
+  // provider -> { [accountId]: email } for the picker's secondary text.
+  accountEmails = () => ({}),
   getSessionId = () => null,
 } = {}) {
   let importing = null;
@@ -216,7 +241,7 @@ export function createUsageStatsApi({
         toMs: period?.toMs ?? null,
         now,
       });
-      return labelQuotaHistory(period ? { ...history, period } : history, accountPool);
+      return labelQuotaHistory(period ? { ...history, period } : history, accountPool, accountEmails);
     },
   };
 }

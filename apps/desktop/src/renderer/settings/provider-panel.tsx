@@ -151,13 +151,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
           <ListEmpty text={loading ? t('Loading providers…') : t('No API-key providers available.')} />
         )}
       </Group>
-      <CustomProvidersSection
-        providers={customProviders}
-        loading={loading}
-        run={run}
-        confirm={confirm}
-        busy={busy}
-      />
+      <CustomProvidersSection providers={customProviders} loading={loading} run={run} confirm={confirm} busy={busy} />
     </>
   );
 }
@@ -312,6 +306,7 @@ export function OAuthControl({
       )}
       {!flow && error && <ErrorNotice error={error} />}
       {flow && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
         <div
           className="settings-oauth-layer"
           onMouseDown={(event) => {
@@ -339,6 +334,7 @@ export function OAuthControl({
                 type="button"
                 aria-label={t(providerId === 'cursor-oauth' ? 'Close Cursor OAuth' : 'Close OAuth login')}
                 data-settings-nested-close
+                // biome-ignore lint/a11y/noAutofocus: the dialog's close button takes focus on open.
                 autoFocus
                 onClick={close}
               >

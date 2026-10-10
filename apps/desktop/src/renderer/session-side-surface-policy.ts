@@ -2,6 +2,7 @@ import {
   PANE_DOCK_BROWSER_SURFACE,
   PANE_DOCK_DIFF_SURFACE,
   PANE_DOCK_FILE_SURFACE,
+  PANE_DOCK_FILES_SURFACE,
   PANE_DOCK_TERMINAL_SURFACE,
   type PaneSideDockDiff,
   type PaneSideDockEntry,
@@ -100,7 +101,12 @@ export function sessionSideDockEntryForSession(
       return base;
     return { ...base, open: true, surface: PANE_DOCK_DIFF_SURFACE, diff: sessionDiff };
   }
-  if (base.surface === PANE_DOCK_DIFF_SURFACE || base.surface === PANE_DOCK_FILE_SURFACE) return base;
+  if (
+    base.surface === PANE_DOCK_DIFF_SURFACE ||
+    base.surface === PANE_DOCK_FILE_SURFACE ||
+    base.surface === PANE_DOCK_FILES_SURFACE
+  )
+    return base;
   if (sessionId && surface) {
     if (base.open && base.surface === surface) return base;
     return { ...base, open: true, surface };

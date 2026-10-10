@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { renameSync } from 'node:fs';
+import { sameAccountIdentity } from '../../runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs';
 import {
   AGENT_PROVIDER_ENV,
   SECRET_ACCOUNTS,
@@ -55,6 +57,7 @@ import {
   readProviderAccountPool,
   registerProviderAccount,
   newProviderAccountId,
+  providerAccountPath,
   changeProviderAccounts,
   removeProviderAccount,
   clearProviderAccountQuotaState,
@@ -466,9 +469,33 @@ function assertOAuthLoginOptions(options) {
 // land leaves THIS account unauthenticated while every already-connected one
 // stays valid. Registration and the enabled flag therefore move together, on
 // success only; a failed attempt leaves the stored config untouched.
-function settleOAuthLogin({ cfgMod, id, accountId, includeDefault, label, inAccount, oauth }, result) {
+// The roster account (other than the implicit `default` one, whose credential
+// lives outside the per-account store) that the fresh sign-in is the same real
+// account as, or null.
+function rosterAccountForIdentity(id, oauth, newAccountId, auth) {
+  const identity = { id: auth.identityId, email: auth.email };
+  const match = readProviderAccountPool(id).accounts.find((row) => {
+    if (row.id === 'default' || row.id === newAccountId) return false;
+    const existing = withProviderAccount(id, row.id, () => describeOAuthProvider(oauth));
+    return sameAccountIdentity(identity, { id: existing.identityId, email: existing.email });
+  });
+  return match?.id || null;
+}
+
+function settleOAuthLogin(
+  { cfgMod, id, accountId: signedInId, addAccount, includeDefault, label, inAccount, oauth },
+  result
+) {
   const auth = inAccount(() => describeOAuthProvider(oauth));
+  let accountId = signedInId;
   if (auth.authenticated) {
+    // Signing the same real account in again replaces that roster entry's
+    // credentials (label and order stay) instead of minting a second id.
+    const existingId = addAccount ? rosterAccountForIdentity(id, oauth, signedInId, auth) : null;
+    if (existingId) {
+      renameSync(providerAccountPath(id, signedInId), providerAccountPath(id, existingId));
+      accountId = existingId;
+    }
     registerProviderAccount(id, accountId, { includeDefault, label });
     // A re-connect can follow a re-created subscription under the same
     // account id: start it from no recorded quota rather than from the
@@ -481,6 +508,7 @@ function settleOAuthLogin({ cfgMod, id, accountId, includeDefault, label, inAcco
     type: 'oauth',
     authenticated: Boolean(auth.authenticated),
     status: auth.status || null,
+    accountId,
     result,
   };
 }
@@ -506,8 +534,26 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   }
   const started = await inAccount(() => oauth.begin());
   let cancelled = false;
-  const login = { cfgMod, id, accountId, includeDefault, label: options.label, inAccount, oauth };
-  const finish = async (result) => (!result || cancelled ? null : settleOAuthLogin(login, result));
+  const login = {
+    cfgMod,
+    id,
+    accountId,
+    addAccount: options.addAccount === true,
+    includeDefault,
+    label: options.label,
+    inAccount,
+    oauth,
+  };
+  // The callback and a pasted code can both deliver the same sign-in; it must
+  // settle once, because settling may move the credential to an existing id.
+  let settled = null;
+  const finish = async (result) => {
+    if (!result || cancelled) return null;
+    if (settled) return settled;
+    const outcome = settleOAuthLogin(login, result);
+    if (outcome.authenticated) settled = outcome;
+    return outcome;
+  };
   return {
     provider: id,
     type: 'oauth',
@@ -552,6 +598,7 @@ export function listProviderAccounts(provider) {
         usage: row.usage || null,
         blockedUntil: row.blockedUntil || null,
         ...(identity ? { identity } : {}),
+        ...(typeof auth.email === 'string' && auth.email.trim() ? { email: auth.email.trim() } : {}),
       };
     }),
   };

@@ -115,6 +115,32 @@ for (const action of ['rename', 'archive']) {
   });
 }
 
+test('favoriteSession applies optimistically, calls the bridge and rolls back on failure', async (t) => {
+  const calls = [];
+  const gate = Promise.withResolvers();
+  const f = await fixture(t, {
+    setSessionFavorite: (id, favorite) => {
+      calls.push([id, favorite]);
+      return gate.promise;
+    },
+  });
+  let pending;
+  await act(async () => {
+    pending = f
+      .state()
+      .favoriteSession('session-a', true)
+      .catch((error) => error);
+  });
+  assert.equal(f.state().sessions.find((entry) => entry.id === 'session-a').favorite, true);
+  await act(async () => {
+    gate.reject(new Error('favorite failed'));
+    await pending;
+  });
+  assert.deepEqual(calls, [['session-a', true]]);
+  assert.notEqual(f.state().sessions.find((entry) => entry.id === 'session-a').favorite, true);
+  assert.equal(f.state().error, 'favorite failed');
+});
+
 for (const navigate of [false, true]) {
   test(`session deletion ${navigate ? 'preserves a newer navigation' : 'opens a draft when its session is still selected'}`, async (t) => {
     const gate = Promise.withResolvers();

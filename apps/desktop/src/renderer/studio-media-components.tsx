@@ -247,6 +247,7 @@ export function StudioDetailViewer({
     ],
   ];
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click-to-dismiss; Escape handling closes the dialog from the keyboard
     <div
       className="studio-detail"
       role="dialog"
@@ -254,6 +255,8 @@ export function StudioDetailViewer({
       data-details={detailsHidden ? 'hidden' : undefined}
       onClick={onClose}
     >
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: the click only stops propagation to the backdrop */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the click only stops propagation to the backdrop */}
       <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
         <div
           className="studio-detail-stage"
@@ -264,6 +267,7 @@ export function StudioDetailViewer({
           }}
         >
           {asset.kind === 'video' ? (
+            // biome-ignore lint/a11y/useMediaCaption: generated clips have no caption track
             <video
               key={videoKey}
               src={videoSrc}
@@ -347,6 +351,7 @@ export function StudioDetailViewer({
                   </button>
                 </span>
               </div>
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: pointer shortcut that expands the prompt; the full text remains readable without it */}
               <p
                 ref={promptNode}
                 className="studio-detail-prompt"

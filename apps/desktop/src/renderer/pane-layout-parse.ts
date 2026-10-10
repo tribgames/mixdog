@@ -51,6 +51,13 @@ function parseWorkspaceSelection(value: unknown): WorkspaceSelection | null {
       const cwd = text('cwd');
       return { kind: 'terminal', id, ...(cwd ? { cwd } : {}) };
     }
+    case 'browser': {
+      const id = text('id');
+      const url = text('url');
+      if (!id || !url) return null;
+      const title = text('title');
+      return { kind: 'browser', id, url, ...(title ? { title } : {}) };
+    }
     case 'pull-request': {
       const project = text('project');
       const number = Number(record.number);
@@ -109,11 +116,13 @@ export function parsePaneLayout(value: unknown): PaneNode | null {
       const tabs: WorkspaceSelection[] = [];
       const keys = new Set<string>();
       for (const value of rawTabs) {
-        // Browser Use moved from a workspace tab to a session-owned dock.
-        // Drop only that retired selection while preserving the rest of the layout.
-        if (value && typeof value === 'object' && (value as Record<string, unknown>).kind === 'browser') continue;
         const selection = parseWorkspaceSelection(value);
-        if (!selection) return null;
+        if (!selection) {
+          // Browser Use once lived in a retired id-less workspace tab. Drop
+          // only that selection while preserving the rest of the layout.
+          if (value && typeof value === 'object' && (value as Record<string, unknown>).kind === 'browser') continue;
+          return null;
+        }
         const key = navigationKey(selection);
         if (keys.has(key)) return null;
         keys.add(key);

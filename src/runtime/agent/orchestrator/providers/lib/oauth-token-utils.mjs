@@ -14,6 +14,48 @@ export function expiryFromAccessToken(token) {
   return Number.isFinite(exp) && exp > 0 ? exp * 1000 : 0;
 }
 
+// The email claim of the id_token / access token a login or refresh already
+// returned; opaque tokens simply yield nothing.
+export function emailFromJwts(...tokens) {
+  for (const token of tokens) {
+    const email = decodeJwtPayload(token)?.email;
+    if (typeof email === 'string' && email.trim()) return email.trim();
+  }
+  return '';
+}
+
+const cleanIdentityText = (value) => (typeof value === 'string' ? value.trim().slice(0, 200) : '');
+
+/**
+ * The real account behind a credential: `id` is the provider's stable account
+ * or user id, `email` its human label. Null when the credential names neither.
+ */
+export function normalizeAccountIdentity(raw) {
+  const id = cleanIdentityText(raw?.id);
+  const email = cleanIdentityText(raw?.email);
+  const organizationId = cleanIdentityText(raw?.organizationId);
+  if (!id && !email) return null;
+  return { ...(id ? { id } : {}), ...(email ? { email } : {}), ...(organizationId ? { organizationId } : {}) };
+}
+
+/** Identity keys a provider's describe() reports (never tokens). */
+export function accountIdentityFields(identity) {
+  const normalized = normalizeAccountIdentity(identity);
+  return {
+    ...(normalized?.email ? { email: normalized.email } : {}),
+    ...(normalized?.id ? { identityId: normalized.id } : {}),
+  };
+}
+
+/** Stable ids decide when both sides have one; email only when an id is missing. */
+export function sameAccountIdentity(a, b) {
+  const left = normalizeAccountIdentity(a);
+  const right = normalizeAccountIdentity(b);
+  if (!left || !right) return false;
+  if (left.id && right.id) return left.id === right.id;
+  return Boolean(left.email && right.email && left.email.toLowerCase() === right.email.toLowerCase());
+}
+
 // expires_at may arrive as a unix number (seconds or milliseconds) or an
 // ISO-8601 string. Normalize to epoch milliseconds; 0 means unknown.
 export function normalizeExpiresAtMs(value) {

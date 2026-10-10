@@ -72,6 +72,7 @@ export function ComposerPalette({
   }, [active, anchor, panel]);
   if (!active) return null;
   return createPortal(
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is a caller-supplied prop (menu/listbox) and the label names that popup
     <div ref={panel} id={id} className={`slash-palette ${className}`.trim()} role={role} aria-label={label}>
       {children}
     </div>,

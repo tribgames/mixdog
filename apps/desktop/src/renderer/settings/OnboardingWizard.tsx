@@ -289,6 +289,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     };
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the handler reaches state only through refs and stable setters, so one registration serves every render (requestSkip is a per-render closure).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const dialog = dialogRef.current;
@@ -324,6 +325,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
   const meta = STEPS[step];
 
   return createPortal(
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss asks for skip confirmation; keyboard dismissal is the document Escape handler.
     <div
       ref={layerRef}
       className="onboarding-layer"
@@ -465,6 +467,7 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: { onCancel(): void;
   // by the same amount the DOM does.
   useEffect(() => acquireTitleBarDim(), []);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's cancel button and Escape.
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
@@ -611,7 +614,9 @@ function ProviderStep({
                   placeholder={provider.authenticated ? t('Replace API key') : t('API key')}
                   required
                 />
-                <button disabled={Boolean(pending)}>{provider.authenticated ? t('Replace') : t('Connect')}</button>
+                <button type="submit" disabled={Boolean(pending)}>
+                  {provider.authenticated ? t('Replace') : t('Connect')}
+                </button>
                 {Boolean(provider.stored || (!provider.env && provider.authenticated)) && (
                   <button
                     type="button"
@@ -1064,6 +1069,7 @@ function ProfileStep({
             }}
           />
         </label>
+        {/* biome-ignore lint/a11y/noLabelWithoutControl: wraps the custom OpenSelect, which carries its own aria-label. */}
         <label>
           <span>
             <b>{t('Experience level')}</b>
@@ -1095,6 +1101,7 @@ function ProfileStep({
             }}
           />
         </label>
+        {/* biome-ignore lint/a11y/noLabelWithoutControl: wraps the custom OpenSelect, which carries its own aria-label. */}
         <label>
           <span>
             <b>{t('Language')}</b>

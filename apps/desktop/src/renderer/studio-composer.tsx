@@ -59,6 +59,14 @@ export function StudioComposer({
   const draggedReferenceIndex = useRef<number | null>(null);
   const referenceDragJustEnded = useRef(false);
   const [referenceDrop, setReferenceDrop] = useState<ReferenceDrop | null>(null);
+  // Keyed by content, so a reorder moves each chip instead of repainting
+  // another image into it; a repeated image counts its earlier copies.
+  const seenReferences = new Map<string, number>();
+  const referenceKeys = references.map((reference) => {
+    const copies = seenReferences.get(reference.url) ?? 0;
+    seenReferences.set(reference.url, copies + 1);
+    return copies ? `${reference.url}#${copies}` : reference.url;
+  });
 
   const finishReferenceDrag = () => {
     draggedReferenceIndex.current = null;
@@ -71,10 +79,12 @@ export function StudioComposer({
   return (
     <div className="studio-composer" data-dropping={dropping ? 'true' : undefined}>
       {references.length > 0 && (
+        // biome-ignore lint/a11y/useAriaPropsSupportedByRole: label names the reference group without adding a role, which would change screen-reader semantics
         <div className="studio-refs" aria-label={t('Reference images')}>
           {references.map((reference, index) => (
+            // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop reordering surface; the remove control inside is the keyboard path
             <span
-              key={`${reference.url}-${index}`}
+              key={referenceKeys[index]}
               className="studio-ref"
               draggable
               data-dragging={referenceDrop?.source === index ? 'true' : undefined}

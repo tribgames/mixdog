@@ -301,6 +301,7 @@ export function StudioRouteMenu({
   // Pretendard splits Hangul into lazy unicode-range subsets: warm the exact
   // menu strings at mount so a first open never paints fallback glyphs and
   // swaps mid-animation (chat-composer parity).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate mount-only warm-up; later label changes must not re-run the font load
   useEffect(() => {
     try {
       void document.fonts.load(

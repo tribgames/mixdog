@@ -39,6 +39,7 @@ import {
 import { COMPOSER_PROJECT_PATHS_MIME } from './composer-support';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { openEditorFileExternally } from './editor-external-file';
 import { useMobileBack } from './mobile-back';
 import { scheduleEditorPanePrefetch } from './lazy-widgets';
 import { SetiFileIcon } from './SetiFileIcon';
@@ -124,6 +125,7 @@ function explorerContextMenu({
       {options?.hint && <span className="dock-file-menu-key">{options.hint}</span>}
     </button>
   );
+  // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a decorative <hr> inside the menu is not focusable; hiding it leaves the menu items as the only announced content.
   const sep = (id: string) => <hr key={id} className="dock-file-menu-sep" aria-hidden="true" />;
   return createPortal(
     <div
@@ -173,7 +175,9 @@ function explorerContextMenu({
       ) : (
         <>
           {!multi && !menu.isDir && item('Open', () => openFile(menu.rel))}
-          {!multi && !menu.isDir && item('Open in default app', () => void api?.openFilePath?.(projectPath, menu.rel))}
+          {!multi &&
+            !menu.isDir &&
+            item('Open in default app', () => void openEditorFileExternally(projectPath, menu.rel))}
           {!multi && menu.isDir && item('New file…', () => beginCreate(false, menu.rel))}
           {!multi && menu.isDir && item('New folder…', () => beginCreate(true, menu.rel))}
           {!multi && sep('row-open')}
@@ -311,6 +315,15 @@ function explorerTreeKeyDown(
   }
 }
 
+export interface ExplorerControls {
+  refresh(): void;
+  collapseAll(): void;
+  newFile(): void;
+  newFolder(): void;
+  refreshing: boolean;
+  canCollapseAll: boolean;
+}
+
 export const FilesRootPane = memo(function FilesRootPane({
   projectPath,
   gitStatus,
@@ -324,6 +337,9 @@ export const FilesRootPane = memo(function FilesRootPane({
   showRootHeader = false,
   rootLabel,
   headerSlot,
+  revealDir = false,
+  revealNonce = 0,
+  onControls,
 }: {
   projectPath: string;
   gitStatus: DesktopGitStatus | null;
@@ -339,6 +355,12 @@ export const FilesRootPane = memo(function FilesRootPane({
   showRootHeader?: boolean;
   rootLabel?: string;
   headerSlot?: HTMLElement | null;
+  /** The reveal target is a folder: after its ancestors open, it expands too. */
+  revealDir?: boolean;
+  /** Re-reveals the same target when it changes. */
+  revealNonce?: number;
+  /** Hands a host header (DockHeaderRow) the tree's own actions. */
+  onControls?(controls: ExplorerControls): void;
 }) {
   const api = window.mixdogDesktop;
   // Files and Source Control consume the same project-scoped Git snapshot so
@@ -388,6 +410,8 @@ export const FilesRootPane = memo(function FilesRootPane({
       setMutationError('');
     },
   });
+  const expandDirRef = useRef(expandDir);
+  expandDirRef.current = expandDir;
   /** Single-row selection: range anchor, selection and focus land together. */
   const selectOnly = (rel: string) => {
     anchorRel.current = rel;
@@ -446,16 +470,21 @@ export const FilesRootPane = memo(function FilesRootPane({
   // active editor file step by step; each load/expand re-runs this effect
   // until the row exists, then select + scroll without stealing focus.
   const revealTarget = useRef('');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revealNonce is the deliberate trigger - a repeat reveal of the same file must re-arm the target.
   useEffect(() => {
     if (!active || !projectPath) return;
     const prefix = `file:${projectPath}:`;
     if (!activeFileKey.startsWith(prefix)) return;
     const rel = activeFileKey.slice(prefix.length).replace(/\\/g, '/');
     if (rel) revealTarget.current = rel;
-  }, [active, activeFileKey, projectPath]);
+  }, [active, activeFileKey, projectPath, revealNonce]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeFileKey and revealNonce re-run the stepwise reveal for a new target; selectOnly is re-created every render and only touches refs and stable setters.
   useEffect(() => {
     const rel = revealTarget.current;
     if (!rel || !active || editingRef.current) return;
+    // The root listing replaces the whole map when it lands, so a folder
+    // reveal waits for it instead of being wiped.
+    if (revealDir && !dirs.get('')?.entries) return;
     const step = explorerRevealStep(dirs, rel);
     if (step.kind === 'load') {
       load(step.rel);
@@ -470,13 +499,25 @@ export const FilesRootPane = memo(function FilesRootPane({
     revealTarget.current = '';
     if (step.kind === 'blocked') return;
     selectOnly(rel);
+    if (revealDir) expandDirRef.current(rel);
     window.requestAnimationFrame(() => {
       rowEls.current.get(rel)?.scrollIntoView?.({ block: 'nearest' });
     });
-  }, [active, activeFileKey, dirs, load, patch]);
+  }, [active, activeFileKey, dirs, load, patch, revealDir, revealNonce]);
+  // The host header drives the tree through one stable handle.
+  const latestControls = useRef<ExplorerControls | null>(null);
+  const controlsHandle = useRef({
+    refresh: () => void latestControls.current?.refresh(),
+    collapseAll: () => latestControls.current?.collapseAll(),
+    newFile: () => latestControls.current?.newFile(),
+    newFolder: () => latestControls.current?.newFolder(),
+  });
+  useEffect(() => {
+    onControls?.({ ...controlsHandle.current, refreshing, canCollapseAll });
+  }, [onControls, refreshing, canCollapseAll]);
   if (!projectPath) return <p className="utility-dock-empty">{t('Open a project to browse its files.')}</p>;
   const openFile = (rel: string, mode: 'preview' | 'pinned' = 'preview') =>
-    onOpenFile ? onOpenFile(projectPath, rel, mode) : void api?.openFilePath?.(projectPath, rel);
+    onOpenFile ? onOpenFile(projectPath, rel, mode) : void openEditorFileExternally(projectPath, rel);
   const absOf = (rel: string) => explorerAbsolutePath(projectPath, rel);
   const focusRow = (rel: string, options?: { extend?: boolean; keepSelection?: boolean }) => {
     if (options?.extend) {
@@ -682,6 +723,14 @@ export const FilesRootPane = memo(function FilesRootPane({
       .replace(/[\\/]+$/, '')
       .split(/[\\/]/)
       .at(-1) || projectPath;
+  latestControls.current = {
+    refresh: () => void refreshTree(),
+    collapseAll,
+    newFile: () => beginCreate(false),
+    newFolder: () => beginCreate(true),
+    refreshing,
+    canCollapseAll,
+  };
   const rootExpanded = Boolean(dirs.get('')?.expanded);
   const rootVisible = !showRootHeader || rootExpanded;
   const headerPortal =
@@ -874,7 +923,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         <span>{row.name}</span>
         {row.dir && gitDirs.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />}
         {!row.dir && badge && (
-          <em className="dock-file-badge" aria-label={t('Git status {{badge}}', { badge })}>
+          <em className="dock-file-badge" role="img" aria-label={t('Git status {{badge}}', { badge })}>
             {badge}
           </em>
         )}

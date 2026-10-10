@@ -61,6 +61,7 @@ export function useSessionDiffRefresh({
     },
     [active, sessionId]
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the trigger that forces a fresh diff read
   useEffect(() => {
     if (!active || !sessionId) {
       setState((previous) => (previous.loading ? { ...previous, loading: false } : previous));

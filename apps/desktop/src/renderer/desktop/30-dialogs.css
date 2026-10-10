@@ -188,24 +188,25 @@
 /* Cards drop their plate and keep only their hairline, so settings groups,
    usage tables/charts, dialog lists, tool output and notices all read as
    framed cards on whichever surface holds them. */
-:root :is(
-    .settings-group-body,
-    .core-memory-list,
-    .projects-memory-viewport,
-    .extensions-dialog-facts,
-    .extensions-item-list,
-    .usage-table-shell,
-    .stats-card,
-    .stats-mix,
-    .stats-trend,
-    .tool-panel,
-    .notice,
-    .approval-detail,
-    .approval-card dd code,
-    .turn-review-diff,
-    .studio-detail-block,
-    .studio-detail-block--prompt
-  ) {
+:root
+:is(
+  .settings-group-body,
+  .core-memory-list,
+  .projects-memory-viewport,
+  .extensions-dialog-facts,
+  .extensions-item-list,
+  .usage-table-shell,
+  .stats-card,
+  .stats-mix,
+  .stats-trend,
+  .tool-panel,
+  .notice,
+  .approval-detail,
+  .approval-card dd code,
+  .turn-review-diff,
+  .studio-detail-block,
+  .studio-detail-block--prompt
+) {
   background: var(--mx-item-surface);
 }
 .sidebar-loading-dialog {
@@ -675,12 +676,12 @@ html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panel
    왼쪽). Header and lists step together, so the trailing controls keep their
    shared axis. The phone drawer keeps 12px. */
 html:not([data-mixdog-mobile-tabs])
-  :is(
-    .sidebar.session-sidebar > .session-sidebar-scroll,
-    .session-sidebar-sessions > .session-sidebar-scroll,
-    .session-sidebar-launchers,
-    .session-sidebar .session-panel-header
-  ) {
+:is(
+  .sidebar.session-sidebar > .session-sidebar-scroll,
+  .session-sidebar-sessions > .session-sidebar-scroll,
+  .session-sidebar-launchers,
+  .session-sidebar .session-panel-header
+) {
   padding-inline: 8px;
 }
 /* The Agents dock draws its own title and list on the rail gutter; it takes

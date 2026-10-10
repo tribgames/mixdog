@@ -2,10 +2,17 @@ import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 
 let persisted;
+const dropped = [];
 mock.module('../tui-steering-persist.mjs', {
   namedExports: {
-    appendTuiSteeringPersist: () => persisted,
-    dropTuiSteeringPersist: () => Promise.resolve(),
+    appendTuiSteeringPersist: (_sessionId, entry) => {
+      entry.steeringPersistId = `ts_${entry.id}`;
+      return persisted;
+    },
+    dropTuiSteeringPersist: (sessionId, entries) => {
+      dropped.push([sessionId, entries.map((entry) => entry.steeringPersistId)]);
+      return Promise.resolve();
+    },
     drainTuiSteeringPersist: async () => [],
   },
 });
@@ -54,4 +61,14 @@ test('a steering prompt still queued is withdrawn and rejected when its durable 
   assert.deepEqual(f.pending, []);
   assert.deepEqual(f.state.queued, []);
   assert.deepEqual(f.flow.drainPendingSteering({ turnEpoch: 1 }), []);
+});
+
+test('a queued prompt restored to the draft drops its durable steering mirror', async () => {
+  const f = busyFlow();
+  persisted = Promise.resolve(true);
+  assert.equal(await f.flow.enqueue('take me back', { id: 'submit-3', awaitPersistence: true }), true);
+  dropped.length = 0;
+  const restored = f.flow.restoreQueued('', 'submit-3');
+  assert.equal(restored.count, 1);
+  assert.deepEqual(dropped, [['session-persistence', ['ts_submit-3']]]);
 });

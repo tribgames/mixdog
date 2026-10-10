@@ -79,6 +79,7 @@ function SessionUsageFooter({ usage, compactions }: { usage: unknown; compaction
   if (totals.outputTokensPerSecond != null)
     figures.push([t('Speed'), `${statsSpeed(totals.outputTokensPerSecond)} tok/s`]);
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the footer keeps its tag; the label names the session usage summary
     <footer className="context-session-usage" aria-label={t('Session usage')}>
       {figures.map(([label, value]) => (
         <span key={label}>

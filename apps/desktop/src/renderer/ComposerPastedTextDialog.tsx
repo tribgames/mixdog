@@ -58,6 +58,7 @@ export function ComposerPastedTextDialog({
           }}
         >
           <textarea
+            // biome-ignore lint/a11y/noAutofocus: the pasted-text dialog opens to edit the text, so focus goes to the field
             autoFocus
             aria-labelledby={titleId}
             rows={16}

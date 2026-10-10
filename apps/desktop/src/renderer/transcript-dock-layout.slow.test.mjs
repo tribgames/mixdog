@@ -123,9 +123,7 @@ async function geometry(page, key) {
       const box = row.getBoundingClientRect();
       return box.top >= view.top && box.bottom < dockBox.top;
     });
-    const row = key
-      ? document.querySelector('[data-timeline-key="' + key + '"]')
-      : visible;
+    const row = key ? document.querySelector(`[data-timeline-key="${key}"]`) : visible;
     const last = document.querySelector('[data-timeline-key="message-39"]');
     return {
       viewportHeight: view.height,
@@ -148,26 +146,36 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     build({
       stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
       outfile: 'transcript-dock-layout.js',
-      bundle: true, write: false, format: 'iife', jsx: 'automatic',
+      bundle: true,
+      write: false,
+      format: 'iife',
+      jsx: 'automatic',
       define: { 'process.env.NODE_ENV': '"production"' },
       loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
-      plugins: [{
-        name: 'unopened-lazy-surfaces',
-        setup(builder) {
-          // Exercise the actual review chunk, but retain Vite's lazy boundary
-          // for unopened editors/dialogs. Unexpected use remains a page error.
-          builder.onResolve({ filter: /.*/ }, (args) =>
-            args.kind === 'dynamic-import' && args.path !== './TurnReview'
-              ? { path: args.path, external: true }
-              : null
-          );
+      plugins: [
+        {
+          name: 'unopened-lazy-surfaces',
+          setup(builder) {
+            // Exercise the actual review chunk, but retain Vite's lazy boundary
+            // for unopened editors/dialogs. Unexpected use remains a page error.
+            builder.onResolve({ filter: /.*/ }, (args) =>
+              args.kind === 'dynamic-import' && args.path !== './TurnReview'
+                ? { path: args.path, external: true }
+                : null
+            );
+          },
         },
-      }],
+      ],
     }),
     build({
-      stdin: { resolveDir, loader: 'css', contents: '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";' },
+      stdin: {
+        resolveDir,
+        loader: 'css',
+        contents: '@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";',
+      },
       outfile: 'transcript-dock-layout.css',
-      bundle: true, write: false,
+      bundle: true,
+      write: false,
       loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
     }),
   ]);
@@ -184,20 +192,29 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
   for (const file of bundle.outputFiles.filter((file) => file.path.endsWith('.css'))) {
     await page.addStyleTag({ content: file.text });
   }
-  await page.addStyleTag({ content: `
+  await page.addStyleTag({
+    content: `
     #root { position: fixed; inset: 0; display: flex; container-type: size; }
     article { padding: 12px 20px; } article h3, article p, article pre { margin: 8px 0; }
     article table { border-spacing: 0; } article td { padding: 4px; }
     .composer textarea { height: 100%; }
-  ` });
+  `,
+  });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
 
-  for (const [width, height] of [[1280, 800], [640, 500], [390, 844]]) {
+  for (const [width, height] of [
+    [1280, 800],
+    [640, 500],
+    [390, 844],
+  ]) {
     await page.setViewport({ width, height });
-    await page.evaluate(({ width, height }) => {
-      document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', width < 500);
-      window.mountFixture('dock-' + width + '-' + height);
-    }, { width, height });
+    await page.evaluate(
+      ({ width, height }) => {
+        document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', width < 500);
+        window.mountFixture(`dock-${width}-${height}`);
+      },
+      { width, height }
+    );
     await settle(page);
     let before = await geometry(page);
     assert.equal(before.viewportHeight, height, 'the dock never reduces the scroll viewport');

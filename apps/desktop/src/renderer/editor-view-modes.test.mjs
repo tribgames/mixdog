@@ -55,7 +55,13 @@ test('SVG loads its image preview and its text source together; edits survive th
   const model = fakeModel('<svg/>');
   const writes = [];
   const api = {
-    previewProjectFile: async () => ({ kind: 'image', url: 'file:///a.svg', mtimeMs: 3, size: 6, mime: 'image/svg+xml' }),
+    previewProjectFile: async () => ({
+      kind: 'image',
+      url: 'file:///a.svg',
+      mtimeMs: 3,
+      size: 6,
+      mime: 'image/svg+xml',
+    }),
     readProjectFile: async () => ({ content: '<svg/>', mtimeMs: 3, binary: false, tooLarge: false, encoding: 'utf8' }),
     readEditorBackup: async () => null,
     writeEditorBackup: async () => undefined,

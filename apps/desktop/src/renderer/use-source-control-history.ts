@@ -67,6 +67,7 @@ export function useSourceControlHistory({
     },
     [active, api, query, projectPath, setError]
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectPath is the trigger that clears history state
   useEffect(() => {
     setHistory([]);
     historyRef.current = [];
@@ -77,6 +78,7 @@ export function useSourceControlHistory({
     setQuery('');
     setHasMore(false);
   }, [projectPath]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: query is the trigger that reloads the filtered history (loadHistory reads it too)
   useEffect(() => {
     if (!listing) return undefined;
     const timer = window.setTimeout(() => void loadHistory(true), historyRef.current.length ? 180 : 0);

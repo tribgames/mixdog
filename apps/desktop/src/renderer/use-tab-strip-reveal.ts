@@ -40,6 +40,7 @@ export function useTabStripReveal({
     }
   }, [activeKey, availableWidth, stripRef, tabNodes, targetWidth]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: signature is the trigger that re-reveals when the tab set changes
   useLayoutEffect(() => {
     reveal();
   }, [reveal, signature]);

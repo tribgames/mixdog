@@ -66,6 +66,7 @@ function PluginInstallDialog({
           name="source"
           placeholder="https://github.com/org/plugin or C:\path"
           required
+          // biome-ignore lint/a11y/noAutofocus: the dialog's only field takes focus on open.
           autoFocus
           disabled={busy}
         />

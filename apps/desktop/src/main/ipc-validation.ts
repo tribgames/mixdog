@@ -244,6 +244,10 @@ export function requiredString(value: unknown, name: string, maximum = 32_768): 
   return text;
 }
 
+export function requiredSessionContentQuery(value: unknown): string {
+  return requiredString(value, 'session search query', 1_024);
+}
+
 const CUSTOM_PROVIDER_KEYS = new Set(['id', 'name', 'protocol', 'baseURL', 'apiKey', 'models']);
 const CUSTOM_MODEL_KEYS = new Set(['id', 'name', 'contextWindow', 'maxOutputTokens']);
 const CUSTOM_PROTOCOLS = new Set(['openai-chat', 'openai-responses', 'anthropic']);
@@ -267,7 +271,8 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
     throw new TypeError('custom provider apiKey is invalid.');
   }
   if (input.models === undefined && modelsOptional) return input;
-  if (!Array.isArray(input.models) || input.models.length > 500) throw new TypeError('custom provider models are invalid.');
+  if (!Array.isArray(input.models) || input.models.length > 500)
+    throw new TypeError('custom provider models are invalid.');
   for (const model of input.models) {
     const row = plainRecord(model, 'custom provider model');
     requireAllowedKeys(row, CUSTOM_MODEL_KEYS, 'custom provider model');

@@ -384,7 +384,7 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   ],
   [['request_user_input'], questionsSubject],
   // "open · example.com/path": the scheme says nothing on a browser row.
-  [['browser', 'browser_devtools'], (_args, _path, fallback) => fallback.replace(/https?:\/\/(?:www\.)?/g, '')],
+  [['browser', 'browser_devtools'], (_args, _path, fallback) => fallback.replace(/\bhttps?:\/\/(?:www\.)?/g, '')],
 ]);
 
 export function toolActivitySubject(normalizedName: string, args: Record<string, unknown>, fallback: string): string {

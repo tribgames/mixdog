@@ -135,6 +135,11 @@ function claimLspProviderFeature(languageId: string, feature: string): boolean {
   return true;
 }
 
+/** Whether the LSP path has installed a Monaco provider for this language feature. */
+export function hasLspProviderFeature(languageId: string, feature: string): boolean {
+  return lspProviderFeaturesByLanguage.get(languageId)?.has(feature) ?? false;
+}
+
 type LspCapabilities = DesktopLspCapabilities | undefined;
 
 /** Every provider the declared capabilities call for, in the order Monaco sees

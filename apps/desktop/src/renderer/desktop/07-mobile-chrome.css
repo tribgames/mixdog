@@ -1009,10 +1009,9 @@ html[data-mixdog-mobile-tabs] .pane-cell {
    44dp tier as composer and toolbar controls. */
 html[data-mixdog-mobile-tabs] .jump-to-latest {
   min-height: var(--mx-touch-main);
-  padding-inline: calc(14px * var(--mx-device-scale, 2.5));
-  gap: calc(8px * var(--mx-device-scale, 2.5));
-  font-size: calc(14px * var(--mx-device-scale, 2.5));
-  line-height: calc(20px * var(--mx-device-scale, 2.5));
+  width: var(--mx-touch-main);
+  height: var(--mx-touch-main);
+  padding: 0;
 }
 /* Code/table surfaces keep vertical momentum while horizontal touch traverses
    pane tabs. Hide tracks that otherwise flash over the final line of content. */

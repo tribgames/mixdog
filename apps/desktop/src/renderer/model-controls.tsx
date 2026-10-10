@@ -71,6 +71,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     if (!workflowReady) return;
     reportBootSurfaceReady('workflow-controls', 'catalog', 'shell');
   }, [workflowReady]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadNonce is a deliberate trigger that forces the workflow list to reload.
   useEffect(() => {
     const shared = freshWorkflowOptions();
     if (shared) {

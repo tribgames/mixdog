@@ -4,7 +4,8 @@ import type { PullRequestOpenHandler } from '../PullRequestsPane';
 import type { SourceControlDiffRequest } from '../SourceControlDock';
 import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
 import { t } from '../i18n';
-import { navigationKey, newStudioSelection } from '../text-format';
+import { navigationKey, newBrowserSelection, newStudioSelection } from '../text-format';
+import { onBrowserMainRequested, type BrowserMainRequest } from '../browser-main-request';
 import { canSplitPaneSize, paneActiveSelection } from '../pane-layout';
 import type { usePaneWorkspace } from '../pane-workspace-state';
 import { beginStudioLoad, reportStudioLoadStage } from '../renderer-load-metrics';
@@ -25,6 +26,7 @@ export interface UseAppTabActionsOptions {
   closeSidebarPanels: () => void;
   setSessionSideSurface: (sessionId: string, surface: 'terminal' | 'browser') => void;
   paneSideDocks: ReturnType<typeof useAppSideDocks>['paneSideDocks'];
+  closePaneRightRegion: ReturnType<typeof useAppSideDocks>['closePaneRightRegion'];
   sessionPaneSurfaces: ReturnType<typeof useSessionPaneSurfaces>;
   openFileTab: (
     project: string,
@@ -44,6 +46,7 @@ export function useAppTabActions({
   closeSidebarPanels,
   setSessionSideSurface,
   paneSideDocks,
+  closePaneRightRegion,
   sessionPaneSurfaces,
   openFileTab,
   openSession,
@@ -52,7 +55,7 @@ export function useAppTabActions({
   const { openInFocused: openSelectionInFocusedPane, splitFocused: splitFocusedPane } = paneWorkspace;
 
   const openUtilityTab = (
-    utilitySelection: Extract<WorkspaceSelection, { kind: 'studio' | 'terminal' | 'browser' }>,
+    utilitySelection: Extract<WorkspaceSelection, { kind: 'studio' | 'terminal' }>,
     title: string,
     leafId = paneWorkspace.focusedLeafId
   ) => {
@@ -71,6 +74,16 @@ export function useAppTabActions({
       .then(() => reportStudioLoadStage('module', '', false, metricToken))
       .catch(() => {});
     openUtilityTab(newStudioSelection(), t('Studio'), leafId);
+  };
+
+  // The side browser's "Open in main tab": the page's URL opens as a new main
+  // browser tab in the pane that owned the side browser, and the side panel
+  // folds. The tab gets its own browser page (user-only, same sign-in
+  // partition), loaded at the URL.
+  const openBrowserTab = (url: string, title: string | undefined, leafId = paneWorkspace.focusedLeafId) => {
+    void prefetchBrowserPane().catch(() => {});
+    paneWorkspace.focusLeaf(leafId);
+    openSelectionInFocusedPane(newBrowserSelection(url, title));
   };
 
   const openTerminalTab = (leafId = paneWorkspace.focusedLeafId) => {
@@ -98,6 +111,15 @@ export function useAppTabActions({
     select: paneSideDocks.select,
     temporarySelect: paneSideDocks.temporarySelect,
   });
+
+  const openBrowserInMain = useStableEvent((request: BrowserMainRequest) => {
+    const { leafId } = browserSurfaceRevealPlan(sessionOwners, request.sessionId, paneWorkspace.focusedLeafId);
+    if (!leafId) return;
+    // Fold the dock while the leaf still shows the session that owns it.
+    closePaneRightRegion(leafId);
+    openBrowserTab(request.url, request.title, leafId);
+  });
+  useEffect(() => onBrowserMainRequested(openBrowserInMain), [openBrowserInMain]);
 
   // A chat code block's Run: the session's terminal opens beside the pane
   // showing that session (the focused one when several do).
@@ -212,6 +234,7 @@ export function useAppTabActions({
     openUtilityTab,
     openStudioTab,
     openTerminalTab,
+    openBrowserTab,
     openDiffTab,
     openPullRequestTab,
     dockOpenFile,

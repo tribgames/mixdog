@@ -326,3 +326,69 @@ test('a nested new name creates the entry, expands each folder it introduced and
   assert.equal(rowFor('main.ts').getAttribute('aria-selected'), 'true');
   assert.equal(document.querySelector('.explorer-edit-row'), null);
 });
+
+// The context-menu "Open in default app" goes through the same helper as the
+// editor: the host may answer with a confirmation request instead of launching,
+// and a rejection is shown rather than swallowed.
+async function openDefaultFromMenu(view) {
+  await view.render();
+  await act(async () =>
+    rowFor('run.sh').dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  );
+  const item = [...document.querySelectorAll('.dock-file-menu button')].find(
+    (node) => node.textContent === 'Open in default app'
+  );
+  assert.ok(item);
+  await act(async () => item.click());
+}
+const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+test('the tree shows an error when the host refuses to open the file', async (t) => {
+  const toasts = [];
+  const listener = (event) => toasts.push(event.detail);
+  window.addEventListener('mixdog:desktop-toast', listener);
+  t.after(() => window.removeEventListener('mixdog:desktop-toast', listener));
+  const view = fixture(t, {
+    listings: { '': [{ name: 'run.sh', dir: false }] },
+    api: {
+      openFilePath: async () => {
+        throw new Error('No application is associated');
+      },
+    },
+  });
+  await openDefaultFromMenu(view);
+  await settle();
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].tone, 'error');
+  assert.match(toasts[0].text, /No application is associated/);
+});
+
+test('the tree answers a launch confirmation before the file is opened', async (t) => {
+  const calls = [];
+  const proto = window.HTMLDialogElement.prototype;
+  const hadShowModal = Object.getOwnPropertyDescriptor(proto, 'showModal');
+  proto.showModal = function showModal() {
+    this.setAttribute('open', '');
+  };
+  t.after(() => {
+    if (hadShowModal) Object.defineProperty(proto, 'showModal', hadShowModal);
+    else delete proto.showModal;
+  });
+  const view = fixture(t, {
+    listings: { '': [{ name: 'run.sh', dir: false }] },
+    api: {
+      openFilePath: async (...args) => {
+        calls.push(args);
+        return args[3] ? undefined : { confirmationPath: 'C:/demo/run.sh' };
+      },
+    },
+  });
+  await openDefaultFromMenu(view);
+  await settle();
+  assert.equal(calls.length, 1, 'nothing launches before the user answers');
+  const run = [...document.querySelectorAll('.file-launch-dialog button')].find((node) => node.textContent === 'Run');
+  assert.ok(run, 'the confirmation dialog is shown');
+  await act(async () => run.click());
+  await settle();
+  assert.deepEqual(calls.at(-1), ['C:/demo', 'run.sh', undefined, 'C:/demo/run.sh']);
+});

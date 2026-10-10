@@ -25,6 +25,7 @@ test('switching side groups preserves mounted controls, drafts and scroll positi
   const activity = new Map();
   function View({ id, active }) {
     const [count, setCount] = React.useState(0);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: counts mounts only, so it must run once
     React.useEffect(() => {
       mounts.set(id, (mounts.get(id) ?? 0) + 1);
     }, []);
@@ -35,7 +36,7 @@ test('switching side groups preserves mounted controls, drafts and scroll positi
       'div',
       { 'data-view': id },
       React.createElement('input', { defaultValue: '' }),
-      React.createElement('button', { onClick: () => setCount((value) => value + 1) }, String(count))
+      React.createElement('button', { type: 'button', onClick: () => setCount((value) => value + 1) }, String(count))
     );
   }
   const groups = [['sessions', 'projects'], ['agents']];
@@ -562,4 +563,57 @@ test('the whole activity bar accepts a drag and drops after the last icon', asyn
     await act(async () => root.unmount());
     restore();
   }
+});
+
+test('a controlled resize reports preview, commit and cancel as distinct phases', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'Element'] });
+  window.Element.prototype.setPointerCapture = () => {};
+  window.Element.prototype.releasePointerCapture = () => {};
+  window.Element.prototype.hasPointerCapture = () => true;
+  const calls = [];
+  await act(async () =>
+    root.render(
+      React.createElement(WorkbenchSidePanel, {
+        side: 'right',
+        open: true,
+        embedded: true,
+        hideTabs: true,
+        groups: [['sessions']],
+        activeRoot: 'sessions',
+        descriptors: new Map([['sessions', { id: 'sessions', label: 'sessions', icon: () => null }]]),
+        onSelect() {},
+        onMoveGroup() {},
+        onMoveView() {},
+        widthOverride: 400,
+        onWidthDrag: (width, phase) => calls.push([width, phase]),
+        renderView: () => null,
+      })
+    )
+  );
+  const handle = document.querySelector('.workbench-side-panel-resize');
+  const fire = (type, clientX) => {
+    const event = new window.MouseEvent(type, { bubbles: true, button: 0, clientX });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    handle.dispatchEvent(event);
+  };
+  await act(async () => {
+    fire('pointerdown', 100);
+    fire('pointermove', 60);
+    fire('pointercancel', 60);
+  });
+  // Cancel carries the rendered width only as information: the owner restores its own snapshot.
+  assert.deepEqual(
+    calls.map(([, phase]) => phase),
+    ['preview', 'cancel']
+  );
+  calls.length = 0;
+  await act(async () => {
+    fire('pointerdown', 100);
+    fire('pointermove', 60);
+    fire('pointerup', 60);
+  });
+  assert.deepEqual(calls, [
+    [440, 'preview'],
+    [440, 'commit'],
+  ]);
 });

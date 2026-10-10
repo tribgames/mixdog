@@ -1,6 +1,6 @@
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame, DesktopBrowserTab } from '../shared/contract';
 import { browserPageResample } from '../shared/browser-page-frame';
-import { browserPageTransition } from './browser-page-recovery';
+import { browserCaptureTransient, browserPageTransition } from './browser-page-recovery';
 import {
   BROWSER_INPUT_BUSY,
   BROWSER_INPUT_EXPIRED,
@@ -235,7 +235,7 @@ export function createBrowserPageClient(options: {
         // obsolete motion, but never replay an edit against the new document.
         if (browserPageTransition(error, 'input')) {
           if (motion) return;
-          await poll();
+          await refreshAfterControl();
           if (disposed) return;
           // Geometry belongs to the pane, not the old document. Retry once
           // only after the host proved it had not dispatched the resize.
@@ -251,7 +251,7 @@ export function createBrowserPageClient(options: {
         if (action.phase === 'mouseReleased') heldPointer = null;
       }
       if (browserTabControl(action)) {
-        await poll();
+        await refreshAfterControl();
       }
       // A release finishing a failed press, or an older queued success, must
       // not immediately erase the failure before the user has seen it.
@@ -283,6 +283,15 @@ export function createBrowserPageClient(options: {
     if (recovery) chromeTail = completion;
     else tail = completion;
     return settled;
+  }
+
+  /** The control itself already succeeded; a compositor miss on the display
+   *  sample that follows belongs to the frame loop's display health, not to
+   *  this input (as an input failure it would stay until the next click). */
+  function refreshAfterControl(): Promise<void> {
+    return poll().catch((error) => {
+      if (!browserCaptureTransient(error)) throw error;
+    });
   }
 
   function humanInput(action: DesktopBrowserPageAction): boolean {

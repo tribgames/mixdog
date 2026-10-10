@@ -27,6 +27,7 @@ export function SourceControlViewControls({
 
   return (
     <div className="dock-scm-view-controls">
+      {/* biome-ignore lint/a11y/noLabelWithoutControl: the input is rendered inside conditional fragments that the linter cannot see through */}
       <label className="dock-scm-search workbench-search-input">
         <Search size={14} aria-hidden="true" />
         {view === 'changes' ? (
@@ -63,6 +64,7 @@ export function SourceControlViewControls({
       </label>
       <div className="dock-scm-tab-bar" role="radiogroup" aria-label={t('Changes or history')}>
         {options.map((option, index) => (
+          // biome-ignore lint/a11y/useSemanticElements: a styled tab button with roving tabindex inside a radiogroup; an input[type=radio] would change the DOM
           <button
             type="button"
             role="radio"

@@ -43,6 +43,13 @@ export interface StatuslineSegmentsModule {
   };
 }
 
+export interface MixdogSessionSearchModule {
+  searchSessionMessages(
+    query: string,
+    options?: { limit?: number; dataDir?: string }
+  ): Promise<Array<{ sessionId: string; rank: number; snippet: string }>>;
+}
+
 export interface MixdogSessionStoreModule {
   listStoredSessionSummaries(options?: {
     rebuildIfMissing?: boolean;

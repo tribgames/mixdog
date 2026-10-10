@@ -141,6 +141,7 @@ export function StudioGallery({
       <div className="studio-topbar">
         {/* Only offer what the signed-in providers can produce: one kind hides
           the toggle, none hides it entirely. */}
+        {/* biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling */}
         <div
           className="studio-kind"
           data-empty={kindsOffered.length > 1 ? undefined : 'true'}
@@ -179,6 +180,7 @@ export function StudioGallery({
           {cleanup}
         </div>
       </div>
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: label names the results region without adding a role, which would change screen-reader semantics */}
       <div className="studio-results" aria-label={t('Generated media')} ref={resultsRef} onScroll={onResultsScroll}>
         {visibleAssets.length === 0 && pendingJobs.length === 0 && !loading && (
           <div className="studio-blank">

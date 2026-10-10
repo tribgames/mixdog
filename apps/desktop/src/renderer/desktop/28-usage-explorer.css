@@ -357,7 +357,10 @@
   border-color: transparent;
   background: var(--mx-hover);
 }
-:root :is(.stats-range:not(.is-active), .stats-period-arrow, .quota-window:not([aria-pressed="true"])):hover:not(:disabled) {
+:root
+  :is(.stats-range:not(.is-active), .stats-period-arrow, .quota-window:not([aria-pressed="true"])):hover:not(
+    :disabled
+  ) {
   background: var(--mx-pressed);
 }
 :root :is(.stats-range.is-active, .quota-window[aria-pressed="true"]) {
@@ -1830,6 +1833,7 @@ button.quota-chart-slot[aria-expanded="true"] {
   font-display: block;
 }
 .seti-icon {
+  /* biome-ignore lint/a11y/useGenericFontNames: icon font; a generic fallback would render glyph codes as text. */
   font-family: "seti";
   font-style: normal;
   font-weight: var(--mx-weight-regular);

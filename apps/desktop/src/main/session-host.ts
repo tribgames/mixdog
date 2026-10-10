@@ -16,6 +16,7 @@ import type {
   DesktopNewTaskSubmitResult,
   DesktopProjectSummary,
   DesktopPromptContent,
+  DesktopSessionContentMatch,
   DesktopSessionFrameSource,
   DesktopSessionStateUpdate,
   DesktopSessionSummary,
@@ -37,6 +38,7 @@ export type { SessionClient } from './session-host-transport';
 import {
   DESKTOP_TRANSCRIPT_ITEM_LIMIT,
   type MixdogProjectsModule,
+  type MixdogSessionSearchModule,
   type MixdogSessionStoreModule,
   type StatuslineSegmentsModule,
 } from './desktop-support';
@@ -65,6 +67,7 @@ interface SessionHostRuntime {
   }): Promise<SessionClient>;
   loadProjects(): Promise<MixdogProjectsModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
+  loadSessionSearch?(): Promise<MixdogSessionSearchModule>;
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
 }
@@ -499,6 +502,13 @@ export class SessionHost implements DesktopService {
     }
   }
 
+  async searchSessionContent(query: string): Promise<DesktopSessionContentMatch[]> {
+    const search = await this.runtime.loadSessionSearch?.();
+    if (!search) return [];
+    const hits = await search.searchSessionMessages(query, { limit: 50 });
+    return Array.isArray(hits) ? hits.map(({ sessionId, snippet, rank }) => ({ sessionId, snippet, rank })) : [];
+  }
+
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
     let pending = this.agentPoolRowsPromise;
     if (!pending) {
@@ -524,6 +534,10 @@ export class SessionHost implements DesktopService {
 
   async renameSession(sessionId: string, title: string): Promise<void> {
     return this.lifecycle.renameSession(sessionId, title);
+  }
+
+  async setSessionFavorite(sessionId: string, favorite: boolean): Promise<void> {
+    return this.lifecycle.setSessionFavorite(sessionId, favorite);
   }
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
@@ -639,8 +653,10 @@ export class SessionHost implements DesktopService {
 
   private sessionCatalog(): DesktopSessionSummary[] {
     return this.sessionMetadata.withReadCursors(
-      this.sessionMetadata.withArchiveFlags(
-        desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+      this.sessionMetadata.withFavoriteFlags(
+        this.sessionMetadata.withArchiveFlags(
+          desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+        )
       )
     );
   }

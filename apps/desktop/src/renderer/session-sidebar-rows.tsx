@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Star, Trash2, X } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
@@ -32,6 +32,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onSetConfirming,
   onSetDeleting,
   onArchiveSession,
+  onFavoriteSession,
   onDeleteSession,
 }: {
   session: DesktopSessionSummary;
@@ -53,6 +54,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onSetConfirming: React.Dispatch<React.SetStateAction<string>>;
   onSetDeleting: React.Dispatch<React.SetStateAction<string>>;
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
+  onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
   onDeleteSession(sessionId: string): Promise<void>;
 }) {
   return (
@@ -65,6 +67,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       titleDraft={sessionTitleDraft}
       titleInvalid={sessionTitleInvalid}
       onArchiveSession={onArchiveSession}
+      onFavoriteSession={onFavoriteSession}
       onTitleDraftChange={onTitleDraftChange}
       onStartRename={onStartRename}
       onCancelRename={onCancelRename}
@@ -109,6 +112,7 @@ const SessionRow = React.memo(function SessionRow({
   onCancelDelete,
   onConfirmDelete,
   onArchiveSession,
+  onFavoriteSession,
 }: {
   session: DesktopSessionSummary;
   active: boolean;
@@ -129,6 +133,7 @@ const SessionRow = React.memo(function SessionRow({
   onCancelDelete(): void;
   onConfirmDelete(session: DesktopSessionSummary): void;
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
+  onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
 }) {
   const resume = useCallback(() => onResumeSession(session.id), [onResumeSession, session.id]);
   const titleInput = useRef<HTMLInputElement>(null);
@@ -191,6 +196,8 @@ const SessionRow = React.memo(function SessionRow({
     };
   }, []);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: draggable row container; its keyboard-operable controls are the nested buttons
+    // biome-ignore lint/a11y/useKeyWithClickEvents: the row click is a pointer shortcut; the title button inside is the keyboard path
     <div
       className={`session-row ${active ? 'selected' : ''} ${working ? 'working' : ''} ${editing ? 'editing' : ''} ${confirmingDelete ? 'confirming-delete' : ''}`}
       data-session-id={session.id}
@@ -334,6 +341,22 @@ const SessionRow = React.memo(function SessionRow({
               <Trash2 size={confirmingDelete ? 12 : 13} />
             </button>
           </>
+        )}
+        {session.archived !== true && (
+          <button
+            type="button"
+            className={`session-row-action session-row-favorite ${session.favorite === true ? 'active' : ''}`}
+            aria-label={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
+            aria-pressed={session.favorite === true}
+            data-tooltip={session.favorite === true ? t('Remove from favorites') : t('Add to favorites')}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void onFavoriteSession(session.id, session.favorite !== true).catch(() => {});
+            }}
+          >
+            <Star size={14} fill={session.favorite === true ? 'currentColor' : 'none'} />
+          </button>
         )}
         {session.archived !== true && (
           <button

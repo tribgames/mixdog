@@ -343,21 +343,25 @@
   --mx-merged: #b287f8;
 
   /* ── 6. Elevation (dark values) ── */
-  --mx-switch-off: inset 0 calc(var(--mx-hairline) * -1) 0 var(--mx-alpha-light-10), inset 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16);
-  --mx-switch-on: inset 0 calc(var(--mx-hairline) * -1) 0 var(--mx-alpha-light-10), inset 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16);
+  --mx-switch-off:
+    inset 0 calc(var(--mx-hairline) * -1) 0 var(--mx-alpha-light-10),
+    inset 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16);
+  --mx-switch-on:
+    inset 0 calc(var(--mx-hairline) * -1) 0 var(--mx-alpha-light-10),
+    inset 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16);
   --mx-switch-thumb-shadow: 0 0.5px 0.5px var(--mx-alpha-dark-40);
   /* Switch thumb outline: invisible-on-purpose in dark (white on white
      thumb), a soft ink line in light so the off thumb reads on the track. */
   --mx-switch-thumb-border: var(--mx-grey-50);
   --mx-raised:
-    0 2px 4px var(--mx-alpha-dark-30), 0 1px 2px var(--mx-alpha-dark-30), 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16),
-    0 -0.5px 0 var(--mx-alpha-light-6);
+    0 2px 4px var(--mx-alpha-dark-30), 0 1px 2px var(--mx-alpha-dark-30),
+    0 0 0 var(--mx-hairline) var(--mx-alpha-light-16), 0 -0.5px 0 var(--mx-alpha-light-6);
   --mx-floating:
-    0 8px 16px var(--mx-alpha-dark-30), 0 4px 8px var(--mx-alpha-dark-30), 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16),
-    0 -0.5px 0 var(--mx-alpha-light-6);
+    0 8px 16px var(--mx-alpha-dark-30), 0 4px 8px var(--mx-alpha-dark-30),
+    0 0 0 var(--mx-hairline) var(--mx-alpha-light-16), 0 -0.5px 0 var(--mx-alpha-light-6);
   --mx-overlay:
-    0 16px 32px var(--mx-alpha-dark-30), 0 8px 16px var(--mx-alpha-dark-30), 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16),
-    0 -0.5px 0 var(--mx-alpha-light-6);
+    0 16px 32px var(--mx-alpha-dark-30), 0 8px 16px var(--mx-alpha-dark-30),
+    0 0 0 var(--mx-hairline) var(--mx-alpha-light-16), 0 -0.5px 0 var(--mx-alpha-light-6);
   /* Soft contact shadow under cards/rows (composer, context dock, model
      rows). Dark shades with its own deepest surface; light overrides with a
      real ink tint, because a paper-grey "shadow" disappears on paper. */
@@ -620,13 +624,16 @@
     inset 0 1px 1px rgba(0, 0, 0, 0.078), inset 0 0.5px 0.5px rgba(0, 0, 0, 0.078),
     inset 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.102);
   --mx-switch-on:
-    inset 0 2px 2px rgba(0, 0, 0, 0.102), inset 0 1px 1px rgba(0, 0, 0, 0.102), inset 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.2);
+    inset 0 2px 2px rgba(0, 0, 0, 0.102), inset 0 1px 1px rgba(0, 0, 0, 0.102),
+    inset 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.2);
   --mx-switch-thumb-shadow: 0 0.5px 0.5px rgba(0, 0, 0, 0.4);
   --mx-switch-thumb-border: rgba(0, 0, 0, 0.25);
   /* Resting cards stay nearly flat; floating menus retain their elevation. */
   --mx-raised: 0 1px 2px rgba(0, 0, 0, 0.03), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.1);
-  --mx-floating: 0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.06), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
-  --mx-overlay: 0 16px 32px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
+  --mx-floating:
+    0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.06), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
+  --mx-overlay:
+    0 16px 32px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
   --mx-shadow-tint: rgba(0, 0, 0, 0.22);
   --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 12%), 0 2px 6px rgb(0 0 0 / 6%);
   --mx-chart-purple: #8066b0;

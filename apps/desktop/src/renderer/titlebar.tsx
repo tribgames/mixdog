@@ -2,10 +2,24 @@
 // the panes themselves (WorkspaceTabStrip); the bar
 // keeps the draggable run, the updater badge, and the Windows caption reserve.
 import { ArrowDown } from 'lucide-react';
+import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { createPortal } from 'react-dom';
 
+import { version as appVersion } from '../../package.json';
 import type { DesktopUpdaterState } from '../shared/contract';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
+
+import type { ChangelogRelease } from './settings/changelog';
+import { takeWhatsNew } from './settings/whats-new';
+
+function readWhatsNewPending(): boolean {
+  try {
+    return takeWhatsNew(window.localStorage, appVersion);
+  } catch {
+    return false;
+  }
+}
 
 interface DesktopTitlebarProps {
   updaterState?: DesktopUpdaterState;
@@ -23,14 +37,55 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   const updateVisible =
     Boolean(onOpenUpdate) && (updaterState?.status === 'ready' || updaterState?.status === 'installing');
   const updateInstalling = updaterState?.status === 'installing';
+  // The first launch after an update announces that version's notes once.
+  const [whatsNew] = useState(readWhatsNewPending);
+  const [notice, setNotice] = useState<{
+    Dialog: ComponentType<{ release: ChangelogRelease; onClose(): void; onViewAll(): void }>;
+    release: ChangelogRelease;
+  } | null>(null);
+  const [ChangelogDialog, setChangelogDialog] = useState<ComponentType<{ onClose(): void }> | null>(null);
+  const closeChangelog = () => setChangelogDialog(null);
+  const closeNotice = useCallback(() => setNotice(null), []);
+  const openChangelog = () => {
+    setNotice(null);
+    void import('./settings/changelog-dialog')
+      .then(async (module) => {
+        await module.prepareChangelog();
+        setChangelogDialog(() => module.default);
+      })
+      .catch(() => undefined);
+  };
+  useEffect(() => {
+    if (!whatsNew) return;
+    let cancelled = false;
+    void import('./settings/whats-new-dialog')
+      .then(async (module) => {
+        const release = await module.prepareWhatsNew();
+        if (release && !cancelled) setNotice({ Dialog: module.default, release });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [whatsNew]);
+  useEffect(() => {
+    if (!ChangelogDialog) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setChangelogDialog(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ChangelogDialog]);
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the top-level header is the window's banner landmark, which takes a name.
     <header className="topbar" aria-label={t('Window bar')}>
       {/* No brand mark: the bare band reads lighter (user: 로고 뺄까 뭔가
           로고 있으니까 답답하네). */}
       <div className="titlebar-spacer" aria-hidden="true" />
       {/* RIGHT cluster: updater badge ahead of the native caption reserve.
           Layout surfaces use contextual pane entry points. */}
-      <div className="titlebar-leading titlebar-controls" aria-label={t('Layout controls')}>
+      {/* biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the titlebar. */}
+      <div className="titlebar-leading titlebar-controls" role="group" aria-label={t('Layout controls')}>
         {updateVisible && (
           <button
             type="button"
@@ -54,6 +109,12 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
         )}
       </div>
       {windowsCaptionControls && <div className="titlebar-caption-space" aria-hidden="true" />}
+      {notice &&
+        createPortal(
+          <notice.Dialog release={notice.release} onClose={closeNotice} onViewAll={openChangelog} />,
+          document.body
+        )}
+      {ChangelogDialog && createPortal(<ChangelogDialog onClose={closeChangelog} />, document.body)}
     </header>
   );
 }

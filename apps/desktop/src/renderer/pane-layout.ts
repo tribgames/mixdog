@@ -248,6 +248,19 @@ function mapPaneLeaf(root: PaneNode, leafId: string, update: (leaf: PaneLeaf) =>
   return walk(root);
 }
 
+/** Rewrite one open tab's selection in place (same key): its position, the
+ *  group's active tab and focus are untouched. */
+export function updateTabSelectionInPaneLeaf(root: PaneNode, leafId: string, selection: WorkspaceSelection): PaneNode {
+  const key = navigationKey(selection);
+  return mapPaneLeaf(root, leafId, (leaf) => {
+    const index = leaf.tabs.findIndex((tab) => navigationKey(tab) === key);
+    if (index < 0) return leaf;
+    const tabs = [...leaf.tabs];
+    tabs[index] = selection;
+    return { ...leaf, tabs };
+  });
+}
+
 /** Open a selection in one group: activate the existing tab, or append a new
  *  one. `replaceKey` promotes in place (draft → its materialized session) at
  *  the replaced tab's exact strip position, dropping any older copy of the

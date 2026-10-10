@@ -127,6 +127,7 @@ export function useSetupDesktopRequest(
       });
     })().catch((error) => console.error('Desktop setup receipt failed', error));
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is a re-run trigger (a new host connection re-handles the request); handle reads it through the ref
   useEffect(() => handle.current(request, sessionId), [api, request, sessionId]);
   useEffect(
     () =>

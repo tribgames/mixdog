@@ -1,10 +1,6 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 
-import type {
-  DesktopApi,
-  DesktopGithubCliLoginFlow,
-  DesktopGithubCliStatus,
-} from '../../shared/contract';
+import type { DesktopApi, DesktopGithubCliLoginFlow, DesktopGithubCliStatus } from '../../shared/contract';
 
 /** Polls a live GitHub CLI device-flow login; a terminal state stops the timer. */
 export function useGithubLoginPolling({

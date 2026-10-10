@@ -554,6 +554,7 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
   // Synchronous seed: whatever the cache already holds paints on first render.
   // Adoption runs INSIDE this memo, before the read, so a host swap clears the
   // previous host's data in the very same render that first observes the swap.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the cache-subscription trigger that makes the memo re-read the cache
   const values = useMemo(() => {
     adoptSidebarReferenceHost(api);
     return readSidebarReferenceValues(keys);
@@ -599,6 +600,7 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
     void refresh();
   }, [refresh]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the cache-invalidation trigger that re-checks staleness
   useEffect(() => {
     // Re-entry AND external invalidation (settings/onboarding mutating shared
     // reference data from an overlay) revalidate silently while the mounted

@@ -58,6 +58,8 @@ export interface DesktopSessionSummary {
   agentWorking?: boolean;
   /** Archive: hidden from Recent, restorable; file stays on disk. */
   archived?: boolean;
+  /** Favorite: pinned to the Favorites section above Recent. */
+  favorite?: boolean;
   /** Automation origin: present on schedule/webhook runner sessions so the
    *  sidebar groups them under Automations instead of Recent. */
   sourceType?: 'schedule' | 'webhook';

@@ -120,7 +120,9 @@ export function SourceControlBranchPicker({
       label: t('Delete…'),
       danger: true,
       disabled: Boolean(busy) || branch.remote || branch.current || !capabilities.delete,
-      title: actionTitle(deleteBlockedReason(branch), capabilities.delete, () => missingChannel(t('Deleting a branch'))),
+      title: actionTitle(deleteBlockedReason(branch), capabilities.delete, () =>
+        missingChannel(t('Deleting a branch'))
+      ),
       onSelect: () => guarded(() => onDelete(branch)),
     },
     {
@@ -179,6 +181,7 @@ export function SourceControlBranchPicker({
               <input
                 type="search"
                 value={query}
+                // biome-ignore lint/a11y/noAutofocus: the filter box is the point of the opened picker; touch devices are excluded
                 autoFocus={!touchPrimaryPointer()}
                 aria-label={t('Filter branches')}
                 placeholder={t('Filter')}
@@ -213,7 +216,9 @@ export function SourceControlBranchPicker({
                           className="dock-scm-branch-row"
                           data-current={branch.current || undefined}
                           key={`${branch.remote}:${branch.name}`}
-                          {...rowContextMenu(t('Actions for branch {{value0}}', { value0: branch.name }), () => branchMenuItems(branch))}
+                          {...rowContextMenu(t('Actions for branch {{value0}}', { value0: branch.name }), () =>
+                            branchMenuItems(branch)
+                          )}
                         >
                           <button
                             type="button"

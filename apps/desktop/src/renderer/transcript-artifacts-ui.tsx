@@ -142,6 +142,7 @@ function MediaFigure({
       </figcaption>
       <div className="transcript-artifact-actions">{actions}</div>
       {expanded && video && (
+        // biome-ignore lint/a11y/useKeyWithClickEvents: a backdrop press closes the dialog; Escape (native dialog) and the close button are the keyboard routes.
         <dialog
           ref={dialog}
           className="transcript-artifact-preview"
@@ -161,6 +162,7 @@ function MediaFigure({
           >
             <X size={16} aria-hidden="true" />
           </button>
+          {/* biome-ignore lint/a11y/useMediaCaption: generated media carries no caption track to offer. */}
           <video src={original} poster={preview || undefined} controls preload="none" playsInline />
         </dialog>
       )}

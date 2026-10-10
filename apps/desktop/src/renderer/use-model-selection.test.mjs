@@ -25,6 +25,7 @@ test('a canonical default response releases the preview and accepts later tuning
     return React.createElement(
       'button',
       {
+        type: 'button',
         disabled: pending,
         onClick() {
           const token = begin({ ...source, effort: 'auto' });

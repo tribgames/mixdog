@@ -58,6 +58,7 @@ export function projectRelativeFilePath(projectPath: string, path: string): stri
 
 /** Shared by react-markdown and the worker; local URLs are href-only. */
 export function safeMarkdownUrl(value: string, key = 'href'): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting C0 control characters and DEL in URLs is the point.
   if (/[\u0000-\u001f\u007f]/.test(value)) return '';
   if (key === 'href' && (/^file:/i.test(value) || windowsPath.test(value))) {
     return value;

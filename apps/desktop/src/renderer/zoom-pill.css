@@ -1,0 +1,158 @@
+/* Zoom pill (ZoomPill.tsx), shared by the browser panes and the editor
+   previews: floats at the bottom centre of its positioned content box, above
+   the page or document (user: 화면 하단 중앙에 확대축소 프로그래스). It lives
+   with the component, not in the lazily loaded browser stylesheet, so every
+   surface gets the same look. */
+.browser-zoom-pill {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 4px 0 2px;
+  /* Opaque app plate with a strong ring: a translucent pill vanished on white
+     pages (the plate bled into the page). */
+  border: 1px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-pill);
+  /* --mx-surface-plate is a translucent tint; mix it over the opaque base. */
+  background: color-mix(in srgb, var(--mx-text) 6%, var(--mx-bg-base));
+  color: var(--mx-text-muted);
+  box-shadow: var(--mx-floating);
+  transition:
+    color var(--mx-motion-chrome),
+    opacity var(--mx-motion-chrome);
+}
+/* Editor previews reveal the pill on demand; the browser pane never hides it. */
+.browser-zoom-pill.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.browser-zoom-percent-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.browser-zoom-percent {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  min-width: 52px;
+  justify-content: center;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  background: transparent;
+  color: inherit;
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.browser-zoom-percent:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.browser-zoom-menu {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  min-width: 128px;
+  padding: 4px;
+  border: 1px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  background: color-mix(in srgb, var(--mx-text) 6%, var(--mx-bg-base));
+  color: var(--mx-text);
+  box-shadow: var(--mx-floating);
+}
+.browser-zoom-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: var(--mx-font-minor);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.browser-zoom-menu-item:hover,
+.browser-zoom-menu-item:focus-visible {
+  background: var(--mx-hover);
+}
+.browser-zoom-menu-check {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+.browser-zoom-pill:hover,
+.browser-zoom-pill:focus-within,
+.browser-zoom-pill:active {
+  color: var(--mx-text);
+}
+.browser-zoom-step {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.browser-zoom-step:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.browser-zoom-step:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+/* Touch tier: 44dp hit boxes, no hover rest state. */
+html[data-mixdog-mobile-tabs] .browser-zoom-pill {
+  height: calc(36px * var(--mx-device-scale, 2.5));
+  bottom: calc(12px * var(--mx-device-scale, 2.5));
+  padding: 0 calc(6px * var(--mx-device-scale, 2.5)) 0 calc(2px * var(--mx-device-scale, 2.5));
+  opacity: var(--mx-op-soft);
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-step {
+  width: calc(32px * var(--mx-device-scale, 2.5));
+  height: calc(32px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-step > svg {
+  width: calc(14px * var(--mx-device-scale, 2.5));
+  height: calc(14px * var(--mx-device-scale, 2.5));
+}
+/* No pointer hover on a phone: the pill stays shown there. */
+html[data-mixdog-mobile-tabs] .browser-zoom-pill.is-hidden {
+  pointer-events: auto;
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-percent {
+  height: calc(32px * var(--mx-device-scale, 2.5));
+  min-width: calc(56px * var(--mx-device-scale, 2.5));
+  padding: 0 calc(6px * var(--mx-device-scale, 2.5));
+  font-size: calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-percent > svg {
+  width: calc(12px * var(--mx-device-scale, 2.5));
+  height: calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-menu {
+  bottom: calc(100% + 8px * var(--mx-device-scale, 2.5));
+  min-width: calc(140px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-menu-item {
+  min-height: calc(32px * var(--mx-device-scale, 2.5));
+  font-size: calc(12px * var(--mx-device-scale, 2.5));
+}

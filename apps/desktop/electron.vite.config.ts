@@ -10,9 +10,14 @@ import { basename, resolve } from 'node:path';
 import react from '@vitejs/plugin-react-swc';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { OutputAsset, OutputChunk } from 'rollup';
-import type { Plugin } from 'vite';
+import { type Plugin, searchForWorkspaceRoot } from 'vite';
 import { stampRendererShell } from './scripts/renderer-shell';
 import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
+import {
+  MONACO_TYPESCRIPT_CONTRIBUTION,
+  MONACO_TYPESCRIPT_STUB,
+  monacoTypescriptExternalEsbuildPlugin,
+} from './scripts/monaco-typescript-external.mjs';
 
 const selectedBuildTargets = new Set(
   String(process.env.MIXDOG_ELECTRON_BUILD_TARGETS || '')
@@ -293,8 +298,8 @@ export default defineConfig({
           // Project intelligence is provided by the main-process LSP. Keep
           // Monaco's TypeScript tokenizer while omitting its duplicate 13 MB
           // language-service worker contribution.
-          find: /^.*[\\/]language[\\/]typescript[\\/]monaco\.contribution\.js$/,
-          replacement: resolve(__dirname, 'src/renderer/monaco-typescript-external.ts'),
+          find: MONACO_TYPESCRIPT_CONTRIBUTION,
+          replacement: MONACO_TYPESCRIPT_STUB,
         },
       ],
     },
@@ -304,6 +309,8 @@ export default defineConfig({
     // The live Markdown worker has the same constraint: first-response import
     // must not discover unified/remark and reload the whole renderer.
     optimizeDeps: {
+      // resolve.alias does not reach the optimizer's esbuild pass.
+      esbuildOptions: { plugins: [monacoTypescriptExternalEsbuildPlugin()] },
       include: [
         '@monaco-editor/react',
         'monaco-editor',
@@ -347,6 +354,9 @@ export default defineConfig({
     plugins: [localFontDisplayFallback, inlineBootScript, firstScreenHints, react()],
     server: {
       host: '127.0.0.1',
+      // The translated changelogs (repo-root changelog/*.md) load as lazy
+      // chunks, which the dev server only serves from allowed folders.
+      fs: { allow: [searchForWorkspaceRoot(__dirname), resolve(__dirname, '../../changelog')] },
     },
   } : undefined,
 });

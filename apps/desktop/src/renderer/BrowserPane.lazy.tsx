@@ -1,32 +1,45 @@
 // One Chromium surface per conversation session on a shared persistent
 // partition. Login survives and is shared; page, tab, and target state is not.
 // The pane owns only the chrome; agent control lives in main/browser/host.ts.
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { browserNavLayout } from './browser-nav-layout';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle,
+  useActiveGuestReport,
+  useAgentViewport,
+  useBrowserCredentials,
+  useFrameFit,
+  useGuestPainted,
+  useHistorySuggestions,
+  useInitialAddress,
+  useRequestedAddress,
+  useToolbarWidth,
+  useViewportPresetConfigurator,
+} from './browser-pane-hooks';
+import {
   ArrowLeft,
   ArrowRight,
-  Check,
   ExternalLink,
   Globe,
   KeyRound,
   Link2,
+  PanelTop,
   RotateCw,
   Smartphone,
   X,
 } from 'lucide-react';
-import { ProgressSpinner } from './ProgressSpinner';
+import { DockHeaderRow, DockOverflowMenu, requestPaneDockClose, type DockAction } from './pane-dock-chrome';
+import { requestBrowserInMain } from './browser-main-request';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { normalizeAddressInput } from './browser-address';
-import { onBrowserPageAddressRequested } from './browser-page-request';
 import { BrowserImportDialog } from './BrowserImportDialog';
-import { scheduleBrowserForegroundRepaint, watchBrowserForegroundReturns } from './browser-foreground-lifecycle';
+import { BrowserLoadingPlaceholder } from './BrowserLoadingPlaceholder';
+import { watchBrowserForegroundReturns } from './browser-foreground-lifecycle';
 import {
   BROWSER_VIEWPORT_PRESETS,
   browserViewportZoom,
-  browserViewportEmulation,
   readBrowserViewportPreset,
   resolveBrowserViewportPreset,
   writeBrowserViewportPreset,
@@ -36,7 +49,6 @@ import {
 import { readBrowserZoom, writeBrowserZoom } from './browser-zoom-level';
 import { BrowserZoomPill } from './BrowserZoomPill';
 import { BrowserTabStrip } from './BrowserTabStrip';
-import { OpenSelect } from './OpenSelect';
 import RemoteBrowserPane from './RemoteBrowserPane';
 import { IsolatedBrowserView } from './IsolatedBrowserView';
 import type { BrowserPageElement } from './browser-page-client';
@@ -72,6 +84,14 @@ export interface BrowserPaneProps {
   focusAddressOnActivate?: boolean;
   expanded?: boolean;
   onToggleExpanded?(): void;
+  /** `main`: a user-only page in a main workspace tab. The tab strip is its
+   *  header, so there is no dock header row; ⋯ moves to the nav row. */
+  mode?: 'dock' | 'main';
+  /** Main tab: the last known address, opened when the page has none (a new
+   *  tab, or a restart that lost the live page). */
+  initialUrl?: string;
+  /** Main tab: the page's current address and title, for persistence. */
+  onPageChange?(url: string, title: string): void;
 }
 
 /** Bridges one guest's page events onto the pane's state: navigation, load
@@ -348,63 +368,71 @@ function browserAddressField({
 
 /** Stored-credential affordance: one suggestion fills straight away, several
  *  open a menu, and the button itself reports the outcome of the last fill. */
-function browserCredentialControl({
+export function browserHeaderActions({
+  currentUrl,
+  viewportPresetId,
+  selectViewportPreset,
   credentialSuggestions,
   credentialBusy,
   credentialStatus,
-  credentialMenuOpen,
-  setCredentialMenuOpen,
   fillStoredCredential,
+  onOpenInMain,
 }: {
+  currentUrl: string;
+  viewportPresetId: BrowserViewportPresetId;
+  selectViewportPreset(preset: BrowserViewportPreset): void;
+  /** Absent where a main browser tab does not exist (main tab itself, phone). */
+  onOpenInMain?(): void;
   credentialSuggestions: DesktopBrowserCredentialSuggestion[];
   credentialBusy: boolean;
   credentialStatus: 'idle' | 'success' | 'error';
-  credentialMenuOpen: boolean;
-  setCredentialMenuOpen: Dispatch<SetStateAction<boolean>>;
   fillStoredCredential(credentialId: string): void;
-}) {
+}): DockAction[] {
+  const actions: DockAction[] = [
+    { id: 'device-heading', label: t('Device view'), icon: Smartphone, disabled: true, onSelect() {} },
+    ...BROWSER_VIEWPORT_PRESETS.map((preset) => ({
+      id: `device-${preset.id}`,
+      label: preset.label,
+      checked: preset.id === viewportPresetId,
+      onSelect: () => selectViewportPreset(preset),
+    })),
+    {
+      id: 'open-external',
+      label: t('Open in system browser'),
+      icon: ExternalLink,
+      separatorBefore: true,
+      // A visible header button just left of ⋯; folds into the menu only when
+      // the row is too narrow (priority 'open-external').
+      disabled: !currentUrl,
+      onSelect: () => void window.mixdogDesktop?.openExternal(currentUrl),
+    },
+  ];
+  if (onOpenInMain) {
+    actions.push({
+      id: 'open-main',
+      label: t('Open in main tab'),
+      icon: PanelTop,
+      disabled: !currentUrl,
+      onSelect: onOpenInMain,
+    });
+  }
   let credentialLabel = t('Fill with stored credentials');
   if (credentialStatus === 'success') credentialLabel = t('Filled stored credentials');
   else if (credentialStatus === 'error') credentialLabel = t('Could not fill stored credentials');
-  let credentialGlyph = <KeyRound size={16} />;
-  if (credentialBusy) credentialGlyph = <ProgressSpinner size={16} />;
-  else if (credentialStatus === 'success') credentialGlyph = <Check size={16} />;
-  else if (credentialStatus === 'error') credentialGlyph = <AlertTriangle size={16} />;
-  return (
-    <div className="browser-pane-credential-control">
-      <button
-        type="button"
-        className={`browser-pane-nav-button browser-pane-credential-button is-${credentialStatus}`}
-        disabled={credentialBusy}
-        onClick={() => {
-          if (credentialSuggestions.length === 1) {
-            fillStoredCredential(credentialSuggestions[0].id);
-          } else {
-            setCredentialMenuOpen((open) => !open);
-          }
-        }}
-        aria-label={credentialLabel}
-        data-tooltip={credentialLabel}
-      >
-        {credentialGlyph}
-      </button>
-      {credentialMenuOpen && (
-        <div className="browser-pane-credential-menu" role="menu">
-          {credentialSuggestions.map((credential) => (
-            <button
-              type="button"
-              key={credential.id}
-              role="menuitem"
-              onClick={() => fillStoredCredential(credential.id)}
-            >
-              <KeyRound size={16} />
-              <span>{credential.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  for (const [index, credential] of credentialSuggestions.entries()) {
+    actions.push({
+      id: `credential-${credential.id}`,
+      label:
+        credentialSuggestions.length === 1
+          ? credentialLabel
+          : `${t('Fill with stored credentials')}: ${credential.label}`,
+      icon: KeyRound,
+      separatorBefore: index === 0,
+      disabled: credentialBusy,
+      onSelect: () => fillStoredCredential(credential.id),
+    });
+  }
+  return actions;
 }
 
 function DesktopBrowserPane({
@@ -414,10 +442,12 @@ function DesktopBrowserPane({
   focusAddressOnActivate = true,
   expanded = false,
   onToggleExpanded,
+  mode = 'dock',
+  initialUrl,
+  onPageChange,
 }: BrowserPaneProps) {
+  const mainTab = mode === 'main';
   const webviewRef = useRef<BrowserPageElement | null>(null);
-  const appliedViewportPreset = useRef(new Map<number, string>());
-  const viewportConfigurationRequest = useRef(0);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const addressFocused = useRef(false);
   const [address, setAddress] = useState('');
@@ -427,17 +457,23 @@ function DesktopBrowserPane({
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [addressHasFocus, setAddressHasFocus] = useState(false);
-  const [historySuggestions, setHistorySuggestions] = useState<DesktopBrowserHistoryEntry[]>([]);
-  const [credentialSuggestions, setCredentialSuggestions] = useState<DesktopBrowserCredentialSuggestion[]>([]);
-  const [credentialMenuOpen, setCredentialMenuOpen] = useState(false);
-  const [credentialBusy, setCredentialBusy] = useState(false);
-  const [credentialStatus, setCredentialStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [pageFailure, setPageFailure] = useState<BrowserPageFailure | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [viewportPresetId, setViewportPresetId] = useState<BrowserViewportPresetId>(
     () => readBrowserViewportPreset(window.localStorage, sessionId).id
   );
   const desktopApi = window.mixdogDesktop;
+  const {
+    credentialBusy,
+    credentialMenuOpen,
+    credentialStatus,
+    credentialSuggestions,
+    fillStoredCredential,
+    refreshCredentialSuggestions,
+    setCredentialMenuOpen,
+    setCredentialStatus,
+  } = useBrowserCredentials(desktopApi, sessionId);
+  const { historySuggestions, setHistorySuggestions } = useHistorySuggestions(desktopApi, address, addressHasFocus);
   const viewportPreset = resolveBrowserViewportPreset(viewportPresetId);
   useEffect(() => {
     if (!active || !expanded || !onToggleExpanded || importOpen) return undefined;
@@ -449,35 +485,7 @@ function DesktopBrowserPane({
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
   }, [active, expanded, onToggleExpanded, importOpen]);
-  // Device metrics the agent's `emulate` command put on this session's guest.
-  // The pane frames the page at that size, centered, exactly like a picker
-  // preset — otherwise the emulated page lays out top-left inside the full
-  // box (user: 브라우저 왜 가운데 정렬 안 되냐). The pane's own configure
-  // echoes back through the same event and reads as "no override".
-  const [agentViewport, setAgentViewport] = useState<{ width: number; height: number } | null>(null);
-  const agentViewports = useRef(new Map<number, { width: number; height: number } | null>());
-  useEffect(
-    () =>
-      window.mixdogDesktop?.onBrowserGuestViewportChanged?.((change) => {
-        if (change.sessionId !== sessionId) return;
-        let currentId: number;
-        try {
-          currentId = webviewRef.current!.getWebContentsId();
-        } catch {
-          return;
-        }
-        const pageId = change.webContentsId ?? currentId;
-        const preset = resolveBrowserViewportPreset(readBrowserViewportPreset(window.localStorage, sessionId).id);
-        const ownPreset =
-          change.viewport !== null &&
-          change.viewport.width === preset.width &&
-          change.viewport.height === preset.height;
-        const viewport = ownPreset ? null : change.viewport;
-        agentViewports.current.set(pageId, viewport);
-        if (pageId === currentId) setAgentViewport(viewport);
-      }),
-    [sessionId]
-  );
+  const { agentViewport, agentViewports, setAgentViewport } = useAgentViewport(sessionId, webviewRef);
   const frameWidth = agentViewport?.width ?? viewportPreset.width;
   const frameHeight = agentViewport?.height ?? viewportPreset.height;
   const fixedViewport = frameWidth !== null && frameHeight !== null;
@@ -509,80 +517,9 @@ function DesktopBrowserPane({
     view.addEventListener('browser-shortcut', shortcut);
     return () => view.removeEventListener('browser-shortcut', shortcut);
   }, [sessionId]);
-  // A device frame taller or wider than the pane scales down to fit, staying
-  // centered on both axes (user: 상하좌우 가운데 정렬 — PC·모바일 공통). The
-  // guest keeps its real metrics; only the composited frame shrinks.
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [frameScale, setFrameScale] = useState(1);
-  // Layout effect: the fitted scale lands in the same paint as the new frame
-  // size, so a preset switch never shows one oversized frame first.
-  useLayoutEffect(() => {
-    const content = contentRef.current;
-    if (!content || frameWidth === null || frameHeight === null) {
-      setFrameScale(1);
-      return undefined;
-    }
-    const fit = () => {
-      const styles = window.getComputedStyle(content);
-      const padX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
-      const padY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
-      const roomWidth = content.clientWidth - padX;
-      const roomHeight = content.clientHeight - padY;
-      if (roomWidth <= 0 || roomHeight <= 0) return;
-      const scale = Math.min(1, roomWidth / frameWidth, roomHeight / frameHeight);
-      setFrameScale((current) => (Math.abs(current - scale) < 0.001 ? current : scale));
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, [frameWidth, frameHeight]);
-
-  useEffect(() => {
-    const view = webviewRef.current;
-    const setGuestActive = desktopApi?.browserSetActiveGuest;
-    if (!view || !setGuestActive) return undefined;
-    let reportedId = 0;
-    const report = () => {
-      try {
-        const webContentsId = view.getWebContentsId();
-        if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return;
-        reportedId = webContentsId;
-        void setGuestActive(sessionId, webContentsId, active).catch(() => {});
-      } catch {
-        /* guest not attached yet; did-attach/dom-ready retries */
-      }
-    };
-    report();
-    const stopForegroundReturnReporting = active ? watchBrowserForegroundReturns(window, document, report) : () => {};
-    const stopSettledForegroundRepaint = active ? scheduleBrowserForegroundRepaint(window, report) : () => {};
-    view.addEventListener('did-attach', report);
-    view.addEventListener('dom-ready', report);
-    return () => {
-      stopForegroundReturnReporting();
-      stopSettledForegroundRepaint();
-      view.removeEventListener('did-attach', report);
-      view.removeEventListener('dom-ready', report);
-      if (reportedId) void setGuestActive(sessionId, reportedId, false).catch(() => {});
-    };
-  }, [active, desktopApi, sessionId]);
-
-  const refreshCredentialSuggestions = useCallback(() => {
-    if (!desktopApi?.browserCredentialSuggestions) {
-      setCredentialSuggestions([]);
-      return;
-    }
-    void desktopApi
-      .browserCredentialSuggestions(sessionId)
-      .then((suggestions) => {
-        setCredentialSuggestions(suggestions);
-        if (!suggestions.length) setCredentialMenuOpen(false);
-      })
-      .catch(() => {
-        setCredentialSuggestions([]);
-        setCredentialMenuOpen(false);
-      });
-  }, [desktopApi, sessionId]);
+  const { toolbarRef, toolbarWidth } = useToolbarWidth();
+  const { contentRef, frameScale } = useFrameFit(frameWidth, frameHeight);
+  useActiveGuestReport({ webviewRef, desktopApi, sessionId, active });
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -604,60 +541,16 @@ function DesktopBrowserPane({
       setPageFailure,
       setTabs,
     });
-  }, [refreshCredentialSuggestions]);
+  }, [
+    agentViewports,
+    refreshCredentialSuggestions,
+    setAgentViewport,
+    setCredentialMenuOpen,
+    setCredentialStatus,
+    setHistorySuggestions,
+  ]);
 
-  useEffect(() => {
-    if (credentialStatus === 'idle') return undefined;
-    const timer = window.setTimeout(() => setCredentialStatus('idle'), 2500);
-    return () => window.clearTimeout(timer);
-  }, [credentialStatus]);
-
-  const configureViewportPreset = useCallback(
-    async (preset: BrowserViewportPreset, reload: boolean): Promise<boolean> => {
-      const view = webviewRef.current;
-      if (!view) return false;
-      const configKey = `${sessionId}\u0000${preset.id}`;
-      let webContentsId = 0;
-      try {
-        webContentsId = view.getWebContentsId();
-      } catch {
-        return false;
-      }
-      if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return false;
-      const previousPreset = appliedViewportPreset.current.get(webContentsId);
-      if (previousPreset === configKey) return true;
-      // Metrics and touch apply live; only a user-agent change needs the page
-      // to load again. Reloading on every size step blanked the page for a
-      // beat (user: 폰 해상도 바꿀 때 튄다, 배경이 잠깐 보인다).
-      const previousUserAgent = previousPreset
-        ? resolveBrowserViewportPreset(previousPreset.split('\u0000')[1]).userAgent
-        : null;
-      const userAgentChanged = previousUserAgent !== (preset.userAgent ?? null);
-      const configure = desktopApi?.browserConfigureGuestViewport;
-      if (!configure) {
-        appliedViewportPreset.current.set(webContentsId, configKey);
-        return true;
-      }
-      const request = ++viewportConfigurationRequest.current;
-      try {
-        await configure(sessionId, webContentsId, browserViewportEmulation(preset));
-      } catch (error) {
-        console.error('Browser viewport emulation failed.', error);
-        return false;
-      }
-      if (request !== viewportConfigurationRequest.current) return false;
-      appliedViewportPreset.current.set(webContentsId, configKey);
-      if (reload && userAgentChanged) {
-        try {
-          if (view.getURL() && view.getURL() !== 'about:blank') view.reload();
-        } catch {
-          /* detached guest; its next attach applies the preset */
-        }
-      }
-      return true;
-    },
-    [desktopApi, sessionId]
-  );
+  const configureViewportPreset = useViewportPresetConfigurator(webviewRef, desktopApi, sessionId);
 
   // Normal browsing preserves the user's zoom as the pane resizes. Fit is an
   // explicit mode; device presets retain their actual UA/touch/device metrics.
@@ -681,92 +574,56 @@ function DesktopBrowserPane({
     if (active && focusAddressOnActivate && !currentUrl) addressRef.current?.focus();
   }, [active, currentUrl, focusAddressOnActivate]);
 
-  const navigate = useCallback((rawInput: string) => {
-    const url = normalizeAddressInput(rawInput);
-    const view = webviewRef.current;
-    if (!url || !view) return;
-    setAddress(url);
-    setHistorySuggestions([]);
-    // loadURL rejects on user-aborted navigations and throws synchronously
-    // while the guest is still attaching; neither is an error here.
-    try {
-      void view.loadURL(url).catch(() => undefined);
-      view.focus();
-    } catch {
-      view.src = url;
-    }
-  }, []);
-
-  // A page card in the transcript hands its address to this session's pane.
-  // The card usually opens the pane in the same press, so the address tends
-  // to arrive before the guest exists: it waits for the guest's first
-  // dom-ready instead of being dropped by a loadURL on an unattached view.
-  useEffect(() => {
-    const view = webviewRef.current;
-    let wanted = '';
-    const guestReady = () => {
-      try {
-        return Boolean(view) && Number(view?.getWebContentsId()) > 0;
-      } catch {
-        return false;
-      }
-    };
-    const loadWanted = () => {
-      if (!wanted) return;
-      const url = wanted;
-      wanted = '';
-      navigate(url);
-    };
-    const stop = onBrowserPageAddressRequested(sessionId, (url) => {
-      wanted = url;
-      if (guestReady()) loadWanted();
-    });
-    view?.addEventListener('dom-ready', loadWanted);
-    return () => {
-      stop();
-      view?.removeEventListener('dom-ready', loadWanted);
-    };
-  }, [sessionId, navigate]);
-
-  useEffect(() => {
-    if (!addressHasFocus || !address.trim() || !desktopApi?.browserHistorySearch) {
+  const navigate = useCallback(
+    (rawInput: string) => {
+      const url = normalizeAddressInput(rawInput);
+      const view = webviewRef.current;
+      if (!url || !view) return;
+      setAddress(url);
       setHistorySuggestions([]);
-      return undefined;
-    }
-    let live = true;
-    const timer = window.setTimeout(() => {
-      void desktopApi
-        .browserHistorySearch?.(address)
-        .then((entries) => {
-          if (live) setHistorySuggestions(entries);
-        })
-        .catch(() => {
-          if (live) setHistorySuggestions([]);
-        });
-    }, 120);
-    return () => {
-      live = false;
-      window.clearTimeout(timer);
-    };
-  }, [address, addressHasFocus, desktopApi]);
-
-  const fillStoredCredential = useCallback(
-    (credentialId: string) => {
-      if (!desktopApi?.browserCredentialFill || credentialBusy) return;
-      setCredentialBusy(true);
-      setCredentialMenuOpen(false);
-      setCredentialStatus('idle');
-      void desktopApi
-        .browserCredentialFill(sessionId, credentialId)
-        .then((result) => {
-          setCredentialStatus(result.passwordFilled ? 'success' : 'error');
-        })
-        .catch(() => setCredentialStatus('error'))
-        .finally(() => setCredentialBusy(false));
+      // loadURL rejects on user-aborted navigations and throws synchronously
+      // while the guest is still attaching; neither is an error here.
+      try {
+        void view.loadURL(url).catch(() => undefined);
+        view.focus();
+      } catch {
+        view.src = url;
+      }
     },
-    [credentialBusy, desktopApi, sessionId]
+    [setHistorySuggestions]
   );
 
+  useRequestedAddress(webviewRef, sessionId, navigate);
+  useInitialAddress(webviewRef, mainTab, initialUrl, navigate);
+  const painted = useGuestPainted(webviewRef);
+
+  const activeTabTitle = tabs.find((tab) => tab.active)?.title ?? '';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: onPageChange is a fresh callback per parent render; the page reports only when its address or title changes.
+  useEffect(() => {
+    if (mainTab && currentUrl) onPageChange?.(currentUrl, activeTabTitle);
+  }, [mainTab, currentUrl, activeTabTitle]);
+
+  // Header ⋯ menu: everything that is not page navigation lives here.
+  const navLayout = browserNavLayout(toolbarWidth, Boolean(desktopApi?.browserProfileImportSources));
+  const headerActions = browserHeaderActions({
+    currentUrl,
+    viewportPresetId,
+    selectViewportPreset: (preset) => {
+      void configureViewportPreset(preset, true).then((configured) => {
+        if (!configured) return;
+        writeBrowserViewportPreset(window.localStorage, sessionId, preset.id);
+        setViewportPresetId(preset.id);
+      });
+    },
+    credentialSuggestions,
+    credentialBusy,
+    credentialStatus,
+    fillStoredCredential,
+    onOpenInMain:
+      mainTab || isRemoteBrowserRenderer()
+        ? undefined
+        : () => requestBrowserInMain({ sessionId, url: currentUrl, title: activeTabTitle }),
+  });
   const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;
   const viewportFrameStyle = fixedViewport
     ? { width: `${frameWidth}px`, height: `${frameHeight}px`, transform: frameTransform }
@@ -775,24 +632,35 @@ function DesktopBrowserPane({
     <div
       className="browser-pane"
       data-pane-instance={sessionId}
+      data-browser-mode={mode}
       data-surface-active={active || parked ? 'true' : 'false'}
     >
-      <BrowserTabStrip
-        tabs={tabs}
-        expanded={expanded}
-        onToggleExpanded={onToggleExpanded}
-        onSelect={async (id) => {
-          await webviewRef.current?.selectTab(id);
-        }}
-        onClose={async (id) => {
-          await webviewRef.current?.closeTab(id);
-        }}
-        onCreate={async () => {
-          await webviewRef.current?.createTab();
-          addressRef.current?.focus();
-        }}
-      />
-      <div className="browser-pane-toolbar">
+      {!mainTab && (
+        <DockHeaderRow
+          expanded={expanded}
+          onToggleExpanded={onToggleExpanded}
+          expandLabel={t('Expand browser')}
+          restoreLabel={t('Restore browser')}
+          onClose={() => requestPaneDockClose('browser')}
+          actions={headerActions}
+          left={
+            <BrowserTabStrip
+              tabs={tabs}
+              onSelect={async (id) => {
+                await webviewRef.current?.selectTab(id);
+              }}
+              onClose={async (id) => {
+                await webviewRef.current?.closeTab(id);
+              }}
+              onCreate={async () => {
+                await webviewRef.current?.createTab();
+                addressRef.current?.focus();
+              }}
+            />
+          }
+        />
+      )}
+      <div className="browser-pane-toolbar" ref={toolbarRef}>
         <button
           type="button"
           className="browser-pane-nav-button"
@@ -801,18 +669,20 @@ function DesktopBrowserPane({
           aria-label={t('Back')}
           data-tooltip={t('Back')}
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={15} />
         </button>
-        <button
-          type="button"
-          className="browser-pane-nav-button"
-          disabled={!canGoForward}
-          onClick={() => webviewRef.current?.goForward()}
-          aria-label={t('Forward')}
-          data-tooltip={t('Forward')}
-        >
-          <ArrowRight size={16} />
-        </button>
+        {navLayout.forward && (
+          <button
+            type="button"
+            className="browser-pane-nav-button"
+            disabled={!canGoForward}
+            onClick={() => webviewRef.current?.goForward()}
+            aria-label={t('Forward')}
+            data-tooltip={t('Forward')}
+          >
+            <ArrowRight size={15} />
+          </button>
+        )}
         <button
           type="button"
           className="browser-pane-nav-button"
@@ -826,7 +696,7 @@ function DesktopBrowserPane({
           aria-label={loading ? t('Stop loading') : t('Reload')}
           data-tooltip={loading ? t('Stop loading') : t('Reload')}
         >
-          {loading ? <X size={16} /> : <RotateCw size={16} />}
+          {loading ? <X size={15} /> : <RotateCw size={15} />}
         </button>
         {browserAddressField({
           address,
@@ -838,49 +708,7 @@ function DesktopBrowserPane({
           setAddress,
           setAddressHasFocus,
         })}
-        <div className="browser-pane-viewport-picker" data-tooltip={viewportPreset.label}>
-          <OpenSelect
-            className="browser-pane-viewport-control"
-            value={viewportPresetId}
-            ariaLabel={t('Browser viewport size: {{label}}', { label: viewportPreset.label })}
-            leading={<Smartphone size={16} aria-hidden="true" />}
-            menuMinWidth={236}
-            options={BROWSER_VIEWPORT_PRESETS.map((preset) => ({
-              value: preset.id,
-              label: preset.label,
-            }))}
-            onChange={(value) => {
-              const preset = resolveBrowserViewportPreset(value);
-              void configureViewportPreset(preset, true).then((configured) => {
-                if (!configured) return;
-                writeBrowserViewportPreset(window.localStorage, sessionId, preset.id);
-                setViewportPresetId(preset.id);
-              });
-            }}
-          />
-        </div>
-        {credentialSuggestions.length > 0 &&
-          browserCredentialControl({
-            credentialSuggestions,
-            credentialBusy,
-            credentialStatus,
-            credentialMenuOpen,
-            setCredentialMenuOpen,
-            fillStoredCredential,
-          })}
-        <button
-          type="button"
-          className="browser-pane-nav-button"
-          disabled={!currentUrl}
-          onClick={() => {
-            if (currentUrl) void window.mixdogDesktop?.openExternal(currentUrl);
-          }}
-          aria-label={t('Open in system browser')}
-          data-tooltip={t('Open in system browser')}
-        >
-          <ExternalLink size={16} />
-        </button>
-        {desktopApi?.browserProfileImportSources && (
+        {navLayout.import && (
           <button
             type="button"
             className="browser-pane-nav-button browser-pane-import-button"
@@ -888,12 +716,24 @@ function DesktopBrowserPane({
             aria-label={t('Import from browser')}
             data-tooltip={t('Import from browser')}
           >
-            {/* Import links this pane to a system browser's profile (user: 링크를
-            연상시키는 버튼) — a chain glyph, not a download arrow. */}
-            <Link2 size={16} />
+            <Link2 size={15} />
           </button>
         )}
+        {mainTab && <DockOverflowMenu items={headerActions} />}
       </div>
+      {mainTab && tabs.length > 1 && (
+        <div className="browser-pane-popup-tabs">
+          <BrowserTabStrip
+            tabs={tabs}
+            onSelect={async (id) => {
+              await webviewRef.current?.selectTab(id);
+            }}
+            onClose={async (id) => {
+              await webviewRef.current?.closeTab(id);
+            }}
+          />
+        </div>
+      )}
       <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <div className={`browser-pane-content${fixedViewport ? ' is-device-frame' : ''}`} ref={contentRef}>
         <div className="browser-pane-viewport" data-viewport-preset={viewportPreset.id} style={viewportFrameStyle}>
@@ -908,7 +748,8 @@ function DesktopBrowserPane({
           />
           {/* about:blank paints Chromium's default white; until a real page is
             committed the pane stays in the app theme instead. */}
-          {!currentUrl && (
+          {!painted && !pageFailure && <BrowserLoadingPlaceholder url={currentUrl || initialUrl || ''} />}
+          {painted && !currentUrl && (
             <div className="browser-pane-empty" aria-hidden="true">
               <Globe size={28} />
               <span>{t('Search or enter address')}</span>

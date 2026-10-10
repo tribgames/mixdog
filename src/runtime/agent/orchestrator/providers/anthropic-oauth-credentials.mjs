@@ -16,8 +16,10 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { claudeCliUserAgent, resolveCliVersion } from './anthropic-oauth-client-version.mjs';
 import {
+  accountIdentityFields,
   expiryFromAccessToken,
   isDefinitiveOAuthFailure,
+  normalizeAccountIdentity,
   oauthCredentialStatus,
   scrubOAuthSecrets,
 } from './lib/oauth-token-utils.mjs';
@@ -99,10 +101,20 @@ function _loadCredentialsFile(path) {
       expiresAt: _normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at) || expiryFromAccessToken(oauth.accessToken),
       scopes: Array.isArray(oauth.scopes) ? oauth.scopes : [],
       subscriptionType: oauth.subscriptionType || null,
+      identity: normalizeAccountIdentity(oauth.identity),
     };
   } catch {
     return null;
   }
+}
+
+// The token endpoint names the signed-in account next to the tokens.
+export function identityFromTokenResponse(json) {
+  return normalizeAccountIdentity({
+    id: json?.account?.uuid,
+    email: json?.account?.email_address,
+    organizationId: json?.organization?.uuid,
+  });
 }
 
 // Cross-process safe credential save. Lockfile (O_EXCL) prevents two Mixdog
@@ -193,7 +205,10 @@ export function describeAnthropicOAuthCredentials() {
         expiresAt,
       };
     }
-    return oauthCredentialStatus({ hasRefresh, expiresAt, detail, refreshSkewMs: TOKEN_REFRESH_SKEW_MS });
+    return {
+      ...oauthCredentialStatus({ hasRefresh, expiresAt, detail, refreshSkewMs: TOKEN_REFRESH_SKEW_MS }),
+      ...accountIdentityFields(creds.identity),
+    };
   } catch (err) {
     return {
       authenticated: false,
@@ -328,6 +343,7 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
       expiresAt,
       scopes: Array.isArray(json?.scope) ? json.scope : creds.scopes,
       subscriptionType: creds.subscriptionType,
+      identity: identityFromTokenResponse(json) || creds.identity || null,
     };
     // Persist rotated tokens back so any other Mixdog reader of the same
     // credentials file picks up the new refresh_token. Without this, a
@@ -344,6 +360,7 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
             expiresAt: refreshed.expiresAt,
             scopes: refreshed.scopes,
             reauthRequired: undefined,
+            ...(refreshed.identity ? { identity: refreshed.identity } : {}),
           },
         }));
       } catch (err) {
@@ -584,6 +601,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
   }
   const expiresAt = expiresAtFromTokenResponse(json);
   const scopes = _oauthParseScopeField(json?.scope);
+  const identity = identityFromTokenResponse(json);
   const credPath = _oauthCredentialsWritePath();
   const raw = _updateCredentialsFile(credPath, (current) => {
     const base = current && typeof current === 'object' ? current : {};
@@ -598,6 +616,8 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
         scopes,
         reauthRequired: undefined,
         subscriptionType: existingOauth.subscriptionType ?? null,
+        // A fresh sign-in replaces the account: never keep the previous identity.
+        identity: identity || undefined,
       },
     };
   });
@@ -608,6 +628,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
     expiresAt,
     scopes,
     subscriptionType: raw.claudeAiOauth.subscriptionType,
+    identity,
   };
 }
 

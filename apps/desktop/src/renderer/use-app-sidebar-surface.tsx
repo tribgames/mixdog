@@ -150,6 +150,7 @@ export function useAppSidebarSurface({
     sidebarOpen,
     sidebarTreeMounted,
   ]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sidebarGroupFor is a pure lookup; re-runs only on the listed surface/mount state
   useLayoutEffect(() => {
     if (!sidebarTreeMounted) {
       // The panel trees died with their host: nothing may claim to be warm.

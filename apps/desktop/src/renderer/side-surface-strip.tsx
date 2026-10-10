@@ -1,6 +1,9 @@
-import { ExternalLink, File as FileIcon, FolderOpen, PanelTop, Save } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ExternalLink, FileText as FileIcon, FolderOpen, PanelTop, Save, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
+import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
 import './tab-strip.css';
 
 /** What the side-dock file editor reports upward so the dock can draw the
@@ -12,10 +15,20 @@ export interface SideFileChrome {
   saving: boolean;
   /** Markdown / SVG / table files: the Preview (or Table) ⇄ Source switch. */
   viewToggle?: { value: 'rendered' | 'source'; renderedLabel: string; onChange(next: 'rendered' | 'source'): void };
+  /** Rendered CSV/TSV table: body rows × columns, shown on the footer's right. */
+  tableSize?: { rows: number; columns: number };
   save(): void;
   reveal(): void;
   /** Previews and binaries: hand the file to the OS default app. */
   openDefault?(): void;
+  /** Editor readout that used to live in the footer: problem counts (a ⋯ item
+   *  that toggles the Problems split), cursor and language (⋯ menu),
+   *  and the document formatter when the language server offers one. */
+  problems?: { errors: number; warnings: number; onToggle(): void };
+  /** `short` is the compact "12:1"; `label` the full tooltip. */
+  cursor?: { label: string; short: string; onGoto(): void };
+  language?: string;
+  format?(): void;
 }
 
 /** The ONE strip every side-dock surface shows under the dock header: the
@@ -52,73 +65,187 @@ export function SideChipStrip({
   );
 }
 
-/** The side-dock file strip: the open file as the chip, file actions right. */
-export function SideFileStrip({
-  rel,
-  chrome,
-  onOpenInMain,
+/** File dock actions. Only Save (while dirty) is a header button; the rest are
+ *  real actions in ⋯ (reveal, open in main tab, format…). Status (problems,
+ *  cursor, language, view toggle) lives in the second row, not here. */
+export function sideFileActions(
+  chrome: SideFileChrome | null,
+  onOpenInMain: () => void,
+  onKeepOpen?: () => void
+): DockAction[] {
+  const actions: DockAction[] = [];
+  if (onKeepOpen) actions.push({ id: 'keep-open', label: t('Keep Open'), onSelect: onKeepOpen });
+  if (chrome?.editable && chrome.dirty) {
+    actions.push({
+      id: 'save',
+      label: t('Save'),
+      icon: Save,
+      inline: true,
+      onSelect: chrome.save,
+      disabled: chrome.saving,
+    });
+  }
+  if (chrome?.openDefault) {
+    actions.push({
+      id: 'open-default',
+      label: t('Open in default app'),
+      icon: ExternalLink,
+      onSelect: chrome.openDefault,
+    });
+  }
+  if (chrome) {
+    actions.push({ id: 'reveal', label: t('Reveal in Explorer'), icon: FolderOpen, onSelect: chrome.reveal });
+  }
+  actions.push({ id: 'open-main', label: t('Open in main tab'), icon: PanelTop, onSelect: onOpenInMain });
+  if (chrome?.format) {
+    actions.push({ id: 'format', label: t('Format Document'), onSelect: chrome.format });
+  }
+  return actions;
+}
+
+/** Right-click menu of one file tab, portalled at the pointer. */
+function SideFileTabMenu({
+  x,
+  y,
+  preview,
+  onKeepOpen,
+  onCloseTab,
+  onDismiss,
 }: {
-  rel: string;
-  chrome: SideFileChrome | null;
-  onOpenInMain(): void;
+  x: number;
+  y: number;
+  preview: boolean;
+  onKeepOpen(): void;
+  onCloseTab(): void;
+  onDismiss(): void;
 }) {
-  return (
-    <SideChipStrip label={t('File')} name={rel.split('/').at(-1) ?? rel} title={rel}>
-        {chrome?.viewToggle &&
-          (['rendered', 'source'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className="browser-pane-nav-button side-strip-text-button"
-              aria-pressed={chrome.viewToggle?.value === mode}
-              onClick={() => chrome.viewToggle?.onChange(mode)}
-            >
-              {mode === 'rendered' ? chrome.viewToggle?.renderedLabel : t('Source')}
-            </button>
-          ))}
-        {chrome?.openDefault && (
-          <button
-            type="button"
-            className="browser-pane-nav-button"
-            aria-label={t('Open in default app')}
-            data-tooltip={t('Open in default app')}
-            onClick={chrome.openDefault}
-          >
-            <ExternalLink size={16} aria-hidden="true" />
-          </button>
-        )}
-        {chrome?.editable && chrome.dirty && (
-          <button
-            type="button"
-            className="browser-pane-nav-button"
-            disabled={chrome.saving}
-            aria-label={t('Save')}
-            data-tooltip={t('Save (Ctrl+S)')}
-            onClick={chrome.save}
-          >
-            <Save size={16} aria-hidden="true" />
-          </button>
-        )}
-        {chrome && (
-          <button
-            type="button"
-            className="browser-pane-nav-button"
-            aria-label={t('Reveal in Explorer')}
-            data-tooltip={t('Reveal in Explorer')}
-            onClick={chrome.reveal}
-          >
-            <FolderOpen size={16} aria-hidden="true" />
-          </button>
-        )}
-        <button
-          type="button"
-          className="browser-pane-nav-button"
-          aria-label={t('Open in main tab')}
-          data-tooltip={t('Open in main tab')}
-          onClick={onOpenInMain}
-        >
-          <PanelTop size={16} aria-hidden="true" />
+  const menu = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    menu.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
+      onDismiss();
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onDismiss();
+    };
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown);
+    };
+  }, [onDismiss]);
+  const choose = (run: () => void) => () => {
+    onDismiss();
+    run();
+  };
+  return createPortal(
+    <div ref={menu} className="dock-header-menu" role="menu" aria-label={t('File tab')} style={{ left: x, top: y }}>
+      {preview && (
+        <button type="button" role="menuitem" onClick={choose(onKeepOpen)}>
+          <span className="dock-header-menu-glyph" />
+          <span>{t('Keep Open')}</span>
         </button>
-    </SideChipStrip>
+      )}
+      <button type="button" role="menuitem" onClick={choose(onCloseTab)}>
+        <span className="dock-header-menu-glyph" />
+        <span>{t('Close tab')}</span>
+      </button>
+    </div>,
+    document.body
+  );
+}
+
+/** The side-dock file header: ONE row — the file tabs (monochrome icon + name,
+ *  path tooltip; the preview tab in italics) on the left, the active file's
+ *  actions and the pane close at the right. */
+export function SideFileStrip({
+  files,
+  activeKey,
+  chrome,
+  onSelect,
+  onCloseTab,
+  onKeep,
+  onOpenInMain,
+  onClose,
+}: {
+  files: readonly PaneSideDockFile[];
+  activeKey: string | null;
+  chrome: SideFileChrome | null;
+  onSelect(fileKey: string): void;
+  onCloseTab(fileKey: string): void;
+  onKeep(fileKey: string): void;
+  onOpenInMain(): void;
+  onClose(): void;
+}) {
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
+  const dismissMenu = useCallback(() => setMenu(null), []);
+  const activePreview = files.find((file) => file.preview && sideFileKey(file) === activeKey);
+  const menuFile = menu ? files.find((file) => sideFileKey(file) === menu.key) : undefined;
+  return (
+    <>
+      <DockHeaderRow
+        className="side-file-header"
+        left={
+          <div className="browser-tab-list" role="tablist" aria-label={t('Files')}>
+            {files.map((file) => {
+              const key = sideFileKey(file);
+              const active = key === activeKey;
+              const name = file.rel.split('/').at(-1) ?? file.rel;
+              const tabClass = `browser-tab dock-header-chip${active ? ' is-active' : ''}${file.preview ? ' is-preview' : ''}`;
+              return (
+                <div
+                  key={key}
+                  className={tabClass}
+                  data-preview={file.preview ? 'true' : undefined}
+                  onDoubleClick={file.preview ? () => onKeep(key) : undefined}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setMenu({ key, x: event.clientX, y: event.clientY });
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    className="browser-tab-select"
+                    title={file.preview ? `${file.rel}\n${t('Preview tab — the next link replaces it')}` : file.rel}
+                    onClick={() => onSelect(key)}
+                  >
+                    <FileIcon size={15} aria-hidden="true" />
+                    <span>{name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="browser-tab-close"
+                    aria-label={`${t('Close tab')}: ${name}`}
+                    onClick={() => onCloseTab(key)}
+                  >
+                    <X size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        }
+        actions={sideFileActions(
+          chrome,
+          onOpenInMain,
+          activePreview && activeKey ? () => onKeep(activeKey) : undefined
+        )}
+        onClose={onClose}
+      />
+      {menu && menuFile && (
+        <SideFileTabMenu
+          x={menu.x}
+          y={menu.y}
+          preview={menuFile.preview === true}
+          onKeepOpen={() => onKeep(menu.key)}
+          onCloseTab={() => onCloseTab(menu.key)}
+          onDismiss={dismissMenu}
+        />
+      )}
+    </>
   );
 }

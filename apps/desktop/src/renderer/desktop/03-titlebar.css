@@ -78,9 +78,13 @@ html[data-window-material="mica"] .conversation > .composer-region::before {
 html[data-window-material="mica"] .pane-surface-handoff-layer {
   background: var(--mx-mica-layer);
 }
-html[data-window-material="mica"] .workbench-side-panel[data-side="left"],
-html[data-window-material="mica"] .app-shell.sidebar-collapsed .main-panel {
-  border-top-left-radius: 8px;
+/* Desktop widths use the joined sheet (pane-layout.css), whose radii belong to
+   the outer corners only. */
+@media (max-width: 760px) {
+  html[data-window-material="mica"] .workbench-side-panel[data-side="left"],
+  html[data-window-material="mica"] .app-shell.sidebar-collapsed .main-panel {
+    border-top-left-radius: 8px;
+  }
 }
 /* The per-pane right dock is ONE plate, header and body alike: its body used
    to take the translucent side-panel layer while the header stayed clear, so

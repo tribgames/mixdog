@@ -240,6 +240,7 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
     void options.onConfirm();
   };
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's Escape handling.
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
@@ -265,12 +266,7 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
           <button ref={cancelRef} type="button" onClick={onClose}>
             {t('Cancel')}
           </button>
-          <button
-            ref={confirmRef}
-            type="button"
-            className={options.danger ? 'danger' : 'primary'}
-            onClick={accept}
-          >
+          <button ref={confirmRef} type="button" className={options.danger ? 'danger' : 'primary'} onClick={accept}>
             {options.confirmLabel ?? t('Continue')}
           </button>
         </footer>
@@ -374,6 +370,7 @@ export function ContextStatusView({ value }: { value: unknown }) {
         meta={String(context.toolMode || t('default tools'))}
       />
       {window > 0 && (
+        // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the meter div keeps its label; the tag and role stay unchanged.
         <div className="settings-context-meter" aria-label={t(contextMeasurementLabel(measured.source))}>
           <span style={{ width: `${percent ?? 0}%` }} />
           <small>

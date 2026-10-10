@@ -52,6 +52,7 @@ export function GithubPanel({
   const sending = useRef(false);
   const repoRef = useRef(repo);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge; listing it keeps the request callback tied to the bridge it calls
   const request = useCallback(
     (input: GithubRequest): Promise<GithubResult> => {
       if (!api.githubRequest) return Promise.reject(new Error(t('GitHub needs an app restart to finish updating.')));
@@ -66,6 +67,7 @@ export function GithubPanel({
     [api, projectPath, hostname]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: section, repo and hostname are reset triggers; the body only clears state
   useEffect(() => {
     setDetail(null);
     setForm(null);
@@ -73,6 +75,7 @@ export function GithubPanel({
     setError('');
     setNotice('');
   }, [section, repo, hostname]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: repo, hostname and refresh are reload triggers (request reads them through refs/closure); the list must refetch when they change
   useEffect(() => {
     if (!active) {
       ++epoch.current;
@@ -325,11 +328,7 @@ export function GithubPanel({
             }}
           />
           {moreComments && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => loadMoreComments(detail)}
-            >
+            <button type="button" disabled={busy} onClick={() => loadMoreComments(detail)}>
               {t('Load more comments')}
             </button>
           )}
@@ -344,8 +343,11 @@ export function GithubPanel({
       {!form && !detail && (
         <>
           {!loading && !error && items.length === 0 && <p>{t('No items on this page.')}</p>}
+          {/* biome-ignore lint/a11y/useSemanticElements: the list container must stay a div; role="list" gives it list semantics */}
           <div className="github-list" role="list">
             {items.map((item) => (
+              // biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: the item button must keep its tag; role="listitem" keeps the list structure
+              // biome-ignore lint/a11y/useSemanticElements: the item must stay a button; role="listitem" keeps the list structure
               <button
                 type="button"
                 className="github-item"

@@ -52,13 +52,6 @@
   color: var(--mx-text);
   cursor: pointer;
 }
-.editor-breadcrumb-actions .editor-problems-action {
-  width: auto;
-  min-width: 28px;
-  display: inline-flex;
-  gap: 5px;
-  padding: 0 6px;
-}
 .editor-problems-count {
   display: inline-flex;
   align-items: center;
@@ -78,10 +71,6 @@
    the previous 16px glyph read visibly lighter than the TASK-side icons in
    the row above (user: 파일쪽 아이콘이 훨씬 잘 안 보인다). */
 .editor-breadcrumb-actions svg.lucide {
-  width: var(--mx-icon-lg);
-  height: var(--mx-icon-lg);
-}
-.editor-breadcrumb-actions .editor-revert-action svg.lucide {
   width: var(--mx-icon-lg);
   height: var(--mx-icon-lg);
 }
@@ -325,8 +314,32 @@
   width: 100%;
   height: 100%;
 }
-.editor-pane-body > .editor-pane-preview {
+.editor-pane-body > .editor-pane-preview,
+.editor-pane-body > .editor-zoom-frame {
   height: 100%;
+}
+/* Zoom host of the image/SVG/PDF/Office previews: the pill floats over the
+   scroller's box, so it neither scrolls away nor touches the header/footer. */
+.editor-zoom-frame {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+/* Zoomed content may overflow: top-left start + auto margins centre it while
+   it fits and keep every edge scrollable once it does not. */
+.editor-zoom-frame > .editor-pane-preview {
+  justify-content: flex-start;
+  align-items: flex-start;
+  /* A scrollbar appearing must not narrow the viewport: fit would refit. */
+  scrollbar-gutter: stable;
+}
+.editor-zoom-frame > .editor-pane-preview > img {
+  margin: auto;
+  flex: none;
 }
 /* Same band as .editor-pane-recovery, without the warning tint. */
 .editor-pane-readonly-notice {
@@ -336,34 +349,18 @@
   color: var(--mx-text-muted);
   border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
 }
-/* Segments come from .review-style-toggle (Unified/Split grammar). */
-.editor-view-toggle {
-  display: inline-flex;
-  margin-right: 6px;
-}
-/* Outrank the 28px icon-button rule of .editor-breadcrumb-actions. */
-.editor-breadcrumb-actions .editor-view-toggle button {
-  width: auto;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 10px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-}
-.editor-breadcrumb-actions .editor-view-toggle button[aria-pressed="true"] {
-  color: var(--mx-text);
-  background: var(--mx-pressed);
-}
 .editor-text-view {
   width: 100%;
   height: 100%;
   overflow: auto;
   box-sizing: border-box;
-  background: var(--mx-bg-base);
+  /* Viewers share the code editor's sheet in every placement (main or side,
+     Mica or not): --mx-sheet-ink is the solid copy Mica keeps. */
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
 }
 .editor-markdown-preview {
-  padding: 12px 20px;
+  /* Never flush with the card's corner: at least the table's 12px inset. */
+  padding: 16px 20px 12px;
   user-select: text;
 }
 .editor-table-view {
@@ -376,36 +373,128 @@
   font-size: var(--mx-font-minor);
   color: var(--mx-text-muted);
 }
-.editor-table-scroll {
+/* Spreadsheet grid (react-data-grid): flush with the editor body, no box or
+   inset. The library's layered defaults are re-themed through its variables so
+   dark and light follow the app tokens. */
+.editor-table-view {
+  overflow: hidden;
+}
+.editor-table-grid.rdg {
+  --editor-table-tint: color-mix(in srgb, var(--mx-text) 4%, var(--mx-bg-base));
+  --editor-table-accent: var(--mx-accent, var(--mx-focus));
+  --rdg-background-color: var(--mx-bg-base);
+  --rdg-header-background-color: var(--editor-table-tint);
+  --rdg-color: var(--mx-text);
+  --rdg-border-color: var(--mx-border-muted);
+  --rdg-border-width: var(--mx-hairline);
+  --rdg-summary-border-color: var(--mx-border);
+  --rdg-row-hover-background-color: color-mix(in srgb, var(--mx-text) 3%, transparent);
+  --rdg-row-selected-background-color: transparent;
+  --rdg-row-selected-hover-background-color: color-mix(in srgb, var(--mx-text) 3%, transparent);
+  --rdg-selection-color: var(--editor-table-accent);
+  --rdg-selection-width: 2px;
+  --rdg-font-size: var(--mx-font-minor);
   flex: 1;
   min-height: 0;
-  overflow: auto;
-}
-/* Cell grammar follows the transcript's .markdown table. */
-.editor-table-scroll table {
-  border-collapse: collapse;
+  block-size: auto;
+  border: 0;
   font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-emphasis);
   font-variant-numeric: tabular-nums;
-  user-select: text;
+  color-scheme: inherit;
+  user-select: none;
 }
-.editor-table-scroll th,
-.editor-table-scroll td {
-  border-bottom: var(--mx-hairline) solid var(--mx-border);
-  padding: 6px 12px;
-  text-align: left;
-  vertical-align: top;
+.editor-table-grid .rdg-cell {
+  padding-inline: 8px;
+  border-inline-end: var(--mx-hairline) solid var(--mx-border-muted);
+  border-block-end: var(--mx-hairline) solid var(--mx-border-muted);
   white-space: pre;
-  max-width: 480px;
+}
+.editor-table-grid .rdg-header-row .rdg-cell {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-strong);
+  background: var(--editor-table-tint);
+  border-block-end-color: var(--mx-border);
+}
+.editor-table-grid .rdg-cell.is-numeric {
+  text-align: right;
+}
+.editor-table-grid .rdg-cell.editor-table-rownum {
+  padding-inline: 0;
+  color: var(--mx-text-faint);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  background: var(--editor-table-tint);
+  border-inline-end-color: var(--mx-border);
+}
+.editor-table-grid .rdg-header-row .rdg-cell.editor-table-rownum {
+  color: var(--mx-text-faint);
+}
+.editor-table-grid .rdg-header-row .rdg-cell.is-active-column,
+.editor-table-grid .rdg-row:has(> .rdg-cell[aria-selected="true"]) > .rdg-cell.editor-table-rownum {
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--editor-table-accent) 14%, var(--editor-table-tint));
+}
+.editor-table-grid .rdg-cell.editor-table-ghost-cell {
+  color: var(--mx-text-faint);
+}
+.editor-table-add-row {
+  cursor: pointer;
+}
+.editor-table-header-text {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.editor-table-scroll th {
-  position: sticky;
-  top: 0;
+.editor-table-editor {
+  box-sizing: border-box;
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 100%;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  font: inherit;
+  line-height: 24px;
   color: var(--mx-text);
-  font-weight: var(--mx-weight-strong);
-  background: var(--mx-surface-plate);
+  background: var(--mx-bg-base);
+  position: relative;
+  z-index: 2;
+}
+.editor-table-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  border: var(--mx-hairline) solid var(--mx-border);
+  border-radius: var(--mx-radius-md, 6px);
+  background: var(--mx-bg-base);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+}
+.editor-table-menu button {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm, 4px);
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+  font-size: var(--mx-font-minor);
+  text-align: left;
+  cursor: pointer;
+}
+.editor-table-menu button:hover:not(:disabled),
+.editor-table-menu button:focus-visible {
+  background: var(--mx-hover);
+  outline: none;
+}
+.editor-table-menu button:disabled {
+  color: var(--mx-text-muted);
+  cursor: default;
 }
 .editor-pane-body > section,
 .editor-pane-body > section > div {
@@ -421,69 +510,9 @@
   display: none !important;
   font-size: 0 !important;
 }
-.editor-statusbar {
-  position: relative;
-  z-index: 39;
-  height: 22px;
-  flex: 0 0 22px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 4px;
-  border-top: var(--mx-hairline) solid var(--mx-border-muted);
-  color: var(--mx-text);
-  background: var(--mx-window-band);
-  font-size: var(--mx-font-minor);
-}
-/* Unfocused panes RESERVE the statusbar row (no 22px focus jump) but hide
-   its content; visibility also removes it from hit-testing. */
-.editor-statusbar-idle {
-  visibility: hidden;
-}
-.editor-statusbar-left,
-.editor-statusbar-right {
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  gap: 1px;
-}
-.editor-statusbar-right {
-  margin-left: auto;
-  overflow: hidden;
-}
-.editor-statusbar button {
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 5px;
-  border: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.editor-statusbar button:hover,
-.editor-statusbar button:focus-visible,
-.editor-statusbar button[aria-expanded="true"] {
-  background: var(--mx-hover);
-  outline: 0;
-}
-.editor-statusbar-left button > span {
-  font-size: var(--mx-font-ui);
-  line-height: 1;
-}
-/* Read-only language indicator (final cleanup: the encoding/EOL/indentation
-   pickers left the status bar). */
-.editor-statusbar-language {
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 5px;
-  white-space: nowrap;
+.editor-problems-count b {
+  min-width: 2ch;
+  font-variant-numeric: tabular-nums;
 }
 .editor-pane {
   position: relative;
@@ -693,21 +722,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   overflow: auto;
-  background: var(--mx-bg-base);
+  overscroll-behavior: contain;
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
+}
+.editor-pane-preview[data-zoom-cursor="in"] img {
+  cursor: zoom-in;
+}
+.editor-pane-preview[data-zoom-cursor="out"] img {
+  cursor: zoom-out;
 }
 .editor-pane-preview img {
   display: block;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-}
-/* Web default canvas: pages without an own background expect white. */
-.editor-pane-preview iframe {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: var(--mx-grey-50);
 }
 .editor-pane-preview video {
   display: block;
@@ -718,7 +748,6 @@
   width: min(560px, calc(100% - 32px));
 }
 .editor-pane-preview[data-ready="false"] > img,
-.editor-pane-preview[data-ready="false"] > iframe,
 .editor-pane-preview[data-ready="false"] > video,
 .editor-pane-preview[data-ready="false"] > audio {
   opacity: 0;
@@ -732,7 +761,7 @@
   justify-content: center;
   gap: 8px;
   color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
   font-size: var(--mx-font-code);
 }
 .editor-pane-preview-loading p {
@@ -747,7 +776,7 @@
   justify-content: center;
   gap: 10px;
   color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
   font-size: var(--mx-font-code);
 }
 .editor-pane-preview-error button {
@@ -770,14 +799,21 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: safe center;
   gap: 12px;
   padding: 12px;
+  box-sizing: border-box;
   overflow: auto;
-  background: var(--mx-bg-base);
+  /* Scroll never chains into the panel; the vertical gutter is reserved so the
+     scrollbar appearing cannot change the fit width (no horizontal bar at fit). */
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
   -webkit-overflow-scrolling: touch;
 }
 .editor-pane-document-page {
+  position: relative;
+  box-sizing: border-box;
   /* The scroller is a flex column and the page clips its image, so its
      min-height is 0: without this a long deck shrank every slide to a thin
      bar and made them all "visible" to the lazy page loader at once. */
@@ -789,6 +825,35 @@
   border: var(--mx-hairline) solid var(--mx-border-muted);
   border-radius: var(--mx-radius-sm);
   background: var(--mx-grey-50);
+}
+.editor-pane-document-page-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  text-align: center;
+}
+.editor-pane-document-page-error-overlay {
+  position: absolute;
+  inset: auto 8px 8px auto;
+  flex-direction: row;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-grey-50);
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.editor-pane-document-page-error button {
+  border: var(--mx-hairline) solid transparent;
+  background: var(--mx-action-bg);
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  padding: 4px 10px;
+  border-radius: var(--mx-radius-md);
+  cursor: pointer;
 }
 .editor-pane-document-page img {
   display: block;
@@ -833,10 +898,14 @@
 .workbench-quick-access {
   width: min(600px, 62vw, calc(100vw - 32px));
   overflow: hidden;
-  border: var(--mx-popup-border);
+  /* Outlined, unlike the frameless popup skin: a centered card over the
+     conversation needs a visible edge (user: 외곽선이 없어서 구분이 안 됨). */
+  border: var(--mx-hairline) solid var(--mx-border);
   border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
-  background: var(--mx-popup-bg);
+  /* One plate above the page: this card floats over the conversation, whose
+     base plate the frameless popup skin would otherwise disappear into. */
+  background: var(--mx-bg-layer-1);
   box-shadow: var(--mx-popup-shadow);
 }
 .workbench-quick-input {
@@ -935,6 +1004,26 @@
   padding: 13px 10px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
+}
+/* Session search reuses the quick-access card with group labels and a
+   trailing project column, tall enough for both groups at once. */
+.session-search > .workbench-quick-results {
+  max-height: min(70vh, 640px, calc(100vh - 130px));
+}
+.workbench-quick-results > .session-search-heading {
+  padding: 8px 9px 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+}
+.workbench-quick-results > button > .session-search-meta {
+  flex: 0 1 auto;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .workbench-unsaved-dialog > footer button:disabled {
   opacity: var(--mx-op-disabled);
@@ -1060,48 +1149,6 @@
 .session-terminal-surface-container[data-expanded="true"][data-parked="false"] {
   z-index: 40;
   box-shadow: var(--mx-floating);
-}
-.dock-terminal-shell {
-  position: relative;
-  display: flex;
-}
-.dock-terminal-shell-menu {
-  position: absolute;
-  z-index: 60;
-  right: 0;
-  top: 30px;
-  min-width: 190px;
-  display: grid;
-  padding: 4px;
-  border: var(--mx-popup-border);
-  border-radius: var(--mx-popup-radius);
-  background: var(--mx-popup-bg);
-  box-shadow: var(--mx-popup-shadow);
-}
-.dock-terminal-shell-menu > button {
-  min-height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: transparent;
-  font-size: var(--mx-font-minor);
-  text-align: left;
-  cursor: pointer;
-}
-.dock-terminal-shell-menu > button:hover,
-.dock-terminal-shell-menu > button:focus-visible {
-  background: var(--mx-hover);
-  outline: 0;
-}
-.dock-terminal-shell-note {
-  padding: 5px 8px;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-minor);
 }
 .dock-terminal {
   box-sizing: border-box;

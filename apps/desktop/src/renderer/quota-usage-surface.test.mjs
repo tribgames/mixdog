@@ -174,12 +174,7 @@ test('the usage dialog header switches to subscription usage and opens there nex
     [...document.querySelectorAll('.quota-window')].find((node) => node.textContent === '5H').click()
   );
   assert.deepEqual(calls.at(-1), { provider: 'anthropic-oauth', account: 'default', window: '5H', view: 'window' });
-  assert.deepEqual(texts('.stats-card small'), [
-    t('Used'),
-    t('Allowance to reset'),
-    t('Est. value'),
-    t('Per 1%'),
-  ]);
+  assert.deepEqual(texts('.stats-card small'), [t('Used'), t('Allowance to reset'), t('Est. value'), t('Per 1%')]);
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '30%');
   // 70 % left over the 3.5 h to the 18:00 reset: 20 % an hour.
   assert.equal(
@@ -246,12 +241,7 @@ test('the usage dialog header switches to subscription usage and opens there nex
 
   await act(async () => button('Last 24 hours').click());
   assert.equal(calls.at(-1).view, 'hour');
-  assert.deepEqual(texts('.stats-card small'), [
-    t('Times maxed out'),
-    t('Period usage'),
-    t('Est. value'),
-    t('Per 1%'),
-  ]);
+  assert.deepEqual(texts('.stats-card small'), [t('Times maxed out'), t('Period usage'), t('Est. value'), t('Per 1%')]);
   // The day holds the whole five-hour window, which rose from 0 to 30 %.
   assert.equal(document.querySelectorAll('.stats-card > b')[1].textContent, '30%');
 

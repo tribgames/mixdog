@@ -13,7 +13,15 @@ test('an oversized review keeps its bar decision and file list without the patch
   const scope = 'big-session:turn';
   const files = [{ path: 'site/ko/index.html', status: 'A', additions: 900, deletions: 0 }];
   const patch = 'x'.repeat(5 * 1024 * 1024);
-  rememberAgentReviews(scope, [{ sessionId: 'child', agent: 'worker', tag: null, patch }], patch, files, 'worktree', 'cp', 'etag-1');
+  rememberAgentReviews(
+    scope,
+    [{ sessionId: 'child', agent: 'worker', tag: null, patch }],
+    patch,
+    files,
+    'worktree',
+    'cp',
+    'etag-1'
+  );
   // Entering this session again must not wait on a fresh review read.
   assert.equal(leadReviewSnapshotKindCache.get(scope), 'worktree');
   assert.deepEqual(leadReviewFilesCache.get(scope), files);

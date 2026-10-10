@@ -1,6 +1,7 @@
 import type { RecordValue, Project } from './desktop-types';
 import { uiTimeUnit } from './ui-format';
 import type { NavigationSelection, WorkspaceSelection } from './navigation';
+import { MAIN_BROWSER_PAGE_PREFIX } from '../shared/contract-browser';
 
 export function asRecord(value: unknown): RecordValue | null {
   return value !== null && typeof value === 'object' ? (value as RecordValue) : null;
@@ -28,6 +29,7 @@ export function navigationKey(selection: WorkspaceSelection) {
   }
   if (selection.kind === 'studio') return `studio:${selection.id}`;
   if (selection.kind === 'terminal') return `terminal:${selection.id}`;
+  if (selection.kind === 'browser') return `browser:${selection.id}`;
   if (selection.kind === 'pull-request') {
     return `pull-request:${selection.project}:${selection.number}:${selection.mode}:${selection.instanceId || 'default'}`;
   }
@@ -49,6 +51,25 @@ function workspaceInstanceId(): string {
 
 export function newStudioSelection(): Extract<WorkspaceSelection, { kind: 'studio' }> {
   return { kind: 'studio', id: workspaceInstanceId() };
+}
+
+export function newBrowserSelection(url: string, title?: string): Extract<WorkspaceSelection, { kind: 'browser' }> {
+  return {
+    kind: 'browser',
+    id: `${MAIN_BROWSER_PAGE_PREFIX}${workspaceInstanceId()}`,
+    url,
+    ...(title ? { title } : {}),
+  };
+}
+
+/** Strip title of a browser tab: the page title, else the page's host. */
+export function browserTabTitle(selection: Extract<WorkspaceSelection, { kind: 'browser' }>): string {
+  if (selection.title) return selection.title;
+  try {
+    return new URL(selection.url).host || selection.url;
+  } catch {
+    return selection.url;
+  }
 }
 
 export function textOf(value: unknown): string {

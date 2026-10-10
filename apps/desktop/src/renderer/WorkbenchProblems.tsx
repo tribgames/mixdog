@@ -93,6 +93,7 @@ export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsS
   const infos = count(3) + count(4);
   const update = (patch: Partial<ProblemsPanelFilter>) => onFilter({ ...filter, ...patch });
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain actions container for assistive tech; adding a role would change semantics
     <div className="problems-panel-actions" aria-label={t('Problems actions')}>
       <button
         type="button"
@@ -329,6 +330,7 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
               <i>{problems.length}</i>
             </div>
             {!isCollapsed && (
+              // biome-ignore lint/a11y/useSemanticElements: tree group of treeitems; a fieldset is not valid here
               <div role="group">
                 {problems.map((problem) => (
                   <div
@@ -346,7 +348,9 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
                       <small>{[problem.source, problem.code].filter(Boolean).join(' ')}</small>
                     </span>
                     <em>
-                      [{t('Ln {{line}}, Col {{column}}', { line: problem.startLineNumber, column: problem.startColumn })}]
+                      [
+                      {t('Ln {{line}}, Col {{column}}', { line: problem.startLineNumber, column: problem.startColumn })}
+                      ]
                     </em>
                     {onQuickFix && (
                       <button

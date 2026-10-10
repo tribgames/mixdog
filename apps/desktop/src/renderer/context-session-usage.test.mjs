@@ -50,7 +50,9 @@ test('the context dialog closes on the session spend, in the statistics terms', 
 
 test('a timed session also reports its output speed', () => {
   const node = footer({ sessionUsage: { ...sessionUsage, outputTokensPerSecond: 61.2 } });
-  const speed = [...node.querySelectorAll(':scope > span')].find((span) => span.firstChild.textContent.trim() === t('Speed'));
+  const speed = [...node.querySelectorAll(':scope > span')].find(
+    (span) => span.firstChild.textContent.trim() === t('Speed')
+  );
   assert.equal(speed.querySelector('strong').textContent, '61 tok/s');
 });
 

@@ -54,10 +54,13 @@ test('first-paint theme uses the same dark default and explicit System preferenc
       ['system', osLight],
       [null, false, true],
     ]) {
-      const dom = new JSDOM('<!doctype html><html><head><meta name="color-scheme" content="dark light"></head><body></body></html>', {
-        runScripts: 'outside-only',
-        url: 'https://mixdog.test/',
-      });
+      const dom = new JSDOM(
+        '<!doctype html><html><head><meta name="color-scheme" content="dark light"></head><body></body></html>',
+        {
+          runScripts: 'outside-only',
+          url: 'https://mixdog.test/',
+        }
+      );
       dom.window.matchMedia = (query) => ({
         matches: query === `(prefers-color-scheme: ${osLight ? 'light' : 'dark'})`,
       });

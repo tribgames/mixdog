@@ -50,6 +50,7 @@ test('concurrent metadata publications retain one complete JSON snapshot', async
     titles: { session: value },
     names: { session: value },
     archived: {},
+    favorites: {},
     reads: {},
   }));
   await Promise.all(maps.map((value) => writeSessionMetadata(root, value)));
@@ -66,6 +67,7 @@ for (const mutation of ['name', 'archive', 'forget']) {
       titles: { keeper: 'Preserved title' },
       names: { keeper: 'Preserved name', removed: 'Old name' },
       archived: { keeper: 100 },
+      favorites: {},
       reads: { keeper: { messageCount: 5, revision: 2 } },
     });
     const metadata = new DesktopSessionMetadata(() => root);

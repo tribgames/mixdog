@@ -1,4 +1,14 @@
-import { ChevronLeft, ChevronRight, ExternalLink, Maximize2, Minimize2, PanelTop, X, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Maximize2,
+  Minimize2,
+  PanelTop,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
@@ -77,7 +87,12 @@ export function ImageLightbox({
   const stage = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
   const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
-  const [index, setIndex] = useState(() => Math.max(0, items.findIndex((item) => item.id === startId)));
+  const [index, setIndex] = useState(() =>
+    Math.max(
+      0,
+      items.findIndex((item) => item.id === startId)
+    )
+  );
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
   const item = items[Math.min(index, items.length - 1)];
   const zoomed = view.scale !== 1;
@@ -95,6 +110,7 @@ export function ImageLightbox({
     setView({ scale: 1, x: 0, y: 0 });
   };
   // Wheel zoom needs a non-passive listener to keep the page from zooming.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: zoomBy is recreated every render and only calls the stable setView; one listener serves the dialog's life.
   useEffect(() => {
     const element = stage.current;
     if (!element) return;
@@ -142,9 +158,7 @@ export function ImageLightbox({
         <span className="image-lightbox-title" title={item.name}>
           {item.name}
         </span>
-        {items.length > 1 && (
-          <span className="image-lightbox-count">{`${index + 1} / ${items.length}`}</span>
-        )}
+        {items.length > 1 && <span className="image-lightbox-count">{`${index + 1} / ${items.length}`}</span>}
         {button(t('Zoom out'), <ZoomOut size={16} aria-hidden="true" />, () => zoomBy(1 / ZOOM_STEP))}
         {button(t('Zoom in'), <ZoomIn size={16} aria-hidden="true" />, () => zoomBy(ZOOM_STEP))}
         {button(
@@ -164,6 +178,7 @@ export function ImageLightbox({
           button(t('Open in default app'), <ExternalLink size={16} aria-hidden="true" />, item.openDefault)}
         {button(t('Close preview'), <X size={16} aria-hidden="true" />, close)}
       </div>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: pointer pan/zoom surface; keyboard zoom and navigation are handled by the dialog's onKeyDown. */}
       <div
         ref={stage}
         className="image-lightbox-stage"

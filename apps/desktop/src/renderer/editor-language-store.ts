@@ -262,6 +262,38 @@ export function setActiveEditorPosition(uri: string, line: number, column = 1): 
   publish();
 }
 
+const documentOwners = new Map<string, { projectPath: string; relPath: string; count: number }>();
+
+function comparableRelPath(relPath: string): string {
+  return relPath.replace(/\\/g, '/').toLocaleLowerCase();
+}
+
+/** Register one owner (pane/editor) of a document. Pair with releaseEditorDocument. */
+export function acquireEditorDocument(projectPath: string, relPath: string, uri: string): void {
+  const owner = documentOwners.get(uri);
+  if (owner) owner.count += 1;
+  else documentOwners.set(uri, { projectPath, relPath, count: 1 });
+}
+
+/** Drop one owner; the last release removes the document's statuses, native
+ *  problems and outline and publishes once. */
+export function releaseEditorDocument(uri: string): void {
+  const owner = documentOwners.get(uri);
+  if (!owner) return;
+  owner.count -= 1;
+  if (owner.count > 0) return;
+  documentOwners.delete(uri);
+  const rel = comparableRelPath(owner.relPath);
+  for (const [key, status] of statuses) {
+    if (status.relPath && status.projectPath === owner.projectPath && comparableRelPath(status.relPath) === rel) {
+      statuses.delete(key);
+    }
+  }
+  nativeProblems.delete(uri);
+  outlines.delete(uri);
+  publish();
+}
+
 export function clearActiveEditorDocument(uri: string): void {
   outlines.delete(uri);
   if (active?.uri !== uri) return;

@@ -10,6 +10,7 @@ import {
   selectSessionTerminalTab,
   sessionTerminalId,
 } from './session-terminal-tabs.ts';
+import { loadShellProfiles } from './terminal-shell-profiles.ts';
 import { onTerminalCommandRequested, requestTerminalCommand } from './terminal-command-request.ts';
 
 const collect = (terminalId) => {
@@ -83,4 +84,25 @@ test('terminal command requests are delivered to the active tab', () => {
   assert.deepEqual(late.entered, ['whoami\r']);
   for (const sub of [one, two, late]) sub.stop();
   releaseSessionTerminalTabs(sid);
+});
+
+test('shell profiles distinguish failed, empty-ready and ready, and a failure retries', async () => {
+  const previous = globalThis.window;
+  let answer;
+  globalThis.window = { mixdogDesktop: { termProfiles: () => answer() } };
+  try {
+    answer = () => Promise.reject(new Error('ipc'));
+    assert.deepEqual(await loadShellProfiles(), { status: 'failed' });
+    answer = () => Promise.resolve(null);
+    assert.deepEqual(await loadShellProfiles(), { status: 'failed' });
+    answer = () => Promise.resolve([]);
+    assert.deepEqual(await loadShellProfiles(), { status: 'ready', profiles: [] });
+    const list = [{ id: 'pwsh', label: 'PowerShell', path: 'pwsh', default: true }];
+    answer = () => Promise.resolve(list);
+    assert.deepEqual(await loadShellProfiles(), { status: 'ready', profiles: list });
+    answer = () => Promise.reject(new Error('cached answer must win'));
+    assert.deepEqual(await loadShellProfiles(), { status: 'ready', profiles: list });
+  } finally {
+    globalThis.window = previous;
+  }
 });

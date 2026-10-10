@@ -33,7 +33,9 @@ export function createRemoteBrowserInputClient(options: {
       return;
     }
     const navigation = ['back', 'forward', 'reload', 'stop'].includes(action.type);
-    void options.send((navigation ? action : { ...action, documentId: frame.documentId }) as DesktopRemoteBrowserControl);
+    void options.send(
+      (navigation ? action : { ...action, documentId: frame.documentId }) as DesktopRemoteBrowserControl
+    );
   };
   const flush = (): void => {
     if (handle) cancel(handle);
@@ -55,7 +57,12 @@ export function createRemoteBrowserInputClient(options: {
       }
       if (action.type === 'pointer' && action.phase === 'mouseMoved') {
         const held = pending?.kind === 'move' ? pending.action : null;
-        if (held && held.buttons === action.buttons && held.button === action.button && held.modifiers === action.modifiers) {
+        if (
+          held &&
+          held.buttons === action.buttons &&
+          held.button === action.button &&
+          held.modifiers === action.modifiers
+        ) {
           Object.assign(held, action);
           return;
         }

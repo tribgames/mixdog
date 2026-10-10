@@ -4,6 +4,7 @@
  * owns (shared with the context switch).
  */
 import { clean } from '../../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { forgetSessionSearch } from '../../../runtime/session-search/session-search-ingest.mjs';
 import { listLeadSessions } from '../session-catalog.mjs';
 import { SESSION_ID_PATTERN } from '../shared.mjs';
 
@@ -58,6 +59,7 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
     if (current?.id !== sessionId) {
       const deleted = mgr.deleteSession(sessionId) === true;
       if (!deleted) return false;
+      void forgetSessionSearch(sessionId);
       // The parent is already irreversibly gone, so child cleanup is
       // best-effort and idempotent. Any vetoed child becomes sweep-eligible
       // because its retained-parent proof disappeared with the parent.
@@ -74,6 +76,7 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
     // immediately would let a late provider/save continuation resurrect the
     // deleted conversation after the user has moved to its replacement.
     if (mgr.closeSession(sessionId, cleanupReason, { tombstone: true }) !== true) return false;
+    void forgetSessionSearch(sessionId);
     // Active parent deletion uses the same durable tombstone boundary for
     // every linked child. Their files then mature with the parent instead of
     // disappearing while the parent task is still retained.

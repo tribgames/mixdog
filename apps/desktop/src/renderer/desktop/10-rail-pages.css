@@ -900,6 +900,41 @@ html[data-window-material="mica"] .session-sidebar {
   color: var(--mx-danger);
   opacity: 1;
 }
+/* Favorite star: same 24px hit area, 14px glyph and reveal as the archive
+   button, in the full icon ink on row hover/focus. It is hidden at rest even
+   for a favorite (the Favorites section is the indicator); a favorite's star
+   is filled in the accent while revealed. */
+.session-row:hover .session-row-action.session-row-favorite,
+.session-row:has(:focus-visible) .session-row-action.session-row-favorite {
+  color: var(--mx-icon);
+  opacity: 1;
+}
+.session-row-action.session-row-favorite:hover {
+  color: var(--mx-text);
+  opacity: 1;
+}
+.session-row:hover .session-row-action.session-row-favorite.active,
+.session-row:has(:focus-visible) .session-row-action.session-row-favorite.active,
+.session-row-action.session-row-favorite.active:hover {
+  color: var(--mx-accent);
+}
+.session-row-action.session-row-favorite svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+/* While the action cluster is revealed the title ends before the star and
+   archive buttons with a real ellipsis. At rest the row is untouched. */
+.session-row:hover:has(.session-row-favorite) .session-row-copy,
+.session-row:has(:focus-visible):has(.session-row-favorite) .session-row-copy {
+  padding-right: 52px;
+}
+.session-row:hover:has(.session-row-favorite) .session-row-copy b,
+.session-row:has(:focus-visible):has(.session-row-favorite) .session-row-copy b {
+  text-overflow: ellipsis;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 .session-row-action.session-row-restore {
   color: var(--mx-icon);
 }
@@ -1053,6 +1088,54 @@ html[data-window-material="mica"] .session-sidebar {
      static -8px there slid every row (and its unread dot) 8px right of the
      header "+" that sits outside this scroller. */
   margin-right: calc(-1 * var(--mx-scrollbar-gutter));
+  /* Rows dissolve at whichever edge has more to scroll, like the transcript's
+     top edge. The fade lengths ride a scroll-driven animation: 0 at an end
+     the list rests on, 20px once there is content past that edge; a list
+     that cannot scroll has no active timeline and keeps both at 0. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--sidebar-fade-top),
+    #000 calc(100% - var(--sidebar-fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--sidebar-fade-top),
+    #000 calc(100% - var(--sidebar-fade-bottom)),
+    transparent 100%
+  );
+  animation: session-sidebar-scroll-fade linear both;
+  animation-timeline: scroll(self block);
+}
+@property --sidebar-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --sidebar-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes session-sidebar-scroll-fade {
+  0% {
+    --sidebar-fade-top: 0px;
+    --sidebar-fade-bottom: 20px;
+  }
+  4% {
+    --sidebar-fade-top: 20px;
+    --sidebar-fade-bottom: 20px;
+  }
+  96% {
+    --sidebar-fade-top: 20px;
+    --sidebar-fade-bottom: 20px;
+  }
+  100% {
+    --sidebar-fade-top: 20px;
+    --sidebar-fade-bottom: 0px;
+  }
 }
 /* SessionSidebar preserves the first visible keyed row when activity-order
    inserts above it. Native anchoring would apply a second, browser-dependent

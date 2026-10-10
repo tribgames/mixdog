@@ -5,6 +5,7 @@ import type { EditorFileLoad } from './editor-file-loader';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
+import { ZoomFrame, ZoomImage, useImageSize } from './ZoomFrame';
 
 export function EditorPaneNoticeSurface({ breadcrumbs, children }: { breadcrumbs: ReactNode; children: ReactNode }) {
   return (
@@ -28,6 +29,7 @@ export function EditorPaneFileFallback({
   breadcrumbs,
   load,
   note,
+  onRetry,
   onOpen,
 }: {
   breadcrumbs: ReactNode;
@@ -35,6 +37,8 @@ export function EditorPaneFileFallback({
   /** Why a viewer that WAS attempted could not show this file — a failed
    *  document conversion. Absent for files that never had one. */
   note?: string;
+  /** Tries the viewer again (a failed conversion may have been transient). */
+  onRetry?(): void;
   onOpen(): void;
 }) {
   return (
@@ -48,6 +52,11 @@ export function EditorPaneFileFallback({
       <button type="button" onClick={onOpen}>
         <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}
       </button>
+      {onRetry && (
+        <button type="button" onClick={onRetry}>
+          {t('Retry')}
+        </button>
+      )}
     </EditorPaneNoticeSurface>
   );
 }
@@ -56,6 +65,7 @@ export function EditorPanePreviewSurface({
   breadcrumbs,
   preview,
   relPath,
+  zoomKey,
   loaded,
   error,
   mediaForeground,
@@ -67,6 +77,8 @@ export function EditorPanePreviewSurface({
   breadcrumbs: ReactNode;
   preview: FilePreview;
   relPath: string;
+  /** Remembers the zoom while this file stays open in its surface. */
+  zoomKey?: string;
   loaded: boolean;
   error: string;
   mediaForeground: boolean;
@@ -76,58 +88,92 @@ export function EditorPanePreviewSurface({
   onOpen(): void;
 }) {
   const name = relPath.split('/').at(-1) || relPath;
+  // PDFs never reach this surface: they use the page viewer (no iframe).
+  const zoomable = preview.kind === 'image';
+  const { natural, onNatural } = useImageSize(preview.url);
+  const body = (zoom: { scale: number } | null) => (
+    <>
+      {!loaded && !error && (
+        <div className="editor-pane-preview-loading" role="status">
+          <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
+          <p>{t('Loading preview…')}</p>
+        </div>
+      )}
+      {preview.kind === 'image' && zoom && (
+        <ZoomImage
+          src={preview.url}
+          alt={name}
+          natural={natural}
+          scale={zoom.scale}
+          onNatural={onNatural}
+          onLoad={onComplete}
+          onError={onFail}
+        />
+      )}
+      {preview.kind === 'audio' && (
+        // biome-ignore lint/a11y/useMediaCaption: this plays the user's own file, which carries no caption track to offer.
+        <audio
+          key={mediaForeground ? 'foreground' : 'suspended'}
+          ref={(node) => {
+            mediaRef.current = node;
+          }}
+          src={mediaForeground ? preview.url : undefined}
+          controls={mediaForeground}
+          preload={mediaForeground ? 'metadata' : 'none'}
+          onLoadedMetadata={onComplete}
+          onError={onFail}
+        />
+      )}
+      {preview.kind === 'video' && (
+        // biome-ignore lint/a11y/useMediaCaption: this plays the user's own file, which carries no caption track to offer.
+        <video
+          key={mediaForeground ? 'foreground' : 'suspended'}
+          ref={(node) => {
+            mediaRef.current = node;
+          }}
+          src={mediaForeground ? preview.url : undefined}
+          controls={mediaForeground}
+          preload={mediaForeground ? 'metadata' : 'none'}
+          onLoadedMetadata={onComplete}
+          onError={onFail}
+        />
+      )}
+      {error && (
+        <ErrorNotice
+          error={error}
+          className="editor-pane-preview-error"
+          action={
+            <button type="button" onClick={onOpen}>
+              <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}
+            </button>
+          }
+        />
+      )}
+    </>
+  );
+  const readyAttr = loaded ? 'true' : 'false';
   return (
     <div className="editor-pane">
       {breadcrumbs}
-      <div className={`editor-pane-preview is-${preview.kind}`} data-ready={loaded ? 'true' : 'false'}>
-        {!loaded && !error && (
-          <div className="editor-pane-preview-loading" role="status">
-            <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
-            <p>{t('Loading preview…')}</p>
-          </div>
-        )}
-        {preview.kind === 'image' && <img src={preview.url} alt={name} onLoad={onComplete} onError={onFail} />}
-        {preview.kind === 'pdf' && (
-          <iframe src={preview.url} title={t('{{value0}} PDF preview', { value0: name })} onLoad={onComplete} onError={onFail} />
-        )}
-        {preview.kind === 'audio' && (
-          <audio
-            key={mediaForeground ? 'foreground' : 'suspended'}
-            ref={(node) => {
-              mediaRef.current = node;
-            }}
-            src={mediaForeground ? preview.url : undefined}
-            controls={mediaForeground}
-            preload={mediaForeground ? 'metadata' : 'none'}
-            onLoadedMetadata={onComplete}
-            onError={onFail}
-          />
-        )}
-        {preview.kind === 'video' && (
-          <video
-            key={mediaForeground ? 'foreground' : 'suspended'}
-            ref={(node) => {
-              mediaRef.current = node;
-            }}
-            src={mediaForeground ? preview.url : undefined}
-            controls={mediaForeground}
-            preload={mediaForeground ? 'metadata' : 'none'}
-            onLoadedMetadata={onComplete}
-            onError={onFail}
-          />
-        )}
-        {error && (
-          <ErrorNotice
-            error={error}
-            className="editor-pane-preview-error"
-            action={
-              <button type="button" onClick={onOpen}>
-                <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}
-              </button>
-            }
-          />
-        )}
-      </div>
+      {zoomable ? (
+        // Keyed by source: another file starts again at fit.
+        <ZoomFrame
+          key={preview.url}
+          ready={loaded && !error}
+          intrinsicWidth={natural?.width}
+          intrinsicHeight={natural?.height}
+          memoryKey={zoomKey}
+          clickToggle
+          scrollerClassName={`editor-pane-preview is-${preview.kind}`}
+          dataReady={loaded}
+        >
+          {body}
+        </ZoomFrame>
+      ) : (
+        <div className={`editor-pane-preview is-${preview.kind}`} data-ready={readyAttr}>
+          {body(null)}
+        </div>
+      )}
     </div>
   );
 }

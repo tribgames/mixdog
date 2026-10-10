@@ -25,6 +25,7 @@ export function useTrendDetail(dependencies: readonly unknown[]) {
   const anchorRef = useRef<HTMLElement | null>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeKey and the caller's dependencies re-place the card; popover members are read at run time and popover.host/close are not stable identities
   useLayoutEffect(() => {
     const host = popover.host.current;
     const card = detailRef.current;
