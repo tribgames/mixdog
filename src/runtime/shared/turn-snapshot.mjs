@@ -13,6 +13,7 @@ import {
 } from './turn-worktree-snapshot.mjs';
 import { loadSessionSnapshotRecords, loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
 import { boundReviewPatch } from './review-diff.mjs';
+import { PATCH_SNAPSHOT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 
 // Turn-scoped review registry.
@@ -122,15 +123,38 @@ function sessionAttributedPaths(root, tracker) {
   return paths;
 }
 
+// A change whose bytes were never captured (binary/oversized) carries
+// `{ omitted: true, size }` instead of content: the path still counts as
+// changed, but nothing can be diffed or reverted from it.
+function isOmittedContent(value) {
+  return Boolean(value) && typeof value === 'object' && !(value instanceof Uint8Array) && value.omitted === true;
+}
+
 function contentBuffer(value) {
   if (value == null) return null;
+  if (isOmittedContent(value)) return { omitted: true, size: Number(value.size) || 0, reason: value.reason || null };
   if (Buffer.isBuffer(value)) return value;
   if (value instanceof Uint8Array) return Buffer.from(value);
   return Buffer.from(String(value), 'utf8');
 }
 
+/** A before-state for the worktree baseline without copying anything above
+ *  the per-file snapshot limit: such content becomes an omitted marker. */
+function boundedBaselineContent(value) {
+  const size = contentByteLength(value);
+  if (size > PATCH_SNAPSHOT_MAX_BYTES) return { omitted: true, size, reason: 'oversized' };
+  return contentBuffer(value);
+}
+
+function contentByteLength(value) {
+  if (value == null || isOmittedContent(value)) return 0;
+  if (value instanceof Uint8Array) return value.length;
+  return Buffer.byteLength(String(value), 'utf8');
+}
+
 function sameContent(left, right) {
   if (left === null || right === null) return left === right;
+  if (isOmittedContent(left) || isOmittedContent(right)) return false;
   return left.length === right.length && left.equals(right);
 }
 
@@ -198,6 +222,13 @@ function renderTrackedPair(before, after) {
   let head = `diff --git ${oldGit} ${newGit}\n`;
   if (before?.content === null && after?.content !== null) head += 'new file mode 100644\n';
   else if (before?.content !== null && after?.content === null) head += 'deleted file mode 100644\n';
+  const omitted = [before?.content, after?.content].find(isOmittedContent);
+  if (omitted) {
+    let change = 'changed';
+    if (after?.content === null) change = 'deleted';
+    else if (before?.content === null) change = 'added';
+    return `${head}binary/large file ${change} (${omitted.size} bytes; content not captured)\nBinary files ${oldHeader} and ${newHeader} differ\n`;
+  }
   const oldText = decodeTrackedContent(before?.content ?? null);
   const newText = decodeTrackedContent(after?.content ?? null);
   if (oldText === null || newText === null) {
@@ -326,6 +357,13 @@ async function currentTrackedContent(path) {
 }
 
 async function validateTrackedPair(pair, worktree) {
+  const omitted = [pair.before?.content, pair.after?.content].find(isOmittedContent);
+  if (omitted) {
+    const display = pair.before?.displayPath || pair.after?.displayPath || 'unknown file';
+    throw new Error(
+      `turn review revert is unavailable for ${display}: binary/large file content was not captured (${omitted.size} bytes)`
+    );
+  }
   const beforePath = safeTrackedTarget(
     worktree,
     pair.before?.path || pair.before?.displayPath || pair.after?.path || pair.after?.displayPath
@@ -396,13 +434,26 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
   if (!id) return '';
   const tracker = _diffTrackersBySession.get(id) || resetDiffTracker(id);
   if (!tracker?.valid || tracker.sealed) return tracker?.unifiedDiff || '';
-  for (const raw of Array.isArray(changes) ? changes : []) {
+  const list = Array.isArray(changes) ? changes : [];
+  // The content ceiling is enforced BEFORE anything is stored: an over-budget
+  // batch invalidates the tracker up front instead of retaining its buffers.
+  const incomingBytes = list.reduce(
+    (total, raw) => total + contentByteLength(raw?.before) + contentByteLength(raw?.after),
+    0
+  );
+  const storeContent = trackedContentBytes(tracker) + incomingBytes <= MAX_TRACKED_CONTENT_BYTES;
+  if (!storeContent) {
+    tracker.valid = false;
+    releaseDiffTrackerContent(tracker);
+  }
+  for (const raw of list) {
     const sourcePath = clean(raw?.path);
     if (!sourcePath) continue;
     const sourceKey = pathKey(sourcePath);
     const sourceDisplay = displayPath(raw?.displayPath || sourcePath);
-    const before = contentBuffer(raw?.before);
-    const after = contentBuffer(raw?.after);
+    // Nothing is converted or copied before the ceiling decision: a rejected
+    // batch only hands the worktree baseline a bounded value.
+    const before = storeContent ? contentBuffer(raw?.before) : boundedBaselineContent(raw?.before);
     const destinationPath = clean(raw?.newPath);
     const snapshot = (tracker.ownerSessionId ? _diffTrackersBySession.get(tracker.ownerSessionId) : tracker)
       ?.worktreeSnapshot;
@@ -417,6 +468,8 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
     if (destinationPath) {
       tracker.ownedPaths.add(ownedPathEntry(destinationPath, displayPath(raw?.newDisplayPath || destinationPath)));
     }
+    if (!storeContent) continue;
+    const after = contentBuffer(raw?.after);
     if (!destinationPath) {
       if (before === null && after !== null) {
         tracker.originByCurrentPath.delete(sourceKey);

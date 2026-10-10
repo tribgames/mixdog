@@ -50,10 +50,22 @@ export function registerEditToolUiDiff({ callId, sessionId, basePath, fullPath, 
   }
 }
 
+// Review content of one snapshot: null when absent, the bytes when captured,
+// and an explicit omitted marker (never empty bytes) when they were not.
+function snapshotContent(snapshot) {
+  if (!snapshot?.existed) return null;
+  if (snapshot.omitted) return { omitted: true, size: snapshot.size, reason: snapshot.omittedReason };
+  return snapshot.content;
+}
+
 function snapshotByPath(snapshots) {
   return new Map((snapshots || []).map((snapshot) => [pathKey(snapshot.fullPath), snapshot]));
 }
 
+// `paths` are the targets the apply ACTUALLY mutated (written, deleted or
+// moved), as reported by the apply path itself — never every attempted target:
+// a refused or never-applied target is not a change. Whether a path changed is
+// never inferred from file metadata.
 export function registerCommittedPatchUiDiff({
   callId,
   sessionId,
@@ -81,8 +93,8 @@ export function registerCommittedPatchUiDiff({
         displayPath: patchHeaderPathForResolved(basePath, sourcePath),
         newPath: destinationPath,
         newDisplayPath: patchHeaderPathForResolved(basePath, destinationPath),
-        before: before?.existed ? before.content : null,
-        after: after?.existed ? after.content : null,
+        before: snapshotContent(before),
+        after: snapshotContent(after),
       });
       renamedPaths.add(sourceKey);
       renamedPaths.add(destinationKey);
@@ -95,8 +107,8 @@ export function registerCommittedPatchUiDiff({
       changes.push({
         path: fullPath,
         displayPath: patchHeaderPathForResolved(basePath, fullPath),
-        before: before?.existed ? before.content : null,
-        after: after?.existed ? after.content : null,
+        before: snapshotContent(before),
+        after: snapshotContent(after),
       });
     }
     const turnDiff = recordTurnDiffChanges(sessionId, changes);

@@ -2,7 +2,8 @@
 // record for each — with the body-knowledge fast path inherited only when the
 // engine's content hash matches the prediction and one consistent
 // stat-then-read observation confirms it.
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
+import { readPatchTargetBytes } from '../content-guard.mjs';
 import {
   normalizeOutputPath,
   invalidateBuiltinResultCache,
@@ -35,7 +36,10 @@ export function invalidateNativeCaches(fullPaths) {
 function consistentObservation(entry, contentHash) {
   try {
     const st = lstatSync(entry.fullPath);
-    const observed = decodePatchTargetBuffer(readFileSync(entry.fullPath), entry.displayPath);
+    const observed = decodePatchTargetBuffer(
+      readPatchTargetBytes(entry.fullPath, entry.displayPath),
+      entry.displayPath
+    );
     return hashText(observed.text) === contentHash ? st : null;
   } catch {
     return null;

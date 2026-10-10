@@ -1,7 +1,8 @@
 // apply_patch dispatch: the native engine (proofs, snapshots and report in
 // dispatch/*.mjs), the JS engine fallback, and failure-context formatting.
 
-import { readFileSync, lstatSync, statSync, realpathSync, mkdirSync } from 'node:fs';
+import { lstatSync, statSync, realpathSync, mkdirSync } from 'node:fs';
+import { readPatchTargetBytes } from './content-guard.mjs';
 import { capturePreMutationStats, nativeEncodingError, predictBodyProofs } from './dispatch/native-proofs.mjs';
 import { invalidateNativeCaches, recordNativeSnapshots, writtenNativeEntries } from './dispatch/native-snapshots.mjs';
 import { countLabel, formatNativeSummary, kindLabel, traceNativeApply } from './dispatch/native-report.mjs';
@@ -9,6 +10,7 @@ import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { throwIfAborted } from '../../../../shared/abort-race.mjs';
+import { readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
 import {
   normalizeOutputPath,
   invalidateBuiltinResultCache,
@@ -70,10 +72,13 @@ function formatNativeFailureContext(parsed, basePath, failedPath = '', options =
   let sourceLines = null;
   let sourceByteLines = null;
   try {
-    const fullPath = resolveEntryPath(basePath, entry.oldFileName);
-    const raw = readFileSync(fullPath); // Buffer — no 'utf8' decode
-    sourceByteLines = splitBufferLinesForPatch(raw);
-    sourceLines = splitTextLinesForPatch(raw.toString('utf8'));
+    // Bounded: a binary/oversized target gets no excerpt instead of a full read.
+    const read = readBoundedFile(resolveEntryPath(basePath, entry.oldFileName));
+    if (read.state === 'present') {
+      const raw = read.content; // Buffer — no 'utf8' decode
+      sourceByteLines = splitBufferLinesForPatch(raw);
+      sourceLines = splitTextLinesForPatch(raw.toString('utf8'));
+    }
   } catch {}
   const failingHunk = sourceByteLines ? findFirstFailingUnifiedHunk(entry, sourceByteLines, fuzz) : null;
   const failingDetail =
@@ -389,7 +394,11 @@ async function applyJsUpdateEntry(entry, fullPath, displayPath, { dryRun, fuzzy,
   // Rewrite path: decode by BOM, re-encode into the same codec, and keep every
   // untouched line's own terminator (spliceTextLinesForPatch).
   // `toString('utf8')` here transcoded non-UTF-8 files and mangled UTF-16.
-  const { text: rawText, enc: rawEnc } = decodePatchTargetBuffer(readFileSync(fullPath), displayPath);
+  // Bounded at the read itself: a target grown past the limit is refused here.
+  const { text: rawText, enc: rawEnc } = decodePatchTargetBuffer(
+    readPatchTargetBytes(fullPath, displayPath),
+    displayPath
+  );
   const sourceLines = splitTextLinesForPatch(rawText);
   const updatedLines = applyUnifiedHunksToLines(sourceLines, entry.hunks || [], {
     fuzz: fuzzy ? 2 : 0,

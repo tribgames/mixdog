@@ -61,6 +61,25 @@ test('tracked review over two million characters retains large and subsequent fi
   }
 });
 
+test('an over-ceiling change is rejected without converting its content to a Buffer', (t) => {
+  const big = 'x'.repeat(65 * 1024 * 1024);
+  const realFrom = Buffer.from;
+  let largest = 0;
+  t.mock.method(Buffer, 'from', function (value, ...rest) {
+    if (typeof value === 'string') largest = Math.max(largest, value.length);
+    return realFrom.call(this, value, ...rest);
+  });
+  try {
+    recordTurnDiffChanges('over-ceiling', [
+      { path: '/probe/huge.txt', displayPath: 'huge.txt', before: big, after: `${big}y` },
+    ]);
+  } finally {
+    t.mock.restoreAll();
+    _resetTurnSnapshotForTest();
+  }
+  assert.ok(largest <= 8 * 1024 * 1024, `converted a ${largest}-character string`);
+});
+
 test('a completion wake continues the user turn review with its Lead edits and worker diffs', async () => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-turn-wake-'));
   const lead = 'wake-lead';

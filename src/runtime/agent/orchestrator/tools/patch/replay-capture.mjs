@@ -1,9 +1,11 @@
 // Patch replay capture: every apply_patch failure is frozen (args + target
 // file snapshots) for `npm run patch:replay`. Best-effort throughout — a
 // capture problem never changes the tool result.
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve as pathResolve, isAbsolute, join as pathJoin } from 'node:path';
+import { createSnapshotBudget, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
 import { getPluginData } from '../../config.mjs';
+import { decodeValidUtf8OrNull } from './matcher.mjs';
 import { isResolvedPathOutsideBase } from './paths.mjs';
 
 function patchReplayDir() {
@@ -75,8 +77,19 @@ export function preparePatchReplayCapture(args, cwd, options = {}) {
   }
 }
 
+// Replay snapshots keep absent / empty / omitted / unreadable distinct:
+// `file_snapshots[rel]` is the text ('' when empty) or null, and
+// `file_snapshot_meta[rel]` says why a null is not simply an absent file
+// ({ omitted, reason, size } or { unreadable }). Binary/oversized bytes are
+// never read or decoded.
+function omittedReplayMeta(reason, size) {
+  return { omitted: true, reason, size: Number(size) || 0 };
+}
+
 function snapshotPatchReplayTargets(capture) {
   const files = {};
+  const meta = {};
+  const budget = createSnapshotBudget();
   for (const rel of capture?.targets || []) {
     try {
       const abs = isAbsolute(rel) ? rel : pathResolve(capture.basePath, rel);
@@ -86,34 +99,49 @@ function snapshotPatchReplayTargets(capture) {
         files[rel] = null;
         continue;
       }
-      files[rel] = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+      const read = readBoundedFile(abs, { budget });
+      files[rel] = null;
+      if (read.state === 'omitted') meta[rel] = omittedReplayMeta(read.reason, read.size);
+      else if (read.state === 'present') {
+        const text = decodeValidUtf8OrNull(read.content);
+        if (text === null) meta[rel] = omittedReplayMeta('binary', read.size);
+        else files[rel] = text;
+      }
     } catch {
       files[rel] = null;
+      meta[rel] = { unreadable: true };
     }
   }
-  return files;
+  return { files, meta };
 }
 
 export function setPatchReplayPreSnapshots(capture, snapshots) {
   if (!capture || capture.snapshotPhase === 'pre') return;
   const byPath = new Map((snapshots || []).map((snapshot) => [pathResolve(snapshot.fullPath), snapshot]));
   const files = {};
+  const meta = {};
   for (const rel of capture.targets || []) {
     try {
       const abs = pathResolve(isAbsolute(rel) ? rel : pathResolve(capture.basePath, rel));
       const snapshot = byPath.get(abs);
-      if (!snapshot?.existed) {
-        files[rel] = null;
+      files[rel] = null;
+      if (!snapshot?.existed) continue;
+      if (snapshot.omitted) {
+        meta[rel] = omittedReplayMeta(snapshot.omittedReason, snapshot.size);
       } else if (Buffer.isBuffer(snapshot.content)) {
-        files[rel] = snapshot.content.toString('utf8');
+        const text = decodeValidUtf8OrNull(snapshot.content);
+        if (text === null) meta[rel] = omittedReplayMeta('binary', snapshot.content.length);
+        else files[rel] = text;
       } else {
         files[rel] = String(snapshot.content ?? '');
       }
     } catch {
       files[rel] = null;
+      meta[rel] = { unreadable: true };
     }
   }
   capture.fileSnapshots = files;
+  capture.fileSnapshotMeta = meta;
   capture.snapshotPhase = 'pre';
 }
 
@@ -142,7 +170,9 @@ export function maybeCapturePatchReplay(capture, errorText) {
     const dir = patchReplayDir();
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (!capture.fileSnapshots) {
-      capture.fileSnapshots = snapshotPatchReplayTargets(capture);
+      const { files, meta } = snapshotPatchReplayTargets(capture);
+      capture.fileSnapshots = files;
+      capture.fileSnapshotMeta = meta;
       capture.snapshotPhase = 'post-no-prestate';
     }
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -162,6 +192,9 @@ export function maybeCapturePatchReplay(capture, errorText) {
       error_truncated: fullError.length > PATCH_REPLAY_ERROR_MAX_CHARS,
       targets: capture.targets,
       file_snapshots: capture.fileSnapshots,
+      ...(Object.keys(capture.fileSnapshotMeta || {}).length > 0
+        ? { file_snapshot_meta: capture.fileSnapshotMeta }
+        : {}),
     };
     writeFileSync(pathJoin(dir, `${id}.json`), JSON.stringify(record, null, 2), { mode: 0o600 });
     // Retention: keep the newest 40 captures. The id prefix is Date.now() in

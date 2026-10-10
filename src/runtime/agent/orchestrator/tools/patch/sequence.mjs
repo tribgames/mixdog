@@ -59,15 +59,15 @@ export async function applyPatchSequence(patchStr, requestedFormat, basePath, ct
         }
       }
       const outcome = await runPatchUnits(units, basePath, { waveOpts, abortSignal, continueAfterFailure });
-      // Whatever reached disk is reported to the review channel; a full
-      // success always has every unit in `applied`.
-      if (!dryRun && uiBeforeSnapshots.length > 0 && outcome.applied.length > 0) {
+      // Exactly what reached disk is reported to the review channel: the
+      // targets of committed units, never those of refused or failed ones.
+      if (!dryRun && uiBeforeSnapshots.length > 0 && outcome.mutatedPaths.length > 0) {
         registerCommittedPatchUiDiff({
           callId: toolCallId,
           sessionId,
           basePath,
           beforeSnapshots: uiBeforeSnapshots,
-          paths: lockPaths,
+          paths: outcome.mutatedPaths,
         });
       }
       const report = formatSequenceReport({

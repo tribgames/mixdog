@@ -68,13 +68,13 @@ async function apply_patch(rawArgs, cwd, options = {}) {
     readStateScope,
     abortSignal,
     options,
-    runBatch: () =>
+    runBatch: (deleteQuarantine) =>
       runCodexBatch({
         batch,
         basePath,
         v4aConvertOpts,
         rejectedV4AHunks,
-        waveOpts: { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal },
+        waveOpts: { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal, deleteQuarantine },
       }),
   });
 }

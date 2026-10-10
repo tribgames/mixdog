@@ -3,7 +3,7 @@
 // rollback.
 import { parsePatch } from 'diff';
 import { throwIfAborted } from '../../../../../shared/abort-race.mjs';
-import { withBuiltinPathLocks } from '../../builtin.mjs';
+import { normalizeOutputPath, withBuiltinPathLocks } from '../../builtin.mjs';
 import { withAdvisoryLocks } from '../../builtin/advisory-lock.mjs';
 import { wrapPatchMutationOutput } from '../mutation-output.mjs';
 import { ensureNativePatchBinaryAvailable } from '../native-server.mjs';
@@ -16,7 +16,15 @@ import {
   parseV4APatch,
   prepareInput,
 } from '../parsing.mjs';
-import { preValidateNativeBatch, resolveV4AEntryPath, splitParsedModifyWaves } from '../paths.mjs';
+import { contentEditRefusalMessage } from '../content-guard.mjs';
+import {
+  commitDeleteQuarantine,
+  createDeleteQuarantine,
+  formatQuarantineLeftovers,
+  markQuarantineOmittedSnapshots,
+  rollbackDeleteQuarantine,
+} from '../delete-quarantine.mjs';
+import { pathKey, preValidateNativeBatch, resolveV4AEntryPath, splitParsedModifyWaves } from '../paths.mjs';
 import { rewriteParsedReadRedirects, rewriteV4AReadRedirects } from '../read-redirects.mjs';
 import { setPatchReplayPreSnapshots } from '../replay-capture.mjs';
 import { capturePatchRollbackState, restorePatchRollbackState } from '../rollback-state.mjs';
@@ -156,7 +164,35 @@ export async function runCodexBatch({ batch, basePath, v4aConvertOpts, rejectedV
 // it whenever the batch fails — by returned Error text OR by a thrown error
 // (V4A rename, persistence) — so mode:"atomic" really is all-or-nothing
 // instead of leaving an earlier commit in place.
-export function applyCodexBatchWithRollback({ batch, basePath, dryRun, readStateScope, abortSignal, options, runBatch }) {
+//
+// A content edit or rename whose source snapshot is omitted (binary, oversized
+// or past the snapshot budget) has no rollback source: refuse it before the
+// first mutation. Deletes of such files go through the delete quarantine passed
+// to runBatch(deleteQuarantine): rolled back by renaming back, committed here.
+function unprotectedEditRefusal(batch, snapshots, basePath) {
+  const editKeys = new Set([
+    ...(batch.waveDispatch || []).flatMap((wave) =>
+      wave.entries.filter((entry) => entry.kind === 'modify').map((entry) => pathKey(entry.fullPath))
+    ),
+    ...(batch.v4aRenamePlan?.renameSections || []).map((section) =>
+      pathKey(resolveV4AEntryPath(basePath, section.path))
+    ),
+  ]);
+  const hit = snapshots.find((snapshot) => snapshot.omitted && editKeys.has(pathKey(snapshot.fullPath)));
+  return hit
+    ? contentEditRefusalMessage(normalizeOutputPath(hit.fullPath), { reason: hit.omittedReason, size: hit.size })
+    : null;
+}
+
+export function applyCodexBatchWithRollback({
+  batch,
+  basePath,
+  dryRun,
+  readStateScope,
+  abortSignal,
+  options,
+  runBatch,
+}) {
   const { lockPaths, v4aRenamePlan } = batch;
   const registerUiDiff = (rollbackSnapshots) =>
     registerCommittedPatchUiDiff({
@@ -171,6 +207,7 @@ export function applyCodexBatchWithRollback({ batch, basePath, dryRun, readState
     withAdvisoryLocks(lockPaths, async () => {
       throwIfAborted(abortSignal);
       let rollbackSnapshots = [];
+      const deleteQuarantine = dryRun ? null : createDeleteQuarantine();
       if (!dryRun) {
         try {
           rollbackSnapshots = capturePatchRollbackState(lockPaths);
@@ -178,11 +215,17 @@ export function applyCodexBatchWithRollback({ batch, basePath, dryRun, readState
         } catch (err) {
           return `Error: ${err?.message || String(err)}`;
         }
+        const refusal = unprotectedEditRefusal(batch, rollbackSnapshots, basePath);
+        if (refusal) return `Error: ${refusal}`;
+        markQuarantineOmittedSnapshots(deleteQuarantine, rollbackSnapshots);
       }
       // Restoration errors are never swallowed: an incomplete rollback is
       // reported verbatim so the caller never reads a false all-or-nothing.
       const withRollback = (outcome) => {
-        const rollbackErrors = restorePatchRollbackState(rollbackSnapshots, readStateScope);
+        const rollbackErrors = [
+          ...rollbackDeleteQuarantine(deleteQuarantine, readStateScope),
+          ...restorePatchRollbackState(rollbackSnapshots, readStateScope),
+        ];
         return {
           text:
             rollbackErrors.length === 0
@@ -193,7 +236,7 @@ export function applyCodexBatchWithRollback({ batch, basePath, dryRun, readState
       };
       let outcome;
       try {
-        outcome = await runBatch();
+        outcome = await runBatch(deleteQuarantine);
       } catch (err) {
         // A thrown failure (e.g. V4A rename) took the same path to disk as a
         // returned one, so it takes the same path back out.
@@ -204,8 +247,9 @@ export function applyCodexBatchWithRollback({ batch, basePath, dryRun, readState
       }
       if (dryRun) return outcome;
       if (!isPatchErrorText(outcome)) {
+        const leftovers = commitDeleteQuarantine(deleteQuarantine);
         registerUiDiff(rollbackSnapshots);
-        return outcome;
+        return leftovers.length > 0 ? `${outcome}\n${formatQuarantineLeftovers(leftovers)}` : outcome;
       }
       const rolledBack = withRollback(outcome);
       if (rolledBack.rollbackErrors.length > 0) registerUiDiff(rollbackSnapshots);
