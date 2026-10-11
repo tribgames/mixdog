@@ -67,6 +67,9 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
       : READ_MAX_OUTPUT_BYTES;
   const bodyOutputBytes = Math.max(1, maxOutputBytes - Math.min(384, Math.floor(maxOutputBytes / 3)));
   const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
+  const checkDeadline = () => {
+    if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
+  };
   const lines = createReadLineCollector({ offset, limit, bodyOutputBytes, rangeIndex,
     startLine: anchor.line,
     fileSize: stForIndex?.size || 0,
@@ -74,9 +77,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
 
   let stop = false;
   while (!stop) {
-    if (Date.now() > deadline) {
-      throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
-    }
+    checkDeadline();
     if (buf.length < chunkBytes) buf = Buffer.allocUnsafe(chunkBytes);
     const prefix = position === 0 && Buffer.isBuffer(prefixBuffer) ? prefixBuffer : null;
     const bytesRead = prefix?.length
@@ -126,7 +127,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
     if (start < bytesRead) lines.appendPartial(buf.subarray(start, bytesRead));
   }
   if (!stop) lines.finishTail();
-  await publishReadRangeIndex(rangeIndex, fh);
+  if (!(await publishReadRangeIndex(rangeIndex, fh, null, checkDeadline))) checkDeadline();
 
   ioTraceDone('read_range_stream', traceStart, {
     pathHash: hashText(fullPath).slice(0, 12),
@@ -254,10 +255,13 @@ export async function countLogicalLinesBytesSync(fullPath, size, stHint = null, 
   let lines = 0;
   let lastByte = -1;
   const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
+  const checkDeadline = () => {
+    if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
+  };
   try {
     const rangeIndex = await getReadRangeIndex(fullPath, stHint, fh);
     while (position < size) {
-      if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
+      checkDeadline();
       const toRead = Math.min(buf.length, size - position);
       const { bytesRead } = await fh.read(buf, 0, toRead, position);
       if (bytesRead <= 0) break;
@@ -279,8 +283,8 @@ export async function countLogicalLinesBytesSync(fullPath, size, stHint = null, 
     // A stale size hint must not certify a partial scan as the total count.
     if (rangeIndex && position === size && size === rangeIndex.fileVersion.size) {
       rangeIndex.totalLines = lines;
-      await publishReadRangeIndex(rangeIndex, fh);
-    }
+      if (!(await publishReadRangeIndex(rangeIndex, fh, null, checkDeadline))) checkDeadline();
+    } else checkDeadline();
   } finally {
     await fh.close();
   }

@@ -92,9 +92,9 @@ async function scanSourceWindows(path, intervals, signal) {
       }
       position += bytesRead;
     }
-    check();
-    await publishReadRangeIndex(index, handle, signal);
-    check();
+    // Publication checks after its async stats, immediately before committing.
+    // An unpublished result still owes a final deadline/cancellation check.
+    if (!(await publishReadRangeIndex(index, handle, signal, check))) check();
     return lines;
   } finally {
     await handle.close();

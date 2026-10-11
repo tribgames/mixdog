@@ -315,7 +315,7 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
 // Successful readers publish once, before closing their handle. A failed,
 // cancelled or detached scan keeps its observation private. Post-stat failures
 // are cache misses, not reasons to retry the operation or relabel its anchors.
-export async function publishReadRangeIndex(index, handle, signal = null) {
+export async function publishReadRangeIndex(index, handle, signal = null, beforePublish = null) {
   const owned = READ_RANGE_INDEX_DRAFTS.get(index);
   if (!owned) return false;
   READ_RANGE_INDEX_DRAFTS.delete(index);
@@ -330,6 +330,10 @@ export async function publishReadRangeIndex(index, handle, signal = null) {
   }
   if (signal?.aborted || READ_RANGE_INDEX_CACHE.get(key) !== slot) return false;
   if (slot.prefixHash && index.prefixHash && slot.prefixHash !== index.prefixHash) return false;
+  // The reader's synchronous deadline/cancellation decision belongs after all
+  // awaited validation and outside its best-effort stat catch. Once committed,
+  // the caller must not make a second deadline decision for this scan.
+  beforePublish?.();
   // Same-version concurrent windows may contribute disjoint anchors. No draft
   // shares this map, including the one whose successful read is being committed.
   slot.anchors = new Map([...slot.anchors, ...index.anchors]);
