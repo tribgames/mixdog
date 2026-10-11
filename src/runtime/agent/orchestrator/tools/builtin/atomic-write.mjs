@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
 import { hashText } from './hash-utils.mjs';
+import { fileVersion, sameFileVersion } from './file-version.mjs';
 import { sleep } from '../../../../shared/sleep.mjs';
 import { ioTraceDone, ioTraceStart } from '../io-trace.mjs';
 
@@ -20,13 +21,7 @@ function expectedTargetSnapshotChanged(currentStat, expected) {
   const currentExists = !!currentStat;
   if (snapshotExists !== currentExists) return true;
   if (!snapshotExists || !currentExists) return false;
-  if (currentStat.size !== expected.size) return true;
-  if (Math.abs(Number(currentStat.mtimeMs) - Number(expected.mtimeMs)) > 1) return true;
-  if (Number.isFinite(expected.ctimeMs)) {
-    if (Math.abs(Number(currentStat.ctimeMs) - Number(expected.ctimeMs)) > 1) return true;
-  }
-  if (Number.isFinite(expected.ino) && Number(currentStat.ino) !== Number(expected.ino)) return true;
-  return false;
+  return !sameFileVersion(currentStat, expected);
 }
 
 function atomicWriteShouldFsync(value) {
@@ -180,7 +175,17 @@ async function assertExclusiveCreate(writeTarget, targetPath, tmp) {
 }
 
 async function assertTargetUnchanged(writeTarget, expectedTargetSnapshot, tmp) {
-  if (!expectedTargetSnapshotChanged(statOrNull(writeTarget), expectedTargetSnapshot)) return;
+  let currentStat = null;
+  try {
+    currentStat = statSync(writeTarget);
+  } catch (error) {
+    // A failed lookup is not proof of absence, even for create-only writes.
+    if (error?.code !== 'ENOENT') {
+      await unlinkQuietly(tmp);
+      throw error;
+    }
+  }
+  if (!expectedTargetSnapshotChanged(currentStat, expectedTargetSnapshot)) return;
   await unlinkQuietly(tmp);
   const err = new Error(`target changed between preflight and rename (TOCTOU): ${writeTarget}`);
   err.code = 'ESTALE_TARGET';
@@ -236,6 +241,11 @@ export async function atomicWrite(
   content,
   { mode, signal, sessionId, flags, fsync, preserveMetadata = false, expectedTargetSnapshot } = {}
 ) {
+  // Own the caller's expectation before the first await. Missing fields on
+  // an existing target remain incomplete evidence, not an unguarded write.
+  expectedTargetSnapshot = expectedTargetSnapshot
+    ? { exists: expectedTargetSnapshot.exists !== false, ...fileVersion(expectedTargetSnapshot) }
+    : null;
   const traceStart = ioTraceStart();
   const resolvedSignal = await resolveWriteSignal(signal, sessionId);
   if (resolvedSignal?.aborted) throw abortReasonOf(resolvedSignal);

@@ -4,11 +4,11 @@ import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 
 // Mixdog read/patch paths share a scoped snapshot store. Value stores the
-// mtime + size at read-time. A missing scope is fail-closed: snapshots without
+// exact file version at read-time. A missing scope is fail-closed: snapshots without
 // a real scope id are NOT recorded under a shared default bucket (would let
 // worker A's read satisfy worker B's edit-gate across sessions via a persisted
 // __global__.json).
-const readFilesByScope = new Map(); // scope → Map(fullPath → { mtimeMs, size, ...meta })
+const readFilesByScope = new Map(); // scope → Map(fullPath → { mtimeMs, ctimeMs, size, ino, dev, ...meta })
 const READ_SNAPSHOT_SCOPE_CACHE_LIMIT = 32;
 const READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT = 1024;
 
@@ -75,7 +75,11 @@ function isValidPersistedSnapshotEntry(snap) {
   if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return false;
   if (!Number.isFinite(snap.mtimeMs)) return false;
   if (!Number.isFinite(snap.size) || snap.size < 0) return false;
-  if (snap.ctimeMs !== undefined && !Number.isFinite(snap.ctimeMs)) return false;
+  // Missing identity fields are legacy evidence: retain hashes for explicit
+  // revalidation, but statMatchesSnapshot will never accept their fast path.
+  for (const field of ['ctimeMs', 'ino', 'dev']) {
+    if (snap[field] !== undefined && !Number.isFinite(snap[field])) return false;
+  }
   if (snap.contentHash !== undefined && snap.contentHash !== null) {
     if (typeof snap.contentHash !== 'string') return false;
     if (!/^[a-f0-9]{1,128}$/i.test(snap.contentHash)) return false;

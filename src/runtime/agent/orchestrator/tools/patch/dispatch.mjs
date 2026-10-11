@@ -16,6 +16,7 @@ import {
   clearReadSnapshotForPath,
 } from '../builtin.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
+import { fileVersion } from '../builtin/file-version.mjs';
 import { isSpecialFileStat } from '../builtin/device-paths.mjs';
 import { hashText } from '../builtin/hash-utils.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
@@ -386,6 +387,7 @@ async function applyJsDeleteEntry(fullPath, displayPath, { dryRun, readStateScop
 async function applyJsUpdateEntry(entry, fullPath, displayPath, { dryRun, fuzzy, readStateScope, signal }) {
   const preMutationStat = lstatRegularPatchFile(fullPath, displayPath);
   const { writePath, snapshotStat } = resolvePatchWriteTarget(fullPath, displayPath, preMutationStat);
+  const expectedTargetSnapshot = { exists: true, ...fileVersion(snapshotStat) };
   // Rewrite path: decode by BOM, re-encode into the same codec, and keep every
   // untouched line's own terminator (spliceTextLinesForPatch).
   // `toString('utf8')` here transcoded non-UTF-8 files and mangled UTF-16.
@@ -406,15 +408,7 @@ async function applyJsUpdateEntry(entry, fullPath, displayPath, { dryRun, fuzzy,
     await atomicWrite(writePath, content, {
       signal,
       sessionId: readStateScope,
-      expectedTargetSnapshot: snapshotStat
-        ? {
-            exists: true,
-            size: snapshotStat.size,
-            mtimeMs: snapshotStat.mtimeMs,
-            ctimeMs: snapshotStat.ctimeMs,
-            ino: snapshotStat.ino,
-          }
-        : undefined,
+      expectedTargetSnapshot,
     });
   } catch (err) {
     if (err?.code === 'ESTALE_TARGET') {
@@ -430,7 +424,7 @@ async function applyJsUpdateEntry(entry, fullPath, displayPath, { dryRun, fuzzy,
   recordReadSnapshotForPath(fullPath, readStateScope, {
     source: 'apply_patch_js',
     isPartialView: false,
-    preMutationStat: snapshotStat,
+    preMutationStat: expectedTargetSnapshot,
   });
 }
 

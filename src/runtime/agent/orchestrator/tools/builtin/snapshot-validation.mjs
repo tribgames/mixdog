@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+import { fileVersion, sameFileVersion } from './file-version.mjs';
 import { hashText } from './hash-utils.mjs';
 import { normaliseRangeHashEntry, rangeTextOf, statMatchesSnapshot } from './snapshot-helpers.mjs';
 
@@ -10,37 +12,33 @@ function snapshotRangeHashRows(snapshot) {
 }
 
 export function isSnapshotStale(stat, snapshot, { fullPath = '', readCache = null, readTextForSnapshotCheck } = {}) {
-  // Unified structure (mirrors edit's validatePreparedEditBase):
-  // stat-match FIRST → fail-closed-on-no-material → hash-verify.
-  // Fast-path: a full stat match (size + mtime±1 + ctime±1) ⇒ untouched
-  // → not stale, accept without reading. statMatchesSnapshot returns
-  // false on a missing/incomplete snapshot, so those fall through (no
-  // fail-open). Tradeoff (accepted policy): a size-preserving write that
-  // ALSO restores mtime AND ctime is not caught — vanishingly rare,
-  // ctime is not userland-settable on the usual platforms.
+  // Exact complete versions share the raw cache / final writer policy.
+  // Missing legacy fields or any observed drift require content evidence.
+  // Metadata-indistinguishable changes remain outside this fast-path check.
   if (statMatchesSnapshot(stat, snapshot)) return false;
   // Stat drifted (or incomplete snapshot) → content hash is the gate.
   const rangeHashRows = snapshotRangeHashRows(snapshot);
-  const hasHashMaterial = !!snapshot.contentHash || rangeHashRows.length > 0;
+  const hasHashMaterial = !!snapshot?.contentHash || rangeHashRows.length > 0;
   // Fail-closed: no integrity material AND stat already drifted ⇒ cannot
   // verify against current bytes, treat as stale (force re-read).
   if (!hasHashMaterial) return true;
   const canReadContent = fullPath && typeof readTextForSnapshotCheck === 'function';
   if (!canReadContent) return true;
-  // Refresh the snapshot's stat fields to the live values once the hash
-  // confirms bytes are identical — silences future false positives for
-  // the same mtime-only churn.
+  const version = fileVersion(stat);
+  if (!version) return true;
+  // Hash equality allows harmless metadata churn and legacy snapshots to
+  // recover, but only for the version actually verified. A failed/changed
+  // post-read stat cannot promote the snapshot to a later metadata fast path.
   const refreshSnapshotStat = () => {
-    if (Number.isFinite(stat.mtimeMs)) snapshot.mtimeMs = stat.mtimeMs;
-    if (typeof stat.size === 'number') snapshot.size = stat.size;
-    if (Number.isFinite(stat.ctimeMs)) snapshot.ctimeMs = stat.ctimeMs;
+    if (!sameFileVersion(version, statSync(fullPath))) return false;
+    Object.assign(snapshot, version);
+    return true;
   };
   if (snapshot.contentHash) {
     try {
       const cur = readTextForSnapshotCheck(fullPath, readCache, stat);
       if (hashText(cur) !== snapshot.contentHash) return true;
-      refreshSnapshotStat();
-      return false;
+      return !refreshSnapshotStat();
     } catch {
       // Unreadable / stat race — cannot verify, treat as stale.
       return true;
@@ -60,8 +58,7 @@ export function isSnapshotStale(stat, snapshot, { fullPath = '', readCache = nul
     // Fail-closed: rangeHashes present but no row could be verified
     // (all malformed) ⇒ cannot prove identity, treat as stale.
     if (verified === 0) return true;
-    refreshSnapshotStat();
-    return false;
+    return !refreshSnapshotStat();
   } catch {
     return true;
   }

@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import { fileVersion as snapshotVersion } from './file-version.mjs';
 import { hashText } from './hash-utils.mjs';
 import { mergeReadRanges } from './read-ranges.mjs';
 import {
@@ -48,15 +49,13 @@ export function readTextForSnapshotCheck(fullPath, cache = null, st = null) {
   return content;
 }
 
-// The stat identity a snapshot is keyed on: the caller's stat when it has
-// one, else a fresh stat; an unstattable path gets a never-matching identity.
+// Own the observed version. Supplied incomplete evidence must not be
+// replaced by a later stat, which could relabel previously observed bytes.
 function snapshotStatIdentity(fullPath, st) {
   try {
-    const source = st && typeof st.mtimeMs === 'number' ? st : statSync(fullPath);
-    return { mtimeMs: source.mtimeMs, ctimeMs: source.ctimeMs, size: source.size };
+    return snapshotVersion(st ?? statSync(fullPath));
   } catch {
-    const now = Date.now();
-    return { mtimeMs: now, ctimeMs: now, size: 0 };
+    return null;
   }
 }
 
@@ -119,7 +118,7 @@ function collectRangeHashRows(existing, sameFile, meta) {
 export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
   const readFiles = readFilesForScope(scope);
   const identity = snapshotStatIdentity(fullPath, st);
-  const { mtimeMs, ctimeMs, size } = identity;
+  const { mtimeMs, ctimeMs, size, ino, dev } = identity || {};
   const incomingRanges = Array.isArray(meta.ranges) ? meta.ranges : [{ startLine: 1, endLine: Infinity }];
   const replaceExisting = meta.replaceExisting === true;
   const existing = replaceExisting ? null : readFiles.get(fullPath);
@@ -146,7 +145,7 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
     preMutationStat: _omitPreMutationStat,
     ...restMeta
   } = meta;
-  const next = { ...restMeta, mtimeMs, ctimeMs, size, ranges: merged };
+  const next = { ...restMeta, mtimeMs, ctimeMs, size, ino, dev, ranges: merged };
   if (!next.contentHash && sameFile && existing.contentHash) {
     next.contentHash = existing.contentHash;
   }
