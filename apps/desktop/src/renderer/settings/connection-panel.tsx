@@ -82,7 +82,7 @@ function useConnectionInfoUpdates({
       void preloadConnectionInfo(api, CONNECTION_RETRY_MS).then((value) => {
         if (!live) return;
         setInfo(value);
-        if (connectionInfoReady(value) || value?.enabled === false) return;
+        if (value?.enabled === false || connectionInfoReady(value)) return;
         setStalledAttempts((count) => count + 1);
         timer = window.setTimeout(attempt, Math.max(0, CONNECTION_RETRY_MS - (Date.now() - startedAt)));
       });
@@ -153,7 +153,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     []
   );
   // A switched-off page has no relay QR, but its device list is still real.
-  const ready = Boolean(info) && (connectionInfoReady(info) || info?.enabled === false);
+  const ready = Boolean(info) && (info?.enabled === false || connectionInfoReady(info));
   const applyInfo = (next: DesktopRemoteAccessInfo | null): void => {
     setCachedConnectionInfo(api, next);
     setInfo(next);
