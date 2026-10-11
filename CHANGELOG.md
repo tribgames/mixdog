@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
 - A new Phone option in Settings > Connection displays a QR code to install the Mixdog mobile app (available on iPhone via TestFlight beta and on Android as an APK). Once installed, pairing completes by entering a 6-digit code in the mobile app and approving it on your desktop PC.
 
 - The web app can now receive push notifications from all paired PCs, keeping you notified of completed tasks and model responses across your computers.

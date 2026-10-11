@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
 - Eine neue Option „Telefon“ unter Einstellungen > Verbindung zeigt einen QR-Code zur Installation der Mixdog-Mobil-App (verfügbar für iPhone über die TestFlight-Beta und für Android als APK). Nach der Installation wird die Kopplung durch Eingabe eines 6-stelligen Codes in der App und Bestätigung auf dem Desktop-PC abgeschlossen.
 
 - Die Web-App kann jetzt Push-Benachrichtigungen von allen gekoppelten PCs empfangen, sodass Sie über abgeschlossene Aufgaben und Modellantworten auf allen Computern auf dem Laufenden bleiben.

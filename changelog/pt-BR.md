@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
 - Uma nova opção Celular em Configurações > Conexão exibe um código QR para instalar o app móvel do Mixdog (disponível no iPhone pelo beta do TestFlight e no Android como APK). Após a instalação, o emparelhamento é concluído inserindo um código de 6 dígitos no app e aprovando-o no seu PC desktop.
 
 - O app web agora pode receber notificações push de todos os PCs emparelhados, mantendo você atualizado sobre tarefas concluídas e respostas do modelo em todos os seus computadores.

@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
 - Una nueva opción Teléfono en Ajustes > Conexión muestra un código QR para instalar la app móvil de Mixdog (disponible en iPhone mediante la beta de TestFlight y en Android como APK). Una vez instalada, la vinculación se completa introduciendo un código de 6 dígitos en la app y aprobándolo en tu PC de escritorio.
 
 - La aplicación web ahora puede recibir notificaciones push de todos los PC vinculados, manteniéndote informado sobre las tareas completadas y las respuestas del modelo en todos tus equipos.

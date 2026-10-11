@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
 - Una nuova opzione Telefono in Impostazioni > Connessione mostra un codice QR per installare l'app mobile Mixdog (disponibile su iPhone tramite la beta di TestFlight e su Android come APK). Dopo l'installazione, l'abbinamento si completa inserendo un codice a 6 cifre nell'app e approvandolo sul PC desktop.
 
 - L'app web può ora ricevere notifiche push da tutti i PC abbinati, tenendoti aggiornato sul completamento delle attività e sulle risposte del modello su tutti i tuoi computer.

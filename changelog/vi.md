@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
 - Tùy chọn Điện thoại mới trong Cài đặt > Kết nối hiển thị mã QR để cài đặt ứng dụng di động Mixdog (có sẵn cho iPhone qua bản beta TestFlight và cho Android dưới dạng tệp APK). Sau khi cài đặt, quá trình ghép nối hoàn tất bằng cách nhập mã gồm 6 chữ số vào ứng dụng và phê duyệt trên máy tính để bàn của bạn.
 
 - Ứng dụng web hiện có thể nhận thông báo đẩy từ tất cả các máy tính đã ghép nối, giúp bạn nắm bắt kịp thời các tác vụ hoàn thành và phản hồi từ mô hình trên mọi thiết bị.
