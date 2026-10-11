@@ -5,6 +5,28 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+- Una nueva opción Teléfono en Ajustes > Conexión muestra un código QR para instalar la app móvil de Mixdog (disponible en iPhone mediante la beta de TestFlight y en Android como APK). Una vez instalada, la vinculación se completa introduciendo un código de 6 dígitos en la app y aprobándolo en tu PC de escritorio.
+
+- La aplicación web ahora puede recibir notificaciones push de todos los PC vinculados, manteniéndote informado sobre las tareas completadas y las respuestas del modelo en todos tus equipos.
+
+- Los archivos Markdown ahora ofrecen vistas de Vista previa, Enriquecido y Código fuente, junto con un esquema y vista previa lateral. El editor enriquecido guarda los cambios directamente en el archivo preservando el frontmatter, los saltos de línea y el formato intacto, con detección de conflictos y copias de seguridad si el archivo cambia externamente.
+
+- Los proyectos registrados en la barra lateral de sesiones ahora se organizan en carpetas encima de las sesiones recientes, mostrando sus conversaciones más recientes y un botón para iniciar una tarea en ese proyecto. Las categorías y carpetas se pueden reordenar arrastrándolas, y los menús contextuales con clic derecho permiten abrir, renombrar, marcar como favorito, archivar, eliminar o heredar sesiones.
+
+- Vuelve la compatibilidad de la aplicación de escritorio para Mac con procesador Intel (macOS x64) sin dependencias de ONNX. La memoria conserva la búsqueda léxica, mientras que la búsqueda semántica local y el razonamiento automático se omiten en hardware Intel.
+
+- Guardar como ya no sobrescribe ni elimina el archivo de destino existente si la descarga falla. La eliminación de un dispositivo vinculado desde Ajustes > Conexión se reintenta automáticamente al reconectar si el relé no estaba disponible temporalmente.
+
+- La lectura y edición de archivos vinculan la reutilización de caché y los índices de rango a versiones de archivo exactas y verificadas. Al eliminar o aplicar parches a archivos grandes de más de 8 MiB en apply_patch, se limita el uso de memoria en lugar de leer archivos completos, y los permisos de vista previa de HTML local quedan estrictamente aislados en su sesión de origen.
+
+- Los valores predeterminados de configuración se conservan en el código en lugar de archivos en disco: los archivos de configuración ahora solo almacenan tus cambios personalizados, permitiendo que los ajustes intactos adopten sin problemas los valores predeterminados actualizados en nuevas versiones.
+
+- El consumo de recursos en segundo plano se reduce significativamente durante la inactividad, con menos revisiones del demonio, vigilancia de archivos suavizada en la búsqueda y resúmenes diarios en caché para las estadísticas de uso.
+
+- Shift+Enter inserta de forma fiable un salto de línea en el compositor de mensajes incluso después de caracteres con mayúscula, y pulsar Enter ya no envía de forma prematura mientras se compone texto coreano en un IME.
+
+- Revisión de calidad de traducción en los 11 idiomas compatibles, corrigiendo etiquetas de la interfaz y actualizando los cuadros de diálogo localizados.
+
 ## v1.0.12 - 2026-10-10
 
 - El registro de cambios de Ajustes > Acerca de muestra las notas de la versión instalada;

@@ -5,6 +5,28 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- A new Phone option in Settings > Connection displays a QR code to install the Mixdog mobile app (available on iPhone via TestFlight beta and on Android as an APK). Once installed, pairing completes by entering a 6-digit code in the mobile app and approving it on your desktop PC.
+
+- The web app can now receive push notifications from all paired PCs, keeping you notified of completed tasks and model responses across your computers.
+
+- Markdown files now feature Preview, Rich, and Source views, an outline, and a side-by-side preview. The rich editor writes edits directly back to the file while preserving frontmatter, line endings, and untouched formatting, with conflict detection and held backups if the file changes on disk.
+
+- Registered projects in the session sidebar are now organized into folders above Recent sessions, showing their latest conversations and a button to start a new task in that project. Categories and folders can be reordered by dragging, and right-click context menus let you quickly open, rename, favorite, archive, delete, or inherit sessions.
+
+- Desktop app support returns for Intel-based Macs (macOS x64) without ONNX dependencies. Memory retains lexical search, while local semantic search and auto reasoning are omitted on Intel hardware.
+
+- Save As downloads no longer overwrite or delete the existing file if the download fails. Removing a paired device from Settings > Connection retries automatically when reconnecting if the relay was temporarily unavailable.
+
+- File reading and editing align cache reuse and range indexes with verified exact file versions. Deleting or patching large files over 8 MiB in apply_patch bounds memory use instead of reading files whole, and local HTML preview permissions stay strictly scoped to their originating session.
+
+- Configuration settings keep their defaults in code rather than on disk: configuration files now store only your custom changes, allowing untouched settings to seamlessly adopt updated defaults in new versions.
+
+- Background resource usage is significantly reduced when idle, with fewer daemon reviews, debounced file watching during search, and cached daily rollups for usage statistics.
+
+- Shift+Enter reliably inserts a line break in the message composer even after shifted characters, and single-line Enter commits no longer trigger prematurely while composing Korean text in an IME.
+
+- Translation quality pass across all 11 supported languages, correcting interface labels and updating localized dialogs.
+
 ## v1.0.12 - 2026-10-10
 
 - The changelog in Settings > About lists the installed version's notes;

@@ -4,6 +4,28 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+- Uma nova opção Celular em Configurações > Conexão exibe um código QR para instalar o app móvel do Mixdog (disponível no iPhone pelo beta do TestFlight e no Android como APK). Após a instalação, o emparelhamento é concluído inserindo um código de 6 dígitos no app e aprovando-o no seu PC desktop.
+
+- O app web agora pode receber notificações push de todos os PCs emparelhados, mantendo você atualizado sobre tarefas concluídas e respostas do modelo em todos os seus computadores.
+
+- Arquivos Markdown agora oferecem visualizações de Pré-visualização, Rich e Código-fonte, além de estrutura tópica e pré-visualização lado a lado. O editor rich salva as alterações diretamente no arquivo preservando frontmatter, quebras de linha e formatação intacta, com detecção de conflitos e backups de edições retidas caso o arquivo seja modificado externamente.
+
+- Os projetos registrados na barra lateral de sessões agora são organizados em pastas acima das sessões recentes, exibindo suas conversas mais recentes e um botão para iniciar uma tarefa no projeto. Categorias e pastas podem ser reorganizadas arrastando, e menus de contexto com clique com o botão direito permitem abrir, renomear, favoritar, arquivar, excluir ou herdar sessões.
+
+- O suporte do aplicativo desktop para Macs com processador Intel (macOS x64) está de volta, sem dependências do ONNX. A memória mantém a busca lexical, enquanto a busca semântica local e o raciocínio automático são omitidos no hardware Intel.
+
+- Salvar como não substitui nem exclui mais o arquivo de destino existente caso o download falhe. A remoção de um dispositivo emparelhado em Configurações > Conexão é repetida automaticamente ao reconectar se o relay estiver temporariamente indisponível.
+
+- A leitura e edição de arquivos vinculam a reutilização de cache e os índices de intervalo a versões exatas e verificadas dos arquivos. A exclusão ou aplicação de patches em arquivos grandes com mais de 8 MiB no apply_patch limita o uso de memória em vez de ler arquivos inteiros, e as permissões de pré-visualização de HTML local ficam estritamente isoladas à sessão de origem.
+
+- Os valores padrão de configuração ficam no código em vez de arquivos em disco: os arquivos de configuração agora armazenam apenas suas alterações personalizadas, permitindo que as definições intocadas adotem diretamente os novos padrões nas atualizações.
+
+- O consumo de recursos em segundo plano foi significativamente reduzido quando o sistema está ocioso, com menos revisões do daemon, monitoramento de arquivos suavizado na busca e consolidações diárias em cache para estatísticas de uso.
+
+- Shift+Enter insere quebras de linha de forma confiável no compositor de mensagens mesmo após caracteres com Shift, e pressionar Enter não dispara mais o envio prematuro durante a composição de texto em coreano no IME.
+
+- Revisão da qualidade das traduções em todos os 11 idiomas suportados, corrigindo rótulos da interface e atualizando caixas de diálogo localizadas.
+
 ## v1.0.12 - 2026-10-10
 
 - O registro de alterações em Configurações > Sobre lista as notas da versão instalada; na v1.0.11 ele ainda terminava na v1.0.10, tanto no app desktop quanto na página web remota.

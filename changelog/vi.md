@@ -4,6 +4,28 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+- Tùy chọn Điện thoại mới trong Cài đặt > Kết nối hiển thị mã QR để cài đặt ứng dụng di động Mixdog (có sẵn cho iPhone qua bản beta TestFlight và cho Android dưới dạng tệp APK). Sau khi cài đặt, quá trình ghép nối hoàn tất bằng cách nhập mã gồm 6 chữ số vào ứng dụng và phê duyệt trên máy tính để bàn của bạn.
+
+- Ứng dụng web hiện có thể nhận thông báo đẩy từ tất cả các máy tính đã ghép nối, giúp bạn nắm bắt kịp thời các tác vụ hoàn thành và phản hồi từ mô hình trên mọi thiết bị.
+
+- Các tệp Markdown hiện cung cấp các chế độ xem Xem trước, Định dạng phong phú và Nguồn, cùng dàn ý và bản xem trước song song. Trình chỉnh sửa văn bản phong phú lưu các thay đổi trực tiếp vào tệp trong khi vẫn giữ nguyên frontmatter, dấu ngắt dòng và định dạng gốc, hỗ trợ phát hiện xung đột và sao lưu khi tệp bị thay đổi từ bên ngoài.
+
+- Các dự án đã đăng ký trong thanh bên phiên hiện được sắp xếp thành các thư mục phía trên các phiên gần đây, hiển thị các cuộc trò chuyện mới nhất và nút để bắt đầu tác vụ mới trong dự án đó. Các danh mục và thư mục có thể được sắp xếp lại bằng cách kéo thả, và menu chuột phải cho phép mở, đổi tên, đánh dấu yêu thích, lưu trữ, xóa hoặc kế thừa phiên.
+
+- Hỗ trợ ứng dụng máy tính để bàn đã quay trở lại cho máy Mac chạy bộ xử lý Intel (macOS x64) mà không cần phụ thuộc vào ONNX. Tính năng tìm kiếm từ vựng trong bộ nhớ được giữ lại, trong khi tìm kiếm ngữ nghĩa cục bộ và suy luận tự động được lược bỏ trên phần cứng Intel.
+
+- Tính năng Lưu dưới dạng không còn ghi đè hoặc xóa tệp đích hiện có nếu quá trình tải xuống thất bại. Việc xóa thiết bị đã ghép nối khỏi Cài đặt > Kết nối sẽ tự động thử lại khi kết nối lại nếu máy chủ chuyển tiếp tạm thời không khả dụng.
+
+- Thao tác đọc và chỉnh sửa tệp liên kết việc tái sử dụng bộ nhớ đệm và chỉ mục phạm vi với phiên bản tệp chính xác đã được xác minh. Việc xóa hoặc vá các tệp lớn trên 8 MiB trong apply_patch sẽ giới hạn mức sử dụng bộ nhớ thay vì đọc toàn bộ tệp, và quyền xem trước HTML cục bộ được giới hạn nghiêm ngặt trong phạm vi phiên gốc.
+
+- Các giá trị cài đặt mặc định được lưu trong mã thay vì tệp trên đĩa: tệp cấu hình giờ đây chỉ lưu các tùy chỉnh của bạn, giúp các cài đặt chưa chỉnh sửa tự động áp dụng các giá trị mặc định mới sau khi nâng cấp.
+
+- Mức tiêu thụ tài nguyên nền giảm đáng kể khi không hoạt động, với ít lượt kiểm tra daemon hơn, giảm tần suất theo dõi tệp khi tìm kiếm và lưu trữ bộ nhớ đệm tổng hợp hàng ngày cho thống kê sử dụng.
+
+- Tổ hợp phím Shift+Enter luôn chèn dấu ngắt dòng một cách ổn định trong khung soạn thảo ngay cả sau khi nhập ký tự có phím Shift, và nhấn phím Enter không còn gửi tin nhắn sớm ngoài ý muốn khi đang gõ văn bản tiếng Hàn bằng bộ gõ IME.
+
+- Đã rà soát và nâng cao chất lượng dịch thuật trên toàn bộ 11 ngôn ngữ được hỗ trợ, sửa các nhãn giao diện và cập nhật các hộp thoại được bản địa hóa.
+
 ## v1.0.12 - 2026-10-10
 
 - Nhật ký thay đổi trong Cài đặt > Giới thiệu liệt kê ghi chú của phiên bản đã cài đặt; ở v1.0.11 nhật ký vẫn chỉ dừng ở v1.0.10, cả trên ứng dụng desktop lẫn trang web từ xa.
