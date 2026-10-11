@@ -55,7 +55,8 @@ jobs:
           printf '#!/bin/sh\nexec "%s" --no-sandbox "$@"\n' "$bin" > "$HOME/chrome-wrapper"
           chmod +x "$HOME/chrome-wrapper"
           echo "CHROME_PATH=$HOME/chrome-wrapper" >> "$GITHUB_ENV"
-      - name: Desktop tests        run: npm test 2>&1 | tee ../../desktop-tests.log
+      - name: Desktop tests
+        run: npm test 2>&1 | tee ../../desktop-tests.log
         working-directory: apps/desktop
       - name: Desktop typecheck
         run: npx tsc -p tsconfig.json --noEmit
