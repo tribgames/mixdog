@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
@@ -37,6 +37,19 @@ const states = new Map();
 function pathKey(value) {
   const text = clean(value).replace(/\\/g, '/');
   return process.platform === 'win32' ? text.toLowerCase() : text;
+}
+
+/** `resolve` plus symlinks of the nearest existing ancestor: git reports the
+ *  worktree root canonically (macOS /var -> /private/var), callers may not. */
+function canonicalPath(value) {
+  const full = resolve(value);
+  let head = full;
+  while (!existsSync(head)) {
+    const parent = dirname(head);
+    if (parent === head) return full;
+    head = parent;
+  }
+  return join(realpathSync(head), relative(head, full));
 }
 
 /** Non-empty entries of a NUL-separated git output list. */
@@ -109,7 +122,7 @@ function stateForRoot(root) {
  *  review poll of an affected worktree captures instead of reusing. */
 export function noteTurnWorktreeChange(paths = null) {
   const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
-  const keys = list.map((value) => pathKey(resolve(value)));
+  const keys = list.map((value) => pathKey(canonicalPath(value)));
   for (const state of states.values()) {
     const root = pathKey(state.root);
     if (keys.length === 0 || keys.some((key) => key === root || key.startsWith(`${root}/`))) {
@@ -373,7 +386,7 @@ async function captureTreeUnlocked(state, toolPaths = []) {
  * bytes fill holes in the shadow baseline, not the user's repository index. */
 export function recordTurnWorktreeFileChange(snapshot, fullPath, before) {
   if (!snapshot) return;
-  const rel = relative(snapshot.root, resolve(fullPath)).replace(/\\/g, '/');
+  const rel = relative(snapshot.root, canonicalPath(fullPath)).replace(/\\/g, '/');
   if (!rel || isAbsolute(rel) || rel.split('/').includes('..')) return;
   snapshot.state.changeStamp += 1;
   if (snapshot.toolPaths.has(rel)) return;

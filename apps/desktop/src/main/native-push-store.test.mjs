@@ -40,7 +40,9 @@ test('state is published only after persistence succeeds', async () => {
     await writeFile(blocker, 'x');
     const store = createNativePushStore(blocker);
     await assert.rejects(store.register(row('c1', 'a'.repeat(40))));
-    assert.deepEqual(await store.list(), []);
+    // Linux reports ENOTDIR (fail-closed read rejection) where Windows reports ENOENT (empty);
+    // either way nothing may be published.
+    assert.deepEqual(await store.list().catch(() => []), []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

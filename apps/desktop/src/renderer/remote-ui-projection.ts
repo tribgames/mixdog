@@ -18,8 +18,9 @@ export function isNativeDesktopWindow(): boolean {
   return !isRemoteHostRenderer() && Boolean(window.mixdogDesktop?.bootContext?.bootId);
 }
 
-/** UA-based "plain browser" check; only phone-layout decisions and browser
- *  image handling use it. Remote capability decisions use isRemoteHostRenderer. */
+/** UA-based "plain browser" check; only phone-layout decisions, composer
+ *  auto-focus and browser image handling use it. Remote capability decisions
+ *  use isRemoteHostRenderer. */
 export function isRemoteBrowserRenderer(): boolean {
   return typeof navigator !== 'undefined' && !/Electron/i.test(navigator.userAgent);
 }
