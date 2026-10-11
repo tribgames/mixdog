@@ -49,6 +49,24 @@ function validateWindowState(
   return { bounds: { x, y, width, height }, maximized: record.maximized === true };
 }
 
+/** Shrinks (never grows) bounds to fit the display work area and keeps the
+ *  window inside it; the minimum window size still wins on tiny displays. */
+export function clampBoundsToWorkArea(
+  bounds: Partial<Rectangle>,
+  workArea: Rectangle,
+  minWidth = DESKTOP_WINDOW_MIN_WIDTH,
+  minHeight = 600
+): Partial<Rectangle> {
+  const width = Math.max(minWidth, Math.min(bounds.width ?? workArea.width, workArea.width));
+  const height = Math.max(minHeight, Math.min(bounds.height ?? workArea.height, workArea.height));
+  const clamped: Partial<Rectangle> = { width, height };
+  if (bounds.x !== undefined && bounds.y !== undefined) {
+    clamped.x = Math.min(Math.max(bounds.x, workArea.x), Math.max(workArea.x, workArea.x + workArea.width - width));
+    clamped.y = Math.min(Math.max(bounds.y, workArea.y), Math.max(workArea.y, workArea.y + workArea.height - height));
+  }
+  return clamped;
+}
+
 export async function readWindowState(
   filePath: string,
   displays: readonly Pick<Display, 'workArea'>[]
@@ -77,7 +95,18 @@ export function persistWindowState(
   let writes = Promise.resolve();
   let disposed = false;
 
+  // Sampled only when the debounce settles: resize/move events fire while a
+  // maximize/fullscreen transition is still in flight (isMaximized() not yet
+  // true), and getBounds() then reports the transitional geometry — which is
+  // what restored as a ~400x600 window.
+  const captureNormalBounds = (): void => {
+    if (window.isDestroyed()) return;
+    if (window.isMaximized() || window.isMinimized() || window.isFullScreen()) return;
+    lastNormalBounds = window.getBounds();
+  };
+
   const write = (): void => {
+    captureNormalBounds();
     const state: PersistedWindowState = {
       bounds: lastNormalBounds,
       maximized: window.isMaximized(),
@@ -95,7 +124,6 @@ export function persistWindowState(
   };
   const schedule = (): void => {
     if (disposed) return;
-    if (!window.isMaximized() && !window.isMinimized()) lastNormalBounds = window.getBounds();
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;

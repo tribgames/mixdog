@@ -79,7 +79,7 @@ import {
   type DesktopSettings,
 } from '../shared/contract';
 import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMethod } from './remote-browser-methods';
-import { persistWindowState, readWindowState } from './window-state';
+import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
 import {
   normalizeTranscriptReadDiagnostic,
   setTranscriptReadDiagnosticSink,
@@ -1126,7 +1126,10 @@ function createMainBrowserWindow(
   return new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
     ...initialTitleBarWindowOverrides(),
-    ...(savedState?.bounds ?? {}),
+    ...clampBoundsToWorkArea(
+      savedState?.bounds ?? { width: DESKTOP_WINDOW_OPTIONS.width, height: DESKTOP_WINDOW_OPTIONS.height },
+      (savedState ? screen.getDisplayMatching(savedState.bounds) : screen.getPrimaryDisplay()).workArea
+    ),
     ...(brandIconPath ? { icon: brandIconPath } : {}),
     webPreferences: {
       ...DESKTOP_WINDOW_OPTIONS.webPreferences,
