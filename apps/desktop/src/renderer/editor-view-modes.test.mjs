@@ -202,3 +202,60 @@ test('a file over the 10 MB cap keeps the too-large fallback', async () => {
     await act(async () => root.unmount());
   }
 });
+
+
+test('invalidly encoded text is read-only, cannot restore a backup or save even via conversion', async (t) => {
+  const fs = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { readProjectTextFileIn, writeProjectTextFileIn } = await import('../main/project-files.ts');
+  const folder = await fs.mkdtemp(join(tmpdir(), 'mixdog-editor-encoding-'));
+  t.after(() => fs.rm(folder, { recursive: true, force: true }));
+  const bytes = Buffer.from([0x61, 0x80, 0x62]);
+  await fs.writeFile(join(folder, 'bad.txt'), bytes);
+  const opened = await readProjectTextFileIn(folder, 'bad.txt');
+  const model = fakeModel('a\uFFFDb');
+  let writes = 0;
+  const api = {
+    readProjectFile: async () => opened,
+    readEditorBackup: async () => ({ content: 'stale backup', expectedContent: 'a\uFFFDb' }),
+    writeEditorBackup: async () => undefined,
+    deleteEditorBackup: async () => undefined,
+    writeProjectFile: async (_project, _rel, content, expected, _token, encoding) => {
+      writes++;
+      return writeProjectTextFileIn(folder, 'bad.txt', content, expected, encoding);
+    },
+  };
+  const { root, session } = await mountSession(api, 'bad.txt', model);
+  try {
+    assert.equal(session.current.load.readOnly, true);
+    assert.equal(session.current.load.readOnlyReason, 'encoding');
+    assert.equal(session.current.load.content, 'a\uFFFDb');
+    assert.equal(session.current.recovery, null);
+    await act(async () => {
+      model.setValue('edited');
+      assert.equal(await session.current.save(), false);
+      assert.equal(await session.current.save('utf8'), false);
+    });
+    assert.equal(writes, 0);
+    assert.deepEqual(await fs.readFile(join(folder, 'bad.txt')), bytes);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('the read-only notice distinguishes encoding failures from the legacy size cap', async () => {
+  const { EditorPaneReadOnlyNotice } = await import('./editor-pane-surfaces.tsx');
+  const element = document.createElement('div');
+  const root = createRoot(element);
+  try {
+    await act(async () => root.render(React.createElement(EditorPaneReadOnlyNotice, { reason: 'encoding' })));
+    assert.match(element.querySelector('[role="status"]').textContent, /invalid text encoding/);
+    assert.match(element.textContent, /external editor/);
+    assert.doesNotMatch(element.textContent, /1 MB/);
+    await act(async () => root.render(React.createElement(EditorPaneReadOnlyNotice)));
+    assert.match(element.querySelector('[role="status"]').textContent, /over 1 MB/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -244,3 +244,14 @@ export function EditorPaneAlerts({
     </>
   );
 }
+
+/** A missing reason is the legacy size-cap response, not an encoding failure. */
+export function EditorPaneReadOnlyNotice({ reason }: { reason?: 'encoding' }) {
+  return (
+    <p className="editor-pane-readonly-notice" role="status">
+      {reason === 'encoding'
+        ? t('Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.')
+        : t('Read-only: this file is over 1 MB, so it can be viewed but not edited.')}
+    </p>
+  );
+}

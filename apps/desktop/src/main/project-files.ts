@@ -1,10 +1,12 @@
 // Traversal-guarded project directory listing, editor read/stat/atomic-write,
 // tree mutations, and code-graph symbol lookup. Every function receives a
 // resolved project root from the service project registry.
+import { isUtf8 } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { cp, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { toUSVString } from 'node:util';
 
 import { codeGraphModuleUrl } from './desktop-support';
 import { mutationPathKey, withProjectMutationPaths } from './project-mutation-queue';
@@ -20,22 +22,41 @@ function decodeUtf16Be(bytes: Buffer): string {
   return swapped.toString('utf16le');
 }
 
-/** Decode editor text without erasing its on-disk encoding. UTF-16 files with
- * a BOM are always text; BOM-less UTF-16 is accepted only when its NUL-byte
- * lane is unambiguous, otherwise the normal binary guard wins. */
-export function decodeProjectText(bytes: Buffer): {
+interface DecodedProjectText {
   content: string;
   encoding: ProjectTextEncoding;
   binary: boolean;
-} {
+  hasBom: boolean;
+  lossless: boolean;
+}
+
+function decodeTextPayload(
+  bytes: Buffer,
+  encoding: ProjectTextEncoding,
+  hasBom: boolean,
+  binary = false
+): DecodedProjectText {
+  const utf16 = encoding === 'utf16le' || encoding === 'utf16be';
+  const text = encoding === 'utf16be' ? decodeUtf16Be(bytes) : bytes.toString(utf16 ? 'utf16le' : 'utf8');
+  // Replacement characters are safe for display only. A literal U+FFFD in a
+  // valid file is not an error; validate the bytes/code units, not that glyph.
+  const content = toUSVString(text);
+  const lossless = utf16 ? bytes.length % 2 === 0 && content === text : isUtf8(bytes);
+  return { content, encoding, binary, hasBom, lossless };
+}
+
+/** Retain BOM presence independently of the encoding. Ambiguous BOM-less
+ * UTF-16 keeps the existing NUL-lane heuristic. Malformed text can be viewed,
+ * but its replacement-decoded display is never evidence for a safe write. */
+export function decodeProjectText(bytes: Buffer): DecodedProjectText {
   if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-    return { content: bytes.subarray(3).toString('utf8'), encoding: 'utf8bom', binary: false };
+    return decodeTextPayload(bytes.subarray(3), 'utf8bom', true);
   }
   if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
-    return { content: bytes.subarray(2).toString('utf16le'), encoding: 'utf16le', binary: false };
+    return decodeTextPayload(bytes.subarray(2), 'utf16le', true);
   }
   if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
-    return { content: decodeUtf16Be(bytes.subarray(2)), encoding: 'utf16be', binary: false };
+    return decodeTextPayload(bytes.subarray(2), 'utf16be', true);
   }
   const sample = bytes.subarray(0, Math.min(bytes.length - (bytes.length % 2), 8_192));
   let evenNuls = 0;
@@ -46,39 +67,33 @@ export function decodeProjectText(bytes: Buffer): {
   }
   const pairs = sample.length / 2;
   if (pairs >= 4 && oddNuls / pairs > 0.6 && evenNuls / pairs < 0.1) {
-    return {
-      content: bytes.subarray(0, bytes.length - (bytes.length % 2)).toString('utf16le'),
-      encoding: 'utf16le',
-      binary: false,
-    };
+    return decodeTextPayload(bytes, 'utf16le', false);
   }
   if (pairs >= 4 && evenNuls / pairs > 0.6 && oddNuls / pairs < 0.1) {
-    return { content: decodeUtf16Be(bytes), encoding: 'utf16be', binary: false };
+    return decodeTextPayload(bytes, 'utf16be', false);
   }
-  return {
-    content: bytes.toString('utf8'),
-    encoding: 'utf8',
-    binary: bytes.subarray(0, 8_192).includes(0),
-  };
+  return decodeTextPayload(bytes, 'utf8', false, bytes.subarray(0, 8_192).includes(0));
 }
 
-function encodeProjectText(content: string, encoding: ProjectTextEncoding): Buffer {
+function encodeProjectText(content: string, encoding: ProjectTextEncoding, hasBom: boolean): Buffer {
+  if (toUSVString(content) !== content) throw new TypeError('File content contains unpaired Unicode surrogates.');
   if (encoding === 'utf8bom') {
     return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(content, 'utf8')]);
   }
-  if (encoding === 'utf16le') {
-    return Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, 'utf16le')]);
-  }
-  if (encoding === 'utf16be') {
-    const littleEndian = Buffer.from(content, 'utf16le');
-    const bigEndian = Buffer.allocUnsafe(littleEndian.length);
-    for (let index = 0; index < littleEndian.length; index += 2) {
-      bigEndian[index] = littleEndian[index + 1];
-      bigEndian[index + 1] = littleEndian[index];
-    }
-    return Buffer.concat([Buffer.from([0xfe, 0xff]), bigEndian]);
+  if (encoding === 'utf16le' || encoding === 'utf16be') {
+    const bytes = Buffer.from(content, 'utf16le');
+    if (encoding === 'utf16be') bytes.swap16();
+    if (!hasBom) return bytes;
+    const bom = encoding === 'utf16le' ? [0xff, 0xfe] : [0xfe, 0xff];
+    return Buffer.concat([Buffer.from(bom), bytes]);
   }
   return Buffer.from(content, 'utf8');
+}
+
+function requireLosslessText(decoded: DecodedProjectText): void {
+  if (!decoded.lossless) {
+    throw new Error('File has invalid text encoding. Convert or repair it in an external editor before saving.');
+  }
 }
 
 function comparablePath(path: string): string {
@@ -160,6 +175,7 @@ export async function readProjectTextFileIn(
   binary: boolean;
   tooLarge: boolean;
   readOnly?: boolean;
+  readOnlyReason?: 'encoding';
   encoding: ProjectTextEncoding;
 }> {
   const file = projectEntryPathIn(root, relPath);
@@ -170,13 +186,14 @@ export async function readProjectTextFileIn(
   }
   const bytes = await readFile(file);
   const decoded = decodeProjectText(bytes);
-  const readOnly = !decoded.binary && info.size > PROJECT_TEXT_EDIT_MAX_BYTES;
+  const readOnly = !decoded.binary && (!decoded.lossless || bytes.length > PROJECT_TEXT_EDIT_MAX_BYTES);
   return {
     content: decoded.binary ? '' : decoded.content,
     mtimeMs: info.mtimeMs,
     binary: decoded.binary,
     tooLarge: false,
     ...(readOnly ? { readOnly: true } : {}),
+    ...(!decoded.binary && !decoded.lossless ? { readOnlyReason: 'encoding' as const } : {}),
     encoding: decoded.encoding,
   };
 }
@@ -255,7 +272,9 @@ async function writeProjectTextFileUnlocked(
     throw new TypeError('File encoding is invalid.');
   }
   const file = projectEntryPathIn(root, relPath);
-  const current = decodeProjectText(await readFile(file));
+  const currentBytes = await readFile(file);
+  const current = decodeProjectText(currentBytes);
+  requireLosslessText(current);
   if (current.binary || current.content !== expectedContent) {
     throw new Error('File changed on disk. Reload or keep your edits before saving.');
   }
@@ -263,18 +282,23 @@ async function writeProjectTextFileUnlocked(
   if (!info.isFile()) throw new Error('Not a file.');
   const temp = `${file}.mixdog-save-${process.pid}-${randomUUID()}`;
   const targetEncoding = encoding ?? current.encoding;
+  // Ordinary saves preserve the observed BOM, even for BOM-less UTF-16.
+  // Supplying an encoding is the existing explicit conversion operation:
+  // UTF-16 conversions include a BOM, UTF-8 uses its separate BOM variant.
+  const bytes = encodeProjectText(content, targetEncoding, encoding === undefined ? current.hasBom : true);
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   let ownsTemp = false;
   try {
     handle = await open(temp, 'wx', info.mode);
     ownsTemp = true;
-    await handle.writeFile(encodeProjectText(content, targetEncoding));
+    await handle.writeFile(bytes);
     await handle.close();
     handle = undefined;
     // Recheck immediately before the swap so a change during temp-file IO is
     // also rejected. The final rename remains atomic for readers.
-    const rechecked = decodeProjectText(await readFile(file));
-    if (rechecked.binary || rechecked.content !== expectedContent || rechecked.encoding !== current.encoding) {
+    // Compare bytes, not a possibly many-to-one decoded representation. This
+    // also catches BOM-only changes while the temporary output was written.
+    if (!(await readFile(file)).equals(currentBytes)) {
       throw new Error('File changed on disk. Reload or keep your edits before saving.');
     }
     await rename(temp, file);
@@ -319,7 +343,11 @@ export async function writeProjectTextFilesIn(
       ) {
         throw new TypeError('Workspace edit file content is invalid.');
       }
+      if (toUSVString(write.content) !== write.content) {
+        throw new TypeError('File content contains unpaired Unicode surrogates.');
+      }
       const current = decodeProjectText(await readFile(projectEntryPathIn(root, write.relPath)));
+      requireLosslessText(current);
       if (current.binary || current.content !== write.expectedContent) {
         throw new Error(`File changed on disk: ${write.relPath}`);
       }

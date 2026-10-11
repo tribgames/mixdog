@@ -2389,6 +2389,7 @@
   "Read only": "Только чтение",
   "Read output": "Прочитать вывод",
   "Read-only": "Только чтение",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "Только чтение: файл содержит текст с некорректной кодировкой. Преобразуйте или исправьте его во внешнем редакторе, чтобы избежать потери данных.",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "Только чтение: файл больше 1 МБ, его можно просматривать, но нельзя редактировать.",
   "Read, create, and edit PDF documents.": "Читайте, создавайте и редактируйте PDF-документы.",
   "Reading images…": "Чтение изображений…",

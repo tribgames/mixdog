@@ -10,6 +10,7 @@ export interface EditorFileLoad {
   binary: boolean;
   tooLarge: boolean;
   readOnly?: boolean;
+  readOnlyReason?: 'encoding';
   encoding: DesktopTextFileEncoding;
 }
 
