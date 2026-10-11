@@ -98,6 +98,12 @@ test('foreground shell has stable owner identity before promotion', { timeout: 1
     const terminal = await waitNativeTask(jobId, 3_000);
     assert.notEqual(terminal?.status, 'running');
     assert.equal(terminal?.status, 'cancelled');
+    // Native termination precedes the asynchronous terminal sidecar write.
+    // Wait for its final created file before removing the fixture directory.
+    const donePath = join(root, 'shell-jobs', `${jobId}.done`);
+    const deadline = Date.now() + 3_000;
+    while (!existsSync(donePath) && Date.now() < deadline) await delay(10);
+    assert.ok(existsSync(donePath), 'terminal shell record did not finish publication');
   } finally {
     if (jobId) retireShellJobRecord(jobId);
     await shutdownNativeSpawnServer('test-finish').catch(() => {});

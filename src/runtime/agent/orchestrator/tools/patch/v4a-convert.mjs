@@ -5,7 +5,9 @@ import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { normalizeOutputPath, invalidateBuiltinResultCache, clearReadSnapshotForPath } from '../builtin.mjs';
-import { rawContentCacheGet, rawContentCacheSet } from '../builtin/cache-layers.mjs';
+import { rawContentCacheGet } from '../builtin/cache-layers.mjs';
+import { fileVersion } from '../builtin/file-version.mjs';
+import { publishRawContentAfterRead } from '../builtin/raw-content-publication.mjs';
 import { PATCH_EDIT_MAX_BYTES, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
 import { contentEditRefusalMessage, patchContentEditRefusal, readPatchTargetBytes } from './content-guard.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
@@ -704,7 +706,10 @@ export async function applyV4ARenameSections(renameSections, basePath, options =
 // Bounded: a binary or oversized target is refused instead of read whole.
 function readRawBufForV4AConversion(fullPath) {
   const st = lstatV4APatchTarget(fullPath, fullPath);
-  const cached = rawContentCacheGet(fullPath, st);
+  // lstat describes the link, not its target: never cache referent bytes
+  // under a symlink identity, even when the byte sizes happen to coincide.
+  const before = st.isFile() ? fileVersion(st) : null;
+  const cached = before && rawContentCacheGet(fullPath, before);
   if (cached && cached.length <= PATCH_EDIT_MAX_BYTES) return cached;
   const read = readBoundedFile(fullPath, { maxBytes: PATCH_EDIT_MAX_BYTES });
   if (read.state === 'absent') {
@@ -714,7 +719,7 @@ function readRawBufForV4AConversion(fullPath) {
   }
   // No error code on purpose: callers report coded errors as "unreadable (CODE)".
   if (read.state === 'omitted') throw new Error(contentEditRefusalMessage(normalizeOutputPath(fullPath), read));
-  rawContentCacheSet(fullPath, st, read.content);
+  publishRawContentAfterRead(fullPath, before, read.content, lstatSync);
   return read.content;
 }
 

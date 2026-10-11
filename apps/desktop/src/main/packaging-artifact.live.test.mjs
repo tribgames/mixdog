@@ -10,6 +10,7 @@ import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { listPackage, statFile } from '@electron/asar';
+import { onnxRuntimeSupported } from '../../../../src/runtime/shared/onnx-runtime-support.mjs';
 
 async function findRuntimeArchives(directory, depth = 0) {
   if (depth > 8) return [];
@@ -62,8 +63,6 @@ const LC_SEGMENT_64 = 0x19;
 function machoSliceSegments(data, base, digest) {
   if (data.readUInt32LE(base) !== MACHO_64) return false;
   const commandCount = data.readUInt32LE(base + 16);
-  const commandBytes = data.readUInt32LE(base + 20);
-  const headerEnd = 32 + commandBytes;
   let offset = base + 32;
   for (let index = 0; index < commandCount; index += 1) {
     const command = data.readUInt32LE(offset);
@@ -73,7 +72,20 @@ function machoSliceSegments(data, base, digest) {
       const fileOffset = Number(data.readBigUInt64LE(offset + 40));
       const fileSize = Number(data.readBigUInt64LE(offset + 48));
       if (name !== '__LINKEDIT' && fileSize > 0) {
-        const start = base + Math.max(fileOffset, name === '__TEXT' ? headerEnd : 0);
+        // __TEXT starts with the header and load commands, then free padding.
+        // Signing an unsigned (x86_64) binary adds LC_CODE_SIGNATURE into that
+        // padding, so compare __TEXT only from its first section's file data.
+        let textStart = fileOffset;
+        if (name === '__TEXT') {
+          const sectionCount = data.readUInt32LE(offset + 64);
+          const sectionOffsets = [];
+          for (let section = 0; section < sectionCount; section += 1) {
+            const sectionOffset = data.readUInt32LE(offset + 72 + section * 80 + 48);
+            if (sectionOffset > 0) sectionOffsets.push(sectionOffset);
+          }
+          textStart = sectionOffsets.length ? Math.min(...sectionOffsets) : fileOffset + fileSize;
+        }
+        const start = base + textStart;
         digest.update(name);
         digest.update(data.subarray(start, base + fileOffset + fileSize));
       }
@@ -124,6 +136,8 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   const stagedSidecar = fileURLToPath(new URL('../../.runtime/runtime.asar.unpacked', import.meta.url));
   await access(runtimeArchive);
 
+  // Targets without an onnxruntime-node binding (darwin-x64) ship none at all.
+  const onnx = onnxRuntimeSupported();
   const targetBinding = `/bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node`;
   const candidates = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
   const built = candidates
@@ -131,7 +145,9 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
       archive,
       entries: listPackage(archive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')),
     }))
-    .find(({ entries }) => entries.some((entry) => entry.endsWith(targetBinding)));
+    .find(({ entries }) =>
+      onnx ? entries.some((entry) => entry.endsWith(targetBinding)) : entries.includes('/node_modules/mixdog/package.json')
+    );
   assert.ok(built, `dist is missing a packaged ${process.platform}-${process.arch} runtime.asar`);
   const builtArchive = built.archive;
   const builtResources = dirname(builtArchive);
@@ -165,17 +181,20 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   const embeddingNapiRoot = `${ortRoot}/bin/napi-v6`;
   const embeddingPlatformRoot = `${embeddingNapiRoot}/${process.platform}`;
   const embeddingBinaryRoot = `${embeddingPlatformRoot}/${process.arch}`;
-  assert.ok(
-    entries.includes(`${embeddingBinaryRoot}/onnxruntime_binding.node`),
-    `runtime archive is missing ${process.platform}-${process.arch} ONNX binding`
-  );
+  if (onnx) {
+    assert.ok(
+      entries.includes(`${embeddingBinaryRoot}/onnxruntime_binding.node`),
+      `runtime archive is missing ${process.platform}-${process.arch} ONNX binding`
+    );
+  }
   assert.equal(
     entries.some(
       (entry) =>
         entry.startsWith(`${embeddingNapiRoot}/`) &&
-        entry !== embeddingPlatformRoot &&
-        entry !== embeddingBinaryRoot &&
-        !entry.startsWith(`${embeddingBinaryRoot}/`)
+        (!onnx ||
+          (entry !== embeddingPlatformRoot &&
+            entry !== embeddingBinaryRoot &&
+            !entry.startsWith(`${embeddingBinaryRoot}/`)))
     ),
     false,
     'runtime archive contains foreign ONNX platform binaries'

@@ -197,7 +197,12 @@ export class SessionHost implements DesktopService {
       },
       knownProject: (path) => this.projects.knownPath(path),
       touchProject: async (path) => {
-        await this.projects.touchSelected(path);
+        try {
+          await this.projects.touchSelected(path);
+        } catch {
+          // Recency is advisory, including after the daemon accepts a task.
+          // Registration and explicit mutations keep their strict boundaries.
+        }
       },
       resolveSessionWorkspace: (path) => this.resolveSessionWorkspace(path),
       projectDirectory: (path) => this.projectDirectory(path),

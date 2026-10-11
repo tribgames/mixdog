@@ -6,6 +6,7 @@
  */
 import * as fsPromises from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
+import { sameFileVersion } from './file-version.mjs';
 import { READ_PREFIX_HASH_BYTES } from './read-single-fast-paths.mjs';
 import { decodeUtf16Body, isUtf16Encoding } from './snapshot-helpers.mjs';
 
@@ -174,27 +175,24 @@ export async function bufferedReadResult(ctx, { prefetched, readEnc }, helpers) 
   const { _cacheSet, _rawContentCacheSet, _recordReadSnapshot } = helpers;
   const rawBuf = prefetched.buf || (await readFile(fullPath));
   const content = decodeReadBuffer(rawBuf, readEnc);
-  // W1 M: re-stat after the async readFile so a concurrent Write that landed
-  // during the read is detected before the cache + snapshot record stale
-  // bytes. A raw-cache hit was already validated against `st`.
-  let st = ctx.st;
-  let readStableForRawCache = true;
+  // A cache hit was checked against this exact version. Fresh IO must
+  // also agree after reading, including ctime and replacement identity.
+  // Never relabel observed bytes with a later stat or certify a failed stat.
+  const st = ctx.st;
+  let readStable = sameFileVersion(st, st) && rawBuf.length === st.size;
   if (!prefetched.fromCache) {
-    let stPostRead;
     try {
-      stPostRead = await fsPromises.stat(fullPath);
+      readStable = readStable && sameFileVersion(st, await fsPromises.stat(fullPath));
     } catch {
-      stPostRead = st;
-    }
-    if (stPostRead.mtimeMs !== st.mtimeMs || stPostRead.size !== st.size) {
-      st = stPostRead;
-      readStableForRawCache = false;
+      readStable = false;
     }
   }
-  const render = renderReadWindow(content, { ...ctx, st }, helpers);
-  const { snapshotMeta, contentPrefixHash } = bufferedReadSnapshotMeta(content, render, ctx, helpers);
-  _cacheSet(cacheKey, render.out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
-  if (readStableForRawCache) _rawContentCacheSet(fullPath, st, rawBuf);
-  _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
+  const render = renderReadWindow(content, ctx, helpers);
+  if (readStable) {
+    const { snapshotMeta, contentPrefixHash } = bufferedReadSnapshotMeta(content, render, ctx, helpers);
+    _cacheSet(cacheKey, render.out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
+    _rawContentCacheSet(fullPath, st, rawBuf);
+    _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
+  }
   return render.out;
 }

@@ -1,4 +1,6 @@
 import { mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises';
+import { statSync } from 'node:fs';
+import { fileVersion, sameFileVersion } from './file-version.mjs';
 import { hashText as sha256Hex } from './hash-utils.mjs';
 import { join, normalize, resolve } from 'node:path';
 import { getPluginData } from '../../config.mjs';
@@ -11,7 +13,10 @@ const READ_RANGE_INDEX_MAX_PERSISTED_ANCHORS = 8192;
 const READ_RANGE_INDEX_PERSIST_DEBOUNCE_MS = 750;
 const READ_RANGE_INDEX_SWEEP_CONCURRENCY = 8;
 
+// Slots own publication rights; readers only mutate private drafts. Deleting
+// or replacing a slot detaches outstanding lookups/scans without a tombstone log.
 const READ_RANGE_INDEX_CACHE = new Map();
+const READ_RANGE_INDEX_DRAFTS = new WeakMap();
 const READ_RANGE_INDEX_PERSIST_PENDING = new Map();
 let readRangeIndexDiskSwept = false;
 
@@ -43,7 +48,7 @@ function readRangeIndexFilePath(fullPath) {
 }
 
 function serialiseReadRangeIndex(index) {
-  if (!index?.fullPath || !index.anchors) return null;
+  if (!index?.published || !sameFileVersion(index.fileVersion, index.fileVersion)) return null;
   const anchors = [...index.anchors.entries()]
     .filter(
       ([line, byteOffset]) => Number.isFinite(line) && Number.isFinite(byteOffset) && line >= 0 && byteOffset >= 0
@@ -52,27 +57,20 @@ function serialiseReadRangeIndex(index) {
     .slice(-READ_RANGE_INDEX_MAX_PERSISTED_ANCHORS);
   if (!anchors.some(([line]) => line === 0)) anchors.unshift([0, 0]);
   return {
-    version: 1,
+    version: 2,
     path: index.fullPath,
-    size: index.size,
-    mtimeMs: index.mtimeMs,
+    fileVersion: index.fileVersion,
     prefixHash: index.prefixHash || '',
     totalLines: Number.isFinite(index.totalLines) ? index.totalLines : undefined,
     anchors,
   };
 }
 
-function readRangeIndexMatches(row, fullPath, st) {
-  return (
-    row &&
-    row.version === 1 &&
-    row.path === fullPath &&
-    typeof row.size === 'number' &&
-    row.size === st.size &&
-    Number.isFinite(row.mtimeMs) &&
-    Math.abs(row.mtimeMs - st.mtimeMs) <= 1 &&
-    Array.isArray(row.anchors)
-  );
+function readRangeIndexMatches(row, fullPath, version) {
+  // Version-1 rows lack replacement identity. Never upgrade their anchors by
+  // attaching today's metadata; rebuild them from current bytes instead.
+  return row?.version === 2 && row.path === fullPath
+    && sameFileVersion(row.fileVersion, version) && Array.isArray(row.anchors);
 }
 
 // Hash the first up to 64KiB of the file using the same sha256-of-bytes
@@ -123,21 +121,10 @@ async function loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer) {
   try {
     const row = JSON.parse(await readFile(file, 'utf-8'));
     if (!readRangeIndexMatches(row, fullPath, st)) return null;
-    // Anchors are byte offsets into the file. A same-size / same-mtime
-    // rewrite (touch-restore, in-place edit of equal-length content)
-    // leaves the stat gate above happy but invalidates every persisted
-    // byte offset, causing seeks to land on the wrong line. When the
-    // persisted index carries a prefixHash, the current file's prefix
-    // must match; on mismatch drop the on-disk row so the caller
-    // rebuilds from scratch.
+    // The prefix is an extra check, not proof that later byte offsets survived.
     if (typeof row.prefixHash === 'string' && row.prefixHash) {
       const cur = await computePrefixHashForIndex(fullPath, st, handle, prefixBuffer);
-      if (!cur || cur !== row.prefixHash) {
-        try {
-          await unlink(file);
-        } catch {}
-        return null;
-      }
+      if (!cur || cur !== row.prefixHash) return null;
     }
     const anchors = new Map([[0, 0]]);
     for (const entry of row.anchors) {
@@ -149,8 +136,7 @@ async function loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer) {
     }
     const loaded = {
       fullPath,
-      size: st.size,
-      mtimeMs: st.mtimeMs,
+      fileVersion: fileVersion(st),
       prefixHash: typeof row.prefixHash === 'string' ? row.prefixHash : '',
       anchors,
     };
@@ -166,36 +152,41 @@ async function loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer) {
   }
 }
 
+function currentReadRangeIndex(index) {
+  return !!index?.published && READ_RANGE_INDEX_CACHE.get(canonicalCachePath(index.fullPath)) === index;
+}
+
 function persistReadRangeIndexSync(index) {
   const file = readRangeIndexFilePath(index?.fullPath);
-  if (!file) return;
-  const row = serialiseReadRangeIndex(index);
-  if (!row) return;
+  if (!file || !currentReadRangeIndex(index)) return;
   try {
-    writeJsonAtomicSync(file, row, { compact: true, lock: true, fsync: false });
+    if (!sameFileVersion(index.fileVersion, statSync(index.fullPath))) return;
+    const row = serialiseReadRangeIndex(index);
+    if (row) writeJsonAtomicSync(file, row, { compact: true, lock: true, fsync: false });
   } catch {}
 }
 
-async function persistReadRangeIndex(index) {
+async function persistReadRangeIndex(index, evictedRow = null) {
   const file = readRangeIndexFilePath(index?.fullPath);
-  if (!file) return;
-  const row = serialiseReadRangeIndex(index);
-  if (!row) return;
+  if (!file || (!evictedRow && !currentReadRangeIndex(index))) return;
   try {
+    if (!sameFileVersion(evictedRow?.fileVersion || index.fileVersion, await stat(index.fullPath))) return;
     await mkdir(READ_RANGE_INDEX_DISK_DIR, { recursive: true });
-    await writeJsonAtomicAsync(file, row, { compact: true, lock: true, fsync: false });
+    if (!evictedRow && !currentReadRangeIndex(index)) return;
+    const row = evictedRow || serialiseReadRangeIndex(index);
+    if (row) await writeJsonAtomicAsync(file, row, { compact: true, lock: true, fsync: false });
   } catch {}
 }
 
 export function scheduleReadRangeIndexPersist(index) {
-  if (!READ_RANGE_INDEX_DISK_DIR || !index?.fullPath) return;
+  if (!READ_RANGE_INDEX_DISK_DIR || !currentReadRangeIndex(index)) return;
   const key = canonicalCachePath(index.fullPath);
   if (READ_RANGE_INDEX_PERSIST_PENDING.has(key)) return;
   const t = setTimeout(() => {
     READ_RANGE_INDEX_PERSIST_PENDING.delete(key);
     void persistReadRangeIndex(index);
   }, READ_RANGE_INDEX_PERSIST_DEBOUNCE_MS);
-  if (t.unref) t.unref();
+  t.unref();
   READ_RANGE_INDEX_PERSIST_PENDING.set(key, t);
 }
 
@@ -210,16 +201,14 @@ export function flushReadRangeIndexesSync() {
   }
 }
 
-export function deleteReadRangeIndexForPath(fullPath) {
-  const key = canonicalCachePath(fullPath);
+function dropReadRangeIndexSlot(key) {
   READ_RANGE_INDEX_CACHE.delete(key);
-  const timer = READ_RANGE_INDEX_PERSIST_PENDING.get(key);
-  if (timer) {
-    try {
-      clearTimeout(timer);
-    } catch {}
-    READ_RANGE_INDEX_PERSIST_PENDING.delete(key);
-  }
+  clearTimeout(READ_RANGE_INDEX_PERSIST_PENDING.get(key));
+  READ_RANGE_INDEX_PERSIST_PENDING.delete(key);
+}
+
+export function deleteReadRangeIndexForPath(fullPath) {
+  dropReadRangeIndexSlot(canonicalCachePath(fullPath));
   const file = readRangeIndexFilePath(fullPath);
   if (file) void unlink(file).catch(() => {});
 }
@@ -248,46 +237,112 @@ export async function sweepStaleReadRangeIndexes(directory = READ_RANGE_INDEX_DI
   await Promise.all(Array.from({ length: Math.min(READ_RANGE_INDEX_SWEEP_CONCURRENCY, entries.length) }, worker));
 }
 
-// Re-insert so the entry moves to the LRU tail, then hand it back.
+// Re-insert so the entry moves to the LRU tail. All insertion paths obey the
+// same cap, including disk hits. Eviction also revokes unfinished readers.
 function refreshReadRangeIndexSlot(key, index) {
   READ_RANGE_INDEX_CACHE.delete(key);
   READ_RANGE_INDEX_CACHE.set(key, index);
+  while (READ_RANGE_INDEX_CACHE.size > READ_RANGE_INDEX_MAX_ENTRIES) {
+    const oldest = READ_RANGE_INDEX_CACHE.keys().next().value;
+    const evicted = READ_RANGE_INDEX_CACHE.get(oldest);
+    // Preserve only committed anchors before cancelling the debounce. The
+    // owned row may finish saving after eviction, but outstanding drafts lose
+    // their slot immediately. Disk IO must not delay the foreground lookup.
+    const row = serialiseReadRangeIndex(evicted);
+    dropReadRangeIndexSlot(oldest);
+    if (row) void persistReadRangeIndex(evicted, row);
+  }
   return index;
 }
 
-// A supplied handle is borrowed; validation never changes its position or closes it.
+function freshReadRangeIndex(fullPath, version = null) {
+  return { fullPath, fileVersion: version, prefixHash: '', anchors: new Map([[0, 0]]), published: false };
+}
+
+// A supplied handle is borrowed; validation uses positional IO and never closes
+// it. The stat argument is only a hint for a previously read prefix, not proof
+// of the current handle/path version. A cache miss always starts at byte zero.
 export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffer = null) {
-  if (!st) return null;
   const key = canonicalCachePath(fullPath);
-  const cached = READ_RANGE_INDEX_CACHE.get(key);
-  if (cached && cached.size === st.size && Math.abs(cached.mtimeMs - st.mtimeMs) <= 1) {
-    // In-memory anchors share the same byte-offset hazard as the
-    // on-disk row: a same-size / same-mtime overwrite would otherwise
-    // be reused with the wrong offsets. When a prefixHash was recorded
-    // for the cached index, verify it before refreshing the LRU slot;
-    // on mismatch evict and fall through to disk-load / fresh rebuild.
-    // When prefixHash is empty (e.g. a freshly-created index that no
-    // streaming read has populated yet) keep the prior stat-only
-    // behavior so genuinely unchanged files are not re-walked.
-    if (!cached.prefixHash) return refreshReadRangeIndexSlot(key, cached);
-    const cur = await computePrefixHashForIndex(fullPath, st, handle, prefixBuffer);
-    if (cur && cur === cached.prefixHash) return refreshReadRangeIndexSlot(key, cached);
-    READ_RANGE_INDEX_CACHE.delete(key);
+  let slot = READ_RANGE_INDEX_CACHE.get(key);
+  if (!slot) slot = refreshReadRangeIndexSlot(key, freshReadRangeIndex(fullPath));
+  const hint = fileVersion(st);
+  const readStat = () => handle ? handle.stat() : stat(fullPath);
+  let version;
+  try {
+    const observed = await readStat();
+    if (!observed.isFile()) return null;
+    version = fileVersion(observed);
+  } catch {
+    return null;
   }
-  const loaded = await loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer);
-  if (loaded) {
-    READ_RANGE_INDEX_CACHE.set(key, loaded);
-    return loaded;
+  if (!version || READ_RANGE_INDEX_CACHE.get(key) !== slot) return null;
+  version = Object.freeze(version);
+  if (!slot.fileVersion) slot.fileVersion = version;
+  if (!sameFileVersion(slot.fileVersion, version)) {
+    dropReadRangeIndexSlot(key);
+    slot = refreshReadRangeIndexSlot(key, freshReadRangeIndex(fullPath, version));
   }
-  const fresh = { fullPath, size: st.size, mtimeMs: st.mtimeMs, prefixHash: '', anchors: new Map([[0, 0]]) };
-  READ_RANGE_INDEX_CACHE.set(key, fresh);
-  while (READ_RANGE_INDEX_CACHE.size > READ_RANGE_INDEX_MAX_ENTRIES) {
-    const oldest = READ_RANGE_INDEX_CACHE.keys().next().value;
-    const oldIndex = READ_RANGE_INDEX_CACHE.get(oldest);
-    if (oldIndex) void persistReadRangeIndex(oldIndex);
-    READ_RANGE_INDEX_CACHE.delete(oldest);
+  const prefix = sameFileVersion(hint, version) ? prefixBuffer : null;
+  let source = slot;
+  if (slot.published && slot.prefixHash) {
+    const cur = await computePrefixHashForIndex(fullPath, version, handle, prefix);
+    if (READ_RANGE_INDEX_CACHE.get(key) !== slot) return null;
+    if (!cur || cur !== slot.prefixHash) {
+      dropReadRangeIndexSlot(key);
+      slot = refreshReadRangeIndexSlot(key, freshReadRangeIndex(fullPath, version));
+      source = slot;
+    }
   }
-  return fresh;
+  if (!slot.published) source = await loadReadRangeIndexFromDisk(fullPath, version, handle, prefix) || slot;
+  // Neither a delayed disk lookup nor a changed source can authorize offsets.
+  try {
+    if (!sameFileVersion(version, await readStat())) return null;
+  } catch {
+    return null;
+  }
+  if (READ_RANGE_INDEX_CACHE.get(key) !== slot) return null;
+  refreshReadRangeIndexSlot(key, slot);
+  const draft = {
+    fullPath, fileVersion: version, prefixHash: source.prefixHash,
+    anchors: new Map(source.anchors),
+    ...(Number.isFinite(source.totalLines) ? { totalLines: source.totalLines } : {}),
+  };
+  READ_RANGE_INDEX_DRAFTS.set(draft, { slot, version });
+  return draft;
+}
+
+// Successful readers publish once, before closing their handle. A failed,
+// cancelled or detached scan keeps its observation private. Post-stat failures
+// are cache misses, not reasons to retry the operation or relabel its anchors.
+export async function publishReadRangeIndex(index, handle, signal = null, beforePublish = null) {
+  const owned = READ_RANGE_INDEX_DRAFTS.get(index);
+  if (!owned) return false;
+  READ_RANGE_INDEX_DRAFTS.delete(index);
+  const { slot, version } = owned;
+  const key = canonicalCachePath(slot.fullPath);
+  if (signal?.aborted || READ_RANGE_INDEX_CACHE.get(key) !== slot) return false;
+  try {
+    if (!sameFileVersion(version, await handle.stat())
+      || !sameFileVersion(version, await stat(slot.fullPath))) return false;
+  } catch {
+    return false;
+  }
+  if (signal?.aborted || READ_RANGE_INDEX_CACHE.get(key) !== slot) return false;
+  if (slot.prefixHash && index.prefixHash && slot.prefixHash !== index.prefixHash) return false;
+  // The reader's synchronous deadline/cancellation decision belongs after all
+  // awaited validation and outside its best-effort stat catch. Once committed,
+  // the caller must not make a second deadline decision for this scan.
+  beforePublish?.();
+  // Same-version concurrent windows may contribute disjoint anchors. No draft
+  // shares this map, including the one whose successful read is being committed.
+  slot.anchors = new Map([...slot.anchors, ...index.anchors]);
+  slot.prefixHash = index.prefixHash || slot.prefixHash;
+  if (Number.isFinite(index.totalLines)) slot.totalLines = index.totalLines;
+  slot.published = true;
+  refreshReadRangeIndexSlot(key, slot);
+  scheduleReadRangeIndexPersist(slot);
+  return true;
 }
 
 export function nearestReadRangeAnchor(index, offset) {
@@ -309,6 +364,5 @@ export function maybeRecordReadRangeAnchor(index, line, byteOffset) {
   if (line === 0 || line % READ_RANGE_INDEX_STRIDE_LINES === 0) {
     if (index.anchors.get(line) === byteOffset) return;
     index.anchors.set(line, byteOffset);
-    scheduleReadRangeIndexPersist(index);
   }
 }
