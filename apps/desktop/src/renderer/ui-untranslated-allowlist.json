@@ -4,6 +4,7 @@
   "-{{value0}}",
   "/{{value0}}",
   "Antigravity",
+  "Android",
   "Anthropic Messages",
   "API",
   "Basic",
@@ -77,5 +78,6 @@
   "· {{value0}}",
   "— {{value0}}",
   "•••••••• {{value0}}",
-  "→ {{value0}}"
+  "→ {{value0}}",
+  "iPhone · iPad"
 ]

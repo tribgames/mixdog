@@ -48,9 +48,9 @@ for (const synchronous of [false, true]) {
       const mutations = Array.from({ length: 48 }, (_, step) => {
         const key = `w${(next() >>> 16) % 7}`;
         const kind = (next() >>> 16) % 3;
-        return kind === 0 ? (map) => map.delete(key)
-          : kind === 1 ? (_map, set) => set.add(key)
-          : (map) => map.set(key, { v: step, seed });
+        if (kind === 0) return (map) => map.delete(key);
+        if (kind === 1) return (_map, set) => set.add(key);
+        return (map) => map.set(key, { v: step, seed });
       });
       const { root, queue, readFile } = setup(initial);
       try {

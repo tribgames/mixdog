@@ -39,12 +39,17 @@ export interface RelaySessionStateFanout {
   publish(update: DesktopSessionStateUpdate): void;
   /** A phone's paint acknowledgement, when the payload is one. */
   acknowledgeFrame(payload: unknown): ReturnType<ReturnType<typeof createRemotePaintProbeTracker>['acknowledgeFrame']>;
+  /** The rows of the newest live update for a session, if one was published. */
+  latestItems(sessionId: string): readonly unknown[] | null;
+  /** Re-sends the newest update, so a connection that lags catches up. */
+  refresh(sessionId: string): void;
   /** Drops every retained update and probe: the relay leg was replaced. */
   clear(): void;
 }
 
 export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps): RelaySessionStateFanout {
   const mailboxes = new Map<string, LatestStateMailbox<DesktopSessionStateUpdate>>();
+  const latestUpdates = new Map<string, DesktopSessionStateUpdate>();
   const paintProbes = createRemotePaintProbeTracker({
     enabled: process.env.MIXDOG_DESKTOP_PERF === '1',
   });
@@ -127,9 +132,27 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
     return mailbox;
   };
   return {
-    publish: (update) => mailboxFor(update.sessionId).publish(update),
+    publish: (update) => {
+      latestUpdates.delete(update.sessionId);
+      if (update.snapshot) {
+        latestUpdates.set(update.sessionId, update);
+        // Recently published sessions only: this exists to check a client's
+        // view of a session it is about to act on.
+        while (latestUpdates.size > 32) latestUpdates.delete(latestUpdates.keys().next().value as string);
+      }
+      mailboxFor(update.sessionId).publish(update);
+    },
+    latestItems: (sessionId) => {
+      const items = (latestUpdates.get(sessionId)?.snapshot as { items?: unknown } | null | undefined)?.items;
+      return Array.isArray(items) ? items : null;
+    },
+    refresh: (sessionId) => {
+      const update = latestUpdates.get(sessionId);
+      if (update) mailboxFor(sessionId).publish(update);
+    },
     acknowledgeFrame: (payload) => paintProbes.acknowledgeFrame(payload),
     clear: () => {
+      latestUpdates.clear();
       for (const mailbox of mailboxes.values()) mailbox.clear();
       mailboxes.clear();
       paintProbes.clear();

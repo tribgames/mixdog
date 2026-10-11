@@ -35,6 +35,7 @@ export function createSessionSettingsApi(bag) {
     // acknowledge an older route.
     setModel: withCommandLock(
       async (m) => {
+        bag.supersedeQuotaResume?.(getState().sessionId);
         await runtime.setRoute({ model: m });
         publishRoute();
         return true;

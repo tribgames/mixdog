@@ -3,6 +3,7 @@
 import { RELAY_PAYLOAD_TOO_LARGE_CODE } from '../shared/remote-payload-limit';
 import type { createRemoteCatalog } from '../shared/remote-catalog';
 import { armRemoteCallDeadline } from './remote-call-deadline';
+import { remoteConnectionInterruptedError } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
 
 export const installRemoteCalls = (ctx: RemoteShimContext): void => {
@@ -69,6 +70,14 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
         ctx.pending.delete(id);
         const failure = error instanceof Error ? error : new Error(String(error));
         window.clearTimeout(deadline);
+        // The socket was handed out before its handshake finished — or it is
+        // already closed. Nothing was sent on it, and a socket re-keying in
+        // place after a desktop redial must not be closed for this: the call
+        // fails as interrupted and the connection recovers on its own.
+        if (ctx.socket !== ws || !ctx.connectionReady) {
+          reject(remoteConnectionInterruptedError());
+          return;
+        }
         reject(failure);
         // A payload this leg refused to send is a bad request, not a broken
         // socket: every other call on it stays alive.

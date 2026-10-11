@@ -66,6 +66,8 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   // 안 나와), while the composer's own label already showed the new model.
   'provider',
   'model',
+  'sessionProvider',
+  'sessionModel',
   'effort',
   'busy',
   'commandBusy',
@@ -80,6 +82,7 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'agentJobs',
   'activeTools',
   'goal',
+  'quotaResume',
 ];
 
 const DOCK_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
@@ -191,10 +194,16 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
     left.promptHistoryList === right.promptHistoryList &&
     left.provider === right.provider &&
     left.model === right.model &&
+    left.sessionProvider === right.sessionProvider &&
+    left.sessionModel === right.sessionModel &&
     left.effort === right.effort &&
     left.fast === right.fast &&
     left.fastCapable === right.fastCapable &&
-    left.workflow === right.workflow
+    left.workflow === right.workflow &&
+    // The latest completion line reads background work to show its waiting state.
+    shellJobsEqual(left, right) &&
+    left.agentWorkers === right.agentWorkers &&
+    left.agentJobs === right.agentJobs
   );
 }
 

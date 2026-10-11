@@ -25,7 +25,19 @@ test('the composer offers only frequent commands and preserves direct command ex
   const { createRoot } = await import('react-dom/client');
   const { Composer } = await import('./Composer.tsx');
   const { desktopComposerSlashCommands, resolveDesktopSlashCommand } = await import('./slash-commands.ts');
-  const expected = ['/new', '/model', '/compact', '/context', '/goal', '/inherit', '/doctor', '/fast'];
+  const expected = [
+    '/new',
+    '/resume',
+    '/model',
+    '/compact',
+    '/context',
+    '/usage',
+    '/skills',
+    '/goal',
+    '/inherit',
+    '/doctor',
+    '/fast',
+  ];
   const calls = [];
   // Composer notices and errors leave through the toast lane, not the DOM
   // above the input.
@@ -121,7 +133,7 @@ test('the composer offers only frequent commands and preserves direct command ex
       '/model x',
       '/model\n',
       '//',
-      '/resume',
+      '/theme',
       '/style',
       '/clear',
       '/unknown',
@@ -141,6 +153,7 @@ test('the composer offers only frequent commands and preserves direct command ex
 
     await key('ArrowUp');
     assert.equal(palette().querySelector('[aria-selected="true"] code').textContent, '/fast');
+    await key('ArrowDown');
     await key('ArrowDown');
     await key('ArrowDown');
     assert.equal(palette().querySelector('[aria-selected="true"] code').textContent, '/model');
@@ -232,7 +245,7 @@ test('the composer offers only frequent commands and preserves direct command ex
     assert.deepEqual(calls, []);
 
     for (const [value, expectedCall] of [
-      ['/resume', ['sessions']],
+      ['/theme', ['settings', 'theme']],
       ['/resume saved-chat', ['resume', 'saved-chat']],
       ['/style', ['settings', 'output-style']],
     ]) {
@@ -241,6 +254,22 @@ test('the composer offers only frequent commands and preserves direct command ex
       await key('Enter');
       assert.deepEqual(calls.pop(), expectedCall);
     }
+    // /skills opens the add menu, where a skill is picked for the next message.
+    assert.equal(document.querySelector('.composer-add-menu'), null);
+    await type('/skills');
+    await key('Enter');
+    assert.ok(document.querySelector('.composer-add-menu'));
+    assert.equal(input.value, '');
+    assert.equal(
+      calls.some(([kind]) => kind === 'settings'),
+      false
+    );
+    calls.length = 0;
+    await act(async () => {
+      document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    assert.equal(document.querySelector('.composer-add-menu'), null);
+
     await type('/not-a-command');
     await key('Enter');
     assert.equal(input.value, '/not-a-command');

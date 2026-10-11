@@ -23,7 +23,7 @@ const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
   projects: true,
   extensions: true,
   schedules: true,
-  webhooks: false,
+  webhooks: true,
   usage: true,
   settings: true,
   agents: true,

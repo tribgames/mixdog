@@ -440,8 +440,8 @@
   gap: 1px;
 }
 .model-catalog-panel .model-group h3 {
-  min-height: 26px;
-  padding: 4px 4px 2px;
+  min-height: 28px;
+  padding: 0 8px;
 }
 /* Keep compact brand headers pinned, but paint the flyout surface beneath
    them so scrolling rows never show through the header. */
@@ -508,88 +508,6 @@
   color: var(--mx-text-faint);
   background: color-mix(in srgb, var(--mx-text) 9%, transparent);
   box-shadow: none;
-  opacity: 1;
-}
-.composer-attachments {
-  box-sizing: border-box;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-color: var(--mx-scrollbar-thumb) transparent;
-}
-.composer-attachments > div {
-  position: relative;
-  flex: 0 0 auto;
-  box-sizing: border-box;
-}
-.composer-attachments > div.image {
-  width: 64px;
-  max-width: 64px;
-  padding: 0;
-  overflow: visible;
-}
-.composer-attachments > div.image img {
-  width: 64px;
-  height: 64px;
-  flex-basis: 64px;
-  object-fit: cover;
-  border-radius: var(--mx-radius-md);
-}
-.composer-attachments > div.image .attachment-open {
-  display: flex;
-  width: auto;
-  height: auto;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  cursor: zoom-in;
-}
-.composer-attachments > div.image .attachment-open:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: -2px;
-}
-.composer-attachments > div.image > span:nth-child(2) {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  padding: 2px 5px;
-  overflow: hidden;
-  border-radius: 0 0 var(--mx-radius-md) var(--mx-radius-md);
-  color: var(--mx-grey-100);
-  /* Fixed dark plate under light text; must not follow the themed scrim. */
-  background: var(--mx-avatar-shadow);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-  pointer-events: none;
-}
-.composer-attachments .attachment-edit,
-.composer-attachments .attachment-remove {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border-radius: var(--mx-radius-sm);
-  background: transparent;
-  cursor: pointer;
-}
-.composer-attachments > div.image .attachment-remove {
-  position: absolute;
-  z-index: 2;
-  top: -5px;
-  right: -5px;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-icon);
-  background: var(--mx-bg-layer-3);
-  box-shadow: var(--mx-button);
-  opacity: 0;
-}
-.composer-attachments > div.image:hover .attachment-remove,
-.composer-attachments > div.image:focus-within .attachment-remove,
-.composer-attachments > div.image .attachment-remove:focus-visible {
   opacity: 1;
 }
 .task-drop-overlay {

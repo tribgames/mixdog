@@ -1,4 +1,14 @@
 import { useCallback, useMemo } from 'react';
+import { STALE_SESSION_VIEW_MARKER } from '../../shared/session-devices';
+import { t } from '../i18n';
+
+/** The host's refusal of a send from a stale view arrives as English text; say
+ *  it in the UI language. The draft stays in the composer. */
+export function localizedInvocationError(message: string): string {
+  return message.includes(STALE_SESSION_VIEW_MARKER)
+    ? t('This conversation changed on another device. Review the latest messages, then send again.')
+    : message;
+}
 
 export const BRIDGE_UNAVAILABLE_ERROR = 'Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop.';
 
@@ -17,7 +27,7 @@ export function useAppInvocation({
       try {
         return await action();
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(localizedInvocationError(reason instanceof Error ? reason.message : String(reason)));
         return undefined;
       }
     },

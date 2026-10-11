@@ -71,9 +71,14 @@ if ($deployPlan.stageRenderer) {
 }
 
 $vpsDeployScript = {
-    param($relayDir, $SshHost, $Domain, $version, $includeRenderer)
+    param($relayDir, $SshHost, $Domain, $version, $includeRenderer, $desktopVersion)
     $ErrorActionPreference = 'Stop'
     $tgz = Join-Path $env:TEMP 'mixdog-relay-upload.tgz'
+    # The uploaded renderer is installed as an ADDITIONAL release named by the
+    # desktop version it was built for; the relay serves each paired desktop the
+    # release matching its version. A relay-only deploy uploads no renderer and
+    # registers no release.
+    $releaseDesktopVersion = if ($includeRenderer) { $desktopVersion } else { '' }
     Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
     try {
         $entries = @('server.mjs', 'package.json', 'package-lock.json', 'lib', 'deploy')
@@ -107,7 +112,7 @@ $vpsDeployScript = {
         if ($LASTEXITCODE -ne 0) { throw "scp exited with $LASTEXITCODE" }
         ssh -o BatchMode=yes $SshHost ("rm -rf /root/relay-upload && mkdir -p /root/relay-upload" `
                 + " && tar -xzf /root/relay-upload.tgz -C /root/relay-upload" `
-                + " && bash /root/relay-upload/deploy/deploy-release.sh $Domain v$version")
+                + " && bash /root/relay-upload/deploy/deploy-release.sh $Domain v$version $releaseDesktopVersion")
         if ($LASTEXITCODE -ne 0) { throw "VPS swap exited with $LASTEXITCODE" }
     }
     finally {
@@ -132,7 +137,7 @@ $vpsDeploySucceeded = $false
 if ($deployPlan.deploy) {
     $version = (Get-Content (Join-Path $relayDir 'package.json') -Raw | ConvertFrom-Json).version
     $vpsDeployArgs = @(
-        $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged)
+        $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged), $desktopVersion
     )
     if ($FastDirect) {
         Step 'pack + upload + atomic VPS swap (background job)'

@@ -116,7 +116,12 @@ export function createSteeringOps(bag, { queue, submissions }) {
     return !isGoalQueuedEntry(entry) || bag.shouldRunGoalContinuation?.(entry) === true;
   }
 
+  // Pre-send steering is an admission route: a closing/closed session injects
+  // nothing into a model request.
+  const admissionOpen = () => !bag.flags?.admission || bag.flags.admission === 'open';
+
   function hasPendingSteering() {
+    if (!admissionOpen()) return false;
     return pending.some(
       (entry) =>
         isSteerableEntry(entry) &&
@@ -134,6 +139,7 @@ export function createSteeringOps(bag, { queue, submissions }) {
     else if (_sessionIdOrOptions && typeof _sessionIdOrOptions === 'object') options = _sessionIdOrOptions;
     const maxPriority = options.maxPriority || 'next';
     const out = [];
+    if (!admissionOpen()) return out;
     for (;;) {
       const batch = queue.dequeueQueueBatch(maxPriority, { predicate: isSteerableEntry });
       if (batch.length === 0) break;
@@ -156,6 +162,8 @@ export function createSteeringOps(bag, { queue, submissions }) {
   }
 
   async function restoreLeadSteeringFromDisk() {
+    // A closed/closing conversation never gets queue work restored into it.
+    if (!admissionOpen()) return;
     const rows = await drainTuiSteeringPersist(leadSessionId());
     if (!rows.length) return;
     const livePersistIds = new Set(pending.map((entry) => entry?.steeringPersistId).filter(Boolean));
@@ -190,6 +198,9 @@ export function createSteeringOps(bag, { queue, submissions }) {
       if (isQueuedEntryVisible(entry)) restored.push(entry);
     }
     if (restored.length > 0) set({ queued: [...getState().queued, ...restored] });
+    // The conversation closed while the rows were being read: settle them
+    // explicitly (rejected + durable mirror released), never leave them parked.
+    if (bag.flags?.admission === 'terminal') bag.settleClosedQueue?.();
     if (droppedDelivered > 0) {
       try {
         process.stderr.write(`[tui] skipped ${droppedDelivered} already-delivered steering row(s) on restore\n`);

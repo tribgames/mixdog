@@ -22,7 +22,15 @@ function ackModelVisible(event) {
 
 // The `execution-ui` delivery: one transcript card per execution card key,
 // then the model-visible completion body enqueued once per execution.
-export function createExecutionDelivery({ dedup, pendingResume, enqueue, nextId, pushResponse, statusRefresh }) {
+export function createExecutionDelivery({
+  dedup,
+  pendingResume,
+  enqueue,
+  nextId,
+  pushResponse,
+  statusRefresh,
+  getAdmission = () => 'open',
+}) {
   function pushCard({ event, text, parsed, delivery, executionId, status, terminal }) {
     const cardKey = executionCardKey(event, text, parsed);
     const firstDelivery = !cardKey || !dedup.hasNotificationKey(cardKey);
@@ -65,6 +73,10 @@ export function createExecutionDelivery({ dedup, pendingResume, enqueue, nextId,
   function enqueueCompletion({ event, text, delivery, executionId, notificationKey }) {
     const resumeBody = String(delivery.modelContent || '').trim();
     if (!resumeBody) return;
+    // Validated at consumption (not only at the bus): a closing/closed owner
+    // keeps the card for UI/history but never queues a model-visible twin, and
+    // does not ack it as model-delivered.
+    if (getAdmission() !== 'open' || event?.meta?.owner_closed === true) return;
     const completionKey = executionResumeKey(resumeBody, executionId);
     if (pendingResume.isDiscarded(completionKey) || isDeliveredCompletion({ executionId, text: resumeBody })) {
       ackModelVisible(event);

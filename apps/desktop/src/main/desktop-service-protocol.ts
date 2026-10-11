@@ -26,6 +26,9 @@ export type DesktopServiceOutbound =
    *  second `ready` announces the swap, because the transport itself never
    *  dropped. This frame is what says so. */
   | { kind: 'daemon-replaced' }
+  /** A newer client is waiting for an older daemon to finish its work and
+   *  yield (`waiting`), or the older daemon has yielded (`done`). */
+  | { kind: 'upgrade-wait'; state: 'waiting' | 'done'; fromVersion?: string; toVersion?: string }
   | { kind: 'response'; id: number; ok: true; value: unknown }
   | { kind: 'response'; id: number; ok: false; error: DesktopServiceError }
   | { kind: 'state'; sequence: number; wire: unknown }

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { usagePinStackFits } from './rail-usage-pin-room';
 import type { UsageDashboardSnapshot } from './usage-dashboard-store';
 import { subscribeSetupChanges } from './setup-change-refresh';
@@ -75,9 +76,14 @@ export function useUsageRailPin(
     };
     read();
     const unsubscribe = subscribeSetupChanges(read);
+    // Remote clients: a read made while the connection was down fails and
+    // would keep the code default (pinned) over the user's real choice until
+    // a reload.
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     return () => {
       live = false;
       unsubscribe();
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     };
   }, [enabled]);
 

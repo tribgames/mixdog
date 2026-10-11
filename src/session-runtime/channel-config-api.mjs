@@ -8,6 +8,7 @@ import {
   setScheduleEnabled,
   setWebhookEnabled,
   setWebhookConfigAsync,
+  testWebhook,
 } from './services/channel-admin.mjs';
 import { getSchedule } from '../runtime/channels/lib/schedules-db.mjs';
 import { runScheduleSession } from './schedule-session-run.mjs';
@@ -68,6 +69,10 @@ export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAut
     // Read-only secret fetch for the webhook editor; no worker reload.
     async getWebhookSecret(name) {
       return getWebhookSecret(name);
+    },
+    // Signed test request to the public URL; no dispatch, no worker reload.
+    async testWebhook(name) {
+      return testWebhook(name);
     },
     async runScheduleNow(name) {
       const id = String(name || '').trim();

@@ -3,6 +3,10 @@
 // shows. Nothing here touches the socket, so both answers are available before
 // any connection exists.
 
+import { nativeAppInfo } from '../shared/native-app';
+import { MIXDOG_APP_CLIENT_BROWSER, MIXDOG_DESKTOP_CLIENT_BROWSER } from '../shared/remote-trust';
+import { remoteWindowInfo } from '../shared/remote-window';
+
 export const newBrowserId = (): string => {
   try {
     return crypto.randomUUID();
@@ -56,6 +60,19 @@ export const browserProfile = async (): Promise<{ name: string; platform: string
   if (!model) {
     if (/iPhone/u.test(userAgent)) model = 'iPhone';
     else if (/iPad|Macintosh.+Mobile/u.test(userAgent)) model = 'iPad';
+  }
+  // A second PC's Mixdog window says so: the approval prompt on the host shows
+  // it prominently. A label only — the host grants trust, never this string.
+  if (remoteWindowInfo()) {
+    return { name: `${platform} · ${MIXDOG_DESKTOP_CLIENT_BROWSER}`, platform, browser: MIXDOG_DESKTOP_CLIENT_BROWSER };
+  }
+  // The phone app is a native shell around this page: name it as the app.
+  if (nativeAppInfo()) {
+    return {
+      name: `${model || platform} · ${MIXDOG_APP_CLIENT_BROWSER}`,
+      platform,
+      browser: MIXDOG_APP_CLIENT_BROWSER,
+    };
   }
   // "Pixel 8 · Chrome" when the device is known; "Android · Chrome" otherwise.
   return { name: `${model || platform} · ${browser}`, platform, browser };

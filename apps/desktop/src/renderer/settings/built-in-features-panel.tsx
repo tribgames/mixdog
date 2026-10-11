@@ -39,6 +39,7 @@ import {
 import { useLocalProviderActions } from './local-provider-actions';
 import type { LocalProviderActions } from './local-provider-actions';
 import { GitPanel } from './git-panel';
+import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
 import { useTidyEngineStatus } from './tidy-status';
 import { useAutoEffortStatus } from './auto-effort-status';
 import { TidyEngines } from './tidy-engines';
@@ -53,7 +54,6 @@ type FeatureAction = {
 const reason = (error: unknown): string =>
   String((error as Error)?.message || error || '') || t('Something went wrong');
 
-const desktopSettingsCache = new WeakMap<object, DesktopSettings>();
 
 function voiceProgress(snapshot: unknown): { text: string; percent: number | null } {
   const hint = record(record(snapshot).progressHint);
@@ -70,17 +70,19 @@ function voiceProgress(snapshot: unknown): { text: string; percent: number | nul
 /** Desktop settings and the Git / LibreOffice dependency status the cards depend on. */
 function useDesktopFeatureStatus(api: PanelContext['api']) {
   const [settings, setSettings] = useState<DesktopSettings | null>(
-    () => desktopSettingsCache.get(api as object) ?? null
+    () => getCachedDesktopStatus(api, 'settings') ?? null
   );
-  const [gitStatus, setGitStatus] = useState<DesktopGitCliStatus | null>(null);
-  const [officeDependency, setOfficeDependency] = useState<DesktopLibreOfficeStatus | null>(null);
+  const [gitStatus, setGitStatus] = useState<DesktopGitCliStatus | null>(
+    () => getCachedDesktopStatus(api, 'gitCli') ?? null
+  );
+  const [officeDependency, setOfficeDependency] = useState<DesktopLibreOfficeStatus | null>(
+    () => getCachedDesktopStatus(api, 'libreOffice') ?? null
+  );
   useEffect(() => {
     let live = true;
     const read = () =>
-      void api
-        .readSettings?.()
-        .then((next) => {
-          desktopSettingsCache.set(api as object, next);
+      void readDesktopStatus(api, 'settings')
+        ?.then((next) => {
           if (live) setSettings(next);
         })
         .catch(() => {});
@@ -93,15 +95,13 @@ function useDesktopFeatureStatus(api: PanelContext['api']) {
   }, [api]);
   useEffect(() => {
     let live = true;
-    void api
-      .gitCliStatus?.()
-      .then((next) => {
+    void readDesktopStatus(api, 'gitCli')
+      ?.then((next) => {
         if (live) setGitStatus(next);
       })
       .catch(() => {});
-    void api
-      .libreOfficeStatus?.()
-      .then((next) => {
+    void readDesktopStatus(api, 'libreOffice')
+      ?.then((next) => {
         if (live) setOfficeDependency(next);
       })
       .catch(() => {});
@@ -234,6 +234,14 @@ function FeatureDetailDialog({
       dataAttributes={{ 'data-feature-id': feature.id }}
       headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}
     >
+      {ready && feature.id === 'autoEffort' && !state.supported ? (
+        <ExtensionNote>{t('Auto effort is not supported on Intel Macs.')}</ExtensionNote>
+      ) : null}
+      {ready && feature.id === 'memory' && state.info.supported === false ? (
+        <ExtensionNote>
+          {t('Semantic search is unavailable on Intel Macs. Memory uses keyword search only.')}
+        </ExtensionNote>
+      ) : null}
       {ready && !installed && requirement ? (
         <ExtensionNote>{t('Requires {{name}}', { name: requirement })}</ExtensionNote>
       ) : null}
@@ -359,7 +367,7 @@ export function BuiltInFeaturesPanel({
   ): Promise<boolean> => {
     if (!api.updateSetting) return false;
     const saved = await api.updateSetting(key, next);
-    setSettings(saved);
+    setSettings(storeDesktopStatus(api, 'settings', saved));
     // Session Browser surfaces follow the install markers live instead of polling.
     window.dispatchEvent(new Event('mixdog:built-in-features-changed'));
     return saved[key] === next;
@@ -405,7 +413,7 @@ export function BuiltInFeaturesPanel({
       if (id === 'git') {
         const next = await api.installGitCli?.();
         if (!next?.installed) throw new Error(t('Git installation did not complete.'));
-        setGitStatus(next);
+        setGitStatus(storeDesktopStatus(api, 'gitCli', next));
         if (!(await setEnabled('git', true))) throw new Error(t('Git could not be enabled.'));
       } else if (id === 'voice') {
         const result = record(await run('toggleVoice', [true], `built-in-${id}`));
@@ -423,7 +431,7 @@ export function BuiltInFeaturesPanel({
           if (!dependency?.installed) {
             throw new Error(t('LibreOffice installation did not complete.'));
           }
-          setOfficeDependency(dependency);
+          setOfficeDependency(storeDesktopStatus(api, 'libreOffice', dependency));
         }
         const result = record(await run('installBuiltinFeature', [id], `built-in-${id}`));
         const entry = record(result[id]);
@@ -453,8 +461,11 @@ export function BuiltInFeaturesPanel({
   const stateOf = (feature: BuiltInFeatureDefinition): FeatureState => {
     // Local Provider runs where the runtime pins a llama.cpp build (Windows
     // CUDA, Apple Silicon Metal); its catalog says so for this host.
-    const supported = feature.id !== 'localProvider' || localProvider.platformSupported !== false;
-    const available = feature.id !== 'localProvider' || (supported && localProvider.available !== false);
+    // Auto effort needs onnxruntime-node, which has no Intel Mac binding.
+    const supported =
+      (feature.id !== 'localProvider' || localProvider.platformSupported !== false) &&
+      (feature.id !== 'autoEffort' || autoEffort.supported !== false);
+    const available = supported && (feature.id !== 'localProvider' || localProvider.available !== false);
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
     let ready = sectionLoaded(data, 'toolModules');

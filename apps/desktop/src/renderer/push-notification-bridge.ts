@@ -64,17 +64,45 @@ export async function registerBrowserPushSubscription(
 /** Re-state this browser's CURRENT subscription once per launch. The browser
  *  may renew it on its own (sw.js pushsubscriptionchange) and the desktop
  *  would otherwise keep pushing to the retired endpoint. */
-export async function syncPushSubscription(api: PushRegistrationApi | undefined): Promise<void> {
-  if (!api?.registerPushSubscription) return;
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+export async function syncPushSubscription(api: PushRegistrationApi | undefined): Promise<boolean> {
+  if (!api?.registerPushSubscription) return true;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return true;
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return true;
   try {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager?.getSubscription();
     if (subscription) await registerBrowserPushSubscription(api, subscription);
+    return true;
   } catch {
-    // The next launch states it again.
+    // The desktop never heard it (the connection dropped under the call).
+    return false;
   }
+}
+
+/** State the subscription on every connection until the desktop has accepted
+ *  it once this launch. A single attempt on the first connection lost the
+ *  statement whenever that connection dropped under the call, leaving the
+ *  desktop pushing to a retired endpoint until the next launch. */
+export function installPushSubscriptionSync(
+  api: PushRegistrationApi | undefined,
+  readyEvent: string,
+  target: Pick<Window, 'addEventListener' | 'removeEventListener'> = window
+): () => void {
+  let stated = false;
+  let inFlight = false;
+  const onReady = (): void => {
+    if (stated || inFlight) return;
+    inFlight = true;
+    void syncPushSubscription(api).then((ok) => {
+      inFlight = false;
+      if (ok) {
+        stated = true;
+        target.removeEventListener(readyEvent, onReady);
+      }
+    });
+  };
+  target.addEventListener(readyEvent, onReady);
+  return () => target.removeEventListener(readyEvent, onReady);
 }
 
 /** Take the tap the worker parked, exactly once. */

@@ -1371,7 +1371,13 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
   // Order inside the side file card: header, body (editor then problems), footer last.
   const { readFile } = await import('node:fs/promises');
   const dock = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  const slot = dock.slice(dock.indexOf('<SideFileStrip'), dock.indexOf('{browserSurface && ('));
+  // The dock mounts the card ahead of the browser slot; the card owns its markup.
+  const stack = dock.slice(dock.indexOf('const surfaces ='), dock.indexOf('{browserSurface && ('));
+  assert.match(stack, /\{fileSurface\}\s*$/);
+  assert.match(dock, /dockBodyMounted && entry\.files\?\.length \? \(\s*<PaneDockFileSurface/);
+  assert.doesNotMatch(dock, /<SideFileStrip|<SideFileProblems|<SideFileStatusRow/);
+  const card = await readFile(new URL('./PaneDockFileSurface.tsx', import.meta.url), 'utf8');
+  const slot = card.slice(card.indexOf('<SideFileStrip'));
   const at = (needle) => slot.indexOf(needle);
   assert.ok(
     at('<SideFileStrip') < at('pane-side-file-editor') && at('pane-side-file-editor') < at('<SideFileProblems')
@@ -1379,7 +1385,7 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
   assert.ok(at('<SideFileProblems') < at('<SideFileStatusRow'), 'footer follows the problems panel');
   assert.match(
     slot.trimEnd(),
-    /sideFileHasFooter\(fileChrome\) && <SideFileStatusRow[^>]*\/>\}\s*<\/div>\s*\)\}$/,
+    /sideFileHasFooter\(fileChrome\) && <SideFileStatusRow[^>]*\/>\}\s*<\/div>\s*\);\s*\}$/,
     'footer is the last child of the card, text editors only'
   );
   // Diff, Changes and the Files tree draw no footer.
@@ -1544,7 +1550,22 @@ test('vertical resize handles: 13px hit area centred on the divider, accent cent
 test('a cancelled panel resize restores the preference snapshotted at gesture start, not the rendered width', async () => {
   const { readFile } = await import('node:fs/promises');
   const dock = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  const handler = dock.slice(dock.indexOf('onWidthDrag={(next, phase)'), dock.indexOf('widthRange={'));
+  // The dock hands its surface classification and the three pref/setter pairs to the hook.
+  assert.match(dock, /onWidthDrag=\{panelWidthDrag\}/);
+  assert.match(
+    dock,
+    /const panelWidthDrag = usePanelWidthDrag\(\{\s*terminalShowing,\s*sessionSurfaceShowing,\s*terminalPref,\s*setTerminalPref,\s*browserPref,\s*setBrowserPref,\s*panelPref,\s*setPanelPref,/
+  );
+  assert.match(dock, /terminal: PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY,/);
+  assert.match(dock, /browser: PANE_SIDE_DOCK_BROWSER_WIDTH_KEY,/);
+  assert.match(dock, /panel: PANE_SIDE_DOCK_WIDTH_KEY,/);
+  const hooks = await readFile(new URL('./pane-side-dock-hooks.ts', import.meta.url), 'utf8');
+  const handler = hooks.slice(
+    hooks.indexOf('return (next: number, phase:', hooks.indexOf('export function usePanelWidthDrag')),
+    hooks.indexOf('export function useDiffColumnResize')
+  );
+  assert.ok(handler.length > 0 && hooks.indexOf('export function usePanelWidthDrag') < hooks.indexOf('return (next: number, phase:'));
+  assert.match(handler, /const kind = terminalShowing \? 'terminal' : sessionSurfaceShowing \? 'browser' : 'panel';/);
   // The snapshot is the stored pref (500 saved, 400 rendered => 500), taken on the first preview.
   assert.match(handler, /phase === 'preview' && !panelWidthSnapshot\.current/);
   assert.match(handler, /kind === 'terminal' \? terminalPref : kind === 'browser' \? browserPref : panelPref/);
@@ -1558,4 +1579,241 @@ test('a cancelled panel resize restores the preference snapshotted at gesture st
   assert.match(cancel, /return;/);
   assert.match(handler, /phase === 'commit'\) commitWidthPref|if \(phase === 'commit'\) commitWidthPref/);
   assert.doesNotMatch(handler, /commit\) commitWidthPref/);
+});
+
+// Mounts a dock in jsdom with pointer capture stubbed, so the panel's resize
+// handle runs its real preview/cancel/commit gesture.
+function mountResizableDock({ stored = {}, cellWidth = 0 } = {}) {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MouseEvent'],
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  for (const [key, value] of Object.entries(stored)) dom.window.localStorage.setItem(key, String(value));
+  const captured = new Set();
+  const proto = dom.window.Element.prototype;
+  proto.setPointerCapture = function (id) {
+    captured.add(`${id}`);
+  };
+  proto.hasPointerCapture = (id) => captured.has(`${id}`);
+  proto.releasePointerCapture = (id) => captured.delete(`${id}`);
+  const host = document.getElementById('root');
+  let width = cellWidth;
+  Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => width });
+  const pointer = (type, clientX) => {
+    const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, button: 0 });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    return event;
+  };
+  const handle = () => document.querySelector('.workbench-side-panel-resize');
+  const renderedWidth = () =>
+    document.querySelector('.workbench-side-panel')?.style.getPropertyValue('--workbench-side-panel-width');
+  return {
+    dom,
+    restore,
+    root: createRoot(host),
+    setCellWidth: (next) => {
+      width = next;
+    },
+    renderedWidth,
+    stored: (key) => dom.window.localStorage.getItem(key),
+    down: (x) => act(async () => handle().dispatchEvent(pointer('pointerdown', x))),
+    move: (x) => act(async () => handle().dispatchEvent(pointer('pointermove', x))),
+    up: (x) => act(async () => handle().dispatchEvent(pointer('pointerup', x))),
+    cancel: () => act(async () => dom.window.dispatchEvent(new dom.window.Event('blur'))),
+  };
+}
+
+const PANEL_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-width.v1';
+const TERMINAL_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-terminal-width.v1';
+const BROWSER_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-browser-width.v1';
+
+function resizableDockProps(entry, groups = [['source-control'], ['browser'], ['terminal']]) {
+  const Icon = () => React.createElement('span');
+  return {
+    leafId: 'pane-1',
+    groups,
+    descriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
+    focused: true,
+    onSelect() {},
+    onClose() {},
+    onCloseDiff() {},
+    onMoveGroup() {},
+    onMoveView() {},
+    onFocusPane() {},
+    openFileTab() {},
+    renderBrowserSurface: () => React.createElement('div', { 'data-testid': 'browser' }),
+    renderTerminalSurface: () => React.createElement('div', { 'data-testid': 'terminal' }),
+    renderView: () => React.createElement('div', { 'data-testid': 'view' }),
+    entry,
+  };
+}
+
+test('panel resize (rendered): preview applies live, commit persists the kind’s own preference', async () => {
+  const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 500, [TERMINAL_WIDTH_KEY]: 300 } });
+  try {
+    const panel = { ...closed(), open: true };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(panel))));
+    assert.equal(dock.renderedWidth(), '500px');
+    await dock.down(1000);
+    await dock.move(950);
+    assert.equal(dock.renderedWidth(), '550px', 'preview applies the dragged width');
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '500', 'preview never persists');
+    await dock.up(950);
+    assert.equal(dock.renderedWidth(), '550px');
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '550', 'commit persists the panel preference');
+    assert.equal(dock.stored(TERMINAL_WIDTH_KEY), '300', 'other kinds are untouched');
+    // The terminal surface resizes and commits its own preference.
+    const terminal = { ...panel, surface: 'terminal' };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(terminal))));
+    assert.equal(dock.renderedWidth(), '300px');
+    await dock.down(1000);
+    await dock.move(960);
+    await dock.up(960);
+    assert.equal(dock.stored(TERMINAL_WIDTH_KEY), '340');
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '550');
+    // The browser surface commits the browser preference.
+    const browser = { ...panel, surface: 'browser' };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(browser))));
+    assert.equal(dock.renderedWidth(), '500px');
+    await dock.down(1000);
+    await dock.move(1100);
+    await dock.up(1100);
+    assert.equal(dock.renderedWidth(), '400px');
+    assert.equal(dock.stored(BROWSER_WIDTH_KEY), '400');
+    assert.equal(dock.stored(TERMINAL_WIDTH_KEY), '340');
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('panel resize (rendered): cancel restores the stored preference, not the constrained rendered width', async () => {
+  // room = 764 - 360 (workspace floor) - 4 (sheet frame) = 400 < the stored 500.
+  const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 500 }, cellWidth: 764 });
+  try {
+    const open = { ...closed(), open: true };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(open))));
+    assert.equal(dock.renderedWidth(), '400px', 'rendered width is constrained by the cell');
+    await dock.down(1000);
+    await dock.move(1100);
+    assert.equal(dock.renderedWidth(), '300px', 'preview applies');
+    await dock.cancel();
+    assert.equal(dock.renderedWidth(), '400px');
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '500', 'cancel never persists');
+    // Widen the cell (re-measured on reopen): the restored preference is the
+    // stored 500, not the 400 that was rendered when the gesture began.
+    dock.setCellWidth(2_000);
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(closed()))));
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(open))));
+    assert.equal(dock.renderedWidth(), '500px');
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+// Module-level so its identity is stable; holds an unsaved buffer in state.
+function DirtyFileStub({ rel, active, side }) {
+  const [edits, setEdits] = React.useState(0);
+  React.useEffect(() => {
+    side.onChrome({
+      editable: true,
+      dirty: edits > 0,
+      saving: false,
+      save() {},
+      reveal() {},
+      cursor: { short: 'Ln 1, Col 1', label: 'Ln 1, Col 1', onGoto() {} },
+    });
+  }, [side.onChrome, edits]);
+  return React.createElement(
+    'div',
+    { 'data-testid': `editor-${rel}`, 'data-active': active ? 'true' : 'false', 'data-edits': String(edits) },
+    React.createElement('button', { type: 'button', 'data-testid': `edit-${rel}`, onClick: () => setEdits((n) => n + 1) }),
+    React.createElement('button', { type: 'button', 'data-testid': `problems-${rel}`, onClick: side.onShowProblems })
+  );
+}
+
+test('file surface (rendered): header → editor → problems → footer, hidden editors keep their buffers', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'MouseEvent'],
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  const Icon = () => React.createElement('span');
+  let entry = withPaneDockFileOpened(closed(), fileLink, 1, { now: 1 });
+  entry = withPaneDockFileOpened(entry, { project: 'C:/p', rel: 'src/b.ts' }, 2, { now: 2 });
+  const aKey = sideFileKey(fileLink);
+  const props = (next) => ({
+    leafId: 'pane-1',
+    groups: [['source-control']],
+    descriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
+    focused: true,
+    onSelect() {},
+    onClose() {},
+    onCloseDiff() {},
+    onMoveGroup() {},
+    onMoveView() {},
+    onFocusPane() {},
+    openFileTab() {},
+    renderFileSurface: (file, active, side) => React.createElement(DirtyFileStub, { rel: file.rel, active, side }),
+    renderFileProblems: (file) => React.createElement('div', { 'data-testid': 'side-problems' }, file.rel),
+    renderView: () => null,
+    entry: next,
+  });
+  const root = createRoot(document.getElementById('root'));
+  const editor = (rel) => document.querySelector(`[data-testid="editor-${rel}"]`);
+  try {
+    await act(async () => root.render(React.createElement(PaneSideDock, props(entry))));
+    await act(async () => document.querySelector('[data-testid="edit-src/b.ts"]').click());
+    await act(async () => document.querySelector('[data-testid="problems-src/b.ts"]').click());
+    const card = document.querySelector('.workbench-side-surface-slot');
+    assert.equal(card.dataset.surfaceActive, 'true');
+    assert.deepEqual(
+      [...card.children].map((child) => child.className.split(' ')[0]),
+      ['dock-header-row', 'pane-side-file-body', 'side-file-status-row'],
+      'header, body, footer last'
+    );
+    assert.ok(card.children[0].classList.contains('side-file-header'));
+    const body = card.querySelector('.pane-side-file-body');
+    assert.deepEqual(
+      [...body.children].map((child) => child.className.split(' ')[0]),
+      ['pane-side-file-editor', 'pane-side-file-problems']
+    );
+    assert.equal(body.querySelector('[data-testid="side-problems"]').textContent, 'src/b.ts');
+    // One mounted editor per tab; only the active one shows and is active.
+    const tabs = [...body.querySelectorAll('.pane-side-file-editor > .pane-side-file-tab')];
+    assert.deepEqual(
+      tabs.map((tab) => tab.hidden),
+      [true, false]
+    );
+    assert.equal(editor('src/a.ts').dataset.active, 'false');
+    assert.equal(editor('src/b.ts').dataset.active, 'true');
+    // Switching tabs hides — never unmounts — the dirty editor.
+    const dirty = editor('src/b.ts');
+    await act(async () => root.render(React.createElement(PaneSideDock, props({ ...entry, activeFile: aKey }))));
+    assert.equal(editor('src/b.ts'), dirty, 'same mounted editor');
+    assert.equal(dirty.dataset.edits, '1', 'unsaved buffer survives');
+    assert.equal(dirty.closest('.pane-side-file-tab').hidden, true);
+    assert.equal(editor('src/a.ts').dataset.active, 'true');
+    // Folding to the panel view hides the card but keeps every editor mounted.
+    await act(async () => root.render(React.createElement(PaneSideDock, props({ ...entry, surface: '' }))));
+    const hiddenCard = document.querySelector('.workbench-side-surface-slot');
+    assert.equal(hiddenCard.dataset.surfaceActive, 'false');
+    assert.equal(hiddenCard.getAttribute('aria-hidden'), 'true');
+    assert.equal(editor('src/b.ts'), dirty);
+    assert.equal(dirty.dataset.edits, '1');
+    assert.equal(editor('src/b.ts').dataset.active, 'false');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
 });

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { PATCH_SNAPSHOT_MAX_BYTES } from './bounded-file-read.mjs';
+import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
@@ -11,9 +11,9 @@ const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
 const PATCH_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
-// Largest tool-supplied baseline kept for `hash-object`: the shared per-file
-// snapshot limit. (2–8 MiB explicit untracked edits keep their exact revert.)
-const MAX_TOOL_BASELINE_BYTES = PATCH_SNAPSHOT_MAX_BYTES;
+// Largest tool-supplied baseline kept for `hash-object`: the apply_patch edit
+// limit. (2–64 MiB explicit untracked edits keep their exact revert.)
+const MAX_TOOL_BASELINE_BYTES = PATCH_EDIT_MAX_BYTES;
 // Baselines used to live in the OS temp directory, where a reboot or a disk
 // cleaner could remove the only copy of a turn's revert source. Keep them with
 // the rest of the runtime data.

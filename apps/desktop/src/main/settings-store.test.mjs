@@ -74,6 +74,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     keepAwake: true,
     runInBackground: true,
     turnNotifications: true,
+    notificationVolume: 100,
     usagePinned: true,
     computerControl: false,
     computerObserveOnly: false,
@@ -87,7 +88,13 @@ test('desktop settings read the canonical agent section and desktop defaults', (
         autoClear: { enabled: false },
         compaction: { auto: false },
       },
-      desktop: { keepAwake: false, runInBackground: false, turnNotifications: false, usagePinned: false },
+      desktop: {
+        keepAwake: false,
+        runInBackground: false,
+        turnNotifications: false,
+        notificationVolume: 250,
+        usagePinned: false,
+      },
     }),
     {
       autoClear: false,
@@ -95,6 +102,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
       keepAwake: false,
       runInBackground: false,
       turnNotifications: false,
+      notificationVolume: 250,
       usagePinned: false,
       computerControl: false,
       computerObserveOnly: false,
@@ -103,6 +111,26 @@ test('desktop settings read the canonical agent section and desktop defaults', (
       browserInstalled: false,
     }
   );
+});
+
+test('notification volume stores only a non-default percent and rejects invalid values', async () => {
+  let value = { desktop: { notificationVolume: 'loud' } };
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => value,
+      updateConfigAsync: async (updater) => {
+        value = updater(value);
+        return value;
+      },
+    }),
+  });
+  assert.equal((await store.read()).notificationVolume, 100);
+  assert.equal((await store.updateNotificationVolume(300)).notificationVolume, 300);
+  assert.equal(value.desktop.notificationVolume, 300);
+  assert.equal((await store.updateNotificationVolume(100)).notificationVolume, 100);
+  assert.equal(Object.hasOwn(value.desktop, 'notificationVolume'), false);
+  await assert.rejects(store.updateNotificationVolume(401), /invalid/);
+  await assert.rejects(store.updateNotificationVolume(12.5), /invalid/);
 });
 
 test('a control that is already on grandfathers its install marker', () => {
@@ -177,6 +205,7 @@ test('writes are atomic core updates that retain unrelated config and nested fie
     keepAwake: false,
     runInBackground: false,
     turnNotifications: true,
+    notificationVolume: 100,
     usagePinned: true,
     computerControl: false,
     computerObserveOnly: false,
@@ -294,6 +323,7 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
   const window = { webContents, isDestroyed: () => false };
   const writes = [];
   const changed = [];
+  const notices = [];
   const settingsStore = {
     read: async () => ({ autoClear: true, autoCompact: true }),
     update: async (key, enabled) => {
@@ -307,6 +337,9 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
     {
       subscribe: () => () => {},
       subscribeSessionStates: () => () => {},
+      invokeDesktopOperation: async (name, args) => {
+        notices.push([name, args]);
+      },
     },
     {
       app: { quit() {} },
@@ -336,6 +369,8 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
   ]);
   // The change hook fires only after a SUCCESSFUL write, with the saved value.
   assert.deepEqual(changed, [{ autoClear: true, autoCompact: false }]);
+  // Paired browsers and other windows hear about the same successful write.
+  assert.deepEqual(notices, [['notifySettingsChanged', ['desktop']]]);
   remove();
 });
 
@@ -391,7 +426,11 @@ test('defaults separation backs up, drops default-equal and dead keys, keeps use
     await writeFile(join(dir, 'mixdog-config.json'), JSON.stringify(original));
     const { state, store } = memoryStore(original);
     assert.equal(await store.separateDefaults(dir, new Date('2026-10-12T00:00:00Z')), true);
-    assert.deepEqual(state.value.desktop, { runInBackground: false, browserInstalled: true, defaultsSeparationVersion: 1 });
+    assert.deepEqual(state.value.desktop, {
+      runInBackground: false,
+      browserInstalled: true,
+      defaultsSeparationVersion: 1,
+    });
     assert.deepEqual(state.value.agent, original.agent);
     const [backup] = await readdir(join(dir, 'backups'));
     assert.match(backup, /^defaults-separation-2026-10-12/);
@@ -410,7 +449,10 @@ test('defaults separation removes the current default pin list and keeps a custo
   try {
     const current = memoryStore({
       desktop: {
-        activityRailPins: { pins: ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions'], revision: 1 },
+        activityRailPins: {
+          pins: ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions'],
+          revision: 1,
+        },
       },
     });
     await current.store.separateDefaults(dir);
@@ -448,10 +490,9 @@ test('defaults separation backs up the locked pre-image without overwriting and 
     const names = (await readdir(join(dir, 'backups'))).sort();
     assert.equal(names.length, 2);
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'backups', names[0], 'mixdog-config.json'), 'utf8')), first);
-    assert.deepEqual(
-      JSON.parse(await readFile(join(dir, 'backups', names[1], 'mixdog-config.json'), 'utf8')),
-      { desktop: { keepAwake: true, other: 2 } }
-    );
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'backups', names[1], 'mixdog-config.json'), 'utf8')), {
+      desktop: { keepAwake: true, other: 2 },
+    });
     const newer = memoryStore({ desktop: { keepAwake: false, defaultsSeparationVersion: 2 } });
     assert.equal(await newer.store.separateDefaults(dir, now), false);
     assert.deepEqual(newer.state.value.desktop, { keepAwake: false, defaultsSeparationVersion: 2 });

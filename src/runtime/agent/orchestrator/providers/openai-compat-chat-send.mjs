@@ -22,6 +22,7 @@ import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-reque
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { xaiCacheRouting } from './openai-compat-xai.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
+import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 
 export async function sendCompatChat(provider, messages, useModel, tools, opts) {
   const signal = opts.signal || null;
@@ -29,13 +30,27 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     const reason = signal.reason;
     throw reason instanceof Error ? reason : new Error('OpenAI-compat request aborted by session close');
   }
-  const modelInfo =
-    provider.name === 'opencode-go'
+  const isCustom = isCustomProviderName(provider.name);
+  // Custom providers read only their own model rows: a same-id model in the
+  // global catalog must not shape a user-defined endpoint's request.
+  const modelInfo = isCustom
+    ? provider.getCachedModelInfo(useModel) || null
+    : provider.name === 'opencode-go'
       ? provider.getCachedModelInfo(useModel) || getModelMetadataSync(useModel, provider.name)
       : null;
-  const replaysReasoningContent =
-    modelInfo?.reasoningContentField === 'reasoning_content' ||
-    (provider.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
+  // Resolved before lowering: replay eligibility depends on the snapped level
+  // (thinking disabled → nothing to replay).
+  const customReasoning = isCustom
+    ? resolveCustomReasoning({
+        protocol: 'openai-chat',
+        model: modelInfo,
+        effort: opts.effort ?? provider.config?.reasoningEffort,
+      })
+    : null;
+  const replaysReasoningContent = isCustom
+    ? customReasoning.replay
+    : modelInfo?.reasoningContentField === 'reasoning_content' ||
+      (provider.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
   messages = await preparePdfTextForProvider(messages, provider);
   const params = {
     model: useModel,
@@ -43,7 +58,11 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     // (cancel/abort) is hard-rejected unpaired, so synthesize the
     // missing tool messages here.
     messages: ensureChatToolPairs(
-      toOpenAIMessages(messages, provider.name, { replaysReasoningContent, nativePdf: provider.nativePdf })
+      toOpenAIMessages(messages, provider.name, {
+        replaysReasoningContent,
+        ...(isCustom ? { customReplay: customReasoning.replay } : {}),
+        nativePdf: provider.nativePdf,
+      })
     ),
   };
   const maxOutputTokens = resolveCompatMaxOutputTokens(opts);

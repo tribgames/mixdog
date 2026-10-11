@@ -27,7 +27,7 @@ import {
 import { pathKey, preValidateNativeBatch, resolveV4AEntryPath, splitParsedModifyWaves } from '../paths.mjs';
 import { rewriteParsedReadRedirects, rewriteV4AReadRedirects } from '../read-redirects.mjs';
 import { setPatchReplayPreSnapshots } from '../replay-capture.mjs';
-import { capturePatchRollbackState, restorePatchRollbackState } from '../rollback-state.mjs';
+import { capturePatchRollbackState, deleteOnlyPaths, restorePatchRollbackState } from '../rollback-state.mjs';
 import { coalesceCompatibleV4ASections } from '../section-coalesce.mjs';
 import { rejectedHunkTail } from '../sequence/report.mjs';
 import { registerCommittedPatchUiDiff } from '../ui-diff.mjs';
@@ -180,7 +180,11 @@ function unprotectedEditRefusal(batch, snapshots, basePath) {
   ]);
   const hit = snapshots.find((snapshot) => snapshot.omitted && editKeys.has(pathKey(snapshot.fullPath)));
   return hit
-    ? contentEditRefusalMessage(normalizeOutputPath(hit.fullPath), { reason: hit.omittedReason, size: hit.size })
+    ? contentEditRefusalMessage(normalizeOutputPath(hit.fullPath), {
+        reason: hit.omittedReason,
+        size: hit.size,
+        limit: hit.omittedLimit,
+      })
     : null;
 }
 
@@ -210,7 +214,9 @@ export function applyCodexBatchWithRollback({
       const deleteQuarantine = dryRun ? null : createDeleteQuarantine();
       if (!dryRun) {
         try {
-          rollbackSnapshots = capturePatchRollbackState(lockPaths);
+          rollbackSnapshots = capturePatchRollbackState(lockPaths, {
+            deletePaths: deleteOnlyPaths((batch.waveDispatch || []).flatMap((wave) => wave.entries)),
+          });
           setPatchReplayPreSnapshots(options?.replayCapture, rollbackSnapshots);
         } catch (err) {
           return `Error: ${err?.message || String(err)}`;

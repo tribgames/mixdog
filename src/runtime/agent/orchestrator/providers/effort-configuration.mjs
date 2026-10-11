@@ -1,4 +1,5 @@
 import { normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
+import { CUSTOM_EFFORT_LEVELS, customEffortLevels, isCustomProviderName } from './custom-reasoning.mjs';
 import { codexModelSupportsEffortUpdates } from './openai-oauth-catalog.mjs';
 
 export const EFFORT_CONFIGURATION_BETA = 'mid-conversation-output-config-2026-07-01';
@@ -116,6 +117,42 @@ export function effortConfigurationMode(provider, model, opts = {}) {
   return null;
 }
 
+// Custom providers on the Chat and Responses wires take a fresh effort with
+// every request, so auto effort sends a turn's or step's effort as that
+// request's own effort: no mid-conversation update, no beta header. A custom
+// Anthropic-wire provider keeps auto effort off.
+const CUSTOM_AUTO_EFFORT_PROTOCOLS = new Set(['openai-chat', 'openai-responses']);
+
+/** Auto effort applies to this custom route: a Chat/Responses protocol and a
+ *  model row declaring a non-empty effort level list. */
+export function customAutoEffortCapable(provider, protocol, model) {
+  return (
+    isCustomProviderName(provider) &&
+    CUSTOM_AUTO_EFFORT_PROTOCOLS.has(protocol) &&
+    (customEffortLevels(model)?.length || 0) > 0
+  );
+}
+
+/** The model auto effort reads its effort options from: a custom provider's
+ *  effective row (its declared levels), the bare id for every other route. */
+export function autoEffortModel(providerName, providerImpl, model) {
+  if (!isCustomProviderName(providerName)) return { id: model };
+  return { ...(providerImpl?.getCachedModelInfo?.(model) || {}), id: model };
+}
+
+/** The effort-change mode of a session's route: 'responses' / 'anthropic'
+ *  (mid-conversation update), 'custom' (per-request effort), or null. */
+export function turnEffortConfigurationMode(session, provider) {
+  const opts = { ...(provider?.config || {}), modelParameters: session.modelParameters || {} };
+  const mode = effortConfigurationMode(session.provider, session.model, opts);
+  if (mode) return mode;
+  const model = autoEffortModel(session.provider, provider, session.model);
+  return customAutoEffortCapable(session.provider, provider?.customConfig?.protocol, model) ? 'custom' : null;
+}
+
+const CUSTOM_EFFORTS = new Set(CUSTOM_EFFORT_LEVELS);
+const effortsFor = (mode) => (mode === 'custom' ? CUSTOM_EFFORTS : EFFORTS);
+
 function normalizedEffort(provider, model, effort) {
   if (ANTHROPIC_PROVIDERS.has(provider)) return normalizeAnthropicEffortInput(effort, model) || null;
   const value = String(effort || 'medium')
@@ -130,19 +167,19 @@ function validSnapshot(value, provider, model, mode) {
     value.provider === provider &&
     value.model === modelKey(model) &&
     value.mode === mode &&
-    EFFORTS.has(value.initialEffort) &&
-    EFFORTS.has(value.effort)
+    effortsFor(mode).has(value.initialEffort) &&
+    effortsFor(mode).has(value.effort)
   );
 }
 
 // `turnEffort` overrides the session's saved effort for this turn only (auto
-// effort); the saved default itself is never changed here.
+// effort); the saved default itself is never changed here. A custom route's
+// snapshot only records the turn's effort (per-request effort, never projected
+// into the history).
 export function prepareTurnEffortConfiguration(session, provider, turnEffort) {
-  const config = provider?.config || {};
-  const opts = { ...config, modelParameters: session.modelParameters || {} };
-  const mode = effortConfigurationMode(session.provider, session.model, opts);
+  const mode = turnEffortConfigurationMode(session, provider);
   const effort = normalizedEffort(session.provider, session.model, turnEffort ?? session.effort);
-  if (!mode || !EFFORTS.has(effort)) return null;
+  if (!mode || !effortsFor(mode).has(effort)) return null;
   const first = (session.messages || []).find((message) =>
     validSnapshot(message?.meta?.[META_KEY], session.provider, session.model, mode)
   )?.meta?.[META_KEY];

@@ -18,6 +18,8 @@ import { createAgentJobFeed } from '../tui/session/agent-job-feed.mjs';
 import { createContextState } from '../tui/session/context-state.mjs';
 import { createSessionFlow } from '../tui/session/session-flow.mjs';
 import { createRunTurn } from '../tui/session/turn.mjs';
+import { createQuotaResumeLane } from '../tui/session/quota-resume.mjs';
+import { publicQuotaResume, quotaResumeEntry } from '../runtime/shared/quota-resume-store.mjs';
 import { createSessionApi } from '../tui/session/session-api.mjs';
 import { createSessionDraftStore } from '../tui/session/draft-store.mjs';
 import { createInitialSessionState } from '../tui/session/initial-state.mjs';
@@ -197,6 +199,8 @@ export async function createLocalSessionRuntime({
   effort,
   fast,
   modelParameters,
+  contextPercent,
+  selectedContextWindow,
   toolMode = 'full',
   remote = false,
   cwd,
@@ -223,6 +227,8 @@ export async function createLocalSessionRuntime({
     effort,
     fast,
     modelParameters,
+    contextPercent,
+    selectedContextWindow,
     toolMode,
     remote,
     ...(cwd ? { cwd } : {}),
@@ -235,6 +241,8 @@ export async function createLocalSessionRuntime({
   const stateStartedAt = performance.now();
   const flags = {
     disposed: false,
+    // Canonical-close execution fence: 'open' | 'closing' | 'terminal'.
+    admission: 'open',
     draining: false,
     autoClearRunning: false,
     pendingSessionReset: false,
@@ -272,6 +280,7 @@ export async function createLocalSessionRuntime({
     },
     getPendingSessionReset: () => flags.pendingSessionReset,
     getVisibleGoal: () => (visibleGoalStatus ? visibleGoalStatus() : runtime.goalStatus?.() || null),
+    getQuotaResume: () => publicQuotaResume(quotaResumeEntry(runtime.id)),
   });
   draft.state = createInitialSessionState({ runtime, runtimeCwd, baseRouteState });
   bootProfile('session:route-state-ready', { ms: (performance.now() - stateStartedAt).toFixed(1) });
@@ -368,6 +377,7 @@ export async function createLocalSessionRuntime({
     set,
     nextId,
     getDisposed: () => flags.disposed,
+    getAdmission: () => flags.admission || 'open',
     patchItem,
     enqueue: (...args) => bag.enqueue(...args),
     drain: (...args) => bag.drain(...args),
@@ -474,6 +484,7 @@ export async function createLocalSessionRuntime({
     })
   );
   visibleGoalStatus = bag.visibleGoalStatus;
+  Object.assign(bag, createQuotaResumeLane(bag));
   bag.runTurn = createRunTurn(bag);
   bag.doctor = { runDoctorChecks, formatDoctorReport };
   const api = createSessionApi(bag);

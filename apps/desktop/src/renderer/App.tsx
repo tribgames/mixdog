@@ -1,5 +1,6 @@
 import type React from 'react';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DesktopTitlebar, type NavigationSelection } from './navigation';
 import { usePaneWorkspace } from './pane-workspace-state';
@@ -11,7 +12,7 @@ import { desktopBootPrerequisitesReady, markBootStage } from './boot-metrics';
 import { DesktopBootGate } from './PaneSurfaceGate';
 import { usePaneTypingFocus } from './use-composer-focus';
 import { navigationKey } from './text-format';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSideFileGuardOpeners } from './app-root/use-side-file-guard';
 import { bindAppFrameSideFileGuard } from './app-root/app-frame-side-file-guard';
 import { useAppFrameEntryIntake } from './app-root/app-frame-entry-intake';
@@ -379,6 +380,19 @@ export function App() {
     setupUiRequest: snapshot.setupUiRequest,
     setupChanged: snapshot.setupChanged,
   });
+  // A remote window's PC menu asks this window for Settings → Connection.
+  useEffect(
+    () => window.mixdogDesktop?.subscribeShowConnectionSettings?.(() => openSettings('connection')),
+    [openSettings]
+  );
+
+  // The title-bar PC menu and the "a device is asking to connect" notice open
+  // the page (with the dialog they asked for).
+  useEffect(() => {
+    const open = () => openSettings('connection');
+    window.addEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
+    return () => window.removeEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
+  }, [openSettings]);
 
   useLaunchTabMeasurements();
   const { paneDraftSubmitFor, paneSubmitFor, submit } = useAppSubmitRouting({
@@ -480,6 +494,7 @@ export function App() {
     openFileTab,
     openSession,
     activeProjectPath,
+    openQuickOpen: () => setQuickAccessMode('files'),
   });
 
   const { focusPaneTypingSurface, navigateTab } = usePaneTabNavigation({
@@ -624,7 +639,11 @@ export function App() {
   });
 
   // A phone/web renderer has no side dock to host the editor: it keeps main tabs.
-  const sideDockHostsFiles = !isRemoteBrowserRenderer() && workbenchSideLayout.layout.right.length > 0;
+  const sideDockHostsFiles = !isRemoteHostRenderer() && workbenchSideLayout.layout.right.length > 0;
+  const openSessionDiffInSideDock = useCallback(
+    (leafId: string) => selectWorkbenchSideView('session-diff', leafId),
+    [selectWorkbenchSideView]
+  );
   const paneConversationSurface = usePaneConversationRenderer({
     ...taskLifecycle,
     ...sessionTitle,
@@ -654,6 +673,7 @@ export function App() {
     openFileTab,
     openFileInSideDock: sideDockHostsFiles ? openFileInSideDock : undefined,
     openFolderInSideDock: sideDockHostsFiles ? paneSideDocks.openFolder : undefined,
+    openSessionDiffInSideDock: sideDockHostsFiles ? openSessionDiffInSideDock : undefined,
   });
 
   const { paneFileEditors, paneUtilitySurfacePortals, paneUtilityTabs } = useAppPersistentPaneSurfaces({

@@ -86,8 +86,14 @@ test('voice runtime resolution removes superseded published versions', async () 
     await writeFile(join(whisperRoot, activeWhisper, variant.executable), 'binary');
     await writeFile(join(ffmpegRoot, activeFfmpeg, manifest.ffmpeg.platforms[key].executable), 'binary');
 
+    await mkdir(join(whisperRoot, 'staging-1-1'), { recursive: true });
+    resolveVoiceRuntime(root, { cleanup: false });
+    await access(join(whisperRoot, 'whisper-old'));
+    await access(join(whisperRoot, 'staging-1-1'));
+
     resolveVoiceRuntime(root);
 
+    await assert.rejects(access(join(whisperRoot, 'staging-1-1')));
     await assert.rejects(access(join(whisperRoot, 'whisper-old')));
     await assert.rejects(access(join(ffmpegRoot, 'ffmpeg-old')));
     await access(join(whisperRoot, activeWhisper, variant.executable));

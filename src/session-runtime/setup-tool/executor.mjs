@@ -5,8 +5,9 @@
  *  registers the tool executor before it finishes assembling the API object. */
 import { builtinFeatureActive } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
+import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
-import { executeExtendedSetupAction, publicAutomation, validateMcpInput } from './extended-actions.mjs';
+import { executeExtendedSetupAction, publicAutomation, publicHookRule, validateMcpInput } from './extended-actions.mjs';
 import { SETUP_DESKTOP_UNCLAIMED, createSetupUiRequests } from './ui-requests.mjs';
 import {
   SETUP_ACTIONS,
@@ -33,6 +34,10 @@ const ACTION_APPLIES_TO = {
   delete_automation: 'future automation runs',
   set_automation_enabled: 'future automation runs',
   set_webhook_config: 'the webhook worker after configuration reload',
+  add_hook_rule: 'subsequent tool calls; no restart required',
+  set_hook_rule_enabled: 'subsequent tool calls; no restart required',
+  delete_hook_rule: 'subsequent tool calls; no restart required',
+  set_media_default: 'media generations that omit lane/model, and the Studio selection',
 };
 
 const OPEN_TARGET_HINTS = Object.freeze({
@@ -114,6 +119,7 @@ function publicProviderRows(setup) {
     api: (setup?.api || []).map((row) =>
       pick(row, {
         source: apiKeySource(row),
+        custom: row.custom === true,
         keyUrl: /^https:\/\//.test(String(row.url || '')) ? row.url : null,
       })
     ),
@@ -137,6 +143,7 @@ function publicAccounts(pool) {
   return {
     selectedId: pool.selectedId,
     auto: pool.auto,
+    useCredits: pool.useCredits === true,
     accounts: pool.accounts.map(({ id, label, authenticated, reauthRequired }) => ({
       id,
       label,
@@ -188,13 +195,49 @@ async function automationStatus(rt, { domain }) {
   };
 }
 
-function featureFlags(rt) {
-  return Object.fromEntries(
-    Object.entries(rt.getToolModuleSettings?.() || {}).map(([name, settings]) => [
-      name,
-      Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'enabled' || key === 'installed')),
-    ])
-  );
+// Summary keys per built-in; Auto Effort also reports machine support and
+// judge-model readiness so a failed toggle or install is explainable.
+const FEATURE_STATUS_KEYS = ['enabled', 'installed'];
+const FEATURE_EXTRA_STATUS_KEYS = { autoEffort: ['supported', 'ready', 'installing'] };
+
+async function featureStatus(rt, getConfig) {
+  const config = getConfig();
+  return {
+    ...Object.fromEntries(
+      Object.entries(rt.getToolModuleSettings?.() || {}).map(([name, settings]) => {
+        const keys = [...FEATURE_STATUS_KEYS, ...(FEATURE_EXTRA_STATUS_KEYS[name] || [])];
+        return [name, Object.fromEntries(Object.entries(settings).filter(([key]) => keys.includes(key)))];
+      })
+    ),
+    browser: { active: builtinFeatureActive(config, 'browser') },
+    computer: { active: builtinFeatureActive(config, 'computer') },
+    terminal: { active: builtinFeatureActive(config, 'terminal') },
+    voice: rt.getVoiceStatus ? voiceFeatureStatus(await rt.getVoiceStatus()) : null,
+  };
+}
+
+async function mediaDefaults(rt) {
+  const rows = await Promise.all(MEDIA_KINDS.map((kind) => rt.getMediaDefault(kind)));
+  return {
+    defaults: Object.fromEntries(
+      MEDIA_KINDS.map((kind, i) => [kind, rows[i] ? { lane: rows[i].lane, model: rows[i].model } : null])
+    ),
+  };
+}
+
+function hookStatus(rt) {
+  const status = rt.hooksStatus();
+  return {
+    enabled: status.enabled === true,
+    configMode: status.configMode,
+    rulesPath: status.rulesPath,
+    ruleCount: status.ruleCount,
+    rules: status.rules.map(publicHookRule),
+    configuredEvents: status.configuredEvents,
+    configSources: status.configSources,
+    errors: status.errors,
+    note: status.note,
+  };
 }
 
 // status readers per non-desktop domain: (rt, { domain, getConfig }) → the
@@ -206,23 +249,16 @@ const SETUP_STATUS_READERS = {
     desktopScope: 'desktop-host; requires this conversation open in the local Desktop window',
     handoffs: SETUP_HANDOFFS,
   }),
-  summary: (rt, { getConfig }) => {
-    const config = getConfig();
-    return {
-      route: mainRoute(rt),
-      workflow: (rt.listWorkflows?.() || []).find((pack) => pack.active) || null,
-      outputStyle: rt.getOutputStyle?.()?.configured || null,
-      profile: (({ title, language, experienceLevel }) => ({ title, language, experienceLevel }))(
-        rt.getProfile?.() || {}
-      ),
-      features: {
-        ...featureFlags(rt),
-        browser: { active: builtinFeatureActive(config, 'browser') },
-        computer: { active: builtinFeatureActive(config, 'computer') },
-      },
-      onboarding: rt.getOnboardingStatus?.() || null,
-    };
-  },
+  summary: async (rt, { getConfig }) => ({
+    route: mainRoute(rt),
+    workflow: (rt.listWorkflows?.() || []).find((pack) => pack.active) || null,
+    outputStyle: rt.getOutputStyle?.()?.configured || null,
+    profile: (({ title, language, experienceLevel }) => ({ title, language, experienceLevel }))(
+      rt.getProfile?.() || {}
+    ),
+    features: await featureStatus(rt, getConfig),
+    onboarding: rt.getOnboardingStatus?.() || null,
+  }),
   model: (rt) => ({ route: mainRoute(rt), effortOptions: rt.effortOptions || [] }),
   agents: (rt) => ({
     agents: rt.listAgents?.() || [],
@@ -249,14 +285,7 @@ const SETUP_STATUS_READERS = {
   compaction: (rt) => rt.getCompactionSettings?.() || {},
   memory: (rt) => ({ ...(rt.getToolModuleSettings?.()?.memory || {}), recap: rt.getRecapSettings?.() || null }),
   'local-provider': (rt) => rt.getToolModuleSettings().localProvider,
-  features: (rt, { getConfig }) => {
-    const config = getConfig();
-    return {
-      ...featureFlags(rt),
-      browser: { active: builtinFeatureActive(config, 'browser') },
-      computer: { active: builtinFeatureActive(config, 'computer') },
-    };
-  },
+  features: (rt, { getConfig }) => featureStatus(rt, getConfig),
   shell: (rt) => rt.getSystemShell?.() || {},
   providers: async (rt) => {
     const rows = publicProviderRows(await rt.getProviderSetup?.({}));
@@ -273,6 +302,8 @@ const SETUP_STATUS_READERS = {
   onboarding: (rt) => rt.getOnboardingStatus?.() || {},
   schedules: automationStatus,
   webhooks: automationStatus,
+  hooks: hookStatus,
+  media: mediaDefaults,
 };
 
 // Shape validation shared by every action: the action enum, the JSON
@@ -294,8 +325,8 @@ function validateSetupInput(args) {
     if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
       throw new Error('route.disabled is only accepted by set_agent_route');
     }
-    if (action !== 'set_route' && Object.hasOwn(args.route, 'contextPercent')) {
-      throw new Error('route.contextPercent is only accepted by set_route');
+    if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, 'contextPercent')) {
+      throw new Error('route.contextPercent is only accepted by set_route and set_agent_route');
     }
   }
   for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount']) {
@@ -311,7 +342,27 @@ function mcpServerInput(args) {
   return server;
 }
 
-const DESKTOP_HOSTED_FEATURES = ['browser', 'computer', 'voice'];
+const DESKTOP_HOSTED_FEATURES = ['browser', 'computer'];
+
+const publicVoice = (status) => ({
+  enabled: status.enabled === true,
+  installed: status.installed === true,
+  components: status.components,
+});
+const voiceFeatureStatus = (status) => ({ ...publicVoice(status), installing: status.busy === true });
+
+// Voice runs on the runtime toggle the Desktop Built-in card also uses:
+// enabling installs any missing whisper/ffmpeg component first.
+async function setVoice(rt, enabled) {
+  const { status, error } = await rt.setVoiceEnabled(enabled);
+  if (status.enabled !== enabled || (enabled && status.installed !== true)) {
+    throw new Error(
+      `Voice did not reach the requested ${enabled ? 'installed and enabled' : 'disabled'} state${error ? `: ${error}` : ''}`
+    );
+  }
+  return { voice: publicVoice(status), appliesTo: 'channel voice transcription and Desktop dictation now' };
+}
+
 // Git and Office installs bring their system dependency (Git, LibreOffice) in
 // through the Desktop's guided installers, the same steps as the Built-in card.
 // A request no Desktop window takes keeps the runtime-only install.
@@ -400,11 +451,13 @@ const SETUP_ACTION_HANDLERS = {
   set_builtin_enabled: (rt, args, { requestDesktop }) => {
     const name = requireEnum(args.name, SETUP_BUILTIN_TOGGLE_FEATURES, 'name');
     if (DESKTOP_HOSTED_FEATURES.includes(name)) return requestDesktop(args);
+    if (name === 'voice') return setVoice(rt, requireBoolean(args.enabled));
     return rt.setBuiltinToolEnabled(name, requireBoolean(args.enabled));
   },
   install_builtin: async (rt, args, { requestDesktop }) => {
     const name = requireEnum(args.name, SETUP_INSTALLABLE_FEATURES, 'name');
     if (DESKTOP_HOSTED_FEATURES.includes(name)) return requestDesktop(args);
+    if (name === 'voice') return setVoice(rt, true);
     if (DESKTOP_PREPARED_FEATURES.includes(name)) {
       try {
         return await requestDesktop(args);
@@ -566,9 +619,8 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     const command = requireEnum(target, SETUP_OPEN_TARGETS, 'target');
     const sessionId = clean(getSessionId?.());
     const hint = OPEN_TARGET_HINTS[command] || `TUI: /${command}`;
-    const handled = sessionId
-      ? notifySessionUi?.(sessionId, `Open /${command}`, { kind: 'ui-open', command }) === true
-      : false;
+    const handled =
+      Boolean(sessionId) && notifySessionUi?.(sessionId, `Open /${command}`, { kind: 'ui-open', command }) === true;
     return {
       opened: handled,
       target: command,
@@ -578,7 +630,7 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     };
   }
 
-  async function execute(args = {}, { signal } = {}) {
+  async function execute(args, { signal }) {
     signal?.throwIfAborted();
     const requestDesktop = (request) => desktop.request(request, { signal });
     const action = validateSetupInput(args);

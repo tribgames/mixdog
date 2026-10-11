@@ -133,6 +133,74 @@ test('pre-ready daemon handoff retries remain bounded by the startup timeout', a
   }
 });
 
+test('an upgrade wait suspends the startup timeout without a failure toast', async () => {
+  let transport;
+  const client = new DesktopServiceClient({
+    connect() {
+      transport = new TestTransport(() => {});
+      return transport;
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    startupTimeoutMs: 30,
+    failureNoticeDelayMs: 0,
+  });
+  const snapshots = [];
+  client.subscribe((snapshot) => snapshots.push(snapshot));
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    let settled = false;
+    const started = client.start().then(
+      () => (settled = 'ready'),
+      () => (settled = 'rejected')
+    );
+    transport.emit('message', { kind: 'upgrade-wait', state: 'waiting', fromVersion: '1.0.0', toVersion: '1.1.0' });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.equal(settled, false, 'startup must keep waiting past startupTimeoutMs');
+    for (const snapshot of snapshots) {
+      assert.ok(!JSON.stringify(snapshot).includes('service-connection-stopped'));
+    }
+    transport.emit('message', { kind: 'ready' });
+    await started;
+    assert.equal(settled, 'ready');
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
+test('startup timing resumes after the upgrade wait is done', async () => {
+  let transport;
+  const client = new DesktopServiceClient({
+    connect() {
+      transport = new TestTransport(() => {});
+      return transport;
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    startupTimeoutMs: 30,
+    failureNoticeDelayMs: 1_000,
+  });
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    const started = client.start();
+    transport.emit('message', { kind: 'upgrade-wait', state: 'waiting' });
+    transport.emit('message', { kind: 'upgrade-wait', state: 'done' });
+    await assert.rejects(started, /startup timed out/);
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
 test('a daemon replaced behind a live transport counts as a new attachment', async () => {
   const readyGenerations = [];
   let live = null;

@@ -735,33 +735,15 @@ html[data-window-material="mica"] .jump-to-latest {
   overflow-wrap: anywhere;
 }
 
-/* Byte-free image attachment chips on user messages (reference
-   user-message-attachments): thumbnail when the submitting window still holds
-   the preview, icon + filename after a restart. */
-.message-image-chips {
+/* Attachment cards above a user bubble, right-aligned with it: a thumbnail
+   while the submitting window still holds the image bytes, icon + filename
+   (+ dimensions) after a restart. */
+.message-attachments {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  margin-bottom: 8px;
-}
-.message-image-chip {
-  display: inline-flex;
-  overflow: hidden;
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-hover);
-  box-shadow: none;
-}
-.message-image-chip-button {
-  appearance: none;
-  padding: 0;
-  border: 0;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.message-image-chip-button:focus-visible {
-  outline: 2px solid var(--mx-focus);
-  outline-offset: 2px;
+  margin-bottom: 6px;
 }
 .markdown-local-image {
   display: inline-block;
@@ -786,28 +768,6 @@ html[data-window-material="mica"] .jump-to-latest {
   max-width: 100%;
   max-height: 240px;
   object-fit: contain;
-}
-.message-image-chip img {
-  display: block;
-  width: 56px;
-  height: 56px;
-  object-fit: cover;
-}
-.message-image-fallback {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-meta);
-}
-.message-image-fallback svg {
-  color: var(--mx-icon);
-}
-.message-image-fallback small {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
 }
 /* Links wear the inline-code ink (user: 링크 왜 흰색이냐 푸른색계열아니라):
    the underline and, for files, the type glyph carry the affordance, and a
@@ -1048,9 +1008,6 @@ html[data-window-material="mica"] .jump-to-latest {
   /* User tuned: 2000ms still read rushed; half speed again. Applies to the
      status verb and running tool-title glow alike. */
   --text-shimmer-duration: 4000ms;
-  /* One source for the band width: the sweep distance below is derived from
-     it, so a narrower band cannot drift out of phase with the loop. */
-  --text-shimmer-size: 320%;
   /* The ink the band rests on. A label that already sits at full ink (the
      Agents dock session name) lowers it one tier instead of down to faint. */
   --text-shimmer-base: var(--mx-text-faint);
@@ -1065,16 +1022,67 @@ html[data-window-material="mica"] .jump-to-latest {
   white-space: pre;
 }
 [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
-  color: transparent;
-  background: linear-gradient(90deg, var(--text-shimmer-base) 15%, var(--mx-text) 48%, var(--text-shimmer-base) 82%);
-  background-size: var(--text-shimmer-size) 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  animation: transcript-text-shimmer var(--text-shimmer-duration) linear infinite;
+  position: relative;
+  color: var(--text-shimmer-base);
 }
-@keyframes transcript-text-shimmer {
+/* The sweep is a lit copy of the label seen through a moving soft window: the
+   window slides across while the copy inside slides back by the same distance,
+   so the copy stays on the glyphs. Both are transform animations, which the
+   compositor runs without restyling or repainting per frame (a
+   background-position sweep repainted the text at the display's refresh rate
+   for as long as anything was running).
+   Keyframes must stay plain percentages: a var() in them keeps the animation
+   off the compositor. The geometry lives on the boxes instead. The window
+   starts half a band left of the label and is label + band + rest wide, so
+   moving it by its own -50%..50% carries the band's centre from just off the
+   left edge to past the right one plus the rest run (in cells). The copy is
+   as wide as the window and padded so its text starts on the label's first
+   glyph and ellipsizes at the label's width. The default band is one
+   label-width of soft light. */
+[data-component="text-shimmer"] [data-slot="text-shimmer-glint"] {
+  --text-shimmer-band: calc(var(--text-shimmer-cells, 12) * 1ch);
+  --text-shimmer-rest-run: calc(var(--text-shimmer-rest, 0) * 1ch);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--text-shimmer-band) / -2);
+  right: calc(-1 * (var(--text-shimmer-band) / 2 + var(--text-shimmer-rest-run)));
+  pointer-events: none;
+  user-select: none;
+  mask-image: linear-gradient(
+    90deg,
+    transparent calc(50% - var(--text-shimmer-band) / 2),
+    #000 50%,
+    transparent calc(50% + var(--text-shimmer-band) / 2)
+  );
+  animation: text-shimmer-window var(--text-shimmer-duration) linear infinite;
+}
+[data-component="text-shimmer"] [data-slot="text-shimmer-glint"]::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding-left: calc(var(--text-shimmer-band) / 2);
+  padding-right: calc(var(--text-shimmer-band) / 2 + var(--text-shimmer-rest-run));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-shimmer-glint, var(--mx-text));
+  animation: text-shimmer-window-copy var(--text-shimmer-duration) linear infinite;
+}
+@keyframes text-shimmer-window {
+  from {
+    transform: translateX(-50%);
+  }
   to {
-    background-position: calc(-1 * var(--text-shimmer-size)) 0;
+    transform: translateX(50%);
+  }
+}
+@keyframes text-shimmer-window-copy {
+  from {
+    transform: translateX(50%);
+  }
+  to {
+    transform: translateX(-50%);
   }
 }
 /* Shared glint for the live-activity verb and running Agents-dock title.
@@ -1102,45 +1110,16 @@ html[data-window-material="mica"] .jump-to-latest {
   h2
   [data-component="text-shimmer"][data-active="true"]
   [data-slot="text-shimmer-char"] {
-  position: relative;
   color: inherit;
-  background: none;
-  animation: none;
 }
-.live-activity [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"]::after,
-.utility-dock
-  .agent-session-heading
-  h2
-  [data-component="text-shimmer"][data-active="true"]
-  [data-slot="text-shimmer-char"]::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  color: transparent;
-  background:
-    linear-gradient(
-      90deg,
-      transparent 0%,
-      color-mix(in oklch, var(--mx-accent) 35%, transparent) 25%,
-      color-mix(in oklch, var(--mx-accent) 22%, white) 50%,
-      color-mix(in oklch, var(--mx-accent) 35%, transparent) 75%,
-      transparent 100%
-    )
-    0 0 / calc(var(--text-shimmer-comet) * 1ch) 100% no-repeat;
-  background-clip: text;
-  -webkit-background-clip: text;
-  animation: text-shimmer-comet var(--text-shimmer-duration) linear infinite;
-}
-/* One pass per cycle: the glint starts off the left edge and ends once
-   the whole band has cleared the right edge by the rest run. */
-@keyframes text-shimmer-comet {
-  from {
-    background-position: calc(var(--text-shimmer-comet) * -1ch) 0;
-  }
-  to {
-    background-position: calc(100% + (var(--text-shimmer-comet) + var(--text-shimmer-rest)) * 1ch) 0;
-  }
+/* One pass per cycle: a comet-wide accent glint that clears the right edge
+   by the rest run before the next pass. */
+.live-activity [data-component="text-shimmer"] [data-slot="text-shimmer-glint"],
+.utility-dock .agent-session-heading h2 [data-component="text-shimmer"] [data-slot="text-shimmer-glint"] {
+  --text-shimmer-band: calc(var(--text-shimmer-comet) * 1ch);
+  /* The old painted comet tinted full-ink text with translucent accent at its
+     edges; a single lit colour needs more accent to read on white glyphs. */
+  --text-shimmer-glint: color-mix(in oklch, var(--mx-accent) 45%, white);
 }
 .context-usage {
   position: relative;
@@ -1228,23 +1207,13 @@ html[data-window-material="mica"] .jump-to-latest {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  /* The active rule carries [data-active="true"]; at the bare two-attribute
-     specificity this reset lost to it and the sweep kept running under
-     reduced motion. Matching specificity lets source order settle it. */
-  [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
-    animation: none;
-  }
+  /* The active rule carries [data-active="true"]; matching its specificity
+     lets source order restore the plain ink under reduced motion. */
   [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
     color: inherit;
-    background: none;
   }
-  .live-activity [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"]::after,
-  .utility-dock
-    .agent-session-heading
-    h2
-    [data-component="text-shimmer"][data-active="true"]
-    [data-slot="text-shimmer-char"]::after {
-    content: none;
+  [data-component="text-shimmer"] [data-slot="text-shimmer-glint"] {
+    display: none;
   }
   .live-activity-status,
   .turn-status,
@@ -1258,8 +1227,8 @@ html[data-window-material="mica"] .jump-to-latest {
 :root[data-mixdog-motion="paused"] .spin,
 :root[data-mixdog-motion="paused"] .session-row-spinner,
 :root[data-mixdog-motion="paused"] .workspace-tab-status,
-:root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"],
-:root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"]::after,
+:root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-glint"],
+:root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-glint"]::before,
 :root[data-mixdog-motion="paused"] .tool-card:not(.settled) .tool-icon {
   animation-play-state: paused !important;
 }
@@ -1328,254 +1297,104 @@ html[data-window-material="mica"] .jump-to-latest {
   white-space: nowrap;
 }
 
-/* Goal island: the summary remains directly above the composer. Opening
-   grows the host upward while the task drawer unfolds below the raised
-   capsule, so progress never floats over the transcript as a dialog. */
 .composer-goal-dialog textarea {
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
 }
-.session-goal-host {
+/* Goal: the lead segment of the composer island (15-composer.css owns the
+   island and the segment chrome). Closed it is bar · title · n/m; a crowded
+   island keeps bar · n/m. Open, the island becomes the Goal tab (bar · n/m ·
+   elapsed): the task drawer with pause / edit / stop under it. */
+.session-goal-island {
   position: relative;
-  z-index: 9;
   min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-.session-goal-host:empty {
-  display: none;
-}
-.session-goal-host[data-goal-placement="composer"] {
-  margin-bottom: 8px;
-  /* An open review overlays upward from its slot below; ride above it
-     rather than sit on its file list (ComposerDock useTurnReviewLift). */
-  transform: translateY(calc(-1 * var(--turn-review-lift, 0px)));
-}
-.session-goal-host > .session-goal-island {
-  /* The prompt card's material, so the stack reads as one family (user:
-     디프랑 골 같은 거 컴포저랑 이질감이 심한데), but still a centred capsule
-     rather than the full column (user: 골은 전체 확장 안 해도 될 거 같은데).
-     Three controls + progress·time take ~150px of the capsule, so a 416px
-     pill left the objective ~200px — most goals ellipsized after a few
-     words (user: goal도 많이 잘리던데). The title now gets the room. */
-  --session-island-frame-bg: var(--mx-composer-surface);
-  --session-goal-width: 560px;
-  --session-goal-trigger-height: 32px;
-  --session-goal-control-size: 28px;
-  position: relative;
-  width: min(var(--session-goal-width), calc(100% - 16px));
-  height: var(--session-goal-trigger-height);
-  max-width: none;
-  box-sizing: border-box;
-  pointer-events: auto;
-}
-.session-goal-stack {
-  position: absolute;
-  z-index: 1;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  display: grid;
-  grid-template-rows: auto auto;
-  /* The review bar's 12px corner closed or open — 16 made a full pill at
-     32px tall, rounder than the card (user: 너무 태두리가 컴포저에 비해 둥근
-     거 같은데) — and the card's raised edge only, no ring of its own. */
-  border: 0;
-  border-radius: var(--mx-radius-xl);
-  color: var(--mx-text);
-  font-family: var(--mx-font-sans);
-  font-weight: var(--mx-weight-regular);
-  background: var(--session-island-frame-bg);
-  box-shadow: var(--mx-raised);
-  overflow: hidden;
-  transition: none;
-}
-.session-goal-summary {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-/* Open drawer: separate the header from the task list. */
-.session-goal-island[data-open="true"] .session-goal-summary {
-  border-bottom: var(--mx-hairline) solid var(--mx-border);
 }
 .session-goal-trigger {
-  min-width: 0;
-  flex: 1 1 auto;
-  box-sizing: border-box;
-  height: var(--session-goal-trigger-height, 28px);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: center;
-  column-gap: 10px;
-  padding: 0 8px 0 6px;
-  border: 0;
-  border-radius: inherit;
-  color: var(--mx-text-muted);
-  background: transparent;
-  box-shadow: none;
-  font-family: inherit;
-  cursor: pointer;
+  color: var(--mx-text);
 }
-.session-goal-title-region {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
+.session-goal-island[data-open="true"] {
+  display: block;
+}
+.session-goal-island[data-open="true"] > .session-goal-trigger {
+  display: none;
+}
+.composer-island-pill:has(> .composer-island-seg ~ .composer-island-seg) .session-goal-trigger .session-goal-objective {
+  display: none;
+}
+/* The approval card and flashes hide the pill even with the Goal tab open. */
+.composer-island[data-expanded="goal"] .composer-island-pill:not([hidden]) {
+  height: auto;
+  display: block;
+  padding: 0;
+}
+.composer-island[data-expanded="goal"] .composer-island-pill > :not(.session-goal-island) {
+  display: none;
+}
+/* Progress as a short static meter (island-icons.html): no colour per status
+   and no motion, so it never reads as a loading spinner. */
+.session-goal-bar {
+  width: 22px;
+  height: 3px;
+  display: block;
+  flex: none;
+  border-radius: 2px;
+  background: var(--mx-meter-track);
   overflow: hidden;
 }
-.session-goal-trigger:hover,
-.session-goal-trigger:focus-visible,
-.session-goal-island[data-open="true"] .session-goal-trigger {
-  color: var(--mx-text);
-  outline: none;
-}
-.session-goal-trigger:hover,
-.session-goal-trigger:focus-visible {
-  background: color-mix(in srgb, var(--mx-text) 3%, transparent);
-}
-.session-goal-trigger:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--mx-focus);
-}
-.session-goal-controls {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 2px;
-  padding-right: 4px;
-}
-.session-goal-control {
-  width: var(--session-goal-control-size);
-  height: var(--session-goal-control-size);
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-text-muted);
-  background: transparent;
-  cursor: pointer;
-}
-.session-goal-control:hover:not(:disabled),
-.session-goal-control:focus-visible {
-  color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-text) 6%, transparent);
-}
-.session-goal-control:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--mx-focus);
-}
-.session-goal-control:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
-}
-.session-goal-glyph {
-  width: var(--mx-icon-md);
-  height: var(--mx-icon-md);
-  display: grid;
-  place-items: center;
-  color: color-mix(in srgb, var(--mx-text-accent) 78%, var(--mx-text-muted));
-}
-.session-goal-glyph > svg {
-  width: var(--mx-icon-md);
-  height: var(--mx-icon-md);
-}
-.session-goal-island[data-status="complete"] .session-goal-glyph {
-  color: color-mix(in srgb, var(--mx-success) 78%, var(--mx-text-muted));
-}
-.session-goal-island[data-status="blocked"] .session-goal-glyph,
-.session-goal-island[data-status="usage_limited"] .session-goal-glyph {
-  color: color-mix(in srgb, var(--mx-warning) 78%, var(--mx-text-muted));
-}
-/* A finished duration is a normal stop, so it reads muted like paused rather
-   than as a warning. */
-.session-goal-island[data-status="paused"] .session-goal-glyph,
-.session-goal-island[data-status="duration_reached"] .session-goal-glyph {
-  color: var(--mx-text-muted);
-}
-.session-goal-island[data-waiting="true"] .session-goal-glyph > svg {
-  transform-origin: center;
-  animation: var(--mx-motion-spin);
-}
-@media (prefers-reduced-motion: reduce) {
-  .session-goal-island[data-waiting="true"] .session-goal-glyph > svg {
-    animation: none;
-  }
+.session-goal-bar > i {
+  height: 100%;
+  display: block;
+  background: var(--mx-meter-fill);
 }
 .session-goal-objective {
   min-width: 0;
-  flex: 1 1 auto;
+  max-width: 230px;
   overflow: hidden;
-  color: var(--mx-text);
-  font-size: var(--mx-font-category);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-emphasis);
-  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .session-goal-progress,
 .session-goal-time {
-  color: var(--mx-text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.session-goal-meta {
+.session-goal-meta,
+.session-goal-meta-time {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 4px;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-minor);
   white-space: nowrap;
 }
+.session-goal-meta-time {
+  color: var(--mx-text-muted);
+}
 .session-goal-drawer {
-  display: grid;
-  grid-template-rows: 0fr;
-  min-height: 0;
-  opacity: 0;
-  transform: translateY(-4px);
-  pointer-events: none;
-  transition: none;
+  display: none;
 }
 .session-goal-island[data-open="true"] .session-goal-drawer {
-  grid-template-rows: 1fr;
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
+  display: block;
 }
-.session-goal-drawer-clip {
-  min-height: 0;
-  overflow: hidden;
-}
-.session-goal-panel {
-  min-height: 0;
-  max-height: min(360px, 48dvh);
+.session-goal-body {
+  max-height: min(400px, 52dvh);
   box-sizing: border-box;
   display: grid;
   /* The content row MUST be allowed to shrink under this max-height. As an
      auto row it kept its max-content size, so a long checklist pushed the
      stop confirmation past the clip: the button was still there, but the
      press landed on the composer behind it (user: 골 중단버튼이 안 눌려).
-     With minmax(0, 1fr) the task list scrolls and the row below it stays
-     inside the drawer. */
-  grid-template-rows: minmax(0, 1fr);
-  margin-top: 0;
-  /* Same inline inset as the trigger (6px left / 8px right) so the task
-     glyph column and text sit directly under the header glyph and title. */
-  padding: 2px 8px 8px 6px;
-  border: 0;
-  border-radius: 0;
-  color: var(--mx-text);
-  background: transparent;
-  box-shadow: none;
-  font-family: inherit;
+     With minmax(0, 1fr) the task list scrolls and the rows below it stay
+     inside the panel. */
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 10px 14px 12px;
   overflow: hidden;
+}
+.session-goal-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 8px;
 }
 .session-goal-content {
   min-height: 0;
@@ -1706,26 +1525,19 @@ html[data-window-material="mica"] .jump-to-latest {
   color: var(--mx-warning);
 }
 
-html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island {
-  --session-goal-width: calc(560px * var(--mx-device-scale, 2.5));
-  --session-goal-trigger-height: calc(36px * var(--mx-device-scale, 2.5));
-  --session-goal-control-size: calc(32px * var(--mx-device-scale, 2.5));
-  /* A phone never has 560dp: the capsule takes the composer column, same
-     edge as the input below it. The old 72vw cap left the title ~80dp. */
-  max-width: none;
+html[data-mixdog-mobile-tabs] .session-goal-bar {
+  width: calc(22px * var(--mx-device-scale, 2.5));
+  height: calc(3px * var(--mx-device-scale, 2.5));
 }
-html[data-mixdog-mobile-tabs] .session-goal-trigger {
-  padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+html[data-mixdog-mobile-tabs] .composer-island .session-goal-control {
+  height: calc(32px * var(--mx-device-scale, 2.5));
+  padding-inline: calc(12px * var(--mx-device-scale, 2.5));
 }
-html[data-mixdog-mobile-tabs] .session-goal-control > svg {
-  width: calc(16px * var(--mx-device-scale, 2.5));
-  height: calc(16px * var(--mx-device-scale, 2.5));
-}
-/* Phone drawer rows: the same header-aligned grid, at a finger's row height
-   and the phone's 14/20 body line (user: 모바일도 PC에 맞춰). */
-html[data-mixdog-mobile-tabs] .session-goal-panel {
-  padding: calc(2px * var(--mx-device-scale, 2.5)) calc(8px * var(--mx-device-scale, 2.5))
-    calc(8px * var(--mx-device-scale, 2.5));
+/* Phone drawer rows: at a finger's row height and the phone's 14/20 body
+   line (user: 모바일도 PC에 맞춰). */
+html[data-mixdog-mobile-tabs] .session-goal-body {
+  padding: calc(10px * var(--mx-device-scale, 2.5)) calc(14px * var(--mx-device-scale, 2.5))
+    calc(12px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
   grid-template-columns: calc(16px * var(--mx-device-scale, 2.5)) minmax(0, 1fr);

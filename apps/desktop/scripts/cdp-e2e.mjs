@@ -534,7 +534,7 @@ try {
     webhooks: 'Webhooks',
     channels: 'Channels',
     context: 'Context',
-    usage: 'Provider usage',
+    stats: 'Usage',
     doctor: 'Doctor',
     effort: 'Reasoning effort',
   };

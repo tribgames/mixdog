@@ -266,6 +266,21 @@ export class CaptureService implements DesktopService {
     return true;
   }
   async renameSession(): Promise<void> {}
+  async continueSessionInModel(): Promise<boolean> {
+    return true;
+  }
+  async scheduleQuotaResume(): Promise<boolean> {
+    return true;
+  }
+  async cancelQuotaResume(): Promise<boolean> {
+    return true;
+  }
+  async getQuotaAutoResume(): Promise<boolean> {
+    return true;
+  }
+  async setQuotaAutoResume(): Promise<boolean> {
+    return true;
+  }
   async setSessionArchived(): Promise<void> {}
   async setSessionFavorite(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> {

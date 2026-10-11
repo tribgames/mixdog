@@ -3,6 +3,19 @@
 // injected route provider (for sort priority) and webSearchCapableFor predicate.
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { contextWindowRange } from '../runtime/shared/llm/default-context-window.mjs';
+import { isCustomProviderName } from '../runtime/agent/orchestrator/providers/custom-reasoning.mjs';
+
+// A custom provider's effective row fields, carried when the row states them
+// (explicit false included); first-party rows never carry them.
+function customRowFields(name, m) {
+  if (!isCustomProviderName(name)) return {};
+  return {
+    ...(typeof m.name === 'string' && m.name ? { name: m.name } : {}),
+    ...(typeof m.hidden === 'boolean' ? { hidden: m.hidden } : {}),
+    ...(typeof m.manual === 'boolean' ? { manual: m.manual } : {}),
+    ...(m.customReasoning && typeof m.customReasoning === 'object' ? { customReasoning: m.customReasoning } : {}),
+  };
+}
 
 function parsedProviderModelVersion(id) {
   const text = clean(id).toLowerCase();
@@ -148,5 +161,6 @@ export function providerModelCacheRow(name, m, webSearchCapableFor) {
     defaultFast: m.defaultFast === true,
     supportsMaxMode: m.supportsMaxMode === true,
     mode: m.mode || null,
+    ...customRowFields(name, m),
   };
 }

@@ -34,6 +34,21 @@ export const TOOL_DETAIL_LABELS = {
   get failed() {
     return t('Failed');
   },
+  get queued() {
+    return t('Queued');
+  },
+  get cancelled() {
+    return t('Cancelled');
+  },
+  get timeout() {
+    return t('Timed out');
+  },
+  get pending() {
+    return t('Pending');
+  },
+  get background() {
+    return t('Background');
+  },
   get targets() {
     return t('Targets');
   },
@@ -121,7 +136,184 @@ export const TOOL_ACTIVITY_OPERATIONAL_ARGS = new Set([
   'timeout',
   'timeout_ms',
   'wait_ms',
+  // Pure option flags: they switch a behavior on, they name no work.
+  'meta',
+  'hidden',
+  'replace_all',
+  'mode',
 ]);
+
+/** Options that only tune how a given tool searches or pages; named per tool
+ *  so a meaningful boolean elsewhere (dry-run, force…) stays visible. */
+const TOOL_ACTIVITY_OPERATIONAL_ARGS_BY_TOOL: Record<string, ReadonlySet<string>> = {
+  grep: new Set(['include_noise', 'text', 'context', 'type', 'multiline']),
+  glob: new Set(['include_noise']),
+  find: new Set(['include_noise']),
+  list: new Set(['include_noise', 'depth', 'sort']),
+  ls: new Set(['include_noise', 'depth', 'sort']),
+  read: new Set(['include_noise']),
+  code_graph: new Set(['depth', 'include_noise']),
+};
+
+export function toolActivityIsOperationalArg(normalizedName: string, key: string): boolean {
+  return TOOL_ACTIVITY_OPERATIONAL_ARGS.has(key) || Boolean(TOOL_ACTIVITY_OPERATIONAL_ARGS_BY_TOOL[normalizedName]?.has(key));
+}
+
+const MACHINE_ID = /\b[a-z]+_\d{10,}_([0-9a-f]{4,})\b/gi;
+
+/** `job_1790959235138_971b88` reads as `971b88`: the timestamp is noise and
+ *  the suffix is what tells two background tasks apart. Short ids (`a1`) are
+ *  already readable and stay as they are. */
+export function shortMachineId(text: string): string {
+  return text.replace(MACHINE_ID, '$1');
+}
+
+/** Raw action names the rows of github, browser, office, computer and media
+ *  show, in the active language; unknown actions keep their readable form. */
+const TOOL_ACTION_LABELS: Record<string, () => string> = {
+  issue_list: () => t('List issues'),
+  list_issues: () => t('List issues'),
+  issue_view: () => t('View issue'),
+  view_issue: () => t('View issue'),
+  issue_create: () => t('Create issue'),
+  create_issue: () => t('Create issue'),
+  issue_edit: () => t('Edit issue'),
+  edit_issue: () => t('Edit issue'),
+  issue_close: () => t('Close issue'),
+  close_issue: () => t('Close issue'),
+  comment: () => t('Comment'),
+  issue_comment: () => t('Comment'),
+  issue_comments: () => t('Comment'),
+  pr_comment: () => t('Comment'),
+  pr_comments: () => t('Comment'),
+  pr_list: () => t('List PRs'),
+  list_prs: () => t('List PRs'),
+  pr_view: () => t('View PR'),
+  view_pr: () => t('View PR'),
+  pr_create: () => t('Create pull request'),
+  create_pr: () => t('Create pull request'),
+  create_pull_request: () => t('Create pull request'),
+  list_pr: () => t('List PRs'),
+  edit_document: () => t('Edit document'),
+  type_text: () => t('Type text'),
+  merge: () => t('Merge PR'),
+  pr_merge: () => t('Merge PR'),
+  merge_pr: () => t('Merge PR'),
+  pr_review: () => t('Review PR'),
+  review_pr: () => t('Review PR'),
+  repo_list: () => t('List repos'),
+  list_repos: () => t('List repos'),
+  repo_view: () => t('View repo'),
+  view_repo: () => t('View repo'),
+  run_list: () => t('List runs'),
+  list_runs: () => t('List runs'),
+  run_view: () => t('View run'),
+  view_run: () => t('View run'),
+  run_logs: () => t('Run logs'),
+  workflow_list: () => t('List workflows'),
+  click: () => t('Click'),
+  navigate: () => t('Navigate'),
+  type: () => t('Type text'),
+  fill: () => t('Type text'),
+  screenshot: () => t('Screenshot'),
+  scroll: () => t('Scroll'),
+  snapshot: () => t('Snapshot'),
+  press: () => t('Press key'),
+  hover: () => t('Hover'),
+  back: () => t('Go back'),
+  list_tabs: () => t('List tabs'),
+  close_tab: () => t('Close tab'),
+  docx_edit: () => t('Edit document'),
+  xlsx_edit: () => t('Edit spreadsheet'),
+  pptx_edit: () => t('Edit presentation'),
+  generate_image: () => t('Generate image'),
+  generate_video: () => t('Generate video'),
+  generate: () => t('Generate'),
+  capture: () => t('Capture'),
+  launch: () => t('Launch'),
+  diagnose: () => t('Diagnose'),
+  verify: () => t('Verify'),
+};
+
+/** The call's action word in the active language where the catalog carries
+ *  one, else a readable form of the raw word (`pr.list` → `pr list`). */
+export function toolActivityActionLabel(action: string): string {
+  const known = TOOL_ACTION_LABELS[action.toLowerCase().replace(/[.\s-]+/g, '_')];
+  if (known) return known();
+  switch (action.toLowerCase()) {
+    case 'wait':
+      return t('Wait');
+    case 'read':
+      return t('Read');
+    case 'cancel':
+      return t('Cancel');
+    case 'list':
+      return t('List');
+    case 'status':
+      return t('Status');
+    case 'open':
+      return t('Open');
+    case 'search':
+      return t('Search');
+    case 'preview':
+      return t('Preview');
+    case 'install':
+      return t('Install');
+    case 'save':
+    case 'write':
+      return t('Save');
+    case 'delete':
+    case 'remove':
+    case 'forget':
+      return t('Delete');
+    case 'update':
+      return t('Update');
+    case 'stage':
+      return t('Stage');
+    case 'close':
+      return t('Close');
+    case 'resume':
+      return t('Resume');
+    case 'spawn':
+      return t('Spawn');
+    case 'send':
+      return t('Send');
+    case 'cleanup':
+      return t('Cleanup');
+    case 'response':
+      return t('Response');
+    default:
+      return action.replace(/[._-]+/g, ' ').trim();
+  }
+}
+
+/** A summary that opens with the raw action (`navigate · example.com`) opens
+ *  with its localized word instead. */
+function localizeActionSubject(args: Record<string, unknown>, fallback: string): string {
+  const action = toolActivityFirstText(args, 'action');
+  if (!action) return fallback;
+  if (fallback === action) return toolActivityActionLabel(action);
+  if (fallback.startsWith(`${action} · `)) return `${toolActivityActionLabel(action)}${fallback.slice(action.length)}`;
+  // The shared summary may already name the action in English ("List issues").
+  const head = fallback.split(' · ')[0];
+  const known = TOOL_ACTION_LABELS[head.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')];
+  return known ? `${known()}${fallback.slice(head.length)}` : fallback;
+}
+
+/** GitHub rows name the localized action, then the target as its own parts
+ *  (number, repo, title), instead of rewriting the English summary. */
+function githubSubject(args: Record<string, unknown>, fallback: string): string {
+  const action = toolActivityFirstText(args, 'action');
+  if (!TOOL_ACTION_LABELS[action.toLowerCase().replace(/[.\s-]+/g, '_')]) return localizeActionSubject(args, fallback);
+  const id = toolActivityFirstText(args, 'number', 'id');
+  const title = toolActivityFirstText(args, 'title', 'workflow', 'tag');
+  return toolActivityCompact([
+    toolActivityActionLabel(action),
+    id ? `#${id}` : '',
+    toolActivityFirstText(args, 'repo'),
+    title.length > 60 ? `${title.slice(0, 59)}…` : title,
+  ]);
+}
 
 export const TOOL_ACTIVITY_BULK_ARGS = new Set([
   'old_string',
@@ -376,15 +568,40 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   [
     ['task'],
     (args) =>
-      toolActivityCompact([toolActivityFirstText(args, 'action'), toolActivityFirstText(args, 'task_id', 'id')]),
+      toolActivityCompact([
+        toolActivityActionLabel(toolActivityFirstText(args, 'action')),
+        shortMachineId(toolActivityFirstText(args, 'task_id', 'id')),
+      ]),
   ],
   [
     ['agent', 'bridge'],
-    (args, _path, fallback) => toolActivityFirstText(args, 'description', 'tag', 'role', 'model') || fallback,
+    (args, _path, fallback) =>
+      shortMachineId(toolActivityFirstText(args, 'description', 'tag', 'role', 'model') || fallback),
   ],
+  [['github'], (args, _path, fallback) => githubSubject(args, fallback)],
   [['request_user_input'], questionsSubject],
   // "open · example.com/path": the scheme says nothing on a browser row.
-  [['browser', 'browser_devtools'], (_args, _path, fallback) => fallback.replace(/\bhttps?:\/\/(?:www\.)?/g, '')],
+  [
+    ['browser', 'browser_devtools'],
+    (args, _path, fallback) => localizeActionSubject(args, fallback.replace(/\bhttps?:\/\/(?:www\.)?/g, '')),
+  ],
+  [
+    [
+      'setup',
+      'tidy',
+      'office',
+      'computer',
+      'media',
+      'memory',
+      'remember',
+      'save_memory',
+      'update_memory',
+      'recall_memory',
+      'recall',
+      'search_memories',
+    ],
+    (args, _path, fallback) => localizeActionSubject(args, fallback),
+  ],
 ]);
 
 export function toolActivitySubject(normalizedName: string, args: Record<string, unknown>, fallback: string): string {
@@ -433,7 +650,8 @@ export function toolActivityTargets(normalizedName: string, args: Record<string,
   return (TOOL_TARGETS[normalizedName]?.(args) ?? []).filter((values) => values.length > 1).flat();
 }
 
-export function toolActivityFieldLabel(key: string): string {
+export function toolActivityFieldLabel(key: string, normalizedName = ''): string {
+  if (normalizedName === 'github' && key === 'title') return t('Pull request title');
   const labels: Record<string, string> = {
     api_key: t('API key'),
     include_noise: t('Include ignored'),
@@ -454,7 +672,7 @@ export function toolActivityFieldValue(key: string, value: unknown): string {
   }
   if (typeof value === 'boolean') return value ? t('Yes') : t('No');
   if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
-    return value.join(', ');
+    return shortMachineId(value.join(', '));
   }
   if (value && typeof value === 'object') {
     try {
@@ -463,7 +681,7 @@ export function toolActivityFieldValue(key: string, value: unknown): string {
       // Cyclic or non-JSON values fall back to the bounded text serializer.
     }
   }
-  return boundedTextOf(value, 8_000);
+  return shortMachineId(boundedTextOf(value, 8_000));
 }
 
 export function toolActivityRedactInlineSecrets(text: string, args: Record<string, unknown>): string {
@@ -491,9 +709,24 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
   ],
   [
     ['shell', 'bash', 'bash_session', 'shell_command', 'job_wait', 'git'],
-    ['command', 'commands', 'cmd', 'description'],
+    [
+      'command',
+      'commands',
+      'cmd',
+      'description',
+      'action',
+      'type',
+      'status',
+      'surface',
+      'operation',
+      'label',
+      'task_id',
+    ],
   ],
   [['git_stage'], ['files', 'paths']],
+  [['github', 'setup', 'tidy', 'office', 'computer', 'media'], ['action']],
+  // The row's subject already names the page / element the call acted on.
+  [['browser', 'browser_devtools'], ['action', 'url', 'uri', 'ref', 'selector']],
   [['grep'], ['pattern', 'query', 'path', 'glob']],
   [['glob'], ['pattern', 'glob', 'path']],
   [['find'], ['query', 'fuzzy', 'path']],
@@ -514,10 +747,24 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
     ['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill'],
     ['name', 'skill', 'skill_name', 'query', 'q'],
   ],
-  [['task'], ['action', 'task_id', 'id']],
+  [['task'], ['action', 'task_id', 'id', 'type', 'status', 'surface', 'operation', 'label']],
   [
     ['agent', 'bridge'],
-    ['type', 'action', 'description', 'tag', 'role', 'model', 'prompt', 'status', 'task_id', 'sessionId'],
+    [
+      'type',
+      'action',
+      'description',
+      'tag',
+      'role',
+      'model',
+      'prompt',
+      'status',
+      'task_id',
+      'sessionId',
+      'surface',
+      'operation',
+      'label',
+    ],
   ],
   [['request_user_input'], ['questions', 'answers']],
   [['update_plan'], ['plan', 'todos', 'explanation']],

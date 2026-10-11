@@ -2,7 +2,7 @@
 // in a browser/phone, where they spend metered bytes on the same link the
 // first screen is still loading over. Every prewarm asks here instead of
 // assuming the desktop's conditions.
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 type NetworkInformation = { saveData?: boolean; effectiveType?: string };
 
@@ -10,7 +10,7 @@ type ConnectionQuality = 'metered' | 'slow' | 'normal';
 
 /** True for the relay-served web app; false inside the Electron shell. */
 export function isRemoteSurface(): boolean {
-  return isRemoteBrowserRenderer();
+  return isRemoteHostRenderer();
 }
 
 /** `metered` — data saver on, or a 2G-class link.

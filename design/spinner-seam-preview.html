@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Live activity spinner — loop seam study</title>
+<style>
+  :root { --dur: 2000ms; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #111; color: #ddd; }
+  header { position: sticky; top: 0; z-index: 2; padding: 12px 24px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; background: #111e; border-bottom: 1px solid #333; }
+  header label { display: flex; gap: 8px; align-items: center; }
+  .note { opacity: .7; font-size: 13px; }
+  .theme { padding: 20px 24px; }
+  .theme.light { background: #f6f7f9; color: #222; }
+  .row { display: flex; gap: 28px; justify-content: center; flex-wrap: wrap; }
+  figure { margin: 0; text-align: center; width: 170px; }
+  figcaption { margin-top: 6px; font-size: 12.5px; opacity: .85; }
+  .mark { position: relative; width: 120px; height: 120px; margin: 0 auto; display: grid; place-items: center; }
+  .mark.small { width: 16px; height: 16px; margin-top: 10px; }
+  .mark.frame { width: 76px; height: 76px; background: #000; border-radius: 6px; }
+  .mark svg { grid-area: 1 / 1; width: 100%; height: 100%; overflow: visible; }
+  .dark .mark { --logo-a: #5aa2ff; --logo-b: #a9d3ff; }
+  .light .mark { --logo-a: #1552b0; --logo-b: #3f86ea; }
+  stop:first-child { stop-color: var(--logo-a); }
+  stop:last-child { stop-color: var(--logo-b); }
+  .arc { fill: none; stroke-width: 1.9; stroke-linecap: round; animation: none var(--dur) linear infinite; }
+  .star-svg {
+    animation: none var(--dur) linear infinite;
+    animation-duration: var(--dur), calc(var(--dur) * 4);
+    animation-timing-function: linear, steps(4, end);
+  }
+  .arcs-svg { animation: none linear infinite; }
+  @keyframes quarter { from { rotate: 0deg; } to { rotate: 360deg; } }
+  @keyframes spin { from { rotate: 0deg; } to { rotate: 360deg; } }
+  .paused .arc, .paused .star-svg, .paused .arcs-svg { animation-play-state: paused; }
+  /* Filmstrip frames: frozen at a fixed fraction of the loop. */
+  .frame .arc, .frame .star-svg, .frame .arcs-svg {
+    animation-play-state: paused !important;
+    animation-delay: calc(var(--dur) * var(--f) * -1) !important;
+  }
+  .detail { padding: 18px 24px; border-top: 1px solid #2a2a2a; }
+  .detail h3 { margin: 0 0 4px; font-size: 15px; }
+  .detail .stats { font-size: 12.5px; opacity: .8; margin-bottom: 8px; }
+  .strip { display: flex; gap: 4px; flex-wrap: wrap; }
+  .strip div { text-align: center; font-size: 10.5px; opacity: .85; }
+  .strip .seam .mark { outline: 1px solid #f5a524; }
+  .chart { margin-top: 8px; }
+  .chart text { fill: #aaa; font-size: 10px; }
+</style>
+<style id="generated"></style>
+</head>
+<body>
+<header>
+  <strong>띵킹 스피너 루프 연구</strong>
+  <label>속도 <input id="speed" type="range" min="1" max="10" value="1" /> <span id="speedLabel">1×</span> 느리게</label>
+  <label><input id="pause" type="checkbox" /> 일시정지</label>
+  <span class="note">한 루프에 전체가 정확히 120°만 나아가야 해서, 띠가 점으로 모이는 이음새 구간은 기본 회전(drift)만큼밖에 못 움직입니다. F·G는 아크 묶음 전체를 계속 돌려 그 정지 구간을 없앤 안입니다.</span>
+</header>
+<div id="grid"></div>
+<div id="details"></div>
+<script>
+  // Same flow math as design/claude-parity-ui.html buildFlow, plus:
+  //   lmin   — floor on arc length (arcs never collapse to dots)
+  //   smooth — smootherstep instead of the power ease (no abrupt stop)
+  //   spin   — whole-arc-group rotation, ms per turn (0 = none)
+  const ease = (x, k) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 0.5 * Math.pow(2 * x, k) : 1 - 0.5 * Math.pow(2 - 2 * x, k));
+  const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * x * (x * (x * 6 - 15) + 10));
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const bump = (d) => Math.exp(-((d / 0.055) ** 2));
+  const PERIOD = 2000;
+
+  function build(name, p) {
+    const e = (x) => (p.smooth ? smooth(x) : ease(x, p.pow));
+    const head = (t) => (1 - p.drift) * e(t / p.headEnd) + p.drift * t;
+    const tail = (t) => (1 - p.drift) * e((t - p.tailStart) / (1 - p.tailStart)) + p.drift * t;
+    let peakT = 0, peakL = -1;
+    for (let i = 0; i <= 2000; i++) {
+      const t = i / 2000, L = 120 * (head(t) - tail(t));
+      if (L > peakL) { peakL = L; peakT = t; }
+    }
+    const offset = 60 - 60 * (head(peakT) + tail(peakT)) - p.lmin / 2;
+    const starOffset = -90 * head(peakT);
+    let arc = '', star = '';
+    for (let i = 0; i <= 96; i++) {
+      const t = i / 96, pct = r2(t * 100), L = 120 * (head(t) - tail(t));
+      const len = L + p.lmin;
+      arc += `${pct}%{stroke-dasharray:${r2(len)} ${r2(360 - len)};stroke-dashoffset:${r2(-(120 * tail(t) + offset))}}`;
+      const d = ((t - peakT + 1.5) % 1) - 0.5;
+      const scale = 0.84 + 0.1 * (L / peakL) + p.pop * bump(d) - p.pop * 0.4 * bump(d - 0.1);
+      star += `${pct}%{transform:rotate(${r2(90 * head(t) + starOffset)}deg) scale(${r2(scale)})}`;
+    }
+    let css = `@keyframes ${name}-arc{${arc}}@keyframes ${name}-star{${star}}` +
+      `.${name} .arc{animation-name:${name}-arc}.${name} .star-svg{animation-name:${name}-star,quarter}`;
+    if (p.spin) css += `.${name} .arcs-svg{animation-name:spin;animation-duration:calc(var(--dur) * ${p.spin / PERIOD})}`;
+    // Screen speed (deg/s) of each arc end, spin included.
+    const spinV = p.spin ? 360 / (p.spin / 1000) : 0;
+    const speed = (f, t) => (120 * (f(Math.min(1, t + 1e-4)) - f(Math.max(0, t - 1e-4))) / (Math.min(1, t + 1e-4) - Math.max(0, t - 1e-4))) / (PERIOD / 1000) + spinV;
+    return { css, vHead: (t) => speed(head, t), vTail: (t) => speed(tail, t) };
+  }
+
+  const BASE = { headEnd: 0.56, tailStart: 0.26, pow: 2.1, drift: 0.26, pop: 0.07, lmin: 0, smooth: false, spin: 0 };
+  const VARIANTS = [
+    ['v0', '현재', '이음새에서 점으로 모여 거의 멈춤', BASE],
+    ['v1', 'A · 최소 길이 유지', '끝까지 짧은 선(14°)으로 남음', { ...BASE, lmin: 14 }],
+    ['v2', 'B · 기본 회전 빠르게', 'drift .26 → .5', { ...BASE, drift: 0.5 }],
+    ['v3', 'C · A + B', '짧은 선 + drift .45', { ...BASE, lmin: 14, drift: 0.45 }],
+    ['v4', 'D · 부드러운 곡선', 'smootherstep', { ...BASE, smooth: true }],
+    ['v5', 'E · D + C', '부드러운 곡선 + 짧은 선 + drift .45', { ...BASE, smooth: true, lmin: 14, drift: 0.45 }],
+    ['v6', 'F · 현재 + 전체 회전', '아크 묶음이 3초에 한 바퀴', { ...BASE, spin: 3000 }],
+    ['v8', 'F1 · F 살짝 느리게', '3.6초에 한 바퀴 (−17%)', { ...BASE, spin: 3600 }],
+    ['v9', 'F2 · F 조금 더 느리게', '4.2초에 한 바퀴 (−29%)', { ...BASE, spin: 4200 }],
+    ['v7', 'G · E + 전체 회전', '부드러운 곡선 + 짧은 선 + 3초에 한 바퀴', { ...BASE, smooth: true, lmin: 14, drift: 0.45, spin: 3000 }],
+  ];
+  const BUILT = Object.fromEntries(VARIANTS.map(([n, , , p]) => [n, build(n, p)]));
+  document.getElementById('generated').textContent = Object.values(BUILT).map((b) => b.css).join('');
+
+  const STAR = 'M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z';
+  // Clockwise r=8.5 rings around (12,12) starting at -120deg, 0deg and 120deg.
+  const PATHS = [
+    'M7.75 4.639A8.5 8.5 0 0 1 16.25 19.361A8.5 8.5 0 0 1 7.75 4.639',
+    'M20.5 12A8.5 8.5 0 0 1 3.5 12A8.5 8.5 0 0 1 20.5 12',
+    'M7.75 19.361A8.5 8.5 0 0 1 16.25 4.639A8.5 8.5 0 0 1 7.75 19.361',
+  ];
+  let uid = 0;
+  function mark(variant, cls = '', style = '') {
+    const id = `g${uid++}`;
+    const arcs = PATHS.map((d) => `<path class="arc" d="${d}" pathLength="360"/>`).join('');
+    return `<div class="mark ${variant} ${cls}" style="${style}">
+      <svg class="arcs-svg" viewBox="0 0 24 24"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0"/><stop offset="1"/></linearGradient></defs>
+        <g stroke="url(#${id})">${arcs}</g></svg>
+      <svg class="star-svg" viewBox="0 0 24 24"><path fill="url(#${id})" d="${STAR}"/></svg>
+    </div>`;
+  }
+
+  const fig = ([n, title, note]) =>
+    `<figure>${mark(n)}${mark(n, 'small')}<figcaption><b>${title}</b><br>${note}</figcaption></figure>`;
+  document.getElementById('grid').innerHTML = ['dark', 'light']
+    .map((th) => `<section class="theme ${th}"><div class="row">${VARIANTS.map(fig).join('')}</div></section>`)
+    .join('');
+
+  // Filmstrip around the seam (loop time 1.70s → 2.40s) + end-speed chart over two loops.
+  const FRAMES = [1700, 1780, 1860, 1920, 1960, 2000, 2040, 2080, 2140, 2220, 2300, 2400];
+  function strip(n) {
+    return `<div class="strip">${FRAMES.map((ms) => {
+      const f = (ms % PERIOD) / PERIOD + Math.floor(ms / PERIOD);
+      return `<div class="${ms === 2000 ? 'seam' : ''}">${mark(n, 'frame', `--f:${f}`)}${(ms / 1000).toFixed(2)}s</div>`;
+    }).join('')}</div>`;
+  }
+  function chart(b) {
+    const W = 760, H = 110, pad = 26, N = 400, VMAX = 420;
+    const x = (i) => pad + (i / N) * (W - pad - 6);
+    const y = (v) => H - 14 - (Math.min(v, VMAX) / VMAX) * (H - 24);
+    const line = (fn, color) => {
+      let d = '';
+      for (let i = 0; i <= N; i++) {
+        const t = ((i / N) * 2) % 1 || (i === N ? 1 : 0);
+        d += `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(fn(t)).toFixed(1)}`;
+      }
+      return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/>`;
+    };
+    const grid = [0, 100, 200, 300, 400].map((v) =>
+      `<line x1="${pad}" x2="${W - 6}" y1="${y(v)}" y2="${y(v)}" stroke="#2a2a2a"/><text x="0" y="${y(v) + 3}">${v}</text>`).join('');
+    const seams = [0, 1, 2].map((k) =>
+      `<line x1="${x((k * N) / 2)}" x2="${x((k * N) / 2)}" y1="6" y2="${H - 14}" stroke="#f5a524" stroke-dasharray="3 3"/>`).join('');
+    return `<svg class="chart" width="${W}" height="${H}">${grid}${seams}
+      ${line(b.vHead, '#5aa2ff')}${line(b.vTail, '#ff8a65')}
+      <text x="${pad}" y="${H - 2}">0s</text><text x="${x(N / 2) - 8}" y="${H - 2}">2s (이음새)</text><text x="${W - 30}" y="${H - 2}">4s</text>
+      <text x="${W - 190}" y="12" style="fill:#5aa2ff">앞쪽 끝</text><text x="${W - 140}" y="12" style="fill:#ff8a65">뒤쪽 끝</text><text x="${W - 90}" y="12">°/s</text></svg>`;
+  }
+  function stats(b) {
+    let slow = Infinity;
+    for (let i = 0; i <= 1000; i++) slow = Math.min(slow, Math.max(b.vHead(i / 1000), b.vTail(i / 1000)));
+    let peak = 0;
+    for (let i = 0; i <= 1000; i++) peak = Math.max(peak, b.vHead(i / 1000), b.vTail(i / 1000));
+    return `가장 빠른 끝 ${peak.toFixed(0)}°/s · 가장 느린 순간(두 끝 중 빠른 쪽) ${slow.toFixed(0)}°/s · 비율 ${(peak / slow).toFixed(1)}배`;
+  }
+  document.getElementById('details').innerHTML = VARIANTS.map(([n, title, note]) => `
+    <section class="detail dark">
+      <h3>${title} <span class="note">— ${note}</span></h3>
+      <div class="stats">${stats(BUILT[n])}</div>
+      ${strip(n)}
+      ${chart(BUILT[n])}
+    </section>`).join('');
+
+  const speed = document.getElementById('speed');
+  speed.oninput = () => {
+    document.documentElement.style.setProperty('--dur', `${PERIOD * speed.value}ms`);
+    document.getElementById('speedLabel').textContent = `${speed.value}×`;
+  };
+  document.getElementById('pause').onchange = (e) => document.body.classList.toggle('paused', e.target.checked);
+</script>
+</body>
+</html>

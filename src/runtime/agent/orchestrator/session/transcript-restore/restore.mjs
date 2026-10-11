@@ -52,6 +52,7 @@ function restoredTranscriptMetadata(message) {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
+    ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
     ...(completion ? { completion } : {}),
   };
 }

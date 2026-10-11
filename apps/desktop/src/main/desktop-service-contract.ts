@@ -56,6 +56,11 @@ export interface DesktopService {
   listAgentPool(): Promise<DesktopAgentPoolRow[]>;
   searchSessionContent(query: string): Promise<DesktopSessionContentMatch[]>;
   renameSession(sessionId: string, title: string): unknown;
+  continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean>;
+  scheduleQuotaResume(sessionId: string): Promise<boolean>;
+  cancelQuotaResume(sessionId: string): Promise<boolean>;
+  getQuotaAutoResume(): Promise<boolean>;
+  setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   setSessionFavorite(sessionId: string, favorite: boolean): unknown;
   deleteSession(sessionId: string): unknown;
@@ -63,6 +68,8 @@ export interface DesktopService {
   /** Transport-only recovery: capture current projections after refreshing
    * every requested lane, even when the daemon reports unchanged content. */
   replaySessionStates?(sessionIds: string[], deliver: (updates: DesktopSessionStateUpdate[]) => void): Promise<void>;
+  /** Ask the service to forget its delta baseline for one session and re-emit a full frame. */
+  requestSessionStateResync?(sessionId: string): void;
   /** Keep every currently visible pane attached to its external live owner. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   /** `legacyTranscript`: the source cannot page transcript history (an old
@@ -72,7 +79,8 @@ export interface DesktopService {
     projectIdOrWorkspaceId: string,
     query: string,
     limit?: number,
-    includeIgnored?: boolean
+    includeIgnored?: boolean,
+    includeDirectories?: boolean
   ): Promise<string[]>;
   submitNewTask(
     prompt: DesktopPromptContent,
@@ -141,6 +149,11 @@ export const DESKTOP_SERVICE_METHODS = [
   'listAgentPool',
   'searchSessionContent',
   'renameSession',
+  'continueSessionInModel',
+  'scheduleQuotaResume',
+  'cancelQuotaResume',
+  'getQuotaAutoResume',
+  'setQuotaAutoResume',
   'setSessionArchived',
   'setSessionFavorite',
   'deleteSession',
@@ -168,6 +181,9 @@ export interface SerializableDesktopServiceOptions {
   packaged: boolean;
   resourcesPath: string;
   appPath: string;
+  /** This desktop build's version; reported on the relay leg so the relay can
+   *  serve paired phones the web renderer release that matches it. */
+  appVersion?: string;
   rendererDir?: string;
   runtimeRoot?: string;
 }

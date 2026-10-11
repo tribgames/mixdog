@@ -106,6 +106,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       (input) => runtime.saveCustomProvider(input),
       (result) => `custom provider saved: ${result.id}`
     ),
+    updateCustomProviderModel: (id, modelId, patch) => runtime.updateCustomProviderModel(id, modelId, patch),
     removeCustomProvider: async (id) => {
       const result = await runtime.removeCustomProvider(id);
       refreshRouteStats();
@@ -173,5 +174,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       (name, enabled) => runtime.setWebhookEnabled(name, enabled),
       (_result, name, enabled) => `webhook ${enabled ? 'enabled' : 'disabled'}: ${name}`
     ),
+    // Signed test request only; nothing changes, so no announcement.
+    testWebhook: (name) => runtime.testWebhook(name),
   };
 }

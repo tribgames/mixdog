@@ -1,5 +1,7 @@
 import type React from 'react';
 import { ActivityRail } from '../ActivityRail';
+import { useMobileRemoteSurface } from '../mobile-surface';
+import { RemotePcCard } from '../RemotePcSwitcher';
 import {
   WorkbenchSidePanel,
   type WorkbenchSide,
@@ -64,8 +66,12 @@ export function AppSidebarDrawer({
   closeSidebarDiff,
   openFileTab,
 }: AppSidebarDrawerProps) {
+  const phone = useMobileRemoteSurface();
   return (
     <div className="sidebar-drawer-frame" data-state={sidebarOpen ? 'open' : 'closed'} data-motion={sidebarMotion}>
+      {/* Phone drawer: the PC being driven sits above the rail and whichever
+          side panel is active (renders nothing off a remote surface). */}
+      {phone && <RemotePcCard />}
       <ActivityRail
         settingsOpen={settingsOpen}
         onOpenSettings={() => {

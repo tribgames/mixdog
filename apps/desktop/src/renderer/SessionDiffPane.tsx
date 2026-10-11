@@ -1,12 +1,12 @@
-import { RefreshCw } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
-import { type DiffStyle, SESSION_DIFF_STYLE_KEY, type Snapshot } from './desktop-types';
+import { ArrowUpRight, ChevronLeft, RefreshCw, Undo2 } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { SESSION_DIFF_STYLE_KEY, type Snapshot } from './desktop-types';
 import { diffModeActions, useDiffViewState, type DiffViewState } from './diff-header-controls';
 import { DockHeaderRow } from './pane-dock-chrome';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
-import { ChangeFileRow, FileDiffBody } from './inline-diff';
+import { FileDiffBody } from './inline-diff';
 import { buildSessionDiffRows, type SessionDiffRow } from './session-diff-model';
 import { useSessionDiffRefresh } from './use-session-diff-refresh';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
@@ -38,42 +38,58 @@ function SessionDiffFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** More files than this and the list says they start collapsed. */
-export const LARGE_DIFF_FILE_COUNT = 20;
+function pathDirectory(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash >= 0 ? path.slice(0, slash) : '';
+}
 
-/** The expandable file list: each row opens its diff inline below it. */
+function pathName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1);
+}
+
+function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
+  return (
+    <span className="diff-stats">
+      <i>+{additions}</i>
+      <em>
+        {'\u2212'}
+        {deletions}
+      </em>
+    </span>
+  );
+}
+
+/** The changed-file list: choosing a row drills into that file's diff. */
 export function SessionDiffFiles({
   rows,
-  mode,
-  onOpenFile,
+  onSelect,
 }: {
   rows: readonly SessionDiffRow[];
-  mode: DiffStyle;
-  onOpenFile?(rel: string): void;
+  onSelect(path: string): void;
 }) {
-  const [openPaths, setOpenPaths] = useState<ReadonlySet<string>>(() => new Set());
-  const toggle = (path: string) =>
-    setOpenPaths((current) => {
-      const next = new Set(current);
-      if (!next.delete(path)) next.add(path);
-      return next;
-    });
   return (
     <ul className="session-diff-files">
       {rows.map((row) => {
-        const open = openPaths.has(row.path);
+        const directory = pathDirectory(row.path);
         return (
-          <ChangeFileRow
-            key={row.path}
-            path={row.path}
-            additions={row.additions}
-            deletions={row.deletions}
-            open={open}
-            onToggle={() => toggle(row.path)}
-            onOpenFile={onOpenFile && (() => onOpenFile(row.path))}
-          >
-            {open && <FileDiffBody patch={row.parts.map((part) => part.patch).join('\n')} mode={mode} />}
-          </ChangeFileRow>
+          <li key={row.path} className="changes-file">
+            <div className="changes-file-row">
+              <button type="button" className="changes-file-main" title={row.path} onClick={() => onSelect(row.path)}>
+                <span className="session-diff-status" data-status={row.status}>
+                  {row.status}
+                </span>
+                <b>{pathName(row.path)}</b>
+                {directory && <span className="changes-file-dir">{directory}</span>}
+                <span className="changes-file-stats">
+                  <i>+{row.additions}</i>
+                  <em>
+                    {'\u2212'}
+                    {row.deletions}
+                  </em>
+                </span>
+              </button>
+            </div>
+          </li>
         );
       })}
     </ul>
@@ -116,35 +132,130 @@ export function SessionDiffPane({
   const additions = rows.reduce((total, row) => total + row.additions, 0);
   const deletions = rows.reduce((total, row) => total + row.deletions, 0);
 
+  // Drill-down: the first file's diff shows directly; ‹ swaps to the list and
+  // choosing a file swaps back. The two are never on screen together.
+  const [listOpen, setListOpen] = useState(false);
+  const [selectedPath, setSelectedPath] = useState('');
+  const [revertError, setRevertError] = useState('');
+  useEffect(() => {
+    setListOpen(false);
+    setSelectedPath('');
+    setRevertError('');
+  }, [sessionId]);
+  const foundIndex = rows.findIndex((row) => row.path === selectedPath);
+  const index = foundIndex >= 0 ? foundIndex : 0;
+  const current: SessionDiffRow | undefined = rows[index];
+  const inDiff = Boolean(current) && !listOpen;
+  const go = (next: number) => {
+    const row = rows[next];
+    if (row) setSelectedPath(row.path);
+  };
+  // The session diff spans turns and has no revert contract: only the latest
+  // turn's files can be restored, and only against that turn's checkpoint,
+  // exactly like TurnReview. While a turn runs nothing is revertable.
+  const [turnReview, setTurnReview] = useState<{ checkpointId: string; paths: ReadonlySet<string> } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision re-reads the turn review after each activity change
+  useEffect(() => {
+    setTurnReview(null);
+    if (!active || !sessionId || busy) return;
+    let stale = false;
+    void window.mixdogDesktop
+      .invokeCapability?.({ capability: 'getTurnReviewDiff', args: [{ summary: true }], sessionId })
+      .then((reply) => {
+        const value = reply?.value as { checkpointId?: unknown; files?: unknown } | null | undefined;
+        const files = Array.isArray(value?.files) ? (value.files as Array<{ path?: unknown }>) : [];
+        const checkpointId = typeof value?.checkpointId === 'string' ? value.checkpointId : '';
+        if (stale || !checkpointId) return;
+        setTurnReview({ checkpointId, paths: new Set(files.map((file) => String(file?.path ?? ''))) });
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [active, sessionId, busy, revision]);
+  const canRevert = Boolean(current && !busy && turnReview && turnReview.paths.has(current.path));
+  const revertCurrent = () => {
+    if (!current || !turnReview || !canRevert) return;
+    if (!window.confirm(t('Revert {{file}} to the start of the turn? This discards its changes.', { file: current.path })))
+      return;
+    setRevertError('');
+    void window.mixdogDesktop
+      .invokeCapability?.({ capability: 'revertTurnReviewFile', args: [current.path, turnReview.checkpointId], sessionId })
+      .then(() => refresh(true))
+      .catch((reason: unknown) => setRevertError(reason instanceof Error ? reason.message : String(reason)));
+  };
+
   // The ONE header row renders in every state (no session, loading, error,
   // unsupported, empty, files) so close/expand are always reachable.
   const showCount = Boolean(sessionId) && !error && result?.supported !== false && Boolean(result);
+  const left = inDiff && current ? (
+    <span className="session-diff-summary session-diff-file-head">
+      <button
+        type="button"
+        className="session-diff-back"
+        aria-label={t('Back to changed files')}
+        data-tooltip={t('Back to changed files')}
+        onClick={() => setListOpen(true)}
+      >
+        <ChevronLeft size={15} aria-hidden="true" />
+      </button>
+      <span className="session-diff-status" data-status={current.status}>
+        {current.status}
+      </span>
+      <b className="session-diff-path" title={current.path}>
+        {current.path}
+      </b>
+      <DiffStats additions={current.additions} deletions={current.deletions} />
+    </span>
+  ) : (
+    <span className="session-diff-summary">
+      {showCount && (
+        <span className="session-diff-count">
+          {rows.length === 1 ? t('1 file changed') : t('{{count}} files changed', { count: rows.length })}
+        </span>
+      )}
+      {showCount && (additions > 0 || deletions > 0) && (
+        <span className="diff-stats">
+          {additions > 0 && <i>+{additions}</i>}
+          {deletions > 0 && (
+            <em>
+              {'\u2212'}
+              {deletions}
+            </em>
+          )}
+        </span>
+      )}
+    </span>
+  );
   const header = !headerControlsExternal && (
     <DockHeaderRow
       className="session-diff-header"
       ariaLabel={t('Changes')}
       onClose={onClose}
-      left={
-        <span className="session-diff-summary">
-          {showCount && (
-            <span className="session-diff-count">
-              {rows.length === 1 ? t('1 file changed') : t('{{count}} files changed', { count: rows.length })}
-            </span>
-          )}
-          {showCount && (additions > 0 || deletions > 0) && (
-            <span className="diff-stats">
-              {additions > 0 && <i>+{additions}</i>}
-              {deletions > 0 && (
-                <em>
-                  {'\u2212'}
-                  {deletions}
-                </em>
-              )}
-            </span>
-          )}
-        </span>
-      }
+      left={left}
       actions={[
+        ...(inDiff && current
+          ? [
+              {
+                id: 'revert',
+                label: t('Revert {{file}}', { file: current.path }),
+                icon: Undo2,
+                inline: true,
+                disabled: !canRevert,
+                onSelect: revertCurrent,
+              },
+              ...(onOpenFile
+                ? [
+                    {
+                      id: 'open-file',
+                      label: t('Open file {{file}}', { file: current.path }),
+                      icon: ArrowUpRight,
+                      onSelect: () => onOpenFile(current.path),
+                    },
+                  ]
+                : []),
+            ]
+          : []),
         {
           id: 'refresh',
           label: t('Refresh'),
@@ -193,15 +304,43 @@ export function SessionDiffPane({
     <SessionDiffFrame>
       {header}
       {result?.patchTruncated && <p className="session-diff-notice">{t('The session diff was truncated.')}</p>}
-      {rows.length > LARGE_DIFF_FILE_COUNT && (
-        <p className="session-diff-notice" data-kind="collapsed">
-          {t('Files are collapsed. Select a file to expand its diff.')}
-        </p>
-      )}
+      {revertError && <p className="session-diff-notice">{revertError}</p>}
       {rows.length === 0 ? (
         <p className="utility-dock-empty">{t('No changes from this session.')}</p>
+      ) : inDiff && current ? (
+        <>
+          <div className="session-diff-crumb">
+            <button type="button" className="session-diff-crumb-link" onClick={() => setListOpen(true)}>
+              {t('Changed files')} {rows.length}
+            </button>
+            <span aria-hidden="true">›</span>
+            <span className="session-diff-crumb-name" title={current.path}>
+              {pathName(current.path)}
+            </span>
+            <span className="session-diff-crumb-pos">
+              · {index + 1} / {rows.length}
+            </span>
+            <span className="session-diff-crumb-nav">
+              <button type="button" disabled={index <= 0} onClick={() => go(index - 1)}>
+                ‹ {t('Previous file')}
+              </button>
+              <button type="button" disabled={index >= rows.length - 1} onClick={() => go(index + 1)}>
+                {t('Next file')} ›
+              </button>
+            </span>
+          </div>
+          <div className="session-diff-body">
+            <FileDiffBody key={current.path} patch={current.parts.map((part) => part.patch).join('\n')} mode={viewMode} />
+          </div>
+        </>
       ) : (
-        <SessionDiffFiles rows={rows} mode={viewMode} onOpenFile={onOpenFile} />
+        <SessionDiffFiles
+          rows={rows}
+          onSelect={(path) => {
+            setSelectedPath(path);
+            setListOpen(false);
+          }}
+        />
       )}
     </SessionDiffFrame>
   );

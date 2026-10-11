@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   useConversationComposerActions,
   collapseSelectionOnPress,
@@ -30,12 +30,31 @@ import { useConversationOptimisticPromptRelease } from './use-conversation-optim
 import { useConversationTranscriptIdentity } from './use-conversation-transcript-identity';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 
+import { sessionUsesMultipleDevices } from '../shared/session-devices';
+import { TranscriptDevicesContext } from './transcript-row';
+import { useRetiredApproval } from './use-retired-approval';
 import { ApprovalCard } from './ApprovalCard';
 import { Composer, WorkflowSelect, OrchestrationModeSelect } from './Composer';
 import { ProjectContextSelector } from './composer-support';
 import { BrandTile } from './WorkspaceEmptyState';
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from './desktop-types';
 import { ComposerDock } from './ComposerDock';
+import type {
+  ComposerIslandFlash,
+  ComposerIslandModelMismatch,
+  ComposerIslandQuota,
+  ComposerIslandQuotaResume,
+} from './ComposerIsland';
+import { subscribeSetupChanges } from './setup-change-refresh';
+import { modelDisplayName, providerDisplayName } from './provider-display';
+import {
+  beginQuotaContinue,
+  continueAfterQuota,
+  latestQuotaFailure,
+  quotaDismissKey,
+  quotaIslandPlan,
+  quotaPanelVisible,
+} from './quota-continue';
 import { TranscriptList } from './TranscriptList';
 import type { TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import {
@@ -86,6 +105,7 @@ export function Conversation({
   onInheritSession,
   onOpenFile,
   onOpenFolder,
+  onOpenSessionDiff,
   renderAssistantRow,
   goalIsland,
   contextIndicator,
@@ -138,10 +158,12 @@ export function Conversation({
   onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string, column?: number) => void;
   /** Reveals a transcript folder link in the pane's side-dock Files tree. */
   onOpenFolder?: (project: string, rel: string) => void;
+  /** The island's changed-files segment: opens the pane's side dock on the
+   *  session diff; absent where the surface has no dock. */
+  onOpenSessionDiff?: () => void;
   /** Selector-driven rows retain their component identity through settlement. */
   renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
-  /** Goal capsule routed to the composer unless the pane's visible DIFF owns
-   *  it instead. */
+  /** The Goal segment of the composer island. */
   goalIsland?: ReactNode;
   /** Context gauge seated in the composer footer beside the model trigger
    *  on every surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰). */
@@ -211,6 +233,22 @@ export function Conversation({
   // session THIS surface renders, never the globally active route.
   const routeSessionIdRef = useRef('');
   routeSessionIdRef.current = String(routeSnapshot.sessionId || '');
+  // Approvals this device answered itself, and whether the conversation was
+  // used from several devices (only then is a device named).
+  // Bounded to this session, and to the ids the retired-approval check can
+  // still consult: the pending approval and the last published result.
+  const decidedLocally = useRef<{ sessionId: string; ids: Set<string> }>({ sessionId: '', ids: new Set() });
+  const decidedSessionId = String(snapshot.sessionId || '');
+  if (decidedLocally.current.sessionId !== decidedSessionId) {
+    decidedLocally.current = { sessionId: decidedSessionId, ids: new Set() };
+  } else if (decidedLocally.current.ids.size > 0) {
+    const relevant = new Set([String(snapshot.toolApproval?.id ?? ''), String(snapshot.toolApprovalResult?.id ?? '')]);
+    for (const id of decidedLocally.current.ids) if (!relevant.has(id)) decidedLocally.current.ids.delete(id);
+  }
+  const retiredApproval = useRetiredApproval(snapshot, decidedLocally.current.ids);
+  // The approval this device tried to answer after another device already had.
+  const [answeredElsewhere, setAnsweredElsewhere] = useState<{ id: string; device: string } | null>(null);
+  const multiDevice = useMemo(() => sessionUsesMultipleDevices(snapshot.items), [snapshot.items]);
   const { suppressDraftSubmitPaintHandoff, visibleWarmPaintHandoff } = useConversationPaintHandoff(
     draftMode,
     warmPaintHandoff
@@ -361,14 +399,41 @@ export function Conversation({
   // Session retry: a failed turn that produced no output resubmits its prompt
   // and the runtime rewinds the unanswered copy, so the model sees the prompt
   // once; a turn that already sampled output continues from where it stopped.
-  const retryTurn = (turnKey: string) => {
+  const retryTurn = async (turnKey: string): Promise<boolean> => {
     const text = turnPromptText(settledItems, settledTurnKeys, turnKey);
-    if (!text) return;
+    if (!text) return false;
     const prompt = turnSampledOutput(settledItems, settledTurnKeys, turnKey)
       ? t('Continue from where you left off.')
       : text;
-    void composerSubmit(prompt, { retryFailedTurn: true });
+    return (await composerSubmit(prompt, { retryFailedTurn: true })) === true;
   };
+  const retryTurnRef = useRef(retryTurn);
+  retryTurnRef.current = retryTurn;
+  const [dismissedQuotaTurn, setDismissedQuotaTurn] = useState('');
+  const [continueFlash, setContinueFlash] = useState<ComposerIslandFlash | null>(null);
+  const continueFlashSequence = useRef(0);
+  const latestCompletion = useMemo(() => {
+    for (let index = settledItems.length - 1; index >= 0; index -= 1) {
+      if (settledItems[index]?.kind === 'turndone') return settledItems[index];
+    }
+    return undefined;
+  }, [settledItems]);
+  // Context consumers (every transcript row and file link) keep their memo:
+  // the providers get a stable opener that calls the latest prop.
+  const openFileRef = useRef(onOpenFile);
+  openFileRef.current = onOpenFile;
+  const stableOpenFile = useCallback<NonNullable<typeof onOpenFile>>(
+    (...args) => openFileRef.current?.(...args),
+    []
+  );
+  const openFile = onOpenFile ? stableOpenFile : undefined;
+  const openFolderRef = useRef(onOpenFolder);
+  openFolderRef.current = onOpenFolder;
+  const stableOpenFolder = useCallback<NonNullable<typeof onOpenFolder>>(
+    (...args) => openFolderRef.current?.(...args),
+    []
+  );
+  const openFolder = onOpenFolder ? stableOpenFolder : undefined;
   const renderTranscriptRow = (row: TranscriptRowModel) =>
     transcriptRowNode(row, {
       disclosureScope,
@@ -378,10 +443,180 @@ export function Conversation({
       retryDisabled,
       settledItems,
       settledTurnKeys,
+      latestCompletion,
       snapshot,
       onRetryTurn: retryTurn,
       onOpenSettings,
     });
+
+  // A pending approval grows the island into its card. An answer from another
+  // device leaves no card: the island flashes it instead.
+  let approvalCard: ReactNode = null;
+  const pendingApproval = snapshot.toolApproval;
+  if (pendingApproval && String(pendingApproval.id ?? '') !== answeredElsewhere?.id) {
+    approvalCard = (
+      <ApprovalCard
+        key={approvalInstanceKey(pendingApproval.id)}
+        approval={pendingApproval}
+        resolve={async (approved) => {
+          const host = window.mixdogDesktop;
+          const sessionId = routeSessionIdRef.current;
+          const approvalId = String(pendingApproval.id ?? '');
+          if (!sessionId) return false;
+          const accepted = await host.resolveToolApprovalForSession(sessionId, approvalId, { approved });
+          if (accepted === true && decidedLocally.current.sessionId === decidedSessionId) {
+            decidedLocally.current.ids.add(approvalId);
+          }
+          if (accepted === false) {
+            const result = snapshot.toolApprovalResult;
+            setAnsweredElsewhere({
+              id: approvalId,
+              device: multiDevice && result?.id === approvalId ? result.device : '',
+            });
+          }
+          return accepted;
+        }}
+      />
+    );
+  }
+  let islandFlash: ComposerIslandFlash | null = null;
+  if (retiredApproval) {
+    const { approval, outcome } = retiredApproval;
+    islandFlash = {
+      key: `retired:${approvalInstanceKey(approval.id)}`,
+      text: outcome.approved
+        ? t('Allowed from {{device}}', { device: outcome.device })
+        : t('Denied from {{device}}', { device: outcome.device }),
+    };
+  } else if (answeredElsewhere) {
+    islandFlash = {
+      key: `elsewhere:${answeredElsewhere.id}`,
+      text: answeredElsewhere.device
+        ? `${t('Resolved on another device')} · ${t('from {{device}}', { device: answeredElsewhere.device })}`
+        : t('Resolved on another device'),
+    };
+  } else if (continueFlash) {
+    islandFlash = continueFlash;
+  }
+  // The latest turn stopped on an exhausted provider quota and nothing has
+  // begun since: offer leaving it stopped or continuing in another model.
+  const quotaFailure = draftMode ? null : latestQuotaFailure(settledItems, settledTurnKeys);
+  const quotaSessionId = String(routeSnapshot.sessionId || '');
+  const [quotaAutoResume, setQuotaAutoResume] = useState<boolean | null>(null);
+  const quotaWatched = Boolean(quotaFailure);
+  useEffect(() => {
+    if (!quotaWatched) return undefined;
+    let live = true;
+    const read = () =>
+      void Promise.resolve(window.mixdogDesktop.getQuotaAutoResume?.())
+        .then((enabled) => live && typeof enabled === 'boolean' && setQuotaAutoResume(enabled))
+        .catch(() => {});
+    read();
+    const unsubscribe = subscribeSetupChanges(read);
+    return () => {
+      live = false;
+      unsubscribe();
+    };
+  }, [quotaWatched]);
+  const continueQuotaInAnotherModel = (turnKey: string) => {
+    // If no picker answers (model controls locked) the panel stays as is.
+    beginQuotaContinue(quotaSessionId, (selection) => {
+      void composerInvokeResult(() =>
+        continueAfterQuota({
+          switchModel: () => window.mixdogDesktop.continueSessionInModel(quotaSessionId, selection),
+          retry: () => retryTurnRef.current(turnKey),
+        })
+      ).then((outcome) => {
+        if (outcome === undefined || outcome === 'failed') return;
+        onRoutePreferenceApplied?.(selection, { modelChoice: true });
+        if (outcome !== 'retried') return;
+        continueFlashSequence.current += 1;
+        setContinueFlash({
+          key: `quota-continue:${continueFlashSequence.current}`,
+          text: t('Continuing this chat in {{model}}', {
+            model: modelDisplayName(selection.model, selection.provider),
+          }),
+        });
+      });
+    });
+  };
+  const waitingResume = draftMode || !quotaSessionId ? null : (snapshot.quotaResume ?? null);
+  const quotaPlan = quotaIslandPlan({
+    resume: waitingResume,
+    failure: quotaFailure,
+    autoResume: quotaAutoResume,
+    panelVisible:
+      transcriptPendingPromptItems.length === 0 &&
+      quotaPanelVisible({
+        failure: quotaFailure,
+        sessionId: quotaSessionId,
+        busy: Boolean(snapshot.busy),
+        dismissedKey: dismissedQuotaTurn,
+      }),
+  });
+  const quotaExhausted: ComposerIslandQuota | null =
+    quotaFailure && (quotaPlan === 'panel' || quotaPlan === 'panel-schedule')
+      ? {
+          provider: providerDisplayName(quotaFailure.quota.provider),
+          resetAt: quotaFailure.quota.resetAt,
+          onDismiss: () => setDismissedQuotaTurn(quotaDismissKey(quotaSessionId, quotaFailure.turnKey)),
+          onContinue: () => continueQuotaInAnotherModel(quotaFailure.turnKey),
+          onSchedule:
+            quotaPlan === 'panel-schedule'
+              ? () => void composerInvokeResult(() => window.mixdogDesktop.scheduleQuotaResume(quotaSessionId))
+              : undefined,
+        }
+      : null;
+  const quotaResume: ComposerIslandQuotaResume | null =
+    quotaPlan === 'resume' && waitingResume
+      ? {
+          model: modelDisplayName(waitingResume.model, waitingResume.provider),
+          resetAt: waitingResume.resetAt,
+          // Cancelling only drops the reservation: the turn stays stopped and
+          // the island closes rather than reopening the quota panel.
+          onCancel: () => {
+            const dismissKey = quotaDismissKey(quotaSessionId, quotaFailure?.turnKey || waitingResume.turnKey);
+            void composerInvokeResult(() => window.mixdogDesktop.cancelQuotaResume(quotaSessionId)).then(
+              (cancelled) => {
+                if (cancelled === true) setDismissedQuotaTurn(dismissKey);
+              }
+            );
+          },
+          onContinue: () => continueQuotaInAnotherModel(waitingResume.turnKey),
+        }
+      : null;
+  // The chat keeps the route it runs on while the composer may already hold
+  // another pick: offer reverting the pick or continuing the chat in it.
+  const sessionProvider = String(routeSnapshot.sessionProvider || '');
+  const sessionModel = String(routeSnapshot.sessionModel || '');
+  const selectedProvider = String(routeSnapshot.provider || '');
+  const selectedModel = String(routeSnapshot.model || '');
+  const modelMismatch: ComposerIslandModelMismatch | null =
+    !draftMode &&
+    sessionProvider &&
+    sessionModel &&
+    selectedModel &&
+    (sessionProvider !== selectedProvider || sessionModel !== selectedModel)
+      ? {
+          sessionModel: modelDisplayName(sessionModel, sessionProvider),
+          selectedModel: modelDisplayName(selectedModel, selectedProvider),
+          onRevert: () => {
+            const sessionId = routeSessionIdRef.current;
+            if (!sessionId) return;
+            void composerInvokeResult(async () => {
+              const next = await window.mixdogDesktop.setModelRoute(
+                { provider: sessionProvider, model: sessionModel },
+                sessionId
+              );
+              composerApplySnapshot(next);
+              return next;
+            });
+          },
+          onContinue: () => {
+            void composerInvokeResult(() => composerOnInherit());
+          },
+        }
+      : null;
 
   return (
     <section
@@ -459,25 +694,27 @@ export function Conversation({
               visible up/down bounce on entering a session. */}
             <MarkdownProjectContext.Provider value={routeProject}>
               <MarkdownSessionContext.Provider value={draftMode ? '' : String(routeSnapshot.sessionId || '')}>
-                <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
-                  <MarkdownOpenFolderContext.Provider value={onOpenFolder ?? null}>
-                    {showTranscriptTimeline && (
-                      <TranscriptList
-                        key={transcriptIdentity.current}
-                        sessionKey={transcriptSessionKey}
-                        rows={transcriptRows}
-                        viewport={viewport}
-                        content={content}
-                        bottomInset={composerDockHeight}
-                        shouldAnchorBottom={shouldAnchorTranscriptBottom}
-                        markProgrammaticScroll={markTranscriptProgrammaticScroll}
-                        hasScrollGesture={hasTranscriptScrollGesture}
-                        onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
-                        setAnchorBottomRef={setTranscriptAnchorBottomRef}
-                        scrollToEndRef={scrollToEndRef}
-                        renderRow={renderTranscriptRow}
-                      />
-                    )}
+                <MarkdownOpenFileContext.Provider value={openFile ?? null}>
+                  <MarkdownOpenFolderContext.Provider value={openFolder ?? null}>
+                    <TranscriptDevicesContext.Provider value={multiDevice}>
+                      {showTranscriptTimeline && (
+                        <TranscriptList
+                          key={transcriptIdentity.current}
+                          sessionKey={transcriptSessionKey}
+                          rows={transcriptRows}
+                          viewport={viewport}
+                          content={content}
+                          bottomInset={composerDockHeight}
+                          shouldAnchorBottom={shouldAnchorTranscriptBottom}
+                          markProgrammaticScroll={markTranscriptProgrammaticScroll}
+                          hasScrollGesture={hasTranscriptScrollGesture}
+                          onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
+                          setAnchorBottomRef={setTranscriptAnchorBottomRef}
+                          scrollToEndRef={scrollToEndRef}
+                          renderRow={renderTranscriptRow}
+                        />
+                      )}
+                    </TranscriptDevicesContext.Provider>
                   </MarkdownOpenFolderContext.Provider>
                 </MarkdownOpenFileContext.Provider>
               </MarkdownSessionContext.Provider>
@@ -491,24 +728,15 @@ export function Conversation({
       {!readOnly && (
         <ComposerDock
           dockRef={composerDock}
-          onOpenFile={onOpenFile}
+          sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
           goalIsland={goalIsland}
           goalSubmissionId={goalSubmissionId}
-          approval={
-            snapshot.toolApproval ? (
-              <ApprovalCard
-                key={approvalInstanceKey(snapshot.toolApproval.id)}
-                approval={snapshot.toolApproval}
-                resolve={(approved) => {
-                  const host = window.mixdogDesktop;
-                  const sessionId = routeSessionIdRef.current;
-                  const approvalId = String(snapshot.toolApproval?.id || '');
-                  if (!sessionId) return Promise.resolve(false);
-                  return host.resolveToolApprovalForSession(sessionId, approvalId, { approved });
-                }}
-              />
-            ) : null
-          }
+          approval={approvalCard}
+          islandFlash={islandFlash}
+          modelMismatch={modelMismatch}
+          quotaExhausted={quotaExhausted}
+          quotaResume={quotaResume}
+          onOpenSessionDiff={onOpenSessionDiff}
           showProjectSelector={showProjectSelector}
           contextBar={
             <>
@@ -543,6 +771,7 @@ export function Conversation({
           reviewCwd={routeProject}
         >
           <Composer
+            onOpenFile={openFile}
             turnBusy={Boolean(snapshot.busy)}
             commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
             transitioning={transitioning}
@@ -572,6 +801,7 @@ export function Conversation({
             hiddenQueueIds={pendingPromptIds}
             pendingSubmissionIds={pendingPromptIds}
             onQueuedRestored={composerQueuedRestored}
+            promptRestore={draftMode ? null : (routeSnapshot.promptRestore ?? null)}
             userMessages={composerUserMessages}
             submit={composerSubmit}
             abort={composerAbort}

@@ -13,7 +13,7 @@ import {
 } from './turn-worktree-snapshot.mjs';
 import { loadSessionSnapshotRecords, loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
 import { boundReviewPatch } from './review-diff.mjs';
-import { PATCH_SNAPSHOT_MAX_BYTES } from './bounded-file-read.mjs';
+import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 
 // Turn-scoped review registry.
@@ -31,7 +31,8 @@ import { cleanString as clean } from './clean.mjs';
 const DISABLED = /^(0|false|off)$/i.test(String(process.env.MIXDOG_TURN_SNAPSHOT || ''));
 const TURN_CACHE_MAX = 32;
 const MAX_PATCH_BYTES = 2_000_000;
-const MAX_TRACKED_CONTENT_BYTES = 64 * 1024 * 1024;
+// Room for one maximum-size edit's before and after content plus small edits.
+const MAX_TRACKED_CONTENT_BYTES = 2 * PATCH_EDIT_MAX_BYTES + 32 * 1024 * 1024;
 const MAX_AGENT_REVIEWS_PER_TURN = 32;
 const MAX_AGENT_REVIEW_BYTES_PER_TURN = 4 * 1024 * 1024;
 
@@ -142,7 +143,7 @@ function contentBuffer(value) {
  *  the per-file snapshot limit: such content becomes an omitted marker. */
 function boundedBaselineContent(value) {
   const size = contentByteLength(value);
-  if (size > PATCH_SNAPSHOT_MAX_BYTES) return { omitted: true, size, reason: 'oversized' };
+  if (size > PATCH_EDIT_MAX_BYTES) return { omitted: true, size, reason: 'oversized' };
   return contentBuffer(value);
 }
 

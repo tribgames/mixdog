@@ -43,12 +43,16 @@ export function createAgentRouteApi(deps) {
       clean(selectedRoute.provider) === clean(stored.provider) && clean(selectedRoute.model) === clean(stored.model);
     const inheritedEffort = sameModel ? stored.effort || null : null;
     const inheritedModelParameters = sameModel ? stored.modelParameters || {} : {};
+    const inheritedContextPercent = sameModel ? stored.contextPercent : undefined;
     selectedRoute = {
       ...selectedRoute,
       effort: requested.effort !== undefined ? selectedRoute.effort : inheritedEffort,
       fast: requested.fast !== undefined ? selectedRoute.fast === true : sameModel && stored.fast === true,
       modelParameters:
         requested.modelParameters !== undefined ? selectedRoute.modelParameters : inheritedModelParameters,
+      // resolveRoute reads contextPercent from Main's modelSettings bucket;
+      // an agent route owns its own.
+      contextPercent: requested.contextPercent !== undefined ? requested.contextPercent : inheritedContextPercent,
     };
     await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
     const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);

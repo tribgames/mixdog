@@ -6,6 +6,7 @@ import type { ResolvedLocalLink } from './local-link-resolver';
 import type { TranscriptItem } from './desktop-types';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
+import { DocSheet, FileTypeWord, TableThumbnail, delimitedSummary, fileTone } from './file-thumbnail-art';
 import { t } from './i18n';
 import { verifyLocalLink } from './local-link-resolver';
 import { MarkdownLink, MarkdownProjectContext } from './MarkdownLink';
@@ -248,56 +249,147 @@ function LocalImageArtifact({ artifact, square }: { artifact: TranscriptArtifact
   );
 }
 
-/** Office outputs are often removed after the turn (smoke tests, cleanups): a
- *  card whose file is gone reads as deleted instead of offering an open that fails. */
+/** What a document card shows as its thumbnail. */
+type DocumentThumb =
+  | { phase: 'loading' }
+  | { phase: 'page'; src: string; pageCount: number }
+  | { phase: 'table'; rows: string[][]; rowCount: number; columnCount: number }
+  | { phase: 'failed' }
+  | { phase: 'missing' };
+
+// Small first page: the thumbnail is at most 64px wide, so the preview
+// service's smallest width already covers a 2x screen.
+const THUMBNAIL_PAGE_WIDTH = 320;
+const WIDE_DOCUMENT = /\.(?:xlsx?|xlsm|ods|csv|tsv|pptx?|pptm|odp)$/i;
+const SLIDES = /\.(?:pptx?|pptm|odp)$/i;
+
+/** The first page through the document preview pipeline (PDF in place, office
+ *  files converted), or for CSV/TSV a table drawn from the file's first rows. */
+async function documentThumb(match: ResolvedLocalLink, name: string): Promise<DocumentThumb> {
+  const api = window.mixdogDesktop;
+  const delimiter = /\.tsv$/i.test(name) ? '\t' : /\.csv$/i.test(name) ? ',' : '';
+  if (delimiter) {
+    const file = await api?.readProjectFile?.(match.project, match.path, match.accessToken);
+    if (!file || file.binary || file.tooLarge || !file.content.trim()) return { phase: 'failed' };
+    return { phase: 'table', ...delimitedSummary(file.content, delimiter) };
+  }
+  const reply = await api?.previewDocumentPages?.(match.project, match.path, match.accessToken, {
+    pages: [1],
+    maxWidth: THUMBNAIL_PAGE_WIDTH,
+  });
+  const page = reply?.pages.find((entry) => entry.page === 1);
+  if (!reply || !page?.base64) return { phase: 'failed' };
+  return { phase: 'page', src: `data:${page.mime};base64,${page.base64}`, pageCount: reply.pageCount };
+}
+
+function byteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** A written document as a horizontal card: its first page (or a table drawn
+ *  from a CSV), name, type · pages · size and an Open affordance. Until the
+ *  page arrives, when it cannot be made, or when the file is gone, the drawn
+ *  document sheet stands in. Office outputs are often removed after the turn
+ *  (smoke tests, cleanups): a card whose file is gone reads as deleted instead
+ *  of offering an open that fails. */
 function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
   const project = useContext(MarkdownProjectContext);
   const href = artifactHref(artifact.path);
-  const [missing, setMissing] = useState(false);
+  const [thumb, setThumb] = useState<DocumentThumb>({ phase: 'loading' });
+  const [size, setSize] = useState<number | null>(null);
   useEffect(() => {
-    setMissing(false);
-    if (!window.mixdogDesktop?.statProjectFile) return;
+    setSize(null);
+    const api = window.mixdogDesktop;
+    if (!api?.statProjectFile) {
+      setThumb({ phase: 'failed' });
+      return;
+    }
+    setThumb({ phase: 'loading' });
     let active = true;
     verifyLocalLink(project, parseLocalFileLocation(href).path).then(
-      () => undefined,
+      (match) => {
+        if (!active) return;
+        api.statProjectFile?.(match.project, match.path, match.accessToken).then(
+          (info) => {
+            if (active) setSize(info.size);
+          },
+          () => undefined
+        );
+        documentThumb(match, artifact.name).then(
+          (next) => {
+            if (active) setThumb(next);
+          },
+          () => {
+            if (active) setThumb({ phase: 'failed' });
+          }
+        );
+      },
       () => {
-        if (active) setMissing(true);
+        if (active) setThumb({ phase: 'missing' });
       }
     );
     return () => {
       active = false;
     };
-  }, [project, href]);
-  // No document thumbnail is captured, so the card is a format tile.
+  }, [project, href, artifact.name]);
+  const missing = thumb.phase === 'missing';
   const format = formatLabel(artifact.name);
-  const tile = (
+  const tone = fileTone(artifact.name);
+  const wide = WIDE_DOCUMENT.test(artifact.name);
+  const facts: string[] = [];
+  if (missing) facts.push(t('Deleted'));
+  else if (thumb.phase === 'loading') facts.push(t('Preparing preview…'));
+  else if (thumb.phase === 'page') {
+    facts.push(
+      SLIDES.test(artifact.name)
+        ? t('{{count}} slides', { count: thumb.pageCount })
+        : t('{{count}} pages', { count: thumb.pageCount })
+    );
+  } else if (thumb.phase === 'table') {
+    facts.push(t('{{count}} rows', { count: thumb.rowCount }), t('{{count}} columns', { count: thumb.columnCount }));
+  }
+  if (!missing && size !== null) facts.push(byteSize(size));
+  let picture: ReactNode = <DocSheet tone={tone} />;
+  if (thumb.phase === 'page') picture = <img className="file-page" src={thumb.src} alt="" />;
+  else if (thumb.phase === 'table') picture = <TableThumbnail rows={thumb.rows} />;
+  const card = (
     <>
-      <span className="transcript-artifact-badge" aria-hidden="true">
-        {format || <FileText size={20} />}
+      <span className={`transcript-artifact-thumb${wide ? ' wide' : ''}`} data-thumb={thumb.phase}>
+        {picture}
       </span>
-      <span className="transcript-artifact-caption">
+      <span className="transcript-artifact-body">
         <span>{artifact.name}</span>
-        <small>{missing ? t('Deleted') : t('Open file')}</small>
+        <small>
+          {format && <FileTypeWord tone={tone} label={format} />}
+          <span>{facts.join(' · ') || t('Open file')}</span>
+        </small>
       </span>
+      {!missing && (
+        <span className="transcript-artifact-open" aria-hidden="true">
+          {t('Open')}
+        </span>
+      )}
     </>
   );
   if (missing) {
     return (
       <span className="transcript-artifact-file" title={artifact.path} aria-disabled="true">
-        {tile}
+        {card}
       </span>
     );
   }
   return (
     <MarkdownLink className="transcript-artifact-file" title={artifact.path} href={href}>
-      {tile}
+      {card}
     </MarkdownLink>
   );
 }
 
 /** One to three media keep their own ratios on a row that never wraps, so a
  *  decoded size changes widths but never the turn's height; four or more
- *  become a grid of same-size squares. Files follow as format tiles. */
+ *  become a grid of same-size squares. Files follow as document cards. */
 export function TranscriptArtifacts({ items }: { items: readonly TranscriptItem[] }) {
   const artifacts = useMemo(() => transcriptArtifacts(items), [items]);
   if (!artifacts.length) return null;

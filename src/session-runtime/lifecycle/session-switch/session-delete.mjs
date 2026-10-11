@@ -88,6 +88,12 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
     setSession(null);
     invalidateContextStatusCache();
     invalidatePreSessionToolSurface();
+    // An addressed runtime never mints a replacement under the deleted
+    // address: it becomes terminal and a new conversation needs a new entry.
+    if (deps.getAddressedSessionId?.()) {
+      deps.markAddressTerminal?.();
+      return true;
+    }
     await createCurrentSession();
     return true;
   }

@@ -88,7 +88,7 @@ const HARNESS = `
         </div>
         <button className="jump-to-latest">Latest</button>
       </div>
-      <ComposerDock dockRef={dock} goalSubmissionId="" showProjectSelector={false}
+      <ComposerDock dockRef={dock} sessionId="" goalSubmissionId="" showProjectSelector={false}
         goalIsland={state.goal ? <SessionGoalIsland snapshot={{
           sessionId: session, goal: {
             id: 'goal', title: 'Keep the reading position', objective: 'Stable layout', status: 'paused',
@@ -233,21 +233,18 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
         assert.ok(Math.abs(after.rowTop - before.rowTop) <= 1, 'the same message stays at the same screen position');
       }
     };
-    await page.evaluate(() => window.fixture.change({ goal: true, review: true, composer: 156 }));
-    await page.waitForSelector('.turn-review-bar');
+    const empty = await geometry(page, before.key);
+    await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
+    await page.waitForSelector('.turn-review-segment');
     await stable();
     const collapsed = await geometry(page, before.key);
-    await page.click('.turn-review-summary');
-    await stable();
-    assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'review disclosure overlays the reader');
-    const stack = await page.evaluate(() => ({
-      goalBottom: document.querySelector('.session-goal-island').getBoundingClientRect().bottom,
-      reviewTop: document.querySelector('.turn-review-bar').getBoundingClientRect().top,
-    }));
-    assert.ok(stack.goalBottom <= stack.reviewTop + 0.5, 'an open review lifts Goal above its file list');
+    assert.equal(collapsed.dockHeight, empty.dockHeight, 'the island slot is reserved before anything shows');
     await page.click('.session-goal-trigger');
     await stable();
-    assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'Goal disclosure overlays the reader');
+    assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'the Goal tab overlays the reader');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.fixture.change({ composer: 156 }));
+    await stable();
 
     await page.evaluate((key) => window.fixture.suspend(key), before.key);
     await page.waitForSelector('[data-transcript-pending]');

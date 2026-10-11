@@ -256,21 +256,50 @@ async function _initProvidersUnsynchronized(config, signal = null) {
         return { name, inst, sig };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { name, error: new Error(`[provider] Failed to init "${name}": ${msg}`) };
+        const error = new Error(`[provider] Failed to init "${name}": ${msg}`);
+        // One invalid custom provider is isolated: it is skipped (never
+        // partially loaded) and reported, the rest of the registry builds.
+        if (isCustomProviderConfig(name, cfg) && !signal?.aborted) return { name, error, isolated: true };
+        return { name, error };
       }
     })
   );
+  const nextInitErrors = new Map();
   for (const result of enabledResults) {
     throwIfAborted(signal);
     if (!result) continue;
+    if (result.isolated) {
+      nextInitErrors.set(result.name, result.error.message);
+      process.stderr.write(`${result.error.message} (provider skipped; fix its configuration)\n`);
+      continue;
+    }
     if (result.error) throw result.error;
     next.set(result.name, result.inst);
     if (result.sig !== null) nextSignatures.set(result.name, result.sig);
   }
+  _providerInitErrors = nextInitErrors;
   // Second guard: every entry was disabled. Same reasoning — keep the
-  // existing registry rather than going dark.
+  // existing registry rather than going dark. Isolation still holds: a live
+  // instance of a provider that is now an invalid custom config is removed
+  // (the rest of the registry stays), and the recorded reasons are reported.
   if (next.size === 0) {
-    throw noEnabledProvidersError('[provider] all providers disabled in config — refusing to clear registry');
+    let removed = false;
+    for (const name of nextInitErrors.keys()) {
+      removed = providers.delete(name) || removed;
+      signatures.delete(name);
+    }
+    if (removed) {
+      _providerCatalogRevision += 1;
+      _startupCatalogRefreshPromise = null;
+      // The live registry no longer reflects the last applied config.
+      _lastAppliedSig = null;
+    }
+    const reasons = [...nextInitErrors.values()];
+    throw noEnabledProvidersError(
+      `[provider] all providers disabled in config — refusing to clear registry${
+        reasons.length ? `; invalid custom providers skipped: ${reasons.join('; ')}` : ''
+      }`
+    );
   }
   // OAuth preservation guard. anthropic-oauth / openai-oauth are NOT stored
   // in mixdog-config.json — buildDefaultConfig injects them at runtime by
@@ -319,6 +348,12 @@ async function _initProvidersUnsynchronized(config, signal = null) {
   for (const [k, v] of next) providers.set(k, v);
   signatures.clear();
   for (const [k, v] of nextSignatures) signatures.set(k, v);
+}
+
+// Custom providers skipped by the last applied init, by name → error message.
+let _providerInitErrors = new Map();
+export function getProviderInitErrors() {
+  return new Map(_providerInitErrors);
 }
 // Register a lazily self-healed OAuth instance. Bumps the catalog revision and
 // drops the settled startup-refresh epoch so the newcomer's catalog is fetched

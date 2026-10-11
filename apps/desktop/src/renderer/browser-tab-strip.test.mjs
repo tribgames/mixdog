@@ -60,3 +60,37 @@ test('tab chrome selects and closes exact pages, creates a tab, and exposes rest
     host.remove();
   }
 });
+
+test('a page tab wears its site icon, and falls back to the globe when the icon fails to load', async () => {
+  const { resetBrowserPageIdentityCache } = await import('./browser-page-identity.ts');
+  const FAVICON = 'data:image/png;base64,AAAA';
+  dom.window.mixdogDesktop = {
+    browserPageIdentity: async (url) => (url === 'https://a.test/' ? { url, favicon: FAVICON } : null),
+  };
+  resetBrowserPageIdentityCache();
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(BrowserTabStrip, {
+          tabs: [{ id: 'p1', title: 'A', url: 'https://a.test/x', active: true, loading: false, kind: 'page' }],
+          onSelect: async () => {},
+          onClose: async () => {},
+        })
+      )
+    );
+    await act(async () => {});
+    const icon = host.querySelector('[role="tab"] img.browser-tab-favicon');
+    assert.equal(icon?.getAttribute('src'), FAVICON);
+    await act(async () => icon.dispatchEvent(new dom.window.Event('error')));
+    assert.equal(host.querySelector('[role="tab"] img'), null);
+    assert.ok(host.querySelector('[role="tab"] svg.lucide-globe'));
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    resetBrowserPageIdentityCache();
+    delete dom.window.mixdogDesktop;
+  }
+});

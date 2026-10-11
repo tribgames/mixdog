@@ -23,7 +23,12 @@ test('HF discovery, consent and maintenance route to their explicit runtime oper
   const executor = createSetupToolExecutor({ getApi: () => facade });
   const run = (args) => executor.execute(args);
   await run({ action: 'search_local_models', query: 'coding gguf' });
-  await run({ action: 'inspect_hf_model', repository: 'publisher/model', filename: 'model.gguf', contextWindow: 16384 });
+  await run({
+    action: 'inspect_hf_model',
+    repository: 'publisher/model',
+    filename: 'model.gguf',
+    contextWindow: 16384,
+  });
   await run({ action: 'register_hf_model', previewId: 'inspected', licenseAccepted: true });
   await run({ action: 'local_model_details', modelId: 'registered' });
   await run({ action: 'maintain_local_model', modelId: 'registered', operation: 'repair' });

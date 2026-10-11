@@ -1,4 +1,5 @@
 import type { DesktopApi, DesktopSettingKey, DesktopCapability, DesktopRemoteAccessInfo } from '../shared/contract';
+import { NOTIFICATION_VOLUME_MAX } from '../shared/contract-settings';
 import { normalizeActivityRailPins } from '../shared/activity-rail-pins';
 
 type Values = Record<string, unknown>;
@@ -7,6 +8,21 @@ export interface SetupPreferences {
   write(input: Values): Promise<Values>;
 }
 const record = (value: unknown): Values => (value && typeof value === 'object' ? (value as Values) : {});
+
+type OptionalMethod = {
+  [K in keyof DesktopApi]-?: undefined extends DesktopApi[K]
+    ? NonNullable<DesktopApi[K]> extends (...args: never[]) => unknown
+      ? K
+      : never
+    : never;
+}[keyof DesktopApi];
+
+/** An optional Desktop API method, bound to the API; throws when this host lacks it. */
+export function hostMethod<K extends OptionalMethod>(api: DesktopApi, key: K): NonNullable<DesktopApi[K]> {
+  const method = api[key];
+  if (typeof method !== 'function') throw new Error(`${key} is not available on this host`);
+  return method.bind(api) as NonNullable<DesktopApi[K]>;
+}
 const clientsOnly = (info: DesktopRemoteAccessInfo | null) => ({
   available: info !== null,
   clients: (info?.clients || []).map(({ id, name, platform, browser, createdAt, lastSeenAt, online }) => ({
@@ -31,19 +47,22 @@ type SetupActionContext = {
   mutate: <T>(operation: () => Promise<T>) => Promise<T>;
   invoke: (capability: DesktopCapability, values?: unknown[]) => Promise<Values>;
   projects: () => ReturnType<DesktopApi['listProjects']>;
-  requireProject: (path: string | null) => Promise<void>;
+  requireProject: (path: string | null) => Promise<string>;
   saved: (value: Values, appliesTo?: string) => Values;
 };
 
 async function statusAction({ args, api, preferences, invoke, projects }: SetupActionContext): Promise<Values> {
   switch (args.domain) {
-    case 'desktop':
+    case 'desktop': {
+      const settings = await api.readSettings();
       return {
-        settings: await api.readSettings(),
+        settings,
+        notificationVolume: settings.notificationVolume,
         voice: await invoke('getVoiceStatus'),
         activityRailPins: (await api.readActivityRailPins())?.pins ?? null,
         scope: 'desktop-host',
       };
+    }
     case 'appearance':
       return {
         ...(await preferences.read()),
@@ -53,7 +72,10 @@ async function statusAction({ args, api, preferences, invoke, projects }: SetupA
     case 'projects':
       return { projects: await projects(), scope: 'installation' };
     case 'connection':
-      return { ...clientsOnly(await api.getRemoteAccessInfo!()), scope: 'desktop-host' };
+      return {
+        ...clientsOnly(await hostMethod(api, 'getRemoteAccessInfo')({ activate: false })),
+        scope: 'desktop-host',
+      };
     default:
       throw new Error('Unsupported Desktop status domain');
   }
@@ -63,6 +85,15 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
   const input = record(args.desktop);
   const applied: string[] = [];
   for (const [key, value] of Object.entries(input)) {
+    if (key === 'notificationVolume') {
+      if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > NOTIFICATION_VOLUME_MAX) {
+        throw new Error(`notificationVolume must be an integer from 0 to ${NOTIFICATION_VOLUME_MAX}`);
+      }
+      if (!api.setNotificationVolume || !globalThis.navigator?.userAgent?.includes('Windows')) {
+        throw new Error('notificationVolume is only available on Windows Desktop');
+      }
+      continue;
+    }
     if (
       !['keepAwake', 'runInBackground', 'turnNotifications', 'usagePinned', 'computerObserveOnly'].includes(key) ||
       typeof value !== 'boolean'
@@ -72,8 +103,11 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
   }
   for (const [key, value] of Object.entries(input)) {
     try {
-      const result = await mutate(() => api.updateSetting(key as DesktopSettingKey, value as boolean));
-      if (result[key as DesktopSettingKey] !== value) throw new Error('Persisted value differs');
+      const result =
+        key === 'notificationVolume'
+          ? await mutate(() => hostMethod(api, 'setNotificationVolume')(value as number))
+          : await mutate(() => api.updateSetting(key as DesktopSettingKey, value as boolean));
+      if ((result as unknown as Values)[key] !== value) throw new Error('Persisted value differs');
       applied.push(key);
     } catch (error) {
       throw new Error(`Could not save ${key}. Already saved: ${applied.join(', ') || 'none'}. ${String(error)}`);
@@ -88,17 +122,10 @@ async function builtinAction(
 ): Promise<Values> {
   const name = String(args.name);
   const enabled = action === 'install_builtin' || args.enabled === true;
-  if (name === 'voice') {
-    const result = await mutate(() => invoke('toggleVoice', [enabled]));
-    if (result.enabled !== enabled || (enabled && result.installed !== true)) {
-      throw new Error('Voice did not reach the requested installed/enabled state');
-    }
-    return saved({ voice: result });
-  }
   // Git and Office install like their Built-in card: the system dependency
   // first (a present one answers at once), then the runtime activation.
   if (action === 'install_builtin' && (name === 'git' || name === 'office')) {
-    const dependency = await mutate(() => (name === 'git' ? api.installGitCli!() : api.installLibreOffice!()));
+    const dependency = await mutate(() => hostMethod(api, name === 'git' ? 'installGitCli' : 'installLibreOffice')());
     if (!dependency?.installed) {
       throw new Error(`${name === 'git' ? 'Git' : 'LibreOffice'} installation did not complete`);
     }
@@ -146,8 +173,8 @@ async function saveProjectAction({ args, api, mutate, projects, saved }: SetupAc
 
 async function removeProjectAction(context: SetupActionContext): Promise<Values> {
   const { api, mutate, projects, projectPath, requireProject, saved } = context;
-  await requireProject(projectPath);
-  await mutate(() => api.removeProject(projectPath!));
+  const path = await requireProject(projectPath);
+  await mutate(() => api.removeProject(path));
   return {
     ...saved({
       projects: await projects(),
@@ -159,9 +186,9 @@ async function removeProjectAction(context: SetupActionContext): Promise<Values>
 
 async function revokeLinkedDeviceAction({ args, api, mutate, saved }: SetupActionContext): Promise<Values> {
   const id = String(args.name || '');
-  const before = await api.getRemoteAccessInfo!();
+  const before = await hostMethod(api, 'getRemoteAccessInfo')({ activate: false });
   if (!before?.clients.some((client) => client.id === id)) throw new Error('Linked device not found');
-  const after = await mutate(() => api.revokeRemoteAccessClient!(id));
+  const after = await mutate(() => hostMethod(api, 'revokeRemoteAccessClient')(id));
   if (after?.clients.some((client) => client.id === id)) throw new Error('Device revocation was not confirmed');
   return saved({ ...clientsOnly(after), recovery: 'The device must pair again to regain access.' });
 }
@@ -194,6 +221,7 @@ export async function executeSetupDesktopAction(
       if (!path || !(await projects()).some((project) => project.path === path)) {
         throw new Error('Use an exact registered Project path from status projects.');
       }
+      return path;
     },
     saved: (value, appliesTo = 'the Desktop host, immediately') => ({
       ...value,

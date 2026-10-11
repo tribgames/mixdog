@@ -9,6 +9,7 @@ import { build } from 'esbuild';
 import React from 'react';
 import { render } from 'ink';
 import stringWidth from 'string-width';
+import chalk from 'chalk';
 
 const backendKey = Symbol.for('mixdog.status-panels.test.backend');
 let directory;
@@ -96,6 +97,7 @@ function mountPanel(context) {
   const text = () => stripVTControlCharacters(frame).trimEnd();
   return {
     text,
+    raw: () => frame,
     show: async (Component, props) => {
       if (props.columns) {
         stdout.columns = props.columns;
@@ -234,6 +236,76 @@ test('spinner separators, pause accounting and width gating retain their output'
   assert.doesNotMatch(narrow, /tokens/);
   process.env.MIXDOG_REDUCED_MOTION = '0';
   assert.match(await view.show(panels.Spinner, { ...props, mode: 'responding' }), /thinking \(high\)/);
+});
+
+function spinnerHarness(context) {
+  const previousMotion = process.env.MIXDOG_REDUCED_MOTION;
+  context.after(() => {
+    if (previousMotion === undefined) delete process.env.MIXDOG_REDUCED_MOTION;
+    else process.env.MIXDOG_REDUCED_MOTION = previousMotion;
+  });
+  process.env.MIXDOG_REDUCED_MOTION = '0';
+  // The glyph tint is only observable in the escape codes of the raw frame.
+  const previousLevel = chalk.level;
+  chalk.level = 3;
+  context.after(() => {
+    chalk.level = previousLevel;
+  });
+  const clock = { now: 10000 };
+  // Frozen clock: the shared tick never considers itself due, so every render
+  // below is caused by an explicit show() and the animation is deterministic.
+  context.mock.method(Date, 'now', () => clock.now);
+  const view = mountPanel(context);
+  const props = { startedAt: 1000, outputTokens: 100, mode: 'responding', columns: 160, marginTop: 0 };
+  const glyphColor = (raw) => /((?:\x1b\[[\d;]*m)+)\S/.exec(raw)?.[1];
+  return { clock, glyphColor, show: (extra) => view.show(panels.Spinner, { ...props, ...extra }), view };
+}
+
+test('spinner token counter interpolates toward the target and snaps down', async (context) => {
+  const { show } = spinnerHarness(context);
+  assert.match(await show({ outputTokens: 100 }), /↓ 15 tokens/);
+  assert.match(await show({ outputTokens: 100 }), /↓ 28 tokens/);
+  assert.match(await show({ outputTokens: 40 }), /↓ 31 tokens/);
+  assert.match(await show({ outputTokens: 1000 }), /↓ 81 tokens/);
+  assert.match(await show({ outputTokens: 20 }), /↓ 20 tokens/);
+});
+
+test('spinner stall fades the glyph toward the error color and tool waits block it', async (context) => {
+  const { clock, glyphColor, show, view } = spinnerHarness(context);
+  await show({ outputTokens: 10 });
+  const healthy = glyphColor(view.raw());
+  assert.ok(healthy);
+  clock.now = 14000;
+  await show({ outputTokens: 10 });
+  const fading = glyphColor(view.raw());
+  assert.notEqual(fading, healthy);
+  clock.now = 16000;
+  await show({ outputTokens: 10 });
+  const stalled = glyphColor(view.raw());
+  assert.notEqual(stalled, fading);
+  // Fresh tokens end the stall; the intensity eases back instead of snapping.
+  await show({ outputTokens: 20 });
+  assert.notEqual(glyphColor(view.raw()), healthy);
+});
+
+for (const blocked of [{ hasActiveTools: true }, { mode: 'tool-use' }, { mode: 'tool-input' }, { paused: true }]) {
+  test(`spinner stall clock stays at zero while blocked: ${JSON.stringify(blocked)}`, async (context) => {
+    const { clock, glyphColor, show, view } = spinnerHarness(context);
+    await show({ outputTokens: 10, ...blocked });
+    const base = glyphColor(view.raw());
+    assert.ok(base);
+    clock.now = 16000;
+    await show({ outputTokens: 10, ...blocked });
+    assert.equal(glyphColor(view.raw()), base);
+  });
+}
+
+test('spinner resets pause accounting when the turn changes', async (context) => {
+  const { clock, show } = spinnerHarness(context);
+  await show({ paused: true });
+  clock.now = 15000;
+  assert.match(await show({ paused: true }), /\(9s ·/);
+  assert.match(await show({ startedAt: 14000, paused: false }), /\(1s ·/);
 });
 
 test('statusline retains measured context, cached quotas, route updates and stale-result rejection', async (context) => {

@@ -8,6 +8,7 @@ import {
   UI_LANGUAGE_ENTRY,
   claimNotificationClick,
   clearNotificationClick,
+  installPushSubscriptionSync,
   publishUiLanguage,
 } from './push-notification-bridge';
 import { WORKER_ORIGIN, loadWorker, memoryCacheStorage } from './sw-test-harness.mjs';
@@ -184,4 +185,52 @@ test('push fallback uses each supported preference and ignores invalid preferenc
   const worker = loadWorker({ caches, systemLanguage: 'ja-JP' });
   await push(worker, { title: 'History', body: '', data: { sessionId: 'session-i18n' } });
   assert.equal(worker.shown[0].options.body, '作業が完了しました。');
+});
+
+test('the push subscription is restated on each connection until the desktop accepted it once', async () => {
+  const saved = ['Notification', 'navigator'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
+  const define = (key, value) => Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+  define('Notification', { permission: 'granted' });
+  define('navigator', {
+    serviceWorker: {
+      ready: Promise.resolve({
+        pushManager: {
+          getSubscription: async () => ({
+            endpoint: 'https://push.example/1',
+            toJSON: () => ({ keys: { p256dh: 'k', auth: 'a' } }),
+          }),
+        },
+      }),
+    },
+  });
+  try {
+    const listeners = new Set();
+    const target = {
+      addEventListener: (_name, listener) => listeners.add(listener),
+      removeEventListener: (_name, listener) => listeners.delete(listener),
+    };
+    let calls = 0;
+    const api = {
+      registerPushSubscription: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('connection interrupted');
+      },
+    };
+    installPushSubscriptionSync(api, 'ready', target);
+    const fire = async () => {
+      for (const listener of [...listeners]) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    };
+    await fire(); // dropped under the call
+    assert.equal(calls, 1);
+    assert.equal(listeners.size, 1, 'still waiting for a connection that can carry it');
+    await fire(); // the next connection delivers it
+    assert.equal(calls, 2);
+    assert.equal(listeners.size, 0, 'accepted once: no further statements this launch');
+  } finally {
+    for (const [key, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
 });

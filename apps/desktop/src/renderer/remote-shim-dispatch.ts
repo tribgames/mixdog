@@ -2,14 +2,18 @@
 // its lane.
 import type {
   DesktopAgentPoolRow,
+  DesktopBrowserImportProgress,
   DesktopBrowserOpenRequest,
   DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteBrowserTab,
   DesktopLspDiagnosticEvent,
   DesktopLspStatusEvent,
   DesktopSessionSummary,
   DesktopSessionStateUpdate,
+  DesktopUpdaterState,
   SessionSnapshot,
 } from '../shared/contract';
+import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 import { isRemotePaintProbe } from '../shared/remote-performance';
 import { RELAY_ROUTING_CAPS_EVENT, readRelayPayloadRejection } from '../shared/remote-payload-limit';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
@@ -18,7 +22,12 @@ import { VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { takeRemoteConnectionTimeline, reportRemoteConnectionIssue } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
 import { ACTIVITY_RAIL_PINS_EVENT, readActivityRailPinsState } from '../shared/activity-rail-pins';
-import { REMOTE_BROWSER_FRAME_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
+import {
+  REMOTE_BROWSER_FRAME_EVENT,
+  REMOTE_BROWSER_IMPORT_PROGRESS_EVENT,
+  REMOTE_BROWSER_OPEN_EVENT,
+  REMOTE_BROWSER_TABS_EVENT,
+} from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -40,6 +49,17 @@ export function readRemoteBrowserStreamFrame(value: unknown): DesktopRemoteBrows
     if (typeof image.data !== 'string') return null;
   }
   return frame as DesktopRemoteBrowserStreamFrame;
+}
+
+/** Shape check for a pushed tab list; malformed rows are dropped. */
+export function readRemoteBrowserTabs(value: unknown): DesktopRemoteBrowserTab[] | null {
+  if (!Array.isArray(value)) return null;
+  return value
+    .filter(
+      (row): row is DesktopRemoteBrowserTab =>
+        Boolean(row) && typeof row.id === 'string' && typeof row.title === 'string' && typeof row.url === 'string'
+    )
+    .map((row) => ({ id: row.id, title: row.title, url: row.url, loading: row.loading === true }));
 }
 
 export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
@@ -225,10 +245,30 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (!authenticated) return;
       const change = readProviderModelsChange(message.payload);
       if (change) fanOut(ctx.providerModelsListeners, change);
+    } else if (message.event === SETTINGS_CHANGED_EVENT) {
+      if (!authenticated) return;
+      const change = readSettingsChange(message.payload);
+      if (change) fanOut(ctx.settingsChangedListeners, change);
+    } else if (message.event === UPDATER_STATE_EVENT) {
+      if (!authenticated) return;
+      const state = message.payload as DesktopUpdaterState | null;
+      if (state && typeof state === 'object' && typeof state.status === 'string') {
+        fanOut(ctx.updaterListeners, state);
+      }
     } else if (message.event === REMOTE_BROWSER_FRAME_EVENT) {
       if (!authenticated) return;
       const frame = readRemoteBrowserStreamFrame(message.payload);
       if (frame) fanOut(ctx.remoteBrowserFrameListeners, frame);
+    } else if (message.event === REMOTE_BROWSER_TABS_EVENT) {
+      if (!authenticated) return;
+      const tabs = readRemoteBrowserTabs(message.payload);
+      if (tabs) fanOut(ctx.remoteBrowserTabListeners, tabs);
+    } else if (message.event === REMOTE_BROWSER_IMPORT_PROGRESS_EVENT) {
+      if (!authenticated) return;
+      const progress = message.payload as DesktopBrowserImportProgress | null;
+      if (progress && typeof progress === 'object' && typeof progress.jobId === 'string') {
+        fanOut(ctx.browserImportProgressListeners, progress);
+      }
     } else if (message.event === REMOTE_BROWSER_OPEN_EVENT) {
       if (!authenticated) return;
       const request = message.payload as DesktopBrowserOpenRequest | null;

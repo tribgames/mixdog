@@ -1,4 +1,8 @@
 // Context lifecycle settings: compaction budgets and the idle auto-clear.
+import {
+  refreshLiveSessionsProviderCacheOpts,
+  refreshSessionProviderCacheOpts,
+} from '../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
 
 // Every spelling of the main-context buffer budget; a new representation
 // replaces the previous one.
@@ -46,6 +50,13 @@ export function createCompactionSettings({
   formatDurationMs,
   invalidateContextStatusCache,
 }) {
+  // The Lead messages-tail TTL derives from the auto-clear idle window.
+  const refreshLeadCacheOpts = () => {
+    const config = getConfig();
+    refreshSessionProviderCacheOpts(getSession(), config);
+    refreshLiveSessionsProviderCacheOpts(config);
+  };
+
   /** Apply a per-provider idle override (or its reset) and return the resolved view. */
   const saveProviderIdle = (config, next, providerKey, input) => {
     const providerIdleMs = { ...(next.providerIdleMs || {}) };
@@ -57,6 +68,7 @@ export function createCompactionSettings({
       providerIdleMs[providerKey] = Math.max(60_000, Math.round(idleMs));
     }
     saveConfigAndAdopt({ ...config, autoClear: { ...next, providerIdleMs } });
+    refreshLeadCacheOpts();
   };
 
   return {
@@ -157,6 +169,7 @@ export function createCompactionSettings({
           if (!hasOwn(input, 'enabled')) next.enabled = true;
         }
         saveConfigAndAdopt({ ...config, autoClear: next });
+        refreshLeadCacheOpts();
       }
       const resolved = this.getAutoClear();
       return { ...resolved, label: formatDurationMs(resolved.idleMs) };

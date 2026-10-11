@@ -86,6 +86,9 @@ export const installRemoteSync = (ctx: RemoteShimContext): void => {
       console.warn('[mixdog-remote] view synchronization failed; retrying', error);
     },
     interrupted: remoteConnectionInterruptedError,
+    // A leg that keeps failing synchronizeViews is open but useless; calls
+    // gate on the sync, so only a fresh connection can end their wait.
+    recycle: () => ctx.retireConnection?.(),
   });
 
   const resetDeltaState = (): void => {

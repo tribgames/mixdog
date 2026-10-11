@@ -823,9 +823,13 @@ export function voiceRuntimeInfo(runtime) {
   };
 }
 
-export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {
-  gcPublishedRuntimeSiblings(join(dataDir, 'voice-runtime'), 'whisper-');
-  gcPublishedRuntimeSiblings(join(dataDir, 'ffmpeg-runtime'), 'ffmpeg-');
+// cleanup:false is the read-only status path: it skips the stale/staging GC,
+// which runs without the install lock and could remove an in-flight install.
+export function resolveVoiceRuntime(dataDir, { modelId = 'standard', cleanup = true } = {}) {
+  if (cleanup) {
+    gcPublishedRuntimeSiblings(join(dataDir, 'voice-runtime'), 'whisper-');
+    gcPublishedRuntimeSiblings(join(dataDir, 'ffmpeg-runtime'), 'ffmpeg-');
+  }
   const managedWhisperCmd = resolveManagedWhisperCmd(dataDir);
   const managedModelPath = resolveManagedWhisperModelById(dataDir, modelId);
   const managedFfmpegPath = resolveManagedFfmpegPath(dataDir);

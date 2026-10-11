@@ -206,6 +206,19 @@
   align-items: center;
   justify-content: flex-end;
 }
+.notification-volume-control {
+  gap: 10px;
+}
+.notification-volume-control input[type="range"] {
+  flex: 1;
+  min-width: 80px;
+  max-width: 220px;
+}
+.notification-volume-control output {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .settings-row-control > .settings-select.mx-select-root {
   width: 100%;
   min-width: 0;

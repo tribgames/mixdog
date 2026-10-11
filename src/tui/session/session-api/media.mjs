@@ -4,7 +4,7 @@
  * claims, the TUI theme, and the media studio passthroughs.
  */
 import { listThemes, getThemeSetting, setThemeSetting } from '../../theme.mjs';
-import { getVoiceStatus, toggleVoice } from '../../lib/voice-setup.mjs';
+import { getVoiceStatus, toggleVoice } from '../../../runtime/channels/lib/voice-setup.mjs';
 
 const AUDIO_EXTENSIONS = [
   [/ogg/i, 'ogg'],
@@ -98,7 +98,7 @@ export function createSessionMediaApi(bag) {
       const result = await toggleVoice({
         pushNotice,
         setProgressHint,
-        enabled: typeof enabled === 'boolean' ? enabled : undefined,
+        enabled,
       });
       return {
         ...(await getVoiceStatus()),

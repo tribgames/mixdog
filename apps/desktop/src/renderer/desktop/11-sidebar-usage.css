@@ -286,71 +286,163 @@
   border-radius: var(--mx-radius-md);
 }
 /* Reset credits keep their individual expiry and action visible. */
+.sidebar-usage-credit,
 .sidebar-usage-reset-credit {
+  grid-column: 1 / -1;
+  min-width: 0;
+  position: relative;
   display: grid;
-  gap: 0;
-  margin: 0 6px 6px;
-  padding: 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-item-surface);
-  box-shadow: var(--mx-item-outline);
+  grid-template-columns: subgrid;
 }
-.sidebar-usage-reset-heading {
+/* Credit and reset lines share the meter columns: label under the window
+   label, value from the track start, control flush with the reset column. */
+.sidebar-usage-credit,
+.sidebar-usage-reset-line {
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 24px;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  font-size: var(--mx-font-supporting);
+  line-height: var(--mx-line-meta);
+}
+.sidebar-usage-credit > small,
+.sidebar-usage-reset-line > small {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-row-meta-ink);
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-regular);
+  letter-spacing: var(--mx-tracking-wide);
+}
+.sidebar-usage-credit-value {
+  grid-column: 2 / 4;
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 0 2px;
-}
-.sidebar-usage-reset-heading > b {
-  color: var(--mx-rail-label-ink);
-  font-size: var(--mx-rail-label-size);
-  font-weight: var(--mx-rail-label-weight);
-  line-height: var(--mx-line-meta);
-}
-.sidebar-usage-reset-heading > small {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-text-muted);
-  background: var(--mx-hover);
-  font-size: var(--mx-font-micro);
-  line-height: var(--mx-line-micro);
-}
-.sidebar-usage-reset-list {
-  display: grid;
-}
-/* Ticket rows part by spacing alone — a hairline over every row stacked
-   five rules into one short popup (user: 왜 이렇게 선 구분이 많냐). The
-   section's own top rule still sets the reset band off the roster. */
-.sidebar-usage-reset-row {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px 10px;
-  padding: 6px 0 0;
-}
-.sidebar-usage-reset-summary {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-.sidebar-usage-reset-summary > b {
+  gap: 4px;
   overflow: hidden;
-  color: var(--mx-row-title-ink);
-  font-size: var(--mx-font-item);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-meta);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sidebar-usage-reset-summary > small {
+.sidebar-usage-credit-value > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-usage-credit-value > b.is-in-use {
+  color: var(--mx-warning);
+}
+.sidebar-usage-credit-value > .sidebar-usage-credit-limit {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+}
+.sidebar-usage-credit-badge {
+  padding: 0 6px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-warning);
+  background: var(--mx-hover);
+  font-size: var(--mx-font-micro);
+  font-style: normal;
+  line-height: var(--mx-line-micro);
+}
+.sidebar-usage-credit-switch {
+  position: relative;
+  grid-column: 4;
+  justify-self: end;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-meter-track);
+  cursor: pointer;
+}
+.sidebar-usage-credit-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--mx-text);
+  transition: transform 120ms ease;
+}
+.sidebar-usage-credit-switch[aria-checked="true"] {
+  background: var(--mx-accent);
+}
+.sidebar-usage-credit-switch[aria-checked="true"]::after {
+  transform: translateX(12px);
+}
+.sidebar-usage-credit-switch:focus-visible,
+.sidebar-usage-reset-info:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.sidebar-usage-reset-line button {
+  min-height: 22px;
+  border: 1px solid transparent;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-action-bg);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.sidebar-usage-reset-line > .sidebar-usage-reset-use {
+  grid-column: 4;
+  justify-self: end;
+  padding: 0 10px;
+}
+.sidebar-usage-reset-line .sidebar-usage-reset-info {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  min-height: 16px;
+  height: 16px;
+  margin-left: 2px;
+  padding: 0;
+  color: var(--mx-text-muted);
+  background: transparent;
+}
+.sidebar-usage-reset-popover {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  top: 100%;
+  width: max-content;
+  margin: 2px 0 0;
+  padding: 6px 8px;
+  list-style: none;
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 12px;
+  row-gap: 4px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-item-outline);
+}
+.sidebar-usage-reset-popover li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-supporting);
+}
+.sidebar-usage-reset-popover small {
   color: var(--mx-row-meta-ink);
   font-size: var(--mx-font-supporting);
-  line-height: var(--mx-line-meta);
+}
+.sidebar-usage-reset-popover small.is-soon {
+  color: var(--mx-warning);
+}
+.sidebar-usage-reset-confirmation {
+  padding-top: 4px;
 }
 .sidebar-usage-reset-confirmation p,
 .sidebar-usage-reset-notice {
@@ -367,7 +459,6 @@
 .sidebar-usage-reset-notice {
   margin: 0;
 }
-.sidebar-usage-reset-row > button,
 .sidebar-usage-reset-actions button {
   min-height: 26px;
   padding: 0 10px;
@@ -376,12 +467,6 @@
   color: var(--mx-text);
   background: var(--mx-action-bg);
   font-size: var(--mx-font-meta);
-}
-.sidebar-usage-reset-row > button {
-  width: auto;
-  min-width: 46px;
-  justify-self: end;
-  white-space: nowrap;
 }
 .sidebar-usage-reset-actions {
   display: flex;

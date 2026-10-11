@@ -8,6 +8,8 @@ import { createPortal } from 'react-dom';
 import { version as appVersion } from '../../package.json';
 import type { DesktopUpdaterState } from '../shared/contract';
 import { t } from './i18n';
+import { useMobileRemoteSurface } from './mobile-surface';
+import { RemotePcSwitcher } from './RemotePcSwitcher';
 import { ProgressSpinner } from './ProgressSpinner';
 
 import type { ChangelogRelease } from './settings/changelog';
@@ -31,6 +33,7 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   // web surface serves the SAME bundle through the relay/LAN bridge
   // (remote-shim installs mixdogRemoteServer there), and reserving a caption
   // strip there only steals the title row of a window that has no caption.
+  const phoneLayout = useMobileRemoteSurface();
   const electronShell = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
   const windowsCaptionControls = electronShell && /Windows/i.test(navigator.userAgent);
   // The updater stays window-global; layout controls belong to their panes.
@@ -81,6 +84,11 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
     <header className="topbar" aria-label={t('Window bar')}>
       {/* No brand mark: the bare band reads lighter (user: 로고 뺄까 뭔가
           로고 있으니까 답답하네). */}
+      {/* The leading edge holds the PC menu: a remote surface names the PC it
+          drives ("● PC ▾"); the main window shows a bare monitor icon until
+          PCs are saved, then "● this PC ▾". The phone has no title row; its
+          brand button and drawer carry the same information. */}
+      {!phoneLayout && <RemotePcSwitcher />}
       <div className="titlebar-spacer" aria-hidden="true" />
       {/* RIGHT cluster: updater badge ahead of the native caption reserve.
           Layout surfaces use contextual pane entry points. */}

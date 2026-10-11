@@ -21,6 +21,8 @@ export function createContextSwitch(deps, { ingestSessionIntoMemory, closeSurfac
   } = deps;
 
   async function switchContext({ cwd, desktopSession: nextDesktopSession, forResume = false } = {}) {
+    // Leaving the open conversation would re-key an addressed runtime.
+    deps.assertNotAddressed?.('switchContext');
     clearRoutePreparation?.();
     const session = getSession();
     if (session?.id) {
@@ -55,6 +57,7 @@ export function createContextSwitch(deps, { ingestSessionIntoMemory, closeSurfac
   }
 
   async function newSession() {
+    deps.assertNotAddressed?.('newSession');
     const session = getSession();
     if (session?.id) {
       void ingestSessionIntoMemory(session);

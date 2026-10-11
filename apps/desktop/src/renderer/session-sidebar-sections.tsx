@@ -13,7 +13,7 @@ import {
 } from '../shared/window-layout';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t, uiFormatLocale } from './i18n';
-import { RowOverflowMenu } from './RowOverflowMenu';
+import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { sessionLabel } from './session-sidebar-rows';
 import { projectIdentity } from './project-catalog-cache';
 
@@ -172,7 +172,11 @@ export function automationsSection({
       aria-label={t('Automations')}
       {...reorderTarget(headerProps)}
     >
-      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
+      <div
+        className="sidebar-category-header"
+        {...reorderHandle(headerProps)}
+        {...(hasHeadingDot ? undefined : rowOverflowHostProps())}
+      >
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -319,7 +323,11 @@ export function recentSection({
 }) {
   return (
     <section className="sidebar-recent" aria-label={t('Recent sessions')} {...reorderTarget(headerProps)}>
-      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
+      <div
+        className="sidebar-category-header"
+        {...reorderHandle(headerProps)}
+        {...(hasHeadingDot ? undefined : rowOverflowHostProps())}
+      >
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -560,15 +568,19 @@ export function projectsSection({
                       />
                     )}
                   </button>
-                  <button
-                    type="button"
-                    className="row-overflow-trigger project-folder-new"
-                    aria-label={t('New task')}
-                    data-tooltip={t('New task')}
-                    onClick={() => onNewTask(group.path)}
-                  >
-                    <Plus size={14} aria-hidden="true" />
-                  </button>
+                  {/* Like a collapsed section heading: the unread dot takes the
+                      trailing slot, so the + yields until the folder opens. */}
+                  {!unread && (
+                    <button
+                      type="button"
+                      className="row-overflow-trigger project-folder-new"
+                      aria-label={t('New task')}
+                      data-tooltip={t('New task')}
+                      onClick={() => onNewTask(group.path)}
+                    >
+                      <Plus size={14} aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
                 {expanded && (
                   <div className="project-group-sessions">
@@ -628,7 +640,7 @@ export function archivedSection({
       aria-label={t('Archived sessions')}
       {...reorderTarget(headerProps)}
     >
-      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"

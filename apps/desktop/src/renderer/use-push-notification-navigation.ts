@@ -6,6 +6,7 @@
 import { useEffect, useRef } from 'react';
 
 import type { DesktopApi } from '../shared/contract';
+import { subscribeNativeNotificationActions } from './native-push-bridge';
 import { claimNotificationClick, clearNotificationClick } from './push-notification-bridge';
 
 const PUSH_OPEN_SESSION_MESSAGE = 'mixdog:open-session';
@@ -55,6 +56,17 @@ export function usePushNotificationNavigation({
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, []);
+
+  // The phone app's native shell reports taps (and Allow / Deny, resolved by
+  // the bridge) the same way the worker does: by naming the session.
+  useEffect(
+    () =>
+      subscribeNativeNotificationActions(({ sessionId }) => {
+        if (readyRef.current) openRef.current(sessionId);
+        else deferred.current = sessionId;
+      }),
+    []
+  );
 
   // Desktop clicks reveal only tabs that still exist when the click is handled.
   // Do not route a queued desktop click through the phone's open-session path.

@@ -7,7 +7,7 @@ import {
   type ActivityRailPinsState,
 } from '../shared/activity-rail-pins';
 import { showDesktopToast } from './desktop-toasts';
-import { isRemoteConnectionInterruptedError } from './remote-connection-state';
+import { isRemoteConnectionInterruptedError, REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { t } from './i18n';
 
 const STORAGE_KEY = 'mixdog.desktop.activity-rail-pins.v1';
@@ -117,13 +117,13 @@ export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesk
       }
     };
     const unsubscribe = api.subscribeActivityRailPins(receive);
-    window.addEventListener('mixdog:remote-connection-ready', refresh);
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
     void refresh();
     return () => {
       live = false;
       mounted.current = false;
       unsubscribe();
-      window.removeEventListener('mixdog:remote-connection-ready', refresh);
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
     };
   }, [api, receive, publishConfirmed]);
 

@@ -6,10 +6,11 @@ import {
   changeProviderAccounts,
   blockProviderAccount,
   providerAccountExhausted,
+  providerAccountsResetAt,
 } from '../../../shared/provider-accounts.mjs';
 import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
 import { retryAfterMsFromError, isExplicitUserAbortError, typedErrorCode } from './retry-classifier.mjs';
-import { fetchOAuthUsageSnapshot } from './oauth-usage.mjs';
+import { fetchOAuthUsageSnapshot, readCachedOAuthUsageSnapshot } from './oauth-usage.mjs';
 
 // Only an explicit quota refusal advances the roster; a generic 429, auth
 // refusal, policy denial or transport failure retains its existing recovery.
@@ -49,7 +50,7 @@ export function resetAccountProbePacing() {
 async function probeRefusedAccounts(providerName, pool, model, account) {
   const now = Date.now();
   const due = pool.accounts
-    .filter((row) => providerAccountExhausted(row, now, model))
+    .filter((row) => providerAccountExhausted(row, now, model, { useCredits: pool.useCredits === true }))
     .filter((row) => now - (lastProbeAt.get(`${providerName}:${row.id}`) || 0) >= PROBE_INTERVAL_MS)
     .sort((a, b) => (a.usage?.checkedAt || 0) - (b.usage?.checkedAt || 0));
   if (!due.length) return false;
@@ -64,9 +65,26 @@ async function probeRefusedAccounts(providerName, pool, model, account) {
   return true;
 }
 
-function accountsExhaustedError() {
-  const error = new Error('All connected accounts have exhausted their quota. Check account usage and reset times.');
+function accountsExhaustedError(useCredits) {
+  const error = new Error(
+    useCredits
+      ? 'All connected accounts have exhausted their quota. Check account usage and reset times.'
+      : 'The plan limit is reached and credit use is off. Turn on credit use or wait for the limit to reset.'
+  );
   error.code = 'provider_accounts_exhausted';
+  return error;
+}
+
+// Structured proof that the send ended because no account can serve `model`
+// (not merely because a generic 429 or a stopped loop surfaced an error).
+function quotaExhausted(error, providerName, model, rows, options = {}) {
+  if (error && typeof error === 'object') {
+    error.quotaExhausted = {
+      provider: providerName,
+      model: String(model || ''),
+      resetAt: providerAccountsResetAt(rows, Date.now(), model, options),
+    };
+  }
   return error;
 }
 
@@ -114,18 +132,22 @@ function commitFallbackAccount(providerName, pool, row) {
 async function accountQuotaExhausted(providerName, row, model, error, account) {
   const status = Number(error?.status || error?.httpStatus || error?.response?.status || 0);
   const delay = retryAfterMsFromError(error);
-  let exhausted = isAccountQuotaError(error) || (status === 429 && delay > QUOTA_WINDOW_RETRY_AFTER_MS);
-  if (!exhausted && status === 429) {
+  const typed = isAccountQuotaError(error);
+  let exhausted = typed || (status === 429 && delay > QUOTA_WINDOW_RETRY_AFTER_MS);
+  // Proof of a spent quota: a typed quota refusal or an exhausted usage window
+  // (a long Retry-After alone only rotates the roster, it proves nothing).
+  let evidence = typed;
+  if (!typed && status === 429) {
     await fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}, {
       force: true,
     });
-    exhausted = providerAccountExhausted(
-      readProviderAccountPool(providerName).accounts.find((entry) => entry.id === row.id),
-      Date.now(),
-      model
-    );
+    const pool = readProviderAccountPool(providerName);
+    const entry = pool.accounts.find((item) => item.id === row.id);
+    const options = { useCredits: pool.useCredits === true };
+    evidence = providerAccountExhausted({ ...entry, blockedUntil: 0 }, Date.now(), model, options);
+    exhausted = exhausted || evidence || providerAccountExhausted(entry, Date.now(), model, options);
   }
-  return { exhausted, delay };
+  return { exhausted, delay, evidence };
 }
 
 // The pool's send: walks the eligible accounts until one answers, blocking
@@ -135,10 +157,43 @@ function poolSend(providerName, account) {
     const attempted = new Set();
     let lastError;
     let probed = false;
+    const evidenced = new Set();
+    // Mark `error` only when every account in `ids` (default: the roster) is
+    // exhausted with quota evidence: observed in this send, or a full window.
+    const markExhausted = (error, ids) => {
+      const pool = readProviderAccountPool(providerName);
+      // Auto switching off: the eligible set is the selected account alone.
+      const scope = ids || (pool.auto === false ? [pool.selectedId] : null);
+      const rows = scope ? pool.accounts.filter((entry) => scope.includes(entry.id)) : pool.accounts;
+      const opts = { useCredits: pool.useCredits === true };
+      const now = Date.now();
+      const all =
+        rows.length > 0 &&
+        rows.every((entry) =>
+          providerAccountExhausted(
+            evidenced.has(entry.id) || entry.blockedQuota === true ? entry : { ...entry, blockedUntil: 0 },
+            now,
+            model,
+            opts
+          )
+        );
+      return all ? quotaExhausted(error, providerName, model, rows, opts) : error;
+    };
     while (attempted.size < 20) {
       options.signal?.throwIfAborted();
       const pool = readProviderAccountPool(providerName);
-      if (!pool.accounts.length) return account('default').send(messages, model, tools, options);
+      if (!pool.accounts.length) {
+        if (pool.useCredits !== true) {
+          const stored = readCachedOAuthUsageSnapshot({ provider: providerName, model: '' });
+          if (stored?.quotaWindows?.length) {
+            const row = { usage: { windows: stored.quotaWindows, checkedAt: stored.cachedAt } };
+            if (providerAccountExhausted(row, Date.now(), model)) {
+              throw quotaExhausted(accountsExhaustedError(false), providerName, model, [row]);
+            }
+          }
+        }
+        return account('default').send(messages, model, tools, options);
+      }
       const row = chooseProviderAccount(pool, attempted, Date.now(), model);
       if (!row) {
         // Once per send: a refusal built on a stale meter must not outlive the
@@ -148,8 +203,7 @@ function poolSend(providerName, account) {
           probed = true;
           if (await probeRefusedAccounts(providerName, pool, model, account)) continue;
         }
-        if (lastError) throw lastError;
-        throw accountsExhaustedError();
+        throw markExhausted(lastError || accountsExhaustedError(pool.useCredits === true));
       }
       attempted.add(row.id);
       const bound = boundAccountSend(providerName, row, messages, options);
@@ -187,28 +241,25 @@ function poolSend(providerName, account) {
           options.onStageChange?.('reconnecting', { message: 'Sign-in expired — switching to the next account' });
           continue;
         }
-        const { exhausted, delay } = await accountQuotaExhausted(providerName, row, model, error, account);
+        const { exhausted, delay, evidence } = await accountQuotaExhausted(providerName, row, model, error, account);
         if (options.signal?.aborted || !exhausted) throw error;
+        if (evidence) evidenced.add(row.id);
         blockProviderAccount(
           providerName,
           row.id,
           Date.now() + (delay > 0 ? delay : 5 * 60_000),
           model,
-          delay > 0 ? 'retry-after' : 'inferred'
+          delay > 0 ? 'retry-after' : 'inferred',
+          { quota: evidence === true }
         );
-        if (
-          pool.auto === false ||
-          bound.emitted() ||
-          error.unsafeToRetry ||
-          error.liveTextEmitted ||
-          error.emittedToolCall
-        )
-          throw error;
+        if (bound.emitted() || error.unsafeToRetry || error.liveTextEmitted || error.emittedToolCall) throw error;
+        // Auto switching off: the eligible set is the selected account alone.
+        if (pool.auto === false) throw markExhausted(error, [row.id]);
         lastError = error;
         options.onStageChange?.('reconnecting', { message: 'Quota exhausted — switching to the next account' });
       }
     }
-    throw lastError || new Error('Provider account attempts exhausted.');
+    throw markExhausted(lastError || new Error('Provider account attempts exhausted.'));
   };
 }
 

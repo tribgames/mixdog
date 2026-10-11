@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>예비 모델 · 프로바이더 순위/일시중지 시안</title>
+<style>
+  :root {
+    --bg: #141414;
+    --popup: #1c1c1c;
+    --pane: #181818;
+    --plate: rgba(255,255,255,0.03);
+    --outline: inset 0 0 0 1px rgba(255,255,255,0.07);
+    --text: #ececec;
+    --muted: #9a9a9a;
+    --meta: #8a8a8a;
+    --track: rgba(255,255,255,0.08);
+    --fill: #cfcfcf;
+    --warn: #e0a84a;
+    --danger: #e0645a;
+    --accent: #5b8cff;
+    --ok: #6cc28a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px; background: var(--bg); color: var(--text);
+    font: 14px/1.4 "Segoe UI", "Pretendard", system-ui, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 28px; font-size: 13px; max-width: 1020px; }
+  .section-title { font-size: 15px; font-weight: 600; margin: 36px 0 14px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.06); }
+  .board { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .case { width: 340px; }
+  .case.wide { width: 520px; }
+  .case > h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .case > p { font-size: 12px; color: var(--muted); margin: 0 0 10px; min-height: 34px; }
+
+  .popup {
+    background: var(--popup); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); overflow: visible; position: relative;
+  }
+  .head { height: 36px; display: flex; align-items: center; padding: 0 4px 0 12px; }
+  .head b { flex: 1; font-size: 16px; font-weight: 600; }
+  .head span { width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+  .sub-head { display: flex; justify-content: space-between; padding: 0 14px 8px; font-size: 12px; color: var(--meta); }
+
+  .list { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 12px; }
+  .row { padding: 8px 8px; border-radius: 8px; background: var(--plate); box-shadow: var(--outline); position: relative; }
+  .row.dragging { background: #262626; box-shadow: inset 0 0 0 1px rgba(91,140,255,.5), 0 10px 24px rgba(0,0,0,.5); transform: translateY(-2px) rotate(-.4deg); }
+  .row.drop-gap { height: 6px; padding: 0; background: transparent; box-shadow: inset 0 2px 0 var(--accent); border-radius: 0; }
+  .row.paused .line b, .row.paused .meter, .row.paused .icon { opacity: .45; }
+  .line { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+  .grip { color: #5a5a5a; cursor: grab; font-size: 13px; width: 12px; text-align: center; letter-spacing: -2px; }
+  .rank { width: 18px; height: 18px; border-radius: 5px; background: rgba(255,255,255,.07); color: var(--muted); font-size: 11px; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+  .rank.primary { background: rgba(91,140,255,.18); color: #a9c1ff; }
+  .icon { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+  .icon.codex { background: #2b2b2b; }
+  .icon.claude { background: #d97757; color: #1b1b1b; }
+  .icon.gemini { background: #3b5bdb; color: #fff; }
+  .icon.local { background: #3a3a3a; color: #cfcfcf; }
+  .line b { flex: 1; font-size: 14px; font-weight: 600; }
+  .acct { font-size: 12px; color: var(--meta); }
+
+  .pill { font: inherit; font-size: 11.5px; padding: 1px 8px 1px 7px; border-radius: 99px; border: 0; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill::after { content: "▾"; font-size: 9px; opacity: .7; }
+  .pill.on { background: rgba(108,194,138,.12); color: var(--ok); }
+  .pill.paused { background: rgba(224,168,74,.14); color: var(--warn); }
+  .pill.out { background: rgba(224,100,90,.13); color: var(--danger); }
+
+  .meter { display: grid; grid-template-columns: 26px 1fr 38px 56px; column-gap: 6px; align-items: center; margin-top: 6px; padding-left: 36px; }
+  .meter small { color: var(--meta); font-size: 12px; }
+  .meter i { display: block; height: 5px; border-radius: 99px; background: var(--track); position: relative; overflow: hidden; }
+  .meter i > i { position: absolute; inset: 0 auto 0 0; background: var(--fill); }
+  .meter.warn i > i { background: var(--warn); }
+  .meter.danger i > i { background: var(--danger); }
+  .meter b { text-align: right; font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .meter em { text-align: right; font-style: normal; color: var(--meta); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .paused-note { margin: 6px 0 0 36px; font-size: 12px; color: var(--warn); display: flex; gap: 8px; align-items: center; }
+  .paused-note button { margin-left: auto; }
+
+  .accounts { margin: 8px 0 0 36px; display: flex; flex-direction: column; gap: 4px; }
+  .acct-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,.025); }
+  .acct-row .grip { font-size: 11px; }
+  .acct-row span.name { flex: 1; }
+  .acct-row.paused span.name { color: var(--meta); text-decoration: line-through rgba(255,255,255,.25); }
+  .acct-row small { color: var(--meta); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+  .menu { position: absolute; z-index: 10; width: 214px; padding: 4px; border-radius: 10px; background: #262626; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 10px 28px rgba(0,0,0,.55); font-size: 12.5px; }
+  .menu div { padding: 6px 8px; border-radius: 6px; display: flex; justify-content: space-between; gap: 8px; color: #dcdcdc; }
+  .menu div.sel { background: rgba(91,140,255,.16); color: #fff; }
+  .menu div small { color: var(--meta); font-size: 11.5px; }
+  .menu hr { border: 0; border-top: 1px solid rgba(255,255,255,.07); margin: 4px 2px; }
+  .menu .label { font-size: 11px; color: var(--meta); padding: 4px 8px 2px; }
+
+  button.use, button.ghost, button.primary { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: var(--text); cursor: pointer; white-space: nowrap; }
+  button.ghost { background: transparent; color: var(--muted); }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  button.tiny { font-size: 11px; padding: 1px 7px; }
+
+  /* Settings pane */
+  .settings { background: var(--pane); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: 18px 20px; }
+  .crumb { font-size: 12px; color: var(--meta); margin-bottom: 4px; }
+  .settings h3 { margin: 0 0 14px; font-size: 16px; }
+  .field { padding: 12px 0; border-top: 1px solid rgba(255,255,255,.06); }
+  .field:first-of-type { border-top: 0; padding-top: 0; }
+  .field > label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .field > p { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+  .route { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; background: var(--plate); box-shadow: var(--outline); margin-bottom: 6px; font-size: 13px; }
+  .route .model { flex: 1; }
+  .route .model small { color: var(--meta); margin-left: 6px; font-size: 12px; }
+  .route .x { color: var(--meta); cursor: pointer; padding: 0 4px; }
+  .route.primary { background: rgba(91,140,255,.07); box-shadow: inset 0 0 0 1px rgba(91,140,255,.25); }
+  .tag { font-size: 11px; padding: 0 6px; border-radius: 99px; background: rgba(255,255,255,.07); color: var(--muted); }
+  .tag.blue { background: rgba(91,140,255,.18); color: #a9c1ff; }
+  .tag.warn { background: rgba(224,168,74,.15); color: var(--warn); }
+  .add { font-size: 12.5px; color: var(--accent); padding: 4px 2px; cursor: pointer; }
+  .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: rgba(255,255,255,.05); box-shadow: var(--outline); }
+  .seg span { font-size: 12.5px; padding: 4px 12px; border-radius: 6px; color: var(--muted); cursor: pointer; }
+  .seg span.on { background: rgba(255,255,255,.1); color: var(--text); }
+  .inline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #d6d6d6; }
+  .num { width: 46px; padding: 3px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.2); color: var(--text); font: inherit; font-size: 12.5px; text-align: right; }
+  .switch { width: 30px; height: 18px; border-radius: 99px; background: #3a3a3a; position: relative; flex: 0 0 auto; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #bdbdbd; }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 14px; background: #fff; }
+
+  /* Conversation */
+  .convo { background: var(--pane); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: 16px 18px 12px; }
+  .msg { font-size: 13.5px; color: #d8d8d8; margin-bottom: 10px; }
+  .msg .who { font-size: 11.5px; color: var(--meta); margin-bottom: 2px; }
+  .tool { font-size: 12.5px; color: var(--meta); padding: 4px 0 10px; }
+  .tool b { color: #cfcfcf; font-weight: 500; }
+  .stop-card { border-radius: 10px; background: rgba(224,168,74,.07); box-shadow: inset 0 0 0 1px rgba(224,168,74,.28); padding: 12px 14px; margin: 6px 0 12px; }
+  .stop-card .t { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+  .stop-card .t .ic { color: var(--warn); }
+  .stop-card .d { font-size: 12.5px; color: #cfcfcf; margin: 4px 0 10px 22px; }
+  .stop-card .d small { color: var(--meta); }
+  .stop-card .acts { display: flex; gap: 6px; margin-left: 22px; flex-wrap: wrap; }
+  .stop-card .foot { margin: 10px 0 0 22px; font-size: 11.5px; color: var(--meta); display: flex; align-items: center; gap: 6px; }
+  .check { width: 13px; height: 13px; border-radius: 3px; border: 1px solid rgba(255,255,255,.25); display: inline-block; }
+  .divider { display: flex; align-items: center; gap: 10px; margin: 8px 0 12px; font-size: 12px; color: var(--meta); }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,.08); }
+  .divider .sw { color: #cfcfcf; display: inline-flex; align-items: center; gap: 6px; }
+  .divider .sw .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 9px; font-weight: 700; }
+  .divider.back .sw { color: var(--ok); }
+
+  .composer { margin-top: 10px; border-radius: 12px; background: #1f1f1f; box-shadow: var(--outline); padding: 10px 12px 8px; }
+  .composer .ph { font-size: 13px; color: #6f6f6f; margin-bottom: 10px; }
+  .composer .bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--meta); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; background: rgba(255,255,255,.05); color: #d6d6d6; font-size: 12px; }
+  .chip.fb { background: rgba(224,168,74,.1); color: #f0cf96; box-shadow: inset 0 0 0 1px rgba(224,168,74,.25); }
+  .chip .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 9px; font-weight: 700; }
+  .tip { position: absolute; width: 236px; padding: 10px; border-radius: 10px; background: #262626; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 8px 24px rgba(0,0,0,.5); font-size: 12px; color: #cfcfcf; z-index: 5; }
+  .tip b { display: block; margin-bottom: 6px; color: var(--text); }
+  .tip div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .tip div span:last-child { color: var(--meta); font-variant-numeric: tabular-nums; }
+  .tip .acts { margin-top: 8px; display: flex; justify-content: flex-end; gap: 6px; }
+
+  .rules { margin-top: 36px; max-width: 1080px; font-size: 13px; color: #cfcfcf; }
+  .rules h2 { font-size: 15px; margin: 0 0 10px; }
+  .rules table { border-collapse: collapse; width: 100%; }
+  .rules th, .rules td { text-align: left; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.07); vertical-align: top; }
+  .rules th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>예비 모델 이어가기 · 프로바이더 순위/일시중지 — 시안 v1</h1>
+<p class="lead">4번(Lead 한도 소진 시 다른 프로바이더로 이어가기)과 5번(순위·일시중지)을 <b>하나의 순서</b>로 묶었습니다. Providers 팝업에서 드래그로 정한 순서가 곧 예비 모델로 넘어가는 순서이고, 일시중지된 계정·프로바이더는 그 순서에서 빠집니다.</p>
+
+<!-- ───────────────────────── 5번 ───────────────────────── -->
+<div class="section-title">① Providers 팝업 — 순위와 일시중지 (5번)</div>
+<div class="board">
+
+  <section class="case">
+    <h2>A. 기본 상태</h2>
+    <p>왼쪽 번호가 사용 순위입니다. 1번이 Lead 기본 경로, 2번부터 예비. 상태 알약을 누르면 메뉴가 열립니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="sub-head"><span>위에서부터 사용 · 드래그로 순서 변경</span></div>
+      <div class="list">
+        <div class="row">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank primary">1</span><span class="icon claude">✳</span><b>Claude</b><span class="pill on">사용 중</span></div>
+          <div class="meter warn"><small>5H</small><i><i style="width:78%"></i></i><b>78%</b><em>1h 05m</em></div>
+          <div class="meter"><small>7D</small><i><i style="width:41%"></i></i><b>41%</b><em>4d 2h</em></div>
+          <div class="accounts">
+            <div class="acct-row"><span class="grip">⋮⋮</span><span class="name">work@ · Max</span><small>78%</small><span class="pill on">사용</span></div>
+            <div class="acct-row"><span class="grip">⋮⋮</span><span class="name">personal@ · Pro</span><small>12%</small><span class="pill on">사용</span></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank">2</span><span class="icon codex">◎</span><b>Codex</b><span class="acct">Pro</span><span class="pill on">사용 중</span></div>
+          <div class="meter"><small>5H</small><i><i style="width:22%"></i></i><b>22%</b><em>3h 40m</em></div>
+          <div class="meter"><small>7D</small><i><i style="width:35%"></i></i><b>35%</b><em>5d 1h</em></div>
+        </div>
+        <div class="row">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank">3</span><span class="icon gemini">G</span><b>Gemini</b><span class="acct">API</span><span class="pill on">사용 중</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>B. 상태 메뉴 열림</h2>
+    <p>프로바이더·계정 모두 같은 메뉴. "다음 리셋까지"는 리셋 시각을 아는 구독 계정에만 표시합니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="sub-head"><span>위에서부터 사용 · 드래그로 순서 변경</span></div>
+      <div class="list">
+        <div class="row">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank primary">1</span><span class="icon claude">✳</span><b>Claude</b><span class="pill on">사용 중</span></div>
+          <div class="meter warn"><small>5H</small><i><i style="width:78%"></i></i><b>78%</b><em>1h 05m</em></div>
+        </div>
+        <div class="row">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank">2</span><span class="icon codex">◎</span><b>Codex</b><span class="acct">Pro</span><span class="pill on">사용 중</span></div>
+          <div class="meter"><small>5H</small><i><i style="width:22%"></i></i><b>22%</b><em>3h 40m</em></div>
+        </div>
+        <div class="row" style="height:56px"></div>
+      </div>
+      <div class="menu" style="right:10px; top:150px;">
+        <div class="sel"><span>✓ 사용 중</span></div>
+        <hr>
+        <div class="label">일시중지</div>
+        <div><span>직접 재개할 때까지</span></div>
+        <div><span>다음 리셋까지</span><small>5H · 18:40</small></div>
+        <div><span>1시간</span></div>
+        <div><span>오늘 밤까지</span><small>23:59</small></div>
+        <div><span>시각 지정…</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>C. 드래그 중 + 일시중지 표시</h2>
+    <p>Codex를 1번 위로 끌어올리는 중. 일시중지된 Gemini는 흐리게, 번호 대신 ‖ 표시, 순서에서 제외됩니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="sub-head"><span>위에서부터 사용 · 드래그로 순서 변경</span></div>
+      <div class="list">
+        <div class="row drop-gap"></div>
+        <div class="row dragging">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank">2</span><span class="icon codex">◎</span><b>Codex</b><span class="acct">Pro</span><span class="pill on">사용 중</span></div>
+        </div>
+        <div class="row">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank primary">1</span><span class="icon claude">✳</span><b>Claude</b><span class="pill on">사용 중</span></div>
+          <div class="accounts">
+            <div class="acct-row"><span class="grip">⋮⋮</span><span class="name">work@ · Max</span><small>100%</small><span class="pill out">소진 · 18:40</span></div>
+            <div class="acct-row paused"><span class="grip">⋮⋮</span><span class="name">personal@ · Pro</span><small>12%</small><span class="pill paused">중지</span></div>
+          </div>
+        </div>
+        <div class="row paused">
+          <div class="line"><span class="grip">⋮⋮</span><span class="rank">‖</span><span class="icon gemini">G</span><b>Gemini</b><span class="acct">API</span><span class="pill paused">일시중지</span></div>
+          <div class="paused-note">⏸ 직접 재개할 때까지 <button class="use tiny">재개</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ───────────────────────── 4번 설정 ───────────────────────── -->
+<div class="section-title">② 설정 — Lead 예비 모델 (4번)</div>
+<div class="board">
+  <section class="case wide">
+    <h2>D. 설정 › 모델 › Lead</h2>
+    <p>기본 경로 아래에 예비 모델 목록. 목록 순서는 ①의 프로바이더 순서와 같은 값을 공유합니다(한쪽에서 바꾸면 다른 쪽도 바뀜).</p>
+    <div class="settings">
+      <div class="crumb">설정 › 모델</div>
+      <h3>Lead</h3>
+
+      <div class="field">
+        <label>기본 모델</label>
+        <div class="route primary"><span class="rank primary">1</span><span class="icon claude">✳</span><span class="model">claude-opus-4 <small>Claude · effort high</small></span><span class="tag blue">기본</span></div>
+      </div>
+
+      <div class="field">
+        <label>예비 모델</label>
+        <p>기본 모델의 연결된 계정이 <b>모두</b> 소진되면 위에서부터 이어서 사용합니다.</p>
+        <div class="route"><span class="grip">⋮⋮</span><span class="rank">2</span><span class="icon codex">◎</span><span class="model">gpt-5 <small>Codex · effort high</small></span><span class="x">✕</span></div>
+        <div class="route"><span class="grip">⋮⋮</span><span class="rank">3</span><span class="icon gemini">G</span><span class="model">gemini-2.5-pro <small>Gemini</small></span><span class="tag warn">일시중지됨</span><span class="x">✕</span></div>
+        <div class="add">＋ 예비 모델 추가</div>
+      </div>
+
+      <div class="field">
+        <label>소진 시 동작</label>
+        <p>예비 모델이 있을 때 어떻게 넘어갈지 정합니다.</p>
+        <div class="seg"><span class="on">물어보기</span><span>자동 전환</span><span>멈춤</span></div>
+      </div>
+
+      <div class="field">
+        <div class="inline"><span class="switch on"></span>리셋까지 <input class="num" value="10"> 분 이내면 전환하지 않고 기다리기</div>
+      </div>
+
+      <div class="field">
+        <div class="inline"><span class="switch on"></span>기본 모델 한도가 돌아오면 다음 턴부터 원래 모델로 복귀</div>
+      </div>
+
+      <div class="field">
+        <div class="inline"><span class="switch"></span>Worker·Reviewer 등 하위 에이전트에도 같은 예비 목록 사용</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ───────────────────────── 4번 대화 ───────────────────────── -->
+<div class="section-title">③ 대화 화면 — 소진 순간과 전환 이후 (4번)</div>
+<div class="board">
+
+  <section class="case wide">
+    <h2>E. "물어보기" — 소진 카드</h2>
+    <p>Lead가 멈춘 자리에 카드가 뜹니다. 버튼은 다음 순위 모델, 리셋 대기, 멈춤. 아무것도 누르지 않으면 그대로 멈춘 상태입니다.</p>
+    <div class="convo">
+      <div class="msg"><div class="who">Lead · claude-opus-4</div>account-pool 순번 로직을 정리하고 테스트를 추가하는 중입니다.</div>
+      <div class="tool">✓ <b>edit</b> src/runtime/shared/provider-accounts.mjs · ✓ <b>shell</b> npm test (12 passed)</div>
+      <div class="stop-card">
+        <div class="t"><span class="ic">⚠</span>Claude 한도를 모두 사용했습니다</div>
+        <div class="d">연결된 계정 2개 모두 소진 · <small>가장 빠른 리셋 18:40 (2시간 15분 후)</small></div>
+        <div class="acts">
+          <button class="primary">◎ gpt-5로 이어서</button>
+          <button class="use">18:40까지 대기 후 자동 재개</button>
+          <button class="ghost">멈춤</button>
+        </div>
+        <div class="foot"><span class="check"></span>다음부터 묻지 않고 자동 전환</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case wide">
+    <h2>F. 전환 후 — 구분선 + 입력창 모델 칩</h2>
+    <p>전환 지점에 구분선을 남기고, 입력창 모델 칩이 노란 "예비" 상태가 됩니다. 칩을 누르면 복귀 정보 팝업.</p>
+    <div class="convo" style="position:relative">
+      <div class="divider"><span class="sw">✳ claude-opus-4 → <span class="dot" style="background:#2b2b2b">◎</span> gpt-5 · 한도 소진으로 전환</span></div>
+      <div class="msg"><div class="who">Lead · gpt-5 (예비)</div>이어서 진행합니다. 마지막 테스트 결과(12 passed)까지 확인했고, 남은 작업은 UI 연결입니다.</div>
+      <div class="tool">✓ <b>edit</b> apps/desktop/src/renderer/ProviderAccountsList.tsx</div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="bar">
+          <span class="chip fb"><span class="dot" style="background:#2b2b2b">◎</span>gpt-5 · 예비</span>
+          <span>Lead</span><span style="flex:1"></span><span>⏎ 보내기</span>
+        </div>
+      </div>
+      <div class="tip" style="left:18px; bottom:52px;">
+        <b>예비 모델 사용 중</b>
+        <div><span>원래 모델</span><span>claude-opus-4</span></div>
+        <div><span>리셋</span><span>18:40 (2h 15m)</span></div>
+        <div><span>복귀</span><span>리셋 후 다음 턴</span></div>
+        <div class="acts"><button class="ghost tiny">이 세션은 계속 gpt-5</button><button class="use tiny">지금 복귀</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case wide">
+    <h2>G. 원래 모델로 복귀</h2>
+    <p>리셋이 지나고 다음 턴이 시작될 때 자동 복귀. 초록 구분선으로 알립니다.</p>
+    <div class="convo">
+      <div class="msg"><div class="who">Lead · gpt-5 (예비)</div>UI 연결까지 마쳤습니다.</div>
+      <div class="divider back"><span class="sw"><span class="dot" style="background:#d97757;color:#1b1b1b">✳</span> claude-opus-4로 복귀 · 18:40 한도 리셋</span></div>
+      <div class="msg"><div class="who">Lead · claude-opus-4</div>리뷰 피드백 반영을 시작합니다.</div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="bar"><span class="chip"><span class="dot" style="background:#d97757;color:#1b1b1b">✳</span>claude-opus-4</span><span>Lead</span><span style="flex:1"></span><span>⏎ 보내기</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case wide">
+    <h2>H. 예비 모델도 없거나 모두 소진</h2>
+    <p>넘어갈 곳이 없을 때는 대기/멈춤만 남기고, 설정으로 가는 링크를 줍니다.</p>
+    <div class="convo">
+      <div class="stop-card" style="background:rgba(224,100,90,.07); box-shadow: inset 0 0 0 1px rgba(224,100,90,.3)">
+        <div class="t"><span class="ic" style="color:var(--danger)">⛔</span>사용 가능한 모델이 없습니다</div>
+        <div class="d">Claude 소진 (18:40) · Codex 소진 (20:10) · Gemini 일시중지</div>
+        <div class="acts">
+          <button class="use">18:40까지 대기 후 자동 재개</button>
+          <button class="ghost">Gemini 재개</button>
+          <button class="ghost">예비 모델 설정…</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="rules">
+  <h2>동작 규칙</h2>
+  <table>
+    <tr><th>전환 조건</th><td>현재 프로바이더의 <b>사용 가능한 계정이 모두</b> 소진됐을 때만. 일반 429·일시 오류는 기존 재시도. 같은 프로바이더 안 계정 순번은 지금처럼 먼저 소진.</td></tr>
+    <tr><th>순서</th><td>Providers 팝업 순서 = 예비 순서. 1번이 Lead 기본 경로. 설정 화면의 예비 목록과 같은 값을 공유.</td></tr>
+    <tr><th>일시중지</th><td>계정/프로바이더 단위. 중지 항목은 순번·예비 목록에서 제외. 현재 쓰는 프로바이더를 중지하면 다음 턴부터 예비로 넘어감(진행 중인 턴은 끝까지).</td></tr>
+    <tr><th>전환 범위</th><td>이 세션에만 적용, 기본 설정은 그대로. 대화 기록·도구 결과는 그대로 넘기고, 모델 내부 추론 기록은 넘기지 않음.</td></tr>
+    <tr><th>짧은 대기</th><td>리셋이 설정값(기본 10분) 이내면 전환 대신 대기 후 자동 재개.</td></tr>
+    <tr><th>복귀</th><td>기본 모델 리셋 이후 <b>다음 턴 시작 시</b> 복귀(턴 중간엔 바꾸지 않음). 칩 팝업에서 "지금 복귀"/"이 세션은 계속" 선택 가능.</td></tr>
+    <tr><th>하위 에이전트</th><td>기본 꺼짐. 켜면 Worker·Reviewer도 같은 예비 목록을 사용.</td></tr>
+  </table>
+</div>
+
+</body>
+</html>

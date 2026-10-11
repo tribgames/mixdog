@@ -46,7 +46,13 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
   // their official multi-turn shape and cache prefix stability when prior
   // assistant reasoning_content is replayed; reasoning_effort itself remains
   // caller/user-selected.
-  const replaysReasoningContent = options.replaysReasoningContent === true || providerName === 'xai';
+  //
+  // Custom providers pass options.customReplay (custom-reasoning.mjs replay
+  // eligibility). When it is a boolean it alone decides; a replaying custom
+  // endpoint also needs a non-empty reasoning_content on every assistant
+  // tool-call turn, so missing/empty reasoning there is padded with " ".
+  const customReplay = typeof options.customReplay === 'boolean' ? options.customReplay : null;
+  const replaysReasoningContent = customReplay ?? (options.replaysReasoningContent === true || providerName === 'xai');
   const out = [];
   const pendingToolMedia = [];
   const openRouterReasoningDetails = (message) => {
@@ -56,7 +62,11 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
     return Array.isArray(details) && details.length ? details : null;
   };
   const attachAssistantReasoning = (msg, message) => {
-    if (replaysReasoningContent && typeof message.reasoningContent === 'string') {
+    if (customReplay) {
+      const stored = typeof message.reasoningContent === 'string' ? message.reasoningContent : '';
+      if (stored) msg.reasoning_content = stored;
+      else if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) msg.reasoning_content = ' ';
+    } else if (replaysReasoningContent && typeof message.reasoningContent === 'string') {
       msg.reasoning_content = message.reasoningContent;
     }
     const reasoningDetails = openRouterReasoningDetails(message);

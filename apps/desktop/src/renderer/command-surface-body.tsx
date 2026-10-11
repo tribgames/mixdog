@@ -5,7 +5,6 @@ import { commandSurfaceDisplaySnapshot } from './command-surface-state';
 import { ContextBody } from './ContextBody';
 import { UsageSurfaceBody } from './UsageSurface';
 import type { UsageSurfaceMode } from './usage-surface-mode';
-import { UsageBody } from './command-surface-usage';
 import { InheritBody } from './command-surface-inherit';
 import { DoctorBody } from './command-surface-doctor';
 
@@ -54,9 +53,6 @@ export function SurfaceBody({
         readingInHeader
       />
     );
-  }
-  if (surface === 'usage') {
-    return <UsageBody data={data} />;
   }
   if (surface === 'stats') {
     return <UsageSurfaceBody data={data} request={request} api={api} loading={loading} mode={usageMode} />;

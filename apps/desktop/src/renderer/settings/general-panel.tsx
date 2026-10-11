@@ -18,6 +18,7 @@ import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
 import { record } from '../record-utils';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
 import {
   getSidePanelMode,
   setSidePanelMode,
@@ -164,7 +165,23 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   );
 }
 
+/** Remote surfaces: the settings this device stores for itself (localStorage),
+ *  split out of General so the page says where they apply. */
+export function DisplayPanel({ data, pending }: PanelContext) {
+  return (
+    <>
+      <UiLanguageChoices pending={pending} />
+      <ThemeChoices data={data} pending={pending} />
+      <Group title={t('Link preview')}>
+        <LinkPreviewToggle pending={pending} />
+      </Group>
+      <SidePanelChoices pending={pending} />
+    </>
+  );
+}
+
 export function GeneralPanel({ data, pending, run, api }: PanelContext) {
+  const remoteSurface = isRemoteHostRenderer();
   const profile = record(data.profile);
   const webSearchModule = record(record(data.toolModules).webSearch);
   const languageOptions = rows(profile.languages).map((entry) => ({
@@ -210,13 +227,17 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           disabled={busy}
           onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
         />
-        <LinkPreviewToggle pending={pending} />
+        {!remoteSurface && <LinkPreviewToggle pending={pending} />}
       </Group>
       <PushNotificationToggle api={api} />
       <DesktopNotificationToggle />
-      <UiLanguageChoices pending={pending} />
-      <ThemeChoices data={data} pending={pending} />
-      <SidePanelChoices pending={pending} />
+      {!remoteSurface && (
+        <>
+          <UiLanguageChoices pending={pending} />
+          <ThemeChoices data={data} pending={pending} />
+          <SidePanelChoices pending={pending} />
+        </>
+      )}
       <MarkdownDefaultViewChoice pending={pending} />
     </>
   );

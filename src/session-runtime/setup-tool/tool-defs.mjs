@@ -4,6 +4,7 @@ import {
   SETUP_EXTENDED_PROPERTIES,
   SETUP_MCP_SCHEMA,
 } from './settings-contract.mjs';
+import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
@@ -118,7 +119,6 @@ export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze([
   'autoEffort',
   'browser',
   'computer',
-  'terminal',
   'voice',
 ]);
 
@@ -174,7 +174,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         route: {
           ...ROUTE_SCHEMA,
           description:
-            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent is Main-only.',
+            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent applies to Main and agent routes only.',
         },
         agent: { type: 'string', description: 'set_agent_route: agent id.' },
         workflow: { type: 'string', description: 'set_workflow: pack id.' },
@@ -227,7 +227,12 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           properties: {
             selectedId: { type: 'string', description: 'Account to use now.' },
             auto: { type: 'boolean', description: 'Automatic switching to another account when one is exhausted.' },
-            order: { type: 'array', items: { type: 'string' }, description: 'Every connected account id exactly once.' },
+            useCredits: { type: 'boolean', description: 'Allow paid credits once plan limits are reached.' },
+            order: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Every connected account id exactly once.',
+            },
             rename: {
               type: 'object',
               additionalProperties: false,
@@ -265,8 +270,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'integer',
           minimum: 16384,
           maximum: 32768,
-          description:
-            'inspect_hf_model: runtime context allocation; default 32768 when the GPU holds it, else 16384.',
+          description: 'inspect_hf_model: runtime context allocation; default 32768 when the GPU holds it, else 16384.',
         },
         previewId: { type: 'string', description: 'register_hf_model: unexpired read-only inspection receipt.' },
         licenseAccepted: {
@@ -299,8 +303,9 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         source: { type: 'string', description: 'add_plugin: Git URL, owner/repo, or local path.' },
         kind: {
           type: 'string',
-          enum: ['skills', 'mcp', 'plugins'],
-          description: 'set_extension_scope: which extension list `name` belongs to.',
+          enum: ['skills', 'mcp', 'plugins', ...MEDIA_KINDS],
+          description:
+            'set_extension_scope: which extension list `name` belongs to (skills|mcp|plugins). set_media_default: media kind.',
         },
         projects: {
           type: 'array',

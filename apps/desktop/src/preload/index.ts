@@ -90,6 +90,7 @@ const api: DesktopApi = {
   installGithubCli: () => ipcRenderer.invoke(DESKTOP_IPC.installGithubCli),
   githubCliLoginStart: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginStart),
   githubCliLoginStatus: (flowId) => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginStatus, flowId),
+  githubCliLoginOpenBrowser: (flowId) => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginOpenBrowser, flowId),
   githubCliLoginCancel: (flowId) => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginCancel, flowId),
   githubCliLogout: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliLogout),
   githubCliAccount: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliAccount),
@@ -178,21 +179,45 @@ const api: DesktopApi = {
   searchSessionContent: (query) => ipcRenderer.invoke(DESKTOP_IPC.searchSessionContent, query),
   subscribeAgentPool: (listener) => subscribeIpc(DESKTOP_IPC.agentPoolChanged, listener),
   renameSession: (sessionId, title) => ipcRenderer.invoke(DESKTOP_IPC.renameSession, sessionId, title),
+  continueSessionInModel: (sessionId, route) =>
+    ipcRenderer.invoke(DESKTOP_IPC.continueSessionInModel, sessionId, route),
+  scheduleQuotaResume: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.scheduleQuotaResume, sessionId),
+  cancelQuotaResume: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.cancelQuotaResume, sessionId),
+  getQuotaAutoResume: () => ipcRenderer.invoke(DESKTOP_IPC.getQuotaAutoResume),
+  setQuotaAutoResume: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.setQuotaAutoResume, enabled),
   setSessionArchived: (sessionId, archived) => ipcRenderer.invoke(DESKTOP_IPC.setSessionArchived, sessionId, archived),
   setSessionFavorite: (sessionId, favorite) => ipcRenderer.invoke(DESKTOP_IPC.setSessionFavorite, sessionId, favorite),
   deleteSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.deleteSession, sessionId),
-  getRemoteAccessInfo: () => ipcRenderer.invoke(DESKTOP_IPC.remoteAccessInfo),
+  getRemoteAccessInfo: (options) => ipcRenderer.invoke(DESKTOP_IPC.remoteAccessInfo, options),
   rotateRemoteAccess: () => ipcRenderer.invoke(DESKTOP_IPC.rotateRemoteAccess),
   revokeRemoteAccessClient: (clientId) => ipcRenderer.invoke(DESKTOP_IPC.revokeRemoteAccessClient, clientId),
   subscribeRemoteClientClaim: (listener) => subscribeIpc(DESKTOP_IPC.remoteClientClaim, listener),
+  getRemoteAccessSettings: () => ipcRenderer.invoke(DESKTOP_IPC.getRemoteAccessSettings),
+  setRemoteAccessEnabled: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.setRemoteAccessEnabled, enabled),
+  setRemotePcName: (name) => ipcRenderer.invoke(DESKTOP_IPC.setRemotePcName, name),
+  subscribeRemoteAccessSettings: (listener) => subscribeIpc(DESKTOP_IPC.remoteAccessSettingsChanged, listener),
+  renameRemoteHost: (id, name) => ipcRenderer.invoke(DESKTOP_IPC.renameRemoteHost, id, name),
   listRemoteClientClaims: () => ipcRenderer.invoke(DESKTOP_IPC.listRemoteClientClaims),
   resolveRemoteClientClaim: (claimId, approved) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveRemoteClientClaim, claimId, approved),
+  listRemoteHosts: () => ipcRenderer.invoke(DESKTOP_IPC.listRemoteHosts),
+  connectRemoteHostByCode: (code) => ipcRenderer.invoke(DESKTOP_IPC.connectRemoteHostByCode, code),
+  getRemotePairCode: (action) => ipcRenderer.invoke(DESKTOP_IPC.remotePairCode, action),
+  subscribeShowConnectionSettings: (listener) => subscribeIpc(DESKTOP_IPC.showConnectionSettings, () => listener()),
+  openRemoteHost: (id) => ipcRenderer.invoke(DESKTOP_IPC.openRemoteHost, id),
+  forgetRemoteHost: (id) => ipcRenderer.invoke(DESKTOP_IPC.forgetRemoteHost, id),
   prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
     ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId, transcriptItemLimit, readTraceId),
   setVisibleSessions: (sessionIds) => ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),
-  searchProjectFiles: (projectIdOrWorkspaceId, query, limit, includeIgnored) =>
-    ipcRenderer.invoke(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit, includeIgnored),
+  searchProjectFiles: (projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) =>
+    ipcRenderer.invoke(
+      DESKTOP_IPC.searchProjectFiles,
+      projectIdOrWorkspaceId,
+      query,
+      limit,
+      includeIgnored,
+      includeDirectories
+    ),
   searchWorkspaceText: (projectPath, options) =>
     ipcRenderer.invoke(DESKTOP_IPC.searchWorkspaceText, projectPath, options),
   replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>
@@ -422,6 +447,9 @@ const api: DesktopApi = {
   openFilePath: (cwd, path, accessToken, confirmedPath) =>
     ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken, confirmedPath),
   openAttachmentImage: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentImage, dataUrl, name),
+  openAttachmentFile: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentFile, dataUrl, name),
+  stageAttachmentFile: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.stageAttachmentFile, dataUrl, name),
+  saveFileAs: (source, suggestedName) => ipcRenderer.invoke(DESKTOP_IPC.saveFileAs, source, suggestedName),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => subscribeIpc(DESKTOP_IPC.updaterState, listener),
   checkForDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.checkForDesktopUpdate),
@@ -476,6 +504,9 @@ const api: DesktopApi = {
   setFast: (enabled, sessionId) => ipcRenderer.invoke(DESKTOP_IPC.setFast, enabled, sessionId),
   readSettings: () => ipcRenderer.invoke(DESKTOP_IPC.readSettings),
   updateSetting: (key, enabled) => ipcRenderer.invoke(DESKTOP_IPC.updateSetting, key, enabled),
+  setNotificationVolume: (volume) => ipcRenderer.invoke(DESKTOP_IPC.setNotificationVolume, volume),
+  previewNotificationSound: () => ipcRenderer.invoke(DESKTOP_IPC.previewNotificationSound),
+  subscribeSettingsChanged: (listener) => subscribeIpc(DESKTOP_IPC.settingsChanged, listener),
   readActivityRailPins: () => ipcRenderer.invoke(DESKTOP_IPC.readActivityRailPins),
   updateActivityRailPins: (pins, initializeIfMissing) =>
     ipcRenderer.invoke(DESKTOP_IPC.updateActivityRailPins, pins, initializeIfMissing),
@@ -511,6 +542,8 @@ const api: DesktopApi = {
   browserCredentialSuggestions: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
   browserCredentialFill: (sessionId, credentialId) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId),
+  browserPageIdentity: (url) => ipcRenderer.invoke(DESKTOP_IPC.browserPageIdentity, url),
+  onBrowserPageIdentityChanged: (listener) => subscribeIpc(DESKTOP_IPC.browserPageIdentityChanged, listener),
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),
   // Byte lane for gallery media: a plain URL the DOM fetches itself (cached

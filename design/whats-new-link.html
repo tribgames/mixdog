@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>새로운 기능 링크 시안</title>
+<style>
+  :root { font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  body { margin: 0; padding: 32px; background: #0f0f11; color: #e9e9e9; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  p.lead { margin: 0 0 28px; color: #9a9aa0; font-size: 13px; }
+  h2 { font-size: 14px; margin: 28px 0 10px; color: #c8c8cc; }
+  .note { font-size: 12px; color: #8a8a90; margin: 6px 0 0; }
+
+  .theme-dark  { --band: #18181b; --sheet: #1e1e21; --text: #e9e9e9; --soft: #a0a0a6; --accent: #79b8ff; --hover: rgba(255,255,255,.08); --border: rgba(255,255,255,.07); }
+  .theme-light { --band: #f7f7f7; --sheet: #ffffff; --text: #222222; --soft: #6b6b6b; --accent: #185abc; --hover: rgba(119,119,119,.09); --border: rgba(0,0,0,.08); }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .window { border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--band); }
+  .topbar { height: 35px; display: flex; align-items: center; padding-left: 10px; }
+  .spacer { flex: 1; }
+  .caption { display: flex; height: 35px; }
+  .caption span { width: 46px; display: grid; place-items: center; color: var(--soft); font-size: 12px; }
+  .body { height: 70px; margin: 0 0 0 0; background: var(--sheet); border-top: 1px solid var(--border);
+          border-top-left-radius: 8px; }
+  .lbl { font-size: 11px; color: var(--soft); }
+
+  /* A: 텍스트만 */
+  .wn-a { font: 12px/28px inherit; font-family: inherit; color: var(--accent); background: none; border: 0;
+          padding: 0 8px; border-radius: 6px; cursor: pointer; margin-right: 4px; }
+  .wn-a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* B: 점 + 텍스트 */
+  .wn-b { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-family: inherit; height: 24px;
+          color: var(--accent); background: none; border: 0; padding: 0 8px; border-radius: 6px; cursor: pointer; margin-right: 4px; }
+  .wn-b::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
+  .wn-b:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+  /* C: 연한 파란 알약 */
+  .wn-c { font-size: 12px; font-family: inherit; height: 22px; padding: 0 10px; border: 0; border-radius: 999px; cursor: pointer;
+          color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); margin-right: 6px; }
+  .wn-c:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+  /* 비교용: 기존 업데이트 배지 */
+  .upd { position: relative; width: 28px; height: 28px; display: grid; place-items: center; color: var(--accent); margin-right: 4px; }
+  .upd::before { content: ""; position: absolute; width: 20px; height: 20px; border-radius: 999px;
+                 background: color-mix(in srgb, var(--accent) 20%, transparent); }
+  .upd svg { position: relative; }
+</style>
+</head>
+<body>
+<h1>"새로운 기능" 링크 시안</h1>
+<p class="lead">업데이트 후 첫 실행 시, 상단바의 다운로드 아이콘 자리(창 버튼 바로 왼쪽)에 표시됩니다. 누르면 변경내역 팝업만 단독으로 열립니다.</p>
+
+<template id="caption"><div class="caption"><span>─</span><span>☐</span><span>✕</span></div></template>
+
+<h2>A. 파란 텍스트만 (가장 조용함)</h2>
+<div class="row">
+  <div class="window theme-dark"><div class="topbar"><span class="lbl">다크</span><div class="spacer"></div><button class="wn-a">새로운 기능</button><slot-cap></slot-cap></div><div class="body"></div></div>
+  <div class="window theme-light"><div class="topbar"><span class="lbl">라이트</span><div class="spacer"></div><button class="wn-a">새로운 기능</button><slot-cap></slot-cap></div><div class="body"></div></div>
+</div>
+<p class="note">호버 시 밑줄만 생깁니다.</p>
+
+<h2>B. 작은 파란 점 + 텍스트</h2>
+<div class="row">
+  <div class="window theme-dark"><div class="topbar"><span class="lbl">다크</span><div class="spacer"></div><button class="wn-b">새로운 기능</button><slot-cap></slot-cap></div><div class="body"></div></div>
+  <div class="window theme-light"><div class="topbar"><span class="lbl">라이트</span><div class="spacer"></div><button class="wn-b">새로운 기능</button><slot-cap></slot-cap></div><div class="body"></div></div>
+</div>
+<p class="note">점이 "새 소식" 신호 역할을 합니다. 호버 시 연한 파란 배경.</p>
+
+<h2>C. 연한 파란 알약</h2>
+<div class="row">
+  <div class="window theme-dark"><div class="topbar"><span class="lbl">다크</span><div class="spacer"></div><button class="wn-c">새로운 기능</button><slot-cap></slot-cap></div><div class="body"></div></div>
+  <div class="window theme-light"><div class="topbar"><span class="lbl">라이트</span><div class="spacer"></div><button class="wn-c">새로운 기능</button><slot-cap></slot-cap></div><div class="body"></div></div>
+</div>
+<p class="note">기존 업데이트 배지(파란 원)와 같은 톤이라 가장 통일감 있지만 눈에 조금 더 띕니다.</p>
+
+<h2>참고: 기존 업데이트 배지</h2>
+<div class="row">
+  <div class="window theme-dark"><div class="topbar"><span class="lbl">다크</span><div class="spacer"></div><span class="upd"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></span><slot-cap></slot-cap></div><div class="body"></div></div>
+  <div class="window theme-light"><div class="topbar"><span class="lbl">라이트</span><div class="spacer"></div><span class="upd"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></span><slot-cap></slot-cap></div><div class="body"></div></div>
+</div>
+
+<script>
+  const cap = document.getElementById('caption');
+  document.querySelectorAll('slot-cap').forEach((el) => el.replaceWith(cap.content.cloneNode(true)));
+</script>
+</body>
+</html>

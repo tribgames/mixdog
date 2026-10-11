@@ -41,6 +41,9 @@ const SLOW_READS = new Set([
   // an unknown-method barrier, holding Settings reads ~10s behind it.
   'githubCliStatus',
   'githubCliAccount',
+  'ghPrList',
+  'ghPrView',
+  'ghPrDiff',
   // Keyed by capability at the dispatch site: a worktree diff read.
   'invokeCapability:getTurnReviewDiff',
 ]);

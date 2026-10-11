@@ -3,7 +3,11 @@
 // capture problem never changes the tool result.
 import { readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve as pathResolve, isAbsolute, join as pathJoin } from 'node:path';
-import { createSnapshotBudget, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
+import {
+  createSnapshotBudget,
+  PATCH_SNAPSHOT_MAX_BYTES,
+  readBoundedFile,
+} from '../../../../shared/bounded-file-read.mjs';
 import { getPluginData } from '../../config.mjs';
 import { decodeValidUtf8OrNull } from './matcher.mjs';
 import { isResolvedPathOutsideBase } from './paths.mjs';
@@ -128,6 +132,9 @@ export function setPatchReplayPreSnapshots(capture, snapshots) {
       if (!snapshot?.existed) continue;
       if (snapshot.omitted) {
         meta[rel] = omittedReplayMeta(snapshot.omittedReason, snapshot.size);
+      } else if (Buffer.isBuffer(snapshot.content) && snapshot.content.length > PATCH_SNAPSHOT_MAX_BYTES) {
+        // Rollback snapshots reach the edit limit; replay records keep the snapshot limit.
+        meta[rel] = omittedReplayMeta('oversized', snapshot.content.length);
       } else if (Buffer.isBuffer(snapshot.content)) {
         const text = decodeValidUtf8OrNull(snapshot.content);
         if (text === null) meta[rel] = omittedReplayMeta('binary', snapshot.content.length);

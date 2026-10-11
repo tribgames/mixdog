@@ -2,26 +2,25 @@
 // for the dock, with the metadata and tab hierarchy in the editor.
 // Data and actions are backed by the gh CLI IPC chain.
 
-import { ArrowRight, Check, FileDiff, GitPullRequestArrow, Github, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { GitPullRequestArrow, Github, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { DesktopPullRequestCategory, DesktopPullRequestEntry } from '../shared/contract';
+import type { DesktopPullRequestEntry } from '../shared/contract';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { OpenSelect } from './OpenSelect';
+import { PullRequestCreateForm } from './PullRequestCreateForm';
+import { PullRequestRow } from './PullRequestRow';
 import { useSurfaceActive, useSurfaceNavigationReset } from './surface-activity';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { SourceControlErrorNotice } from './SourceControlErrorNotice';
+import { usePullRequestList } from './use-pull-request-list';
 import {
   PULL_REQUEST_LIST_VIEWS,
-  StateIcon,
   buildPullRequestViews,
-  checksState,
-  createSubmitLabel,
   preferredBaseBranch,
   pullRequestMatchesFilter,
   pullRequestsWebUrl,
-  relativeAge,
   titleFromBranch,
 } from './pull-requests-model';
 import type { PullRequestListView, PullRequestOpenHandler, PullRequestViewMode } from './pull-requests-model';
@@ -52,15 +51,9 @@ export function PullRequestsPane({
   onOpenPullRequest?: PullRequestOpenHandler;
 }) {
   const api = window.mixdogDesktop;
-  const [categories, setCategories] = useState<DesktopPullRequestCategory[] | null>(null);
-  const [readError, setReadError] = useState('');
   const [actionError, setActionError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [listView, setListView] = useState<PullRequestListView>('open');
   const [filter, setFilter] = useState('');
-  const [localBranchNames, setLocalBranchNames] = useState<Set<string>>(new Set());
-  const [baseBranchNames, setBaseBranchNames] = useState<string[]>(['main']);
-  const [defaultBranchName, setDefaultBranchName] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
   const [createBody, setCreateBody] = useState('');
@@ -78,62 +71,14 @@ export function PullRequestsPane({
     setListView('open');
     setCreateOpen(false);
   });
-  const listEpoch = useRef(0);
-  const loadedProject = useRef<string | null>(null);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api and currentBranch are deliberate triggers; a new api or branch change must produce a fresh loadList so dependent effects reload.
-  const loadList = useCallback(async () => {
-    if (!projectPath || !surfaceActive) return;
-    const epoch = ++listEpoch.current;
-    setLoading(true);
-    try {
-      const [rows, branches, remoteDefaultBranch] = await Promise.all([
-        api?.ghPrList?.(projectPath),
-        api?.gitBranches?.(projectPath).catch(() => []),
-        api?.ghPrDefaultBranch?.(projectPath).catch(() => '') ?? Promise.resolve(''),
-      ]);
-      if (epoch !== listEpoch.current) return;
-      setCategories(rows ?? []);
-      setLocalBranchNames(new Set((branches ?? []).filter((branch) => !branch.remote).map((branch) => branch.name)));
-      const baseNames = [
-        ...new Set(
-          (branches ?? []).flatMap((branch) => {
-            const name = branch.remote ? branch.name.replace(/^[^/]+\//, '') : branch.name;
-            return !name || name === 'HEAD' ? [] : [name];
-          })
-        ),
-      ];
-      setBaseBranchNames(baseNames.length ? baseNames : ['main']);
-      setDefaultBranchName(remoteDefaultBranch || preferredBaseBranch(baseNames));
-      setReadError('');
-    } catch (cause) {
-      if (epoch !== listEpoch.current) return;
-      setReadError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      if (epoch === listEpoch.current) setLoading(false);
-    }
-  }, [api, currentBranch, projectPath, surfaceActive]);
-
-  useEffect(() => {
-    if (!surfaceActive) {
-      // Deactivation cancels: the epoch bump orphans every in-flight answer.
-      listEpoch.current += 1;
-      setLoading(false);
-      return;
-    }
-    if (loadedProject.current !== projectPath) {
-      loadedProject.current = projectPath;
-      setCategories(null);
-      setReadError('');
+  const { categories, readError, loading, localBranchNames, baseBranchNames, defaultBranchName, loadList } =
+    usePullRequestList(api, projectPath, currentBranch, surfaceActive, () => {
       setActionError('');
       setListView('open');
       setFilter('');
       setCreateOpen(false);
       setCreateError('');
-      setDefaultBranchName('');
-    }
-    void loadList();
-  }, [loadList, projectPath, surfaceActive]);
+    });
 
   const run = useCallback(
     async (key: string, action: () => Promise<unknown> | undefined) => {
@@ -362,83 +307,26 @@ export function PullRequestsPane({
         )}
         <div className="dock-scm-scroll dock-pr-list">
           {createOpen && (
-            <form
-              className="dock-pr-create"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitCreatePullRequest();
-              }}
-            >
-              <header>
-                <GitPullRequestArrow size={16} aria-hidden="true" />
-                <span>
-                  <b>{t('New pull request')}</b>
-                  <small>
-                    {currentBranch} → {createBase || 'base'}
-                  </small>
-                </span>
-              </header>
-              <label>
-                <span>{t('Title')}</span>
-                <input
-                  type="text"
-                  aria-label={t('Pull request title')}
-                  value={createTitle}
-                  maxLength={1024}
-                  // biome-ignore lint/a11y/noAutofocus: the create form opens to type the title immediately.
-                  autoFocus
-                  onInput={(event) => setCreateTitle(event.currentTarget.value)}
-                />
-              </label>
-              <label>
-                <span>{t('Description')}</span>
-                <textarea
-                  aria-label={t('Pull request description')}
-                  rows={6}
-                  value={createBody}
-                  placeholder={t('Description (optional)')}
-                  onInput={(event) => setCreateBody(event.currentTarget.value)}
-                />
-              </label>
-              <div className="dock-pr-create-base">
-                <span>{t('Base')}</span>
-                <OpenSelect
-                  className="dock-pr-base-select"
-                  ariaLabel={t('Pull request base branch')}
-                  value={createBase}
-                  options={baseBranchNames.map((branch) => ({ value: branch, label: branch }))}
-                  onChange={setCreateBase}
-                />
-              </div>
-              <label className="dock-pr-create-draft">
-                <input
-                  type="checkbox"
-                  checked={createDraft}
-                  onChange={(event) => setCreateDraft(event.currentTarget.checked)}
-                />
-                <span>{t('Create as draft')}</span>
-              </label>
-              {!prUrl && (
-                <p className="dock-pr-create-note">{createHint || t('The branch will be pushed before creation.')}</p>
-              )}
-              {createError && (
-                <SourceControlErrorNotice
-                  error={createError}
-                  className="dock-pr-create-error"
-                  onAuthenticationHelp={() => void api?.openExternal?.('https://cli.github.com/manual/gh_auth_login')}
-                  authenticationHelpLabel={t('GitHub CLI help')}
-                />
-              )}
-              <footer>
-                <button type="button" onClick={cancelCreatePullRequest} disabled={busy === 'create'}>
-                  {t('Cancel')}
-                </button>
-                <button type="submit" disabled={createDisabled}>
-                  {busy === 'create' && <ProgressSpinner size={14} aria-hidden="true" />}
-                  {createSubmitLabel(busy === 'create', prUrl, createDraft)}
-                </button>
-              </footer>
-            </form>
+            <PullRequestCreateForm
+              currentBranch={currentBranch}
+              title={createTitle}
+              body={createBody}
+              base={createBase}
+              draft={createDraft}
+              baseBranchNames={baseBranchNames}
+              prUrl={prUrl}
+              createHint={createHint}
+              error={createError}
+              creating={busy === 'create'}
+              submitDisabled={createDisabled}
+              onTitleChange={setCreateTitle}
+              onBodyChange={setCreateBody}
+              onBaseChange={setCreateBase}
+              onDraftChange={setCreateDraft}
+              onSubmit={() => void submitCreatePullRequest()}
+              onCancel={cancelCreatePullRequest}
+              onAuthenticationHelp={() => void api?.openExternal?.('https://cli.github.com/manual/gh_auth_login')}
+            />
           )}
           {!createOpen && (
             <>
@@ -481,100 +369,21 @@ export function PullRequestsPane({
                   role="list"
                   aria-label={t('{{view}} pull requests', { view: viewLabels[listView] })}
                 >
-                  {visiblePullRequests.map((pr) => {
-                    const checkedOut = Boolean(currentBranch && pr.headRefName === currentBranch);
-                    const checkoutKey = `checkout:${pr.number}`;
-                    return (
-                      // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; <li> would bring list styling into the row.
-                      <div className="dock-pr-row" data-draft={pr.isDraft || undefined} role="listitem" key={pr.number}>
-                        <button type="button" className="dock-pr-row-main" onClick={() => openPullRequest(pr)}>
-                          <span className="dock-pr-row-icon" aria-hidden="true">
-                            <StateIcon pr={pr} />
-                          </span>
-                          <span className="dock-pr-row-label">
-                            <b>{pr.title}</b>
-                            <small>
-                              #{pr.number}
-                              {relativeAge(pr.updatedAt) ? ` · ${relativeAge(pr.updatedAt)}` : ''}
-                              {pr.author ? ` · @${pr.author}` : ''}
-                            </small>
-                          </span>
-                          <span className="dock-pr-row-signals" aria-hidden="true">
-                            {checkedOut && <Check size={12} className="dock-pr-row-active" />}
-                            {pr.checks.total > 0 && (
-                              <i className="dock-pr-row-checks" data-checks={checksState(pr.checks)} />
-                            )}
-                          </span>
-                        </button>
-                        <span className="dock-pr-row-actions">
-                          <button
-                            type="button"
-                            aria-label={t('Open changes for pull request {{number}}', { number: pr.number })}
-                            data-tooltip={t('Open Changes')}
-                            onClick={() => openPullRequest(pr, 'changes')}
-                          >
-                            <FileDiff size={14} aria-hidden="true" />
-                          </button>
-                          {!checkedOut && (
-                            <button
-                              type="button"
-                              aria-label={t('Checkout pull request {{number}}', { number: pr.number })}
-                              data-tooltip={t('Checkout Pull Request')}
-                              disabled={Boolean(busy) || !api?.ghPrCheckout}
-                              onClick={() => void run(checkoutKey, () => api?.ghPrCheckout?.(projectPath, pr.number))}
-                            >
-                              {busy === checkoutKey ? (
-                                <ProgressSpinner size={14} aria-hidden="true" />
-                              ) : (
-                                <ArrowRight size={14} aria-hidden="true" />
-                              )}
-                            </button>
-                          )}
-                          <RowOverflowMenu
-                            label={t('Actions for pull request {{number}}', { number: pr.number })}
-                            items={[
-                              {
-                                id: 'overview',
-                                label: t('View Pull Request Description'),
-                                onSelect: () => openPullRequest(pr),
-                              },
-                              {
-                                id: 'overview-side',
-                                label: t('Open Pull Request Description to the Side'),
-                                onSelect: () => openPullRequest(pr, 'overview', true),
-                              },
-                              {
-                                id: 'changes',
-                                label: t('Open Changes'),
-                                onSelect: () => openPullRequest(pr, 'changes'),
-                              },
-                              {
-                                id: 'checkout',
-                                label: checkedOut ? t('Pull Request Checked Out') : t('Checkout Pull Request'),
-                                disabled: checkedOut || Boolean(busy) || !api?.ghPrCheckout,
-                                onSelect: () =>
-                                  void run(checkoutKey, () => api?.ghPrCheckout?.(projectPath, pr.number)),
-                              },
-                              {
-                                id: 'open-github',
-                                label: t('Open on GitHub'),
-                                disabled: !pr.url,
-                                onSelect: () => {
-                                  if (pr.url) void api?.openExternal?.(pr.url);
-                                },
-                              },
-                              {
-                                id: 'refresh',
-                                label: t('Refresh Pull Request'),
-                                separatorBefore: true,
-                                onSelect: refreshAll,
-                              },
-                            ]}
-                          />
-                        </span>
-                      </div>
-                    );
-                  })}
+                  {visiblePullRequests.map((pr) => (
+                    <PullRequestRow
+                      key={pr.number}
+                      pr={pr}
+                      checkedOut={Boolean(currentBranch && pr.headRefName === currentBranch)}
+                      busy={busy}
+                      canCheckout={Boolean(api?.ghPrCheckout)}
+                      onOpen={openPullRequest}
+                      onCheckout={(entry) =>
+                        void run(`checkout:${entry.number}`, () => api?.ghPrCheckout?.(projectPath, entry.number))
+                      }
+                      onOpenExternal={(url) => void api?.openExternal?.(url)}
+                      onRefresh={refreshAll}
+                    />
+                  ))}
                 </div>
               )}
             </>

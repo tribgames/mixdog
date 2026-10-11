@@ -82,7 +82,7 @@ export function useComposerPalettes({
     setMentionLoading(true);
     const timer = window.setTimeout(() => {
       void window.mixdogDesktop
-        .searchProjectFiles(projectScope, mentionMatch.query, 20)
+        .searchProjectFiles(projectScope, mentionMatch.query, 100, false, true)
         .then((paths) => {
           if (mentionSearchGeneration.current !== generation) return;
           setMentionResults(paths);

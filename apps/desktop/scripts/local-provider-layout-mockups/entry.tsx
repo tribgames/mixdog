@@ -14,7 +14,6 @@ import {
   ExtensionSection,
 } from '../../src/renderer/settings/extension-detail';
 import { OpenSelect } from '../../src/renderer/OpenSelect';
-import { UsageBody } from '../../src/renderer/command-surface-usage';
 import { initUiLanguage, setUiLanguagePreference } from '../../src/renderer/i18n';
 import '../../src/renderer/bootstrap-styles';
 import '../../src/renderer/settings/settings.css';
@@ -416,28 +415,7 @@ function C4() {
   );
 }
 
-// The app's own provider-usage table, unchanged, as the reference the
-// variants follow.
-function USAGE() {
-  const window = (label: string, usedPct: number) => ({ label, usedPct, source: 'provider' });
-  return (
-    <ExtensionSection title="참고: 실제 사용량 표 (UsageBody)">
-      <UsageBody
-        data={{
-          getUsageDashboard: {
-            rows: [
-              { id: 'anthropic-oauth', label: 'Claude', group: 'oauth', authenticated: true, windows: [window('5h', 17), window('7d', 42)] },
-              { id: 'openai-oauth', label: 'ChatGPT', group: 'oauth', authenticated: true, windows: [window('5h', 3)] },
-              { id: 'openai', label: 'OpenAI', group: 'api', authenticated: true, remainingUsd: 12.4 },
-            ],
-          },
-        }}
-      />
-    </ExtensionSection>
-  );
-}
-
-const VARIANTS: Record<string, () => ReactNode> = { USAGE, C1, C2, C3, C4 };
+const VARIANTS: Record<string, () => ReactNode> = { C1, C2, C3, C4 };
 const root = createRoot(document.getElementById('root')!);
 (window as any).mixdogDesktop = { async setTitleBarDim() {}, rendererDiagnostic() {} };
 (window as any).layoutMockups = {

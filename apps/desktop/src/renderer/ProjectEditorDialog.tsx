@@ -366,7 +366,7 @@ function memoryEditRow({
 
 export interface ProjectEditorDialogHandle {
   /** Opens the editor for a project path, or the common memory for null. */
-  open(path: string | null): void;
+  open(path: string | null, options?: { confirmRemove?: boolean }): void;
   /** Warms the shared memory catalog. */
   warm(): void;
 }
@@ -473,7 +473,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
       resetEdit();
     };
     useImperativeHandle(ref, () => ({
-      open(path) {
+      open(path, options) {
         if (path === null) {
           openEdit(null, t('Common Memory'));
           return;
@@ -481,6 +481,9 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
         const project = projects.find((entry) => projectIdentity(entry.path) === projectIdentity(path));
         if (!project) return;
         openEdit(project.path, project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path));
+        // Armed AFTER openEdit (which disarms): the Remove button then reads
+        // "Confirm remove" and still needs one explicit click.
+        if (options?.confirmRemove) setEditConfirmRemove(true);
       },
       warm() {
         if (memoriesSupported) void readMemories(null, true).catch(() => {});

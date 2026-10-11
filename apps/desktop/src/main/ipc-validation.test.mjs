@@ -178,3 +178,37 @@ test('git branch validation trims surrounding whitespace without weakening rejec
     assert.throws(() => requiredGitBranchName(value), { name: 'TypeError', message: 'git branch is invalid.' });
   }
 });
+
+test('save-as sources accept only http(s) and data URLs', async () => {
+  const { requiredSaveSource, requiredAttachmentFile, sanitizedFileName } = await import('./ipc-validation.ts');
+  assert.equal(requiredSaveSource('https://example.com/a.txt').kind, 'http');
+  assert.equal(requiredSaveSource('data:text/plain;base64,aGk=').bytes.toString(), 'hi');
+  assert.equal(requiredSaveSource('data:text/plain,h%20i').bytes.toString(), 'h i');
+  for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 'ftp://x/y', '', 'nope', 5]) {
+    assert.throws(() => requiredSaveSource(bad), TypeError);
+  }
+  assert.equal(sanitizedFileName('a/b\\c:d.txt'), 'a-b-c-d.txt');
+  assert.equal(sanitizedFileName(''), 'download');
+  const pdf = requiredAttachmentFile('data:application/pdf;base64,aGk=', 'My Report.PDF');
+  assert.equal(pdf.extension, 'pdf');
+  assert.equal(pdf.baseName, 'My-Report');
+  assert.equal(requiredAttachmentFile('data:application/pdf;base64,aGk=', 'noext').extension, 'pdf');
+  // Text-kind attachments off the allowlist open as .txt.
+  assert.equal(requiredAttachmentFile('data:text/html;base64,aGk=', 'x.html').extension, 'txt');
+  assert.equal(requiredAttachmentFile('data:text/plain;base64,aGk=', 'run.bat').extension, 'txt');
+  assert.equal(requiredAttachmentFile('data:text/x-python;base64,aGk=', 'a.py').extension, 'txt');
+  assert.equal(requiredAttachmentFile('data:text/plain;base64,aGk=', 'notes.md').extension, 'md');
+  assert.equal(requiredAttachmentFile('data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,aGk=', 'a.docx').extension, 'docx');
+  // Anything else off the allowlist is rejected.
+  for (const [mime, file] of [
+    ['application/octet-stream', 'x.cpl'],
+    ['application/octet-stream', 'x.msc'],
+    ['application/java-archive', 'x.jar'],
+    ['application/octet-stream', 'x.py'],
+    ['application/x-msdownload', 'x.exe'],
+    ['application/octet-stream', 'noext'],
+  ]) {
+    assert.throws(() => requiredAttachmentFile(`data:${mime};base64,aGk=`, file), TypeError, `${mime} ${file}`);
+  }
+  assert.throws(() => requiredAttachmentFile('http://x/', 'a.txt'), TypeError);
+});

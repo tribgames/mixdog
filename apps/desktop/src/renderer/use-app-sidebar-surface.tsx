@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DesktopProjectSummary } from '../shared/contract';
 import { SidebarPanelBoundary } from './sidebar-panel-surface';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import type { SidebarPanelKey } from './app-shell-components';
 import type { ExtensionsSection } from './extension-sections';
 import type { useAppShellPanels } from './use-app-shell-panels';
@@ -214,7 +215,11 @@ export function useAppSidebarSurface({
   // and edits projects; NEW TASK is minted from its own entries only.
   const projectsRename = useStableEvent((path: string, alias: string) => void renameProject(path, alias));
   const projectsRemove = useStableEvent((path: string) => void removeProject(path));
-  const projectsChooseFolder = useCallback(async () => (await window.mixdogDesktop?.chooseProject()) ?? null, []);
+  const projectsChooseFolder = useCallback(
+    // Remote surfaces browse the host in-app (ProjectListSection), never the OS chooser.
+    async () => (isRemoteHostRenderer() ? null : ((await window.mixdogDesktop?.chooseProject()) ?? null)),
+    []
+  );
   const projectsMemoryControl = useCallback<NonNullable<React.ComponentProps<typeof ProjectsPane>['onMemoryControl']>>(
     async (input) =>
       (

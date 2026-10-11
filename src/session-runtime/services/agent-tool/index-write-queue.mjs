@@ -78,9 +78,11 @@ function compactOps(batch) {
       for (const [key, json] of op.set) slot.final.set(key, json);
     });
   }
-  return slots.map((slot) =>
-    !slot ? null : slot.add ? { add: slot.add } : { del: slot.del, set: slot.final }
-  );
+  return slots.map((slot) => {
+    if (!slot) return null;
+    if (slot.add) return { add: slot.add };
+    return { del: slot.del, set: slot.final };
+  });
 }
 
 function replayOps(ops, args) {

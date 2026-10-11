@@ -44,6 +44,7 @@ import { useMobileBack } from './mobile-back';
 import { scheduleEditorPanePrefetch } from './lazy-widgets';
 import { SetiFileIcon } from './SetiFileIcon';
 import { useSurfaceActive } from './surface-activity';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { copyTextToClipboard } from './text-format';
 
 interface ExplorerMenu {
@@ -99,6 +100,7 @@ function explorerContextMenu({
     closeMenu();
     action();
   };
+  const remote = isRemoteHostRenderer();
   const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);
   let pasteTarget = '';
   if (!menu.background) pasteTarget = menu.isDir ? menu.rel : menu.parent;
@@ -169,13 +171,14 @@ function explorerContextMenu({
           {sep('bg-clipboard')}
           {item('Paste', () => void pasteClipboard(''), { hint: 'Ctrl+V', disabled: !clipboard })}
           {sep('bg-path')}
-          {item('Reveal in Explorer', () => void api?.openProjectInExplorer(projectPath))}
+          {!remote && item('Reveal in Explorer', () => void api?.openProjectInExplorer(projectPath))}
           {item('Copy path', () => void copyTextToClipboard(projectPath))}
         </>
       ) : (
         <>
           {!multi && !menu.isDir && item('Open', () => openFile(menu.rel))}
-          {!multi &&
+          {!remote &&
+            !multi &&
             !menu.isDir &&
             item('Open in default app', () => void openEditorFileExternally(projectPath, menu.rel))}
           {!multi && menu.isDir && item('New file…', () => beginCreate(false, menu.rel))}
@@ -185,7 +188,7 @@ function explorerContextMenu({
           {item('Copy', () => stashClipboard(false), { hint: 'Ctrl+C' })}
           {!multi && item('Paste', () => void pasteClipboard(pasteTarget), { hint: 'Ctrl+V', disabled: !clipboard })}
           {sep('row-clipboard')}
-          {!multi && item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, menu.rel))}
+          {!remote && !multi && item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, menu.rel))}
           {item('Copy path', () => void copyTextToClipboard(copyRels.map(absOf).join('\n')), {
             hint: 'Shift+Alt+C',
           })}

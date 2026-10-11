@@ -30,6 +30,9 @@ export function wireSessionLifecycle(boot) {
   const lifecycle = createSessionLifecycle({
     rt,
     adoptSession: boot.adoptSession,
+    // Same-id recovery of an addressed runtime goes through the lifecycle
+    // resume (late-bound: the lifecycle api is built after this stage).
+    resumeAddressedSession: (id) => boot.lifecycleApi.resume(id),
     collectProviderModels: boot.collectProviderModels,
     ensureProvidersReady: boot.ensureProvidersReady,
     lookupModelMeta: boot.lookupModelMeta,

@@ -2,7 +2,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { DesktopSettingKey, DesktopSettings } from '../shared/contract';
+import {
+  NOTIFICATION_VOLUME_DEFAULT,
+  NOTIFICATION_VOLUME_MAX,
+  type DesktopSettingKey,
+  type DesktopSettings,
+} from '../shared/contract';
 import {
   DEFAULT_ACTIVITY_RAIL_PINS,
   normalizeActivityRailPins,
@@ -38,6 +43,10 @@ export function settingsConfigModuleUrl(
   return pathToFileURL(configPath).href;
 }
 
+export function isNotificationVolume(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= NOTIFICATION_VOLUME_MAX;
+}
+
 export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
   const config = record(value);
   const agent = record(config.agent);
@@ -50,6 +59,9 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     keepAwake: desktop.keepAwake !== false,
     runInBackground: desktop.runInBackground !== false,
     turnNotifications: desktop.turnNotifications !== false,
+    notificationVolume: isNotificationVolume(desktop.notificationVolume)
+      ? desktop.notificationVolume
+      : NOTIFICATION_VOLUME_DEFAULT,
     // A fresh install starts pinned; an explicit unpin is kept.
     usagePinned: desktop.usagePinned !== false,
     computerControl: desktop.computerControl === true,
@@ -250,6 +262,19 @@ export class DesktopSettingsStore {
       }
       next.agent = agent;
       return next;
+    });
+    return desktopSettingsFromConfig(saved);
+  }
+
+  async updateNotificationVolume(volume: number): Promise<DesktopSettings> {
+    if (!isNotificationVolume(volume)) throw new TypeError('notification volume is invalid.');
+    const config = await this.loadConfig();
+    const saved = await config.updateConfigAsync((current) => {
+      const desktop = { ...record(current.desktop) };
+      // Storage holds only a value that differs from the code default.
+      if (volume === NOTIFICATION_VOLUME_DEFAULT) delete desktop.notificationVolume;
+      else desktop.notificationVolume = volume;
+      return { ...current, desktop };
     });
     return desktopSettingsFromConfig(saved);
   }

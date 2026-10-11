@@ -61,6 +61,10 @@ public static class MixWin32 {
     if (enabled) Restores++; else Disables++;
     return true;
   }
+  public static int Holds;
+  public static int Releases;
+  public static IntPtr HoldInactive(IntPtr value) { Holds++; return value; }
+  public static void ReleaseInactive(IntPtr value) { if (value != IntPtr.Zero) Releases++; }
   public static System.Collections.Generic.List<string> Released = new System.Collections.Generic.List<string>();
   public static IntPtr ParseWindowId(string value) { return new IntPtr(Convert.ToInt32(value.Substring(7), 16)); }
   public static string WindowId(IntPtr value) { return "hwnd:0x" + value.ToInt64().ToString("X"); }
@@ -114,10 +118,11 @@ foreach($scenario in @('background_unchanged','background_user_input','backgroun
 }
 [MixWin32]::SelfActivating=$true
 [MixWin32]::FocusCalls=0; [MixWin32]::Disables=0; [MixWin32]::Restores=0
+[MixWin32]::Holds=0; [MixWin32]::Releases=0
 [MixWin32]::Current=[IntPtr]2
 $null=Invoke-BackgroundWindow ([IntPtr]1) { [MixWin32]::Current=[IntPtr]1 }
 $results+=@{scenario='shielded_self_activating'; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
-  disables=[MixWin32]::Disables; restores=[MixWin32]::Restores}
+  disables=[MixWin32]::Disables; restores=[MixWin32]::Restores; holds=[MixWin32]::Holds; releases=[MixWin32]::Releases}
 # The content window of a packaged app takes the foreground just after the
 # call returns: past the immediate check, inside the short watch.
 [MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2
@@ -152,6 +157,9 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     // to exactly the state it had, so the steal never reaches the user's screen.
     assert.equal(rows[5].disables, 1);
     assert.equal(rows[5].restores, 1);
+    // The target is held non-activatable for the call and released exactly once.
+    assert.equal(rows[5].holds, 1);
+    assert.equal(rows[5].releases, 1);
     // Releasing the session also releases every button it held down.
     assert.equal(rows.at(-1).released, 1);
     assert.equal(rows.at(-1).held, 0);

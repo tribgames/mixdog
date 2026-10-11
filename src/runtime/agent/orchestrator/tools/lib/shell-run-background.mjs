@@ -127,7 +127,10 @@ export function createAutoBackground({
     // well — when 'close' fired before the once('close') wiring, nothing
     // else would ever flip the promoted job detail off 'running'.
     if (run.child.exitCode != null || run.child.signalCode != null) {
-      resolveCompletedDuringPromotion(run, capture);
+      // The run is over: the mid-run snapshot held back an incomplete tail
+      // and left the encoding open. A completed result carries the final read.
+      const final = await readCapturedOutput(taskOutput, true);
+      resolveCompletedDuringPromotion(run, { ...capture, stdout: final.stdout, stderr: final.stderr });
       return;
     }
     resolveBackgrounded(run, { jobId, reason, remainingBackgroundTimeoutMs }, capture);

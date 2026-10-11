@@ -107,10 +107,13 @@ export function TranscriptList({
   const resizePinFrame = useRef(0);
   const { setSelectionPin, selectionPinnedIndexes } = useSelectionPin(rowsRef);
   const activeIndexesRef = useRef<number[]>([]);
-  let activeIndex = -1;
-  rows.forEach((row, index) => {
-    if ('active' in row && row.active) activeIndex = index;
-  });
+  const activeIndex = useMemo(() => {
+    let found = -1;
+    rows.forEach((row, index) => {
+      if ('active' in row && row.active) found = index;
+    });
+    return found;
+  }, [rows]);
   activeIndexesRef.current = activeIndex < 0 ? [] : [activeIndex];
   // Mount-time only: this component is remounted per session. The real
   // measurements are replayed immediately and corrected by virtual-core if

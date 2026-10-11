@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ExternalLink, Keyboard, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ExternalLink, Keyboard, KeyRound, Link2, RotateCw, X } from 'lucide-react';
 import { ProgressSpinner } from './ProgressSpinner';
 import {
   useCallback,
@@ -10,14 +10,20 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
-import type { DesktopRemoteBrowserControl, DesktopRemoteBrowserStreamFrame } from '../shared/contract';
+import type { DesktopRemoteBrowserControl } from '../shared/contract';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
+import { useBrowserCredentials, useHistorySuggestions } from './browser-pane-hooks';
+import { BrowserImportDialog } from './BrowserImportDialog';
+import { BrowserTabStrip } from './BrowserTabStrip';
+import { DockOverflowMenu, type DockAction } from './pane-dock-chrome';
 import { browserInputNotice } from '../shared/browser-input-policy';
 import { normalizeAddressInput } from './browser-address';
 import { createRemoteBrowserInputQueue } from './remote-browser-input';
 import { createRemoteBrowserInputClient, type RemoteInputFrame } from './remote-browser-input-client';
 import { createRemoteTouchController } from './remote-browser-touch';
 import { useBrowserPageInput } from './use-browser-page-input';
+import { REMOTE_CONNECTION_READY_EVENT, useRemoteBrowserStream, type StreamFrameMeta } from './use-remote-browser-stream';
+import { useRemoteBrowserTabs } from './use-remote-browser-tabs';
 import { readBrowserZoom, stepBrowserZoom, writeBrowserZoom } from './browser-zoom-level';
 import { BrowserZoomPill } from './BrowserZoomPill';
 import { t } from './i18n';
@@ -31,25 +37,14 @@ function clampPan(offset: number, size: number, zoom: number): number {
   return Math.min(reach, Math.max(-reach, offset));
 }
 
-/** The desktop stops a stream that is not renewed for 4s. */
-export const STREAM_RENEW_MS = 2_000;
-/** Same value as REMOTE_CONNECTION_READY_EVENT (remote-shim-state), which the
- * pane must not import: it would pull the whole shim into this chunk. */
-const REMOTE_CONNECTION_READY_EVENT = 'mixdog:remote-connection-ready';
+export { STREAM_RENEW_MS } from './use-remote-browser-stream';
 const TOUCH_INDICATOR_MS = 450;
-const FALLBACK_STREAM_BOX = { maxWidth: 1280, maxHeight: 720 };
-
-type StreamFrameMeta = Omit<DesktopRemoteBrowserStreamFrame, 'image'>;
-
-async function decodeImage(url: string): Promise<void> {
-  const image = new Image();
-  image.src = url;
-  if (typeof image.decode === 'function') await image.decode();
-}
 
 export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProps) {
   const api = window.mixdogDesktop;
-  const ownerSessionId = sessionId;
+  // The page this client streams: its own tab until another is selected.
+  const [streamId, setStreamId] = useState(sessionId);
+  const ownerSessionId = streamId;
   const addressFocused = useRef(false);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -65,6 +60,9 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   const [actionFailure, setActionFailure] = useState('');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [touchDot, setTouchDot] = useState<{ x: number; y: number; key: number } | null>(null);
+  const [addressHasFocus, setAddressHasFocus] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [, setConnectionEpoch] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency rebuilds the queue if the bridge object is replaced.
   const inputQueue = useMemo(
     () =>
@@ -100,6 +98,26 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     },
     [ownerSessionId]
   );
+
+  // Another page: nothing of the previous one (frame, image, pan, zoom) carries over.
+  const shownStream = useRef(streamId);
+  useEffect(() => {
+    if (shownStream.current === streamId) return;
+    shownStream.current = streamId;
+    frameRef.current = null;
+    imageSize.current = null;
+    setFrame(null);
+    setImageUrl('');
+    setFailure('');
+    setActionFailure('');
+    setAddress('');
+    setPan({ x: 0, y: 0 });
+    setZoomLevel(readBrowserZoom(window.localStorage, streamId));
+  }, [streamId]);
+  // The pane's own tab is the page it starts from again if it is retargeted.
+  useEffect(() => {
+    setStreamId(sessionId);
+  }, [sessionId]);
 
   const shortcutRef = useRef((_name: string) => {});
   shortcutRef.current = (name) => {
@@ -186,110 +204,27 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     return () => inputQueue.dispose();
   }, [active, inputQueue]);
 
-  // Newest frame for this session only. A metadata-only frame keeps the last
-  // image; a frame is acknowledged once its image is decoded and displayed.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency re-subscribes if the bridge object is replaced.
-  useEffect(() => {
-    if (!active || !api?.onRemoteBrowserFrame) return undefined;
-    let disposed = false;
-    let imageToken = 0;
-    /** Metadata is applied the moment a frame arrives, image or not. */
-    const applyMetadata = (next: DesktopRemoteBrowserStreamFrame) => {
-      const { image: _image, ...meta } = next;
-      const previous = frameRef.current;
-      if (previous && previous.documentId !== next.documentId) {
-        // The old document's queued/coalesced input and held buttons must not
-        // reach the new page. Releases still name the document they pressed.
-        inputQueue.reset();
-        client.reset();
-        touch.dispose();
-        inputRef.current?.onPointerCancel();
-        setActionFailure('');
-      }
-      const size = imageSize.current ?? next;
-      frameRef.current = {
-        documentId: next.documentId,
-        width: size.width,
-        height: size.height,
-        viewportWidth: next.viewportWidth,
-        viewportHeight: next.viewportHeight,
-      };
-      setFrame(meta);
-      setFailure('');
-      if (!addressFocused.current) setAddress(next.url === 'about:blank' ? '' : next.url);
-    };
-    const unsubscribe = api.onRemoteBrowserFrame((next) => {
-      if (next.sessionId !== ownerSessionId) return;
-      applyMetadata(next);
-      if (!next.image) {
-        api.remoteBrowserStreamAck?.(ownerSessionId, next.seq);
-        return;
-      }
-      const token = ++imageToken;
-      const url = `data:${next.image.mimeType};base64,${next.image.data}`;
-      const present = () => {
-        if (disposed || token !== imageToken) return;
-        imageSize.current = { width: next.width, height: next.height };
-        if (frameRef.current?.documentId === next.documentId) {
-          frameRef.current = { ...frameRef.current, width: next.width, height: next.height };
-        }
-        setImageUrl(url);
-        api.remoteBrowserStreamAck?.(ownerSessionId, next.seq);
-      };
-      decodeImage(url).then(present, present);
-    });
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
-  }, [active, api, ownerSessionId, inputQueue, client, touch]);
-
-  // Live view: start, renew every ~2s while shown, stop when hidden/inactive.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency restarts the stream if the bridge object is replaced.
-  useEffect(() => {
-    if (!active || !api?.remoteBrowserStream) return undefined;
-    setFailure('');
-    setActionFailure('');
-    let timer = 0;
-    let running = false;
-    const renew = () => {
-      const box = contentRef.current?.getBoundingClientRect();
-      const scale = window.devicePixelRatio || 1;
-      const options =
-        box && box.width > 0 && box.height > 0
-          ? { maxWidth: Math.round(box.width * scale), maxHeight: Math.round(box.height * scale) }
-          : FALLBACK_STREAM_BOX;
-      api.remoteBrowserStream!(ownerSessionId, options).catch((error: unknown) => {
-        if (running) setFailure(error instanceof Error ? error.message : String(error));
-      });
-    };
-    const begin = () => {
-      if (running) return;
-      running = true;
-      renew();
-      timer = window.setInterval(renew, STREAM_RENEW_MS);
-    };
-    const end = () => {
-      if (!running) return;
-      running = false;
-      window.clearInterval(timer);
-      api.remoteBrowserStream!(ownerSessionId, null).catch(() => {});
-    };
-    const visibility = () => (document.visibilityState === 'hidden' ? end() : begin());
-    // A fresh relay connection lost the desktop's stream state: start again so
-    // the view resyncs at once instead of waiting for the next renewal.
-    const reconnected = () => {
-      if (running) renew();
-    };
-    document.addEventListener('visibilitychange', visibility);
-    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
-    visibility();
-    return () => {
-      document.removeEventListener('visibilitychange', visibility);
-      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
-      end();
-    };
-  }, [active, api, ownerSessionId]);
+  const resetDocumentInput = useCallback(() => {
+    inputQueue.reset();
+    client.reset();
+    touch.dispose();
+    inputRef.current?.onPointerCancel();
+  }, [inputQueue, client, touch]);
+  useRemoteBrowserStream({
+    api,
+    active,
+    ownerSessionId,
+    contentRef,
+    frameRef,
+    imageSize,
+    addressFocused,
+    resetDocumentInput,
+    setFrame,
+    setImageUrl,
+    setFailure,
+    setActionFailure,
+    setAddress,
+  });
 
   useEffect(() => {
     if (keyboardOpen) keyboardRef.current?.focus();
@@ -314,8 +249,64 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     },
     [control]
   );
+  const go = (raw: string) => {
+    setHistorySuggestions([]);
+    if (newTab) void openTab(raw);
+    else navigate(raw);
+  };
+
+  // The host's extras (tabs, history, saved logins, import) appear only once
+  // the connected host advertises them; a reconnect may reach another host.
+  useEffect(() => {
+    const ready = () => setConnectionEpoch((epoch) => epoch + 1);
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, ready);
+    return () => window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, ready);
+  }, []);
+  const { newTab, setNewTab, tabs, tabsSupported, selectTab, openTab, closeTab, stripTabs } = useRemoteBrowserTabs({
+    api,
+    active,
+    sessionId,
+    streamId,
+    setStreamId,
+    setActionFailure,
+  });
+
+  const { historySuggestions, setHistorySuggestions } = useHistorySuggestions(api, address, addressHasFocus);
+  const {
+    credentialBusy,
+    credentialStatus,
+    credentialSuggestions,
+    fillStoredCredential,
+    refreshCredentialSuggestions,
+  } = useBrowserCredentials(api, ownerSessionId);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the page's address and loading state are the triggers; the body only asks the host.
+  useEffect(() => {
+    if (active && frame && !frame.loading) refreshCredentialSuggestions();
+  }, [active, frame?.url, frame?.loading, refreshCredentialSuggestions]);
 
   const externalUrl = frame?.url && frame.url !== 'about:blank' ? frame.url : '';
+  let credentialLabel = t('Fill with stored credentials');
+  if (credentialStatus === 'success') credentialLabel = t('Filled stored credentials');
+  else if (credentialStatus === 'error') credentialLabel = t('Could not fill stored credentials');
+  const moreActions: DockAction[] = credentialSuggestions.map((credential) => ({
+    id: `credential-${credential.id}`,
+    label:
+      credentialSuggestions.length === 1
+        ? credentialLabel
+        : `${t('Fill with stored credentials')}: ${credential.label}`,
+    icon: KeyRound,
+    disabled: credentialBusy,
+    onSelect: () => fillStoredCredential(credential.id),
+  }));
+  if (api?.browserProfileImportSources) {
+    moreActions.push({
+      id: 'import-profile',
+      label: t('Import from browser'),
+      icon: Link2,
+      separatorBefore: credentialSuggestions.length > 0,
+      onSelect: () => setImportOpen(true),
+    });
+  }
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') return input.onPointerDown(event);
@@ -340,7 +331,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
 
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
-    navigate(address);
+    go(address);
     addressFocused.current = false;
   };
 
@@ -383,18 +374,39 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
             type="text"
             value={address}
             spellCheck={false}
-            placeholder={t('Search or enter address')}
+            placeholder={newTab ? t('Address for new tab') : t('Search or enter address')}
             aria-label={t('Address bar')}
             onChange={(event) => setAddress(event.target.value)}
             onFocus={(event) => {
               addressFocused.current = true;
+              setAddressHasFocus(true);
               event.target.select();
             }}
             onBlur={() => {
               addressFocused.current = false;
+              setAddressHasFocus(false);
+              setNewTab(false);
               if (externalUrl) setAddress(externalUrl);
             }}
           />
+          {historySuggestions.length > 0 && (
+            <div className="browser-pane-history-suggestions">
+              {historySuggestions.map((entry) => (
+                <button
+                  type="button"
+                  key={entry.url}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    go(entry.url);
+                    setAddressHasFocus(false);
+                  }}
+                >
+                  <span>{entry.title || entry.url}</span>
+                  <code>{entry.url}</code>
+                </button>
+              ))}
+            </div>
+          )}
         </form>
         <button
           type="button"
@@ -418,7 +430,23 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         >
           <ExternalLink size={16} />
         </button>
+        {moreActions.length > 0 && <DockOverflowMenu items={moreActions} />}
       </div>
+      {tabsSupported && tabs.length > 0 && (
+        <div className="browser-pane-popup-tabs">
+          <BrowserTabStrip
+            tabs={stripTabs}
+            onSelect={async (id) => selectTab(id)}
+            onClose={closeTab}
+            onCreate={async () => {
+              setNewTab(true);
+              setAddress('');
+              addressRef.current?.focus();
+            }}
+          />
+        </div>
+      )}
+      <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />{' '}
       {/* One persistent textarea: the visible phone keyboard bar when open,
           otherwise an invisible focus target for desktop key/IME/paste. */}
       <div className="browser-remote-keyboard" data-open={keyboardOpen ? 'true' : 'false'}>

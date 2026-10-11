@@ -9,6 +9,7 @@
 import './process-shim';
 import { installShellUpdateState, recoverShellBootstrap } from './shell-update-state';
 import { preloadMarkdownBody } from './markdown-body-loader';
+import { installTouchGestures } from './touch-gestures';
 // Browser-served remote sessions install a WebSocket-backed DesktopApi before
 // any module reads window.mixdogDesktop; inside Electron the preload bridge
 // already exists and this is a no-op.
@@ -20,10 +21,16 @@ if (remoteBrowser) installShellUpdateState();
 const remoteShimReady = import('./remote-shim');
 let launchApplication = true;
 if (remoteBrowser) {
-  const { isInstalledMobileWebAppSurface, isMobileRemoteSurface } = await import('./mobile-surface');
-  // A mobile browser tab remains the lightweight installation page. It still
-  // needs the worker to become installable; desktop browsers do not.
-  if (isMobileRemoteSurface() && window.isSecureContext && 'serviceWorker' in navigator) {
+  const { isInstalledMobileWebAppSurface, isMobileDeviceSurface } = await import('./mobile-surface');
+  // A phone/tablet browser tab remains the lightweight installation page and
+  // needs the worker to become installable. An app that runs (installed
+  // device app or a second PC's remote window) needs it for push and the
+  // encrypted media lane. A plain desktop browser tab does not.
+  if (
+    (isMobileDeviceSurface() || isInstalledMobileWebAppSurface()) &&
+    window.isSecureContext &&
+    'serviceWorker' in navigator
+  ) {
     const registerWorker = (): void => {
       void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
         // Installation remains available from browsers that do not need a worker.
@@ -38,6 +45,7 @@ if (remoteBrowser) {
 }
 
 if (launchApplication) {
+  installTouchGestures();
   // Start the settled transcript renderer after its HTML hint has queued the
   // shell-critical chunks first. The separate streaming parser Worker and
   // secondary dialogs remain lazy, so an existing Markdown conversation is

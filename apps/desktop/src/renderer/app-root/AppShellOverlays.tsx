@@ -208,7 +208,7 @@ export function AppShellOverlays({
             onClose={closeSettings}
           />
         )}
-        {(['context', 'usage', 'doctor', 'inherit', 'stats'] as const).map((surface) => {
+        {(['context', 'doctor', 'inherit', 'stats'] as const).map((surface) => {
           const isMounted = commandSurface === surface || mountedCommandSurfaces.current.has(surface);
           if (!isMounted) return null;
 

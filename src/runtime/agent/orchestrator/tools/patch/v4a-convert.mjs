@@ -6,7 +6,7 @@ import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { normalizeOutputPath, invalidateBuiltinResultCache, clearReadSnapshotForPath } from '../builtin.mjs';
 import { rawContentCacheGet, rawContentCacheSet } from '../builtin/cache-layers.mjs';
-import { PATCH_SNAPSHOT_MAX_BYTES, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
+import { PATCH_EDIT_MAX_BYTES, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
 import { contentEditRefusalMessage, patchContentEditRefusal, readPatchTargetBytes } from './content-guard.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
 import { assertPathReachable, assertPathsReachable } from '../builtin/fs-reachability.mjs';
@@ -705,8 +705,8 @@ export async function applyV4ARenameSections(renameSections, basePath, options =
 function readRawBufForV4AConversion(fullPath) {
   const st = lstatV4APatchTarget(fullPath, fullPath);
   const cached = rawContentCacheGet(fullPath, st);
-  if (cached && cached.length <= PATCH_SNAPSHOT_MAX_BYTES) return cached;
-  const read = readBoundedFile(fullPath);
+  if (cached && cached.length <= PATCH_EDIT_MAX_BYTES) return cached;
+  const read = readBoundedFile(fullPath, { maxBytes: PATCH_EDIT_MAX_BYTES });
   if (read.state === 'absent') {
     const error = new Error(`ENOENT: no such file or directory, open '${fullPath}'`);
     error.code = 'ENOENT';

@@ -1,6 +1,7 @@
 import React, {
   memo,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -11,6 +12,7 @@ import React, {
   type ReactNode,
   type SetStateAction,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   DesktopAbortOptions,
   DesktopModelSelection,
@@ -29,6 +31,7 @@ import { shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs'
 // follow-up list live in composer-support.tsx.
 import { ATTACHMENT_ACCEPT, COMPOSER_PLACEHOLDERS, QueueList, pastedTextFields } from './composer-support';
 import { ComposerPastedTextDialog } from './ComposerPastedTextDialog';
+import { ComposerQueueTrayContext } from './composer-island-state';
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
@@ -40,6 +43,7 @@ import { useComposerAttachments } from './use-composer-attachments';
 import { useComposerCapability } from './use-composer-capability';
 import { useComposerExternalDraft } from './use-composer-external-draft';
 import { useComposerQueue } from './use-composer-queue';
+import { useComposerPromptRestore } from './use-composer-prompt-restore';
 import { useComposerSubmission } from './use-composer-submission';
 import { useComposerKeyboard } from './use-composer-keyboard';
 import { useComposerFocus } from './use-composer-focus';
@@ -200,6 +204,8 @@ function switchComposerIdentity({
 }
 
 export type ComposerProps = {
+  /** Opens a staged attachment in the editor pane (the transcript's file opener). */
+  onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string) => void;
   turnBusy: boolean;
   commandBusy: boolean;
   transitioning: boolean;
@@ -234,6 +240,8 @@ export type ComposerProps = {
   hiddenQueueIds?: Array<string | number>;
   pendingSubmissionIds?: Array<string | number>;
   onQueuedRestored?: (ids: string[]) => void;
+  /** A prompt another device cancelled, handed back to the device that sent it. */
+  promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   /** Rewindable user prompts (oldest → newest) for the Esc-Esc selector. */
   userMessages?: Array<{ id: string; text: string }>;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
@@ -259,6 +267,7 @@ export type ComposerProps = {
 
 export const Composer = memo(function Composer(props: ComposerProps) {
   const {
+    onOpenFile,
     turnBusy,
     commandBusy,
     transitioning,
@@ -285,6 +294,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     hiddenQueueIds,
     pendingSubmissionIds,
     onQueuedRestored,
+    promptRestore,
     userMessages,
     submit,
     abort,
@@ -389,6 +399,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     applySnapshot,
     sessionId,
   });
+  const queueTray = useContext(ComposerQueueTrayContext);
   const queue = useComposerQueue({
     queued,
     hiddenQueueIds,
@@ -408,6 +419,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onQueuedRestored,
     scope: historyScope,
   });
+  useComposerPromptRestore({ promptRestore, setDraft, draftRef, textarea, onQueuedRestored });
   const selector = useComposerMessageSelector({
     userMessages,
     restoring: queue.restoring,
@@ -467,6 +479,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   }, [transitioning]);
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  const [addMenuRequest, setAddMenuRequest] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
   useEffect(() => setGoalDialogOpen(false), [identityScope, paneActive]);
   const [editingPasteId, setEditingPasteId] = useState<number | null>(null);
@@ -497,6 +510,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     clearNotice,
     showNotice: showComposerNotice,
     openGoalDialog: () => setGoalDialogOpen(true),
+    openSkillMenu: () => setAddMenuRequest((request) => request + 1),
     onNewTask: props.onNewTask,
     onClearToNewTask: props.onClearToNewTask,
     onResumeSession: props.onResumeSession,
@@ -584,14 +598,17 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       clearAttachments,
     },
   });
-  const stopOnly = shouldStopComposerGeneration({
-    turnBusy,
-    text: draft,
-    attachments,
-  });
-  // A live take turns the send disc into "finish and send"; a running turn
-  // still claims that disc for Stop.
-  const voiceSend = !stopOnly && dictation.dictationState === 'recording';
+  // A dictation in flight owns the send disc even during a running turn, so
+  // the take is queued/steered instead of the press interrupting the turn.
+  const stopOnly =
+    dictation.dictationState === 'idle' &&
+    shouldStopComposerGeneration({
+      turnBusy,
+      text: draft,
+      attachments,
+    });
+  // A live take turns the send disc into "finish and send".
+  const voiceSend = dictation.dictationState === 'recording';
   // biome-ignore lint/correctness/useExhaustiveDependencies: draft is a re-check trigger for the pending voice submit even though the body does not read it
   useEffect(() => {
     if (!voiceSubmitPending.current || dictation.dictationState !== 'idle') return;
@@ -645,13 +662,20 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const goalDisabled = turnBusy || commandBusy || submitting;
   return (
     <>
-      <QueueList
-        queued={queue.visibleQueued}
-        restoring={queue.restoring}
-        onEdit={(id) => void queue.restoreQueue(id, 'queue-row')}
-        onSteer={(id) => void queue.steerQueuedNow(id)}
-        onRemove={(id) => void queue.discardQueued(id)}
-      />
+      {/* The queue's actions need this composer's draft, but the tray itself
+          belongs to the dock: attached to the input's top edge, under the
+          island. */}
+      {queueTray &&
+        createPortal(
+          <QueueList
+            queued={queue.visibleQueued}
+            restoring={queue.restoring}
+            onEdit={(id) => void queue.restoreQueue(id, 'queue-row')}
+            onSteer={(id) => void queue.steerQueuedNow(id)}
+            onRemove={(id) => void queue.discardQueued(id)}
+          />,
+          queueTray
+        )}
       <ComposerBanners draggingFiles={draggingFiles} transitioning={transitioning} dropTarget={dropTargetRef.current} />
       <form
         ref={paletteAnchor}
@@ -698,6 +722,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             onRemove={removeAttachment}
             onEdit={(attachment) => setEditingPasteId(attachment.id)}
             onError={setAttachmentError}
+            onOpenFile={onOpenFile}
           />
         )}
         {editingPaste && (
@@ -757,6 +782,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           recoveryScope={recoveryScope}
           goalDialogOpen={goalDialogOpen}
           setGoalDialogOpen={setGoalDialogOpen}
+          addMenuRequest={addMenuRequest}
           goalDisabled={goalDisabled}
           executeSlash={executeSlash}
           transitioning={transitioning}

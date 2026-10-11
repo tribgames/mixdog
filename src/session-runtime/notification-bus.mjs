@@ -29,7 +29,13 @@ function cleanSessionId(value) {
 // the wake would leave its durable entry parked until the next user message.
 // A completion whose owner is no longer the live session is still dropped (the
 // durable queue carries it into that session's next turn).
-export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi }) {
+export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi, getOwnerLifecycle }) {
+  // A closing/terminal owner never starts inference from a completion; the
+  // check runs at request time and again inside the delayed callback.
+  const ownerOpen = (sessionId) => {
+    const life = getOwnerLifecycle?.(sessionId);
+    return !life || life.state === 'open';
+  };
   // sessionId -> the oldest request suppressed while this session's wake is in
   // flight, or null when nothing was suppressed. A present key means in flight.
   const inFlight = new Map();
@@ -41,6 +47,7 @@ export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi 
       try {
         const turnApi = getTurnApi();
         if (cleanSessionId(getCurrentSessionId()) !== ownerSessionId || !turnApi) return;
+        if (!ownerOpen(ownerSessionId)) return;
         const delayMs = Math.max(0, Date.now() - queuedAt);
         if (delayMs >= WAKE_DELAY_REPORT_MS) {
           process.stderr.write(
@@ -70,7 +77,7 @@ export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi 
 
   return function wakeQueuedCompletion({ sessionId, executionId, enqueuedAt } = {}) {
     const ownerSessionId = cleanSessionId(sessionId);
-    if (!ownerSessionId) return false;
+    if (!ownerSessionId || !ownerOpen(ownerSessionId)) return false;
     if (inFlight.has(ownerSessionId)) {
       const suppressed = inFlight.get(ownerSessionId);
       // Keep the oldest suppressed request so the replay reports the real wait.
@@ -99,9 +106,21 @@ function emitToListeners(source, content, meta = {}) {
   return { handled, modelVisibleDelivered: event.modelVisibleDelivered === true };
 }
 
-export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
+export function createNotificationBus({ listeners, mgr, onCompletionQueued, getOwnerLifecycle }) {
   const boundSessionListeners = new Map();
   const queuedCompletionIds = new Map();
+
+  // Owner identity + lifecycle generation. A closing/terminal owner (or a
+  // callback captured under an earlier generation) keeps its result for
+  // UI/history only: it is flagged `owner_closed`, never queued for the model
+  // and never wakes inference.
+  function ownerOpen(sessionId, capturedGeneration) {
+    const life = getOwnerLifecycle?.(sessionId);
+    if (!life) return true;
+    if (life.state !== 'open') return false;
+    return capturedGeneration === undefined || capturedGeneration === life.generation;
+  }
+  const closedMeta = (meta) => ({ ...(meta && typeof meta === 'object' ? meta : {}), owner_closed: true });
 
   function emitRuntimeNotification(content, meta = {}) {
     return emitToListeners(listeners, content, meta);
@@ -111,8 +130,10 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
     const targetSessionId = cleanSessionId(sessionId);
     if (!targetSessionId) return false;
     const targetListeners = sessionNotificationListeners.get(targetSessionId) || [];
-    const { handled } = emitToListeners(targetListeners, content, meta);
+    const open = ownerOpen(targetSessionId);
+    const { handled } = emitToListeners(targetListeners, content, open ? meta : closedMeta(meta));
     if (handled) return true;
+    if (!open) return false;
     if (typeof mgr.enqueuePendingMessage !== 'function') return false;
     try {
       return mgr.enqueuePendingMessage(targetSessionId, content) > 0;
@@ -168,13 +189,15 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
     return true;
   }
 
-  function notifySessionCompletion(sessionId, text, meta = {}) {
+  function notifySessionCompletion(sessionId, text, meta = {}, capturedGeneration = undefined) {
     const targetSessionId = cleanSessionId(sessionId);
     if (!targetSessionId) return false;
     const targetListeners = sessionNotificationListeners.get(targetSessionId) || [];
+    const open = ownerOpen(targetSessionId, capturedGeneration);
     const ownerMeta = {
       ...(meta && typeof meta === 'object' ? meta : {}),
       caller_session_id: targetSessionId,
+      ...(open ? {} : { owner_closed: true }),
     };
     delete ownerMeta.routing_session_id;
     const { handled, modelVisibleDelivered } = emitToListeners(targetListeners, text, ownerMeta);
@@ -187,6 +210,7 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
       handled,
       mvd: modelVisibleDelivered,
     });
+    if (!open) return handled;
     if (modelVisibleDelivered) {
       try {
         recordDeliveredCompletion({
@@ -219,7 +243,8 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
 
   function notifyFnForSession(callerSessionId) {
     const ownerSessionId = cleanSessionId(callerSessionId);
-    return (text, meta = {}) => notifySessionCompletion(ownerSessionId, text, meta);
+    const generation = getOwnerLifecycle?.(ownerSessionId)?.generation;
+    return (text, meta = {}) => notifySessionCompletion(ownerSessionId, text, meta, generation);
   }
 
   function bindListenerToSession(sessionId, listener) {

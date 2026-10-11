@@ -126,7 +126,7 @@ export function InheritBody({
   let tone: 'danger' | 'warn' | undefined;
   if (percent != null && percent > 100) tone = 'danger';
   else if (percent != null && percent > 80) tone = 'warn';
-  let actionLabel = mode === 'compact' ? t('Compact then inherit') : t('Original inheritance');
+  let actionLabel = mode === 'compact' ? t('Summarize and continue') : t('Continue session');
   if (running) actionLabel = t('Inheriting…');
   return (
     <div className="inherit-surface">
@@ -160,7 +160,7 @@ export function InheritBody({
             <dd>{spoken}</dd>
           </div>
           <div>
-            <dt>{t('Context')}</dt>
+            <dt>{t('Estimated usage')}</dt>
             <dd data-tone={tone}>{percent == null ? '—' : `${percent}%`}</dd>
           </div>
         </dl>
@@ -176,7 +176,7 @@ export function InheritBody({
             />
             <span className="inherit-surface-radio" aria-hidden="true" />
             <span className="inherit-surface-choice-text">
-              <b>{t('Original inheritance')}</b>
+              <b>{t('Original')}</b>
               <span>{t('The whole conversation is carried over as it is.')}</span>
               {originalDisabled && (
                 <span className="inherit-surface-choice-why">
@@ -196,7 +196,7 @@ export function InheritBody({
             />
             <span className="inherit-surface-radio" aria-hidden="true" />
             <span className="inherit-surface-choice-text">
-              <b>{t('Compact then inherit')}</b>
+              <b>{t('Summary')}</b>
               <span>
                 {t(
                   'The conversation is summarized first. The new session starts lighter, but some detail is condensed.'

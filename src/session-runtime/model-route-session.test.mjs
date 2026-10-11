@@ -27,7 +27,10 @@ function fixture(extra = {}) {
       rawContextWindow: 128_000,
       compactBoundaryTokens: 128_000,
       compaction: { auto: true, boundaryTokens: 128_000 },
-      messages: [{ role: 'user', content: 'Keep working on this task.' }],
+      messages: [
+        { role: 'user', content: 'Keep working on this task.' },
+        { role: 'assistant', content: 'Working on it.' },
+      ],
       providerState: { continuation: 'source-provider' },
       ...extra,
     },
@@ -119,6 +122,15 @@ test('an addressed empty heir can choose a model without changing its durable id
   assert.equal(state.session.contextWindow, 512_000);
 });
 
+test('a conversation whose prompts were refused before any reply follows the new model in place', async () => {
+  const refused = [{ role: 'user', content: 'First task' }];
+  const { api, state } = fixture({ messages: refused });
+  await api.setRoute(heirRoute, { applyToCurrentSession: true });
+  assert.equal(state.session.id, 'session-route-lock');
+  assert.equal(state.session.model, heirRoute.model);
+  assert.deepEqual(state.session.messages, refused, 'the refused prompt is kept for retry');
+});
+
 test('heir selection leaves the source context gauge and compact trigger unchanged', async () => {
   const { api, state } = fixture({ tools: [] });
   const contextApi = createContextStatus({
@@ -167,4 +179,57 @@ test('heir selection leaves the source context gauge and compact trigger unchang
   assert.equal(next.contextPercent, heirRoute.contextPercent);
   assert.equal(next.displayContextWindow, display.displayContextWindow);
   assert.equal(next.autoCompactTokenLimit, display.autoCompactTokenLimit);
+});
+
+test('snapshot sessionProvider/sessionModel track the session route, not the selected route', async () => {
+  const build = (state) => {
+    const runtime = createRuntimeFacade({
+      state,
+      getContextStatus: () => ({}),
+      getAutoClear: () => ({}),
+      getSystemShell: () => ({}),
+      getWebSearchRoute: () => null,
+      getWorkflow: () => null,
+      getOrchestrationMode: () => 'none',
+    });
+    let display = {};
+    return createContextState({
+      runtime,
+      getState: () => display,
+      updateState: (patch) => {
+        display = { ...display, ...patch };
+      },
+      getPendingSessionReset: () => false,
+    }).routeState;
+  };
+  const history = fixture();
+  const historyState = build(history.state);
+  await history.api.setRoute(heirRoute, { applyToCurrentSession: true });
+  const kept = historyState();
+  assert.equal(kept.model, heirRoute.model);
+  assert.equal(kept.sessionModel, sourceRoute.model);
+  assert.equal(kept.sessionProvider, sourceRoute.provider);
+  assert.notEqual(kept.sessionModel, kept.model);
+
+  const empty = fixture({ messages: [] });
+  const emptyState = build(empty.state);
+  await empty.api.setRoute(heirRoute, { applyToCurrentSession: true });
+  assert.equal(emptyState().sessionModel, heirRoute.model);
+});
+
+test('continueSessionInModel moves an established session in place', async () => {
+  const { api, state } = fixture();
+  const result = await api.continueSessionInModel('session-route-lock', heirRoute);
+  assert.equal(result, true);
+  assert.equal(state.session.id, 'session-route-lock');
+  assert.equal(state.session.model, heirRoute.model);
+  assert.equal(state.session.effort, 'low');
+  assert.equal(state.route.model, heirRoute.model);
+  assert.equal(state.session.contextWindow, 512_000);
+});
+
+test('continueSessionInModel rejects a session that is not the addressed one', async () => {
+  const { api, state } = fixture();
+  await assert.rejects(api.continueSessionInModel('other-session', heirRoute), /not the active session/);
+  assert.equal(state.session.model, sourceRoute.model);
 });

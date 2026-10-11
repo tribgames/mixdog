@@ -1,0 +1,3 @@
+google-services.json
+/build/*
+!/build/.npmkeep

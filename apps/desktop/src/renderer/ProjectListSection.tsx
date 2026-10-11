@@ -1,8 +1,17 @@
 import { ChevronRight, FileText, Folder, Plus } from 'lucide-react';
-import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  elementMenuPoint,
+  isContextMenuKey,
+  pointerMenuPoint,
+  ScmContextMenu,
+  type ScmContextMenuState,
+} from './ScmContextMenu';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
+import { HostFolderBrowser, parentHostPath } from './HostFolderBrowser';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
 import { SidebarPanelAction } from './session-sidebar-sections';
@@ -28,7 +37,13 @@ function projectAddDialog({
   closeAdd,
   onChooseFolder,
   onCreateProject,
+  browsing,
+  setBrowsing,
+  browseStart,
 }: {
+  browsing: boolean;
+  setBrowsing(value: boolean): void;
+  browseStart: string;
   addPath: string;
   addName: string;
   addError: string;
@@ -41,6 +56,11 @@ function projectAddDialog({
   onChooseFolder(): Promise<string | null>;
   onCreateProject(path: string, name: string): Promise<void>;
 }) {
+  const acceptFolder = (selected: string) => {
+    setAddPath(selected);
+    setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
+    setAddError('');
+  };
   return (
     <ExtensionDetailDialog
       width="compact"
@@ -86,24 +106,37 @@ function projectAddDialog({
       <ExtensionField as="div" label={t('Folder')} note={t('Folder opened for this project.')}>
         <div className="projects-folder-row">
           <code>{addPath || t('No folder selected')}</code>
-          {/* Folder comes from the OS chooser only (user decision):
-            prefill the Name with the folder's basename once picked. */}
+          {/* Folder comes from a chooser only (user decision) — the OS dialog,
+            or the in-app host browser on a remote surface: prefill the Name
+            with the folder's basename once picked. */}
           <button
             type="button"
             className="extensions-action"
             disabled={addBusy}
-            onClick={() =>
+            onClick={() => {
+              // A remote surface cannot show the host's OS chooser.
+              if (isRemoteHostRenderer()) {
+                setBrowsing(true);
+                return;
+              }
               void onChooseFolder().then((selected) => {
-                if (!selected) return;
-                setAddPath(selected);
-                setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
-                setAddError('');
-              })
-            }
+                if (selected) acceptFolder(selected);
+              });
+            }}
           >
             {t('Browse…')}
           </button>
         </div>
+        {browsing && (
+          <HostFolderBrowser
+            startPath={browseStart}
+            onCancel={() => setBrowsing(false)}
+            onSelect={(selected) => {
+              setBrowsing(false);
+              acceptFolder(selected);
+            }}
+          />
+        )}
       </ExtensionField>
     </ExtensionDetailDialog>
   );
@@ -142,7 +175,31 @@ export function ProjectListSection({
   const [addName, setAddName] = useState('');
   const [addError, setAddError] = useState('');
   const [addBusy, setAddBusy] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const editorRef = useRef<ProjectEditorDialogHandle>(null);
+  const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  // Items run after the menu closes and returns focus to the row; Remove only
+  // opens the editor with its confirmation armed, never removes by itself.
+  const openProjectMenu = (project: DesktopProjectSummary, label: string, point: { x: number; y: number }) =>
+    setContextMenu({
+      label,
+      ...point,
+      items: [
+        {
+          id: 'edit',
+          label: t('Edit'),
+          onSelect: () => window.setTimeout(() => editorRef.current?.open(project.path), 0),
+        },
+        {
+          id: 'remove',
+          label: t('Remove'),
+          danger: true,
+          separatorBefore: true,
+          onSelect: () => window.setTimeout(() => editorRef.current?.open(project.path, { confirmRemove: true }), 0),
+        },
+      ],
+    });
   // The app shell owns project add/rename/remove and refetches its catalog
   // once a mutation actually succeeded. Mirroring THAT list into the shared
   // sidebar cache is the authoritative completion boundary: a failed mutation
@@ -159,6 +216,7 @@ export function ProjectListSection({
     editorRef.current?.warm();
   }, [active, projectPathsKey, memoriesSupported]);
   const closeAdd = () => {
+    setBrowsing(false);
     setAddOpen(false);
     setAddPath('');
     setAddName('');
@@ -205,6 +263,9 @@ export function ProjectListSection({
           closeAdd,
           onChooseFolder,
           onCreateProject,
+          browsing,
+          setBrowsing,
+          browseStart: addPath || parentHostPath(projects[0]?.path ?? '') || projects[0]?.path || '',
         })}
       <ProjectEditorDialog
         ref={editorRef}
@@ -248,6 +309,15 @@ export function ProjectListSection({
                 aria-label={t('Edit {{name}}', { name: title })}
                 data-tooltip={project.path}
                 onClick={() => editorRef.current?.open(project.path)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  openProjectMenu(project, title, pointerMenuPoint(event));
+                }}
+                onKeyDown={(event) => {
+                  if (!isContextMenuKey(event)) return;
+                  event.preventDefault();
+                  openProjectMenu(project, title, elementMenuPoint(event.currentTarget));
+                }}
                 {...projectOrder.getReorderProps(project.path)}
               >
                 <span className="sidebar-resource-icon" aria-hidden="true">
@@ -263,6 +333,7 @@ export function ProjectListSection({
           })}
         </div>
       )}
+      <ScmContextMenu state={contextMenu} onClose={closeContextMenu} />
       {(projectsReady || projects.length > 0) && visible.length === 0 && (
         <div className="schedules-empty">
           <Folder size={40} aria-hidden="true" />

@@ -10,6 +10,11 @@ import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 export const PATCH_SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024;
 /** Byte budget one transaction's snapshots may hold together. */
 export const PATCH_SNAPSHOT_BUDGET_BYTES = 64 * 1024 * 1024;
+/** Per-file limit for a text file apply_patch may edit, rename, and snapshot
+ *  for rollback and turn undo. Deletes, replay and rescue keep the snapshot limit. */
+export const PATCH_EDIT_MAX_BYTES = 64 * 1024 * 1024;
+/** Byte budget one patch transaction's rollback snapshots may hold together. */
+export const PATCH_EDIT_BUDGET_BYTES = 2 * PATCH_EDIT_MAX_BYTES;
 
 const CHUNK_BYTES = 64 * 1024;
 const ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
@@ -120,7 +125,13 @@ export function readBoundedFile(
     const fstat = fstatSync(fd);
     if (!fstat.isFile()) throw notRegularFile(path);
     const meta = { size: fstat.size, statSize: fstat.size, mode: fstat.mode, mtimeMs: fstat.mtimeMs };
-    const omitted = (reason, size = fstat.size) => ({ state: 'omitted', reason, ...meta, size });
+    const omitted = (reason, size = fstat.size) => ({
+      state: 'omitted',
+      reason,
+      ...meta,
+      size,
+      limit: reason === 'budget' ? budget.total : maxBytes,
+    });
     if (fstat.size > maxBytes) return omitted('oversized');
     if (!classifyOnly && budget && fstat.size > budget.remaining) return omitted('budget');
     const chunks = [];
@@ -146,10 +157,10 @@ export function readBoundedFile(
 }
 
 /** Human phrase for an omitted read: "binary (N bytes)", "larger than 8 MiB (N bytes)". */
-export function describeOmittedFile({ reason, size } = {}) {
+export function describeOmittedFile({ reason, size, limit } = {}) {
   const bytes = `${Number(size) || 0} bytes`;
   if (reason === 'binary') return `binary (NUL bytes without a decidable text encoding, ${bytes})`;
   if (reason === 'budget')
-    return `over the ${PATCH_SNAPSHOT_BUDGET_BYTES / MIB} MiB per-patch snapshot budget (${bytes})`;
-  return `larger than ${PATCH_SNAPSHOT_MAX_BYTES / MIB} MiB (${bytes})`;
+    return `over the ${(limit || PATCH_SNAPSHOT_BUDGET_BYTES) / MIB} MiB per-patch snapshot budget (${bytes})`;
+  return `larger than ${(limit || PATCH_SNAPSHOT_MAX_BYTES) / MIB} MiB (${bytes})`;
 }

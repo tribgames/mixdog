@@ -21,6 +21,7 @@ import { readBridgeDiscovery } from '../../../bridge-discovery.mjs';
 import { HEADLESS_MODEL_TOOL_NAMES, HEADLESS_TOOL_PROFILE, normalizeToolProfile } from './tool-profile.mjs';
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 import { gitExecutablePresent } from '../../../shared/path-executable.mjs';
+import { onnxRuntimeSupported } from '../../../shared/onnx-runtime-support.mjs';
 
 // Browser Use / Computer Use have no install marker: the desktop app publishes
 // a loopback bridge discovery file while the feature is on. The same file
@@ -37,7 +38,14 @@ function bridgePresent(file) {
   }
 }
 
-export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office', 'tidy', 'localProvider', 'autoEffort']);
+export const INSTALLABLE_BUILTIN_IDS = Object.freeze([
+  'git',
+  'memory',
+  'office',
+  'tidy',
+  'localProvider',
+  'autoEffort',
+]);
 const GRANDFATHERED_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office']);
 
 /** Model-facing activation for one gated feature: an explicit MIXDOG_FEATURE_*
@@ -85,6 +93,7 @@ export function builtinFeatureActive(configLike, id) {
   // the judge model downloads at boot, and until it is on disk every call keeps
   // the user's effort.
   if (id === 'autoEffort') {
+    if (!onnxRuntimeSupported()) return false;
     return featureEnvOverride('MIXDOG_FEATURE_AUTO_EFFORT') ?? moduleEnabled(configLike, 'autoEffort', true);
   }
   // Media Studio is a hidden built-in like setup: no Settings card, no install
@@ -117,7 +126,13 @@ export function builtinFeatureActive(configLike, id) {
  *  overrides), which the caller passes in. */
 export function featureDisallowedToolsFor(
   configLike,
-  { browserAvailable = false, computerAvailable = false, terminalAvailable = false, toolProfile = 'interactive', gitAvailable } = {}
+  {
+    browserAvailable = false,
+    computerAvailable = false,
+    terminalAvailable = false,
+    toolProfile = 'interactive',
+    gitAvailable,
+  } = {}
 ) {
   const browser = featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? browserAvailable === true;
   const computer = featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? computerAvailable === true;

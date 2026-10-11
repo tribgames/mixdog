@@ -10,15 +10,37 @@
 // the file provably still is.
 import { chmodSync, existsSync, statSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname as pathDirname } from 'node:path';
-import { createSnapshotBudget, describeOmittedFile, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
+import {
+  createSnapshotBudget,
+  describeOmittedFile,
+  PATCH_EDIT_BUDGET_BYTES,
+  PATCH_EDIT_MAX_BYTES,
+  PATCH_SNAPSHOT_MAX_BYTES,
+  readBoundedFile,
+} from '../../../../shared/bounded-file-read.mjs';
 import { clearReadSnapshotForPath, invalidateBuiltinResultCache, normalizeOutputPath } from '../builtin.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
+import { pathKey } from './paths.mjs';
 
-export function capturePatchRollbackState(paths, { budget = createSnapshotBudget() } = {}) {
+/** Paths every given `{ kind, fullPath }` target only deletes. */
+export function deleteOnlyPaths(targets) {
+  const others = new Set(targets.filter((t) => t.kind !== 'delete').map((t) => pathKey(t.fullPath)));
+  return targets.filter((t) => t.kind === 'delete' && !others.has(pathKey(t.fullPath))).map((t) => t.fullPath);
+}
+
+// Edited targets are snapshotted up to the edit limit; `deletePaths` (targets
+// the patch only deletes) keep the smaller snapshot limit, so a large delete
+// goes through the quarantine instead of being read.
+export function capturePatchRollbackState(
+  paths,
+  { budget = createSnapshotBudget(PATCH_EDIT_BUDGET_BYTES), deletePaths = [] } = {}
+) {
+  const deleteKeys = new Set(deletePaths.map(pathKey));
   return paths.map((fullPath) => {
+    const maxBytes = deleteKeys.has(pathKey(fullPath)) ? PATCH_SNAPSHOT_MAX_BYTES : PATCH_EDIT_MAX_BYTES;
     let read;
     try {
-      read = readBoundedFile(fullPath, { budget });
+      read = readBoundedFile(fullPath, { maxBytes, budget });
     } catch (err) {
       if (err?.code === 'ENOTREGULAR') {
         throw new Error(
@@ -37,6 +59,7 @@ export function capturePatchRollbackState(paths, { budget = createSnapshotBudget
         content: null,
         omitted: true,
         omittedReason: read.reason,
+        omittedLimit: read.limit,
         size: read.size,
         statSize: read.statSize,
         mtimeMs: read.mtimeMs,
@@ -49,7 +72,7 @@ export function capturePatchRollbackState(paths, { budget = createSnapshotBudget
 
 // An omitted snapshot holds no bytes, so it can only be confirmed untouched.
 function omittedSnapshotIssue(snapshot) {
-  const what = `pre-patch content was not captured (${describeOmittedFile({ reason: snapshot.omittedReason, size: snapshot.size })})`;
+  const what = `pre-patch content was not captured (${describeOmittedFile({ reason: snapshot.omittedReason, size: snapshot.size, limit: snapshot.omittedLimit })})`;
   let stat;
   try {
     stat = statSync(snapshot.fullPath);

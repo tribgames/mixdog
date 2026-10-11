@@ -3,11 +3,35 @@ import { ExternalLink, Globe, Plus, X } from 'lucide-react';
 import { ProgressSpinner } from './ProgressSpinner';
 import type { DesktopBrowserTab } from '../shared/contract';
 import { t } from './i18n';
+import { useBrowserSiteFavicon } from './browser-page-identity';
+import { useLoadableFavicon } from './link-kind-icon';
 import { scrollTabListByWheel } from './pane-dock-chrome';
 import { wrappedNavigationIndex } from './list-navigation';
+import {
+  ScmContextMenu,
+  elementMenuPoint,
+  isContextMenuKey,
+  pointerMenuPoint,
+  type ScmContextMenuState,
+} from './ScmContextMenu';
 import './tab-strip.css';
 
 const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
+
+/** A page tab wears its site's icon once the browser has one; a popup keeps
+ *  its popup mark. */
+function BrowserTabGlyph({ tab }: { tab: DesktopBrowserTab }) {
+  const [favicon, onFaviconError] = useLoadableFavicon(
+    useBrowserSiteFavicon(tab.kind === 'popup' ? undefined : tab.url)
+  );
+  if (tab.kind === 'popup') return <ExternalLink size={15} aria-hidden="true" />;
+  if (favicon) {
+    return (
+      <img className="browser-tab-favicon" src={favicon} alt="" draggable={false} onError={onFaviconError} />
+    );
+  }
+  return <Globe size={15} aria-hidden="true" />;
+}
 
 export function BrowserTabStrip({
   tabs,
@@ -24,6 +48,24 @@ export function BrowserTabStrip({
   const strip = useRef<HTMLDivElement | null>(null);
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  const openMenu = (tab: DesktopBrowserTab, title: string, point: { x: number; y: number }) =>
+    setMenu({
+      label: title,
+      ...point,
+      items: [
+        { id: 'close-tab', label: t('Close tab'), disabled: busy, onSelect: () => void run(() => onClose(tab.id)) },
+        {
+          id: 'close-others',
+          label: t('Close Others'),
+          disabled: busy || tabs.length < 2,
+          onSelect: () =>
+            void run(async () => {
+              for (const other of tabs) if (other.id !== tab.id) await onClose(other.id);
+            }),
+        },
+      ],
+    });
   const activeId = tabs.find((tab) => tab.active)?.id;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the selected tab changing is the trigger; the body only reads the DOM.
   useEffect(() => {
@@ -66,7 +108,6 @@ export function BrowserTabStrip({
       >
         {tabs.map((tab) => {
           const title = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : t('New tab'));
-          const TabGlyph = tab.kind === 'popup' ? ExternalLink : Globe;
           return (
             // biome-ignore lint/a11y/noStaticElementInteractions: middle-click close is a pointer shortcut; the tab's close button is the keyboard path.
             <div
@@ -76,6 +117,10 @@ export function BrowserTabStrip({
                 if (event.button !== 1) return;
                 event.preventDefault();
                 void run(() => onClose(tab.id));
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                openMenu(tab, title, pointerMenuPoint(event));
               }}
             >
               <button
@@ -88,11 +133,16 @@ export function BrowserTabStrip({
                 className="browser-tab-select"
                 title={`${title}\n${tab.url}`}
                 onClick={() => void run(() => onSelect(tab.id))}
+                onKeyDown={(event) => {
+                  if (!isContextMenuKey(event)) return;
+                  event.preventDefault();
+                  openMenu(tab, title, elementMenuPoint(event.currentTarget));
+                }}
               >
                 {tab.loading ? (
                   <ProgressSpinner size={15} aria-hidden="true" />
                 ) : (
-                  <TabGlyph size={15} aria-hidden="true" />
+                  <BrowserTabGlyph tab={tab} />
                 )}
                 <span>{title}</span>
                 {tab.kind === 'popup' && <small>{t('Popup')}</small>}
@@ -111,6 +161,7 @@ export function BrowserTabStrip({
           );
         })}
       </div>
+      <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
       {onCreate && (
         <button
           type="button"

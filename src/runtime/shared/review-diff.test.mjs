@@ -62,7 +62,8 @@ test('tracked review over two million characters retains large and subsequent fi
 });
 
 test('an over-ceiling change is rejected without converting its content to a Buffer', (t) => {
-  const big = 'x'.repeat(65 * 1024 * 1024);
+  // Past both the tracked-content ceiling and the 64 MiB baseline limit.
+  const big = 'x'.repeat(81 * 1024 * 1024);
   const realFrom = Buffer.from;
   let largest = 0;
   t.mock.method(Buffer, 'from', function (value, ...rest) {

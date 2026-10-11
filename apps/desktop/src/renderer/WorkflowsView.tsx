@@ -9,6 +9,7 @@ import { preferredModelEffort, routeOption } from './model-route-utils';
 import { showDesktopToast } from './notifications';
 import { ModelRouteLabel, ProviderIcon, modelDisplayName, normalizeModelOptions } from './provider-display';
 import { record } from './record-utils';
+import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { SidebarLoadingDialog } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { SidebarResourceTitle } from './sidebar-resource-row';
@@ -127,8 +128,15 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     completeMutation,
     toastScope: 'workflow',
   });
-  const [editor, setEditor] = useState<{ pack: RecordValue | null; deletable: boolean } | null>(null);
-  const [agentEditor, setAgentEditor] = useState<{ agent: RecordValue | null; deletable: boolean } | null>(null);
+  const [editor, setEditor] = useState<{ pack: RecordValue | null; deletable: boolean; armDelete?: boolean } | null>(
+    null
+  );
+  const [agentEditor, setAgentEditor] = useState<{
+    agent: RecordValue | null;
+    deletable: boolean;
+    armDelete?: boolean;
+  } | null>(null);
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
   const [loadingEditor, setLoadingEditor] = useState<{ kind: 'workflow' | 'agent'; title: string } | null>(null);
   const detailRequestRef = useRef(0);
@@ -141,10 +149,11 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     setEditor(null);
     setAgentEditor(null);
     setRouteEditor(null);
+    setMenu(null);
   });
   const busy = Boolean(pending) || loading || loadingEditor !== null;
 
-  const openEditor = async (id: string, title: string, deletable: boolean) => {
+  const openEditor = async (id: string, title: string, deletable: boolean, armDelete = false) => {
     if (!api?.invokeCapability) return;
     const requestId = ++detailRequestRef.current;
     setLoadingEditor({ kind: 'workflow', title });
@@ -152,7 +161,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
       const result = await api.invokeCapability<RecordValue>({ capability: 'getWorkflowPack', args: [id] });
       if (detailRequestRef.current !== requestId) return;
       setError('');
-      setEditor({ pack: record(result?.value), deletable });
+      setEditor({ pack: record(result?.value), deletable, armDelete });
     } catch (reason) {
       if (detailRequestRef.current !== requestId) return;
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
@@ -219,7 +228,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   const orderedEditableAgents = agentOrder.orderedIds
     .map((id) => editableAgents.find((agent) => agent.id === id))
     .filter((agent): agent is AgentSummary => Boolean(agent));
-  const openAgentEditor = async (id: string, title: string, deletable: boolean) => {
+  const openAgentEditor = async (id: string, title: string, deletable: boolean, armDelete = false) => {
     if (!api?.invokeCapability) return;
     const requestId = ++detailRequestRef.current;
     setLoadingEditor({ kind: 'agent', title });
@@ -227,7 +236,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
       const result = await api.invokeCapability<RecordValue>({ capability: 'getAgentDefinition', args: [id] });
       if (detailRequestRef.current !== requestId) return;
       setError('');
-      setAgentEditor({ agent: record(result?.value), deletable });
+      setAgentEditor({ agent: record(result?.value), deletable, armDelete });
     } catch (reason) {
       if (detailRequestRef.current !== requestId) return;
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
@@ -263,10 +272,41 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   const setAgentEnabled = (id: string, enabled: boolean, route: RecordValue) => {
     void run('setAgentRoute', [id, enabled ? route : { disabled: true }]);
   };
+  // Items that open an editor run after the menu closes and returns focus to
+  // the row; Delete only opens the editor with its confirmation armed.
+  const later = (action: () => void) => () => window.setTimeout(action, 0);
+  const openRowMenu = (label: string, point: { x: number; y: number }, items: ScmContextMenuState['items']) =>
+    setMenu({ label, ...point, items });
+  const agentToggleItem = (id: string, disabled: boolean, route: RecordValue): ScmContextMenuState['items'][number] => {
+    const { disabled: _off, ...picked } = route;
+    const canEnable = Boolean(picked.provider && picked.model);
+    return {
+      id: 'toggle',
+      label: disabled ? t('Enable') : t('Disable'),
+      disabled: disabled && !canEnable,
+      title: disabled && !canEnable ? t('Pick a model to turn this agent on.') : undefined,
+      onSelect: () => setAgentEnabled(id, disabled, picked),
+    };
+  };
   const renderAgentRow = (agent: AgentSummary) => {
     const row = agents.find((entry) => String(entry.id) === agent.id);
     const route = record(row?.route);
     const disabled = row?.disabled === true;
+    const menuItems: ScmContextMenuState['items'] = [
+      { id: 'edit', label: t('Edit'), onSelect: later(() => void openAgentEditor(agent.id, agent.label, agent.custom)) },
+      agentToggleItem(agent.id, disabled, route),
+      ...(agent.custom
+        ? [
+            {
+              id: 'delete',
+              label: t('Delete'),
+              danger: true,
+              separatorBefore: true,
+              onSelect: later(() => void openAgentEditor(agent.id, agent.label, true, true)),
+            },
+          ]
+        : []),
+    ];
     return (
       <button
         type="button"
@@ -277,6 +317,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
         disabled={busy}
         aria-label={t('Edit {{name}}', { name: agent.label })}
         onClick={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
+        {...contextMenuRowProps((point) => openRowMenu(agent.label, point, menuItems))}
         {...agentOrder.getReorderProps(agent.id)}
       >
         <AgentRowIcon route={route} />
@@ -292,6 +333,22 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   // Built-in shared-service agents (explore, maintainer): route-only rows.
   const renderDefaultAgentRow = (agent: AgentSummary, row: RecordValue | undefined) => {
     const disabled = row?.disabled === true;
+    const openRoute = () =>
+      setRouteEditor({
+        id: agent.id,
+        label: agent.label,
+        route: record(row?.route),
+        disabled,
+        capability: 'setAgentRoute',
+        modelKind: 'agent',
+        description:
+          agent.description && !agent.custom && !agent.userOverride ? t(agent.description) : agent.description,
+        readOnlyDefinition: true,
+      });
+    const menuItems: ScmContextMenuState['items'] = [
+      { id: 'settings', label: t('Agent settings'), onSelect: later(openRoute) },
+      agentToggleItem(agent.id, disabled, record(row?.route)),
+    ];
     return (
       <button
         type="button"
@@ -302,19 +359,8 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
         data-tooltip={disabled ? t('Disabled') : t('Agent settings')}
         disabled={busy}
         aria-label={t('Edit {{name}}', { name: agent.label })}
-        onClick={() =>
-          setRouteEditor({
-            id: agent.id,
-            label: agent.label,
-            route: record(row?.route),
-            disabled,
-            capability: 'setAgentRoute',
-            modelKind: 'agent',
-            description:
-              agent.description && !agent.custom && !agent.userOverride ? t(agent.description) : agent.description,
-            readOnlyDefinition: true,
-          })
-        }
+        onClick={openRoute}
+        {...contextMenuRowProps((point) => openRowMenu(agent.label, point, menuItems))}
         {...defaultAgentOrder.getReorderProps(agent.id)}
       >
         <AgentRowIcon route={record(row?.route)} />
@@ -352,6 +398,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
           }}
           onSave={(payload) => void saveWorkflow(payload)}
           onDelete={() => void deleteWorkflowPack(String(record(editor.pack).id || ''))}
+          armDelete={editor.armDelete}
         />
       )}
       {active && agentEditor && (
@@ -369,6 +416,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
           onSave={(payload) => void saveAgent(payload)}
           onToggle={(enabled, route) => setAgentEnabled(String(record(agentEditor.agent).id || ''), enabled, route)}
           onDelete={() => void deleteAgent(String(record(agentEditor.agent).id || ''))}
+          armDelete={agentEditor.armDelete}
         />
       )}
       {active && routeEditor && (
@@ -386,6 +434,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
           onSave={(route) => void saveRoute(route)}
         />
       )}
+      <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
       {loading && <InitialSurface />}
       {!loading && (
         <>
@@ -426,6 +475,22 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                       aria-label={t('Edit workflow {{name}}', { name })}
                       data-tooltip={shownDescription || undefined}
                       onClick={() => void openEditor(id, name, custom)}
+                      {...contextMenuRowProps((point) =>
+                        openRowMenu(name, point, [
+                          { id: 'edit', label: t('Edit'), onSelect: later(() => void openEditor(id, name, custom)) },
+                          ...(custom
+                            ? [
+                                {
+                                  id: 'delete',
+                                  label: t('Delete'),
+                                  danger: true,
+                                  separatorBefore: true,
+                                  onSelect: later(() => void openEditor(id, name, true, true)),
+                                },
+                              ]
+                            : []),
+                        ])
+                      )}
                       {...workflowOrder.getReorderProps(id)}
                     >
                       <span className="sidebar-resource-icon" aria-hidden="true">

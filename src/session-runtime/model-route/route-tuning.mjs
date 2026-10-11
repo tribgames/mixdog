@@ -29,11 +29,9 @@ export function createRouteTuning(deps, persist) {
       throw new Error(`ultrafast is not available for ${getRoute().provider}/${getRoute().model}`);
     }
     const { serviceTier: previousTier, ...otherParameters } = getRoute().modelParameters || {};
-    const modelParameters = ultra
-      ? { ...otherParameters, serviceTier: 'ultrafast' }
-      : previousTier === 'ultrafast'
-        ? otherParameters
-        : getRoute().modelParameters;
+    let modelParameters = getRoute().modelParameters;
+    if (ultra) modelParameters = { ...otherParameters, serviceTier: 'ultrafast' };
+    else if (previousTier === 'ultrafast') modelParameters = otherParameters;
     const fastCapable = selectionFastCapable(
       getRoute().provider,
       modelMeta,

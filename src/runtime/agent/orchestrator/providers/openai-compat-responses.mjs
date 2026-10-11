@@ -22,6 +22,7 @@ import {
 } from './openai-compat-wire.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { normalizeOpencodeGoReasoningEffort } from './openai-compat-xai.mjs';
+import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import {
   applyCompatToolChoice,
@@ -38,11 +39,19 @@ import {
 // provider switch never replays foreign encrypted items into this gateway.
 const COMPAT_RESPONSES_STATE_KEY = 'compatResponses';
 
-function resolveReasoningEffort(provider, useModel, opts) {
+// The request's `reasoning` field, or null. Custom providers snap onto their
+// own model row (never promoting); gateway brands keep the catalog promotion.
+function resolveReasoning(provider, useModel, opts) {
+  const effort = opts.effort ?? provider.config?.reasoningEffort;
+  if (isCustomProviderName(provider.name)) {
+    const model = (typeof provider.getCachedModelInfo === 'function' && provider.getCachedModelInfo(useModel)) || null;
+    return resolveCustomReasoning({ protocol: 'openai-responses', model, effort }).fields.reasoning || null;
+  }
   const modelInfo =
     (typeof provider.getCachedModelInfo === 'function' && provider.getCachedModelInfo(useModel)) ||
     getModelMetadataSync(useModel, provider.name);
-  return normalizeOpencodeGoReasoningEffort(opts.effort ?? provider.config?.reasoningEffort, modelInfo);
+  const reasoningEffort = normalizeOpencodeGoReasoningEffort(effort, modelInfo);
+  return reasoningEffort ? { effort: reasoningEffort } : null;
 }
 
 /** The request body: lowered transcript plus the per-turn knobs (output cap,
@@ -63,8 +72,8 @@ function buildCompatResponsesParams({ provider, useModel, input, previousRespons
     params.parallel_tool_calls = true;
   }
   applyCompatToolChoice(params, opts);
-  const reasoningEffort = resolveReasoningEffort(provider, useModel, opts);
-  if (reasoningEffort) params.reasoning = { effort: reasoningEffort };
+  const reasoning = resolveReasoning(provider, useModel, opts);
+  if (reasoning) params.reasoning = reasoning;
   return params;
 }
 

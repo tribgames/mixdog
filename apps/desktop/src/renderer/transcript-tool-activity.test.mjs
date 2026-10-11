@@ -1148,10 +1148,135 @@ test('desktop labels name the operation actually called and its real outcome', a
   assert.equal(
     desktopToolActivityItemPresentation(item('github', { action: 'issue.create', repo: 'owner/repo', title: 'Bug' }))
       .subject,
-    'Create issue owner/repo · Bug'
+    'Create issue · owner/repo · Bug'
   );
   assert.equal(
     desktopToolActivityItemPresentation(item('git', { action: 'stage', change_ids: ['a', 'b'] })).subject,
     '2 changes'
   );
+});
+
+test('the tool activity expansion setting opens command rows as previews and Ctrl+O opens everything', async () => {
+  const { setToolActivityExpansion, toggleToolActivityExpandAll } = await import('./tool-activity-expansion.ts');
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const items = [
+    {
+      kind: 'tool',
+      id: 'sh',
+      name: 'shell',
+      args: { command: 'npm test' },
+      result: ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8'].join('\n'),
+      completedAt: 2,
+    },
+    { kind: 'tool', id: 'rd', name: 'read', args: { path: 'a.txt' }, result: 'one\ntwo', completedAt: 2 },
+  ];
+  const rowOpen = () =>
+    [...document.querySelectorAll('.tool-activity-item')].map((row) => row.getAttribute('data-open') === 'true');
+  try {
+    setToolActivityExpansion('commands');
+    await act(async () => {
+      dom.root.render(React.createElement(ToolActivityGroup, { disclosureScope: 'expansion', items }));
+    });
+    assert.equal(document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'true');
+    assert.deepEqual(rowOpen(), [true, false], 'only the command run opens');
+    assert.equal(document.querySelector('.tool-activity-preview').getAttribute('data-clamped'), 'lines');
+    assert.equal(document.querySelector('.tool-terminal-output').textContent, 'l1\nl2\nl3\nl4\nl5');
+    const more = document.querySelector('.tool-activity-preview-more');
+    assert.equal(more.textContent, '… +3 lines', 'the preview counts the lines it hides');
+    await act(async () => more.click());
+    assert.equal(document.querySelector('.tool-terminal-output').textContent.split('\n').length, 8);
+    assert.equal(document.querySelector('.tool-activity-preview-more'), null);
+
+    await act(async () => toggleToolActivityExpandAll());
+    assert.deepEqual(rowOpen(), [true, true], 'Ctrl+O opens every call');
+    await act(async () => document.querySelectorAll('.tool-activity-item-toggle')[1].click());
+    assert.deepEqual(rowOpen(), [true, false], 'a call closes by hand');
+    await act(async () => toggleToolActivityExpandAll());
+    assert.deepEqual(rowOpen(), [true, false], 'Ctrl+O again returns to the saved setting');
+    await act(async () => toggleToolActivityExpandAll());
+    assert.deepEqual(rowOpen(), [true, true], 'a new Ctrl+O opens calls closed in an earlier one');
+    await act(async () => toggleToolActivityExpandAll());
+
+    setToolActivityExpansion('collapsed');
+    await act(async () => {});
+    assert.equal(document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'false');
+  } finally {
+    setToolActivityExpansion('collapsed');
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a height-clamped preview builds only a bounded part, still offers show more, and copies the full text', async () => {
+  const { setToolActivityExpansion } = await import('./tool-activity-expansion.ts');
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const copied = [];
+  Object.defineProperty(dom.window.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async (value) => void copied.push(value) },
+  });
+  const result = Array.from({ length: 40 }, (_, index) => `- item ${index + 1} of the list`).join('\n');
+  try {
+    setToolActivityExpansion('all');
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'bounded-preview',
+          items: [{ kind: 'tool', id: 'rd', name: 'edit', args: { path: 'a.ts', old_string: result, new_string: 'x' }, result: 'ok', completedAt: 2 }],
+        })
+      );
+    });
+    const preview = document.querySelector('.tool-activity-preview');
+    assert.equal(preview.getAttribute('data-clamped'), 'height');
+    assert.ok(preview.textContent.includes('item 1 of'), 'the head of the output renders');
+    assert.ok(!preview.textContent.includes('item 40 of'), 'the tail is not built while collapsed');
+    const more = document.querySelector('.tool-activity-preview-more');
+    assert.ok(more, 'a truncated preview still offers show more without any DOM overflow');
+
+    await act(async () => document.querySelector('.tool-activity-copy').click());
+    assert.ok(copied[0].includes('item 40 of'), 'copy keeps the full text');
+
+    await act(async () => more.click());
+    assert.ok(document.querySelector('.tool-activity-item-body').textContent.includes('item 40 of'));
+    assert.equal(document.querySelector('.tool-activity-preview-more'), null);
+  } finally {
+    setToolActivityExpansion('collapsed');
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a finished background task with nothing to read cannot open and shows its status and id', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    const notice = [
+      '<task-notification>',
+      '<task-id>job_1790959235138_971b88</task-id>',
+      '<status>completed</status>',
+      '<exit-code>0</exit-code>',
+      '<summary>Shell task completed (exit 0): sleep 1</summary>',
+      '</task-notification>',
+    ].join('\n');
+    await act(async () => {
+      dom.root.render(
+        React.createElement(ToolActivityGroup, {
+          disclosureScope: 'meta-only',
+          items: [{ kind: 'tool', id: 'sh', name: 'shell', args: { command: 'sleep 1' }, result: notice, completedAt: 1 }],
+        })
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector('.tool-activity-header')
+        ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    const row = document.querySelector('.tool-activity-item');
+    assert.ok(row, 'the group opened onto its row');
+    assert.equal(row.querySelector('.tool-chevron'), null);
+    assert.equal(row.querySelector('.tool-activity-item-toggle[aria-expanded]'), null);
+    assert.equal(row.querySelector('.tool-activity-item-result')?.textContent, 'Completed · 971b88');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
 });

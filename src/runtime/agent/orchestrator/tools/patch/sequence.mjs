@@ -8,7 +8,7 @@ import { withAdvisoryLocks } from '../builtin/advisory-lock.mjs';
 import { wrapPatchMutationOutput } from './mutation-output.mjs';
 import { ensureNativePatchBinaryAvailable } from './native-server.mjs';
 import { setPatchReplayPreSnapshots } from './replay-capture.mjs';
-import { capturePatchRollbackState } from './rollback-state.mjs';
+import { capturePatchRollbackState, deleteOnlyPaths } from './rollback-state.mjs';
 import { formatSequenceReport } from './sequence/report.mjs';
 import { runPatchUnits } from './sequence/run.mjs';
 import { buildPatchUnits } from './sequence/units.mjs';
@@ -52,7 +52,7 @@ export async function applyPatchSequence(patchStr, requestedFormat, basePath, ct
       let uiBeforeSnapshots = [];
       if (!dryRun && ((toolCallId && sessionId) || replayCapture)) {
         try {
-          uiBeforeSnapshots = capturePatchRollbackState(lockPaths);
+          uiBeforeSnapshots = capturePatchRollbackState(lockPaths, { deletePaths: deleteOnlyPaths(units) });
           setPatchReplayPreSnapshots(replayCapture, uiBeforeSnapshots);
         } catch {
           uiBeforeSnapshots = [];

@@ -92,8 +92,10 @@ export function createCatalogLoader({
       const key = `${row.provider}:${row.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      results.push(row);
       if (meta.snapshotIsCurrent(revision, seq)) meta.remember(row.provider, row.id, row);
+      // A hidden custom model leaves the picker; its metadata still resolves
+      // for sessions and saved routes already on it.
+      if (row.hidden !== true) results.push(row);
     }
     profile('load:done', {
       ms: (performance.now() - startedAt).toFixed(1),

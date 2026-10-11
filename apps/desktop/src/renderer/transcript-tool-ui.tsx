@@ -15,17 +15,38 @@ import {
   Settings2,
   Sparkles,
 } from 'lucide-react';
-import React, { Suspense, lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
-import { LocalPathMention } from './MarkdownLink';
+import { LocalPathMention, openWebLinkInSystemBrowser, webLinkMenu } from './MarkdownLink';
+import {
+  ScmContextMenu,
+  elementMenuPoint,
+  isContextMenuKey,
+  pointerMenuPoint,
+  type ScmContextMenuState,
+} from './ScmContextMenu';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
 import { CodeDiff } from './transcript-diff';
 import { CopyControl, TextShimmer } from './transcript-primitives';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
+import { useBrowserPageIdentity } from './browser-page-identity';
+import { useLoadableFavicon } from './link-kind-icon';
+import { linkOpenTarget } from './link-open-target';
+import { toolActivityCallExpands, useToolActivityView, type ToolActivityExpansion } from './tool-activity-expansion';
 import {
   ToolCode,
   ToolCommand,
@@ -40,6 +61,7 @@ import {
   desktopToolActivityItemPresentation,
   flattenedToolActivityItems,
   isHookApprovalDenialToolItem,
+  shortMachineId,
   TOOL_DETAIL_LABELS,
   toolActivityIsCompleted,
   toolItemDone,
@@ -85,24 +107,32 @@ export function resetToolDisclosureScope(scope: string): void {
   }
 }
 
-function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: string): string {
+// The expansion view is part of the key: switching it starts from its own
+// defaults, and switching back to a saved mode finds the rows as they were left.
+function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: string, viewKey: string): string {
   const id = String(items[0]?.id ?? '').trim();
-  return id ? `${scope}:tool-activity:${id}` : '';
+  return id ? `${scope}:${viewKey}:tool-activity:${id}` : '';
 }
 
 /** Open state remembered per disclosure key across virtualized remounts. The
- *  transcript row's ResizeObserver picks up the height a flip changes. */
-function useRememberedDisclosure(disclosureKey: string): [open: boolean, toggle: () => void] {
-  const [open, setOpen] = useState(() => (disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false));
+ *  transcript row's ResizeObserver picks up the height a flip changes.
+ *  `chosen` is false while the row only follows `defaultOpen`. */
+function useRememberedDisclosure(
+  disclosureKey: string,
+  defaultOpen = false
+): [open: boolean, toggle: () => void, chosen: boolean, keepOpen: () => void] {
+  const read = () => (disclosureKey ? toolDisclosureStates.get(disclosureKey) : undefined);
+  const [remembered, setRemembered] = useState(read);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read is a fresh closure over disclosureKey.
   useLayoutEffect(() => {
-    setOpen(disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false);
+    setRemembered(read());
   }, [disclosureKey]);
-  const toggle = () => {
-    const next = !open;
+  const open = remembered ?? defaultOpen;
+  const choose = (next: boolean) => {
     rememberToolDisclosure(disclosureKey, next);
-    setOpen(next);
+    setRemembered(next);
   };
-  return [open, toggle];
+  return [open, () => choose(!open), remembered !== undefined, () => choose(true)];
 }
 
 /** Disclosure in two steps so the body can animate: it is mounted before it
@@ -222,12 +252,16 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   items,
   disclosureScope = '',
 }: ToolActivityGroupProps) {
-  const disclosureKey = toolActivityDisclosureKey(items, disclosureScope);
-  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey);
+  const { mode, key: viewKey } = useToolActivityView();
+  const disclosureKey = toolActivityDisclosureKey(items, disclosureScope, viewKey);
+  const calls = useMemo(() => flattenedToolActivityItems(items), [items]);
+  const [open, toggleOpen] = useRememberedDisclosure(
+    disclosureKey,
+    calls.some((item) => toolActivityCallExpands(item, mode))
+  );
   const { rendered, expanded } = useToolActivityDisclosure(open);
   const contentId = useId();
   const pending = items.some((item) => !toolItemDone(item));
-  const calls = useMemo(() => flattenedToolActivityItems(items), [items]);
   const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
   const label = summary || t('Tool use');
@@ -271,7 +305,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         <div className="tool-activity-reveal" data-expanded={expanded ? 'true' : 'false'}>
           <div className="tool-activity-reveal-clip">
             <div className="tool-activity-content" id={contentId}>
-              <ToolActivityDetails items={calls} disclosureKey={disclosureKey} />
+              <ToolActivityDetails items={calls} disclosureKey={disclosureKey} mode={mode} />
             </div>
           </div>
         </div>
@@ -288,21 +322,87 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
  *  closing it meant finding the address again. Hidden where no pane can be
  *  revealed (a draft with no session, a paired phone). */
 function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPage; sessionId: string }) {
-  if (!sessionId || sessionId === 'new-task' || !browserPageRequestsAvailable()) return null;
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  // What the in-app browser saw there: a screenshot leads the card; without
+  // one the site icon and title stand in; without either, globe and address.
+  const identity = useBrowserPageIdentity(page.url);
+  const [faviconSrc, onFaviconError] = useLoadableFavicon(identity?.favicon);
+  if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) !== 'pane') return null;
+  const favicon = faviconSrc ? (
+    <img
+      className="transcript-browser-page-favicon"
+      src={faviconSrc}
+      alt=""
+      draggable={false}
+      onError={onFaviconError}
+    />
+  ) : null;
+  let body: ReactNode;
+  if (identity?.thumbnail) {
+    body = (
+      <>
+        <span className="transcript-browser-page-thumb" aria-hidden="true">
+          <img src={identity.thumbnail} alt="" draggable={false} />
+        </span>
+        <span className="transcript-browser-page-copy" title={page.url}>
+          <span className="transcript-browser-page-site">
+            {favicon ?? <Globe size={14} aria-hidden="true" />}
+            <span>{page.host}</span>
+          </span>
+          <b>{identity.title || page.host}</b>
+          {page.path && <small>{page.path}</small>}
+        </span>
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <span className="transcript-browser-page-icon" aria-hidden="true">
+          {favicon ?? <Globe size={16} />}
+        </span>
+        <span className="transcript-browser-page-copy" title={page.url}>
+          <b>{identity?.title || page.host}</b>
+          <small>
+            {identity?.title
+              ? `${page.host}${page.path}`
+              : [page.path, t('Opened in browser')].filter(Boolean).join(' · ')}
+          </small>
+        </span>
+      </>
+    );
+  }
   return (
-    <div className="transcript-browser-page">
-      <span className="transcript-browser-page-icon" aria-hidden="true">
-        <Globe size={16} />
-      </span>
-      <span className="transcript-browser-page-copy" title={page.url}>
-        <b>{page.host}</b>
-        <small>{[page.path, t('Opened in browser')].filter(Boolean).join(' · ')}</small>
-      </span>
+    <div
+      className={`transcript-browser-page${identity?.thumbnail ? ' has-thumbnail' : ''}`}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenu(webLinkMenu(sessionId, page.url, pointerMenuPoint(event)));
+      }}
+      onKeyDown={(event) => {
+        if (!isContextMenuKey(event)) return;
+        event.preventDefault();
+        setMenu(webLinkMenu(sessionId, page.url, elementMenuPoint(event.currentTarget)));
+      }}
+    >
+      {menu && <ScmContextMenu state={menu} onClose={() => setMenu(null)} />}
+      {body}
       <button
         type="button"
         className="transcript-browser-page-open"
         onPointerDown={(event) => event.stopPropagation()}
-        onClick={() => requestBrowserPage(sessionId, page.url)}
+        onClick={(event) => {
+          if (event.ctrlKey || event.metaKey) openWebLinkInSystemBrowser(sessionId, page.url);
+          else requestBrowserPage(sessionId, page.url);
+        }}
+        // Windows middle-click autoscroll swallows auxclick unless the press is cancelled.
+        onMouseDown={(event) => {
+          if (event.button === 1) event.preventDefault();
+        }}
+        onAuxClick={(event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          openWebLinkInSystemBrowser(sessionId, page.url);
+        }}
       >
         {t('Open')}
       </button>
@@ -320,28 +420,16 @@ function disclosureChildKey(parent: string, id: string): string {
 
 /** One row per call, in call order: the group summary above is the only
  *  roll-up, so every row below it is the same kind of thing. */
-function ToolActivityDetails({ items, disclosureKey }: { items: readonly TranscriptItem[]; disclosureKey: string }) {
+function ToolActivityDetails({
+  items,
+  disclosureKey,
+  mode,
+}: {
+  items: readonly TranscriptItem[];
+  disclosureKey: string;
+  mode: ToolActivityExpansion;
+}) {
   const contentId = useId();
-  const rememberedItem = () => {
-    const index = items.findIndex(
-      (item, itemIndex) =>
-        toolDisclosureStates.get(disclosureChildKey(disclosureKey, activityItemKey(item, itemIndex))) === true
-    );
-    return index >= 0 ? activityItemKey(items[index], index) : null;
-  };
-  const [openItem, setOpenItem] = useState<string | null>(rememberedItem);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-sync only when the disclosure scope or the items change; rememberedItem is a fresh closure every render.
-  useLayoutEffect(() => {
-    setOpenItem(rememberedItem());
-  }, [disclosureKey, items]);
-
-  const toggleItem = (key: string) => {
-    const next = openItem === key ? null : key;
-    if (openItem) rememberToolDisclosure(disclosureChildKey(disclosureKey, openItem), false);
-    rememberToolDisclosure(disclosureChildKey(disclosureKey, key), next !== null);
-    setOpenItem(next);
-  };
-
   return (
     <div className="tool-activity-details">
       {items.map((item, index) => {
@@ -350,8 +438,8 @@ function ToolActivityDetails({ items, disclosureKey }: { items: readonly Transcr
           <ToolActivityItem
             key={key}
             item={item}
-            open={openItem === key}
-            onToggle={() => toggleItem(key)}
+            disclosureKey={disclosureChildKey(disclosureKey, key)}
+            defaultOpen={toolActivityCallExpands(item, mode)}
             contentId={`${contentId}-item-${index}`}
           />
         );
@@ -394,23 +482,74 @@ type ToolActivityPresentation = ReturnType<typeof desktopToolActivityItemPresent
  *  lines (the +/- chips) or went wrong (the failure). Counts and statuses
  *  ("424 lines", "13 matches", "background task") wait inside the row —
  *  on every row they buried the list (user: 열기 전이 너무 디테일). */
-const MACHINE_ID = /\b([a-z]+)_\d{10,}_([0-9a-f]{4,})\b/g;
-
-/** `job_1790959235138_a33acd` reads as `job a33acd`: the timestamp is noise,
- *  and the suffix is what tells two background tasks apart. */
-function shortMachineId(text: string): string {
-  return text.replace(MACHINE_ID, '$1 $2');
-}
 
 /** The closed row already carries this outcome as +/- chips. */
 function rowShowsOutcome(presentation: ToolActivityPresentation): boolean {
   return (splitLineDeltaTokens(presentation.resultLabel) as DetailLinePart[]).some((part) => part.delta);
 }
 
-function ToolRowOutcome({ presentation }: { presentation: ToolActivityPresentation }) {
+/** The facts an open call owes the reader ("28 files · sorted natural", "37
+ *  lines", a background task's status). They ride in the open row's header
+ *  band beside the title, as a table header carries its count, instead of a
+ *  loose second line between the band and the body. */
+export function toolActivityMetaLine(presentation: ToolActivityPresentation): string {
+  const verb = presentation.verb.trim().toLocaleLowerCase();
+  // The row already opens with its verb: a part that only repeats it ("Run ·
+  // Running") adds nothing.
+  const repeatsVerb = (part: string) => {
+    const text = part.toLocaleLowerCase();
+    return Boolean(verb) && (text === verb || text.startsWith(`${verb} `));
+  };
+  // A non-neutral outcome carries the meta's status and id itself
+  // (toolActivityOutcomeText); the meta line keeps only what is left.
+  const outcomeShown = presentation.tone !== 'neutral' && Boolean(presentation.resultLabel);
+  const parts = [
+    ...(outcomeShown ? [] : presentation.metaText.split(' · ').filter((part) => !repeatsVerb(part))),
+    presentation.tone === 'neutral' && !rowShowsOutcome(presentation) ? presentation.resultLabel : '',
+    ...(presentation.fieldsInline ? presentation.fields.map((field) => `${field.label} ${field.value}`) : []),
+  ]
+    .filter(Boolean)
+    .map(shortMachineId);
+  // The subject already says what a part repeats ("대기 · 971b88" + "971b88").
+  const subject = shortMachineId(presentation.subject).toLocaleLowerCase();
+  const inSubject = new Set([subject, ...subject.split(' · ')]);
+  return [...new Set(parts)].filter((part) => !inSubject.has(part.toLocaleLowerCase())).join(' · ');
+}
+
+/** A failed row reads outcome first, then the id: "실패 · 종료 1 · 711cd8". */
+export function toolActivityOutcomeText(presentation: ToolActivityPresentation): string {
+  const outcome = shortMachineId(presentation.resultLabel);
+  const verb = presentation.verb.trim().toLocaleLowerCase();
+  const subject = shortMachineId(presentation.subject).toLocaleLowerCase();
+  const skip = new Set([verb, subject, ...subject.split(' · '), ...outcome.toLocaleLowerCase().split(' · ')]);
+  const rest = presentation.metaText
+    .split(' · ')
+    .map(shortMachineId)
+    .filter((part) => part && !skip.has(part.toLocaleLowerCase()));
+  return [...new Set([outcome, ...rest])].join(' · ');
+}
+
+export function ToolRowOutcome({ presentation }: { presentation: ToolActivityPresentation }) {
+  // A row that cannot open has nowhere to keep its status and id: they ride
+  // here, beside the verb ("실행 · 완료 · 971b88").
+  if (!presentation.hasDetails && presentation.tone === 'neutral' && presentation.metaText) {
+    const meta = toolActivityMetaLine({ ...presentation, resultLabel: '', fields: [], fieldsInline: false });
+    if (meta) return <span className="tool-activity-item-result">{meta}</span>;
+  }
   if (!presentation.resultLabel) return null;
   if (presentation.tone !== 'neutral') {
-    return <span className="tool-activity-item-result">{presentation.resultLabel}</span>;
+    const text = toolActivityOutcomeText(presentation);
+    const reason = presentation.outcomeReason;
+    const at = reason ? text.indexOf(reason) : -1;
+    // The status, exit and id stay whole; only the reason gives way.
+    if (at < 0) return <span className="tool-activity-item-result">{text}</span>;
+    return (
+      <span className="tool-activity-item-result" data-reason="true">
+        <span className="tool-activity-item-chips">{text.slice(0, at)}</span>
+        <span className="tool-activity-item-reason">{reason}</span>
+        <span className="tool-activity-item-chips">{text.slice(at + reason.length)}</span>
+      </span>
+    );
   }
   const deltas = (splitLineDeltaTokens(presentation.resultLabel) as DetailLinePart[]).filter((part) => part.delta);
   if (!deltas.length) return null;
@@ -442,11 +581,13 @@ function renderToolActivityHeader({
   // The row is a plain container: the disclosure is a stretched sibling
   // button and the file link a separate button, so controls never nest.
   // Clicks on the row's text reach the container and toggle like before.
+  const metaLine = open && presentation.hasDetails ? toolActivityMetaLine(presentation) : '';
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the stretched sibling button is the keyboard path; this click only widens the target.
     // biome-ignore lint/a11y/useKeyWithClickEvents: same as above.
     <div
       className="tool-header tool-activity-item-header"
+      title={[presentation.title, presentation.subject, presentation.resultLabel, metaLine].filter(Boolean).join(' · ')}
       data-disclosure={presentation.hasDetails ? 'true' : 'false'}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={presentation.hasDetails ? onToggle : undefined}
@@ -464,10 +605,7 @@ function renderToolActivityHeader({
           }}
         />
       )}
-      <span
-        className="tool-title tool-activity-item-title"
-        title={[presentation.title, presentation.subject, presentation.resultLabel].filter(Boolean).join(' · ')}
-      >
+      <span className="tool-title tool-activity-item-title">
         <b>
           <TextShimmer text={presentation.verb} active={presentation.pending} />
         </b>
@@ -485,6 +623,7 @@ function renderToolActivityHeader({
             </small>
           )}
       </span>
+      {metaLine && <span className="tool-activity-item-meta">{metaLine}</span>}
       <ToolRowOutcome presentation={presentation} />
       {presentation.pending && <ToolWorkingStatus startedAt={startedAt} spark />}
       {presentation.pending && (
@@ -501,23 +640,113 @@ function renderToolActivityHeader({
   );
 }
 
+const PREVIEW_OUTPUT_LINES = 5;
+// Every box a preview may cut short: plates, the command, plain output.
+const PREVIEW_CUT_SELECTOR =
+  '.tool-panel-body, .tool-panel[data-kind="command"] .tool-code, .tool-activity-item-output';
+
+type ToolActivityPreviewMode = 'lines' | 'height';
+
+/** A preview cuts a command run or plain text output by lines; anything else
+ *  (files, code, diffs, rendered answers) by height. */
+function toolActivityPreviewMode(presentation: ToolActivityPresentation): ToolActivityPreviewMode {
+  const plainOutput =
+    !presentation.entries.length &&
+    !presentation.outputLanguage &&
+    (presentation.outputLiteral || !toolActivityLooksMarkdown(presentation.outputText));
+  const onlyText =
+    !presentation.diffPatch &&
+    !presentation.sections.length &&
+    !presentation.structuredRows.length &&
+    !presentation.promptText &&
+    !presentation.beforeText &&
+    !presentation.afterText &&
+    !presentation.targets.length &&
+    (presentation.fieldsInline || !presentation.fields.length);
+  return onlyText && (presentation.command || plainOutput) ? 'lines' : 'height';
+}
+
+/** The first lines of an output and how many it hides. A single hidden line
+ *  is shown instead of being counted. */
+function previewOutputLines(text: string): { text: string; hidden: number } {
+  const lines = text.split('\n');
+  if (lines.length <= PREVIEW_OUTPUT_LINES + 1) return { text, hidden: 0 };
+  return { text: lines.slice(0, PREVIEW_OUTPUT_LINES).join('\n'), hidden: lines.length - PREVIEW_OUTPUT_LINES };
+}
+
+// The height clamp shows about six lines (6 × line + 16px); twice that always
+// overfills it, so what is cut here is never visible.
+const PREVIEW_HEIGHT_LINES = 12;
+
+/** The first `max` lines of a text without splitting all of it. */
+function capLines(text: string, max = PREVIEW_HEIGHT_LINES): { text: string; cut: boolean } {
+  let end = -1;
+  for (let line = 0; line < max; line++) {
+    end = text.indexOf('\n', end + 1);
+    if (end < 0) return { text, cut: false };
+  }
+  return { text: text.slice(0, end), cut: true };
+}
+
+/** A height-clamped preview's input, bounded to what the clamp can show. */
+function capPresentation(presentation: ToolActivityPresentation): {
+  view: ToolActivityPresentation;
+  cut: boolean;
+} {
+  let cut = false;
+  const lines = (text: string) => {
+    const capped = capLines(text);
+    cut ||= capped.cut;
+    return capped.text;
+  };
+  const rowsBudget = <T,>(list: readonly T[]) => {
+    cut ||= list.length > PREVIEW_HEIGHT_LINES;
+    return list.slice(0, PREVIEW_HEIGHT_LINES);
+  };
+  let budget = PREVIEW_HEIGHT_LINES;
+  const sections: typeof presentation.sections = [];
+  for (const section of presentation.sections) {
+    if (budget <= 0) {
+      cut = true;
+      break;
+    }
+    const rows = section.rows.slice(0, budget);
+    cut ||= rows.length < section.rows.length;
+    budget -= rows.length;
+    sections.push(rows.length < section.rows.length ? { ...section, rows } : section);
+  }
+  const view = {
+    ...presentation,
+    outputText: lines(presentation.outputText),
+    promptText: lines(presentation.promptText),
+    beforeText: lines(presentation.beforeText),
+    afterText: lines(presentation.afterText),
+    diffPatch: presentation.diffPatch ? lines(presentation.diffPatch) : presentation.diffPatch,
+    entries: rowsBudget(presentation.entries),
+    structuredRows: rowsBudget(presentation.structuredRows),
+    sections,
+  };
+  return { view, cut };
+}
+
 /** A command run: the command sits in its own framed box, highlighted as
  *  shell, and what it printed follows as plain terminal text below the box. */
-function renderToolActivityTerminal(presentation: ToolActivityPresentation) {
+function renderToolActivityTerminal(
+  presentation: ToolActivityPresentation,
+  outputText = presentation.outputText,
+  full = presentation
+) {
   return (
     <section className="tool-activity-item-section tool-activity-terminal">
-      <ToolPanel
-        kind="command"
-        copyValue={[presentation.command, presentation.outputText].filter(Boolean).join('\n\n')}
-      >
+      <ToolPanel kind="command" copyValue={[full.command, full.outputText].filter(Boolean).join('\n\n')}>
         <span className="tool-terminal-prompt" aria-hidden="true">
           $
         </span>
         <ToolCommand command={presentation.command} />
       </ToolPanel>
-      {presentation.outputText && (
+      {outputText && (
         <pre className="tool-activity-item-output tool-terminal-output" data-scrollable>
-          {presentation.outputText}
+          {outputText}
         </pre>
       )}
     </section>
@@ -555,10 +784,10 @@ function renderToolActivityStructured(presentation: ToolActivityPresentation) {
   );
 }
 
-function renderToolActivityReplacement(presentation: ToolActivityPresentation) {
+function renderToolActivityReplacement(presentation: ToolActivityPresentation, full = presentation) {
   const sides = [
-    { kind: 'before', label: TOOL_DETAIL_LABELS.before, text: presentation.beforeText },
-    { kind: 'after', label: TOOL_DETAIL_LABELS.after, text: presentation.afterText },
+    { kind: 'before', label: TOOL_DETAIL_LABELS.before, text: presentation.beforeText, copy: full.beforeText },
+    { kind: 'after', label: TOOL_DETAIL_LABELS.after, text: presentation.afterText, copy: full.afterText },
   ];
   return (
     <section className="tool-activity-item-section tool-activity-replacement">
@@ -567,7 +796,7 @@ function renderToolActivityReplacement(presentation: ToolActivityPresentation) {
           className="tool-activity-replacement-block"
           kind={side.kind}
           label={side.label}
-          copyValue={side.text}
+          copyValue={side.copy}
           key={side.kind}
         >
           <ToolCode rows={toolCodeRowsPlain(side.text)} language={presentation.replacementLanguage} />
@@ -578,11 +807,15 @@ function renderToolActivityReplacement(presentation: ToolActivityPresentation) {
 }
 
 /** A tool's own result: file rows, JSON, a rendered answer, or plain text. */
-function renderToolActivityOutput(presentation: ToolActivityPresentation) {
+function renderToolActivityOutput(
+  presentation: ToolActivityPresentation,
+  outputText = presentation.outputText,
+  full = presentation
+) {
   const className = 'tool-activity-item-section tool-activity-item-result-block';
   if (presentation.entries.length > 0) {
     return (
-      <ToolPanel className={className} kind="files" copyValue={presentation.outputText}>
+      <ToolPanel className={className} kind="files" copyValue={full.outputText}>
         <ToolFileList entries={presentation.entries} />
         {presentation.entryNotes.length > 0 && (
           <pre className="tool-activity-item-output tool-file-notes">{presentation.entryNotes.join('\n')}</pre>
@@ -592,21 +825,21 @@ function renderToolActivityOutput(presentation: ToolActivityPresentation) {
   }
   if (presentation.outputLanguage) {
     return (
-      <ToolPanel className={className} kind="code" copyValue={presentation.outputText}>
+      <ToolPanel className={className} kind="code" copyValue={full.outputText}>
         <ToolCode rows={toolCodeRowsPlain(presentation.outputText)} language={presentation.outputLanguage} />
       </ToolPanel>
     );
   }
-  if (!presentation.outputLiteral && toolActivityLooksMarkdown(presentation.outputText)) {
+  if (!presentation.outputLiteral && toolActivityLooksMarkdown(full.outputText)) {
     return (
-      <ToolPanel className={className} bare copyValue={presentation.outputText}>
+      <ToolPanel className={className} bare copyValue={full.outputText}>
         <ToolActivityRichBody text={presentation.outputText} fallbackClassName="tool-activity-item-output" />
       </ToolPanel>
     );
   }
   return (
-    <ToolPanel className={className} kind="text" copyValue={presentation.outputText}>
-      <pre className="tool-activity-item-output">{presentation.outputText}</pre>
+    <ToolPanel className={className} kind="text" copyValue={full.outputText}>
+      <pre className="tool-activity-item-output">{outputText}</pre>
     </ToolPanel>
   );
 }
@@ -629,24 +862,24 @@ function renderToolActivityFields(presentation: ToolActivityPresentation) {
 
 // Every detail section a tool item can carry: command output, structured rows,
 // a preview, a before/after replacement, arguments, a diff, and plain output.
-function renderToolActivityDetails(presentation: ToolActivityPresentation, contentId: string) {
+function renderToolActivityDetails(
+  full: ToolActivityPresentation,
+  contentId: string,
+  onShowMore: (() => void) | null
+) {
+  const mode = onShowMore ? toolActivityPreviewMode(full) : null;
+  const capped = mode === 'height' ? capPresentation(full) : null;
+  const presentation = capped ? capped.view : full;
+  const output =
+    mode === 'lines' ? previewOutputLines(full.outputText) : { text: presentation.outputText, hidden: 0 };
   return (
     <div className="tool-activity-item-body" id={contentId}>
-      <div className="tool-activity-item-body-inner">
-        {(presentation.metaText ||
-          (presentation.tone === 'neutral' && presentation.resultLabel && !rowShowsOutcome(presentation)) ||
-          (presentation.fieldsInline && presentation.fields.length > 0)) && (
-          <p className="tool-activity-item-meta">
-            {[
-              presentation.metaText,
-              presentation.tone === 'neutral' && !rowShowsOutcome(presentation) ? presentation.resultLabel : '',
-              ...(presentation.fieldsInline ? presentation.fields.map((field) => `${field.label} ${field.value}`) : []),
-            ]
-              .filter(Boolean)
-              .map(shortMachineId)
-              .join(' · ')}
-          </p>
-        )}
+      <ToolActivityPreview
+        mode={mode}
+        hiddenLines={output.hidden}
+        truncated={Boolean(capped?.cut)}
+        onShowMore={onShowMore}
+      >
         {presentation.targets.length > 0 && presentation.sections.length === 0 && (
           <section className="tool-activity-item-section">
             <span>{TOOL_DETAIL_LABELS.targets}</span>
@@ -664,7 +897,7 @@ function renderToolActivityDetails(presentation: ToolActivityPresentation, conte
             className="tool-activity-item-section"
             kind="prose"
             label={TOOL_DETAIL_LABELS.prompt}
-            copyValue={presentation.promptText}
+            copyValue={full.promptText}
           >
             <ToolActivityBody text={presentation.promptText} className="tool-activity-item-prompt" />
           </ToolPanel>
@@ -678,30 +911,100 @@ function renderToolActivityDetails(presentation: ToolActivityPresentation, conte
             <ToolSections sections={presentation.sections} />
           </ToolPanel>
         )}
-        {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation)}
+        {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation, full)}
         {presentation.fields.length > 0 && !presentation.fieldsInline && renderToolActivityFields(presentation)}
-        {presentation.command && renderToolActivityTerminal(presentation)}
+        {presentation.command && renderToolActivityTerminal(presentation, output.text, full)}
+        {presentation.outputNote && <p className="tool-activity-item-note">{presentation.outputNote}</p>}
         {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
         {presentation.outputText &&
           !presentation.command &&
           presentation.sections.length === 0 &&
-          renderToolActivityOutput(presentation)}
+          renderToolActivityOutput(presentation, output.text, full)}
+      </ToolActivityPreview>
+    </div>
+  );
+}
+
+/** A call the expansion setting opened shows a preview: a command's first two
+ *  lines and five lines of output, or a capped height for anything else. A
+ *  quiet "… +N lines" note under it lifts the cap, as does opening by hand. */
+function ToolActivityPreview({
+  mode,
+  hiddenLines,
+  truncated,
+  onShowMore,
+  children,
+}: {
+  mode: ToolActivityPreviewMode | null;
+  hiddenLines: number;
+  truncated: boolean;
+  onShowMore: (() => void) | null;
+  children: ReactNode;
+}) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    const content = frame?.firstElementChild;
+    if (!mode || !frame || !content) {
+      setClipped(false);
+      return;
+    }
+    // Each box the preview actually cuts is marked, so only it fades out.
+    // All geometry is read first, then attributes are written, and only
+    // where the value changed, so no read forces a layout the writes dirtied.
+    const measure = () => {
+      const elements = [...frame.querySelectorAll(PREVIEW_CUT_SELECTOR)];
+      const cuts = elements.map((element) => element.scrollHeight > element.clientHeight + 1);
+      elements.forEach((element, index) => {
+        if (element.hasAttribute('data-preview-cut') !== cuts[index]) {
+          element.toggleAttribute('data-preview-cut', cuts[index]);
+        }
+      });
+      setClipped(cuts.includes(true));
+    };
+    if (typeof ResizeObserver !== 'function') {
+      measure();
+      return;
+    }
+    // Its first delivery lands before paint, so it is the initial measure.
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [mode]);
+  const more = Boolean(mode && onShowMore && (hiddenLines > 0 || truncated || clipped));
+  return (
+    <div className="tool-activity-item-body-inner">
+      <div className="tool-activity-preview" data-clamped={mode ?? 'false'} ref={frameRef}>
+        <div>{children}</div>
       </div>
+      {more && onShowMore && (
+        <button
+          type="button"
+          className="tool-activity-preview-more"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={onShowMore}
+        >
+          {hiddenLines > 0 ? t('… +{{lines}} lines', { lines: hiddenLines }) : t('… Show more')}
+        </button>
+      )}
     </div>
   );
 }
 
 function ToolActivityItem({
   item,
-  open,
-  onToggle,
+  disclosureKey,
+  defaultOpen,
   contentId,
 }: {
   item: TranscriptItem;
-  open: boolean;
-  onToggle: () => void;
+  disclosureKey: string;
+  defaultOpen: boolean;
   contentId: string;
 }) {
+  const [open, onToggle, chosen, keepOpen] = useRememberedDisclosure(disclosureKey, defaultOpen);
   const presentation = useMemo(() => desktopToolActivityItemPresentation(item), [item]);
   const panelOpen = open && presentation.hasDetails;
   const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
@@ -713,7 +1016,9 @@ function ToolActivityItem({
       data-expanded={expanded ? 'true' : 'false'}
     >
       {renderToolActivityHeader({ presentation, open, onToggle, contentId, startedAt: toolItemStartedAt(item) })}
-      {rendered && presentation.hasDetails && renderToolActivityDetails(presentation, contentId)}
+      {rendered &&
+        presentation.hasDetails &&
+        renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen)}
     </article>
   );
 }

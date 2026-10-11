@@ -80,20 +80,6 @@
   padding-left: 6px;
 }
 /* Search fields share rail-controls.css with Search and Source Control. */
-/* The page's rail gap (8px) alone spaces search → filters → list on one
-   even rhythm; the old +2/+4 margins predate the 6px page gap and drifted
-   the stack to 10/12px (user: 스케줄/웹훅 전체적으로 정리). */
-.session-sidebar-panels .schedules-filters {
-  gap: 4px;
-}
-/* Filter chips speak the search box's control grammar — same 28px height,
-   same 5px radius, same 12px side inset (user: 검색박스랑 아래 태그들도
-   같게 맞춰야지) — instead of a second, smaller pill language. */
-.session-sidebar-panels .schedules-filters button {
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: var(--mx-radius-md);
-}
 /* Quiet resting rows leave room for a visible hover wash. The shared inset
    keeps borders stable; only keyboard focus gets the stronger inner line. */
 .session-sidebar,
@@ -542,11 +528,10 @@ html[data-window-material="mica"] .session-sidebar {
 }
 /* A group with work in progress shimmers its session name (user: 돌고있는거
    강조애니 — 세션네임에) with the shared comet in 22-markdown.css. The
-   shimmer spans and the comet's overlay copy go block so a long name still
-   ellipsizes like the plain heading. */
+   shimmer spans go block so a long name still ellipsizes like the plain
+   heading (the glint's copy ellipsizes in its own box). */
 .utility-dock .agent-session-heading h2 [data-component="text-shimmer"],
-.utility-dock .agent-session-heading h2 [data-slot="text-shimmer-char"],
-.utility-dock .agent-session-heading h2 [data-slot="text-shimmer-char"]::after {
+.utility-dock .agent-session-heading h2 [data-slot="text-shimmer-char"] {
   min-width: 0;
   max-width: 100%;
   display: block;

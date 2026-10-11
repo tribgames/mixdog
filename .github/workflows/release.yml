@@ -328,6 +328,27 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
+  desktop-darwin-x64:
+    needs: [desktop-build, prepare-github-release]
+    uses: ./.github/workflows/desktop-package.yml
+    permissions:
+      contents: write
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      tag: ${{ inputs.tag || github.ref_name }}
+      release_id: ${{ needs.prepare-github-release.outputs.release_id }}
+      runner: macos-15-intel
+      platform: darwin
+      arch: x64
+      artifact_arch: x64
+      target: mac
+    secrets:
+      MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
   desktop-linux-x64:
     needs: [desktop-build, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
@@ -360,7 +381,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-linux-x64, desktop-linux-arm64]
+    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -421,6 +442,8 @@ jobs:
             'mixdog-desktop-linux-x86_64.AppImage',
             'mixdog-desktop-mac-arm64.dmg',
             'mixdog-desktop-mac-arm64.zip',
+            'mixdog-desktop-mac-x64.dmg',
+            'mixdog-desktop-mac-x64.zip',
             'mixdog-desktop-win-x64.exe',
             'mixdog-desktop-win-x64.exe.blockmap',
           ].sort();

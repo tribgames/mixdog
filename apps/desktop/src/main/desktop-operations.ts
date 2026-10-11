@@ -22,6 +22,7 @@ import type { DocumentPreviewModule } from './document-preview';
 
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
+import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 
 interface DesktopOperationEvent {
   name:
@@ -30,7 +31,9 @@ interface DesktopOperationEvent {
     | 'lsp-status'
     | 'terminal-data'
     | typeof ACTIVITY_RAIL_PINS_EVENT
-    | typeof PROVIDER_MODELS_EVENT;
+    | typeof PROVIDER_MODELS_EVENT
+    | typeof SETTINGS_CHANGED_EVENT
+    | typeof UPDATER_STATE_EVENT;
   value: unknown;
 }
 
@@ -208,6 +211,7 @@ const STATIC_OPERATIONS = {
   githubCliAccount: github.githubCliAccount,
   githubCliLoginStart: github.githubCliLoginStart,
   githubCliLoginStatus: github.githubCliLoginStatus,
+  githubCliLoginOpenBrowser: github.githubCliLoginOpenBrowser,
   githubCliLogout: github.githubCliLogout,
   githubCliStatus: github.githubCliStatus,
   gitCliStatus: github.gitCliStatus,
@@ -343,9 +347,21 @@ export function createDesktopOperations({
       emit({ name: PROVIDER_MODELS_EVENT, value: { origin: args[0] } });
       return undefined;
     }
+    if (name === 'notifySettingsChanged') {
+      const change = readSettingsChange({ scope: args[0] });
+      if (!change) throw new TypeError('settings scope is invalid.');
+      emit({ name: SETTINGS_CHANGED_EVENT, value: change });
+      return undefined;
+    }
+    // The window process owns the updater; remote clients learn its state here.
+    if (name === 'publishUpdaterState') {
+      emit({ name: UPDATER_STATE_EVENT, value: args[0] });
+      return undefined;
+    }
     if (name === 'updateSetting') {
       return settingsStore.update(args[0] as Parameters<DesktopSettingsStore['update']>[0], args[1] === true);
     }
+    if (name === 'updateNotificationVolume') return settingsStore.updateNotificationVolume(Number(args[0]));
     if (name === 'readZoom') return settingsStore.readZoom();
     if (name === 'updateZoom') return settingsStore.updateZoom(Number(args[0]));
     if (name === 'githubStarStatus') return githubStarStatus();

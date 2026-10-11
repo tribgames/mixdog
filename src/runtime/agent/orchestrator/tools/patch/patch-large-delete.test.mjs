@@ -30,7 +30,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { parsePatch } from 'diff';
 
-import { createSnapshotBudget, PATCH_SNAPSHOT_MAX_BYTES } from '../../../../shared/bounded-file-read.mjs';
+import { createSnapshotBudget, PATCH_EDIT_MAX_BYTES } from '../../../../shared/bounded-file-read.mjs';
 import {
   _resetTurnSnapshotForTest,
   beginTurnSnapshot,
@@ -50,6 +50,8 @@ import { registerCommittedPatchUiDiff } from './ui-diff.mjs';
 import { applyParsedWave } from './wave.mjs';
 
 const BIG_BYTES = 12 * 1024 * 1024;
+// Text past the 64 MiB edit limit.
+const HUGE_TEXT_BYTES = 65 * 1024 * 1024;
 const asHeader = (path) => path.replace(/\\/g, '/');
 
 function makeDir(t) {
@@ -305,14 +307,14 @@ test('content edits and renames of oversized or binary files are refused before 
   const bigText = join(dir, 'big.txt');
   const small = join(dir, 'small.txt');
   const blob = join(dir, 'blob.bin');
-  writeFileSync(bigText, 'line\n'.repeat((9 * 1024 * 1024) / 5));
+  writeFileSync(bigText, 'line\n'.repeat(HUGE_TEXT_BYTES / 5));
   writeFileSync(small, 'before\n');
   writeFileSync(blob, Buffer.from([0x00, 0x01, 0x02, 0x00, 0x61, 0x0a]));
   const bigStat = statSync(bigText);
 
   const v4a = await patch('*** Begin Patch\n*** Update File: big.txt\n@@\n-line\n+LINE\n*** End Patch\n', dir);
   assert.match(v4a, /^Error/);
-  assert.match(v4a, /larger than 8 MiB/);
+  assert.match(v4a, /larger than 64 MiB/);
 
   // Unified batch: the small edit is never applied because the big one is refused.
   const unified = await patch(
@@ -332,7 +334,7 @@ test('content edits and renames of oversized or binary files are refused before 
     dir
   );
   assert.match(unified, /^Error/);
-  assert.match(unified, /larger than 8 MiB/);
+  assert.match(unified, /larger than 64 MiB/);
   assert.equal(readFileSync(small, 'utf8'), 'before\n');
 
   const rename = await patch(
@@ -403,10 +405,8 @@ test('replay capture records omitted and unreadable targets explicitly', async (
   const body =
     '*** Begin Patch\n*** Delete File: big.bin\n*** Delete File: empty.txt\n*** Delete File: gone.txt\n*** End Patch\n';
   const capture = preparePatchReplayCapture({ patch: body }, dir, {});
-  setPatchReplayPreSnapshots(
-    capture,
-    capturePatchRollbackState(['big.bin', 'empty.txt', 'gone.txt'].map((name) => join(dir, name)))
-  );
+  const deleted = ['big.bin', 'empty.txt', 'gone.txt'].map((name) => join(dir, name));
+  setPatchReplayPreSnapshots(capture, capturePatchRollbackState(deleted, { deletePaths: deleted }));
   assert.deepEqual(capture.fileSnapshots, { 'big.bin': null, 'empty.txt': '', 'gone.txt': null });
   assert.deepEqual(capture.fileSnapshotMeta, { 'big.bin': { omitted: true, reason: 'oversized', size: BIG_BYTES } });
 
@@ -464,7 +464,7 @@ test('replay capture marks a target it cannot open as unreadable, not absent or 
   assert.deepEqual(capture.fileSnapshotMeta, { 'locked.txt': { unreadable: true } });
 });
 
-// Grows `target` to a 12 MiB text file the first time a descriptor opened on
+// Grows `target` to a 65 MiB text file the first time a descriptor opened on
 // it is closed — i.e. right after the first (preflight) read — and records
 // every read of it from then on.
 function growAfterFirstRead(target) {
@@ -476,7 +476,7 @@ function growAfterFirstRead(target) {
     const out = watch.closeSync.call(this, fd, ...rest);
     if (watched && !grown) {
       grown = true;
-      watch.real.appendFileSync(target, Buffer.alloc(BIG_BYTES, 0x78));
+      watch.real.appendFileSync(target, Buffer.alloc(HUGE_TEXT_BYTES, 0x78));
     }
     return out;
   };
@@ -507,17 +507,17 @@ test('a target that grows after the edit guard is refused by every consuming rea
   } finally {
     grow.stop();
   }
-  assert.match(result.error, /larger than 8 MiB/);
+  assert.match(result.error, /larger than 64 MiB/);
   assert.deepEqual(grow.stats.fullReads, []);
-  assert.ok(grow.stats.maxFdBytes <= PATCH_SNAPSHOT_MAX_BYTES + 1, `one read pulled ${grow.stats.maxFdBytes} bytes`);
-  assert.equal(statSync(target).size, 7 + BIG_BYTES);
+  assert.ok(grow.stats.maxFdBytes <= PATCH_EDIT_MAX_BYTES + 1, `one read pulled ${grow.stats.maxFdBytes} bytes`);
+  assert.equal(statSync(target).size, 7 + HUGE_TEXT_BYTES);
   assert.equal(readFileSync(target).subarray(0, 7).toString(), 'before\n');
 });
 
 test('the JS update writer refuses an oversized target at its own read', async (t) => {
   const dir = makeDir(t);
   const target = join(dir, 'target.txt');
-  writeFileSync(target, Buffer.concat([Buffer.from('before\n'), Buffer.alloc(BIG_BYTES, 0x78)]));
+  writeFileSync(target, Buffer.concat([Buffer.from('before\n'), Buffer.alloc(HUGE_TEXT_BYTES, 0x78)]));
   const parsed = parsePatch('--- a/target.txt\n+++ b/target.txt\n@@ -1 +1 @@\n-before\n+after\n');
   const watch = watchReads(target);
   let result;
@@ -531,9 +531,9 @@ test('the JS update writer refuses an oversized target at its own read', async (
     watch.stop();
   }
   assert.match(result, /^Error/);
-  assert.match(result, /larger than 8 MiB/);
+  assert.match(result, /larger than 64 MiB/);
   assert.deepEqual(watch.stats.fullReads, []);
-  assert.ok(watch.stats.maxFdBytes <= PATCH_SNAPSHOT_MAX_BYTES + 1);
+  assert.ok(watch.stats.maxFdBytes <= PATCH_EDIT_MAX_BYTES + 1);
   assert.equal(readFileSync(target).subarray(0, 7).toString(), 'before\n');
 });
 
@@ -572,13 +572,45 @@ test('a large untracked delete in a Git cwd is reviewed as omitted and its rever
 });
 
 for (const cwdKind of ['non-Git', 'Git']) {
+  test(`a text update between 8 and 64 MiB in a ${cwdKind} cwd applies and undoes exactly`, async (t) => {
+    const dir = makeDir(t);
+    t.after(() => _resetTurnSnapshotForTest());
+    const sessionId = `large-text-edit-${cwdKind}`;
+    const big = join(dir, 'big.log');
+    const original = `head\n${'line\n'.repeat((9 * 1024 * 1024) / 5)}`;
+    writeFileSync(big, original);
+    if (cwdKind === 'Git') {
+      const git = initGitRepo(dir);
+      git('config', 'core.autocrlf', 'false');
+      writeFileSync(join(dir, 'README.md'), 'readme\n');
+      git('add', 'README.md');
+      git('commit', '-m', 'init');
+    }
+    await beginTurnSnapshot(dir, sessionId, { checkpointId: 'prompt-1' });
+    const result = await patch(
+      '*** Begin Patch\n*** Update File: big.log\n@@\n-head\n+HEAD\n*** End Patch\n',
+      dir,
+      dir,
+      {
+        sessionId,
+        toolCallId: 'large-edit',
+      }
+    );
+    assert.doesNotMatch(result, /^Error/);
+    assert.equal(readFileSync(big, 'utf8').slice(0, 5), 'HEAD\n');
+    const review = await getTurnReviewDiff(dir, sessionId);
+    assert.match(review.patch, /\+\+\+ b\/big\.log\n@@ [^\n]*\n-head\n\+HEAD\n/);
+    await revertTurnReview(dir, sessionId);
+    assert.equal(readFileSync(big, 'utf8'), original);
+  });
+
   test(`a refused oversized update in a ${cwdKind} cwd stays out of the review and does not block undo`, async (t) => {
     const dir = makeDir(t);
     t.after(() => _resetTurnSnapshotForTest());
     const sessionId = `refused-oversized-${cwdKind}`;
     const big = join(dir, 'big.txt');
     const small = join(dir, 'notes.txt');
-    writeFileSync(big, 'line\n'.repeat((9 * 1024 * 1024) / 5));
+    writeFileSync(big, 'line\n'.repeat(HUGE_TEXT_BYTES / 5));
     writeFileSync(small, 'old\n');
     if (cwdKind === 'Git') {
       const git = initGitRepo(dir);
@@ -595,7 +627,7 @@ for (const cwdKind of ['non-Git', 'Git']) {
       dir,
       { sessionId, toolCallId: 'mixed' }
     );
-    assert.match(result, /larger than 8 MiB/);
+    assert.match(result, /larger than 64 MiB/);
     assert.equal(readFileSync(small, 'utf8'), 'new\n');
     assert.equal(statSync(big).mtimeMs, bigStat.mtimeMs);
 

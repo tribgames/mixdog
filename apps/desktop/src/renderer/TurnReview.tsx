@@ -17,6 +17,7 @@ import { findPatch } from './transcript-diff';
 import { readDiffStyle, TURN_REVIEW_DIFF_STYLE_KEY, type TranscriptItem, writeDiffStyle } from './desktop-types';
 import { turnReviewScope } from './renderer-logic.mjs';
 import { isMobileRemoteSurface } from './mobile-surface';
+import { useComposerIslandTab } from './composer-island-state';
 import {
   leadReviewSnapshotKindCache,
   rememberAgentReviews,
@@ -306,6 +307,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   active = true,
   busy = false,
   onOpenFile,
+  variant = 'bar',
+  onOpenChanges,
 }: {
   items: TranscriptItem[];
   cwd?: string;
@@ -313,8 +316,19 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   active?: boolean;
   busy?: boolean;
   onOpenFile?: (project: string, rel: string) => void;
+  /** `segment`: the composer island's "Files N +a −b" entry, which opens the
+   *  pane's session diff (onOpenChanges). Without onOpenChanges (no side
+   *  dock) it is an island tab that expands into this file list. */
+  variant?: 'bar' | 'segment';
+  onOpenChanges?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const islandTab = variant === 'segment' && !onOpenChanges;
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const [islandExpanded, setIslandExpanded] = useComposerIslandTab('files');
+  const expanded = islandTab ? islandExpanded : localExpanded;
+  const setExpanded: Dispatch<SetStateAction<boolean>> = islandTab
+    ? (value) => setIslandExpanded(typeof value === 'function' ? value(islandExpanded) : value)
+    : setLocalExpanded;
   const [openFile, setOpenFile] = useState('');
   // Whether the bar shows file bodies right now. A collapsed bar on a phone
   // asks for files and line counts only; opening it re-reads in full.
@@ -335,18 +349,29 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   const barElement = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!expanded) return undefined;
-    const closeOnOutsidePointer = (event: Event) => {
-      const element = barElement.current;
-      const target = event.target as Node | null;
-      if (!element || (target && element.contains(target))) return;
+    const collapse = () => {
       setExpanded(false);
       setOpenFile('');
       setConfirmFile('');
       setRevertError('');
     };
+    const closeOnOutsidePointer = (event: Event) => {
+      const element = barElement.current;
+      const target = event.target as Node | null;
+      if (!element || (target && element.contains(target))) return;
+      collapse();
+    };
+    // As an island tab, Escape collapses it like the island's other tabs.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') collapse();
+    };
     window.addEventListener('pointerdown', closeOnOutsidePointer, true);
-    return () => window.removeEventListener('pointerdown', closeOnOutsidePointer, true);
-  }, [expanded]);
+    if (islandTab) document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [expanded, islandTab]);
   // A long turn's prompt row can fall out of the transcript tail the daemon
   // sends. The rows left are still that turn, so it keeps its scope: the
   // shared `none` scope held an unrelated earlier review and skipped the
@@ -751,6 +776,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     return [...(transcriptSummary.files.size > 0 ? [transcriptSource] : []), ...agentSources];
   }, [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
   const reviewVisible = !entryPending && summary.files.size > 0;
+  // An island tab whose files went away closes with them.
+  const closeEmptyTab = islandTab && expanded && !reviewVisible;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closeEmptyTab is the trigger; setExpanded is rebuilt each render
+  useEffect(() => {
+    if (closeEmptyTab) setExpanded(false);
+  }, [closeEmptyTab]);
   const requestedCheckpointId = reviewScope.key === 'none' ? authoritativeCheckpointId : reviewScope.key;
   const checkpointMatches = !authoritativeCheckpointId || authoritativeCheckpointId === requestedCheckpointId;
   // Revert availability is decided by the runtime at click time. A transient
@@ -768,6 +799,26 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // gap above the composer while new output streams above it.
   // An undecided entry holds the conversation's reveal (use-transcript-reveal).
   if (!reviewVisible) return entryPending ? <span hidden data-entry-pending /> : null;
+  if (variant === 'segment' && !expanded) {
+    return (
+      <button
+        type="button"
+        className="composer-island-seg turn-review-segment"
+        aria-label={t('Files changed this turn')}
+        aria-expanded={islandTab ? false : undefined}
+        onClick={onOpenChanges ?? (() => setExpanded(true))}
+      >
+        <span>{t('Files {{count}}', { count: summary.files.size })}</span>
+        {headlineStats.hasLineStats && (
+          <span className="diff-stats">
+            {headlineStats.additions > 0 && <i>+{headlineStats.additions}</i>}
+            {headlineStats.additions > 0 && headlineStats.deletions > 0 && ' '}
+            {headlineStats.deletions > 0 && <em>−{headlineStats.deletions}</em>}
+          </span>
+        )}
+      </button>
+    );
+  }
   return (
     <section
       ref={barElement}

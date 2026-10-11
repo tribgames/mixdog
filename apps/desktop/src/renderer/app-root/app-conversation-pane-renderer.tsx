@@ -80,6 +80,9 @@ export interface PaneConversationRendererOptions {
   /** Reveals a transcript folder link in the pane's side-dock Files tree;
    *  absent where the surface has no dock. */
   openFolderInSideDock?: (leafId: string, project: string, rel: string) => void;
+  /** Opens the pane's side dock on the session diff (the composer island's
+   *  files segment); absent where the surface has no dock. */
+  openSessionDiffInSideDock?: (leafId: string) => void;
   replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
 }
 
@@ -197,6 +200,12 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
             ? (project, rel) => {
                 focusPane();
                 options.openFolderInSideDock?.(leafId, project, rel);
+              }
+            : undefined,
+          onOpenSessionDiff: options.openSessionDiffInSideDock
+            ? () => {
+                focusPane();
+                options.openSessionDiffInSideDock?.(leafId);
               }
             : undefined,
           onInheritSession: options.replaceWithInheritedSession,

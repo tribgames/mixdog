@@ -7,6 +7,7 @@ import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { ANTHROPIC_MAX_MIDSTREAM_RETRIES, parseSSEStream } from './anthropic-sse.mjs';
 import { buildAnthropicBetaHeaders } from './anthropic-betas.mjs';
 import { buildAnthropicApiRequest } from './anthropic-api-request.mjs';
+import { isCustomProviderName } from './custom-reasoning.mjs';
 import { armFirstByteWatchdog, createAnthropicApiTransport } from './anthropic-api-transport.mjs';
 import { createAnthropicApiRecovery } from './anthropic-api-recovery.mjs';
 import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
@@ -47,12 +48,18 @@ export class AnthropicProvider {
   // off the client defaults and add it only on turns that actually serialize
   // defer_loading tools.
   _createClient(apiKey) {
-    const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
+    // A custom gateway gets no first-party default betas and only its own
+    // credential: never the SDK's env/credential-file fallbacks, and none at
+    // all when keyless (config.keyless).
+    const custom = isCustomProviderName(this.name);
+    const keyless = custom && this.config.keyless === true;
+    const betaHeaders = this.config.disableBetaHeaders || custom ? null : buildAnthropicBetaHeaders();
     return new (loadAnthropic())({
-      apiKey,
+      ...(custom ? { apiKey: keyless ? '' : apiKey || '', authToken: null } : { apiKey }),
       ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
       defaultHeaders: {
         ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}),
+        ...(keyless ? { 'x-api-key': null, authorization: null } : {}),
         ...(this.config.extraHeaders || {}),
       },
       maxRetries: 0,
@@ -114,6 +121,8 @@ export class AnthropicProvider {
       tools,
       opts,
       fastModeLatched: this.fastModeBetaHeaderLatched,
+      // Custom providers carry per-model reasoning settings on their own rows.
+      modelInfo: isCustomProviderName(this.name) ? this.getCachedModelInfo?.(useModel) || null : null,
     });
     this.fastModeBetaHeaderLatched = fastModeLatched;
 

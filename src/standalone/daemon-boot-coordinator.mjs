@@ -7,6 +7,9 @@
 export function createDaemonBootCoordinator({
   prewarmKeychain,
   recoverActiveGoals,
+  // Starts the quota auto-resume clock once the keychain is warm (usage
+  // readings need provider credentials); overdue resumes run right away.
+  startQuotaResume = null,
   // Catalog module imports (session summaries, projects) cost ~1.1s cold and
   // used to land on the FIRST rail click. They ride the background lane
   // after Goal recovery, behind a short delay so the user's first action —
@@ -58,6 +61,13 @@ export function createDaemonBootCoordinator({
         `active Goal recovery found=${result.found} resumed=${result.resumed}` +
           ` skipped=${result.skipped} failed=${result.failed}`
       );
+      if (typeof startQuotaResume === 'function') {
+        try {
+          startQuotaResume();
+        } catch (error) {
+          log(`quota resume start failed (non-fatal): ${error?.message || error}`);
+        }
+      }
       if (typeof prewarmCatalogs === 'function') {
         await new Promise((resolve) => delay(resolve, catalogDelayMs));
         await measure('catalog-prewarm', prewarmCatalogs).catch((error) => {

@@ -1,5 +1,5 @@
 import { Check, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
-import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type MouseEvent, type RefObject, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
@@ -7,6 +7,7 @@ import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
 import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
+import { isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 
 type RowOverflowMenuItem = {
   /** Stable semantic action identity; labels may change while the menu stays open. */
@@ -20,6 +21,40 @@ type RowOverflowMenuItem = {
   separatorBefore?: boolean;
   children?: RowOverflowMenuItem[];
 };
+
+type RowOverflowOpener = (point?: { x: number; y: number }) => void;
+/** Each mounted menu registers its opener under its trigger button. */
+const rowOverflowOpeners = new WeakMap<Element, RowOverflowOpener>();
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return Boolean(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)));
+}
+
+function requestRowOverflowOpen(host: HTMLElement, point?: { x: number; y: number }): boolean {
+  const opener = rowOverflowOpeners.get(host.querySelector('.row-overflow-trigger') as Element);
+  opener?.(point);
+  return Boolean(opener);
+}
+
+/** Props for a host element (row/header) that contains a RowOverflowMenu: a
+ *  right-click opens that menu at the pointer, and Menu / Shift+F10 opens it at
+ *  its trigger. Editable targets keep the native context menu. */
+export function rowOverflowHostProps() {
+  return {
+    onContextMenu(event: MouseEvent<HTMLElement>) {
+      if (isEditableTarget(event.target)) return;
+      if (requestRowOverflowOpen(event.currentTarget, pointerMenuPoint(event))) {
+        event.preventDefault();
+      }
+    },
+    onKeyDown(event: KeyboardEvent<HTMLElement>) {
+      if (!isContextMenuKey(event)) return;
+      if (isEditableTarget(event.target)) return;
+      if (requestRowOverflowOpen(event.currentTarget)) event.preventDefault();
+    },
+  };
+}
 
 /** An open menu closes on an outside pointer, on Escape (which returns focus
  *  to the trigger), and on anything that moves it: resize or scroll. */
@@ -246,6 +281,26 @@ export function RowOverflowMenu({ label, items }: { label: string; items: RowOve
     if (!open && !anchorBounds.current) rememberAnchor(element);
     commitImmediateOverlay(() => setOpen((value) => !value));
   };
+  // A host element (see rowOverflowHostProps) asks this menu to open, at the
+  // pointer when coordinates are given, otherwise at the trigger.
+  useEffect(() => {
+    const element = trigger.current;
+    if (!element) return undefined;
+    const openAt: RowOverflowOpener = (point) => {
+      const anchor = captureRowMenuAnchor(element);
+      if (point) {
+        const { x, y } = point;
+        anchor.bounds = { x, y, left: x, right: x, top: y, bottom: y, width: 0, height: 0, toJSON: () => ({}) };
+        anchor.atPointer = true;
+      }
+      anchorBounds.current = anchor;
+      commitImmediateOverlay(() => setOpen(true));
+    };
+    rowOverflowOpeners.set(element, openAt);
+    return () => {
+      rowOverflowOpeners.delete(element);
+    };
+  }, []);
 
   return (
     <div className="row-overflow">

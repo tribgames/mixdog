@@ -3,7 +3,7 @@
 // concern — routing/model first, then session behavior, integrations, voice,
 // system — and must stay in sync with desktop SETTINGS_ITEMS (tui-parity
 // test, minus system-shell).
-import { isVoiceEnabled } from '../../lib/voice-setup.mjs';
+import { isVoiceEnabled } from '../../../runtime/channels/lib/voice-setup.mjs';
 
 const boolLabel = (enabled) => (enabled ? 'On' : 'Off');
 
@@ -66,11 +66,9 @@ export function buildSettingsItems({
   const { workflow, mcp, plugins, skills } = view;
   const outputStyleLabel =
     outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
-  const autoClearSource = autoClear.providerCustom
-    ? ` (${autoClear.provider} override)`
-    : autoClear.custom
-      ? ' (global)'
-      : ` (${autoClear.provider || 'default'} default)`;
+  let autoClearSource = ` (${autoClear.provider || 'default'} default)`;
+  if (autoClear.providerCustom) autoClearSource = ` (${autoClear.provider} override)`;
+  else if (autoClear.custom) autoClearSource = ' (global)';
   return [
     {
       value: 'model',

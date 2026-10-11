@@ -79,8 +79,9 @@ export function createSessionStop(
       ? await host.waitForResidentWorkersExit(STOP_WORKER_EXIT_TIMEOUT_MS)
       : true;
     // Workers have exited; unconfirmed elevated sessions would otherwise keep
-    // listing as live. A still-pending elevated job is left in place.
-    if (workersExited && userAcknowledged) host.releaseUnconfirmedElevated?.();
+    // listing as live. A still-pending elevated job is left in place, and so is
+    // one whose launcher process is not verified gone (it stays listed below).
+    if (workersExited && userAcknowledged) await host.releaseUnconfirmedElevated?.();
     if (!workersExited || host.elevatedSessionIds().length > 0) {
       throw new Error(
         'computer_abort_cleanup_unconfirmed: input workers are still running; press Ctrl+Alt+Esc (emergency Stop) again once they exit'

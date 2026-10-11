@@ -5,6 +5,7 @@ import {
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
 } from './renderer-logic.mjs';
+import { foldAttachmentTokens } from './composer-attachment-restore';
 import type { ComposerAttachment, ComposerHistoryEntry } from './composer-support';
 import type { DesktopSlashCommand } from './slash-commands';
 import { t } from './i18n';
@@ -243,8 +244,9 @@ export function useComposerKeyboard({
 
   const applyHistoryEntry = useCallback(
     (entry: ComposerHistoryEntry | undefined): string => {
-      const value = entry?.text || '';
-      history.replaceAttachments((entry?.attachments || []).map((attachment) => ({ ...attachment })));
+      const folded = foldAttachmentTokens(entry?.text || '', entry?.attachments || []);
+      const value = folded.text;
+      history.replaceAttachments(folded.attachments.map((attachment) => ({ ...attachment })));
       draft.ref.current = value;
       draft.set(value);
       return value;

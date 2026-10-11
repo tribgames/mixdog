@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>한도 소진 이어가기 — 최적안 v3</title>
+<style>
+  :root {
+    --bg: #141414; --popup: #1c1c1c; --pane: #181818;
+    --plate: rgba(255,255,255,0.03); --outline: inset 0 0 0 1px rgba(255,255,255,0.07);
+    --text: #ececec; --muted: #9a9a9a; --meta: #8a8a8a;
+    --track: rgba(255,255,255,0.08); --fill: #cfcfcf;
+    --warn: #e0a84a; --danger: #e0645a; --accent: #5b8cff; --ok: #6cc28a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", "Pretendard", system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 6px; font-size: 13px; max-width: 1080px; }
+  .scope { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; font-size: 12px; }
+  .scope span { padding: 3px 10px; border-radius: 99px; background: rgba(255,255,255,.05); box-shadow: var(--outline); color: #d6d6d6; }
+  .scope span.no { color: #6f6f6f; text-decoration: line-through; }
+  .section-title { font-size: 15px; font-weight: 600; margin: 34px 0 14px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.06); }
+  .section-title small { font-weight: 400; color: var(--meta); font-size: 12px; margin-left: 8px; }
+  .board { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .case { width: 520px; }
+  .case.narrow { width: 360px; }
+  .case > h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .case > p { font-size: 12px; color: var(--muted); margin: 0 0 10px; min-height: 34px; }
+
+  .convo { background: var(--pane); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: 16px 18px 12px; position: relative; }
+  .who { font-size: 11.5px; color: var(--meta); margin-bottom: 2px; }
+  .msg { font-size: 13.5px; color: #d8d8d8; margin-bottom: 10px; }
+  .tool { font-size: 12.5px; color: var(--meta); padding: 0 0 10px; }
+  .tool b { color: #cfcfcf; font-weight: 500; }
+
+  .card { border-radius: 10px; background: rgba(224,168,74,.07); box-shadow: inset 0 0 0 1px rgba(224,168,74,.28); padding: 12px 14px; margin: 4px 0 10px; }
+  .card .t { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+  .card .t .ic { color: var(--warn); }
+  .card .d { font-size: 12.5px; color: #cfcfcf; margin: 3px 0 10px 22px; }
+  .card .d small { color: var(--meta); }
+  .card .acts { display: flex; gap: 6px; margin-left: 22px; flex-wrap: wrap; align-items: center; }
+  .card.wait { background: rgba(255,255,255,.03); box-shadow: var(--outline); }
+  .card.wait .t .ic { color: var(--muted); }
+  .card.back { background: rgba(108,194,138,.07); box-shadow: inset 0 0 0 1px rgba(108,194,138,.28); }
+  .card.back .t .ic { color: var(--ok); }
+
+  button { font: inherit; font-size: 12.5px; padding: 4px 11px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: var(--text); cursor: pointer; white-space: nowrap; }
+  button.ghost { background: transparent; color: var(--muted); }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  button.tiny { font-size: 11.5px; padding: 2px 8px; }
+  .split { display: inline-flex; }
+  .split button:first-child { border-radius: 7px 0 0 7px; }
+  .split button:last-child { border-radius: 0 7px 7px 0; border-left: 1px solid rgba(255,255,255,.25); padding: 4px 7px; }
+
+  .pico { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 9px; font-weight: 700; flex: 0 0 auto; }
+  .pico.claude { background: #d97757; color: #1b1b1b; }
+  .pico.codex { background: #2b2b2b; color: #ddd; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+  .pico.gemini { background: #3b5bdb; color: #fff; }
+  .pico.grok { background: #e6e6e6; color: #111; }
+
+  /* Model picker (same sheet as composer model menu) */
+  .sheet { position: absolute; width: 300px; background: var(--popup); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.55); padding: 6px; z-index: 5; }
+  .sheet .lbl { font-size: 11px; color: var(--meta); padding: 6px 8px 3px; }
+  .opt { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px; font-size: 13px; }
+  .opt.sel { background: rgba(91,140,255,.14); }
+  .opt span.m { flex: 1; }
+  .opt small { font-size: 11.5px; color: var(--meta); }
+  .opt.off { color: #6a6a6a; }
+  .opt.off small { color: var(--danger); opacity: .8; }
+  .opt.pz small { color: var(--warn); }
+  .sep { height: 1px; background: rgba(255,255,255,.06); margin: 4px 6px; }
+
+  .divider { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; font-size: 12px; color: #cfcfcf; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,.08); }
+
+  .composer { margin-top: 10px; border-radius: 14px; background: #1f1f1f; box-shadow: var(--outline); padding: 12px 14px 10px; position: relative; }
+  .composer .ph { height: 22px; font-size: 13px; color: #6a6a6a; }
+  .composer .bar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--meta); }
+  .composer .plus { font-size: 16px; color: #bdbdbd; }
+  .mtrig { display: inline-flex; align-items: center; gap: 6px; color: #e6e6e6; font-weight: 600; padding: 2px 7px; border-radius: 6px; }
+  .mtrig small { font-weight: 400; color: var(--meta); font-size: 12.5px; }
+  .mtrig.fb { background: rgba(224,168,74,.1); box-shadow: inset 0 0 0 1px rgba(224,168,74,.3); color: #f0cf96; }
+  .mtrig.fb small { color: #c9a874; }
+  .composer .sp { flex: 1; }
+  .send { width: 26px; height: 26px; border-radius: 50%; background: #3a3a3a; display: grid; place-items: center; color: #cfcfcf; font-size: 13px; }
+  .tip { position: absolute; width: 250px; padding: 10px; border-radius: 10px; background: #262626; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 8px 24px rgba(0,0,0,.5); font-size: 12px; color: #cfcfcf; z-index: 5; }
+  .tip b { display: block; margin-bottom: 6px; color: var(--text); }
+  .tip div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .tip div span:last-child { color: var(--meta); }
+  .tip .acts { margin-top: 8px; display: flex; justify-content: flex-end; }
+
+  .heads { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; background: rgba(224,168,74,.06); font-size: 12px; color: #e9c98f; }
+  .heads .sp { flex: 1; }
+  .heads .x { color: var(--meta); }
+
+  /* Providers popup */
+  .popup { background: var(--popup); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); position: relative; }
+  .head { height: 36px; display: flex; align-items: center; padding: 0 4px 0 12px; }
+  .head b { flex: 1; font-size: 16px; font-weight: 600; }
+  .head span { width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+  .list { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 12px; }
+  .row { padding: 8px; border-radius: 8px; background: var(--plate); box-shadow: var(--outline); }
+  .line { display: flex; align-items: center; gap: 7px; min-height: 22px; }
+  .line b { flex: 1; font-size: 14px; font-weight: 600; }
+  .acct { font-size: 12px; color: var(--meta); }
+  .more { color: var(--meta); width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; }
+  .more.on { background: rgba(255,255,255,.08); color: var(--text); }
+  .meter { display: grid; grid-template-columns: 26px 1fr 38px 56px; column-gap: 6px; align-items: center; margin-top: 6px; padding-left: 23px; }
+  .meter small { color: var(--meta); font-size: 12px; }
+  .meter i { display: block; height: 5px; border-radius: 99px; background: var(--track); position: relative; overflow: hidden; }
+  .meter i > i { position: absolute; inset: 0 auto 0 0; background: var(--fill); }
+  .meter.danger i > i { background: var(--danger); }
+  .meter b { text-align: right; font-size: 12.5px; font-weight: 500; }
+  .meter em { text-align: right; font-style: normal; color: var(--meta); font-size: 12.5px; white-space: nowrap; }
+  .row.paused .line b, .row.paused .meter, .row.paused .pico, .row.paused .acct { opacity: .45; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: rgba(224,168,74,.14); color: var(--warn); white-space: nowrap; }
+  .menu { position: absolute; z-index: 10; width: 200px; padding: 4px; border-radius: 10px; background: #262626; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 10px 28px rgba(0,0,0,.55); font-size: 12.5px; }
+  .menu div { padding: 6px 8px; border-radius: 6px; display: flex; justify-content: space-between; color: #dcdcdc; }
+  .menu div.sel { background: rgba(91,140,255,.16); color: #fff; }
+  .menu div small { color: var(--meta); }
+  .menu hr { border: 0; border-top: 1px solid rgba(255,255,255,.07); margin: 4px 2px; }
+
+  .rules { margin-top: 36px; max-width: 1080px; font-size: 13px; color: #cfcfcf; }
+  .rules h2 { font-size: 15px; margin: 0 0 10px; }
+  .rules table { border-collapse: collapse; width: 100%; }
+  .rules th, .rules td { text-align: left; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.07); vertical-align: top; }
+  .rules th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>한도 소진 이어가기 — 최적안 v3</h1>
+<p class="lead">설정 화면 없이 <b>소진되는 순간 대화 안에서 고릅니다</b>. 새로 생기는 화면은 소진 카드 하나와 Providers 팝업의 "일시중지" 메뉴 하나뿐입니다. 고른 모델은 그 세션 동안 유지되고, 원래 모델 한도가 돌아오면 돌아갈지 한 번 묻습니다.</p>
+<div class="scope">
+  <span>소진 카드</span><span>세션 유지 + 복귀 제안</span><span>일시중지 메뉴</span><span>90% 미리 알림 (선택)</span>
+  <span class="no">예비 모델 설정</span><span class="no">에이전트별 예비</span><span class="no">프로바이더 순위</span><span class="no">같은 급 매핑표</span>
+</div>
+
+<!-- ① 소진 카드 -->
+<div class="section-title">① 소진 순간 <small>Lead가 멈춘 자리에 카드 한 장</small></div>
+<div class="board">
+
+  <section class="case">
+    <h2>A. 세션에서 처음 소진</h2>
+    <p>아직 고른 적이 없으니 "다른 모델로 이어서 ▾"가 바로 모델 선택 창을 엽니다. 입력창 모델 메뉴와 같은 목록에, 소진·일시중지 상태만 표시합니다.</p>
+    <div class="convo" style="min-height:330px">
+      <div class="who">Lead · Claude Opus 5.5</div>
+      <div class="msg">account-pool 순번 로직을 정리하고 테스트를 추가하는 중입니다.</div>
+      <div class="tool">✓ <b>edit</b> src/runtime/shared/provider-accounts.mjs · ✓ <b>shell</b> npm test</div>
+      <div class="card">
+        <div class="t"><span class="ic">⚠</span>Claude 한도를 모두 사용했습니다</div>
+        <div class="d">계정 2개 모두 소진 · <small>18:40 리셋 (2시간 15분 후)</small></div>
+        <div class="acts">
+          <button class="primary">다른 모델로 이어서 ▾</button>
+          <button>18:40에 자동 재개</button>
+          <button class="ghost">멈춤</button>
+        </div>
+      </div>
+      <div class="sheet" style="left:40px; top:236px;">
+        <div class="lbl">이어서 사용할 모델</div>
+        <div class="opt sel"><span class="pico codex">◎</span><span class="m">GPT-6-Astra</span><small>High</small></div>
+        <div class="opt"><span class="pico gemini">✦</span><span class="m">Gemini 3.8 Pro</span><small>High</small></div>
+        <div class="opt"><span class="pico grok">𝕏</span><span class="m">Grok 4.7</span><small>Medium</small></div>
+        <div class="sep"></div>
+        <div class="opt pz"><span class="pico grok" style="opacity:.4">𝕏</span><span class="m" style="color:#7a7a7a">Grok 4.7 Fast</span><small>일시중지</small></div>
+        <div class="opt off"><span class="pico claude" style="opacity:.4">✳</span><span class="m">Claude Opus 5.5</span><small>소진 · 18:40</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>B. 같은 세션에서 또 소진 (이미 고른 적 있음)</h2>
+    <p>지난번 고른 모델이 첫 버튼이 되어 한 번에 이어집니다. ▾로 다른 모델도 고를 수 있습니다.</p>
+    <div class="convo">
+      <div class="who">Lead · Claude Opus 5.5</div>
+      <div class="msg">리뷰 피드백 반영을 시작합니다.</div>
+      <div class="card">
+        <div class="t"><span class="ic">⚠</span>Claude 한도를 모두 사용했습니다</div>
+        <div class="d">계정 2개 모두 소진 · <small>23:10 리셋</small></div>
+        <div class="acts">
+          <span class="split"><button class="primary">◎ GPT-6-Astra High로 이어서</button><button class="primary">▾</button></span>
+          <button>23:10에 자동 재개</button>
+          <button class="ghost">멈춤</button>
+        </div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:22px">C. "자동 재개"를 고른 뒤</h2>
+    <p style="min-height:0">카드가 대기 상태로 바뀝니다. 그 사이 마음이 바뀌면 바로 다른 모델로 이어갈 수 있습니다.</p>
+    <div class="convo">
+      <div class="card wait">
+        <div class="t"><span class="ic">⏱</span>18:40에 Claude Opus 5.5로 자동 재개합니다</div>
+        <div class="d"><small>2시간 15분 남음 · 앱을 닫으면 다음 실행 때 재개</small></div>
+        <div class="acts"><button>다른 모델로 지금 이어서 ▾</button><button class="ghost">취소</button></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ② 전환 후 -->
+<div class="section-title">② 전환 후와 복귀 <small>세션 동안 유지, 돌아갈 땐 한 번 묻기</small></div>
+<div class="board">
+
+  <section class="case">
+    <h2>D. 이어서 진행 중</h2>
+    <p>전환 지점에 구분선 한 줄. 입력창 모델이 노란 "임시" 상태가 되고, 누르면 원래 모델과 리셋 시각이 보입니다.</p>
+    <div class="convo">
+      <div class="divider">✳ Claude Opus 5.5 → ◎ GPT-6-Astra High · 한도 소진으로 전환</div>
+      <div class="who">Lead · GPT-6-Astra High</div>
+      <div class="msg">이어서 진행합니다. 테스트까지 확인했고 남은 작업은 UI 연결입니다.</div>
+      <div class="tool">✓ <b>edit</b> apps/desktop/src/renderer/ProviderAccountsList.tsx</div>
+      <div class="composer" style="margin-top:96px">
+        <div class="ph"></div>
+        <div class="bar"><span class="plus">＋</span><span class="mtrig fb"><span class="pico codex">◎</span>GPT-6-Astra <small>High · 임시 ⌄</small></span><span>○</span><span class="sp"></span><span>🎙</span><span class="send">↑</span></div>
+        <div class="tip" style="left:40px; bottom:48px;">
+          <b>Claude 한도 소진으로 임시 전환</b>
+          <div><span>원래 모델</span><span>Claude Opus 5.5</span></div>
+          <div><span>리셋</span><span>18:40</span></div>
+          <div class="acts"><button class="tiny">지금 원래 모델로</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>E. 원래 모델 한도가 돌아왔을 때</h2>
+    <p>자동으로 바꾸지 않고, 턴이 끝난 뒤 초록 카드로 한 번 제안합니다. 무시하면 지금 모델을 계속 씁니다.</p>
+    <div class="convo">
+      <div class="who">Lead · GPT-6-Astra High</div>
+      <div class="msg">UI 연결까지 마쳤습니다.</div>
+      <div class="card back">
+        <div class="t"><span class="ic">↺</span>Claude 한도가 돌아왔습니다</div>
+        <div class="d"><small>18:40 리셋 · 다음 메시지부터 적용</small></div>
+        <div class="acts"><button class="primary">✳ Claude Opus 5.5로 돌아가기</button><button class="ghost">이 세션은 계속 GPT-6-Astra</button></div>
+      </div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="bar"><span class="plus">＋</span><span class="mtrig fb"><span class="pico codex">◎</span>GPT-6-Astra <small>High · 임시 ⌄</small></span><span class="sp"></span><span class="send">↑</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ③ 일시중지 + 미리 알림 -->
+<div class="section-title">③ Providers 일시중지 · 90% 미리 알림 <small>둘 다 작게</small></div>
+<div class="board">
+
+  <section class="case narrow">
+    <h2>F. Providers 팝업 — ⋯ 메뉴에 일시중지</h2>
+    <p>행 오른쪽 ⋯ 메뉴에 항목만 추가. 중지된 프로바이더·계정은 흐리게 + 배지, 자동 순번과 A의 선택 목록에서 빠집니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="list">
+        <div class="row">
+          <div class="line"><span class="pico claude">✳</span><b>Claude</b><span class="acct">Max</span><span class="more">⋯</span></div>
+          <div class="meter danger"><small>5H</small><i><i style="width:100%"></i></i><b>100%</b><em>2h 15m</em></div>
+        </div>
+        <div class="row">
+          <div class="line"><span class="pico codex">◎</span><b>Codex</b><span class="acct">Pro</span><span class="more on">⋯</span></div>
+          <div class="meter"><small>5H</small><i><i style="width:22%"></i></i><b>22%</b><em>3h 40m</em></div>
+        </div>
+        <div class="row paused">
+          <div class="line"><span class="pico grok">𝕏</span><b>Grok</b><span class="acct">API</span><span class="badge">일시중지</span><span class="more">⋯</span></div>
+        </div>
+      </div>
+      <div class="menu" style="right:12px; top:150px;">
+        <div><span>계정 관리…</span></div>
+        <hr>
+        <div class="sel"><span>일시중지</span><small>›</small></div>
+        <div style="padding-left:18px"><span>재개할 때까지</span></div>
+        <div style="padding-left:18px"><span>다음 리셋까지</span><small>3h 40m</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>G. 90% 미리 알림 (선택 사항)</h2>
+    <p>입력창 바로 위 한 줄. 누르는 버튼 없이 정보만, ✕로 이 세션에서 숨김. 빼도 나머지는 그대로 동작합니다.</p>
+    <div class="convo">
+      <div class="who">Lead · Claude Opus 5.5</div>
+      <div class="msg">테스트를 실행합니다.</div>
+      <div class="composer">
+        <div class="heads">⚠ Claude 5시간 한도 92% 사용 · 18:40 리셋<span class="sp"></span><span class="x">✕</span></div>
+        <div class="ph">메시지 입력…</div>
+        <div class="bar"><span class="plus">＋</span><span class="mtrig"><span class="pico claude">✳</span>Claude Opus 5.5 <small>Auto ⌄</small></span><span class="sp"></span><span class="send">↑</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="rules">
+  <h2>동작 규칙</h2>
+  <table>
+    <tr><th>카드가 뜨는 때</th><td>현재 프로바이더의 사용 가능한 계정이 <b>모두</b> 소진됐을 때만. 같은 프로바이더 안 계정 자동 순번은 지금 그대로 먼저 동작.</td></tr>
+    <tr><th>이어서</th><td>고른 모델로 멈춘 턴을 그대로 이어감. 대화 기록·도구 결과는 넘기고, 모델 내부 추론 기록은 넘기지 않음. 새 세션·inherit 불필요.</td></tr>
+    <tr><th>유지 범위</th><td>그 세션에만 적용, 기본 모델 설정은 그대로. 세션 안에서 다시 소진되면 지난번 모델이 첫 버튼(B).</td></tr>
+    <tr><th>복귀</th><td>자동으로 바꾸지 않음. 리셋 후 턴이 끝나면 한 번 제안(E), 언제든 입력창 칩에서 직접 복귀(D).</td></tr>
+    <tr><th>하위 에이전트</th><td>카드 없음. Worker 등은 지금처럼 실패를 보고하고 Lead가 다른 에이전트로 다시 맡김.</td></tr>
+    <tr><th>일시중지</th><td>Providers ⋯ 메뉴에서 프로바이더·계정 단위. "재개할 때까지 / 다음 리셋까지" 두 가지만.</td></tr>
+  </table>
+</div>
+
+</body>
+</html>

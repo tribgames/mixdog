@@ -41,3 +41,17 @@ test('desktop session custom-provider capabilities delegate inputs and results w
   await assert.rejects(session.saveCustomProvider(input), /save failed/);
   assert.equal(notices.length, 2);
 });
+
+test('updateCustomProviderModel is exposed with identical arguments and result in TUI and standalone', async () => {
+  const result = { id: 'custom-x', modelOverrides: {} };
+  const calls = [];
+  const runtime = { updateCustomProviderModel: async (...args) => { calls.push(args); return result; } };
+  const session = createSessionIntegrationsApi({
+    runtime, getState: () => ({ stats: {} }), set() {}, pushNotice() {},
+    routeState: () => ({ provider: '', model: '' }), resetStatsAndSyncContext() {},
+  }, { oauthFlows: new Map() });
+  assert.ok(SESSION_CONFIGURE_ACTIONS.includes('updateCustomProviderModel'));
+  const patch = { hidden: null, reasoning: { levels: ['low'] } };
+  assert.equal(await session.updateCustomProviderModel('custom-x', 'm', patch), result);
+  assert.deepEqual(calls, [['custom-x', 'm', patch]]);
+});

@@ -7,6 +7,7 @@ import { readBody, sendJson, sendError } from '../http-wire.mjs';
 import { formatCuratedCoreMemoryLine } from '../core-memory-file.mjs';
 import { resolveProjectScope } from '../project-id-resolver.mjs';
 import { warmupEmbeddingProvider, isEmbeddingModelReady } from '../embedding-provider.mjs';
+import { onnxRuntimeSupported } from '../../../shared/onnx-runtime-support.mjs';
 import { embeddingOnDemandCanStart, embeddingWarmupCanStart, memorySecondaryMode } from '../memory-config-flags.mjs';
 
 // The embedding ONNX session loads lazily and self-disposes after an idle
@@ -67,7 +68,7 @@ export function createSessionRoutes({ getDb, log }) {
   // gate it; a secondary process never owns the model.
   const embeddingWarmup = async (_req, res) => {
     if (!embeddingOnDemandCanStart()) {
-      sendJson(res, { ok: true, skipped: 'secondary mode' });
+      sendJson(res, { ok: true, skipped: onnxRuntimeSupported() ? 'secondary mode' : 'unsupported' });
       return;
     }
     try {

@@ -20,7 +20,7 @@ import type { Snapshot, TranscriptItem } from './desktop-types';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import { submissionIdentity, turnPromptText, type TranscriptRowModel } from './transcript-rows';
 import { TranscriptRow } from './transcript-row';
-import { completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
+import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { ToolActivityGroup } from './transcript-tool-ui';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
@@ -315,6 +315,7 @@ export function transcriptRowNode(
     retryDisabled,
     settledItems,
     settledTurnKeys,
+    latestCompletion,
     snapshot,
     onRetryTurn,
     onOpenSettings,
@@ -325,6 +326,8 @@ export function transcriptRowNode(
     renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
     retryDisabled: boolean;
     settledItems: readonly TranscriptItem[];
+    /** The last settled turndone; computed once per transcript, not per row. */
+    latestCompletion: TranscriptItem | undefined;
     settledTurnKeys: readonly string[];
     snapshot: Snapshot;
     onRetryTurn(turnKey: string): void;
@@ -376,10 +379,17 @@ export function transcriptRowNode(
   if (row._tag === 'ToolActivity') {
     return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} />;
   }
+  const completionRow = row.completion ?? (row.item?.kind === 'turndone' ? row.item : undefined);
+  const isLatestCompletion =
+    Boolean(completionRow) &&
+    !snapshot.busy &&
+    Boolean(latestCompletion) &&
+    (row.completion === latestCompletion || row.item === latestCompletion);
   const assistantProps: TranscriptAssistantRowProps = {
     item: row.item,
     live: Boolean(row.live),
     completion: row.completion,
+    backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
     animateComplete: hadLiveActivity(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
     completionActivityKey: completionActivityKey(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
     disclosureScope,

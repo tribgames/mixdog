@@ -38,6 +38,18 @@ export interface RelayE2EEChallenge {
   /** An older-history page travels as a prepend patch (only the revealed
    *  rows); a browser that does not echo it receives the whole list. */
   transcriptPrepend?: 1;
+  /** This host serves this release's remote methods (previews, PR calls,
+   *  updater, trash, ...). Absent on an older host. */
+  remoteParity?: 1;
+  /** This host serves the remote browser pane's tabs, history, saved-login
+   *  fill and profile import. Absent on an older host. */
+  browserParity?: 1;
+  /** This host serves the HTTP media lane as end-to-end encrypted frames
+   *  (shared/remote-media-crypto.ts) under keys derived from this session. */
+  mediaE2ee?: 1;
+  /** This host accepts `registerNativePush` (APNs/FCM through a relay that
+   *  holds the credentials). Absent on an older host or an unable relay. */
+  nativePush?: 1;
 }
 
 interface RelayE2EEHello {
@@ -239,6 +251,25 @@ function isBox(value: unknown): value is RelayE2EEBox {
   );
 }
 
+/** A second key from the same ECDH secret, separated by its HKDF info: it
+ *  protects HTTP media bytes and never touches the relay. Non-extractable, so
+ *  it can be handed to the service worker (structured clone) but not read. */
+async function deriveMediaKey(input: {
+  privateKey: CryptoKey;
+  peerPublicKey: string;
+  pairingSecret: string;
+  challenge: string;
+  serverPublicKey: string;
+  clientPublicKey: string;
+}): Promise<CryptoKey> {
+  return deriveAesGcmKey(
+    input.privateKey,
+    input.peerPublicKey,
+    base64UrlDecode(input.pairingSecret),
+    encoder.encode(`${E2EE_CONTEXT}\0media\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`)
+  );
+}
+
 export class RelayE2EEChannel {
   private sendSequence = 0;
   private receiveSequence = 0;
@@ -249,7 +280,9 @@ export class RelayE2EEChannel {
     private readonly key: CryptoKey,
     private readonly role: 'client' | 'server',
     /** Set when the handshake proved BOTH peers can deflate/inflate. */
-    private readonly compression = false
+    private readonly compression = false,
+    /** Key for the encrypted HTTP media lane of THIS session. */
+    readonly mediaKey: CryptoKey | null = null
   ) {}
 
   private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array> {
@@ -597,15 +630,17 @@ export async function createRelayE2EEClientHandshake(
     ...(challenge.transcriptPaging === 1 ? { transcriptPaging: 1 as const } : {}),
     ...(challenge.transcriptPrepend === 1 ? { transcriptPrepend: 1 as const } : {}),
   };
-  const key = await deriveChannelKey({
+  const material = {
     privateKey: pair.privateKey,
     peerPublicKey: pairing.serverPublicKey,
     pairingSecret: pairing.pairingSecret,
     challenge: challenge.challenge,
     serverPublicKey: pairing.serverPublicKey,
     clientPublicKey,
-  });
-  return { hello, channel: new RelayE2EEChannel(key, 'client', hello.deflate === 1) };
+  };
+  const key = await deriveChannelKey(material);
+  const mediaKey = challenge.mediaE2ee === 1 ? await deriveMediaKey(material) : null;
+  return { hello, channel: new RelayE2EEChannel(key, 'client', hello.deflate === 1, mediaKey) };
 }
 
 export async function acceptRelayE2EEClientHello(
@@ -621,13 +656,15 @@ export async function acceptRelayE2EEClientHello(
     throw new Error('Relay encryption authentication failed.');
   }
   const privateKey = await importEcdhPrivateKey(identity.privateKeyJwk, false);
-  const key = await deriveChannelKey({
+  const material = {
     privateKey,
     peerPublicKey: hello.clientPublicKey,
     pairingSecret: identity.pairingSecret,
     challenge: hello.challenge,
     serverPublicKey: identity.serverPublicKey,
     clientPublicKey: hello.clientPublicKey,
-  });
-  return new RelayE2EEChannel(key, 'server', hello.deflate === 1 && relayE2EECompressionSupported());
+  };
+  const key = await deriveChannelKey(material);
+  const mediaKey = expectedChallenge.mediaE2ee === 1 ? await deriveMediaKey(material) : null;
+  return new RelayE2EEChannel(key, 'server', hello.deflate === 1 && relayE2EECompressionSupported(), mediaKey);
 }

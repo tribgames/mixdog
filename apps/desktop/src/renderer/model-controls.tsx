@@ -25,7 +25,8 @@ import {
   speedRouteFields,
 } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
-import { refreshAutoEffort, setAutoEffortEnabled, useAutoEffort } from './auto-effort-store';
+import { cancelQuotaContinue, takeQuotaContinue } from './quota-continue';
+import { useAutoEffortRoute } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
 import { InitialSurface } from './InitialSurface';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
@@ -288,9 +289,24 @@ function routeModelParameters(parameters: Record<string, string>, maxContextWind
 
 /** The model's default window as a slider stop: a multiple of 10 within
  *  10–100, or 100 when the model has no adjustable window. */
-function defaultContextPercent(defaultWindow: number, maxWindow: number): number {
+export function defaultContextPercent(defaultWindow: number, maxWindow: number): number {
   if (!(maxWindow > 0)) return 100;
   return Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
+}
+
+/** A requested Context percent as a slider stop: a multiple of 10 within 10–100. */
+export function contextSliderPercent(requested: number): number {
+  return Math.max(10, Math.min(100, Math.round(requested / 10) * 10));
+}
+
+/** Tokens a slider stop routes; the default stop keeps the model's own default window. */
+export function contextTokensForPercent(
+  percent: number,
+  contextWindow: { defaultPercent: number; defaultTokens: number; maxTokens: number }
+): number {
+  return percent === contextWindow.defaultPercent
+    ? contextWindow.defaultTokens
+    : Math.floor((contextWindow.maxTokens * percent) / 100);
 }
 
 export const ModelSelector = memo(function ModelSelector({
@@ -339,17 +355,6 @@ export const ModelSelector = memo(function ModelSelector({
   const [catalogLoaded, setCatalogLoaded] = useState(cachedCatalog.models.length > 0);
   const [startupCatalogSettled, setStartupCatalogSettled] = useState(cachedCatalog.models.length > 0);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
-  const [autoEffortPending, setAutoEffortPending] = useState(false);
-  const changeAutoEffort = async (enabled: boolean) => {
-    setAutoEffortPending(true);
-    try {
-      await setAutoEffortEnabled(enabled);
-    } catch {
-      await refreshAutoEffort();
-    } finally {
-      setAutoEffortPending(false);
-    }
-  };
   const { selection, begin, settle } = useModelSelection(sessionId || '', {
     provider: sourceProvider,
     model: sourceModel,
@@ -392,7 +397,7 @@ export const ModelSelector = memo(function ModelSelector({
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
   const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
-  const autoEffort = useAutoEffort(known?.autoEffortCapable === true);
+  const autoEffortRoute = useAutoEffortRoute(known?.autoEffortCapable === true);
   useEffect(() => {
     reportBootSurfaceStage('model-controls', modelBootKey, 'module');
     if (!awaitingRoute) reportBootSurfaceReady('model-controls', modelBootKey, 'shell');
@@ -402,17 +407,14 @@ export const ModelSelector = memo(function ModelSelector({
   const defaultContextWindow = known ? modelContextWindow(known) : 0;
   const maxContextWindow = known ? modelMaxContextWindow(known) : 0;
   const contextDefaultPercent = defaultContextPercent(defaultContextWindow, maxContextWindow);
-  const normalizedContextPercent = Math.max(
-    10,
-    Math.min(
-      100,
-      Math.round((Number(contextPercent) || Number(known?.savedContextPercent) || contextDefaultPercent) / 10) * 10
-    )
+  const normalizedContextPercent = contextSliderPercent(
+    Number(contextPercent) || Number(known?.savedContextPercent) || contextDefaultPercent
   );
-  const contextTokens =
-    normalizedContextPercent === contextDefaultPercent
-      ? defaultContextWindow
-      : Math.floor((maxContextWindow * normalizedContextPercent) / 100);
+  const contextTokens = contextTokensForPercent(normalizedContextPercent, {
+    defaultPercent: contextDefaultPercent,
+    defaultTokens: defaultContextWindow,
+    maxTokens: maxContextWindow,
+  });
   const routedModelParameters = routeModelParameters(selectedModelParameters, maxContextWindow);
   const routedParameterFields = Object.keys(routedModelParameters).length
     ? { modelParameters: routedModelParameters }
@@ -583,19 +585,24 @@ export const ModelSelector = memo(function ModelSelector({
       requestedFast === undefined
         ? undefined
         : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
-    return route(
-      {
-        provider: option.provider,
-        model: option.model,
-        ...(nextEffort ? { effort: nextEffort } : {}),
-        ...(nextFast === undefined ? {} : { fast: nextFast }),
-        ...(option.modelParameterOptions?.length
-          ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
-          : {}),
-        ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
-      },
-      !sameModel
-    );
+    const selection: DesktopModelSelection = {
+      provider: option.provider,
+      model: option.model,
+      ...(nextEffort ? { effort: nextEffort } : {}),
+      ...(nextFast === undefined ? {} : { fast: nextFast }),
+      ...(option.modelParameterOptions?.length
+        ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
+        : {}),
+      ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
+    };
+    // "Continue in another model" after a quota stop: this explicit pick goes
+    // to the continue flow instead of the ordinary route change.
+    const continueInModel = sessionId ? takeQuotaContinue(sessionId) : null;
+    if (continueInModel) {
+      continueInModel(selection);
+      return true;
+    }
+    return route(selection, !sameModel);
   };
   const changeFast = async (enabled: boolean) => {
     if (tuningUnavailable) return;
@@ -779,16 +786,13 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelPane={() => void loadCatalog()}
-        autoEffort={
-          known?.autoEffortCapable && autoEffort?.installed
-            ? { enabled: autoEffort.enabled, pending: autoEffortPending }
-            : null
-        }
-        onChangeAutoEffort={(enabled) => void changeAutoEffort(enabled)}
-        onOpenSheet={() => {
-          if (known?.autoEffortCapable) void refreshAutoEffort();
-        }}
+        autoEffort={autoEffortRoute.autoEffort}
+        onChangeAutoEffort={(enabled) => void autoEffortRoute.onChangeAutoEffort(enabled)}
+        onOpenSheet={autoEffortRoute.onOpenSheet}
         answersModelPickerRequests={answersModelPickerRequests}
+        onClosed={() => {
+          if (sessionId) cancelQuotaContinue(sessionId);
+        }}
       />
     </div>
   );

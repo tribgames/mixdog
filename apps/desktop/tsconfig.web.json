@@ -17,5 +17,6 @@
     "src/shared/**/*.ts",
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx"
-  ]
+  ],
+  "exclude": ["src/shared/native-push-crypto.ts"]
 }

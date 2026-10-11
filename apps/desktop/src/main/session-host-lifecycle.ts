@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import { hostDeviceName, submitOptionsWithDevice } from './session-device';
+
 import type {
   DesktopAbortOptions,
   DesktopCapability,
@@ -170,6 +172,34 @@ export class SessionHostLifecycle {
     }
     await this.owner.sessionMetadata.setName(id, normalized);
     await this.owner.publishCatalogs();
+  }
+
+  /** Switch an existing session's model in place after its provider quota ran out. */
+  async continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean> {
+    const id = sessionIdOf(sessionId);
+    const { value } = await this.owner.invokeSession(id, 'continueSessionInModel', [id, route]);
+    return value === true;
+  }
+
+  /** Arm the auto-resume of a quota-stopped session at its reset time. */
+  async scheduleQuotaResume(sessionId: string): Promise<boolean> {
+    const id = sessionIdOf(sessionId);
+    const { value } = await this.owner.invokeSession(id, 'scheduleQuotaResume', [id]);
+    return value === true;
+  }
+
+  async cancelQuotaResume(sessionId: string): Promise<boolean> {
+    const id = sessionIdOf(sessionId);
+    const { value } = await this.owner.invokeSession(id, 'cancelQuotaResume', [id]);
+    return value === true;
+  }
+
+  async getQuotaAutoResume(): Promise<boolean> {
+    return (await this.owner.invokeControl('getQuotaAutoResume', [])) === true;
+  }
+
+  async setQuotaAutoResume(enabled: boolean): Promise<boolean> {
+    return (await this.owner.invokeControl('setQuotaAutoResume', [enabled])) === true;
   }
 
   async setSessionFavorite(sessionId: string, favorite: boolean): Promise<void> {
@@ -356,10 +386,11 @@ export class SessionHostLifecycle {
     projectIdOrWorkspaceId: string,
     query: string,
     limit = 50,
-    includeIgnored = false
+    includeIgnored = false,
+    includeDirectories = false
   ): Promise<string[]> {
     const root = await this.owner.projectDirectory(projectIdOrWorkspaceId);
-    return searchProjectDirectory(root, query, limit, { includeIgnored });
+    return searchProjectDirectory(root, query, limit, { includeIgnored, includeDirectories });
   }
 
   async submitNewTask(
@@ -464,7 +495,7 @@ export class SessionHostLifecycle {
         {
           sessionId,
           prompt,
-          options: { ...options, id: submissionId },
+          options: submitOptionsWithDevice(options, submissionId),
           open: { cwd, desktopSession },
           baseRevision: prior?.revision ?? null,
         },
@@ -531,7 +562,10 @@ export class SessionHostLifecycle {
           },
         ]);
       }
-      const inherited = await this.owner.invokeSession(sessionId, 'inheritFrom', [source, { compact: options?.compact === true }]);
+      const inherited = await this.owner.invokeSession(sessionId, 'inheritFrom', [
+        source,
+        { compact: options?.compact === true },
+      ]);
       await this.owner.sessionMetadata.load();
       this.owner.pendingCatalogSessionIds.delete(sessionId);
       void this.owner.publishCatalogs();
@@ -553,27 +587,49 @@ export class SessionHostLifecycle {
     const id = sessionIdOf(sessionId);
     const submissionId =
       String(options.id || '').trim() || `desktop-submit-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const prior = this.owner.publication.projections.get(id);
-    const result = await this.owner.client.submit(
-      {
-        sessionId: id,
-        prompt,
-        options: { ...options, id: submissionId },
-        open: this.owner.openHints(id),
-        baseRevision: prior?.revision ?? null,
-      },
-      this.owner.callOptions(`session-submit:${id}:${submissionId}`)
-    );
-    this.owner.applySessionResult(id, result);
-    return result.accepted === true;
+    // A replay of an id (remote retry after a lost reply) joins the original
+    // submission instead of enqueueing the prompt twice.
+    const key = `${id}:${submissionId}`;
+    const existing = this.submissions.get(key);
+    if (existing) return existing;
+    const run = (async () => {
+      const prior = this.owner.publication.projections.get(id);
+      // The submitting device rides the prompt's transcript metadata. A remote
+      // call arrives with the name the host read from the authenticated
+      // connection; a local one is this machine.
+      const result = await this.owner.client.submit(
+        {
+          sessionId: id,
+          prompt,
+          options: submitOptionsWithDevice(options, submissionId),
+          open: this.owner.openHints(id),
+          baseRevision: prior?.revision ?? null,
+        },
+        this.owner.callOptions(`session-submit:${id}:${submissionId}`)
+      );
+      this.owner.applySessionResult(id, result);
+      return result.accepted === true;
+    })();
+    this.submissions.set(key, run);
+    while (this.submissions.size > 256) this.submissions.delete(this.submissions.keys().next().value as string);
+    try {
+      const accepted = await run;
+      if (!accepted) this.submissions.delete(key);
+      return accepted;
+    } catch (error) {
+      this.submissions.delete(key);
+      throw error;
+    }
   }
+
+  private readonly submissions = new Map<string, Promise<boolean>>();
 
   async abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     const id = sessionIdOf(sessionId);
     const result = await this.owner.client.abort(
       {
         sessionId: id,
-        options,
+        options: { ...options, device: options.device || hostDeviceName() },
         open: this.owner.openHints(id),
         baseRevision: this.owner.publication.projections.get(id)?.revision ?? null,
       },
@@ -597,7 +653,7 @@ export class SessionHostLifecycle {
       {
         sessionId: target,
         approvalId: id,
-        decision,
+        decision: { ...decision, device: decision.device || hostDeviceName() },
         open: this.owner.openHints(target),
         baseRevision: this.owner.publication.projections.get(target)?.revision ?? null,
       },
