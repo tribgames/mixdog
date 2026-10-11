@@ -147,7 +147,7 @@ test('the page has no tabs or lede: identity card, two buttons, one device list,
 
   const [identity, access] = document.querySelectorAll('.conn-card .conn-row');
   assert.equal(identity.querySelector('b').textContent, 'DESKTOP-IBLP835');
-  assert.equal(identity.querySelector('.conn-row-meta').textContent, 'This PC · Default name (Windows computer name)');
+  assert.equal(identity.querySelector('.conn-row-meta').textContent, 'This PC · Default name (computer name)');
   assert.equal(identity.querySelector('button').textContent, 'Rename');
   assert.equal(access.querySelector('.conn-row-title').textContent, 'Use this PC from other devices');
   assert.equal(access.querySelector('.conn-row-meta').textContent, 'Phones, browsers and other PCs can connect.');
@@ -187,7 +187,7 @@ test('the page has no tabs or lede: identity card, two buttons, one device list,
 
 test('a renamed PC shows the Windows name in its meta line; Rename opens the name dialog with its helper', async (t) => {
   const { document, calls } = await mount(t, { settings: { name: 'Studio PC' } });
-  assert.equal(document.querySelector('.conn-card .conn-row-meta').textContent, 'This PC · Windows name DESKTOP-IBLP835');
+  assert.equal(document.querySelector('.conn-card .conn-row-meta').textContent, 'This PC · Computer name DESKTOP-IBLP835');
   await click(buttonNamed(document, 'Rename'));
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.querySelector('h3').textContent, 'This PC’s name');

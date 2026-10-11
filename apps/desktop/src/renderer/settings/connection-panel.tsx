@@ -228,8 +228,8 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
         title={settings.name}
         meta={
           settings.name === settings.defaultName
-            ? t('This PC · Default name (Windows computer name)')
-            : t('This PC · Windows name {{name}}', { name: settings.defaultName })
+            ? t('This PC · Default name (computer name)')
+            : t('This PC · Computer name {{name}}', { name: settings.defaultName })
         }
         actions={
           <button type="button" className="conn-btn conn-btn--sm" onClick={() => setDialog({ kind: 'rename-self' })}>
