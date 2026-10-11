@@ -53,9 +53,10 @@ function titleBarOverlay(light = false, zoom = 1) {
     // covered by the window backgroundColor, which tracks the theme band.
     // Linux paints the overlay band itself and ignores alpha (it rendered solid
     // white under the dark theme), so it gets the opaque theme band instead.
-    color: opaqueBand ?? '#00000000',
+    color: '#00000000',
     symbolColor: light ? 'black' : 'white',
     height: Math.max(DESKTOP_TITLEBAR_HEIGHT, Math.round(DESKTOP_TITLEBAR_HEIGHT * zoom)),
+    ...(opaqueBand ? { color: opaqueBand } : {}),
   };
 }
 
