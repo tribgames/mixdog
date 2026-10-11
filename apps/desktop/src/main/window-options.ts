@@ -15,6 +15,9 @@ export const DESKTOP_TITLEBAR_HEIGHT = 35;
 /* Windows 11 22H2+ (build 22621) draws the Mica system backdrop behind a
    clear window; older builds and other platforms keep the opaque band. */
 export const DESKTOP_WINDOW_MICA = process.platform === 'win32' && Number(release().split('.')[2]) >= 22621;
+/* Windows and Linux draw min/max/close through Electron's titleBarOverlay
+   (Window Controls Overlay); macOS keeps its native traffic lights. */
+const HAS_TITLEBAR_OVERLAY = process.platform === 'win32' || process.platform === 'linux';
 const CLEAR_BACKGROUND_COLOR = '#00000000';
 const micaWindows = new WeakSet<object>();
 
@@ -91,7 +94,7 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
       /* best effort */
     });
   }
-  if (process.platform !== 'win32') return;
+  if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
 
@@ -102,7 +105,7 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
 export function setDesktopTitleBarDim(window: DesktopTitleBarWindow, dim: DesktopTitleBarDim | null): void {
   if (dim) titleBarDims.set(window as object, dim);
   else titleBarDims.delete(window as object);
-  if (process.platform !== 'win32') return;
+  if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
 
@@ -134,7 +137,7 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
   if (!light) return material;
   return {
     backgroundColor: DESKTOP_LIGHT_BACKGROUND_COLOR,
-    ...(process.platform === 'win32' ? { titleBarOverlay: titleBarOverlay(true) } : {}),
+    ...(HAS_TITLEBAR_OVERLAY ? { titleBarOverlay: titleBarOverlay(true) } : {}),
     ...material,
   };
 }
@@ -159,7 +162,7 @@ function nativeThemePrefersDark(): boolean {
 export function setDesktopTitleBarZoom(window: DesktopTitleBarWindow, zoom: number): void {
   const normalized = Number.isFinite(zoom) ? Math.min(10, Math.max(0.2, zoom)) : 1;
   titleBarZoomFactors.set(window as object, normalized);
-  if (process.platform !== 'win32') return;
+  if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
 
@@ -191,10 +194,11 @@ export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
   show: false,
   autoHideMenuBar: true,
   titleBarStyle: 'hidden',
-  ...(process.platform === 'win32'
+  ...(HAS_TITLEBAR_OVERLAY
     ? // `hidden` + Window Controls Overlay already provides the custom chrome.
       // Retaining the native frame keeps Windows' DWM maximize/restore path and
-      // avoids the white edge exposed by fully frameless BrowserWindows.
+      // avoids the white edge exposed by fully frameless BrowserWindows; on
+      // Linux it supplies the min/max/close buttons the hidden title bar lacks.
       { frame: true, titleBarOverlay: defaultTitleBarOverlay }
     : { titleBarOverlay: false }),
   backgroundColor: DESKTOP_BACKGROUND_COLOR,

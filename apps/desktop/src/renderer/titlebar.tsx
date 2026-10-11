@@ -35,7 +35,8 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   // strip there only steals the title row of a window that has no caption.
   const phoneLayout = useMobileRemoteSurface();
   const electronShell = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
-  const windowsCaptionControls = electronShell && /Windows/i.test(navigator.userAgent);
+  // Windows and Linux both draw native caption controls via the overlay.
+  const windowsCaptionControls = electronShell && /Windows|Linux/i.test(navigator.userAgent);
   // The updater stays window-global; layout controls belong to their panes.
   const updateVisible =
     Boolean(onOpenUpdate) && (updaterState?.status === 'ready' || updaterState?.status === 'installing');
