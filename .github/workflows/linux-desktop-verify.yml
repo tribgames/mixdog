@@ -47,8 +47,15 @@ jobs:
         run: npm run build:spawn:test
       - name: Root tests
         run: npm test 2>&1 | tee root-tests.log
-      - name: Desktop tests
-        run: npm test 2>&1 | tee ../../desktop-tests.log
+      - name: Chromium for browser-geometry tests (no Chrome on arm64 runners)
+        if: matrix.arch == 'arm64'
+        run: |
+          npx --yes playwright@1.55.0 install --with-deps chromium
+          bin=$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | head -n1)
+          printf '#!/bin/sh\nexec "%s" --no-sandbox "$@"\n' "$bin" > "$HOME/chrome-wrapper"
+          chmod +x "$HOME/chrome-wrapper"
+          echo "CHROME_PATH=$HOME/chrome-wrapper" >> "$GITHUB_ENV"
+      - name: Desktop tests        run: npm test 2>&1 | tee ../../desktop-tests.log
         working-directory: apps/desktop
       - name: Desktop typecheck
         run: npx tsc -p tsconfig.json --noEmit
