@@ -15,7 +15,7 @@ test('a pairing card is built from a relay descriptor', async () => {
   assert.equal(await remoteAccessInfoFromDescriptor(null), null);
 });
 
-test('the phone QR encodes the relay /app page for the device, not the browser client URL', async (t) => {
+test('the phone QR encodes the relay /app install page, not the browser client URL', async (t) => {
   const QRCode = (await import('qrcode')).default;
   const encoded = [];
   const original = QRCode.toString;
@@ -24,7 +24,7 @@ test('the phone QR encodes the relay /app page for the device, not the browser c
     return original.call(QRCode, value, options);
   });
   const info = await remoteAccessInfoFromDescriptor(descriptor('https://relay.example/d/device/'));
-  assert.deepEqual(encoded, ['https://relay.example/d/device/', 'https://relay.example/app?d=device']);
+  assert.deepEqual(encoded, ['https://relay.example/d/device/', 'https://relay.example/app']);
   assert.equal(info?.relayBrowserUrl, 'https://relay.example/d/device/');
 });
 

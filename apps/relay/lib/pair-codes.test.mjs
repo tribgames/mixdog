@@ -313,20 +313,20 @@ test('relay: oversize and malformed code requests are refused, cross-origin call
   });
 });
 
-test('relay: /app opens the app or offers the installers, never the web client', async () => {
+test('relay: /app is a parameterless install page, never the web client or an app launcher', async () => {
   await withRelay(async (_relay, origin) => {
-    const id = randomUUID();
-    const page = await fetch(`${origin}/app?d=${id}`);
-    assert.equal(page.status, 200);
-    assert.match(page.headers.get('content-type') || '', /text\/html/);
-    const html = await page.text();
-    assert.match(html, /mixdog:\/\/pair\?link=/);
-    assert.match(html, /https:\/\/testflight\.apple\.com\/join\/UNPBM2hU/);
-    assert.match(html, /github\.com\/tribgames\/mixdog\/releases/);
-    assert.doesNotMatch(html, /<a[^>]+href="[^"]*\/d\//);
-    assert.equal((await fetch(`${origin}/app`)).status, 400);
-    assert.equal((await fetch(`${origin}/app?d=${encodeURIComponent('"><script>')}`)).status, 400);
-    assert.equal((await fetch(`${origin}/app?d=${id}&d=${id}`)).status, 400);
+    for (const path of ['/app', `/app?d=${randomUUID()}&x=1`]) {
+      const page = await fetch(`${origin}${path}`);
+      assert.equal(page.status, 200);
+      assert.match(page.headers.get('content-type') || '', /text\/html/);
+      const html = await page.text();
+      assert.match(html, /https:\/\/testflight\.apple\.com\/join\/UNPBM2hU/);
+      assert.match(html, /github\.com\/tribgames\/mixdog\/releases/);
+      assert.match(html, /Install Mixdog/);
+      assert.doesNotMatch(html, /mixdog:\/\//);
+      assert.doesNotMatch(html, /<a[^>]+href="[^"]*\/d\//);
+    }
+    assert.equal((await fetch(`${origin}/app`, { method: 'POST' })).status, 405);
   });
 });
 

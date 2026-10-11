@@ -37,14 +37,12 @@ export async function buildRemoteAccessInfo(descriptor: RemoteAccessDescriptor):
       enabled: false,
     };
   }
-  const { origin, pathname } = new URL(relayBrowserUrl);
-  const deviceId = /^\/d\/([^/]+)\/?$/u.exec(pathname)?.[1];
-  if (!deviceId) throw new Error('relay client URL has no device id');
+  const { origin } = new URL(relayBrowserUrl);
   return {
     enabled: true,
     relayBrowserUrl,
     relayBrowserQrSvg: await qrSvg(relayBrowserUrl),
-    relayAppQrSvg: await qrSvg(`${origin}/app?d=${deviceId}`),
+    relayAppQrSvg: await qrSvg(`${origin}/app`),
     relayConnectUrl: `${origin}/connect`,
     clients: relay.clients ?? [],
   };

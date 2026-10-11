@@ -287,7 +287,7 @@ test('Disconnect all runs rotateRemoteAccess after the "Disconnect N" confirmati
   assert.equal(document.querySelector('.conn-dialog'), null);
 });
 
-test('Connect a device: phone QR first, code requested only while a code shows, released when hidden', async (t) => {
+test('Connect a device: the phone view shows the install QR, the code and the approval step in one view; the code is released when it closes', async (t) => {
   const { document, calls } = await mount(t);
   await click(buttonNamed(document, 'Connect a device'));
   const dialog = document.querySelector('.conn-dialog');
@@ -301,31 +301,29 @@ test('Connect a device: phone QR first, code requested only while a code shows, 
       ['Other PC', 'false'],
     ]
   );
+  await settle();
   assert.ok(dialog.querySelector('.conn-qr svg[data-device="aaaaaaaa"]'));
   assert.deepEqual(
-    [...dialog.querySelectorAll('.conn-steps li')].map((li) => li.textContent),
-    ['Scan this QR code with your phone camera', 'Connect in the Mixdog app', 'Allow the request on this PC']
+    [...dialog.querySelectorAll('.conn-steps li')].map((li) => [li.dataset.n, li.textContent]),
+    [
+      ['1', 'Scan with your phone camera to install the Mixdog app'],
+      ['2', 'In the app, tap Connect with a code and enter this code'],
+      ['3', 'Allow the request on this PC'],
+    ]
   );
-  assert.deepEqual(calls, [], 'no code while the QR shows');
-  assert.deepEqual(
-    [...dialog.querySelectorAll('footer button')].map((b) => b.textContent),
-    ['Connect with a code', 'Close']
-  );
-
-  await click(buttonNamed(document, 'Connect with a code'));
-  await settle();
   assert.equal(dialog.querySelector('.conn-code-tile b').textContent, '716·386');
-  assert.equal(dialog.querySelector('.conn-qr'), null);
+  assert.match(dialog.querySelector('.conn-code-meta span').textContent, /left/);
   assert.deepEqual(
     calls.map((call) => call[1]),
     ['ensure']
   );
-  assert.ok(buttonNamed(document, 'Connect with a QR code'));
-  assert.match(dialog.querySelector('.conn-code-meta span').textContent, /left/);
+  assert.deepEqual(
+    [...dialog.querySelectorAll('footer button')].map((b) => b.textContent),
+    ['Close']
+  );
 
-  await click(buttonNamed(document, 'Connect with a QR code'));
+  await click(buttonNamed(document, 'Close'));
   assert.equal(calls.at(-1)[1], 'release');
-  assert.ok(dialog.querySelector('.conn-qr svg'));
 });
 
 test('Connect a device: browser view has the full-width address with copy plus the code; the other-PC view has only the code', async (t) => {
@@ -351,6 +349,7 @@ test('Connect a device: browser view has the full-width address with copy plus t
 
   await click(tab('Other PC'));
   assert.equal(calls.filter((call) => call[1] === 'release').length, 0, 'browser and other PC share one code');
+  assert.equal(calls.filter((call) => call[1] === 'ensure').length, 1, 'switching tabs does not re-request it');
   assert.deepEqual(
     [...dialog.querySelectorAll('.conn-steps li')].map((li) => li.textContent),
     ['On that PC, go to Settings → Connection → Open another PC', 'Enter this code']
@@ -363,7 +362,7 @@ test('Connect a device: browser view has the full-width address with copy plus t
   );
 
   await click(tab('Phone'));
-  assert.equal(calls.at(-1)[1], 'release');
+  assert.equal(calls.filter((call) => call[1] === 'release').length, 0, 'every view shares the one code');
 });
 
 test('a pending code request shows the loading tile; the code lands within a second, not after the 8 s heartbeat', async (t) => {
@@ -376,7 +375,6 @@ test('a pending code request shows the loading tile; the code lands within a sec
     },
   });
   await click(buttonNamed(document, 'Connect a device'));
-  await click(buttonNamed(document, 'Connect with a code'));
   assert.ok(document.querySelector('[aria-label="Getting a code…"].conn-code-tile--loading'));
   assert.equal(document.querySelector('button[aria-label="New code"]').disabled, true);
   await act(async () => new Promise((done) => setTimeout(done, 900)));
@@ -387,17 +385,14 @@ for (const [label, answer] of [
   ['{ unsupported: true }', { unsupported: true }],
   ['a missing result', undefined],
 ]) {
-  test(`a relay without codes (${label}) puts the note in the code slot and offers the phone QR`, async (t) => {
+  test(`a relay without codes (${label}) puts the note in the code slot`, async (t) => {
     const { document } = await mount(t, { pairCode: () => Promise.resolve(answer) });
     await click(buttonNamed(document, 'Connect a device'));
-    await click([...document.querySelectorAll('[role="tab"]')][2]);
     await settle();
     const dialog = document.querySelector('.conn-dialog');
     assert.equal(dialog.querySelector('.conn-code-tile--na').textContent, 'Codes aren’t available right now');
     assert.equal(dialog.querySelector('.conn-code-meta'), null);
     assert.ok(dialog.textContent.includes('This connection server doesn’t support codes.'));
-    await click(buttonNamed(document, 'Connect with the phone QR'));
-    assert.ok(dialog.querySelector('.conn-qr svg'));
   });
 }
 
@@ -435,7 +430,6 @@ test('a request arriving while the Connect dialog is open turns it into the appr
     },
   };
   await click(buttonNamed(document, 'Connect a device'));
-  await click(buttonNamed(document, 'Connect with a code'));
   await settle();
   await act(async () => updateClaimQueue(() => [claim()]));
 

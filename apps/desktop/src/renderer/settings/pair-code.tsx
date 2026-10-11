@@ -97,7 +97,7 @@ export function PairCodeBlock({ pair }: { pair: PairCodeState }) {
           {t('Codes aren’t available right now')}
         </div>
         <p className="conn-code-note">
-          {t('This connection server doesn’t support codes. Phones can connect with the QR code.')}
+          {t('This connection server doesn’t support codes.')}
         </p>
       </div>
     );
