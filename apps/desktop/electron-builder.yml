@@ -104,7 +104,7 @@ linux:
   # executable name, which matches the desktop entry's Icon= key.
   icon: build/icons
   synopsis: Mixdog desktop host
-  maintainer: Mixdog <noreply@users.noreply.github.com>
+  maintainer: Mixdog <dev@tribgames.com>
   desktop:
     entry:
       # Electron reports the package name (mixdog-desktop) as WM_CLASS and the
