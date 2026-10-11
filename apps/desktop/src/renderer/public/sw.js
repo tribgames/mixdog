@@ -391,6 +391,31 @@ self.addEventListener('message', (event) => {
   mixdogMediaLane.acceptKey(event.data);
 });
 
+// Relay device ids, the same shape the /d/<deviceId>/ route accepts. Anything
+// else is not used to build a route.
+const HOST_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,64})$/;
+
+function notificationHostId(value) {
+  const hostId = typeof value === 'string' ? value.toLowerCase() : '';
+  return HOST_ID.test(hostId) ? hostId : '';
+}
+
+function notificationTag(hostId, sessionId) {
+  if (!sessionId) return 'mixdog';
+  return hostId ? `session:${hostId}:${sessionId}` : `session:${sessionId}`;
+}
+
+/** Where a tap launches the app when nothing is running: the installed scope,
+ *  naming the session AND the PC that sent it. Only the app knows which PCs
+ *  this browser is paired with, so it opens the session there, moves to that
+ *  PC's route, or ignores a PC it no longer knows
+ *  (push-notification-bridge.ts routeNotificationTap). */
+function notificationLaunchUrl(scope, hostId, sessionId) {
+  if (!sessionId) return scope;
+  const query = `session=${encodeURIComponent(sessionId)}`;
+  return hostId ? `${scope}?${query}&host=${hostId}` : `${scope}?${query}`;
+}
+
 // Web Push. This is the ONLY path that reaches an installed web app whose
 // relay socket is gone: the OS wakes this worker even when the app was swiped
 // away. The desktop that owns the session encrypts the payload for this
@@ -409,26 +434,27 @@ self.addEventListener('push', (event) => {
   const supplied = payload && typeof payload.body === 'string' ? payload.body.trim() : '';
   const sessionId = payload?.data && typeof payload.data.sessionId === 'string' ? payload.data.sessionId : '';
   const reason = payload?.data?.reason;
+  // The PC that sent it: one browser hears from every PC it is paired with,
+  // and a tap must open the session on THAT PC (an older PC names none).
+  const hostId = notificationHostId(payload?.data?.hostId ?? payload?.hostId);
   event.waitUntil(
     (async () => {
       // What the session actually said travels verbatim; only the stand-in for
       // a turn that produced no text is spoken in this device's language.
-      const standIn =
-        reason === 'approval-pending'
-          ? APPROVAL_PENDING_TEXT
-          : reason === 'input-needed'
-            ? INPUT_NEEDED_TEXT
-            : TURN_FINISHED_TEXT;
+      let standIn = TURN_FINISHED_TEXT;
+      if (reason === 'approval-pending') standIn = APPROVAL_PENDING_TEXT;
+      else if (reason === 'input-needed') standIn = INPUT_NEEDED_TEXT;
       const body = supplied || standIn[await notificationLanguage()] || standIn.en;
       await self.registration.showNotification(title, {
         body,
         icon: '/mixdog-192.png',
         badge: '/mixdog-192.png',
         // One session collapses onto one notification instead of stacking a row
-        // per finished turn, and the replacement re-alerts.
-        tag: sessionId ? `session:${sessionId}` : 'mixdog',
+        // per finished turn, and the replacement re-alerts. Two PCs may share a
+        // session id, so the PC is part of the identity.
+        tag: notificationTag(hostId, sessionId),
         renotify: Boolean(sessionId),
-        data: { sessionId },
+        data: { sessionId, hostId },
       });
     })()
   );
@@ -454,6 +480,7 @@ self.addEventListener('notificationclick', (event) => {
     event.notification.data && typeof event.notification.data.sessionId === 'string'
       ? event.notification.data.sessionId
       : '';
+  const hostId = notificationHostId(event.notification.data?.hostId);
   event.waitUntil(
     (async () => {
       // Park it FIRST. focus() can hand the tap to a document the phone
@@ -462,7 +489,7 @@ self.addEventListener('notificationclick', (event) => {
       // tap does nothing at all (user: 눌러도 동작이 안 되냐). The app claims
       // this on boot, the same way a shared payload travels.
       if (sessionId) {
-        await writeAppState(NOTIFICATION_CLICK_ENTRY, JSON.stringify({ sessionId, createdAt: Date.now() }));
+        await writeAppState(NOTIFICATION_CLICK_ENTRY, JSON.stringify({ sessionId, hostId, createdAt: Date.now() }));
       }
       const windows = await self.clients.matchAll({
         type: 'window',
@@ -471,12 +498,14 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of windows) {
         if (!client.url.startsWith(self.location.origin)) continue;
         await client.focus().catch(() => undefined);
-        client.postMessage({ type: OPEN_SESSION_MESSAGE, sessionId: sessionId || null });
+        // The app decides whether that PC is the one it drives, another
+        // paired PC to switch to, or one it no longer knows.
+        client.postMessage({ type: OPEN_SESSION_MESSAGE, sessionId: sessionId || null, hostId: hostId || null });
         return;
       }
       // The route this install was made from, never the bare origin.
       const scope = (await readAppState(APP_SCOPE_ENTRY)) || '/';
-      await self.clients.openWindow(sessionId ? `${scope}?session=${encodeURIComponent(sessionId)}` : scope);
+      await self.clients.openWindow(notificationLaunchUrl(scope, hostId, sessionId));
     })()
   );
 });

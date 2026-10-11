@@ -145,8 +145,11 @@ async function pageLocation(root: string, rel: string): Promise<{ root: string; 
     throw new LocalAccessDeniedError('The page must be a visible HTML file inside its folder.');
   }
   const page = await realpath(requested);
-  if (!pageAssetType(realRoot, page) || !['html', 'htm'].includes(fileExtension(page))
-    || !(await stat(page)).isFile()) {
+  if (
+    !pageAssetType(realRoot, page) ||
+    !['html', 'htm'].includes(fileExtension(page)) ||
+    !(await stat(page)).isFile()
+  ) {
     throw new LocalAccessDeniedError('The page must be a visible HTML file inside its folder.');
   }
   return { root: realRoot, page };

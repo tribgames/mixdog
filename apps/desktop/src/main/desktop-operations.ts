@@ -147,6 +147,12 @@ export function createFolderWatchRegistry(
   >();
   const watchKey = (path: string) => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
   const registryKey = (dir: string, recursive: boolean) => `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
+  const closeWatch = (state: { watcher: FSWatcher; timer: NodeJS.Timeout | null }) => {
+    if (state.timer) clearTimeout(state.timer);
+    try {
+      state.watcher.close();
+    } catch {}
+  };
   return {
     watch(dir: string, recursive: boolean): void {
       const key = registryKey(dir, recursive);
@@ -164,11 +170,7 @@ export function createFolderWatchRegistry(
         }, 250);
       });
       watcher.on('error', () => {
-        const state = watchers.get(key);
-        if (state?.timer) clearTimeout(state.timer);
-        try {
-          watcher.close();
-        } catch {}
+        closeWatch({ watcher, timer: watchers.get(key)?.timer ?? null });
         watchers.delete(key);
       });
       watchers.set(key, { watcher, count: 1, timer: null });
@@ -179,20 +181,12 @@ export function createFolderWatchRegistry(
       if (!state) return;
       state.count -= 1;
       if (state.count <= 0) {
-        if (state.timer) clearTimeout(state.timer);
-        try {
-          state.watcher.close();
-        } catch {}
+        closeWatch(state);
         watchers.delete(key);
       }
     },
     dispose(): void {
-      for (const state of watchers.values()) {
-        if (state.timer) clearTimeout(state.timer);
-        try {
-          state.watcher.close();
-        } catch {}
-      }
+      for (const state of watchers.values()) closeWatch(state);
       watchers.clear();
     },
   };

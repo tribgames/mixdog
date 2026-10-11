@@ -35,6 +35,7 @@ import {
 import { activateRemote, isRemoteActivated } from './remote-activation';
 import { createRemoteAccessSettingsStore } from './remote-access-settings';
 import { loadRemoteClientCache } from './remote-client-cache';
+import { createPendingRevokeDrain } from './remote-revoke-drain';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
 import type { RemoteHostRequestMethod } from './remote-methods';
 import type { BrowserRemoteMethod } from './remote-browser-methods';
@@ -256,9 +257,8 @@ export async function createDesktopService({
   const clientCache = await loadRemoteClientCache(options.userDataPath);
   const remembered = async (clients: DesktopRemoteClientInfo[]): Promise<DesktopRemoteClientInfo[]> => {
     const pending = clientCache.pending();
-    const visible = clients.filter((client) => !pending.includes(client.id));
-    await clientCache.remember(visible).catch(() => undefined);
-    return visible;
+    await clientCache.remember(clients).catch(() => undefined);
+    return clients.map((client) => (pending.includes(client.id) ? { ...client, pendingRemoval: true } : client));
   };
   const publishAccessSettings = (settings: DesktopRemoteAccessSettings): DesktopRemoteAccessSettings => {
     publishDesktopEvent('remote-access-settings-changed', settings);
@@ -276,33 +276,7 @@ export async function createDesktopService({
     return { relay: { ...descriptor.relay, clients }, enabled: true };
   };
   /** Revocations asked for while access was off, applied once the relay answers. */
-  let applyingRevokes: Promise<void> | null = null;
-  const applyPendingRevokes = (): Promise<void> => {
-    applyingRevokes ??= (async () => {
-      for (let attempt = 0; attempt < 80 && clientCache.pending().length; attempt += 1) {
-        const relay = remoteRelay;
-        if (!relay) return;
-        try {
-          await relay.listClients();
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          continue;
-        }
-        for (const id of clientCache.pending()) {
-          try {
-            await relay.revokeClient(id);
-            await clientCache.applied(id);
-          } catch {
-            /* stays queued for the next leg */
-          }
-        }
-        return;
-      }
-    })().finally(() => {
-      applyingRevokes = null;
-    });
-    return applyingRevokes;
-  };
+  const applyPendingRevokes = createPendingRevokeDrain({ cache: clientCache, relay: () => remoteRelay });
   const remoteOptions = {
     host: remoteHost,
     hostName: () => pcName,
@@ -323,6 +297,10 @@ export async function createDesktopService({
     subscribeTerminalData: operations.subscribeTerminalData,
     userDataPath: options.userDataPath,
     onClientCountChanged,
+    // Every successful (re)connection drains revocations that failed earlier.
+    onConnected: () => {
+      if (clientCache.pending().length) void applyPendingRevokes();
+    },
     // The window process owns the approval dialog, so the decision travels
     // out as an event and comes back as remoteAccessResolveClaim. An
     // unanswered request expires on its own — the relay drops it at 180s.

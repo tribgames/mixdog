@@ -7,6 +7,7 @@ import type { RecordValue } from './capability-data';
 import { record } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
+import { errorMessage } from '../editor-pane-session-errors';
 
 export const REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
@@ -14,12 +15,12 @@ export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 const isLevel = (value: unknown): value is ReasoningLevel => REASONING_LEVELS.includes(value as ReasoningLevel);
 
 /** Toggle one level; the result is always in ranked order and may be []. */
-export function toggleLevel(levels: readonly ReasoningLevel[], level: ReasoningLevel): ReasoningLevel[] {
+function toggleLevel(levels: readonly ReasoningLevel[], level: ReasoningLevel): ReasoningLevel[] {
   const next = levels.includes(level) ? levels.filter((item) => item !== level) : [...levels, level];
   return REASONING_LEVELS.filter((item) => next.includes(item));
 }
 
-export function wireFormatOptions(protocol: string) {
+function wireFormatOptions(protocol: string) {
   return [
     { value: 'standard', label: t('Standard') },
     ...(protocol === 'openai-chat' ? [{ value: 'deepseek', label: t('DeepSeek format') }] : []),
@@ -119,9 +120,7 @@ export function CustomModelEditor({
     </button>
   );
   const badge = (isOverridden: boolean, touched: boolean) => (
-    <small className="settings-model-source">
-      {touched || isOverridden ? t('Override') : t('Inherited')}
-    </small>
+    <small className="settings-model-source">{touched || isOverridden ? t('Override') : t('Inherited')}</small>
   );
 
   const save = async () => {
@@ -165,7 +164,7 @@ export function CustomModelEditor({
       onSaved?.(out);
       onClose();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
       setSaving(false);
     }
   };

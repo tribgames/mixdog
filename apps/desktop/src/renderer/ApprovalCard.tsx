@@ -82,7 +82,7 @@ export function ApprovalCard({
       const accepted = await resolveRef.current(approved);
       // false: the host answered "not pending" — another device already
       // decided; the buttons stay disabled (resolvingRef stays set).
-      if (accepted === true || accepted === false) return;
+      if (typeof accepted === 'boolean') return;
       setApprovalError(t('Mixdog could not record this decision. Please try again.'));
       resolvingRef.current = false;
       setResolving(false);

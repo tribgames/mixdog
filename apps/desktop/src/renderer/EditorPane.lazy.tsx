@@ -268,7 +268,9 @@ export default function EditorPane({
     });
   const [tocOpen, setTocOpen] = useState(false);
   const toggleToc = useCallback(() => setTocOpen((open) => !open), []);
-  const openPreviewToSide = onOpenPreviewToSide ? () => onOpenPreviewToSide(projectPath, relPath, accessToken) : undefined;
+  const openPreviewToSide = onOpenPreviewToSide
+    ? () => onOpenPreviewToSide(projectPath, relPath, accessToken)
+    : undefined;
   const {
     modelUri,
     setModelUri,

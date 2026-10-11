@@ -240,6 +240,17 @@ const CAPABILITY_ARITY = {
   openMediaFolder: [0, 1],
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 
+/** Optional `{ openBrowser?: boolean }` for GitHub CLI sign-in. */
+export function optionalGithubLoginOptions(value: unknown): { openBrowser?: boolean } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('options must be an object.');
+  const { openBrowser } = value as { openBrowser?: unknown };
+  if (openBrowser !== undefined && typeof openBrowser !== 'boolean') {
+    throw new TypeError('openBrowser must be a boolean.');
+  }
+  return openBrowser === undefined ? {} : { openBrowser };
+}
+
 export function requiredString(value: unknown, name: string, maximum = 32_768): string {
   if (typeof value !== 'string') throw new TypeError(`${name} must be a string.`);
   const text = value.trim();
@@ -428,7 +439,10 @@ function validateCustomModelOverride(value: unknown, patch: boolean, protocol?: 
   }
   if (wireFormat !== undefined && !nullable(wireFormat)) {
     const format = typeof wireFormat === 'string' ? wireFormat.trim() : '';
-    if (!CUSTOM_WIRE_FORMATS.has(format) || (format === 'deepseek' && protocol !== undefined && protocol !== 'openai-chat')) {
+    if (
+      !CUSTOM_WIRE_FORMATS.has(format) ||
+      (format === 'deepseek' && protocol !== undefined && protocol !== 'openai-chat')
+    ) {
       throw new TypeError('custom provider reasoning wireFormat is invalid.');
     }
   }

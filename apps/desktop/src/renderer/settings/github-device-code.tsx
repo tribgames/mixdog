@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import type { DesktopApi, DesktopGithubCliLoginFlow } from '../../shared/contract';
 import { t } from '../i18n';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { copyTextToClipboard } from '../text-format';
 import '../desktop/github-device-code.css';
 
@@ -49,9 +50,13 @@ export function useGithubDeviceCode(
           () => patch({ copy: 'copied', opened: true }),
           () => patch({ copy: 'failed', opened: true })
         )
-        .then(() => host?.githubCliLoginOpenBrowser?.(flowId).catch(() => false))
-        .then((ghOpens) => {
-          if (!ghOpens) open(url);
+        .then(async () => {
+          // Releases gh's press-Enter stop; true when gh opened the host's own browser.
+          const ghOpens = await host
+            ?.githubCliLoginOpenBrowser?.(flowId, isRemoteHostRenderer() ? { openBrowser: false } : undefined)
+            .catch(() => false);
+          // A remote client's browser is the one the user sits at, never the host's.
+          if (!ghOpens || isRemoteHostRenderer()) open(url);
         });
     },
     reopen: () => open(url),

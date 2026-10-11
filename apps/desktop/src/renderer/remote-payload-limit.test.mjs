@@ -869,8 +869,7 @@ test('a relay refusal reaches only the client it names, and its ceiling dies wit
       );
       // Each phone reads the leg through its own cursor, so nothing one waits
       // for is consumed on behalf of the other.
-      const phone = async (clientId) =>
-        browserHandshake(legFrames(first.socket), session.handle.pairing, clientId);
+      const phone = async (clientId) => browserHandshake(legFrames(first.socket), session.handle.pairing, clientId);
       const c1 = await phone('c1');
       const c2 = await phone('c2');
       assert.equal(c1.ready.maxFrameBytes, 8 * MB);
@@ -881,9 +880,7 @@ test('a relay refusal reaches only the client it names, and its ceiling dies wit
       await until(() => refused.length === 1);
       assert.deepEqual(refused, [{ bytes: 7 * MB, limit: 6 * MB }]);
       // Named: only that phone is told, and never as the owner of a call.
-      first.socket.send(
-        JSON.stringify({ type: 'frame-too-large', clientId: 'c1', bytes: 7 * MB, limit: 6 * MB })
-      );
+      first.socket.send(JSON.stringify({ type: 'frame-too-large', clientId: 'c1', bytes: 7 * MB, limit: 6 * MB }));
       const told = await c1.nextEvent(RELAY_PAYLOAD_REJECTED_EVENT);
       assert.deepEqual(told.payload, { bytes: 7 * MB, limit: 6 * MB });
       assert.equal(refused.length, 1);
@@ -1133,10 +1130,7 @@ test('the desktop refuses its own oversize frame instead of sending it', async (
   // Measured on the serialized frame, judged against the learned ceiling, and
   // attributed to the call that frame carries.
   assert.match(source, /const\s+bytes\s*=\s*relayFrameByteLength\(wire\);/);
-  assert.match(
-    source,
-    /relayFrameRefusal\(\s*bytes,\s*deps\.relayFrameLimit\(\),\s*relayFrameCallId\(payload\)\s*\)/
-  );
+  assert.match(source, /relayFrameRefusal\(\s*bytes,\s*deps\.relayFrameLimit\(\),\s*relayFrameCallId\(payload\)\s*\)/);
   const refusalAt = source.indexOf('if (refusal) {');
   const sendAt = source.indexOf('await deps.sendRawAndWait(wire);');
   assert.ok(refusalAt > 0 && refusalAt < sendAt, 'the check runs before the send');
@@ -1169,7 +1163,10 @@ test('a relay notice teaches the limit, names no call, and is never broadcast', 
   const learnAt = handler.search(/caps\.learnRefusedFrameLimit\(\s*rejection\s*\);/);
   assert.ok(learnAt > 0 && learnAt < handler.indexOf('if (!clientId) {'), 'the ceiling is learned first');
   // …only ever downwards, and only from a limit the notice actually stated.
-  const learn = caps.slice(caps.indexOf('const learnRefusedFrameLimit'), caps.indexOf('return {', caps.indexOf('const learnRefusedFrameLimit')));
+  const learn = caps.slice(
+    caps.indexOf('const learnRefusedFrameLimit'),
+    caps.indexOf('return {', caps.indexOf('const learnRefusedFrameLimit'))
+  );
   assert.match(
     learn,
     /if\s*\(\s*rejection\.limit\s*!==\s*null\s*\)\s*\{\s*noticedFrameLimit\s*=\s*resolveRelayFrameLimit\(\s*rejection\.limit,\s*noticedFrameLimit\s*\)/

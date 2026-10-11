@@ -1,10 +1,11 @@
 // Native file/folder pickers and the local-file reads the renderer may ask for.
 import type { App, BrowserWindow, Dialog } from 'electron';
 import { createWriteStream } from 'node:fs';
-import { rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { rename, rm, writeFile } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
+import { dirname, join, isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
 import { DESKTOP_IPC, type DesktopWorkspace } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { absoluteLocalPath, readLocalFileAbs } from './local-files';
@@ -32,6 +33,9 @@ export async function downloadToFile(
   file: string,
   { maxBytes = SAVE_DOWNLOAD_MAX_BYTES, timeoutMs = SAVE_DOWNLOAD_TIMEOUT_MS } = {}
 ): Promise<void> {
+  // A short sibling name: appending to a long destination name could exceed
+  // the filesystem's per-component limit.
+  const temp = join(dirname(file), `.${randomUUID()}.part`);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('Download timed out.')), timeoutMs);
   try {
@@ -50,11 +54,12 @@ export async function downloadToFile(
     await pipeline(
       Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
       limit,
-      createWriteStream(file),
+      createWriteStream(temp),
       { signal: controller.signal }
     );
+    await rename(temp, file);
   } catch (error) {
-    await rm(file, { force: true }).catch(() => undefined);
+    await rm(temp, { force: true }).catch(() => undefined);
     throw controller.signal.aborted && controller.signal.reason instanceof Error ? controller.signal.reason : error;
   } finally {
     clearTimeout(timer);
@@ -158,9 +163,7 @@ export function registerFileDialogIpc({
     return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
   });
   const userDataDir = () => (typeof app.getPath === 'function' ? app.getPath('userData') : '');
-  handle(DESKTOP_IPC.readMarkdownDefaultView, () =>
-    invokeDesktopOperation('readMarkdownDefaultView', [userDataDir()])
-  );
+  handle(DESKTOP_IPC.readMarkdownDefaultView, () => invokeDesktopOperation('readMarkdownDefaultView', [userDataDir()]));
   handle(DESKTOP_IPC.writeMarkdownDefaultView, (_event, view) =>
     invokeDesktopOperation('writeMarkdownDefaultView', [userDataDir(), view])
   );

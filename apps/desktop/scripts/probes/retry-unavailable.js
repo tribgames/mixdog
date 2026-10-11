@@ -5,5 +5,9 @@
   const button = cover.querySelector('button');
   button?.click();
   await new Promise((r) => setTimeout(r, 2500));
-  return { cover: true, clicked: Boolean(button), stillUnavailable: Boolean(document.querySelector('.session-unavailable')) };
-})()
+  return {
+    cover: true,
+    clicked: Boolean(button),
+    stillUnavailable: Boolean(document.querySelector('.session-unavailable')),
+  };
+})();

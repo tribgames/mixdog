@@ -120,9 +120,7 @@ export function planSideFileOpen(
   const removed: PaneSideDockFile[] = [];
   const current = preview ? files.find((tab) => tab.preview) : undefined;
   const pinsOrigin =
-    current !== undefined &&
-    options.from === sideFileKey(current) &&
-    now - current.openedAt <= SIDE_FILE_PIN_ORIGIN_MS;
+    current !== undefined && options.from === sideFileKey(current) && now - current.openedAt <= SIDE_FILE_PIN_ORIGIN_MS;
   if (current && !pinsOrigin) {
     files = files.map((tab) => (tab === current ? created : tab));
     removed.push(current);

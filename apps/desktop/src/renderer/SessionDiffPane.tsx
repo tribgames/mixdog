@@ -137,6 +137,7 @@ export function SessionDiffPane({
   const [listOpen, setListOpen] = useState(false);
   const [selectedPath, setSelectedPath] = useState('');
   const [revertError, setRevertError] = useState('');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger; a session switch resets the drill-down.
   useEffect(() => {
     setListOpen(false);
     setSelectedPath('');
@@ -173,14 +174,20 @@ export function SessionDiffPane({
       stale = true;
     };
   }, [active, sessionId, busy, revision]);
-  const canRevert = Boolean(current && !busy && turnReview && turnReview.paths.has(current.path));
+  const canRevert = Boolean(current && !busy && turnReview?.paths.has(current.path));
   const revertCurrent = () => {
     if (!current || !turnReview || !canRevert) return;
-    if (!window.confirm(t('Revert {{file}} to the start of the turn? This discards its changes.', { file: current.path })))
+    if (
+      !window.confirm(t('Revert {{file}} to the start of the turn? This discards its changes.', { file: current.path }))
+    )
       return;
     setRevertError('');
     void window.mixdogDesktop
-      .invokeCapability?.({ capability: 'revertTurnReviewFile', args: [current.path, turnReview.checkpointId], sessionId })
+      .invokeCapability?.({
+        capability: 'revertTurnReviewFile',
+        args: [current.path, turnReview.checkpointId],
+        sessionId,
+      })
       .then(() => refresh(true))
       .catch((reason: unknown) => setRevertError(reason instanceof Error ? reason.message : String(reason)));
   };
@@ -188,45 +195,46 @@ export function SessionDiffPane({
   // The ONE header row renders in every state (no session, loading, error,
   // unsupported, empty, files) so close/expand are always reachable.
   const showCount = Boolean(sessionId) && !error && result?.supported !== false && Boolean(result);
-  const left = inDiff && current ? (
-    <span className="session-diff-summary session-diff-file-head">
-      <button
-        type="button"
-        className="session-diff-back"
-        aria-label={t('Back to changed files')}
-        data-tooltip={t('Back to changed files')}
-        onClick={() => setListOpen(true)}
-      >
-        <ChevronLeft size={15} aria-hidden="true" />
-      </button>
-      <span className="session-diff-status" data-status={current.status}>
-        {current.status}
+  const left =
+    inDiff && current ? (
+      <span className="session-diff-summary session-diff-file-head">
+        <button
+          type="button"
+          className="session-diff-back"
+          aria-label={t('Back to changed files')}
+          data-tooltip={t('Back to changed files')}
+          onClick={() => setListOpen(true)}
+        >
+          <ChevronLeft size={15} aria-hidden="true" />
+        </button>
+        <span className="session-diff-status" data-status={current.status}>
+          {current.status}
+        </span>
+        <b className="session-diff-path" title={current.path}>
+          {current.path}
+        </b>
+        <DiffStats additions={current.additions} deletions={current.deletions} />
       </span>
-      <b className="session-diff-path" title={current.path}>
-        {current.path}
-      </b>
-      <DiffStats additions={current.additions} deletions={current.deletions} />
-    </span>
-  ) : (
-    <span className="session-diff-summary">
-      {showCount && (
-        <span className="session-diff-count">
-          {rows.length === 1 ? t('1 file changed') : t('{{count}} files changed', { count: rows.length })}
-        </span>
-      )}
-      {showCount && (additions > 0 || deletions > 0) && (
-        <span className="diff-stats">
-          {additions > 0 && <i>+{additions}</i>}
-          {deletions > 0 && (
-            <em>
-              {'\u2212'}
-              {deletions}
-            </em>
-          )}
-        </span>
-      )}
-    </span>
-  );
+    ) : (
+      <span className="session-diff-summary">
+        {showCount && (
+          <span className="session-diff-count">
+            {rows.length === 1 ? t('1 file changed') : t('{{count}} files changed', { count: rows.length })}
+          </span>
+        )}
+        {showCount && (additions > 0 || deletions > 0) && (
+          <span className="diff-stats">
+            {additions > 0 && <i>+{additions}</i>}
+            {deletions > 0 && (
+              <em>
+                {'\u2212'}
+                {deletions}
+              </em>
+            )}
+          </span>
+        )}
+      </span>
+    );
   const header = !headerControlsExternal && (
     <DockHeaderRow
       className="session-diff-header"
@@ -330,7 +338,11 @@ export function SessionDiffPane({
             </span>
           </div>
           <div className="session-diff-body">
-            <FileDiffBody key={current.path} patch={current.parts.map((part) => part.patch).join('\n')} mode={viewMode} />
+            <FileDiffBody
+              key={current.path}
+              patch={current.parts.map((part) => part.patch).join('\n')}
+              mode={viewMode}
+            />
           </div>
         </>
       ) : (

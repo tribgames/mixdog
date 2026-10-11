@@ -1222,7 +1222,16 @@ test('a height-clamped preview builds only a bounded part, still offers show mor
       dom.root.render(
         React.createElement(ToolActivityGroup, {
           disclosureScope: 'bounded-preview',
-          items: [{ kind: 'tool', id: 'rd', name: 'edit', args: { path: 'a.ts', old_string: result, new_string: 'x' }, result: 'ok', completedAt: 2 }],
+          items: [
+            {
+              kind: 'tool',
+              id: 'rd',
+              name: 'edit',
+              args: { path: 'a.ts', old_string: result, new_string: 'x' },
+              result: 'ok',
+              completedAt: 2,
+            },
+          ],
         })
       );
     });
@@ -1261,7 +1270,9 @@ test('a finished background task with nothing to read cannot open and shows its 
       dom.root.render(
         React.createElement(ToolActivityGroup, {
           disclosureScope: 'meta-only',
-          items: [{ kind: 'tool', id: 'sh', name: 'shell', args: { command: 'sleep 1' }, result: notice, completedAt: 1 }],
+          items: [
+            { kind: 'tool', id: 'sh', name: 'shell', args: { command: 'sleep 1' }, result: notice, completedAt: 1 },
+          ],
         })
       );
     });

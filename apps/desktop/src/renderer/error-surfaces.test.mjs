@@ -262,7 +262,9 @@ test('a failed remote approval stays actionable and explains the failure', async
     };
     try {
       await act(async () =>
-        updateClaimQueue(() => [{ claimId: 'c', clientId: 'client', name: '', platform: '', browser: '', expiresAt: Date.now() + 60_000 }])
+        updateClaimQueue(() => [
+          { claimId: 'c', clientId: 'client', name: '', platform: '', browser: '', expiresAt: Date.now() + 60_000 },
+        ])
       );
       await render(React.createElement(ConnectDeviceDialog, { api: {}, info: null, onClose: () => {} }));
       const approve = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Allow');

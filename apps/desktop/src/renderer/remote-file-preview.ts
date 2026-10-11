@@ -5,12 +5,40 @@
 // document. See main/remote-file-preview.ts for the host half.
 import type { DesktopApi } from '../shared/contract';
 
-type Call = <T = unknown>(method: string, params?: unknown[]) => Promise<T>;
+import { useSyncExternalStore } from 'react';
+
+// Streamed preview URLs embed the media session: when it changes (reconnect)
+// the old URLs are dead, so mounted previews must resolve theirs again.
+let mediaSessionEpoch = 0;
+const mediaSessionListeners = new Set<() => void>();
+
+/** Called when the authenticated media session is published or revoked. */
+export function notifyMediaSessionChanged(): void {
+  mediaSessionEpoch += 1;
+  for (const listener of [...mediaSessionListeners]) listener();
+}
+
+export function subscribeMediaSession(listener: () => void): () => void {
+  mediaSessionListeners.add(listener);
+  return () => {
+    mediaSessionListeners.delete(listener);
+  };
+}
+
+export const getMediaSessionEpoch = (): number => mediaSessionEpoch;
+
+/** Changes whenever the media session does; list it in the dependencies of an
+ *  effect that calls `previewProjectFile` to re-resolve after a reconnect. */
+export function useMediaSessionEpoch(): number {
+  return useSyncExternalStore(subscribeMediaSession, getMediaSessionEpoch, getMediaSessionEpoch);
+}
+
+type Call =<T = unknown>(method: string, params?: unknown[]) => Promise<T>;
 
 /** Raw bytes requested per round trip (host clamps to 4 MiB). */
 export const REMOTE_PREVIEW_CHUNK_BYTES = 2 * 1024 * 1024;
 /** Largest file previewed whole in the browser; blob URLs hold it in memory. */
-export const REMOTE_PREVIEW_MAX_FILE_BYTES = 64 * 1024 * 1024;
+const REMOTE_PREVIEW_MAX_FILE_BYTES = 64 * 1024 * 1024;
 const PAGE_MAX_BYTES = 4 * 1024 * 1024;
 const PAGE_ASSET_MAX_BYTES = 2 * 1024 * 1024;
 const PAGE_TOTAL_MAX_BYTES = 16 * 1024 * 1024;

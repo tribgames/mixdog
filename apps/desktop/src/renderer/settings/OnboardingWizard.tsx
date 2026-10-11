@@ -32,6 +32,7 @@ import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code'
 import { useGithubLoginPolling } from './github-login-polling';
 import { probeGithubStarred, readGithubStarred, rememberGithubStarred } from './github-star-storage';
 import '../desktop/21-onboarding.css';
+import { errorMessage } from '../editor-pane-session-errors';
 
 type RecordValue = Record<string, unknown>;
 type RunCapability = <T = unknown>(
@@ -103,7 +104,7 @@ async function readCapabilityBatch(
         const result = await api.invokeCapability({ capability: request.capability, args: request.args });
         return { ok: true as const, value: result.value };
       } catch (reason) {
-        return { ok: false as const, error: reason instanceof Error ? reason.message : String(reason) };
+        return { ok: false as const, error: errorMessage(reason) };
       }
     })
   );
@@ -179,7 +180,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
           return result;
         } catch (rawReason) {
           const reason = friendlyCapabilityError(rawReason);
-          if (!silent) setError(reason instanceof Error ? reason.message : String(reason));
+          if (!silent) setError(errorMessage(reason));
           return undefined;
         } finally {
           if (!silent && --mutationCount.current === 0) {
@@ -212,7 +213,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
         setProviderSetup(record(values[0]));
         setProfile(record(values[1]));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
       } finally {
         loadedRef.current = true;
         setLoading(false);
@@ -683,7 +684,7 @@ function GitStep({ api }: { api: DesktopApi }) {
       setStatus(next);
       patchCachedGitPanelInfo(api, { status: next });
     } catch (reason) {
-      setGitError(reason instanceof Error ? reason.message : String(reason));
+      setGitError(errorMessage(reason));
     }
   }, [api]);
 
@@ -745,7 +746,7 @@ function GitStep({ api }: { api: DesktopApi }) {
         throw new Error(t('The setting could not be saved.'));
       }
     } catch (reason) {
-      setGitError(reason instanceof Error ? reason.message : String(reason));
+      setGitError(errorMessage(reason));
     } finally {
       setIdentityBusy(false);
     }
@@ -769,7 +770,7 @@ function GitStep({ api }: { api: DesktopApi }) {
         void syncIdentity();
       })
       .catch((reason) => {
-        if (live) setGitError(reason instanceof Error ? reason.message : String(reason));
+        if (live) setGitError(errorMessage(reason));
       });
     return () => {
       live = false;
@@ -788,7 +789,7 @@ function GitStep({ api }: { api: DesktopApi }) {
     setBusy(key);
     setGitError('');
     void Promise.resolve(action())
-      .catch((reason) => setGitError(reason instanceof Error ? reason.message : String(reason)))
+      .catch((reason) => setGitError(errorMessage(reason)))
       .finally(() => setBusy(''));
   };
   const open = (url: string) => void api.openExternal?.(url).catch(() => undefined);

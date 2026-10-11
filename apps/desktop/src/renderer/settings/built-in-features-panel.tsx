@@ -54,7 +54,6 @@ type FeatureAction = {
 const reason = (error: unknown): string =>
   String((error as Error)?.message || error || '') || t('Something went wrong');
 
-
 function voiceProgress(snapshot: unknown): { text: string; percent: number | null } {
   const hint = record(record(snapshot).progressHint);
   const text = String(hint.text || '');

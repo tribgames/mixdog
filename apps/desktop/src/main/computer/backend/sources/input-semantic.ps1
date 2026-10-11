@@ -37,7 +37,7 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     # so a window that would activate itself is held disabled for the call: the
     # steal never happens instead of being undone.
     $shielded = $target -ne [IntPtr]::Zero -and $foregroundBefore -ne $target -and
-        [MixWin32]::SelfActivatesOnSemanticInput($target)
+    [MixWin32]::SelfActivatesOnSemanticInput($target)
     $wasEnabled = $false
     # Held through the steal watch below. A target that accepts the no-activate
     # style declines activation, including one its host queues for when the
@@ -80,9 +80,9 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
                 }
             }
             $canRestore = $inputBefore.Ready -and
-                $foregroundBefore -ne [IntPtr]::Zero -and
-                $foregroundBefore -ne $target -and
-                [MixWin32]::IsWindowHandle($foregroundBefore)
+            $foregroundBefore -ne [IntPtr]::Zero -and
+            $foregroundBefore -ne $target -and
+            [MixWin32]::IsWindowHandle($foregroundBefore)
             # Measured on Windows 11 Settings: the frame raised itself 5-30 ms after
             # the accessibility call returned, disabled or not, so one check made
             # right away saw nothing to restore. Every restorable target, shielded

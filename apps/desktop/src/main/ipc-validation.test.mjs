@@ -198,7 +198,13 @@ test('save-as sources accept only http(s) and data URLs', async () => {
   assert.equal(requiredAttachmentFile('data:text/plain;base64,aGk=', 'run.bat').extension, 'txt');
   assert.equal(requiredAttachmentFile('data:text/x-python;base64,aGk=', 'a.py').extension, 'txt');
   assert.equal(requiredAttachmentFile('data:text/plain;base64,aGk=', 'notes.md').extension, 'md');
-  assert.equal(requiredAttachmentFile('data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,aGk=', 'a.docx').extension, 'docx');
+  assert.equal(
+    requiredAttachmentFile(
+      'data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,aGk=',
+      'a.docx'
+    ).extension,
+    'docx'
+  );
   // Anything else off the allowlist is rejected.
   for (const [mime, file] of [
     ['application/octet-stream', 'x.cpl'],

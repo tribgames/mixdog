@@ -857,9 +857,12 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
   const id = String(rawId || '').trim();
   const modelId = typeof rawModelId === 'string' ? rawModelId.trim() : '';
   if (!modelId) throw new TypeError('model id is required');
-  const entry = existingCustomEntry(cfgMod, id);
   const { normalizeCustomProviderConfig, canonicalReasoningLevel, assertCustomReasoningPatch } =
     await loadCustomProviderModule();
+  // Everything below is synchronous: the provider is read, patched and saved
+  // without yielding, so a concurrent update can never be overwritten by a
+  // provider object read before the await above.
+  const entry = existingCustomEntry(cfgMod, id);
   const current = normalizeCustomProviderConfig(entry, { requireModels: false });
   const overrides = new Map(Object.entries(current.modelOverrides || {}));
   if (patch === null) {
@@ -881,7 +884,11 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
           : applyTriState(next.reasoning, plainPatch(reasoning, REASONING_PATCH_KEYS, 'reasoning patch'));
       // New levels retire the wire values of levels they no longer list
       // (clearing the last level included), instead of failing validation.
-      if (Array.isArray(reasoning?.levels) && nextReasoning.wireValues && typeof nextReasoning.wireValues === 'object') {
+      if (
+        Array.isArray(reasoning?.levels) &&
+        nextReasoning.wireValues &&
+        typeof nextReasoning.wireValues === 'object'
+      ) {
         const kept = new Set(reasoning.levels.map(canonicalReasoningLevel));
         const wireValues = Object.fromEntries(
           Object.entries(nextReasoning.wireValues).filter(([level]) => kept.has(canonicalReasoningLevel(level)))
@@ -901,10 +908,7 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
   );
   const saved = { ...config, type: 'custom', enabled: entry.enabled !== false };
   const full = cfgMod.loadConfig();
-  cfgMod.saveConfig(
-    { ...full, providers: { ...(full.providers || {}), [id]: saved } },
-    { baseConfig: full }
-  );
+  cfgMod.saveConfig({ ...full, providers: { ...(full.providers || {}), [id]: saved } }, { baseConfig: full });
   return customProviderRow(id, saved);
 }
 

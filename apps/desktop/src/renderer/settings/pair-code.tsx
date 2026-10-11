@@ -96,7 +96,9 @@ export function PairCodeBlock({ pair }: { pair: PairCodeState }) {
         <div className="conn-code-tile conn-code-tile--na" role="note">
           {t('Codes aren’t available right now')}
         </div>
-        <p className="conn-code-note">{t('This connection server doesn’t support codes. Phones can connect with the QR code.')}</p>
+        <p className="conn-code-note">
+          {t('This connection server doesn’t support codes. Phones can connect with the QR code.')}
+        </p>
       </div>
     );
   }
@@ -107,7 +109,12 @@ export function PairCodeBlock({ pair }: { pair: PairCodeState }) {
           <b>{formatPairCode(code.code)}</b>
         </div>
       ) : (
-        <div className="conn-code-tile conn-code-tile--loading" role="status" aria-busy="true" aria-label={t('Getting a code…')}>
+        <div
+          className="conn-code-tile conn-code-tile--loading"
+          role="status"
+          aria-busy="true"
+          aria-label={t('Getting a code…')}
+        >
           <span aria-hidden="true">000·000</span>
         </div>
       )}

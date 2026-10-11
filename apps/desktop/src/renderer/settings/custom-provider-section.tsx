@@ -9,6 +9,7 @@ import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CustomModelEditor } from './custom-model-editor';
+import { errorMessage } from '../editor-pane-session-errors';
 
 export const CUSTOM_PROTOCOLS = [
   { value: 'openai-chat', label: 'OpenAI Chat Completions' },
@@ -59,7 +60,7 @@ function protocolLabel(value: unknown): string {
 }
 
 function failure(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
+  return errorMessage(reason);
 }
 
 type Run = PanelContext['run'];
@@ -101,6 +102,15 @@ function CustomProviderForm({
 }) {
   const uid = useId();
   const [rows, setRows] = useState<CustomModel[]>(provider ? customModels(provider) : []);
+  // A saved model edit (or any other change of the provider's effective
+  // models) refreshes the rows; the other form fields keep their drafts.
+  const modelsKey = provider ? JSON.stringify(customModels(provider)) : '';
+  const shownModelsKey = useRef(modelsKey);
+  useEffect(() => {
+    if (shownModelsKey.current === modelsKey) return;
+    shownModelsKey.current = modelsKey;
+    setRows(provider ? customModels(provider) : []);
+  }, [modelsKey, provider]);
   const existing = manualModels(provider);
   const [keyless, setKeyless] = useState(provider?.auth === 'none');
   // Discovery errors come from discoverCustomProviderModels (Refresh models).

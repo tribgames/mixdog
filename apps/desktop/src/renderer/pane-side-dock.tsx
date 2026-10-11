@@ -141,7 +141,7 @@ export function paneFilesShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surfac
   return entry.open && entry.surface === PANE_DOCK_FILES_SURFACE && Boolean(entry.folder);
 }
 /** The file child is the showing surface of an open unit. */
-export function paneFileShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'files'>): boolean {
+function paneFileShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'files'>): boolean {
   return entry.open && entry.surface === PANE_DOCK_FILE_SURFACE && (entry.files?.length ?? 0) > 0;
 }
 /** The active file tab (the last one when the stored key is stale). */
@@ -441,7 +441,7 @@ export function withPaneDockFileOpened(
 }
 
 /** Activates an existing file tab. */
-export function withPaneDockFileActivated(entry: PaneSideDockEntry, fileKey: string): PaneSideDockEntry {
+function withPaneDockFileActivated(entry: PaneSideDockEntry, fileKey: string): PaneSideDockEntry {
   if (!entry.files?.some((file) => sideFileKey(file) === fileKey)) return entry;
   return { ...entry, open: true, surface: PANE_DOCK_FILE_SURFACE, activeFile: fileKey };
 }

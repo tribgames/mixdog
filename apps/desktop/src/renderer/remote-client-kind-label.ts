@@ -10,7 +10,10 @@ export function kindLabel(kind: RemoteClientKind): string {
 
 /** The kind (app / desktop / browser name) is shown beside the title, so a
  *  trailing " · <kind>" in the stored name is dropped. */
-export function deviceTitle(client: { name?: string; platform?: string; browser?: string }, kind: RemoteClientKind): string {
+export function deviceTitle(
+  client: { name?: string; platform?: string; browser?: string },
+  kind: RemoteClientKind
+): string {
   const full = client.name || `${client.platform || t('Device')} · ${client.browser || t('Browser')}`;
   const parts = full.split(' · ');
   const last = parts[parts.length - 1].toLowerCase();

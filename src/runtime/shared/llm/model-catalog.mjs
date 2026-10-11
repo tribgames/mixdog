@@ -583,7 +583,8 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
       preserveBaseLimits: !nativeLimitsAuthoritative,
     });
   }
-  if (!meta && String(provider || '').startsWith('custom-')) return customCatalogDefaults(originalId, catalog, modelsDevCatalog);
+  if (!meta && String(provider || '').startsWith('custom-'))
+    return customCatalogDefaults(originalId, catalog, modelsDevCatalog);
   return meta
     ? {
         ...meta,

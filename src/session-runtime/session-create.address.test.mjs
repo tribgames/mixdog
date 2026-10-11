@@ -6,8 +6,8 @@ import {
   bindSessionAddress,
   finishCanonicalClose,
   initSessionAddress,
-  isAdmissionOpen,
 } from './session-address.mjs';
+import { sessionAdopter } from './boot/infrastructure.mjs';
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 
 let importSeq = 0;
@@ -21,15 +21,12 @@ async function harness(t, { prepare } = {}) {
   initSessionAddress(rt);
   const store = new Map();
   const mgr = { getSession: (id) => store.get(id) || null };
-  const adoptSession = (v) => {
-    if (v?.id) {
-      if (!isAdmissionOpen(rt)) return;
-      if (rt.addressedSessionId && rt.addressedSessionId !== v.id) {
-        throw new SessionAddressError('re-key refused', rt.addressedSessionId);
-      }
-    }
-    rt.session = v;
-  };
+  const adoptSession = sessionAdopter({
+    rt,
+    bindRuntimeNotificationSession() {},
+    goalRuntime: null,
+    applyResolvedCwd() {},
+  });
   t.mock.module('./session-create/route-prep.mjs', {
     namedExports: {
       elapsedMs: () => '0',
@@ -113,7 +110,7 @@ test('an evicted OPEN conversation resumes under the same id instead of being re
   await h.createCurrentSession('reservation');
   h.rt.session = null; // idle eviction / manager-only unload of the live object
   const again = await h.createCurrentSession('turn');
-  assert.equal(again.id ?? h.rt.session.id, 'sess_a');
+  assert.equal(again.id, 'sess_a');
   assert.equal(h.rt.session.id, 'sess_a');
   assert.deepEqual(h.calls.resumed, ['sess_a']);
   assert.deepEqual(h.calls.created, ['sess_a']);
@@ -131,7 +128,7 @@ test('a missing or unreadable record is an explicit failure, never a new convers
   assert.deepEqual(h.calls.created, ['sess_a']);
 });
 
-test('liveSession: a closed or missing record under the live object fails instead of nulling it for recreation', async (t) => {
+test('liveSession: a closed record under the live object fails instead of nulling it for recreation', async (t) => {
   const h = await harness(t);
   h.rt.reservedSessionId = 'sess_a';
   bindSessionAddress(h.rt, 'sess_a');

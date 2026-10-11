@@ -52,8 +52,8 @@ const DBCS_LEAD = {
   shift_jis: (b) => (b >= 0x81 && b <= 0x9f) || (b >= 0xe0 && b <= 0xfc),
 };
 
-export const NON_ASCII_DECISION_BYTES = 16;
-export const WINDOW_CAP = 4096;
+const NON_ASCII_DECISION_BYTES = 16;
+const WINDOW_CAP = 4096;
 const SCAN_CHUNK = 64 * 1024;
 const SYNC_BACK_BYTES = 64 * 1024;
 
@@ -188,7 +188,10 @@ export function completeLength(buffer, label) {
     for (let i = buffer.length - 1; i >= 0 && i >= buffer.length - 4; i--) {
       const b = buffer[i];
       if ((b & 0xc0) === 0x80) continue;
-      const need = b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : b >= 0xc0 ? 2 : 1;
+      let need = 1;
+      if (b >= 0xf0) need = 4;
+      else if (b >= 0xe0) need = 3;
+      else if (b >= 0xc0) need = 2;
       return buffer.length - i < need ? i : buffer.length;
     }
     return buffer.length;
@@ -251,7 +254,6 @@ export class ShellStreamDecoder {
   // Commit `label` while still undecided with nothing held (ASCII-only so far).
   force(label) {
     if (!this.sd && !this.td) this.td = new TextDecoder(label);
-    return '';
   }
 
   _commit(label) {

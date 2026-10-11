@@ -220,7 +220,9 @@ test('the card renders under a browser group and its button requests the page', 
       dom.window.mixdogDesktop = { openExternal: async (url) => void external.push(url) };
       const openButton = () => dom.window.document.querySelector('.transcript-browser-page button');
       for (const init of [{ ctrlKey: true }, { metaKey: true }]) {
-        await act(async () => openButton().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, ...init })));
+        await act(async () =>
+          openButton().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, ...init }))
+        );
       }
       await act(async () =>
         openButton().dispatchEvent(new dom.window.MouseEvent('auxclick', { bubbles: true, button: 1 }))

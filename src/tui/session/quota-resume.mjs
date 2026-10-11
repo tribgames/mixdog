@@ -80,13 +80,20 @@ export function failedTurnRetryPrompt(items, turnKey) {
   const keys = transcriptTurnKeys(transcript);
   let prompt = '';
   let sampled = false;
+  let hasAttachments = false;
   for (let index = 0; index < transcript.length; index += 1) {
     if (keys[index] !== turnKey) continue;
     const item = transcript[index];
-    if (item?.kind === 'user' && !prompt) prompt = String(item.text ?? '').trim();
+    if (item?.kind === 'user' && !prompt) {
+      prompt = String(item.text ?? '').trim();
+      hasAttachments = Array.isArray(item.images) && item.images.length > 0;
+    }
     if (!TURN_CHROME_KINDS.has(String(item?.kind || ''))) sampled = true;
   }
   if (!prompt) return null;
+  // Transcript rows keep only attachment metadata, so a text-only replay
+  // would drop the attachments and the rewind would delete the original row.
+  if (hasAttachments && !sampled) return null;
   return sampled ? RETRY_CONTINUE_INSTRUCTION : prompt;
 }
 

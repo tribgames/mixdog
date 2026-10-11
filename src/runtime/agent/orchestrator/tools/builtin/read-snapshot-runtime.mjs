@@ -1,5 +1,4 @@
 import { readFileSync, statSync } from 'node:fs';
-import { fileVersion as snapshotVersion } from './file-version.mjs';
 import { hashText } from './hash-utils.mjs';
 import { mergeReadRanges } from './read-ranges.mjs';
 import {
@@ -56,7 +55,7 @@ export function readTextForSnapshotCheck(fullPath, cache = null, st = null) {
 // replaced by a later stat, which could relabel previously observed bytes.
 function snapshotStatIdentity(fullPath, st) {
   try {
-    return snapshotVersion(st ?? statSync(fullPath));
+    return fileVersion(st ?? statSync(fullPath));
   } catch {
     return null;
   }

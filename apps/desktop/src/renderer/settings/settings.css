@@ -1019,9 +1019,7 @@
   border-radius: var(--mx-radius-xl, 12px);
   color: var(--mx-text);
   background: var(--mx-popup-bg);
-  box-shadow:
-    var(--mx-popup-shadow),
-    var(--mx-card-outline);
+  box-shadow: var(--mx-popup-shadow), var(--mx-card-outline);
   animation: mx-dialog-in var(--mx-motion-chrome);
 }
 .conn-dialog header h3 {
@@ -1394,7 +1392,7 @@
   flex-wrap: wrap;
   gap: 6px;
 }
-.settings-model-chip[aria-pressed='true'] {
+.settings-model-chip[aria-pressed="true"] {
   background: var(--mx-accent, currentColor);
   color: var(--mx-accent-contrast, Canvas);
 }

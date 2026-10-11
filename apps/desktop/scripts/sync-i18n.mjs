@@ -1,13 +1,13 @@
 // Offline synchronization. Catalog JSON is the only translation source of truth;
 // extraction never replaces reviewed text with English seeds or network output.
 import { writeFileSync } from 'node:fs';
-import { catalogState, localesUrl, rendererUrl, readJson, requiredCatalogKeys } from './i18n/catalog-state.mjs';
+import { catalogState, localesUrl, neutralAllowlist, requiredCatalogKeys } from './i18n/catalog-state.mjs';
 import { generatedCatalogs } from './i18n/native-catalogs.mjs';
 import { hasLatinText, reusableTranslation } from './i18n/source-keys.mjs';
 
 const state = catalogState();
 const { catalogs, keys } = state;
-const neutral = new Set(readJson(new URL('ui-untranslated-allowlist.json', rendererUrl)));
+const { terms: neutral } = neutralAllowlist();
 let missing = 0;
 for (const [language, catalog] of catalogs) {
   for (const key of requiredCatalogKeys(keys, language)) {
@@ -21,7 +21,7 @@ for (const [language, catalog] of catalogs) {
       catalog[key] = catalog[key.slice(0, -6)];
       continue;
     }
-    catalog[key] = reusableTranslation(key, catalog) ?? (neutral.has(key) || !hasLatinText(key) ? key : '');
+    catalog[key] = reusableTranslation(key, catalog) ?? (key in neutral ||!hasLatinText(key) ? key : '');
     if (!catalog[key]) missing += 1;
   }
   const sorted = Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b, 'en')));

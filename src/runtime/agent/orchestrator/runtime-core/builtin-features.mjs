@@ -22,6 +22,7 @@ import { HEADLESS_MODEL_TOOL_NAMES, HEADLESS_TOOL_PROFILE, normalizeToolProfile 
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 import { gitExecutablePresent } from '../../../shared/path-executable.mjs';
 import { onnxRuntimeSupported } from '../../../shared/onnx-runtime-support.mjs';
+import { setBuiltinInstalledInConfig, withGrandfatheredBuiltins } from '../../../shared/builtin-grandfathering.mjs';
 
 // Browser Use / Computer Use have no install marker: the desktop app publishes
 // a loopback bridge discovery file while the feature is on. The same file
@@ -46,7 +47,6 @@ export const INSTALLABLE_BUILTIN_IDS = Object.freeze([
   'localProvider',
   'autoEffort',
 ]);
-const GRANDFATHERED_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office']);
 
 /** Model-facing activation for one gated feature: an explicit MIXDOG_FEATURE_*
  *  env override (headless/bench) wins, otherwise the install marker and the
@@ -177,35 +177,4 @@ export function localGitToolsActive(configLike, { gitAvailable } = {}) {
   );
 }
 
-export function setBuiltinInstalledInConfig(configLike, id, installed = true) {
-  const next = { ...(configLike || {}) };
-  next.builtins = { ...(next.builtins || {}) };
-  if (installed === true) {
-    next.builtins[id] = { ...(next.builtins[id] || {}), installed: true };
-  } else {
-    const entry = { ...(next.builtins[id] || {}) };
-    delete entry.installed;
-    next.builtins[id] = entry;
-  }
-  return next;
-}
-
-/** Stamp or grandfather the `builtins` section on config adoption. Returns the
- *  same object when the section already exists, so callers can use identity to
- *  decide whether a persist is needed. */
-export function withGrandfatheredBuiltins(configLike) {
-  const config = configLike && typeof configLike === 'object' ? configLike : {};
-  if (config.builtins && typeof config.builtins === 'object') return config;
-  let next = { ...config, builtins: {} };
-  // User-mark keys only: a default in-memory config may carry harmless
-  // structural keys before onboarding ever writes, and must stay "fresh".
-  const existingProfile = ['presets', 'providers', 'modules', 'default', 'memoryTools', 'recap'].some(
-    (key) => config[key] !== undefined
-  );
-  if (existingProfile) {
-    for (const id of GRANDFATHERED_BUILTIN_IDS) {
-      next = setBuiltinInstalledInConfig(next, id, true);
-    }
-  }
-  return next;
-}
+export { setBuiltinInstalledInConfig, withGrandfatheredBuiltins };

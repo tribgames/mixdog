@@ -165,7 +165,9 @@ test('historical retirement runs once per history version; current-version clean
   ensureStandaloneEnvironment({ rootDir, dataDir });
   assert.equal(exists(), false, 'current-version copy still retired every start');
   // A changed history re-arms the one-time sweep.
-  writeHistory(rootDir, { agents: { worker: [hashDefinition(agentDef('Old text.')), hashDefinition(agentDef('Older.'))] } });
+  writeHistory(rootDir, {
+    agents: { worker: [hashDefinition(agentDef('Old text.')), hashDefinition(agentDef('Older.'))] },
+  });
   writeAt(join(dataDir, 'agents', 'worker', 'AGENT.md'), agentMd('Older.'));
   ensureStandaloneEnvironment({ rootDir, dataDir });
   assert.equal(exists(), false);
@@ -200,10 +202,19 @@ test('an editor no-op save of a shipped agent with extra fields is absorbed', (t
     join(rootDir, 'agents', 'worker', 'AGENT.md'),
     '---\nname: Worker\ndescription: Does work.\npermission: read-write\n---\n\nBody.\n'
   );
-  writeAt(join(rootDir, 'agents', 'worker', 'agent.json'), '{"id":"worker","name":"Worker","description":"Does work.","entry":"AGENT.md"}');
+  writeAt(
+    join(rootDir, 'agents', 'worker', 'agent.json'),
+    '{"id":"worker","name":"Worker","description":"Does work.","entry":"AGENT.md"}'
+  );
   const save = (definition) =>
     absorbSaveEqualToShipped({
-      rootDir, dataDir, dir: 'agents', id: 'worker', entry: 'AGENT.md', files: ['AGENT.md', 'agent.json'], definition,
+      rootDir,
+      dataDir,
+      dir: 'agents',
+      id: 'worker',
+      entry: 'AGENT.md',
+      files: ['AGENT.md', 'agent.json'],
+      definition,
     });
   assert.equal(save({ name: 'Worker', description: 'Does work.', body: 'Body.' }), true);
   assert.equal(existsSync(join(dataDir, 'agents', 'worker')), false);

@@ -145,7 +145,7 @@ export function openWebLinkInSystemBrowser(sessionId: string | undefined, url: s
 }
 
 /** File name offered by "Save link as": the URL's last path segment. */
-export function linkSaveName(url: string): string {
+function linkSaveName(url: string): string {
   try {
     const segment = new URL(url).pathname.split('/').filter(Boolean).at(-1) || '';
     return decodeURIComponent(segment) || 'download';
@@ -614,7 +614,7 @@ export function MarkdownLink({
   const siteFavicon = useBrowserSiteFavicon(external ? target : undefined);
   const local = link.local;
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
-  const openWebLinkExternal = () => void openWebLink(sessionId, target, true).catch(reportOpenFailure);
+  const openWebLinkExternal = () => openWebLinkInSystemBrowser(sessionId, target);
   const openMenu = (point: { x: number; y: number }) => {
     if (!local) {
       setMenu(webLinkMenu(sessionId, target, point));

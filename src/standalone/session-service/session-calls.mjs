@@ -23,10 +23,18 @@ import { createSessionViewCalls } from './session-calls/session-views.mjs';
 export function createSessionCalls(deps) {
   const { advance, currentSessionId, publishStep, bodyForClient } = deps.projection;
 
+  /** The id a response reports: the entry's immutable addressed id (what the
+   *  served snapshot describes), never a runtime id that drifted away from it.
+   *  Before the first advance there is no address yet, so the runtime id (a
+   *  fresh create/resume) is the identity. */
+  function responseSessionId(entry, fallback = '') {
+    return String(entry.addressedSessionId || currentSessionId(entry) || fallback);
+  }
+
   /** `prepend`: the caller announced transcriptPrepend (see frameBody). */
   function sessionResult(entry, step, baseRevision = null, extra = {}, { prepend = false } = {}) {
     return {
-      sessionId: currentSessionId(entry),
+      sessionId: responseSessionId(entry),
       reservedOnly: entry.reservedOnly === true,
       ...extra,
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null, prepend),
@@ -46,7 +54,7 @@ export function createSessionCalls(deps) {
     return step;
   }
 
-  const ctx = { ...deps, sessionResult, advanceForCaller };
+  const ctx = { ...deps, sessionResult, responseSessionId, advanceForCaller };
   const actions = createSessionActionCalls(ctx);
   const views = createSessionViewCalls({ ...ctx, runSessionAction: actions.runSessionAction });
   const turns = createSessionTurnCalls(ctx);

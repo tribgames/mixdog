@@ -19,6 +19,7 @@ import {
   type DesktopUpdaterState,
   MAIN_BROWSER_PAGE_PREFIX,
 } from '../shared/contract';
+import { REMOTE_BLOCKED_CAPABILITY_NAMES } from '../shared/remote-blocked-capabilities';
 import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
 import { browserParityRemoteMethods, type BrowserRemoteMethod } from './remote-browser-methods';
 import { pushRemoteMethods } from './remote-push-methods';
@@ -46,6 +47,7 @@ import {
   requiredModelSelection,
   requiredSessionContentQuery,
   requiredString,
+  optionalGithubLoginOptions,
   requiredGitGlobalConfigKey,
   requiredLspDocumentInput,
   requiredLspRequestInput,
@@ -71,7 +73,7 @@ import {
 // capabilities. Only host-internal items that make no sense remotely stay
 // refused. Media files reach a phone through the media HTTP route, which needs
 // no filesystem paths on the client.
-export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set(['resolveMediaFile']);
+export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = REMOTE_BLOCKED_CAPABILITY_NAMES;
 
 export function assertRemoteCapability(capability: string): void {
   if (REMOTE_BLOCKED_CAPABILITIES.has(capability)) {
@@ -409,11 +411,15 @@ function developerToolingRemoteMethods(invokeDesktopOperation: InvokeDesktopOper
     githubRequest: ([cwd, input]) =>
       invokeDesktopOperation('githubRequest', [requiredRepositoryCwd(cwd), validateGithubRequest(input)]),
     installGithubCli: () => invokeDesktopOperation('installGithubCli', []),
-    githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', []),
+    // A remote client opens the device page on its own browser, never the host's.
+    githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', [{ openBrowser: false }]),
     githubCliLoginStatus: ([flowId]) =>
       invokeDesktopOperation('githubCliLoginStatus', [requiredString(flowId, 'flowId', 200)]),
-    githubCliLoginOpenBrowser: ([flowId]) =>
-      invokeDesktopOperation('githubCliLoginOpenBrowser', [requiredString(flowId, 'flowId', 200)]),
+    githubCliLoginOpenBrowser: ([flowId, options]) =>
+      invokeDesktopOperation('githubCliLoginOpenBrowser', [
+        requiredString(flowId, 'flowId', 200),
+        optionalGithubLoginOptions(options),
+      ]),
     githubCliLoginCancel: ([flowId]) =>
       invokeDesktopOperation('cancelGithubCliLogin', [requiredString(flowId, 'flowId', 200)]),
     githubCliLogout: () => invokeDesktopOperation('githubCliLogout', []),

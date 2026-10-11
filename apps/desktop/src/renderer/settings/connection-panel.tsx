@@ -21,6 +21,7 @@ import { ConnRow, KindIcon } from './connection-ui';
 import { useRemoteAccessSettings } from './remote-access-settings';
 import { OpenPcDialog, savedHostOnline, useRemoteHosts } from './remote-hosts-panel';
 import { relativeWhen } from './relative-when';
+import { errorMessage } from '../editor-pane-session-errors';
 
 const CONNECTION_RETRY_MS = 2_000;
 const CONNECTION_STALLED_ATTEMPTS = 5;
@@ -82,7 +83,7 @@ function useConnectionInfoUpdates({
       void preloadConnectionInfo(api, CONNECTION_RETRY_MS).then((value) => {
         if (!live) return;
         setInfo(value);
-        if (connectionInfoReady(value) || value?.enabled === false) return;
+        if (value?.enabled === false || connectionInfoReady(value)) return;
         setStalledAttempts((count) => count + 1);
         timer = window.setTimeout(attempt, Math.max(0, CONNECTION_RETRY_MS - (Date.now() - startedAt)));
       });
@@ -153,7 +154,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     []
   );
   // A switched-off page has no relay QR, but its device list is still real.
-  const ready = Boolean(info) && (connectionInfoReady(info) || info?.enabled === false);
+  const ready = Boolean(info) && (info?.enabled === false || connectionInfoReady(info));
   const applyInfo = (next: DesktopRemoteAccessInfo | null): void => {
     setCachedConnectionInfo(api, next);
     setInfo(next);
@@ -209,7 +210,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     void Promise.resolve()
       .then(action)
       .then(refreshHosts)
-      .catch((reason) => setHostError(reason instanceof Error ? reason.message : String(reason)))
+      .catch((reason) => setHostError(errorMessage(reason)))
       .finally(() => setHostBusy(''));
   };
 
@@ -287,23 +288,33 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
           {clients.map((client) => {
             const kind = remoteClientKind(client.browser);
             const lastSeen = client.lastSeenAt ? relativeWhen(client.lastSeenAt) : t('Not used yet');
-            const status = enabled ? (client.online ? t('Online') : t('Offline')) : t('Off');
+            const status = client.pendingRemoval
+              ? t('Removing…')
+              : enabled
+                ? client.online
+                  ? t('Online')
+                  : t('Offline')
+                : t('Off');
             return (
               <ConnRow
                 key={client.id}
                 icon={<KindIcon kind={kind} />}
                 title={deviceTitle(client, kind)}
                 status={status}
-                statusTone={enabled && client.online ? 'on' : 'off'}
+                statusTone={enabled && client.online && !client.pendingRemoval ? 'on' : 'off'}
                 meta={`${deviceKindText(client, kind)} · ${lastSeen}`}
                 actions={
                   <button
                     type="button"
                     className="conn-btn conn-btn--sm"
-                    disabled={Boolean(revokingClient)}
-                    onClick={() => (confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id))}
+                    disabled={Boolean(revokingClient) || Boolean(client.pendingRemoval)}
+                    onClick={() =>
+                      confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id)
+                    }
                   >
-                    {disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
+                    {client.pendingRemoval
+                      ? t('Removing…')
+                      : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
                   </button>
                 }
               />
@@ -403,7 +414,9 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
         <RenameDialog
           title={t('This PC’s name')}
           description={t('Phones, browsers and other PCs show this name.')}
-          helper={t('Leave empty to go back to the default name ({{defaultName}}).', { defaultName: settings.defaultName })}
+          helper={t('Leave empty to go back to the default name ({{defaultName}}).', {
+            defaultName: settings.defaultName,
+          })}
           initial={settings.name}
           allowEmpty
           onSave={(name) => Promise.resolve(api.setRemotePcName?.(name)).then((value) => value && setSettings(value))}

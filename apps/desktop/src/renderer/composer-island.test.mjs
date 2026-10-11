@@ -33,7 +33,10 @@ const dockProps = (overrides = {}) => ({
 
 const publish = (snapshot) =>
   act(async () => {
-    defaultSessionLaneStore.apply({ sessionId: 'island-session', snapshot: { sessionId: 'island-session', ...snapshot } });
+    defaultSessionLaneStore.apply({
+      sessionId: 'island-session',
+      snapshot: { sessionId: 'island-session', ...snapshot },
+    });
   });
 
 test('a draft keeps its context bar; a session reserves the island slot even when empty', async (t) => {
@@ -60,7 +63,9 @@ test('a draft keeps its context bar; a session reserves the island slot even whe
 
 test('background jobs show as one segment, expand to rows, collapse on Escape and flash when done', async (t) => {
   const { root, document, window } = mount(t);
-  await publish({ shellJobs: { count: 1, jobs: [{ taskId: 'job-1', command: 'npm test', startedAt: Date.now() - 5_000 }] } });
+  await publish({
+    shellJobs: { count: 1, jobs: [{ taskId: 'job-1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
+  });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   const segment = document.querySelector('.composer-island-seg');
   assert.equal(segment.textContent, translate('Jobs {{count}}', { count: 1 }));
@@ -106,7 +111,8 @@ test('a pending approval takes over the island; a flash notice replaces any left
     )
   );
   assert.equal(document.querySelector('.approval-card'), null);
-  assert.equal(document.querySelector('.composer-island-flash').textContent, 'Resolved on another device');});
+  assert.equal(document.querySelector('.composer-island-flash').textContent, 'Resolved on another device');
+});
 
 test('a model mismatch segment offers revert and continue', async (t) => {
   const { root, document } = mount(t);
@@ -158,7 +164,13 @@ test('queued follow-up rows read icon, text, then Steer now, trash and a menu wh
   const row = document.querySelector('.queue-item');
   assert.deepEqual(
     [...row.children].map((node) => node.getAttribute('class')),
-    ['lucide lucide-corner-down-right queue-item-icon', 'queue-item-text', 'queue-steer', 'queue-remove', 'row-overflow']
+    [
+      'lucide lucide-corner-down-right queue-item-icon',
+      'queue-item-text',
+      'queue-steer',
+      'queue-remove',
+      'row-overflow',
+    ]
   );
   const text = row.querySelector('.queue-item-text');
   assert.equal(text.textContent, 'report coverage too');

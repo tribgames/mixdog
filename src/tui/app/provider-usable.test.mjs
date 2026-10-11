@@ -78,7 +78,10 @@ test('a custom provider with an invalid stored config is never ready on any TUI 
     { providers: { [id]: { ...entry, modelOverrides: { m: { contextWindow: 4096 } } } } },
     { checkSecrets: false }
   );
-  assert.equal(providerSetupHasUsableProvider({ api: fixed.api.filter((r) => r.id === id), oauth: [], local: [] }), true);
+  assert.equal(
+    providerSetupHasUsableProvider({ api: fixed.api.filter((r) => r.id === id), oauth: [], local: [] }),
+    true
+  );
 });
 
 test('/doctor reports the active route ready only per the same rule', async () => {

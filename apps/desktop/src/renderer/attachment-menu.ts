@@ -31,12 +31,14 @@ export function composerAttachmentSource(attachment: ComposerAttachment): Attach
   const { kind, name, data, mimeType } = attachment;
   if (kind === 'image') return { kind, name, dataUrl: `data:${mimeType};base64,${data}` };
   if (kind === 'text') {
-    return attachment.source === 'paste' ? { kind: 'pasted-text', name, text: data } : { kind: 'text-file', name, text: data };
+    return attachment.source === 'paste'
+      ? { kind: 'pasted-text', name, text: data }
+      : { kind: 'text-file', name, text: data };
   }
   return { kind, name, dataUrl: `data:${mimeType};base64,${data}` };
 }
 
-export function textDataUrl(text: string, mimeType = 'text/plain'): string {
+function textDataUrl(text: string, mimeType = 'text/plain'): string {
   const bytes = new TextEncoder().encode(text);
   let binary = '';
   for (let index = 0; index < bytes.length; index += 0x8000) {
@@ -50,7 +52,12 @@ export function attachmentMenuItems(
   actions: AttachmentMenuActions
 ): ScmContextMenuItem[] {
   const items: ScmContextMenuItem[] = [];
-  const add = (id: string, label: string, run: (() => Promise<unknown>) | null | undefined, report: (e: unknown) => void) => {
+  const add = (
+    id: string,
+    label: string,
+    run: (() => Promise<unknown>) | null | undefined,
+    report: (e: unknown) => void
+  ) => {
     if (run) items.push({ id, label, onSelect: () => void run().catch(report) });
   };
   const fail = (error: unknown) => actions.reportError?.(error);
@@ -71,16 +78,31 @@ export function attachmentMenuItems(
     case 'pasted-text': {
       const text = source.text;
       if (text === undefined) break;
-      add('open', t('Open'), actions.openInApp && (() => actions.openInApp!(textDataUrl(text), 'pasted-text.txt')), fail);
+      add(
+        'open',
+        t('Open'),
+        actions.openInApp && (() => actions.openInApp!(textDataUrl(text), 'pasted-text.txt')),
+        fail
+      );
       add('copy-text', t('Copy text'), actions.copyText && (() => actions.copyText!(text)), fail);
-      add('save', t('Save text as…'), actions.saveAs && (() => actions.saveAs!(textDataUrl(text), 'pasted-text.txt')), fail);
+      add(
+        'save',
+        t('Save text as…'),
+        actions.saveAs && (() => actions.saveAs!(textDataUrl(text), 'pasted-text.txt')),
+        fail
+      );
       break;
     }
     case 'text-file': {
       const text = source.text;
       if (text === undefined) break;
       add('open', t('Open'), actions.openInApp && (() => actions.openInApp!(textDataUrl(text), name)), fail);
-      add('open-default', t('Open with default app'), actions.openFile && (() => actions.openFile!(textDataUrl(text), name)), fail);
+      add(
+        'open-default',
+        t('Open with default app'),
+        actions.openFile && (() => actions.openFile!(textDataUrl(text), name)),
+        fail
+      );
       add('copy-contents', t('Copy contents'), actions.copyText && (() => actions.copyText!(text)), fail);
       add('save', t('Save file as…'), actions.saveAs && (() => actions.saveAs!(textDataUrl(text), name)), fail);
       break;
@@ -154,9 +176,7 @@ function sentKey(submissionId: string | number | undefined, token: string): stri
 }
 
 /** The non-image attachments of a submission as registry entries. */
-export function sentAttachmentData(
-  attachments: ComposerAttachment[]
-): Array<SentAttachmentData & { token: string }> {
+export function sentAttachmentData(attachments: ComposerAttachment[]): Array<SentAttachmentData & { token: string }> {
   return attachments.flatMap((attachment) =>
     attachment.kind === 'image' || !attachment.token
       ? []

@@ -44,7 +44,12 @@ test('a hidden custom model leaves the full catalog while its metadata keeps res
   };
   const caches = { providerModelsLoadSeq: 0 };
   const modelMetaByRoute = new Map();
-  const meta = createModelMetaIndex({ caches, modelMetaByRoute, reg: () => registry, scheduleProviderModelWarmup: () => {} });
+  const meta = createModelMetaIndex({
+    caches,
+    modelMetaByRoute,
+    reg: () => registry,
+    scheduleProviderModelWarmup: () => {},
+  });
   const load = createCatalogLoader({
     caches,
     config: () => ({ providers: {} }),
@@ -57,7 +62,10 @@ test('a hidden custom model leaves the full catalog while its metadata keeps res
     ensureProvidersReady: async () => {},
   });
   const rows = await load({ loadSecrets: false, request: { seq: 0 } });
-  assert.deepEqual(rows.map((row) => row.id), ['shown']);
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ['shown']
+  );
   assert.deepEqual(rows[0].reasoningLevels, []);
   assert.equal(rows[0].hidden, false);
   const secret = await meta.lookupModelMeta(provider, 'secret');
@@ -65,7 +73,7 @@ test('a hidden custom model leaves the full catalog while its metadata keeps res
   assert.deepEqual(secret.reasoningLevels, ['low']);
 });
 
-test('model metadata keeps a provider row\'s explicit [] and false', async () => {
+test("model metadata keeps a provider row's explicit [] and false", async () => {
   const registry = {
     providerCatalogRevision: () => 1,
     getProvider: () => ({

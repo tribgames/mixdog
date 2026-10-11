@@ -220,70 +220,70 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             </button>
           </div>
           <div className="session-goal-body">
-              <div className="session-goal-content">
-                <div className="session-goal-details" role="status">
-                  {/* The header shows the objective on one ellipsized line; the
+            <div className="session-goal-content">
+              <div className="session-goal-details" role="status">
+                {/* The header shows the objective on one ellipsized line; the
                     open drawer is where the full text reads, wrapped. */}
-                  {objective && <p className="session-goal-objective-full">{objective}</p>}
-                  <span>{goalStatusLabel(goal)}</span>
-                  <span>{goalTimeLabel(goal, clock)}</span>
-                </div>
-                <div className="session-goal-tasks">
-                  {tasks.length > 0 ? (
-                    <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
-                      {tasks.map((task, index) => {
-                        const taskStatus = task.status || 'pending';
-                        return (
-                          <li key={String(task.id || index)} data-status={taskStatus}>
-                            <span>
-                              <GoalTaskGlyph status={taskStatus} />
-                            </span>
-                            <div>
-                              <span>{String(task.text || '')}</span>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="session-goal-empty">{t('No tasks yet.')}</p>
-                  )}
-                </div>
-                {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
-                {error && (
-                  <p role="alert" className="session-goal-blocker">
-                    {error}
-                  </p>
-                )}
-                {confirmStop && !terminal && (
-                  // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling
-                  <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
-                    <p className="session-goal-blocker">
-                      {t('Stop this goal? Progress is kept, but it will not resume automatically.')}
-                    </p>
-                    <div className="session-goal-actions">
-                      <button
-                        type="button"
-                        className="composer-tool"
-                        disabled={pending}
-                        onClick={() => setConfirmStop(false)}
-                      >
-                        {t('Cancel')}
-                      </button>
-                      <button
-                        type="button"
-                        className="composer-tool"
-                        disabled={pending}
-                        onClick={async () => {
-                          if (await control('stop')) setConfirmStop(false);
-                        }}
-                      >
-                        {t('Confirm stop')}
-                      </button>
-                    </div>
-                  </div>
+                {objective && <p className="session-goal-objective-full">{objective}</p>}
+                <span>{goalStatusLabel(goal)}</span>
+                <span>{goalTimeLabel(goal, clock)}</span>
+              </div>
+              <div className="session-goal-tasks">
+                {tasks.length > 0 ? (
+                  <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
+                    {tasks.map((task, index) => {
+                      const taskStatus = task.status || 'pending';
+                      return (
+                        <li key={String(task.id || index)} data-status={taskStatus}>
+                          <span>
+                            <GoalTaskGlyph status={taskStatus} />
+                          </span>
+                          <div>
+                            <span>{String(task.text || '')}</span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="session-goal-empty">{t('No tasks yet.')}</p>
                 )}
               </div>
+              {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
+              {error && (
+                <p role="alert" className="session-goal-blocker">
+                  {error}
+                </p>
+              )}
+              {confirmStop && !terminal && (
+                // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling
+                <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
+                  <p className="session-goal-blocker">
+                    {t('Stop this goal? Progress is kept, but it will not resume automatically.')}
+                  </p>
+                  <div className="session-goal-actions">
+                    <button
+                      type="button"
+                      className="composer-tool"
+                      disabled={pending}
+                      onClick={() => setConfirmStop(false)}
+                    >
+                      {t('Cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-tool"
+                      disabled={pending}
+                      onClick={async () => {
+                        if (await control('stop')) setConfirmStop(false);
+                      }}
+                    >
+                      {t('Confirm stop')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             {!terminal && (
               <div className="session-goal-controls">
                 <button

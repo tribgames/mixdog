@@ -15,13 +15,14 @@ interface Stored {
 }
 
 export interface RemoteClientCache {
-  /** The last known list; every entry offline. */
+  /** The last known list; every entry offline. Devices awaiting revocation stay
+   *  listed, flagged `pendingRemoval`. */
   list(): DesktopRemoteClientInfo[];
   /** Revocations still to be applied at the relay. */
   pending(): string[];
-  /** Records what the relay reported (minus anything awaiting revocation). */
+  /** Records what the relay reported. */
   remember(clients: DesktopRemoteClientInfo[]): Promise<void>;
-  /** Drops the client now and queues its revocation for the next relay leg. */
+  /** Queues the revocation for the next relay leg; the client stays listed as pending. */
   queueRevoke(clientId: string): Promise<void>;
   /** The relay confirmed the revocation. */
   applied(clientId: string): Promise<void>;
@@ -62,19 +63,21 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
   }
   const persist = (): Promise<void> => writeSecretFile(file, JSON.stringify(state));
   return {
-    list: () => state.clients.map((client) => ({ ...client })),
+    list: () =>
+      state.clients.map((client) =>
+        state.pendingRevokes.includes(client.id) ? { ...client, pendingRemoval: true } : { ...client }
+      ),
     pending: () => [...state.pendingRevokes],
     async remember(clients) {
-      state.clients = clients.flatMap((row) => (entry(row) ?? []));
-      state.clients = state.clients.filter((client) => !state.pendingRevokes.includes(client.id));
+      state.clients = clients.flatMap((row) => entry(row) ?? []);
       await persist();
     },
     async queueRevoke(clientId) {
-      state.clients = state.clients.filter((client) => client.id !== clientId);
       if (!state.pendingRevokes.includes(clientId)) state.pendingRevokes.push(clientId);
       await persist();
     },
     async applied(clientId) {
+      state.clients = state.clients.filter((client) => client.id !== clientId);
       state.pendingRevokes = state.pendingRevokes.filter((id) => id !== clientId);
       await persist();
     },

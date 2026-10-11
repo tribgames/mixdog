@@ -15,9 +15,10 @@ import {
   parseCodeInput,
   redeemCode,
   readHostBook,
-  rememberHost,
   type HostBook,
 } from './hosts.ts';
+import { createNativeFetch } from './native-fetch.ts';
+import { openHostFlow } from './open-host.ts';
 import { originsOfBook } from './origins.ts';
 import { checkForUpdate, type AvailableUpdate } from './update.ts';
 import { nativeAppInfo } from '../../desktop/src/shared/native-app.ts';
@@ -38,18 +39,9 @@ import {
  *  different origin from the relay, and a relay without the endpoint answers
  *  without CORS headers, which the WebView would report as a network failure
  *  instead of "update the PC". */
-const relayFetch: typeof fetch = async (input, init) => {
-  if (!Capacitor.isNativePlatform()) return fetch(input, init);
-  const response = await CapacitorHttp.request({
-    url: String(input),
-    method: init?.method ?? 'GET',
-    headers: (init?.headers as Record<string, string> | undefined) ?? {},
-    data: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
-    responseType: 'text',
-  });
-  const text = typeof response.data === 'string' ? response.data : JSON.stringify(response.data ?? '');
-  return new Response(text, { status: response.status });
-};
+const nativeFetch = createNativeFetch((options) => CapacitorHttp.request(options));
+const relayFetch: typeof fetch = (input, init) =>
+  Capacitor.isNativePlatform() ? nativeFetch(input, init) : fetch(input, init);
 
 const HOSTS_KEY = 'mixdog.hosts';
 const DISMISSED_UPDATE_KEY = 'mixdog.update.dismissed';
@@ -66,6 +58,8 @@ let codeValue = '';
 let previewing = false;
 let pendingUpdate: AvailableUpdate | null = null;
 let redeeming = false;
+// Bumped by Cancel: a redemption that finishes later must not save or navigate.
+let pairingAttempt = 0;
 
 function render(): void {
   renderPairing(
@@ -73,7 +67,6 @@ function render(): void {
     { view: viewFor(ui, strings), state: ui, strings, codeValue },
     hooks
   );
-  if (ui.step === 'code') document.getElementById('code')?.focus();
 }
 
 function go(step: Step, extra: { result?: ResultKind; error?: string } = {}): void {
@@ -99,19 +92,32 @@ async function syncOrigins(): Promise<void> {
   }
 }
 
-async function openHost(url: string, redeemed?: { name: string; ticket: string }): Promise<void> {
-  const link = extractPairingLink(url);
-  if (!link) return;
-  book = rememberHost(book, link, Date.now(), redeemed?.name);
-  await saveBook();
-  await syncOrigins();
-  if (redeemed) {
-    ui = { ...ui, pc: redeemed.name || undefined };
-    go('waiting');
-  }
-  // The one-time ticket rides the fragment (never sent to the relay with the
-  // page request); the relay web app uses it for its first claim.
-  window.location.href = redeemed ? `${link.url}#pair=${redeemed.ticket}${redeemed.name ? `&host=${encodeURIComponent(redeemed.name)}` : ''}` : link.url;
+async function openHost(
+  url: string,
+  redeemed?: { name: string; ticket: string },
+  attempt?: number
+): Promise<void> {
+  await openHostFlow(
+    {
+      getBook: () => book,
+      setBook: (next) => {
+        book = next;
+      },
+      saveBook,
+      syncOrigins,
+      isCurrent: () => attempt === undefined || attempt === pairingAttempt,
+      onRedeemed: (name) => {
+        ui = { ...ui, pc: name || undefined };
+        go('waiting');
+      },
+      navigate: (target) => {
+        window.location.href = target;
+      },
+      now: Date.now,
+    },
+    url,
+    redeemed
+  );
 }
 
 /** Code entry: redeem at the relay, then open the host, which asks the PC
@@ -120,13 +126,15 @@ async function connectWithCode(): Promise<void> {
   const code = parseCodeInput(codeValue);
   if (!code || redeeming) return;
   redeeming = true;
+  const attempt = ++pairingAttempt;
   // Immediate pending state: input and button wait for the one redemption.
   ui = { ...ui, busy: true };
   render();
   try {
     const result = await redeemCode(DEFAULT_RELAY_ORIGIN, code, relayFetch);
+    if (attempt !== pairingAttempt) return;
     if (result.ok) {
-      await openHost(result.link.url, { name: result.name, ticket: result.ticket });
+      await openHost(result.link.url, { name: result.name, ticket: result.ticket }, attempt);
     } else if (result.reason === 'invalid') {
       go('code', { error: strings.codeInvalid });
     } else if (result.reason === 'rate-limited') {
@@ -137,8 +145,10 @@ async function connectWithCode(): Promise<void> {
       go('result', { result: 'network-error' });
     }
   } finally {
-    redeeming = false;
-    ui = { ...ui, busy: false };
+    if (attempt === pairingAttempt) {
+      redeeming = false;
+      ui = { ...ui, busy: false };
+    }
   }
 }
 
@@ -205,6 +215,8 @@ function onAction(id: Action['id']): void {
       break;
     case 'cancel':
       if (ui.step === 'waiting' || ui.step === 'waiting-offline') window.stop();
+      pairingAttempt += 1;
+      redeeming = false;
       go('start');
       break;
     case 'retry':

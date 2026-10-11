@@ -1,7 +1,14 @@
-// Desktop-leg handlers for native push. A token is an address the relay will
-// deliver to, so it is only ever sent to by the desktop that bound it to one of
-// ITS OWN paired clients: the binding (token -> deviceId/clientId) is made over
-// the authenticated leg and checked against the device store on every send.
+// Desktop-leg handlers for native push. A token is a delivery destination, not
+// something one desktop owns: one phone paired with several PCs hands the same
+// installation token to each of them. Every desktop therefore holds its OWN
+// association (token -> {deviceId, clientId, platform}), made over its
+// authenticated leg for one of ITS OWN paired clients and checked against the
+// device store on every send. A desktop sends only through an association it
+// holds, and unbind/revoke only ever removes that desktop's associations.
+//
+// Shape: Map<token, Map<associationKey, { deviceId, clientId, platform }>>.
+// The single-binding shape (Map<token, { deviceId, clientId, platform }>) is
+// still read: it is upgraded in place the first time its token is touched.
 import { MAX_MX_CHARS, NATIVE_PUSH_REASONS, validNativeToken } from './native-push.mjs';
 
 const MAX_NATIVE_BINDINGS_PER_DEVICE = 64;
@@ -11,12 +18,36 @@ export function nativePushPlatforms(leg) {
   return leg.nativePush?.platforms ?? [];
 }
 
+const associationKey = (deviceId, clientId) => `${deviceId}\n${clientId}`;
+
+/** The associations held for one token, upgrading a single-binding entry. */
+function associationsOf(bindings, token) {
+  const entry = bindings.get(token);
+  if (!entry || entry instanceof Map) return entry;
+  const upgraded = new Map([[associationKey(entry.deviceId, entry.clientId), entry]]);
+  bindings.set(token, upgraded);
+  return upgraded;
+}
+
+/** Removes the associations of `deviceId` (optionally one client, optionally
+ *  one token) and forgets tokens nobody is associated with any more. */
+function dropAssociations(bindings, deviceId, { clientId = null, token = null } = {}) {
+  for (const key of token === null ? [...bindings.keys()] : [token]) {
+    const associations = associationsOf(bindings, key);
+    if (!associations) continue;
+    for (const [id, association] of associations) {
+      if (association.deviceId === deviceId && (clientId === null || association.clientId === clientId)) {
+        associations.delete(id);
+      }
+    }
+    if (associations.size === 0) bindings.delete(key);
+  }
+}
+
 /** Forgets every binding a revoked client (or device) could still send to. */
 export function dropNativeBindings(bindings, deviceId, clientId = null) {
   if (!bindings) return;
-  for (const [token, binding] of bindings) {
-    if (binding.deviceId === deviceId && (clientId === null || binding.clientId === clientId)) bindings.delete(token);
-  }
+  dropAssociations(bindings, deviceId, { clientId });
 }
 
 function owns(store, deviceId, clientId) {
@@ -29,20 +60,27 @@ export function bindNativeToken(leg, message) {
   const { platform, token, clientId } = message;
   if (!nativePushPlatforms(leg).includes(platform) || !validNativeToken(platform, token)) return;
   if (!owns(store, deviceId, clientId)) return;
-  const existing = nativeBindings.get(token);
-  // First owner wins while its client is still paired; a stale binding (its
-  // client was unpaired) may be taken over by whoever the phone paired with next.
-  if (existing && existing.deviceId !== deviceId && owns(store, existing.deviceId, existing.clientId)) return;
-  if (!existing || existing.deviceId !== deviceId) {
+  const key = associationKey(deviceId, clientId);
+  const associations = associationsOf(nativeBindings, token);
+  if (!associations?.has(key)) {
     let mine = 0;
-    for (const binding of nativeBindings.values()) if (binding.deviceId === deviceId) mine += 1;
+    for (const other of [...nativeBindings.keys()]) {
+      for (const association of associationsOf(nativeBindings, other).values()) {
+        if (association.deviceId === deviceId) mine += 1;
+      }
+    }
     if (mine >= MAX_NATIVE_BINDINGS_PER_DEVICE) return;
   }
-  nativeBindings.set(token, { deviceId, clientId, platform });
+  if (associations) associations.set(key, { deviceId, clientId, platform });
+  else nativeBindings.set(token, new Map([[key, { deviceId, clientId, platform }]]));
 }
 
+// `clientId` is optional: without it (older desktops) every association THIS
+// desktop holds for the token goes; another desktop's never does.
 export function unbindNativeToken({ deviceId, nativeBindings }, message) {
-  if (nativeBindings?.get(message.token)?.deviceId === deviceId) nativeBindings.delete(message.token);
+  if (!nativeBindings || typeof message.token !== 'string') return;
+  const clientId = typeof message.clientId === 'string' ? message.clientId : null;
+  dropAssociations(nativeBindings, deviceId, { clientId, token: message.token });
 }
 
 export function sendNativePush(leg, message) {
@@ -63,13 +101,14 @@ export function sendNativePush(leg, message) {
     reply({ ok: false, error: 'invalid-message' });
     return;
   }
-  const binding = nativeBindings.get(token);
-  if (
-    !binding ||
-    binding.deviceId !== deviceId ||
-    binding.platform !== platform ||
-    !owns(store, deviceId, binding.clientId)
-  ) {
+  const associations = associationsOf(nativeBindings, token);
+  const bound = [...(associations?.values() ?? [])].some(
+    (association) =>
+      association.deviceId === deviceId &&
+      association.platform === platform &&
+      owns(store, deviceId, association.clientId)
+  );
+  if (!bound) {
     reply({ ok: false, error: 'unbound-token' });
     return;
   }
@@ -87,7 +126,9 @@ export function sendNativePush(leg, message) {
       sandbox: typeof message.sandbox === 'boolean' ? message.sandbox : undefined,
     })
     .then((result) => {
-      if (result.invalid) nativeBindings.delete(token);
+      // Only the sender's associations go: every other desktop learns the
+      // token is dead from its own send and cleans up its own store.
+      if (result.invalid) dropAssociations(nativeBindings, deviceId, { token });
       reply({
         ok: result.ok,
         ...(result.status ? { status: result.status } : {}),

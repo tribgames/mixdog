@@ -22,7 +22,11 @@ import { createRemoteBrowserInputQueue } from './remote-browser-input';
 import { createRemoteBrowserInputClient, type RemoteInputFrame } from './remote-browser-input-client';
 import { createRemoteTouchController } from './remote-browser-touch';
 import { useBrowserPageInput } from './use-browser-page-input';
-import { REMOTE_CONNECTION_READY_EVENT, useRemoteBrowserStream, type StreamFrameMeta } from './use-remote-browser-stream';
+import {
+  REMOTE_CONNECTION_READY_EVENT,
+  useRemoteBrowserStream,
+  type StreamFrameMeta,
+} from './use-remote-browser-stream';
 import { useRemoteBrowserTabs } from './use-remote-browser-tabs';
 import { readBrowserZoom, stepBrowserZoom, writeBrowserZoom } from './browser-zoom-level';
 import { BrowserZoomPill } from './BrowserZoomPill';

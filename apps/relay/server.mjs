@@ -31,6 +31,9 @@ import { createRendererReadiness } from './lib/renderer-readiness.mjs';
 import { createRendererCatalog } from './lib/renderer-releases.mjs';
 import { RateLimiter } from './lib/rate-limit.mjs';
 import { createNativePush } from './lib/native-push.mjs';
+import { createWebPushRegistry, createWebPushSender, loadOrCreateVapidKeys } from './lib/web-push.mjs';
+import { webPushSubscriptionsFrame } from './lib/web-push-legs.mjs';
+import { handleWebPushRequest, isWebPushRequest } from './lib/web-push-http.mjs';
 import { DeviceStore, readDeviceCredentials } from './lib/device-store.mjs';
 import {
   INGRESS_FREE_WINDOW_BYTES,
@@ -116,6 +119,31 @@ const UNAUTHORIZED_RATE_LIMIT = 60;
 const UNAUTHORIZED_RATE_WINDOW_MS = 60_000;
 const NATIVE_PUSH_RATE_LIMIT = 120;
 const NATIVE_PUSH_RATE_WINDOW_MS = 60_000;
+const WEB_PUSH_RATE_LIMIT = 240;
+const WEB_PUSH_RATE_WINDOW_MS = 60_000;
+// Register / unregister per browser credential: a browser states its
+// subscription once per launch per PC, so this only bounds a misbehaving one.
+const WEB_PUSH_MUTATION_LIMIT = 20;
+const WEB_PUSH_MUTATION_WINDOW_MS = 60_000;
+
+/** Relay-owned Web Push (lib/web-push.mjs), or null when no identity could be
+ *  loaded or minted: desktops then keep their legacy direct send. */
+function createRelayWebPush(relay, dataDir, fetchImpl) {
+  const keys = loadOrCreateVapidKeys(resolve(dataDir));
+  if (!keys) return null;
+  return {
+    publicKey: keys.publicKey,
+    registry: createWebPushRegistry({ dataDir: resolve(dataDir) }),
+    sender: createWebPushSender({ keys, ...(fetchImpl ? { fetchImpl } : {}) }),
+    limiter: new RateLimiter(WEB_PUSH_RATE_LIMIT, WEB_PUSH_RATE_WINDOW_MS),
+    mutationLimiter: new RateLimiter(WEB_PUSH_MUTATION_LIMIT, WEB_PUSH_MUTATION_WINDOW_MS),
+    /** Tell a live PC its current set after it changed. */
+    publish(deviceId) {
+      const entry = relay.liveDesktops.get(deviceId);
+      if (entry?.socket) sendJson(entry.socket, webPushSubscriptionsFrame(this, relay.store, deviceId));
+    },
+  };
+}
 
 // Configuration enters the relay HERE, and is normalised HERE, once. Every
 // later reader takes this number, so no path can reach the raw option and no
@@ -155,6 +183,7 @@ function createRelayState({
     nativeLimiter: new RateLimiter(NATIVE_PUSH_RATE_LIMIT, NATIVE_PUSH_RATE_WINDOW_MS),
     nativeBindings: new Map(),
     nativePush: null,
+    webPush: null,
     // Per-device renderer releases (see lib/renderer-releases.mjs). With no
     // registry in rendererReleasesDir this is the single rendererDir.
     renderer: createRendererCatalog({ rendererDir, releasesDir: rendererReleasesDir }),
@@ -230,6 +259,8 @@ export async function startRelay({
   // feedbackEnv; `nativePush` injects a delivery service in tests.
   nativePushEnv = {},
   nativePush = null,
+  // Test injection for the push service the relay posts Web Push to.
+  webPushFetch = null,
 } = {}) {
   const feedback = await createFeedbackService({
     dataDir: resolve(dataDir),
@@ -252,6 +283,7 @@ export async function startRelay({
   });
   relay.feedback = feedback;
   relay.nativePush = nativePush ?? createNativePush({ env: nativePushEnv });
+  relay.webPush = createRelayWebPush(relay, dataDir, webPushFetch);
   const server = createListener(guardedHttpHandler(relay), tlsCert, tlsKey);
   relay.wss = new WebSocketServer({
     noServer: true,
@@ -362,6 +394,13 @@ function routeRequest(relay, request, response) {
   }
   if (url.split('?')[0] === '/connect') {
     sendConnectPage(request, response);
+    return;
+  }
+  // Relay-owned Web Push: the sender key and per-PC subscription associations.
+  if (isWebPushRequest(url)) {
+    handleWebPushRequest({ webPush: relay.webPush, store, unauthorizedLimiter }, request, response).catch(
+      failRequest(request, response, 'web push')
+    );
     return;
   }
   if (url.startsWith('/client/register')) {
@@ -502,6 +541,7 @@ function upgradeDesktopLeg(relay, request, rawSocket, head) {
         nativePush: relay.nativePush?.platforms.length ? relay.nativePush : null,
         nativeBindings: relay.nativeBindings,
         nativeLimiter: relay.nativeLimiter,
+        webPush: relay.webPush,
         maxFrameBytes: relay.maxFrameBytes,
         ingress: relay.legIngress,
         rawSocket,

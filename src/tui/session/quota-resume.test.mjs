@@ -107,6 +107,11 @@ test('transcript helpers mirror the desktop retry semantics', () => {
   assert.equal(failedTurnRetryPrompt(failedTurn(), 'turn:u1'), 'build the parser');
   assert.equal(failedTurnRetryPrompt(failedTurn({ sampled: true }), 'turn:u1'), RETRY_CONTINUE_INSTRUCTION);
   assert.equal(failedTurnRetryPrompt(failedTurn({ text: '', images: [{ token: 'img' }] }), 'turn:u1'), null);
+  assert.equal(failedTurnRetryPrompt(failedTurn({ images: [{ token: 'img' }] }), 'turn:u1'), null);
+  assert.equal(
+    failedTurnRetryPrompt(failedTurn({ images: [{ token: 'img' }], sampled: true }), 'turn:u1'),
+    RETRY_CONTINUE_INSTRUCTION
+  );
 });
 
 test('a quota failure with a known reset schedules a resume while the setting is on', (t) => {

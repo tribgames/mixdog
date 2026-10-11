@@ -60,7 +60,13 @@ export function createPairCodeManager(deps: {
   const live = (): PairCodeState | null => (current && current.expiresAt > now() ? current : null);
   const request = (): void => {
     const lease = newLease();
-    if (deps.sendEnvelope({ type: 'pair-code-request', lease, name: typeof deps.hostName === 'function' ? deps.hostName() : deps.hostName })) {
+    if (
+      deps.sendEnvelope({
+        type: 'pair-code-request',
+        lease,
+        name: typeof deps.hostName === 'function' ? deps.hostName() : deps.hostName,
+      })
+    ) {
       pending = { lease, at: now() };
     }
   };

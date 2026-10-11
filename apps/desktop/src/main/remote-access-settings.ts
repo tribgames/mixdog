@@ -52,12 +52,14 @@ export function createRemoteAccessSettingsStore(
   });
   let writes: Promise<unknown> = Promise.resolve();
   const update = (patch: StoredSettings): Promise<DesktopRemoteAccessSettings> => {
-    const run = writes.catch(() => undefined).then(async () => {
-      const next = { ...(await load()), ...patch };
-      if (!next.name) delete next.name;
-      await writeSecretFile(file, JSON.stringify(next));
-      return view(next);
-    });
+    const run = writes
+      .catch(() => undefined)
+      .then(async () => {
+        const next = { ...(await load()), ...patch };
+        if (!next.name) delete next.name;
+        await writeSecretFile(file, JSON.stringify(next));
+        return view(next);
+      });
     writes = run;
     return run;
   };
@@ -65,6 +67,11 @@ export function createRemoteAccessSettingsStore(
     read: async () => view(await load()),
     disabled: async () => (await load()).enabled === false,
     setEnabled: (enabled) => update({ enabled: enabled === true }),
-    setName: (name) => update({ name: String(name ?? '').trim().slice(0, MAX_REMOTE_PC_NAME_LENGTH) }),
+    setName: (name) =>
+      update({
+        name: String(name ?? '')
+          .trim()
+          .slice(0, MAX_REMOTE_PC_NAME_LENGTH),
+      }),
   };
 }

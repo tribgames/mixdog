@@ -87,14 +87,12 @@ test('main tab: breadcrumbs + Save (dirty only) + ⋯ on top; toggle/status/prob
     language: 'TypeScript',
   };
   const footer = renderToStaticMarkup(React.createElement(SideFileStatusRow, { chrome }));
-  assert.equal(footer.includes('view-toggle') || footer.includes('editor-view-switch'), false, 'one switch: in the header');
-  for (const part of [
-    'side-file-status-problems',
-    '>3<',
-    '>2:1<',
-    'TypeScript',
-    'aria-label="Go to Line/Column"',
-  ])
+  assert.equal(
+    footer.includes('view-toggle') || footer.includes('editor-view-switch'),
+    false,
+    'one switch: in the header'
+  );
+  for (const part of ['side-file-status-problems', '>3<', '>2:1<', 'TypeScript', 'aria-label="Go to Line/Column"'])
     assert.ok(footer.includes(part), part);
   assert.equal(
     sideFileHasFooter({ editable: false, dirty: false, saving: false }),
@@ -169,7 +167,10 @@ test('main tab header: Preview | Rich | Source switch, outline toggle and side p
     ['Table', 'false'],
     ['Source', 'true'],
   ]);
-  assert.equal(renderToStaticMarkup(React.createElement(EditorBreadcrumbs, base)).includes('editor-view-switch'), false);
+  assert.equal(
+    renderToStaticMarkup(React.createElement(EditorBreadcrumbs, base)).includes('editor-view-switch'),
+    false
+  );
 });
 
 test('main ⋯ menu holds Reveal, Revert (dirty) and the extra actions; previews add Open in default app', async () => {

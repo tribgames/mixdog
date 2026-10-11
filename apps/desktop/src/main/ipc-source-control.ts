@@ -24,6 +24,7 @@ import {
   requiredGitPath,
   requiredGitPaths,
   requiredString,
+  optionalGithubLoginOptions,
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
@@ -90,12 +91,11 @@ function registerGitToolingIpc({ handle, operations }: SourceControlRegistration
   handle(DESKTOP_IPC.installGitCli, () => installGitCli());
   handle(DESKTOP_IPC.githubCliStatus, () => githubCliStatus());
   handle(DESKTOP_IPC.installGithubCli, () => installGithubCli());
-  handle(DESKTOP_IPC.githubCliLoginStart, () => githubCliLoginStart());
-  handle(DESKTOP_IPC.githubCliLoginStatus, (_event, flowId) =>
+  handle(DESKTOP_IPC.githubCliLoginStart, () => githubCliLoginStart());  handle(DESKTOP_IPC.githubCliLoginStatus, (_event, flowId) =>
     githubCliLoginStatus(requiredString(flowId, 'flowId', 200))
   );
-  handle(DESKTOP_IPC.githubCliLoginOpenBrowser, (_event, flowId) =>
-    githubCliLoginOpenBrowser(requiredString(flowId, 'flowId', 200))
+  handle(DESKTOP_IPC.githubCliLoginOpenBrowser, (_event, flowId, options) =>
+    githubCliLoginOpenBrowser(requiredString(flowId, 'flowId', 200), optionalGithubLoginOptions(options))
   );
   handle(DESKTOP_IPC.githubCliLoginCancel, (_event, flowId) =>
     cancelGithubCliLogin(requiredString(flowId, 'flowId', 200))

@@ -31,8 +31,7 @@ test('spawned agent session receives contextPercent, selectedContextWindow and m
   const spec = { preset };
   const expected = { preset, contextPercent: 40, selectedContextWindow: 40000 };
 
-  // createSpawnedSession is internal; reach it through the exported preparer's
-  // sessionSurface/local branches.
+  // Covers both the canonical-surface and the local branch.
   const created = [];
   const surface = {
     canonical: true,

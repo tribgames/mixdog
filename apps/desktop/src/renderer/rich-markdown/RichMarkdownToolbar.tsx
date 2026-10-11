@@ -52,7 +52,7 @@ function ToolButton({
       className="rich-markdown-tool"
       aria-label={label}
       title={shortcut ? `${label} (${shortcut})` : label}
-      aria-pressed={active === undefined ? undefined : active}
+      aria-pressed={active}
       disabled={disabled}
       // Keeps the editor's selection: the button never takes focus on press.
       onMouseDown={(event) => event.preventDefault()}

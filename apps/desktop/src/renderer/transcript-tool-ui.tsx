@@ -862,16 +862,11 @@ function renderToolActivityFields(presentation: ToolActivityPresentation) {
 
 // Every detail section a tool item can carry: command output, structured rows,
 // a preview, a before/after replacement, arguments, a diff, and plain output.
-function renderToolActivityDetails(
-  full: ToolActivityPresentation,
-  contentId: string,
-  onShowMore: (() => void) | null
-) {
+function renderToolActivityDetails(full: ToolActivityPresentation, contentId: string, onShowMore: (() => void) | null) {
   const mode = onShowMore ? toolActivityPreviewMode(full) : null;
   const capped = mode === 'height' ? capPresentation(full) : null;
   const presentation = capped ? capped.view : full;
-  const output =
-    mode === 'lines' ? previewOutputLines(full.outputText) : { text: presentation.outputText, hidden: 0 };
+  const output = mode === 'lines' ? previewOutputLines(full.outputText) : { text: presentation.outputText, hidden: 0 };
   return (
     <div className="tool-activity-item-body" id={contentId}>
       <ToolActivityPreview

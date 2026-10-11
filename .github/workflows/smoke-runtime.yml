@@ -22,11 +22,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: smoke-runtime-${{ inputs.tag || github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   negative:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     name: negative-${{ matrix.os }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     container: ${{ matrix.container }}
     strategy:
       fail-fast: false

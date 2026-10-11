@@ -370,8 +370,7 @@ export function ComposerIsland({
   else if (quotaExhausted || expanded) mode = 'panel';
   const resumePanel = mode === 'panel' && expanded === 'resume' && Boolean(quotaResume);
   const quotaPanel = mode === 'panel' && Boolean(quotaExhausted) && !quotaResume;
-  const ownPanel =
-    quotaPanel || resumePanel || (mode === 'panel' && (expanded === 'jobs' || expanded === 'model'));
+  const ownPanel = quotaPanel || resumePanel || (mode === 'panel' && (expanded === 'jobs' || expanded === 'model'));
   const context = useMemo(() => ({ expanded, setExpanded }), [expanded]);
 
   return (

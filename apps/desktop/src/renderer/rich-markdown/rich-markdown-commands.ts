@@ -133,7 +133,7 @@ export function filterBlockCommands(
 }
 
 /** Common GitHub shortcodes. */
-export const RICH_MARKDOWN_EMOJI: ReadonlyArray<readonly [string, string]> = [
+const RICH_MARKDOWN_EMOJI: ReadonlyArray<readonly [string, string]> = [
   ['smile', '😄'],
   ['grin', '😁'],
   ['joy', '😂'],

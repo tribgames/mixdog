@@ -119,10 +119,8 @@ export async function applyParsedWave({ parsed: allParsed, entries: allEntries, 
       !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath) &&
       !needsJsWriter(parsedEntryResolvedPath(entry, basePath), classifyEntry(entry))
   );
-  let executor = 'native-patch';
-  if (jsEntries.length > 0 || nativeEntries.length === 0) {
-    executor = nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch';
-  }
+  let executor = nativeEntries.length > 0 ? 'native-patch' : 'js-patch';
+  if (jsEntries.length > 0 && nativeEntries.length > 0) executor = 'native+js-patch';
   const resultParts = [];
   if (nativeEntries.length > 0) {
     const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), whr);

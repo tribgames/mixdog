@@ -38,14 +38,15 @@ html,body{margin:0;background:#0e0e0e}
 (function () {
   var ko = (navigator.language || '').toLowerCase().indexOf('ko') === 0;
   var T = ko
-    ? { heading: 'PC에 연결', note: 'PC의 Mixdog에서 설정 > 연결 > 웹으로 이동해 코드를 확인하세요.', go: '연결', busy: '연결 중…', fine: '알림을 받으려면 Mixdog 앱을 사용하세요.', bad: '코드가 올바르지 않거나 만료되었습니다.', wait: function (s) { return '시도가 너무 많습니다. ' + s + '초 뒤에 다시 시도하세요.'; }, net: '연결하지 못했습니다. 인터넷 연결을 확인하세요.' }
-    : { heading: 'Connect to PC', note: 'On your PC, go to Mixdog Settings > Connection > Web to get the code.', go: 'Connect', busy: 'Connecting…', fine: 'To get notifications, use the Mixdog app.', bad: 'The code is wrong or has expired.', wait: function (s) { return 'Too many attempts. Try again in ' + s + ' seconds.'; }, net: 'Could not connect. Check your internet connection.' };
+    ? { heading: 'PC에 연결', note: 'PC의 Mixdog에서 설정 > 연결 > 웹으로 이동해 코드를 확인하세요.', go: '연결', busy: '연결 중…', fine: 'iPhone에서는 아직 알림을 받을 수 없습니다.', bad: '코드가 올바르지 않거나 만료되었습니다.', wait: function (s) { return '시도가 너무 많습니다. ' + s + '초 뒤에 다시 시도하세요.'; }, net: '연결하지 못했습니다. 인터넷 연결을 확인하세요.' }
+    : { heading: 'Connect to PC', note: 'On your PC, go to Mixdog Settings > Connection > Web to get the code.', go: 'Connect', busy: 'Connecting…', fine: 'Notifications aren’t available on iPhone yet.', bad: 'The code is wrong or has expired.', wait: function (s) { return 'Too many attempts. Try again in ' + s + ' seconds.'; }, net: 'Could not connect. Check your internet connection.' };
   document.documentElement.lang = ko ? 'ko' : 'en';
   var $ = function (id) { return document.getElementById(id); };
   $('heading').textContent = T.heading;
   $('note').textContent = T.note;
   $('go').textContent = T.go;
-  $('fine').textContent = T.fine;
+  var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+  $('fine').textContent = ios ? T.fine : '';
   var input = $('code');
   var digits = function () { return input.value.replace(/\\D/g, '').slice(0, 6); };
   var boxes = document.querySelectorAll('#otp .mxp-digit');

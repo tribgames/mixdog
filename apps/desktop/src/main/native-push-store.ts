@@ -94,17 +94,25 @@ export function createNativePushStore(userDataPath: string): NativePushStore {
     loaded ??= readSecretFile(path).then(readStored);
     return loaded;
   };
-  const persist = async (subscriptions: NativePushSubscription[]): Promise<void> => {
-    loaded = Promise.resolve(subscriptions);
-    await writeSecretFile(path, JSON.stringify({ version: 1, subscriptions }, null, 2));
+  let queue: Promise<unknown> = Promise.resolve();
+  // Serializes read -> modify -> persist; in-memory state is published only after the write succeeds.
+  const mutate = <T>(change: (current: NativePushSubscription[]) => { next: NativePushSubscription[] | null; result: T }): Promise<T> => {
+    const run = queue.then(async () => {
+      const { next, result } = change(await state());
+      if (next) {
+        await writeSecretFile(path, JSON.stringify({ version: 1, subscriptions: next }, null, 2));
+        loaded = Promise.resolve(next);
+      }
+      return result;
+    });
+    queue = run.catch(() => undefined);
+    return run;
   };
-  const dropWhere = async (drop: (row: NativePushSubscription) => boolean): Promise<boolean> => {
-    const current = await state();
-    const kept = current.filter((row) => !drop(row));
-    if (kept.length === current.length) return false;
-    await persist(kept);
-    return true;
-  };
+  const dropWhere = (drop: (row: NativePushSubscription) => boolean): Promise<boolean> =>
+    mutate((current) => {
+      const kept = current.filter((row) => !drop(row));
+      return kept.length === current.length ? { next: null, result: false } : { next: kept, result: true };
+    });
 
   return {
     list: async () => [...(await state())],
@@ -113,11 +121,11 @@ export function createNativePushStore(userDataPath: string): NativePushStore {
       if (!clientId) throw new TypeError('Native push needs a paired client.');
       const valid = validNativePushInput(input);
       const entry: NativePushSubscription = { clientId, ...valid, createdAt: Date.now() };
-      const current = await state();
-      // One registration per paired client; a token moves to its latest owner.
-      const kept = current.filter((row) => row.clientId !== clientId && row.token !== entry.token);
-      await persist([...kept, entry].slice(-MAX_SUBSCRIPTIONS));
-      return entry;
+      return mutate((current) => {
+        // One registration per paired client; a token moves to its latest owner.
+        const kept = current.filter((row) => row.clientId !== clientId && row.token !== entry.token);
+        return { next: [...kept, entry].slice(-MAX_SUBSCRIPTIONS), result: entry };
+      });
     },
     remove: (clientId, token) => dropWhere((row) => row.clientId === clientId && (!token || row.token === token)),
     removeToken: (token) => dropWhere((row) => row.token === token),

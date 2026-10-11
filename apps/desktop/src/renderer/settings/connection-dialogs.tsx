@@ -10,6 +10,7 @@ import { acquireTitleBarDim } from '../titlebar-dim';
 import type { CapabilityApi } from './capability-data';
 import { ConnRow, KindIcon } from './connection-ui';
 import { AddressRow, PairCodeBlock, usePairCode } from './pair-code';
+import { errorMessage } from '../editor-pane-session-errors';
 
 const FOCUSABLE = 'button:not(:disabled), input:not(:disabled)';
 
@@ -137,13 +138,17 @@ function ConnectBody({
         ) : (
           <div className="conn-qr conn-qr--loading" role="status" aria-busy="true" aria-label={t('Getting ready')} />
         )}
-        <Steps items={[t('Open the Mixdog app'), t('Tap Scan QR code'), t('Scan this QR code')]} />
+        <Steps items={[t('Scan this QR code with your phone camera'), t('Open the page and connect')]} />
       </div>
     );
   } else if (segment === 'phone') {
     content = (
       <>
-        <Steps items={[t('Tap Connect with a code'), t('Enter this code')]} />
+        <div className="conn-stack">
+          <Steps items={[t('Open this address in your phone browser')]} />
+          {address && <AddressRow address={address} />}
+        </div>
+        <Steps start={2} items={[t('Enter this code')]} />
         <PairCodeBlock pair={codePair} />
       </>
     );
@@ -180,13 +185,7 @@ function ConnectBody({
   );
 }
 
-function ClaimBody({
-  claim,
-  error,
-}: {
-  claim: ReturnType<typeof useClaimQueue>[number];
-  error: string;
-}) {
+function ClaimBody({ claim, error }: { claim: ReturnType<typeof useClaimQueue>[number]; error: string }) {
   const shown = claimDisplay(claim);
   const method = claim.method === 'code' ? t('Code') : claim.method === 'retry' ? t('Retry request') : t('QR code');
   const time = new Date(claim.requestedAt ?? Date.now()).toLocaleTimeString(uiFormatLocale(), {
@@ -259,7 +258,7 @@ export function ConnectDeviceDialog({
       const shown = claimDisplay(claim);
       setAllowed(handled && approved ? { name: shown.name, type: shown.kindText } : null);
     } catch (reason) {
-      setAnswerError({ claimId: claim.claimId, reason: reason instanceof Error ? reason.message : String(reason) });
+      setAnswerError({ claimId: claim.claimId, reason: errorMessage(reason) });
     } finally {
       answeringRef.current = false;
       setAnswering(false);
@@ -285,7 +284,12 @@ export function ConnectDeviceDialog({
             <button type="button" className="conn-btn" disabled={answering} onClick={() => void answer(false)}>
               {t('Deny')}
             </button>
-            <button type="button" className="conn-btn conn-btn--primary" disabled={answering} onClick={() => void answer(true)}>
+            <button
+              type="button"
+              className="conn-btn conn-btn--primary"
+              disabled={answering}
+              onClick={() => void answer(true)}
+            >
               {t('Allow')}
             </button>
           </>
@@ -436,7 +440,7 @@ export function RenameDialog({
     void onSave(trimmed)
       .then(onClose)
       .catch((reason) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
         setSaving(false);
       });
   };

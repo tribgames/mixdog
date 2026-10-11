@@ -50,7 +50,10 @@ test('a remembered mode beats the setting, survives a reload, and is bounded', (
   assert.equal(store.readRememberedViewMode('C:/p/a.md'), null, 'the oldest path was forgotten');
   assert.equal(store.readRememberedViewMode('C:/p/0.md'), null);
   assert.equal(store.readRememberedViewMode(`C:/p/${store.EDITOR_VIEW_MODE_LIMIT + 4}.md`), 'rich');
-  assert.equal(JSON.parse(window.localStorage.getItem('mixdog.desktop.editor-view-modes.v1')).length, store.EDITOR_VIEW_MODE_LIMIT);
+  assert.equal(
+    JSON.parse(window.localStorage.getItem('mixdog.desktop.editor-view-modes.v1')).length,
+    store.EDITOR_VIEW_MODE_LIMIT
+  );
 });
 
 test('General control writes the user setting that the editor reads back', async () => {
@@ -143,12 +146,11 @@ test('outline: heading slugs, dedupe, anchor lookup, and ids assigned for #links
 
 test('a side preview tab is flagged, pinned and never a preview tab', async () => {
   const { planSideFileOpen } = await import('./side-file-tabs.ts');
-  const plan = planSideFileOpen(
-    { files: [], active: null },
-    { project: 'C:/p', rel: 'a.md' },
-    1,
-    { preview: false, sidePreview: true, now: 5 }
-  );
+  const plan = planSideFileOpen({ files: [], active: null }, { project: 'C:/p', rel: 'a.md' }, 1, {
+    preview: false,
+    sidePreview: true,
+    now: 5,
+  });
   assert.equal(plan.files[0].sidePreview, true);
   assert.equal(plan.files[0].preview, undefined);
   const again = planSideFileOpen({ files: plan.files, active: plan.active }, { project: 'C:/p', rel: 'a.md' }, 2);
@@ -166,7 +168,15 @@ test('a side preview tab is flagged, pinned and never a preview tab', async () =
     openMainTab: (...args) => opened.push(['main', ...args]),
   });
   guard.openPreviewToSide('l', 'C:/p', 'a.md');
-  assert.deepEqual(opened[0], ['l', 'C:/p', 'a.md', undefined, undefined, undefined, { preview: false, sidePreview: true }]);
+  assert.deepEqual(opened[0], [
+    'l',
+    'C:/p',
+    'a.md',
+    undefined,
+    undefined,
+    undefined,
+    { preview: false, sidePreview: true },
+  ]);
   guard.openFileTab('C:/p', 'a.md');
   assert.deepEqual(opened[1].slice(0, 3), ['main', 'C:/p', 'a.md'], 'a side preview never takes the file over');
 });
@@ -304,14 +314,23 @@ test('outline: generated ids are regenerated after edits; authored ids are kept 
   const { readHeadings } = await import('./editor-markdown-outline.tsx');
   const root = document.createElement('div');
   root.innerHTML = '<h1>A</h1><h2>B</h2>';
-  assert.deepEqual(readHeadings(root, true).map((heading) => heading.id), ['a', 'b']);
+  assert.deepEqual(
+    readHeadings(root, true).map((heading) => heading.id),
+    ['a', 'b']
+  );
   root.querySelector('h2').textContent = 'A';
   const edited = readHeadings(root, true);
-  assert.deepEqual(edited.map((heading) => heading.id), ['a', 'a-1']);
+  assert.deepEqual(
+    edited.map((heading) => heading.id),
+    ['a', 'a-1']
+  );
   assert.equal(root.querySelectorAll('h2')[0].id, 'a-1');
   const authored = document.createElement('div');
   authored.innerHTML = '<h1>x</h1><h2 id="x">Authored</h2>';
-  assert.deepEqual(readHeadings(authored, true).map((heading) => heading.id), ['x-1', 'x']);
+  assert.deepEqual(
+    readHeadings(authored, true).map((heading) => heading.id),
+    ['x-1', 'x']
+  );
 });
 
 test('EditorViewSwitch: roving tabindex and arrow/Home/End selection', async () => {
@@ -337,9 +356,14 @@ test('EditorViewSwitch: roving tabindex and arrow/Home/End selection', async () 
       )
     );
     const radios = [...host.querySelectorAll('[role="radio"]')];
-    assert.deepEqual(radios.map((radio) => radio.tabIndex), [-1, 0, -1]);
+    assert.deepEqual(
+      radios.map((radio) => radio.tabIndex),
+      [-1, 0, -1]
+    );
     await act(async () => {
-      radios[1].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      radios[1].dispatchEvent(
+        new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })
+      );
     });
     await act(async () => {
       radios[1].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
@@ -395,7 +419,9 @@ test('suggest menu: options have ids and the editor points at the list and activ
 });
 
 test('slash menu heading labels use the Heading {{level}} catalog key', async () => {
-  const { RICH_MARKDOWN_BLOCK_COMMANDS, filterBlockCommands } = await import('./rich-markdown/rich-markdown-commands.ts');
+  const { RICH_MARKDOWN_BLOCK_COMMANDS, filterBlockCommands } = await import(
+    './rich-markdown/rich-markdown-commands.ts'
+  );
   const h3 = RICH_MARKDOWN_BLOCK_COMMANDS.find((command) => command.id === 'heading3');
   assert.equal(h3.label, 'Heading {{level}}');
   assert.deepEqual(h3.labelParams, { level: 3 });
@@ -419,8 +445,14 @@ test('EditorViewSwitch: arrows walk all three radios while Rich falls back to Pr
       )
     );
     const radios = [...host.querySelectorAll('[role="radio"]')];
-    assert.deepEqual(radios.map((radio) => radio.getAttribute('aria-checked')), ['true', 'false', 'false']);
-    assert.deepEqual(radios.map((radio) => radio.tabIndex), [0, -1, -1]);
+    assert.deepEqual(
+      radios.map((radio) => radio.getAttribute('aria-checked')),
+      ['true', 'false', 'false']
+    );
+    assert.deepEqual(
+      radios.map((radio) => radio.tabIndex),
+      [0, -1, -1]
+    );
     const press = (radio, key) =>
       act(async () => {
         radio.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));

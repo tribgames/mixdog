@@ -22,7 +22,7 @@ export interface EditorViewControls {
   sideBySide?: { onOpen(): void };
 }
 
-export function editorViewModeLabel(toggle: Pick<EditorViewToggle, 'renderedLabel'>, mode: EditorViewMode): string {
+function editorViewModeLabel(toggle: Pick<EditorViewToggle, 'renderedLabel'>, mode: EditorViewMode): string {
   if (mode === 'rendered') return toggle.renderedLabel;
   return mode === 'rich' ? t('Rich') : t('Source');
 }

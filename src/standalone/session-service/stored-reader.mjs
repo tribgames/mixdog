@@ -167,7 +167,9 @@ export function createStoredSessionReader({
       ...wire,
       sessionId,
       ...(typeof readStoredGoal === 'function' ? { goal: sanitizeForWire(goal, 1) ?? null } : {}),
-      ...(typeof readQuotaResume === 'function' ? { quotaResume: sanitizeForWire(quotaResumeOf(sessionId)) ?? null } : {}),
+      ...(typeof readQuotaResume === 'function'
+        ? { quotaResume: sanitizeForWire(quotaResumeOf(sessionId)) ?? null }
+        : {}),
       queued: Array.isArray(snapshot.queued) ? wire.queued : [],
     };
   }

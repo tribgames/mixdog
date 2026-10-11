@@ -107,7 +107,11 @@ test('per-step auto effort runs end to end on custom Chat/Responses routes with 
       provider,
       input: { prompt: 'fix the failing build' },
     });
-    const effortConfiguration = prepareTurnEffortConfiguration(session, provider, autoEffort?.applied ? autoEffort.effort : undefined);
+    const effortConfiguration = prepareTurnEffortConfiguration(
+      session,
+      provider,
+      autoEffort?.applied ? autoEffort.effort : undefined
+    );
     return { provider, effortConfiguration, step: turnStepAutoEffort(autoEffort, effortConfiguration) };
   };
   for (const protocol of ['openai-chat', 'openai-responses']) {

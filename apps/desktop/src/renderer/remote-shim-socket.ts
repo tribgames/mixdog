@@ -17,9 +17,13 @@ import {
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
 import { publishMediaKey, revokeMediaKey } from './remote-media-lane';
+import { notifyMediaSessionChanged } from './remote-file-preview';
 
-function dropMediaSession(ctx: RemoteShimContext): void {
-  if (ctx.mediaSid) revokeMediaKey(ctx.mediaSid);
+export function dropMediaSession(ctx: RemoteShimContext): void {
+  if (ctx.mediaSid) {
+    revokeMediaKey(ctx.mediaSid);
+    notifyMediaSessionChanged();
+  }
   ctx.mediaSid = null;
   ctx.peerMediaE2ee = false;
 }
@@ -328,6 +332,7 @@ const openSocketAttempt = (
         if (ctx.peerMediaE2ee && handshake.channel.mediaKey) {
           ctx.mediaSid = clear.challenge;
           publishMediaKey(clear.challenge, handshake.channel.mediaKey);
+          notifyMediaSessionChanged();
         }
         // promptHistoryPatch: this build's snapshot decoder applies head
         // patches to the prompt history; a desktop that predates it

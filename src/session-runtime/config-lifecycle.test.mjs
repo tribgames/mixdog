@@ -306,7 +306,11 @@ test('a reload during a blocked save keeps the shipped presets and maintenance r
   const custom = { id: 'mine', name: 'MINE', type: 'agent', provider: 'openai', model: 'gpt-x', tools: 'full' };
   const extra = { ...custom, id: 'extra', name: 'EXTRA' };
   const stored = (config) => {
-    const next = { ...config, presets: presetsDelta(config.presets), maintenance: maintenanceDelta(config.maintenance) };
+    const next = {
+      ...config,
+      presets: presetsDelta(config.presets),
+      maintenance: maintenanceDelta(config.maintenance),
+    };
     for (const key of ['presets', 'maintenance']) if (!Object.keys(next[key]).length) delete next[key];
     return next;
   };
@@ -328,16 +332,22 @@ test('a reload during a blocked save keeps the shipped presets and maintenance r
   };
   f.lifecycle.saveConfigAndAdopt({ ...f.config(), presets: [...f.config().presets, extra] });
   const loaded = f.lifecycle.reloadFullConfig();
-  assert.deepEqual(
-    loaded.presets.map((p) => p.id).sort(),
-    ['extra', 'haiku', 'mine', 'opus-high', 'opus-mid', 'sonnet-high', 'sonnet-mid']
-  );
+  assert.deepEqual(loaded.presets.map((p) => p.id).sort(), [
+    'extra',
+    'haiku',
+    'mine',
+    'opus-high',
+    'opus-mid',
+    'sonnet-high',
+    'sonnet-mid',
+  ]);
   assert.deepEqual(loaded.maintenance, DEFAULT_MAINTENANCE);
 });
 
 test('a reload during a blocked save keeps an enabled agent when patches speak the delta domain', async () => {
   const f = fixture({ config: { disabledAgents: ['worker'] }, disk: { disabledAgents: ['worker'] } });
-  f.cfgMod.createConfigPatch = (before, after) => diffConfig(withStoredDisabledAgents(before), withStoredDisabledAgents(after));
+  f.cfgMod.createConfigPatch = (before, after) =>
+    diffConfig(withStoredDisabledAgents(before), withStoredDisabledAgents(after));
   f.cfgMod.saveConfigPatch = () => {
     throw new Error('fixture lock busy');
   };

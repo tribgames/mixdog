@@ -75,7 +75,7 @@ export function isMobileDeviceSurface(): boolean {
 }
 
 /** Subscribe to anything that can flip the phone/tablet layout at runtime. */
-export function subscribeMobileSurface(listener: () => void): () => void {
+function subscribeMobileSurface(listener: () => void): () => void {
   const visual = window.visualViewport;
   window.addEventListener('resize', listener);
   window.addEventListener('orientationchange', listener);
@@ -128,7 +128,7 @@ export function markDirectBrowserSurface(): void {
   }
 }
 
-export function isDirectBrowserSurface(): boolean {
+function isDirectBrowserSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;
   try {
     return localStorage.getItem(DIRECT_BROWSER_KEY) === '1';

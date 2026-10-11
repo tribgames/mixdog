@@ -341,6 +341,27 @@ test('the canonicalize path stores no defaults', () => {
   );
 });
 
+test('a default-only legacy profile keeps grandfathered built-ins after separation; a fresh profile stays uninstalled', () => {
+  isolated(
+    'mixdog-separation-builtins-',
+    `${PRELUDE}
+    write({ agent: { recap: { enabled: true }, memoryTools: { enabled: true }, modules: { git: { enabled: true } } } });
+    const legacy = loadConfig({ secrets: false });
+    for (const id of ['git', 'memory', 'office']) assert.equal(legacy.builtins[id]?.installed, true, id);
+    for (const id of ['git', 'memory', 'office']) assert.equal(read().agent.builtins[id].installed, true, id);
+    const reloaded = loadConfig({ secrets: false });
+    for (const id of ['git', 'memory', 'office']) assert.equal(reloaded.builtins[id]?.installed, true, id);
+    `
+  );
+  isolated(
+    'mixdog-separation-builtins-fresh-',
+    `${PRELUDE}
+    const fresh = loadConfig({ secrets: false });
+    for (const id of ['git', 'memory', 'office']) assert.notEqual(fresh.builtins?.[id]?.installed, true, id);
+    `
+  );
+});
+
 test('a backup never overwrites an earlier one', () => {
   isolated(
     'mixdog-separation-backup-',

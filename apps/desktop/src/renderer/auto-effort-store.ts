@@ -22,7 +22,7 @@ export function publishAutoEffort(settings: unknown): void {
   for (const listener of listeners) listener();
 }
 
-export function refreshAutoEffort(): Promise<void> {
+function refreshAutoEffort(): Promise<void> {
   reading ??= window.mixdogDesktop
     .invokeCapability<RecordValue>({ capability: 'getToolModuleSettings', args: [] })
     .then((result) => publishAutoEffort(result?.value))
@@ -35,7 +35,7 @@ export function refreshAutoEffort(): Promise<void> {
   return reading;
 }
 
-export async function setAutoEffortEnabled(enabled: boolean): Promise<void> {
+async function setAutoEffortEnabled(enabled: boolean): Promise<void> {
   const result = await window.mixdogDesktop.invokeCapability<RecordValue>({
     capability: 'setBuiltinToolEnabled',
     args: ['autoEffort', enabled],
@@ -73,7 +73,7 @@ export function useAutoEffortRoute(capable: boolean) {
 }
 
 /** The switch state; `wanted` (the model supports it) triggers the first read. */
-export function useAutoEffort(wanted: boolean): AutoEffortState | null {
+function useAutoEffort(wanted: boolean): AutoEffortState | null {
   useEffect(() => {
     if (wanted && current === null) void refreshAutoEffort();
   }, [wanted]);

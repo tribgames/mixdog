@@ -13,6 +13,8 @@ export interface DesktopRemoteClientInfo {
   createdAt: number;
   lastSeenAt: number;
   online: boolean;
+  /** Unpair requested but not yet acknowledged by the relay; still paired there. */
+  pendingRemoval?: boolean;
 }
 
 export interface DesktopRemoteAccessInfo {

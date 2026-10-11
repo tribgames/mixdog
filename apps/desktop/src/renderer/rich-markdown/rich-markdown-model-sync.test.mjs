@@ -404,3 +404,19 @@ test('a disposed sync stops following the model', () => {
   model.setValue('# Changed\n');
   assert.equal(events.length, 1);
 });
+
+for (const [label, front] of [
+  ['YAML', '---\ntitle: Notes\n---'],
+  ['TOML', '+++\ntitle = "Notes"\n+++'],
+]) {
+  for (const eol of ['\n', '\r\n']) {
+    test(`${label} front matter without a trailing line ending survives consecutive edits (${JSON.stringify(eol)})`, () => {
+      const source = front.replace(/\n/g, eol);
+      const { model, sync } = start(source);
+      assert.equal(sync.commit(codec.parse('Hello')), true);
+      assert.ok(model.getValue().startsWith(`${source}${eol}Hello`));
+      assert.equal(sync.commit(codec.parse('Hello world')), true);
+      assert.ok(model.getValue().startsWith(`${source}${eol}Hello world`), JSON.stringify(model.getValue()));
+    });
+  }
+}

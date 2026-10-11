@@ -1,10 +1,6 @@
 import { useCallback, type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
 import type { DesktopRendererComposerActionDiagnostic } from '../shared/contract';
-import {
-  isComposerNewlineChord,
-  shouldInterruptPrompt,
-  shouldNavigatePromptHistory,
-} from './renderer-logic.mjs';
+import { isComposerNewlineChord, shouldInterruptPrompt, shouldNavigatePromptHistory } from './renderer-logic.mjs';
 import { foldAttachmentTokens } from './composer-attachment-restore';
 import type { ComposerAttachment, ComposerHistoryEntry } from './composer-support';
 import type { DesktopSlashCommand } from './slash-commands';

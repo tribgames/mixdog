@@ -651,6 +651,8 @@ function assertReleaseWorkflowContract(release) {
   assert.equal(release.includes("awk '{print \\\\$1}'"), false);
   assert.match(release, /secrets\.RELAY_SSH_KEY/);
   assert.match(release, /vars\.RELAY_DOMAIN/);
+  assert.match(release, /DESKTOP_VERSION="\$\{RELEASE_TAG#v\}"/);
+  assert.match(release, /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION'/);
   assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);
   assert.match(release, /release-timing-report\.mjs/);
 }

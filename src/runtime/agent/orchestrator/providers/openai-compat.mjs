@@ -106,6 +106,9 @@ export class OpenAICompatProvider {
       // withRetry wrapper and multiply tail latency on a transient
       // backend. We own retry/backoff via withRetry, so disable the SDK's.
       maxRetries: 0,
+      // Opt-in SDK constructor overrides (e.g. an explicit null organization so
+      // the SDK does not inherit OPENAI_ORG_ID from the environment).
+      ...(this.config?.clientOptions || {}),
       // Force the shared long-keepalive undici dispatcher to be installed
       // globally (setGlobalDispatcher) so the SDK's global fetch rides a
       // warm socket pool instead of Node's short-keepalive default. The

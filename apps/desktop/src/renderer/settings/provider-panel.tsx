@@ -21,6 +21,7 @@ import {
   type PanelContext,
   type RecordValue,
 } from './capability-data';
+import { errorMessage } from '../editor-pane-session-errors';
 
 export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown> {
   return preloadCapabilitySettings(api).then((next) =>
@@ -297,7 +298,7 @@ export function OAuthControl({
         if (remote) openSignInPage(started.manualUrl || started.url);
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     }
   };
   const close = () => {
@@ -417,7 +418,7 @@ export function OAuthControl({
                         if (next) setFlow(record(next));
                         else setError(t('The authorization code could not be completed.'));
                       })
-                      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+                      .catch((reason) => setError(errorMessage(reason)));
                   }}
                 >
                   <input

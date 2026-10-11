@@ -172,6 +172,8 @@ interface ActiveLoginFlow {
   pressedEnterToOpen: boolean;
   /** The user asked to open the device page (the code card's button). */
   browserRequested: boolean;
+  /** gh was spawned with a real browser launcher (false for remote sign-ins). */
+  hostOpensBrowser: boolean;
   timer: NodeJS.Timeout | null;
 }
 
@@ -186,13 +188,29 @@ function stripControl(text: string): string {
   return text.replace(ANSI_PATTERN, '').replace(/\r/g, '');
 }
 
-export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> {
-  const gh = await resolveGh();
+/** A command that exits 0 and ignores the URL argument, per platform. */
+const NO_OP_BROWSER = process.platform === 'win32' ? 'cmd /c exit 0' : 'true';
+
+/** Environment for `gh auth login`; `openBrowser: false` points gh's browser
+ *  launcher at a no-op so the host never opens a window for a remote client. */
+export function githubLoginEnvironment(openBrowser: boolean): Record<string, string> {
+  const env = childEnvironment() as Record<string, string>;
+  return openBrowser ? env : { ...env, BROWSER: NO_OP_BROWSER, GH_BROWSER: NO_OP_BROWSER };
+}
+
+/** Test seam: substitute the PTY module and the resolved gh. */
+export const githubCliLoginTestHooks: { pty?: PtyModule; gh?: { path: string; version: string } } = {};
+
+export async function githubCliLoginStart(
+  options: { openBrowser?: boolean } = {}
+): Promise<DesktopGithubCliLoginFlow> {
+  const openBrowser = options.openBrowser !== false;
+  const gh = githubCliLoginTestHooks.gh ?? (await resolveGh());
   if (!gh) throw new Error('GitHub CLI is not installed.');
   // One login at a time: a fresh start supersedes (and kills) earlier flows.
   for (const id of [...loginFlows.keys()]) cancelGithubCliLogin(id);
   ptyModule ??= import('@homebridge/node-pty-prebuilt-multiarch');
-  const { spawn } = await ptyModule;
+  const { spawn } = githubCliLoginTestHooks.pty ?? (await ptyModule);
   const flowId = `ghlogin_${process.pid}_${++flowSequence}`;
   const entry: ActiveLoginFlow = {
     flow: { flowId, state: 'pending' },
@@ -201,6 +219,7 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
     answeredGitPrompt: false,
     pressedEnterToOpen: false,
     browserRequested: false,
+    hostOpensBrowser: openBrowser,
     timer: null,
   };
   loginFlows.set(flowId, entry);
@@ -209,7 +228,7 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
     cols: 120,
     rows: 30,
     cwd: homedir(),
-    env: childEnvironment() as Record<string, string>,
+    env: githubLoginEnvironment(openBrowser),
   });
   entry.pty = pty;
   entry.timer = setTimeout(() => {
@@ -274,14 +293,16 @@ function pressEnterToOpen(entry: ActiveLoginFlow): void {
 
 /** The code card's "Copy & open GitHub": releases gh's press-Enter stop so gh
  *  opens the device page (and starts polling). Returns false when gh already
- *  did — a repeat open is then the renderer's own. */
-export function githubCliLoginOpenBrowser(flowId: string): boolean {
+ *  did — a repeat open is then the renderer's own. With `openBrowser: false`
+ *  (remote client) gh still advances, but only to a no-op launcher, so the
+ *  host opens nothing and false is returned. */
+export function githubCliLoginOpenBrowser(flowId: string, options: { openBrowser?: boolean } = {}): boolean {
   const entry = loginFlows.get(flowId);
   if (!entry) throw new Error('Unknown GitHub login flow.');
   if (entry.browserRequested) return false;
   entry.browserRequested = true;
   pressEnterToOpen(entry);
-  return true;
+  return entry.hostOpensBrowser && options.openBrowser !== false;
 }
 
 export function githubCliLoginStatus(flowId: string): DesktopGithubCliLoginFlow {

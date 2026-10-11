@@ -33,11 +33,9 @@ export function customEffortLevels(model) {
             .toLowerCase() === 'effort'
       )
     : null;
-  const raw = Array.isArray(option?.values)
-    ? option.values
-    : Array.isArray(model?.reasoningLevels)
-      ? model.reasoningLevels
-      : null;
+  let raw = null;
+  if (Array.isArray(option?.values)) raw = option.values;
+  else if (Array.isArray(model?.reasoningLevels)) raw = model.reasoningLevels;
   if (!raw) return null;
   const levels = new Set(raw.map(normalizeCustomEffort).filter(Boolean));
   return CUSTOM_EFFORT_LEVELS.filter((level) => levels.has(level));
@@ -76,7 +74,8 @@ export function resolveCustomReasoning({ protocol, model, effort } = {}) {
   // DeepSeek's `thinking` extension exists only on the Chat wire.
   if (wireFormat === 'deepseek' && protocol !== 'openai-chat') return { ...EMPTY, fields: {} };
   const level = snapCustomEffort(customEffortLevels(model), effort);
-  const thinking = level === null ? null : level === 'none' ? 'off' : 'on';
+  let thinking = null;
+  if (level !== null) thinking = level === 'none' ? 'off' : 'on';
   const mapped = level === null ? null : custom.wireValues?.[level];
   const value = typeof mapped === 'string' && mapped.trim() ? mapped.trim() : level;
   let fields = {};

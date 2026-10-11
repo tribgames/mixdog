@@ -28,6 +28,7 @@ import {
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
 import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
 import { useGithubLoginPolling } from './github-login-polling';
+import { errorMessage } from '../editor-pane-session-errors';
 
 const CLI_DOWNLOAD_URL = 'https://cli.github.com';
 
@@ -62,7 +63,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
       setStatus(next);
       patchCachedGitPanelInfo(host, { status: next });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     }
   }, [host]);
 
@@ -159,7 +160,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
     setBusy(key);
     setError('');
     void Promise.resolve(action())
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
+      .catch((reason) => setError(errorMessage(reason)))
       .finally(() => setBusy(''));
   };
   const open = (url: string) => void host?.openExternal?.(url).catch(() => undefined);

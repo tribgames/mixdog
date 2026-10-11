@@ -28,7 +28,15 @@ function setup() {
 
 function pointer(win, target, type, { x = 190, y = 10, pointerType = 'touch', id = 1, isPrimary = true } = {}) {
   const Ctor = win.PointerEvent ?? win.MouseEvent;
-  const event = new Ctor(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType, isPrimary });
+  const event = new Ctor(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: x,
+    clientY: y,
+    pointerId: id,
+    pointerType,
+    isPrimary,
+  });
   for (const [key, value] of Object.entries({ pointerType, pointerId: id, isPrimary })) {
     if (event[key] !== value) Object.defineProperty(event, key, { value });
   }

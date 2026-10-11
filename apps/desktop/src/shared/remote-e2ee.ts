@@ -607,6 +607,109 @@ export async function openSealedRelayE2EEPairingMaterial(
   }
 }
 
+/** A browser's Web Push key material (PushSubscription.toJSON().keys), sealed
+ *  to ONE paired desktop. The relay holds the subscription endpoint and
+ *  forwards this box to that desktop; it cannot open it, and only a browser
+ *  holding the desktop's pairing secret can make one the desktop accepts. The
+ *  endpoint is authenticated as associated data, so a box cannot be replayed
+ *  under another subscription. */
+export interface SealedRelayWebPushKeys {
+  version: typeof E2EE_VERSION;
+  ephemeralPublicKey: string;
+  nonce: string;
+  ciphertext: string;
+}
+
+export interface RelayWebPushKeys {
+  p256dh: string;
+  auth: string;
+}
+
+const E2EE_WEB_PUSH_CONTEXT = `${E2EE_CONTEXT}\0webpush`;
+
+async function webPushSealKey(input: {
+  privateKey: CryptoKey;
+  peerPublicKey: string;
+  pairingSecret: string;
+  serverPublicKey: string;
+  ephemeralPublicKey: string;
+}): Promise<CryptoKey> {
+  return deriveAesGcmKey(
+    input.privateKey,
+    input.peerPublicKey,
+    base64UrlDecode(input.pairingSecret),
+    encoder.encode(`${E2EE_WEB_PUSH_CONTEXT}\0${input.serverPublicKey}\0${input.ephemeralPublicKey}`)
+  );
+}
+
+export async function sealRelayWebPushKeys(
+  pairing: RelayE2EEPairingMaterial,
+  endpoint: string,
+  keys: RelayWebPushKeys
+): Promise<SealedRelayWebPushKeys> {
+  const pair = await generateEcdhKeyPair();
+  const ephemeralPublicKey = await exportRawPublicKey(pair.publicKey);
+  const key = await webPushSealKey({
+    privateKey: pair.privateKey,
+    peerPublicKey: pairing.serverPublicKey,
+    pairingSecret: pairing.pairingSecret,
+    serverPublicKey: pairing.serverPublicKey,
+    ephemeralPublicKey,
+  });
+  const nonce = randomBytes(12);
+  const ciphertext = new Uint8Array(
+    await cryptoApi().subtle.encrypt(
+      { name: 'AES-GCM', iv: arrayBuffer(nonce), additionalData: arrayBuffer(encoder.encode(endpoint)) },
+      key,
+      arrayBuffer(encoder.encode(JSON.stringify({ p256dh: keys.p256dh, auth: keys.auth })))
+    )
+  );
+  return {
+    version: E2EE_VERSION,
+    ephemeralPublicKey,
+    nonce: base64UrlEncode(nonce),
+    ciphertext: base64UrlEncode(ciphertext),
+  };
+}
+
+/** null for anything that does not open: a box sealed for another desktop,
+ *  another endpoint, or by someone without the pairing secret. */
+export async function openRelayWebPushKeys(
+  identity: RelayE2EEServerIdentity,
+  endpoint: string,
+  sealed: unknown
+): Promise<RelayWebPushKeys | null> {
+  try {
+    const box = sealed as Partial<SealedRelayWebPushKeys> | null;
+    if (!box || box.version !== E2EE_VERSION || !/^[A-Za-z0-9_-]{87}$/u.test(String(box.ephemeralPublicKey || ''))) {
+      return null;
+    }
+    const key = await webPushSealKey({
+      privateKey: await importEcdhPrivateKey(identity.privateKeyJwk, false),
+      peerPublicKey: box.ephemeralPublicKey as string,
+      pairingSecret: identity.pairingSecret,
+      serverPublicKey: identity.serverPublicKey,
+      ephemeralPublicKey: box.ephemeralPublicKey as string,
+    });
+    const plaintext = await cryptoApi().subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: arrayBuffer(base64UrlDecode(String(box.nonce || ''))),
+        additionalData: arrayBuffer(encoder.encode(endpoint)),
+      },
+      key,
+      arrayBuffer(base64UrlDecode(String(box.ciphertext || '')))
+    );
+    const parsed = JSON.parse(decoder.decode(new Uint8Array(plaintext))) as Partial<RelayWebPushKeys>;
+    const p256dh = String(parsed.p256dh || '');
+    const auth = String(parsed.auth || '');
+    if (!/^[A-Za-z0-9_-]{87}$/u.test(p256dh) || !/^[A-Za-z0-9_-]{22}$/u.test(auth)) return null;
+    return { p256dh, auth };
+  } catch {
+    return null;
+  }
+}
+
 export async function createRelayE2EEClientHandshake(
   pairing: RelayE2EEPairingMaterial,
   challenge: RelayE2EEChallenge

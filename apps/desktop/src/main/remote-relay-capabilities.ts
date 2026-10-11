@@ -25,6 +25,9 @@ export interface RelayConnectionCapsDeps {
 export interface RelayConnectionCaps {
   relayBinaryFrames(): boolean;
   relayNativePlatforms(): readonly string[];
+  /** The relay owns the Web Push sender identity (`webPush: 1`): browser push
+   *  goes through it, never straight to the push service. */
+  relayWebPush(): boolean;
   resetRelayConnectionCaps(): void;
   relayFrameLimit(): number;
   relayUplinkLimits(): RelayUplinkCeilings;
@@ -45,6 +48,9 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
   // its to hold). Empty — and `nativePush` unadvertised — on an older relay or
   // one without credentials. Per connection, like every learned relay cap.
   let relayNativePlatforms: readonly string[] = [];
+  // Relay-owned Web Push. False on an older relay, which leaves this desktop
+  // on its legacy direct send. Per connection, like every learned relay cap.
+  let relayWebPush = false;
   // The relay's per-frame ceiling as this desktop knows it. `relay-capabilities`
   // declares it at handshake; a `frame-too-large` notice proves a smaller one.
   // The effective limit is the smallest known value, so this leg's own check is
@@ -81,6 +87,7 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
     noticedFrameLimit = null;
     advertisedRoutingCaps = '';
     relayNativePlatforms = [];
+    relayWebPush = false;
   };
   /** What a phone may put on the wire for this connection, as advertised to
    *  the browser: the relay's published ceilings, bounded by any smaller
@@ -152,6 +159,7 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
         ? envelope.nativePushPlatforms.filter((name): name is 'apns' | 'fcm' => name === 'apns' || name === 'fcm')
         : [];
     if (relayNativePlatforms.length > 0) deps.rebindNativePush();
+    relayWebPush = envelope.webPush === 1;
     // The relay republishes on change; a phone already attached is held
     // to whatever it was told in its handshake until this reaches it.
     republishRoutingCaps();
@@ -167,6 +175,7 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
   return {
     relayBinaryFrames: () => relayBinaryFrames,
     relayNativePlatforms: () => relayNativePlatforms,
+    relayWebPush: () => relayWebPush,
     resetRelayConnectionCaps,
     relayFrameLimit,
     relayUplinkLimits,

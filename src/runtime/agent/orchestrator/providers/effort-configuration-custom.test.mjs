@@ -21,7 +21,9 @@ function customProvider(protocol, row) {
 test('custom auto effort: Chat/Responses with levels on; no levels, explicit none or Anthropic off', () => {
   assert.equal(customAutoEffortCapable('custom-a', 'openai-chat', LEVELS), true);
   assert.equal(
-    customAutoEffortCapable('custom-a', 'openai-responses', { reasoningOptions: [{ type: 'effort', values: ['medium'] }] }),
+    customAutoEffortCapable('custom-a', 'openai-responses', {
+      reasoningOptions: [{ type: 'effort', values: ['medium'] }],
+    }),
     true
   );
   assert.equal(customAutoEffortCapable('custom-a', 'openai-chat', {}), false);
@@ -32,10 +34,7 @@ test('custom auto effort: Chat/Responses with levels on; no levels, explicit non
 
 test('the turn mode: custom routes per request, first-party unchanged', () => {
   const session = (provider, model) => ({ provider, model, messages: [] });
-  assert.equal(
-    turnEffortConfigurationMode(session('custom-a', 'm'), customProvider('openai-chat', LEVELS)),
-    'custom'
-  );
+  assert.equal(turnEffortConfigurationMode(session('custom-a', 'm'), customProvider('openai-chat', LEVELS)), 'custom');
   assert.equal(
     turnEffortConfigurationMode(session('custom-a', 'm'), customProvider('openai-responses', LEVELS)),
     'custom'

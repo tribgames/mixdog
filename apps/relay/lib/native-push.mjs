@@ -39,7 +39,7 @@ function readApnsConfig(env) {
   const keyId = String(env.APNS_KEY_ID || '').trim() || DEFAULT_APNS_KEY_ID;
   const teamId = String(env.APNS_TEAM_ID || '').trim() || DEFAULT_APNS_TEAM_ID;
   const p8 = readInlineOrFile(env.APNS_KEY_P8, '-----BEGIN');
-  if (!keyId || !teamId || !p8) return null;
+  if (!p8) return null;
   return {
     keyId,
     teamId,

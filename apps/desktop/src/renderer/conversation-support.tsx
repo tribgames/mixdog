@@ -391,7 +391,10 @@ export function transcriptRowNode(
     completion: row.completion,
     backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
     animateComplete: hadLiveActivity(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
-    completionActivityKey: completionActivityKey(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
+    completionActivityKey: completionActivityKey(
+      String(snapshot.sessionId || '').trim(),
+      submissionIdentity(row.turnKey)
+    ),
     disclosureScope,
   };
   return renderAssistantRow ? renderAssistantRow(assistantProps) : <TranscriptAssistantRow {...assistantProps} />;

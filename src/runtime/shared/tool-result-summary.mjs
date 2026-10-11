@@ -609,8 +609,7 @@ function summarizeAgentCounts(text, translate = keepOriginal) {
 // "Shell task completed (exit 0): npm test": the status word and the exit are
 // UI; the command after the colon is the user's own text.
 function localizeShellSummary(summary, translate) {
-  const match =
-    /^Shell task (was cancelled|[a-z_]+)(?:: (.*?))? \(exit ([^)]+)\)(?:: ([\s\S]*))?$/.exec(summary ?? '');
+  const match = /^Shell task (was cancelled|[a-z_]+)(?:: (.*?))? \(exit ([^)]+)\)(?:: ([\s\S]*))?$/.exec(summary ?? '');
   if (!match) return summary;
   const [, word, error, code, command] = match;
   const status = localizeStatus(word === 'was cancelled' ? 'cancelled' : word, translate);

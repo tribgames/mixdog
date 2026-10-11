@@ -165,7 +165,10 @@ test('redeeming a code maps every relay answer to a message that says what to do
     /42 seconds/
   );
   // A relay that predates codes answers 404 without the JSON status.
-  await assert.rejects(redeemPairCode('https://r', '000000', reply(404, 'Not found')), /Codes are not available on this connection server yet/);
+  await assert.rejects(
+    redeemPairCode('https://r', '000000', reply(404, 'Not found')),
+    /Codes are not available on this connection server yet/
+  );
 });
 
 test('saved PC presence is asked per relay and unknown relays stay unknown', async () => {
@@ -190,8 +193,16 @@ test('redeemPairCode messages go through the supplied translator, in v4 wording'
     redeemPairCode('https://r', '000000', reply(429, { status: 'rate-limited', retryAfter: 42 }), translate),
     /\[Too many attempts. Try again in 42 seconds.\]/
   );
-  await assert.rejects(redeemPairCode('https://r', '000000', reply(404, { status: 'invalid-code' }), translate), /\[The code is wrong or has expired.\]/);
-  await assert.rejects(redeemPairCode('https://r', '000000', reply(404, 'Not found'), translate), /\[Codes are not available on this connection server yet/);
-  const english = await redeemPairCode('https://r', '000000', reply(404, { status: 'invalid-code' })).catch((error) => error.message);
+  await assert.rejects(
+    redeemPairCode('https://r', '000000', reply(404, { status: 'invalid-code' }), translate),
+    /\[The code is wrong or has expired.\]/
+  );
+  await assert.rejects(
+    redeemPairCode('https://r', '000000', reply(404, 'Not found'), translate),
+    /\[Codes are not available on this connection server yet/
+  );
+  const english = await redeemPairCode('https://r', '000000', reply(404, { status: 'invalid-code' })).catch(
+    (error) => error.message
+  );
   assert.doesNotMatch(english, /main PC/);
 });

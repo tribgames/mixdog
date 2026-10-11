@@ -90,7 +90,8 @@ const api: DesktopApi = {
   installGithubCli: () => ipcRenderer.invoke(DESKTOP_IPC.installGithubCli),
   githubCliLoginStart: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginStart),
   githubCliLoginStatus: (flowId) => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginStatus, flowId),
-  githubCliLoginOpenBrowser: (flowId) => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginOpenBrowser, flowId),
+  githubCliLoginOpenBrowser: (flowId, options) =>
+    ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginOpenBrowser, flowId, options),
   githubCliLoginCancel: (flowId) => ipcRenderer.invoke(DESKTOP_IPC.githubCliLoginCancel, flowId),
   githubCliLogout: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliLogout),
   githubCliAccount: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliAccount),

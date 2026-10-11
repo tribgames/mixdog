@@ -51,7 +51,13 @@ test('completed-during-promotion resolves with the final read, not the mid-run s
     },
     isResolved: () => result !== undefined,
   };
-  const autoBackground = createAutoBackground({ run, command: 'x', cwd: '.', promotedTimeoutMs: 0, backgroundDeadlineMs: 0 });
+  const autoBackground = createAutoBackground({
+    run,
+    command: 'x',
+    cwd: '.',
+    promotedTimeoutMs: 0,
+    backgroundDeadlineMs: 0,
+  });
   autoBackground({ reason: 'threshold' });
   for (let i = 0; i < 50 && !result; i++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(result, 'resolved');

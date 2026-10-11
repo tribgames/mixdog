@@ -39,6 +39,7 @@ import { createRelayControlRequests } from './remote-relay-control';
 import { createRelayEncryptedDelivery } from './remote-relay-delivery';
 import { createPairCodeManager, type PairCodeState, type PairCodeUnsupported } from './remote-pair-code';
 import { createRelayEnvelopeDispatcher } from './remote-relay-envelope';
+import { createRelayWebPush } from './remote-relay-web-push';
 import {
   createRevocationDrain,
   loadOrCreateDevice,
@@ -79,6 +80,10 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   rendererRelease?: string;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
   onClientCountChanged?: () => void;
+  /** Every time the relay leg opens, including each reconnect. */
+  onConnected?: () => void;
+  /** Test seam: replaces the media lane implementation. */
+  createMediaLane?: typeof createRelayMediaLane;
   /** The relay refused an oversize frame this desktop sent and could not say
    *  which client it belonged to. Reported so the user sees it; it names no
    *  call and reaches no phone, because either would blame the wrong one. */
@@ -243,7 +248,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
                 (row) => row.clientId === clientId && (!tokenFilter || row.token === tokenFilter)
               );
               const removed = await nativeStore.remove(clientId, tokenFilter);
-              for (const row of rows) sendEnvelope({ type: 'native-push-unbind', token: row.token });
+              for (const row of rows) sendEnvelope({ type: 'native-push-unbind', token: row.token, clientId: row.clientId });
               return removed;
             },
           },
@@ -366,6 +371,19 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         .catch(() => undefined);
     },
   });
+  // Browser push through the relay's own sender identity, when it has one.
+  const relayWebPush = createRelayWebPush({
+    identity: e2eeIdentity,
+    available: caps.relayWebPush,
+    sendEnvelope,
+    onDiagnostic: (event, details) =>
+      console.info(
+        `[mixdog-remote-push] ${event}` +
+          Object.entries(details)
+            .map(([key, value]) => ` ${key}=${String(value)}`)
+            .join('')
+      ),
+  });
   const { sendEncryptedFrame, broadcastEncrypted } = createRelayEncryptedDelivery({
     clients,
     relayBinaryFrames: caps.relayBinaryFrames,
@@ -403,6 +421,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     pushStore,
     hostId: deviceId,
     nativePush: { store: nativeStore, send: sendNativePush },
+    relayWebPush,
     live,
     closed: () => closed,
     sendEncryptedFrame,
@@ -417,7 +436,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     maxPayload: MAX_WS_PAYLOAD_BYTES,
     closed: () => closed,
   });
-  const mediaLane = createRelayMediaLane({
+  const mediaLane = (options.createMediaLane ?? createRelayMediaLane)({
     host: options.host,
     sendEnvelope,
     socketBacklog: () => socket?.bufferedAmount ?? 0,
@@ -468,6 +487,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     },
     onClientOpen: clientLifecycle.open,
     onNativePushResult: handleNativePushResult,
+    onWebPushSubscriptions: relayWebPush.update,
+    onWebPushResult: relayWebPush.onResult,
     onClientClose: (clientId) => {
       // The phone's leg dropped, not its pairing: its lanes wait briefly.
       if (clients.remove(clientId, true)) options.onClientCountChanged?.();
@@ -569,6 +590,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       retryMs = 1_000;
       // Nothing the previous leg declared survives into this one.
       caps.resetRelayConnectionCaps();
+      relayWebPush.reset();
       resetTransportDeltas();
       // A fresh desktop leg supersedes the old one and the relay closed its
       // phone legs; phones re-open and re-announce themselves.
@@ -614,6 +636,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // Unpair is local-first so it also works offline. Once any new relay leg
       // opens, dispose the owner-authenticated registrations queued while down.
       void drainQueuedRevocations();
+      options.onConnected?.();
     });
     ws.on('message', (raw, isBinary) => {
       heartbeat.markAlive();
@@ -727,6 +750,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       if (closed) return;
       closed = true;
       resetTransportDeltas();
+      // The socket close handler skips cleanup once `socket` is cleared below.
+      mediaLane.destroyAll();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       browserStreams.dispose();
       browserTabs.dispose();

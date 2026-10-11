@@ -31,8 +31,15 @@ test('all three connecting-side surfaces carry the identical layout CSS', () => 
   assert.ok(read('./remote-pairing-screen.ts').includes(css), 'web pairing layer');
   assert.doesNotMatch(css, /border-radius:22px/, 'no floating card');
   // The layer is exactly the viewport and never grows with its content.
-  assert.match(css, /\.mxp-screen\{position:fixed;inset:0;height:100vh;height:100dvh;max-height:100dvh;[^}]*overflow:hidden/);
-  assert.match(css, /\.mxp-col\{[^}]*max-width:340px[^}]*overflow:auto[^}]*45dvh/, 'column scrolls only on a truly short viewport');
+  assert.match(
+    css,
+    /\.mxp-screen\{position:fixed;inset:0;height:100vh;height:100dvh;max-height:100dvh;[^}]*overflow:hidden/
+  );
+  assert.match(
+    css,
+    /\.mxp-col\{[^}]*max-width:340px[^}]*overflow:auto[^}]*45dvh/,
+    'column scrolls only on a truly short viewport'
+  );
   // One 340px column at the optical center (~45%): logo 48 + 20 + title 30 + 8 + description 45 + 24 + middle 80, actions flowing 24px below.
   assert.match(css, /\.mxp-vis\{[^}]*width:48px;height:48px/);
   assert.match(css, /\.mxp-title\{[^}]*height:30px;margin-top:20px;[^}]*font-size:22px;[^}]*font-weight:700/);
@@ -56,7 +63,7 @@ test('/connect: full-screen column, v4 copy, one centered primary button, footno
   assert.match(html, /<div class="mxp-screen mxp-code-step">/);
   assert.match(html, /heading: 'PC에 연결'/);
   assert.match(html, /note: 'PC의 Mixdog에서 설정 > 연결 > 웹으로 이동해 코드를 확인하세요\.'/);
-  assert.match(html, /fine: '알림을 받으려면 Mixdog 앱을 사용하세요\.'/);
+  assert.match(html, /fine: 'iPhone에서는 아직 알림을 받을 수 없습니다\.'/);
   assert.match(html, /<img class="mxp-logo" src="\/mixdog-logo-titanium\.svg"/);
   const copy = html.slice(html.indexOf('var T = ko'), html.indexOf('document.documentElement.lang'));
   assert.doesNotMatch(copy, BANNED);
@@ -119,9 +126,17 @@ test('web pairing layer: every preview state paints logo, title, subtitle region
     assert.ok(layer, state);
     const visual = layer.querySelector('.mxp-vis');
     assert.ok(visual, `${state}: visual slot`);
-    assert.equal(visual.querySelector('img.mxp-logo').getAttribute('src'), '/mixdog-logo-titanium.svg', `${state}: logo in every step`);
+    assert.equal(
+      visual.querySelector('img.mxp-logo').getAttribute('src'),
+      '/mixdog-logo-titanium.svg',
+      `${state}: logo in every step`
+    );
     assert.equal(visual.querySelector('.mxp-ring'), null, `${state}: no ring`);
-    assert.equal(Boolean(layer.querySelector('.mxp-extra .mxp-wait .mxp-spinner')), /^waiting/u.test(state), `${state}: waiting row only while waiting`);
+    assert.equal(
+      Boolean(layer.querySelector('.mxp-extra .mxp-wait .mxp-spinner')),
+      /^waiting/u.test(state),
+      `${state}: waiting row only while waiting`
+    );
     if (state === 'waiting') assert.equal(layer.querySelector('.mxp-sub b').textContent, 'Home PC');
     assert.equal(layer.querySelector('.mxp-mark, svg'), null, `${state}: no decorative icons`);
     assert.ok(layer.querySelector('.mxp-title').textContent, `${state}: title`);
@@ -152,12 +167,13 @@ test('web pairing layer copy has no developer wording and the revoked screen sho
   const source = read('./remote-pairing-screen.ts');
   for (const [, text] of source.matchAll(/earlyUiT\(\s*'([^']+)'/gu)) assert.doesNotMatch(text, BANNED, text);
   assert.doesNotMatch(source, /Mixdog needs a one-time approval/u);
-  assert.match(read('./remote-shim-socket.ts'), /resetApprovalAndAsk\(earlyUiT\('Your PC disconnected this device\.'\)\)/);
+  assert.match(
+    read('./remote-shim-socket.ts'),
+    /resetApprovalAndAsk\(earlyUiT\('Your PC disconnected this device\.'\)\)/
+  );
   const ended = /const endedView[\s\S]*?\n {6}\};/u.exec(source)[0];
   assert.equal((ended.match(/message/g) || []).length, 1, 'the reason appears once');
 });
-
-
 
 test('/connect: auto-submit, Enter and the button start ONE redemption and the form waits', async () => {
   let calls = 0;
@@ -205,4 +221,3 @@ test('web layer: a cancel is final and the load-failure page and redeem errors a
   assert.match(windows, /nativeT\('Could not reach \{\{name\}\}/);
   assert.doesNotMatch(read('../main/remote-hosts.ts'), /main PC/);
 });
-

@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import {
   useConversationComposerActions,
   collapseSelectionOnPress,
@@ -422,10 +431,7 @@ export function Conversation({
   // the providers get a stable opener that calls the latest prop.
   const openFileRef = useRef(onOpenFile);
   openFileRef.current = onOpenFile;
-  const stableOpenFile = useCallback<NonNullable<typeof onOpenFile>>(
-    (...args) => openFileRef.current?.(...args),
-    []
-  );
+  const stableOpenFile = useCallback<NonNullable<typeof onOpenFile>>((...args) => openFileRef.current?.(...args), []);
   const openFile = onOpenFile ? stableOpenFile : undefined;
   const openFolderRef = useRef(onOpenFolder);
   openFolderRef.current = onOpenFolder;

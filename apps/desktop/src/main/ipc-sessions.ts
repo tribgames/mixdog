@@ -160,7 +160,7 @@ export function registerSessionIpc({
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
     return host.setQuotaAutoResume(enabled);
   });
-  handle(DESKTOP_IPC.setModelRoute,(_event, selection, sessionId) =>
+  handle(DESKTOP_IPC.setModelRoute, (_event, selection, sessionId) =>
     host.setModelRoute(requiredModelSelection(selection), optionalSessionId(sessionId))
   );
   handle(DESKTOP_IPC.setFast, (_event, enabled, sessionId) => {

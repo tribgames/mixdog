@@ -79,7 +79,10 @@ test('snapping table: exact keep, none only when supported, never promote', () =
 });
 
 test('levels: reasoningOptions wins over reasoningLevels, [] means none, missing is unknown', () => {
-  assert.deepEqual(customEffortLevels({ reasoningOptions: [{ type: 'effort', values: ['high', 'low'] }], reasoningLevels: ['max'] }), ['low', 'high']);
+  assert.deepEqual(
+    customEffortLevels({ reasoningOptions: [{ type: 'effort', values: ['high', 'low'] }], reasoningLevels: ['max'] }),
+    ['low', 'high']
+  );
   assert.deepEqual(customEffortLevels({ reasoningLevels: ['max', 'ultra', 'none'] }), ['none', 'max']);
   assert.deepEqual(customEffortLevels({ reasoningOptions: [{ type: 'effort', values: [] }] }), []);
   assert.equal(customEffortLevels({}), null);
@@ -150,7 +153,11 @@ test('replay eligibility: flag, thinking off, reasoner ids, non-chat, explicit f
     resolveCustomReasoning({ protocol: 'openai-chat', model: { ...on, id: 'My-Reasoner-1' }, effort: 'high' }).replay,
     false
   );
-  assert.equal(resolveCustomReasoning({ protocol: 'openai-responses', model: row(['high'], { replay: true }), effort: 'high' }).replay, false);
+  assert.equal(
+    resolveCustomReasoning({ protocol: 'openai-responses', model: row(['high'], { replay: true }), effort: 'high' })
+      .replay,
+    false
+  );
   const explicitFalse = row(['high'], { replay: false }, { reasoningContentField: 'reasoning_content' });
   assert.equal(resolveCustomReasoning({ protocol: 'openai-chat', model: explicitFalse, effort: 'high' }).replay, false);
 });
@@ -162,7 +169,12 @@ test('toOpenAIMessages custom replay: stored reasoning, tool-call padding, no pa
     { role: 'tool', toolCallId: 'c1', content: 'ok' },
     { role: 'assistant', content: '', reasoningContent: '', toolCalls: [{ id: 'c2', name: 't', arguments: {} }] },
     { role: 'tool', toolCallId: 'c2', content: 'ok' },
-    { role: 'assistant', content: '', reasoningContent: 'thought', toolCalls: [{ id: 'c3', name: 't', arguments: {} }] },
+    {
+      role: 'assistant',
+      content: '',
+      reasoningContent: 'thought',
+      toolCalls: [{ id: 'c3', name: 't', arguments: {} }],
+    },
     { role: 'tool', toolCallId: 'c3', content: 'ok' },
     { role: 'assistant', content: 'done' },
     { role: 'assistant', content: 'done2', reasoningContent: '' },
@@ -174,9 +186,7 @@ test('toOpenAIMessages custom replay: stored reasoning, tool-call padding, no pa
     [' ', ' ', 'thought', undefined, undefined]
   );
   // Explicit false wins even when the catalog-derived flag says replay.
-  const off = assistants(
-    toOpenAIMessages(history, 'custom-x', { customReplay: false, replaysReasoningContent: true })
-  );
+  const off = assistants(toOpenAIMessages(history, 'custom-x', { customReplay: false, replaysReasoningContent: true }));
   assert.ok(off.every((m) => !Object.hasOwn(m, 'reasoning_content')));
   // First-party DeepSeek keeps the exact stored value (no padding).
   const ds = assistants(toOpenAIMessages(history, 'deepseek', { replaysReasoningContent: true }));
@@ -226,7 +236,9 @@ function compatFixture(name, info) {
           create: async (params) => {
             requests.push(structuredClone(params));
             return (async function* () {
-              yield { choices: [{ index: 0, delta: { content: 'done', reasoning_content: 'r' }, finish_reason: 'stop' }] };
+              yield {
+                choices: [{ index: 0, delta: { content: 'done', reasoning_content: 'r' }, finish_reason: 'stop' }],
+              };
             })();
           },
         },
@@ -270,7 +282,13 @@ test('sendCompatChat: custom provider resolves from its row and replays with pad
   const off = compatFixture('custom-x', info);
   await sendCompatChat(off.provider, toolHistory, 'm1', [], { effort: 'none' });
   assert.deepEqual(off.requests[0].thinking, { type: 'disabled' });
-  assert.equal(Object.hasOwn(off.requests[0].messages.find((m) => m.role === 'assistant'), 'reasoning_content'), false);
+  assert.equal(
+    Object.hasOwn(
+      off.requests[0].messages.find((m) => m.role === 'assistant'),
+      'reasoning_content'
+    ),
+    false
+  );
 });
 
 test('sendCompatResponses: custom provider snaps without promotion', async () => {

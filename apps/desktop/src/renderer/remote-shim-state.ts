@@ -46,7 +46,7 @@ export const REMOTE_CREDENTIAL_READY_EVENT = 'mixdog:remote-credential-ready';
 export { REMOTE_CONNECTION_READY_EVENT };
 export const REMOTE_PAIRING_INVALID_EVENT = 'mixdog:remote-pairing-invalid';
 export const VISIBLE_SESSIONS_STORAGE_KEY = 'mixdog.remote-visible-sessions';
-export const LAST_SESSION_STORAGE_KEY = 'mixdog.desktop-last-session.v1';
+const LAST_SESSION_STORAGE_KEY = 'mixdog.desktop-last-session.v1';
 export const MAX_RESTORED_VISIBLE_SESSIONS = 8;
 
 /** The connection's mutable state. */

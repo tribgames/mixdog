@@ -12,6 +12,7 @@ import {
   sendNativePush,
   unbindNativeToken,
 } from './native-push-legs.mjs';
+import { markWebPushReady, sendWebPushFromDesktop, webPushSubscriptionsFrame } from './web-push-legs.mjs';
 import {
   MAX_FRAME_BYTES,
   MAX_INFLIGHT_BYTES,
@@ -50,6 +51,7 @@ function revokeDevice(leg) {
     return;
   }
   dropNativeBindings(leg.nativeBindings, deviceId);
+  leg.webPush?.registry.dropClient(deviceId);
   leg.revoked = true;
   for (const phone of entry.clients.values()) closeQuietly(phone, 4003, 'pairing revoked');
   const finish = () => closeQuietly(socket, 4003, 'device revoked');
@@ -100,7 +102,7 @@ function listClients({ store, deviceId, socket, entry, sendJson }, message) {
   });
 }
 
-function revokeClient({ store, deviceId, socket, entry, sendJson, nativeBindings }, message) {
+function revokeClient({ store, deviceId, socket, entry, sendJson, nativeBindings, webPush }, message) {
   if (typeof message.requestId !== 'string' || typeof message.clientId !== 'string') return;
   const removed = store.revokeClient(deviceId, message.clientId);
   // Only a credential that is actually gone closes its browser: a failed
@@ -108,6 +110,9 @@ function revokeClient({ store, deviceId, socket, entry, sendJson, nativeBindings
   // the user something the store did not do.
   if (removed) {
     dropNativeBindings(nativeBindings, deviceId, message.clientId);
+    // Only THIS PC's association with that browser goes; its other PCs keep
+    // delivering to the same subscription.
+    if (webPush?.registry.dropClient(deviceId, message.clientId)) webPush.publish(deviceId);
     for (const phone of entry.clients.values()) {
       if (phone.browserClientId === message.clientId) closeQuietly(phone, 4003, 'pairing revoked');
     }
@@ -216,6 +221,8 @@ const DESKTOP_FRAME_HANDLERS = new Map([
   ['native-push-bind', bindNativeToken],
   ['native-push-unbind', unbindNativeToken],
   ['native-push', sendNativePush],
+  ['webpush-send', sendWebPushFromDesktop],
+  ['webpush-ready', markWebPushReady],
   ['frame', forwardFrame],
   ['close-client', closeClient],
   ['broadcast', broadcastFrame],
@@ -257,6 +264,7 @@ export function runDesktopLeg(context, deviceId, socket) {
     nativePush = null,
     nativeBindings = null,
     nativeLimiter = null,
+    webPush = null,
   } = context;
   const entry = attachDesktop(deviceId, socket);
   socket.isAlive = true;
@@ -277,13 +285,16 @@ export function runDesktopLeg(context, deviceId, socket) {
   // leg that changes nothing is answered with nothing, exactly as before.
   const publishCapabilities = () => {
     const leg = socket.uplinkLeg;
-    const frame = relayCapabilities(leg, maxFrameBytes, nativePushPlatforms({ nativePush }));
+    const frame = relayCapabilities(leg, maxFrameBytes, nativePushPlatforms({ nativePush }), Boolean(webPush));
     const encoded = JSON.stringify(frame);
     if (encoded === leg.published) return;
     leg.published = encoded;
     sendJson(socket, frame);
   };
   publishCapabilities();
+  // The browser subscriptions this PC may deliver to, after the capabilities
+  // that say how. An older desktop ignores the frame.
+  if (webPush) sendJson(socket, webPushSubscriptionsFrame(webPush, store, deviceId));
   const leg = {
     socket,
     entry,
@@ -296,6 +307,7 @@ export function runDesktopLeg(context, deviceId, socket) {
     nativePush,
     nativeBindings,
     nativeLimiter,
+    webPush,
     revoked: false,
   };
   // Existing browser legs survive a transient desktop redial. Replaying

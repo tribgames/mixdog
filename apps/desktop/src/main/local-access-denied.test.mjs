@@ -56,8 +56,13 @@ test('project authority marks removal but preserves module and registry lookup f
     async loadProjectsModule() {
       if (failure) throw failure;
       return {
-        listProjects() { throw new Error('authority must not use the tolerant list'); },
-        listProjectsStrict() { if (lookupFailure) throw lookupFailure; return rows; },
+        listProjects() {
+          throw new Error('authority must not use the tolerant list');
+        },
+        listProjectsStrict() {
+          if (lookupFailure) throw lookupFailure;
+          return rows;
+        },
       };
     },
   });

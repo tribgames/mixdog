@@ -3,6 +3,7 @@ import { EditorDelimitedGrid } from './editor-delimited-grid';
 import { headingForAnchor, readHeadings, scrollToHeading } from './editor-markdown-outline';
 import MarkdownBody from './MarkdownBody';
 import { MarkdownDocumentDirContext, MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
+import { documentDirectory } from './rich-markdown/rich-markdown-links';
 import { CopyControl } from './transcript-primitives';
 import { ZoomFrame, ZoomImage, useImageSize } from './ZoomFrame';
 
@@ -75,7 +76,7 @@ export function EditorMarkdownPreview({
   relPath: string;
   onOpenFile?(project: string, rel: string, line?: number): void;
 }) {
-  const directory = relPath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+  const directory = documentDirectory(relPath);
   // `#anchor` links scroll inside the preview (never navigate the renderer);
   // relative file links keep going through MarkdownLink → onOpenFile.
   const followAnchor = (event: MouseEvent<HTMLDivElement>) => {

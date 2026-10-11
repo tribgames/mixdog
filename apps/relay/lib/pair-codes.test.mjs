@@ -260,7 +260,14 @@ test('relay: a registered code redeems into a claim the desktop sees as a code c
     // A client retrying a code-started pairing has no ticket left: the claim is
     // labelled a retry, never a code.
     assert.equal(
-      (await post(origin, '/claim', { deviceId: desktop.deviceId, clientId: randomUUID(), publicKey, name: 'Phone', retry: true }, { Origin: origin })).status,
+      (
+        await post(
+          origin,
+          '/claim',
+          { deviceId: desktop.deviceId, clientId: randomUUID(), publicKey, name: 'Phone', retry: true },
+          { Origin: origin }
+        )
+      ).status,
       202
     );
     await until(() => desktop.frames.filter((frame) => frame.type === 'client-claim').length === 4);

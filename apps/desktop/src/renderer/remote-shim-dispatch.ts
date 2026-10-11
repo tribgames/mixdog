@@ -33,7 +33,7 @@ import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provi
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
 /** Shape check for a pushed live frame; a malformed one is dropped. */
-export function readRemoteBrowserStreamFrame(value: unknown): DesktopRemoteBrowserStreamFrame | null {
+function readRemoteBrowserStreamFrame(value: unknown): DesktopRemoteBrowserStreamFrame | null {
   if (!value || typeof value !== 'object') return null;
   const frame = value as Partial<DesktopRemoteBrowserStreamFrame>;
   if (typeof frame.sessionId !== 'string' || !frame.sessionId) return null;
@@ -52,7 +52,7 @@ export function readRemoteBrowserStreamFrame(value: unknown): DesktopRemoteBrows
 }
 
 /** Shape check for a pushed tab list; malformed rows are dropped. */
-export function readRemoteBrowserTabs(value: unknown): DesktopRemoteBrowserTab[] | null {
+function readRemoteBrowserTabs(value: unknown): DesktopRemoteBrowserTab[] | null {
   if (!Array.isArray(value)) return null;
   return value
     .filter(

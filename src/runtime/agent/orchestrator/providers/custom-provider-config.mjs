@@ -2,17 +2,17 @@
 // validation and the pure layering of per-model overrides on top of the
 // auto-discovered (catalog-enriched) model list. No I/O.
 
+import { CUSTOM_EFFORT_LEVELS, normalizeCustomEffort } from './custom-reasoning.mjs';
 import { assertSafeBaseURL } from './provider-base-url.mjs';
 
 export const CUSTOM_PROVIDER_PROTOCOLS = Object.freeze(['openai-chat', 'openai-responses', 'anthropic']);
 export const CUSTOM_PROVIDER_SCHEMA_VERSION = 2;
 // Ranked weakest → strongest.
-export const CUSTOM_REASONING_LEVELS = Object.freeze(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+export const CUSTOM_REASONING_LEVELS = CUSTOM_EFFORT_LEVELS;
 export const CUSTOM_REASONING_WIRE_FORMATS = Object.freeze(['standard', 'deepseek']);
 export const CUSTOM_PROVIDER_AUTH_MODES = Object.freeze(['key', 'none']);
 export const CUSTOM_MODEL_OVERRIDE_LIMIT = 500;
 
-const LEVEL_ALIASES = Object.freeze({ ultra: 'max' });
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const MAX_MODEL_ID = 256;
 const MAX_NAME = 200;
@@ -118,9 +118,7 @@ function modelIdKey(raw, label = 'model id') {
 
 /** Canonical level for `raw` (alias-aware), or null when unknown. */
 export function canonicalReasoningLevel(raw) {
-  const value = text(raw).toLowerCase();
-  const level = LEVEL_ALIASES[value] || value;
-  return CUSTOM_REASONING_LEVELS.includes(level) ? level : null;
+  return typeof raw === 'string' ? normalizeCustomEffort(raw) : null;
 }
 
 const rank = (level) => CUSTOM_REASONING_LEVELS.indexOf(level);
@@ -221,7 +219,8 @@ function normalizeOverrides(raw, protocol, legacy) {
   if (raw === undefined) return {};
   if (!isPlainObject(raw)) fail('modelOverrides must be an object');
   const keys = Object.keys(raw);
-  if (keys.length > CUSTOM_MODEL_OVERRIDE_LIMIT) fail(`at most ${CUSTOM_MODEL_OVERRIDE_LIMIT} model overrides are allowed`);
+  if (keys.length > CUSTOM_MODEL_OVERRIDE_LIMIT)
+    fail(`at most ${CUSTOM_MODEL_OVERRIDE_LIMIT} model overrides are allowed`);
   const out = {};
   for (const key of keys) {
     const id = modelIdKey(key, 'modelOverrides key');
@@ -270,8 +269,7 @@ export function normalizeCustomProviderConfig(input) {
     if (input.modelOverrides !== undefined || input.discovery !== undefined)
       fail('modelOverrides and discovery require schemaVersion 2');
     source = migrateLegacy(input);
-  }
-  else if (Number.isInteger(version) && version > CUSTOM_PROVIDER_SCHEMA_VERSION)
+  } else if (Number.isInteger(version) && version > CUSTOM_PROVIDER_SCHEMA_VERSION)
     fail(`unsupported schemaVersion ${version}; update mixdog to use this provider`);
   else if (version !== CUSTOM_PROVIDER_SCHEMA_VERSION) fail(`invalid schemaVersion: ${String(version)}`);
   if (!legacy) {
@@ -353,7 +351,10 @@ function effectiveRow(base, override, { providerId, discovered, newModelsHidden 
     manual: ov.manual === true,
     supportsReasoning: levels ? levels.some((level) => level !== 'none') : base.supportsReasoning === true,
     ...(levels
-      ? { reasoningOptions: levels.length ? [{ type: 'effort', values: [...levels] }] : [], reasoningLevels: [...levels] }
+      ? {
+          reasoningOptions: levels.length ? [{ type: 'effort', values: [...levels] }] : [],
+          reasoningLevels: [...levels],
+        }
       : {}),
     customReasoning: { wireFormat: reasoning.wireFormat ?? 'standard', wireValues, replay },
     ...(replay ? { reasoningContentField: 'reasoning_content' } : {}),

@@ -366,7 +366,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // the host offers it; otherwise they ride the RPC lane as ranged reads
     // into blob: URLs. Local pages become a srcdoc document.
     ...createRemotePreviewApi(call, laneUrl),
-    githubCliLoginOpenBrowser: (flowId) => call('githubCliLoginOpenBrowser', [flowId]),
+    githubCliLoginOpenBrowser: (flowId, options) => call('githubCliLoginOpenBrowser', [flowId, options]),
     ghPrList: (cwd) => call('ghPrList', [cwd]),
     ghPrDefaultBranch: (cwd) => call('ghPrDefaultBranch', [cwd]),
     ghPrCreate: (cwd, input) => call('ghPrCreate', [cwd, input]),

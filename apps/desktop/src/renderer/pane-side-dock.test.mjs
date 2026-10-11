@@ -450,9 +450,7 @@ test('file tabs: select, double-click keeps a preview, close and the menu act pe
     await act(async () =>
       tabs[1].closest('.browser-tab').dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
     );
-    await act(async () =>
-      document.querySelector('.side-file-header .browser-tab-close').click()
-    );
+    await act(async () => document.querySelector('.side-file-header .browser-tab-close').click());
     await act(async () =>
       tabs[1]
         .closest('.browser-tab')
@@ -1299,7 +1297,11 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
   assert.equal((tabs.match(/class="browser-tab dock-header-chip/g) ?? []).length, 2);
   assert.equal((tabs.match(/is-preview/g) ?? []).length, 1);
   assert.ok(tabs.includes('Preview tab'), 'preview hint');
-  const keepActions = sideFileActions(chrome, () => {}, () => {});
+  const keepActions = sideFileActions(
+    chrome,
+    () => {},
+    () => {}
+  );
   assert.equal(keepActions[0].id, 'keep-open');
   const { SideFileStatusRow } = await import('./side-file-status-row.tsx');
   // Source mode: toggle (left) + problems, cursor, language (right); no path.
@@ -1564,7 +1566,10 @@ test('a cancelled panel resize restores the preference snapshotted at gesture st
     hooks.indexOf('return (next: number, phase:', hooks.indexOf('export function usePanelWidthDrag')),
     hooks.indexOf('export function useDiffColumnResize')
   );
-  assert.ok(handler.length > 0 && hooks.indexOf('export function usePanelWidthDrag') < hooks.indexOf('return (next: number, phase:'));
+  assert.ok(
+    handler.length > 0 &&
+      hooks.indexOf('export function usePanelWidthDrag') < hooks.indexOf('return (next: number, phase:')
+  );
   assert.match(handler, /const kind = terminalShowing \? 'terminal' : sessionSurfaceShowing \? 'browser' : 'panel';/);
   // The snapshot is the stored pref (500 saved, 400 rendered => 500), taken on the first preview.
   assert.match(handler, /phase === 'preview' && !panelWidthSnapshot\.current/);
@@ -1596,7 +1601,7 @@ function mountResizableDock({ stored = {}, cellWidth = 0 } = {}) {
   for (const [key, value] of Object.entries(stored)) dom.window.localStorage.setItem(key, String(value));
   const captured = new Set();
   const proto = dom.window.Element.prototype;
-  proto.setPointerCapture = function (id) {
+  proto.setPointerCapture = (id) => {
     captured.add(`${id}`);
   };
   proto.hasPointerCapture = (id) => captured.has(`${id}`);
@@ -1733,7 +1738,11 @@ function DirtyFileStub({ rel, active, side }) {
   return React.createElement(
     'div',
     { 'data-testid': `editor-${rel}`, 'data-active': active ? 'true' : 'false', 'data-edits': String(edits) },
-    React.createElement('button', { type: 'button', 'data-testid': `edit-${rel}`, onClick: () => setEdits((n) => n + 1) }),
+    React.createElement('button', {
+      type: 'button',
+      'data-testid': `edit-${rel}`,
+      onClick: () => setEdits((n) => n + 1),
+    }),
     React.createElement('button', { type: 'button', 'data-testid': `problems-${rel}`, onClick: side.onShowProblems })
   );
 }

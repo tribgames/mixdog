@@ -30,7 +30,6 @@ import {
   DESKTOP_VERSION,
   LEGACY_RELEASE_ID,
   RELEASE_INDEX_FILE,
-  SHELL_VERSION,
   parseReleaseIndex,
   planRetention,
   readReleaseIndex,
@@ -121,7 +120,6 @@ export function prepareReleases({
   if (desktopVersion) {
     if (!DESKTOP_VERSION.test(desktopVersion)) throw new Error('desktop version is invalid');
     const shellVersion = rendererShellVersion(rendererDir);
-    if (!SHELL_VERSION.test(shellVersion)) throw new Error('renderer shell version is invalid');
     releaseId = releaseIdFor(desktopVersion, shellVersion);
     const target = join(releasesDir, releaseId);
     if (!index.releases.some((entry) => entry.id === releaseId)) {

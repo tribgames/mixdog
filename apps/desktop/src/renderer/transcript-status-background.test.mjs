@@ -21,7 +21,10 @@ test('latest completion waits on background work, then returns to completed in p
     assert.ok(waiting.querySelector('.turn-status-dot'));
     assert.ok(!waiting.querySelector('svg'));
     assert.equal(waiting.textContent, '3 background tasks waiting · Shell 2 · Agent 1');
-    assert.equal(render({ backgroundWork: { shell: 1, agent: 0 } }).textContent, '1 background tasks waiting · Shell 1');
+    assert.equal(
+      render({ backgroundWork: { shell: 1, agent: 0 } }).textContent,
+      '1 background tasks waiting · Shell 1'
+    );
 
     const done = render({});
     assert.ok(!done.classList.contains('waiting'));
@@ -45,4 +48,3 @@ test('conversation shell snapshots differ when only background jobs change', () 
   assert.equal(desktopConversationShellSnapshotsEqual(base, { ...base, agentJobs: [{ id: 'a' }] }), false);
   assert.equal(desktopConversationShellSnapshotsEqual(base, { ...base, agentWorkers: [{ id: 'w' }] }), false);
 });
-

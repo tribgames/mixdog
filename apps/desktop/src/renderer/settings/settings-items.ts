@@ -60,7 +60,12 @@ export const SETTINGS_ITEMS = [
   { value: 'developer', label: 'Developer options', description: 'Developer-only options.', kind: 'open' },
   { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
   // Desktop-only: lets the getting-started guide deep-link to remote pairing.
-  { value: 'connection', label: 'Connection', description: 'Use this PC from your phone, browser, or another PC.', kind: 'open' },
+  {
+    value: 'connection',
+    label: 'Connection',
+    description: 'Use this PC from your phone, browser, or another PC.',
+    kind: 'open',
+  },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
 type SettingsItemValue = (typeof SETTINGS_ITEMS)[number]['value'];

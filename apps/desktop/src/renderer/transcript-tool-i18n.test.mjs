@@ -9,7 +9,7 @@ import i18n, { t } from './i18n';
 import { TOOL_DETAIL_LABELS, shortMachineId, toolActivityFieldValue } from './transcript-tool-format.ts';
 import { toolActivityStripInstructions, toolStatusLabel } from './transcript-tool-result.ts';
 import { desktopToolActivityItemPresentation } from './transcript-tool-model.ts';
-import { toolActivityMetaLine, toolActivityOutcomeText, ToolRowOutcome } from './transcript-tool-ui.tsx';
+import { toolActivityMetaLine, toolActivityOutcomeText } from './transcript-tool-ui.tsx';
 import { toolActivityItemTone } from './transcript-tool-core.ts';
 const live = JSON.parse(readFileSync(new URL('./transcript-tool-live-rows.fixture.json', import.meta.url), 'utf8'));
 import { CodeDiff } from './transcript-diff.tsx';
@@ -193,7 +193,8 @@ test('instructions written for the model never reach the row body, result or sub
   assert.equal(toolActivityStripInstructions(fenced), fenced);
   const stdout = 'build ok\nJob still running; 1 new line.\nnext step';
   assert.equal(toolActivityStripInstructions(stdout), stdout);
-  const sentence = 'auto-backgrounded after 15s; still running. Completion arrives automatically; call task wait (not task read polling) when the result is due.';
+  const sentence =
+    'auto-backgrounded after 15s; still running. Completion arrives automatically; call task wait (not task read polling) when the result is due.';
   const quoted = `Docs say:\n${sentence}\nend`;
   assert.equal(toolActivityStripInstructions(quoted), quoted);
   // Output is never filtered, whatever follows it or how its fence is written.
@@ -208,7 +209,8 @@ test('instructions written for the model never reach the row body, result or sub
   const section = `[stdout]\nDocumented message:\n\n${retrieve}`;
   assert.equal(toolActivityStripInstructions(section), section);
   // The producer's own wait cue is the last paragraph after the rendered task.
-  const cue = 'Wait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
+  const cue =
+    'Wait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
   // Only a task wait result carries the cue; elsewhere it is payload.
   assert.equal(toolActivityStripInstructions(`[stdout]\nbuilding\n\n${cue}`, false, true), '[stdout]\nbuilding');
   assert.equal(toolActivityStripInstructions(`[stdout]\nbuilding\n\n${cue}`), `[stdout]\nbuilding\n\n${cue}`);
@@ -218,11 +220,16 @@ test('instructions written for the model never reach the row body, result or sub
   assert.equal(toolActivityStripInstructions(prose), prose);
   const lowerProse = 'agent task finished after retry\nstatus: ok\nnotes here';
   assert.equal(toolActivityStripInstructions(lowerProse), lowerProse);
-  assert.equal(toolActivityStripInstructions('see below\nagent task: t1\nstatus: running'), 'see below\nagent task: t1\nstatus: running');
+  assert.equal(
+    toolActivityStripInstructions('see below\nagent task: t1\nstatus: running'),
+    'see below\nagent task: t1\nstatus: running'
+  );
   assert.equal(toolActivityStripInstructions('agent result agent=worker tag=x\nstatus: completed\n\nanswer'), 'answer');
   for (const text of instructions) {
     const presentation = desktopToolActivityItemPresentation(toolItem('task', { action: 'read', task_id: JOB }, text));
-    const waiting = /^Job still running/.test(text) ? t('Running in the background · a notice appears when it completes') : '';
+    const waiting = /^Job still running/.test(text)
+      ? t('Running in the background · a notice appears when it completes')
+      : '';
     assert.equal(presentation.outputText, '', text);
     assert.equal(presentation.outputNote, waiting, text);
     assert.doesNotMatch(presentation.resultLabel, /Retrieve|auto-backgrounded|queued as|agent task/, text);
@@ -234,7 +241,11 @@ test('a task read keeps a non-zero exit, timeout or signal visible and exit 0 si
   await inKorean(() => {
     const read = (fields) =>
       desktopToolActivityItemPresentation(
-        toolItem('task', { action: 'read', task_id: JOB }, `background task\ntask_id: ${JOB}\nstatus: completed\n${fields}\n\ndone`)
+        toolItem(
+          'task',
+          { action: 'read', task_id: JOB },
+          `background task\ntask_id: ${JOB}\nstatus: completed\n${fields}\n\ndone`
+        )
       );
     const ok = read('exit_code: 0');
     const bad = read('exit_code: 2');
@@ -256,7 +267,11 @@ test('a failed task keeps its error detail, its signal and a single outcome', as
   await inKorean(() => {
     const present = (name, args, text) => desktopToolActivityItemPresentation(toolItem(name, args, text));
     const read = (fields, body) =>
-      present('task', { action: 'read', task_id: JOB }, `background task\ntask_id: ${JOB}\nstatus: completed\n${fields}\n\n${body}`);
+      present(
+        'task',
+        { action: 'read', task_id: JOB },
+        `background task\ntask_id: ${JOB}\nstatus: completed\n${fields}\n\n${body}`
+      );
     const denied = read('exit_code: 2', 'fatal: permission denied');
     assert.equal(denied.outputText, 'fatal: permission denied');
     assert.equal(denied.resultLabel, '실패 · 종료 2');
@@ -310,17 +325,21 @@ test('only the exact runtime guidance lines are hidden, and truncated forms only
     'Job still running; many new lines.',
   ];
   for (const line of lookalikes) assert.equal(toolActivityStripInstructions(line, true), line, line);
-  const present = (text) => desktopToolActivityItemPresentation(toolItem('task', { action: 'wait', task_id: JOB }, text));
+  const present = (text) =>
+    desktopToolActivityItemPresentation(toolItem('task', { action: 'wait', task_id: JOB }, text));
   const fallback = guidance[3];
   assert.equal(present(fallback).outputText, '');
   assert.equal(present(fallback).resultLabel, '');
 });
 
 test('ordinary output and subjects that resemble instructions are never stripped', () => {
-  const wording = 'Please explicitly ask for approval before deleting files.\nTo continue independent work, use read for full output.';
+  const wording =
+    'Please explicitly ask for approval before deleting files.\nTo continue independent work, use read for full output.';
   const shell = desktopToolActivityItemPresentation(toolItem('shell', { command: 'cat notes.txt' }, wording));
   assert.equal(shell.outputText, wording);
-  const memory = desktopToolActivityItemPresentation(toolItem('memory', { action: 'remember', text: 'Please explicitly ask first' }, 'ok'));
+  const memory = desktopToolActivityItemPresentation(
+    toolItem('memory', { action: 'remember', text: 'Please explicitly ask first' }, 'ok')
+  );
   assert.match(memory.subject, /explicitly ask/);
   assert.equal(toolActivityStripInstructions(wording), wording);
 });
@@ -329,7 +348,10 @@ test('task list entries read as short id, localized surface and status', async (
   await inKorean(() => {
     const list = `background tasks: 2\n- ${JOB} shell/shell running label=sleep 100\n- agent_1790959235138_aa11bb agent/spawn completed`;
     const presentation = desktopToolActivityItemPresentation(toolItem('task', { action: 'list' }, list));
-    assert.deepEqual(presentation.outputText.split('\n').slice(1), ['971b88 · 명령 · 실행 중 · sleep 100', 'aa11bb · 에이전트 · 시작 · 완료']);
+    assert.deepEqual(presentation.outputText.split('\n').slice(1), [
+      '971b88 · 명령 · 실행 중 · sleep 100',
+      'aa11bb · 에이전트 · 시작 · 완료',
+    ]);
   });
 });
 
@@ -395,85 +417,153 @@ const ko = (run) => async () => {
 };
 const present = (name, args, text = 'ok') => desktopToolActivityItemPresentation(toolItem(name, args, text));
 
-test('a running background shell shows a quiet placeholder and no empty stdout label', ko(() => {
-  const running = (body) => `background task\ntask_id: ${JOB}\nstatus: running\nstarted: 2026-10-11T14:00:00.000Z\n\n${body}`;
-  for (const body of ['', '[stdout]', '[stdout]\n\n[stderr]\n']) {
-    assert.equal(present('shell', { command: 'sleep 9' }, running(body)).outputNote, '백그라운드에서 실행 · 완료되면 알림을 표시합니다', body);
-  }
-  assert.equal(present('shell', { command: 'x' }, running('[stdout]\nbuilding')).outputText, 'building');
-  assert.equal(present('shell', { command: 'x' }, running('[stdout]\n[stderr]\nwarn: low disk')).outputText, '[stderr]\nwarn: low disk');
-  assert.equal(present('task', { action: 'read', task_id: JOB }, 'Job still running; 0 new lines.').outputNote, '백그라운드에서 실행 · 완료되면 알림을 표시합니다');
-}));
+test(
+  'a running background shell shows a quiet placeholder and no empty stdout label',
+  ko(() => {
+    const running = (body) =>
+      `background task\ntask_id: ${JOB}\nstatus: running\nstarted: 2026-10-11T14:00:00.000Z\n\n${body}`;
+    for (const body of ['', '[stdout]', '[stdout]\n\n[stderr]\n']) {
+      assert.equal(
+        present('shell', { command: 'sleep 9' }, running(body)).outputNote,
+        '백그라운드에서 실행 · 완료되면 알림을 표시합니다',
+        body
+      );
+    }
+    assert.equal(present('shell', { command: 'x' }, running('[stdout]\nbuilding')).outputText, 'building');
+    assert.equal(
+      present('shell', { command: 'x' }, running('[stdout]\n[stderr]\nwarn: low disk')).outputText,
+      '[stderr]\nwarn: low disk'
+    );
+    assert.equal(
+      present('task', { action: 'read', task_id: JOB }, 'Job still running; 0 new lines.').outputNote,
+      '백그라운드에서 실행 · 완료되면 알림을 표시합니다'
+    );
+  })
+);
 
-test('a failed row reads status and short reason; the id stays in the meta', ko(() => {
-  const failed = present('task', { action: 'wait', task_id: JOB }, `background task\ntask_id: ${JOB}\nstatus: failed\nerror: boom\n\n`);
-  assert.equal(failed.resultLabel, '실패 · boom');
-  assert.equal(failed.outputText, 'boom');
-  const long = present('task', { action: 'wait', task_id: JOB }, `background task\ntask_id: ${JOB}\nstatus: failed\nerror: ${'e'.repeat(80)}\n\n`);
-  assert.equal(long.resultLabel, `실패 · ${'e'.repeat(59)}…`);
-  assert.equal(long.outputText, 'e'.repeat(80));
-  const shell = present('shell', { command: 'make' }, `<task-notification>\n<task-id>${JOB}</task-id>\n<status>failed</status>\n<exit-code>2</exit-code>\n<summary>Shell task failed (exit 2): make</summary>\n</task-notification>`);
-  assert.equal(shell.resultLabel, '실패 · 종료 2');
-  assert.equal(toolActivityOutcomeText(shell), '실패 · 종료 2 · 971b88');
-}));
+test(
+  'a failed row reads status and short reason; the id stays in the meta',
+  ko(() => {
+    const failed = present(
+      'task',
+      { action: 'wait', task_id: JOB },
+      `background task\ntask_id: ${JOB}\nstatus: failed\nerror: boom\n\n`
+    );
+    assert.equal(failed.resultLabel, '실패 · boom');
+    assert.equal(failed.outputText, 'boom');
+    const long = present(
+      'task',
+      { action: 'wait', task_id: JOB },
+      `background task\ntask_id: ${JOB}\nstatus: failed\nerror: ${'e'.repeat(80)}\n\n`
+    );
+    assert.equal(long.resultLabel, `실패 · ${'e'.repeat(59)}…`);
+    assert.equal(long.outputText, 'e'.repeat(80));
+    const shell = present(
+      'shell',
+      { command: 'make' },
+      `<task-notification>\n<task-id>${JOB}</task-id>\n<status>failed</status>\n<exit-code>2</exit-code>\n<summary>Shell task failed (exit 2): make</summary>\n</task-notification>`
+    );
+    assert.equal(shell.resultLabel, '실패 · 종료 2');
+    assert.equal(toolActivityOutcomeText(shell), '실패 · 종료 2 · 971b88');
+  })
+);
 
-test('a body-less failure is a localized line from the parsed parts', ko(() => {
-  const read = (fields) => present('task', { action: 'read', task_id: JOB }, `background task\ntask_id: ${JOB}\nstatus: completed\n${fields}\n\n`);
-  assert.equal(read('signal: SIGKILL').outputText, 'SIGKILL 신호로 실패');
-  assert.equal(read('timed_out: true').outputText, '시간 초과');
-  assert.equal(read('exit_code: 3').outputText, '종료 코드 3로 실패');
-}));
+test(
+  'a body-less failure is a localized line from the parsed parts',
+  ko(() => {
+    const read = (fields) =>
+      present(
+        'task',
+        { action: 'read', task_id: JOB },
+        `background task\ntask_id: ${JOB}\nstatus: completed\n${fields}\n\n`
+      );
+    assert.equal(read('signal: SIGKILL').outputText, 'SIGKILL 신호로 실패');
+    assert.equal(read('timed_out: true').outputText, '시간 초과');
+    assert.equal(read('exit_code: 3').outputText, '종료 코드 3로 실패');
+  })
+);
 
-test('agent start, field labels and action subjects are localized', ko(() => {
-  assert.equal(present('agent', { type: 'spawn', role: 'worker', prompt: 'x' }, 'agent task: t\nstatus: running').subject, '시작');
-  assert.equal(TOOL_DETAIL_LABELS.completed, '완료');
-  const labels = present('github', { action: 'pr.list', repo: 'a/b', url: 'https://x.y', task_id: 'a1' }, 'x').fields.map((field) => field.label);
-  assert.deepEqual(labels, ['저장소', '주소', '작업 번호']);
-  const subject = (name, action) => present(name, { action }, 'x').subject;
-  const expected = [
-    ['github', 'list_issues', '이슈 목록'], ['github', 'view_issue', '이슈 보기'], ['github', 'pr.list', 'PR 목록'],
-    ['github', 'list_prs', 'PR 목록'], ['github', 'view_pr', 'PR 보기'], ['github', 'create_pr', 'PR 만들기'],
-    ['github', 'merge', '머지'], ['github', 'comment', '댓글'],
-    ['browser', 'click', '클릭'], ['browser', 'navigate', '이동'], ['browser', 'type', '입력'],
-    ['browser', 'screenshot', '스크린샷'], ['browser', 'scroll', '스크롤'],
-    ['office', 'docx_edit', '문서 편집'], ['media', 'generate_image', '이미지 생성'],
-    ['github', 'something_new', 'something new'],
-  ];
-  for (const [name, action, text] of expected) assert.equal(subject(name, action), text, action);
-}));
+test(
+  'agent start, field labels and action subjects are localized',
+  ko(() => {
+    assert.equal(
+      present('agent', { type: 'spawn', role: 'worker', prompt: 'x' }, 'agent task: t\nstatus: running').subject,
+      '시작'
+    );
+    assert.equal(TOOL_DETAIL_LABELS.completed, '완료');
+    const labels = present(
+      'github',
+      { action: 'pr.list', repo: 'a/b', url: 'https://x.y', task_id: 'a1' },
+      'x'
+    ).fields.map((field) => field.label);
+    assert.deepEqual(labels, ['저장소', '주소', '작업 번호']);
+    const subject = (name, action) => present(name, { action }, 'x').subject;
+    const expected = [
+      ['github', 'list_issues', '이슈 목록'],
+      ['github', 'view_issue', '이슈 보기'],
+      ['github', 'pr.list', 'PR 목록'],
+      ['github', 'list_prs', 'PR 목록'],
+      ['github', 'view_pr', 'PR 보기'],
+      ['github', 'create_pr', 'PR 만들기'],
+      ['github', 'merge', '머지'],
+      ['github', 'comment', '댓글'],
+      ['browser', 'click', '클릭'],
+      ['browser', 'navigate', '이동'],
+      ['browser', 'type', '입력'],
+      ['browser', 'screenshot', '스크린샷'],
+      ['browser', 'scroll', '스크롤'],
+      ['office', 'docx_edit', '문서 편집'],
+      ['media', 'generate_image', '이미지 생성'],
+      ['github', 'something_new', 'something new'],
+    ];
+    for (const [name, action, text] of expected) assert.equal(subject(name, action), text, action);
+  })
+);
 
-test('a row whose only detail is the meta cannot open and shows it beside the verb', ko(() => {
-  const notice = `<task-notification>\n<task-id>${JOB}</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0): sleep 1</summary>\n</task-notification>`;
-  const presentation = present('shell', { command: 'sleep 1' }, notice);
-  assert.equal(presentation.hasDetails, false);
-  assert.equal(presentation.outputText, '');
-}));
+test(
+  'a row whose only detail is the meta cannot open and shows it beside the verb',
+  ko(() => {
+    const notice = `<task-notification>\n<task-id>${JOB}</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0): sleep 1</summary>\n</task-notification>`;
+    const presentation = present('shell', { command: 'sleep 1' }, notice);
+    assert.equal(presentation.hasDetails, false);
+    assert.equal(presentation.outputText, '');
+  })
+);
 
-test('live dev-profile row: a shell completion notice reads verb · status · id with no body or chevron', ko(() => {
-  const row = desktopToolActivityItemPresentation(live.completionRow);
-  assert.equal([row.verb, toolActivityMetaLine({ ...row, resultLabel: '', fields: [] })].join(' · '), '실행 · 완료 · f2e11f');
-  assert.equal(row.metaText, '완료 · f2e11f');
-  assert.equal(row.outputText, '');
-  assert.equal(row.resultLabel, '');
-  assert.equal(row.hasDetails, false);
-  assert.deepEqual(row.fields, []);
-  // The cut summary of the full-id sentence is hidden too, whatever the id's length.
-  const cutLong = 'Retrieve output with task read (task_id: job_1791730080304_f2e11f) only if it ha...';
-  const cutShort = 'Retrieve output with task read (task_id: f2e11f) only if it ha...';
-  for (const text of [cutLong, cutShort]) assert.equal(toolActivityStripInstructions(text, true), '', text);
-  // A raw body line is never matched by a truncated prefix.
-  for (const text of [cutLong, cutShort]) assert.equal(toolActivityStripInstructions(text), text, text);
-}));
+test(
+  'live dev-profile row: a shell completion notice reads verb · status · id with no body or chevron',
+  ko(() => {
+    const row = desktopToolActivityItemPresentation(live.completionRow);
+    assert.equal(
+      [row.verb, toolActivityMetaLine({ ...row, resultLabel: '', fields: [] })].join(' · '),
+      '실행 · 완료 · f2e11f'
+    );
+    assert.equal(row.metaText, '완료 · f2e11f');
+    assert.equal(row.outputText, '');
+    assert.equal(row.resultLabel, '');
+    assert.equal(row.hasDetails, false);
+    assert.deepEqual(row.fields, []);
+    // The cut summary of the full-id sentence is hidden too, whatever the id's length.
+    const cutLong = 'Retrieve output with task read (task_id: job_1791730080304_f2e11f) only if it ha...';
+    const cutShort = 'Retrieve output with task read (task_id: f2e11f) only if it ha...';
+    for (const text of [cutLong, cutShort]) assert.equal(toolActivityStripInstructions(text, true), '', text);
+    // A raw body line is never matched by a truncated prefix.
+    for (const text of [cutLong, cutShort]) assert.equal(toolActivityStripInstructions(text), text, text);
+  })
+);
 
-test('live dev-profile row: a running ping shows no stream label as outcome, and a clean LF body', ko(() => {
-  const row = desktopToolActivityItemPresentation(live.runningRow);
-  assert.equal(row.resultLabel, '');
-  assert.equal(row.metaText, '백그라운드 · 552eb2');
-  assert.equal(toolActivityMetaLine(row), '백그라운드 · 552eb2');
-  assert.doesNotMatch(row.outputText, /\[stdout\]|\r/);
-  assert.match(row.outputText, /^Ping 127\.0\.0\.1/);
-  assert.equal(row.command, 'ping -n 90 127.0.0.1');
-}));
+test(
+  'live dev-profile row: a running ping shows no stream label as outcome, and a clean LF body',
+  ko(() => {
+    const row = desktopToolActivityItemPresentation(live.runningRow);
+    assert.equal(row.resultLabel, '');
+    assert.equal(row.metaText, '백그라운드 · 552eb2');
+    assert.equal(toolActivityMetaLine(row), '백그라운드 · 552eb2');
+    assert.doesNotMatch(row.outputText, /\[stdout\]|\r/);
+    assert.match(row.outputText, /^Ping 127\.0\.0\.1/);
+    assert.equal(row.command, 'ping -n 90 127.0.0.1');
+  })
+);
 
 test('a shell completion notice is filtered, ordinary shell output never is', () => {
   const sentence = 'Retrieve output with task read (task_id: a1) only if it has not already been received.';
@@ -483,46 +573,65 @@ test('a shell completion notice is filtered, ordinary shell output never is', ()
   assert.equal(present('shell', { command: 'echo' }, `${sentence}\nnext`).outputText, `${sentence}\nnext`);
 });
 
-test('live dev-profile row: a failed foreground command reads 실패 · its error and keeps stderr and exit in the body', ko(() => {
-  const row = desktopToolActivityItemPresentation(live.foregroundFailure);
-  assert.equal(row.verb, '실행');
-  assert.equal(row.resultLabel, '실패 · fatal: permission denied');
-  // A failed command wears the failure tone like every other failure; the
-  // internal tone of the item stays "warning".
-  assert.equal(row.tone, 'error');
-  assert.equal(toolActivityItemTone(live.foregroundFailure), 'warning');
-  assert.equal(row.command, 'cmd /c "echo fatal: permission denied 1>&2 & exit 2"');
-  assert.doesNotMatch(row.outputText, /exit code/);
-  assert.equal(row.outputNote, '종료 코드 2');
-  assert.match(row.outputText, /fatal: permission denied/);
-  const silent = desktopToolActivityItemPresentation({ ...live.foregroundFailure, result: '', rawResult: '[exit code: 2]\n' });
-  assert.equal(silent.resultLabel, '실패 · 종료 2');
-}));
+test(
+  'live dev-profile row: a failed foreground command reads 실패 · its error and keeps stderr and exit in the body',
+  ko(() => {
+    const row = desktopToolActivityItemPresentation(live.foregroundFailure);
+    assert.equal(row.verb, '실행');
+    assert.equal(row.resultLabel, '실패 · fatal: permission denied');
+    // A failed command wears the failure tone like every other failure; the
+    // internal tone of the item stays "warning".
+    assert.equal(row.tone, 'error');
+    assert.equal(toolActivityItemTone(live.foregroundFailure), 'warning');
+    assert.equal(row.command, 'cmd /c "echo fatal: permission denied 1>&2 & exit 2"');
+    assert.doesNotMatch(row.outputText, /exit code/);
+    assert.equal(row.outputNote, '종료 코드 2');
+    assert.match(row.outputText, /fatal: permission denied/);
+    const silent = desktopToolActivityItemPresentation({
+      ...live.foregroundFailure,
+      result: '',
+      rawResult: '[exit code: 2]\n',
+    });
+    assert.equal(silent.resultLabel, '실패 · 종료 2');
+  })
+);
 
-test('live dev-profile row: a background failure notice reads 실패 · 종료 1 · id, with only the command as body', ko(() => {
-  const row = desktopToolActivityItemPresentation(live.failedNotice);
-  assert.equal(row.verb, '실행');
-  assert.equal(row.tone, 'error');
-  assert.equal(row.resultLabel, '실패 · 종료 1');
-  assert.equal(row.metaText, '실패 · 종료 1 · 711cd8');
-  assert.equal(row.outputText, live.failedNotice.args.command ?? 'powershell -NoProfile -Command "Start-Sleep 20; Write-Error \'boom\'; exit 3"');
-  assert.doesNotMatch(row.outputText, /실패/);
-  assert.equal(toolActivityMetaLine(row), '');
-  assert.equal(toolActivityOutcomeText(row), '실패 · 종료 1 · 711cd8');
-}));
+test(
+  'live dev-profile row: a background failure notice reads 실패 · 종료 1 · id, with only the command as body',
+  ko(() => {
+    const row = desktopToolActivityItemPresentation(live.failedNotice);
+    assert.equal(row.verb, '실행');
+    assert.equal(row.tone, 'error');
+    assert.equal(row.resultLabel, '실패 · 종료 1');
+    assert.equal(row.metaText, '실패 · 종료 1 · 711cd8');
+    assert.equal(
+      row.outputText,
+      live.failedNotice.args.command ?? 'powershell -NoProfile -Command "Start-Sleep 20; Write-Error \'boom\'; exit 3"'
+    );
+    assert.doesNotMatch(row.outputText, /실패/);
+    assert.equal(toolActivityMetaLine(row), '');
+    assert.equal(toolActivityOutcomeText(row), '실패 · 종료 1 · 711cd8');
+  })
+);
 
-test('live dev-profile row: a failed task wait shows the decoded error output', ko(() => {
-  const row = desktopToolActivityItemPresentation(live.taskWaitFailure);
-  assert.equal(row.resultLabel, '실패 · 종료 1');
-  assert.match(row.outputText, /^\[stderr\]\nStart-Sleep 20; Write-Error 'boom'; exit 3 : boom/);
-  assert.match(row.outputText, /CategoryInfo/);
-  assert.doesNotMatch(row.outputText, /<Objs|CLIXML|_x000D_|Preparing modules/);
-}));
+test(
+  'live dev-profile row: a failed task wait shows the decoded error output',
+  ko(() => {
+    const row = desktopToolActivityItemPresentation(live.taskWaitFailure);
+    assert.equal(row.resultLabel, '실패 · 종료 1');
+    assert.match(row.outputText, /^\[stderr\]\nStart-Sleep 20; Write-Error 'boom'; exit 3 : boom/);
+    assert.match(row.outputText, /CategoryInfo/);
+    assert.doesNotMatch(row.outputText, /<Objs|CLIXML|_x000D_|Preparing modules/);
+  })
+);
 
-test('live dev-profile row: a running PowerShell job drops the CLIXML marker and its empty stream label', ko(() => {
-  const row = desktopToolActivityItemPresentation(live.runningPowerShell);
-  assert.doesNotMatch(row.outputText, /CLIXML|\[stderr\]/);
-  assert.equal(row.outputText, '');
-  assert.equal(row.outputNote, '백그라운드에서 실행 · 완료되면 알림을 표시합니다');
-  assert.equal(row.resultLabel, '');
-}));
+test(
+  'live dev-profile row: a running PowerShell job drops the CLIXML marker and its empty stream label',
+  ko(() => {
+    const row = desktopToolActivityItemPresentation(live.runningPowerShell);
+    assert.doesNotMatch(row.outputText, /CLIXML|\[stderr\]/);
+    assert.equal(row.outputText, '');
+    assert.equal(row.outputNote, '백그라운드에서 실행 · 완료되면 알림을 표시합니다');
+    assert.equal(row.resultLabel, '');
+  })
+);

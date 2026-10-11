@@ -144,39 +144,39 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
               />
             </Suspense>
           ) : (
-          <ReadyEditorPane
-            surfaceKey={`${leaf.id}:side-file:${sideFileKey(file)}`}
-            projectPath={file.project}
-            relPath={file.rel}
-            accessToken={file.accessToken}
-            active={surfaceActive}
-            focused={surfaceActive && focused}
-            onSideChrome={side.onChrome}
-            onShowProblems={side.onShowProblems}
-            onDirty={(dirty) => {
-              context.handleFileDirty(sideFileDirtyKey(leaf.id, file), dirty);
-              // An edit makes a preview tab a normal one.
-              if (dirty) context.paneSideDocks.keepFile(leaf.id, sideFileKey(file));
-            }}
-            onSaveHandle={(save, released) =>
-              context.registerEditorSaveHandle(sideFileDirtyKey(leaf.id, file), save, released)
-            }
-            reveal={file.line ? { line: file.line, column: file.column, nonce: file.nonce } : null}
-            onOpenAt={file.accessToken ? undefined : (rel, line) => context.openFileTab(file.project, rel, line)}
-            // A link followed inside this tab opens in the dock, remembering
-            // its origin tab (a fresh preview tab is kept, not replaced).
-            onOpenFile={(project, rel, line, accessToken) =>
-              context.sideFileGuard.openFileInSideDock(
-                leaf.id,
-                project,
-                rel,
-                line,
-                accessToken,
-                undefined,
-                sideFileKey(file)
-              )
-            }
-          />
+            <ReadyEditorPane
+              surfaceKey={`${leaf.id}:side-file:${sideFileKey(file)}`}
+              projectPath={file.project}
+              relPath={file.rel}
+              accessToken={file.accessToken}
+              active={surfaceActive}
+              focused={surfaceActive && focused}
+              onSideChrome={side.onChrome}
+              onShowProblems={side.onShowProblems}
+              onDirty={(dirty) => {
+                context.handleFileDirty(sideFileDirtyKey(leaf.id, file), dirty);
+                // An edit makes a preview tab a normal one.
+                if (dirty) context.paneSideDocks.keepFile(leaf.id, sideFileKey(file));
+              }}
+              onSaveHandle={(save, released) =>
+                context.registerEditorSaveHandle(sideFileDirtyKey(leaf.id, file), save, released)
+              }
+              reveal={file.line ? { line: file.line, column: file.column, nonce: file.nonce } : null}
+              onOpenAt={file.accessToken ? undefined : (rel, line) => context.openFileTab(file.project, rel, line)}
+              // A link followed inside this tab opens in the dock, remembering
+              // its origin tab (a fresh preview tab is kept, not replaced).
+              onOpenFile={(project, rel, line, accessToken) =>
+                context.sideFileGuard.openFileInSideDock(
+                  leaf.id,
+                  project,
+                  rel,
+                  line,
+                  accessToken,
+                  undefined,
+                  sideFileKey(file)
+                )
+              }
+            />
           )}
         </DeferredPersistentSurface>
       )}

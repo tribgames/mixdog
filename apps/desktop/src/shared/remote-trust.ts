@@ -13,6 +13,3 @@ export function remoteClientKind(browser: string): RemoteClientKind {
   if (browser === MIXDOG_APP_CLIENT_BROWSER) return 'app';
   return 'browser';
 }
-
-/** A relay credential id: what the relay verified for a connection. */
-export const REMOTE_CREDENTIAL_ID_PATTERN = /^[0-9a-f-]{8,64}$/u;

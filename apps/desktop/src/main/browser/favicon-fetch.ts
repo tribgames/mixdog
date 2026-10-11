@@ -12,9 +12,9 @@ const FAVICON_MAX_REDIRECTS = 3;
 type FaviconFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 /** scheme+host+port of an http(s) URL; null for anything else. */
-export function httpOrigin(url: string, base?: string): string | null {
+export function httpOrigin(url: string): string | null {
   try {
-    const parsed = new URL(url, base);
+    const parsed = new URL(url);
     return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.origin : null;
   } catch {
     return null;
@@ -72,10 +72,7 @@ export async function fetchDeclaredFavicon(
         continue;
       }
       if (!response.ok || !response.body) return null;
-      if (Number(response.headers.get('content-length') || 0) > maxBytes) {
-        controller.abort();
-        return null;
-      }
+      if (Number(response.headers.get('content-length') || 0) > maxBytes) return null;
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
       let total = 0;
@@ -84,7 +81,6 @@ export async function fetchDeclaredFavicon(
         if (done) break;
         total += value.byteLength;
         if (total > maxBytes) {
-          controller.abort();
           void reader.cancel().catch(() => undefined);
           return null;
         }

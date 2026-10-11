@@ -29,7 +29,6 @@ import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tun
 import { WEBHOOK_TEST_FIELD, WEBHOOK_TEST_HEADER } from '../../runtime/channels/lib/webhook/request-handler.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const DEFAULT_CHANNELS = CHANNELS_DEFAULTS;
 
 function assertName(name, kind = 'name') {
   const value = String(name || '').trim();
@@ -55,10 +54,10 @@ function assertScheduleName(name) {
 function normalizeChannelsConfig(raw = {}) {
   const stored = canonicalizeStoredChannelsConfig(raw);
   return {
-    ...DEFAULT_CHANNELS,
+    ...CHANNELS_DEFAULTS,
     ...stored,
-    access: { ...DEFAULT_CHANNELS.access, ...(stored.access || {}) },
-    webhook: { ...DEFAULT_CHANNELS.webhook, ...(stored.webhook || {}) },
+    access: { ...CHANNELS_DEFAULTS.access, ...(stored.access || {}) },
+    webhook: { ...CHANNELS_DEFAULTS.webhook, ...(stored.webhook || {}) },
   };
 }
 

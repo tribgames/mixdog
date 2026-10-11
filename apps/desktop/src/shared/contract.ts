@@ -175,8 +175,9 @@ export interface DesktopApi {
   installGithubCli?(): Promise<DesktopGithubCliStatus>;
   githubCliLoginStart?(): Promise<DesktopGithubCliLoginFlow>;
   githubCliLoginStatus?(flowId: string): Promise<DesktopGithubCliLoginFlow>;
-  /** Lets gh open the device page; false when it already did. */
-  githubCliLoginOpenBrowser?(flowId: string): Promise<boolean>;
+  /** Lets gh open the device page; false when it already did. With
+   *  `openBrowser: false` (remote client) the host opens nothing. */
+  githubCliLoginOpenBrowser?(flowId: string, options?: { openBrowser?: boolean }): Promise<boolean>;
   githubCliLoginCancel?(flowId: string): Promise<void>;
   githubCliLogout?(): Promise<DesktopGithubCliStatus>;
   githubCliAccount?(): Promise<DesktopGithubCliAccount>;

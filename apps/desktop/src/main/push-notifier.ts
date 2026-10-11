@@ -9,7 +9,8 @@ import { encryptNativePush, type NativePushContent, type NativePushReason } from
 import type { NativePushSubscription } from './native-push-store';
 import { shouldShowTurnNotification, type TurnCompletion } from './push-turn-events';
 import type { PushSubscriptionStore } from './push-subscription-store';
-import { sendWebPush } from './web-push';
+import type { RelayWebPushTarget } from './remote-relay-web-push';
+import { encryptWebPushPayload, sendWebPush } from './web-push';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import type { DesktopSessionStateUpdate } from '../shared/contract-session';
 import type { SessionFinalAnswer } from './session-final-answer';
@@ -84,6 +85,18 @@ interface PushNotifierOptions {
     /** An unpaired client's registration goes with its credential. */
     removeByClient(clientId: string): Promise<boolean>;
   };
+  /** Relay-owned Web Push. While the relay advertises it, every browser with
+   *  a relay association is reached this way; the legacy direct send (`store`)
+   *  still serves each browser that has none yet, and everything on a relay
+   *  that lacks it. */
+  relayWebPush?: {
+    available(): boolean;
+    list(): Promise<RelayWebPushTarget[]>;
+    /** Whether the paired client (relay credential) is watching live. */
+    isClientForeground(clientId: string): boolean;
+    /** Hands the encrypted body to the relay; false when it cannot take it. */
+    send(target: RelayWebPushTarget, body: Buffer): boolean;
+  };
   fetchImpl?: typeof fetch;
   onError?(detail: string): void;
   /** Every decision on the way to a phone, so a missing notification can be
@@ -103,7 +116,7 @@ export function nativeCollapseKey(sessionId: string, reason: PushReason): string
 
 /** RFC 8292 wants a contactable sender. A mailto the push service can reach
  *  is the convention; it identifies the software, not the user. */
-const VAPID_SUBJECT = 'mailto:push@mixdog.app';
+const VAPID_SUBJECT = 'mailto:support@tribgames.com';
 
 export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   const deliver = async (
@@ -112,24 +125,46 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     showWhenForeground = false,
     approvalId?: string
   ): Promise<void> => {
-    const [keys, subscriptions] = await Promise.all([options.store.keys(), options.store.list()]);
     const nativeDelivery = deliverNative(completion, reason, showWhenForeground, approvalId);
-    if (subscriptions.length === 0) {
-      await nativeDelivery;
-      options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: 'no-subscription' });
-      return;
-    }
+    const hostId = options.hostId ? options.hostId.slice(0, 64) : '';
+    // `hostId` names the PC that sent it: one browser hears from every PC it
+    // is paired with, and a tap has to open the session on THAT PC.
     const payload = JSON.stringify({
+      ...(hostId ? { hostId } : {}),
+      sessionId: completion.sessionId,
       title: completion.title,
       // The session's own last words travel as they are; the sentence used
       // when there are none does NOT come from here. This process has no UI
       // language, and the phone showing the notification has one of its own,
       // so an empty body is the worker's cue to say it in that language.
       body: completion.preview || '',
-      data: { sessionId: completion.sessionId, reason },
+      reason,
+      data: { sessionId: completion.sessionId, reason, ...(hostId ? { hostId } : {}) },
     });
+    const relayWeb = options.relayWebPush?.available() ? options.relayWebPush : null;
+    const [relayTargets, stored] = await Promise.all([relayWeb ? relayWeb.list() : [], options.store.list()]);
+    // Per browser, not per relay: a browser moves to the relay's key on its
+    // next launch, and until then its legacy subscription (this PC's own key)
+    // is the only way to reach it. It is dropped from the direct path only
+    // once that same paired browser holds a relay association.
+    const relayBrowsers = new Set(relayTargets.map((target) => target.clientId));
+    const relayEndpoints = new Set(relayTargets.map((target) => target.endpoint));
+    const subscriptions = stored.filter(
+      (subscription) =>
+        !relayEndpoints.has(subscription.endpoint) && !(subscription.clientId && relayBrowsers.has(subscription.clientId))
+    );
+    if (relayTargets.length === 0 && subscriptions.length === 0) {
+      await nativeDelivery;
+      options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: 'no-subscription' });
+      return;
+    }
+    const relayDelivery = relayWeb
+      ? deliverRelayWeb(relayWeb, relayTargets, completion, payload, showWhenForeground)
+      : Promise.resolve();
+    const keys = subscriptions.length > 0 ? await options.store.keys() : null;
     await Promise.allSettled(
       subscriptions.map(async (subscription) => {
+        if (!keys) return;
         const foreground = Boolean(subscription.clientId && options.isClientForeground(subscription.clientId));
         const target = { sessionId: completion.sessionId, browser: subscription.clientId.slice(0, 8) };
         if (showWhenForeground ? foreground : !shouldShowTurnNotification(completion, foreground)) {
@@ -155,7 +190,38 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
         options.onDiagnostic?.('sent', { ...target, status: result.statusCode });
       })
     );
-    await nativeDelivery;
+    await Promise.all([relayDelivery, nativeDelivery]);
+  };
+
+  // Relay-owned Web Push: the same gates, the payload encrypted HERE for each
+  // subscription (RFC 8291), the relay signing and posting the ciphertext.
+  const deliverRelayWeb = async (
+    relayWeb: NonNullable<PushNotifierOptions['relayWebPush']>,
+    targets: readonly RelayWebPushTarget[],
+    completion: TurnCompletion,
+    payload: string,
+    showWhenForeground: boolean
+  ): Promise<void> => {
+    for (const subscription of targets) {
+      const foreground = relayWeb.isClientForeground(subscription.clientId);
+      const target = { sessionId: completion.sessionId, browser: subscription.clientId.slice(0, 8) };
+      if (showWhenForeground ? foreground : !shouldShowTurnNotification(completion, foreground)) {
+        options.onDiagnostic?.('suppressed', { ...target, reason: 'foreground' });
+        continue;
+      }
+      let body: Buffer;
+      try {
+        body = encryptWebPushPayload(subscription, payload);
+      } catch (error) {
+        options.onError?.(`push: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+      const sent = relayWeb.send(subscription, body);
+      options.onDiagnostic?.(sent ? 'sent' : 'suppressed', {
+        ...target,
+        ...(sent ? { status: 'relay' } : { reason: 'relay-unavailable' }),
+      });
+    }
   };
 
   // Native app push: the same gates as web push, but the content is encrypted

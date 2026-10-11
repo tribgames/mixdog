@@ -96,6 +96,14 @@ const BLOCK_TYPES: Record<string, string[]> = {
 
 const isEmptyParagraph = (node: ProseMirrorNode) => node.type.name === 'paragraph' && node.childCount === 0;
 
+/** Front matter followed by a body. A block whose closing delimiter ends the
+ *  file has no line ending, which a non-empty body needs after it (else the
+ *  delimiter and the body share a line and the block stops being front matter). */
+function joinFrontMatter(frontMatter: string, body: string): string {
+  if (!frontMatter || !body || frontMatter.endsWith('\n')) return frontMatter + body;
+  return frontMatter + dominantEol(frontMatter) + body;
+}
+
 function childrenOf(doc: ProseMirrorNode, from = 0, to = doc.childCount): ProseMirrorNode[] {
   const children: ProseMirrorNode[] = [];
   for (let index = from; index < to; index++) children.push(doc.child(index));
@@ -312,7 +320,7 @@ export class RichMarkdownModelSync {
     } catch {
       lf = fresh;
     }
-    return this.frontMatter + (this.eol === '\r\n' ? lf.replace(/\n/g, '\r\n') : lf);
+    return joinFrontMatter(this.frontMatter, this.eol === '\r\n' ? lf.replace(/\n/g, '\r\n') : lf);
   }
 
   /** Drops a held edit and reloads the editor from the model. */
@@ -489,7 +497,7 @@ export class RichMarkdownModelSync {
     this.frontMatter = frontMatter;
     this.blocks = result.blocks;
     const nextBody = this.eol === '\r\n' ? result.lf.replace(/\n/g, '\r\n') : result.lf;
-    const edit = minimalTextEdit(text, frontMatter + nextBody);
+    const edit = minimalTextEdit(text, joinFrontMatter(frontMatter, nextBody));
     if (!edit) return false;
     const start = this.model.getPositionAt(edit.start);
     const end = this.model.getPositionAt(edit.end);

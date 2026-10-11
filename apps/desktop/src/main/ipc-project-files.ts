@@ -91,18 +91,21 @@ export function registerProjectFileIpc({
       const token = requiredString(accessToken, 'file access token', 128);
       const granted = await grantedFile(token, project, rel);
       return localPageUrl(granted.root, granted.rel, {
-        scope: 'file', owner,
+        scope: 'file',
+        owner,
         async authorize() {
           requireOwner();
           const current = await grantedFile(token, project, rel);
           requireOwner();
-          if (current.absolute !== granted.absolute) throw new LocalAccessDeniedError('The selected-file permission changed.');
+          if (current.absolute !== granted.absolute)
+            throw new LocalAccessDeniedError('The selected-file permission changed.');
         },
       });
     }
     const root = await host.projectDirectory(project);
     return localPageUrl(root, rel, {
-      scope: 'project', owner,
+      scope: 'project',
+      owner,
       async authorize() {
         requireOwner();
         const current = await host.projectDirectory(project);

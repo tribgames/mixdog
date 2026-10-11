@@ -36,7 +36,9 @@ const takeTicketFromAddress = (): void => {
   pairTicket = match[1];
   startedFromCode = true;
   try {
-    pairHostName = decodeURIComponent(match[2] ?? '').trim().slice(0, 80);
+    pairHostName = decodeURIComponent(match[2] ?? '')
+      .trim()
+      .slice(0, 80);
   } catch {
     pairHostName = '';
   }
@@ -91,8 +93,11 @@ const expiredEvent = (): PairingEvent => ({
   title: earlyUiT('Request expired'),
   sub: earlyUiT('Connect again to send a new request.'),
 });
-const networkEvent = (): PairingEvent =>
-  ({ kind: 'fail', title: earlyUiT('Connection failed'), sub: earlyUiT('Check your internet connection.') });
+const networkEvent = (): PairingEvent => ({
+  kind: 'fail',
+  title: earlyUiT('Connection failed'),
+  sub: earlyUiT('Check your internet connection.'),
+});
 
 /** States the screenshot switch can render (shared names with the phone app and /connect). */
 export const PAIRING_PREVIEW_STATES = [
@@ -265,6 +270,9 @@ const requestApproval = async (
       window.setTimeout(done, ms);
     });
   const open = async (): Promise<string> => {
+    let ticketFields: { ticket?: string; retry?: boolean } = {};
+    if (pairTicket) ticketFields = { ticket: pairTicket };
+    else if (startedFromCode) ticketFields = { retry: true };
     const response = await fetch(new URL('/claim', base).toString(), {
       signal: runSignal(aborter.signal, 15_000),
       method: 'POST',
@@ -273,7 +281,7 @@ const requestApproval = async (
         deviceId,
         clientId: deps.clientId(),
         publicKey: keyPair.publicKey,
-        ...(pairTicket ? { ticket: pairTicket } : startedFromCode ? { retry: true } : {}),
+        ...ticketFields,
         ...profile,
       }),
     });
@@ -292,7 +300,11 @@ const requestApproval = async (
       } catch (error) {
         // Only a refusal means "scan again"; an unreachable relay is a network error.
         const refused = error instanceof Error && error.message.startsWith('claim refused');
-        report(refused ? failure(earlyUiT('Your PC no longer recognizes this device. Scan the QR code again.')) : networkEvent());
+        report(
+          refused
+            ? failure(earlyUiT('Your PC no longer recognizes this device. Scan the QR code again.'))
+            : networkEvent()
+        );
         return;
       }
       if (stale()) return;
@@ -432,7 +444,9 @@ export const createRemotePairingScreen = (
       style.textContent = PAIRING_CSS + PAIRING_OVERLAY_CSS;
 
       const pushNote =
-        direct && isIOSWebSurface() && !nativeAppInfo() ? earlyUiT('To get notifications, use the Mixdog app.') : undefined;
+        direct && isIOSWebSurface() && !nativeAppInfo()
+          ? earlyUiT('Notifications aren’t available on iPhone yet.')
+          : undefined;
       const waitingView = (title: string, sub: string, fine?: string): PairingView => ({
         title,
         sub,
@@ -457,7 +471,9 @@ export const createRemotePairingScreen = (
           const pc = pairHostName || (preview === 'waiting' ? 'Home PC' : '');
           const view = waitingView(
             earlyUiT('Allow it on your PC'),
-            pc ? earlyUiT('On {{pc}}, press Allow on the request.', { pc }) : earlyUiT('Press Allow on the request shown on your PC.'),
+            pc
+              ? earlyUiT('On {{pc}}, press Allow on the request.', { pc })
+              : earlyUiT('Press Allow on the request shown on your PC.'),
             pushNote
           );
           return pc ? { ...view, subBold: pc } : view;
@@ -474,10 +490,7 @@ export const createRemotePairingScreen = (
         return retryView(event.title, event.sub);
       };
       const endedView = (): PairingView =>
-        retryView(
-          earlyUiT('You were disconnected'),
-          message || earlyUiT('Your PC disconnected this device.')
-        );
+        retryView(earlyUiT('You were disconnected'), message || earlyUiT('Your PC disconnected this device.'));
       const installView = (): PairingView => {
         let stepOne = earlyUiT('Open this page on your phone or tablet');
         let stepTwo = earlyUiT('Install Mixdog from the mobile browser');
@@ -491,14 +504,20 @@ export const createRemotePairingScreen = (
         return {
           title: mobile ? earlyUiT('Install Mixdog') : earlyUiT('Install Mixdog on your phone'),
           sub: mobile
-            ? earlyUiT('Install the Mixdog app, then allow it on your PC.')
-            : earlyUiT('Install the app on your phone to use it.'),
+            ? earlyUiT('Add Mixdog to your home screen, then allow it on your PC.')
+            : earlyUiT('Add Mixdog to your phone’s home screen to use it.'),
           steps: !mobile || ios ? [stepOne, stepTwo, stepThree] : [stepOne, stepTwo],
-          actions: mobile ? [{ role: 'install', label: earlyUiT('Install'), primary: true, hidden: !installPrompt }] : [],
+          actions: mobile
+            ? [{ role: 'install', label: earlyUiT('Install'), primary: true, hidden: !installPrompt }]
+            : [],
         };
       };
 
-      const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] => {
+      const el = <K extends keyof HTMLElementTagNameMap>(
+        tag: K,
+        className = '',
+        text = ''
+      ): HTMLElementTagNameMap[K] => {
         const node = document.createElement(tag);
         if (className) node.className = className;
         if (text) node.textContent = text;
@@ -518,7 +537,12 @@ export const createRemotePairingScreen = (
         const sub = el('p', 'mxp-sub');
         const at = view.subBold ? view.sub.indexOf(view.subBold) : -1;
         if (at < 0) sub.textContent = view.sub;
-        else sub.append(view.sub.slice(0, at), el('b', '', view.subBold), view.sub.slice(at + (view.subBold?.length ?? 0)));
+        else
+          sub.append(
+            view.sub.slice(0, at),
+            el('b', '', view.subBold),
+            view.sub.slice(at + (view.subBold?.length ?? 0))
+          );
         block.append(vis, el('h1', 'mxp-title', view.title), sub);
         const extra = el('div', 'mxp-extra');
         view.steps.forEach((text, index) => {
@@ -594,4 +618,3 @@ export const createRemotePairingScreen = (
     else window.addEventListener('DOMContentLoaded', () => void mount(), { once: true });
   };
 };
-

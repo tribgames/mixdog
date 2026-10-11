@@ -91,7 +91,10 @@ export async function redeemPairCode(
   }
   if (response.status === 429) {
     throw new Error(
-      translate('Too many attempts. Try again in {{seconds}} seconds.').replace('{{seconds}}', String(Number(body.retryAfter) || 60))
+      translate('Too many attempts. Try again in {{seconds}} seconds.').replace(
+        '{{seconds}}',
+        String(Number(body.retryAfter) || 60)
+      )
     );
   }
   if (response.status === 404 && body.status === 'invalid-code') {
@@ -261,7 +264,9 @@ export async function loadRemoteHostStore(userDataPath: string): Promise<RemoteH
     async rename(id, alias) {
       const host = hosts.find((entry) => entry.id === id);
       if (!host) return;
-      const label = String(alias ?? '').trim().slice(0, MAX_NAME_LENGTH);
+      const label = String(alias ?? '')
+        .trim()
+        .slice(0, MAX_NAME_LENGTH);
       if (label) host.alias = label;
       else delete host.alias;
       await persist();

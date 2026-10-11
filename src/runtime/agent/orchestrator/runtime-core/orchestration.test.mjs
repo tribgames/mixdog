@@ -71,9 +71,18 @@ test('Solo keeps the agent tool deferred while delegating modes expose it eagerl
     return session;
   };
   const solo = surfaceFor('none');
-  assert.equal(solo.tools.some((tool) => tool.name === 'agent'), false);
-  assert.equal(solo.deferredToolCatalog.some((tool) => tool.name === 'agent'), true);
-  assert.equal(surfaceFor('balanced').tools.some((tool) => tool.name === 'agent'), true);
+  assert.equal(
+    solo.tools.some((tool) => tool.name === 'agent'),
+    false
+  );
+  assert.equal(
+    solo.deferredToolCatalog.some((tool) => tool.name === 'agent'),
+    true
+  );
+  assert.equal(
+    surfaceFor('balanced').tools.some((tool) => tool.name === 'agent'),
+    true
+  );
 });
 
 test('a workflow delegates while agents are available and stops when none are', (t) => {
@@ -184,7 +193,10 @@ test('mode changes refresh an empty session, remove stale tools, and survive ses
     const bp3 = session.messages.find((message) => message.cacheTier === 'tier3');
     assert.equal(bp3.content.includes('# Orchestration Mode:'), true);
     if (mode === 'none') {
-      assert.equal(session.tools.some((tool) => tool.name === 'agent'), false);
+      assert.equal(
+        session.tools.some((tool) => tool.name === 'agent'),
+        false
+      );
       assert.ok(session.messages.some((message) => /<available-deferred-tools>[\s\S]*- agent/.test(message.content)));
     }
     assert.equal(_sessionForDisk(session).orchestrationMode, mode);

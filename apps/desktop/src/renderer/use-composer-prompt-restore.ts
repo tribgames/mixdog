@@ -16,7 +16,7 @@ export function applyPromptRestore(
   currentDraft: string,
   applied: Set<string> = appliedRestores
 ): string | null {
-  if (!restore || !restore.text || applied.has(restore.id)) return null;
+  if (!restore?.text || applied.has(restore.id)) return null;
   if (!restore.ids.some(wasSubmittedHere)) return null;
   applied.add(restore.id);
   if (applied.size > APPLIED_RESTORE_LIMIT) applied.delete(applied.values().next().value as string);

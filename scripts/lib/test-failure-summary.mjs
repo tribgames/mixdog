@@ -43,8 +43,14 @@ export function policyLine(rerunFailed) {
     : 'policy: --rerun-failed is off, so every failure fails the run (pass --rerun-failed <n> to classify flaky)';
 }
 
-export function formatFailureSummary({ failed = [], flaky = [], rerunFailed = 0 }) {
-  const lines = [`${SUMMARY_TAG} ${failed.length} failed, ${flaky.length} flaky (every failed test is named below)`];
+// `hung` holds one "hung after N min: <files>" message per batch the runner's
+// watchdog killed; such a batch fails the run whatever its tests reported.
+export function formatFailureSummary({ failed = [], flaky = [], rerunFailed = 0, hung = [] }) {
+  const hungCount = hung.length > 0 ? `, ${hung.length} hung batch(es)` : '';
+  const lines = [
+    `${SUMMARY_TAG} ${failed.length} failed, ${flaky.length} flaky${hungCount} (every failed test is named below)`,
+  ];
+  for (const message of hung) lines.push(`${SUMMARY_TAG} HUNG ${message}`);
   for (const record of failed) {
     const origin = record.firstSeenOnRerun ? ` (first seen on re-run ${record.firstSeenOnRerun})` : '';
     lines.push(`${SUMMARY_TAG} FAILED ${record.file} > ${record.name}${origin}`);
@@ -54,6 +60,6 @@ export function formatFailureSummary({ failed = [], flaky = [], rerunFailed = 0 
       `${SUMMARY_TAG} FLAKY ${record.file} > ${record.name} (failed, then passed on re-run ${record.passedOnAttempt}/${rerunFailed})`
     );
   }
-  if (failed.length > 0 || flaky.length > 0) lines.push(`${SUMMARY_TAG} ${policyLine(rerunFailed)}`);
+  if (failed.length > 0 || flaky.length > 0 || hung.length > 0) lines.push(`${SUMMARY_TAG} ${policyLine(rerunFailed)}`);
   return `${lines.join('\n')}\n`;
 }

@@ -92,7 +92,11 @@ const CHAT = [
     choices: [
       {
         index: 0,
-        delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+        delta: {
+          tool_calls: [
+            { index: 0, id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } },
+          ],
+        },
         finish_reason: 'tool_calls',
       },
     ],
@@ -105,13 +109,19 @@ const RESPONSES = [
       id: 'resp_1',
       model: 'm1',
       status: 'completed',
-      output: [{ type: 'function_call', call_id: 'call_1', name: 'lookup', arguments: '{"q":"x"}', status: 'completed' }],
+      output: [
+        { type: 'function_call', call_id: 'call_1', name: 'lookup', arguments: '{"q":"x"}', status: 'completed' },
+      ],
     },
   },
 ];
 const ANTHROPIC = [
   { type: 'message_start', message: { id: 'msg_1', model: 'm1', role: 'assistant', usage: { input_tokens: 1 } } },
-  { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_1', name: 'lookup', input: {} } },
+  {
+    type: 'content_block_start',
+    index: 0,
+    content_block: { type: 'tool_use', id: 'toolu_1', name: 'lookup', input: {} },
+  },
   { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"q":"x"}' } },
   { type: 'content_block_stop', index: 0 },
   { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 1 } },
@@ -162,7 +172,12 @@ test('v2 validation rejects invalid overrides and canonicalizes levels', () => {
     modelOverrides: {
       r1: {
         hidden: true,
-        reasoning: { levels: ['ultra', 'low', 'none'], wireFormat: 'deepseek', wireValues: { ultra: 'max', low: 'l' }, replay: false },
+        reasoning: {
+          levels: ['ultra', 'low', 'none'],
+          wireFormat: 'deepseek',
+          wireValues: { ultra: 'max', low: 'l' },
+          replay: false,
+        },
       },
       r2: { reasoning: { levels: [] } },
     },
@@ -171,7 +186,12 @@ test('v2 validation rejects invalid overrides and canonicalizes levels', () => {
   assert.deepEqual(ok.modelOverrides, {
     r1: {
       hidden: true,
-      reasoning: { levels: ['none', 'low', 'max'], wireFormat: 'deepseek', wireValues: { low: 'l', max: 'max' }, replay: false },
+      reasoning: {
+        levels: ['none', 'low', 'max'],
+        wireFormat: 'deepseek',
+        wireValues: { low: 'l', max: 'max' },
+        replay: false,
+      },
     },
     r2: { reasoning: { levels: [] } },
   });
@@ -181,6 +201,10 @@ test('v2 validation rejects invalid overrides and canonicalizes levels', () => {
   // v2 rejects unknown fields, numeric strings and unsafe integers.
   ov({ extra: 1 }, /unsupported field/);
   ov({ reasoning: { levels: [], extra: 1 } }, /unsupported field/);
+  // Level entries must be strings: nested arrays and other non-strings never coerce.
+  for (const entry of [['low'], 1, null, { toString: () => 'low' }]) {
+    ov({ reasoning: { levels: [entry] } }, /unknown level/);
+  }
   bad({ discovery: { newModelsHidden: false, extra: 1 } }, /unsupported field/);
   ov({ contextWindow: '1000' }, /positive integer/);
   ov({ maxOutputTokens: 2 ** 60 }, /positive integer/);
@@ -222,7 +246,11 @@ test('layering: discovery base, overrides by presence, manual append, hidden ret
     protocol: 'openai-chat',
     discovery: { newModelsHidden: true },
     modelOverrides: {
-      d1: { name: 'Renamed', contextWindow: 9000, reasoning: { wireFormat: 'deepseek', wireValues: { high: 'max-ish', low: 'l' } } },
+      d1: {
+        name: 'Renamed',
+        contextWindow: 9000,
+        reasoning: { wireFormat: 'deepseek', wireValues: { high: 'max-ish', low: 'l' } },
+      },
       d2: { hidden: false, reasoning: { levels: [], replay: false } },
       d3: { reasoning: { levels: ['medium'] } },
       gone: { name: 'Not manual' },
@@ -242,13 +270,23 @@ test('layering: discovery base, overrides by presence, manual append, hidden ret
       reasoningContentField: 'reasoning_content',
       pricingSource: 'litellm',
     },
-    { id: 'd2', provider: 'p', contextWindow: null, supportsReasoning: true, reasoningOptions: [{ type: 'effort', values: ['low'] }], reasoningContentField: 'reasoning_content' },
+    {
+      id: 'd2',
+      provider: 'p',
+      contextWindow: null,
+      supportsReasoning: true,
+      reasoningOptions: [{ type: 'effort', values: ['low'] }],
+      reasoningContentField: 'reasoning_content',
+    },
     { id: 'd3', provider: 'p', contextWindow: 5, reasoningContentField: 'thinking' },
     { id: 'd4', provider: 'p', contextWindow: 5, supportsReasoning: true, reasoningOptions: [] },
     { id: 'd1', provider: 'p', contextWindow: 1 },
   ];
   const rows = effectiveCustomModelRows(config, discovered, { providerId: 'custom-x' });
-  assert.deepEqual(rows.map((r) => r.id), ['d1', 'd2', 'd3', 'd4', 'man', 'hid']);
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    ['d1', 'd2', 'd3', 'd4', 'man', 'hid']
+  );
   const [d1, d2, d3, d4, man, hid] = rows;
   assert.deepEqual(d1, {
     id: 'd1',
@@ -301,12 +339,17 @@ test('layering: discovery base, overrides by presence, manual append, hidden ret
   assert.equal(hid.hidden, true);
   assert.equal(hid.manual, true);
   // Without newModelsHidden discovered rows stay visible.
-  const visible = effectiveCustomModelRows({ ...config, discovery: { newModelsHidden: false } }, discovered, { providerId: 'custom-x' });
+  const visible = effectiveCustomModelRows({ ...config, discovery: { newModelsHidden: false } }, discovered, {
+    providerId: 'custom-x',
+  });
   assert.equal(visible.find((r) => r.id === 'd4').hidden, false);
 });
 
 test('normalizer validates connection fields', () => {
-  const bad = (patch, opts) => assert.throws(() => normalizeCustomProviderConfig({ ...base, protocol: 'anthropic', models: [{ id: 'a' }], ...patch }, opts));
+  const bad = (patch, opts) =>
+    assert.throws(() =>
+      normalizeCustomProviderConfig({ ...base, protocol: 'anthropic', models: [{ id: 'a' }], ...patch }, opts)
+    );
   bad({ protocol: 'grpc' });
   bad({ protocol: '' });
   bad({ name: ' ' });
@@ -346,7 +389,10 @@ test('openai-chat: path, bearer auth, tool calls, configured models, custom iden
   assert.equal(p.defaultModel, 'm1');
   assert.equal(p.customConfig.schemaVersion, 2);
   assert.equal(p.getCachedModelInfo('m1').contextWindow, 5000);
-  const models = await withFetch(() => Response.json({ data: [{ id: 'extra' }] }), () => p.listModels());
+  const models = await withFetch(
+    () => Response.json({ data: [{ id: 'extra' }] }),
+    () => p.listModels()
+  );
   assert.deepEqual(models, [
     {
       id: 'extra',
@@ -380,7 +426,12 @@ test('openai-chat: path, bearer auth, tool calls, configured models, custom iden
 });
 
 test('openai-chat: discovery, failure retention, throwOnError and sanitized error', async () => {
-  const p = await createCustomProvider('custom-chat-2', { ...base, protocol: 'openai-chat', apiKey: 'k-secret', preconnect: false });
+  const p = await createCustomProvider('custom-chat-2', {
+    ...base,
+    protocol: 'openai-chat',
+    apiKey: 'k-secret',
+    preconnect: false,
+  });
   const calls = [];
   await withFetch(
     (url, init) => {
@@ -402,7 +453,10 @@ test('openai-chat: discovery, failure retention, throwOnError and sanitized erro
     () => new Response('denied', { status: 401 }),
     async () => {
       const kept = await p.listModels();
-      assert.deepEqual(kept.map((m) => m.id), ['found-1']);
+      assert.deepEqual(
+        kept.map((m) => m.id),
+        ['found-1']
+      );
       assert.equal(p.customDiscoveryError.status, 401);
       assert.match(p.customDiscoveryError.message, /models 401/);
       await assert.rejects(p.listModels({ throwOnError: true }), /models 401/);
@@ -410,7 +464,12 @@ test('openai-chat: discovery, failure retention, throwOnError and sanitized erro
     }
   );
   // Nothing usable → the sanitized error is thrown.
-  const q = await createCustomProvider('custom-chat-3', { ...base, protocol: 'openai-chat', apiKey: 'k-secret', preconnect: false });
+  const q = await createCustomProvider('custom-chat-3', {
+    ...base,
+    protocol: 'openai-chat',
+    apiKey: 'k-secret',
+    preconnect: false,
+  });
   await withFetch(
     () => {
       throw new Error('upstream rejected key k-secret');
@@ -435,7 +494,10 @@ test('openai-chat: discovery, failure retention, throwOnError and sanitized erro
   await withFetch(
     () => new Response('down', { status: 503 }),
     async () => {
-      assert.deepEqual((await r.listModels()).map((m) => m.id), ['man']);
+      assert.deepEqual(
+        (await r.listModels()).map((m) => m.id),
+        ['man']
+      );
       assert.equal(r.customDiscoveryError.status, 503);
     }
   );
@@ -451,13 +513,16 @@ test('openai-chat: keyless discovery sends no Authorization and honours abort', 
   });
   const seen = [];
   await withFetch(
-    (url, init) => {
+    (_url, init) => {
       seen.push(new Headers(init.headers));
       if (init.signal?.aborted) throw init.signal.reason;
       return Response.json({ data: [{ id: 'local-1' }] });
     },
     async () => {
-      assert.deepEqual((await p.listModels()).map((m) => m.id), ['local-1']);
+      assert.deepEqual(
+        (await p.listModels()).map((m) => m.id),
+        ['local-1']
+      );
       assert.equal(seen[0].has('authorization'), false);
       const controller = new AbortController();
       controller.abort(new Error('cancelled by caller'));
@@ -503,11 +568,22 @@ test('anthropic: /v1 base maps to /v1/messages, x-api-key auth, tool use, models
   assert.equal(res.toolCalls[0].name, 'lookup');
   assert.deepEqual(res.toolCalls[0].arguments, { q: 'x' });
   assert.equal(p.defaultModel, 'm1');
-  const listed = await withFetch(() => Response.json({ data: [] }), () => p.listModels());
-  assert.deepEqual(listed.map((m) => [m.id, m.provider, m.contextWindow]), [['m1', id, 9000]]);
+  const listed = await withFetch(
+    () => Response.json({ data: [] }),
+    () => p.listModels()
+  );
+  assert.deepEqual(
+    listed.map((m) => [m.id, m.provider, m.contextWindow]),
+    [['m1', id, 9000]]
+  );
   assert.equal(p.constructor.inputExcludesCache, true);
   // base without /v1 yields the same path
-  const q = await createCustomProvider(id, { ...base, baseURL: 'https://gw.example.com/anthropic', protocol: 'anthropic', apiKey: 'k' });
+  const q = await createCustomProvider(id, {
+    ...base,
+    baseURL: 'https://gw.example.com/anthropic',
+    protocol: 'anthropic',
+    apiKey: 'k',
+  });
   const r2 = mock(q, () => sse(ANTHROPIC));
   await q.send(prompt, 'm1', [], {});
   assert.equal(r2[0].url.pathname, '/anthropic/v1/messages');
@@ -525,27 +601,41 @@ test('anthropic: empty models discover from /v1/models without built-in fallback
       const models = await p.listModels();
       assert.equal(calls[0].url, 'https://llm.example.com/v1/models');
       assert.equal(calls[0].key, 'k');
-      assert.deepEqual(models.map((m) => [m.id, m.name, m.provider]), [['ant-found', 'Found', 'custom-ant-2']]);
+      assert.deepEqual(
+        models.map((m) => [m.id, m.name, m.provider]),
+        [['ant-found', 'Found', 'custom-ant-2']]
+      );
       assert.equal(p.defaultModel, 'ant-found');
     }
   );
   await withFetch(
     () => new Response('no', { status: 500 }),
     async () => {
-      assert.deepEqual((await p.listModels()).map((m) => m.id), ['ant-found']);
+      assert.deepEqual(
+        (await p.listModels()).map((m) => m.id),
+        ['ant-found']
+      );
       await assert.rejects(p.listModels({ throwOnError: true }), /models 500/);
     }
   );
   const q = await createCustomProvider('custom-ant-3', { ...base, protocol: 'anthropic', apiKey: 'k' });
-  await withFetch(() => new Response('no', { status: 500 }), () => assert.rejects(q.listModels(), /models 500/));
+  await withFetch(
+    () => new Response('no', { status: 500 }),
+    () => assert.rejects(q.listModels(), /models 500/)
+  );
 });
 
 test('anthropic: discovered rows are catalog-enriched; keyless sends no x-api-key', async () => {
-  const p = await createCustomProvider('custom-ant-enrich', { ...base, schemaVersion: 2, protocol: 'anthropic', auth: 'none' });
+  const p = await createCustomProvider('custom-ant-enrich', {
+    ...base,
+    schemaVersion: 2,
+    protocol: 'anthropic',
+    auth: 'none',
+  });
   assert.equal(await p.isAvailable(), true);
   const calls = [];
   await withFetch(
-    (url, init) => {
+    (_url, init) => {
       calls.push(init.headers);
       return Response.json({ data: [{ id: 'ant-reason' }] });
     },
@@ -572,7 +662,10 @@ test('registry instantiates custom providers without presets and reports invalid
   const p = getProvider(id);
   assert.ok(p);
   assert.equal(p.name, id);
-  const listed = await withFetch(() => Response.json({ data: [] }), () => p.listModels());
+  const listed = await withFetch(
+    () => Response.json({ data: [] }),
+    () => p.listModels()
+  );
   assert.equal(listed[0].provider, id);
   // Only an invalid custom provider: nothing usable, the live registry is kept
   // and the reason is recorded.
@@ -589,18 +682,30 @@ test('one invalid custom provider is isolated: valid custom and first-party prov
   const bad = 'custom-iso-bad';
   const stderr = [];
   const write = process.stderr.write;
-  process.stderr.write = (chunk, ...rest) => {
+  process.stderr.write = (chunk) => {
     stderr.push(String(chunk));
     return true;
   };
   try {
     await initProviders({
       'mixdog-local': { enabled: true },
-      [good]: { ...base, schemaVersion: 2, protocol: 'openai-chat', auth: 'none', preconnect: false,
-        modelOverrides: { m1: { manual: true, reasoning: { levels: ['low'] } } } },
+      [good]: {
+        ...base,
+        schemaVersion: 2,
+        protocol: 'openai-chat',
+        auth: 'none',
+        preconnect: false,
+        modelOverrides: { m1: { manual: true, reasoning: { levels: ['low'] } } },
+      },
       // Invalid override: the whole provider is skipped, never loaded minus the bad override.
-      [bad]: { ...base, schemaVersion: 2, protocol: 'openai-chat', auth: 'none', preconnect: false,
-        modelOverrides: { ok: { manual: true }, broken: { contextWindow: '4096' } } },
+      [bad]: {
+        ...base,
+        schemaVersion: 2,
+        protocol: 'openai-chat',
+        auth: 'none',
+        preconnect: false,
+        modelOverrides: { ok: { manual: true }, broken: { contextWindow: '4096' } },
+      },
     });
   } finally {
     process.stderr.write = write;
@@ -614,19 +719,43 @@ test('one invalid custom provider is isolated: valid custom and first-party prov
   // Fixing it on the next init loads it and clears the error.
   await initProviders({
     'mixdog-local': { enabled: true },
-    [good]: { ...base, schemaVersion: 2, protocol: 'openai-chat', auth: 'none', preconnect: false,
-      modelOverrides: { m1: { manual: true, reasoning: { levels: ['low'] } } } },
-    [bad]: { ...base, schemaVersion: 2, protocol: 'openai-chat', auth: 'none', preconnect: false,
-      modelOverrides: { ok: { manual: true }, broken: { contextWindow: 4096 } } },
+    [good]: {
+      ...base,
+      schemaVersion: 2,
+      protocol: 'openai-chat',
+      auth: 'none',
+      preconnect: false,
+      modelOverrides: { m1: { manual: true, reasoning: { levels: ['low'] } } },
+    },
+    [bad]: {
+      ...base,
+      schemaVersion: 2,
+      protocol: 'openai-chat',
+      auth: 'none',
+      preconnect: false,
+      modelOverrides: { ok: { manual: true }, broken: { contextWindow: 4096 } },
+    },
   });
   assert.equal(getProvider(bad)?.name, bad);
   assert.equal(getProviderInitErrors().size, 0);
 });
 
-const invalidCustom = { ...base, schemaVersion: 2, protocol: 'openai-chat', auth: 'none', preconnect: false,
-  modelOverrides: { broken: { maxOutputTokens: 0 } } };
-const validCustom = { ...base, schemaVersion: 2, protocol: 'openai-chat', auth: 'none', preconnect: false,
-  modelOverrides: { m1: { manual: true } } };
+const invalidCustom = {
+  ...base,
+  schemaVersion: 2,
+  protocol: 'openai-chat',
+  auth: 'none',
+  preconnect: false,
+  modelOverrides: { broken: { maxOutputTokens: 0 } },
+};
+const validCustom = {
+  ...base,
+  schemaVersion: 2,
+  protocol: 'openai-chat',
+  auth: 'none',
+  preconnect: false,
+  modelOverrides: { m1: { manual: true } },
+};
 
 test('only-invalid custom config, warm: the now-invalid live provider is removed and the reason is reported', async () => {
   const warm = 'custom-only-warm';
@@ -635,15 +764,12 @@ test('only-invalid custom config, warm: the now-invalid live provider is removed
   const write = process.stderr.write;
   process.stderr.write = () => true;
   try {
-    await assert.rejects(
-      initProviders({ 'mixdog-local': { enabled: false }, [warm]: invalidCustom }),
-      (err) => {
-        assert.equal(err.code, 'PROVIDERS_NONE_ENABLED');
-        assert.match(err.message, /all providers disabled/);
-        assert.match(err.message, new RegExp(`${warm}.*modelOverrides\\[broken\\]\\.maxOutputTokens`));
-        return true;
-      }
-    );
+    await assert.rejects(initProviders({ 'mixdog-local': { enabled: false }, [warm]: invalidCustom }), (err) => {
+      assert.equal(err.code, 'PROVIDERS_NONE_ENABLED');
+      assert.match(err.message, /all providers disabled/);
+      assert.match(err.message, new RegExp(`${warm}.*modelOverrides\\[broken\\]\\.maxOutputTokens`));
+      return true;
+    });
   } finally {
     process.stderr.write = write;
   }
@@ -681,9 +807,31 @@ test('only-invalid custom config, cold: rejected with the reason, nothing regist
 });
 
 test('legacy migration is idempotent and only emits values the v2 loader accepts', () => {
-  const edges = ['', null, undefined, 1, '1', '4096', ' 512 ', 2 ** 53 - 1, 2 ** 53, 2 ** 60, '1e21', 0, -1, 1.5, 'abc', Infinity, NaN];
+  const edges = [
+    '',
+    null,
+    undefined,
+    1,
+    '1',
+    '4096',
+    ' 512 ',
+    2 ** 53 - 1,
+    2 ** 53,
+    2 ** 60,
+    '1e21',
+    0,
+    -1,
+    1.5,
+    'abc',
+    Infinity,
+    NaN,
+  ];
   for (const value of edges) {
-    const legacy = { ...base, protocol: 'openai-chat', models: [{ id: 'm', contextWindow: value, maxOutputTokens: value }] };
+    const legacy = {
+      ...base,
+      protocol: 'openai-chat',
+      models: [{ id: 'm', contextWindow: value, maxOutputTokens: value }],
+    };
     let out;
     try {
       out = normalizeCustomProviderConfig(legacy);
@@ -697,12 +845,22 @@ test('legacy migration is idempotent and only emits values the v2 loader accepts
     }
   }
   // Unsafe integers are dropped, not clamped.
-  const unsafe = normalizeCustomProviderConfig({ ...base, protocol: 'openai-chat', models: [{ id: 'm', contextWindow: 2 ** 60 }] });
+  const unsafe = normalizeCustomProviderConfig({
+    ...base,
+    protocol: 'openai-chat',
+    models: [{ id: 'm', contextWindow: 2 ** 60 }],
+  });
   assert.deepEqual(unsafe.modelOverrides.m, { manual: true, hidden: false });
 });
 
 test('keyless sends carry no credential header on every protocol', async () => {
-  const keyless = { ...base, schemaVersion: 2, auth: 'none', preconnect: false, modelOverrides: { m1: { manual: true } } };
+  const keyless = {
+    ...base,
+    schemaVersion: 2,
+    auth: 'none',
+    preconnect: false,
+    modelOverrides: { m1: { manual: true } },
+  };
   for (const [protocol, events] of [
     ['openai-chat', CHAT],
     ['openai-responses', RESPONSES],
@@ -725,10 +883,19 @@ test('keyless sends carry no credential header on every protocol', async () => {
     await p.send(prompt, 'm1', tools, {});
     assert.equal(requests[0].headers.has('authorization'), false, protocol);
     assert.equal(requests[0].headers.has('x-api-key'), false, protocol);
-    assert.equal([...requests[0].headers.values()].some((v) => v.includes('sk-leak')), false, protocol);
+    assert.equal(
+      [...requests[0].headers.values()].some((v) => v.includes('sk-leak')),
+      false,
+      protocol
+    );
   }
   // A keyed provider still authenticates.
-  const keyed = await createCustomProvider('custom-keyed-chat', { ...keyless, auth: 'key', apiKey: 'sk-k', protocol: 'openai-chat' });
+  const keyed = await createCustomProvider('custom-keyed-chat', {
+    ...keyless,
+    auth: 'key',
+    apiKey: 'sk-k',
+    protocol: 'openai-chat',
+  });
   const requests = mock(keyed, () => sse(CHAT));
   await keyed.send(prompt, 'm1', tools, {});
   assert.equal(requests[0].headers.get('authorization'), 'Bearer sk-k');

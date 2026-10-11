@@ -19,6 +19,7 @@ import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
 import { DEFAULTS_VERSION, DEFAULTS_VERSION_KEY, configPath, readConfig, updateConfig } from './config.mjs';
 import { DEFAULT_DISABLED_AGENT_ROSTER, disabledAgentDelta, disabledAgentIds } from './agent-route-config.mjs';
+import { withGrandfatheredBuiltins } from './builtin-grandfathering.mjs';
 import { DEFAULT_ORCHESTRATION_MODE, legacyWorkflowOrchestrationMode } from './orchestration.mjs';
 
 export { DEFAULTS_VERSION, DEFAULTS_VERSION_KEY };
@@ -123,7 +124,15 @@ function separateAgentSection(agent) {
   }
   if (HISTORICAL_ORCHESTRATION_MODES.includes(next.orchestrationMode)) delete next.orchestrationMode;
   next = separateDisabledAgents(next);
-  return stripAgentSectionDefaults(next);
+  const stripped = stripAgentSectionDefaults(next);
+  // A legacy profile without a `builtins` section is grandfathered as having
+  // Git/Memory/Office installed. Stripping defaults may leave `{}`, which reads
+  // as a fresh profile, so persist those effective markers explicitly.
+  if (!isPlainObject(agent.builtins)) {
+    const grandfathered = withGrandfatheredBuiltins(agent).builtins;
+    if (Object.keys(grandfathered).length) stripped.builtins = grandfathered;
+  }
+  return stripped;
 }
 
 // Built-in agents that no longer ship; a stored model route for one is dead

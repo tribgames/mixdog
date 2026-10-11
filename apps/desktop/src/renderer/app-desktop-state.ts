@@ -13,6 +13,7 @@ import {
   type DesktopSnapshotStore,
 } from './desktop-snapshot-store';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
+import { errorMessage } from './editor-pane-session-errors';
 export function useDesktopState() {
   const snapshotStoreRef = useRef<DesktopSnapshotStore | null>(null);
   snapshotStoreRef.current ||= createDesktopSnapshotStore();
@@ -77,7 +78,7 @@ export function useDesktopState() {
         .catch((reason) => {
           if (live) {
             initialReadFailed = true;
-            initialReadError = reason instanceof Error ? reason.message : String(reason);
+            initialReadError = errorMessage(reason);
             setError(initialReadError);
             // Native boot retains its bounded recovery. A remote boot needs a
             // real host snapshot, not merely a completed (failed) attempt.

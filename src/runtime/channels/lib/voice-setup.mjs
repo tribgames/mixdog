@@ -27,6 +27,10 @@ function loadVoiceRuntimeFetcher() {
 // ensureFfmpegRuntime sequence) may run at a time per process.
 let _voiceInstallBusy = false;
 
+// Bumped by every accepted OFF request. An install that started earlier must
+// not enable voice once a later OFF has superseded it.
+let _voiceOffGeneration = 0;
+
 /** True while an install sequence is in flight. */
 export function isVoiceInstallBusy() {
   return _voiceInstallBusy;
@@ -155,14 +159,18 @@ async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNoti
  */
 export async function toggleVoice({ pushNotice, setProgressHint, enabled } = {}) {
   const dataDir = resolvePluginData();
+  const requestGeneration = _voiceOffGeneration;
   const status = await getVoiceStatus({ dataDir });
   const targetEnabled = typeof enabled === 'boolean' ? enabled : !status.enabled;
   if (!targetEnabled) {
-    if (!status.enabled) return false;
+    // Counted even when voice is not yet enabled: a pending install must lose.
+    _voiceOffGeneration++;
     // The async RMW preserves the shared config lock/ACL protocol without
     // blocking the event loop. It can still throw — a locked/corrupt config,
     // permissions error, etc. Guard it the same way the ON path is guarded and
     // report failure via pushNotice instead of silently pretending success.
+    // It runs even when the pre-read says disabled so it queues behind (and
+    // overrides) any ON write already waiting on the lock.
     try {
       await updateSectionAsync('voice', (current) => ({ ...current, enabled: false }));
     } catch (err) {
@@ -180,7 +188,20 @@ export async function toggleVoice({ pushNotice, setProgressHint, enabled } = {})
   _voiceInstallBusy = true;
   try {
     await ensureVoiceRuntimeReady({ dataDir, pushNotice, setProgressHint });
-    await updateSectionAsync('voice', (current) => ({ ...current, enabled: true }));
+    // Checked inside the locked updater so an OFF accepted while this write
+    // waits for the lock still wins.
+    let superseded = false;
+    await updateSectionAsync('voice', (current) => {
+      if (requestGeneration !== _voiceOffGeneration) {
+        superseded = true;
+        return current;
+      }
+      return { ...current, enabled: true };
+    });
+    if (superseded) {
+      setProgressHint?.('');
+      return false;
+    }
     setProgressHint?.('');
     pushNotice?.('Voice ON — channel voice messages will be transcribed', 'info');
     return true;

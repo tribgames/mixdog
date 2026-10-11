@@ -37,7 +37,10 @@ test('with one PC the title-bar button names the PC and carries no Remote badge 
   assert.match(items.at(-3).textContent, /Open another PC/);
   assert.match(items.at(-2).textContent, /Connect a device/);
   assert.match(items.at(-1).textContent, /Connection settings/);
-  assert.equal(items.some((item) => /Close this remote window/.test(item.textContent)), false);
+  assert.equal(
+    items.some((item) => /Close this remote window/.test(item.textContent)),
+    false
+  );
 });
 
 test('phone: the brand dot is green when connected and grey when the PC is offline', async (t) => {
@@ -96,7 +99,10 @@ test('phone drawer header: slim panel-title row with a hairline; the grid keeps 
   const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
   const base = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
   assert.match(css, /> \.remote-pc-card \{[^}]*border-bottom: 1px solid var\(--mx-border-muted\)/);
-  assert.match(css, /:has\(> \.remote-pc-card\) > :is\(\.workbench-side-panel, \.sidebar\.session-sidebar\) \{\s*width: auto;/);
+  assert.match(
+    css,
+    /:has\(> \.remote-pc-card\) > :is\(\.workbench-side-panel, \.sidebar\.session-sidebar\) \{\s*width: auto;/
+  );
   const head = /\n\.remote-pc-card-head \{[^}]*\}/.exec(base)[0];
   assert.match(head, /height: 48px/);
   assert.match(head, /background: transparent/);
@@ -134,7 +140,8 @@ test('without a saved-PC entry the name announced by the connected PC is used ev
 test('phone CSS: the title band takes no row and the first tab-strip row clears the status bar', () => {
   const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
   assert.match(css, /html\[data-mixdog-mobile-tabs\] \.topbar \{\s*display: none;/);
-  const safe = /padding(?:-top)?: max\(calc\(\d+px \* var\(--mx-device-scale, 2\.5\)\), env\(safe-area-inset-top, 0px\)\)/g;
+  const safe =
+    /padding(?:-top)?: max\(calc\(\d+px \* var\(--mx-device-scale, 2\.5\)\), env\(safe-area-inset-top, 0px\)\)/g;
   assert.equal((css.match(safe) || []).length, 2);
 });
 
@@ -170,27 +177,40 @@ test('with several PCs the menu lists them with state, switches, and offers code
   assert.deepEqual(calls.at(-1), ['manage']);
 });
 
-
 test('an authenticated host name is persisted per device and replaces an empty or stale label', async (t) => {
-  const { window } = installTestDom(t, { jsdom: { url: 'https://relay.example/d/0123456789abcdef0123456789abcdef/' }, expose: ['localStorage', 'location'] });
+  const { window } = installTestDom(t, {
+    jsdom: { url: 'https://relay.example/d/0123456789abcdef0123456789abcdef/' },
+    expose: ['localStorage', 'location'],
+  });
   const { savePcName, readSavedPcs } = await import('./remote-saved-pcs.ts');
   const id = '0123456789abcdef0123456789abcdef';
   const other = 'fedcba9876543210fedcba9876543210';
   window.localStorage.setItem('mixdog.savedPcs', JSON.stringify([{ deviceId: other, name: '', lastConnectedAt: 1 }]));
   savePcName(id, '  Home PC ');
   savePcName(other, 'Office PC');
-  assert.deepEqual(readSavedPcs().map((pc) => [pc.deviceId, pc.name]).sort(), [[id, 'Home PC'], [other, 'Office PC']].sort());
+  assert.deepEqual(
+    readSavedPcs()
+      .map((pc) => [pc.deviceId, pc.name])
+      .sort(),
+    [
+      [id, 'Home PC'],
+      [other, 'Office PC'],
+    ].sort()
+  );
   savePcName(id, 'Renamed PC');
   assert.equal(readSavedPcs().find((pc) => pc.deviceId === id).name, 'Renamed PC');
   savePcName(id, '');
   assert.equal(readSavedPcs().find((pc) => pc.deviceId === id).name, 'Renamed PC', 'an empty name never wipes a label');
 });
 
-
 // The main window is Electron without a remote-window marker (a plain browser is a remote surface).
 const ELECTRON = { navigator: { userAgent: 'Mozilla/5.0 Electron/30 Mixdog' } };
 
-function installMainWindow(window, { hosts = [], settings = { enabled: true, name: 'Studio PC', defaultName: 'DESKTOP-IBLP835' } } = {}, calls = []) {
+function installMainWindow(
+  window,
+  { hosts = [], settings = { enabled: true, name: 'Studio PC', defaultName: 'DESKTOP-IBLP835' } } = {},
+  calls = []
+) {
   window.mixdogDesktop = {
     listRemoteHosts: () => Promise.resolve(hosts),
     getRemoteAccessSettings: () => Promise.resolve(settings),
@@ -226,7 +246,10 @@ test('main window, no saved PCs: still "● this PC name ▾"', async (t) => {
     ['Open another PC', 'Connect a device', 'Connection settings']
   );
   assert.ok(items[0].disabled);
-  assert.ok(items.slice(1).every((item) => item.querySelector('svg')), 'action rows carry icons');
+  assert.ok(
+    items.slice(1).every((item) => item.querySelector('svg')),
+    'action rows carry icons'
+  );
 });
 
 test('main window, saved PCs: "● this PC name ▾" and a menu with online / window-open state', async (t) => {

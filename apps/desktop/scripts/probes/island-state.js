@@ -1,6 +1,11 @@
 // Composer island: slot geometry, visible segments and the dock stack order.
 (() => {
-  const rect = (el) => (el ? (({ top, height, width }) => ({ top: Math.round(top), height: Math.round(height), width: Math.round(width) }))(el.getBoundingClientRect()) : null);
+  const rect = (el) =>
+    el
+      ? (({ top, height, width }) => ({ top: Math.round(top), height: Math.round(height), width: Math.round(width) }))(
+          el.getBoundingClientRect()
+        )
+      : null;
   const docks = [...document.querySelectorAll('.composer-region')].filter((el) => el.getClientRects().length);
   return docks.map((dock) => ({
     dock: rect(dock),
@@ -12,4 +17,4 @@
     composer: rect(dock.querySelector('form.composer')),
     contextBar: Boolean(dock.querySelector('.composer-context-bar')),
   }));
-})()
+})();

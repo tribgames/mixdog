@@ -69,7 +69,7 @@ export interface CodeStroke {
   width: number;
 }
 
-export const MINIMAP_LINES = 14;
+const MINIMAP_LINES = 14;
 const MINIMAP_COLUMNS = 80;
 const KEYWORDS = new Set(
   (
@@ -186,7 +186,7 @@ const charWidth = (width: number): CSSProperties => ({
 });
 const unitWidth = (width: number): CSSProperties => ({ width: `calc(var(--file-mini-unit, 2px) * ${width})` });
 
-export function CodeMinimap({ text }: { text: string }) {
+function CodeMinimap({ text }: { text: string }) {
   return (
     <span className="file-minimap" aria-hidden="true">
       {codeMinimapLines(text).map((strokes, row) => (
@@ -202,7 +202,7 @@ export function CodeMinimap({ text }: { text: string }) {
   );
 }
 
-export function TextMinimap({ text }: { text: string }) {
+function TextMinimap({ text }: { text: string }) {
   return (
     <span className="file-minimap paper" aria-hidden="true">
       {textMinimapLines(text).map((row, index) =>

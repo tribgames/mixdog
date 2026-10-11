@@ -17,9 +17,16 @@ import {
 
 export type ToolActivityStructuredKind = 'plan' | 'todos' | 'questions' | '';
 
+function statusKey(status: string): string {
+  return status
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
 /** A task or tool status in the active language; an unknown status stays as the runtime wrote it. */
 export function toolStatusLabel(status: string): string {
-  switch (status.trim().toLowerCase().replace(/[\s-]+/g, '_')) {
+  switch (statusKey(status)) {
     case 'queued':
       return TOOL_DETAIL_LABELS.queued;
     case 'running':
@@ -275,7 +282,10 @@ function toolActivityIsBodyInstruction(line: string): boolean {
 const TOOL_ACTIVITY_WAIT_CUE = /^Wait (?:interrupted by new user input|ceiling reached);/;
 
 function toolActivityIsGuidanceBody(text: string): boolean {
-  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
   return lines.length > 0 && lines.every(toolActivityIsBodyInstruction);
 }
 
@@ -421,7 +431,7 @@ function toolActivityBackgroundOutcome(
 } {
   const code = String(exitCode ?? '').trim();
   const badExit = /^-?\d+$/.test(code) && Number(code) !== 0;
-  const normalized = status.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const normalized = statusKey(status);
   const timeout = timedOut || /^(?:timeout|timed_out)$/.test(normalized);
   const failed = badExit || timeout || Boolean(signal) || normalized === 'failed';
   let statusLabel = toolStatusLabel(status);
@@ -442,10 +452,7 @@ function toolActivityBackgroundOutcome(
 }
 
 /** "종료 코드 2로 실패 · make": the failure in words, built from the parsed parts. */
-function toolActivityFailureLine(
-  result: ReturnType<typeof toolActivityBackgroundOutcome>,
-  command: string
-): string {
+function toolActivityFailureLine(result: ReturnType<typeof toolActivityBackgroundOutcome>, command: string): string {
   let head = result.statusLabel;
   if (!result.timeout) {
     if (result.code) head = t('Failed with exit code {{code}}', { code: result.code });
@@ -505,7 +512,10 @@ export function toolActivityLocalizeTaskList(text: string): string {
     .join('\n');
 }
 
-export function toolActivityBackgroundTask(text: string, waitResult = false): {
+export function toolActivityBackgroundTask(
+  text: string,
+  waitResult = false
+): {
   meta: string;
   body: string;
   failed: boolean;
@@ -582,7 +592,10 @@ export function toolActivityBackgroundTask(text: string, waitResult = false): {
       : ''
   );
   return {
-    meta: toolActivityCompact([result.failed ? result.outcome : statusLabel, shortMachineId(meta.get('task_id') || '')]),
+    meta: toolActivityCompact([
+      result.failed ? result.outcome : statusLabel,
+      shortMachineId(meta.get('task_id') || ''),
+    ]),
     body,
     failed: result.failed,
     running: status === 'running',

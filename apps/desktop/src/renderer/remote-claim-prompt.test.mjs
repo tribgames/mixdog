@@ -49,7 +49,10 @@ test('with the Connect dialog closed a waiting request shows the B3 notice: titl
 });
 
 test('a Mixdog PC claim names the bare device in the notice', async (t) => {
-  const { document } = await mountPrompt(t, claimFor({ name: 'Laptop · Mixdog Desktop', browser: 'Mixdog Desktop', desktop: true, method: 'code' }));
+  const { document } = await mountPrompt(
+    t,
+    claimFor({ name: 'Laptop · Mixdog Desktop', browser: 'Mixdog Desktop', desktop: true, method: 'code' })
+  );
   assert.equal(document.querySelector('.remote-claim-notice span').textContent, 'Laptop');
 });
 

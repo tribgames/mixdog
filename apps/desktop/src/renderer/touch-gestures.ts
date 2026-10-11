@@ -42,7 +42,10 @@ interface Press {
   endedAt: number;
 }
 
-export function installTouchGestures(win: Window & typeof globalThis = window, longPressMs = TOUCH_LONG_PRESS_MS): () => void {
+export function installTouchGestures(
+  win: Window & typeof globalThis = window,
+  longPressMs = TOUCH_LONG_PRESS_MS
+): () => void {
   const doc = win.document;
   const own = new WeakSet<Event>();
   let press: Press | null = null;
@@ -52,7 +55,9 @@ export function installTouchGestures(win: Window & typeof globalThis = window, l
     if (press) press.timer = 0;
   };
   const sameTouch = (event: Event): event is PointerEvent =>
-    Boolean(press) && (event as PointerEvent).pointerType === 'touch' && (event as PointerEvent).pointerId === press?.id;
+    Boolean(press) &&
+    (event as PointerEvent).pointerType === 'touch' &&
+    (event as PointerEvent).pointerId === press?.id;
   /** The mouse events a touch press produces arrive after its pointerup. */
   const fromPress = (event: Event): boolean => {
     if (!press || own.has(event)) return false;

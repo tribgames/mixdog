@@ -47,7 +47,7 @@ def token():
     )
 
 
-def call(method, path, body=None):
+def call(method, path, body=None, tolerate=()):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(API + path, data=data, method=method)
     req.add_header("Authorization", "Bearer " + token())
@@ -57,6 +57,8 @@ def call(method, path, body=None):
         with urllib.request.urlopen(req) as res:
             raw = res.read()
     except urllib.error.HTTPError as err:
+        if err.code in tolerate:
+            return {}
         sys.exit(f"{method} {path} failed: {err.code} {err.read().decode(errors='replace')}")
     return json.loads(raw) if raw else {}
 
@@ -128,8 +130,8 @@ def cleanup():
         return
     state = json.loads(STATE.read_text())
     for profile in state["profiles"]:
-        call("DELETE", f"/profiles/{profile}")
-    call("DELETE", f"/certificates/{state['certificate']}")
+        call("DELETE", f"/profiles/{profile}", tolerate=(404,))
+    call("DELETE", f"/certificates/{state['certificate']}", tolerate=(404,))
     STATE.unlink()
 
 

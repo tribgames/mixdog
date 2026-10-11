@@ -156,7 +156,9 @@ const TOOL_ACTIVITY_OPERATIONAL_ARGS_BY_TOOL: Record<string, ReadonlySet<string>
 };
 
 export function toolActivityIsOperationalArg(normalizedName: string, key: string): boolean {
-  return TOOL_ACTIVITY_OPERATIONAL_ARGS.has(key) || Boolean(TOOL_ACTIVITY_OPERATIONAL_ARGS_BY_TOOL[normalizedName]?.has(key));
+  return (
+    TOOL_ACTIVITY_OPERATIONAL_ARGS.has(key) || Boolean(TOOL_ACTIVITY_OPERATIONAL_ARGS_BY_TOOL[normalizedName]?.has(key))
+  );
 }
 
 const MACHINE_ID = /\b[a-z]+_\d{10,}_([0-9a-f]{4,})\b/gi;
@@ -235,10 +237,12 @@ const TOOL_ACTION_LABELS: Record<string, () => string> = {
   verify: () => t('Verify'),
 };
 
+const actionKey = (action: string): string => action.toLowerCase().replace(/[.\s-]+/g, '_');
+
 /** The call's action word in the active language where the catalog carries
  *  one, else a readable form of the raw word (`pr.list` → `pr list`). */
 export function toolActivityActionLabel(action: string): string {
-  const known = TOOL_ACTION_LABELS[action.toLowerCase().replace(/[.\s-]+/g, '_')];
+  const known = TOOL_ACTION_LABELS[actionKey(action)];
   if (known) return known();
   switch (action.toLowerCase()) {
     case 'wait':
@@ -296,7 +300,13 @@ function localizeActionSubject(args: Record<string, unknown>, fallback: string):
   if (fallback.startsWith(`${action} · `)) return `${toolActivityActionLabel(action)}${fallback.slice(action.length)}`;
   // The shared summary may already name the action in English ("List issues").
   const head = fallback.split(' · ')[0];
-  const known = TOOL_ACTION_LABELS[head.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')];
+  const known =
+    TOOL_ACTION_LABELS[
+      head
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+    ];
   return known ? `${known()}${fallback.slice(head.length)}` : fallback;
 }
 
@@ -304,7 +314,7 @@ function localizeActionSubject(args: Record<string, unknown>, fallback: string):
  *  (number, repo, title), instead of rewriting the English summary. */
 function githubSubject(args: Record<string, unknown>, fallback: string): string {
   const action = toolActivityFirstText(args, 'action');
-  if (!TOOL_ACTION_LABELS[action.toLowerCase().replace(/[.\s-]+/g, '_')]) return localizeActionSubject(args, fallback);
+  if (!TOOL_ACTION_LABELS[actionKey(action)]) return localizeActionSubject(args, fallback);
   const id = toolActivityFirstText(args, 'number', 'id');
   const title = toolActivityFirstText(args, 'title', 'workflow', 'tag');
   return toolActivityCompact([
@@ -726,7 +736,10 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
   [['git_stage'], ['files', 'paths']],
   [['github', 'setup', 'tidy', 'office', 'computer', 'media'], ['action']],
   // The row's subject already names the page / element the call acted on.
-  [['browser', 'browser_devtools'], ['action', 'url', 'uri', 'ref', 'selector']],
+  [
+    ['browser', 'browser_devtools'],
+    ['action', 'url', 'uri', 'ref', 'selector'],
+  ],
   [['grep'], ['pattern', 'query', 'path', 'glob']],
   [['glob'], ['pattern', 'glob', 'path']],
   [['find'], ['query', 'fuzzy', 'path']],

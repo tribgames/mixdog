@@ -25,6 +25,7 @@ import { richMarkdownBodySupport } from './rich-markdown-support';
 import { RichMarkdownDocumentContext } from './rich-markdown-context';
 import { createRichMarkdownExtensions } from './rich-markdown-extensions';
 import { headingForAnchor, readHeadings } from '../editor-markdown-outline';
+import { openWebLinkInSystemBrowser } from '../MarkdownLink';
 import { richMarkdownLinkTarget } from './rich-markdown-links';
 import { RichMarkdownModelSync } from './rich-markdown-model-sync';
 import { RichMarkdownSearch, richMarkdownSearchKey, richMarkdownSearchState } from './rich-markdown-search';
@@ -155,12 +156,6 @@ function replaceDocument(editor: Editor, json: JSONContent, initial: boolean, to
   if (tr.docChanged || initial) editor.view.dispatch(tr);
 }
 
-function openWebUrl(url: string) {
-  const api = window.mixdogDesktop;
-  if (api?.openExternal) void api.openExternal(url);
-  else window.open(url, '_blank', 'noopener');
-}
-
 /** WYSIWYG Markdown editing over a Monaco model (the single source of truth). */
 export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const { modelRef, text, projectPath, relPath, readOnly, active } = props;
@@ -269,7 +264,7 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const openLink = (href: string) => {
     const target = richMarkdownLinkTarget(href, projectPath, relPath);
     if (target.kind === 'anchor') scrollToAnchor(target.slug);
-    else if (target.kind === 'web') openWebUrl(target.url);
+    else if (target.kind === 'web') openWebLinkInSystemBrowser(undefined, target.url);
     else if (target.kind === 'file') props.onOpenFile?.(projectPath, target.rel, target.line);
   };
 

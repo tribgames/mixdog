@@ -6,7 +6,9 @@ type RemoteAccessSettingsApi = Partial<Pick<DesktopApi, 'getRemoteAccessSettings
 
 /** "Use this PC from other devices" and this PC's name, kept current. Null
  *  until the host answers (or when it has no such setting). */
-export function useRemoteAccessSettings(api: RemoteAccessSettingsApi | undefined): [DesktopRemoteAccessSettings | null, (next: DesktopRemoteAccessSettings) => void] {
+export function useRemoteAccessSettings(
+  api: RemoteAccessSettingsApi | undefined
+): [DesktopRemoteAccessSettings | null, (next: DesktopRemoteAccessSettings) => void] {
   const [settings, setSettings] = useState<DesktopRemoteAccessSettings | null>(null);
   useEffect(() => {
     if (!api?.getRemoteAccessSettings) return undefined;
@@ -23,4 +25,3 @@ export function useRemoteAccessSettings(api: RemoteAccessSettingsApi | undefined
   }, [api]);
   return [settings, setSettings];
 }
-

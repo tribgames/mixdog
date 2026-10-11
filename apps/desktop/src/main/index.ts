@@ -905,6 +905,7 @@ function remoteHostsHandle(): RemoteHostWindows {
     connectByCode: async (code) => (await ready).connectByCode(code),
     open: async (id) => (await ready).open(id),
     forget: async (id) => (await ready).forget(id),
+    rename: async (id, name) => (await ready).rename(id, name),
   };
 }
 

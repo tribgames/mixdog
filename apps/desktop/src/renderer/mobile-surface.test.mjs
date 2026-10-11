@@ -133,7 +133,11 @@ test('the Goal tab shows its task drawer only while open and keeps task overflow
   </body></html>`);
   const style = (selector) => dom.window.getComputedStyle(dom.window.document.querySelector(selector));
   assert.equal(style('[data-open="true"] .session-goal-drawer').display, 'block');
-  assert.equal(style('[data-open="true"] > .session-goal-trigger').display, 'none', 'the open tab replaces the segment');
+  assert.equal(
+    style('[data-open="true"] > .session-goal-trigger').display,
+    'none',
+    'the open tab replaces the segment'
+  );
   assert.equal(style('[data-open="false"] .session-goal-drawer').display, 'none');
   assert.equal(style('.session-goal-body').overflow, 'hidden');
   assert.equal(style('.session-goal-tasks ul').overflowY, 'auto');

@@ -677,7 +677,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       onOpenMenu={openSessionMenu}
     />
   );
-  const displayedSidebarWidth = resizeStart.current?.pendingWidth ?? sidebarWidth;  return (
+  const displayedSidebarWidth = resizeStart.current?.pendingWidth ?? sidebarWidth;
+  return (
     <aside
       id="session-sidebar"
       className={`sidebar session-sidebar ${open ? 'open' : ''}`}

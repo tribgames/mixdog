@@ -39,7 +39,11 @@ test('cancel while an approved answer is in flight stores no credential and stay
       releasePoll = async () =>
         resolve(
           new Response(
-            JSON.stringify({ status: 'approved', token: 'a'.repeat(64), sealed: await sealRelayE2EEPairingMaterial(MATERIAL, publicKey) }),
+            JSON.stringify({
+              status: 'approved',
+              token: 'a'.repeat(64),
+              sealed: await sealRelayE2EEPairingMaterial(MATERIAL, publicKey),
+            }),
             { status: 200 }
           )
         );
@@ -81,7 +85,6 @@ test('cancel while an approved answer is in flight stores no credential and stay
 
 test('pairing completes on engines without AbortSignal.any (Chrome < 116, Safari < 17.4)', async (t) => {
   const original = AbortSignal.any;
-  // biome-ignore lint/performance/noDelete: the engine under test lacks the method entirely.
   delete AbortSignal.any;
   t.after(() => {
     AbortSignal.any = original;
@@ -95,7 +98,11 @@ test('pairing completes on engines without AbortSignal.any (Chrome < 116, Safari
       publicKey = JSON.parse(init.body).publicKey;
       return reply({ claimId: 'c1' }, 202);
     }
-    return reply({ status: 'approved', token: 'a'.repeat(64), sealed: await sealRelayE2EEPairingMaterial(MATERIAL, publicKey) });
+    return reply({
+      status: 'approved',
+      token: 'a'.repeat(64),
+      sealed: await sealRelayE2EEPairingMaterial(MATERIAL, publicKey),
+    });
   };
   const { document } = installTestDom(t, {
     jsdom: { url: 'https://relay.example/d/abc/' },

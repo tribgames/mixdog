@@ -131,7 +131,10 @@ test('custom provider save/remove refresh like credential changes; removal drops
   calls.length = 0;
   assert.deepEqual(await api.testCustomProvider({ a: 1 }), { ok: true });
   assert.deepEqual(await api.discoverCustomProviderModels({ b: 2 }), { models: [] });
-  assert.equal(calls.some(([name]) => name === 'reload'), false);
+  assert.equal(
+    calls.some(([name]) => name === 'reload'),
+    false
+  );
 });
 
 test('usage-only credentials reload and invalidate without touching admission cooldowns', async () => {

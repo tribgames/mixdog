@@ -192,7 +192,7 @@ function localizeAgentTitle(title: string): string {
   return match ? `${AGENT_TITLE_VERBS[match[1]]()}${match[2]}` : title;
 }
 
-const LITERAL_OUTPUT_CATEGORIES =new Set(['Read', 'Search', 'Git', 'Shell', 'Patch', 'Task']);
+const LITERAL_OUTPUT_CATEGORIES = new Set(['Read', 'Search', 'Git', 'Shell', 'Patch', 'Task']);
 const CODE_SUBJECT_TOOLS = /^(?:shell|bash|bash_session|shell_command|job_wait|git|grep|glob|find|code_graph)$/;
 const SECTION_TOOLS = new Set(['read', 'grep', 'code_graph']);
 const LISTING_TOOLS = new Set(['glob', 'find', 'list', 'ls']);
@@ -404,9 +404,7 @@ export function desktopToolActivityItemPresentation(
     // A read of a live job has no lines yet: its whole result is that one
     // label, so say so instead of showing it as output.
     waitingForOutput = /^Job still running; \d+ new lines?\.?$/i.test(outputText.trim());
-    outputText = waitingForOutput
-      ? ''
-      : toolActivityStripInstructions(outputText, false, taskWait);
+    outputText = waitingForOutput ? '' : toolActivityStripInstructions(outputText, false, taskWait);
   }
   if (backgroundTask?.running && !outputText.trim()) waitingForOutput = true;
   // The card is a snapshot of the call: the note must stay true after the job ends.
@@ -600,7 +598,7 @@ export function desktopToolActivityItemPresentation(
     ...(normalizedName === 'read' && Number(args.offset) > 0 ? { targetLine: Math.floor(Number(args.offset)) } : {}),
     headerSubject: rowSubject(
       normalizedName,
-      (patchSummary ? localizePatchTarget(patchSummary[1]) : fileHeaderSubject(subject, targetPath))
+      patchSummary ? localizePatchTarget(patchSummary[1]) : fileHeaderSubject(subject, targetPath)
     ),
     subjectIsTarget: Boolean(targetPath) && subject.startsWith(targetPath),
     subjectKind: patchSummary ? 'target' : subjectKind,

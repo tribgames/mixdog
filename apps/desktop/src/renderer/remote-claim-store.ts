@@ -25,7 +25,11 @@ export function updateClaimQueue(update: (current: DesktopRemoteClientClaim[]) =
 }
 
 export function useClaimQueue(): Claims {
-  return useSyncExternalStore(subscribe, () => queue, () => queue);
+  return useSyncExternalStore(
+    subscribe,
+    () => queue,
+    () => queue
+  );
 }
 
 /** Answers a claim. Resolves true when the host handled it; a lost request

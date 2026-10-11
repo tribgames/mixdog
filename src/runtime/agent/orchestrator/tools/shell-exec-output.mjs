@@ -503,11 +503,13 @@ export class TaskOutput {
     const oem = oemTextEncoding();
     if (!oem || !this.direct) return 'utf-8';
     this._sniffers ??= {};
-    const sniffer = (this._sniffers[channel] ??= new FileEncodingSniffer(oem));
+    this._sniffers[channel] ??= new FileEncodingSniffer(oem);
+    const sniffer = this._sniffers[channel];
     const path = channel === 'stdout' ? this.stdoutPath : this.stderrPath;
     let own = null;
     try {
-      const use = fd ?? (own = openSync(path, 'r'));
+      if (fd == null) own = openSync(path, 'r');
+      const use = fd ?? own;
       return sniffer.probe(use, fstatSync(use).size, final) || (final ? 'utf-8' : null);
     } catch {
       return 'utf-8';

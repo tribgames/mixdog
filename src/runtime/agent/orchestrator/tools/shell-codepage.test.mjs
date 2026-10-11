@@ -8,7 +8,6 @@ import { TaskOutput, ShellTextDecoder } from './shell-exec-output.mjs';
 import {
   ShellStreamDecoder,
   FileEncodingSniffer,
-  WINDOW_CAP,
   evaluateWindow,
   alignedOffset,
   charBoundaryBefore,
@@ -19,12 +18,11 @@ import {
 import { readShellTaskOutput } from './builtin/lib/shell-task-output.mjs';
 
 void fixtureRoot;
-void WINDOW_CAP;
 
 // "트 32바이트 데이터 사용: 한글" in CP949 (트 = C6 AE, also valid UTF-8 "Ʈ").
 const CP949 = Buffer.from([
-  0xc6, 0xae, 0x20, 0x33, 0x32, 0xb9, 0xd9, 0xc0, 0xcc, 0xc6, 0xae, 0x20, 0xb5, 0xa5, 0xc0, 0xcc,
-  0xc5, 0xcd, 0x20, 0xbb, 0xe7, 0xbf, 0xeb, 0x3a, 0x20, 0xc7, 0xd1, 0xb1, 0xdb,
+  0xc6, 0xae, 0x20, 0x33, 0x32, 0xb9, 0xd9, 0xc0, 0xcc, 0xc6, 0xae, 0x20, 0xb5, 0xa5, 0xc0, 0xcc, 0xc5, 0xcd, 0x20,
+  0xbb, 0xe7, 0xbf, 0xeb, 0x3a, 0x20, 0xc7, 0xd1, 0xb1, 0xdb,
 ]);
 const CP949_TEXT = '트 32바이트 데이터 사용: 한글';
 const UTF8_TEXT = '한글 테스트 데이터 😀 ok';
@@ -60,13 +58,20 @@ test('UTF-8-only stream decodes at every split point', () => {
 test('ASCII-then-CP949 stream commits to the OEM page', () => {
   const bytes = Buffer.concat([Buffer.from('Ping 127.0.0.1\r\n'), CP949]);
   for (let cut = 0; cut <= bytes.length; cut++) {
-    assert.equal(streamAll([bytes.subarray(0, cut), bytes.subarray(cut)]), `Ping 127.0.0.1\r\n${CP949_TEXT}`, `cut ${cut}`);
+    assert.equal(
+      streamAll([bytes.subarray(0, cut), bytes.subarray(cut)]),
+      `Ping 127.0.0.1\r\n${CP949_TEXT}`,
+      `cut ${cut}`
+    );
   }
   assert.equal(streamAll([Buffer.from('plain ascii')]), 'plain ascii');
 });
 
 test('no OEM page keeps plain UTF-8 behavior', () => {
-  assert.equal(streamAll([Buffer.from('가', 'utf8').subarray(0, 1), Buffer.from('가', 'utf8').subarray(1)], null), '가');
+  assert.equal(
+    streamAll([Buffer.from('가', 'utf8').subarray(0, 1), Buffer.from('가', 'utf8').subarray(1)], null),
+    '가'
+  );
   assert.equal(decodeShellBytes(Buffer.from('가', 'utf8'), null), '가');
 });
 
@@ -107,7 +112,12 @@ test('alignedOffset on a CP949 line longer than the sync window never returns a 
     const bytes = Buffer.concat([Buffer.from(prefix), hangul, Buffer.from('\n')]);
     const fd = openSync(spill('long.bin', bytes), 'r');
     try {
-      for (const offset of [prefix.length + 70_001, prefix.length + 70_002, prefix.length + 150_001, prefix.length + 150_002]) {
+      for (const offset of [
+        prefix.length + 70_001,
+        prefix.length + 70_002,
+        prefix.length + 150_001,
+        prefix.length + 150_002,
+      ]) {
         const expected = prefix.length + 2 * Math.ceil((offset - prefix.length) / 2);
         assert.equal(alignedOffset(fd, offset, 'euc-kr'), expected, `prefix "${prefix}" offset ${offset}`);
       }
@@ -288,7 +298,10 @@ function spill(name, bytes) {
 test('task reader: CP949 and UTF-8 files read across small page boundaries', async () => {
   const line = (s) => Buffer.concat([Buffer.from(s, 'latin1'), Buffer.from('\n')]);
   for (const [bytes, expected] of [
-    [Buffer.concat([line('head'), ...Array.from({ length: 3000 }, () => Buffer.concat([CP949, Buffer.from('\n')]))]), CP949_TEXT],
+    [
+      Buffer.concat([line('head'), ...Array.from({ length: 3000 }, () => Buffer.concat([CP949, Buffer.from('\n')]))]),
+      CP949_TEXT,
+    ],
     [Buffer.concat([line('head'), ...Array.from({ length: 3000 }, () => Buffer.from(`${UTF8_TEXT}\n`))]), UTF8_TEXT],
   ]) {
     if (expected === CP949_TEXT && oemTextEncoding() !== 'euc-kr') continue; // needs a CP949 OEM machine

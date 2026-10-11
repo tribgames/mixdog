@@ -13,6 +13,7 @@ import { t, uiFormatLocale } from '../i18n';
 import { uiTimeUnit } from '../ui-format';
 import { record } from '../record-utils';
 import type { SettingsCategory } from './settings-items';
+import { errorMessage } from '../editor-pane-session-errors';
 
 export type CapabilityCategory = SettingsCategory | 'builtins';
 
@@ -245,7 +246,7 @@ async function readAllCapabilitySettings(
             )?.value
           );
         } catch (reason) {
-          publish(key, { error: reason instanceof Error ? reason.message : String(reason) }, false);
+          publish(key, { error: errorMessage(reason) }, false);
         }
       })
     );
@@ -281,11 +282,11 @@ async function readAllCapabilitySettings(
         })
       );
     } catch (reason) {
-      trace('chunk-failed', { error: reason instanceof Error ? reason.message : String(reason) });
+      trace('chunk-failed', { error: errorMessage(reason) });
       if (api.invokeCapability) {
         await readIndividually();
       } else {
-        loadError = reason instanceof Error ? reason.message : String(reason);
+        loadError = errorMessage(reason);
       }
     }
   };
@@ -298,7 +299,7 @@ async function readAllCapabilitySettings(
         publish('models', await fetchProviderModels(api, { quick: false, force }));
       } catch (reason) {
         publish('models', previous?.data.models || []);
-        loadError = reason instanceof Error ? reason.message : String(reason);
+        loadError = errorMessage(reason);
       }
     })(),
     api

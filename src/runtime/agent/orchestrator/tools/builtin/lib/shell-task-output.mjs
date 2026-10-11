@@ -1,18 +1,20 @@
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { stripAnsi } from '../../shell-exec-output.mjs';
-import {
-  FileEncodingSniffer,
-  ShellStreamDecoder,
-  alignedOffset,
-  oemTextEncoding,
-} from '../../shell-codepage.mjs';
+import { FileEncodingSniffer, ShellStreamDecoder, alignedOffset, oemTextEncoding } from '../../shell-codepage.mjs';
 
 const PAGE_BYTES = 8 * 1024;
 const COMPLETION_BYTES = 12 * 1024;
 const cursors = new WeakMap();
 
 function newCursor() {
-  return { offset: 0, preview: '', decoder: new ShellStreamDecoder(), ansi: '', sniffer: new FileEncodingSniffer(), committed: false };
+  return {
+    offset: 0,
+    preview: '',
+    decoder: new ShellStreamDecoder(),
+    ansi: '',
+    sniffer: new FileEncodingSniffer(),
+    committed: false,
+  };
 }
 
 // Only the introducer is retained, plus the ESC that may open a split OSC

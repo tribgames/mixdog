@@ -7,7 +7,9 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { extractZip, resolveVoiceRuntime, selectVoiceModelId, voiceRuntimeInfo } from './voice-runtime-fetcher.mjs';
 
-test('zip extraction on Windows does not expand $ in paths', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+test('zip extraction on Windows does not expand $ in paths', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-zip-'));
   try {
     await writeFile(join(root, 'a.txt'), 'hello');

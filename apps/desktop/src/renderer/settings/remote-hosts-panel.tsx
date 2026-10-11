@@ -83,7 +83,12 @@ export function OpenPcDialog({
   };
   const focused = phase === 'input' ? Math.min(digits.length, 5) : -1;
   let primary = (
-    <button type="button" className="conn-btn conn-btn--primary" disabled={digits.length !== 6} onClick={() => start(digits)}>
+    <button
+      type="button"
+      className="conn-btn conn-btn--primary"
+      disabled={digits.length !== 6}
+      onClick={() => start(digits)}
+    >
       {t('Connect')}
     </button>
   );

@@ -325,7 +325,9 @@ export const TranscriptRow = memo(
                       kind="image"
                       name={preview ? name : image.name || 'Image'}
                       imageUrl={preview || undefined}
-                      menu={menuProps(preview ? { kind: 'image', name, dataUrl: preview } : { kind: 'image-marker', name })}
+                      menu={menuProps(
+                        preview ? { kind: 'image', name, dataUrl: preview } : { kind: 'image-marker', name }
+                      )}
                       onOpen={
                         preview
                           ? () =>

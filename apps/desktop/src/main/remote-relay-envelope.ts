@@ -15,6 +15,10 @@ export interface RelayEnvelopeDispatcherDeps {
   onPairCode?(envelope: Record<string, unknown>): void;
   /** The relay's verdict on a native push (invalid token, rate limit). */
   onNativePushResult?(envelope: Record<string, unknown>): void;
+  /** Relay-owned Web Push: the browser subscriptions this PC may deliver to
+   *  (`webpush-subscriptions`) and the relay's verdict on one send. */
+  onWebPushSubscriptions?(envelope: Record<string, unknown>): void;
+  onWebPushResult?(envelope: Record<string, unknown>): void;
 }
 
 export function createRelayEnvelopeDispatcher(
@@ -28,6 +32,14 @@ export function createRelayEnvelopeDispatcher(
     if (deps.control.settle(envelope)) return;
     if (envelope.type === 'native-push-result') {
       deps.onNativePushResult?.(envelope);
+      return;
+    }
+    if (envelope.type === 'webpush-subscriptions') {
+      deps.onWebPushSubscriptions?.(envelope);
+      return;
+    }
+    if (envelope.type === 'webpush-result') {
+      deps.onWebPushResult?.(envelope);
       return;
     }
     if (envelope.type === 'pair-code-issued' || envelope.type === 'pair-code-used') {

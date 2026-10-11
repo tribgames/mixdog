@@ -48,9 +48,22 @@ test('menu items per attachment kind', () => {
   assert.deepEqual(ids({ kind: 'image-marker', name: 'a.png' }), ['copy-name']);
   assert.deepEqual(ids({ kind: 'pasted-text', name: 'p', text: 'hi' }), ['open', 'copy-text', 'save']);
   assert.deepEqual(ids({ kind: 'pasted-text', name: 'p' }), []);
-  assert.deepEqual(ids({ kind: 'text-file', name: 'a.ts', text: 'x' }), ['open', 'open-default', 'copy-contents', 'save']);
-  assert.deepEqual(ids({ kind: 'pdf', name: 'a.pdf', dataUrl: 'data:application/pdf;base64,AA' }), ['open', 'open-default', 'save']);
-  assert.deepEqual(ids({ kind: 'office', name: 'a.docx', dataUrl: 'data:x;base64,AA' }), ['open', 'open-default', 'save']);
+  assert.deepEqual(ids({ kind: 'text-file', name: 'a.ts', text: 'x' }), [
+    'open',
+    'open-default',
+    'copy-contents',
+    'save',
+  ]);
+  assert.deepEqual(ids({ kind: 'pdf', name: 'a.pdf', dataUrl: 'data:application/pdf;base64,AA' }), [
+    'open',
+    'open-default',
+    'save',
+  ]);
+  assert.deepEqual(ids({ kind: 'office', name: 'a.docx', dataUrl: 'data:x;base64,AA' }), [
+    'open',
+    'open-default',
+    'save',
+  ]);
   const labels = attachmentMenuItems(png, all).map((item) => item.label);
   assert.deepEqual(labels.slice(0, 2), ['Open', 'Open with default app']);
 });

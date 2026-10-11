@@ -35,7 +35,9 @@ test('the icon a page declares is read on any origin, with the page it came from
   const { store, guest, fetched } = trackFavicons('https://github.com/mixdog/mixdog');
   guest.emit('page-favicon-updated', {}, ['https://github.githubassets.com/favicons/favicon.svg']);
   await settle();
-  assert.deepEqual(fetched, [['https://github.githubassets.com/favicons/favicon.svg', 'https://github.com/mixdog/mixdog']]);
+  assert.deepEqual(fetched, [
+    ['https://github.githubassets.com/favicons/favicon.svg', 'https://github.com/mixdog/mixdog'],
+  ]);
   assert.equal(store.lookup('https://github.com/other').favicon, 'data:icon');
 });
 
@@ -45,7 +47,12 @@ test('nothing but a declared http(s) icon is ever read: no guessed /favicon.ico,
   guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false, url: 'https://a.test/page' });
   guest.emit('page-title-updated', {}, 'A');
   guest.emit('did-stop-loading');
-  guest.emit('page-favicon-updated', {}, ['chrome://favicon/x', 'file:///C:/icon.png', 'ftp://a.test/f.ico', 'javascript:1']);
+  guest.emit('page-favicon-updated', {}, [
+    'chrome://favicon/x',
+    'file:///C:/icon.png',
+    'ftp://a.test/f.ico',
+    'javascript:1',
+  ]);
   guest.emit('page-favicon-updated', {}, []);
   await settle();
   assert.deepEqual(fetched, []);

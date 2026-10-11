@@ -82,7 +82,13 @@ const server = http.createServer((req, res) => {
   });
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-after(() => new Promise((resolve) => { server.closeAllConnections?.(); server.close(resolve); }));
+after(
+  () =>
+    new Promise((resolve) => {
+      server.closeAllConnections?.();
+      server.close(resolve);
+    })
+);
 const baseURL = `http://127.0.0.1:${server.address().port}/v1`;
 
 function makeCfg() {
@@ -107,7 +113,11 @@ function rowsFor(config) {
   })();
 }
 
-const markers = { 'openai-chat': '/v1/chat/completions', 'openai-responses': '/v1/responses', anthropic: '/v1/messages' };
+const markers = {
+  'openai-chat': '/v1/chat/completions',
+  'openai-responses': '/v1/responses',
+  anthropic: '/v1/messages',
+};
 
 for (const protocol of Object.keys(markers)) {
   test(`${protocol}: manual registration after /models 404 yields rows, works with stored key, and deletes`, async () => {
@@ -129,7 +139,10 @@ for (const protocol of Object.keys(markers)) {
     assert.equal(failed.error.kind, 'unavailable');
 
     // A legacy `models` registration is persisted as full v2 by the real normalizer.
-    const saved = await admin.saveCustomProvider(cfg, { ...input, models: [{ id: MODEL, contextWindow: 8000, maxOutputTokens: 500 }] });
+    const saved = await admin.saveCustomProvider(cfg, {
+      ...input,
+      models: [{ id: MODEL, contextWindow: 8000, maxOutputTokens: 500 }],
+    });
     assert.deepEqual(cfg.peek().providers[saved.id], {
       type: 'custom',
       schemaVersion: 2,
@@ -144,12 +157,19 @@ for (const protocol of Object.keys(markers)) {
     assert.equal(secrets.get(`agent.${saved.id}.apiKey`), KEY);
 
     const rows = rowsFor(cfg.peek());
-    assert.deepEqual(rows.map((r) => [r.provider, r.id]), [[saved.id, MODEL]]);
+    assert.deepEqual(
+      rows.map((r) => [r.provider, r.id]),
+      [[saved.id, MODEL]]
+    );
     assert.equal(rows[0].contextWindow, 8000);
 
     requests.length = 0;
     const entry = cfg.peek().providers[saved.id];
-    const provider = await createCustomProvider(saved.id, { ...entry, apiKey: secrets.get(`agent.${saved.id}.apiKey`), preconnect: false });
+    const provider = await createCustomProvider(saved.id, {
+      ...entry,
+      apiKey: secrets.get(`agent.${saved.id}.apiKey`),
+      preconnect: false,
+    });
     await provider.send([{ role: 'user', content: 'hi' }], MODEL, [], {});
     assert.equal(requests.length, 1);
     assert.equal(requests[0].path, markers[protocol]);
@@ -161,7 +181,10 @@ for (const protocol of Object.keys(markers)) {
     requests.length = 0;
     const edit = { id: saved.id, schemaVersion: 2, name: input.name, protocol, baseURL, apiKey: '' };
     assert.deepEqual(await admin.testCustomProvider(cfg, edit), { ok: true });
-    assert.equal(requests.some((r) => r.path === '/v1/models'), false);
+    assert.equal(
+      requests.some((r) => r.path === '/v1/models'),
+      false
+    );
     assert.equal(JSON.parse(requests.at(-1).body).model, MODEL);
 
     // Keyless: saving without `auth` keeps it, and sends carry no credential header.
@@ -202,7 +225,10 @@ test('changing levels prunes wire values (clearing the last level included) thro
     baseURL,
     auth: 'none',
     modelOverrides: {
-      [MODEL]: { manual: true, reasoning: { levels: ['low', 'high'], wireValues: { low: 'L', high: 'H' }, replay: true } },
+      [MODEL]: {
+        manual: true,
+        reasoning: { levels: ['low', 'high'], wireValues: { low: 'L', high: 'H' }, replay: true },
+      },
     },
   });
   let row = await admin.updateCustomProviderModel(cfg, saved.id, MODEL, { reasoning: { levels: ['ultra', 'low'] } });
@@ -251,7 +277,11 @@ test('malformed supplied wire values are rejected before pruning (real service +
     { replay: 'yes' },
     { extra: 1 },
   ]) {
-    await assert.rejects(admin.updateCustomProviderModel(cfg, saved.id, MODEL, { reasoning }), undefined, JSON.stringify(reasoning));
+    await assert.rejects(
+      admin.updateCustomProviderModel(cfg, saved.id, MODEL, { reasoning }),
+      undefined,
+      JSON.stringify(reasoning)
+    );
   }
   assert.deepEqual(cfg.peek().providers[saved.id], before);
   // A well-formed mapping for a valid level that the new levels no longer list is pruned.

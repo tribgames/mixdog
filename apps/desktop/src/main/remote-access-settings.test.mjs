@@ -121,7 +121,9 @@ test('off closes the relay and issues no codes but keeps pairings; outgoing host
       const frame = JSON.parse(String(raw));
       frames.push(frame);
       if (frame.type === 'list-clients') {
-        socket.send(JSON.stringify({ type: 'clients-list', requestId: frame.requestId, clients: [{ id: 'c1', name: 'Phone' }] }));
+        socket.send(
+          JSON.stringify({ type: 'clients-list', requestId: frame.requestId, clients: [{ id: 'c1', name: 'Phone' }] })
+        );
       }
     });
   });
@@ -153,10 +155,17 @@ test('off closes the relay and issues no codes but keeps pairings; outgoing host
     assert.equal(await invoke('remoteAccessPairCode', 'ensure'), null, 'no pair code while off');
     const info = await invoke('remoteAccessInfo', true);
     assert.equal(info.enabled, false);
-    assert.deepEqual(info.relay.clients, [{ id: 'c1', name: 'Phone', platform: '', browser: '', createdAt: 0, lastSeenAt: 0, online: false }], 'paired devices are kept and listed');
+    assert.deepEqual(
+      info.relay.clients,
+      [{ id: 'c1', name: 'Phone', platform: '', browser: '', createdAt: 0, lastSeenAt: 0, online: false }],
+      'paired devices are kept and listed'
+    );
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(connections, before, 'no reconnect while off');
-    assert.equal(frames.some((frame) => frame.type === 'pair-code-request'), false);
+    assert.equal(
+      frames.some((frame) => frame.type === 'pair-code-request'),
+      false
+    );
 
     const renamed = await invoke('remoteAccessSetName', 'Studio');
     assert.equal(renamed.name, 'Studio');
@@ -182,7 +191,15 @@ test('the paired-device list survives a restart while off, and a revoke made whi
   await once(server, 'listening');
   const previousUrl = process.env.MIXDOG_RELAY_URL;
   process.env.MIXDOG_RELAY_URL = `ws://127.0.0.1:${server.address().port}`;
-  const phone = { id: 'a'.repeat(32), name: 'Phone', platform: 'iOS', browser: 'Safari', createdAt: 5, lastSeenAt: 9, online: true };
+  const phone = {
+    id: 'a'.repeat(32),
+    name: 'Phone',
+    platform: 'iOS',
+    browser: 'Safari',
+    createdAt: 5,
+    lastSeenAt: 9,
+    online: true,
+  };
   const tablet = { ...phone, id: 'b'.repeat(32), name: 'Tablet' };
   const open = new Set();
   const frames = [];
@@ -223,16 +240,37 @@ test('the paired-device list survives a restart while off, and a revoke made whi
     assert.equal(info.enabled, false);
     assert.deepEqual(
       info.relay.clients.map((client) => [client.id, client.name, client.online]),
-      [[phone.id, 'Phone', false], [tablet.id, 'Tablet', false]],
+      [
+        [phone.id, 'Phone', false],
+        [tablet.id, 'Tablet', false],
+      ],
       'the stored list is served offline after a restart'
     );
     const afterRevoke = await invoke('remoteAccessRevokeClient', phone.id);
-    assert.deepEqual(afterRevoke.relay.clients.map((client) => client.id), [tablet.id]);
-    assert.equal(frames.some((frame) => frame.type === 'revoke-client'), false, 'nothing sent while off');
+    assert.deepEqual(
+      afterRevoke.relay.clients.map((client) => [client.id, client.pendingRemoval === true]),
+      [
+        [phone.id, true],
+        [tablet.id, false],
+      ],
+      'an offline revoke stays listed as pending until the relay acknowledges it'
+    );
+    assert.equal(
+      frames.some((frame) => frame.type === 'revoke-client'),
+      false,
+      'nothing sent while off'
+    );
     await services.pop().dispose();
 
     invoke = await start();
-    assert.deepEqual((await invoke('remoteAccessInfo', true)).relay.clients.map((client) => client.id), [tablet.id]);
+    assert.deepEqual(
+      (await invoke('remoteAccessInfo', true)).relay.clients.map((client) => [client.id, client.pendingRemoval === true]),
+      [
+        [phone.id, true],
+        [tablet.id, false],
+      ],
+      'the pending revoke survives a restart'
+    );
     await invoke('remoteAccessSetEnabled', true);
     await wait(() => frames.some((frame) => frame.type === 'revoke-client' && frame.clientId === phone.id));
     const on = await invoke('remoteAccessInfo', true);

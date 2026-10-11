@@ -301,6 +301,8 @@ function startClaim(
   }
   // A request with no ticket is never labelled a code; a client retrying a
   // code-started pairing says so, and the dialog calls it a retry.
-  const method = pairCodes?.takeTicket(ticket, deviceId) ? 'code' : retry ? 'retry' : 'qr';
+  let method = 'qr';
+  if (pairCodes?.takeTicket(ticket, deviceId)) method = 'code';
+  else if (retry) method = 'retry';
   openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, profile, source, method });
 }

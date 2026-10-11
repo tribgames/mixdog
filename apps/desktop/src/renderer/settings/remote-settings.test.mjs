@@ -29,7 +29,10 @@ function api() {
 }
 
 async function renderSettings(t, { remote }) {
-  const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'Node', 'Element', 'KeyboardEvent', 'MutationObserver'] });
+  const { root, document, window } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['HTMLElement', 'Node', 'Element', 'KeyboardEvent', 'MutationObserver'],
+  });
   if (remote) {
     window.mixdogRemoteServer = 'relay';
     window.mixdogRemoteWindow = { hostId: 'a', hostName: 'Home PC' };
@@ -40,14 +43,14 @@ async function renderSettings(t, { remote }) {
     };
   }
   const { SettingsView } = await import('./SettingsView');
-  await act(async () =>
-    root.render(React.createElement(SettingsView, { api: api(), open: true, onClose: () => {} }))
-  );
+  await act(async () => root.render(React.createElement(SettingsView, { api: api(), open: true, onClose: () => {} })));
   return document;
 }
 
 const railLabels = (document) =>
-  [...document.querySelectorAll('.mixdog-settings__rail-group button')].map((button) => button.getAttribute('aria-label'));
+  [...document.querySelectorAll('.mixdog-settings__rail-group button')].map((button) =>
+    button.getAttribute('aria-label')
+  );
 
 test('remote settings: This device group holds Display, the PC group holds the rest, pages carry a where badge', async (t) => {
   const document = await renderSettings(t, { remote: true });
@@ -83,4 +86,3 @@ test('main PC settings keep one flat nav with no group labels, badge or Display 
     assert.ok(document.body.textContent.includes(title), title);
   }
 });
-

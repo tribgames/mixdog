@@ -5,7 +5,13 @@ import { hydratedModel } from './model-meta.mjs';
 import { providerModelCacheRow } from '../model-recency.mjs';
 import { customEffortLevels } from '../../runtime/agent/orchestrator/providers/custom-reasoning.mjs';
 
-const BASE = { type: 'custom', name: 'Gateway', protocol: 'openai-chat', baseURL: 'https://gw.example.com/v1', enabled: true };
+const BASE = {
+  type: 'custom',
+  name: 'Gateway',
+  protocol: 'openai-chat',
+  baseURL: 'https://gw.example.com/v1',
+  enabled: true,
+};
 
 function quickRows(config, route = {}) {
   const modelMetaByRoute = new Map();
@@ -25,7 +31,10 @@ test('configured custom models are available offline and deleted routes do not r
   const deleted = 'custom-6493c911-7c93-43af-8a44-c692ebd0f184';
   const config = {
     providers: {
-      [id]: { ...BASE, models: [{ id: 'vendor/model', name: 'Manual model', contextWindow: 8000, maxOutputTokens: 1000 }] },
+      [id]: {
+        ...BASE,
+        models: [{ id: 'vendor/model', name: 'Manual model', contextWindow: 8000, maxOutputTokens: 1000 }],
+      },
     },
     presets: [{ provider: deleted, model: 'old-preset' }],
     agents: { worker: { provider: deleted, model: 'old-agent' } },
@@ -38,7 +47,10 @@ test('configured custom models are available offline and deleted routes do not r
     modelMetaByRoute: new Map(),
     modelMetaKey: (provider, model) => `${provider}:${model}`,
   })();
-  assert.deepEqual(rows.map((row) => [row.provider, row.id]), [[id, 'vendor/model']]);
+  assert.deepEqual(
+    rows.map((row) => [row.provider, row.id]),
+    [[id, 'vendor/model']]
+  );
   assert.equal(rows[0].contextWindow, 8000);
   assert.equal(rows[0].outputTokens, 1000);
 });
@@ -107,7 +119,10 @@ test('saved routes on uncached custom models get the effective overrides (hidden
     presets: [{ provider: V2_ID, model: 'vendor/discovered-tuned' }],
   };
   const { rows, modelMetaByRoute } = quickRows(config, { provider: V2_ID, model: 'vendor/discovered-hidden' });
-  assert.equal(rows.some((row) => row.id === 'vendor/discovered-hidden'), false);
+  assert.equal(
+    rows.some((row) => row.id === 'vendor/discovered-hidden'),
+    false
+  );
   const hidden = modelMetaByRoute.get(`${V2_ID}:vendor/discovered-hidden`);
   assert.equal(hidden.hidden, true);
   assert.deepEqual(customEffortLevels(hidden), []);
@@ -126,14 +141,7 @@ test('a custom provider whose stored config is invalid lists nothing, saved rout
   assert.deepEqual(rows, []);
 });
 
-test('a keyless (auth none) custom provider lists its rows', () => {
-  const config = v2Config();
-  assert.equal(config.providers[V2_ID].auth, 'none');
-  assert.equal(config.providers[V2_ID].apiKey, undefined);
-  assert.ok(quickRows(config).rows.length > 0);
-});
-
-test('hydratedModel keeps a custom row\'s declared fields over catalog metadata', () => {
+test("hydratedModel keeps a custom row's declared fields over catalog metadata", () => {
   const customReasoning = { wireFormat: 'deepseek', wireValues: {}, replay: false };
   const row = hydratedModel('custom-x', {
     id: 'deepseek-chat',

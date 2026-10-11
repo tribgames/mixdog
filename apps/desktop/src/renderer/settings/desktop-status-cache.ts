@@ -3,14 +3,11 @@
 // on entry instead of inserting them after an IPC round trip and shoving the
 // rows below (user: 옵션창 항목전환시 레이아웃 튐). Stale-while-revalidate:
 // every read refreshes the snapshot, and writes publish their results here.
-import type {
-  DesktopApi,
-  DesktopGitCliStatus,
-  DesktopLibreOfficeStatus,
-  DesktopSettings,
-} from '../../shared/contract';
+import type { DesktopApi, DesktopGitCliStatus, DesktopLibreOfficeStatus, DesktopSettings } from '../../shared/contract';
 
-type StatusApi = Partial<Pick<DesktopApi, 'readSettings' | 'getQuotaAutoResume' | 'gitCliStatus' | 'libreOfficeStatus'>>;
+type StatusApi = Partial<
+  Pick<DesktopApi, 'readSettings' | 'getQuotaAutoResume' | 'gitCliStatus' | 'libreOfficeStatus'>
+>;
 
 interface DesktopStatus {
   settings: DesktopSettings;

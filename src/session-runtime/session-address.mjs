@@ -82,12 +82,8 @@ export function beginCanonicalClose(rt, sessionId) {
 
 /** Settle the fence: terminal after a durable close, restored otherwise. */
 export function finishCanonicalClose(rt, previous, closed) {
-  if (closed) {
-    rt.admission = 'terminal';
-    rt.lifecycleGeneration = (rt.lifecycleGeneration || 0) + 1;
-  } else {
-    rt.admission = previous;
-  }
+  if (closed) markTerminal(rt);
+  else rt.admission = previous;
 }
 
 export function markTerminal(rt) {

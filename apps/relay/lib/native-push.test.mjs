@@ -361,13 +361,87 @@ test('only the desktop that bound a token to its own paired client can send to i
     status: 200,
   });
 
-  // Another device can neither send to nor steal a live binding.
+  // Another device cannot send through A's association, nor bind a client it does not own.
   b.emit(send());
-  b.emit(bind({ clientId: 'client-9' }));
+  b.emit(bind({ clientId: 'client-1' }));
   b.emit(send());
   await settle();
   assert.equal(push.sent.length, 1);
   assert.equal(b.socket.sent.at(-1).error, 'unbound-token');
+});
+
+test('one phone token paired with two desktops: both deliver, and revoking one leaves the other', async () => {
+  const paired = { 'dev-a': ['client-1'], 'dev-b': ['client-9'] };
+  const store = clientsOf(paired);
+  const push = fakeNativePush();
+  const bindings = new Map();
+  const a = connectDesktop({ deviceId: 'dev-a', store, bindings, nativePush: push });
+  const b = connectDesktop({ deviceId: 'dev-b', store, bindings, nativePush: push });
+  a.emit(bind());
+  b.emit(bind({ clientId: 'client-9' }));
+  a.emit(send());
+  b.emit(send());
+  await settle();
+  assert.equal(push.sent.length, 2);
+  assert.equal(a.socket.sent.at(-1).ok, true);
+  assert.equal(b.socket.sent.at(-1).ok, true);
+
+  // A re-binding does not take B's association over (no last-writer-wins).
+  a.emit(bind());
+  b.emit(send());
+  await settle();
+  assert.equal(push.sent.length, 3);
+
+  // A unbinds: only A's association goes.
+  a.emit({ type: 'native-push-unbind', token: APNS_TOKEN });
+  a.emit(send());
+  b.emit(send());
+  await settle();
+  assert.equal(a.socket.sent.at(-1).error, 'unbound-token');
+  assert.equal(b.socket.sent.at(-1).ok, true);
+  assert.equal(push.sent.length, 4);
+
+  // A re-binds, then its pairing is revoked: B still delivers.
+  a.emit(bind());
+  store.revokeClient = (device, client) => {
+    paired[device] = paired[device].filter((id) => id !== client);
+    return true;
+  };
+  a.emit({ type: 'revoke-client', requestId: 'r1', clientId: 'client-1' });
+  a.emit(send());
+  b.emit(send());
+  await settle();
+  assert.equal(a.socket.sent.at(-1).error, 'unbound-token');
+  assert.equal(b.socket.sent.at(-1).ok, true);
+  assert.equal(push.sent.length, 5);
+  assert.equal(bindings.get(APNS_TOKEN).size, 1);
+
+  // A desktop that never bound the token is still rejected.
+  paired['dev-c'] = ['client-5'];
+  const c = connectDesktop({ deviceId: 'dev-c', store, bindings, nativePush: push });
+  c.emit(send());
+  await settle();
+  assert.equal(c.socket.sent.at(-1).error, 'unbound-token');
+  assert.equal(push.sent.length, 5);
+});
+
+test('a single-binding (legacy) entry is still honoured and upgraded on use', async () => {
+  const store = clientsOf({ 'dev-a': ['client-1'], 'dev-b': ['client-9'] });
+  const push = fakeNativePush();
+  const bindings = new Map([[APNS_TOKEN, { deviceId: 'dev-a', clientId: 'client-1', platform: 'apns' }]]);
+  const a = connectDesktop({ deviceId: 'dev-a', store, bindings, nativePush: push });
+  const b = connectDesktop({ deviceId: 'dev-b', store, bindings, nativePush: push });
+  b.emit(send());
+  await settle();
+  assert.equal(b.socket.sent.at(-1).error, 'unbound-token');
+  a.emit(send());
+  b.emit(bind({ clientId: 'client-9' }));
+  b.emit(send());
+  await settle();
+  assert.equal(push.sent.length, 2);
+  assert.equal(a.socket.sent.at(-1).ok, true);
+  assert.equal(b.socket.sent.at(-1).ok, true);
+  assert.equal(bindings.get(APNS_TOKEN).size, 2);
 });
 
 test('unpairing a client drops its bindings; a stale binding can be re-bound', async () => {

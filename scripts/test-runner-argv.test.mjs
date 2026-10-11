@@ -2,13 +2,15 @@
 // overflows the OS command line. These cases pin the batching that keeps a
 // full run alive and the flag errors that must stay flag errors.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { ARG_BUDGET, chunkFileArgs, testConcurrencyArg } from './lib/run-node-tests.mjs';
+import { ARG_BUDGET, chunkFileArgs, ownedProcesses, testConcurrencyArg } from './lib/run-node-tests.mjs';
 import { parseArgs } from './test.mjs';
 
 const runnerPath = fileURLToPath(new URL('./test.mjs', import.meta.url));
@@ -179,6 +181,142 @@ test('explicit runs keep exact paths/globs, slow/live files, heap flags and prel
     selected.map((url) => fileURLToPath(url)).sort(),
     [join(root, 'chosen/a.slow.test.mjs'), join(root, 'chosen/b.live.test.mjs'), join(root, 'exact.test.mjs')].sort()
   );
+});
+
+test('explicit runs get module mocks and force-exit, also when the caller already passed them', async (t) => {
+  const cwd = await fixture(t, {
+    'dep.mjs': 'export const value = () => "real";\n',
+    'mocked.test.mjs': `
+      import assert from 'node:assert/strict';
+      import test, { mock } from 'node:test';
+      mock.module('./dep.mjs', { namedExports: { value: () => 'mocked' } });
+      const { value } = await import('./dep.mjs');
+      // A handle the suite never closes: force-exit ends the file anyway.
+      setInterval(() => {}, 1000);
+      test('module mock applies', () => assert.equal(value(), 'mocked'));
+    `,
+  });
+  const directPath = fileURLToPath(new URL('./test-direct.mjs', import.meta.url));
+  for (const flags of [[], ['--test-force-exit', '--experimental-test-module-mocks']]) {
+    const result = runNode(cwd, [directPath, ...flags, 'mocked.test.mjs']);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    t.after(() => rm(dirname(/^Full test log: (.+)$/m.exec(result.stderr)[1]), { recursive: true, force: true }));
+  }
+});
+
+test('a process a test leaves running is killed, while one that only names the scratch root survives', async (t) => {
+  const cwd = await fixture(t, {
+    // Like the memory runtime's postgres: a detached, long-lived process that
+    // sits several directories deep in the data dir, so it outlives its test
+    // and holds the scratch root the runner removes. The test then waits for
+    // a bystander outside the run that names the same root on its command line.
+    'leak.test.mjs': `
+      import { spawn } from 'node:child_process';
+      import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+      import { join } from 'node:path';
+      import test from 'node:test';
+      import { setTimeout as delay } from 'node:timers/promises';
+      test('starts a server and forgets it', async () => {
+        const data = process.env.MIXDOG_DATA_DIR;
+        const nested = join(data, 'a', 'b', 'c');
+        mkdirSync(nested, { recursive: true });
+        const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', data], {
+          cwd: nested,
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+        writeFileSync('leak.json', JSON.stringify({ pid: child.pid, scratch: process.env.TEMP }));
+        for (let waited = 0; !existsSync('bystander.ready') && waited < 30_000; waited += 100) await delay(100);
+      });
+    `,
+  });
+  const alive = (pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const probe = `
+    const { runNodeTests } = await import(${JSON.stringify(runNodeTestsUrl)});
+    await runNodeTests(['--test'], ['leak.test.mjs']);
+  `;
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const run = spawn(process.execPath, ['--input-type=module', '--eval', probe], { cwd, env });
+  const output = { stdout: '', stderr: '' };
+  run.stdout.on('data', (chunk) => (output.stdout += chunk));
+  run.stderr.on('data', (chunk) => (output.stderr += chunk));
+  const status = new Promise((resolve) => run.on('close', resolve));
+  const leakPath = join(cwd, 'leak.json');
+  for (let waited = 0; !existsSync(leakPath) && waited < 30_000; waited += 100) await delay(100);
+  const { pid, scratch } = JSON.parse(await readFile(leakPath, 'utf8'));
+  t.after(() => alive(pid) && process.kill(pid));
+  const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', scratch], { stdio: 'ignore' });
+  t.after(() => bystander.kill());
+  await new Promise((resolve) => bystander.on('spawn', resolve));
+  await writeFile(join(cwd, 'bystander.ready'), '');
+  const code = await status;
+  t.after(() => rm(dirname(/^Full test log: (.+)$/m.exec(output.stderr)[1]), { recursive: true, force: true }));
+  assert.equal(code, 0, output.stdout + output.stderr);
+  assert.match(output.stderr, new RegExp(`Killing \\d+ process\\(es\\) a test left running: (?:\\d+ )*${pid}\\b`));
+  assert.doesNotMatch(output.stderr, new RegExp(`left running:.*\\b${bystander.pid}\\b`));
+  assert.equal(alive(pid), false, 'the leaked process was killed');
+  assert.equal(alive(bystander.pid), true, 'the process outside the run survived');
+  assert.match(output.stdout.trimEnd().split('\n').at(-1), /^\[failure-summary\] 0 failed, 0 flaky/);
+});
+
+test('ownership follows recorded spawns and their descendants, never a reused pid', () => {
+  const scratchDir = join(tmpdir(), 'mixdog-test-scratch-x');
+  const batchStart = 1_000_000;
+  const at = (offset) => batchStart + offset;
+  const snapshot = [
+    // Orphan of recorded spawn 10 (exited), and its child.
+    { pid: 11, ppid: 10, created: at(5_000), exe: 'C:\\Windows\\System32\\cmd.exe' },
+    { pid: 12, ppid: 11, created: at(5_100), exe: 'C:\\pg\\postgres.exe' },
+    // Recorded spawn 20 is alive under its own identity.
+    { pid: 20, ppid: 1, created: at(6_000), exe: 'node.exe' },
+    // Pid 30 was recorded, exited and was reused by a later, unrelated process:
+    // its younger child is not the run's, an older orphan of the recorded one is.
+    { pid: 30, ppid: 1, created: at(60_000), exe: 'editor.exe' },
+    { pid: 31, ppid: 30, created: at(61_000), exe: 'editor-helper.exe' },
+    { pid: 32, ppid: 30, created: at(8_000), exe: 'node.exe' },
+    // Executes from the scratch root, parent unknown.
+    { pid: 40, ppid: 2, created: at(9_000), exe: join(scratchDir, 'data', 'pg', 'bin', 'postgres.exe') },
+    // Only names the scratch root; not started by the run.
+    { pid: 50, ppid: 3, created: at(9_500), exe: 'code.exe' },
+  ];
+  const anchors = [
+    { pid: 10, since: at(4_900) },
+    { pid: 20, since: at(6_000) },
+    { pid: 30, since: at(7_000) },
+  ];
+  const owned = ownedProcesses(snapshot, anchors, { batchStart, scratchDir, platform: 'win32' });
+  assert.deepEqual(owned.map((entry) => entry.pid).sort((a, b) => a - b), [11, 12, 20, 32, 40]);
+});
+
+test('a batch that never finishes is killed by the watchdog and named, and later batches still run', async (t) => {
+  const cwd = await fixture(t, {
+    'hang.test.mjs': "import test from 'node:test';\ntest('never settles', () => new Promise(() => setInterval(() => {}, 1000)));\n",
+    'after.test.mjs': "import test from 'node:test';\ntest('later batch case', () => {});\n",
+  });
+  const probe = `
+    process.env.MIXDOG_TEST_BATCH_TIMEOUT_MS = '2000';
+    const { runNodeTests } = await import(${JSON.stringify(runNodeTestsUrl)});
+    await runNodeTests(['--test'], ['hang.test.mjs', 'after.test.mjs'], { argBudget: 1 });
+  `;
+  const result = runNode(cwd, ['--input-type=module', '--eval', probe], 60_000);
+  t.after(() => rm(dirname(/^Full test log: (.+)$/m.exec(result.stderr)[1]), { recursive: true, force: true }));
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /Test batch hung after 0\.03 min: hang\.test\.mjs; killing its process tree/);
+  assert.match(result.stdout, /^\s+\d+ms {2}after\.test\.mjs$/m, 'the next batch ran');
+  assert.deepEqual(result.stdout.trimEnd().split('\n').slice(-3), [
+    '[failure-summary] 0 failed, 0 flaky, 1 hung batch(es) (every failed test is named below)',
+    '[failure-summary] HUNG hung after 0.03 min: hang.test.mjs',
+    '[failure-summary] policy: --rerun-failed is off, so every failure fails the run (pass --rerun-failed <n> to classify flaky)',
+  ]);
 });
 
 for (const explicit of [false, true]) {

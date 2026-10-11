@@ -293,7 +293,11 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     const route = record(row?.route);
     const disabled = row?.disabled === true;
     const menuItems: ScmContextMenuState['items'] = [
-      { id: 'edit', label: t('Edit'), onSelect: later(() => void openAgentEditor(agent.id, agent.label, agent.custom)) },
+      {
+        id: 'edit',
+        label: t('Edit'),
+        onSelect: later(() => void openAgentEditor(agent.id, agent.label, agent.custom)),
+      },
       agentToggleItem(agent.id, disabled, route),
       ...(agent.custom
         ? [

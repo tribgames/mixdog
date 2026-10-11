@@ -72,7 +72,14 @@ export async function markStepEffort(state, assistantTurnMsg) {
     },
   });
   // `atStep` numbers the tool-result step; `step` in a resolved decision is the ladder move.
-  const record = { at: new Date().toISOString(), sessionId: state.sessionId, provider, model, mode: 'on', atStep: step };
+  const record = {
+    at: new Date().toISOString(),
+    sessionId: state.sessionId,
+    provider,
+    model,
+    mode: 'on',
+    atStep: step,
+  };
   if (!judged.probs) {
     recordEffortDecision({ ...record, skipped: judged.skipped });
     return;

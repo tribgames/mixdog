@@ -288,7 +288,16 @@ test('editing shows manual models expanded; add/remove go through v2 overrides a
   };
   const { render } = mount(t, {
     calls,
-    api: [{ ...CUSTOM, modelOverrides: overrides, models: [{ id: 'acme-1', manual: true }, { id: 'acme-2', manual: true }] }],
+    api: [
+      {
+        ...CUSTOM,
+        modelOverrides: overrides,
+        models: [
+          { id: 'acme-1', manual: true },
+          { id: 'acme-2', manual: true },
+        ],
+      },
+    ],
     handlers: { saveCustomProvider: (i) => i },
   });
   await render();
@@ -442,7 +451,14 @@ test('custom providers invalidate caches and feed model selection', () => {
 const editorBtn = (label) =>
   [...document.querySelectorAll('.settings-model-editor footer button')].find((el) => el.textContent === label);
 const ROWS = [
-  { id: 'acme-1', manual: false, hidden: false, supportsReasoning: true, reasoningLevels: ['low', 'high'], customReasoning: {} },
+  {
+    id: 'acme-1',
+    manual: false,
+    hidden: false,
+    supportsReasoning: true,
+    reasoningLevels: ['low', 'high'],
+    customReasoning: {},
+  },
   { id: 'acme-2', manual: false, hidden: true, customReasoning: {} },
 ];
 const withRows = (extra = {}) => ({ ...CUSTOM, models: ROWS, ...extra });
@@ -499,11 +515,13 @@ test('edit lists hidden rows marked; refresh surfaces the discovery error with i
 
 test('a provider whose stored config is invalid shows Failed with the configuration error', async (t) => {
   const { render } = mount(t, {
-    api: [{ ...CUSTOM, authenticated: true, configError: 'modelOverrides[x].contextWindow must be a positive integer' }],
+    api: [
+      { ...CUSTOM, authenticated: true, configError: 'modelOverrides[x].contextWindow must be a positive integer' },
+    ],
   });
   await render();
-  const row = [...document.querySelectorAll('.settings-custom-providers .settings-resource')].find((el) =>
-    el.querySelector('b')?.textContent === 'Acme'
+  const row = [...document.querySelectorAll('.settings-custom-providers .settings-resource')].find(
+    (el) => el.querySelector('b')?.textContent === 'Acme'
   );
   assert.equal(row.querySelector('.settings-status').textContent, 'Failed');
   assert.equal(row.querySelector('.settings-status').className.includes('danger'), true);
@@ -520,7 +538,11 @@ test('the editor offers exactly the runtime reasoning levels', async () => {
 
 test('model editor sends only touched fields: chips, explicit [], reset null', async (t) => {
   const calls = [];
-  const { render } = mount(t, { calls, api: [withRows({ modelOverrides: OVERRIDDEN })], handlers: { updateCustomProviderModel: () => ({}) } });
+  const { render } = mount(t, {
+    calls,
+    api: [withRows({ modelOverrides: OVERRIDDEN })],
+    handlers: { updateCustomProviderModel: () => ({}) },
+  });
   await render();
   await click(button('Edit'));
   await click(button('Edit model acme-1'));
@@ -570,7 +592,7 @@ test('changing levels sends wire values pruned to the new levels (null when none
   assert.deepEqual(args()[2], { reasoning: { levels: [], wireValues: null } });
 });
 
-test('the model editor shows a discovered row\'s maxOutputTokens', async (t) => {
+test("the model editor shows a discovered row's maxOutputTokens", async (t) => {
   const calls = [];
   const { render } = mount(t, {
     calls,
@@ -605,7 +627,10 @@ for (const [protocol, expected] of [
     await click(button('Edit'));
     await click(button('Edit model acme-1'));
     await click(button('Wire format'));
-    assert.deepEqual([...document.querySelectorAll('[role=option]')].map((o) => o.textContent), expected);
+    assert.deepEqual(
+      [...document.querySelectorAll('[role=option]')].map((o) => o.textContent),
+      expected
+    );
     await click(button('Standard'));
     await type(field('Wire value for low'), 'LOW');
     await click(editorBtn('Save'));
@@ -635,4 +660,31 @@ test('picker hides hidden custom models and accepts keyless providers', () => {
   // A provider whose stored config is invalid offers nothing, keyless included.
   const broken = { ...local, usable: false, configError: 'bad', authenticated: false };
   assert.deepEqual(filterConfiguredModels(models, { api: [withRows(), broken] }), [models[0]]);
+});
+
+test('reopening a model editor after a save shows the saved values and keeps unsaved provider fields', async (t) => {
+  const calls = [];
+  const api = [withRows()];
+  const { render } = mount(t, {
+    calls,
+    api,
+    handlers: {
+      updateCustomProviderModel: () => {
+        // The panel reloads the provider after a refreshing capability.
+        api[0] = withRows({ models: [{ ...ROWS[0], contextWindow: 12345 }, ROWS[1]] });
+        return {};
+      },
+    },
+  });
+  await render();
+  await click(button('Edit'));
+  await type(field('Display name'), 'Draft name');
+  await click(button('Edit model acme-1'));
+  await type(document.querySelector('.settings-model-editor input[id$="-contextWindow"]'), '12345');
+  await click(editorBtn('Save'));
+  await render();
+  await click(button('Edit model acme-1'));
+  assert.equal(document.querySelector('.settings-model-editor input[id$="-contextWindow"]').value, '12345');
+  await click(editorBtn('Cancel'));
+  assert.equal(field('Display name').value, 'Draft name');
 });

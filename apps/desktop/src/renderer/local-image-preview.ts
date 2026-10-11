@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { openEditorFileExternally } from './editor-external-file';
 import { verifyLocalLink, type ResolvedLocalLink } from './local-link-resolver';
+import { useMediaSessionEpoch } from './remote-file-preview';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
 export interface LocalImagePreview {
@@ -19,6 +20,9 @@ const PENDING: LocalImagePreview = { url: '', target: null, unavailable: false }
  *  as every other remote file. '' on desktop, while loading, or on failure. */
 export function useRemoteHostImageUrl(path: string): string {
   const [state, setState] = useState({ path: '', url: '' });
+  // A new media session invalidates streamed URLs: resolve again.
+  const mediaSession = useMediaSessionEpoch();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mediaSession only re-triggers the resolve.
   useEffect(() => {
     const api = window.mixdogDesktop;
     if (!path || !isRemoteHostRenderer() || !api?.resolveLocalPaths || !api.previewProjectFile) return;
@@ -38,7 +42,7 @@ export function useRemoteHostImageUrl(path: string): string {
     return () => {
       active = false;
     };
-  }, [path]);
+  }, [path, mediaSession]);
   return state.path === path ? state.url : '';
 }
 
@@ -47,6 +51,8 @@ export function useRemoteHostImageUrl(path: string): string {
 export function useLocalImagePreview(project: string, path: string): LocalImagePreview {
   const [state, setState] = useState<{ key: string; value: LocalImagePreview }>({ key: '', value: PENDING });
   const key = `${project}\0${path}`;
+  const mediaSession = useMediaSessionEpoch();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mediaSession only re-triggers the resolve.
   useEffect(() => {
     const previewFile = window.mixdogDesktop?.previewProjectFile;
     if (!previewFile) {
@@ -67,7 +73,7 @@ export function useLocalImagePreview(project: string, path: string): LocalImageP
     return () => {
       active = false;
     };
-  }, [project, path, key]);
+  }, [project, path, key, mediaSession]);
   return state.key === key ? state.value : PENDING;
 }
 

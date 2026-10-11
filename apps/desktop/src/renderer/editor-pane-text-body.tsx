@@ -85,84 +85,84 @@ export function EditorPaneTextBody({
   const { headings, activeId } = useMarkdownOutline(surfaceRef, markdownShown && tocOpen, !showRich);
   return (
     <>
-    {richNotice && (
-      <p className="editor-pane-rich-notice" role="status">
-        <span>{richNotice}</span>
-        <button type="button" onClick={onViewSource}>
-          {t('View source')}
-        </button>
-      </p>
-    )}
-    <div className="editor-pane-body stable-surface-preserved stable-editor-surface">
-      {markdownShown && (
-        <div className="editor-md-layout">
-          <div className="editor-md-surface" ref={surfaceRef}>
-            {showRich ? (
-              <Suspense fallback={null}>
-                <RichMarkdownEditor
-                  modelRef={modelRef}
+      {richNotice && (
+        <p className="editor-pane-rich-notice" role="status">
+          <span>{richNotice}</span>
+          <button type="button" onClick={onViewSource}>
+            {t('View source')}
+          </button>
+        </p>
+      )}
+      <div className="editor-pane-body stable-surface-preserved stable-editor-surface">
+        {markdownShown && (
+          <div className="editor-md-layout">
+            <div className="editor-md-surface" ref={surfaceRef}>
+              {showRich ? (
+                <Suspense fallback={null}>
+                  <RichMarkdownEditor
+                    modelRef={modelRef}
+                    text={renderedText}
+                    projectPath={projectPath}
+                    relPath={relPath}
+                    readOnly={false}
+                    active={active}
+                    onSave={onSave}
+                    onOpenFile={onOpenFile}
+                    onUnsupported={onRichUnsupported}
+                    onHeldChange={(held, heldText) => {
+                      setRichHeld(held);
+                      onRichHeldChange?.(held, heldText);
+                    }}
+                  />
+                </Suspense>
+              ) : (
+                <EditorMarkdownPreview
                   text={renderedText}
                   projectPath={projectPath}
                   relPath={relPath}
-                  readOnly={false}
-                  active={active}
-                  onSave={onSave}
                   onOpenFile={onOpenFile}
-                  onUnsupported={onRichUnsupported}
-                  onHeldChange={(held, heldText) => {
-                    setRichHeld(held);
-                    onRichHeldChange?.(held, heldText);
-                  }}
                 />
-              </Suspense>
-            ) : (
-              <EditorMarkdownPreview
-                text={renderedText}
-                projectPath={projectPath}
-                relPath={relPath}
-                onOpenFile={onOpenFile}
-              />
-            )}
+              )}
+            </div>
+            {tocOpen && <EditorOutline headings={headings} activeId={activeId} />}
           </div>
-          {tocOpen && <EditorOutline headings={headings} activeId={activeId} />}
+        )}
+        {showRendered && viewKind === 'svg' && preview && (
+          <EditorSvgPreview
+            key={relPath}
+            url={viewSnapshot === null ? preview.url : svgDataUrl(viewSnapshot)}
+            name={relPath.split('/').at(-1) || relPath}
+            error={previewError}
+            zoomKey={zoomKey}
+            onComplete={onComplete}
+            onFail={onFail}
+          />
+        )}
+        {showRendered && viewKind === 'table' && delimiter && (
+          <EditorDelimitedTable
+            text={renderedText}
+            delimiter={delimiter}
+            modelRef={modelRef}
+            readOnly={Boolean(load.readOnly)}
+            onTextChange={onSnapshotChange}
+            onSave={onSave}
+          />
+        )}
+        <div className="editor-pane-editor-host" style={showRendered || showRich ? { display: 'none' } : undefined}>
+          <SharedEditorSurface
+            surfaceKey={surfaceKey}
+            active={active}
+            path={path}
+            modelRef={modelRef}
+            defaultLanguage={explicitEditorLanguageIdForPath(relPath)}
+            defaultValue={load.content}
+            theme={theme}
+            options={options}
+            onMount={onMount}
+            onRelease={onRelease}
+          />
         </div>
-      )}
-      {showRendered && viewKind === 'svg' && preview && (
-        <EditorSvgPreview
-          key={relPath}
-          url={viewSnapshot === null ? preview.url : svgDataUrl(viewSnapshot)}
-          name={relPath.split('/').at(-1) || relPath}
-          error={previewError}
-          zoomKey={zoomKey}
-          onComplete={onComplete}
-          onFail={onFail}
-        />
-      )}
-      {showRendered && viewKind === 'table' && delimiter && (
-        <EditorDelimitedTable
-          text={renderedText}
-          delimiter={delimiter}
-          modelRef={modelRef}
-          readOnly={Boolean(load.readOnly)}
-          onTextChange={onSnapshotChange}
-          onSave={onSave}
-        />
-      )}
-      <div className="editor-pane-editor-host" style={showRendered || showRich ? { display: 'none' } : undefined}>
-        <SharedEditorSurface
-          surfaceKey={surfaceKey}
-          active={active}
-          path={path}
-          modelRef={modelRef}
-          defaultLanguage={explicitEditorLanguageIdForPath(relPath)}
-          defaultValue={load.content}
-          theme={theme}
-          options={options}
-          onMount={onMount}
-          onRelease={onRelease}
-        />
       </div>
-    </div>
     </>
   );
 }

@@ -12,10 +12,12 @@ const { listProjects, listProjectsStrict } = await import('./projects.mjs');
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 function validStore() {
-  return JSON.stringify({ projects: [
-    { path: join(root, 'old'), name: 'old', addedAt: 1 },
-    { path: join(root, 'recent'), name: 'recent', addedAt: 2, lastSelectedAt: 3 },
-  ] });
+  return JSON.stringify({
+    projects: [
+      { path: join(root, 'old'), name: 'old', addedAt: 1 },
+      { path: join(root, 'recent'), name: 'recent', addedAt: 2, lastSelectedAt: 3 },
+    ],
+  });
 }
 
 test('strict project lists preserve valid normalization/order without writing storage', () => {
@@ -34,10 +36,20 @@ test('missing or explicitly empty project stores are definite empty registries',
 });
 
 test('corrupt registry documents cannot prove that a project was removed', () => {
-  for (const raw of ['{', 'null', '{}', '{"projects":{}}', '{"projects":[null]}',
-    '{"projects":[{"path":"relative"}]}', '{"projects":[{"path":""}]}']) {
+  for (const raw of [
+    '{',
+    'null',
+    '{}',
+    '{"projects":{}}',
+    '{"projects":[null]}',
+    '{"projects":[{"path":"relative"}]}',
+    '{"projects":[{"path":""}]}',
+  ]) {
     fs.writeFileSync(path, raw);
-    assert.throws(() => listProjectsStrict(), (error) => error instanceof SyntaxError || error instanceof TypeError);
+    assert.throws(
+      () => listProjectsStrict(),
+      (error) => error instanceof SyntaxError || error instanceof TypeError
+    );
     assert.doesNotThrow(() => listProjects(), 'legacy tolerant behavior is unchanged');
     assert.equal(fs.readFileSync(path, 'utf8'), raw);
   }
@@ -56,7 +68,10 @@ for (const code of ['EIO', 'EACCES']) {
     });
     syncBuiltinESMExports();
     try {
-      assert.throws(() => listProjectsStrict(), (error) => error === failure);
+      assert.throws(
+        () => listProjectsStrict(),
+        (error) => error === failure
+      );
       assert.deepEqual(listProjects(), []);
     } finally {
       mocked.mock.restore();

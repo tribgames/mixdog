@@ -454,7 +454,10 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
     assert.equal(trigger.querySelector('.session-goal-meta')?.textContent, '1/3');
     assert.equal(trigger.querySelector('.session-goal-time'), null);
     assert.match(document.querySelector('.session-goal-panel .session-goal-time')?.textContent || '', /^\d+:\d{2}$/);
-    assert.match(document.querySelector('.session-goal-panel .session-goal-meta')?.textContent || '', /^1\/3·\d+:\d{2}$/);
+    assert.match(
+      document.querySelector('.session-goal-panel .session-goal-meta')?.textContent || '',
+      /^1\/3·\d+:\d{2}$/
+    );
     assert.equal(document.querySelector('.session-goal-toggle'), null);
     assert.equal(trigger?.getAttribute('aria-expanded'), 'false');
     assert.equal(document.querySelector('.session-goal-drawer')?.getAttribute('aria-hidden'), 'true');

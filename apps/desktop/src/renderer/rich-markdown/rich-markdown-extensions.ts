@@ -76,7 +76,7 @@ const DETAILS_BLOCK =
 
 /** One `<details>` block in GitHub's shape: a one-line summary and a Markdown
  *  body. Nested or attribute-laden blocks stay raw HTML (unsupported). */
-export function matchDetailsBlock(src: string): { raw: string; open: boolean; summary: string; body: string } | null {
+function matchDetailsBlock(src: string): { raw: string; open: boolean; summary: string; body: string } | null {
   const match = DETAILS_BLOCK.exec(src);
   if (!match || /<\/?details\b/i.test(match[3])) return null;
   return { raw: match[0], open: Boolean(match[1]), summary: match[2].trim(), body: match[3].trim() };
@@ -253,7 +253,7 @@ const RichParagraph = Paragraph.extend({
  *  delimiter rows; leading whitespace (indented code) is dropped, as
  *  Markdown drops it anyway. Inline markup never begins with these
  *  characters, so only literal text is escaped. */
-export function escapeParagraphLines(markdown: string): string {
+function escapeParagraphLines(markdown: string): string {
   return markdown
     .split('\n')
     .map((raw) => {

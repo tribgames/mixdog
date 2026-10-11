@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { differentFieldValue } from './file-version-test-helpers.mjs';
 
 const root = fs.mkdtempSync(join(tmpdir(), 'mixdog-mutation-version-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -35,12 +36,7 @@ function scope() {
   return value;
 }
 function changed(st, field) {
-  // NTFS identity values can exceed the safe-integer range; +1 might not
-  // produce a different Number. A 0/1 perturbation is deterministic there.
-  const value = field === 'ino' || field === 'dev' ? (st[field] === 0 ? 1 : 0)
-    : st[field] + (field.endsWith('Ms') ? 0.5 : 1);
-  assert.notEqual(value, st[field]);
-  return { ...fileVersion(st), [field]: value };
+  return { ...fileVersion(st), [field]: differentFieldValue(st[field], field) };
 }
 function hook(t, method, path, fn) {
   const original = fs[method];
@@ -49,11 +45,15 @@ function hook(t, method, path, fn) {
     return fn(() => original(target, ...args));
   });
   syncBuiltinESMExports();
-  const restore = () => { mocked.mock.restore(); syncBuiltinESMExports(); };
+  const restore = () => {
+    mocked.mock.restore();
+    syncBuiltinESMExports();
+  };
   t.after(restore);
   return restore;
 }
-const leftovers = (path) => fs.readdirSync(root).filter((name) => name.startsWith(`.${path.split(/[\\/]/).at(-1)}.mixdog-tmp-`));
+const leftovers = (path) =>
+  fs.readdirSync(root).filter((name) => name.startsWith(`.${path.split(/[\\/]/).at(-1)}.mixdog-tmp-`));
 
 for (const field of fields) {
   test(`snapshot fast path rejects an observed ${field} difference`, () => {
@@ -71,8 +71,10 @@ for (const field of fields) {
   test(`atomic write refuses an observed ${field} difference and preserves the target`, async (t) => {
     const { path, content, st } = fixture();
     hook(t, 'statSync', path, () => changed(st, field));
-    await assert.rejects(atomicWrite(path, 'EDITED\n', { expectedTargetSnapshot: { exists: true, ...fileVersion(st) } }),
-      { code: 'ESTALE_TARGET' });
+    await assert.rejects(
+      atomicWrite(path, 'EDITED\n', { expectedTargetSnapshot: { exists: true, ...fileVersion(st) } }),
+      { code: 'ESTALE_TARGET' }
+    );
     assert.equal(fs.readFileSync(path, 'utf8'), content);
     assert.deepEqual(leftovers(path), []);
   });
@@ -80,8 +82,16 @@ for (const field of fields) {
   test(`snapshot recording does not merge ranges across a ${field} change`, () => {
     const { path, st } = fixture();
     const id = scope();
-    recordReadSnapshot(path, st, id, { source: 'read', ranges: [{ startLine: 1, endLine: 1 }], rangeHash: hashText('BEFORE') });
-    recordReadSnapshot(path, changed(st, field), id, { source: 'read', ranges: [{ startLine: 2, endLine: 2 }], rangeHash: hashText('second') });
+    recordReadSnapshot(path, st, id, {
+      source: 'read',
+      ranges: [{ startLine: 1, endLine: 1 }],
+      rangeHash: hashText('BEFORE'),
+    });
+    recordReadSnapshot(path, changed(st, field), id, {
+      source: 'read',
+      ranges: [{ startLine: 2, endLine: 2 }],
+      rangeHash: hashText('second'),
+    });
     const snapshot = getReadSnapshot(path, id);
     assert.deepEqual(snapshot.ranges, [{ startLine: 2, endLine: 2 }]);
     assert.equal(snapshot.rangeHashes.length, 1);
@@ -107,14 +117,21 @@ test('recorded and hydrated snapshots own the complete version, ranges and prove
 test('same-version pages still merge and a proven mutation retains body delivery', () => {
   const { path, st, content } = fixture();
   const id = scope();
-  for (const line of [1, 2]) recordReadSnapshot(path, st, id, {
-    source: 'read', ranges: [{ startLine: line, endLine: line }], fileLineCount: 2,
-  });
+  for (const line of [1, 2])
+    recordReadSnapshot(path, st, id, {
+      source: 'read',
+      ranges: [{ startLine: line, endLine: line }],
+      fileLineCount: 2,
+    });
   assert.deepEqual(getReadSnapshot(path, id).ranges, [{ startLine: 1, endLine: 2 }]);
   const after = changed(st, 'ino');
   recordReadSnapshot(path, after, id, { source: 'edit', preMutationStat: st, contentHash: hashText(content) });
   assert.equal(getReadSnapshot(path, id).bodyDelivered, true);
-  recordReadSnapshot(path, after, id, { source: 'edit', preMutationStat: changed(after, 'dev'), contentHash: hashText(content) });
+  recordReadSnapshot(path, after, id, {
+    source: 'edit',
+    preMutationStat: changed(after, 'dev'),
+    contentHash: hashText(content),
+  });
   assert.equal(getReadSnapshot(path, id).bodyDelivered, false);
 });
 
@@ -122,14 +139,18 @@ test('incomplete supplied recording evidence is never filled from a later stat o
   const { path, st, content } = fixture();
   const id = scope();
   const incomplete = { mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, size: st.size };
-  hook(t, 'statSync', path, () => { throw new Error('must not relabel the supplied observation'); });
+  hook(t, 'statSync', path, () => {
+    throw new Error('must not relabel the supplied observation');
+  });
   recordReadSnapshot(path, incomplete, id, { source: 'read', ...fileVersion(st), contentHash: hashText(content) });
   assert.equal(statMatchesSnapshot(st, getReadSnapshot(path, id)), false);
 });
 
 test('failed recording stat does not invent a matching empty-file version', (t) => {
   const { path, st } = fixture('');
-  hook(t, 'statSync', path, () => { throw Object.assign(new Error('uncertain'), { code: 'EIO' }); });
+  hook(t, 'statSync', path, () => {
+    throw Object.assign(new Error('uncertain'), { code: 'EIO' });
+  });
   const id = scope();
   recordReadSnapshot(path, null, id, { contentHash: hashText('') });
   assert.equal(statMatchesSnapshot(st, getReadSnapshot(path, id)), false);
@@ -137,9 +158,14 @@ test('failed recording stat does not invent a matching empty-file version', (t) 
 
 for (const material of ['full', 'range']) {
   function legacy(st, content) {
-    return { mtimeMs: st.mtimeMs, size: st.size, ranges: [{ startLine: 1, endLine: 1 }],
-      ...(material === 'full' ? { contentHash: hashText(content) }
-        : { rangeHashes: [{ startLine: 1, endLine: 1, hash: hashText('BEFORE') }] }) };
+    return {
+      mtimeMs: st.mtimeMs,
+      size: st.size,
+      ranges: [{ startLine: 1, endLine: 1 }],
+      ...(material === 'full'
+        ? { contentHash: hashText(content) }
+        : { rangeHashes: [{ startLine: 1, endLine: 1, hash: hashText('BEFORE') }] }),
+    };
   }
   test(`${material} hash revalidates a legacy snapshot and upgrades all version fields`, () => {
     const { path, content, st } = fixture();
@@ -173,7 +199,9 @@ for (const material of ['full', 'range']) {
     const { path, content, st } = fixture();
     const snap = legacy(st, content);
     const saved = structuredClone(snap);
-    hook(t, 'statSync', path, () => { throw Object.assign(new Error('post-stat failure'), { code: 'EIO' }); });
+    hook(t, 'statSync', path, () => {
+      throw Object.assign(new Error('post-stat failure'), { code: 'EIO' });
+    });
     assert.equal(isSnapshotStale(st, snap, path), true);
     assert.deepEqual(snap, saved);
   });
@@ -183,8 +211,13 @@ test('legacy hydration retains hash evidence but malformed identity is rejected'
   const { path, content, st } = fixture();
   for (const invalid of [undefined, '42', null, Infinity]) {
     const id = scope();
-    const snap = { mtimeMs: st.mtimeMs, size: st.size, contentHash: hashText(content),
-      ranges: [{ startLine: 1, endLine: 2 }], ...(invalid === undefined ? {} : { dev: invalid }) };
+    const snap = {
+      mtimeMs: st.mtimeMs,
+      size: st.size,
+      contentHash: hashText(content),
+      ranges: [{ startLine: 1, endLine: 2 }],
+      ...(invalid === undefined ? {} : { dev: invalid }),
+    };
     fs.mkdirSync(join(root, 'data', 'read-snapshots'), { recursive: true });
     fs.writeFileSync(join(root, 'data', 'read-snapshots', `${id}.json`), JSON.stringify({ [path]: snap }));
     const hydrated = getReadSnapshot(path, id);
@@ -199,8 +232,12 @@ test('legacy hydration retains hash evidence but malformed identity is rejected'
 
 test('exact-version validation adds no file IO; missing evidence cannot authorize it', (t) => {
   const { path, st } = fixture();
-  hook(t, 'readFileSync', path, () => { throw new Error('fast path must not read'); });
-  hook(t, 'statSync', path, () => { throw new Error('fast path must not stat'); });
+  hook(t, 'readFileSync', path, () => {
+    throw new Error('fast path must not read');
+  });
+  hook(t, 'statSync', path, () => {
+    throw new Error('fast path must not stat');
+  });
   assert.equal(isSnapshotStale(st, fileVersion(st), path), false);
   assert.equal(isSnapshotStale(st, { mtimeMs: st.mtimeMs, size: st.size }, path), true);
   assert.equal(isSnapshotStale(st, null, path), true);
@@ -218,13 +255,17 @@ test('atomic write accepts an exact version for both small and streamed writes',
 
 test('atomic write rejects incomplete/non-finite existing-target evidence', async () => {
   const { path, content, st } = fixture();
-  for (const field of fields) for (const invalid of [undefined, NaN, Infinity, String(st[field])]) {
-    await assert.rejects(atomicWrite(path, 'EDITED', {
-      expectedTargetSnapshot: { exists: true, ...fileVersion(st), [field]: invalid },
-    }), { code: 'ESTALE_TARGET' });
-    assert.equal(fs.readFileSync(path, 'utf8'), content);
-    assert.deepEqual(leftovers(path), []);
-  }
+  for (const field of fields)
+    for (const invalid of [undefined, NaN, Infinity, String(st[field])]) {
+      await assert.rejects(
+        atomicWrite(path, 'EDITED', {
+          expectedTargetSnapshot: { exists: true, ...fileVersion(st), [field]: invalid },
+        }),
+        { code: 'ESTALE_TARGET' }
+      );
+      assert.equal(fs.readFileSync(path, 'utf8'), content);
+      assert.deepEqual(leftovers(path), []);
+    }
 });
 
 test('atomic write owns expected evidence before its first await', async (t) => {
@@ -239,22 +280,31 @@ test('atomic write owns expected evidence before its first await', async (t) => 
   assert.deepEqual(leftovers(path), []);
 });
 
-for (const code of ['EIO', 'EACCES']) test(`create-only final lookup ${code} is uncertainty, not absence`, async (t) => {
-  const { path, content } = fixture();
-  const failure = Object.assign(new Error('target unreadable'), { code });
-  hook(t, 'statSync', path, () => { throw failure; });
-  await assert.rejects(atomicWrite(path, 'EDITED', { expectedTargetSnapshot: { exists: false } }),
-    (error) => error === failure);
-  assert.equal(fs.readFileSync(path, 'utf8'), content);
-  assert.deepEqual(leftovers(path), []);
-});
+for (const code of ['EIO', 'EACCES'])
+  test(`create-only final lookup ${code} is uncertainty, not absence`, async (t) => {
+    const { path, content } = fixture();
+    const failure = Object.assign(new Error('target unreadable'), { code });
+    hook(t, 'statSync', path, () => {
+      throw failure;
+    });
+    await assert.rejects(
+      atomicWrite(path, 'EDITED', { expectedTargetSnapshot: { exists: false } }),
+      (error) => error === failure
+    );
+    assert.equal(fs.readFileSync(path, 'utf8'), content);
+    assert.deepEqual(leftovers(path), []);
+  });
 
 test('explicit absence permits creation but not replacement; removal invalidates an existing version', async () => {
   const { path, content, st } = fixture();
-  await assert.rejects(atomicWrite(path, 'EDITED', { expectedTargetSnapshot: { exists: false } }), { code: 'ESTALE_TARGET' });
+  await assert.rejects(atomicWrite(path, 'EDITED', { expectedTargetSnapshot: { exists: false } }), {
+    code: 'ESTALE_TARGET',
+  });
   assert.equal(fs.readFileSync(path, 'utf8'), content);
   fs.unlinkSync(path);
-  await assert.rejects(atomicWrite(path, 'EDITED', { expectedTargetSnapshot: fileVersion(st) }), { code: 'ESTALE_TARGET' });
+  await assert.rejects(atomicWrite(path, 'EDITED', { expectedTargetSnapshot: fileVersion(st) }), {
+    code: 'ESTALE_TARGET',
+  });
   assert.equal(fs.existsSync(path), false);
   await atomicWrite(path, 'CREATED', { expectedTargetSnapshot: { exists: false } });
   assert.equal(fs.readFileSync(path, 'utf8'), 'CREATED');

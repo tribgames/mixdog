@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   SessionAddressError,
+  assertAdmissionOpen,
   assertNotAddressed,
   assertResumeTarget,
   beginCanonicalClose,
@@ -174,8 +175,7 @@ test('the completion wake refuses a fenced owner at request time and inside the 
   assert.equal(wake({ sessionId: 'sess_a', executionId: 'x2' }), false);
 });
 
-test('SessionClosedError is what a fenced admission raises', async () => {
-  const { assertAdmissionOpen } = await import('./session-address.mjs');
+test('SessionClosedError is what a fenced admission raises', () => {
   const rt = makeRt();
   bindSessionAddress(rt, 'sess_a');
   assertAdmissionOpen(rt);

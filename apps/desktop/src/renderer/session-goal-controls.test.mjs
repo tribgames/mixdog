@@ -109,10 +109,7 @@ test('Goal tab controls stay in one visible row under the task list', async (t) 
         assert.ok(control.x >= right - 1, `${context}: ordered left to right without overlap`);
         assert.ok(control.y >= layout.tasks.bottom - 1, `${context}: under the task list`);
         assert.ok(control.right <= width && control.y >= 0 && control.bottom <= 760, `${context}: inside viewport`);
-        assert.ok(
-          Math.abs(control.y - layout.controls[0].y) < 1,
-          `${context}: same row`
-        );
+        assert.ok(Math.abs(control.y - layout.controls[0].y) < 1, `${context}: same row`);
         right = control.right;
       }
     }
@@ -178,8 +175,7 @@ test('an island carrying only the quota panel or the expanded files list stays v
     empty: '<div class="composer-island-pill"></div>',
     quota:
       '<div class="composer-island-pill" hidden></div><section class="composer-island-panel composer-island-quota">limit</section>',
-    files:
-      '<div class="composer-island-pill"><div class="turn-review-bar" data-expanded="true">files</div></div>',
+    files: '<div class="composer-island-pill"><div class="turn-review-bar" data-expanded="true">files</div></div>',
   };
   for (const [name, inner] of Object.entries(cases)) {
     await page.setContent(`<!doctype html><html><head><style>${css}</style></head><body>

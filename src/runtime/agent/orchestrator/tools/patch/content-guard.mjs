@@ -5,6 +5,7 @@
 // (readPatchTargetBytes), so a target that grows after this check is refused
 // there instead of read whole.
 import { describeOmittedFile, PATCH_EDIT_MAX_BYTES, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
+
 export function contentEditRefusalMessage(displayPath, omitted) {
   return (
     `apply_patch: ${displayPath} is ${describeOmittedFile(omitted)} — refusing to edit or rename it, ` +

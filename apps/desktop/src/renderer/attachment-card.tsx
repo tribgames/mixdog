@@ -20,7 +20,7 @@ import { MxIcon } from './MxIcon';
 export type AttachmentCardKind = 'image' | 'pasted' | 'text' | 'pdf' | 'office';
 
 /** Tone, type word and prose/code reading of a non-image card. */
-export function attachmentCardType(
+function attachmentCardType(
   kind: AttachmentCardKind,
   name: string,
   text = ''

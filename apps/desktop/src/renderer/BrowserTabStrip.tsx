@@ -26,9 +26,7 @@ function BrowserTabGlyph({ tab }: { tab: DesktopBrowserTab }) {
   );
   if (tab.kind === 'popup') return <ExternalLink size={15} aria-hidden="true" />;
   if (favicon) {
-    return (
-      <img className="browser-tab-favicon" src={favicon} alt="" draggable={false} onError={onFaviconError} />
-    );
+    return <img className="browser-tab-favicon" src={favicon} alt="" draggable={false} onError={onFaviconError} />;
   }
   return <Globe size={15} aria-hidden="true" />;
 }
@@ -139,11 +137,7 @@ export function BrowserTabStrip({
                   openMenu(tab, title, elementMenuPoint(event.currentTarget));
                 }}
               >
-                {tab.loading ? (
-                  <ProgressSpinner size={15} aria-hidden="true" />
-                ) : (
-                  <BrowserTabGlyph tab={tab} />
-                )}
+                {tab.loading ? <ProgressSpinner size={15} aria-hidden="true" /> : <BrowserTabGlyph tab={tab} />}
                 <span>{title}</span>
                 {tab.kind === 'popup' && <small>{t('Popup')}</small>}
               </button>

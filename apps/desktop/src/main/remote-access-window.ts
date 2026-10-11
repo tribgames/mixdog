@@ -28,7 +28,13 @@ export async function buildRemoteAccessInfo(descriptor: RemoteAccessDescriptor):
   // photographed code.
   const relayBrowserUrl = relay.clientUrl;
   if (descriptor.enabled === false) {
-    return { relayBrowserUrl: '', relayBrowserQrSvg: '', relayConnectUrl: '', clients: relay.clients ?? [], enabled: false };
+    return {
+      relayBrowserUrl: '',
+      relayBrowserQrSvg: '',
+      relayConnectUrl: '',
+      clients: relay.clients ?? [],
+      enabled: false,
+    };
   }
   return {
     enabled: true,

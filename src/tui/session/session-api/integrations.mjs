@@ -47,7 +47,8 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       // though the session runtime implements it.
       return await requireRuntimeMethod('consumeCodexRateLimitResetCredit', 'Codex reset is unavailable')(options);
     },
-    getTurnReviewDiff: (options = {}) => turnReviewReply((reviewOptions) => runtime.getTurnReviewDiff?.(reviewOptions), options),
+    getTurnReviewDiff: (options = {}) =>
+      turnReviewReply((reviewOptions) => runtime.getTurnReviewDiff?.(reviewOptions), options),
     getSessionReviewDiff: async () => {
       return (await runtime.getSessionReviewDiff?.()) ?? { supported: false, files: [], patch: '' };
     },

@@ -43,7 +43,10 @@ export function markEffortConfigurationUnsupported(provider, model) {
 
 /** True for a provider error that names the mid-conversation effort update. */
 export function isEffortConfigurationRejection(status, text) {
-  return status === 400 && /output_config|mid-conversation|configuration_update|reasoning_effort_update/i.test(String(text || ''));
+  return (
+    status === 400 &&
+    /output_config|mid-conversation|configuration_update|reasoning_effort_update/i.test(String(text || ''))
+  );
 }
 
 /**
@@ -58,7 +61,9 @@ export async function withEffortConfigurationFallback(provider, model, opts, sen
     const status = error?.status ?? error?.httpStatus;
     if (opts?._effortConfigurationRetry || !isEffortConfigurationRejection(status, error?.message)) throw error;
     markEffortConfigurationUnsupported(provider, model);
-    process.stderr.write(`[${provider}] ${model} rejected the mid-conversation effort update; retrying once without it\n`);
+    process.stderr.write(
+      `[${provider}] ${model} rejected the mid-conversation effort update; retrying once without it\n`
+    );
     return send({ ...opts, effortConfigurationEnabled: false, _effortConfigurationRetry: true });
   }
 }

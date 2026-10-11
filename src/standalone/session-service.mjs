@@ -205,11 +205,12 @@ export function createSessionService({
     retainUnwatched: retention.retainUnwatched,
     createSession: calls.createSession,
   });
+  const quotaUsableReader = typeof readQuotaUsable === 'function' ? readQuotaUsable : async () => false;
   const quotaResume = quotaResumeStore
     ? createQuotaResumeScheduler({
         store: quotaResumeStore,
         materializeSession: calls.materializeSession,
-        readQuotaUsable: typeof readQuotaUsable === 'function' ? readQuotaUsable : async () => false,
+        readQuotaUsable: quotaUsableReader,
         log,
         isClosed,
       })

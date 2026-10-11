@@ -42,12 +42,17 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: runtime-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   gate:
     name: gate-content-hash
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: read
     env:
@@ -63,6 +68,8 @@ jobs:
       tag:        ${{ steps.check.outputs.tag }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - name: Check content-hash markers
         id: check
@@ -131,7 +138,10 @@ jobs:
     needs: gate
     if: needs.gate.outputs.has_builds == 'true'
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     container: ${{ matrix.container }}
+    permissions:
+      contents: write # upload tarballs and markers to the release
     env:
       PG_VER: "16.4"
       PGVEC_VER: "0.8.2"
@@ -142,6 +152,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       # Cache the PG + pgvector build directory so unchanged versions skip
       # the 5-8 min source compile on every run. Hash key includes the build
@@ -253,6 +265,7 @@ jobs:
     needs: [gate, build]
     if: ${{ always() && needs.gate.result == 'success' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.refresh_manifest)) }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: write
     concurrency:

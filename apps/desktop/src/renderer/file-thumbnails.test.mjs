@@ -49,7 +49,13 @@ test('a document card shows the drawn sheet while converting, then the first pag
       requests.push([project, relPath, options]);
       return new Promise((resolve) => {
         release = () =>
-          resolve({ format: 'pdf', mtimeMs: 1, size: 9, pageCount: 12, pages: [{ page: 1, width: 320, height: 414, mime: 'image/png', base64: 'AAAA' }] });
+          resolve({
+            format: 'pdf',
+            mtimeMs: 1,
+            size: 9,
+            pageCount: 12,
+            pages: [{ page: 1, width: 320, height: 414, mime: 'image/png', base64: 'AAAA' }],
+          });
       });
     },
   });
@@ -73,7 +79,10 @@ test('a document card shows the drawn sheet while converting, then the first pag
     await act(async () => release());
     await settle();
     assert.equal(card.querySelector('.transcript-artifact-thumb svg'), null);
-    assert.equal(card.querySelector('.transcript-artifact-thumb img.file-page').getAttribute('src'), 'data:image/png;base64,AAAA');
+    assert.equal(
+      card.querySelector('.transcript-artifact-thumb img.file-page').getAttribute('src'),
+      'data:image/png;base64,AAAA'
+    );
     assert.equal(card.querySelector('.file-type-word.file-tone-pdf').textContent, 'PDF');
     assert.equal(card.querySelector('small > span:last-child').textContent, '12 pages · 1.4 MB');
     assert.equal(card.querySelector('.transcript-artifact-open').getAttribute('aria-hidden'), 'true');
@@ -161,8 +170,18 @@ test('prose minimap draws headings, wrapped lines and gaps; pastes are told apar
   ]);
   assert.equal(looksLikeCode('const a = 1;\nif (a) {\n  run();\n}'), true);
   assert.equal(looksLikeCode('def main():\n    print("hi")\n    return 0'), true);
-  assert.equal(looksLikeCode('Dear team,\n\nThe release is ready. Please review the notes below.\n- fixes\n- docs'), false);
-  assert.deepEqual(delimitedSummary('a\tb\n1\t2\n', '\t'), { rows: [['a', 'b'], ['1', '2']], rowCount: 1, columnCount: 2 });
+  assert.equal(
+    looksLikeCode('Dear team,\n\nThe release is ready. Please review the notes below.\n- fixes\n- docs'),
+    false
+  );
+  assert.deepEqual(delimitedSummary('a\tb\n1\t2\n', '\t'), {
+    rows: [
+      ['a', 'b'],
+      ['1', '2'],
+    ],
+    rowCount: 1,
+    columnCount: 2,
+  });
 });
 
 test('table summary keeps a quoted multiline field in one cell (CSV and TSV)', () => {
@@ -176,7 +195,10 @@ test('table summary keeps a quoted multiline field in one cell (CSV and TSV)', (
     columnCount: 3,
   });
   assert.deepEqual(delimitedSummary('a\tb\n"x\ny"\tz\n', '\t'), {
-    rows: [['a', 'b'], ['x\ny', 'z']],
+    rows: [
+      ['a', 'b'],
+      ['x\ny', 'z'],
+    ],
     rowCount: 1,
     columnCount: 2,
   });

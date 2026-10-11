@@ -48,7 +48,9 @@ function makeApi({ info = readyInfo('aaaaaaaa'), settings = {}, hosts = [], pair
     setRemoteAccessEnabled: (enabled) => {
       calls.push(['enabled', enabled]);
       state.settings = { ...state.settings, enabled };
-      state.info = enabled ? readyInfo('aaaaaaaa', state.info.clients) : { ...state.info, enabled: false, relayBrowserQrSvg: '', relayConnectUrl: '' };
+      state.info = enabled
+        ? readyInfo('aaaaaaaa', state.info.clients)
+        : { ...state.info, enabled: false, relayBrowserQrSvg: '', relayConnectUrl: '' };
       return Promise.resolve(state.settings);
     },
     setRemotePcName: (name) => {
@@ -178,7 +180,10 @@ test('the page has no tabs or lede: identity card, two buttons, one device list,
     ['Mixdog app', 'Chrome', 'Mixdog PC'],
     'one list for every kind, each with its own kind label'
   );
-  assert.equal(rows.every((row) => row.querySelector('.conn-tile svg')), true);
+  assert.equal(
+    rows.every((row) => row.querySelector('.conn-tile svg')),
+    true
+  );
   assert.deepEqual(
     [...document.querySelectorAll('.conn-group')[1].querySelectorAll('button')].map((b) => b.textContent),
     ['Open', 'Rename', 'Forget']
@@ -187,7 +192,10 @@ test('the page has no tabs or lede: identity card, two buttons, one device list,
 
 test('a renamed PC shows the Windows name in its meta line; Rename opens the name dialog with its helper', async (t) => {
   const { document, calls } = await mount(t, { settings: { name: 'Studio PC' } });
-  assert.equal(document.querySelector('.conn-card .conn-row-meta').textContent, 'This PC · Windows name DESKTOP-IBLP835');
+  assert.equal(
+    document.querySelector('.conn-card .conn-row-meta').textContent,
+    'This PC · Windows name DESKTOP-IBLP835'
+  );
   await click(buttonNamed(document, 'Rename'));
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.querySelector('h3').textContent, 'This PC’s name');
@@ -222,7 +230,11 @@ test('the switch turns remote access off: the Connect button disables and the li
     'Off. Connected devices can’t use this PC for now.'
   );
   assert.equal(buttonNamed(document, 'Connect a device').disabled, true);
-  assert.equal(buttonNamed(document, 'Open another PC').disabled, false, 'opening another PC does not depend on the switch');
+  assert.equal(
+    buttonNamed(document, 'Open another PC').disabled,
+    false,
+    'opening another PC does not depend on the switch'
+  );
   assert.ok(document.querySelector('.conn-group.is-dimmed'));
   assert.equal(document.querySelector('.conn-group .conn-status').textContent, 'Off');
   assert.equal(document.querySelectorAll('.conn-list .conn-row').length, 1, 'the device list is kept');
@@ -291,7 +303,7 @@ test('Connect a device: phone QR first, code requested only while a code shows, 
   assert.ok(dialog.querySelector('.conn-qr svg[data-device="aaaaaaaa"]'));
   assert.deepEqual(
     [...dialog.querySelectorAll('.conn-steps li')].map((li) => li.textContent),
-    ['Open the Mixdog app', 'Tap Scan QR code', 'Scan this QR code']
+    ['Scan this QR code with your phone camera', 'Open the page and connect']
   );
   assert.deepEqual(calls, [], 'no code while the QR shows');
   assert.deepEqual(
@@ -303,7 +315,10 @@ test('Connect a device: phone QR first, code requested only while a code shows, 
   await settle();
   assert.equal(dialog.querySelector('.conn-code-tile b').textContent, '716·386');
   assert.equal(dialog.querySelector('.conn-qr'), null);
-  assert.deepEqual(calls.map((call) => call[1]), ['ensure']);
+  assert.deepEqual(
+    calls.map((call) => call[1]),
+    ['ensure']
+  );
   assert.ok(buttonNamed(document, 'Connect with a QR code'));
   assert.match(dialog.querySelector('.conn-code-meta span').textContent, /left/);
 
@@ -341,7 +356,10 @@ test('Connect a device: browser view has the full-width address with copy plus t
   );
   assert.equal(dialog.querySelector('.conn-address'), null);
   assert.equal(dialog.querySelector('.conn-code-tile b').textContent, '716·386');
-  assert.deepEqual([...dialog.querySelectorAll('footer button')].map((b) => b.textContent), ['Close']);
+  assert.deepEqual(
+    [...dialog.querySelectorAll('footer button')].map((b) => b.textContent),
+    ['Close']
+  );
 
   await click(tab('Phone'));
   assert.equal(calls.at(-1)[1], 'release');
@@ -489,7 +507,10 @@ test('a request that lands while the dialog is closed leaves the dialog alone; V
 });
 
 test('a dialog request is ignored while the switch is off', async (t) => {
-  const { document } = await mount(t, { settings: { enabled: false }, info: { ...readyInfo('ffffffff'), enabled: false, relayBrowserQrSvg: '' } });
+  const { document } = await mount(t, {
+    settings: { enabled: false },
+    info: { ...readyInfo('ffffffff'), enabled: false, relayBrowserQrSvg: '' },
+  });
   await act(async () => requestConnectionDialog('connect'));
   assert.equal(document.querySelector('.conn-dialog'), null);
   await act(async () => requestConnectionDialog('open-pc'));
@@ -536,7 +557,10 @@ test('Open another PC: a wrong code turns the boxes red with a message; Enter ag
   await settle();
   assert.equal(dialog.querySelectorAll('.conn-otp > span.is-error').length, 6);
   assert.equal(dialog.querySelector('.conn-field-msg--error').textContent, 'The code is wrong or has expired.');
-  assert.deepEqual([...dialog.querySelectorAll('footer button')].map((b) => b.textContent), ['Cancel', 'Enter again']);
+  assert.deepEqual(
+    [...dialog.querySelectorAll('footer button')].map((b) => b.textContent),
+    ['Cancel', 'Enter again']
+  );
   await click(buttonNamed(document, 'Enter again'));
   assert.equal(dialog.querySelectorAll('.conn-otp > span.is-error').length, 0);
   assert.equal(dialog.querySelector('input[name="code"]').value, '');
@@ -567,8 +591,14 @@ test('saved PCs: Open focuses via openRemoteHost, Forget confirms in a dialog, R
   await click(rowButton('Forget'));
   dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.querySelector('h3').textContent, 'Forget Office');
-  assert.deepEqual([...dialog.querySelectorAll('footer button')].map((b) => b.textContent), ['Cancel', 'Forget']);
-  assert.equal(calls.some((call) => call[0] === 'forget'), false);
+  assert.deepEqual(
+    [...dialog.querySelectorAll('footer button')].map((b) => b.textContent),
+    ['Cancel', 'Forget']
+  );
+  assert.equal(
+    calls.some((call) => call[0] === 'forget'),
+    false
+  );
   await click(dialog.querySelector('.conn-btn--danger'));
   await settle();
   assert.deepEqual(calls.at(-1), ['forget', 'h1']);
@@ -587,4 +617,21 @@ test('dialogs use the approved frame: 480 wide, 24 padding, 248 body, 64 code ti
   assert.match(rule('.conn-row'), /min-height: 56px/);
   assert.match(rule('.conn-btn'), /height: 32px/);
   assert.match(rule('.conn-dialog header p'), /margin: 4px 0 0/);
+});
+
+test('a device whose revoke is pending shows "Removing…" and cannot be revoked again', async (t) => {
+  const info = readyInfo('eeeeeeee', [
+    { ...client('c1', 'Fold · Mixdog App', 'Mixdog App', true), pendingRemoval: true },
+    client('c2', 'Laptop · Chrome', 'Chrome', false),
+  ]);
+  const { document, calls } = await mount(t, { info });
+  const [pending, normal] = [...document.querySelectorAll('.conn-list .conn-row')];
+  const action = pending.querySelector('button');
+  assert.equal(action.textContent, 'Removing…');
+  assert.equal(action.disabled, true);
+  assert.ok(pending.textContent.includes('Removing…'));
+  assert.equal(normal.querySelector('button').textContent, 'Disconnect');
+  assert.equal(normal.querySelector('button').disabled, false);
+  await click(action);
+  assert.deepEqual(calls, []);
 });

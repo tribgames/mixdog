@@ -138,8 +138,7 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
   ) => {
     const preview = deps.linkPreview?.() ?? true;
     const request: SideFileDockRequest = { preview, ...(from ? { from } : {}) };
-    const dockOpen = () =>
-      deps.dockOpenFile(leafId, project, rel, line, accessToken, column || undefined, request);
+    const dockOpen = () => deps.dockOpenFile(leafId, project, rel, line, accessToken, column || undefined, request);
     const key = sideFileTargetKey({ project, rel, accessToken });
     const holder = deps.sideFiles().find((entry) => sideFileTargetKey(entry.file) === key);
     if (holder?.leafId === leafId) {

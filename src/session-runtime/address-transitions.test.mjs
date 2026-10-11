@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import {
   SessionAddressError,
   assertNotAddressed,
@@ -10,10 +10,22 @@ import {
   initSessionAddress,
   markTerminal,
 } from './session-address.mjs';
-import { sessionAdopter } from './boot/infrastructure.mjs';
-import { createContextSwitch } from './lifecycle/session-switch/context-switch.mjs';
-import { createSessionResume } from './lifecycle/session-switch/resume.mjs';
-import { createSessionDelete } from './lifecycle/session-switch/session-delete.mjs';
+
+// Deleting a session forgets its search index, which boots the real postgres
+// memory runtime in the data dir; that server outlived this file and held the
+// test runner's scratch root. The index is outside this suite's subject.
+const forgotten = [];
+mock.module('../runtime/session-search/session-search-ingest.mjs', {
+  namedExports: {
+    forgetSessionSearch: async (id) => {
+      forgotten.push(id);
+    },
+  },
+});
+const { sessionAdopter } = await import('./boot/infrastructure.mjs');
+const { createContextSwitch } = await import('./lifecycle/session-switch/context-switch.mjs');
+const { createSessionResume } = await import('./lifecycle/session-switch/resume.mjs');
+const { createSessionDelete } = await import('./lifecycle/session-switch/session-delete.mjs');
 
 function addressedRuntime(id = 'sess_a') {
   const rt = { session: null, reservedSessionId: null };
@@ -120,6 +132,7 @@ test('deleting the current conversation of an addressed runtime leaves it termin
   assert.equal(deps.rt.session, null);
   assert.equal(deps.rt.admission, 'terminal');
   assert.equal(deps.rt.addressedSessionId, 'sess_a');
+  assert.deepEqual(forgotten, ['sess_a']);
   assert.equal(
     deps.calls.some(([name]) => name === 'createCurrentSession'),
     false

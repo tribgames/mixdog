@@ -127,7 +127,8 @@ export class SelectedFileAccess {
     const granted = this.#grants.get(selectedFileGrantKey(token));
     if (!granted) throw new LocalAccessDeniedError('The selected-file permission is unavailable.');
     const requested = resolve(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
-    if (!sameGrantedPath(granted, requested)) throw new LocalAccessDeniedError('The selected-file permission does not match this path.');
+    if (!sameGrantedPath(granted, requested))
+      throw new LocalAccessDeniedError('The selected-file permission does not match this path.');
     return { root: dirname(granted), rel: basename(granted), absolute: granted };
   }
 }

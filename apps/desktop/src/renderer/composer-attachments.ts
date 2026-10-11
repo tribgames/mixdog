@@ -103,7 +103,9 @@ export function attachmentPolicyError(
 ): string {
   const remoteError = remoteAttachmentSizeError(
     attachment.name,
-    attachment.kind === 'text' ? attachment.data.length : Math.ceil((attachment.data.length * 3) / 4)
+    attachment.kind === 'text'
+      ? new TextEncoder().encode(attachment.data).length
+      : Math.ceil((attachment.data.length * 3) / 4)
   );
   if (remoteError) return remoteError;
   if (currentAttachments.length >= MAX_COMPOSER_ATTACHMENTS) {
