@@ -9,7 +9,6 @@
  *   - buildAgentRoleContent             — BP3: agent role/system rules
  *   - buildAgentRetrievalInjectionContent — BP3: narrow read-only retrieval role
  *   - buildLeadMetaContent              — BP2: Lead profile/settings context
- *   - buildInjectionContent             — legacy joined Lead session content
  *
  * 4-BP cache layout (composeSystemPrompt):
  *   BP1 = shared tool policy
@@ -400,27 +399,6 @@ function buildLeadLanguageContent({ DATA_DIR }) {
   return buildLanguageSection(DATA_DIR);
 }
 
-/**
- * Build the Lead injection content.
- */
-function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
-  const parts = [];
-
-  const tool = buildSharedToolContent({ PLUGIN_ROOT });
-  if (tool) parts.push(tool);
-
-  const meta = buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });
-  if (meta) parts.push(meta);
-
-  const role = buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR });
-  if (role) parts.push(role);
-
-  const language = buildLeadLanguageContent({ DATA_DIR });
-  if (language) parts.push(language);
-
-  return parts.join('\n\n');
-}
-
 function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
   const AGENT_DIR = path.join(PLUGIN_ROOT, 'rules', 'agent');
   if (String(profile || 'full') === 'retrieval') {
@@ -455,7 +433,6 @@ module.exports = {
   buildLeadMetaContent,
   buildLeadLanguageContent,
   buildAgentRoleContent,
-  buildInjectionContent,
   buildAgentRetrievalInjectionContent,
   omitToolRoutes,
 };

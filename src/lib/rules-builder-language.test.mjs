@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import test from 'node:test';
-
-const require = createRequire(import.meta.url);
-const rulesBuilder = require('./rules-builder.cjs');
-const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+import {
+  _buildLeadLanguageContext,
+  _buildLeadMetaContext,
+  _buildLeadRules,
+  _buildSharedRules,
+} from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
 
 function renderLeadPrompt(language) {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-language-rules-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
   try {
     writeFileSync(
       join(dataDir, 'mixdog-config.json'),
@@ -21,11 +23,14 @@ function renderLeadPrompt(language) {
         },
       })
     );
-    return rulesBuilder.buildInjectionContent({
-      PLUGIN_ROOT: pluginRoot,
-      DATA_DIR: dataDir,
-    });
+    // Production composes these split layers. The language block stays last,
+    // after shared policy, meta, and the Lead role.
+    return [_buildSharedRules(), _buildLeadMetaContext(), _buildLeadRules(), _buildLeadLanguageContext()]
+      .filter(Boolean)
+      .join('\n\n');
   } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
     rmSync(dataDir, { recursive: true, force: true });
   }
 }

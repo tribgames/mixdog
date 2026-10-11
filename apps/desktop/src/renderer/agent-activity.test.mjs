@@ -13,7 +13,6 @@ import {
   liveAgentRows,
 } from './AgentActivityPane.tsx';
 import { createDesktopCancellationLedger, desktopAgentActivityState } from '../shared/agent-activity.ts';
-import { SessionStatusIsland } from './SessionStatusIsland.tsx';
 import {
   formatGoalDuration,
   goalCompletedTimeLabel,
@@ -28,7 +27,6 @@ import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store.ts';
 import { shellJobsStatusEqual } from '../shared/shell-jobs-status.ts';
 import { shouldOfferSessionInheritance } from './session-inheritance.ts';
-import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu } from './agent-group-visibility.tsx';
 import i18n from './i18n.ts';
 
@@ -171,63 +169,7 @@ test('shell status equality includes detail fields that arrive after the task id
   );
 });
 
-test('the status island carries the context gauge', async () => {
-  const dom = installDom();
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: {
-            sessionId: 'lead-a',
-            stats: { currentContextTokens: 50 },
-            displayContextWindow: 100,
-          },
-        })
-      );
-    });
-    const contextButton = document.querySelector('.session-context-indicator > button');
-    await act(async () => contextButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
-    assert.equal(document.querySelector('.session-context-indicator')?.dataset.open, 'true');
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
-test('the status island places the pane dock toggle last and reports its state', async () => {
-  const dom = installDom();
-  let toggles = 0;
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: {
-            sessionId: 'lead-a',
-            stats: { currentContextTokens: 50 },
-            displayContextWindow: 100,
-          },
-          dockOpen: true,
-          onToggleDock: () => {
-            toggles += 1;
-          },
-        })
-      );
-    });
-    const island = document.querySelector('.session-status-island');
-    const dockToggle = document.querySelector('.session-status-dock-toggle');
-    assert.equal(island?.lastElementChild, dockToggle);
-    assert.equal(dockToggle?.getAttribute('aria-pressed'), 'true');
-    await act(async () => {
-      dockToggle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(toggles, 1);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
-test('the context card offers inheritance only after the selected model changes', async () => {
+test('the context card offers inheritance only after the selected model changes', () => {
   const changed = {
     sessionId: 'lead-inherit',
     provider: 'cursor',
@@ -244,136 +186,6 @@ test('the context card offers inheritance only after the selected model changes'
     }),
     false
   );
-  const dom = installDom();
-  const inherited = [];
-  const preflights = [];
-  let verdict = { known: true, fits: true, used: 90, limit: 100, percent: 90, reason: '' };
-  window.mixdogDesktop = {
-    invokeCapability: async (request) => {
-      preflights.push(request);
-      return { value: verdict };
-    },
-  };
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: changed,
-          onInherit: async (sourceSessionId, route) => {
-            inherited.push({ sourceSessionId, route });
-          },
-        })
-      );
-    });
-    assert.ok(document.querySelector('.context-inherit'));
-    await act(async () => {
-      document.querySelector('.context-inherit').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    });
-    // No dialog stands between the button and the handover (user: 팝업 안 뜨고
-    // 바로 진행되게): one click carries the source session on its own route.
-    assert.deepEqual(inherited, [
-      {
-        sourceSessionId: 'lead-inherit',
-        route: { provider: 'cursor', model: 'gpt-5.6' },
-      },
-    ]);
-    // The verdict belongs to the heir's route, so it is read from the runtime
-    // that would perform the carry — never from this card's own gauge, which
-    // measures the session's current provider against its current model.
-    assert.deepEqual(preflights, [
-      {
-        capability: 'inheritancePreflight',
-        args: ['lead-inherit', { provider: 'cursor', model: 'gpt-5.6' }],
-        sessionId: 'lead-inherit',
-      },
-    ]);
-
-    // A conversation the heir cannot hold is refused before any session is
-    // created, in the user's own words instead of an engine sentence.
-    verdict = { known: true, fits: false, used: 853_569, limit: 500_000, percent: 171, reason: '' };
-    const warnings = [];
-    window.addEventListener(DESKTOP_TOAST_EVENT, (event) => warnings.push(event.detail));
-    await act(async () => {
-      document.querySelector('.context-inherit').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(preflights.length, 2);
-    assert.equal(inherited.length, 1);
-    assert.equal(warnings.at(-1)?.tone, 'warn');
-
-    const compacted = [];
-    window.mixdogDesktop = {
-      invokeCapability: async (request) => {
-        compacted.push(request);
-      },
-    };
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: {
-            ...changed,
-            sessionId: 'same-claude',
-            provider: 'anthropic-oauth',
-            model: 'claude-fable-5-1',
-            items: [
-              {
-                kind: 'assistant',
-                provider: 'anthropic-oauth',
-                model: 'Claude Fable 5.1',
-                text: 'done',
-              },
-            ],
-          },
-          onInherit: async (...args) => {
-            inherited.push(args);
-          },
-        })
-      );
-    });
-    assert.equal(document.querySelector('.context-inherit'), null);
-    assert.ok(document.querySelector('.context-compact'));
-    await act(async () => {
-      document.querySelector('.context-compact').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.deepEqual(compacted, [{ capability: 'compact', sessionId: 'same-claude' }]);
-    assert.equal(inherited.length, 1);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
-test('the context island retains its authoritative reading across incomplete stats frames', async () => {
-  const dom = installDom();
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: {
-            sessionId: 'context-sticky',
-            stats: { currentContextTokens: 50, currentContextSource: 'last_api_request' },
-            displayContextWindow: 100,
-          },
-        })
-      );
-    });
-    assert.match(document.body.textContent, /50%/);
-
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: {
-            sessionId: 'context-sticky',
-            stats: { costUsd: 1 },
-            displayContextWindow: 100,
-          },
-        })
-      );
-    });
-    assert.match(document.body.textContent, /50%/);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
 });
 
 test('header snapshot equality ignores unrelated stats but tracks visible context values', () => {

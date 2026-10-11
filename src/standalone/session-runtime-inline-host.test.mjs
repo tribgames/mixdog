@@ -39,15 +39,6 @@ function createFakeLocalModule(events) {
         },
       };
     },
-    async preloadSessionRuntimeModule() {
-      events.push(['prewarm', 'runtime']);
-    },
-    async preloadAgentLoopRuntime() {
-      events.push(['prewarm', 'agent-loop']);
-    },
-    async preloadKeychainSecrets() {
-      events.push(['prewarm', 'keychain']);
-    },
   };
 }
 
