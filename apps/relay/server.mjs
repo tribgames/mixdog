@@ -62,6 +62,7 @@ import {
 import { MAX_HOOK_PENDING_PER_DEVICE, failHookPending, handleHookRequest, runHookLeg } from './lib/relay-hook.mjs';
 import { failMediaPending, handleMediaRequest } from './lib/relay-media-proxy.mjs';
 import { handleClaimRequest, handleClientRegistration } from './lib/relay-pairing.mjs';
+import { sendAppPage } from './lib/app-page.mjs';
 import { sendConnectPage } from './lib/connect-page.mjs';
 import { PairCodes, createPresenceLimiter, handlePairCodeRequest } from './lib/pair-codes.mjs';
 import { serveStatic } from './lib/relay-static-gate.mjs';
@@ -390,6 +391,10 @@ function routeRequest(relay, request, response) {
       request,
       response
     ).catch(failRequest(request, response, 'pair code'));
+    return;
+  }
+  if (url.split('?')[0] === '/app') {
+    sendAppPage(request, response);
     return;
   }
   if (url.split('?')[0] === '/connect') {

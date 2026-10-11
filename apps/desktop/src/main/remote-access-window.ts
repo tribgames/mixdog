@@ -31,16 +31,21 @@ export async function buildRemoteAccessInfo(descriptor: RemoteAccessDescriptor):
     return {
       relayBrowserUrl: '',
       relayBrowserQrSvg: '',
+      relayAppQrSvg: '',
       relayConnectUrl: '',
       clients: relay.clients ?? [],
       enabled: false,
     };
   }
+  const { origin, pathname } = new URL(relayBrowserUrl);
+  const deviceId = /^\/d\/([^/]+)\/?$/u.exec(pathname)?.[1];
+  if (!deviceId) throw new Error('relay client URL has no device id');
   return {
     enabled: true,
     relayBrowserUrl,
     relayBrowserQrSvg: await qrSvg(relayBrowserUrl),
-    relayConnectUrl: `${new URL(relayBrowserUrl).origin}/connect`,
+    relayAppQrSvg: await qrSvg(`${origin}/app?d=${deviceId}`),
+    relayConnectUrl: `${origin}/connect`,
     clients: relay.clients ?? [],
   };
 }
@@ -63,7 +68,7 @@ export async function showRemoteAccessWindow(
   parent?: BrowserWindow | null
 ): Promise<void> {
   const { BrowserWindow: ElectronBrowserWindow } = await import('electron');
-  const browserQr = info.relayBrowserQrSvg;
+  const browserQr = info.relayAppQrSvg;
   const paired = Boolean(browserQr);
   const body = paired
     ? `<div class="grid single">

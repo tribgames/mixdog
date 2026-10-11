@@ -12,7 +12,8 @@ const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', '
 
 const readyInfo = (id, clients = []) => ({
   relayBrowserUrl: `https://relay.example/d/${id}/`,
-  relayBrowserQrSvg: `<svg data-device="${id}"></svg>`,
+  relayBrowserQrSvg: `<svg data-browser="${id}"></svg>`,
+  relayAppQrSvg: `<svg data-device="${id}"></svg>`,
   relayConnectUrl: 'https://relay.example/connect',
   clients,
   enabled: true,
@@ -50,7 +51,7 @@ function makeApi({ info = readyInfo('aaaaaaaa'), settings = {}, hosts = [], pair
       state.settings = { ...state.settings, enabled };
       state.info = enabled
         ? readyInfo('aaaaaaaa', state.info.clients)
-        : { ...state.info, enabled: false, relayBrowserQrSvg: '', relayConnectUrl: '' };
+        : { ...state.info, enabled: false, relayBrowserQrSvg: '', relayAppQrSvg: '', relayConnectUrl: '' };
       return Promise.resolve(state.settings);
     },
     setRemotePcName: (name) => {
@@ -303,7 +304,7 @@ test('Connect a device: phone QR first, code requested only while a code shows, 
   assert.ok(dialog.querySelector('.conn-qr svg[data-device="aaaaaaaa"]'));
   assert.deepEqual(
     [...dialog.querySelectorAll('.conn-steps li')].map((li) => li.textContent),
-    ['Scan this QR code with your phone camera', 'Open the page and connect']
+    ['Scan this QR code with your phone camera', 'Connect in the Mixdog app', 'Allow the request on this PC']
   );
   assert.deepEqual(calls, [], 'no code while the QR shows');
   assert.deepEqual(
@@ -509,7 +510,7 @@ test('a request that lands while the dialog is closed leaves the dialog alone; V
 test('a dialog request is ignored while the switch is off', async (t) => {
   const { document } = await mount(t, {
     settings: { enabled: false },
-    info: { ...readyInfo('ffffffff'), enabled: false, relayBrowserQrSvg: '' },
+    info: { ...readyInfo('ffffffff'), enabled: false, relayBrowserQrSvg: '', relayAppQrSvg: '' },
   });
   await act(async () => requestConnectionDialog('connect'));
   assert.equal(document.querySelector('.conn-dialog'), null);

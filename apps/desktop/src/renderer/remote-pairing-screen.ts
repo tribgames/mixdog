@@ -445,7 +445,7 @@ export const createRemotePairingScreen = (
 
       const pushNote =
         direct && isIOSWebSurface() && !nativeAppInfo()
-          ? earlyUiT('Notifications aren’t available on iPhone yet.')
+          ? earlyUiT('Get notifications in the Mixdog app.')
           : undefined;
       const waitingView = (title: string, sub: string, fine?: string): PairingView => ({
         title,

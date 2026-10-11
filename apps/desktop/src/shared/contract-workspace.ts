@@ -21,6 +21,9 @@ export interface DesktopRemoteAccessInfo {
   /** The pairing URL the QR encodes. Never shown in the UI. */
   relayBrowserUrl: string;
   relayBrowserQrSvg: string;
+  /** QR of `<relay origin>/app?d=<deviceId>`: opens the Mixdog app, or the
+   *  install page when it is missing. The Phone segment shows this one. */
+  relayAppQrSvg: string;
   /** Where a browser enters a 6-digit code (relay origin + /connect). Shown as
    *  plain text. */
   relayConnectUrl: string;

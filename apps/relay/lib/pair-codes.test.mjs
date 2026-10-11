@@ -313,6 +313,23 @@ test('relay: oversize and malformed code requests are refused, cross-origin call
   });
 });
 
+test('relay: /app opens the app or offers the installers, never the web client', async () => {
+  await withRelay(async (_relay, origin) => {
+    const id = randomUUID();
+    const page = await fetch(`${origin}/app?d=${id}`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type') || '', /text\/html/);
+    const html = await page.text();
+    assert.match(html, /mixdog:\/\/pair\?link=/);
+    assert.match(html, /https:\/\/testflight\.apple\.com\/join\/UNPBM2hU/);
+    assert.match(html, /github\.com\/tribgames\/mixdog\/releases/);
+    assert.doesNotMatch(html, /<a[^>]+href="[^"]*\/d\//);
+    assert.equal((await fetch(`${origin}/app`)).status, 400);
+    assert.equal((await fetch(`${origin}/app?d=${encodeURIComponent('"><script>')}`)).status, 400);
+    assert.equal((await fetch(`${origin}/app?d=${id}&d=${id}`)).status, 400);
+  });
+});
+
 test('relay: an old desktop is reported as not supporting pairing v2, and presence is per route', async () => {
   await withRelay(async (relay, origin, sockets) => {
     const old = await connectDesktop(relay, sockets, { pairV2: false });
