@@ -1,0 +1,82 @@
+name: linux-desktop-verify
+
+on:
+  push:
+    branches: [release/linux]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: linux-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.19"
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.95.0"
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: apps/desktop
+      - name: Root tests
+        run: npm test 2>&1 | tee root-tests.log
+      - name: Desktop tests
+        run: npm test 2>&1 | tee ../../desktop-tests.log
+        working-directory: apps/desktop
+      - name: Desktop typecheck
+        run: npx tsc -p tsconfig.json --noEmit
+        working-directory: apps/desktop
+      - name: Build Linux package
+        run: npm run build:linux -- --${{ matrix.arch }} --publish never
+        working-directory: apps/desktop
+      - name: Package size
+        run: |
+          ls -l apps/desktop/dist/*.AppImage
+          du -sh apps/desktop/dist/linux-*unpacked || true
+      - name: Headless launch smoke
+        run: |
+          mkdir -p smoke
+          chmod +x apps/desktop/dist/*.AppImage
+          xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-${{ matrix.arch }}.AppImage smoke
+      - name: Upload AppImage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mixdog-appimage-${{ matrix.arch }}
+          path: apps/desktop/dist/*.AppImage
+          if-no-files-found: warn
+      - name: Upload smoke screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: smoke-${{ matrix.arch }}
+          path: |
+            smoke/
+            root-tests.log
+            desktop-tests.log
+          if-no-files-found: warn
