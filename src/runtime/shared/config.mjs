@@ -32,8 +32,11 @@ const {
   deleteSecret: _deleteSecret,
   hasSecret: _hasSecret,
   setSecretAsync: _setSecretAsyncImpl,
+  deleteSecretAsync: _deleteSecretAsyncImpl,
+  keychainStatus: _keychainStatus,
 } = _require('../../lib/keychain-cjs.cjs');
 const _setSecretAsync = _setSecretAsyncImpl ?? (async (account, value) => _setSecret(account, value));
+const _deleteSecretAsync = _deleteSecretAsyncImpl ?? (async (account) => _deleteSecret(account));
 
 // Resolved per call: the pristine-execution boundary retargets
 // MIXDOG_resolvePluginData() at runtime, so an import-time capture would write into the
@@ -625,6 +628,16 @@ function saveSecretError(account, err) {
 
 export function deleteSecret(account) {
   _deleteSecret(account);
+}
+
+/** Non-blocking deleteSecret: Linux secret-tool runs off the event loop. */
+export async function deleteSecretAsync(account) {
+  await _deleteSecretAsync(account);
+}
+
+/** Keyring health for the UI: { state: ok|locked|missing|error|unknown, message }. */
+export function getKeychainStatus() {
+  return typeof _keychainStatus === 'function' ? _keychainStatus() : { state: 'unknown', message: '' };
 }
 
 /**

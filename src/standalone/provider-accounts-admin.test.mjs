@@ -31,7 +31,7 @@ function mockTokenExchange(t, response) {
   );
 }
 
-test('disconnect removes only the requested account, without selecting it or disabling remaining accounts', () => {
+test('disconnect removes only the requested account, without selecting it or disabling remaining accounts', async () => {
   const provider = 'openai-oauth';
   const ids = [newProviderAccountId(), newProviderAccountId()];
   for (const id of ids) {
@@ -50,7 +50,7 @@ test('disconnect removes only the requested account, without selecting it or dis
     },
   };
   const original = readFileSync(providerAccountPath(provider, ids[0]), 'utf8');
-  forgetProviderAuth(cfg, provider, ids[1]);
+  await forgetProviderAuth(cfg, provider, ids[1]);
   assert.equal(existsSync(providerAccountPath(provider, ids[1])), false);
   assert.equal(readFileSync(providerAccountPath(provider, ids[0]), 'utf8'), original);
   assert.equal(readProviderAccountPool(provider).selectedId, ids[0]);
@@ -59,7 +59,7 @@ test('disconnect removes only the requested account, without selecting it or dis
     listProviderAccounts(provider).accounts.map((account) => account.id),
     [ids[0]]
   );
-  assert.throws(() => forgetProviderAuth(cfg, provider, '../outside'), /no longer connected/);
+  await assert.rejects(() => forgetProviderAuth(cfg, provider, '../outside'), /no longer connected/);
   changeProviderAccounts(provider, { rename: { id: ids[0], label: 'Personal' } });
   assert.equal(listProviderAccounts(provider).accounts[0].label, 'Personal');
   assert.throws(

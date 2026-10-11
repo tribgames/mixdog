@@ -60,6 +60,12 @@ function _cacheInvalidate(account) {
 }
 
 function invalidateSecretCache(account) {
+  // Linux reads are cache-only after one snapshot: an external invalidation
+  // means the snapshot may be stale, so the next read reloads it.
+  if (process.platform === 'linux') {
+    _linuxLoadedUntil = 0;
+    _prewarmPromise = null;
+  }
   if (account == null) {
     _secretCache.clear();
     _cacheGenerations.clear();
@@ -333,7 +339,7 @@ function secretToolCheck(r) {
   }
   if (r.error?.code === 'ETIMEDOUT') {
     throw new Error(
-      `[keychain] secret-tool timed out after ${KEYCHAIN_TIMEOUT_MS}ms — the keyring is locked or its unlock prompt ` +
+      `[keychain] secret-tool timed out after ${r.error.timeoutMs || KEYCHAIN_TIMEOUT_MS}ms — the keyring is locked or its unlock prompt ` +
         'was not answered. Unlock your keyring (e.g. log in again or open Passwords and Keys) and retry.'
     );
   }
@@ -356,7 +362,7 @@ function secretTool(args, input) {
 
 // Non-blocking variant: the daemon event loop keeps running while a locked
 // keyring waits on its unlock prompt; the child is killed at the same bound.
-function secretToolAsync(args, input) {
+function secretToolAsync(args, input, timeoutMs = KEYCHAIN_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     let child;
     try {
@@ -384,11 +390,16 @@ function secretToolAsync(args, input) {
       }
     };
     const timer = setTimeout(() => {
+      done({
+        status: null,
+        stdout,
+        stderr,
+        error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT', timeoutMs }),
+      });
       try {
         child.kill('SIGKILL');
       } catch {}
-      done({ status: null, stdout, stderr, error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }) });
-    }, KEYCHAIN_TIMEOUT_MS);
+    }, timeoutMs);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
@@ -419,11 +430,110 @@ function secretToolFailure(action, r) {
   return new Error(`[keychain] secret-tool ${action} failed: ${detail} — ${secretToolHint()}`);
 }
 
-function linuxGet(account) {
+function linuxGetBlocking(account) {
   const r = secretTool(['lookup', 'service', SERVICE, 'account', account]);
   if (r.status === 0) return r.stdout;
   if ((r.stderr || '').trim()) throw secretToolFailure('lookup', r);
   return null;
+}
+
+// Daemon-safe state. The synchronous read path NEVER spawns secret-tool on
+// Linux: a locked keyring would freeze the event loop for the whole timeout.
+// One bounded async `secret-tool search --all` snapshot (prewarmSecrets) fills
+// the read cache; afterwards an uncached account is simply absent. Until that
+// snapshot succeeds the sync read throws the actionable keyring error (callers
+// already treat a throw as "no stored key") and a retry is scheduled lazily.
+const LINUX_PREWARM_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS || 4000);
+const LINUX_PREWARM_RETRY_MS = 30000;
+let _linuxLoadedUntil = 0;
+let _linuxLastFailureAt = 0;
+let _keychainStatus = { state: 'unknown', message: '' };
+
+function _noteKeychainOk() {
+  _keychainStatus = { state: 'ok', message: '' };
+}
+
+function _noteKeychainFailure(error) {
+  const message = String(error?.message || error);
+  const state = /not installed/.test(message) ? 'missing' : /locked|timed out/.test(message) ? 'locked' : 'error';
+  _keychainStatus = { state, message };
+}
+
+/** Linux keyring health for the UI: ok | locked | missing | error | unknown. */
+function keychainStatus() {
+  return { ..._keychainStatus };
+}
+
+function _linuxLoaded() {
+  return _linuxLoadedUntil > Date.now();
+}
+
+function linuxGet(account) {
+  if (KEYCHAIN_CACHE_TTL_MS === 0) return linuxGetBlocking(account);
+  if (_linuxLoaded()) return null;
+  if (Date.now() - _linuxLastFailureAt > LINUX_PREWARM_RETRY_MS) void prewarmSecrets();
+  throw new Error(
+    _keychainStatus.message ||
+      '[keychain] the Linux keyring has not been read yet — unlock your keyring (log in again or open Passwords and Keys)'
+  );
+}
+
+// `secret-tool search --all` prints, per item: "[/path]", then label/secret/
+// created/modified/schema and attribute.* lines. A secret may span lines, so
+// continuation lines are appended until the next known key.
+function parseSecretToolSearch(stdout) {
+  const items = [];
+  let current = null;
+  let inSecret = false;
+  for (const line of String(stdout || '').split(/\r?\n/)) {
+    if (/^\[\/.*\]$/.test(line)) {
+      current = {};
+      items.push(current);
+      inSecret = false;
+      continue;
+    }
+    if (!current) continue;
+    if (current.secret === undefined && line.startsWith('secret = ')) {
+      current.secret = line.slice('secret = '.length);
+      inSecret = true;
+      continue;
+    }
+    if (/^(label|created|modified|schema|attribute\.[^ =]+) = /.test(line)) {
+      inSecret = false;
+      const account = line.match(/^attribute\.account = (.*)$/);
+      if (account) current.account = account[1];
+      continue;
+    }
+    if (inSecret) current.secret += `\n${line}`;
+  }
+  return items.filter((item) => item.account && item.secret);
+}
+
+async function _prewarmLinuxOnce() {
+  try {
+    if (KEYCHAIN_CACHE_TTL_MS === 0) return;
+    const epoch = _cacheEpoch;
+    const generations = new Map(_cacheGenerations);
+    const r = await secretToolAsync(['search', '--all', 'service', SERVICE], undefined, LINUX_PREWARM_TIMEOUT_MS);
+    // Exit 1 with an empty stderr just means "no items".
+    if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('search', r);
+    if (_cacheEpoch !== epoch) return;
+    for (const item of parseSecretToolSearch(r.stdout)) {
+      if ((_cacheGenerations.get(item.account) || 0) !== (generations.get(item.account) || 0)) continue;
+      if (_cacheGet(item.account) === undefined) _cacheSet(item.account, item.secret);
+    }
+    _linuxLoadedUntil =
+      KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : Date.now() + KEYCHAIN_CACHE_TTL_MS;
+    _linuxLastFailureAt = 0;
+    _noteKeychainOk();
+  } catch (error) {
+    _linuxLastFailureAt = Date.now();
+    _noteKeychainFailure(error);
+    // Allow a later lazy retry once the cool-down passes.
+    _prewarmPromise = null;
+  }
 }
 
 function linuxSet(account, value) {
@@ -520,6 +630,7 @@ const PS_UNPROTECT_BATCH = [
 
 async function _prewarmSecretsOnce() {
   try {
+    if (platform() === 'linux') return await _prewarmLinuxOnce();
     if (platform() !== 'win32' || KEYCHAIN_CACHE_TTL_MS === 0) return;
     const dir = secretsDir();
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -630,10 +741,14 @@ function hasSecret(account) {
 }
 
 function setSecret(account, value) {
+  let stored = false;
   try {
     backend().set(account, value);
+    stored = true;
   } finally {
     _cacheInvalidate(account);
+    // Linux reads are cache-only, so a fresh write must stay readable.
+    if (stored && platform() === 'linux') _cacheSet(account, value);
   }
 }
 
@@ -652,18 +767,34 @@ async function getSecretAsync(account) {
   if (cached !== undefined) return cached;
   const b = backend();
   if (!b.getAsync) return getSecret(account);
-  const value = await b.getAsync(account);
-  _cacheSet(account, value);
+  if (_linuxLoaded()) return null;
+  const generation = _cacheGenerations.get(account) || 0;
+  let value;
+  try {
+    value = await b.getAsync(account);
+  } catch (error) {
+    _noteKeychainFailure(error);
+    throw error;
+  }
+  _noteKeychainOk();
+  if ((_cacheGenerations.get(account) || 0) === generation) _cacheSet(account, value);
   return value;
 }
 
 async function setSecretAsync(account, value) {
   const b = backend();
   if (!b.setAsync) return setSecret(account, value);
+  let stored = false;
   try {
     await b.setAsync(account, value);
+    stored = true;
+    _noteKeychainOk();
+  } catch (error) {
+    _noteKeychainFailure(error);
+    throw error;
   } finally {
     _cacheInvalidate(account);
+    if (stored) _cacheSet(account, value);
   }
 }
 
@@ -672,6 +803,10 @@ async function deleteSecretAsync(account) {
   if (!b.deleteAsync) return deleteSecret(account);
   try {
     await b.deleteAsync(account);
+    _noteKeychainOk();
+  } catch (error) {
+    _noteKeychainFailure(error);
+    throw error;
   } finally {
     _cacheInvalidate(account);
   }
@@ -685,6 +820,7 @@ module.exports = {
   setSecretAsync,
   deleteSecretAsync,
   hasSecret,
+  keychainStatus,
   invalidateSecretCache,
   prewarmSecrets,
   SERVICE,

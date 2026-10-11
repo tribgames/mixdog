@@ -4,8 +4,9 @@ import { sameAccountIdentity } from '../../runtime/agent/orchestrator/providers/
 import {
   AGENT_PROVIDER_ENV,
   SECRET_ACCOUNTS,
-  deleteSecret,
+  deleteSecretAsync,
   getAgentApiKey,
+  getKeychainStatus,
   hasStoredSecret,
   saveSecretAsync,
 } from '../../runtime/shared/config.mjs';
@@ -230,6 +231,14 @@ function describeOAuthProvider(p, { detail = false } = {}) {
   return { authenticated, status: authenticated ? 'Set' : 'Not Set', ...(detail ? { detail: p.desc } : {}) };
 }
 
+// When the OS keyring is locked/missing a stored key reads as absent; say so
+// (the UI shows the unlock / install hint) instead of a bare "No Key".
+function keychainIssueFor(checkSecrets) {
+  if (!checkSecrets) return null;
+  const { state, message } = getKeychainStatus();
+  return state === 'locked' || state === 'missing' || state === 'error' ? { state, message } : null;
+}
+
 function apiProviderSetup(p, providers, checkSecrets) {
   const configured = providers[p.id] || {};
   const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
@@ -245,8 +254,11 @@ function apiProviderSetup(p, providers, checkSecrets) {
   if (stored) detail = 'stored in keychain';
   else if (env) detail = envName;
   else if (authenticated) detail = 'runtime credential';
+  const keychainIssue = authenticated ? null : keychainIssueFor(checkSecrets);
+  if (keychainIssue) detail = keychainIssue.message;
   return {
     ...p,
+    ...(keychainIssue ? { keychainIssue } : {}),
     group: 'api',
     type: 'api-key',
     enabled: configuredEnabled || authenticated,
@@ -823,7 +835,7 @@ export async function saveCustomProvider(cfgMod, rawInput) {
   } catch (error) {
     if (typed) {
       if (previousKey) await saveSecretAsync(account, previousKey);
-      else deleteSecret(account);
+      else await deleteSecretAsync(account);
     }
     throw error;
   }
@@ -908,13 +920,13 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
   return customProviderRow(id, saved);
 }
 
-export function removeCustomProvider(cfgMod, rawId) {
+export async function removeCustomProvider(cfgMod, rawId) {
   const id = String(rawId || '').trim();
   existingCustomEntry(cfgMod, id);
   const current = cfgMod.loadConfig();
   const { [id]: _removed, ...providers } = current.providers || {};
   cfgMod.saveConfig({ ...current, providers }, { baseConfig: current });
-  deleteSecret(SECRET_ACCOUNTS.agentApiKey(id));
+  await deleteSecretAsync(SECRET_ACCOUNTS.agentApiKey(id));
   return { provider: id, type: 'custom', removed: true };
 }
 
@@ -997,7 +1009,7 @@ export async function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
   return { provider: 'opencode-go', type: 'usage-auth', authenticated: true };
 }
 
-export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {
+export async function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {
   const cfgMod = maybeProvider === undefined ? null : cfgModOrProvider;
   const id = String(maybeProvider === undefined ? cfgModOrProvider : maybeProvider || '').trim();
   const oauth = availableOAuthProvider(id);
@@ -1018,7 +1030,7 @@ export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAcc
   if (!API_PROVIDER_IDS.has(id)) {
     throw new Error(`unknown provider "${id}"`);
   }
-  deleteSecret(SECRET_ACCOUNTS.agentApiKey(id));
+  await deleteSecretAsync(SECRET_ACCOUNTS.agentApiKey(id));
   if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: false });
   return { provider: id, type: 'api-key', forgotten: true };
 }

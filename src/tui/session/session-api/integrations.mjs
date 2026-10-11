@@ -133,8 +133,8 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       },
       { busyResult: false }
     ),
-    forgetProviderAuth: (provider, accountId) => {
-      const result = runtime.forgetProviderAuth(provider, accountId);
+    forgetProviderAuth: async (provider, accountId) => {
+      const result = await runtime.forgetProviderAuth(provider, accountId);
       pushNotice(`provider auth forgotten: ${result.provider}`, 'info');
       return true;
     },

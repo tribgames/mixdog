@@ -87,7 +87,7 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
     },
     async removeCustomProvider(providerId) {
       await awaitKeychainPrewarm();
-      const result = removeCustomProvider(cfgMod, providerId);
+      const result = await removeCustomProvider(cfgMod, providerId);
       onCustomProviderRemoved?.(result.provider);
       refresh.afterCredentialChange();
       return result;
@@ -100,8 +100,8 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
       await awaitKeychainPrewarm();
       return await discoverCustomProviderModels(cfgMod, input);
     },
-    forgetProviderAuth(providerId, accountId) {
-      const result = forgetProviderAuth(cfgMod, providerId, accountId);
+    async forgetProviderAuth(providerId, accountId) {
+      const result = await forgetProviderAuth(cfgMod, providerId, accountId);
       refresh.afterCredentialChange();
       return result;
     },
