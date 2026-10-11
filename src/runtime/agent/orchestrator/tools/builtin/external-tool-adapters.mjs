@@ -14,6 +14,7 @@
 import { readFileSync, mkdirSync, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { atomicWrite, symlinkWriteTarget } from './atomic-write.mjs';
+import { fileVersion } from './file-version.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
 import { normalizeInputPath, resolveAgainstCwd, normalizeOutputPath, toDisplayPath } from './path-utils.mjs';
 import {
@@ -476,15 +477,7 @@ function readEditTextForDisplay(fullPath, enc) {
 const SAME_STRINGS_ERROR = 'Error: old_string and new_string are exactly the same';
 
 function targetSnapshot(statBefore) {
-  return statBefore
-    ? {
-        exists: true,
-        size: statBefore.size,
-        mtimeMs: statBefore.mtimeMs,
-        ctimeMs: statBefore.ctimeMs,
-        ino: statBefore.ino,
-      }
-    : { exists: false };
+  return statBefore ? { exists: true, ...fileVersion(statBefore) } : { exists: false };
 }
 
 /**
@@ -493,12 +486,14 @@ function targetSnapshot(statBefore) {
  * Returns `{ error }` when the bytes cannot be read or are not decidable text.
  */
 function readEditTarget(fullPath) {
-  let statBefore = null;
+  // An unreadable pre-stat is incomplete existing-file evidence, not the
+  // explicit absence used by createEditTarget. Never resurrect a removed file.
+  let statBefore = {};
   let content;
   let fileEnc;
   try {
     try {
-      statBefore = statSync(fullPath);
+      statBefore = { ...fileVersion(statSync(fullPath)) };
     } catch {
       /* readFileSync below surfaces the real error */
     }

@@ -1,4 +1,5 @@
 import { hashText } from './hash-utils.mjs';
+import { sameFileVersion } from './file-version.mjs';
 
 /** BOM-only encoding detection shared by reads and snapshot validation. */
 export function detectReadEncodingFromBuffer(buf) {
@@ -99,18 +100,10 @@ export function rangeHashesFromRenderedReadText(rendered, ranges) {
   return out;
 }
 
+// Legacy/incomplete snapshots must use content verification, never a weaker
+// metadata fast path than the raw cache or final writer.
 export function statMatchesSnapshot(stat, snapshot) {
-  if (!stat || !snapshot) return false;
-  if (typeof snapshot.size !== 'number' || stat.size !== snapshot.size) return false;
-  if (!Number.isFinite(snapshot.mtimeMs) || Math.abs(stat.mtimeMs - snapshot.mtimeMs) > 1) {
-    return false;
-  }
-  if (Number.isFinite(snapshot.ctimeMs)) {
-    if (!Number.isFinite(stat.ctimeMs) || Math.abs(stat.ctimeMs - snapshot.ctimeMs) > 1) {
-      return false;
-    }
-  }
-  return true;
+  return sameFileVersion(stat, snapshot);
 }
 
 export function normaliseRangeHashEntry(row) {
