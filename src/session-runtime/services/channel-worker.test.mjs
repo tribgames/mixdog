@@ -144,8 +144,8 @@ test('start attaches to the discovered daemon; execute routes channel tools; sto
 test('a transport failure drops the stale attach and the retry re-attaches with the same call id', async (context) => {
   const { root, daemon } = await workspace(context, { failCalls: 1 });
   const worker = createStandaloneChannelWorker({ rootDir: join(root, 'app'), dataDir: join(root, 'data') });
-  assert.deepEqual(await worker.execute('rebind_current_transcript', {}), {
-    ran: 'rebind_current_transcript',
+  assert.deepEqual(await worker.execute('reload_config', {}), {
+    ran: 'reload_config',
     args: {},
   });
   assert.equal(daemon.state.registers.length, 2, 'the failed transport re-attached');

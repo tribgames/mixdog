@@ -3,11 +3,7 @@
 // the exact public API and boot side-effects by re-exporting from worker-main.
 // Kept as the channels worker entrypoint the daemon loads.
 export {
-  TOOL_DEFS,
   handleToolCall,
-  handleToolCallWithBridgeRetry,
-  init,
-  instructions,
   isChannelBridgeActive,
   isChannelsDegraded,
   start,
