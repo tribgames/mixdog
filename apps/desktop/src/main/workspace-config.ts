@@ -216,7 +216,9 @@ function userSettingsFile(userDataPath: string): string {
 
 /** The user-scope Markdown default view (what Settings → General shows),
  *  resolved by the same logic the editor uses. */
-export async function readMarkdownDefaultView(userDataPath: string): Promise<DesktopEditorSettings['markdownDefaultView']> {
+export async function readMarkdownDefaultView(
+  userDataPath: string
+): Promise<DesktopEditorSettings['markdownDefaultView']> {
   const user = userDataPath ? await optionalJsonc(userSettingsFile(userDataPath)) : {};
   return editorSettingsFromScopes([user]).markdownDefaultView;
 }

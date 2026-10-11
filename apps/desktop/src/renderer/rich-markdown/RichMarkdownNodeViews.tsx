@@ -72,15 +72,13 @@ export function RichMarkdownImage({ node, selected }: NodeViewProps) {
   const alt = String(node.attrs.alt ?? '');
   const localPath = richMarkdownImagePath(src, relPath);
   const remote = localPath === null ? safeMarkdownUrl(src, 'src') : '';
+  let image: React.ReactElement;
+  if (localPath !== null) image = <LocalImage projectPath={projectPath} path={localPath} alt={alt} />;
+  else if (remote) image = <img src={remote} alt={alt} title={node.attrs.title ?? undefined} draggable={false} />;
+  else image = <span className="rich-markdown-image-missing">{alt || src}</span>;
   return (
     <NodeViewWrapper as="span" className={`rich-markdown-image${selected ? ' is-selected' : ''}`}>
-      {localPath !== null ? (
-        <LocalImage projectPath={projectPath} path={localPath} alt={alt} />
-      ) : remote ? (
-        <img src={remote} alt={alt} title={node.attrs.title ?? undefined} draggable={false} />
-      ) : (
-        <span className="rich-markdown-image-missing">{alt || src}</span>
-      )}
+      {image}
     </NodeViewWrapper>
   );
 }

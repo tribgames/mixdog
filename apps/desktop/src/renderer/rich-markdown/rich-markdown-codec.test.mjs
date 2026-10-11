@@ -72,7 +72,20 @@ test('every supported construct survives a parse and serialize round trip', () =
     node.content?.forEach(visit);
   };
   visit(result.doc);
-  for (const type of ['heading', 'bulletList', 'orderedList', 'taskList', 'blockquote', 'table', 'codeBlock', 'inlineMath', 'blockMath', 'details', 'image', 'horizontalRule']) {
+  for (const type of [
+    'heading',
+    'bulletList',
+    'orderedList',
+    'taskList',
+    'blockquote',
+    'table',
+    'codeBlock',
+    'inlineMath',
+    'blockMath',
+    'details',
+    'image',
+    'horizontalRule',
+  ]) {
     assert.ok(types.has(type), `parsed a ${type}`);
   }
 });
@@ -101,7 +114,9 @@ test('edits to the first and last of a thousand identical paragraphs keep every 
   const middle = Array.from({ length: 1000 }, () => 'Middle __bold__ text here.\n\n').join('');
   const original = `First paragraph.\n\n${middle}Last paragraph.\n`;
   assert.ok(original.length > 24_000);
-  const edited = canonical(original).replace('First paragraph.', 'First paragraph!').replace('Last paragraph.', 'Last paragraph!');
+  const edited = canonical(original)
+    .replace('First paragraph.', 'First paragraph!')
+    .replace('Last paragraph.', 'Last paragraph!');
   assert.equal(reconcileMarkdown(original, edited), `First paragraph!\n\n${middle}Last paragraph!\n`);
   // Also when the run is too long for a direct diff: unique blocks anchor it.
   const distinct = Array.from({ length: 3000 }, (_, i) => `Para ${i} __bold__.\n\n`).join('');
@@ -137,7 +152,23 @@ test('scattered edits among thousands of identical paragraphs keep every untouch
 
 test('ordinary paragraph text is written so it reads back as the same text', () => {
   const paragraph = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
-  for (const text of ['1) item', '3. three', '- dash', '+ plus', '# hash', '> quote', '---', '===', '| --- |', '    indented', '```', '~~~', '$a$', 'https://example.com/a_b', 'www.example.com/~x']) {
+  for (const text of [
+    '1) item',
+    '3. three',
+    '- dash',
+    '+ plus',
+    '# hash',
+    '> quote',
+    '---',
+    '===',
+    '| --- |',
+    '    indented',
+    '```',
+    '~~~',
+    '$a$',
+    'https://example.com/a_b',
+    'www.example.com/~x',
+  ]) {
     for (const block of [
       paragraph(text),
       { type: 'bulletList', content: [{ type: 'listItem', content: [paragraph(text)] }] },
@@ -145,7 +176,11 @@ test('ordinary paragraph text is written so it reads back as the same text', () 
     ]) {
       const doc = { type: 'doc', content: [paragraph('before'), block] };
       const markdown = codec.serialize(doc);
-      assert.equal(sameRichMarkdownDocument(codec.schema, codec.parse(markdown), doc), true, `${JSON.stringify(text)} → ${JSON.stringify(markdown)}`);
+      assert.equal(
+        sameRichMarkdownDocument(codec.schema, codec.parse(markdown), doc),
+        true,
+        `${JSON.stringify(text)} → ${JSON.stringify(markdown)}`
+      );
     }
   }
   // A bare URL reads back as an autolink: the same text, so the same document.
@@ -208,7 +243,10 @@ test('an edit rewrites only the changed block and keeps line endings', () => {
 test('appended, inserted and removed blocks keep their neighbours intact', () => {
   const original = '* one\n* two\n\nSome __bold__ text.\n';
   const base = canonical(original);
-  assert.equal(reconcileMarkdown(original, `${base}\n\nNew paragraph`), '* one\n* two\n\nSome __bold__ text.\n\nNew paragraph\n');
+  assert.equal(
+    reconcileMarkdown(original, `${base}\n\nNew paragraph`),
+    '* one\n* two\n\nSome __bold__ text.\n\nNew paragraph\n'
+  );
   assert.equal(
     reconcileMarkdown(original, base.replace('Some **bold** text.', '## Heading\n\nSome **bold** text.')),
     '* one\n* two\n\n## Heading\n\nSome __bold__ text.\n'
@@ -240,7 +278,10 @@ test('whitespace inside code and math blocks is meaningful', () => {
 test('a changed list, quote or table keeps its untouched children byte for byte', () => {
   const list = '* first\n* second\n';
   assert.equal(reconcileMarkdown(list, canonical(list).replace('first', 'FIRST')), '* FIRST\n* second\n');
-  assert.equal(reconcileMarkdown(list, `${canonical(list).replace(/\n*$/, '')}\n- third\n`), '* first\n* second\n* third\n');
+  assert.equal(
+    reconcileMarkdown(list, `${canonical(list).replace(/\n*$/, '')}\n- third\n`),
+    '* first\n* second\n* third\n'
+  );
   assert.equal(reconcileMarkdown('+ a\n+ b\n+ c\n', canonical('+ a\n+ b\n+ c\n').replace('- b\n', '')), '+ a\n+ c\n');
   const nested = '* top\n  * first\n  * second\n* last\n';
   assert.equal(
@@ -278,7 +319,10 @@ test('front matter splits off byte for byte', () => {
   assert.equal(split.frontMatter, yaml);
   assert.equal(split.body, '# Body\r\n');
   assert.deepEqual(frontMatterLines(split.frontMatter), ['title: "A: b"', 'tags: [x]']);
-  assert.deepEqual(splitFrontMatter('+++\ntitle = "x"\n+++\nBody'), { frontMatter: '+++\ntitle = "x"\n+++\n', body: 'Body' });
+  assert.deepEqual(splitFrontMatter('+++\ntitle = "x"\n+++\nBody'), {
+    frontMatter: '+++\ntitle = "x"\n+++\n',
+    body: 'Body',
+  });
   assert.deepEqual(splitFrontMatter('---\n---\n'), { frontMatter: '---\n---\n', body: '' });
   // A rule that is not at the very top is content.
   assert.deepEqual(splitFrontMatter('text\n---\na: b\n---\n'), { frontMatter: '', body: 'text\n---\na: b\n---\n' });

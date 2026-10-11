@@ -198,7 +198,9 @@ export class RichMarkdownModelSync {
     // The editor holds an edit the model never took: it is kept (never
     // replaced behind the user's back) until explicitly discarded.
     if (this.held !== null) {
-      this.hold(t('The file changed elsewhere while this edit could not be saved. Discard the edit to load the current file.'));
+      this.hold(
+        t('The file changed elsewhere while this edit could not be saved. Discard the edit to load the current file.')
+      );
       return;
     }
     if (!this.reloadChangedBlocks(text)) this.load(text);
@@ -423,7 +425,9 @@ export class RichMarkdownModelSync {
       ? [
           ...old.slice(0, p),
           ...mapped,
-          ...old.slice(n - s).map((entry) => ({ node: entry.node, start: entry.start + delta, end: entry.end + delta })),
+          ...old
+            .slice(n - s)
+            .map((entry) => ({ node: entry.node, start: entry.start + delta, end: entry.end + delta })),
         ]
       : null;
     // Suffix blocks are the document's own nodes from here on.
@@ -474,7 +478,11 @@ export class RichMarkdownModelSync {
     const result = this.spliceChangedBlocks(doc) ?? this.spliceWholeDocument(doc);
     if (!result) {
       this.heldDoc = doc;
-      this.hold(t('This edit cannot be written as Markdown, so it is not in the file and cannot be saved yet. Keep editing, or discard it.'));
+      this.hold(
+        t(
+          'This edit cannot be written as Markdown, so it is not in the file and cannot be saved yet. Keep editing, or discard it.'
+        )
+      );
       return false;
     }
     this.release();

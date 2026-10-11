@@ -54,7 +54,14 @@ async function mount(t, text, props = {}) {
   dom.window.mixdogDesktop = { openExternal: async (url) => external.push(url) };
   dom.window.document.elementFromPoint = () => null;
   dom.window.Range.prototype.getClientRects = () => [];
-  dom.window.Range.prototype.getBoundingClientRect = () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 });
+  dom.window.Range.prototype.getBoundingClientRect = () => ({
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+  });
   const model = createTestModel(text);
   const calls = { save: 0, opened: [], unsupported: [] };
   const { default: RichMarkdownEditor } = await import('./RichMarkdownEditor.tsx');
@@ -115,7 +122,10 @@ test('a user edit is written back to the model as a minimal change', async (t) =
     editor.state.doc.descendants((node, pos) => {
       if (node.isText && node.text === ' text.') end = pos + node.nodeSize;
     });
-    editor.chain().insertContentAt(end - 1, ' now').run();
+    editor
+      .chain()
+      .insertContentAt(end - 1, ' now')
+      .run();
   });
   await settle(400);
   assert.equal(f.model.getValue(), FRONT + BODY.replace('Some __bold__ text.', 'Some **bold** text now.'));
@@ -162,7 +172,13 @@ test('undo runs on the model history: across leaving Rich, from the keyboard, an
   assert.equal(button('Redo').disabled, false);
   await act(async () => {
     f.content().dispatchEvent(
-      new f.dom.window.KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })
+      new f.dom.window.KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      })
     );
   });
   assert.equal(f.model.getValue(), edited);
@@ -188,7 +204,9 @@ test('undo and redo put the caret where the undone or redone edit was', async (t
   });
   const history = (inputType) =>
     act(async () => {
-      f.content().dispatchEvent(new f.dom.window.InputEvent('beforeinput', { inputType, bubbles: true, cancelable: true }));
+      f.content().dispatchEvent(
+        new f.dom.window.InputEvent('beforeinput', { inputType, bubbles: true, cancelable: true })
+      );
     });
   await history('historyUndo');
   assert.equal(f.model.getValue(), 'First paragraph here.\n\nSecond paragraph, much longer than the first one.\n');
@@ -209,7 +227,10 @@ test('an edit the file cannot take yet stays in Rich with a notice; saving waits
   });
   // Two paragraphs in one cell: Markdown has no way to write that.
   await act(async () => {
-    editor.chain().insertContentAt(cellEnd, { type: 'paragraph', content: [{ type: 'text', text: 'two' }] }).run();
+    editor
+      .chain()
+      .insertContentAt(cellEnd, { type: 'paragraph', content: [{ type: 'text', text: 'two' }] })
+      .run();
   });
   const notice = () => f.doc.querySelector('.rich-markdown-held');
   assert.ok(notice(), 'the notice shows at once');
@@ -218,7 +239,9 @@ test('an edit the file cannot take yet stays in Rich with a notice; saving waits
   assert.equal(f.model.getValue(), original);
   assert.match(f.content().textContent, /two/, 'the edit is still in the editor');
   await act(async () => {
-    f.content().dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }));
+    f.content().dispatchEvent(
+      new f.dom.window.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true })
+    );
   });
   assert.equal(f.calls.save, 0, 'saving would leave the edit out: it waits');
   assert.deepEqual(f.calls.unsupported, []);
@@ -260,7 +283,9 @@ test('Ctrl+S flushes pending edits, then saves', async (t) => {
     f.editor().chain().insertContentAt(1, 'My ').run();
   });
   await act(async () => {
-    f.content().dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }));
+    f.content().dispatchEvent(
+      new f.dom.window.KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true })
+    );
   });
   assert.equal(f.calls.save, 1);
   assert.match(f.model.getValue(), /^# My Guide\n/);
@@ -295,7 +320,11 @@ test('anchors to repeated headings reach the right one', async (t) => {
   const open = (anchor) =>
     act(async () => {
       editor.view.someProp('handleClick', (handler) =>
-        handler(editor.view, editor.view.posAtDOM(anchor.firstChild, 1), new f.dom.window.MouseEvent('click', { ctrlKey: true }))
+        handler(
+          editor.view,
+          editor.view.posAtDOM(anchor.firstChild, 1),
+          new f.dom.window.MouseEvent('click', { ctrlKey: true })
+        )
       );
     });
   const headingIndex = () => {
@@ -323,7 +352,9 @@ test('read-only disables editing and the toolbar', async (t) => {
 test('search highlights matches and steps through them', async (t) => {
   const f = await mount(t, `${BODY}\nMore text here.\n`);
   await act(async () => {
-    f.content().dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
+    f.content().dispatchEvent(
+      new f.dom.window.KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true })
+    );
   });
   const input = f.doc.querySelector('.rich-markdown-search-input');
   assert.ok(input);
@@ -351,7 +382,10 @@ test('a held edit stays readable for backups, also after Rich unmounts, which do
     if (node.type.name === 'tableCell') cellEnd = pos + node.nodeSize - 1;
   });
   await act(async () => {
-    editor.chain().insertContentAt(cellEnd, { type: 'paragraph', content: [{ type: 'text', text: 'two' }] }).run();
+    editor
+      .chain()
+      .insertContentAt(cellEnd, { type: 'paragraph', content: [{ type: 'text', text: 'two' }] })
+      .run();
   });
   assert.equal(reports.at(-1).held, true);
   const heldText = reports.at(-1).heldText;
@@ -381,4 +415,40 @@ test('unsupported content is reported to the host', async (t) => {
   assert.equal(f.calls.unsupported.length, 1);
   assert.match(f.calls.unsupported[0], /HTML/);
   assert.equal(f.doc.querySelector('.rich-markdown-content'), null);
+});
+
+test('pasted Markdown the editor cannot represent is inserted as literal text, not converted', async (t) => {
+  const f = await mount(t, '# Hello\n\nBody.\n');
+  const paste = (plain) =>
+    act(async () => {
+      f.editor().commands.focus('end');
+      const event = new f.dom.window.Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', {
+        value: { getData: (type) => (type === 'text/plain' ? plain : '') },
+      });
+      f.content().dispatchEvent(event);
+    });
+  await paste('# Pasted\n\n<div>IMPORTANT CONTENT</div>');
+  const text = f.content().textContent;
+  assert.match(text, /<div>IMPORTANT CONTENT<\/div>/, 'the HTML survives as visible text');
+  assert.equal(f.content().querySelectorAll('h1').length, 1, 'the pasted heading is not converted');
+  await paste('## Safe\n\n* item');
+  assert.equal(f.content().querySelectorAll('h2').length, 1, 'supported Markdown still converts');
+});
+
+test('pasted literal text keeps its empty lines', async (t) => {
+  const f = await mount(t, '# Hello\n\nBody.\n');
+  await act(async () => {
+    f.editor().commands.focus('end');
+    const event = new f.dom.window.Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: { getData: (type) => (type === 'text/plain' ? '# Pasted\n\n<pre>line one\n\n\nline two</pre>' : '') },
+    });
+    f.content().dispatchEvent(event);
+  });
+  const paragraphs = [...f.content().querySelectorAll('p')].map((p) => p.textContent);
+  const one = paragraphs.indexOf('<pre>line one');
+  assert.ok(one >= 0, JSON.stringify(paragraphs));
+  assert.deepEqual(paragraphs.slice(one, one + 4), ['<pre>line one', '', '', 'line two</pre>']);
+  assert.match(f.model.getValue(), /&lt;pre&gt;line one\n\n(?:\n)*line two&lt;\/pre&gt;\n$/);
 });

@@ -31,6 +31,7 @@ export function RichMarkdownSuggestMenu({
   const list = useRef<HTMLDivElement>(null);
   const listId = useId();
   const optionId = (index: number) => `${listId}-option-${index}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `selected` is the trigger; the active option is scrolled into view when it changes
   useEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
@@ -61,6 +62,7 @@ export function RichMarkdownSuggestMenu({
     >
       {items.length ? (
         items.map((item, index) => (
+          // biome-ignore lint/a11y/useFocusableInteractive: focus stays in the editor; options are reached through aria-activedescendant
           <div
             key={item.kind === 'command' ? item.command.id : item.code}
             id={optionId(index)}
@@ -145,6 +147,7 @@ export function RichMarkdownPrompt({
         }
       }}
     >
+      {/* biome-ignore lint/a11y/noLabelWithoutControl: the label wraps the textarea or input chosen below */}
       <label>
         <span>{t(PROMPT_LABELS[kind])}</span>
         {kind === 'blockMath' ? (
@@ -235,7 +238,13 @@ export function RichMarkdownLinkBubble({
       </button>
       {readOnly ? null : (
         <>
-          <button type="button" className="rich-markdown-tool" aria-label={t('Edit link')} title={t('Edit link')} onClick={onEdit}>
+          <button
+            type="button"
+            className="rich-markdown-tool"
+            aria-label={t('Edit link')}
+            title={t('Edit link')}
+            onClick={onEdit}
+          >
             <Pencil size={14} aria-hidden="true" />
           </button>
           <button
@@ -277,7 +286,11 @@ export function RichMarkdownSearchBar({
     input.current?.focus();
     input.current?.select();
   }, []);
+  let countLabel = '';
+  if (query)
+    countLabel = count ? t('{{current}} of {{total}}', { current: active + 1, total: count }) : t('No results');
   return (
+    // biome-ignore lint/a11y/useSemanticElements: keeps the div the stylesheet and layout expect
     <div className="rich-markdown-search" role="search">
       <input
         ref={input}
@@ -299,7 +312,7 @@ export function RichMarkdownSearchBar({
         }}
       />
       <span className="rich-markdown-search-count" aria-live="polite">
-        {query ? (count ? t('{{current}} of {{total}}', { current: active + 1, total: count }) : t('No results')) : ''}
+        {countLabel}
       </span>
       <button
         type="button"
@@ -331,7 +344,13 @@ export function RichMarkdownSearchBar({
       >
         <ArrowDown size={15} aria-hidden="true" />
       </button>
-      <button type="button" className="rich-markdown-tool" aria-label={t('Close')} title={t('Close (Escape)')} onClick={onClose}>
+      <button
+        type="button"
+        className="rich-markdown-tool"
+        aria-label={t('Close')}
+        title={t('Close (Escape)')}
+        onClick={onClose}
+      >
         <X size={15} aria-hidden="true" />
       </button>
     </div>
@@ -346,9 +365,16 @@ export function RichMarkdownFrontMatter({ frontMatter }: { frontMatter: string }
   const keys = lines.map((line) => /^([\w.-]+)\s*[:=]/.exec(line)?.[1]).filter(Boolean);
   return (
     <div className="rich-markdown-frontmatter" role="note" aria-label={t('Front matter')}>
-      <button type="button" className="rich-markdown-frontmatter-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="rich-markdown-frontmatter-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
         <span className="rich-markdown-frontmatter-label">{t('Front matter')}</span>
-        <span className="rich-markdown-frontmatter-keys">{keys.join(', ') || t('{{count}} lines', { count: lines.length })}</span>
+        <span className="rich-markdown-frontmatter-keys">
+          {keys.join(', ') || t('{{count}} lines', { count: lines.length })}
+        </span>
       </button>
       {open ? <pre className="rich-markdown-frontmatter-source">{lines.join('\n')}</pre> : null}
     </div>

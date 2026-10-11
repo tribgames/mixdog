@@ -134,7 +134,10 @@ export function RichMarkdownToolbar({
           value={String(state.heading)}
           onChange={(event) => {
             const level = Number(event.target.value);
-            if (level) chain().setHeading({ level: level as 1 | 2 | 3 | 4 | 5 | 6 }).run();
+            if (level)
+              chain()
+                .setHeading({ level: level as 1 | 2 | 3 | 4 | 5 | 6 })
+                .run();
             else chain().setParagraph().run();
           }}
         >
@@ -147,10 +150,22 @@ export function RichMarkdownToolbar({
         </select>
       </div>
       <div className="rich-markdown-toolbar-group">
-        <ToolButton label={t('Bold')} shortcut={`${mod}B`} active={state.bold} disabled={off} onRun={() => chain().toggleBold().run()}>
+        <ToolButton
+          label={t('Bold')}
+          shortcut={`${mod}B`}
+          active={state.bold}
+          disabled={off}
+          onRun={() => chain().toggleBold().run()}
+        >
           <Bold {...ICON} />
         </ToolButton>
-        <ToolButton label={t('Italic')} shortcut={`${mod}I`} active={state.italic} disabled={off} onRun={() => chain().toggleItalic().run()}>
+        <ToolButton
+          label={t('Italic')}
+          shortcut={`${mod}I`}
+          active={state.italic}
+          disabled={off}
+          onRun={() => chain().toggleItalic().run()}
+        >
           <Italic {...ICON} />
         </ToolButton>
         <ToolButton
@@ -162,21 +177,48 @@ export function RichMarkdownToolbar({
         >
           <Strikethrough {...ICON} />
         </ToolButton>
-        <ToolButton label={t('Inline code')} shortcut={`${mod}E`} active={state.code} disabled={off} onRun={() => chain().toggleCode().run()}>
+        <ToolButton
+          label={t('Inline code')}
+          shortcut={`${mod}E`}
+          active={state.code}
+          disabled={off}
+          onRun={() => chain().toggleCode().run()}
+        >
           <Code {...ICON} />
         </ToolButton>
-        <ToolButton label={t('Link')} shortcut={`${mod}K`} active={state.link} disabled={off} onRun={() => onPrompt('link')}>
+        <ToolButton
+          label={t('Link')}
+          shortcut={`${mod}K`}
+          active={state.link}
+          disabled={off}
+          onRun={() => onPrompt('link')}
+        >
           <Link {...ICON} />
         </ToolButton>
       </div>
       <div className="rich-markdown-toolbar-group">
-        <ToolButton label={t('Bulleted list')} active={state.bulletList} disabled={off} onRun={() => chain().toggleBulletList().run()}>
+        <ToolButton
+          label={t('Bulleted list')}
+          active={state.bulletList}
+          disabled={off}
+          onRun={() => chain().toggleBulletList().run()}
+        >
           <List {...ICON} />
         </ToolButton>
-        <ToolButton label={t('Numbered list')} active={state.orderedList} disabled={off} onRun={() => chain().toggleOrderedList().run()}>
+        <ToolButton
+          label={t('Numbered list')}
+          active={state.orderedList}
+          disabled={off}
+          onRun={() => chain().toggleOrderedList().run()}
+        >
           <ListOrdered {...ICON} />
         </ToolButton>
-        <ToolButton label={t('Task list')} active={state.taskList} disabled={off} onRun={() => chain().toggleTaskList().run()}>
+        <ToolButton
+          label={t('Task list')}
+          active={state.taskList}
+          disabled={off}
+          onRun={() => chain().toggleTaskList().run()}
+        >
           <ListChecks {...ICON} />
         </ToolButton>
         <ToolButton
@@ -197,10 +239,20 @@ export function RichMarkdownToolbar({
         </ToolButton>
       </div>
       <div className="rich-markdown-toolbar-group">
-        <ToolButton label={t('Quote')} active={state.blockquote} disabled={off} onRun={() => chain().toggleBlockquote().run()}>
+        <ToolButton
+          label={t('Quote')}
+          active={state.blockquote}
+          disabled={off}
+          onRun={() => chain().toggleBlockquote().run()}
+        >
           <Quote {...ICON} />
         </ToolButton>
-        <ToolButton label={t('Code block')} active={state.codeBlock} disabled={off} onRun={() => chain().toggleCodeBlock().run()}>
+        <ToolButton
+          label={t('Code block')}
+          active={state.codeBlock}
+          disabled={off}
+          onRun={() => chain().toggleCodeBlock().run()}
+        >
           <FileCode2 {...ICON} />
         </ToolButton>
         <ToolButton
@@ -224,6 +276,7 @@ export function RichMarkdownToolbar({
         </ToolButton>
       </div>
       {state.table && !off ? (
+        // biome-ignore lint/a11y/useSemanticElements: a fieldset would change the toolbar's layout and styling
         <div className="rich-markdown-toolbar-group rich-markdown-table-tools" role="group" aria-label={t('Table')}>
           {TABLE_ACTIONS.map(([label, run]) => (
             <button

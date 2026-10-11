@@ -287,7 +287,7 @@ test('releasing a held edit with a clean model removes its backup', async () => 
   assert.deepEqual(log, ['write:held', 'delete']);
 });
 
-function heldBackupHarness(api) {
+function heldBackupHarness(api, { active = false } = {}) {
   let text = 'saved';
   const model = { getValue: () => text, setValue: (value) => (text = value) };
   const dirty = [];
@@ -307,7 +307,7 @@ function heldBackupHarness(api) {
       syncLspRef,
       projectPath: 'C:/Project/demo',
       relPath: 'held.md',
-      active: false,
+      active,
       editorSettings: { formatOnSave: false },
       notifyReady() {},
       onDirty: (value) => dirty.push(value),
@@ -319,6 +319,75 @@ function heldBackupHarness(api) {
   }
   return { state, Harness };
 }
+
+test('a held backup keeps the disk text the held edit was based on, so recovery reports an outside change', async () => {
+  const { resolveEditorBackup } = await import('./editor-file-loader.ts');
+  const backups = [];
+  let disk = 'saved';
+  const { state, Harness } = heldBackupHarness({
+    readProjectFile: async () => ({ content: disk, mtimeMs: disk === 'saved' ? 1 : 5, binary: false, tooLarge: false }),
+    writeEditorBackup: async (_project, _rel, content, expectedContent) => backups.push({ content, expectedContent }),
+    deleteEditorBackup: async () => backups.push(null),
+  });
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await act(async () => state.session.setRichHeld(true, () => 'saved plus held'));
+    // Changed outside, then reverted to that version while the edit is held.
+    disk = 'changed outside';
+    await act(async () => assert.equal(await state.session.revertFromDisk(), true));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 600)));
+  } finally {
+    await act(async () => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    delete window.mixdogDesktop;
+  }
+  const last = backups.at(-1);
+  assert.deepEqual(last, { content: 'saved plus held', expectedContent: 'saved' });
+  assert.ok(
+    backups.every((backup) => backup === null || backup.expectedContent === 'saved'),
+    'never relabelled against the newer disk text'
+  );
+  const resolved = resolveEditorBackup(disk, last);
+  assert.equal(resolved.recovery?.diskChanged, true, 'recovery reports the conflict');
+  assert.equal(resolved.content, 'changed outside', 'the outside edit is not replaced');
+});
+
+test('disk watching treats a held edit as unsaved and does not reload over it', async () => {
+  let reads = 0;
+  let mtime = 1;
+  const { state, Harness } = heldBackupHarness(
+    {
+      readProjectFile: async () => {
+        reads++;
+        return { content: 'saved', mtimeMs: mtime, binary: false, tooLarge: false };
+      },
+      statProjectFile: async () => ({ mtimeMs: mtime }),
+      writeEditorBackup: async () => undefined,
+      deleteEditorBackup: async () => undefined,
+    },
+    { active: true }
+  );
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await act(async () => state.session.setRichHeld(true, () => 'saved plus held'));
+    const readsBefore = reads;
+    mtime = 9;
+    await act(async () => {
+      window.dispatchEvent(new window.Event('pagehide'));
+      window.dispatchEvent(new window.Event('pageshow'));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    assert.equal(reads, readsBefore, 'no automatic reload');
+    assert.equal(state.session.diskChanged, true, 'flagged as changed on disk');
+  } finally {
+    await act(async () => root.unmount());
+    delete window.mixdogDesktop;
+  }
+});
 
 test('a save settling its backup after a held edit is discarded does not recreate the backup', async () => {
   const log = [];

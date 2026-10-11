@@ -130,13 +130,7 @@ export function useMarkdownOutline(rootRef: RefObject<HTMLElement | null>, enabl
 }
 
 /** Slim right-side outline; indentation follows the heading level. */
-export function EditorOutline({
-  headings,
-  activeId,
-}: {
-  headings: readonly OutlineHeading[];
-  activeId: string;
-}) {
+export function EditorOutline({ headings, activeId }: { headings: readonly OutlineHeading[]; activeId: string }) {
   const shallowest = headings.reduce((min, heading) => Math.min(min, heading.level), 6);
   return (
     <nav className="editor-outline" aria-label={t('Table of contents')}>
@@ -145,6 +139,7 @@ export function EditorOutline({
       ) : (
         <ul>
           {headings.map((heading, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: heading ids can repeat, so the index keeps keys unique
             <li key={`${heading.id}:${index}`}>
               <button
                 type="button"

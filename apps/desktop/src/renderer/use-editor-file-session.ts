@@ -97,6 +97,10 @@ export function useEditorFileSession({
   // While held: the file text with the held edit, which backups keep
   // instead of the model's (so quitting cannot lose it).
   const richHeldText = useRef<(() => string | null) | null>(null);
+  // While held: the disk text the held edit was based on. Its backup keeps
+  // this as the expected content, never a newer disk version, so recovery
+  // after an outside change reports the conflict.
+  const richHeldDiskText = useRef<string | null>(null);
   const markDirty = useCallback((next: boolean) => {
     const effective = next || richHeldRef.current;
     setDirty(effective);
@@ -113,12 +117,11 @@ export function useEditorFileSession({
     savedDiskText,
     skipUnmountBackup,
     heldText: richHeldText,
+    heldDiskText: richHeldDiskText,
   });
   /** What a backup keeps while Rich holds an edit. */
-  const heldBackupText = useCallback(
-    () => richHeldText.current?.() ?? readModel()?.getValue() ?? null,
-    [readModel]
-  );
+  const heldBackupText = useCallback(() => richHeldText.current?.() ?? readModel()?.getValue() ?? null, [readModel]);
+  const heldBackupBase = useCallback(() => richHeldDiskText.current ?? undefined, []);
   // Bumped by an explicit discard and on unmount: backup work started
   // before then (with an older generation) must not write afterwards.
   const backupGeneration = useRef(0);
@@ -143,9 +146,9 @@ export function useEditorFileSession({
         if (generation !== backupGeneration.current || !richHeldRef.current) return;
       }
       const held = heldBackupText();
-      if (held !== null) await writeBackupNow(held);
+      if (held !== null) await writeBackupNow(held, heldBackupBase());
     },
-    [deleteBackup, heldBackupText, writeBackupNow]
+    [deleteBackup, heldBackupBase, heldBackupText, writeBackupNow]
   );
 
   const reload = useEditorSessionLoad({
@@ -303,6 +306,7 @@ export function useEditorFileSession({
     readModel,
     savedMtime,
     savedText,
+    held: richHeldRef,
     reload,
     setDiskChanged,
     setSaveError,
@@ -404,16 +408,18 @@ export function useEditorFileSession({
       if (!held && !wasHeld) return;
       richHeldRef.current = held;
       richHeldText.current = held ? (heldText ?? null) : null;
+      if (!held) richHeldDiskText.current = null;
+      else if (!wasHeld) richHeldDiskText.current = savedDiskText.current;
       const model = readModel();
       const changed = model ? model.getValue() !== savedText.current : false;
       markDirty(changed);
       if (held) {
         skipUnmountBackup.current = false;
-        scheduleBackup(heldBackupText);
+        scheduleBackup(heldBackupText, heldBackupBase);
       } else if (changed && model) scheduleBackup(model.getValue());
       else void deleteBackup().catch(() => undefined);
     },
-    [deleteBackup, heldBackupText, markDirty, readModel, scheduleBackup]
+    [deleteBackup, heldBackupBase, heldBackupText, markDirty, readModel, scheduleBackup]
   );
 
   const onEditorChange = useCallback(
@@ -423,14 +429,14 @@ export function useEditorFileSession({
       skipUnmountBackup.current = false;
       setRevertError('');
       markDirty(changed);
-      if (richHeldRef.current) scheduleBackup(heldBackupText);
+      if (richHeldRef.current) scheduleBackup(heldBackupText, heldBackupBase);
       else if (changed) scheduleBackup(content);
       else {
         setRecovery(null);
         void deleteBackup().catch(() => undefined);
       }
     },
-    [deleteBackup, heldBackupText, markDirty, scheduleBackup]
+    [deleteBackup, heldBackupBase, heldBackupText, markDirty, scheduleBackup]
   );
 
   // Previews are binary loads, which the text watch above skips.

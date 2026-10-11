@@ -65,7 +65,11 @@ export function findRichMarkdownMatches(
           offset += char.length;
         }
       }
-      for (let index = haystack.indexOf(needle); index !== -1; index = haystack.indexOf(needle, index + needle.length)) {
+      for (
+        let index = haystack.indexOf(needle);
+        index !== -1;
+        index = haystack.indexOf(needle, index + needle.length)
+      ) {
         const end = index + needle.length;
         matches.push({ from: runStart + (from ? from[index] : index), to: runStart + (to ? to[end - 1] : end) });
       }

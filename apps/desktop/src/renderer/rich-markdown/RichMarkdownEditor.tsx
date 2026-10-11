@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from 'react';
 import type { editor as MonacoEditor } from 'monaco-editor';
 import { EditorContent, ReactNodeViewRenderer, useEditor, type Editor, type UseEditorOptions } from '@tiptap/react';
 import { getMarkRange, type JSONContent } from '@tiptap/core';
@@ -7,8 +14,14 @@ import { TextSelection } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { Placeholder } from '@tiptap/extensions';
 import { t } from '../i18n';
-import { filterBlockCommands, filterEmoji, looksLikeMarkdown, type RichMarkdownPromptKind } from './rich-markdown-commands';
-import { richMarkdownCodecFor } from './rich-markdown-codec';
+import {
+  filterBlockCommands,
+  filterEmoji,
+  looksLikeMarkdown,
+  type RichMarkdownPromptKind,
+} from './rich-markdown-commands';
+import { checkRichMarkdownRoundTrip, richMarkdownCodecFor } from './rich-markdown-codec';
+import { richMarkdownBodySupport } from './rich-markdown-support';
 import { RichMarkdownDocumentContext } from './rich-markdown-context';
 import { createRichMarkdownExtensions } from './rich-markdown-extensions';
 import { headingForAnchor, readHeadings } from '../editor-markdown-outline';
@@ -104,7 +117,12 @@ function typedTrigger(state: EditorState): { kind: 'slash' | 'emoji'; query: str
   if (!selection.empty || !(selection instanceof TextSelection)) return null;
   const { $from } = selection;
   if ($from.parent.type.spec.code || !$from.parent.isTextblock) return null;
-  const before = $from.parent.textBetween(Math.max(0, $from.parentOffset - 48), $from.parentOffset, undefined, '\ufffc');
+  const before = $from.parent.textBetween(
+    Math.max(0, $from.parentOffset - 48),
+    $from.parentOffset,
+    undefined,
+    '\ufffc'
+  );
   const slash = /(?:^|\s)\/([\p{L}\p{N}-]{0,24})$/u.exec(before);
   if (slash) return { kind: 'slash', query: slash[1], from: $from.pos - slash[1].length - 1, to: $from.pos };
   const emoji = /(?:^|\s):([a-z0-9_+-]{2,32})$/.exec(before);
@@ -130,7 +148,8 @@ function replaceDocument(editor: Editor, json: JSONContent, initial: boolean, to
     }
     tr.replace(start, endA, doc.slice(start, endB));
     if (!tr.doc.eq(doc)) tr.replaceWith(0, tr.doc.content.size, doc.content);
-    if (toChange) tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(endB, tr.doc.content.size)), -1)).scrollIntoView();
+    if (toChange)
+      tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(endB, tr.doc.content.size)), -1)).scrollIntoView();
   }
   if (initial) tr.setSelection(TextSelection.atStart(tr.doc));
   if (tr.docChanged || initial) editor.view.dispatch(tr);
@@ -171,7 +190,10 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         image: ReactNodeViewRenderer(RichMarkdownImage),
       },
       onMathClick: (kind, latex, pos) => live.current.editMath(kind, latex, pos),
-      extra: [RichMarkdownSearch, Placeholder.configure({ placeholder: t('Write, or type / for blocks and : for emoji') })],
+      extra: [
+        RichMarkdownSearch,
+        Placeholder.configure({ placeholder: t('Write, or type / for blocks and : for emoji') }),
+      ],
     }),
     editable: !readOnly,
     immediatelyRender: true,
@@ -197,7 +219,9 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     const sync = syncRef.current;
     const canUndo = Boolean(sync?.canUndo());
     const canRedo = Boolean(sync?.canRedo());
-    setHistory((current) => (current.canUndo === canUndo && current.canRedo === canRedo ? current : { canUndo, canRedo }));
+    setHistory((current) =>
+      current.canUndo === canUndo && current.canRedo === canRedo ? current : { canUndo, canRedo }
+    );
   };
 
   /** Undo and redo run on the model's history, shared with Source mode. */
@@ -269,11 +293,26 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       return;
     }
     if (edit) {
-      setPrompt({ kind, initial: { value: edit.latex, text: '' }, withText: false, from, to, nodePos: edit.pos, point: pointAt(edit.pos) });
+      setPrompt({
+        kind,
+        initial: { value: edit.latex, text: '' },
+        withText: false,
+        from,
+        to,
+        nodePos: edit.pos,
+        point: pointAt(edit.pos),
+      });
       return;
     }
     const selected = kind === 'image' ? '' : state.doc.textBetween(from, to, ' ');
-    setPrompt({ kind, initial: { value: selected, text: '' }, withText: kind === 'image', from, to, point: pointAt(from) });
+    setPrompt({
+      kind,
+      initial: { value: selected, text: '' },
+      withText: kind === 'image',
+      from,
+      to,
+      point: pointAt(from),
+    });
   };
 
   const submitPrompt = (current: PromptState, values: PromptValues) => {
@@ -286,7 +325,13 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       case 'link':
         if (!value) chain.setTextSelection(range).extendMarkRange('link').unsetLink().run();
         else if (range.from === range.to) {
-          chain.insertContentAt(range.from, { type: 'text', text: label || value, marks: [{ type: 'link', attrs: { href: value } }] }).run();
+          chain
+            .insertContentAt(range.from, {
+              type: 'text',
+              text: label || value,
+              marks: [{ type: 'link', attrs: { href: value } }],
+            })
+            .run();
         } else chain.setTextSelection(range).extendMarkRange('link').setLink({ href: value }).run();
         return;
       case 'image':
@@ -358,7 +403,8 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         if (menu) {
           const count = menu.items.length;
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            if (count) setMenu({ ...menu, selected: (menu.selected + (event.key === 'ArrowDown' ? 1 : count - 1)) % count });
+            if (count)
+              setMenu({ ...menu, selected: (menu.selected + (event.key === 'ArrowDown' ? 1 : count - 1)) % count });
             return true;
           }
           if ((event.key === 'Enter' || event.key === 'Tab') && count) {
@@ -405,7 +451,23 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         if (/<(?:h[1-6]|ul|ol|table|a\s|strong|em|b|i|pre|blockquote|img)\b/i.test(html)) return false;
         if (!looksLikeMarkdown(plain)) return false;
         event.preventDefault();
-        return editor.chain().focus().insertContent(plain, { contentType: 'markdown' }).run();
+        // The clipboard gets the same safety checks as a loaded file: Markdown
+        // the editor cannot represent faithfully goes in as literal text.
+        const codec = richMarkdownCodecFor(editor.schema, editor.markdown!);
+        if (richMarkdownBodySupport(plain).ok && checkRichMarkdownRoundTrip(codec, plain).ok) {
+          return editor.chain().focus().insertContent(plain, { contentType: 'markdown' }).run();
+        }
+        // One paragraph per line; empty lines stay as empty paragraphs.
+        const lines = plain.split(/\r\n?|\n/);
+        return editor
+          .chain()
+          .focus()
+          .insertContent(
+            lines.map((line) =>
+              line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' }
+            )
+          )
+          .run();
       },
       hover(view: EditorView, event: MouseEvent): boolean {
         const anchor = (event.target as Element | null)?.closest?.('a[href]');
@@ -467,7 +529,8 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         }
         if (transaction.selectionSet || transaction.docChanged) {
           const link = state.selection.empty ? linkRangeAt(state, state.selection.from) : null;
-          if (link && !prompt && editor.isFocused) setLinkBubble({ ...link, point: pointAt(link.from), source: 'caret' });
+          if (link && !prompt && editor.isFocused)
+            setLinkBubble({ ...link, point: pointAt(link.from), source: 'caret' });
           else setLinkBubble((current) => (current?.source === 'caret' ? null : current));
         }
       },
@@ -514,6 +577,7 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   }, [editor, model]);
 
   // A changed text prop means the model changed; reload if it is not ours.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `text` is the trigger; the effect must re-run when it changes
   useEffect(() => {
     syncRef.current?.refresh();
   }, [text]);
@@ -551,6 +615,7 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       event.stopPropagation();
       // A held edit is not in the file: saving now would save without it.
       // The notice stays up with the choice to discard it.
+      // flush() is undefined without a sync; only an explicit false holds the save.
       if (syncRef.current?.flush() === false) return;
       props.onSave();
     } else if (mod && !event.altKey && !event.shiftKey && key === 'f') {
@@ -567,6 +632,7 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   return (
     <RichMarkdownDocumentContext.Provider value={{ projectPath, relPath, readOnly }}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: handles shortcuts bubbling from the editor and toolbar inside; the root itself is not interactive */}
       <div className="rich-markdown" data-readonly={readOnly || undefined} onKeyDown={onRootKeyDown}>
         <RichMarkdownToolbar
           editor={editor}
@@ -603,7 +669,11 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
             onStep={(delta) =>
               search.count &&
               applySearch(
-                { query: search.query, caseSensitive: search.caseSensitive, active: (search.active + delta + search.count) % search.count },
+                {
+                  query: search.query,
+                  caseSensitive: search.caseSensitive,
+                  active: (search.active + delta + search.count) % search.count,
+                },
                 true
               )
             }
@@ -649,7 +719,12 @@ export default function RichMarkdownEditor(props: RichMarkdownEditorProps) {
                 }}
                 onRemove={() => {
                   setLinkBubble(null);
-                  editor.chain().focus().setTextSelection({ from: linkBubble.from, to: linkBubble.to }).unsetLink().run();
+                  editor
+                    .chain()
+                    .focus()
+                    .setTextSelection({ from: linkBubble.from, to: linkBubble.to })
+                    .unsetLink()
+                    .run();
                 }}
                 onPointerEnter={() => hoverTimer.current && clearTimeout(hoverTimer.current)}
                 onPointerLeave={() => live.current.scheduleBubbleHide()}

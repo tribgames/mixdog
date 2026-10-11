@@ -1,4 +1,10 @@
-import { Extension, type AnyExtension, type JSONContent, type MarkdownToken, type NodeViewRenderer } from '@tiptap/core';
+import {
+  Extension,
+  type AnyExtension,
+  type JSONContent,
+  type MarkdownToken,
+  type NodeViewRenderer,
+} from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
@@ -14,7 +20,9 @@ import { t } from '../i18n';
 
 export const richMarkdownLowlight = createLowlight(common);
 
-type MarkedExtensionList = { extensions?: Array<{ level?: string; start?: (this: unknown, src: string) => number | void }> };
+type MarkedExtensionList = {
+  extensions?: Array<{ level?: string; start?: (this: unknown, src: string) => number | void }>;
+};
 
 /**
  * A private marked instance whose block-level extension `start` probes only
@@ -63,7 +71,8 @@ type DetailsToken = MarkdownToken & {
   bodyTokens: MarkdownToken[];
 };
 
-const DETAILS_BLOCK = /^<details(\s+open)?\s*>[ \t]*\n?[ \t]*<summary>([^\n]*?)<\/summary>[ \t]*\n([\s\S]*?)\n?<\/details>[ \t]*(?:\n|$)/;
+const DETAILS_BLOCK =
+  /^<details(\s+open)?\s*>[ \t]*\n?[ \t]*<summary>([^\n]*?)<\/summary>[ \t]*\n([\s\S]*?)\n?<\/details>[ \t]*(?:\n|$)/;
 
 /** One `<details>` block in GitHub's shape: a one-line summary and a Markdown
  *  body. Nested or attribute-laden blocks stay raw HTML (unsupported). */
@@ -229,7 +238,9 @@ const RichParagraph = Paragraph.extend({
       return helpers.createNode('paragraph', undefined, helpers.parseInline(tokens));
     }
     const parent = Paragraph.config.parseMarkdown;
-    return parent ? parent.call(this, token, helpers) : helpers.createNode('paragraph', undefined, helpers.parseInline(tokens));
+    return parent
+      ? parent.call(this, token, helpers)
+      : helpers.createNode('paragraph', undefined, helpers.parseInline(tokens));
   },
   // Markdown cannot hold an empty paragraph (blank lines between blocks
   // carry them); text lines are escaped so they stay text.

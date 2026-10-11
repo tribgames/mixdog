@@ -150,7 +150,10 @@ test('an edit whose Markdown would not read back is held, never written and neve
   assert.equal(model.getValue(), '| A |\n| --- |\n| changed |\n');
   // Only an explicit discard drops it and loads the file.
   sync.discard();
-  assert.deepEqual(events.slice(-2).map((event) => event.kind), ['held', 'document']);
+  assert.deepEqual(
+    events.slice(-2).map((event) => event.kind),
+    ['held', 'document']
+  );
   assert.equal(events.at(-2).reason, null);
   assert.equal(sync.heldReason, null);
   assert.equal(sync.flush(), true);
@@ -277,7 +280,13 @@ test('a single-character edit in a large document is fast: only the changed bloc
   const typical = times.slice(1).sort((a, b) => a - b)[2];
   assert.ok(typical < 250, `single-character commits took ${times.map((time) => time.toFixed(1)).join(', ')} ms`);
   const middle = Math.floor(count / 2);
-  assert.equal(model.getValue(), text.replace(`Some __bold__ text with *emphasis*, \`code\` and a [link](https://example.com/${middle})`, `Some xxxxxx**bold** text with *emphasis*, \`code\` and a [link](https://example.com/${middle})`));
+  assert.equal(
+    model.getValue(),
+    text.replace(
+      `Some __bold__ text with *emphasis*, \`code\` and a [link](https://example.com/${middle})`,
+      `Some xxxxxx**bold** text with *emphasis*, \`code\` and a [link](https://example.com/${middle})`
+    )
+  );
   assert.equal(model.edits.length, 6);
 });
 
@@ -360,7 +369,8 @@ test('undo and redo at 250 KB reparse only the blocks they change', () => {
 });
 
 test('changes made elsewhere are applied block by block exactly as a full reload would read them', () => {
-  const initial = '# Title\n\nFirst paragraph.\n\n* one\n* two\n\nMiddle text.\n\n- [ ] task\n\n```js\ncode\n```\n\nLast.\n';
+  const initial =
+    '# Title\n\nFirst paragraph.\n\n* one\n* two\n\nMiddle text.\n\n- [ ] task\n\n```js\ncode\n```\n\nLast.\n';
   const { model, events } = start(initial);
   const edits = [
     (text) => text.replace('Middle text.', '* three'), // joins the list above it

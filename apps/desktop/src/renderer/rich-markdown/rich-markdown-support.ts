@@ -61,7 +61,7 @@ function unsupportedToken(token: Token, inCell: boolean): string | null {
         : t('Reference-style link definitions are not supported by the rich editor.');
     case 'html':
       if (inCell && !(token as Tokens.HTML).block && CELL_LINE_BREAK.test(token.raw)) return null;
-      if (!(token as Tokens.HTML).block ||token.raw.replace(DETAILS_WRAPPER, '').trim()) {
+      if (!(token as Tokens.HTML).block || token.raw.replace(DETAILS_WRAPPER, '').trim()) {
         return t('Raw HTML is not supported by the rich editor.');
       }
       return null;
@@ -110,7 +110,11 @@ export function richMarkdownBodySupport(body: string): RichMarkdownSupport {
     if (reason) return { ok: false, reason };
     if (token.type !== 'code' && token.type !== 'codespan') {
       const nested = inCell || token.type === 'table';
-      pending.push(...children(token).map((child): [Token, boolean] => [child, nested]).reverse());
+      pending.push(
+        ...children(token)
+          .map((child): [Token, boolean] => [child, nested])
+          .reverse()
+      );
     }
   }
   const definitions = Object.keys(tokens.links ?? {});
