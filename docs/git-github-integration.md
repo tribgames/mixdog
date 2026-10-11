@@ -44,15 +44,6 @@ workflow dispatch needs Actions permission, and notifications require the
 account's notifications scope. A permission failure is not treated as an empty
 list. Authentication is managed in the plugin details.
 
-## Reference review
-
-Existing local references: `C:\Project\refs\github-desktop` and
-`C:\Project\refs\vscode-pull-request-github`. Their repository-scoped state,
-PR/issue separation, and review flows informed the integration. The missing
-official CLI source was cloned to `C:\Project\refs\github-cli` from
-https://github.com/cli/cli for command/API behavior. No reference source code
-was copied into Mixdog.
-
 ## Verification
 
 Runtime contracts and agent integration:

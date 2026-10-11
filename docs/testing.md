@@ -65,11 +65,6 @@ selection, including slow/live files. An explicit `--test-concurrency` still win
 over the environment budget. Direct `node --test`, Cargo and arbitrary shell
 commands remain unfiltered.
 
-The 2026-09 sweep found 201 of 401 test files registered nowhere: hand-kept
-path lists in `package.json` had drifted for weeks, and two of the unlisted
-files were already broken (a `find` widening notice dropped in a refactor, a
-renamed Computer Use host module). Discovery is the fix, not a longer list.
-
 ## Text matching is a last resort
 
 `assert.match` against source text pins names, spacing and constants rather
@@ -78,16 +73,7 @@ it proves neither direction. Reserve it for artifacts with no runnable surface
 — generated PowerShell programs, workflow YAML, prompt text — and say why in
 the test.
 
-A 2026-08 sweep cut these from 300 assertions to 43. `computer-host-safety`
-dropped 25 of its 29 tests (1072 → 715 lines): they pinned PowerShell variable
-names, `Start-Sleep` constants and brace placement, so they broke on refactors
-while proving nothing about behavior. What survived is what actually runs —
-window-transition and frame logic called directly, plus two tests that compile
-and execute the generated PowerShell. The Office COM and PDF matchers went the
-same way: `test:office:live` already executes the COM host, and `pdf-render.mjs`
-already has behavioral coverage in the same file.
-
-The remainder is the genuine exception — Electron main modules a renderer test
+The genuine exception is Electron main modules a renderer test
 cannot import, asserting ordering invariants (a guard must precede its send)
 rather than shape:
 

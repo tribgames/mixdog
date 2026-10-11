@@ -11,23 +11,6 @@ were not edited. Calculator and Excel live checks remain pending.
 These rounds change source, not the installed app. No deployment, restart,
 shell input automation or direct bridge bypass was used.
 
-## Local reference comparison
-
-- `C:\Project\refs\hermes-agent\tools\computer_use\cua_backend_session.py`
-  distinguishes lost/unknown mutation outcomes from replay-safe discovery.
-  `cua_backend.py` invalidates targets on transport replacement.
-- `C:\Project\refs\cua\libs\cua-driver\rust\crates\cua-driver-sdk\src\service_session.rs`
-  binds reconnection to trusted resume credentials and preserves interrupted
-  action outcomes. Transport reconnection is not treated as human consent.
-- `C:\Project\refs\cua\blog\human-in-the-loop.md` describes explicit human
-  handoff. Its confidence-based fallback is not adopted.
-- The Windows input implementation under
-  `C:\Project\refs\cua\libs\cua-driver\rust\crates\platform-windows\src\input\inject.rs`
-  documents cursor/focus side effects. Repeated foreground restoration and
-  app-name-specific routing are not borrowed.
-
-Only local references were needed. No source was copied.
-
 ## Round 1 — usable, guarded resume
 
 - Added separate Resume and Stop controls to the local overlay.

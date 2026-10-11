@@ -1,15 +1,5 @@
 // Async one-shot shell runner.
 //
-// Replaces the legacy spawnSync path in builtin.mjs shell execution. The
-// improvements over spawnSync are:
-//   - native process-tree termination on timeout / abort.
-//   - automatic spill to $PLUGIN_DATA/shell-output/<taskId>.* once the
-//     in-memory buffers exceed SHELL_OUTPUT_INLINE_CAP bytes. The caller
-//     receives an outputFilePath marker the model can FileRead later
-//     instead of losing the tail past the inline cap.
-//   - external AbortSignal hookup so a session-scoped abort (ESC, new
-//     prompt) cancels in-flight bash work without orphaning the child.
-//
 // One run is an explicit state record (lib/shell-run-state.mjs) driven
 // through three phases: spawn (lib/shell-run-spawn.mjs), settle
 // (lib/shell-run-settle.mjs) and the auto-background promotion

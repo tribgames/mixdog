@@ -148,22 +148,6 @@ the page was reloaded. The internal-context error display is therefore resolved
 in the installed app. Counts are from distinct imports and are not a claim
 that the source profile stayed unchanged between them.
 
-Local references were consulted before external sources:
-
-- `C:\Project\refs\browser-use\skills\open-source\references\browser.md`:
-  persistent browser profiles and storage-state transfer are different
-  authentication strategies.
-- `C:\Project\refs\playwright\docs\src\auth.md`:
-  authenticated state may include cookies, localStorage, and IndexedDB;
-  authentication can be browser-specific.
-- `C:\Project\refs\chrome-devtools-mcp\docs\advanced-usage.md`:
-  a consented connection to an already-running browser preserves its live
-  profile instead of copying credentials to another runtime.
-- `C:\Project\refs\cua\libs\cua-driver\rust\Skills\cua-driver\BROWSER.md`
-  and `C:\Project\refs\cua\blog\extension-free-browser-use.md`:
-  existing-profile attachment is explicitly authorized and bound to an exact
-  native process/window; isolation does not silently copy a personal profile.
-
 Official evidence:
 
 - [Chromium schema-24 domain binding](https://chromium.googlesource.com/chromium/src/+/5ea6d65c622a3d5ff75db9dc0257ea3869f31289%5E%21/)
