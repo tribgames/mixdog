@@ -17,6 +17,7 @@ import { armMonoFontRemeasure, MIXDOG_EDITOR_SCROLLBAR } from './editor-monaco-b
 import { EditorPaneDocumentSurface } from './editor-pane-document';
 import {
   EditorPaneAlerts,
+  EditorPaneReadOnlyNotice,
   EditorPaneFileFallback,
   EditorPaneLoadingSurface,
   EditorPaneNoticeSurface,
@@ -573,11 +574,7 @@ export default function EditorPane({
       {callHierarchyPortal}
       <div className="editor-pane" ref={bindFooterSlot}>
         {editorBreadcrumbs}
-        {load.readOnly && (
-          <p className="editor-pane-readonly-notice" role="status">
-            {t('Read-only: this file is over 1 MB, so it can be viewed but not edited.')}
-          </p>
-        )}
+        {load.readOnly && <EditorPaneReadOnlyNotice reason={load.readOnlyReason} />}
         <EditorPaneAlerts
           recovery={recovery}
           diskChanged={diskChanged}

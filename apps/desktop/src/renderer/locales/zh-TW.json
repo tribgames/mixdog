@@ -2263,6 +2263,7 @@
   "Read only": "唯讀",
   "Read output": "讀取輸出",
   "Read-only": "唯讀",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "唯讀：此檔案的文字編碼無效。請在外部編輯器中轉換或修復，以免遺失資料。",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "唯讀：此檔案超過 1 MB，只能檢視，無法編輯。",
   "Read, create, and edit PDF documents.": "閱讀、建立和編輯 PDF 文件。",
   "Reading images…": "正在讀取圖片…",

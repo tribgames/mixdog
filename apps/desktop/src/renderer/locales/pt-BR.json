@@ -2347,6 +2347,7 @@
   "Read only": "Somente leitura",
   "Read output": "Ler saída",
   "Read-only": "Somente leitura",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "Somente leitura: este arquivo tem uma codificação de texto inválida. Converta ou repare o arquivo em um editor externo para evitar a perda de dados.",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "Somente leitura: este arquivo tem mais de 1 MB, então pode ser visualizado, mas não editado.",
   "Read, create, and edit PDF documents.": "Leia, crie e edite documentos PDF.",
   "Reading images…": "Lendo imagens…",

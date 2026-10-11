@@ -2305,6 +2305,7 @@
   "Read only": "Nur Lesen",
   "Read output": "Ausgabe lesen",
   "Read-only": "Schreibgeschützt",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "Schreibgeschützt: Diese Datei hat eine ungültige Textkodierung. Konvertieren oder reparieren Sie sie in einem externen Editor, um Datenverlust zu vermeiden.",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "Schreibgeschützt: Diese Datei ist größer als 1 MB und kann nur angezeigt, nicht bearbeitet werden.",
   "Read, create, and edit PDF documents.": "PDF-Dokumente lesen, erstellen und bearbeiten.",
   "Reading images…": "Bilder werden gelesen …",
