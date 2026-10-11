@@ -33,13 +33,13 @@ jobs:
       - name: System packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-calc libreoffice-writer libreoffice-impress fonts-crosextra-carlito fonts-crosextra-caladea fonts-liberation2 fonts-noto-cjk
           sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
           toolchain: "1.95.0"
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
+      - uses: ./.github/actions/office-runtime
       - name: Install desktop dependencies
         run: npm ci --no-audit --no-fund
         working-directory: apps/desktop

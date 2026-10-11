@@ -159,7 +159,7 @@ function assertUpdateSessionRouteRefreshesCacheFields() {
   // The route change reset lives in resetSessionForRouteChange; the guard
   // covers the caller and the helper together.
   const updateSessionRouteBlock = [
-    sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '',
+    sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}, options = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '',
     sessionLifecycleSrc.match(/function resetSessionForRouteChange\([^)]*\) \{[\s\S]*?\n\}/)?.[0] || '',
   ].join('\n');
   if (

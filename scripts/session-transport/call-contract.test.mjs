@@ -349,15 +349,16 @@ test('an addressed session action cannot silently move to another id', async () 
         cwd: process.cwd(),
       });
       assert.equal(created.sessionId, 'addressed-session');
-      await assert.rejects(
-        () =>
-          client.call('session.configure', {
-            sessionId: created.sessionId,
-            action: 'setRoute',
-            args: [{ model: 'test-model', applyToCurrentSession: true }],
-          }),
-        /session addressed-session changed its durable address to silently-rebound-session/
-      );
+      // A rebound runtime id no longer fails the call: the projection keeps
+      // serving the last snapshot under the addressed id and logs the
+      // mismatch once (see session-service/projection.test.mjs).
+      await client.call('session.configure', {
+        sessionId: created.sessionId,
+        action: 'setRoute',
+        args: [{ model: 'test-model', applyToCurrentSession: true }],
+      });
+      const read = await client.call('session.read', { sessionId: created.sessionId });
+      assert.equal(read.full.sessionId, 'addressed-session');
       await client.close('address invariant verified');
     },
     { sessionFactory }

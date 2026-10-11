@@ -47,6 +47,25 @@ function intercept(t, path, statName, { post = (st) => st, read = (buf) => buf, 
     calls.reads++;
     return read(buf);
   });
+  // The V4A route reads through the bounded reader (open + readSync), not
+  // readFileSync: the first readSync on a descriptor opened for the target is
+  // that route's fresh read.
+  const originalOpen = fs.openSync;
+  const originalReadSync = fs.readSync;
+  const unread = new Set();
+  const openMock = t.mock.method(fs, 'openSync', (target, ...args) => {
+    const fd = originalOpen(target, ...args);
+    if (statName === 'lstatSync' && target === path) unread.add(fd);
+    return fd;
+  });
+  const readSyncMock = t.mock.method(fs, 'readSync', (fd, ...args) => {
+    const count = originalReadSync(fd, ...args);
+    if (unread.delete(fd)) {
+      calls.reads++;
+      read(args[0]);
+    }
+    return count;
+  });
   const statMock = t.mock.method(fs, statName, (target, ...args) => {
     const st = originalStat(target, ...args);
     if (target !== path) return st;
@@ -56,7 +75,8 @@ function intercept(t, path, statName, { post = (st) => st, read = (buf) => buf, 
   });
   syncBuiltinESMExports();
   const restore = () => {
-    readMock.mock.restore(); statMock.mock.restore(); syncBuiltinESMExports();
+    readMock.mock.restore(); statMock.mock.restore(); openMock.mock.restore(); readSyncMock.mock.restore();
+    syncBuiltinESMExports();
   };
   t.after(restore);
   return { calls, restore };
