@@ -6,7 +6,7 @@ import {
   getReadRangeIndex,
   nearestReadRangeAnchor,
   maybeRecordReadRangeAnchor,
-  scheduleReadRangeIndexPersist,
+  publishReadRangeIndex,
 } from './read-range-index.mjs';
 import { READ_MAX_SCAN_BYTES, READ_STREAM_TIMEOUT_MS } from './read-constants.mjs';
 
@@ -74,9 +74,8 @@ async function scanSourceWindows(path, intervals, signal) {
       }
       scanned += bytesRead;
       if (scanned > READ_MAX_SCAN_BYTES) throw new Error('source context scan exceeds byte budget');
-      if (position === 0 && !index.prefixHash) {
+      if (position === 0 && index && !index.prefixHash) {
         index.prefixHash = hashText(buffer.subarray(0, bytesRead));
-        scheduleReadRangeIndexPersist(index);
       }
       let start = 0;
       while (start < bytesRead && interval < intervals.length) {
@@ -93,6 +92,9 @@ async function scanSourceWindows(path, intervals, signal) {
       }
       position += bytesRead;
     }
+    check();
+    await publishReadRangeIndex(index, handle, signal);
+    check();
     return lines;
   } finally {
     await handle.close();

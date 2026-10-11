@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import { sameFileVersion } from './file-version.mjs';
 import * as fsPromises from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { capShellOutput } from './shell-output.mjs';
@@ -24,7 +25,7 @@ import {
   getReadRangeIndex,
   maybeRecordReadRangeAnchor,
   nearestReadRangeAnchor,
-  scheduleReadRangeIndexPersist,
+  publishReadRangeIndex,
 } from './read-range-index.mjs';
 import { createReadLineCollector } from './read-line-collector.mjs';
 
@@ -48,8 +49,9 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
 async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   const { ioTraceStart, ioTraceDone } = streamingHooks(hooks);
   const traceStart = ioTraceStart();
-  const stForIndex = stHint || (await fh.stat().catch(() => null));
-  const rangeIndex = await getReadRangeIndex(fullPath, stForIndex, fh, hooks.prefixBuffer);
+  const rangeIndex = await getReadRangeIndex(fullPath, stHint, fh, hooks.prefixBuffer);
+  const stForIndex = rangeIndex?.fileVersion || stHint;
+  const prefixBuffer = sameFileVersion(stHint, rangeIndex?.fileVersion) ? hooks.prefixBuffer : null;
   const anchor = nearestReadRangeAnchor(rangeIndex, offset);
   // Keep the first read large enough for the existing 64 KiB prefix hash.
   // Grow only while seeking distant lines; nearby windows avoid 1 MiB reads.
@@ -76,7 +78,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
       throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
     }
     if (buf.length < chunkBytes) buf = Buffer.allocUnsafe(chunkBytes);
-    const prefix = position === 0 && Buffer.isBuffer(hooks.prefixBuffer) ? hooks.prefixBuffer : null;
+    const prefix = position === 0 && Buffer.isBuffer(prefixBuffer) ? prefixBuffer : null;
     const bytesRead = prefix?.length
       ? prefix.copy(buf, 0, 0, Math.min(prefix.length, chunkBytes))
       : (await fh.read(buf, 0, chunkBytes, position)).bytesRead;
@@ -90,7 +92,6 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
       prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
       if (rangeIndex && rangeIndex.prefixHash !== prefixHash) {
         rangeIndex.prefixHash = prefixHash;
-        scheduleReadRangeIndexPersist(rangeIndex);
       }
     }
     let start = 0;
@@ -125,6 +126,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
     if (start < bytesRead) lines.appendPartial(buf.subarray(start, bytesRead));
   }
   if (!stop) lines.finishTail();
+  await publishReadRangeIndex(rangeIndex, fh);
 
   ioTraceDone('read_range_stream', traceStart, {
     pathHash: hashText(fullPath).slice(0, 12),
@@ -245,7 +247,6 @@ export async function countLogicalLinesBytesSync(fullPath, size, stHint = null, 
   const { ioTraceStart, ioTraceDone } = streamingHooks(hooks);
   if (!size) return 0;
   const traceStart = ioTraceStart();
-  const rangeIndex = stHint ? await getReadRangeIndex(fullPath, stHint) : null;
   const fh = await fsPromises.open(fullPath, 'r');
   const CHUNK_BYTES = 1024 * 1024;
   const buf = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, size));
@@ -254,11 +255,15 @@ export async function countLogicalLinesBytesSync(fullPath, size, stHint = null, 
   let lastByte = -1;
   const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
   try {
+    const rangeIndex = await getReadRangeIndex(fullPath, stHint, fh);
     while (position < size) {
       if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
       const toRead = Math.min(buf.length, size - position);
       const { bytesRead } = await fh.read(buf, 0, toRead, position);
       if (bytesRead <= 0) break;
+      if (position === 0 && rangeIndex && !rangeIndex.prefixHash) {
+        rangeIndex.prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
+      }
       let start = 0;
       while (start < bytesRead) {
         const nl = buf.indexOf(10, start);
@@ -270,13 +275,14 @@ export async function countLogicalLinesBytesSync(fullPath, size, stHint = null, 
       lastByte = buf[bytesRead - 1];
       position += bytesRead;
     }
+    if (lastByte !== -1 && lastByte !== 10) lines++;
+    // A stale size hint must not certify a partial scan as the total count.
+    if (rangeIndex && position === size && size === rangeIndex.fileVersion.size) {
+      rangeIndex.totalLines = lines;
+      await publishReadRangeIndex(rangeIndex, fh);
+    }
   } finally {
     await fh.close();
-  }
-  if (lastByte !== -1 && lastByte !== 10) lines++;
-  if (rangeIndex && rangeIndex.totalLines !== lines) {
-    rangeIndex.totalLines = lines;
-    scheduleReadRangeIndexPersist(rangeIndex);
   }
   ioTraceDone('read_count_lines', traceStart, {
     pathHash: hashText(fullPath).slice(0, 12),
