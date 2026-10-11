@@ -12,7 +12,7 @@ import { DesktopProjectRegistry } from './desktop-project-registry.ts';
 const moduleUrl = new URL('../../../../src/runtime/shared/projects.mjs', import.meta.url).href;
 let sequence = 0;
 async function fixture(t) {
-  const root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'mixdog-project-recency-')));
+  const root = await fs.promises.realpath(fs.mkdtempSync(join(tmpdir(), 'mixdog-project-recency-')));
   const project = join(root, 'project');
   const file = join(root, 'projects.json');
   fs.mkdirSync(project);
