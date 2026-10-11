@@ -88,3 +88,31 @@ for (const route of routes) {
     assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
   });
 }
+
+for (const code of ['EIO', 'EACCES']) {
+  test(`edit adapter: failed pre-stat ${code} cannot authorize recreating a removed target`, async (t) => {
+    const path = fixture();
+    let removed = false;
+    const originalStat = fs.statSync;
+    const originalRead = fs.readFileSync;
+    const statMock = t.mock.method(fs, 'statSync', (target, ...args) => {
+      if (target === path && !removed) throw Object.assign(new Error('pre-stat uncertainty'), { code });
+      return originalStat(target, ...args);
+    });
+    const readMock = t.mock.method(fs, 'readFileSync', (target, ...args) => {
+      const buf = originalRead(target, ...args);
+      if (target === path && !removed) {
+        fs.unlinkSync(path);
+        removed = true;
+      }
+      return buf;
+    });
+    syncBuiltinESMExports();
+    t.after(() => { statMock.mock.restore(); readMock.mock.restore(); syncBuiltinESMExports(); });
+    const result = String(await routes[0].run(path));
+    assert.equal(removed, true, 'exercise successful reading followed by real removal');
+    assert.match(result, /^Error:.*changed on disk during the edit/);
+    assert.equal(fs.existsSync(path), false, 'unknown pre-read version must not become expected absence');
+    assert.equal(fs.readdirSync(root).some((name) => name.startsWith(`.${basename(path)}.mixdog-tmp-`)), false);
+  });
+}

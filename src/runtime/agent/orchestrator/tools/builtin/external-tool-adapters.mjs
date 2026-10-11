@@ -486,7 +486,9 @@ function targetSnapshot(statBefore) {
  * Returns `{ error }` when the bytes cannot be read or are not decidable text.
  */
 function readEditTarget(fullPath) {
-  let statBefore = null;
+  // An unreadable pre-stat is incomplete existing-file evidence, not the
+  // explicit absence used by createEditTarget. Never resurrect a removed file.
+  let statBefore = {};
   let content;
   let fileEnc;
   try {
