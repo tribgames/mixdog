@@ -259,3 +259,67 @@ test('the read-only notice distinguishes encoding failures from the legacy size 
     await act(async () => root.unmount());
   }
 });
+
+
+for (const action of ['keepEdits', 'revertFromDisk']) {
+  for (const reason of ['encoding', 'size']) {
+    test(`${action} refuses a newly ${reason}-read-only disk without discarding edits or changing the save baseline`, async (t) => {
+      const fs = await import('node:fs/promises');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const { readProjectTextFileIn, writeProjectTextFileIn } = await import('../main/project-files.ts');
+      const folder = await fs.mkdtemp(join(tmpdir(), 'mixdog-editor-conflict-'));
+      t.after(() => fs.rm(folder, { recursive: true, force: true }));
+      const file = join(folder, 'a.txt');
+      await fs.writeFile(file, 'original');
+      let disk = await readProjectTextFileIn(folder, 'a.txt');
+      const model = fakeModel('original');
+      const writes = [];
+      let backupDeletes = 0;
+      const api = {
+        readProjectFile: async () => disk,
+        readEditorBackup: async () => null,
+        writeEditorBackup: async () => undefined,
+        deleteEditorBackup: async () => { backupDeletes++; },
+        writeProjectFile: async (_project, _rel, content, expected) => {
+          writes.push({ content, expected });
+          return writeProjectTextFileIn(folder, 'a.txt', content, expected);
+        },
+      };
+      const { root, session } = await mountSession(api, 'a.txt', model);
+      try {
+        await act(async () => {
+          model.setValue('retained edits');
+          session.current.onEditorChange('retained edits');
+        });
+        const unsafe = reason === 'encoding' ? Buffer.from([0x61, 0x80, 0x62]) : Buffer.alloc(1_048_577, 0x61);
+        await fs.writeFile(file, unsafe);
+        disk = await readProjectTextFileIn(folder, 'a.txt');
+        assert.equal(disk.readOnly, true);
+        const deletesBefore = backupDeletes;
+        await act(async () => {
+          const result = await session.current[action]();
+          if (action === 'revertFromDisk') assert.equal(result, false);
+        });
+        assert.equal(session.current.diskChanged, true);
+        assert.equal(session.current.dirty, true);
+        assert.equal(model.getValue(), 'retained edits');
+        assert.equal(session.current.load.content, 'original');
+        const message = action === 'keepEdits' ? session.current.saveError : session.current.revertError;
+        assert.match(message, /no longer be safely edited/);
+        assert.equal(backupDeletes, deletesBefore);
+        assert.deepEqual(writes, []);
+        assert.deepEqual(await fs.readFile(file), unsafe);
+        // Once the disk is repaired, the retained edits still save against the
+        // original exact baseline. The rejected action never rebased them onto
+        // replacement-decoded or oversized content.
+        await fs.writeFile(file, 'original');
+        await act(async () => assert.equal(await session.current.save(), true));
+        assert.deepEqual(writes, [{ content: 'retained edits', expected: 'original' }]);
+        assert.equal(await fs.readFile(file, 'utf8'), 'retained edits');
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+  }
+}
