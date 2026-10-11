@@ -8,6 +8,7 @@ mock.module('../../runtime/shared/config.mjs', {
   namedExports: {
     ...original,
     saveSecret: (account, value) => secrets.set(account, value),
+    saveSecretAsync: async (account, value) => secrets.set(account, value),
     deleteSecret: (account) => secrets.delete(account),
     hasStoredSecret: (account) => secrets.has(account),
     getAgentApiKey: (id) => secrets.get(`agent.${id}.apiKey`) || null,

@@ -31,7 +31,9 @@ const {
   setSecret: _setSecret,
   deleteSecret: _deleteSecret,
   hasSecret: _hasSecret,
+  setSecretAsync: _setSecretAsyncImpl,
 } = _require('../../lib/keychain-cjs.cjs');
+const _setSecretAsync = _setSecretAsyncImpl ?? (async (account, value) => _setSecret(account, value));
 
 // Resolved per call: the pristine-execution boundary retargets
 // MIXDOG_resolvePluginData() at runtime, so an import-time capture would write into the
@@ -588,6 +590,21 @@ export function saveSecret(account, value) {
   try {
     _setSecret(account, value);
   } catch (err) {
+    throw saveSecretError(account, err);
+  }
+}
+
+/** Non-blocking saveSecret: Linux secret-tool runs off the event loop. */
+export async function saveSecretAsync(account, value) {
+  try {
+    await _setSecretAsync(account, value);
+  } catch (err) {
+    throw saveSecretError(account, err);
+  }
+}
+
+function saveSecretError(account, err) {
+  {
     // On WSL/headless Linux (and any host missing a usable keychain provider,
     // e.g. secret-tool/libsecret not installed or no running Secret Service) the OS
     // write throws a cryptic provider error. Surface an actionable message that
@@ -599,11 +616,10 @@ export function saveSecret(account, value) {
     const envHint = stdEnv ? `${stdEnv} (or ${envKey})` : envKey;
     const e = new Error(
       `[config] could not save secret to the OS keychain: ${err?.message ? err.message : err}\n` +
-        `  No usable keychain provider on this host (common on WSL / headless Linux without libsecret).\n` +
         `  Set the ${envHint} environment variable instead — the runtime reads it directly.`
     );
     e.cause = err;
-    throw e;
+    return e;
   }
 }
 

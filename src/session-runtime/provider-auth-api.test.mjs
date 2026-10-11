@@ -99,7 +99,7 @@ const AFTER_CATALOGS = [['invalidate'], ['warm']];
 
 test('saving an API key reloads config, releases cooldowns and refreshes catalogs then caches', async () => {
   const api = fixture();
-  assert.equal(api.saveProviderApiKey('oauth', 'sk-1'), 'saved-key');
+  assert.equal(await api.saveProviderApiKey('oauth', 'sk-1'), 'saved-key');
   await setImmediate();
   assert.deepEqual(calls, [['saveKey', 'oauth', 'sk-1'], ...CREDENTIAL_CHANGE, ...AFTER_CATALOGS]);
 });
@@ -136,8 +136,8 @@ test('custom provider save/remove refresh like credential changes; removal drops
 
 test('usage-only credentials reload and invalidate without touching admission cooldowns', async () => {
   const api = fixture();
-  assert.equal(api.saveOpenAIUsageSessionKey('usage-1'), 'saved-usage');
-  assert.equal(api.saveOpenCodeGoUsageAuth({ apiKey: 'oc_sk_test' }), 'saved-go');
+  assert.equal(await api.saveOpenAIUsageSessionKey('usage-1'), 'saved-usage');
+  assert.equal(await api.saveOpenCodeGoUsageAuth({ apiKey: 'oc_sk_test' }), 'saved-go');
   assert.deepEqual(calls, [
     ['saveUsageKey', 'usage-1'],
     ['reload'],

@@ -46,3 +46,27 @@ test('win32 setSecret passes the secret via stdin with a minimal env', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('linux setSecretAsync rejects with an install hint when secret-tool is missing, without blocking', async () => {
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const oldPath = process.env.PATH;
+  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-empty-'));
+  process.env.PATH = emptyDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  try {
+    delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    const keychain = require('./keychain-cjs.cjs');
+    let ticked = false;
+    setImmediate(() => {
+      ticked = true;
+    });
+    const pending = keychain.setSecretAsync('acct', 'v');
+    assert.equal(ticked, false, 'call returns a promise instead of blocking');
+    await assert.rejects(pending, /libsecret-tools/);
+  } finally {
+    Object.defineProperty(process, 'platform', realPlatform);
+    process.env.PATH = oldPath;
+    delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+  }
+});

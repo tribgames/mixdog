@@ -7,7 +7,7 @@ import {
   deleteSecret,
   getAgentApiKey,
   hasStoredSecret,
-  saveSecret,
+  saveSecretAsync,
 } from '../../runtime/shared/config.mjs';
 import {
   beginOAuthLogin as beginAnthropicOAuthLogin,
@@ -500,7 +500,7 @@ export async function authenticateProvider(provider, secret) {
   }
   const value = String(secret || '').trim();
   if (!value) throw new Error(`API key is required for ${id}`);
-  saveSecret(SECRET_ACCOUNTS.agentApiKey(id), value);
+  await saveSecretAsync(SECRET_ACCOUNTS.agentApiKey(id), value);
   return { provider: id, type: 'api-key', authenticated: true };
 }
 
@@ -704,12 +704,12 @@ export function updateProviderAccounts(provider, change) {
   return listProviderAccounts(provider);
 }
 
-export function saveProviderApiKey(cfgMod, provider, secret) {
+export async function saveProviderApiKey(cfgMod, provider, secret) {
   const id = String(provider || '').trim();
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);
   const value = String(secret || '').trim();
   if (!value) throw new Error(`API key is required for ${id}`);
-  saveSecret(SECRET_ACCOUNTS.agentApiKey(id), value);
+  await saveSecretAsync(SECRET_ACCOUNTS.agentApiKey(id), value);
   updateConfigProvider(cfgMod, id, { enabled: true });
   return { provider: id, type: 'api-key', authenticated: true };
 }
@@ -813,7 +813,7 @@ export async function saveCustomProvider(cfgMod, rawInput) {
   const entry = { ...config, type: 'custom', enabled: config.enabled !== false };
   const account = SECRET_ACCOUNTS.agentApiKey(id);
   const previousKey = typed && existingId ? getAgentApiKey(id) : null;
-  if (typed) saveSecret(account, typed);
+  if (typed) await saveSecretAsync(account, typed);
   try {
     const current = cfgMod.loadConfig();
     cfgMod.saveConfig(
@@ -822,7 +822,7 @@ export async function saveCustomProvider(cfgMod, rawInput) {
     );
   } catch (error) {
     if (typed) {
-      if (previousKey) saveSecret(account, previousKey);
+      if (previousKey) await saveSecretAsync(account, previousKey);
       else deleteSecret(account);
     }
     throw error;
@@ -973,15 +973,15 @@ function discoveryErrorView(error, apiKey) {
   };
 }
 
-export function saveOpenAIUsageSessionKey(cfgMod, secret) {
+export async function saveOpenAIUsageSessionKey(cfgMod, secret) {
   const value = String(secret || '').trim();
   if (!value) throw new Error('OpenAI usage session key is required for credit lookup');
-  saveSecret(SECRET_ACCOUNTS.openaiUsageSessionKey, value);
+  await saveSecretAsync(SECRET_ACCOUNTS.openaiUsageSessionKey, value);
   updateConfigProvider(cfgMod, 'openai', { enabled: true });
   return { provider: 'openai', type: 'usage-auth', authenticated: true };
 }
 
-export function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
+export async function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
   const secret = String(apiKey || '').trim();
   if (!secret) throw new Error('OpenCode console API key is required for usage lookup');
   // Subscription meters are read with a console service-account key holding the
@@ -989,7 +989,7 @@ export function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
   // rejecting anything else here keeps unusable auth out of the keychain.
   if (!/^(?:oc_sk_|sk-)/.test(secret))
     throw new Error('OpenCode usage auth must be a console API key (oc_sk_… or sk-…) with all permissions');
-  saveSecret(SECRET_ACCOUNTS.opencodeGoConsoleKey, secret);
+  await saveSecretAsync(SECRET_ACCOUNTS.opencodeGoConsoleKey, secret);
   // Usage auth may be a different key from the inference key. Only flip the
   // model provider on when a model key actually exists; otherwise usage-only
   // setups get routed to the provider with apiKey 'no-key' and fail with 401s.

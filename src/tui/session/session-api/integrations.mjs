@@ -97,8 +97,8 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
     getOAuthProviderLoginStatus: (flowId) => oauthFlows.status(flowId),
     completeOAuthProviderLogin: async (flowId, code) => oauthFlows.complete(flowId, code),
     cancelOAuthProviderLogin: async (flowId) => oauthFlows.cancel(flowId),
-    saveProviderApiKey: (provider, secret) => {
-      const result = runtime.saveProviderApiKey(provider, secret);
+    saveProviderApiKey: async (provider, secret) => {
+      const result = await runtime.saveProviderApiKey(provider, secret);
       pushNotice(`provider api key saved: ${result.provider}`, 'info');
       return true;
     },
@@ -115,13 +115,13 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
     },
     testCustomProvider: (input) => runtime.testCustomProvider(input),
     discoverCustomProviderModels: (input) => runtime.discoverCustomProviderModels(input),
-    saveOpenCodeGoUsageAuth: (opts) => {
-      runtime.saveOpenCodeGoUsageAuth(opts);
+    saveOpenCodeGoUsageAuth: async (opts) => {
+      await runtime.saveOpenCodeGoUsageAuth(opts);
       pushNotice('OpenCode Go usage auth saved', 'info');
       return true;
     },
-    saveOpenAIUsageSessionKey: (secret) => {
-      runtime.saveOpenAIUsageSessionKey(secret);
+    saveOpenAIUsageSessionKey: async (secret) => {
+      await runtime.saveOpenAIUsageSessionKey(secret);
       pushNotice('OpenAI usage auth saved', 'info');
       return true;
     },

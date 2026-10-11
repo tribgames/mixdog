@@ -42,7 +42,7 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
     async authenticateProvider(providerId, secret) {
       await awaitKeychainPrewarm();
       const result = String(secret || '').trim()
-        ? saveProviderApiKey(cfgMod, providerId, secret)
+        ? await saveProviderApiKey(cfgMod, providerId, secret)
         : await loginOAuthProvider(cfgMod, providerId);
       refresh.afterCredentialChange();
       return result;
@@ -59,18 +59,18 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
       reloadFullConfig();
       return completeOAuthLogin(result);
     },
-    saveProviderApiKey(providerId, secret) {
-      const result = saveProviderApiKey(cfgMod, providerId, secret);
+    async saveProviderApiKey(providerId, secret) {
+      const result = await saveProviderApiKey(cfgMod, providerId, secret);
       refresh.afterCredentialChange();
       return result;
     },
-    saveOpenAIUsageSessionKey(secret) {
-      const result = saveOpenAIUsageSessionKey(cfgMod, secret);
+    async saveOpenAIUsageSessionKey(secret) {
+      const result = await saveOpenAIUsageSessionKey(cfgMod, secret);
       refresh.afterUsageAuthChange();
       return result;
     },
-    saveOpenCodeGoUsageAuth(opts) {
-      const result = saveOpenCodeGoUsageAuth(cfgMod, opts);
+    async saveOpenCodeGoUsageAuth(opts) {
+      const result = await saveOpenCodeGoUsageAuth(cfgMod, opts);
       refresh.afterUsageAuthChange();
       return result;
     },

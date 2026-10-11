@@ -300,7 +300,7 @@ function secretToolHint() {
 // environment, which would otherwise be visible via /proc/<pid>/environ for the
 // lifetime of this child. Only PATH resolution, locale, and the libsecret
 // D-Bus session bridge are passed through.
-function secretTool(args, input) {
+function secretToolEnv() {
   const passthroughKeys = [
     'PATH',
     'HOME',
@@ -321,28 +321,102 @@ function secretTool(args, input) {
   for (const key of passthroughKeys) {
     if (process.env[key] !== undefined) env[key] = process.env[key];
   }
-  const r = spawnSync('secret-tool', args, {
-    env,
-    input: input ?? '',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: KEYCHAIN_TIMEOUT_MS,
-    encoding: 'utf8',
-    windowsHide: true,
-  });
-  if (r.error?.code === 'ENOENT') throw new Error(`[keychain] secret-tool is not installed — ${secretToolHint()}`);
+  return env;
+}
+
+function secretToolCheck(r) {
+  if (r.error?.code === 'ENOENT') {
+    throw new Error(
+      '[keychain] secret-tool is not installed — install libsecret-tools (sudo apt install libsecret-tools), ' +
+        'or set the relevant MIXDOG_*/PROVIDER_API_KEY environment variable instead'
+    );
+  }
   if (r.error?.code === 'ETIMEDOUT') {
-    throw new Error(`[keychain] secret-tool timed out after ${KEYCHAIN_TIMEOUT_MS}ms (is the Secret Service locked?)`);
+    throw new Error(
+      `[keychain] secret-tool timed out after ${KEYCHAIN_TIMEOUT_MS}ms — the keyring is locked or its unlock prompt ` +
+        'was not answered. Unlock your keyring (e.g. log in again or open Passwords and Keys) and retry.'
+    );
   }
   if (r.error) throw new Error(`[keychain] secret-tool failed to start: ${r.error.message}`);
   return r;
 }
 
+function secretTool(args, input) {
+  return secretToolCheck(
+    spawnSync('secret-tool', args, {
+      env: secretToolEnv(),
+      input: input ?? '',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: KEYCHAIN_TIMEOUT_MS,
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+  );
+}
+
+// Non-blocking variant: the daemon event loop keeps running while a locked
+// keyring waits on its unlock prompt; the child is killed at the same bound.
+function secretToolAsync(args, input) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn('secret-tool', args, {
+        env: secretToolEnv(),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: false,
+        windowsHide: true,
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const done = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        resolve(secretToolCheck(r));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      done({ status: null, stdout, stderr, error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }) });
+    }, KEYCHAIN_TIMEOUT_MS);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.once('error', (error) => done({ status: null, stdout, stderr, error }));
+    child.once('close', (status) => done({ status, stdout, stderr, error: null }));
+    child.stdin.on('error', () => {
+      /* child exited early — close reports it */
+    });
+    child.stdin.end(input ?? '');
+  });
+}
+
 // A missing item exits non-zero with nothing on stderr; anything on stderr is
 // the Secret Service itself failing (no D-Bus session, locked collection).
 function secretToolFailure(action, r) {
-  return new Error(
-    `[keychain] secret-tool ${action} failed: ${(r.stderr || '').trim() || `exit ${r.status}`} — ${secretToolHint()}`
-  );
+  const detail = (r.stderr || '').trim() || `exit ${r.status}`;
+  if (/locked|denied|dismissed|cancel|not authori[sz]ed|IsLocked/i.test(detail)) {
+    return new Error(
+      `[keychain] secret-tool ${action} failed: the keyring is locked or the unlock prompt was declined (${detail}). ` +
+        'Unlock your keyring and retry.'
+    );
+  }
+  return new Error(`[keychain] secret-tool ${action} failed: ${detail} — ${secretToolHint()}`);
 }
 
 function linuxGet(account) {
@@ -359,6 +433,26 @@ function linuxSet(account, value) {
 
 function linuxDelete(account) {
   const r = secretTool(['clear', 'service', SERVICE, 'account', account]);
+  if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('clear', r);
+}
+
+async function linuxGetAsync(account) {
+  const r = await secretToolAsync(['lookup', 'service', SERVICE, 'account', account]);
+  if (r.status === 0) return r.stdout;
+  if ((r.stderr || '').trim()) throw secretToolFailure('lookup', r);
+  return null;
+}
+
+async function linuxSetAsync(account, value) {
+  const r = await secretToolAsync(
+    ['store', `--label=${SERVICE} ${account}`, 'service', SERVICE, 'account', account],
+    value
+  );
+  if (r.status !== 0) throw secretToolFailure('store', r);
+}
+
+async function linuxDeleteAsync(account) {
+  const r = await secretToolAsync(['clear', 'service', SERVICE, 'account', account]);
   if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('clear', r);
 }
 
@@ -499,7 +593,14 @@ function win32Delete(account) {
 
 const BACKENDS = {
   darwin: { get: darwinGet, set: darwinSet, delete: darwinDelete },
-  linux: { get: linuxGet, set: linuxSet, delete: linuxDelete },
+  linux: {
+    get: linuxGet,
+    set: linuxSet,
+    delete: linuxDelete,
+    getAsync: linuxGetAsync,
+    setAsync: linuxSetAsync,
+    deleteAsync: linuxDeleteAsync,
+  },
   win32: { get: win32Get, set: win32Set, delete: win32Delete },
 };
 
@@ -544,10 +645,45 @@ function deleteSecret(account) {
   }
 }
 
+// Async entry points: on Linux the secret-tool child runs without blocking the
+// event loop; other platforms keep their existing (sync) providers.
+async function getSecretAsync(account) {
+  const cached = _cacheGet(account);
+  if (cached !== undefined) return cached;
+  const b = backend();
+  if (!b.getAsync) return getSecret(account);
+  const value = await b.getAsync(account);
+  _cacheSet(account, value);
+  return value;
+}
+
+async function setSecretAsync(account, value) {
+  const b = backend();
+  if (!b.setAsync) return setSecret(account, value);
+  try {
+    await b.setAsync(account, value);
+  } finally {
+    _cacheInvalidate(account);
+  }
+}
+
+async function deleteSecretAsync(account) {
+  const b = backend();
+  if (!b.deleteAsync) return deleteSecret(account);
+  try {
+    await b.deleteAsync(account);
+  } finally {
+    _cacheInvalidate(account);
+  }
+}
+
 module.exports = {
   getSecret,
   setSecret,
   deleteSecret,
+  getSecretAsync,
+  setSecretAsync,
+  deleteSecretAsync,
   hasSecret,
   invalidateSecretCache,
   prewarmSecrets,
