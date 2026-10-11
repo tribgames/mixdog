@@ -9,7 +9,8 @@
  */
 import { homedir } from 'node:os';
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
+import { withFileLockSync, writeJsonAtomicSync } from './atomic-file.mjs';
 
 const MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
 const PROJECTS_FILE = process.env.MIXDOG_PROJECTS_FILE
@@ -54,15 +55,17 @@ function readStore(strict = false) {
   }
 }
 
-function writeStore(store) {
-  try {
-    mkdirSync(dirname(PROJECTS_FILE), { recursive: true });
-    const tmp = `${PROJECTS_FILE}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
-    renameSync(tmp, PROJECTS_FILE);
-  } catch {
-    /* best-effort persistence */
-  }
+// Serialize the entire read/modify/write across cooperating processes, not
+// just publication. Unlike the generic JSON updater, a corrupt registry must
+// never be repaired into an empty document. Preserve synchronous return values
+// and no-op behavior; failed reads, lock acquisition and writes propagate.
+function mutateStore(mutator) {
+  return withFileLockSync(`${PROJECTS_FILE}.lock`, () => {
+    const store = readStore(true);
+    const { value, changed } = mutator(store);
+    if (changed) writeJsonAtomicSync(PROJECTS_FILE, store, { lock: false });
+    return value;
+  });
 }
 
 /**
@@ -137,20 +140,16 @@ export function listProjectsStrict() {
 export function addProject(rawPath) {
   const absPath = toAbsolute(rawPath);
   if (!absPath) return null;
-  const store = readStore();
-  const key = normalizeKey(absPath);
-  const existing = store.projects.find((entry) => normalizeKey(entry.path) === key);
-  if (existing) {
-    ensureProjectIdMarker(absPath, existing.name);
-    return existing;
-  }
-  const entry = {
-    name: basename(absPath) || absPath,
-    path: absPath,
-    addedAt: Date.now(),
-  };
-  store.projects.push(entry);
-  writeStore(store);
+  const entry = mutateStore((store) => {
+    const key = normalizeKey(absPath);
+    const existing = store.projects.find((item) => normalizeKey(item.path) === key);
+    if (existing) return { value: existing, changed: false };
+    const added = { name: basename(absPath) || absPath, path: absPath, addedAt: Date.now() };
+    store.projects.push(added);
+    return { value: added, changed: true };
+  });
+  // Auxiliary markers stay best-effort and outside the registry's lock. A
+  // failed registration must not create a marker that suggests it succeeded.
   ensureProjectIdMarker(absPath, entry.name);
   return entry;
 }
@@ -163,13 +162,14 @@ export function addProject(rawPath) {
 export function touchProjectSelected(rawPath) {
   const absPath = toAbsolute(rawPath);
   if (!absPath) return null;
-  const store = readStore();
-  const key = normalizeKey(absPath);
-  const entry = store.projects.find((item) => normalizeKey(item.path) === key);
-  if (!entry) return null;
-  entry.lastSelectedAt = Date.now();
-  writeStore(store);
-  ensureProjectIdMarker(absPath, entry.name);
+  const entry = mutateStore((store) => {
+    const key = normalizeKey(absPath);
+    const selected = store.projects.find((item) => normalizeKey(item.path) === key);
+    if (!selected) return { value: null, changed: false };
+    selected.lastSelectedAt = Date.now();
+    return { value: selected, changed: true };
+  });
+  if (entry) ensureProjectIdMarker(absPath, entry.name);
   return entry;
 }
 
@@ -177,12 +177,13 @@ export function touchProjectSelected(rawPath) {
 export function removeProject(rawPath) {
   const absPath = toAbsolute(rawPath);
   if (!absPath) return false;
-  const store = readStore();
-  const key = normalizeKey(absPath);
-  const next = store.projects.filter((entry) => normalizeKey(entry.path) !== key);
-  if (next.length === store.projects.length) return false;
-  writeStore({ projects: next });
-  return true;
+  return mutateStore((store) => {
+    const key = normalizeKey(absPath);
+    const next = store.projects.filter((entry) => normalizeKey(entry.path) !== key);
+    if (next.length === store.projects.length) return { value: false, changed: false };
+    store.projects = next;
+    return { value: true, changed: true };
+  });
 }
 
 /**
@@ -193,14 +194,14 @@ export function removeProject(rawPath) {
 export function renameProject(rawPath, nextName) {
   const absPath = toAbsolute(rawPath);
   if (!absPath) return null;
-  const store = readStore();
-  const key = normalizeKey(absPath);
-  const entry = store.projects.find((item) => normalizeKey(item.path) === key);
-  if (!entry) return null;
-  const trimmed = String(nextName || '').trim();
-  entry.name = trimmed || basename(absPath) || absPath;
-  writeStore(store);
-  return entry;
+  return mutateStore((store) => {
+    const key = normalizeKey(absPath);
+    const entry = store.projects.find((item) => normalizeKey(item.path) === key);
+    if (!entry) return { value: null, changed: false };
+    const trimmed = String(nextName || '').trim();
+    entry.name = trimmed || basename(absPath) || absPath;
+    return { value: entry, changed: true };
+  });
 }
 
 /** Whether a path currently exists on disk. */
