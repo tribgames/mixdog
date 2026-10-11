@@ -310,12 +310,12 @@ async function assertTreeTargetArchitecture(root, label) {
 // N-API (ABI-stable across Node and Electron), so expose the newest glibc
 // prebuild at that fallback path instead of rebuilding per Electron release.
 async function installLinuxPtyBinding(packageDir) {
-  const prebuildDir = join(packageDir, 'prebuilds', ${embeddingTarget.platform}-);
+  const prebuildDir = join(packageDir, 'prebuilds', `${embeddingTarget.platform}-${embeddingTarget.arch}`);
   const candidates = (await readdir(prebuildDir))
     .map((name) => /^node\.abi(\d+)\.node$/.exec(name))
     .filter(Boolean)
     .sort((left, right) => Number(right[1]) - Number(left[1]));
-  if (candidates.length === 0) throw new Error(Desktop node-pty has no glibc prebuild under );
+  if (candidates.length === 0) throw new Error(`Desktop node-pty has no glibc prebuild under ${prebuildDir}`);
   const releaseDir = join(packageDir, 'build', 'Release');
   await mkdir(releaseDir, { recursive: true });
   await cp(join(prebuildDir, candidates[0][0]), join(releaseDir, 'pty.node'));
