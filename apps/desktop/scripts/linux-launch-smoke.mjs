@@ -29,6 +29,7 @@ const child = spawn(
       HOME: join(profile, 'home'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
   }
 );
 let exited = null;
@@ -43,10 +44,15 @@ for (const stream of [child.stdout, child.stderr]) {
   });
 }
 
+const killTree = (sig) => {
+  try {
+    process.kill(-child.pid, sig);
+  } catch {}
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function fail(message) {
   console.error(`SMOKE FAIL: ${message}`);
-  child.kill('SIGKILL');
+  killTree('SIGKILL');
   log.end();
   await sleep(200);
   process.exit(1);
@@ -96,8 +102,9 @@ if (exited) await fail(`app exited after boot ${JSON.stringify(exited)}`);
 if (/Segmentation fault|FATAL:|renderer.*crash|render-process-gone/i.test(output)) {
   await fail('crash markers in stderr');
 }
-child.kill('SIGTERM');
+killTree('SIGTERM');
 await sleep(1500);
-child.kill('SIGKILL');
+killTree('SIGKILL');
 log.end();
 console.log('SMOKE OK');
+process.exit(0);

@@ -69,11 +69,12 @@ jobs:
           ls -l apps/desktop/dist/*.AppImage
           du -sh apps/desktop/dist/linux-*unpacked || true
       - name: Headless launch smoke
+        timeout-minutes: 8
         run: |
           mkdir -p smoke
           chmod +x apps/desktop/dist/*.AppImage
           xvfb-run -a --server-args="-screen 0 1440x900x24" \
-            node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-${{ matrix.arch }}.AppImage smoke
+            node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-*.AppImage smoke
       - name: Upload AppImage
         if: always()
         uses: actions/upload-artifact@v5
