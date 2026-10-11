@@ -418,7 +418,9 @@ function customProviderRows(providers, checkSecrets) {
 export async function providerSetup(config = {}, options = {}) {
   const providers = config.providers || {};
   const checkSecrets = options?.checkSecrets !== false;
+  const keychain = checkSecrets ? keychainIssueFor(true) : null;
   return {
+    ...(keychain ? { keychain } : {}),
     api: [
       ...API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets)),
       ...customProviderRows(providers, checkSecrets),

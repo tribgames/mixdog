@@ -1,6 +1,8 @@
 // provider-auth/setup.mjs — read-side provider surfaces: the setup snapshot
 // (quick until the keychain is ready), usage dashboard, Codex reset credit and
 // the model catalog.
+import { retryKeychain } from '../../runtime/shared/config.mjs';
+
 export function createSetupApi({
   awaitKeychainPrewarm,
   isKeychainPrewarmReady,
@@ -28,8 +30,11 @@ export function createSetupApi({
         return { ...quick, pendingSecrets: !isKeychainPrewarmReady() };
       }
       await awaitKeychainPrewarm();
-      if (force) reloadFullConfig();
-      return await cachedProviderSetup({ force });
+      // A keyring the user has since unlocked: rebuild the setup that was cached
+      // while every stored key read as absent.
+      const recovered = await retryKeychain();
+      if (force || recovered) reloadFullConfig();
+      return await cachedProviderSetup({ force: force || recovered });
     },
     async getUsageDashboard(options = {}) {
       return await getUsageDashboard(options);

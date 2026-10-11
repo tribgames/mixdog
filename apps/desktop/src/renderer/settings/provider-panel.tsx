@@ -109,8 +109,14 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       }
     />
   );
+  const keychainIssue = record(setup.keychain);
   return (
     <>
+      {typeof keychainIssue.message === 'string' && keychainIssue.message && (
+        <p className="settings-error" role="alert" data-keychain-state={String(keychainIssue.state || '')}>
+          {keychainIssue.message}
+        </p>
+      )}
       <QuotaAutoResumeToggle />
       {/* One card PER provider: sharing a single card ran "OpenAI's accounts →
         Anthropic header" as one continuous list (user: 프로바이더별 분리된

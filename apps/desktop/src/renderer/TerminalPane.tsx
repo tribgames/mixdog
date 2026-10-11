@@ -10,6 +10,9 @@ import { beginBootSurface, reportBootSurfaceStage } from './boot-metrics';
 import { reportRendererFailure } from './RendererRecovery';
 import { errorSummary } from './ErrorNotice';
 import { TerminalLocalEcho } from './terminal-local-echo';
+import { TerminalImeGuard } from './terminal-ime-guard';
+
+const IS_LINUX = typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
 import { TerminalWritePump } from './terminal-write-pump';
 import { attachTerminalOutput, detachTerminalOutput } from './terminal-output-subscription';
 import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
@@ -347,6 +350,7 @@ export default function TerminalPane({
     let stopCommands: (() => void) | undefined;
     let observer: ResizeObserver | undefined;
     let dataDisposable: { dispose(): void } | undefined;
+    let imeDetach: (() => void) | undefined;
     let scrollDisposable: { dispose(): void } | undefined;
     let revealTimer = 0;
     let persistTimer = 0;
@@ -463,10 +467,17 @@ export default function TerminalPane({
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
       attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData);
-      dataDisposable ??= term.onData((data) => {
+      const sendToPty = (data: string) => {
         if (!view.id) return;
         view.localEcho?.onInput(data);
         window.mixdogDesktop.termWrite?.(view.id, data);
+      };
+      // ibus/Linux IME commits are double-sent by xterm's textarea handling.
+      const imeGuard = IS_LINUX ? new TerminalImeGuard(sendToPty) : null;
+      if (imeGuard && term.element) imeDetach ??= imeGuard.attach(term.element);
+      dataDisposable ??= term.onData((data) => {
+        if (imeGuard?.shouldDrop(data)) return;
+        sendToPty(data);
       });
       if (replayWrite) await replayWrite;
       if (disposed) return;
@@ -564,6 +575,7 @@ export default function TerminalPane({
       stopCommands?.();
       observer?.disconnect();
       dataDisposable?.dispose();
+      imeDetach?.();
       scrollDisposable?.dispose();
       // A hidden tab must not hold a GPU context; reattach re-enables WebGL.
       releaseWebglRenderer(view);

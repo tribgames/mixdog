@@ -43,13 +43,17 @@ function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
 }
 
 function titleBarOverlay(light = false, zoom = 1) {
+  const opaqueBand =
+    process.platform === 'linux' ? (light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR) : null;
   return {
     // TRANSPARENT caption band: the native overlay paints
     // no pixels of its own, so the DOM titlebar — and any fullscreen scrim —
     // shows through and the band can never sit off-theme for even a frame
     // (user: - ㅁ x 저기만 짜증나게 계속 튀네). Maximize/restore exposure is
     // covered by the window backgroundColor, which tracks the theme band.
-    color: '#00000000',
+    // Linux paints the overlay band itself and ignores alpha (it rendered solid
+    // white under the dark theme), so it gets the opaque theme band instead.
+    color: opaqueBand ?? '#00000000',
     symbolColor: light ? 'black' : 'white',
     height: Math.max(DESKTOP_TITLEBAR_HEIGHT, Math.round(DESKTOP_TITLEBAR_HEIGHT * zoom)),
   };
@@ -65,7 +69,10 @@ function currentTitleBarOverlay(window: DesktopTitleBarWindow) {
   const dim = titleBarDims.get(window as object);
   // The band pixels are the DOM's own (transparent overlay), so a scrim dims
   // them natively — only the SYMBOL ink still needs the composited push.
-  return dim ? { ...base, symbolColor: dim.symbolColor } : base;
+  if (!dim) return base;
+  return process.platform === 'linux'
+    ? { ...base, color: dim.color, symbolColor: dim.symbolColor }
+    : { ...base, symbolColor: dim.symbolColor };
 }
 
 function themeId(value: unknown): string {
@@ -147,6 +154,15 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
  *  gets html[data-window-material="mica"] so the renderer opens the
  *  titlebar and rail to the material (03-titlebar.css). */
 export function installDesktopWindowMaterial(window: BrowserWindow): void {
+  if (process.platform === 'linux') {
+    // GTK restyles the native controls on focus changes and drops back to its
+    // own (light, dim when unfocused) palette; re-assert ours on every change.
+    const reapply = () => {
+      if (!window.isDestroyed()) window.setTitleBarOverlay(currentTitleBarOverlay(window));
+    };
+    window.on('focus', reapply);
+    window.on('blur', reapply);
+  }
   if (!DESKTOP_WINDOW_MICA) return;
   micaWindows.add(window);
   installMicaActiveAppearance(window);

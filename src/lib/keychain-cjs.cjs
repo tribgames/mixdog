@@ -444,7 +444,7 @@ function linuxGetBlocking(account) {
 // snapshot succeeds the sync read throws the actionable keyring error (callers
 // already treat a throw as "no stored key") and a retry is scheduled lazily.
 const LINUX_PREWARM_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS || 4000);
-const LINUX_PREWARM_RETRY_MS = 30000;
+const LINUX_PREWARM_RETRY_MS = 5000;
 let _linuxLoadedUntil = 0;
 let _linuxLastFailureAt = 0;
 let _keychainStatus = { state: 'unknown', message: '' };
@@ -478,37 +478,33 @@ function linuxGet(account) {
   );
 }
 
-// `secret-tool search --all` prints, per item: "[/path]", then label/secret/
-// created/modified/schema and attribute.* lines. A secret may span lines, so
-// continuation lines are appended until the next known key.
-function parseSecretToolSearch(stdout) {
-  const items = [];
-  let current = null;
-  let inSecret = false;
-  for (const line of String(stdout || '').split(/\r?\n/)) {
-    if (/^\[\/.*\]$/.test(line)) {
-      current = {};
-      items.push(current);
-      inSecret = false;
-      continue;
+// `secret-tool search --all` splits its report across streams: header, label,
+// secret, created/modified and schema go to stdout while the attribute.* lines
+// go to stderr (observed on GNOME). Pairing items across the split is
+// unreliable, so the search is only used to DISCOVER account names (the
+// attribute.account lines of either stream); values come from per-account
+// `lookup`. The discovered count must match the item count, otherwise the
+// snapshot could be silently incomplete and is rejected.
+function parseSecretToolSearchAccounts(stdout, stderr) {
+  const text = `${String(stdout || '')}\n${String(stderr || '')}`;
+  const accounts = new Set();
+  let attributeLines = 0;
+  let items = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\[\/.*\]$/.test(line)) items++;
+    const m = line.match(/^attribute\.account = (.+)$/);
+    if (m) {
+      attributeLines++;
+      accounts.add(m[1]);
     }
-    if (!current) continue;
-    if (current.secret === undefined && line.startsWith('secret = ')) {
-      current.secret = line.slice('secret = '.length);
-      inSecret = true;
-      continue;
-    }
-    if (/^(label|created|modified|schema|attribute\.[^ =]+) = /.test(line)) {
-      inSecret = false;
-      const account = line.match(/^attribute\.account = (.*)$/);
-      if (account) current.account = account[1];
-      continue;
-    }
-    if (inSecret) current.secret += `\n${line}`;
   }
-  return items.filter((item) => item.account && item.secret);
+  if (attributeLines !== items) {
+    throw new Error(
+      `[keychain] secret-tool search returned ${items} item(s) but ${attributeLines} account attribute(s); refusing a possibly incomplete snapshot`
+    );
+  }
+  return [...accounts];
 }
-
 async function _prewarmLinuxOnce() {
   try {
     if (KEYCHAIN_CACHE_TTL_MS === 0) return;
@@ -518,9 +514,16 @@ async function _prewarmLinuxOnce() {
     // Exit 1 with an empty stderr just means "no items".
     if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('search', r);
     if (_cacheEpoch !== epoch) return;
-    for (const item of parseSecretToolSearch(r.stdout)) {
-      if ((_cacheGenerations.get(item.account) || 0) !== (generations.get(item.account) || 0)) continue;
-      if (_cacheGet(item.account) === undefined) _cacheSet(item.account, item.secret);
+    const accounts = parseSecretToolSearchAccounts(r.stdout, r.stderr);
+    const values = [];
+    for (const account of accounts) {
+      const value = await linuxGetAsync(account);
+      if (value !== null) values.push([account, value]);
+    }
+    if (_cacheEpoch !== epoch) return;
+    for (const [account, value] of values) {
+      if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
+      if (_cacheGet(account) === undefined) _cacheSet(account, value);
     }
     _linuxLoadedUntil =
       KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
@@ -680,6 +683,16 @@ function prewarmSecrets() {
   return _prewarmPromise;
 }
 
+/** Re-read a Linux keyring that previously failed (locked, tool missing, bad
+ *  snapshot) — e.g. after the user unlocked it. Resolves true when this call
+ *  recovered it, so callers can drop caches built while it was unavailable. */
+async function retryKeychain() {
+  if (platform() !== 'linux' || _keychainStatus.state === 'ok' || _keychainStatus.state === 'unknown') return false;
+  _prewarmPromise = null;
+  await prewarmSecrets();
+  return _keychainStatus.state === 'ok';
+}
+
 function win32Set(account, value) {
   const dir = secretsDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -823,5 +836,6 @@ module.exports = {
   keychainStatus,
   invalidateSecretCache,
   prewarmSecrets,
+  retryKeychain,
   SERVICE,
 };

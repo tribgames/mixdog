@@ -143,11 +143,18 @@ test('linux: locked keyring never blocks the event loop and reports an unlock me
 });
 
 test('linux: prewarm snapshot serves sync reads; absent accounts read as null; async delete clears', async () => {
-  const search =
-    '[/org/x/1]\nlabel = mixdog acct\nsecret = s3cret\ncreated = 2024\nschema = org.freedesktop.Secret.Generic\n' +
-    'attribute.service = mixdog\nattribute.account = acct\n';
+  // Real GNOME split: header/label/secret/... on stdout, attribute.* on stderr.
+  const stdout = '[/org/x/1]\nlabel = mixdog acct\nsecret = s3cret\ncreated = 2024\nschema = org.freedesktop.Secret.Generic\n';
+  const stderr = 'attribute.service = mixdog\nattribute.account = acct\n';
   await withLinuxKeychain(
-    (args) => (args[0] === 'search' ? { stdout: search } : { code: 0 }),
+    (args) =>
+      args[0] === 'search'
+        ? { stdout, stderr }
+        : args[0] === 'lookup' && args[4] === 'acct'
+          ? { stdout: 's3cret' }
+          : args[0] === 'lookup'
+            ? { code: 1 }
+            : { code: 0 },
     {},
     async (keychain) => {
       await keychain.prewarmSecrets();
@@ -171,4 +178,30 @@ test('linux: missing secret-tool reports the libsecret-tools hint', async () => 
     assert.throws(() => keychain.getSecret('acct'), /libsecret-tools/);
     await assert.rejects(keychain.deleteSecretAsync('acct'), /libsecret-tools/);
   });
+});
+
+test('linux: a search whose items cannot all be matched to accounts is not cached as loaded; retry after unlock recovers', async () => {
+  let unlocked = false;
+  await withLinuxKeychain(
+    (args) => {
+      if (args[0] === 'search') {
+        return unlocked
+          ? { stdout: '[/org/x/1]\nsecret = s3cret\n', stderr: 'attribute.account = acct\n' }
+          : { stdout: '[/org/x/1]\nsecret = s3cret\n' };
+      }
+      return args[0] === 'lookup' ? { stdout: 's3cret' } : { code: 1 };
+    },
+    {},
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'error');
+      assert.throws(() => keychain.getSecret('acct'), /incomplete snapshot/);
+      unlocked = true;
+      await new Promise((r) => setTimeout(r, 5100));
+      assert.throws(() => keychain.getSecret('acct')); // triggers the lazy retry
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.getSecret('acct'), 's3cret');
+      assert.equal(keychain.keychainStatus().state, 'ok');
+    }
+  );
 });
