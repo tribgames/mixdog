@@ -133,7 +133,7 @@ function mutateProjectEntries<T>(root: string, relPaths: string[], run: () => Pr
 }
 
 /** Dock Files tab: one lazy directory level inside a registered project.
- *  Traversal-guarded — the resolved target must stay under the project
+ *  Traversal-guarded — the resolved target stays under the project
  *  root. One directory level is loaded per request. */
 export async function listProjectDirIn(root: string, relDir: string): Promise<Array<{ name: string; dir: boolean }>> {
   const target = projectEntryPathIn(root, relDir);
@@ -233,13 +233,27 @@ export async function writeProjectTextFileIn(
   );
 }
 
+type ProjectFileReplacement = {
+  before: Buffer;
+  after: Buffer;
+  mode: number;
+  destination: string;
+};
+
+// Rename replaces the leaf itself, so resolve its parent rather than a leaf
+// symlink. Rollback must not follow a directory alias to a different target.
+function replacementDestination(file: string): string {
+  return mutationPathKey(join(realpathSync(dirname(file)), basename(file)));
+}
+
 // Caller owns the complete mutation claim, including a batch's rollback.
 async function writeProjectTextFileUnlocked(
   root: string,
   relPath: string,
   content: string,
   expectedContent: string,
-  encoding?: ProjectTextEncoding
+  encoding?: ProjectTextEncoding,
+  onCommitted?: (replacement: ProjectFileReplacement) => void
 ): Promise<{ mtimeMs: number }> {
   if (typeof content !== 'string' || content.length > 4_194_304) throw new TypeError('File content is invalid.');
   if (typeof expectedContent !== 'string' || expectedContent.length > 4_194_304) {
@@ -255,31 +269,57 @@ async function writeProjectTextFileUnlocked(
     throw new TypeError('File encoding is invalid.');
   }
   const file = projectEntryPathIn(root, relPath);
-  const current = decodeProjectText(await readFile(file));
+  const currentBytes = await readFile(file);
+  const current = decodeProjectText(currentBytes);
   if (current.binary || current.content !== expectedContent) {
     throw new Error('File changed on disk. Reload or keep your edits before saving.');
   }
   const info = await stat(file);
   if (!info.isFile()) throw new Error('Not a file.');
-  const temp = `${file}.mixdog-save-${process.pid}-${randomUUID()}`;
   const targetEncoding = encoding ?? current.encoding;
+  const bytes = encodeProjectText(content, targetEncoding);
+  const destination = replacementDestination(file);
+  await replaceProjectFileBytes(file, bytes, currentBytes, info.mode, () => {
+    // Record the successful rename before any fallible post-commit metadata
+    // lookup. A batch must roll this file back even when the stat below fails.
+    onCommitted?.({ before: currentBytes, after: bytes, mode: info.mode, destination });
+  });
+  return { mtimeMs: (await stat(file)).mtimeMs };
+}
+
+/** Shared atomic byte replacement for forward saves and exact-byte recovery.
+ * The optional commit observer is internal and synchronous. A completed
+ * rollback does not depend on a subsequent metadata lookup. */
+async function replaceProjectFileBytes(
+  file: string,
+  bytes: Buffer,
+  expectedBytes: Buffer,
+  mode: number,
+  onCommitted?: () => void,
+  validatePath?: () => void
+): Promise<void> {
+  // Own the scratch path in a resolved parent. If an external process
+  // retargets a directory alias, cleanup must still remove our own file.
+  const temp = join(realpathSync(dirname(file)), `${basename(file)}.mixdog-save-${process.pid}-${randomUUID()}`);
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   let ownsTemp = false;
   try {
-    handle = await open(temp, 'wx', info.mode);
+    validatePath?.();
+    handle = await open(temp, 'wx', mode);
     ownsTemp = true;
-    await handle.writeFile(encodeProjectText(content, targetEncoding));
+    await handle.writeFile(bytes);
     await handle.close();
     handle = undefined;
-    // Recheck immediately before the swap so a change during temp-file IO is
-    // also rejected. The final rename remains atomic for readers.
-    const rechecked = decodeProjectText(await readFile(file));
-    if (rechecked.binary || rechecked.content !== expectedContent || rechecked.encoding !== current.encoding) {
+    // Compare the bytes we actually observed/wrote, not a potentially lossy
+    // text decoding. Never roll back over a newer external edit or BOM change.
+    validatePath?.();
+    if (!(await readFile(file)).equals(expectedBytes)) {
       throw new Error('File changed on disk. Reload or keep your edits before saving.');
     }
+    validatePath?.();
     await rename(temp, file);
     ownsTemp = false;
-    return { mtimeMs: (await stat(file)).mtimeMs };
+    onCommitted?.();
   } finally {
     await handle?.close().catch(() => {});
     // An exclusive-create failure owns nothing, even if the random name
@@ -288,11 +328,57 @@ async function writeProjectTextFileUnlocked(
   }
 }
 
+export type ProjectTextBatchFailure = {
+  failedPath: string;
+  committedPaths: readonly string[];
+  restoredPaths: readonly string[];
+  unrestoredPaths: readonly string[];
+};
+
+type ProjectTextRollbackFailure = { relPath: string; cause: unknown };
+
+function writeFailureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Direct callers retain structured recovery evidence and the original cause.
+ * All recovery information needed for manual intervention is also in message:
+ * existing desktop/remote transports do not preserve arbitrary Error fields. */
+export class ProjectTextBatchWriteError extends Error {
+  readonly code: string;
+  readonly result: ProjectTextBatchFailure;
+  readonly rollbackFailures: readonly ProjectTextRollbackFailure[];
+
+  constructor(
+    cause: unknown,
+    result: ProjectTextBatchFailure,
+    rollbackFailures: readonly ProjectTextRollbackFailure[]
+  ) {
+    const failures = rollbackFailures.map(({ relPath, cause: failure }) =>
+      `${JSON.stringify(relPath)} (${writeFailureMessage(failure)})`
+    );
+    const recovery = failures.length
+      ? `Rollback incomplete. Not restored: ${failures.join('; ')}. Inspect these files before retrying.`
+      : 'All committed files were restored.';
+    super(
+      `Workspace edit failed at ${JSON.stringify(result.failedPath)}: ${writeFailureMessage(cause)}. ` +
+      `Committed: ${JSON.stringify(result.committedPaths)}. Restored: ${JSON.stringify(result.restoredPaths)}. ${recovery}`,
+      { cause }
+    );
+    this.name = 'ProjectTextBatchWriteError';
+    this.code = rollbackFailures.length ? 'EPARTIAL_WRITE' : 'EWORKSPACE_WRITE';
+    this.result = result;
+    this.rollbackFailures = rollbackFailures;
+  }
+}
+
 /** Closed-file half of an LSP WorkspaceEdit. Every target is read and
  * compare-checked before any write begins; each replacement then reuses the
  * same writer as a normal editor save, under one claim for the entire batch.
- * If a later file fails, rollback rechecks our replacement before restoring;
- * the same external-writer limitation as a single save still applies. */
+ * If a later write or its post-commit stat fails, recovery restores original
+ * bytes in reverse commit order, while preserving newer external changes.
+ * Recovery failures are reported, not swallowed. The same external-writer
+ * limitation as a single save still applies; this is not a crash journal. */
 export async function writeProjectTextFilesIn(
   root: string,
   writes: ReadonlyArray<{ relPath: string; content: string; expectedContent: string }>
@@ -324,17 +410,46 @@ export async function writeProjectTextFilesIn(
         throw new Error(`File changed on disk: ${write.relPath}`);
       }
     }
-    const committed: typeof normalized = [];
+    const committed: Array<ProjectFileReplacement & { relPath: string }> = [];
+    let failedPath = '';
     try {
       for (const write of normalized) {
-        await writeProjectTextFileUnlocked(root, write.relPath, write.content, write.expectedContent);
-        committed.push(write);
+        failedPath = write.relPath;
+        await writeProjectTextFileUnlocked(
+          root, write.relPath, write.content, write.expectedContent, undefined,
+          (replacement) => { committed.push({ ...replacement, relPath: write.relPath }); }
+        );
       }
     } catch (error) {
-      for (const write of committed.reverse()) {
-        await writeProjectTextFileUnlocked(root, write.relPath, write.expectedContent, write.content).catch(() => {});
+      // Before any successful swap there is nothing to recover; keep the
+      // original pre-commit error (including its code and identity).
+      if (!committed.length) throw error;
+      const restored = new Set<string>();
+      const rollbackFailures: ProjectTextRollbackFailure[] = [];
+      for (const replacement of [...committed].reverse()) {
+        try {
+          const file = projectEntryPathIn(root, replacement.relPath);
+          const validatePath = () => {
+            projectEntryPathIn(root, replacement.relPath);
+            if (replacementDestination(file) !== replacement.destination) {
+              throw new Error('Project path changed before rollback.');
+            }
+          };
+          await replaceProjectFileBytes(
+            file, replacement.before, replacement.after, replacement.mode,
+            () => { restored.add(replacement.relPath); }, validatePath
+          );
+        } catch (cause) {
+          rollbackFailures.push({ relPath: replacement.relPath, cause });
+        }
       }
-      throw error;
+      const committedPaths = committed.map(({ relPath }) => relPath);
+      throw new ProjectTextBatchWriteError(error, {
+        failedPath,
+        committedPaths,
+        restoredPaths: committedPaths.filter((path) => restored.has(path)),
+        unrestoredPaths: committedPaths.filter((path) => !restored.has(path)),
+      }, rollbackFailures);
     }
   });
 }
