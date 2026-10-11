@@ -126,7 +126,7 @@ export function listProjects() {
 }
 
 /** Permission checks must not mistake unreadable/corrupt storage for removal.
- * Keep the established tolerant reader for ordinary lists and mutations. */
+ * Mutations also use strict reads; only ordinary listing remains tolerant. */
 export function listProjectsStrict() {
   const { projects } = readStore(true);
   return projects.slice().sort(compareProjects);
