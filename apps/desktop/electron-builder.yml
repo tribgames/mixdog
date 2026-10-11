@@ -19,6 +19,7 @@ npmRebuild: false
 nodeGypRebuild: false
 extraMetadata:
   name: mixdog-desktop
+  homepage: https://github.com/tribgames/mixdog#readme
 protocols:
   name: Mixdog
   schemes:
