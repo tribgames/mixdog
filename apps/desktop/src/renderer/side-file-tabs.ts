@@ -15,6 +15,9 @@ export type PaneSideDockFile = {
   nonce: number;
   /** The tab the next newly opened file replaces. */
   preview?: boolean;
+  /** "Open Preview to the Side": a read-only rendered Markdown view that
+   *  follows the main tab's editor (no editor of its own, never dirty). */
+  sidePreview?: boolean;
   /** When the tab was opened (ms); orders eviction and times the origin pin. */
   openedAt: number;
 };
@@ -52,6 +55,8 @@ export interface SideFileOpenOptions {
   now?: number;
   /** Key of the tab the link was followed from. */
   from?: string;
+  /** The new tab is a side preview (see `PaneSideDockFile.sidePreview`). */
+  sidePreview?: boolean;
   /** Dirty tabs are never evicted. */
   isDirty?(fileKey: string): boolean;
 }
@@ -109,6 +114,7 @@ export function planSideFileOpen(
     nonce,
     openedAt: now,
     ...(preview ? { preview: true } : {}),
+    ...(options.sidePreview ? { sidePreview: true } : {}),
   };
   let files = [...tabs.files];
   const removed: PaneSideDockFile[] = [];

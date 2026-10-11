@@ -121,6 +121,10 @@ export interface DesktopApi {
   chooseWorkspace?(): Promise<DesktopWorkspace | null>;
   saveWorkspace?(workspaceFile: string | null, folders: DesktopWorkspaceFolder[]): Promise<DesktopWorkspace | null>;
   readEditorSettings?(projectPath: string, relPath: string, workspaceFile?: string): Promise<DesktopEditorSettings>;
+  readMarkdownDefaultView?(): Promise<DesktopEditorSettings['markdownDefaultView']>;
+  writeMarkdownDefaultView?(
+    view: DesktopEditorSettings['markdownDefaultView']
+  ): Promise<DesktopEditorSettings['markdownDefaultView']>;
   startProject(projectPath: string): Promise<SessionSnapshot>;
   startProjectTask(projectPath: string): Promise<SessionSnapshot>;
   startTask(): Promise<SessionSnapshot>;

@@ -274,6 +274,7 @@ function isDockFile(value: unknown): value is StoredDockFile {
     // A file-scoped access token does not outlive its session.
     record.accessToken === undefined &&
     (record.preview === undefined || typeof record.preview === 'boolean') &&
+    (record.sidePreview === undefined || typeof record.sidePreview === 'boolean') &&
     (record.openedAt === undefined || typeof record.openedAt === 'number') &&
     (record.line === undefined || typeof record.line === 'number') &&
     (record.column === undefined || typeof record.column === 'number')
@@ -734,7 +735,7 @@ function usePaneSideDockCommands({
       line?: number,
       accessToken?: string,
       column?: number,
-      request?: { preview?: boolean; from?: string }
+      request?: { preview?: boolean; from?: string; sidePreview?: boolean }
     ) => {
       const cleanProject = String(project || '').trim();
       const cleanRel = String(rel || '')
@@ -756,6 +757,7 @@ function usePaneSideDockCommands({
           {
             preview: request?.preview,
             from: request?.from,
+            sidePreview: request?.sidePreview,
             now: nonce,
             isDirty: (fileKey) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
           }
@@ -1356,7 +1358,10 @@ export function PaneSideDock({
             onOpenInMain={() => {
               // The host's main-tab open takes the file over from this dock
               // (confirming unsaved edits), so nothing else to close here.
-              if (activeFile) openFileTab(activeFile.project, activeFile.rel, activeFile.line, activeFile.accessToken);
+              if (!activeFile) return;
+              openFileTab(activeFile.project, activeFile.rel, activeFile.line, activeFile.accessToken);
+              // A side preview holds no editor, so the open leaves it behind.
+              if (activeFile.sidePreview) onCloseFileTab?.(sideFileKey(activeFile));
             }}
           />
           <div className="pane-side-file-body">

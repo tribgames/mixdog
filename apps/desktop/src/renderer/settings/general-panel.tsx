@@ -14,6 +14,8 @@ import {
   t,
   type UiLanguagePreference,
 } from '../i18n';
+import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
+import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
 import { record } from '../record-utils';
 import {
@@ -95,6 +97,51 @@ function LinkPreviewToggle({ pending }: Pick<PanelContext, 'pending'>) {
   );
 }
 
+/** Which view a Markdown file opens in until the user picks one for it. */
+function MarkdownDefaultViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
+  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const [view, setView] = useState<DesktopEditorSettings['markdownDefaultView']>(
+    DEFAULT_DESKTOP_EDITOR_SETTINGS.markdownDefaultView
+  );
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    void api
+      ?.readMarkdownDefaultView?.()
+      .then((configured) => {
+        if (live) setView(configured);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [api]);
+  const choose = (next: DesktopEditorSettings['markdownDefaultView']) => {
+    const writer = api?.writeMarkdownDefaultView;
+    if (!writer) return;
+    setError('');
+    void writer(next)
+      .then(setView)
+      .catch(() => setError(t('Default view could not be saved to your user settings.')));
+  };
+  return (
+    <Group title={t('Markdown files')}>
+      <SelectRow
+        title={t('Default view')}
+        value={view}
+        disabled={Boolean(pending) || !api?.writeMarkdownDefaultView}
+        options={[
+          { value: 'preview', label: t('Preview') },
+          { value: 'rich', label: t('Rich') },
+          { value: 'source', label: t('Source') },
+        ]}
+        onChange={(next) => choose(next as DesktopEditorSettings['markdownDefaultView'])}
+      />
+      {error && <p role="alert">{error}</p>}
+    </Group>
+  );
+}
+
 function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const configuredMode = useSyncExternalStore(subscribeSidePanelMode, getSidePanelMode, () => 'close-both');
   const narrow = window.matchMedia?.(NARROW_SHELL_QUERY).matches === true;
@@ -170,6 +217,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
       <UiLanguageChoices pending={pending} />
       <ThemeChoices data={data} pending={pending} />
       <SidePanelChoices pending={pending} />
+      <MarkdownDefaultViewChoice pending={pending} />
     </>
   );
 }

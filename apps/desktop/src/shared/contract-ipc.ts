@@ -7,6 +7,8 @@ export const DESKTOP_IPC = {
   chooseWorkspace: 'mixdog:choose-workspace',
   saveWorkspace: 'mixdog:save-workspace',
   readEditorSettings: 'mixdog:read-editor-settings',
+  readMarkdownDefaultView: 'mixdog:read-markdown-default-view',
+  writeMarkdownDefaultView: 'mixdog:write-markdown-default-view',
   startProject: 'mixdog:start-project',
   startProjectTask: 'mixdog:start-project-task',
   startTask: 'mixdog:start-task',

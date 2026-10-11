@@ -99,6 +99,13 @@ export function registerFileDialogIpc({
     }
     return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
   });
+  const userDataDir = () => (typeof app.getPath === 'function' ? app.getPath('userData') : '');
+  handle(DESKTOP_IPC.readMarkdownDefaultView, () =>
+    invokeDesktopOperation('readMarkdownDefaultView', [userDataDir()])
+  );
+  handle(DESKTOP_IPC.writeMarkdownDefaultView, (_event, view) =>
+    invokeDesktopOperation('writeMarkdownDefaultView', [userDataDir(), view])
+  );
   handle(DESKTOP_IPC.readEditorSettings, async (_event, projectPath, relPath, workspaceFile) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);

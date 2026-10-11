@@ -64,6 +64,8 @@ const api: DesktopApi = {
   saveWorkspace: (workspaceFile, folders) => ipcRenderer.invoke(DESKTOP_IPC.saveWorkspace, workspaceFile, folders),
   readEditorSettings: (projectPath, relPath, workspaceFile) =>
     ipcRenderer.invoke(DESKTOP_IPC.readEditorSettings, projectPath, relPath, workspaceFile),
+  readMarkdownDefaultView: () => ipcRenderer.invoke(DESKTOP_IPC.readMarkdownDefaultView),
+  writeMarkdownDefaultView: (view) => ipcRenderer.invoke(DESKTOP_IPC.writeMarkdownDefaultView, view),
   startProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.startProject, projectPath),
   startProjectTask: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.startProjectTask, projectPath),
   startTask: () => ipcRenderer.invoke(DESKTOP_IPC.startTask),

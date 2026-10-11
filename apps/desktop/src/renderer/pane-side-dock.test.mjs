@@ -1254,7 +1254,7 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
     cursor: { label: 'Ln 12, Col 1', short: '12:1', onGoto: () => calls.push('goto') },
     language: 'TypeScript',
     format: () => calls.push('format'),
-    viewToggle: { value: 'rendered', renderedLabel: 'Preview', onChange() {} },
+    viewToggle: { value: 'rendered', renderedLabel: 'Preview', modes: ['rendered', 'source'], onChange() {} },
   };
   const actions = sideFileActions(chrome, () => {});
   // ⋯ keeps Reveal, Open in main tab and Format; Save is the only header button.
@@ -1313,43 +1313,53 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
   assert.ok(source.includes('side-file-status-problems') && source.includes('>2<') && source.includes('>5<'));
   assert.ok(source.includes('>12:1<'));
   assert.ok(source.includes('TypeScript'));
-  // Segmented toggle: two options, aria-pressed on exactly the active one.
-  const segments = [...source.matchAll(/<button[^>]*aria-pressed="(true|false)"[^>]*>([^<]*)<\/button>/g)].map((m) => [
-    m[2],
-    m[1],
-  ]);
-  assert.deepEqual(segments, [
-    ['Preview', 'false'],
-    ['Source', 'true'],
-  ]);
-  assert.ok(
-    source.indexOf('side-file-view-toggle') < source.indexOf('side-file-status-items'),
-    'toggle is on the left'
-  );
+  // The footer carries no view switch: it lives in the file header.
+  assert.equal(source.includes('editor-view-switch') || source.includes('role="radio'), false);
   // Rendered mode: the right side is empty.
   const rendered = renderToStaticMarkup(React.createElement(SideFileStatusRow, { chrome }));
-  assert.deepEqual(
-    [...rendered.matchAll(/<button[^>]*aria-pressed="(true|false)"/g)].map((m) => m[1]),
-    ['true', 'false']
-  );
   for (const marker of ['side-file-status-problems', 'side-file-status-cursor', 'side-file-status-language'])
     assert.equal(rendered.includes(marker), false, 'rendered: ' + marker);
   // Plain code (no toggle): only the right-side items.
   const code = renderToStaticMarkup(
     React.createElement(SideFileStatusRow, { chrome: { ...chrome, viewToggle: undefined } })
   );
-  assert.equal(code.includes('side-file-view-toggle'), false);
   assert.ok(code.includes('side-file-status-cursor') && code.includes('side-file-status-problems'));
   // Previews (image/pdf/office/binary: no cursor, no view toggle) get NO footer; the chip tooltip carries the path.
   const { sideFileHasFooter } = await import('./side-file-status-row.tsx');
   const previewChrome = { editable: false, dirty: false, saving: false, save() {}, reveal() {}, openDefault() {} };
   assert.equal(sideFileHasFooter(previewChrome), false);
   assert.equal(sideFileHasFooter(null), false);
-  assert.equal(sideFileHasFooter(chrome), true);
+  assert.equal(sideFileHasFooter({ ...chrome, viewToggle: undefined }), true, 'plain code keeps its footer');
+  assert.equal(sideFileHasFooter({ ...chrome, viewToggle: { ...chrome.viewToggle, value: 'source' } }), true);
+  assert.equal(sideFileHasFooter(chrome), false, 'a rendered Markdown view has nothing to report');
   assert.equal(
-    sideFileHasFooter({ ...previewChrome, viewToggle: chrome.viewToggle }),
+    sideFileHasFooter({ ...previewChrome, tableSize: { rows: 2, columns: 3 } }),
     true,
-    'md/csv preview mode keeps its toggle footer'
+    'a rendered table keeps its size footer'
+  );
+  // The header carries the one view switch (+ outline toggle), left of the action buttons.
+  const markdownChrome = {
+    ...chrome,
+    viewToggle: { value: 'rich', renderedLabel: 'Preview', modes: ['rendered', 'rich', 'source'], onChange() {} },
+    toc: { open: true, onToggle() {} },
+  };
+  const markdownHeader = renderToStaticMarkup(
+    React.createElement(SideFileStrip, stripProps([deep], sideFileKey(deep), { chrome: markdownChrome }))
+  );
+  assert.deepEqual(
+    [...markdownHeader.matchAll(/role="radio" aria-checked="(true|false)"[^>]*>([^<]*)</g)].map((m) => [m[2], m[1]]),
+    [
+      ['Preview', 'false'],
+      ['Rich', 'true'],
+      ['Source', 'false'],
+    ]
+  );
+  assert.ok(markdownHeader.indexOf('editor-view-switch') < markdownHeader.indexOf('aria-label="Table of contents"'));
+  assert.deepEqual(
+    sideFileActions(markdownChrome, () => {})
+      .filter((a) => a.inline)
+      .map((a) => a.id),
+    ['toc', 'save']
   );
   const previewHeader = renderToStaticMarkup(
     React.createElement(
@@ -1410,34 +1420,21 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
   assert.match(css.match(/\.side-file-status-problems \{([^}]*)\}/)[1], /min-width: 52px;/);
 });
 
-test('side file second row hides language first, then the cursor; counts and the toggle stay', async () => {
+test('side file second row hides language first, then the cursor; counts stay', async () => {
   const L = await import('./side-file-status-layout.ts');
-  const base = (toggle) =>
-    L.SIDE_STATUS_PADDING +
-    L.SIDE_STATUS_PATH_MIN_WIDTH +
-    L.SIDE_STATUS_PROBLEMS_WIDTH +
-    (toggle ? L.SIDE_STATUS_TOGGLE_WIDTH : 0);
-  for (const toggle of [false, true]) {
-    assert.deepEqual(L.sideStatusLayout(500, toggle), { cursor: true, language: true });
-    assert.deepEqual(L.sideStatusLayout(280, false), { cursor: true, language: true });
-    assert.deepEqual(
-      L.sideStatusLayout(280, true),
-      { cursor: true, language: false },
-      'with the toggle the language yields at the 280px floor'
-    );
-    const full = base(toggle) + L.SIDE_STATUS_CURSOR_WIDTH + L.SIDE_STATUS_LANGUAGE_WIDTH;
-    assert.deepEqual(L.sideStatusLayout(full, toggle), { cursor: true, language: true });
-    assert.deepEqual(L.sideStatusLayout(full - 1, toggle), { cursor: true, language: false });
-    assert.deepEqual(L.sideStatusLayout(base(toggle) + L.SIDE_STATUS_CURSOR_WIDTH - 1, toggle), {
-      cursor: false,
-      language: false,
-    });
-  }
-  assert.deepEqual(L.sideStatusLayout(0, true), { cursor: true, language: true });
-  // The problems counts and toggle are rendered regardless of the layout flags.
+  const base = L.SIDE_STATUS_PADDING + L.SIDE_STATUS_PATH_MIN_WIDTH + L.SIDE_STATUS_PROBLEMS_WIDTH;
+  assert.deepEqual(L.sideStatusLayout(500), { cursor: true, language: true });
+  assert.deepEqual(L.sideStatusLayout(280), { cursor: true, language: true });
+  const full = base + L.SIDE_STATUS_CURSOR_WIDTH + L.SIDE_STATUS_LANGUAGE_WIDTH;
+  assert.deepEqual(L.sideStatusLayout(full), { cursor: true, language: true });
+  assert.deepEqual(L.sideStatusLayout(full - 1), { cursor: true, language: false });
+  assert.deepEqual(L.sideStatusLayout(base + L.SIDE_STATUS_CURSOR_WIDTH - 1), { cursor: false, language: false });
+  assert.deepEqual(L.sideStatusLayout(0), { cursor: true, language: true });
+  assert.equal(L.SIDE_STATUS_TOGGLE_WIDTH, undefined);
+  // The problems counts are rendered regardless of the layout flags.
   const { readFile } = await import('node:fs/promises');
   const row = await readFile(new URL('./side-file-status-row.tsx', import.meta.url), 'utf8');
-  assert.match(row, /\{toggle && \(/);
+  assert.doesNotMatch(row, /view-toggle|aria-pressed/);
   assert.match(row, /\{showStatus && problems && \(/);
   assert.match(row, /chrome\?\.cursor && layout\.cursor/);
   assert.match(row, /chrome\?\.language && layout\.language/);

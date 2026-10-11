@@ -455,7 +455,8 @@ export function App() {
     openSelectionInFocusedPane: paneWorkspace.openInFocused,
   });
   // Every main-tab open passes the side-file guard (bound below).
-  const { sideFileGuardRef, openFileTab, openFileInSideDock } = useSideFileGuardOpeners(openFileTabRaw);
+  const { sideFileGuardRef, openFileTab, openFileInSideDock, openPreviewToSide } =
+    useSideFileGuardOpeners(openFileTabRaw);
 
   const {
     openStudioTab,
@@ -662,6 +663,7 @@ export function App() {
     handleFileDirty,
     registerEditorSaveHandle,
     openFileTab,
+    openPreviewToSide: sideDockHostsFiles ? openPreviewToSide : undefined,
     latestEditorLocation,
     sidebarOpen,
     toggleSidebar,

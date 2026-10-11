@@ -15,6 +15,11 @@ export const DiffView = lazy(importDiffView);
 export const TerminalPane = lazy(importTerminalPane);
 export const EditorPane = lazy(importEditorPane);
 export const BrowserPane = lazy(importBrowserPane);
+/** Read-only Markdown preview of a side-dock "Open Preview to the Side" tab. */
+export const SideMarkdownPreview = lazy(async () => {
+  await loadMonacoLocale();
+  return import('./editor-side-markdown-preview');
+});
 
 export async function disposeTerminalPane(id: string): Promise<void> {
   const module = await importTerminalPane();

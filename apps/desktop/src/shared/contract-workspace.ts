@@ -105,6 +105,8 @@ export interface DesktopEditorSettings {
   formatOnSave: boolean;
   formatOnPaste: boolean;
   formatOnType: boolean;
+  /** View a Markdown file opens in when it has no remembered mode. */
+  markdownDefaultView: 'preview' | 'rich' | 'source';
   tabSize: number;
   insertSpaces: boolean;
   detectIndentation: boolean;

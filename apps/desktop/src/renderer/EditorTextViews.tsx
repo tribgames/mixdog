@@ -1,5 +1,6 @@
-import { useState, type ComponentProps } from 'react';
+import { useState, type ComponentProps, type MouseEvent } from 'react';
 import { EditorDelimitedGrid } from './editor-delimited-grid';
+import { headingForAnchor, readHeadings, scrollToHeading } from './editor-markdown-outline';
 import MarkdownBody from './MarkdownBody';
 import { MarkdownDocumentDirContext, MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
 import { CopyControl } from './transcript-primitives';
@@ -75,11 +76,22 @@ export function EditorMarkdownPreview({
   onOpenFile?(project: string, rel: string, line?: number): void;
 }) {
   const directory = relPath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+  // `#anchor` links scroll inside the preview (never navigate the renderer);
+  // relative file links keep going through MarkdownLink → onOpenFile.
+  const followAnchor = (event: MouseEvent<HTMLDivElement>) => {
+    const link = event.target instanceof Element ? event.target.closest('a') : null;
+    const href = link?.getAttribute('href') ?? '';
+    if (!link || !href.startsWith('#') || event.button !== 0) return;
+    event.preventDefault();
+    const target = headingForAnchor(readHeadings(event.currentTarget, true), href.slice(1));
+    if (target) scrollToHeading(target);
+  };
   return (
     <MarkdownProjectContext.Provider value={projectPath}>
       <MarkdownDocumentDirContext.Provider value={directory}>
         <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
-          <div className="editor-text-view editor-markdown-preview markdown">
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: delegated handler for the rendered anchors, which are real focusable links with their own keyboard activation. */}
+          <div className="editor-text-view editor-markdown-preview markdown" onClick={followAnchor}>
             <MarkdownBody text={text} copyControl={CopyControl} />
           </div>
         </MarkdownOpenFileContext.Provider>

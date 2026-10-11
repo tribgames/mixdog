@@ -1,4 +1,6 @@
 import type React from 'react';
+import { Suspense } from 'react';
+import { SideMarkdownPreview } from './lazy-widgets';
 import type { PaneLeaf } from './pane-layout';
 import { paneActiveSelection } from './pane-layout';
 import { navigationKey } from './text-format';
@@ -121,6 +123,27 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           startupDelayMs={EDITOR_STARTUP_DELAY_MS}
           fallback={<DesktopLoadingSurface label={t('Loading editor…')} />}
         >
+          {file.sidePreview ? (
+            <Suspense fallback={<DesktopLoadingSurface label={t('Loading editor…')} />}>
+              <SideMarkdownPreview
+                projectPath={file.project}
+                relPath={file.rel}
+                accessToken={file.accessToken}
+                onSideChrome={side.onChrome}
+                onOpenFile={(project, rel, line) =>
+                  context.sideFileGuard.openFileInSideDock(
+                    leaf.id,
+                    project,
+                    rel,
+                    line,
+                    undefined,
+                    undefined,
+                    sideFileKey(file)
+                  )
+                }
+              />
+            </Suspense>
+          ) : (
           <ReadyEditorPane
             surfaceKey={`${leaf.id}:side-file:${sideFileKey(file)}`}
             projectPath={file.project}
@@ -154,6 +177,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
               )
             }
           />
+          )}
         </DeferredPersistentSurface>
       )}
       renderBrowserSurface={(surfaceActive) => {

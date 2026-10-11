@@ -17,6 +17,9 @@ await build({
   treeShaking: true,
   sourcemap: false,
   external: ['@homebridge/node-pty-prebuilt-multiarch'],
+  // The package's UMD main resolves its modules through a runtime require the
+  // bundler cannot follow; its ESM build bundles statically.
+  alias: { 'jsonc-parser': 'jsonc-parser/lib/esm/main.js' },
   plugins: [
     {
       name: 'plain-node-desktop-service',

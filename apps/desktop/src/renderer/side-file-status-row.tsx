@@ -7,14 +7,15 @@ import type { SideFileChrome } from './side-surface-strip';
 /** Only text editors (code/md/csv/tsv) get the footer. Image/pdf/office/binary
  *  previews have none: the chip's tooltip already carries the path. */
 export function sideFileHasFooter(chrome: SideFileChrome | null): boolean {
-  return Boolean(chrome && (chrome.cursor || chrome.viewToggle));
+  if (!chrome) return false;
+  const source = !chrome.viewToggle || chrome.viewToggle.value === 'source';
+  return Boolean(chrome.tableSize || (chrome.cursor && source));
 }
 
 /** The side file's footer / status bar (last row of the card, inside the
- *  rounded sheet). Left: the Preview|Source / Table|Source segmented toggle
- *  (md/csv/tsv). Right: problems counts (toggle the Problems split), cursor (go
- *  to line) and language — Source mode only, so a rendered view has an empty
- *  right side. The path lives in the chip's tooltip, not here. */
+ *  rounded sheet): problems counts (toggle the Problems split), cursor (go to
+ *  line) and language — Source mode only — or a rendered table's size. The
+ *  view switch lives in the file header, the path in the chip's tooltip. */
 export function SideFileStatusRow({ chrome }: { chrome: SideFileChrome | null }) {
   const row = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -27,23 +28,14 @@ export function SideFileStatusRow({ chrome }: { chrome: SideFileChrome | null })
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  const toggle = chrome?.viewToggle;
-  const layout = sideStatusLayout(width, Boolean(toggle));
+  const layout = sideStatusLayout(width);
   const problems = chrome?.editable ? chrome.problems : undefined;
-  // Rendered table/markdown preview: nothing editor-related to report.
-  const showStatus = toggle?.value !== 'rendered';
+  // Rendered table/markdown preview or the Rich editor: nothing
+  // editor-related to report.
+  const showStatus = !chrome?.viewToggle || chrome.viewToggle.value === 'source';
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <footer> nested in the pane has no contentinfo role; the explicit role names the side file's status row.
     <div ref={row} className="side-file-status-row" data-side-file-status="" role="contentinfo">
-      {toggle && (
-        <span className="side-file-view-toggle" role="radiogroup" aria-label={t('View mode')}>
-          {(['rendered', 'source'] as const).map((mode) => (
-            <button key={mode} type="button" aria-pressed={toggle.value === mode} onClick={() => toggle.onChange(mode)}>
-              {mode === 'rendered' ? toggle.renderedLabel : t('Source')}
-            </button>
-          ))}
-        </span>
-      )}
       <div className="side-file-status-items">
         {!showStatus && chrome?.tableSize && (
           <span className="side-file-status-size">
