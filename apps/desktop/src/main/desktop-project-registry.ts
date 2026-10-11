@@ -35,7 +35,11 @@ export class DesktopProjectRegistry {
   async enter(canonicalPath: string): Promise<string[]> {
     const store = await this.loadProjectsModule();
     const registered = this.addTo(store, canonicalPath);
-    store.touchProjectSelected(registered.path);
+    try {
+      store.touchProjectSelected(registered.path);
+    } catch {
+      // Registration succeeded; a recency-only failure must not prevent entry.
+    }
     await this.unhide(store, registered.path);
     return this.recentsOf(store);
   }
