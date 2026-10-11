@@ -52,7 +52,7 @@ CPU).
 | Base | EmbeddingGemma 2 text encoder, 12 of 24 layers, with a four-level classification head |
 | Format | ONNX, 4-bit weights, about 130 MB |
 | Runtime | ONNX Runtime on the CPU (4 threads); no GPU, no network after download |
-| Input | The first 256 tokens of the request plus the tail of the previous reply, or the step text |
+| Input | The cleaned request (up to 1,500 characters) and the end of the previous reply (and, in some formats, the previous request), or the step text, all packed into one shared token budget (256 by default, set by the model's calibration; the layout is format-dependent, and the pack format caps the request tokens separately). Anything beyond the budget is cut from the end |
 | Speed | About 80–100 ms per judgment (median) on a desktop CPU |
 
 The model is downloaded once from the Mixdog GitHub release named in
@@ -93,7 +93,8 @@ since it sizes its own thinking regardless of the effort setting.
 
 ## Limitations
 
-- The judge sees only the first 256 tokens and the end of the previous reply,
+- The judge sees only a limited, shared token budget (256 by default) holding
+  the start of the request and the end of the previous reply,
   so work implied by earlier conversation can be under-rated.
 - About four in ten requests rated hard or very hard by the reference are
   rated lower by the judge, almost always by one level. "Very hard" is called

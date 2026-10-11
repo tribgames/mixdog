@@ -70,7 +70,7 @@ export async function showRemoteAccessWindow(
   const paired = Boolean(browserQr);
   const body = paired
     ? `<div class="grid single">
-  <div class="card"><b>Scan with the Mixdog app</b>${browserQr}<small>Browsers and other PCs: use the 6-digit code in Settings → Connection.<br/>Every new device asks this PC for approval.</small></div>
+  <div class="card"><b>Scan with your phone camera to install the Mixdog app</b>${browserQr}<small>Then open the app, tap Connect with a code, and enter the 6-digit code shown in Settings → Connection.<br/>Every new device asks this PC for approval.</small></div>
 </div>`
     : `<div class="grid single">
   <div class="card"><b>Connecting…</b><small>Establishing the secure relay link. Close this window and press Ctrl+Shift+R again in a moment. If this persists, check this PC's internet connection.</small></div>

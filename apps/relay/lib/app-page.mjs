@@ -32,12 +32,12 @@ p{margin:0;color:#a8a8a8}
 <body>
 <main>
 <img src="/mixdog-logo-titanium.svg" alt="" draggable="false" />
-<h1 id="heading"></h1>
+<h1 id="heading">Install Mixdog</h1>
 <div class="opts">
-<div class="opt" id="ios"><a class="btn" id="iosBtn" href="${TESTFLIGHT_URL}" rel="noopener"></a><p class="fine" id="iosNote"></p></div>
-<div class="opt" id="android"><a class="btn" id="androidBtn" href="${ANDROID_URL}" rel="noopener"></a><p class="fine" id="androidNote"></p></div>
+<div class="opt" id="ios"><a class="btn" id="iosBtn" href="${TESTFLIGHT_URL}" rel="noopener">Get it for iPhone</a><p class="fine" id="iosNote">Installs through TestFlight (Apple’s official beta app).</p></div>
+<div class="opt" id="android"><a class="btn" id="androidBtn" href="${ANDROID_URL}" rel="noopener">Get it for Android</a><p class="fine" id="androidNote">You may need to allow installs from unknown sources.</p></div>
 </div>
-<p id="after"></p>
+<p id="after">After installing, open the app and tap Connect with a code.</p>
 </main>
 <script>
 (function () {
