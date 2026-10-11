@@ -304,6 +304,22 @@ async function assertTreeTargetArchitecture(root, label) {
   }
 }
 
+// The package's Linux prebuilds are named node.abi<N>.node, but its loader looks
+// for electron.abi<N>.node when running under Electron and then falls back to
+// build/Release/pty.node, which the npm tarball does not ship. The addon is
+// N-API (ABI-stable across Node and Electron), so expose the newest glibc
+// prebuild at that fallback path instead of rebuilding per Electron release.
+async function installLinuxPtyBinding(packageDir) {
+  const prebuildDir = join(packageDir, 'prebuilds', ${embeddingTarget.platform}-);
+  const candidates = (await readdir(prebuildDir))
+    .map((name) => /^node\.abi(\d+)\.node$/.exec(name))
+    .filter(Boolean)
+    .sort((left, right) => Number(right[1]) - Number(left[1]));
+  if (candidates.length === 0) throw new Error(Desktop node-pty has no glibc prebuild under );
+  const releaseDir = join(packageDir, 'build', 'Release');
+  await mkdir(releaseDir, { recursive: true });
+  await cp(join(prebuildDir, candidates[0][0]), join(releaseDir, 'pty.node'));
+}
 async function desktopPtyNativeRoot() {
   // Linux loads the ABI-specific prebuild directly. Windows and macOS install
   // their active binding under build/Release instead. Validate only the root
@@ -515,6 +531,7 @@ async function prepareRuntime(manifest, fingerprint) {
       await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
       await patchDesktopPtyHelperPath(builderDesktopPtyDir);
       const ptyPrune = await pruneDesktopPtyPackage(builderDesktopPtyDir, embeddingTarget);
+      if (embeddingTarget.platform === 'linux') await installLinuxPtyBinding(builderDesktopPtyDir);
       console.log(
         `Pruned desktop node-pty from ${(ptyPrune.beforeBytes / 1024 / 1024).toFixed(1)} MiB ` +
           `to ${(ptyPrune.afterBytes / 1024 / 1024).toFixed(1)} MiB.`

@@ -352,8 +352,12 @@ jobs:
         run: |
           set -euo pipefail
           asset="apps/desktop/dist/mixdog-desktop-linux-${{ inputs.artifact_arch }}.AppImage"
+          # electron-updater on Linux reads latest-linux.yml (x64) or latest-linux-arm64.yml (arm64).
+          feed=apps/desktop/dist/latest-linux.yml
+          [ "${{ inputs.artifact_arch }}" = arm64 ] && feed=apps/desktop/dist/latest-linux-arm64.yml
           test -f "$asset"
+          test -f "$feed"
           # Same bounded uploader as macOS and Windows: `gh release upload
           # --clobber` stalled past the step timeout twice on arm64 (v0.9.170)
           # once the draft already held the earlier attempt's asset.
-          bash .github/scripts/upload-release-assets.sh "$asset"
+          bash .github/scripts/upload-release-assets.sh "$asset" "$feed"

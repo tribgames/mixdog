@@ -66,29 +66,67 @@ jobs:
         working-directory: apps/desktop
       - name: Package size
         run: |
-          ls -l apps/desktop/dist/*.AppImage
+          ls -l apps/desktop/dist/*.AppImage apps/desktop/dist/*.deb
           du -sh apps/desktop/dist/linux-*unpacked || true
-      - name: Headless launch smoke
+      - name: Verify packaged node-pty (Electron ABI, real PTY spawn)
+        run: |
+          unpacked=$(ls -d apps/desktop/dist/linux-*unpacked | head -n1)
+          ELECTRON_RUN_AS_NODE=1 "$unpacked/mixdog-desktop" apps/desktop/scripts/linux-pty-check.cjs "$PWD/$unpacked/resources" | tee pty-check.log
+      - name: Verify auto-update feed and .deb metadata
+        run: |
+          feed=apps/desktop/dist/latest-linux.yml
+          [ "${{ matrix.arch }}" = arm64 ] && feed=apps/desktop/dist/latest-linux-arm64.yml
+          test -f "$feed"
+          cat "$feed"
+          grep -q 'AppImage' "$feed"
+          deb=$(ls apps/desktop/dist/*.deb)
+          dpkg-deb -I "$deb" | tee deb-info.txt
+          for dep in libsecret-tools libnotify4 libgtk-3-0 libnss3 'libasound2t64 | libasound2'; do grep -qF "$dep" deb-info.txt; done
+          dpkg-deb -c "$deb" > deb-contents.txt
+          grep -q 'usr/share/icons/hicolor/256x256/apps/mixdog-desktop.png' deb-contents.txt
+          grep -q 'usr/share/icons/hicolor/16x16/apps/mixdog-desktop.png' deb-contents.txt
+          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/share/applications/mixdog-desktop.desktop | tee desktop-entry.txt
+          grep -qx 'StartupWMClass=mixdog-desktop' desktop-entry.txt
+      - name: Remove libfuse2 (stock Ubuntu 24.04 has none)
+        run: |
+          sudo apt-get remove -y 'libfuse2*' || true
+          if ldconfig -p | grep -q 'libfuse.so.2'; then echo "libfuse.so.2 still present"; exit 1; fi
+      - name: Headless launch smoke (AppImage, mounted, no libfuse2)
         timeout-minutes: 8
         run: |
           mkdir -p smoke
           chmod +x apps/desktop/dist/*.AppImage
           xvfb-run -a --server-args="-screen 0 1440x900x24" \
             node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-*.AppImage smoke
-      - name: Upload AppImage
+      - name: Headless launch smoke (installed .deb)
+        timeout-minutes: 8
+        run: |
+          sudo apt-get install -y ./apps/desktop/dist/*.deb
+          mkdir -p smoke-deb
+          xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-launch-smoke.mjs /opt/Mixdog/mixdog-desktop smoke-deb
+      - name: Upload AppImage, .deb and update feed
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: mixdog-appimage-${{ matrix.arch }}
-          path: apps/desktop/dist/*.AppImage
+          name: mixdog-linux-packages-${{ matrix.arch }}
+          path: |
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/latest-linux*.yml
           if-no-files-found: warn
-      - name: Upload smoke screenshot and logs
+      - name: Upload smoke screenshots and logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: smoke-${{ matrix.arch }}
           path: |
             smoke/
+            smoke-deb/
             root-tests.log
             desktop-tests.log
+            pty-check.log
+            deb-info.txt
+            deb-contents.txt
+            desktop-entry.txt
           if-no-files-found: warn

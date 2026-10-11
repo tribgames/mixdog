@@ -1,5 +1,5 @@
 // Headless launch smoke for the packaged Linux AppImage. Run under xvfb-run:
-//   node scripts/linux-launch-smoke.mjs <AppImage> <outDir>
+//   node scripts/linux-launch-smoke.mjs <AppImage|executable> <outDir>
 // Launches with a fresh profile and a CDP port, waits for the boot-ready
 // signal on stderr, screenshots the main window, and asserts no crash.
 import { spawn } from 'node:child_process';
@@ -14,6 +14,8 @@ if (!appImageArg || !outDirArg) throw new Error('usage: linux-launch-smoke.mjs <
 const appImage = resolve(appImageArg);
 const outDir = resolve(outDirArg);
 const port = 9333;
+// Extra launcher flags, e.g. SMOKE_LAUNCH_ARGS=--appimage-extract-and-run. Empty by default so an AppImage is mounted through its own (FUSE) runtime.
+const launchArgs = (process.env.SMOKE_LAUNCH_ARGS ?? '').split(' ').filter(Boolean);
 const BOOT_TIMEOUT_MS = 180_000;
 await mkdir(outDir, { recursive: true });
 const profile = await mkdtemp(join(tmpdir(), 'mixdog-smoke-'));
@@ -21,7 +23,7 @@ const log = createWriteStream(join(outDir, 'app-stderr.log'));
 
 const child = spawn(
   appImage,
-  ['--appimage-extract-and-run', '--no-sandbox', `--remote-debugging-port=${port}`],
+  [...launchArgs, '--no-sandbox', `--remote-debugging-port=${port}`],
   {
     env: {
       ...process.env,

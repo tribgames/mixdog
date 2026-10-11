@@ -438,6 +438,8 @@ jobs:
 
           const expected = [
             'latest.yml',
+            'latest-linux.yml',
+            'latest-linux-arm64.yml',
             'mixdog-desktop-linux-arm64.AppImage',
             'mixdog-desktop-linux-x86_64.AppImage',
             'mixdog-desktop-mac-arm64.dmg',
