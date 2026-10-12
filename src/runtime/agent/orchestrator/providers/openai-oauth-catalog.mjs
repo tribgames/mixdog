@@ -93,7 +93,7 @@ export function resolveLatestCodexModel() {
   if (!Array.isArray(_mirror)) return null;
   let best = null;
   for (const m of _mirror) {
-    if (!m?.id || m.visibility === 'hide' || !Number.isFinite(m.priority)) continue;
+    if (!m?.id || m.visibility === 'hide' || m.hidden === true || !Number.isFinite(m.priority)) continue;
     if (!best || m.priority < best.priority) best = m;
   }
   return best?.id || null;

@@ -372,3 +372,16 @@ for (const explicit of [false, true]) {
     assert.equal(result.status, 0, result.stdout + result.stderr);
   });
 }
+
+test('--test-timeout consumes its value in both forms and a valueless one is a flag error', () => {
+  assert.deepEqual(parseArgs(['--test-timeout', '120000']).nodeArgs, ['--test-timeout=120000']);
+  assert.deepEqual(parseArgs(['--test-timeout=120000']).nodeArgs, ['--test-timeout=120000']);
+  assert.deepEqual(parseArgs(['--test-timeout', '120000', 'src/lib']).filters, ['src/lib']);
+  assert.throws(() => parseArgs(['--test-timeout']), { message: '--test-timeout requires a value' });
+});
+
+test('a non-zero exit with no failed test is reported as a failed run, not "0 failed"', async () => {
+  const { formatFailureSummary } = await import('./lib/test-failure-summary.mjs');
+  assert.match(formatFailureSummary({ exitCode: 9 }), /^\[failure-summary\] RUN FAILED: exit code 9/);
+  assert.match(formatFailureSummary({ exitCode: 0 }), /^\[failure-summary\] 0 failed, 0 flaky/);
+});

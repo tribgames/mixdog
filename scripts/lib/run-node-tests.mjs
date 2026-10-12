@@ -507,5 +507,5 @@ export async function runNodeTests(
     await rm(coverageDir, { recursive: true, force: true });
   }
   // Last line of the run, after every reporter and the coverage report.
-  process.stdout.write(`\n${formatFailureSummary({ failed, flaky, rerunFailed, hung })}`);
+  process.stdout.write(`\n${formatFailureSummary({ failed, flaky, rerunFailed, hung, exitCode: status })}`);
 }

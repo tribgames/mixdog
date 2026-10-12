@@ -154,3 +154,17 @@ test('a catalog fetched for an older client version is refetched, and kept if th
     ['gpt-6-astra']
   );
 });
+
+test('a hidden highest-priority model is never the default; the visible next-best is', async () => {
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 6 });
+  assert.ok(resolve(cache.path()).startsWith(dataDir + sep));
+  const models = [
+    { ..._normalizeCodexModel({ slug: 'gpt-daybreak-blue-latest', priority: 0, visibility: 'list' }), hidden: true },
+    _normalizeCodexModel({ slug: 'gpt-6-astra', priority: 2, visibility: 'list' }),
+    _normalizeCodexModel({ slug: 'gpt-5.5', priority: 5, visibility: 'list' }),
+  ];
+  cache.save(models, { clientVersion: CODEX_CLIENT_VERSION_FLOOR });
+  await listCodexModels(rejectAuth);
+  assert.equal(resolveLatestCodexModel(), 'gpt-6-astra');
+  assert.equal(await ensureLatestCodexModel(rejectAuth), 'gpt-6-astra');
+});
