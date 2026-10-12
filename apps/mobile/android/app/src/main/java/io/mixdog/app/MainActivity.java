@@ -2,9 +2,14 @@ package io.mixdog.app;
 
 import android.app.NotificationManager;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -57,6 +62,35 @@ public class MainActivity extends BridgeActivity {
     super.load();
     // Top-level navigation: bundled screen + saved relay origins only.
     getBridge().setWebViewClient(new MixdogWebViewClient(getBridge()));
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) fitWebViewToInsets(getBridge().getWebView());
+  }
+
+  /**
+   * Android 15+ enforces edge-to-edge for targetSdk 35, and there
+   * adjustResize no longer shrinks the window: the soft keyboard only arrives
+   * as IME insets. Capacitor's own edge-to-edge margins cover the system bars
+   * but not the keyboard, so the WebView kept its full height and the
+   * composer stayed under the keyboard. The WebView is fitted here instead,
+   * keyboard included, which resizes the page itself (window, visualViewport
+   * and dvh all shrink) exactly like adjustResize does on older releases.
+   * Insets are consumed so the page never applies them a second time.
+   */
+  private static void fitWebViewToInsets(View webView) {
+    ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+      Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+      Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+      int[] margins = WebViewInsets.margins(bars.left, bars.top, bars.right, bars.bottom, ime.bottom);
+      ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+      if (params.leftMargin != margins[0]
+          || params.topMargin != margins[1]
+          || params.rightMargin != margins[2]
+          || params.bottomMargin != margins[3]) {
+        params.setMargins(margins[0], margins[1], margins[2], margins[3]);
+        view.setLayoutParams(params);
+      }
+      return WindowInsetsCompat.CONSUMED;
+    });
+    ViewCompat.requestApplyInsets(webView);
   }
 
   @Override

@@ -61,6 +61,11 @@ check(!/addJavascriptInterface/u.test(mainActivity + nativeHost), 'android must 
 check(nativeHost.includes('addWebMessageListener') && nativeHost.includes('OriginPolicy.isAllowed'), 'android bridge origin checks');
 check(nativeHost.includes('isMainFrame') && nativeHost.includes('OriginPolicy.isBundled(origin)'), 'android main-frame / bundled-only setAllowedOrigins');
 check(mainActivity.includes('MixdogWebViewClient') && read(`${javaDir}MixdogWebViewClient.java`).includes('shouldOverrideUrlLoading'), 'android navigation guard');
+// Soft keyboard: adjustResize on older releases; under Android 15+ edge-to-edge
+// MainActivity fits the WebView to the IME insets itself, as the single owner.
+check(manifest.includes('android:windowSoftInputMode="adjustResize"'), 'manifest adjustResize');
+check(mainActivity.includes('WindowInsetsCompat.Type.ime()') && mainActivity.includes('WebViewInsets.margins'), 'android WebView fits the soft keyboard');
+check(!('adjustMarginsForEdgeToEdge' in (config.android ?? {})), 'capacitor.config.json must leave edge-to-edge margins to MainActivity');
 check(gradle.includes('androidx.webkit:webkit'), 'gradle androidx.webkit dependency');
 const swiftBridge = read('ios/App/App/MixdogNativeBridge.swift');
 check(swiftBridge.includes('frameInfo.isMainFrame') && swiftBridge.includes('frameInfo.securityOrigin'), 'ios handler checks calling frame');

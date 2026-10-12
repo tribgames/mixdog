@@ -76,8 +76,11 @@ public class QueueCheck {
     eq(NavigationPolicy.allowMainFrame("https://relay.example.com.evil.net/", saved), false, "lookalike redirect target");
     eq(NavigationPolicy.allowMainFrame("http://relay.example.com/", saved), false, "downgrade redirect target");
     eq(NavigationPolicy.allowMainFrame("javascript:alert(1)", saved), false, "script url");
+    eq(Arrays.toString(WebViewInsets.margins(12, 80, 12, 48, 0)), "[12, 80, 12, 48]", "closed keyboard keeps the bars");
+    eq(Arrays.toString(WebViewInsets.margins(0, 80, 0, 0, 900)), "[0, 80, 0, 900]", "keyboard lifts the bottom");
+    eq(Arrays.toString(WebViewInsets.margins(0, 80, 0, 48, 900)), "[0, 80, 0, 900]", "keyboard covers the navigation bar, never stacks");
     if (failures > 0) System.exit(1);
-    System.out.println("pending queue + navigation policy (java): ok");
+    System.out.println("pending queue + navigation policy + webview insets (java): ok");
   }
 }
 `;
@@ -88,13 +91,13 @@ try {
   mkdirSync(pkg, { recursive: true });
   cpSync(join(root, 'android/app/src/main/java/io/mixdog/app/OriginPolicy.java'), join(pkg, 'OriginPolicy.java'));
   writeFileSync(join(pkg, 'OriginPolicyCheck.java'), source);
-  for (const name of ['PendingActionQueue', 'NavigationPolicy']) {
+  for (const name of ['PendingActionQueue', 'NavigationPolicy', 'WebViewInsets']) {
     cpSync(join(root, `android/app/src/main/java/io/mixdog/app/${name}.java`), join(pkg, `${name}.java`));
   }
   writeFileSync(join(pkg, 'QueueCheck.java'), queueSource);
   execFileSync(
     'javac',
-    ['-d', dir, ...['OriginPolicy', 'PendingActionQueue', 'NavigationPolicy', 'OriginPolicyCheck', 'QueueCheck'].map((n) => join(pkg, `${n}.java`))],
+    ['-d', dir, ...['OriginPolicy', 'PendingActionQueue', 'NavigationPolicy', 'WebViewInsets', 'OriginPolicyCheck', 'QueueCheck'].map((n) => join(pkg, `${n}.java`))],
     { stdio: 'inherit' }
   );
   execFileSync('java', ['-cp', dir, 'io.mixdog.app.OriginPolicyCheck'], { stdio: 'inherit' });
