@@ -2583,6 +2583,7 @@
   "Read output": "Đọc đầu ra",
   "Read-only": "Chỉ đọc",
   "Read-only files open in Preview.": "Tệp chỉ đọc sẽ mở trong Xem trước.",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "Chỉ đọc: tệp này có mã hóa văn bản không hợp lệ. Hãy chuyển đổi hoặc sửa tệp bằng trình soạn thảo bên ngoài để tránh mất dữ liệu.",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "Chỉ đọc: tệp này lớn hơn 1 MB nên chỉ có thể xem, không thể chỉnh sửa.",
   "Read, create, and edit PDF documents.": "Đọc, tạo và chỉnh sửa tài liệu PDF.",
   "Readiness": "Trạng thái sẵn sàng",
