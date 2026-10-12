@@ -45,6 +45,9 @@ export function buildJobNotFoundMessage(jobId) {
   return `Error: task not found: ${jobId}`;
 }
 
+// Running promoted jobs, for the runtime-wide read-only counts `task list`
+// shows; each leaves when its native task settles (trackShellJobRecord).
+const promotedJobIds = new Set();
 const backgroundShellJobWatchers = new Map();
 const jobNotifyCtxByJobId = new Map();
 
@@ -70,6 +73,7 @@ function trackShellJobRecord(task, options) {
     try {
       unsubscribe?.();
     } catch {}
+    promotedJobIds.delete(jobId);
     void completeShellJobRecord(jobId, normalizeShellJobDetail(detail));
   };
   unsubscribe = subscribeNativeTask(jobId, settle);
@@ -371,13 +375,11 @@ export async function promoteForegroundShellJob({
     native.stdoutPath = stdoutPath || null;
     native.stderrPath = stderrPath || null;
   }
-  trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started });
+  // Added before tracking: the record's settlement removes it again.
   promotedJobIds.add(native.jobId);
+  trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started });
   return native;
 }
-
-// Promoted jobs, for the runtime-wide read-only counts `task list` shows.
-const promotedJobIds = new Set();
 
 /** Running background shell jobs owned by sessions outside `ownSessionIds`. */
 export function otherSessionBackgroundShellJobCount(ownSessionIds) {
@@ -540,14 +542,35 @@ function logShellJobs(message) {
   } catch {}
 }
 
+function dropShutdownSurvivor(jobId) {
+  const entry = shutdownSurvivors.get(jobId);
+  if (!entry) return;
+  shutdownSurvivors.delete(jobId);
+  clearTimeout(entry.timer);
+  try {
+    entry.unsubscribe();
+  } catch {}
+}
+
 function retryShutdownSurvivor(jobId, attempts) {
-  clearTimeout(shutdownSurvivors.get(jobId)?.timer);
-  const entry = { attempts, timer: null };
-  shutdownSurvivors.set(jobId, entry);
+  let entry = shutdownSurvivors.get(jobId);
+  if (entry) clearTimeout(entry.timer);
+  else {
+    entry = { attempts, timer: null, unsubscribe: () => {} };
+    shutdownSurvivors.set(jobId, entry);
+    // The native terminal event confirms the exit at any time — also after
+    // the last retry — and drops the entry.
+    entry.unsubscribe = subscribeNativeTask(jobId, (task) => {
+      if (task?.status === 'running') return;
+      dropShutdownSurvivor(jobId);
+      logShellJobs(`${jobId} exit confirmed after shutdown`);
+    });
+  }
+  entry.attempts = attempts;
   logShellJobs(`shutdown could not confirm ${jobId} exited (attempt ${attempts}); retrying`);
   entry.timer = setTimeout(() => {
     if (getNativeTask(jobId)?.status !== 'running') {
-      shutdownSurvivors.delete(jobId);
+      dropShutdownSurvivor(jobId);
       logShellJobs(`${jobId} exit confirmed after shutdown`);
       return;
     }
@@ -566,5 +589,9 @@ function retryShutdownSurvivor(jobId, attempts) {
 
 /** Shutdown survivors whose termination is not yet confirmed. */
 export function shellShutdownSurvivors() {
+  // Reconcile against native state: an exit whose event was missed still ends the entry.
+  for (const jobId of [...shutdownSurvivors.keys()]) {
+    if (getNativeTask(jobId)?.status !== 'running') dropShutdownSurvivor(jobId);
+  }
   return [...shutdownSurvivors].map(([jobId, entry]) => ({ jobId, attempts: entry.attempts }));
 }
