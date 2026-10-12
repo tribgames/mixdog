@@ -634,13 +634,19 @@ test('Linux native tools build per-tool caches and compile the missing tools con
       )
     );
     assert.equal(cache.with['restore-keys'], undefined, 'a prefix hit would ship a binary from other sources');
-    assert.equal(steps.find((step) => step.id === 'missing').env[`HIT_${tool.toUpperCase()}`].includes(`cache-${tool}`), true);
+    assert.equal(
+      steps.find((step) => step.id === 'missing').env[`HIT_${tool.toUpperCase()}`].includes(`cache-${tool}`),
+      true
+    );
   }
   const build = steps.find((step) => step.run?.includes('linux-build-native-old-glibc.sh'));
   assert.equal(build.if, "steps.missing.outputs.tools != ''");
   assert.match(build.run, /-e MIXDOG_NATIVE_TOOLS="\$\{\{ steps\.missing\.outputs\.tools \}\}"/);
   assert.ok(steps.some((step) => step.run?.includes('test -f "native-out/mixdog-$tool"')));
-  const script = await readFile(new URL('../apps/desktop/scripts/linux-build-native-old-glibc.sh', import.meta.url), 'utf8');
+  const script = await readFile(
+    new URL('../apps/desktop/scripts/linux-build-native-old-glibc.sh', import.meta.url),
+    'utf8'
+  );
   assert.match(script, /tools=\$\{MIXDOG_NATIVE_TOOLS:-computer graph patch\}/);
   assert.match(script, /CARGO_TARGET_DIR=\/tmp\/target-\$tool cargo build[\s\S]*\) &\s*pids\+=\("\$!"\)/);
   assert.match(script, /for pid in "\$\{pids\[@\]\}"; do\s*wait "\$pid" \|\| status=1/);

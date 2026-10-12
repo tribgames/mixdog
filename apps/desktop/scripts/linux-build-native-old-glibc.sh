@@ -15,18 +15,18 @@ mkdir -p /w/native-out
 tools=${MIXDOG_NATIVE_TOOLS:-computer graph patch}
 pids=()
 for tool in $tools; do
-  (
-    CARGO_TARGET_DIR=/tmp/target-$tool cargo build --locked --release --manifest-path /w/native/mixdog-$tool/Cargo.toml
-    cp /tmp/target-$tool/release/mixdog-$tool /w/native-out/
-  ) &
-  pids+=("$!")
+	(
+		CARGO_TARGET_DIR=/tmp/target-$tool cargo build --locked --release --manifest-path /w/native/mixdog-$tool/Cargo.toml
+		cp /tmp/target-$tool/release/mixdog-$tool /w/native-out/
+	) &
+	pids+=("$!")
 done
 status=0
 for pid in "${pids[@]}"; do
-  wait "$pid" || status=1
+	wait "$pid" || status=1
 done
 if [ "$status" -ne 0 ]; then
-  echo "native tool build failed" >&2
-  exit 1
+	echo "native tool build failed" >&2
+	exit 1
 fi
 ls -l /w/native-out

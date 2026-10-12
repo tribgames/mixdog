@@ -9,10 +9,7 @@ import { setImmediate as tick } from 'node:timers/promises';
 
 import { startRelay } from '../server.mjs';
 import { MAX_FEEDBACK_BODY_BYTES } from './feedback.mjs';
-import {
-  FEEDBACK_ATTACHMENT_MAX_BYTES,
-  normalizeFeedbackAttachments,
-} from './feedback-attachments.mjs';
+import { FEEDBACK_ATTACHMENT_MAX_BYTES, normalizeFeedbackAttachments } from './feedback-attachments.mjs';
 
 const PNG_HEAD = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 function image(type = 'png', size = 64, fill = 7) {
@@ -162,7 +159,10 @@ test('same id and payload is idempotent, different payload conflicts', async () 
   assert.equal((await post({ ...body, message: 'it broke' })).status, 202);
   const concurrent = valid();
   const both = await Promise.all([post(concurrent), post(concurrent)]);
-  assert.deepEqual(both.map((r) => r.status), [202, 202]);
+  assert.deepEqual(
+    both.map((r) => r.status),
+    [202, 202]
+  );
   assert.equal((await post({ ...body, message: 'other' })).status, 409);
   assert.equal((await post({ ...body, kind: 'other' })).status, 409);
   await waitFor(() => sent.length === 2, 'two mails');
@@ -194,10 +194,17 @@ test('validation, method, size and rate limits', async () => {
   assert.equal((await fetch(url)).status, 405);
   assert.equal((await fetch(url, { method: 'PUT', body: '{}' })).status, 405);
   const oversized = await new Promise((resolve, reject) => {
-    const req = httpRequest(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': MAX_FEEDBACK_BODY_BYTES + 1 },
-    }, (res) => { res.resume(); resolve(res.statusCode); });
+    const req = httpRequest(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': MAX_FEEDBACK_BODY_BYTES + 1 },
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      }
+    );
     req.on('error', reject);
     req.write('x');
   });
@@ -471,21 +478,40 @@ test('attachment validator rejects malformed, unsafe and oversized input and dro
   assert.deepEqual(normalizeFeedbackAttachments([{ ...ok, path: '/etc/passwd', url: 'http://x', headers: {} }]), [ok]);
   for (const t of ['png', 'jpeg', 'webp']) assert.equal(normalizeFeedbackAttachments([attach(`a.${t}`, t)]).length, 1);
   const bad = [
-    null, 'x', {}, [null], [[]], [{}], [{ ...ok, name: undefined }], [{ ...ok, data: 5 }],
-    [{ ...ok, mimeType: 'image/gif' }], [{ ...ok, mimeType: 'image/svg+xml' }],
-    [{ ...ok, name: '' }], [{ ...ok, name: '../x.png' }], [{ ...ok, name: 'a/b.png' }],
-    [{ ...ok, name: 'a\\b.png' }], [{ ...ok, name: 'a\r\nBcc: x.png' }], [{ ...ok, name: '.hidden.png' }],
-    [{ ...ok, name: ' x.png' }], [{ ...ok, name: `${'a'.repeat(100)}.png` }], [{ ...ok, name: 'C:x.png' }],
-    [{ ...ok, data: `data:image/png;base64,${ok.data}` }], [{ ...ok, data: `${ok.data}\n` }],
-    [{ ...ok, data: ok.data.slice(1) }], [{ ...ok, data: `${ok.data.slice(0, -1)}*` }],
-    [{ ...ok, data: '' }], [{ ...ok, data: Buffer.from('not an image at all').toString('base64') }],
-    [{ ...ok, mimeType: 'image/jpeg' }], [{ ...ok, mimeType: 'image/webp' }],
+    null,
+    'x',
+    {},
+    [null],
+    [[]],
+    [{}],
+    [{ ...ok, name: undefined }],
+    [{ ...ok, data: 5 }],
+    [{ ...ok, mimeType: 'image/gif' }],
+    [{ ...ok, mimeType: 'image/svg+xml' }],
+    [{ ...ok, name: '' }],
+    [{ ...ok, name: '../x.png' }],
+    [{ ...ok, name: 'a/b.png' }],
+    [{ ...ok, name: 'a\\b.png' }],
+    [{ ...ok, name: 'a\r\nBcc: x.png' }],
+    [{ ...ok, name: '.hidden.png' }],
+    [{ ...ok, name: ' x.png' }],
+    [{ ...ok, name: `${'a'.repeat(100)}.png` }],
+    [{ ...ok, name: 'C:x.png' }],
+    [{ ...ok, data: `data:image/png;base64,${ok.data}` }],
+    [{ ...ok, data: `${ok.data}\n` }],
+    [{ ...ok, data: ok.data.slice(1) }],
+    [{ ...ok, data: `${ok.data.slice(0, -1)}*` }],
+    [{ ...ok, data: '' }],
+    [{ ...ok, data: Buffer.from('not an image at all').toString('base64') }],
+    [{ ...ok, mimeType: 'image/jpeg' }],
+    [{ ...ok, mimeType: 'image/webp' }],
     [{ ...ok, data: image('png', 4).toString('base64') }],
     [attach(), attach(), attach(), attach()],
     [attach('big.png', 'png', FEEDBACK_ATTACHMENT_MAX_BYTES + 1)],
     [{ ...ok, data: image('png', 14, 0).toString('base64').replace(/=*$/, '') }],
   ];
-  for (const value of bad) assert.throws(() => normalizeFeedbackAttachments(value), TypeError, JSON.stringify(value)?.slice(0, 70));
+  for (const value of bad)
+    assert.throws(() => normalizeFeedbackAttachments(value), TypeError, JSON.stringify(value)?.slice(0, 70));
   // non-canonical trailing bits are not strict base64
   const odd = Buffer.from([...PNG_HEAD, 1, 2, 3, 4, 5]).toString('base64');
   assert.equal(normalizeFeedbackAttachments([{ ...ok, data: odd }]).length, 1);
@@ -509,7 +535,13 @@ test('attachments are persisted before acceptance, mailed as MIME attachments, t
   await waitFor(() => sent.length === 1, 'mail sent');
   assert.deepEqual(stored.payload.attachments, body.attachments);
   assert.equal(sent[0].attachments.length, 2);
-  assert.deepEqual(sent[0].attachments.map((a) => [a.filename, a.contentType]), [['a.png', 'image/png'], ['b.jpg', 'image/jpeg']]);
+  assert.deepEqual(
+    sent[0].attachments.map((a) => [a.filename, a.contentType]),
+    [
+      ['a.png', 'image/png'],
+      ['b.jpg', 'image/jpeg'],
+    ]
+  );
   assert.ok(sent[0].attachments[1].content.equals(image('jpeg', 5000, 2)));
   await waitFor(() => sentAt(dataDir, body.id), 'sentAt');
   const after = JSON.parse(readFileSync(join(dataDir, 'feedback', `${body.id}.json`), 'utf8'));
@@ -527,7 +559,12 @@ test('attachment-free payloads keep their legacy hash and mail shape', async () 
   await waitFor(() => sent.length === 1, 'mail sent');
   const { createHash } = await import('node:crypto');
   const stored = JSON.parse(readFileSync(join(dataDir, 'feedback', `${body.id}.json`), 'utf8'));
-  assert.equal(stored.hash, createHash('sha256').update(JSON.stringify(['bug', 'it broke', ''])).digest('hex'));
+  assert.equal(
+    stored.hash,
+    createHash('sha256')
+      .update(JSON.stringify(['bug', 'it broke', '']))
+      .digest('hex')
+  );
   assert.equal('attachments' in sent[0], false);
   await relay.close();
 });
@@ -553,9 +590,12 @@ test('invalid attachments answer 400 and store nothing', async () => {
   const dataDir = tempData();
   const { relay, post } = await boot(dataDir, { sender: async () => {}, options: { ipLimit: 100 } });
   for (const attachments of [
-    'x', [{ name: 'a.png', mimeType: 'image/png', data: 'AAAA' }],
-    [{ ...attach(), name: '../a.png' }], [attach(), attach(), attach(), attach()],
-    [attach('big.png', 'png', FEEDBACK_ATTACHMENT_MAX_BYTES + 1)], null,
+    'x',
+    [{ name: 'a.png', mimeType: 'image/png', data: 'AAAA' }],
+    [{ ...attach(), name: '../a.png' }],
+    [attach(), attach(), attach(), attach()],
+    [attach('big.png', 'png', FEEDBACK_ATTACHMENT_MAX_BYTES + 1)],
+    null,
   ]) {
     assert.equal((await post(valid({ attachments }))).status, 400);
   }
@@ -572,7 +612,13 @@ test('attachment mail retries across restart with identical bytes', async () => 
   const clock = fakeClock();
   const body = valid({ attachments: [attach('a.webp', 'webp', 3000, 9)] });
   let attempts = 0;
-  let app = await boot(dataDir, { sender: async () => { attempts++; throw new Error('down'); }, clock });
+  let app = await boot(dataDir, {
+    sender: async () => {
+      attempts++;
+      throw new Error('down');
+    },
+    clock,
+  });
   assert.equal((await app.post(body)).status, 202);
   await waitFor(() => attempts === 1, 'failed attempt');
   await app.relay.close();
@@ -595,10 +641,20 @@ test('legacy records without attachments still load and send; corrupt attachment
   const { mkdirSync, writeFileSync } = await import('node:fs');
   mkdirSync(join(dataDir, 'feedback'));
   const legacy = randomUUID();
-  const record = (id, payload) => JSON.stringify({
-    id, hash: 'h', payload, createdAt: 1, attempts: 0, nextAttemptAt: 0, sentAt: 0,
-  });
-  writeFileSync(join(dataDir, 'feedback', `${legacy}.json`), record(legacy, { kind: 'bug', message: 'old', replyTo: '' }));
+  const record = (id, payload) =>
+    JSON.stringify({
+      id,
+      hash: 'h',
+      payload,
+      createdAt: 1,
+      attempts: 0,
+      nextAttemptAt: 0,
+      sentAt: 0,
+    });
+  writeFileSync(
+    join(dataDir, 'feedback', `${legacy}.json`),
+    record(legacy, { kind: 'bug', message: 'old', replyTo: '' })
+  );
   const sent = [];
   const original = console.error;
   console.error = () => {};
@@ -616,9 +672,15 @@ test('legacy records without attachments still load and send; corrupt attachment
   const dir2 = tempData();
   mkdirSync(join(dir2, 'feedback'));
   const corrupt = randomUUID();
-  writeFileSync(join(dir2, 'feedback', `${corrupt}.json`), record(corrupt, {
-    kind: 'bug', message: 'x', replyTo: '', attachments: [{ name: '../x', mimeType: 'image/png', data: 'AAAA' }],
-  }));
+  writeFileSync(
+    join(dir2, 'feedback', `${corrupt}.json`),
+    record(corrupt, {
+      kind: 'bug',
+      message: 'x',
+      replyTo: '',
+      attachments: [{ name: '../x', mimeType: 'image/png', data: 'AAAA' }],
+    })
+  );
   console.error = () => {};
   const sent2 = [];
   try {
