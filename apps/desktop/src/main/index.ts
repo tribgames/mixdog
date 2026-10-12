@@ -92,7 +92,7 @@ import {
   normalizeRendererWhatsNewDiagnostic,
   rendererRecoveryDecision,
 } from './renderer-recovery';
-import { LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
+import { acknowledgeAnnouncement, LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
 
 const desktopProcessStartedAt = Date.now();
 // The launcher's stdio pipe can close while the app keeps running (started
@@ -119,6 +119,12 @@ const desktopBootScenario = String(process.env.MIXDOG_BOOT_SCENARIO || '')
   .slice(0, 80);
 const DESKTOP_WINDOW_SHOW_DEADLINE_MS = 3_000;
 let launchFollowsUpdate: Promise<boolean> | null = null;
+const launchVersionPath = () => join(app.getPath('userData'), LAUNCH_VERSION_FILE);
+const launchRecordWriteFailure = (error: unknown) =>
+  diagnostics?.write('launch-version-write-failed', {
+    errorName: error instanceof Error ? error.name : 'Error',
+    message: String((error as Error)?.message ?? error).slice(0, 300),
+  });
 
 // Profile identity. Unpackaged shells (electron-vite dev/preview, source-mode
 // E2E) derive userData from this package's name (@mixdog/desktop), so every
@@ -1157,6 +1163,24 @@ function createMainBrowserWindow(
   });
 }
 
+/** The window's What's new notice for the running version was on screen (or
+ *  this version has none): the pending announcement is retired. Accepted only
+ *  from this window's main frame, after the launch record is written. */
+function whatsNewAcknowledgeListener(window: BrowserWindow): (event: Electron.IpcMainEvent, version: unknown) => void {
+  return (event, version) => {
+    if (
+      window.isDestroyed() ||
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      version !== app.getVersion()
+    )
+      return;
+    void Promise.resolve(launchFollowsUpdate).then(() =>
+      acknowledgeAnnouncement(launchVersionPath(), version, launchRecordWriteFailure)
+    );
+  };
+}
+
 /** Renderer-reported diagnostics, accepted only from this window's main frame:
  *  transcript reads, composer actions and long tasks each have their own
  *  record, and anything else is an error report. */
@@ -1404,9 +1428,10 @@ async function createWindow(): Promise<void> {
   configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
   // Once per process: a later window must still know this launch was an update.
   launchFollowsUpdate ??= recordLaunchVersion(
-    join(app.getPath('userData'), LAUNCH_VERSION_FILE),
+    launchVersionPath(),
     app.getVersion(),
-    process.argv
+    process.argv,
+    launchRecordWriteFailure
   );
   const window = createMainBrowserWindow(savedState, brandIconPath, await launchFollowsUpdate);
   installDesktopWindowMaterial(window);
@@ -1548,6 +1573,8 @@ async function createWindow(): Promise<void> {
   };
   const onRendererDiagnostic = rendererDiagnosticListener(window);
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
+  const onWhatsNewAcknowledged = whatsNewAcknowledgeListener(window);
+  ipcMain.on(DESKTOP_IPC.acknowledgeWhatsNew, onWhatsNewAcknowledged);
   diagnostics?.write('ipc-ready', {
     totalMs: Date.now() - startupStartedAt,
   });
@@ -1592,6 +1619,7 @@ async function createWindow(): Promise<void> {
     diagnostics?.write('window-closed');
     presentation.detach();
     ipcMain.removeListener(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
+    ipcMain.removeListener(DESKTOP_IPC.acknowledgeWhatsNew, onWhatsNewAcknowledged);
     const state = windowState;
     windowState = null;
     windowStateFlush = state?.flush().finally(() => state.dispose()) ?? Promise.resolve();

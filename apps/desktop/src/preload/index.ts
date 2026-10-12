@@ -369,6 +369,13 @@ const api: DesktopApi = {
       /* show falls back to timeout */
     }
   },
+  acknowledgeWhatsNew: (version) => {
+    try {
+      ipcRenderer.send(DESKTOP_IPC.acknowledgeWhatsNew, version);
+    } catch {
+      /* the announcement is simply retried next launch */
+    }
+  },
   termEnsure: (id, cwd, shell) => ipcRenderer.invoke(DESKTOP_IPC.termEnsure, id, cwd ?? null, shell ?? null),
   termProfiles: () => ipcRenderer.invoke(DESKTOP_IPC.termProfiles),
   termWrite: (id, data) => {

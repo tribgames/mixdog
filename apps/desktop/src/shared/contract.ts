@@ -419,6 +419,8 @@ export interface DesktopApi {
   rendererDiagnostic?(diagnostic: DesktopRendererDiagnostic): void;
   /** First React commit signal — main defers window.show until it lands. */
   rendererReady?(): void;
+  /** The running version's What's new notice was shown (or has no notes): main retires its pending announcement. */
+  acknowledgeWhatsNew?(version: string): void;
   /** Dock terminal: create or reattach the shared PTY (main-process owned). */
   termEnsure?(id: string | null, cwd?: string | null, shell?: string | null): Promise<{ id: string; replay: string }>;
   termWrite?(id: string, data: string): void;

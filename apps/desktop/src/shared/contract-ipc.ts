@@ -142,6 +142,7 @@ export const DESKTOP_IPC = {
   perfLog: 'mixdog:perf-log',
   rendererDiagnostic: 'mixdog:renderer-diagnostic',
   rendererReady: 'mixdog:renderer-ready',
+  acknowledgeWhatsNew: 'mixdog:acknowledge-whats-new',
   termEnsure: 'mixdog:term-ensure',
   termWrite: 'mixdog:term-write',
   termResize: 'mixdog:term-resize',

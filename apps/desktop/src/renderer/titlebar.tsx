@@ -15,12 +15,20 @@ import { ProgressSpinner } from './ProgressSpinner';
 import type { ChangelogRelease } from './settings/changelog';
 import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } from './settings/whats-new';
 
+// Main keeps an update pending (bootContext.afterUpdate) on every launch until
+// told the notice was on screen, so a launch that failed to show it retries.
+const updatePending = () => window.mixdogDesktop?.bootContext?.afterUpdate === true;
+
 function readWhatsNewStatus(): WhatsNewStatus {
   try {
-    return peekWhatsNew(window.localStorage, appVersion, window.mixdogDesktop?.bootContext?.afterUpdate === true);
+    return peekWhatsNew(window.localStorage, appVersion, updatePending());
   } catch {
     return 'storage-unavailable';
   }
+}
+
+function acknowledgeUpdate(): void {
+  if (updatePending()) window.mixdogDesktop?.acknowledgeWhatsNew?.(appVersion);
 }
 
 function markSeen(): void {
@@ -29,6 +37,7 @@ function markSeen(): void {
   } catch {
     markWhatsNewSeen(undefined, appVersion);
   }
+  acknowledgeUpdate();
 }
 
 interface DesktopTitlebarProps {
@@ -71,6 +80,8 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   };
   useEffect(() => {
     if (!whatsNew) {
+      // Already announced (the stored mark matches): only main's record lags.
+      if (whatsNewStatus === 'current' || whatsNewStatus === 'already-shown') acknowledgeUpdate();
       reportWhatsNew('skipped', appVersion, { reason: whatsNewStatus });
       return;
     }
