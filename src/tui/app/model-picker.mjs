@@ -10,7 +10,7 @@
  * state (getState) is read through a getter so it always reflects the current
  * render.
  */
-import { normalizeModelOptions, buildModelProviderItems } from './model-options.mjs';
+import { normalizeModelOptions, buildModelProviderItems, loadProviderDisplayNames } from './model-options.mjs';
 import { createModelCatalog } from './model-picker/catalog-load.mjs';
 import { openProviderModelsPicker, saveSelectedRoute } from './model-picker/provider-models-list.mjs';
 
@@ -77,6 +77,7 @@ export function createModelPicker({
     }
 
     const models = normalizeModelOptions(providerModels);
+    const providerNames = await loadProviderDisplayNames(store);
     const activeRoute = options.currentRoute || {
       provider: state.provider,
       model: state.model,
@@ -90,6 +91,7 @@ export function createModelPicker({
       state,
       models,
       activeRoute,
+      providerNames,
       returnTo,
       returnLabel,
       returnOnNestedCancel,
@@ -114,7 +116,7 @@ export function createModelPicker({
         providerListHighlightProvider = renderOptions.highlightProvider;
       }
       const highlightProvider = renderOptions.highlightProvider || providerListHighlightProvider || null;
-      const providerItems = buildModelProviderItems(models, activeRoute);
+      const providerItems = buildModelProviderItems(models, activeRoute, providerNames);
       const providerHighlight = highlightProvider || activeRoute?.provider || null;
       const providerInitialIndex = Math.max(
         0,

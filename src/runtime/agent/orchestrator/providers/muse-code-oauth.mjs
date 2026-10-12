@@ -7,6 +7,7 @@
  * expires and cannot be refreshed: a 401 means the user must sign in again.
  */
 import { createHash } from 'node:crypto';
+import { SEEDS, seedRow, SPARK_MAX_OUTPUT } from '../../../shared/llm/muse-models.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { fileMtimeMs } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
@@ -28,43 +29,10 @@ export { beginOAuthLogin, loginOAuth } from './muse-code-oauth-login.mjs';
 
 export const DEFAULT_MODEL = 'muse-spark-1.3';
 const FIVE_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high', 'xhigh']);
-const SIX_LEVELS = Object.freeze([...FIVE_LEVELS, 'max']);
 const effortOptions = (levels) => [{ type: 'effort', values: [...levels] }];
 // Image and voice generation ids are served by the same catalog but are not chat models.
 const NON_CHAT_MODEL_RE = /^muse-(image|voice)-/i;
-const SPARK_CONTEXT = 1_048_576;
-const SPARK_MAX_OUTPUT = 131_072;
-const STANDARD_COST = { inputCostPerM: 1.25, outputCostPerM: 4.25, cacheReadCostPerM: 0.15, cacheWriteCostPerM: 0 };
-const CONTRIBUTOR_COST = { inputCostPerM: 0.1, outputCostPerM: 0.2, cacheReadCostPerM: 0.002, cacheWriteCostPerM: 0 };
-
-// Seeded roster: the discovery endpoint lists bare ids, so limits, pricing and
-// the effort ladder come from here. Only the 1.3 revisions accept `max`.
-const SEEDS = Object.freeze({
-  'muse-spark-1.1': { name: 'Muse Spark 1.1', levels: FIVE_LEVELS, cost: STANDARD_COST },
-  'muse-spark-1.2': { name: 'Muse Spark 1.2', levels: FIVE_LEVELS, cost: STANDARD_COST },
-  'muse-spark-1.2-contributor': { name: 'Muse Spark 1.2 (C)', levels: FIVE_LEVELS, cost: CONTRIBUTOR_COST },
-  'muse-spark-1.3': { name: 'Muse Spark 1.3', levels: SIX_LEVELS, cost: STANDARD_COST },
-  'muse-spark-1.3-contributor': { name: 'Muse Spark 1.3 (C)', levels: SIX_LEVELS, cost: CONTRIBUTOR_COST },
-});
 const SEED_MODELS = Object.freeze(Object.keys(SEEDS));
-
-function seedRow(id) {
-  const seed = SEEDS[id];
-  return {
-    id,
-    name: seed.name,
-    provider: 'muse-code-oauth',
-    family: 'muse-spark',
-    contextWindow: SPARK_CONTEXT,
-    outputTokens: SPARK_MAX_OUTPUT,
-    supportsReasoning: true,
-    supportsVision: true,
-    supportsFunctionCalling: true,
-    reasoningLevels: [...seed.levels],
-    reasoningOptions: effortOptions(seed.levels),
-    ...seed.cost,
-  };
-}
 
 // Revisioned Spark ids the seed does not list inherit the newest seeded
 // revision of their tier (limits, vision, pricing) but take the five-level
@@ -109,12 +77,22 @@ function lineageRow(id) {
 }
 
 // Seeds win for the ids they cover; lineage rows yield to discovered metadata.
-// A name supplied by discovery is always kept. Other discovered rows keep
-// their own metadata and only gain the default effort ladder when they report none.
+// Preserve the contributor marker unless discovery supplies a different name.
+const tierAgnosticKey = (text) =>
+  String(text || '')
+    .replace(/\s+\(c\)$/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
 function museRow(id, discovered) {
   const discoveredName =
     typeof discovered?.name === 'string' && discovered.name && discovered.name !== id ? discovered.name : '';
-  if (SEEDS[id]) return { ...(discovered || {}), ...seedRow(id), ...(discoveredName ? { name: discoveredName } : {}) };
+  if (SEEDS[id]) {
+    const seed = seedRow(id);
+    const base = { ...(discovered || {}), ...seed, id };
+    if (tierAgnosticKey(seed.name) === tierAgnosticKey(discoveredName)) return base;
+    return { ...base, ...(discoveredName ? { name: discoveredName } : {}) };
+  }
   const lineage = lineageRow(id);
   const row = {
     id,

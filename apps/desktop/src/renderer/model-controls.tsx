@@ -16,7 +16,7 @@ import {
   requestModelCatalog,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
-import { filterConfiguredModels } from './model-catalog';
+import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import {
   EFFORT_FALLBACK_ORDER,
   modelOffersUltrafast,
@@ -434,6 +434,7 @@ export const ModelSelector = memo(function ModelSelector({
     () => filterConfiguredModels(catalogModels, providerSetup, providerSetupError),
     [catalogModels, providerSetup, providerSetupError]
   );
+  const providerNames = useMemo(() => customProviderDisplayNames(providerSetup), [providerSetup]);
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
@@ -795,6 +796,7 @@ export const ModelSelector = memo(function ModelSelector({
     <div className="route-controls">
       <RouteEditor
         models={selectableModels}
+        providerNames={providerNames}
         provider={provider}
         model={model}
         triggerModel={triggerModel}

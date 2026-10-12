@@ -33,6 +33,26 @@ writeFileSync(
     },
   })
 );
+writeFileSync(
+  join(dataDir, 'modelsdev-catalog.json'),
+  JSON.stringify({
+    fetchedAt: Date.now(),
+    data: {
+      meta: {
+        models: {
+          'muse-spark-1.3-contributor': {
+            id: 'muse-spark-1.3-contributor',
+            name: 'Muse Spark 1.3 Contributor',
+            reasoning: true,
+            reasoning_options: [{ type: 'effort', values: ['minimal', 'low', 'medium', 'high', 'xhigh'] }],
+            limit: { context: 1048576, output: 943718 },
+            cost: { input: 0.1, output: 0.2, cache_read: 0.002 },
+          },
+        },
+      },
+    },
+  })
+);
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { enrichModels, getModelMetadataSync, getModelsDevRowSync, getModelsDevProviderModelsSync } = await import(
@@ -132,4 +152,31 @@ test('enrichment preserves unknown and id-less rows by reference and in order', 
   assert.equal(enriched.length, 2);
   assert.equal(enriched[0], unknown);
   assert.equal(enriched[1], idless);
+});
+
+test('a Muse route reads the seeded ladder and window, not the borrowed SKU', () => {
+  const contributor = getModelMetadataSync('muse-spark-1.3-contributor', 'muse-code-oauth');
+  assert.deepEqual(contributor.reasoningOptions, [
+    { type: 'effort', values: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+  ]);
+  assert.equal(contributor.contextWindow, 1048576);
+  assert.equal(contributor.outputTokens, 131072);
+  assert.equal(contributor.inputCostPerM, 0.1);
+  assert.equal(contributor.outputCostPerM, 0.2);
+  assert.equal(contributor.pricingSource, 'override');
+
+  // Only the 1.3 revisions accept `max`.
+  const older = getModelMetadataSync('muse-spark-1.1', 'muse-code-oauth');
+  assert.deepEqual(older.reasoningOptions, [
+    { type: 'effort', values: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+  ]);
+  assert.equal(older.contextWindow, 1048576);
+  assert.equal(older.inputCostPerM, 1.25);
+});
+
+test('the Muse roster override never speaks for another provider’s own SKU', () => {
+  const vendorSku = getModelMetadataSync('muse-spark-1.3-contributor', 'meta');
+  assert.deepEqual(vendorSku.reasoningOptions, [
+    { type: 'effort', values: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+  ]);
 });

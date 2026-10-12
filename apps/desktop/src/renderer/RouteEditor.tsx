@@ -66,6 +66,7 @@ export function RouteEditor({
   contextDefaultTokens = 0,
   modelParameterOptions = [],
   modelParameters = {},
+  providerNames,
   catalogLoaded,
   catalogRefreshing,
   catalogError,
@@ -108,6 +109,8 @@ export function RouteEditor({
   contextDefaultTokens?: number;
   modelParameterOptions?: DesktopModelOption['modelParameterOptions'];
   modelParameters?: Record<string, string>;
+  /** Setup-derived display names (custom providers), keyed by provider id. */
+  providerNames?: Record<string, string>;
   catalogLoaded: boolean;
   catalogRefreshing: boolean;
   catalogError: string;
@@ -565,6 +568,7 @@ export function RouteEditor({
       models={models}
       provider={provider}
       model={model}
+      providerNames={providerNames}
       active={active}
       catalogLoaded={catalogLoaded}
       catalogRefreshing={catalogRefreshing}

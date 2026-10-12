@@ -191,6 +191,30 @@ const PROVIDER_DISPLAY_NAMES = new Map([
 export const providerDisplayName = (provider) =>
   PROVIDER_DISPLAY_NAMES.get(String(provider || '').toLowerCase()) ?? (provider || 'Provider');
 
+export const resolveProviderDisplayName = (provider, providerNames = null) =>
+  providerNames?.[String(provider || '').trim()] || providerDisplayName(provider);
+
+export const loadProviderDisplayNames = async (store) => {
+  let setup = null;
+  try {
+    setup = await store?.getProviderSetup?.();
+  } catch {
+    return {};
+  }
+  const names = {};
+  for (const group of ['api', 'oauth', 'local']) {
+    const entries = setup?.[group];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const id = String(entry.id || entry.provider || '').trim();
+      const name = String(entry.name || entry.label || '').trim();
+      if (id && name) names[id] = name;
+    }
+  }
+  return names;
+};
+
 const PROVIDER_DISPLAY_RANKS = {
   default: 0,
   'openai-oauth': 10,
@@ -247,7 +271,7 @@ const routeModelDisplayName = (route) =>
     .filter(Boolean)
     .join(' ');
 
-const groupModelsByProvider = (models) => {
+const groupModelsByProvider = (models, providerNames = null) => {
   const providers = new Map();
   for (const model of models) {
     if (!providers.has(model.provider)) providers.set(model.provider, []);
@@ -257,22 +281,24 @@ const groupModelsByProvider = (models) => {
   const orderedProviders = [...providers.keys()].sort((a, b) => {
     const rank = providerDisplayRank(a) - providerDisplayRank(b);
     if (rank !== 0) return rank;
-    const label = providerDisplayName(a).localeCompare(providerDisplayName(b));
+    const label = resolveProviderDisplayName(a, providerNames).localeCompare(
+      resolveProviderDisplayName(b, providerNames)
+    );
     if (label !== 0) return label;
     return a.localeCompare(b);
   });
   return { providers, orderedProviders };
 };
 
-export const buildModelProviderItems = (models, currentRoute = null) => {
-  const { providers, orderedProviders } = groupModelsByProvider(models);
+export const buildModelProviderItems = (models, currentRoute = null, providerNames = null) => {
+  const { providers, orderedProviders } = groupModelsByProvider(models, providerNames);
   return orderedProviders.map((provider) => {
     const providerModels = providers.get(provider) || [];
     const currentModel =
       currentRoute?.provider === provider ? providerModels.find((model) => model.id === currentRoute.model) : null;
     return {
       value: `provider:${provider}`,
-      label: providerDisplayName(provider),
+      label: resolveProviderDisplayName(provider, providerNames),
       marker: currentModel ? '✓' : '',
       markerColor: theme.success,
       meta: currentModel ? modelRecordDisplayName(currentModel) : '',

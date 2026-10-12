@@ -613,6 +613,21 @@ test('model listing drops image/voice ids; failure uses seeds; an empty roster i
   assert.equal(byId['muse-spark-1.1'].supportsVision, true);
 });
 
+test('seed contributor names survive discovery plain names; real renames still win', async () => {
+  const provider = new MuseCodeOAuthProvider({ preconnect: false });
+  tokens.saveTokens({ accessToken: 'a', apiKey: 'k', accountId: 'u', email: '' });
+  const inner = provider._ensureInner('k');
+  inner._fetchModelItems = async () => [
+    { id: 'muse-spark-1.3-contributor', name: 'Muse Spark 1.3' },
+    { id: 'muse-spark-1.2-contributor', name: 'Muse Spark 1.2' },
+    { id: 'muse-spark-1.3', name: 'Custom Spark' },
+  ];
+  const rows = Object.fromEntries((await provider.listModels()).map((m) => [m.id, m]));
+  assert.equal(rows['muse-spark-1.3-contributor'].name, 'Muse Spark 1.3 (C)');
+  assert.equal(rows['muse-spark-1.2-contributor'].name, 'Muse Spark 1.2 (C)');
+  assert.equal(rows['muse-spark-1.3'].name, 'Custom Spark');
+});
+
 async function usageProvider(handler) {
   const provider = new MuseCodeOAuthProvider({ preconnect: false });
   tokens.saveTokens({ accessToken: 'acct', apiKey: 'k', accountId: 'u-1', email: 'me@x.y' });

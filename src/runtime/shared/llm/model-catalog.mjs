@@ -15,6 +15,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { SEEDS, seedRow } from './muse-models.mjs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { resolvePluginData } from '../plugin-paths.mjs';
@@ -488,6 +489,11 @@ function scaledRates(row, factor) {
 
 // Both list enrichment and synchronous accounting use this exact resolver.
 function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
+  // Offline routes must use the same limits and effort ladder as discovery.
+  if (provider === 'muse-code-oauth' && SEEDS[originalId]) {
+    const row = seedRow(originalId);
+    return { ...row, displayName: row.name, supportsPromptCaching: true, pricingSource: 'override' };
+  }
   const id = providerPricingModelSync(provider, originalId);
   const mappedProvider = provider ? _modelsDevProviderId(provider) : null;
   const providerNative = provider ? providerCachedModelMetadataSync(provider, originalId) : null;
