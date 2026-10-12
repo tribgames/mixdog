@@ -123,6 +123,82 @@ test('status envelopes do not become successful agent or JSON result bodies', ()
   assert.equal(summarizeToolResult('web_search', {}, 'background task\ntask_id: t1\nstatus: running'), null);
 });
 
+test('envelope fields and the background task header never become the summary', () => {
+  assert.equal(
+    summarizeToolResult('task', {}, 'background task\ntask_id: t\nsurface: web_search\nstatus: completed'),
+    null
+  );
+  assert.equal(summarizeToolResult('task', {}, 'surface: web_search\noperation: search\nlabel: x\nexit_code: 0'), null);
+  assert.equal(
+    summarizeToolResult('shell', {}, 'background task\ntask_id: t\nlabel: sleep\nstatus: running\n\nbuilding…'),
+    'building…'
+  );
+  assert.equal(summarizeToolResult('shell', {}, 'background task\ntask_id: t\nstatus: running'), null);
+});
+
+test('task and shell result phrases go through the translate callback', () => {
+  const ko = { Completed: '완료', Cancelled: '취소됨', Running: '실행 중' };
+  const translate = (key, original, options = {}) => {
+    if (key === 'Shell task {{status}} (exit {{code}})') return `셸 작업 ${options.status} (종료 ${options.code})`;
+    if (key === 'Background tasks: {{count}}') return `백그라운드 작업 ${options.count}개`;
+    if (key === '{{count}} items') return `${options.count}개`;
+    return ko[key] ?? original;
+  };
+  const notice = renderShellCompletionEnvelope({
+    jobId: 'job_1',
+    status: 'completed',
+    exitCode: 0,
+    command: 'npm test',
+  });
+  assert.equal(summarizeToolResult('shell', {}, notice, false, translate), '셸 작업 완료 (종료 0): npm test');
+  assert.equal(summarizeToolResult('shell', {}, notice), 'Shell task completed (exit 0): npm test');
+  assert.equal(summarizeToolResult('task', {}, 'cancelled', false, translate), '취소됨');
+  assert.equal(summarizeToolResult('task', {}, 'cancelled'), 'cancelled');
+  assert.equal(
+    summarizeToolResult('task', {}, 'background tasks: 3\n- a shell/shell running', false, translate),
+    '백그라운드 작업 3개'
+  );
+  assert.equal(summarizeToolResult('task', {}, 'background tasks: 3\n- a'), 'background tasks: 3');
+  assert.equal(summarizeToolResult('task', {}, 'Job still running; 2 new lines.', false, translate), '실행 중');
+  assert.equal(summarizeToolResult('cwd', {}, '[]', false, translate), '0개');
+});
+
+test('every status spelling maps to one localized vocabulary, including error results', () => {
+  const ko = {
+    Queued: '대기열',
+    Running: '실행 중',
+    Completed: '완료',
+    Failed: '실패',
+    Cancelled: '취소됨',
+    'Timed out': '시간 초과',
+    Pending: '대기 중',
+  };
+  const translate = (key, original, options = {}) => {
+    if (key === 'Shell task {{status}} (exit {{code}})') return `셸 작업 ${options.status} (종료 ${options.code})`;
+    return ko[key] ?? original;
+  };
+  const expected = {
+    queued: '대기열',
+    running: '실행 중',
+    completed: '완료',
+    failed: '실패',
+    cancelled: '취소됨',
+    timeout: '시간 초과',
+    pending: '대기 중',
+  };
+  for (const [status, label] of Object.entries(expected)) {
+    assert.equal(summarizeToolResult('shell', {}, `[status: ${status}]`, false, translate), label, status);
+  }
+  const failedNotice = renderShellCompletionEnvelope({
+    jobId: 'job_1',
+    status: 'failed',
+    exitCode: 2,
+    command: 'npm test',
+  });
+  assert.equal(summarizeToolResult('shell', {}, failedNotice, true, translate), '셸 작업 실패 (종료 2): npm test');
+  assert.equal(summarizeToolResult('shell', {}, failedNotice, true), 'Shell task failed (exit 2): npm test');
+});
+
 test('translate callback is invoked only for module-authored phrases', () => {
   const calls = [];
   const tr = (key, original, options) => {
@@ -150,10 +226,10 @@ test('translate callback is invoked only for module-authored phrases', () => {
   calls.length = 0;
   assert.equal(
     summarizeToolResult('shell', {}, '[task_id: Image]\n[status: completed]\n[exit: 3]', false, tr),
-    'Image · T(Finished) · T(Exit {{code}})'
+    'Image · T(Completed) · T(Exit {{code}})'
   );
   assert.deepEqual(keys(), [
-    ['Finished', undefined],
+    ['Completed', {}],
     ['Exit {{code}}', { code: '3' }],
   ]);
 });

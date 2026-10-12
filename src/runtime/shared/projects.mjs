@@ -35,9 +35,14 @@ function readStore(strict = false) {
     if (!strict && !existsSync(PROJECTS_FILE)) return { projects: [] };
     const raw = readFileSync(PROJECTS_FILE, 'utf8');
     const parsed = JSON.parse(raw);
-    if (strict && (!Array.isArray(parsed?.projects) || parsed.projects.some((entry) =>
-      !entry || typeof entry.path !== 'string' || !entry.path.trim() || !isAbsolute(entry.path)
-    ))) throw new TypeError('Project registry is invalid.');
+    if (
+      strict &&
+      (!Array.isArray(parsed?.projects) ||
+        parsed.projects.some(
+          (entry) => !entry || typeof entry.path !== 'string' || !entry.path.trim() || !isAbsolute(entry.path)
+        ))
+    )
+      throw new TypeError('Project registry is invalid.');
     const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
     return {
       projects: projects

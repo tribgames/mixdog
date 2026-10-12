@@ -81,7 +81,7 @@ export function createOpenAIOAuthLogin(deps) {
     return tokens;
   }
 
-  async function beginOAuthLogin() {
+  async function beginOAuthLogin({ openBrowser = true } = {}) {
     const pkce = createOAuthPkce(64);
     const state = randomBytes(16).toString('hex');
     const url = new URL(AUTHORIZE_URL);
@@ -141,6 +141,7 @@ export function createOpenAIOAuthLogin(deps) {
         process.stderr.write(
           `\n[openai-oauth] Open this URL to log in to ChatGPT (OpenAI OAuth):\n${url.toString()}\n\n`
         );
+        if (!openBrowser) return;
         try {
           const { openInBrowser } = await import('../../../shared/open-url.mjs');
           openInBrowser(url.toString());

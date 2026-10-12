@@ -7,23 +7,31 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import puppeteer from 'puppeteer-core';
 import { SessionGoalIsland } from './SessionGoalIsland.tsx';
-import { SessionGoalHost } from './session-goal-submission.ts';
+
+// The Goal renders as a segment of the composer island; these fixtures give
+// it that frame.
+const islandFrame = (markup) =>
+  `<div class="composer-island" data-expanded="goal"><div class="composer-island-pill">${markup}</div></div>`;
 
 // The DOM suite owns actions and confirmation. This browser check owns
-// geometry: all three controls must remain visible beside the summary,
-// regardless of drawer overflow or a narrow composer.
-test('Goal controls stay in one visible row to the right of the summary', async (t) => {
+// geometry: in the open Goal tab all three controls remain visible in one
+// row under the task list, regardless of drawer overflow or a narrow pane.
+test('Goal tab controls stay in one visible row under the task list', async (t) => {
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
-  const css = await readFile(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
-  const markup = renderToStaticMarkup(
-    React.createElement(
-      SessionGoalHost,
-      { placement: 'composer' },
+  const css = (
+    await Promise.all(
+      ['./desktop/15-composer.css', './desktop/22-markdown.css'].map((path) =>
+        readFile(new URL(path, import.meta.url), 'utf8')
+      )
+    )
+  ).join('\n');
+  const markup = islandFrame(
+    renderToStaticMarkup(
       React.createElement(SessionGoalIsland, {
         snapshot: {
           sessionId: 'layout-test',
@@ -64,53 +72,116 @@ test('Goal controls stay in one visible row to the right of the summary', async 
       main { position: fixed; bottom: 32px; left: 0; right: 0; }
       ${css}
     </style></head><body><main>${markup}</main></body></html>`);
-    for (const open of [false, true]) {
-      await page.$eval(
+    // Measure the settled island, not its entrance scale.
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    await page.$eval('.session-goal-island', (island) => {
+      island.dataset.open = 'true';
+      const drawer = island.querySelector('.session-goal-drawer');
+      drawer.inert = false;
+      drawer.setAttribute('aria-hidden', 'false');
+    });
+    for (const scrollToEnd of [false, true]) {
+      const layout = await page.$eval(
         '.session-goal-island',
-        (island, expanded) => {
-          island.dataset.open = String(expanded);
-          const drawer = island.querySelector('.session-goal-drawer');
-          drawer.inert = !expanded;
-          drawer.setAttribute('aria-hidden', String(!expanded));
+        (island, scroll) => {
+          const list = island.querySelector('.session-goal-task-list');
+          list.scrollTop = scroll ? list.scrollHeight : 0;
+          const rect = (element) => {
+            const { x, y, width, height, right, bottom } = element.getBoundingClientRect();
+            return { x, y, width, height, right, bottom };
+          };
+          return {
+            tasks: rect(island.querySelector('.session-goal-tasks')),
+            controls: [...island.querySelectorAll('.session-goal-control')].map((control) => {
+              const bounds = rect(control);
+              const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+              return { ...bounds, hittable: control === hit || control.contains(hit) };
+            }),
+          };
         },
-        open
+        scrollToEnd
       );
-      for (const scrollToEnd of open ? [false, true] : [false]) {
-        const layout = await page.$eval(
-          '.session-goal-island',
-          (island, scroll) => {
-            const list = island.querySelector('.session-goal-task-list');
-            list.scrollTop = scroll ? list.scrollHeight : 0;
-            const rect = (element) => {
-              const { x, y, width, height, right, bottom } = element.getBoundingClientRect();
-              return { x, y, width, height, right, bottom };
-            };
-            return {
-              trigger: rect(island.querySelector('.session-goal-trigger')),
-              controls: [...island.querySelectorAll('.session-goal-control')].map((control) => {
-                const bounds = rect(control);
-                const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-                return { ...bounds, hittable: control === hit || control.contains(hit) };
-              }),
-            };
-          },
-          scrollToEnd
-        );
-        const context = `${width}px mobile=${mobile} open=${open} scrolled=${scrollToEnd}`;
-        assert.equal(layout.controls.length, 3, context);
-        let right = layout.trigger.right;
-        for (const control of layout.controls) {
-          assert.ok(control.width > 0 && control.height > 0 && control.hittable, `${context}: visible and clickable`);
-          assert.ok(control.x >= right - 1, `${context}: ordered to the right without overlap`);
-          assert.ok(control.right <= width && control.y >= 0 && control.bottom <= 760, `${context}: inside viewport`);
-          assert.ok(
-            Math.abs(control.y + control.height / 2 - (layout.trigger.y + layout.trigger.height / 2)) < 1,
-            `${context}: same row`
-          );
-          right = control.right;
-        }
+      const context = `${width}px mobile=${mobile} scrolled=${scrollToEnd}`;
+      assert.equal(layout.controls.length, 3, context);
+      let right = -Infinity;
+      for (const control of layout.controls) {
+        assert.ok(control.width > 0 && control.height > 0 && control.hittable, `${context}: visible and clickable`);
+        assert.ok(control.x >= right - 1, `${context}: ordered left to right without overlap`);
+        assert.ok(control.y >= layout.tasks.bottom - 1, `${context}: under the task list`);
+        assert.ok(control.right <= width && control.y >= 0 && control.bottom <= 760, `${context}: inside viewport`);
+        assert.ok(Math.abs(control.y - layout.controls[0].y) < 1, `${context}: same row`);
+        right = control.right;
       }
     }
+  }
+});
+
+// The open Goal tab's pill rule must not beat the pill's [hidden]: the
+// approval card and a flash take the island over, Goal included.
+test('approval and flash modes hide the Goal pill even with the Goal tab open', async (t) => {
+  const browser = await puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const css = (
+    await Promise.all(
+      ['./desktop/15-composer.css', './desktop/22-markdown.css', './desktop/27-search-review.css'].map((path) =>
+        readFile(new URL(path, import.meta.url), 'utf8')
+      )
+    )
+  ).join('\n');
+  const goal = renderToStaticMarkup(
+    React.createElement(SessionGoalIsland, {
+      snapshot: {
+        sessionId: 'hidden-test',
+        goal: { id: 'goal', status: 'active', objective: 'Hide under approval', tasks: [] },
+      },
+    })
+  );
+  for (const mode of ['approval', 'flash']) {
+    await page.setContent(`<!doctype html><html><head><style>${css}</style></head><body>
+      <div class="composer-island" data-mode="${mode}" data-expanded="goal">
+        <div class="composer-island-${mode}">${mode}</div>
+        <div class="composer-island-pill" hidden>${goal}</div>
+      </div></body></html>`);
+    const view = await page.$eval('.composer-island-pill', (pill) => ({
+      display: getComputedStyle(pill).display,
+      goalHeight: pill.querySelector('.session-goal-island').getBoundingClientRect().height,
+    }));
+    assert.equal(view.display, 'none', `${mode}: the pill stays hidden`);
+    assert.equal(view.goalHeight, 0, `${mode}: the Goal does not render`);
+  }
+});
+
+// The empty-island gate must count every kind of content: a quota panel or
+// the expanded files list alone still shows the island.
+test('an island carrying only the quota panel or the expanded files list stays visible', async (t) => {
+  const browser = await puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const css = (
+    await Promise.all(
+      ['./desktop/15-composer.css', './desktop/27-search-review.css'].map((path) =>
+        readFile(new URL(path, import.meta.url), 'utf8')
+      )
+    )
+  ).join('\n');
+  const cases = {
+    empty: '<div class="composer-island-pill"></div>',
+    quota:
+      '<div class="composer-island-pill" hidden></div><section class="composer-island-panel composer-island-quota">limit</section>',
+    files: '<div class="composer-island-pill"><div class="turn-review-bar" data-expanded="true">files</div></div>',
+  };
+  for (const [name, inner] of Object.entries(cases)) {
+    await page.setContent(`<!doctype html><html><head><style>${css}</style></head><body>
+      <div class="composer-island"${name === 'files' ? ' data-expanded="files"' : ''}>${inner}</div></body></html>`);
+    const visibility = await page.$eval('.composer-island', (island) => getComputedStyle(island).visibility);
+    assert.equal(visibility, name === 'empty' ? 'hidden' : 'visible', name);
   }
 });
 
@@ -150,10 +221,8 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
   ];
   for (const width of [900, 320]) {
     for (const empty of [false, true]) {
-      const markup = renderToStaticMarkup(
-        React.createElement(
-          SessionGoalHost,
-          { placement: 'composer' },
+      const markup = islandFrame(
+        renderToStaticMarkup(
           React.createElement(SessionGoalIsland, {
             snapshot: {
               sessionId: 'typography-test',
@@ -184,6 +253,8 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
         drawer.inert = false;
         drawer.setAttribute('aria-hidden', 'false');
         await document.fonts.ready;
+        // Measure the settled island, not its entrance scale.
+        await Promise.all(document.getAnimations().map((animation) => animation.finished));
         const typography = (element) => {
           const style = getComputedStyle(element);
           return {
@@ -198,7 +269,7 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
           title: typography(island.querySelector('.session-goal-objective')),
           supporting: [
             ...island.querySelectorAll(
-              '.session-goal-meta, .session-goal-details, .session-goal-empty, .session-goal-blocker'
+              '.session-goal-meta-time, .session-goal-details, .session-goal-empty, .session-goal-blocker'
             ),
           ].map(typography),
           tasks: [...island.querySelectorAll('.session-goal-tasks li')].map((row) => {
@@ -216,7 +287,8 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
       });
       const context = `${width}px empty=${empty}`;
       assert.equal(view.fontLoaded, true, context);
-      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['15px', '600', '22px'], context);
+      // The segment title reads at the island's 13/18 line.
+      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['13px', '400', '18px'], context);
       for (const entry of [view.title, ...view.supporting, ...view.tasks]) {
         assert.ok(entry.family.startsWith('"Pretendard Variable"'), `${context}: shared Korean and Latin family`);
       }
@@ -267,7 +339,7 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
             return { value: { ok: true } };
           },
         };
-        createRoot(document.querySelector('.session-goal-host')).render(React.createElement(SessionGoalIsland, {
+        createRoot(document.querySelector('.composer-island-pill')).render(React.createElement(SessionGoalIsland, {
           snapshot: {
             sessionId: 'stop-confirm',
             goal: {
@@ -292,7 +364,13 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
   const script = bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
-  const css = await readFile(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
+  const css = (
+    await Promise.all(
+      ['./desktop/15-composer.css', './desktop/22-markdown.css'].map((path) =>
+        readFile(new URL(path, import.meta.url), 'utf8')
+      )
+    )
+  ).join('\n');
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
@@ -309,19 +387,23 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
       --mx-bg-base: #181818; --mx-workspace-sheet: #222; --mx-radius-pill: 999px;
     }
     body { margin: 0; font-family: sans-serif; }
-    /* The composer stack the capsule sits on: whatever leaves the drawer's
+    ${css}
+    /* The composer stack the island sits on: whatever leaves the panel's
        clip lands on this surface instead of the button the user aimed at. */
     .composer-region { position: fixed; right: 0; bottom: 0; left: 0; padding: 0 12px 16px; }
     .composer-input { height: 96px; }
-    ${css}
   </style></head><body>
     <div class="composer-region">
-      <div class="session-goal-host" data-goal-placement="composer"></div>
+      <div class="composer-island-slot"><div class="composer-island-stage">
+        <div class="composer-island" data-expanded="goal"><div class="composer-island-pill"></div></div>
+      </div></div>
       <div class="composer-input"></div>
     </div>
   </body></html>`);
   await page.addScriptTag({ content: script });
-  await page.waitForSelector('.session-goal-control');
+  await page.waitForSelector('.session-goal-trigger');
+  await page.click('.session-goal-trigger');
+  await page.waitForSelector('.session-goal-controls .session-goal-control:last-child', { visible: true });
   await page.click('.session-goal-controls .session-goal-control:last-child');
   await page.waitForSelector('.session-goal-confirm');
   const confirm = '.session-goal-confirm .session-goal-actions button:last-child';
@@ -340,9 +422,9 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
   // Cancel and confirm sit at the row's right end, as every other confirmation row does.
   const trailingGap = await page.$eval(confirm, (button) => {
     const row = button.closest('.session-goal-actions').getBoundingClientRect();
-    return Math.round(row.right - button.getBoundingClientRect().right);
+    return row.right - button.getBoundingClientRect().right;
   });
-  assert.equal(trailingGap, 0, 'the stop confirmation buttons are right-aligned');
+  assert.ok(Math.abs(trailingGap) < 0.5, `the stop confirmation buttons are right-aligned (gap ${trailingGap})`);
   await page.click(confirm);
   const calls = await page.evaluate(() => window.__calls);
   assert.deepEqual(

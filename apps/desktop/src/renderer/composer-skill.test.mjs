@@ -37,7 +37,7 @@ test('Backspace removes the skill only at the unselected start, without stealing
   }
 });
 
-test('menu offers enabled built-in and custom skills, not disabled or unavailable entries', () => {
+test('menu offers enabled custom skills, not disabled or unavailable entries', () => {
   assert.deepEqual(
     selectableComposerSkills({
       skills: [
@@ -55,27 +55,17 @@ test('menu offers enabled built-in and custom skills, not disabled or unavailabl
   );
 });
 
-test('shipped goal-management stays off the menu because the dedicated goal entry already covers it', () => {
-  const names = selectableComposerSkills({
-    skills: [
-      { name: 'goal-management', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
-      { name: 'goal-management', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
-      { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
-    ],
-  }).map((skill) => skill.name);
-  assert.deepEqual(names, ['pdf']);
-});
-
-test('built-in skills lead the menu and custom skills keep their reported order below', () => {
+test('built-in skills stay off the menu and custom skills keep their reported order', () => {
   const names = selectableComposerSkills({
     skills: [
       { name: 'team-review', enabled: true, description: 'Team review' },
       { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
       { name: 'release-notes', enabled: true, description: 'Release notes' },
       { name: 'setup', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
+      { name: 'goal-management', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
     ],
   }).map((skill) => skill.name);
-  assert.deepEqual(names, ['pdf', 'setup', 'team-review', 'release-notes']);
+  assert.deepEqual(names, ['team-review', 'release-notes']);
 });
 
 test('explicit selection preserves multimodal attachments and does not claim the skill already ran', () => {

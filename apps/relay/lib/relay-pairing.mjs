@@ -6,13 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 import { clientProfile } from './device-store.mjs';
 import { isRoutingId } from './ids.mjs';
-import {
-  browserSocketOriginAllowed,
-  clientIp,
-  decodedRequestPath,
-  desktopLegOpen,
-  requestUrl,
-} from './relay-http.mjs';
+import { browserSocketOriginAllowed, clientIp, decodedRequestPath, desktopLegOpen, requestUrl } from './relay-http.mjs';
 import { pairingCookieHeaders, parseCookieToken } from './static-http.mjs';
 
 export const MAX_PENDING_CLAIMS = 64;
@@ -186,7 +180,7 @@ function claimQuotaExceeded(claims, deviceId, source) {
 }
 
 // Records the pending claim and asks the desktop for approval.
-function openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, profile, source }) {
+function openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, profile, source, method }) {
   const id = randomUUID();
   const expiresAt = Date.now() + CLAIM_TTL_MS;
   claims.set(id, {
@@ -196,6 +190,7 @@ function openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, pro
     publicKey,
     profile,
     source,
+    method,
     status: 'pending',
     token: '',
     sealed: null,
@@ -209,6 +204,9 @@ function openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, pro
         clientId,
         publicKey,
         expiresAt,
+        // How this container found the desktop: 'code' only when the relay
+        // itself redeemed a 6-digit code for it. The client cannot claim it.
+        method,
         ...profile,
       })
     );
@@ -238,7 +236,7 @@ function claimFields(body) {
 }
 
 export async function handleClaimRequest(context, request, response) {
-  const { store, liveDesktops, claims, unauthorizedLimiter } = context;
+  const { store, liveDesktops, claims, unauthorizedLimiter, pairCodes } = context;
   const json = jsonResponder(response);
   const parsed = decodedRequestPath(request);
   if (!parsed) {
@@ -271,12 +269,22 @@ export async function handleClaimRequest(context, request, response) {
     rejectUnauthorized(unauthorizedLimiter, request, response, 404);
     return;
   }
-  startClaim({ liveDesktops, claims, json }, fields, clientProfile(body, 'Web app'), clientIp(request));
+  startClaim(
+    { liveDesktops, claims, json, pairCodes },
+    { ...fields, ticket: body?.ticket, retry: body?.retry === true },
+    clientProfile(body, 'Web app'),
+    clientIp(request)
+  );
 }
 
 // Desktop online, no duplicate request, quota available: record the claim
 // and ask the desktop for approval.
-function startClaim({ liveDesktops, claims, json }, { deviceId, clientId, publicKey }, profile, source) {
+function startClaim(
+  { liveDesktops, claims, json, pairCodes },
+  { deviceId, clientId, publicKey, ticket, retry },
+  profile,
+  source
+) {
   const entry = liveDesktops.get(deviceId);
   if (!desktopLegOpen(entry)) {
     json(503, { status: 'offline' });
@@ -291,5 +299,10 @@ function startClaim({ liveDesktops, claims, json }, { deviceId, clientId, public
     json(503, { status: 'busy' });
     return;
   }
-  openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, profile, source });
+  // A request with no ticket is never labelled a code; a client retrying a
+  // code-started pairing says so, and the dialog calls it a retry.
+  let method = 'qr';
+  if (pairCodes?.takeTicket(ticket, deviceId)) method = 'code';
+  else if (retry) method = 'retry';
+  openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, profile, source, method });
 }

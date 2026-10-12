@@ -144,8 +144,8 @@ export function collectStandaloneToolDefs({
   return {
     standaloneTools,
     internalToolDefs: [...standaloneTools, ...webSearchRuntimeTools.filter((tool) => tool?.public === false)],
-    // Workflow-aware model surface: a pack that declares an EMPTY agents list
-    // (Solo) must not advertise the agent tool at all — the model calling a
+    // Workflow-aware model surface: a session with no delegatable agents
+    // must not advertise the agent tool at all — the model calling a
     // schema-visible tool that policy always rejects is a guaranteed error turn
     // (user-reported in Solo). Names derive from the live agent tool defs.
     agentToolNames: new Set(agentTools.map((tool) => String(tool?.name || '')).filter(Boolean)),

@@ -224,6 +224,9 @@ async function semanticActionReply(
     delivery_accepted: typeof result.delivery_accepted === 'boolean' ? result.delivery_accepted : null,
     goal_verified: result.goal_verified === true || verified,
     ...(result.input_may_have_executed === true ? { input_may_have_executed: true } : {}),
+    // The target refused the no-activate hold: the input landed, but background
+    // delivery could not keep the window from coming forward.
+    ...(result.activation_protection === 'unavailable' ? { activation_protection: 'unavailable' } : {}),
     path: result.path || 'unknown',
     delivery,
     ...(cursorFeedback ? { cursor_feedback: cursorFeedback } : {}),

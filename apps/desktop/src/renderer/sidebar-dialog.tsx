@@ -93,6 +93,7 @@ export function EditorDialogFooter({
   onDelete,
   children,
   saveDisabled = false,
+  armDelete = false,
 }: {
   error: string;
   busy: boolean;
@@ -101,8 +102,10 @@ export function EditorDialogFooter({
   children?: ReactNode;
   /** The form is incomplete (e.g. an agent switched on with no model). */
   saveDisabled?: boolean;
+  /** Opens with the delete already armed (a row menu's Delete). */
+  armDelete?: boolean;
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(armDelete);
   return (
     <footer>
       {error && <ErrorNotice error={error} />}

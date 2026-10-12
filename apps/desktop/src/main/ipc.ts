@@ -15,6 +15,7 @@ import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerProjectIpc } from './ipc-projects';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
+import type { RemoteHostWindows } from './remote-host-windows';
 import { registerSourceControlIpc } from './ipc-source-control';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
 import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
@@ -35,11 +36,13 @@ const SERVICE_OPERATION_NAMES = [
   'installGithubCli',
   'githubCliLoginStart',
   'githubCliLoginStatus',
+  'githubCliLoginOpenBrowser',
   'cancelGithubCliLogin',
   'githubCliLogout',
   'githubCliAccount',
   'gitGlobalConfig',
   'setGitGlobalConfig',
+  'notifySettingsChanged',
   'gitAbortOperation',
   'gitAmend',
   'gitApplyPatch',
@@ -98,9 +101,14 @@ interface DesktopIpcDependencies {
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'> & Partial<Pick<Dialog, 'showSaveDialog'>>;
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder' | 'trashItem'>;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
-  settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
+  settingsStore?: Pick<
+    DesktopSettingsStore,
+    'read' | 'update' | 'updateNotificationVolume' | 'readZoom' | 'updateZoom'
+  >;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
+  /** Settings → Notifications: play the notification sound at the saved volume. */
+  previewNotificationSound?: () => Promise<string>;
   /** Browser Use pane: local profile import without renderer-visible secrets. */
   browserHost?: Pick<
     BrowserHost,
@@ -116,13 +124,16 @@ interface DesktopIpcDependencies {
     | 'browserPageControl'
     | 'browserPageMetadata'
     | 'browserPresentNative'
+    | 'browserPageIdentity'
   >;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
-  remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
+  remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
   rotateRemoteAccess?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: revoke one registered browser. */
   revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
+  /** Settings → Connection / command surface: connect to another PC. */
+  remoteHosts?: RemoteHostWindows;
   updater?: DesktopUpdater;
   terminals?: DesktopTerminalHost;
 }
@@ -139,12 +150,14 @@ export function registerDesktopIpc(
     powerMonitor: powerMonitorRef,
     settingsStore,
     onDesktopSettingsChanged,
+    previewNotificationSound,
     browserHost,
     updater,
     terminals,
     remoteAccessInfo,
     rotateRemoteAccess,
     revokeRemoteAccessClient,
+    remoteHosts,
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
@@ -204,6 +217,7 @@ export function registerDesktopIpc(
     remoteAccessInfo,
     rotateRemoteAccess,
     revokeRemoteAccessClient,
+    remoteHosts,
   });
   registerBrowserIpc({ handle, browserHost });
   registerWindowSettingsIpc({
@@ -214,6 +228,7 @@ export function registerDesktopIpc(
     invokeDesktopOperation,
     settingsStore,
     onDesktopSettingsChanged,
+    previewNotificationSound,
   });
 
   const stateBridge = new DesktopStateBridge({
@@ -242,6 +257,7 @@ export function registerDesktopIpc(
     operations: serviceOperations,
     shell,
     grantedFile,
+    describeLocalPaths: (value) => selectedFiles.describe(value),
   });
   const eventChannels = new Set<string>([
     DESKTOP_IPC.state,
@@ -260,6 +276,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.lspDiagnostics,
     DESKTOP_IPC.lspStatus,
     DESKTOP_IPC.remoteClientClaim,
+    DESKTOP_IPC.remoteAccessSettingsChanged,
   ]);
   const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));
   let removed = false;

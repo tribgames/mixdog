@@ -37,6 +37,7 @@ export function ComposerFooter({
   recoveryScope,
   goalDialogOpen,
   setGoalDialogOpen,
+  addMenuRequest,
   goalDisabled,
   executeSlash,
   transitioning,
@@ -64,6 +65,8 @@ export function ComposerFooter({
   recoveryScope: string;
   goalDialogOpen: boolean;
   setGoalDialogOpen: (open: boolean) => void;
+  /** Bumped by /skills to open the add menu. */
+  addMenuRequest: number;
   goalDisabled: boolean;
   executeSlash: (command: string) => Promise<boolean>;
   transitioning: boolean;
@@ -111,6 +114,7 @@ export function ComposerFooter({
         sessionId={sessionId}
         disabled={transitioning || !paneActive}
         goalDisabled={goalDisabled}
+        openRequest={addMenuRequest}
         onAttach={() => fileInput.current?.click()}
         onSkill={(name) => {
           skillSelection.select(name);

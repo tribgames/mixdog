@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>한도 소진 카드 — 최종 시안</title>
+<style>
+  :root {
+    --bg: #141414; --popup: #1c1c1c; --pane: #181818;
+    --outline: inset 0 0 0 1px rgba(255,255,255,0.07);
+    --text: #ececec; --muted: #9a9a9a; --meta: #8a8a8a;
+    --warn: #e0a84a; --danger: #e0645a; --accent: #5b8cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", "Pretendard", system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 28px; font-size: 13px; max-width: 1080px; }
+  .board { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .case { width: 520px; }
+  .case > h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .case > p { font-size: 12px; color: var(--muted); margin: 0 0 10px; min-height: 34px; }
+
+  .convo { background: var(--pane); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: 16px 18px 12px; position: relative; }
+  .who { font-size: 11.5px; color: var(--meta); margin-bottom: 2px; }
+  .msg { font-size: 13.5px; color: #d8d8d8; margin-bottom: 10px; }
+  .tool { font-size: 12.5px; color: var(--meta); padding: 0 0 10px; }
+  .tool b { color: #cfcfcf; font-weight: 500; }
+
+  .card { border-radius: 10px; background: rgba(224,168,74,.07); box-shadow: inset 0 0 0 1px rgba(224,168,74,.28); padding: 12px 14px; margin: 4px 0 10px; }
+  .card .t { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+  .card .t .ic { color: var(--warn); }
+  .card .d { font-size: 12.5px; color: #cfcfcf; margin: 3px 0 10px 22px; }
+  .card .d small { color: var(--meta); }
+  .card .acts { display: flex; gap: 6px; margin-left: 22px; flex-wrap: wrap; }
+  .card.wait { background: rgba(255,255,255,.03); box-shadow: var(--outline); }
+  .card.wait .t .ic { color: var(--muted); }
+  .card.done { background: transparent; box-shadow: none; padding: 2px 0; margin: 0 0 10px; }
+  .card.done .t { font-size: 12.5px; font-weight: 400; color: var(--meta); }
+  .card.done .t .ic { color: var(--meta); }
+
+  button { font: inherit; font-size: 12.5px; padding: 4px 11px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: var(--text); cursor: pointer; white-space: nowrap; }
+  button.ghost { background: transparent; color: var(--muted); }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+
+  .pico { width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 9px; font-weight: 700; flex: 0 0 auto; }
+  .pico.claude { background: #d97757; color: #1b1b1b; }
+  .pico.codex { background: #2b2b2b; color: #ddd; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+  .pico.gemini { background: #3b5bdb; color: #fff; }
+  .pico.grok { background: #e6e6e6; color: #111; }
+
+  .sheet { position: absolute; width: 290px; background: var(--popup); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.55); padding: 6px; z-index: 5; }
+  .sheet .lbl { font-size: 11px; color: var(--meta); padding: 6px 8px 3px; }
+  .opt { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px; font-size: 13px; }
+  .opt.sel { background: rgba(91,140,255,.14); }
+  .opt span.m { flex: 1; }
+  .opt small { font-size: 11.5px; color: var(--meta); }
+  .opt.off { color: #6a6a6a; }
+  .opt.off .pico { opacity: .4; }
+  .opt.off small { color: var(--danger); opacity: .85; }
+  .sep { height: 1px; background: rgba(255,255,255,.06); margin: 4px 6px; }
+
+  .composer { margin-top: 10px; border-radius: 14px; background: #1f1f1f; box-shadow: var(--outline); padding: 12px 14px 10px; }
+  .composer .ph { height: 22px; font-size: 13px; color: #6a6a6a; }
+  .composer .bar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--meta); }
+  .composer .plus { font-size: 16px; color: #bdbdbd; }
+  .mtrig { display: inline-flex; align-items: center; gap: 6px; color: #e6e6e6; font-weight: 600; }
+  .mtrig small { font-weight: 400; color: var(--meta); font-size: 12.5px; }
+  .composer .sp { flex: 1; }
+  .send { width: 26px; height: 26px; border-radius: 50%; background: #3a3a3a; display: grid; place-items: center; color: #cfcfcf; font-size: 13px; }
+
+  .rules { margin-top: 36px; max-width: 1080px; font-size: 13px; color: #cfcfcf; }
+  .rules h2 { font-size: 15px; margin: 0 0 10px; }
+  .rules table { border-collapse: collapse; width: 100%; }
+  .rules th, .rules td { text-align: left; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.07); vertical-align: top; }
+  .rules th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>한도 소진 카드 — 최종 시안</h1>
+<p class="lead">새로 생기는 건 <b>소진 카드 하나</b>입니다. Lead가 프로바이더의 모든 계정을 소진해 멈추면 그 자리에 카드가 뜨고, 다른 모델을 고르면 같은 세션에서 바로 이어갑니다. 고른 모델은 입력창에서 직접 바꾼 것과 똑같이 취급합니다.</p>
+
+<div class="board">
+
+  <section class="case">
+    <h2>A. 소진 카드</h2>
+    <p>멈춘 턴 바로 아래. 버튼 세 개. 아무것도 누르지 않으면 지금처럼 멈춘 상태로 남습니다.</p>
+    <div class="convo">
+      <div class="who">Lead · Claude Opus 5.5</div>
+      <div class="msg">account-pool 순번 로직을 정리하고 테스트를 추가하는 중입니다.</div>
+      <div class="tool">✓ <b>edit</b> src/runtime/shared/provider-accounts.mjs · ✓ <b>shell</b> npm test</div>
+      <div class="card">
+        <div class="t"><span class="ic">⚠</span>Claude 한도를 모두 사용했습니다</div>
+        <div class="d">계정 2개 모두 소진 · <small>18:40 리셋 (2시간 15분 후)</small></div>
+        <div class="acts">
+          <button class="primary">다른 모델로 이어서 ▾</button>
+          <button>18:40에 자동 재개</button>
+          <button class="ghost">멈춤</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>B. "다른 모델로 이어서 ▾" 누름</h2>
+    <p>입력창 모델 메뉴와 같은 목록. 소진된 프로바이더 모델만 아래로 내려 흐리게, 리셋 시각 표시.</p>
+    <div class="convo" style="min-height:300px">
+      <div class="card">
+        <div class="t"><span class="ic">⚠</span>Claude 한도를 모두 사용했습니다</div>
+        <div class="d">계정 2개 모두 소진 · <small>18:40 리셋 (2시간 15분 후)</small></div>
+        <div class="acts">
+          <button class="primary">다른 모델로 이어서 ▾</button>
+          <button>18:40에 자동 재개</button>
+          <button class="ghost">멈춤</button>
+        </div>
+      </div>
+      <div class="sheet" style="left:40px; top:120px;">
+        <div class="lbl">이어서 사용할 모델</div>
+        <div class="opt sel"><span class="pico codex">◎</span><span class="m">GPT-6-Astra</span><small>High</small></div>
+        <div class="opt"><span class="pico gemini">✦</span><span class="m">Gemini 3.8 Flash</span><small>High</small></div>
+        <div class="opt"><span class="pico grok">𝕏</span><span class="m">Grok 4.7 Fast</span><small>Low</small></div>
+        <div class="sep"></div>
+        <div class="opt off"><span class="pico claude">✳</span><span class="m">Claude Opus 5.5</span><small>소진 · 18:40</small></div>
+        <div class="opt off"><span class="pico claude">✳</span><span class="m">Claude Sonnet 5.5</span><small>소진 · 18:40</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>C. 모델을 고른 뒤</h2>
+    <p>카드는 한 줄 기록으로 접히고, 같은 턴이 고른 모델로 이어집니다. 입력창 모델도 그 모델로 바뀝니다 — 별도 "임시" 표시 없음.</p>
+    <div class="convo">
+      <div class="card done"><div class="t"><span class="ic">⚠</span>Claude 한도 소진 · GPT-6-Astra High로 이어서 진행</div></div>
+      <div class="who">Lead · GPT-6-Astra High</div>
+      <div class="msg">이어서 진행합니다. 테스트까지 확인했고 남은 작업은 UI 연결입니다.</div>
+      <div class="tool">✓ <b>edit</b> apps/desktop/src/renderer/ProviderAccountsList.tsx</div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="bar"><span class="plus">＋</span><span class="mtrig">GPT-6-Astra <small>High ⌄</small></span><span>○</span><span class="sp"></span><span>🎙</span><span class="send">↑</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>D. "자동 재개"를 고른 뒤</h2>
+    <p>카드가 대기 상태로 바뀝니다. 리셋되면 원래 모델로 같은 턴을 이어갑니다. 기다리는 중에도 다른 모델을 고를 수 있습니다.</p>
+    <div class="convo">
+      <div class="card wait">
+        <div class="t"><span class="ic">⏱</span>18:40에 Claude Opus 5.5로 자동 재개합니다</div>
+        <div class="d"><small>2시간 15분 남음</small></div>
+        <div class="acts"><button>다른 모델로 지금 이어서 ▾</button><button class="ghost">취소</button></div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:22px">E. 리셋 시각을 모르는 계정 (API 키 등)</h2>
+    <p style="min-height:0">자동 재개 버튼 없이 두 개만.</p>
+    <div class="convo">
+      <div class="card">
+        <div class="t"><span class="ic">⚠</span>OpenAI API 사용 한도에 도달했습니다</div>
+        <div class="d"><small>리셋 시각 정보 없음</small></div>
+        <div class="acts"><button class="primary">다른 모델로 이어서 ▾</button><button class="ghost">멈춤</button></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="rules">
+  <h2>동작 규칙</h2>
+  <table>
+    <tr><th>카드가 뜨는 때</th><td>Lead의 현재 프로바이더에서 사용 가능한 계정이 <b>모두</b> 소진됐을 때. 같은 프로바이더 안 계정 자동 순번은 지금처럼 먼저 동작.</td></tr>
+    <tr><th>이어서</th><td>고른 모델로 멈춘 턴을 그대로 다시 시작. 대화 기록·도구 결과는 그대로, 모델 내부 추론 기록은 넘기지 않음.</td></tr>
+    <tr><th>고른 모델</th><td>입력창에서 직접 바꾼 것과 같음 — 그 세션의 모델이 됨. 원래 모델로 돌아가려면 입력창에서 다시 선택.</td></tr>
+    <tr><th>자동 재개</th><td>리셋 시각을 아는 계정에서만 표시. 대기 중 앱을 닫았다가 열면 카드가 대기 상태로 복원.</td></tr>
+    <tr><th>그 외</th><td>하위 에이전트는 카드 없이 지금처럼 실패 보고. 설정 화면·일시중지·미리 알림 없음.</td></tr>
+  </table>
+</div>
+
+</body>
+</html>

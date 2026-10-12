@@ -48,30 +48,22 @@ export function shouldRemoveSelectedSkill(input: {
   );
 }
 
-// The add menu already has a dedicated "Set a goal" entry that opens the goal
-// form directly; listing the shipped goal-management skill beside it would
-// show two same-named items with different behaviour. The skill itself stays
-// loadable by the model.
-const MENU_HIDDEN_BUILTIN_SKILLS = new Set(['goal-management']);
-
+// The menu offers only the user's own skills, in the order the daemon
+// reported. Shipped skills stay off it: the model loads them when a request
+// matches, so pinning one to a message adds nothing.
 export function selectableComposerSkills(value: unknown): ComposerSkill[] {
   const status = value as {
     skills?: Array<{ name?: unknown; description?: unknown; enabled?: boolean; source?: unknown; owner?: unknown }>;
   } | null;
   const seen = new Set<string>();
-  // Shipped skills lead the menu; custom ones follow. Both groups keep the
-  // order the daemon reported, so the list stays stable between openings.
-  const builtin: ComposerSkill[] = [];
   const custom: ComposerSkill[] = [];
   for (const skill of Array.isArray(status?.skills) ? status.skills : []) {
     const name = typeof skill?.name === 'string' ? skill.name.trim() : '';
-    if (!name || skill.enabled !== true || seen.has(name)) continue;
+    if (!name || skill.enabled !== true || seen.has(name) || isBuiltInSkill(skill)) continue;
     seen.add(name);
-    const shipped = isBuiltInSkill(skill);
-    if (shipped && MENU_HIDDEN_BUILTIN_SKILLS.has(name)) continue;
-    (shipped ? builtin : custom).push({ name, description: skillDisplayDescription(skill) });
+    custom.push({ name, description: skillDisplayDescription(skill) });
   }
-  return [...builtin, ...custom];
+  return custom;
 }
 
 export function withSelectedSkill(content: DesktopPromptContent, name: string): DesktopPromptContent {

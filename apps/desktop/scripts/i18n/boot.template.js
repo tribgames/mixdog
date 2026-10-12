@@ -85,7 +85,9 @@ if (/Electron/i.test(navigator.userAgent)) {
 // reports a settled first frame, and move the build's first-screen hints into
 // the head so the stylesheet, React and the app bundle are fetched together
 // instead of one relay round trip at a time (user: 늦게 생성되기도 하고).
-// A browser TAB only ever renders the install guide, so it pays for neither.
+// A browser tab that connected directly (mark set by mobile-surface.ts) runs
+// the same app, so it gets the same gate; a tab that only shows the old-host
+// install guide pays for neither.
 var mixdogInstalledApp = false;
 try {
   mixdogInstalledApp =
@@ -95,6 +97,11 @@ try {
     );
 } catch (error) {
   /* an unreadable display mode is treated as a browser tab */
+}
+try {
+  if (!mixdogInstalledApp) mixdogInstalledApp = localStorage.getItem('mixdog.directBrowser') === '1';
+} catch (error) {
+  /* storage this origin cannot read holds no direct-connect mark */
 }
 if (mixdogInstalledApp) {
   var mixdogHintHost = document.getElementById('mixdog-first-screen');

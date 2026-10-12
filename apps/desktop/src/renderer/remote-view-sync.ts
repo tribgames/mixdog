@@ -6,7 +6,15 @@ export function createRemoteViewSync(options: {
   state(state: 'syncing' | 'connected'): void;
   error(error: unknown): void;
   interrupted(): Error;
+  /** Called once when `failureLimit` synchronizations in a row failed on this
+   *  connection: the socket is alive but unusable for sync, so everything
+   *  waiting on `ready()` would otherwise wait forever. The owner recycles
+   *  the connection, whose close rejects those waiters. */
+  recycle?(): void;
+  failureLimit?: number;
 }) {
+  const failureLimit = options.failureLimit ?? 3;
+  let failures = 0;
   let generation = 0;
   let active = false;
   let requested = 0;
@@ -27,6 +35,7 @@ export function createRemoteViewSync(options: {
         if (!active || epoch !== generation) return;
         completed = revision;
         retryDelay = 250;
+        failures = 0;
         if (completed === requested) {
           options.state('connected');
           for (const waiter of waiting) waiter.resolve();
@@ -36,11 +45,18 @@ export function createRemoteViewSync(options: {
       .catch((error) => {
         if (!active || epoch !== generation) return;
         options.error(error);
+        failures += 1;
         retry = setTimeout(() => {
           retry = null;
           pump();
         }, retryDelay);
         retryDelay = Math.min(10_000, retryDelay * 2);
+        // Armed first: the recycle's close() clears the timer with the rest
+        // of this connection, and an owner that cannot recycle keeps retrying.
+        if (failures >= failureLimit) {
+          failures = 0;
+          options.recycle?.();
+        }
       })
       .finally(() => {
         if (epoch !== generation) return;
@@ -58,6 +74,10 @@ export function createRemoteViewSync(options: {
       active = true;
       generation += 1;
       running = false;
+      // A new connection owes nothing to the previous one's failures: a grown
+      // backoff here made a healthy reconnect wait up to 10 s to retry.
+      retryDelay = 250;
+      failures = 0;
       requested += 1;
       completed = 0;
       pump();

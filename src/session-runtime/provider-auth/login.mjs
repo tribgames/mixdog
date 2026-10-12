@@ -10,6 +10,7 @@ import {
   saveProviderApiKey,
   saveCustomProvider,
   removeCustomProvider,
+  updateCustomProviderModel,
   testCustomProvider,
   discoverCustomProviderModels,
 } from '../services/provider-admin.mjs';
@@ -76,6 +77,11 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
     async saveCustomProvider(input) {
       await awaitKeychainPrewarm();
       const result = await saveCustomProvider(cfgMod, input);
+      refresh.afterCredentialChange();
+      return result;
+    },
+    async updateCustomProviderModel(providerId, modelId, patch) {
+      const result = await updateCustomProviderModel(cfgMod, providerId, modelId, patch);
       refresh.afterCredentialChange();
       return result;
     },

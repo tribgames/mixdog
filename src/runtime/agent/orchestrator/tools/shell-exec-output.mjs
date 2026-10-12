@@ -5,6 +5,7 @@ import {
   mkdirSync,
   openSync,
   closeSync,
+  fstatSync,
   readFileSync,
   readSync,
   writeSync,
@@ -19,6 +20,15 @@ import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './builtin/tool-output-limit.mjs';
 import { envPositiveInt as positiveIntEnv } from '../../../shared/env.mjs';
+import {
+  FileEncodingSniffer,
+  ShellStreamDecoder,
+  alignedOffset,
+  charBoundaryBefore,
+  completeLength,
+  decodeShellBytes,
+  oemTextEncoding,
+} from './shell-codepage.mjs';
 
 // Inline cap, in BYTES. Output at or below this size is pasted whole; above
 // it the rendered body becomes head+tail carrying a "full output at <path>"
@@ -115,7 +125,8 @@ function detectShellTextEncoding(buffer, final = false) {
 }
 
 export class ShellTextDecoder {
-  constructor() {
+  constructor(oem = oemTextEncoding()) {
+    this.oem = oem;
     this.encoding = null;
     this.decoder = null;
     this.pending = Buffer.alloc(0);
@@ -135,7 +146,10 @@ export class ShellTextDecoder {
     const detected = detectShellTextEncoding(this.pending, final);
     if (!detected) return '';
     this.encoding = detected.encoding;
-    this.decoder = new StringDecoder(this.encoding === 'utf16be' ? 'utf16le' : this.encoding);
+    this.decoder =
+      this.encoding === 'utf8'
+        ? new ShellStreamDecoder(this.oem)
+        : new StringDecoder(this.encoding === 'utf16be' ? 'utf16le' : this.encoding);
     const buffered = this.pending.subarray(detected.bom);
     this.pending = Buffer.alloc(0);
     return this._decode(buffered);
@@ -184,9 +198,14 @@ export function treeKill(child) {
 // only slice silently dropped early diagnostics. UTF-8 sequences are at most
 // 4 B, so a small padding window lets us cut/advance on codepoint boundaries
 // instead of emitting a U+FFFD glyph at the seam.
-function _readHeadTail(filePath, fileSize) {
+// `label` null = encoding undecided (live): decode as UTF-8. Unless `final`
+// (the producer finished), an incomplete trailing character is held back.
+function _readHeadTail(filePath, fileSize, label = 'utf-8', final = false) {
+  const oem = oemTextEncoding();
+  const eff = label || 'utf-8';
   if (fileSize <= SHELL_OUTPUT_INLINE_CAP) {
-    return readFileSync(filePath, 'utf-8');
+    const all = readFileSync(filePath);
+    return decodeShellBytes(final ? all : all.subarray(0, completeLength(all, eff)), oem, eff);
   }
   const padding = 4;
   const headBudget = Math.floor(SHELL_OUTPUT_INLINE_CAP / 2);
@@ -196,20 +215,17 @@ function _readHeadTail(filePath, fileSize) {
     // Head: first headBudget bytes, dropping a split trailing codepoint.
     const headBuf = Buffer.allocUnsafe(headBudget + padding);
     const hn = readSync(fd, headBuf, 0, headBudget + padding, 0);
-    let hEnd = Math.min(headBudget, hn);
-    while (hEnd > 0 && hEnd < hn && (headBuf[hEnd] & 0xc0) === 0x80) hEnd--;
-    const head = headBuf.slice(0, hEnd).toString('utf-8');
+    const hEnd = charBoundaryBefore(headBuf.subarray(0, hn), headBudget, eff);
+    const head = decodeShellBytes(headBuf.subarray(0, hEnd), oem, eff);
     // Tail: last tailBudget bytes, advancing past a leading split codepoint.
     const tailReadSize = tailBudget + padding;
-    const tailStart = Math.max(hEnd, fileSize - tailReadSize);
+    let tailStart = Math.max(hEnd, fileSize - tailReadSize);
+    if (tailStart > hEnd) tailStart = alignedOffset(fd, tailStart, eff);
     const tailBuf = Buffer.allocUnsafe(tailReadSize);
     const tn = readSync(fd, tailBuf, 0, tailReadSize, tailStart);
-    let tOff = 0;
-    if (tailStart > 0) {
-      while (tOff < tn && tOff < padding && (tailBuf[tOff] & 0xc0) === 0x80) tOff++;
-    }
-    const tail = tailBuf.slice(tOff, tn).toString('utf-8');
-    const elided = Math.max(0, tailStart + tOff - hEnd);
+    const tailBytes = tailBuf.subarray(0, tn);
+    const tail = decodeShellBytes(final ? tailBytes : tailBytes.subarray(0, completeLength(tailBytes, eff)), oem, eff);
+    const elided = Math.max(0, tailStart - hEnd);
     return `${head}\n... [${elided} bytes elided of ${fileSize} total — head+tail shown; full output at ${filePath}] ...\n${tail}`;
   } finally {
     try {
@@ -434,14 +450,19 @@ export class TaskOutput {
       };
       if (!this.spilled) return merge(this.stdoutBuf, this.stderrBuf);
       this._refreshDirectSizes();
-      const readTail = (path, size) => {
+      const readTail = (path, size, channel) => {
         if (!path || !(size > 0)) return '';
         const bytes = Math.min(size, maxChars * 3);
         const fd = openSync(path, 'r');
         try {
-          const buffer = Buffer.alloc(bytes);
-          const read = readSync(fd, buffer, 0, bytes, Math.max(0, size - bytes));
-          return buffer.toString('utf-8', 0, read);
+          const label = this._fileLabel(channel, fd, false);
+          const eff = label || 'utf-8';
+          const from = size > bytes ? alignedOffset(fd, size - bytes, eff) : 0;
+          const buffer = Buffer.alloc(size - from);
+          const read = readSync(fd, buffer, 0, buffer.length, from);
+          // Live view: an incomplete trailing character is held back.
+          const live = buffer.subarray(0, completeLength(buffer.subarray(0, read), eff));
+          return decodeShellBytes(live, oemTextEncoding(), eff);
         } finally {
           try {
             closeSync(fd);
@@ -449,8 +470,8 @@ export class TaskOutput {
         }
       };
       const merged = merge(
-        readTail(this.stdoutPath, this.stdoutFileSize),
-        readTail(this.stderrPath, this.stderrFileSize)
+        readTail(this.stdoutPath, this.stdoutFileSize, 'stdout'),
+        readTail(this.stderrPath, this.stderrFileSize, 'stderr')
       );
       // Display-only path: scrub escape codes in direct mode, but never record
       // a binary verdict from an arbitrary tail slice.
@@ -474,7 +495,37 @@ export class TaskOutput {
     return inspected.text;
   }
 
-  async getStdout() {
+  // Encoding of a spilled capture file. JS-written captures are UTF-8 text;
+  // direct captures hold the child's raw bytes and are sniffed per stream (the
+  // first non-ASCII byte may be anywhere). `final` only when the producer has
+  // finished; a live read may get null (undecided).
+  _fileLabel(channel, fd = null, final = true) {
+    const oem = oemTextEncoding();
+    if (!oem || !this.direct) return 'utf-8';
+    this._sniffers ??= {};
+    this._sniffers[channel] ??= new FileEncodingSniffer(oem);
+    const sniffer = this._sniffers[channel];
+    const path = channel === 'stdout' ? this.stdoutPath : this.stderrPath;
+    let own = null;
+    try {
+      if (fd == null) own = openSync(path, 'r');
+      const use = fd ?? own;
+      return sniffer.probe(use, fstatSync(use).size, final) || (final ? 'utf-8' : null);
+    } catch {
+      return 'utf-8';
+    } finally {
+      if (own != null) {
+        try {
+          closeSync(own);
+        } catch {}
+      }
+    }
+  }
+
+  // `final`: the producer has finished (settle after exit). Mid-run readers
+  // (promotion snapshot) leave it false: incomplete tails are held back and no
+  // encoding is committed early.
+  async getStdout(final = false) {
     if (this.spilled) {
       this._refreshDirectSizes();
       const now = Date.now();
@@ -485,7 +536,7 @@ export class TaskOutput {
         this._lastStdoutFsyncMs = now;
       }
       try {
-        const text = _readHeadTail(this.stdoutPath, this.stdoutFileSize);
+        const text = _readHeadTail(this.stdoutPath, this.stdoutFileSize, this._fileLabel('stdout', null, final), final);
         return this.direct ? this._sanitizeChunk(text, 'stdout') : text;
       } catch (err) {
         throw new Error(`[shell-command] spilled stdout read failed (${this.stdoutPath}): ${err.message}`);
@@ -494,7 +545,7 @@ export class TaskOutput {
     return this.stdoutBuf;
   }
 
-  async getStderr() {
+  async getStderr(final = false) {
     if (this.spilled) {
       this._refreshDirectSizes();
       const now = Date.now();
@@ -505,7 +556,7 @@ export class TaskOutput {
         this._lastStderrFsyncMs = now;
       }
       try {
-        const text = _readHeadTail(this.stderrPath, this.stderrFileSize);
+        const text = _readHeadTail(this.stderrPath, this.stderrFileSize, this._fileLabel('stderr', null, final), final);
         return this.direct ? this._sanitizeChunk(text, 'stderr') : text;
       } catch {
         return '';

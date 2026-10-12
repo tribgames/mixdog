@@ -42,9 +42,7 @@ test('every shipped skill and built-in feature has translated UI descriptions in
         assert.notEqual(description, originals[index], `${language}: ${name}`);
         assert.notEqual(description, 'MODEL_ONLY_TEXT');
         assert.ok(description.trim());
-        const listed = selectableComposerSkills({ skills: [skill] });
-        if (name === 'goal-management') assert.equal(listed.length, 0);
-        else assert.equal(listed[0].description, description);
+        assert.equal(selectableComposerSkills({ skills: [skill] }).length, 0);
         assert.equal(skill.description, 'MODEL_ONLY_TEXT');
       }
       for (const feature of BUILT_IN_FEATURES) {

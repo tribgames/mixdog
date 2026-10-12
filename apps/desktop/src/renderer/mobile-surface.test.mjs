@@ -118,48 +118,30 @@ test('phone sheets preserve unread activity until the conversation is visible ag
   );
 });
 
-test('the Goal task drawer overlays from a fixed capsule slot and keeps task overflow', () => {
+test('the Goal tab shows its task drawer only while open and keeps task overflow', () => {
   const dom = new JSDOM(`<!doctype html><html><head><style>${markdownSource}</style></head><body>
-    <div class="session-goal-host">
-      <div class="session-goal-island" data-open="true">
-        <div class="session-goal-stack">
-          <div class="session-goal-drawer"><div class="session-goal-drawer-clip">
-            <section class="session-goal-panel"><div class="session-goal-tasks"><ul><li></li><li></li></ul></div></section>
-          </div></div>
-        </div>
+    <div class="session-goal-island" data-open="true">
+      <button class="session-goal-trigger"></button>
+      <div class="session-goal-drawer">
+        <section class="session-goal-panel"><div class="session-goal-body"><div class="session-goal-tasks"><ul><li></li><li></li></ul></div></div></section>
       </div>
     </div>
-    <div class="session-goal-host">
-      <div class="session-goal-island" data-open="false">
-        <div class="session-goal-stack">
-          <div class="session-goal-drawer"><div class="session-goal-drawer-clip"></div></div>
-        </div>
-      </div>
+    <div class="session-goal-island" data-open="false">
+      <button class="session-goal-trigger"></button>
+      <div class="session-goal-drawer"></div>
     </div>
   </body></html>`);
-  const island = dom.window.document.querySelector('[data-open="true"]');
-  const stack = dom.window.document.querySelector('[data-open="true"] .session-goal-stack');
-  const openDrawer = dom.window.document.querySelector('[data-open="true"] .session-goal-drawer');
-  const closedDrawer = dom.window.document.querySelector('[data-open="false"] .session-goal-drawer');
-  const panel = dom.window.document.querySelector('.session-goal-panel');
-  const taskList = dom.window.document.querySelector('.session-goal-tasks ul');
-  const secondTask = dom.window.document.querySelector('.session-goal-tasks li + li');
-
-  assert.equal(dom.window.getComputedStyle(island).height, 'var(--session-goal-trigger-height)');
-  assert.equal(dom.window.getComputedStyle(stack).position, 'absolute');
-  assert.equal(dom.window.getComputedStyle(stack).bottom, '0px');
-  assert.equal(dom.window.getComputedStyle(stack).overflow, 'hidden');
-  assert.equal(dom.window.getComputedStyle(stack).transition, 'none');
-  assert.equal(dom.window.getComputedStyle(panel).borderTopStyle, 'none');
-  assert.equal(dom.window.getComputedStyle(panel).marginTop, '0px');
-  assert.equal(dom.window.getComputedStyle(openDrawer).gridTemplateRows, '1fr');
-  assert.equal(dom.window.getComputedStyle(openDrawer).transition, 'none');
-  assert.equal(dom.window.getComputedStyle(openDrawer).pointerEvents, 'auto');
-  assert.equal(dom.window.getComputedStyle(closedDrawer).gridTemplateRows, '0fr');
-  assert.equal(dom.window.getComputedStyle(closedDrawer).pointerEvents, 'none');
-  assert.equal(dom.window.getComputedStyle(taskList).overflowY, 'auto');
-  assert.notEqual(dom.window.getComputedStyle(taskList).scrollbarGutter, 'stable');
-  assert.equal(dom.window.getComputedStyle(secondTask).borderTopStyle, '');
+  const style = (selector) => dom.window.getComputedStyle(dom.window.document.querySelector(selector));
+  assert.equal(style('[data-open="true"] .session-goal-drawer').display, 'block');
+  assert.equal(
+    style('[data-open="true"] > .session-goal-trigger').display,
+    'none',
+    'the open tab replaces the segment'
+  );
+  assert.equal(style('[data-open="false"] .session-goal-drawer').display, 'none');
+  assert.equal(style('.session-goal-body').overflow, 'hidden');
+  assert.equal(style('.session-goal-tasks ul').overflowY, 'auto');
+  assert.notEqual(style('.session-goal-tasks ul').scrollbarGutter, 'stable');
   dom.window.close();
 });
 
@@ -271,6 +253,29 @@ test('installed phone boot promotes only its locale and preserves asset priority
     dom.window.mixdogRevealApp?.();
     dom.window.close();
   }
+});
+
+test('a directly connected browser tab gets the installed-app boot gate; a plain tab does not', () => {
+  const gated = (marked) => {
+    const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', {
+      runScripts: 'outside-only',
+      url: 'https://mixdog.test/d/device/',
+    });
+    Object.defineProperty(dom.window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/144',
+    });
+    if (marked) dom.window.localStorage.setItem('mixdog.directBrowser', '1');
+    try {
+      dom.window.eval(bootSource);
+      return dom.window.document.documentElement.hasAttribute('data-mixdog-booting');
+    } finally {
+      dom.window.mixdogRevealApp?.();
+      dom.window.close();
+    }
+  };
+  assert.equal(gated(true), true);
+  assert.equal(gated(false), false);
 });
 
 test('only the Electron desktop promotes desktop-surface hints', () => {
@@ -501,6 +506,51 @@ test('iOS web surfaces keep native scale through landscape rotation', async () =
     window.dispatchEvent(new dom.window.Event('orientationchange'));
     assert.equal(document.documentElement.style.getPropertyValue('--mx-device-scale'), '1');
     remove();
+  } finally {
+    restore();
+  }
+});
+
+test('iPads and touch laptops pick the layout by viewport width', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body></body></html>',
+    expose: ['navigator'],
+    actEnvironment: false,
+  });
+  const define = (target, key, value) => Object.defineProperty(target, key, { configurable: true, value });
+  define(dom.window.navigator, 'userAgent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15');
+  define(dom.window.navigator, 'platform', 'MacIntel');
+  define(dom.window.navigator, 'maxTouchPoints', 5);
+  try {
+    const { isMobileRemoteSurface, isMobileDeviceSurface, isInstalledMobileWebAppSurface } = await import(
+      `./mobile-surface.ts?tablet=${Date.now()}`
+    );
+    define(dom.window, 'innerWidth', 1024);
+    assert.equal(isMobileRemoteSurface(), false);
+    // Desktop LAYOUT, yet still an installable device: an installed iPad app
+    // must keep launching (layout width never gates the entry).
+    define(dom.window.navigator, 'standalone', true);
+    assert.equal(isMobileDeviceSurface(), true);
+    assert.equal(isInstalledMobileWebAppSurface(), true);
+    define(dom.window.navigator, 'standalone', false);
+    define(dom.window, 'innerWidth', 507);
+    assert.equal(isMobileRemoteSurface(), true);
+    define(dom.window, 'innerWidth', 820);
+    assert.equal(isMobileRemoteSurface(), false);
+
+    // Touch laptop: fine primary pointer, small screen, never a phone.
+    define(dom.window.navigator, 'platform', 'Win32');
+    define(
+      dom.window.navigator,
+      'userAgent',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131'
+    );
+    define(dom.window, 'innerWidth', 700);
+    define(dom.window.screen, 'width', 700);
+    define(dom.window.screen, 'height', 700);
+    define(dom.window, 'matchMedia', () => ({ matches: false }));
+    assert.equal(isMobileRemoteSurface(), false);
+    assert.equal(isMobileDeviceSurface(), false);
   } finally {
     restore();
   }

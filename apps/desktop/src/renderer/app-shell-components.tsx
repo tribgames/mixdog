@@ -75,7 +75,7 @@ export function StableSessionTitle({
         aria-invalid={invalid || undefined}
         onInput={(event) => onDraftChange(event.currentTarget.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') {
+          if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
             event.preventDefault();
             onCommit();
           } else if (event.key === 'Escape') {

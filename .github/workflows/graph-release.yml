@@ -16,7 +16,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: graph-release-${{ inputs.tag || github.ref_name }}
@@ -30,6 +30,9 @@ env:
 jobs:
   gate:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # unverified: lists releases to match an existing hidden draft (drafts need push access)
     outputs:
       tag: ${{ steps.verify.outputs.tag }}
       version: ${{ steps.verify.outputs.version }}
@@ -120,6 +123,7 @@ jobs:
   test:
     needs: gate
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -158,6 +162,7 @@ jobs:
           - { runner: macos-14,         target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
           - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
       RUSTC_WRAPPER: sccache
@@ -244,6 +249,7 @@ jobs:
         include:
           - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
       RUSTC_WRAPPER: sccache
@@ -287,6 +293,9 @@ jobs:
   prepare:
     needs: [gate, test, build, rebuild]
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # create draft release and upload assets
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -537,6 +546,9 @@ jobs:
   sync:
     needs: [gate, prepare]
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # push manifest and publish the release
     concurrency:
       group: graph-release-finalize
       cancel-in-progress: false

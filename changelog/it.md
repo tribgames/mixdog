@@ -4,6 +4,30 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
+- Una nuova opzione Telefono in Impostazioni > Connessione mostra un codice QR per installare l'app mobile Mixdog (disponibile su iPhone tramite la beta di TestFlight e su Android come APK). Dopo l'installazione, l'abbinamento si completa inserendo un codice a 6 cifre nell'app e approvandolo sul PC desktop.
+
+- L'app web può ora ricevere notifiche push da tutti i PC abbinati, tenendoti aggiornato sul completamento delle attività e sulle risposte del modello su tutti i tuoi computer.
+
+- I file Markdown offrono ora le visualizzazioni Anteprima, Rich e Sorgente, complete di sommario e anteprima affiancata. L'editor rich salva le modifiche direttamente nel file preservando frontmatter, interruzioni di riga e formattazione intatta, con rilevamento dei conflitti e copie di backup in caso di modifiche esterne.
+
+- I progetti registrati nella barra laterale delle sessioni sono ora organizzati in cartelle sopra le sessioni recenti, mostrando le conversazioni più recenti e un pulsante per avviare un'attività in quel progetto. Categorie e cartelle possono essere riordinate tramite trascinamento, e i menu contestuali con tasto destro permettono di aprire, rinominare, aggiungere ai preferiti, archiviare, eliminare o ereditare le sessioni.
+
+- Il supporto dell'app desktop torna sui Mac con processore Intel (macOS x64) senza dipendenze ONNX. La memoria conserva la ricerca lessicale, mentre la ricerca semantica locale e il ragionamento automatico vengono esclusi sull'hardware Intel.
+
+- Salva con nome non sovrascrive né elimina più il file di destinazione esistente se il download non riesce. La rimozione di un dispositivo abbinato da Impostazioni > Connessione viene ritentata automaticamente alla riconnessione se il relay non era temporaneamente disponibile.
+
+- La lettura e la modifica dei file associano il riutilizzo della cache e gli indici di intervallo a versioni esatte e verificate dei file. L'eliminazione o l'applicazione di patch a file superiori a 8 MiB in apply_patch limita l'uso della memoria anziché leggere i file per intero, e i permessi di anteprima HTML locale rimangono rigorosamente limitati alla sessione di origine.
+
+- I valori di configurazione predefiniti risiedono nel codice anziché nei file su disco: i file di configurazione memorizzano solo le modifiche personalizzate, consentendo alle impostazioni non toccate di adottare senza problemi i valori aggiornati nelle nuove versioni.
+
+- L'uso delle risorse in background è notevolmente ridotto durante l'inattività, con meno verifiche del demone, monitoraggio dei file ottimizzato per la ricerca e riepiloghi giornalieri memorizzati nella cache per le statistiche d'uso.
+
+- Shift+Enter inserisce in modo affidabile un'interruzione di riga nel compositore di messaggi anche dopo caratteri con tasto Maiusc, e la pressione di Invio non invia più prematuramente durante la composizione di testo coreano in un IME.
+
+- Revisione della qualità delle traduzioni in tutte le 11 lingue supportate, correggendo le etichette dell'interfaccia e aggiornando le finestre di dialogo localizzate.
+
 ## v1.0.12 - 2026-10-10
 
 - Il registro delle modifiche in Impostazioni > Informazioni elenca le note della versione installata;

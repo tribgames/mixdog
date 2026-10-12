@@ -66,21 +66,12 @@ export function shouldNavigatePromptHistory(input?: {
   historyActive?: boolean;
   allowNonEmpty?: boolean;
 }): boolean;
-export function nextComposerShiftLatch(
-  latched?: boolean,
-  event?: {
-    type?: string;
-    key?: string;
-    shiftKey?: boolean;
-  }
-): boolean;
 export function isComposerNewlineChord(input?: {
   key?: string;
   shiftKey?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
-  shiftLatched?: boolean;
 }): boolean;
 export function shouldInterruptPrompt(input?: {
   turnBusy?: boolean;

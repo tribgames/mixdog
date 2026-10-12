@@ -86,3 +86,34 @@ test('dictation calls are queued on their capability key, other capabilities on 
     'invokeCapability',
   ]);
 });
+
+test('a per-client method table answers only the client it was built for', async () => {
+  const built = [];
+  const sent = [];
+  const dispatch = createRelayClientCallDispatch({
+    host: {},
+    methods: (clientId, client) => {
+      built.push([clientId, client.credentialId]);
+      return { whoami: async () => client.credentialId };
+    },
+    attached: () => true,
+    live: () => true,
+    sendEncryptedFrame: async (_clientId, payload) => sent.push(payload),
+    acknowledgePaintProbe: () => null,
+    resyncClient() {},
+    recordCall() {},
+  });
+  for (const credentialId of ['cred-a', 'cred-b']) {
+    const client = { pendingFrames: 0, credentialId, callQueue: { run: (_key, task) => task() } };
+    const { execution } = await dispatch(`route-${credentialId}`, client, { id: 1, method: 'whoami', params: [] }, 10);
+    await execution;
+  }
+  assert.deepEqual(built, [
+    ['route-cred-a', 'cred-a'],
+    ['route-cred-b', 'cred-b'],
+  ]);
+  assert.deepEqual(
+    sent.map((frame) => frame.value),
+    ['cred-a', 'cred-b']
+  );
+});

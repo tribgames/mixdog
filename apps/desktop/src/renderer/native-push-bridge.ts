@@ -1,0 +1,260 @@
+// The relay web app's half of native push (iOS APNs / Android FCM) inside the
+// Mixdog phone app (apps/mobile). The native shell owns the OS token and a
+// per-install P-256 key pair (private key stays in the keystore/keychain); this
+// module reads both through the shell's small host object (shared/native-app)
+// and hands `{ platform, token, publicKey }` to the desktop over the existing
+// E2EE channel with `registerNativePush` — but only when the connected host
+// advertised `nativePush: 1` in its relay handshake.
+//
+// It also carries the other direction: a tapped notification, or its
+// Allow / Deny action, reaches the shell first. The shell parks it and this
+// module drains it, opens the session through the web app's notification
+// navigation path (use-push-notification-navigation.ts) and, for an approval
+// action, resolves it with the same `resolveToolApprovalForSession` the
+// approval card uses.
+import type { DesktopApi } from '../shared/contract';
+import {
+  NATIVE_PUSH_EVENT,
+  nativeAppInfo,
+  type MixdogNativeInfo,
+  type NativeNotificationAction,
+} from '../shared/native-app';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
+import type { RemoteShimContext } from './remote-shim-state';
+
+interface NativePushRegistration {
+  platform: 'apns' | 'fcm';
+  token: string;
+  publicKey: string;
+  /** Only sent as `true` (development iOS builds). */
+  sandbox?: boolean;
+}
+
+/** `window.mixdogRemoteNativePush`, published by the remote shim. */
+interface NativePushHost {
+  /** The CURRENT host advertised `nativePush: 1`; re-read per use because a
+   *  reconnect may land on another host. */
+  available(): boolean;
+  /** Relay device id of the connected host; '' when unknown. Parked
+   *  notification actions are matched against it. */
+  hostId?(): string;
+  register(input: NativePushRegistration): Promise<unknown>;
+}
+
+export const REMOTE_NATIVE_PUSH_GLOBAL = 'mixdogRemoteNativePush';
+
+export function createNativePushHost(
+  ctx: Pick<RemoteShimContext, 'peerNativePush' | 'call'> & Partial<Pick<RemoteShimContext, 'deviceId'>>
+): NativePushHost {
+  return {
+    available: () => ctx.peerNativePush === true,
+    hostId: () => ctx.deviceId ?? '',
+    register: (input) =>
+      ctx.call('registerNativePush', [
+        {
+          platform: input.platform,
+          token: input.token,
+          publicKey: input.publicKey,
+          ...(input.sandbox === true ? { sandbox: true } : {}),
+        },
+      ]),
+  };
+}
+
+type RegistrationResult = 'registered' | 'no-native' | 'no-host-support' | 'no-token' | 'denied' | 'failed';
+
+/** Register this install's token with the connected host. Safe to call any
+ *  number of times; the host treats it as an upsert. */
+export async function syncNativePush(
+  deps: { native?: MixdogNativeInfo | null; host?: NativePushHost } = {}
+): Promise<RegistrationResult> {
+  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+  if (!native?.call) return 'no-native';
+  const host =
+    deps.host ?? (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
+  if (!host?.available()) return 'no-host-support';
+  try {
+    let state = await native.call('getPushState');
+    // First run on this install: ask the OS once. The answer (and the token
+    // that follows it) arrives later as NATIVE_PUSH_EVENT.
+    if (state.permission === 'prompt') state = await native.call('requestPush');
+    if (state.permission === 'denied') return 'denied';
+    if (state.permission !== 'granted' || !state.token || !state.publicKey) return 'no-token';
+    await host.register({
+      platform: state.platform,
+      token: state.token,
+      publicKey: state.publicKey,
+      ...(state.sandbox === true ? { sandbox: true } : {}),
+    });
+    return 'registered';
+  } catch {
+    return 'failed';
+  }
+}
+
+type ActionListener = (action: NativeNotificationAction) => void;
+const actionListeners = new Set<ActionListener>();
+let queuedActions: NativeNotificationAction[] = [];
+
+/** Session opens requested by a native notification tap. Actions that arrive
+ *  before React mounts the subscriber are held and delivered on subscribe. */
+export function subscribeNativeNotificationActions(listener: ActionListener): () => void {
+  actionListeners.add(listener);
+  const held = queuedActions;
+  queuedActions = [];
+  for (const action of held) listener(action);
+  return () => {
+    actionListeners.delete(listener);
+  };
+}
+
+function publishAction(action: NativeNotificationAction): void {
+  if (actionListeners.size === 0) {
+    queuedActions.push(action);
+    return;
+  }
+  for (const listener of [...actionListeners]) listener(action);
+}
+
+const isApproval = (action: NativeNotificationAction): boolean =>
+  (action.action === 'allow' || action.action === 'deny') && Boolean(action.approvalId);
+
+// Parked actions stay in the shell until acknowledged, so a drain can see the
+// same one again: these keep it from being opened twice or settled in parallel.
+const publishedActionIds = new Set<string>();
+const settlingActionIds = new Set<string>();
+
+function currentHostId(): string {
+  const host = (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
+  return host?.hostId?.() ?? '';
+}
+
+/** Act on the actions the shell parked for the host this page is connected to.
+ *  Other hosts' actions stay parked. An approval is acknowledged (removed from
+ *  the shell) only after the host answered it; an open is acknowledged once
+ *  delivered. Older shells without peek/ack hand over one action at a time. */
+export async function drainNativeNotificationActions(
+  deps: {
+    native?: MixdogNativeInfo | null;
+    api?: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'>;
+    retryDelayMs?: number;
+    hostId?: string;
+  } = {}
+): Promise<number> {
+  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+  if (!native?.call) return 0;
+  const api = deps.api ?? (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const retryDelayMs = deps.retryDelayMs ?? APPROVAL_RETRY_DELAY_MS;
+  const call = native.call;
+  let parked: NativeNotificationAction[] | null = null;
+  try {
+    const peeked = await call('peekPendingActions', { hostId: deps.hostId ?? currentHostId() });
+    parked = Array.isArray(peeked) ? peeked : null;
+  } catch {
+    parked = null;
+  }
+  if (!parked) return drainLegacyActions(native, api, retryDelayMs);
+  let handled = 0;
+  // Bounded: the shell parks a handful at most.
+  for (const action of parked.slice(0, 8)) {
+    const id = action?.id;
+    if (!id || !action.sessionId || settlingActionIds.has(id)) continue;
+    handled += 1;
+    settlingActionIds.add(id);
+    if (!publishedActionIds.has(id)) {
+      publishedActionIds.add(id);
+      publishAction(action);
+    }
+    const settle = async (): Promise<void> => {
+      try {
+        if (isApproval(action) && !(await resolveParkedApproval(api, action, retryDelayMs))) return;
+        await call('ackPendingAction', { id });
+        publishedActionIds.delete(id);
+      } catch {
+        /* stays parked; the next drain tries again */
+      } finally {
+        settlingActionIds.delete(id);
+      }
+    };
+    if (isApproval(action)) void settle();
+    else await settle();
+  }
+  return handled;
+}
+
+/** Shells without peek/ack remove each action as they hand it over, so this is
+ *  the only delivery it will ever get. */
+async function drainLegacyActions(
+  native: MixdogNativeInfo,
+  api: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'> | undefined,
+  retryDelayMs: number
+): Promise<number> {
+  let handled = 0;
+  for (let index = 0; index < 8; index += 1) {
+    let action: NativeNotificationAction | null;
+    try {
+      action = (await native.call?.('takePendingAction')) ?? null;
+    } catch {
+      break;
+    }
+    if (!action?.sessionId) break;
+    handled += 1;
+    publishAction(action);
+    if (isApproval(action)) void resolveParkedApproval(api, action, retryDelayMs);
+  }
+  return handled;
+}
+
+const APPROVAL_ATTEMPTS = 4;
+const APPROVAL_RETRY_DELAY_MS = 500;
+
+/** Resolves true once the host ANSWERED. A call cut off by the reconnect that
+ *  carries it (a rejected call, i.e. nothing answered) is sent again. Safe to
+ *  repeat: the host settles an approval by its id, and an id that is already
+ *  settled or no longer pending answers `false` — an answer, which ends the
+ *  retries. False when every attempt failed: the action then stays parked. */
+async function resolveParkedApproval(
+  api: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'> | undefined,
+  action: NativeNotificationAction,
+  retryDelayMs: number
+): Promise<boolean> {
+  const resolve = api?.resolveToolApprovalForSession;
+  if (!resolve) return false;
+  for (let attempt = 1; attempt <= APPROVAL_ATTEMPTS; attempt += 1) {
+    try {
+      await resolve.call(api, action.sessionId, action.approvalId as string, {
+        approved: action.action === 'allow',
+      });
+      return true;
+    } catch {
+      if (attempt < APPROVAL_ATTEMPTS) await new Promise((r) => setTimeout(r, retryDelayMs * attempt));
+    }
+  }
+  return false;
+}
+
+/** Wire the shell to the web app: register on every connection, drain on
+ *  launch, on the shell's own event and whenever the app returns to the front. */
+export function installNativePushBridge(
+  deps: { api?: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'> } = {}
+): () => void {
+  if (!nativeAppInfo()?.call) return () => {};
+  const sync = (): void => void syncNativePush();
+  const drain = (): void => void drainNativeNotificationActions({ api: deps.api });
+  const syncAndDrain = (): void => {
+    sync();
+    drain();
+  };
+  const onVisible = (): void => {
+    if (document.visibilityState === 'visible') drain();
+  };
+  window.addEventListener(REMOTE_CONNECTION_READY_EVENT, syncAndDrain);
+  window.addEventListener(NATIVE_PUSH_EVENT, syncAndDrain);
+  document.addEventListener('visibilitychange', onVisible);
+  drain();
+  return () => {
+    window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, syncAndDrain);
+    window.removeEventListener(NATIVE_PUSH_EVENT, syncAndDrain);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}

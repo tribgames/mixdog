@@ -4,6 +4,30 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
+- Eine neue Option „Telefon“ unter Einstellungen > Verbindung zeigt einen QR-Code zur Installation der Mixdog-Mobil-App (verfügbar für iPhone über die TestFlight-Beta und für Android als APK). Nach der Installation wird die Kopplung durch Eingabe eines 6-stelligen Codes in der App und Bestätigung auf dem Desktop-PC abgeschlossen.
+
+- Die Web-App kann jetzt Push-Benachrichtigungen von allen gekoppelten PCs empfangen, sodass Sie über abgeschlossene Aufgaben und Modellantworten auf allen Computern auf dem Laufenden bleiben.
+
+- Markdown-Dateien bieten jetzt die Ansichten Vorschau, Rich-Text und Quelltext sowie eine Gliederung und eine parallele Vorschau. Der Rich-Text-Editor speichert Änderungen direkt in der Datei, während Frontmatter, Zeilenumbrüche und unberührte Formatierungen erhalten bleiben – inklusive Konflikterkennung und Backups zurückgehaltener Bearbeitungen bei externen Dateiänderungen.
+
+- Registrierte Projekte in der Sitzungs-Seitenleiste sind jetzt als Ordner über den letzten Sitzungen organisiert und zeigen ihre neuesten Unterhaltungen sowie eine Schaltfläche zum Starten einer neuen Aufgabe in diesem Projekt. Kategorien und Ordner lassen sich per Drag-and-Drop neu anordnen, und Kontextmenüs per Rechtsklick ermöglichen das Öffnen, Umbenennen, Favorisieren, Archivieren, Löschen oder Vererben von Sitzungen.
+
+- Die Desktop-App unterstützt wieder Intel-basierte Macs (macOS x64) ohne ONNX-Abhängigkeiten. Die lexikalische Speichersuche bleibt erhalten, während die lokale semantische Suche und automatisches Reasoning auf Intel-Geräten entfallen.
+
+- Beim Speichern unter wird die bestehende Zieldatei nicht mehr überschrieben oder gelöscht, wenn der Download fehlschlägt. Das Entfernen eines gekoppelten Geräts unter Einstellungen > Verbindung wird bei einer Wiederverbindung automatisch wiederholt, falls das Relay vorübergehend nicht erreichbar war.
+
+- Das Lesen und Bearbeiten von Dateien bindet die Cache-Wiederverwendung und Bereichsindizes an verifizierte exakte Dateiversionen. Beim Löschen oder Patchen großer Dateien über 8 MiB in apply_patch wird der Speicherverbrauch begrenzt, anstatt ganze Dateien einzulesen, und lokale HTML-Vorschau-Berechtigungen bleiben streng auf ihre Ursprungssitzung beschränkt.
+
+- Konfigurationsstandardwerte verbleiben im Code statt in Dateien auf der Festplatte: Konfigurationsdateien speichern nur Ihre benutzerdefinierten Änderungen, sodass unveränderte Einstellungen bei Updates nahtlos neue Standardwerte übernehmen.
+
+- Die Ressourcennutzung im Leerlauf wurde bei Hintergrunddiensten deutlich reduziert, mit weniger Daemon-Prüfungen, entprellter Dateiüberwachung bei der Suche und zwischengespeicherten Tageszusammenfassungen für Nutzungsstatistiken.
+
+- Shift+Enter fügt im Nachrichteneingabefeld auch nach Zeichen mit Umschalttaste zuverlässig einen Zeilenumbruch ein, und das Drücken der Eingabetaste sendet während der koreanischen IME-Texteingabe nicht mehr vorzeitig ab.
+
+- Die Übersetzungsqualität wurde für alle 11 unterstützten Sprachen überprüft und verbessert, wobei Oberflächenbeschriftungen korrigiert und lokalisierte Dialoge aktualisiert wurden.
+
 ## v1.0.12 - 2026-10-10
 
 - Das Änderungsprotokoll unter Einstellungen > Über listet die Hinweise der installierten Version auf; in v1.0.11 endete es noch bei v1.0.10, sowohl in der Desktop-App als auch auf der Remote-Webseite.

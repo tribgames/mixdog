@@ -11,7 +11,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { usageRollupDayKey, isConversationUsageSource, num } from './usage-rollup.mjs';
 import { priceUsage } from './cost.mjs';
-import { readSessionUsage, rollupUsage } from './usage-ledger-rollup.mjs';
+import {
+  DAY_REVISION_SCHEMA,
+  assembleRollup,
+  knownRollupDays,
+  readSessionUsage,
+  rollupDelta,
+  rollupUsage,
+} from './usage-ledger-rollup.mjs';
 import { QUOTA_SCHEMA, readQuotaHistory, readQuotaWindows, recordQuotaSamples } from './usage-ledger-quota.mjs';
 import { SHARE_ENV } from 'node:worker_threads';
 import { createWorkerRequestClient } from '../worker-requests.mjs';
@@ -37,6 +44,7 @@ export function usageLedgerWorkerRunning() {
 }
 const stores = new Map();
 const ROLLUP_CACHE_LIMIT = 8;
+const windowShape = (options) => JSON.stringify({ ...options, fromMs: undefined, toMs: undefined });
 const text = (value) => (typeof value === 'string' ? value.slice(0, 300) : '');
 
 // Keep the full identifier, not a shortened hash. The tag also makes arbitrary
@@ -295,6 +303,10 @@ export class UsageLedger {
     this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
     this.rollupStamp = null;
     this.rollups = new Map();
+    // Completed days' rollup results, validated by day revision (trigger-maintained) on every use,
+    // so they survive stamp changes. Rolling-window results by query shape.
+    this.dayRollups = new Map();
+    this.windowRollups = new Map();
     this.pendingRollups = new Map();
     this.writeQueue = [];
     this.writing = null;
@@ -340,6 +352,7 @@ export class UsageLedger {
             );
             CREATE TABLE IF NOT EXISTS legacy_days (day TEXT PRIMARY KEY, document TEXT NOT NULL);
             ${QUOTA_SCHEMA}
+            ${DAY_REVISION_SCHEMA}
             PRAGMA user_version=2;
         `);
     this.prepareStatements();
@@ -575,11 +588,50 @@ export class UsageLedger {
    * shared between callers and must be treated as read-only.
    */
   rollup(options = {}) {
-    this.syncRollupStamp();
+    const stamp = this.syncRollupStamp();
     const key = JSON.stringify(options);
-    const result = this.rollups.get(key) ?? rollupUsage(this.db, options);
+    const result = this.rollups.get(key) ?? this.reusableWindow(options, stamp) ?? this.computeRollup(options, stamp);
     this.rememberRollup(key, result);
     return result;
+  }
+
+  /**
+   * A rolling window re-asked under an unchanged ledger is the same answer as
+   * long as no record sits in the part of the window that moved (aged out at
+   * the start, or newly reachable at the end): one indexed probe instead of
+   * a rebuild. Windows of the same shape are keyed without their edges.
+   */
+  reusableWindow(options, stamp) {
+    if (options.fromMs == null || options.toMs == null) return null;
+    const held = this.windowRollups.get(windowShape(options));
+    if (!held || held.stamp !== stamp) return null;
+    const moved = this.db
+      .prepare('SELECT 1 FROM usage_events WHERE (ts>=? AND ts<?) OR (ts>? AND ts<=?) LIMIT 1')
+      .get(
+        Math.min(held.fromMs, options.fromMs),
+        Math.max(held.fromMs, options.fromMs),
+        Math.min(held.toMs, options.toMs),
+        Math.max(held.toMs, options.toMs)
+      );
+    return moved ? null : held.result;
+  }
+
+  rememberWindow(options, stamp, result) {
+    if (options.fromMs == null || options.toMs == null) return;
+    const shape = windowShape(options);
+    this.windowRollups.delete(shape);
+    this.windowRollups.set(shape, { stamp, fromMs: options.fromMs, toMs: options.toMs, result });
+    if (this.windowRollups.size > ROLLUP_CACHE_LIMIT) this.windowRollups.delete(this.windowRollups.keys().next().value);
+  }
+
+  computeRollup(options, stamp) {
+    if (options.fromMs != null) {
+      const result = rollupUsage(this.db, options);
+      this.rememberWindow(options, stamp, result);
+      return result;
+    }
+    const now = Date.now();
+    return assembleRollup(this.dayRollups, rollupDelta(this.db, options, knownRollupDays(this.dayRollups), now), now);
   }
 
   /**
@@ -598,14 +650,29 @@ export class UsageLedger {
       this.rememberRollup(key, cached);
       return cached;
     }
+    const reused = this.reusableWindow(options, stamp);
+    if (reused) {
+      this.rememberRollup(key, reused);
+      return reused;
+    }
     let pending = this.pendingRollups.get(key);
     if (!pending) {
-      pending = this.workerRequest('rollup', { options })
+      const now = Date.now();
+      const request =
+        options.fromMs != null
+          ? this.workerRequest('rollup', { options })
+          : this.workerRequest('rollupDelta', { options, known: knownRollupDays(this.dayRollups), now }).then((delta) =>
+              assembleRollup(this.dayRollups, delta, now)
+            );
+      pending = request
         .then((result) => {
           // A newer stamp cleared the cache meanwhile; never file this
           // answer under it. The worker may have read commits newer than
           // `stamp`, which only means the next stamp change discards it.
-          if (this.rollupStamp === stamp) this.rememberRollup(key, result);
+          if (this.rollupStamp === stamp) {
+            this.rememberRollup(key, result);
+            this.rememberWindow(options, stamp, result);
+          }
           return result;
         })
         .finally(() => {

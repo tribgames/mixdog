@@ -40,6 +40,11 @@ test('a local provider mutation notifies main once with this renderer instance i
     assert.deepEqual(host.notified, [PROVIDER_MODELS_INSTANCE_ID]);
     invalidateSidebarReferenceForMutation('saveSchedule');
     assert.equal(host.notified.length, 1, 'non-provider mutations never notify');
+    // Custom-provider edits reach peer windows like save/remove do.
+    for (const mutation of ['saveCustomProvider', 'removeCustomProvider', 'updateCustomProviderModel']) {
+      assert.equal(invalidateSidebarReferenceForMutation(mutation), true, mutation);
+    }
+    assert.equal(host.notified.length, 4);
   } finally {
     delete globalThis.window;
   }

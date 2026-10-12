@@ -17,9 +17,7 @@ on:
         default: auto
 
 permissions:
-  contents: write
-  actions: read
-  id-token: write
+  contents: read
 
 concurrency:
   group: deploy
@@ -29,6 +27,10 @@ jobs:
   plan:
     name: plan-incremental-deploy
     runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read # gh run list / gh run watch for the Release Gate
     outputs:
       app_version: ${{ steps.plan.outputs.app_version }}
       app_tag: ${{ steps.plan.outputs.app_tag }}
@@ -55,6 +57,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Require the default branch
         env:
@@ -307,6 +310,9 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.native_changed == 'true' }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # version commit and tag pushes
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -400,45 +406,50 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.runtime_needed == 'true' }}
     uses: ./.github/workflows/build-runtime.yml
+    permissions:
+      contents: write # callee build/aggregate upload releases and push the manifest
     with:
       tag: ${{ needs.plan.outputs.runtime_tag }}
       force_rebuild: ${{ inputs.native == 'force' }}
       refresh_manifest: false
-    secrets: inherit
 
   voice:
     name: incremental-voice-runtime
     needs: plan
     if: ${{ needs.plan.outputs.voice_runtime_needed == 'true' }}
     uses: ./.github/workflows/build-voice-runtime.yml
-    secrets: inherit
+    permissions:
+      contents: write # callee prepares/uploads/publishes releases and pushes the manifest
 
   patch:
     name: incremental-patch
     needs: [plan, prepare-native]
     if: ${{ needs.plan.outputs.patch_build == 'true' }}
     uses: ./.github/workflows/patch-release.yml
+    permissions:
+      contents: write # callee manifest job releases and pushes
     with:
       tag: ${{ needs.plan.outputs.patch_tag }}
-    secrets: inherit
 
   graph:
     name: incremental-graph
     needs: [plan, prepare-native]
     if: ${{ needs.plan.outputs.graph_build == 'true' }}
     uses: ./.github/workflows/graph-release.yml
+    permissions:
+      contents: write # callee prepare/sync create releases and push the manifest
     with:
       tag: ${{ needs.plan.outputs.graph_tag }}
-    secrets: inherit
 
   spawn:
     name: incremental-spawn
     needs: [plan, prepare-native]
     if: ${{ needs.plan.outputs.spawn_build == 'true' }}
     uses: ./.github/workflows/spawn-release.yml
+    permissions:
+      contents: write # callee prepare/sync create releases and push the manifest
     with:
       tag: ${{ needs.plan.outputs.spawn_tag }}
-    secrets: inherit
 
   prepare-app:
     name: prepare-app-release
@@ -455,6 +466,9 @@ jobs:
         && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')
       }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # version commit and tag pushes
     outputs:
       sha: ${{ steps.release.outputs.sha }}
     steps:
@@ -552,6 +566,10 @@ jobs:
     # reusable call, so gate only on the two direct release dependencies.
     if: ${{ always() && needs.plan.result == 'success' && needs.prepare-app.result == 'success' }}
     uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write # callee prepare/publish/desktop jobs
+      id-token: write # callee publish: npm --provenance
+      actions: read # callee release-timings
     with:
       tag: ${{ needs.plan.outputs.app_tag }}
       ref: ${{ needs.prepare-app.outputs.sha }}

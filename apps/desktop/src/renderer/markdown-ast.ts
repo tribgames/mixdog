@@ -12,6 +12,7 @@ import {
   linkifyLocalPaths,
   repairAdjacentStrongPunctuation,
   stripHtmlComments,
+  trimAutolinkCjkSuffix,
   trimTrailingCodeNewline,
 } from './markdown-plugins';
 
@@ -89,6 +90,7 @@ const markdownProcessor = unified()
   .use(remarkParse)
   .use(repairAdjacentStrongPunctuation)
   .use(remarkGfm, { singleTilde: false })
+  .use(trimAutolinkCjkSuffix)
   // singleDollarTextMath:false — shell/price prose ("$PATH and $5") must never
   // flip into inline math; only explicit $$…$$ math is intentional enough.
   .use(remarkMath, { singleDollarTextMath: false })

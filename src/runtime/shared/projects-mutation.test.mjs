@@ -64,10 +64,14 @@ for (const mutation of mutations) {
         return original(path, ...args);
       });
       assert.deepEqual(f.store.listProjects(), [], 'ordinary listing remains tolerant');
-      assert.throws(() => mutation.run(f), (caught) => caught === error);
+      assert.throws(
+        () => mutation.run(f),
+        (caught) => caught === error
+      );
       assert.equal(read(f.file, 'utf8'), before);
       assertClean(f);
-      t.mock.restoreAll(); syncBuiltinESMExports();
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
       assert.equal(f.store.renameProject(f.a.path, 'Recovered').name, 'Recovered');
     });
   }
@@ -80,7 +84,10 @@ for (const mutation of mutations) {
       if (to === f.file) throw error;
       return original(from, to, ...args);
     });
-    assert.throws(() => mutation.run(f), (caught) => caught === error);
+    assert.throws(
+      () => mutation.run(f),
+      (caught) => caught === error
+    );
     assert.equal(fs.readFileSync(f.file, 'utf8'), before);
     assertClean(f);
   });
@@ -112,7 +119,10 @@ for (const [name, document] of [
     const source = document(f);
     fs.writeFileSync(f.file, source);
     for (const mutation of mutations) {
-      assert.throws(() => mutation.run(f), (error) => error instanceof SyntaxError || error instanceof TypeError);
+      assert.throws(
+        () => mutation.run(f),
+        (error) => error instanceof SyntaxError || error instanceof TypeError
+      );
       assert.equal(fs.readFileSync(f.file, 'utf8'), source);
       assertClean(f);
     }
@@ -156,14 +166,22 @@ test('partial temporary-file write failure preserves existing state and releases
   const before = fs.readFileSync(f.file, 'utf8');
   const error = failure('ENOSPC');
   replaceIo(t, 'writeFileSync', (original) => (path, data, ...args) => {
-    if (typeof path === 'string' && dirname(path) === dirname(f.file)
-      && basename(path).includes('projects.json') && path.endsWith('.tmp') && !path.includes('.lock.')) {
+    if (
+      typeof path === 'string' &&
+      dirname(path) === dirname(f.file) &&
+      basename(path).includes('projects.json') &&
+      path.endsWith('.tmp') &&
+      !path.includes('.lock.')
+    ) {
       original(path, 'partial', ...args);
       throw error;
     }
     return original(path, data, ...args);
   });
-  assert.throws(() => f.store.addProject(join(f.root, 'C')), (caught) => caught === error);
+  assert.throws(
+    () => f.store.addProject(join(f.root, 'C')),
+    (caught) => caught === error
+  );
   assert.equal(fs.readFileSync(f.file, 'utf8'), before);
   assertClean(f);
 });
@@ -177,12 +195,19 @@ test('registry IO errors reach the actual project catalog instead of successful 
     return original(from, to, ...args);
   });
   for (const [method, path] of [
-    ['addProjectEntry', join(f.root, 'C')], ['touchProjectEntry', f.a.path],
-    ['renameProjectEntry', f.a.path], ['removeProjectEntry', f.a.path],
-  ]) await assert.rejects(catalog[method]({ path, name: 'Renamed' }), (caught) => caught === error);
-  t.mock.restoreAll(); syncBuiltinESMExports();
+    ['addProjectEntry', join(f.root, 'C')],
+    ['touchProjectEntry', f.a.path],
+    ['renameProjectEntry', f.a.path],
+    ['removeProjectEntry', f.a.path],
+  ])
+    await assert.rejects(catalog[method]({ path, name: 'Renamed' }), (caught) => caught === error);
+  t.mock.restoreAll();
+  syncBuiltinESMExports();
   assert.deepEqual(await catalog.removeProjectEntry({ path: f.a.path }), { removed: true });
-  assert.equal((await catalog.listProjectCatalog()).projects.some((row) => row.path === f.a.path), false);
+  assert.equal(
+    (await catalog.listProjectCatalog()).projects.some((row) => row.path === f.a.path),
+    false
+  );
   assertClean(f);
 });
 
@@ -262,24 +287,53 @@ if (p.role === 'contender') write(p.ready, '1');
 `;
 
 function startWorker(t, f, params) {
-  const child = spawn(process.execPath, ['--input-type=module', '--eval', workerSource, JSON.stringify({
-    ...params, file: f.file, moduleUrl,
-  })], { env: { ...process.env, MIXDOG_PROJECTS_FILE: f.file, MIXDOG_LOCK_TIMEOUT_MS: '10000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      workerSource,
+      JSON.stringify({
+        ...params,
+        file: f.file,
+        moduleUrl,
+      }),
+    ],
+    {
+      env: { ...process.env, MIXDOG_PROJECTS_FILE: f.file, MIXDOG_LOCK_TIMEOUT_MS: '10000' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }
+  );
   let output = '';
-  child.stdout.on('data', (data) => { output += data; });
-  child.stderr.on('data', (data) => { output += data; });
+  child.stdout.on('data', (data) => {
+    output += data;
+  });
+  child.stderr.on('data', (data) => {
+    output += data;
+  });
   const done = new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('close', (code) => code === 0 ? resolve() : reject(new Error(`worker exited ${code}: ${output}`)));
+    child.once('close', (code) => (code === 0 ? resolve() : reject(new Error(`worker exited ${code}: ${output}`))));
   });
   done.catch(() => {});
-  t.after(async () => { if (child.exitCode === null) child.kill(); await done.catch(() => {}); });
+  t.after(async () => {
+    if (child.exitCode === null) child.kill();
+    await done.catch(() => {});
+  });
   return done;
 }
 async function waitFor(path, childDone) {
   let ended = false;
   let failure;
-  childDone.then(() => { ended = true; }, (error) => { ended = true; failure = error; });
+  childDone.then(
+    () => {
+      ended = true;
+    },
+    (error) => {
+      ended = true;
+      failure = error;
+    }
+  );
   const deadline = Date.now() + 15000;
   while (!fs.existsSync(path)) {
     if (failure) throw failure;
@@ -290,7 +344,10 @@ async function waitFor(path, childDone) {
 }
 
 for (const [name, method] of [
-  ['add', 'addProject'], ['touch', 'touchProjectSelected'], ['rename', 'renameProject'], ['remove', 'removeProject'],
+  ['add', 'addProject'],
+  ['touch', 'touchProjectSelected'],
+  ['rename', 'renameProject'],
+  ['remove', 'removeProject'],
 ]) {
   test(`${name}: a competing process rereads after the lock; neither update is lost`, async (t) => {
     const f = await fixture(t);
@@ -298,14 +355,26 @@ for (const [name, method] of [
     const holderReady = join(f.root, 'holder-ready');
     const contenderReady = join(f.root, 'contender-ready');
     const readMarker = join(f.root, 'contender-read');
-    const holder = startWorker(t, f, { role: 'holder', method, path: name === 'add' ? join(f.root, 'D') : f.a.path,
-      ready: holderReady, release, done: join(f.root, 'holder-done') });
+    const holder = startWorker(t, f, {
+      role: 'holder',
+      method,
+      path: name === 'add' ? join(f.root, 'D') : f.a.path,
+      ready: holderReady,
+      release,
+      done: join(f.root, 'holder-done'),
+    });
     let contender;
     let readBeforeRelease;
     try {
       await waitFor(holderReady, holder);
-      contender = startWorker(t, f, { role: 'contender', method: 'addProject', path: join(f.root, 'C'),
-        ready: contenderReady, readMarker, done: join(f.root, 'contender-done') });
+      contender = startWorker(t, f, {
+        role: 'contender',
+        method: 'addProject',
+        path: join(f.root, 'C'),
+        ready: contenderReady,
+        readMarker,
+        done: join(f.root, 'contender-done'),
+      });
       await waitFor(contenderReady, contender);
       readBeforeRelease = fs.existsSync(readMarker);
     } finally {
@@ -314,7 +383,10 @@ for (const [name, method] of [
     }
     assert.equal(readBeforeRelease, false, 'the contender must not read a stale pre-lock snapshot');
     const rows = f.store.listProjects();
-    assert.ok(rows.some((row) => row.path === join(f.root, 'C')), 'competing addition survives');
+    assert.ok(
+      rows.some((row) => row.path === join(f.root, 'C')),
+      'competing addition survives'
+    );
     const a = rows.find((row) => row.path === f.a.path);
     if (name === 'add') assert.ok(rows.some((row) => row.path === join(f.root, 'D')));
     if (name === 'touch') assert.ok(a.lastSelectedAt > 0);
@@ -329,7 +401,12 @@ test('lock contention propagates without reading or replacing the registry or de
   const before = fs.readFileSync(f.file, 'utf8');
   withFileLockSync(f.lock, () => {
     const owner = fs.readFileSync(f.lock, 'utf8');
-    const child = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        `
       import fs from 'node:fs';
       import { syncBuiltinESMExports } from 'node:module';
       const store = await import(${JSON.stringify(moduleUrl)});
@@ -343,7 +420,10 @@ test('lock contention propagates without reading or replacing the registry or de
         catch (error) { errors.push(error.code); }
       }
       console.log(JSON.stringify({ errors, reads }));
-    `], { env: { ...process.env, MIXDOG_LOCK_TIMEOUT_MS: '0' }, encoding: 'utf8', timeout: 15000 });
+    `,
+      ],
+      { env: { ...process.env, MIXDOG_LOCK_TIMEOUT_MS: '0' }, encoding: 'utf8', timeout: 15000 }
+    );
     assert.equal(child.status, 0, child.stderr || child.error?.message);
     assert.deepEqual(JSON.parse(child.stdout), { errors: Array(4).fill('ELOCKCONTENDED'), reads: 0 });
     assert.equal(fs.readFileSync(f.lock, 'utf8'), owner);

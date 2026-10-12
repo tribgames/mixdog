@@ -59,6 +59,10 @@ export function setModelEffortCapabilities(models) {
   if (!Array.isArray(models)) return;
   for (const model of models) {
     if (!model?.id || !Array.isArray(model.reasoningOptions)) continue;
+    // User-defined providers resolve reasoning from their own rows
+    // (custom-reasoning.mjs); a same-id custom model must never reshape the
+    // first-party index.
+    if (String(model.provider || '').startsWith('custom-')) continue;
     const option = model.reasoningOptions.find(
       (entry) =>
         String(entry?.type || '')

@@ -305,6 +305,8 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   }
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
+  // Solo keeps `agent` in the deferred pool: loadable on request, never eager.
+  if (session.orchestrationMode === 'none') defaultNames.delete('agent');
   const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
   const fixedSurface = FIXED_SURFACE_MODES.has(providerMode);
   let selectedNames = fixedSurface

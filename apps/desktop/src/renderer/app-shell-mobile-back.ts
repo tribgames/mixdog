@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import type { DesktopUpdaterState } from '../shared/contract';
-import { isMobileRemoteSurface } from './MobileTabOverview';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { registerMobileBack, useMobileBack } from './mobile-back';
 import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
 
@@ -107,12 +107,19 @@ export function useAppMobileInitialClose({
 }) {
   // Initialize mobile with drawer, docks, and bottom panel closed once per
   // load. Apply before first paint so a persisted desktop layout never flashes.
+  // Re-armed when the layout leaves the phone grammar, so a tablet→phone
+  // switch (rotation, split view) also starts with the layers folded.
+  const mobile = useMobileRemoteSurface();
   const mobileStartedClosed = useRef(false);
   useLayoutEffect(() => {
-    if (mobileStartedClosed.current || !isMobileRemoteSurface()) return;
+    if (!mobile) {
+      mobileStartedClosed.current = false;
+      return;
+    }
+    if (mobileStartedClosed.current) return;
     mobileStartedClosed.current = true;
     applySidebarOpen(false, 'instant');
     closeFocusedPaneDock(focusedLeafIdRef.current);
     setBottomPanelOpen(false, 'instant');
-  }, [applySidebarOpen, closeFocusedPaneDock, focusedLeafIdRef, setBottomPanelOpen]);
+  }, [mobile, applySidebarOpen, closeFocusedPaneDock, focusedLeafIdRef, setBottomPanelOpen]);
 }

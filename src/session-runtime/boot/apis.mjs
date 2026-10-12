@@ -41,6 +41,15 @@ import { createProviderAuthApi } from '../provider-auth-api.mjs';
 import { createUsageStatsApi } from '../usage-stats-api.mjs';
 import { listProviderAccounts } from '../services/provider-admin.mjs';
 import { createLifecycleApi } from '../lifecycle-api.mjs';
+import {
+  assertAdmissionOpen,
+  assertNotAddressed,
+  assertResumeTarget,
+  beginCanonicalClose,
+  finishCanonicalClose,
+  isAdmissionOpen,
+  markTerminal,
+} from '../session-address.mjs';
 import { createResourceApi } from '../resource-api.mjs';
 import { createModelRouteApi } from '../model-route-api.mjs';
 import { createWorkflowAgentsApi } from '../workflow-agents-api.mjs';
@@ -322,6 +331,13 @@ function lifecycleApiFor(boot) {
       rt.memoryModPromise = v;
     },
     getReservedSessionId: () => rt.reservedSessionId,
+    getAddressedSessionId: () => rt.addressedSessionId,
+    assertNotAddressed: (operation) => assertNotAddressed(rt, operation),
+    assertResumeTarget: (id) => assertResumeTarget(rt, id),
+    markAddressTerminal: () => markTerminal(rt),
+    beginCanonicalClose: (id) => beginCanonicalClose(rt, id),
+    finishCanonicalClose: (previous, closed) => finishCanonicalClose(rt, previous, closed),
+    isCanonicallyClosed: () => rt.admission === 'terminal',
     abortActiveTurns: boot.abortActiveTurns,
     hooks: boot.hooks,
     hookCommonPayload: boot.hookCommonPayload,
@@ -402,6 +418,7 @@ function modelRouteApiFor(boot) {
     },
     getSession: () => rt.session,
     setSession: boot.adoptSession,
+    getAddressedSessionId: () => rt.addressedSessionId,
     getConfigHasSecrets: () => rt.configHasSecrets,
     getWebSearchRouteState: () => rt.webSearchRoute,
     setWebSearchRouteState: (v) => {
@@ -521,6 +538,8 @@ function sessionTurnApiFor(boot) {
     mcpTurnGraceMs: tunables.mcpTurnGraceMs,
     awaitRoutePreparation: () => routePreparation.wait(),
     getReservedSessionId: () => rt.reservedSessionId,
+    assertSessionAdmission: () => assertAdmissionOpen(rt),
+    isSessionAdmissionOpen: () => isAdmissionOpen(rt),
     registerActiveTurnController: boot.registerActiveTurnController,
     sessionTitles: boot.sessionTitles,
     endComputerExecution,

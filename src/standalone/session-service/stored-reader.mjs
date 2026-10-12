@@ -10,9 +10,27 @@ export function createStoredSessionReader({
   statStoredSession = null,
   forgetStoredSession = null,
   releaseStoredSession = null,
+  readQuotaResume = null,
   sessionOwner,
   log,
 }) {
+  /** The cold session's queued quota resume (snapshot shape) or null. */
+  const quotaResumeOf = (sessionId) => {
+    if (typeof readQuotaResume !== 'function') return null;
+    try {
+      return readQuotaResume(sessionId) ?? null;
+    } catch (err) {
+      log(`stored quota resume projection failed session=${sessionId}: ${err?.message || err}`);
+      return null;
+    }
+  };
+  // The resume is projected beside the transcript, so its identity is part
+  // of the stamp a cold view is served by: a scheduled, deferred or cleared
+  // resume refreshes the view even while the transcript files are unchanged.
+  const quotaResumeStamp = (sessionId) => {
+    const resume = quotaResumeOf(sessionId);
+    return resume ? `${resume.turnKey}:${resume.resetAt}:${resume.attempts}` : '';
+  };
   // `${sessionId}|${window}` -> { projectionStamp, fileStamp }: the settled
   // file identity each served projection was built from. The 1s cold-view
   // refresh asks again with the stamp it holds; while the files still carry
@@ -78,11 +96,15 @@ export function createStoredSessionReader({
 
   async function fileStampOf(sessionId) {
     if (typeof statStoredSession !== 'function') return null;
+    let stamp;
     try {
-      return (await statStoredSession(sessionId)) || null;
+      stamp = (await statStoredSession(sessionId)) || null;
     } catch {
       return null;
     }
+    if (stamp === null) return null;
+    const resume = quotaResumeStamp(sessionId);
+    return resume ? `${stamp}|quota-resume:${resume}` : stamp;
   }
 
   /** Whether the projection a caller holds (`projectionStamp`, read through
@@ -145,6 +167,9 @@ export function createStoredSessionReader({
       ...wire,
       sessionId,
       ...(typeof readStoredGoal === 'function' ? { goal: sanitizeForWire(goal, 1) ?? null } : {}),
+      ...(typeof readQuotaResume === 'function'
+        ? { quotaResume: sanitizeForWire(quotaResumeOf(sessionId)) ?? null }
+        : {}),
       queued: Array.isArray(snapshot.queued) ? wire.queued : [],
     };
   }

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴포저 위 스택 v2 · 시프트 없는 구조</title>
+<style>
+  /* 앱 토큰 그대로 (apps/desktop/src/renderer/desktop/01-tokens.css, ui/tokens.css) */
+  :root {
+    --mx-bg-deep: #101013; --mx-workspace-sheet: #111113; --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d; --mx-bg-layer-2: #323236; --mx-composer-surface: var(--mx-bg-layer-1);
+    --mx-text: #e9e9e9; --mx-text-muted: #a8a8a8; --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-accent: #79b8ff; --mx-accent-bg: #1967d2;
+    --mx-warning: #f2cf76; --mx-warning-bg: #443f2e; --mx-success: #6bd586; --mx-danger: #f17471;
+    --mx-border-muted: rgba(255,255,255,.09); --mx-border: rgba(255,255,255,.125); --mx-border-strong: rgba(255,255,255,.24);
+    --mx-hover: rgba(255,255,255,.08); --mx-pressed: rgba(255,255,255,.12); --mx-chip-bg: #ffffff0f;
+    --mx-raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 1px #ffffff29, 0 -0.5px 0 #ffffff0f;
+    --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+    --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mx-button: 0 0 0 1px #ffffff33;
+    --mx-radius-md: 6px; --mx-radius-xl: 12px; --mx-radius-sheet: 16px; --mx-radius-pill: 999px;
+    --mx-font-micro: 12px; --mx-font-meta: 13px; --mx-font-ui: 14px; --mx-line-meta: 16px; --mx-line-ui: 20px;
+    --mx-motion-ink: 85ms ease-out; --mx-motion-chrome: 120ms ease-out;
+    --rail-h: 32px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--mx-bg-deep); color: var(--mx-text);
+         font: 400 var(--mx-font-ui)/var(--mx-line-ui) "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 28px 36px 60px; }
+  h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0 0 4px; }
+  h2 { font-size: 16px; font-weight: 600; margin: 36px 0 8px; }
+  .lead { color: var(--mx-text-muted); margin: 0 0 20px; font-size: var(--mx-font-meta); }
+  .principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: 1400px; }
+  .principles div { border-radius: var(--mx-radius-xl); box-shadow: inset 0 0 0 1px var(--mx-border-muted); padding: 12px 14px; font-size: var(--mx-font-meta); line-height: 19px; color: var(--mx-text-soft); }
+  .principles b { display: block; color: var(--mx-text); font-size: var(--mx-font-ui); margin-bottom: 4px; }
+
+  /* ── 시뮬레이터 ── */
+  .sim { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; max-width: 1400px; }
+  .steps { display: flex; flex-direction: column; gap: 4px; }
+  .step { text-align: left; border: 0; border-radius: var(--mx-radius-md); padding: 7px 10px; background: transparent; color: var(--mx-text-muted);
+          font: inherit; font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); cursor: pointer; }
+  .step:hover { background: var(--mx-hover); color: var(--mx-text); }
+  .step[aria-current="true"] { background: var(--mx-pressed); color: var(--mx-text); }
+  .step small { display: block; color: var(--mx-text-muted); font-size: var(--mx-font-micro); margin-top: 2px; }
+  .nav { display: flex; gap: 6px; margin-top: 8px; }
+  .btn { border: 0; border-radius: var(--mx-radius-md); padding: 0 10px; height: 26px; background: transparent; box-shadow: var(--mx-button);
+         color: var(--mx-text); font: inherit; font-size: var(--mx-font-meta); cursor: pointer; }
+  .btn:hover { background: var(--mx-hover); }
+  .btn.primary { background: var(--mx-accent-bg); box-shadow: none; color: #fff; }
+
+  .pane { position: relative; height: 640px; background: var(--mx-workspace-sheet); border-radius: var(--mx-radius-xl);
+          box-shadow: inset 0 0 0 1px var(--mx-border-muted); overflow: hidden; }
+  .meter { position: absolute; top: 10px; right: 12px; z-index: 30; font-size: var(--mx-font-micro); color: var(--mx-text-muted);
+           background: var(--mx-bg-base); border-radius: var(--mx-radius-pill); padding: 2px 10px; box-shadow: var(--mx-raised); }
+  .meter b { color: var(--mx-success); font-weight: 600; }
+  .meter b.shift { color: var(--mx-danger); }
+  .transcript { position: absolute; inset: 0 0 var(--dock-h, 160px) 0; overflow: hidden; padding: 24px 40px 12px;
+                display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; }
+  .bubble { align-self: flex-end; background: var(--mx-bg-layer-1); border-radius: var(--mx-radius-sheet); padding: 8px 14px; max-width: 70%; }
+  .prose { color: var(--mx-text); max-width: 680px; }
+  .turnline { display: flex; align-items: center; gap: 8px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: 500; min-height: 20px; }
+  .turnline .ok { color: var(--mx-success); }
+  .turnline .wait { color: var(--mx-accent); }
+  .baseline { position: absolute; left: 0; right: 0; bottom: var(--dock-h, 160px); border-top: 1px dashed #79b8ff55; z-index: 5; pointer-events: none; }
+  .baseline span { position: absolute; right: 8px; top: -18px; font-size: 11px; color: #79b8ff99; }
+
+  .dock { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 40px 16px; background: var(--mx-workspace-sheet); z-index: 10; }
+  .overlay-zone { position: absolute; left: 40px; right: 40px; bottom: calc(100% - 0px); display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; pointer-events: none; }
+  .overlay-zone > * { pointer-events: auto; }
+
+  /* 고정 레일: 항상 32px, 비어 있어도 자리 유지 */
+  .rail { height: var(--rail-h); margin-bottom: 8px; display: flex; gap: 6px; align-items: stretch; }
+  .slot { display: flex; align-items: center; gap: 7px; height: var(--rail-h); padding: 0 10px; border-radius: var(--mx-radius-xl);
+          background: var(--mx-composer-surface); box-shadow: var(--mx-raised); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta);
+          color: var(--mx-text-muted); white-space: nowrap; min-width: 0; cursor: pointer; transition: opacity var(--mx-motion-chrome), background var(--mx-motion-ink); }
+  .slot:hover { background: color-mix(in srgb, var(--mx-text) 6%, var(--mx-composer-surface)); color: var(--mx-text); }
+  .slot.goal { flex: 1 1 auto; color: var(--mx-text); }
+  .slot.goal .t { overflow: hidden; text-overflow: ellipsis; }
+  .slot .meta { color: var(--mx-text-muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .slot.fixed { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+  .slot.open { box-shadow: var(--mx-raised), inset 0 0 0 1px var(--mx-border-strong); color: var(--mx-text); }
+  .slot.warn { color: var(--mx-warning); }
+  .slot.ghost { background: transparent; box-shadow: none; cursor: default; }
+  .slot.empty { visibility: hidden; }
+  .ico { width: 14px; text-align: center; flex: none; }
+  .acc { color: var(--mx-accent); } .plus { color: var(--mx-success); } .minus { color: var(--mx-danger); }
+  .spin { display: inline-block; animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .meterbar { width: 36px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--mx-text) 13%, transparent); overflow: hidden; flex: none; }
+  .meterbar i { display: block; height: 100%; background: color-mix(in srgb, var(--mx-text) 52%, transparent); }
+  /* 초안 설정줄: 같은 레일 자리를 씀 (고스트 칩 문법) */
+  .ghostchip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--mx-radius-md); color: var(--mx-text); font-size: var(--mx-font-ui); }
+  .ghostchip:hover { background: var(--mx-hover); }
+  .ghostchip .muted { color: var(--mx-text-muted); }
+
+  /* 위로 뜨는 팝오버/승인 카드: 레일 위에 겹쳐서 높이 변화 없음 */
+  .pop { background: var(--mx-bg-base); border-radius: var(--mx-radius-xl); box-shadow: var(--mx-popup-shadow); padding: 10px 12px; font-size: var(--mx-font-meta); line-height: 19px; }
+  .pop .h { display: flex; align-items: center; gap: 8px; font-size: var(--mx-font-ui); font-weight: 600; margin-bottom: 6px; }
+  .pop .rows { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; color: var(--mx-text-soft); }
+  .pop .rows .muted { color: var(--mx-text-muted); }
+  .pop pre { margin: 6px 0 10px; padding: 7px 10px; border-radius: var(--mx-radius-md); background: var(--mx-workspace-sheet); color: var(--mx-text);
+             font: 13px/18px "JetBrains Mono", Consolas, monospace; white-space: pre-wrap; }
+  .pop .actions { display: flex; justify-content: flex-end; gap: 6px; }
+  .pop.approval .h .ico { color: var(--mx-warning); }
+  .pop.align-right { align-self: flex-end; width: min(420px, 100%); }
+
+  /* 입력창 카드: 높이 고정, 모델 안내는 하단 줄 안에서 처리 */
+  .composer { height: 96px; border-radius: var(--mx-radius-sheet); background: var(--mx-composer-surface); box-shadow: var(--mx-raised), var(--mx-composer-lift);
+              padding: 12px 12px 8px 14px; display: flex; flex-direction: column; justify-content: space-between; }
+  .composer .ph { color: var(--mx-text-muted); }
+  .cbar { display: flex; align-items: center; gap: 4px; font-size: var(--mx-font-ui); }
+  .cbar .tool { width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--mx-radius-md); color: var(--mx-text-muted); }
+  .model { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--mx-radius-md); }
+  .model:hover { background: var(--mx-hover); }
+  .model .eff { color: var(--mx-text-muted); }
+  .mismatch { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: var(--mx-radius-pill);
+              background: var(--mx-warning-bg); color: var(--mx-warning); font-size: var(--mx-font-micro); cursor: pointer; }
+  .ring { width: 16px; height: 16px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--mx-text) 30%, transparent); margin: 0 6px; }
+  .send { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--mx-bg-layer-2); color: var(--mx-text-muted); font-size: 12px; }
+  .toast { position: absolute; top: 44px; right: 12px; z-index: 30; background: var(--mx-bg-base); box-shadow: var(--mx-popup-shadow); border-radius: var(--mx-radius-xl);
+           padding: 8px 12px; font-size: var(--mx-font-meta); color: var(--mx-text); }
+  .explain { margin-top: 10px; font-size: var(--mx-font-meta); color: var(--mx-text-soft); line-height: 20px; min-height: 60px; }
+  .explain b { color: var(--mx-text); }
+
+  table { border-collapse: collapse; max-width: 1400px; width: 100%; font-size: var(--mx-font-meta); }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--mx-border-muted); }
+  th { color: var(--mx-text-muted); font-weight: 500; }
+  td.shift { color: var(--mx-danger); } td.noshift { color: var(--mx-success); }
+</style>
+</head>
+<body>
+<h1>컴포저 위 스택 v2 · 레이아웃 시프트 없는 구조</h1>
+<p class="lead">기존 앱 토큰(<code>01-tokens.css</code>, <code>ui/tokens.css</code>)의 색·모서리·그림자·글자 크기를 그대로 썼습니다. 왼쪽 단계를 차례로 눌러 실행 한 번이 흘러가는 동안 대화 기준선(파란 점선)이 움직이지 않는지 확인해 보세요.</p>
+
+<div class="principles">
+  <div><b>① 높이는 딱 두 개만</b>레일 32px + 입력창 96px. 세션이 열려 있는 동안 이 높이는 바뀌지 않습니다. 그래서 대화 내용이 위아래로 밀리지 않습니다.</div>
+  <div><b>② 상태는 레일 칸 안에서만 바뀜</b>Goal · 백그라운드 작업 · 대기 메시지 · Diff는 레일의 정해진 칸에 들어갑니다. 생기고 사라져도 높이는 그대로이고, 칸 안의 내용만 바뀝니다.</div>
+  <div><b>③ 커지는 건 위로 겹쳐 뜸</b>펼친 목록이나 도구 승인처럼 커지는 내용은 팝업 재질로 레일 위에 겹쳐 뜹니다. 대화를 밀어 올리지 않습니다.</div>
+  <div><b>④ 지나가는 소식은 토스트로</b>"다른 기기에서 허용", "작업 끝남", "모델 바뀜" 같은 소식은 토스트로 보냅니다. 기존 규칙("되도록 컴포저 위에 안 떴으면")을 그대로 따릅니다.</div>
+</div>
+
+<h2>실행 흐름 시뮬레이터</h2>
+<div class="sim">
+  <div>
+    <div class="steps" id="steps"></div>
+    <div class="nav"><button class="btn" id="prev">← 이전</button><button class="btn primary" id="next">다음 →</button></div>
+  </div>
+  <div>
+    <div class="pane" id="pane">
+      <div class="meter" id="meter"></div>
+      <div class="transcript" id="transcript"></div>
+      <div class="baseline"><span>대화 기준선</span></div>
+      <div class="dock" id="dock">
+        <div class="overlay-zone" id="overlay"></div>
+        <div class="rail" id="rail"></div>
+        <div class="composer">
+          <div class="ph" id="ph">메시지 입력…</div>
+          <div class="cbar" id="cbar"></div>
+        </div>
+      </div>
+      <div id="toast"></div>
+    </div>
+    <div class="explain" id="explain"></div>
+  </div>
+</div>
+
+<h2>지금 구조와 비교</h2>
+<table>
+  <tr><th style="width:26%">일어나는 일</th><th style="width:37%">지금</th><th>v2</th></tr>
+  <tr><td>첫 메시지를 보내 초안이 세션이 될 때</td><td class="shift">설정줄이 사라지고 다른 요소가 생기면서 높이가 바뀝니다</td><td class="noshift">설정줄과 레일이 같은 32px 자리를 씁니다</td></tr>
+  <tr><td>Goal 시작 / 종료</td><td class="shift">캡슐 높이만큼 스택이 늘었다 줄었다 합니다</td><td class="noshift">레일 왼쪽 칸만 바뀝니다</td></tr>
+  <tr><td>응답 중 메시지를 추가로 보냄</td><td class="shift">대기 목록이 생기며 늘어납니다(최대 168px)</td><td class="noshift">레일의 "대기 N" 칸이 생기고, 내용은 눌러서 위로 펼칩니다</td></tr>
+  <tr><td>도구 승인 요청</td><td class="shift">카드 높이만큼 대화가 밀립니다</td><td class="noshift">레일 위로 겹쳐 뜹니다</td></tr>
+  <tr><td>턴이 끝나고 파일 변경이 있음</td><td class="shift">Diff 바가 생기며 32px + 8px 늘어납니다</td><td class="noshift">레일 오른쪽 칸만 생깁니다</td></tr>
+  <tr><td>백그라운드 작업 시작 / 종료</td><td>(표시 없음)</td><td class="noshift">레일의 ⟳ 칸이 생기고 사라집니다. 끝나면 토스트로 알립니다</td></tr>
+  <tr><td>대화 모델 ≠ 고른 모델</td><td>(표시 없음)</td><td class="noshift">입력창 하단 줄 안에 경고 칩만 붙습니다</td></tr>
+  <tr><td>레일 칸이 하나도 없을 때</td><td>—</td><td>세션이 열려 있으면 빈 32px 자리를 유지합니다. 그래서 칸이 처음 생길 때도 밀림이 없습니다</td></tr>
+</table>
+
+<script>
+const S = {
+  goal: (status = 'run', p = '2/5', t = '8m') => ({ k: 'goal', status, p, t }),
+};
+const steps = [
+  { name: '새 대화(초안)', sub: '레일 자리에 설정줄', draft: true, transcript: [],
+    explain: '초안에서는 레일 자리에 <b>프로젝트 · 워크플로 · 실행 방식</b> 고스트 칩이 들어갑니다. 높이는 세션 레일과 같은 32px입니다.' },
+  { name: '첫 메시지 전송 · 응답 중', sub: '설정줄 → 빈 레일 (높이 동일)', busy: true,
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'line:wait:응답 중…'],
+    explain: '세션이 시작되면 설정줄이 빠지고 <b>빈 레일</b>이 같은 자리를 지킵니다. 기준선은 그대로입니다.' },
+  { name: 'Goal 시작', sub: '레일 왼쪽 칸 채움', busy: true, goal: ['run', '0/5', '0m'],
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'line:wait:응답 중…'],
+    explain: 'Goal은 레일 왼쪽 칸에 들어갑니다. 진행률 막대는 기존 미터 색(텍스트 52%)을 씁니다.' },
+  { name: '백그라운드 작업 시작', sub: '⟳ 칸 추가', busy: true, goal: ['run', '1/5', '3m'], jobs: 2,
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:테스트를 백그라운드로 돌리고 Worker에게 웹훅을 맡겼습니다.', 'line:wait:응답 중…'],
+    explain: '셸 작업이나 에이전트가 뜨면 <b>⟳ 2</b> 칸이 생깁니다. Goal 제목만 조금 짧아지고 높이는 그대로입니다.' },
+  { name: '응답 중 메시지 추가', sub: '"대기 1" 칸', busy: true, goal: ['run', '1/5', '4m'], jobs: 2, queue: ['테스트 끝나면 커버리지도 알려줘'],
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:테스트를 백그라운드로 돌리고 Worker에게 웹훅을 맡겼습니다.', 'line:wait:응답 중…'],
+    explain: '대기 메시지는 목록 대신 <b>"대기 1"</b> 칸 하나로 보여 줍니다. 마우스를 올리면 첫 문장이, 누르면 편집 · 끼어들기 · 삭제 목록이 위로 열립니다.' },
+  { name: '대기 칸 펼침', sub: '위로 겹쳐 뜸', busy: true, goal: ['run', '1/5', '4m'], jobs: 2, queue: ['테스트 끝나면 커버리지도 알려줘'], open: 'queue',
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:테스트를 백그라운드로 돌리고 Worker에게 웹훅을 맡겼습니다.', 'line:wait:응답 중…'],
+    explain: '펼친 목록은 기존 팝업 재질(bg-base, 12px, popup 그림자)로 레일 위에 겹쳐 뜹니다. 대화 기준선은 움직이지 않습니다.' },
+  { name: '도구 승인 요청', sub: '레일 위로 겹쳐 뜸, 레일 칸은 유지', busy: true, goal: ['wait', '2/5', '6m'], jobs: 2, queue: ['테스트 끝나면 커버리지도 알려줘'], open: 'approval',
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:마이그레이션을 실행하려고 합니다.'],
+    explain: '승인 카드도 겹쳐 뜹니다. Goal 칸은 "일시정지" 대신 <b>"승인 대기"</b>로 표시해서, 같은 사실을 아이콘 두 개로 따로 알리지 않습니다.' },
+  { name: '다른 기기에서 허용', sub: '카드 대신 토스트', busy: true, goal: ['run', '2/5', '6m'], jobs: 2, queue: ['테스트 끝나면 커버리지도 알려줘'], toast: 'MacBook에서 허용했어요',
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:마이그레이션을 실행했습니다.', 'line:wait:응답 중…'],
+    explain: '"처리됨" 카드를 남기지 않고 토스트로만 알립니다.' },
+  { name: '턴 종료 · 작업 남음 · 파일 변경', sub: 'Diff 칸 + 완료 줄 "대기 중"', goal: ['run', '3/5', '9m'], jobs: 2, diff: [4, 128, 41],
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:마이그레이션까지 끝냈습니다. 테스트와 웹훅 작업은 백그라운드에서 계속 돌고 있습니다.', 'line:wait:백그라운드 작업 2개 대기 중 · 셸 1 · 에이전트 1'],
+    explain: '턴이 끝나면 <b>Diff 칸</b>이 레일 오른쪽에 생깁니다(높이 변화 없음). 대기 메시지는 바로 전송돼서 칸이 빠집니다. 작업이 남아 있으니 완료 줄은 "대기 중"입니다.' },
+  { name: 'Diff 펼침', sub: '위로 겹쳐 뜸', goal: ['run', '3/5', '9m'], jobs: 2, diff: [4, 128, 41], open: 'diff',
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:마이그레이션까지 끝냈습니다.', 'line:wait:백그라운드 작업 2개 대기 중 · 셸 1 · 에이전트 1'],
+    explain: '지금은 Diff 바가 펼쳐지면 Goal을 위로 밀어 올리는데(<code>--turn-review-lift</code>), v2에서는 팝업 하나만 겹쳐 뜹니다. 한 번에 하나만 열립니다.' },
+  { name: '백그라운드 작업 끝남', sub: '⟳ 칸 사라짐 + 토스트', goal: ['run', '3/5', '11m'], diff: [4, 128, 41], toast: '백그라운드 작업 2개가 끝났어요',
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:마이그레이션까지 끝냈습니다.', 'line:ok:완료 · 11m 02s'],
+    explain: '작업이 끝나면 칸이 사라지고 토스트가 뜹니다. 완료 줄은 그 자리에서 "완료"로 바뀝니다(줄 높이 동일).' },
+  { name: '모델을 Gemini로 변경', sub: '입력창 하단 줄 안에 경고 칩', goal: ['run', '3/5', '11m'], diff: [4, 128, 41], mismatch: true,
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:마이그레이션까지 끝냈습니다.', 'line:ok:완료 · 11m 02s'],
+    explain: '대화 모델과 고른 모델이 다르면 모델 이름 옆에 <b>"이 대화: Claude"</b> 경고 칩이 붙습니다. 하단 줄 안이라 높이가 늘지 않습니다.' },
+  { name: '경고 칩 누름', sub: '이어받기 팝업', goal: ['run', '3/5', '11m'], diff: [4, 128, 41], mismatch: true, open: 'model',
+    transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:마이그레이션까지 끝냈습니다.', 'line:ok:완료 · 11m 02s'],
+    explain: '칩을 누르면 기존 팝업 재질로 [Gemini로 이어받기] [되돌리기]가 뜹니다. Goal이 한도 소진 상태라면 "이어받으면 Goal도 이어갑니다" 문구로 합칩니다.' },
+  { name: 'Goal 완료 · 칸 모두 비움', sub: '빈 레일 유지', transcript: ['user:결제 모듈을 새 API로 옮겨줘', 'prose:모든 작업을 마쳤습니다.', 'line:ok:완료 · 14m 40s'], toast: 'Goal을 완료했어요',
+    explain: 'Goal과 Diff가 모두 사라져도 <b>빈 레일 32px</b>은 남습니다. 다음 실행에서 칸이 다시 생겨도 대화가 밀리지 않습니다.' },
+];
+
+let i = 0, firstDock = null;
+const $ = (id) => document.getElementById(id);
+function goalSlot(g, compactWaiting) {
+  const [status, p, t] = g;
+  const icon = status === 'wait' ? '<span class="ico" style="color:var(--mx-warning)">⏸</span>' : '<span class="ico acc"><span class="spin">◌</span></span>';
+  const label = status === 'wait' ? '<span class="meta" style="color:var(--mx-warning)">승인 대기 · ' + p + '</span>' : '<span class="meterbar"><i style="width:' + (parseInt(p) / 5 * 100) + '%"></i></span><span class="meta">' + p + ' · ' + t + '</span>';
+  return '<div class="slot goal">' + icon + '<span class="t">결제 모듈을 새 API로 이전</span>' + label + '</div>';
+}
+function render() {
+  const s = steps[i];
+  $('steps').innerHTML = steps.map((x, n) => '<button class="step" data-n="' + n + '" aria-current="' + (n === i) + '">' + (n + 1) + '. ' + x.name + '<small>' + x.sub + '</small></button>').join('');
+  document.querySelectorAll('.step').forEach((b) => b.onclick = () => { i = +b.dataset.n; render(); });
+  // transcript
+  $('transcript').innerHTML = (s.transcript || []).map((row) => {
+    const [kind, a, b] = row.split(':');
+    if (kind === 'user') return '<div class="bubble">' + a + '</div>';
+    if (kind === 'prose') return '<div class="prose">' + a + '</div>';
+    if (kind === 'line') return '<div class="turnline">' + (a === 'ok' ? '<span class="ok">✓</span>' : '<span class="wait"><span class="spin">⟳</span></span>') + b + '</div>';
+    return '';
+  }).join('');
+  // rail
+  let rail = '';
+  if (s.draft) {
+    rail = '<div class="slot ghost" style="padding:0 2px"><span class="ghostchip">📁 mixdog <span class="muted">⌄</span></span><span class="ghostchip">Default <span class="muted">⌄</span></span><span class="ghostchip">Swarm <span class="muted">⌄</span></span></div>';
+  } else {
+    if (s.goal) rail += goalSlot(s.goal);
+    else rail += '<div class="slot goal empty"></div>';
+    if (s.jobs) rail += '<div class="slot fixed' + (s.open === 'jobs' ? ' open' : '') + '"><span class="ico acc"><span class="spin">⟳</span></span>' + s.jobs + '</div>';
+    if (s.queue) rail += '<div class="slot fixed' + (s.open === 'queue' ? ' open' : '') + '">대기 ' + s.queue.length + '</div>';
+    if (s.diff) rail += '<div class="slot fixed' + (s.open === 'diff' ? ' open' : '') + '">파일 ' + s.diff[0] + ' <span class="plus">+' + s.diff[1] + '</span><span class="minus">−' + s.diff[2] + '</span></div>';
+  }
+  $('rail').innerHTML = rail;
+  // overlay
+  let ov = '';
+  if (s.open === 'queue') ov = '<div class="pop align-right"><div class="h">대기 메시지 1개</div><div class="rows"><span>테스트 끝나면 커버리지도 알려줘</span><span class="muted">편집</span><span class="muted">⚡ 끼어들기 · ✕</span></div></div>';
+  if (s.open === 'diff') ov = '<div class="pop align-right"><div class="h">변경 파일 4개 <span style="margin-left:auto;font-weight:400;color:var(--mx-text-muted);font-size:13px">통합 | 나란히</span></div><div class="rows"><span>src/payments/client.ts</span><span class="plus">+62</span><span class="minus">−18</span><span>src/payments/webhook.ts</span><span class="plus">+40</span><span class="minus">−12</span><span>src/payments/types.ts</span><span class="plus">+21</span><span class="minus">−4</span><span>test/payments.test.ts</span><span class="plus">+5</span><span class="minus">−7</span></div></div>';
+  if (s.open === 'approval') ov = '<div class="pop approval"><div class="h"><span class="ico">⚠</span>도구 승인 필요 <span style="font-weight:400;color:var(--mx-text-muted);font-size:13px">shell이 실행하려고 합니다</span></div><pre>npm run migrate -- --env=staging</pre><div class="actions"><button class="btn">거절 (D)</button><button class="btn primary">허용 (A)</button></div></div>';
+  if (s.open === 'model') ov = '<div class="pop" style="width:380px"><div class="h"><span class="ico" style="color:var(--mx-warning)">⚠</span>이 대화는 Claude Opus 5.5로 계속됩니다</div><div style="color:var(--mx-text-soft);margin-bottom:10px">고른 Gemini Flash Lite Latest는 새 대화나 이어받기에 쓰여요.</div><div class="actions"><button class="btn">되돌리기</button><button class="btn primary">Gemini로 이어받기</button></div></div>';
+  $('overlay').innerHTML = ov;
+  // composer bar
+  const model = s.mismatch ? 'Gemini Flash Lite Latest' : 'Claude Opus 5.5';
+  $('cbar').innerHTML = '<span class="tool">＋</span><span class="model">' + model + ' <span class="eff">High ⌄</span></span>' +
+    (s.mismatch ? '<span class="mismatch">⚠ 이 대화: Claude</span>' : '') + '<span class="ring"></span><span class="send">' + (s.busy ? '■' : '↑') + '</span>';
+  $('ph').textContent = s.draft ? '무엇을 할까요?' : '메시지 입력…';
+  $('toast').innerHTML = s.toast ? '<div class="toast">' + s.toast + '</div>' : '';
+  $('explain').innerHTML = s.explain;
+  // measure dock height (excluding overlay)
+  const h = $('rail').offsetHeight + 8 + document.querySelector('.composer').offsetHeight + 16;
+  $('pane').style.setProperty('--dock-h', h + 'px');
+  if (firstDock === null) firstDock = h;
+  const shifted = h !== firstDock;
+  $('meter').innerHTML = '컴포저 영역 높이 <b class="' + (shifted ? 'shift' : '') + '">' + h + 'px</b> · ' + (shifted ? '시프트 발생' : '변화 없음');
+}
+$('prev').onclick = () => { i = Math.max(0, i - 1); render(); };
+$('next').onclick = () => { i = Math.min(steps.length - 1, i + 1); render(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') $('next').click(); if (e.key === 'ArrowLeft') $('prev').click(); });
+render();
+</script>
+</body>
+</html>

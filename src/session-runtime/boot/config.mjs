@@ -9,6 +9,7 @@ import { flushPendingSessionConfigWrites, resolveInitialConfigState } from '../c
 import { bootProfile } from '../boot-profile.mjs';
 import { createHookPayload } from '../hook-payload.mjs';
 import { readRuntimeTunables } from '../runtime-tunables.mjs';
+import { initSessionAddress } from '../session-address.mjs';
 import { resolveRoute } from './shared.mjs';
 
 export async function resolveConfig(boot) {
@@ -30,6 +31,8 @@ export async function resolveConfig(boot) {
     effort: params.effort,
     fast: params.fast,
     modelParameters: params.modelParameters,
+    contextPercent: params.contextPercent,
+    selectedContextWindow: params.selectedContextWindow,
   }));
   configureLocalProviderIdleTtl(rt.config.providers?.[LOCAL_PROVIDER_ID]?.idleTtlSeconds);
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);
@@ -74,6 +77,7 @@ function initRuntimeState(rt, params) {
   // createCurrentSession on the first actual turn, avoiding eager auth/model
   // work while still giving submit a stable session key.
   rt.reservedSessionId = null;
+  initSessionAddress(rt);
   rt.sessionCreatePromise = null;
   rt.currentCwd = params.cwd;
   rt.closeRequested = false;

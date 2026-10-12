@@ -5,8 +5,8 @@
 /* Turn outputs. Every card is a fixed 160px plate, so the turn's height never
    depends on decoding: one to three media sit on a row that never wraps and
    only their widths follow the source ratio, four or more become same-size
-   squares, and files without a captured thumbnail wear a format tile. The
-   cards take their content's width, never a full-width panel. */
+   squares, and documents follow as horizontal cards with their first page.
+   The cards take their content's width, never a full-width panel. */
 .transcript-artifacts {
   display: grid;
   gap: 10px;
@@ -25,10 +25,9 @@
 .transcript-artifact-files {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
-.transcript-artifact-media,
-.transcript-artifact-file {
+.transcript-artifact-media {
   position: relative;
   height: 160px;
   min-width: 0;
@@ -39,8 +38,7 @@
   background: var(--mx-bg-layer-1);
 }
 /* The ring sits above the picture so a bright image never erases the edge. */
-.transcript-artifact-media::after,
-.transcript-artifact-file::after {
+.transcript-artifact-media::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -50,12 +48,10 @@
   pointer-events: none;
   transition: box-shadow var(--mx-motion-ink);
 }
-.transcript-artifact-media:hover::after,
-.transcript-artifact-file:not([aria-disabled="true"]):hover::after {
+.transcript-artifact-media:hover::after {
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
 }
-.transcript-artifact-media:has(.transcript-artifact-frame:focus-visible)::after,
-.transcript-artifact-file:focus-visible::after {
+.transcript-artifact-media:has(.transcript-artifact-frame:focus-visible)::after {
   box-shadow: inset 0 0 0 2px var(--mx-focus);
 }
 .transcript-artifact-media {
@@ -127,8 +123,7 @@
 }
 /* Name and format live inside the card, over a shade that keeps white text
    readable on any picture; without a picture they fall back to plain ink. */
-.transcript-artifact-media figcaption,
-.transcript-artifact-caption {
+.transcript-artifact-media figcaption {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -142,8 +137,7 @@
   line-height: 16px;
   pointer-events: none;
 }
-.transcript-artifact-media figcaption > span,
-.transcript-artifact-caption > span {
+.transcript-artifact-media figcaption > span {
   overflow: hidden;
   color: #fff;
   font-size: var(--mx-font-meta);
@@ -152,20 +146,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.transcript-artifact-media figcaption > small,
-.transcript-artifact-caption > small {
+.transcript-artifact-media figcaption > small {
   overflow: hidden;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.transcript-artifact-media[data-preview="none"] figcaption,
-.transcript-artifact-caption {
+.transcript-artifact-media[data-preview="none"] figcaption {
   color: var(--mx-text-faint);
   background: none;
 }
-.transcript-artifact-media[data-preview="none"] figcaption > span,
-.transcript-artifact-caption > span {
+.transcript-artifact-media[data-preview="none"] figcaption > span {
   color: var(--mx-text);
 }
 /* Open file / folder: the transparent icon-button grammar (03-titlebar),
@@ -200,45 +191,263 @@
 .transcript-artifact-actions .icon-button:focus-visible {
   color: var(--mx-icon);
 }
-/* A file with no captured thumbnail: its format badge, the whole tile opens it. */
+/* A written document: a horizontal card with its first page (portrait docs
+   44x56, sheets and slides 64x40), name, "TYPE · pages · size" and an Open
+   affordance; the whole card opens it. A deleted file keeps the card, dimmed. */
 .transcript-artifact-file {
-  flex: 0 0 160px;
-  width: 160px;
-  display: grid;
-  place-items: center;
-  padding-bottom: 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 340px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px 10px 8px 8px;
+  border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   text-decoration: none;
-  transition: background var(--mx-motion-ink);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  transition:
+    background var(--mx-motion-ink),
+    box-shadow var(--mx-motion-ink);
 }
-.transcript-artifact-file:hover {
+.transcript-artifact-file:not([aria-disabled="true"]):hover {
   background: var(--mx-hover);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
 }
 .transcript-artifact-file:focus-visible {
   outline: none;
+  box-shadow: inset 0 0 0 2px var(--mx-focus);
 }
-.transcript-artifact-badge {
+/* The link's own file glyph: the thumbnail already says what the file is. */
+.transcript-artifact-file > :not(.transcript-artifact-thumb, .transcript-artifact-body, .transcript-artifact-open) {
+  display: none;
+}
+.transcript-artifact-thumb {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-bg-layer-2);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+}
+.transcript-artifact-thumb.wide {
+  width: 64px;
+  height: 40px;
+}
+.transcript-artifact-thumb.wide > .file-sheet {
+  width: auto;
+  height: 100%;
+}
+.transcript-artifact-body {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+.transcript-artifact-body > span {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: var(--mx-weight-medium);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-artifact-body > small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.transcript-artifact-body > small > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.transcript-artifact-open {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
+  min-height: 28px;
+  padding: 0 10px;
   border-radius: var(--mx-radius-md);
-  color: var(--mx-text-muted);
-  background: var(--mx-bg-layer-2);
-  font-family: var(--mx-font-sans);
+  color: var(--mx-text);
+  background: var(--mx-hover);
   font-size: var(--mx-font-meta);
-  font-weight: 600;
-  line-height: 18px;
-  letter-spacing: 0.4px;
+  transition: background var(--mx-motion-ink);
+}
+.transcript-artifact-file:hover .transcript-artifact-open {
+  background: var(--mx-pressed);
 }
 .transcript-artifact-file[aria-disabled="true"] {
   cursor: default;
+  opacity: 0.55;
 }
-.transcript-artifact-file[aria-disabled="true"]:hover {
-  background: var(--mx-bg-layer-1);
+
+/* File thumbnail art (file-thumbnail-art.tsx), shared by the document cards
+   above and the attachment cards (15-composer): the type tone, the drawn
+   document sheet, a rendered first page, code/prose minimaps and the CSV
+   table. Page, paper and table stand for printed paper, so they stay light
+   in both themes; everything else follows the theme tokens. */
+.file-tone-pdf {
+  --file-tone: var(--mx-danger);
 }
-.transcript-artifact-file[aria-disabled="true"] .transcript-artifact-badge,
-.transcript-artifact-file[aria-disabled="true"] .transcript-artifact-caption > span {
-  color: var(--mx-text-faint);
+.file-tone-docx {
+  --file-tone: var(--mx-text-accent);
+}
+.file-tone-xlsx {
+  --file-tone: var(--mx-success);
+}
+.file-tone-pptx {
+  --file-tone: var(--mx-amber-500);
+}
+:root[data-mixdog-theme="light"] .file-tone-pptx {
+  --file-tone: var(--mx-warning);
+}
+.file-tone-code {
+  --file-tone: var(--mx-syntax-control);
+}
+.file-tone-txt,
+.file-tone-file {
+  --file-tone: var(--mx-text-muted);
+}
+.file-type-word {
+  flex: none;
+  color: var(--file-tone);
+  font-size: 11px;
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+.file-sheet {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+.file-sheet-paper,
+.file-sheet-fold {
+  stroke: var(--mx-border-strong);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+.file-sheet-paper {
+  fill: var(--mx-bg-layer-3);
+}
+.file-sheet-fold {
+  fill: color-mix(in srgb, var(--mx-text) 10%, var(--mx-bg-layer-3));
+}
+.file-sheet-line {
+  fill: color-mix(in srgb, var(--mx-text) 30%, var(--mx-bg-layer-3));
+}
+.file-sheet-line.lead {
+  fill: color-mix(in srgb, var(--mx-text) 45%, var(--mx-bg-layer-3));
+}
+.file-sheet-band {
+  fill: var(--file-tone);
+}
+.file-page {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  background: #fff;
+}
+.file-minimap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--file-mini-gap, 3px);
+  padding: 8px 9px;
+  overflow: hidden;
+  background: var(--mx-workspace-sheet);
+}
+.file-minimap-line {
+  display: flex;
+  flex: none;
+  gap: 1.5px;
+  height: var(--file-mini-row, 3px);
+}
+.file-minimap-line > b {
+  display: block;
+  flex: none;
+  height: 100%;
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-text) 75%, transparent);
+}
+.file-minimap-line > .space {
+  background: transparent;
+}
+.file-minimap-line > .keyword {
+  background: var(--mx-syntax-control);
+}
+.file-minimap-line > .string {
+  background: var(--mx-success);
+}
+.file-minimap-line > .number {
+  background: var(--mx-syntax-string);
+}
+.file-minimap-line > .comment {
+  background: color-mix(in srgb, var(--mx-text) 32%, transparent);
+}
+.file-minimap-line > .punct {
+  background: color-mix(in srgb, var(--mx-text) 45%, transparent);
+}
+.file-minimap.paper {
+  padding: 9px 10px;
+  background: #f4f1ea;
+}
+.file-minimap.paper .file-minimap-line > b {
+  background: #b9b4a8;
+}
+.file-minimap.paper .file-minimap-line.heading {
+  height: calc(var(--file-mini-row, 3px) + 1px);
+}
+.file-minimap.paper .file-minimap-line.heading > b {
+  background: #4a463e;
+}
+.file-minimap-gap {
+  flex: none;
+  height: var(--file-mini-row, 3px);
+}
+.file-table {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-auto-rows: 11%;
+  align-content: start;
+  background: #fff;
+}
+.file-table-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 12%;
+  overflow: hidden;
+  border-right: 1px solid #e3e6ea;
+  border-bottom: 1px solid #e3e6ea;
+  background: #fff;
+}
+.file-table-cell.head {
+  background: #e8f3ec;
+}
+.file-table-cell.lead {
+  background: #f6f8fa;
+}
+.file-table-cell > i {
+  display: block;
+  height: 1px;
+  background: #b9bec5;
 }
 .transcript-artifact-preview {
   max-width: 95vw;
@@ -370,6 +579,64 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
+/* The site icon the in-app browser recorded, in the glyph's slot. */
+.transcript-browser-page-favicon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border-radius: 3px;
+  object-fit: contain;
+}
+/* With a screenshot: the page itself on the left, site / title / path on the
+   right, like the page reads in a browser tab. */
+.transcript-browser-page.has-thumbnail {
+  width: min(100%, 460px);
+  align-items: stretch;
+  gap: 12px;
+  padding: 8px;
+}
+.transcript-browser-page-thumb {
+  flex: 0 0 104px;
+  width: 104px;
+  height: 66px;
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+}
+.transcript-browser-page-thumb > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+.has-thumbnail .transcript-browser-page-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.transcript-browser-page-site {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.transcript-browser-page-site > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.has-thumbnail .transcript-browser-page-copy > small {
+  font-size: 12.5px;
+}
+.has-thumbnail .transcript-browser-page-open {
+  align-self: center;
+}
 .transcript-browser-page-open {
   flex: 0 0 auto;
   min-height: 28px;
@@ -468,7 +735,11 @@
      a 0.5px 10% hairline the list had no edge at all on a 1x display, and
      grey text on the grey sheet washed out (user: 하나도 안 보인다). */
   background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  /* A real border, outside its children, as the usage table card draws it:
+     an inset ring paints under the rows, so an opaque sticky file line cut
+     the frame's sides away. */
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  box-shadow: none;
 }
 .tool-activity-details > .tool-activity-item + .tool-activity-item {
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
@@ -514,12 +785,14 @@
 .tool-activity-item-header:has(> .tool-activity-item-toggle:focus-visible) .tool-activity-item-title b {
   color: var(--mx-text);
 }
-.tool-activity-item-title {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
+/* No box of its own: verb, subject and meta compete directly in the header
+   flex row so the verb and chips keep their width and the subject gives way
+   first, then the meta line. */
+.tool-title.tool-activity-item-title {
+  display: contents;
+}
+.tool-title.tool-activity-item-title > :last-child {
+  margin-inline-end: auto;
 }
 .tool-activity-item-title b,
 .tool-activity-item-title small {
@@ -535,6 +808,11 @@
    eye lands on WHAT was read or edited, not on the tool that did it. */
 .tool-title.tool-activity-item-title b {
   flex: 0 0 auto;
+  min-width: max-content;
+  max-width: none;
+  display: block;
+  overflow: visible;
+  text-overflow: clip;
   color: var(--mx-text-muted);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
@@ -543,8 +821,16 @@
 }
 /* The subject is set by what it IS. A command or a pattern is code: mono, one
    step quieter, and capped so a long regex never runs the row to the edge. */
+.tool-title.tool-activity-item-title b [data-component="text-shimmer"],
+.tool-title.tool-activity-item-title b [data-slot="text-shimmer-char"] {
+  min-width: 0;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
 .tool-title.tool-activity-item-title small {
-  flex: 0 1 auto;
+  flex: 0 999 auto;
+  min-width: 4ch;
   max-width: 44ch;
   color: var(--mx-text-soft);
   font-size: var(--mx-font-meta);
@@ -587,6 +873,25 @@
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
+  white-space: nowrap;
+}
+/* A failure's reason (an error's first line) is the one part that gives way:
+   the status, exit and id beside it stay whole. */
+.tool-activity-item-result[data-reason="true"] {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+}
+.tool-activity-item-result .tool-activity-item-chips {
+  flex: 0 0 auto;
+  white-space: pre;
+}
+.tool-activity-item-result .tool-activity-item-reason {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* Line deltas wear a tinted chip, so "+16 -13" reads as one badge. */
@@ -687,9 +992,70 @@
   overflow: hidden;
   color: var(--mx-text-muted);
 }
+/* No side inset of its own: every payload (file rows, code rows, a command,
+   its output, a diff's file line) already insets 12px, which is where the
+   header band's title starts — one column down the card, as in a table. The
+   bare blocks below take that 12px themselves. */
 .tool-activity-item-body-inner {
   min-width: 0;
-  padding: 2px 12px 12px;
+  padding: 2px 0 12px;
+}
+.tool-activity-item-body-inner .tool-activity-item-section:not(.tool-panel, .tool-activity-terminal),
+.tool-activity-item-body-inner .tool-panel[data-bare="true"] > .tool-panel-body {
+  padding-inline: 12px;
+}
+/* A call the expansion setting opened is a preview, cut on whole lines: the
+   command's first two, five of its output. Files and code, which have no
+   single line count, cut at about six lines of height INSIDE their plate, so
+   the plate keeps its corners (a diff keeps its own cap). The quiet
+   "… +N lines" note under the cut says what is left, as a terminal would. */
+.tool-activity-preview[data-clamped="lines"] .tool-panel[data-kind="command"] .tool-code {
+  max-height: calc(2 * var(--mx-line-ui));
+  overflow: hidden;
+}
+.tool-activity-preview[data-clamped="lines"] .tool-activity-item-output {
+  max-height: calc(5 * var(--mx-line-ui));
+  overflow: hidden;
+}
+.tool-activity-preview[data-clamped="height"] .tool-panel {
+  --tool-panel-max: calc(6 * var(--mx-line-ui) + 16px);
+}
+.tool-activity-preview[data-clamped="height"] .tool-panel-body {
+  overflow: hidden;
+}
+/* Only a box the preview really cut fades at its foot, so a line split by the
+   cut trails off instead of being sliced. */
+.tool-activity-preview [data-preview-cut] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+}
+.tool-activity-preview-more {
+  display: block;
+  margin: 4px 0 0;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--mx-text-faint);
+  font-family: inherit;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.tool-activity-preview-more:hover,
+.tool-activity-preview-more:focus-visible {
+  color: var(--mx-text-soft);
+}
+/* A quiet line under a call's output ("종료 코드 2", the background note): UI
+   words in the sans face at the meta size, not terminal text. */
+.tool-activity-item-note {
+  margin: 4px 0 0;
+  padding: 0 12px;
+  color: var(--mx-text-faint);
+  font-family: var(--mx-font-sans);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
 }
 /* The group's call list opens on the same height reveal as a call's detail,
    instead of the whole card appearing in one frame. */
@@ -747,7 +1113,14 @@
    task status and id — instead of the nine-line key/value header the model
    receives (user: 도구 실행이 안 이쁘다). */
 .tool-activity-item-meta {
-  margin: 0 0 6px;
+  /* Rides in the open row's header band after the title; the title keeps
+     priority and the facts give way with an ellipsis. */
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--mx-text-faint);
   /* A status line in words ("실행 중 · job_…"), not code: the mono face
      spread Korean labels apart. */
@@ -768,24 +1141,43 @@
   min-width: 0;
   overflow: hidden;
   border-radius: var(--mx-radius-md);
-  /* One step off the list card it sits in, with a frame that shows at 1x. */
-  background: var(--mx-bg-layer-1);
-  /* Inset: the item body clips at its own edge, which cut an outer hairline
-     off the left and right sides. */
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  background: transparent;
+  box-shadow: none;
+}
+/* Table grammar, as in markdown and usage tables: the list card is the one
+   frame, an open call's row turns into its header band (the plate tint over a
+   hairline rule, like a th), and what it holds sits below on the card with no
+   plate or frame of its own. Boxes inside the frame read as patched on (user:
+   테두리 잘리고 덧대고); bare content with no header read as empty (user: 텅텅
+   비어서) — the band is what gives the body its edge (user: 헤더에 들어가고
+   아래 프레임을). */
+/* The band spans the card as a table's header row does, painted by the row
+   itself: the header keeps hugging its text, so the empty right side never
+   becomes a toggle and the chevron stays beside the title. */
+/* Only a row with a body has a band: a row that cannot open (no body, no
+   chevron) is already framed by the list card, and a band's rule drawn at its
+   bottom edge doubled the card's own border. */
+.tool-activity-item[data-open="true"][data-expanded="true"] {
+  --tool-item-band: 32px;
+  background:
+    linear-gradient(var(--mx-border), var(--mx-border)) 0 calc(var(--tool-item-band) - var(--mx-hairline)) / 100%
+    var(--mx-hairline) no-repeat,
+    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)) 0 0 / 100% var(--tool-item-band) no-repeat;
+}
+.tool-activity-item[data-open="true"] .tool-activity-item-body-inner {
+  padding-top: 8px;
 }
 /* Caption row: the full path of the file (the row above shows only its name)
-   or the section label, with the copy control parked at its right end. */
+   or the section label, with the copy control parked at its right end. A
+   quiet line of the plate itself, not a second band on it. */
 .tool-panel-header {
   min-width: 0;
   min-height: 28px;
   display: flex;
   align-items: center;
   padding: 0 36px 0 12px;
-  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-faint);
-  /* Same header band as the code block's language row. */
-  background: var(--mx-surface-plate);
+  background: transparent;
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
@@ -842,6 +1234,12 @@
 .tool-panel .markdown-code.tool-code {
   color: var(--mx-text);
 }
+/* Code rows reuse .markdown-code for the syntax palette only; the code card's
+   hairline frame stays with real code cards. */
+:root .tool-panel .markdown-code.tool-code {
+  background: transparent;
+  box-shadow: none;
+}
 .tool-panel[data-kind="command"] .tool-code-row {
   padding: 0;
 }
@@ -862,10 +1260,11 @@
   opacity: 1;
 }
 /* Per-file sections of one result. The header is the file: name in full ink,
-   folder after it, and where in the file on the right. It sticks while its
-   rows scroll, so a long batch always says which file is on screen. */
+   folder after it, and where in the file on the right — one quiet line, with
+   a row rule between files as a table has. It sticks while its rows scroll,
+   so a long batch always says which file is on screen. */
 .tool-section + .tool-section {
-  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  border-top: var(--mx-hairline) solid var(--mx-border);
 }
 .tool-section-header {
   position: sticky;
@@ -877,19 +1276,33 @@
   align-items: center;
   gap: 8px;
   padding: 0 36px 0 12px;
-  color: var(--mx-text-muted);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 calc(var(--mx-hairline) * -1) 0 var(--mx-border-muted);
+  color: var(--mx-text-faint);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-/* The tool card is a frame on the canvas: its sticky header lays the shared
-   header-band tint over the opaque canvas tone (the solid copy under Mica),
-   so scrolled rows never show through it. */
+/* The card's own tone made opaque (the solid canvas copy under Mica), so
+   scrolled rows never show through the sticky line. */
 :root .tool-section-header {
-  background:
-    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-sheet-ink, var(--mx-workspace-sheet));
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
+}
+/* A diff inside a call follows the same grammar: content on the card under
+   the call's header band, its file line a quiet caption, no frame. */
+.tool-activity-item-body .code-diff {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.tool-activity-item-body .diff-file > header,
+.tool-activity-item-body .diff-file + .diff-file > header {
+  border: 0;
+  background: transparent;
+}
+.tool-activity-item-body .diff-collapsed::after {
+  display: none;
+}
+.tool-activity-item-body .diff-collapsed {
+  mask-image: linear-gradient(#000 calc(100% - 36px), transparent);
 }
 .tool-section-title {
   min-width: 0;

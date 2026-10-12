@@ -146,5 +146,7 @@ try {
 if (onnx) {
   process.stdout.write(`Embedding runtime OK: ${process.platform}-${process.arch} · ${nativeDir}\n`);
 } else {
-  process.stdout.write(`Embedding runtime unavailable on ${process.platform}-${process.arch} (no onnxruntime-node binding); skipped.\n`);
+  process.stdout.write(
+    `Embedding runtime unavailable on ${process.platform}-${process.arch} (no onnxruntime-node binding); skipped.\n`
+  );
 }

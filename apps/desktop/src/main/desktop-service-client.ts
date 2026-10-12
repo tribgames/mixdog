@@ -166,14 +166,7 @@ export class DesktopServiceClient implements DesktopService {
       this.readyResolve = resolve;
       this.readyReject = reject;
     });
-    this.startupTimer = setTimeout(() => {
-      if (!this.readyReject) return;
-      const error = this.lastExitError ?? new Error('Mixdog service startup timed out.');
-      const transport = this.transport;
-      this.rejectStartup(error);
-      void transport?.close().catch(() => {});
-    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
-    this.startupTimer.unref?.();
+    this.armStartupTimer();
     const readyPromise = this.readyPromise;
     const restartDelayMs = Math.max(0, this.nextRestartAt - Date.now());
     if (restartDelayMs > 0) {
@@ -186,6 +179,31 @@ export class DesktopServiceClient implements DesktopService {
       this.connectService();
     }
     return readyPromise;
+  }
+
+  private armStartupTimer(): void {
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.startupTimer = setTimeout(() => {
+      if (!this.readyReject) return;
+      const error = this.lastExitError ?? new Error('Mixdog service startup timed out.');
+      const transport = this.transport;
+      this.rejectStartup(error);
+      void transport?.close().catch(() => {});
+    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
+    this.startupTimer.unref?.();
+  }
+
+  /** An older daemon is finishing its work. The new version cannot start until
+   *  it yields, so the startup deadline is suspended (no teardown, no failure
+   *  toast) until it yields. */
+  private handleUpgradeWait(message: Extract<DesktopServiceOutbound, { kind: 'upgrade-wait' }>): void {
+    if (message.state === 'waiting') {
+      if (this.startupTimer) clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+      this.clearFailureNoticeTimer();
+      return;
+    }
+    if (this.readyReject) this.armStartupTimer();
   }
 
   private connectService(): void {
@@ -256,6 +274,14 @@ export class DesktopServiceClient implements DesktopService {
     return () => this.sessionStateListeners.delete(listener);
   }
 
+  requestSessionStateResync(sessionId: string): void {
+    try {
+      this.transport?.postMessage({ kind: 'session-state-resync', sessionId });
+    } catch {
+      // Service reconnect owns the failed transport.
+    }
+  }
+
   subscribeDesktopEvents(listener: (event: { name: string; value: unknown }) => void): () => void {
     this.desktopEventListeners.add(listener);
     return () => this.desktopEventListeners.delete(listener);
@@ -280,6 +306,10 @@ export class DesktopServiceClient implements DesktopService {
     const message = value as DesktopServiceOutbound;
     if (message.kind === 'ready') {
       this.handleReady(message.viewSync === true);
+      return;
+    }
+    if (message.kind === 'upgrade-wait') {
+      this.handleUpgradeWait(message);
       return;
     }
     if (message.kind === 'view-sync-complete') {
@@ -698,6 +728,21 @@ export class DesktopServiceClient implements DesktopService {
   renameSession(sessionId: string, title: string): Promise<unknown> {
     return this.invoke('renameSession', [sessionId, title]);
   }
+  continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean> {
+    return this.invoke('continueSessionInModel', [sessionId, route]);
+  }
+  scheduleQuotaResume(sessionId: string): Promise<boolean> {
+    return this.invoke('scheduleQuotaResume', [sessionId]);
+  }
+  cancelQuotaResume(sessionId: string): Promise<boolean> {
+    return this.invoke('cancelQuotaResume', [sessionId]);
+  }
+  getQuotaAutoResume(): Promise<boolean> {
+    return this.invoke('getQuotaAutoResume', []);
+  }
+  setQuotaAutoResume(enabled: boolean): Promise<boolean> {
+    return this.invoke('setQuotaAutoResume', [enabled]);
+  }
   readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt]);
   }
@@ -726,9 +771,16 @@ export class DesktopServiceClient implements DesktopService {
     projectIdOrWorkspaceId: string,
     query: string,
     limit = 50,
-    includeIgnored = false
+    includeIgnored = false,
+    includeDirectories = false
   ): Promise<string[]> {
-    return this.invokeRead('searchProjectFiles', [projectIdOrWorkspaceId, query, limit, includeIgnored]);
+    return this.invokeRead('searchProjectFiles', [
+      projectIdOrWorkspaceId,
+      query,
+      limit,
+      includeIgnored,
+      includeDirectories,
+    ]);
   }
   submitNewTask(
     prompt: DesktopPromptContent,
@@ -739,9 +791,10 @@ export class DesktopServiceClient implements DesktopService {
   }
   inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null
+    route?: DesktopModelSelection | null,
+    options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.invoke('inheritSession', [sourceSessionId, route ?? null], INHERIT_SESSION_TIMEOUT_MS);
+    return this.invoke('inheritSession', [sourceSessionId, route ?? null, options ?? null], INHERIT_SESSION_TIMEOUT_MS);
   }
   submitToSession(
     sessionId: string,

@@ -389,14 +389,18 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
       );
     });
     assert.equal(document.querySelector('.session-goal-objective')?.textContent, 'Short Goal Title');
-    assert.ok(document.querySelector('.session-goal-glyph .mx-icon.lucide-crosshair'));
-    assert.equal(document.querySelector('.session-goal-glyph .lucide-target'), null);
-    assert.equal(document.querySelector('.session-goal-glyph .lucide-flag'), null);
-    assert.equal(document.querySelector('.session-goal-glyph .lucide-flag-triangle-right'), null);
-    assert.equal(document.querySelector('.session-goal-progress')?.textContent, '1/3');
-    assert.match(document.querySelector('.session-goal-time')?.textContent || '', /^\d+:\d{2}$/);
-    assert.match(document.querySelector('.session-goal-meta')?.textContent || '', /^1\/3·\d+:\d{2}$/);
     const trigger = document.querySelector('.session-goal-trigger');
+    const bar = trigger.querySelector('.session-goal-bar');
+    assert.equal(trigger.firstElementChild, bar, 'a progress bar leads the segment');
+    assert.ok(Math.abs(Number.parseFloat(bar.querySelector('i').style.width) - 100 / 3) < 0.001, 'bar fill is 1/3');
+    // The segment reads n/m; elapsed time is only in the open Goal tab.
+    assert.equal(trigger.querySelector('.session-goal-meta')?.textContent, '1/3');
+    assert.equal(trigger.querySelector('.session-goal-time'), null);
+    assert.match(document.querySelector('.session-goal-panel .session-goal-time')?.textContent || '', /^\d+:\d{2}$/);
+    assert.match(
+      document.querySelector('.session-goal-panel .session-goal-meta')?.textContent || '',
+      /^1\/3·\d+:\d{2}$/
+    );
     assert.equal(document.querySelector('.session-goal-toggle'), null);
     assert.equal(trigger?.getAttribute('aria-expanded'), 'false');
     assert.equal(document.querySelector('.session-goal-drawer')?.getAttribute('aria-hidden'), 'true');

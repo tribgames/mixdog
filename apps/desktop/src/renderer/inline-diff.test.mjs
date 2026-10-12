@@ -4,8 +4,9 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { buildDiffItems, parseHunk } from './inline-diff.tsx';
+import { FileDiffBody, buildDiffItems, parseHunk } from './inline-diff.tsx';
 import { SessionDiffFiles, SessionDiffPane } from './SessionDiffPane.tsx';
+import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { DiffHeaderControls, diffModeActions } from './diff-header-controls.tsx';
 import { DockHeaderRow, splitDockActions } from './pane-dock-chrome.tsx';
 
@@ -89,24 +90,100 @@ test('long unchanged runs fold into an "N unmodified lines" item', () => {
   assert.equal(gap.count, 4);
 });
 
-test('file rows expand and collapse inline; several can be open', async () => {
+test('file list rows pick a file; the pane drills list → diff', async () => {
   const rows = [row('src/cart.js', PATCH), row('src/receipt.js', PATCH)];
-  const opened = [];
-  const view = await mount(h(SessionDiffFiles, { rows, mode: 'unified', onOpenFile: (rel) => opened.push(rel) }));
+  const picked = [];
+  const listView = await mount(h(SessionDiffFiles, { rows, onSelect: (path) => picked.push(path) }));
   try {
-    const mains = () => [...view.container.querySelectorAll('.changes-file-main')];
-    assert.equal(view.container.querySelectorAll('.inline-diff').length, 0);
-    assert.match(mains()[0].textContent, /cart\.js.*src.*\+2.*\u22121/);
-    assert.equal(view.container.querySelector('.changes-file-open'), null);
-    await view.click(mains()[0]);
-    await view.click(mains()[1]);
-    assert.equal(view.container.querySelectorAll('.inline-diff').length, 2);
-    assert.equal(mains()[0].getAttribute('aria-expanded'), 'true');
-    const openButtons = view.container.querySelectorAll('.changes-file-open');
-    assert.equal(openButtons.length, 2);
-    await view.click(openButtons[0]);
-    assert.deepEqual(opened, ['src/cart.js']);
-    // Added/deleted rows and the marker column.
+    const mains = [...listView.container.querySelectorAll('.changes-file-main')];
+    assert.equal(listView.container.querySelectorAll('.inline-diff').length, 0);
+    assert.match(mains[0].textContent, /cart\.js.*src.*\+2.*\u22121/);
+    await listView.click(mains[1]);
+    assert.deepEqual(picked, ['src/receipt.js']);
+  } finally {
+    await listView.done();
+  }
+  const view = await mount(h(SessionDiffPane, { sessionId: 'sd-drill', active: true, onClose() {} }), (win) => {
+    win.mixdogDesktop = {
+      invokeCapability: async () => ({
+        value: {
+          supported: true,
+          files: [
+            { path: 'src/cart.js', status: 'M', additions: 2, deletions: 1, binary: false },
+            { path: 'src/receipt.js', status: 'M', additions: 2, deletions: 1, binary: false },
+          ],
+          patch: PATCH,
+        },
+      }),
+    };
+  });
+  try {
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    const q = (selector) => view.container.querySelector(selector);
+    assert.equal(q('.session-diff-files'), null);
+    assert.ok(q('.session-diff-body'));
+    assert.match(q('.session-diff-crumb').textContent, /1 \/ 2/);
+    await view.click(q('.session-diff-back'));
+    assert.equal(q('.session-diff-body'), null);
+    await view.click(view.container.querySelectorAll('.changes-file-main')[1]);
+    assert.equal(q('.session-diff-files'), null);
+    assert.match(q('.session-diff-crumb').textContent, /2 \/ 2/);
+  } finally {
+    await view.done();
+  }
+});
+
+test('revert sends the turn checkpoint and is disabled while the session is busy', async () => {
+  const sessionId = 'sd-revert';
+  const calls = [];
+  const view = await mount(h(SessionDiffPane, { sessionId, active: true, onClose() {} }), (win) => {
+    win.confirm = () => true;
+    win.mixdogDesktop = {
+      invokeCapability: async (request) => {
+        calls.push(request);
+        if (request.capability === 'getTurnReviewDiff') {
+          return { value: { checkpointId: 'cp-1', files: [{ path: 'src/cart.js' }] } };
+        }
+        return {
+          value: {
+            supported: true,
+            files: [{ path: 'src/cart.js', status: 'M', additions: 2, deletions: 1, binary: false }],
+            patch: PATCH,
+          },
+        };
+      },
+    };
+  });
+  try {
+    const wait = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    await wait();
+    const revert = () => view.container.querySelector('[aria-label="Revert src/cart.js"]');
+    assert.equal(revert().disabled, false);
+    await view.click(revert());
+    await wait();
+    const sent = calls.find((call) => call.capability === 'revertTurnReviewFile');
+    assert.deepEqual(sent.args, ['src/cart.js', 'cp-1']);
+    assert.equal(sent.sessionId, sessionId);
+    const before = calls.filter((call) => call.capability === 'revertTurnReviewFile').length;
+    await act(async () => {
+      defaultSessionLaneStore.apply({
+        sessionId,
+        frameSource: 'live',
+        snapshot: { sessionId, items: [], busy: true, contentRevision: 1 },
+      });
+    });
+    await wait();
+    assert.equal(revert().disabled, true);
+    await view.click(revert());
+    assert.equal(calls.filter((call) => call.capability === 'revertTurnReviewFile').length, before);
+  } finally {
+    await view.done();
+  }
+});
+
+test('the unified diff body shows add/del rows and expandable folds', async () => {
+  const view = await mount(h(FileDiffBody, { patch: PATCH, mode: 'unified' }));
+  try {
     const first = view.container.querySelector('.inline-diff');
     assert.equal(first.querySelectorAll('[data-kind="add"]').length, 2);
     assert.equal(first.querySelector('[data-kind="del"] .inline-diff-mk').textContent, '\u2212');
@@ -117,17 +194,14 @@ test('file rows expand and collapse inline; several can be open', async () => {
     await view.click(fold);
     assert.equal(first.querySelector('button.inline-diff-fold'), null);
     assert.equal(first.querySelectorAll('.inline-diff-row').length, 12);
-    await view.click(mains()[0]);
-    assert.equal(view.container.querySelectorAll('.inline-diff').length, 1);
   } finally {
     await view.done();
   }
 });
 
 test('split mode leaves the inline renderer', async () => {
-  const view = await mount(h(SessionDiffFiles, { rows: [row('src/cart.js', PATCH)], mode: 'split' }));
+  const view = await mount(h(FileDiffBody, { patch: PATCH, mode: 'split' }));
   try {
-    await view.click(view.container.querySelector('.changes-file-main'));
     assert.equal(view.container.querySelector('.inline-diff'), null);
   } finally {
     await view.done();
@@ -251,7 +325,7 @@ for (const [state, sessionId, invoke, expectCount, expectRefreshDisabled] of [
         patch: PATCH,
       },
     }),
-    true,
+    false, // the diff view's header names the file instead of counting files
     false,
   ],
 ]) {

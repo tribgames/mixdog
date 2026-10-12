@@ -410,7 +410,7 @@ export function WorkbenchQuickAccess({
               } else if (event.key === 'PageUp') {
                 event.preventDefault();
                 setSelectedIndex((current) => Math.max(0, current - 10));
-              } else if (event.key === 'Enter') {
+              } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 runRow(selected);
               }

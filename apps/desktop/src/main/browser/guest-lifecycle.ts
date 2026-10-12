@@ -10,6 +10,7 @@ import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
 import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } from './command';
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
+import { redactBrowserUrl } from './redaction';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserPageOwner } from './page-owner';
 import { injectPageScrollbarCss } from './page-scrollbar-css';
@@ -17,6 +18,9 @@ import { adoptBrowserPageWindow, browserPageWindow, createBrowserPageWindow } fr
 import { assertBackgroundTabCapacity, backgroundPageIdle, normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs-contract';
 import { type BrowserUrlPolicy, normalizePageUrl, normalizeRestoredPageUrl } from './url-policy';
+
+/** Prefix of a fault set by a failed main-frame load; a new load clears it. */
+const LOAD_FAULT = 'page failed to load: ';
 
 interface BrowserGuestLifecycleHost {
   window: BrowserWindow;
@@ -289,8 +293,23 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     });
     guest.on('did-finish-load', () => {
       const record = state.for(guest);
-      record.fault = '';
+      // The error document of a failed load also finishes loading; only the
+      // next navigation clears that failure.
+      if (!record.fault.startsWith(LOAD_FAULT)) record.fault = '';
       record.network.finishDocument(guest.getURL());
+    });
+    // A page that never arrived (refused, unreachable, bad certificate) is a
+    // fault the pane shows; without it the pane sits on an empty document.
+    // A superseded navigation (-3) is not a failure.
+    // The address keeps two failures in a row distinct for the pane.
+    guest.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      if (!isMainFrame || code === -3) return;
+      state.for(guest).fault = `${LOAD_FAULT}${description || 'unknown error'} (${code}) ${redactBrowserUrl(url)}`;
+    });
+    guest.on('did-start-navigation', (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      const record = state.for(guest);
+      if (record.fault.startsWith(LOAD_FAULT)) record.fault = '';
     });
     if (deferDebugger) {
       // A popup already has a navigation owned by window.open. Attaching

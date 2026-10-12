@@ -1,5 +1,7 @@
 type RemoteConnectionState = 'connecting' | 'syncing' | 'connected' | 'reconnecting';
 
+/** Dispatched on window once the remote shim (re)connects and has synced. */
+export const REMOTE_CONNECTION_READY_EVENT = 'mixdog:remote-connection-ready';
 const REMOTE_CONNECTION_STATE_EVENT = 'mixdog:remote-connection-state';
 const REMOTE_CONNECTION_INTERRUPTED_CODE = 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED';
 

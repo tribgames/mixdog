@@ -44,7 +44,6 @@ test('a profile with no stored config starts fresh: built-ins uninstalled, agent
     saveConfigPatch([
       ...changes,
       { path: ['builtins'], value: fresh.builtins, ifAbsent: true },
-      { path: ['disabledAgents'], value: fresh.disabledAgents, ifAbsent: true },
     ]);
     const reloaded = withGrandfatheredBuiltins(loadConfig({ secrets: false }));
     assert.deepEqual(reloaded.builtins, {});
@@ -85,7 +84,7 @@ test('sync and async config writes preserve user fields without persisting secre
         modules: { webSearch: { enabled: false } },
       };
       // The unmanaged field exists only in the in-lock baseline, not the snapshot.
-      writeFileSync(path, JSON.stringify({ agent: { unmanaged: { revision: 7 } } }));
+      writeFileSync(path, JSON.stringify({ defaultsVersion: 2, agent: { unmanaged: { revision: 7 } } }));
       await save(config);
       const persisted = read();
       assert.deepEqual(persisted.providers, {
@@ -97,7 +96,9 @@ test('sync and async config writes preserve user fields without persisting secre
       assert.deepEqual(persisted.unmanaged, { revision: 7 });
       assert.deepEqual(persisted.modelSettings, config.modelSettings);
       assert.deepEqual(persisted.profile, config.profile);
-      assert.deepEqual(persisted.disabledAgents, ['reviewer']);
+      // Only the delta against the default roster is stored.
+      assert.equal(Object.hasOwn(persisted, 'disabledAgents'), false);
+      assert.deepEqual(persisted.enabledAgents, ['advisor', 'front-worker', 'heavy-worker', 'maintainer', 'security', 'worker', 'writer']);
       for (const field of ['skills', 'autoClear', 'compaction', 'shell', 'modules']) {
         assert.deepEqual(persisted[field], config[field]);
       }

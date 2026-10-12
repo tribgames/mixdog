@@ -17,7 +17,10 @@ export function useSideFileGuardOpeners(openFileTabRaw: OpenFileTab) {
   const openFileInSideDock = useStableEvent<Parameters<SideFileGuard['openFileInSideDock']>, void>((...args) =>
     sideFileGuardRef.current?.openFileInSideDock(...args)
   );
-  return { sideFileGuardRef, openFileTab, openFileInSideDock };
+  const openPreviewToSide = useStableEvent<Parameters<SideFileGuard['openPreviewToSide']>, void>((...args) =>
+    sideFileGuardRef.current?.openPreviewToSide(...args)
+  );
+  return { sideFileGuardRef, openFileTab, openFileInSideDock, openPreviewToSide };
 }
 
 /** Builds the guard for this render and publishes it to the openers. */

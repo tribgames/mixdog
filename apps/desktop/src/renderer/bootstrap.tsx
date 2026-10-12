@@ -12,6 +12,7 @@ import { RemoteClaimPrompt } from './RemoteClaimPrompt';
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from './RendererRecovery';
 import './bootstrap-styles';
 import './webview-zoom';
+import { isNativeDesktopWindow } from './remote-ui-projection';
 import { installShellViewport } from './shell-viewport';
 import { installFocusModality } from './focus-modality';
 import { installMobileSurfaceMarker } from './mobile-surface';
@@ -53,7 +54,7 @@ defaultSessionLaneStore.start();
 // made the first paint render fallback glyphs and then swap (user: the
 // composer hint "pops" right after entry). Local assets resolve in a few ms,
 // so starting them here lands the real faces by first paint.
-const nativeDesktop = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+const nativeDesktop = isNativeDesktopWindow();
 let criticalFontsReady: Promise<unknown> = Promise.resolve();
 try {
   criticalFontsReady = Promise.allSettled([

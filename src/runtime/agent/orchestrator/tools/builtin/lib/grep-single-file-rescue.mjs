@@ -15,13 +15,14 @@
 // exactly — multiline patterns, type filters, a PCRE-only regex, a binary or
 // oversized file — declines (returns null) and the caller keeps the original
 // native error.
-import { readFile } from 'node:fs/promises';
+import { PATCH_SNAPSHOT_MAX_BYTES, readBoundedFile } from '../../../../../shared/bounded-file-read.mjs';
 
 import { formatGrepContextOutput, formatGrepOutput, grepNoMatchesBody } from './grep-output.mjs';
 
 /** Reading is the whole point of the rescue, so the file must stay small
- *  enough that reading it is cheaper than the failed search. */
-export const MAX_RESCUE_BYTES = 8 * 1024 * 1024;
+ *  enough that reading it is cheaper than the failed search. The read is
+ *  bounded: an oversized (or growing) file is declined without being read. */
+export const MAX_RESCUE_BYTES = PATCH_SNAPSHOT_MAX_BYTES;
 /** Bounds memory on a pathological match rate; a truncated window is reported
  *  as incomplete, exactly like a capped native result. */
 const MAX_RESCUE_LINES = 5_000;
@@ -69,11 +70,13 @@ export async function runGrepSingleFileRescue({
 
   let raw;
   try {
-    raw = await readFile(filePath);
+    const read = readBoundedFile(filePath, { maxBytes: MAX_RESCUE_BYTES });
+    if (read.state !== 'present') return null;
+    raw = read.content;
   } catch {
     return null;
   }
-  if (raw.length > MAX_RESCUE_BYTES || raw.includes(0)) return null;
+  if (raw.includes(0)) return null;
   const text = raw.toString('utf8');
   const fileLines = text.split(/\r?\n/);
   if (fileLines.length > 0 && fileLines[fileLines.length - 1] === '') fileLines.pop();

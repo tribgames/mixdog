@@ -21,8 +21,9 @@ async function fixture(t) {
   const saved = process.env.MIXDOG_PROJECTS_FILE;
   process.env.MIXDOG_PROJECTS_FILE = file;
   let store;
-  try { store = await import(`${moduleUrl}?recency=${sequence++}`); }
-  finally {
+  try {
+    store = await import(`${moduleUrl}?recency=${sequence++}`);
+  } finally {
     if (saved === undefined) delete process.env.MIXDOG_PROJECTS_FILE;
     else process.env.MIXDOG_PROJECTS_FILE = saved;
   }
@@ -41,7 +42,10 @@ async function fixture(t) {
       return { sessionId, accepted: true, revision: 1, full: snapshot() };
     },
     read: async () => ({ sessionId, revision: 1, full: snapshot() }),
-    async unsubscribe() { calls.unsubscribes++; return {}; },
+    async unsubscribe() {
+      calls.unsubscribes++;
+      return {};
+    },
     close: async () => {},
   };
   const host = await SessionHost.create(
@@ -70,7 +74,10 @@ function failRegistryPublication(t, file) {
   const rename = fs.renameSync;
   let attempts = 0;
   t.mock.method(fs, 'renameSync', (from, to, ...args) => {
-    if (to === file) { attempts++; throw failure; }
+    if (to === file) {
+      attempts++;
+      throw failure;
+    }
     return rename(from, to, ...args);
   });
   syncBuiltinESMExports();
@@ -117,7 +124,10 @@ for (const cause of ['publication', 'corrupt registry']) {
 
 test('enter keeps registration and unhiding when only the recency write fails', async (t) => {
   const f = await fixture(t);
-  fs.writeFileSync(join(f.root, 'desktop-projects.json'), JSON.stringify({ version: 2, hidden: [f.project], aliases: {} }));
+  fs.writeFileSync(
+    join(f.root, 'desktop-projects.json'),
+    JSON.stringify({ version: 2, hidden: [f.project], aliases: {} })
+  );
   const failed = failRegistryPublication(t, f.file);
   assert.deepEqual(await f.registry.enter(f.project), [f.project]);
   assert.equal(failed.attempts(), 1);
@@ -150,7 +160,10 @@ test('registration and project-authority failures are not swallowed as recency f
   fs.writeFileSync(f.file, '{broken');
   await assert.rejects(f.host.startProject(f.project), SyntaxError);
   await assert.rejects(f.host.startProjectTask(f.project), SyntaxError);
-  await assert.rejects(f.host.submitNewTask('must not start', { id: 'bad-registry' }, { projectPath: f.project }), SyntaxError);
+  await assert.rejects(
+    f.host.submitNewTask('must not start', { id: 'bad-registry' }, { projectPath: f.project }),
+    SyntaxError
+  );
   assert.deepEqual(f.calls, { creates: 0, submits: 0, unsubscribes: 0 });
   assert.equal(fs.readFileSync(f.file, 'utf8'), '{broken');
 });

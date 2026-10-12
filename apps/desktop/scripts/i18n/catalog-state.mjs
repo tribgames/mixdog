@@ -29,6 +29,21 @@ export function readJson(url) {
   return value;
 }
 
+/** Untranslatable terms ({ terms, localeExceptions }); every entry must carry a reason. */
+export function neutralAllowlist() {
+  const list = readJson(new URL('ui-untranslated-allowlist.json', rendererUrl));
+  const entries = [
+    ...Object.entries(list.terms),
+    ...Object.values(list.localeExceptions).flatMap((exceptions) => Object.entries(exceptions)),
+  ];
+  for (const [key, reason] of entries) {
+    if (typeof reason !== 'string' || !reason.trim()) {
+      throw new Error(`ui-untranslated-allowlist.json: "${key}" needs a reason`);
+    }
+  }
+  return list;
+}
+
 // Both classic-script environments use generated code from the typed owner:
 // no independent Chinese-script or preference rules to drift between surfaces.
 export function languageRuntime() {

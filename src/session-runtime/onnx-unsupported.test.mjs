@@ -5,7 +5,12 @@ import test from 'node:test';
 import { createBuiltinToolSettings } from './settings-builtin-tools-api.mjs';
 import { builtinFeatureActive } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { embeddingOnDemandCanStart, embeddingWarmupCanStart } from '../runtime/memory/lib/memory-config-flags.mjs';
-import { embedText, embedTexts, getEmbeddingInfo, warmupEmbeddingProvider } from '../runtime/memory/lib/embedding-provider.mjs';
+import {
+  embedText,
+  embedTexts,
+  getEmbeddingInfo,
+  warmupEmbeddingProvider,
+} from '../runtime/memory/lib/embedding-provider.mjs';
 import { flushEmbeddingDirty } from '../runtime/memory/lib/memory-embed.mjs';
 import { effortJudgeAvailable, installEffortJudge, judgeTurn } from '../runtime/effort-judge/judge-client.mjs';
 
@@ -89,5 +94,5 @@ test('settings API reports and rejects autoEffort on darwin-x64', () =>
 test('settings API reports supported on other platforms', () => {
   const { api } = settings();
   const mods = api.getToolModuleSettings();
-  assert.equal(mods.autoEffort.supported, process.platform === 'darwin' && process.arch === 'x64' ? false : true);
+  assert.equal(mods.autoEffort.supported, !(process.platform === 'darwin' && process.arch === 'x64'));
 });

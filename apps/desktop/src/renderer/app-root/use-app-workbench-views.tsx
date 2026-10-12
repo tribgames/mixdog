@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { DesktopWorkspaceFolder } from '../../shared/contract';
+import type { DesktopProjectSummary, DesktopWorkspaceFolder } from '../../shared/contract';
 import { SessionSidebar, type NavigationSelection } from '../navigation';
 import { paneActiveSelection, type PaneLeaf } from '../pane-layout';
 import { navigationKey } from '../text-format';
@@ -35,6 +35,13 @@ import { cleanDiffTarget } from './workspace-targets';
 export interface UseAppWorkbenchViewsOptions {
   sessions: ReturnType<typeof useSessionCatalog>['sessions'];
   sessionCatalogReady: boolean;
+  projects: readonly DesktopProjectSummary[];
+  sidebarNewProjectTask: (projectPath: string) => void;
+  sidebarOpenSessionInSplit: (sessionId: string, title: string) => void;
+  sidebarInheritSession: (sessionId: string) => void;
+  sidebarRenameProject: (projectPath: string, alias: string) => void;
+  sidebarRevealProject?: (projectPath: string) => void;
+  sidebarOpenProjectSettings: (projectPath: string) => void;
   workingSessionIds: ReadonlySet<string>;
   unreadSessionIds: ReadonlySet<string>;
   sidebarSelection: NavigationSelection;
@@ -102,6 +109,13 @@ export interface UseAppWorkbenchViewsOptions {
 export function useAppWorkbenchViews({
   sessions,
   sessionCatalogReady,
+  projects,
+  sidebarNewProjectTask,
+  sidebarOpenSessionInSplit,
+  sidebarInheritSession,
+  sidebarRenameProject,
+  sidebarRevealProject,
+  sidebarOpenProjectSettings,
   workingSessionIds,
   unreadSessionIds,
   sidebarSelection,
@@ -167,6 +181,13 @@ export function useAppWorkbenchViews({
       panelTitleDragProps: titleDragProps,
       sessions,
       sessionsReady: sessionCatalogReady,
+      projects,
+      onNewProjectTask: sidebarNewProjectTask,
+      onOpenSessionInSplit: sidebarOpenSessionInSplit,
+      onInheritSession: sidebarInheritSession,
+      onRenameProject: sidebarRenameProject,
+      onRevealProject: sidebarRevealProject,
+      onOpenProjectSettings: sidebarOpenProjectSettings,
       workingSessionIds,
       unreadSessionIds,
       selection: sidebarSelection,

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionSnapshot } from '../shared/contract';
 import { type Snapshot, EMPTY_SNAPSHOT } from './desktop-types';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
-import { remoteSurface } from './shell-viewport';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { holdStatsDataCache } from './command-surface-cache';
 import {
   createDesktopSnapshotStore,
@@ -13,6 +13,7 @@ import {
   type DesktopSnapshotStore,
 } from './desktop-snapshot-store';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
+import { errorMessage } from './editor-pane-session-errors';
 export function useDesktopState() {
   const snapshotStoreRef = useRef<DesktopSnapshotStore | null>(null);
   snapshotStoreRef.current ||= createDesktopSnapshotStore();
@@ -50,7 +51,7 @@ export function useDesktopState() {
     let live = true;
     // A remote client reads statistics only for its open dialog: background
     // warmup re-read them over the tunnel on every turn of every session.
-    const releaseStats = holdStatsDataCache(host, { background: !remoteSurface() });
+    const releaseStats = holdStatsDataCache(host, { background: !isRemoteHostRenderer() });
     const update = (next: SessionSnapshot | null) => {
       if (live) {
         applyReceivedSnapshot(next);
@@ -77,11 +78,11 @@ export function useDesktopState() {
         .catch((reason) => {
           if (live) {
             initialReadFailed = true;
-            initialReadError = reason instanceof Error ? reason.message : String(reason);
+            initialReadError = errorMessage(reason);
             setError(initialReadError);
             // Native boot retains its bounded recovery. A remote boot needs a
             // real host snapshot, not merely a completed (failed) attempt.
-            if (!remoteSurface()) setHydrated(true);
+            if (!isRemoteHostRenderer()) setHydrated(true);
           }
         })
         .finally(() => {

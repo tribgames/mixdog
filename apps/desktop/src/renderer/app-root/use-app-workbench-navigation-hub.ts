@@ -77,7 +77,7 @@ export function useAppWorkbenchNavigationHub({
   workbenchWorkspace,
   quickAccessMode,
 }: UseAppWorkbenchNavigationHubOptions) {
-  // Ctrl+Left/Right crosses pane boundaries in visual row-major order and
+  // Ctrl+PageUp/PageDown crosses pane boundaries in visual row-major order and
   // enters at the adjacent edge tab, never the pane's stale active tab.
   const focusSiblingPane = (offset: number) => {
     const target = paneTabAcrossVisualBoundary(paneWorkspace.layout, paneWorkspace.focusedLeafId, offset);

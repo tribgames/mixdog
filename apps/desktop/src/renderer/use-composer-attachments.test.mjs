@@ -233,7 +233,7 @@ test('files without an accessible local path show the limitation without inventi
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const XLSM_MIME = 'application/vnd.ms-excel.sheet.macroEnabled.12';
 
-test('Office files attach as file attachments with OOXML MIME types and [File #n] tokens', async (t) => {
+test('Office files attach as chip-only file attachments with OOXML MIME types and [File #n] tokens', async (t) => {
   const harness = await mountComposer(t);
   await harness.attach([
     new File(['PK'], 'brief.docx', { type: '' }),
@@ -246,8 +246,8 @@ test('Office files attach as file attachments with OOXML MIME types and [File #n
       { name: 'macro.xlsm', kind: 'office', mimeType: XLSM_MIME, token: '[File #2: macro.xlsm]' },
     ]
   );
-  assert.ok(harness.current.draft.includes('[File #1: brief.docx]'));
-  assert.ok(harness.current.draft.includes('[File #2: macro.xlsm]'));
+  assert.ok(harness.current.attachments.every((attachment) => attachment.chipOnly === true));
+  assert.ok(!harness.current.draft.includes('[File #'));
   assert.equal(harness.current.attachmentError, '');
 });
 

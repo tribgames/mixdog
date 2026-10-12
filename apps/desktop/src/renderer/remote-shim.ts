@@ -9,7 +9,8 @@
 import type { DesktopApi } from '../shared/contract';
 import { earlyUiT } from './early-ui-i18n';
 import { isInstalledMobileWebAppSurface } from './mobile-surface';
-import { syncPushSubscription } from './push-notification-bridge';
+import { REMOTE_NATIVE_PUSH_GLOBAL, createNativePushHost, installNativePushBridge } from './native-push-bridge';
+import { installPushSubscriptionSync } from './push-notification-bridge';
 import { setRemoteConnectionState, shouldRunRemoteHeartbeat } from './remote-connection-state';
 import { createRemoteApi } from './remote-shim-api';
 import { installRemoteCalls } from './remote-shim-calls';
@@ -34,9 +35,10 @@ import { installRemoteSync } from './remote-shim-sync';
 
   w.mixdogDesktop = Object.freeze(createRemoteApi(ctx));
   // A renewed subscription reaches the desktop without a trip through Settings.
-  window.addEventListener(REMOTE_CONNECTION_READY_EVENT, () => void syncPushSubscription(w.mixdogDesktop), {
-    once: true,
-  });
+  installPushSubscriptionSync(w.mixdogDesktop, REMOTE_CONNECTION_READY_EVENT);
+  // The phone app's APNs/FCM token reaches the host over this same channel.
+  (w as unknown as Record<string, unknown>)[REMOTE_NATIVE_PUSH_GLOBAL] = Object.freeze(createNativePushHost(ctx));
+  installNativePushBridge({ api: w.mixdogDesktop });
   // Settings → Connection on a remote surface: expose where this session is
   // connected so the panel shows live status instead of desktop-only pairing.
   (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer = ctx.serverBase || location.origin;
@@ -48,7 +50,7 @@ import { installRemoteSync } from './remote-shim-sync';
     return;
   }
   if (!ctx.e2eePairing) {
-    ctx.resetApprovalAndAsk(earlyUiT('This device has incomplete approval data. Ask for approval again.'));
+    ctx.resetApprovalAndAsk(earlyUiT('This connection is incomplete. Connect again.'));
     return;
   }
   setRemoteConnectionState('connecting');

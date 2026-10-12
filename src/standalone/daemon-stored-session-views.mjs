@@ -6,7 +6,10 @@
 //
 // Inputs: `desktopRuntime` (lazy module loaders) and `dataDir` (goal
 // snapshots). Output: the read-only half of the session-service options.
-import { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from '../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
+import {
+  listStoredActiveGoalSessionIds,
+  readStoredGoalSnapshot,
+} from '../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
 
 export function createStoredSessionViews({ desktopRuntime, dataDir }) {
   return {
@@ -31,14 +34,10 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       const store = await desktopRuntime.loadSessionStore();
       const metadata = await store.readStoredSessionTranscript?.(sessionId, { metadataOnly: true });
       if (!metadata) return null;
-      const [{ createRuntimeReviewApi }, { turnReviewReply }] = await Promise.all([
-        import('../session-runtime/runtime-review-api.mjs'),
-        import('../runtime/shared/turn-review-reply.mjs'),
-      ]);
+      const { createRuntimeReviewApi } = await import('../session-runtime/runtime-review-api.mjs');
       const review = createRuntimeReviewApi({ getCwd: () => metadata.cwd || '', getSessionId: () => sessionId });
-      return action === 'getSessionReviewDiff'
-        ? review.getSessionReviewDiff()
-        : turnReviewReply(review.getTurnReviewDiff, args[0]);
+      // The runtime review API answers `known`/`summary` itself (turnReviewReply).
+      return action === 'getSessionReviewDiff' ? review.getSessionReviewDiff() : review.getTurnReviewDiff(args[0]);
     },
     forgetStoredSession: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();

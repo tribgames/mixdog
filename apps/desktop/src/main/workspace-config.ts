@@ -1,10 +1,11 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 
 import type { DesktopWorkspace, DesktopWorkspaceFolder } from '../shared/contract';
 import type { DesktopEditorSettings } from '../shared/contract';
 import { editorLanguageIdForPath } from '../shared/editor-languages';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../shared/editor-settings';
+import { applyEdits, modify } from 'jsonc-parser';
 import { objectRecord, parseJsonc, readJsoncFile } from './workflow-config';
 
 const MAX_WORKSPACE_FOLDERS = 64;
@@ -118,11 +119,20 @@ function languageSettings(source: Record<string, unknown>, languageId: string): 
   return result;
 }
 
-function setting(source: Record<string, unknown>, key: string): unknown {
+function settingInScope(source: Record<string, unknown>, key: string): unknown {
   if (Object.hasOwn(source, key)) return source[key];
   const [group, ...rest] = key.split('.');
   const nested = objectRecord(source[group]);
-  return nested && rest.length ? setting(nested, rest.join('.')) : undefined;
+  return nested && rest.length ? settingInScope(nested, rest.join('.')) : undefined;
+}
+
+/** Resolves dotted/nested forms within each scope first; later scopes win. */
+function setting(scopes: readonly Record<string, unknown>[], key: string): unknown {
+  for (let i = scopes.length - 1; i >= 0; i--) {
+    const value = settingInScope(scopes[i], key);
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 function finiteNumber(value: unknown, fallback: number, minimum: number, maximum: number): number {
@@ -140,11 +150,15 @@ function inlayHintsSetting(value: unknown): DesktopEditorSettings['inlayHintsEna
   return 'on';
 }
 
+function markdownDefaultViewSetting(value: unknown): DesktopEditorSettings['markdownDefaultView'] {
+  return value === 'rich' || value === 'source' ? value : 'preview';
+}
+
 function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plaintext'): DesktopEditorSettings {
-  const merged = scopes.reduce<Record<string, unknown>>((current, scope) => {
+  const merged = scopes.flatMap((scope) => {
     const record = objectRecord(scope);
-    return record ? { ...current, ...languageSettings(record, languageId) } : current;
-  }, {});
+    return record ? [languageSettings(record, languageId)] : [];
+  });
   const defaults = DEFAULT_DESKTOP_EDITOR_SETTINGS;
   const wordWrap = setting(merged, 'editor.wordWrap');
   const whitespace = setting(merged, 'editor.renderWhitespace');
@@ -178,6 +192,7 @@ function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plai
     formatOnSave: booleanSetting(setting(merged, 'editor.formatOnSave'), defaults.formatOnSave),
     formatOnPaste: booleanSetting(setting(merged, 'editor.formatOnPaste'), defaults.formatOnPaste),
     formatOnType: booleanSetting(setting(merged, 'editor.formatOnType'), defaults.formatOnType),
+    markdownDefaultView: markdownDefaultViewSetting(setting(merged, 'mixdog.markdown.defaultView')),
     tabSize: Math.round(finiteNumber(setting(merged, 'editor.tabSize'), defaults.tabSize, 1, 16)),
     insertSpaces: booleanSetting(setting(merged, 'editor.insertSpaces'), defaults.insertSpaces),
     detectIndentation: booleanSetting(setting(merged, 'editor.detectIndentation'), defaults.detectIndentation),
@@ -193,6 +208,109 @@ async function optionalJsonc(path: string): Promise<Record<string, unknown>> {
   }
 }
 
+const MARKDOWN_DEFAULT_VIEW_KEY = 'mixdog.markdown.defaultView';
+
+function userSettingsFile(userDataPath: string): string {
+  return join(userDataPath, 'User', 'settings.json');
+}
+
+/** The user-scope Markdown default view (what Settings → General shows),
+ *  resolved by the same logic the editor uses. */
+export async function readMarkdownDefaultView(
+  userDataPath: string
+): Promise<DesktopEditorSettings['markdownDefaultView']> {
+  const user = userDataPath ? await optionalJsonc(userSettingsFile(userDataPath)) : {};
+  return editorSettingsFromScopes([user]).markdownDefaultView;
+}
+
+/** Writes the user-scope setting into settings.json as a structural edit, so
+ *  comments and formatting stay as written. An unparsable file is left alone. */
+export async function writeMarkdownDefaultView(
+  userDataPath: string,
+  view: DesktopEditorSettings['markdownDefaultView'],
+  hooks?: MarkdownWriteHooks
+): Promise<DesktopEditorSettings['markdownDefaultView']> {
+  const next = markdownDefaultViewSetting(view);
+  const file = userSettingsFile(userDataPath);
+  const previous = writeQueues.get(file) ?? Promise.resolve();
+  const run = previous.catch(() => undefined).then(() => writeMarkdownDefaultViewNow(file, next, hooks));
+  writeQueues.set(file, run);
+  try {
+    await run;
+  } finally {
+    if (writeQueues.get(file) === run) writeQueues.delete(file);
+  }
+  return next;
+}
+
+const writeQueues = new Map<string, Promise<void>>();
+
+function detectFormatting(source: string): { insertSpaces: boolean; tabSize: number; eol: string } {
+  const eol = source.includes('\r\n') ? '\r\n' : '\n';
+  const indent = /^([ \t]+)\S/m.exec(source)?.[1];
+  if (!indent) return { insertSpaces: true, tabSize: 2, eol };
+  if (indent.startsWith('\t')) return { insertSpaces: false, tabSize: 1, eol };
+  return { insertSpaces: true, tabSize: indent.length, eol };
+}
+
+const READ_RETRIES = 5;
+const READ_RETRY_DELAY_MS = 20;
+const COMMIT_ATTEMPTS = 5;
+
+/** Test seam: runs after the text is read and before the commit re-check. */
+export interface MarkdownWriteHooks {
+  afterRead?: () => Promise<void>;
+}
+
+/** Reads the file; a missing or empty read is retried briefly because another
+ *  process may be mid-replace. Only a persistent miss counts as "no content". */
+async function readSettingsText(file: string): Promise<string> {
+  let source = '';
+  for (let attempt = 0; attempt < READ_RETRIES; attempt++) {
+    try {
+      source = await readFile(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
+      source = '';
+    }
+    if (source.trim()) return source;
+    await new Promise((done) => setTimeout(done, READ_RETRY_DELAY_MS));
+  }
+  return source;
+}
+
+async function writeMarkdownDefaultViewNow(
+  file: string,
+  next: DesktopEditorSettings['markdownDefaultView'],
+  hooks?: MarkdownWriteHooks
+): Promise<void> {
+  await mkdir(dirname(file), { recursive: true });
+  for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
+    const original = await readSettingsText(file);
+    await hooks?.afterRead?.();
+    const formatting = detectFormatting(original);
+    const source = original.trim() ? original : '{}';
+    let parsed: unknown;
+    try {
+      parsed = parseJsonc(source);
+    } catch (error) {
+      throw new TypeError(`User settings could not be parsed; refusing to overwrite: ${(error as Error).message}`);
+    }
+    if (!objectRecord(parsed)) throw new TypeError('User settings must be an object.');
+    const edits = modify(source, [MARKDOWN_DEFAULT_VIEW_KEY], next, { formattingOptions: formatting });
+    const temp = `${file}.${process.pid}.${Date.now()}.${attempt}.tmp`;
+    try {
+      await writeFile(temp, applyEdits(source, edits), 'utf8');
+      // Re-check the target right before replacing it; if it changed, redo on fresh text.
+      if ((await readSettingsText(file)) !== original) continue;
+      await rename(temp, file);
+      return;
+    } finally {
+      await rm(temp, { force: true });
+    }
+  }
+  throw new Error('User settings kept changing during write; giving up without overwriting.');
+}
 export async function readScopedEditorSettings(
   userDataPath: string,
   folderPath: string,

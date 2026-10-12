@@ -30,7 +30,9 @@
  * Non-breakpoint providers:
  *   - OpenAI (public): prompt_cache_key plus model-specific retention when
  *     response storage is enabled (30m cache options or 24h retention).
- *   - OpenAI OAuth: prompt_cache_key only (server in-memory 5-10min)
+ *   - OpenAI OAuth: prompt_cache_key only; the Codex backend keeps the
+ *     prompt cache at least 30 minutes on GPT-5.6+ models, refreshed on use
+ *     (the openai-oauth auto-clear window matches it)
  *   - Gemini: provider-managed explicit cachedContents with 5m default TTL, plus
  *     implicit caching as a fallback when the prefix is below cache minimums.
  *   - xAI: conversation routing for chat; Responses omits prompt_cache_key

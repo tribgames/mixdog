@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
 import {
   canonicalizeStoredChannelsConfig,
@@ -6,6 +6,7 @@ import {
   updateSection,
   updateSectionAsync,
 } from '../../runtime/shared/config.mjs';
+import { CHANNELS_DEFAULTS, stripChannelsDefaults } from '../../runtime/shared/defaults-separation.mjs';
 import {
   listSchedules as dbListSchedules,
   getSchedule as dbGetSchedule,
@@ -25,12 +26,9 @@ import { normalizeAutomationAttachments } from '../../runtime/shared/automation-
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/shared/schedule-time.mjs';
 import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tunnel.mjs';
+import { WEBHOOK_TEST_FIELD, WEBHOOK_TEST_HEADER } from '../../runtime/channels/lib/webhook/request-handler.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const DEFAULT_CHANNELS = Object.freeze({
-  access: { dmPolicy: 'allowlist', allowFrom: [], channels: {} },
-  webhook: { enabled: true, port: 3333 },
-});
 
 function assertName(name, kind = 'name') {
   const value = String(name || '').trim();
@@ -56,11 +54,17 @@ function assertScheduleName(name) {
 function normalizeChannelsConfig(raw = {}) {
   const stored = canonicalizeStoredChannelsConfig(raw);
   return {
-    ...DEFAULT_CHANNELS,
+    ...CHANNELS_DEFAULTS,
     ...stored,
-    access: { ...DEFAULT_CHANNELS.access, ...(stored.access || {}) },
-    webhook: { ...DEFAULT_CHANNELS.webhook, ...(stored.webhook || {}) },
+    access: { ...CHANNELS_DEFAULTS.access, ...(stored.access || {}) },
+    webhook: { ...CHANNELS_DEFAULTS.webhook, ...(stored.webhook || {}) },
   };
+}
+
+// Callers see the effective config (defaults filled in); the file keeps only
+// values that differ from the defaults.
+function persistedChannelsConfig(next) {
+  return stripChannelsDefaults(normalizeChannelsConfig(next));
 }
 
 function updateChannelsSection(build) {
@@ -69,7 +73,7 @@ function updateChannelsSection(build) {
     // Writes converge on the single `channel` object.
     const normalized = normalizeChannelsConfig(current);
     next = build(normalized);
-    return normalizeChannelsConfig(next);
+    return persistedChannelsConfig(next);
   });
   return next;
 }
@@ -83,7 +87,7 @@ async function updateChannelsSectionAsync(build) {
   await updateSectionAsync('channels', (current) => {
     const normalized = normalizeChannelsConfig(current);
     next = build(normalized);
-    return normalizeChannelsConfig(next);
+    return persistedChannelsConfig(next);
   });
   return next;
 }
@@ -374,12 +378,82 @@ export async function setWebhookEnabled(name, enabled) {
   return { name: id, enabled: enabled !== false };
 }
 
-// Explicit single-purpose secret read for the editor's copy affordance (the
-// list path only ever exposes a presence flag). Local surfaces only — the
-// desktop blocks this capability over the remote bridge.
+// Explicit single-purpose secret read (the list path only ever exposes a
+// presence flag). The desktop editor never calls it: a saved secret is only
+// replaced via Regenerate. Not exposed over the remote bridge.
 export async function getWebhookSecret(name) {
   const id = assertName(name, 'webhook name');
   return { name: id, secret: (await dbReadEndpointSecret(id)) || '' };
+}
+
+// Sends a correctly signed, test-flagged request to the endpoint's real public
+// URL. The receiver verifies the signature and answers without dispatching.
+// Failures carry a stable `code` (relay-unavailable | timeout | network |
+// rejected) for localized UI text; `error` stays the English detail.
+export async function testWebhook(name) {
+  const id = assertName(name, 'webhook name');
+  const endpoint = await dbLoadEndpoint(id);
+  if (!endpoint) throw new Error(`webhook "${id}" does not exist`);
+  const secret = (await dbReadEndpointSecret(id)) || '';
+  const base = String(readHookPublicBase() || '').replace(/\/+$/, '');
+  if (!base) {
+    return {
+      name: id,
+      ok: false,
+      status: 0,
+      url: '',
+      code: 'relay-unavailable',
+      error: 'Endpoint URL is not available yet — the relay is not connected.',
+    };
+  }
+  const url = `${base}/webhook/${encodeURIComponent(id)}`;
+  const body = JSON.stringify({ [WEBHOOK_TEST_FIELD]: true, webhook: id, sentAt: new Date().toISOString() });
+  const parser = endpoint.parser || 'github';
+  const hmac = (data) => createHmac('sha256', secret).update(data).digest('hex');
+  const headers = {
+    'content-type': 'application/json',
+    [WEBHOOK_TEST_HEADER]: '1',
+  };
+  if (parser === 'stripe') {
+    const t = Math.floor(Date.now() / 1000);
+    headers['stripe-signature'] = `t=${t},v1=${hmac(`${t}.${body}`)}`;
+  } else if (parser === 'sentry') {
+    headers['sentry-hook-signature'] = hmac(body);
+  } else if (parser === 'generic') {
+    headers['x-signature-256'] = `sha256=${hmac(body)}`;
+  } else {
+    headers['x-hub-signature-256'] = `sha256=${hmac(body)}`;
+    headers['x-github-event'] = 'ping';
+  }
+  try {
+    const res = await fetch(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(15000) });
+    // Body read stays inside the try: a timeout while reading is a timeout,
+    // only an unparsable body falls back to "no JSON".
+    const text = await res.text();
+    let json = {};
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = {};
+    }
+    const ok = res.status === 200 && json?.status === 'verified';
+    const result = { name: id, ok, status: res.status, url };
+    if (!ok) {
+      result.code = 'rejected';
+      result.error = json?.error ? String(json.error) : `Unexpected response (HTTP ${res.status})`;
+    }
+    return result;
+  } catch (err) {
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    return {
+      name: id,
+      ok: false,
+      status: 0,
+      url,
+      code: timedOut ? 'timeout' : 'network',
+      error: timedOut ? 'Request timed out after 15 seconds.' : String(err?.message || err),
+    };
+  }
 }
 
 // Automation presence: any enabled schedule or webhook endpoint. Drives the

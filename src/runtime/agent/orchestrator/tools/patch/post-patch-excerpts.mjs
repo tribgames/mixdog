@@ -10,7 +10,7 @@
 // a file in a session appends nothing — zero cost. Only a repeat patch of
 // the same file (the iterative fix-loop signal, exactly where stale-own-edit
 // misses happen) pays for the excerpt.
-import { readFileSync } from 'node:fs';
+import { readPatchTargetBytes } from './content-guard.mjs';
 import { isV4APatchInput, parseV4APatch } from './parsing.mjs';
 import { pathKey, resolveV4AEntryPath } from './paths.mjs';
 import { findExactWindowStarts } from './v4a-anchors.mjs';
@@ -61,7 +61,10 @@ export function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, b
       const target = section.movePath || section.path;
       let fileLines;
       try {
-        fileLines = readFileSync(resolveV4AEntryPath(basePath, target), 'utf8').replace(/\r\n/g, '\n').split('\n');
+        fileLines = readPatchTargetBytes(resolveV4AEntryPath(basePath, target))
+          .toString('utf8')
+          .replace(/\r\n/g, '\n')
+          .split('\n');
       } catch {
         continue;
       }

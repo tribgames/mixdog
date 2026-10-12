@@ -7,7 +7,9 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { extractZip, resolveVoiceRuntime, selectVoiceModelId, voiceRuntimeInfo } from './voice-runtime-fetcher.mjs';
 
-test('zip extraction on Windows does not expand $ in paths', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+test('zip extraction on Windows does not expand $ in paths', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-zip-'));
   try {
     await writeFile(join(root, 'a.txt'), 'hello');
@@ -86,8 +88,14 @@ test('voice runtime resolution removes superseded published versions', async () 
     await writeFile(join(whisperRoot, activeWhisper, variant.executable), 'binary');
     await writeFile(join(ffmpegRoot, activeFfmpeg, manifest.ffmpeg.platforms[key].executable), 'binary');
 
+    await mkdir(join(whisperRoot, 'staging-1-1'), { recursive: true });
+    resolveVoiceRuntime(root, { cleanup: false });
+    await access(join(whisperRoot, 'whisper-old'));
+    await access(join(whisperRoot, 'staging-1-1'));
+
     resolveVoiceRuntime(root);
 
+    await assert.rejects(access(join(whisperRoot, 'staging-1-1')));
     await assert.rejects(access(join(whisperRoot, 'whisper-old')));
     await assert.rejects(access(join(ffmpegRoot, 'ffmpeg-old')));
     await access(join(whisperRoot, activeWhisper, variant.executable));

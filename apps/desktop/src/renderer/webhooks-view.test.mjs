@@ -70,7 +70,7 @@ test('a legacy webhook without a stored parser lists and opens as the same parse
   await act(async () => row.click());
   const edited = document.querySelector('[aria-label="Webhook payload format"] .mx-select-value').textContent;
 
-  assert.match(listed, /^github /);
+  assert.match(listed, /^github\b/);
   assert.equal(edited, 'GitHub');
 });
 
@@ -93,4 +93,137 @@ test('without a cryptographic random source, regenerating a signing secret repor
   );
   assert.deepEqual(secrets, []);
   assert.ok(document.querySelector('.schedules-dialog .error-notice'));
+});
+
+/** Mount the pane with an api that records testWebhook calls and answers with `reply`. */
+async function mountForTest(t, reply) {
+  const calls = [];
+  const api = {
+    async invokeCapability(request) {
+      calls.push(request);
+      if (request.capability === 'testWebhook') return { value: reply };
+      return { value: undefined };
+    },
+  };
+  resetSidebarReferenceCache();
+  adoptSidebarReferenceHost(api);
+  updateSidebarReference('channelSetup', {
+    webhook: { publicUrl: 'https://hooks.mixdog.test' },
+    webhooks: [{ name: 'legacy', enabled: true, secretSet: true }],
+  });
+  updateSidebarReference('projects', []);
+  updateSidebarReference('workflows', []);
+  updateSidebarReference('providerSetup', {});
+  updateSidebarReference('quickProviderModels', []);
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    resetSidebarReferenceCache();
+  });
+  await act(async () => root.render(React.createElement(WebhooksPane, { api, active: true })));
+  return { host, calls };
+}
+const buttonByText = (text) => [...document.querySelectorAll('button')].find((b) => b.textContent === text);
+
+test('Send test is absent when creating a webhook', async (t) => {
+  await mountForTest(t, { ok: true, status: 200 });
+  await act(async () => document.querySelector('.webhooks-add').click());
+  assert.ok(document.querySelector('.webhooks-editor-dialog'));
+  assert.equal(buttonByText('Send test'), undefined);
+});
+
+test('Send test invokes testWebhook with the name and shows success', async (t) => {
+  const { host, calls } = await mountForTest(t, { name: 'legacy', ok: true, status: 200, url: 'u' });
+  await act(async () => host.querySelector('.schedules-row').click());
+  await act(async () => buttonByText('Send test').click());
+  assert.deepEqual(
+    calls.find((c) => c.capability === 'testWebhook'),
+    { capability: 'testWebhook', args: ['legacy'] }
+  );
+  assert.match(
+    document.querySelector('.webhook-test-result').textContent,
+    /Verified — the endpoint accepted the signature\./
+  );
+});
+
+test('Send test renders HTTP and transport failures', async (t) => {
+  const { host } = await mountForTest(t, { ok: false, status: 401, error: 'bad signature' });
+  await act(async () => host.querySelector('.schedules-row').click());
+  await act(async () => buttonByText('Send test').click());
+  assert.equal(document.querySelector('.webhook-test-result').textContent, 'Test failed (HTTP 401): bad signature');
+});
+
+test('Send test renders a status-0 failure without an HTTP code', async (t) => {
+  const { host } = await mountForTest(t, { ok: false, status: 0, error: 'connect refused' });
+  await act(async () => host.querySelector('.schedules-row').click());
+  await act(async () => buttonByText('Send test').click());
+  assert.equal(document.querySelector('.webhook-test-result').textContent, 'Test failed: connect refused');
+});
+
+// One mounted pane per test: the sidebar reference cache is shared.
+for (const [label, reply, text] of [
+  [
+    'timeout',
+    { ok: false, status: 0, code: 'timeout', error: 'Request timed out after 15 seconds.' },
+    'Test failed: No response within 15 seconds.',
+  ],
+  [
+    'disabled endpoint',
+    { ok: false, status: 404, code: 'rejected', error: 'disabled endpoint' },
+    'Test failed (HTTP 404): This webhook is turned off. Turn it on, then test again.',
+  ],
+  [
+    'network',
+    { ok: false, status: 0, code: 'network', error: 'ECONNREFUSED' },
+    'Test failed: Could not reach the endpoint: ECONNREFUSED',
+  ],
+]) {
+  test(`Send test localizes the ${label} failure`, async (t) => {
+    const { host } = await mountForTest(t, reply);
+    await act(async () => host.querySelector('.schedules-row').click());
+    await act(async () => buttonByText('Send test').click());
+    assert.equal(document.querySelector('.webhook-test-result').textContent, text);
+  });
+}
+
+test('Send test shows Sending… while the request is in flight', async (t) => {
+  let release;
+  const { host } = await mountForTest(t, new Promise((resolve) => (release = resolve)));
+  await act(async () => host.querySelector('.schedules-row').click());
+  await act(async () => buttonByText('Send test').click());
+  const sending = buttonByText('Sending…');
+  assert.ok(sending);
+  assert.equal(sending.disabled, true);
+  await act(async () => release({ ok: true, status: 200 }));
+  assert.ok(buttonByText('Send test'));
+});
+
+test('Send test is disabled while the payload format has unsaved changes', async (t) => {
+  const { host } = await mountForTest(t, { ok: true, status: 200 });
+  await act(async () => host.querySelector('.schedules-row').click());
+  await act(async () => document.querySelector('[aria-label="Webhook payload format"]').click());
+  const stripe = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === 'Stripe');
+  await act(async () => stripe.click());
+  assert.equal(buttonByText('Send test').disabled, true);
+  assert.ok(
+    [...document.querySelectorAll('.webhook-connection small')].some(
+      (s) => s.textContent === 'Save first to test the new payload format.'
+    )
+  );
+});
+
+test('Send test is disabled once a secret has been regenerated', async (t) => {
+  const { host } = await mountForTest(t, { ok: true, status: 200 });
+  await act(async () => host.querySelector('.schedules-row').click());
+  assert.equal(buttonByText('Send test').disabled, false);
+  await act(async () => buttonByText('Regenerate secret').click());
+  assert.equal(buttonByText('Send test').disabled, true);
+  assert.ok(
+    [...document.querySelectorAll('.webhook-connection small')].some(
+      (s) => s.textContent === 'Save first to test the new secret.'
+    )
+  );
 });

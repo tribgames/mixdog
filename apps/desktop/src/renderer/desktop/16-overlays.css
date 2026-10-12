@@ -91,6 +91,59 @@
   pointer-events: auto;
   animation: mx-toast-in var(--mx-motion-chrome);
 }
+/* A remote device is waiting for approval while Settings → Connection is
+   closed: one quiet toast-styled notice in the toast lane (top-right, under
+   the tab strip) that opens the page where the approval dialog lives. */
+.remote-claim-notice {
+  position: fixed;
+  z-index: var(--mx-toast-z-index);
+  right: 16px;
+  top: calc(54px + env(safe-area-inset-top, 0px));
+  max-width: min(360px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  color: var(--mx-text);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
+  font-size: var(--mx-font-ui);
+  animation: mx-toast-in var(--mx-motion-chrome);
+}
+.remote-claim-notice-text {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+}
+.remote-claim-notice-text b {
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+}
+.remote-claim-notice-text span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.remote-claim-notice button {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  font: inherit;
+  font-weight: var(--mx-weight-label);
+  cursor: pointer;
+}
+.remote-claim-notice button:hover {
+  background: var(--mx-hover-strong, var(--mx-hover));
+}
 @keyframes mx-toast-in {
   from {
     opacity: var(--mx-op-soft);

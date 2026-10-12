@@ -152,6 +152,8 @@ function promptRestoreFor(displayText, options, submittedIds, content = null) {
     onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
     restorable: options.restorable !== false,
     submittedIds,
+    // Which device submitted the prompt: only that device may get it back.
+    device: typeof options.transcriptMeta?.device === 'string' ? options.transcriptMeta.device : '',
     reclaimed: false,
     committed: false,
     requeueEntries: Array.isArray(options.requeueOnAbort) ? options.requeueOnAbort.slice() : [],
@@ -189,6 +191,9 @@ function steeringItemExtras(steeringMeta) {
     ...(Array.isArray(steeringMeta?.images) && steeringMeta.images.length ? { images: steeringMeta.images } : {}),
     ...(typeof steeringMeta?.transcriptMeta?.sender === 'string' && steeringMeta.transcriptMeta.sender
       ? { sender: steeringMeta.transcriptMeta.sender }
+      : {}),
+    ...(typeof steeringMeta?.transcriptMeta?.device === 'string' && steeringMeta.transcriptMeta.device
+      ? { device: steeringMeta.transcriptMeta.device }
       : {}),
   };
 }
@@ -389,7 +394,7 @@ function completeTurn(ctx, result, session) {
   turn.finishedNormally = true;
 }
 
-function failTurn(ctx, error) {
+export function failTurn(ctx, error) {
   const { turn, stream, cards, pushNotice } = ctx;
   flushStreamBatch(stream); // ensure any batched text lands before the error notice
   if (isCancelLikeError(error)) {
@@ -401,12 +406,20 @@ function failTurn(ctx, error) {
   turn.failed = true;
   cards.aggregates.finalizeToolHeaders();
   turn.usageLimited = isUsageLimitError(error);
+  const exhausted = error?.quotaExhausted;
+  if (exhausted && typeof exhausted === 'object') {
+    turn.quota = {
+      provider: String(exhausted.provider || turn.routeMeta?.provider || ''),
+      model: String(exhausted.model || turn.routeMeta?.model || ''),
+      resetAt: Number.isFinite(exhausted.resetAt) ? exhausted.resetAt : null,
+    };
+  }
   turn.failureDetail = toolErrorDisplay(error, 'turn').replace(/^Error:\s*/i, '');
   turn.failureDiagnostic = safeErrorDetails(errText(error));
   pushNotice(turn.failureDetail, 'error', { owner: 'transcript' });
 }
 
-function turnDoneItem({ turn, stream, cards, getState, nextId }) {
+export function turnDoneItem({ turn, stream, cards, getState, nextId }) {
   return {
     kind: 'turndone',
     id: nextId(),
@@ -425,6 +438,7 @@ function turnDoneItem({ turn, stream, cards, getState, nextId }) {
     ...(turn.failureDetail ? { detail: turn.failureDetail } : {}),
     ...(turn.failureDiagnostic ? { errorDetails: turn.failureDiagnostic } : {}),
     ...turn.routeMeta,
+    ...(turn.failed && turn.quota ? { quota: turn.quota } : {}),
   };
 }
 
@@ -462,6 +476,14 @@ function publishTurnClose(ctx, closingItems) {
     toolMode: runtime.toolMode,
     ...agentStatusState({ force: true }),
   });
+  // Same frame as the failed turndone and busy=false: the resume is queued
+  // (and `quotaResume` published) before anything can observe the idle
+  // session, so a cancel at any later point finds it and wins.
+  if (turn.failed && turn.quota) {
+    try {
+      ctx.bag.beginQuotaSettlement?.();
+    } catch {}
+  }
   ctx.flushDeferredExecutionPendingResumeKick();
 }
 
@@ -502,8 +524,12 @@ async function settleTurn(ctx) {
   try {
     options.onSettled?.(detail);
   } catch {}
+  // A quota failure suspends only a Goal that was running when it struck.
+  const quotaFailed = turn.failed && turn.quota && isCurrentTurn();
+  const goalBefore = quotaFailed ? runtime.goalStatus?.() || null : null;
+  let settledGoal = null;
   try {
-    await bag.onGoalTurnSettled?.({
+    settledGoal = await bag.onGoalTurnSettled?.({
       status: finalStatus,
       error: turn.failureDiagnostic || turn.failureDetail || null,
       usageLimited: turn.usageLimited,
@@ -520,6 +546,17 @@ async function settleTurn(ctx) {
       }),
     });
   } catch {}
+  if (turn.failed && turn.quota) {
+    const suspended =
+      quotaFailed &&
+      !flags.disposed &&
+      goalBefore?.status === 'active' &&
+      settledGoal?.status === 'usage_limited' &&
+      settledGoal.id === goalBefore.id;
+    try {
+      bag.finishQuotaSettlement?.({ suspendedGoalId: suspended ? settledGoal.id : '' });
+    } catch {}
+  }
   if (flags.goalSteeringAbortEpoch === turn.epoch) flags.goalSteeringAbortEpoch = null;
   ctx.tuiDebug(
     `runTurn end turn=${turn.index} status=${finalStatus} elapsedMs=${Date.now() - turn.startedAt} pending=${ctx.pending.length}`

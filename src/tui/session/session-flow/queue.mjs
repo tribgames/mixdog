@@ -70,6 +70,9 @@ export function createQueueOps(bag, { kickDrain }) {
     pending.unshift(...restored);
     const visible = restored.filter(isQueuedEntryVisible);
     if (visible.length > 0) set({ queued: [...visible, ...getState().queued] });
+    // Requeued from a turn that settled after the canonical close: settle
+    // explicitly instead of parking work no drain will ever run.
+    if (bag.flags?.admission === 'terminal') bag.settleClosedQueue?.();
     return true;
   }
 

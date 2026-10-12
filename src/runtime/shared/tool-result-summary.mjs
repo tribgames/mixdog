@@ -29,6 +29,7 @@ const COUNT_KEYS = new Map(
     'candidates',
     'results',
     'skills',
+    'items',
     'memories',
     'messages',
     'agents',
@@ -42,8 +43,34 @@ const COUNT_KEYS = new Map(
 );
 
 const STATUS_KEYS = new Map(
-  ['Completed', 'Failed', 'Cancelled', 'Finished'].map((status) => [status.toLowerCase(), status])
+  ['Completed', 'Failed', 'Cancelled', 'Finished', 'Running', 'Queued', 'Pending', 'Timed out'].map((status) => [
+    status.toLowerCase(),
+    status,
+  ])
 );
+
+const STATUS_WORD_KEYS = [
+  [/^(?:completed?|done|success|succeeded)$/, 'Completed'],
+  [/^(?:failed?|error|killed)$/, 'Failed'],
+  [/^(?:cancelled|canceled|cancel)$/, 'Cancelled'],
+  [/^(?:timeout|timed_out)$/, 'Timed out'],
+  [/^(?:queued|running|pending|finished)$/, null],
+];
+
+// One status vocabulary for every result: queued, running, completed, failed,
+// cancelled, timed out and pending, in the active language.
+function localizeStatus(raw, translate) {
+  const word = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  for (const [pattern, key] of STATUS_WORD_KEYS) {
+    if (!pattern.test(word)) continue;
+    const statusKey = key ?? STATUS_KEYS.get(word);
+    return translate(statusKey, statusKey, {});
+  }
+  return titleStatus(raw);
+}
 
 // Explicit source ownership for catalogs: these keys describe UI authored by
 // this module, never tool output or interpolated identifiers.
@@ -57,6 +84,8 @@ export const TOOL_RESULT_UI_KEYS = Object.freeze([
   'Exit {{code}}',
   'Loaded {{name}}',
   'Used {{name}}',
+  'Shell task {{status}} (exit {{code}})',
+  'Background tasks: {{count}}',
 ]);
 
 function countLabel(translate, n, singular, plural) {
@@ -236,7 +265,10 @@ function stripInlineMarkdown(value) {
 // Envelope field lines (`status: …`, `task_id: …`) that precede or surround a
 // real agent answer. One list so both scanners below skip exactly the same set.
 const ENVELOPE_FIELD_LINE_RE =
-  /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i;
+  /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|surface|operation|label|exit_code|timed_out|signal|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i;
+
+// Headers that open an envelope block without a colon (`background task`).
+const ENVELOPE_HEADER_LINE_RE = /^(?:agent result|background task)\b/i;
 
 // Bracketed control fields such as `[status: completed]` or `[exit: 0]`.
 const BRACKETED_FIELD_LINE_RE = /^\[[a-z-]+:\s*[^\]]*\]$/i;
@@ -249,7 +281,7 @@ function firstAgentResultLine(text) {
   for (const line of String(raw ?? '').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    if (/^(?:agent result|background task)\b/i.test(trimmed)) continue;
+    if (ENVELOPE_HEADER_LINE_RE.test(trimmed)) continue;
     if (
       /^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(
         trimmed
@@ -304,7 +336,13 @@ function summarizeGenericResult(text, translate = keepOriginal) {
     trimmed
       .split('\n')
       .map((item) => item.trim())
-      .find((item) => item && !ENVELOPE_FIELD_LINE_RE.test(item) && !BRACKETED_FIELD_LINE_RE.test(item)) ||
+      .find(
+        (item) =>
+          item &&
+          !ENVELOPE_HEADER_LINE_RE.test(item) &&
+          !ENVELOPE_FIELD_LINE_RE.test(item) &&
+          !BRACKETED_FIELD_LINE_RE.test(item)
+      ) ||
     '';
   if (!line || line === '{' || line === '[') return null;
   if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {
@@ -438,19 +476,27 @@ function summarizeShellResult({ text, trimmed, translate }) {
   const exit = /^\[exit(?:\s+code)?:\s*([^\]]+)\]/im.exec(text);
   if (job || status || exit) {
     let statusText = '';
-    if (status) {
-      statusText = titleStatus(status[1]);
-      const statusKey = STATUS_KEYS.get(statusText.toLowerCase());
-      if (statusKey) statusText = translate(statusKey, statusText);
-    }
+    if (status) statusText = localizeStatus(status[1], translate);
     return compactParts([job ? job[1] : '', statusText, exit ? exitLabel(translate, exit[1]) : '']);
   }
-  const firstLine =
-    trimmed
+  const lines = trimmed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  // A background-task block opens with envelope fields; they are not output.
+  if (/^background task$/i.test(lines[0] ?? '')) {
+    // The header block ends at the first blank line; what follows is output.
+    const output = trimmed
+      .split(/\r?\n\s*\r?\n/)
+      .slice(1)
+      .join('\n')
       .split('\n')
       .map((line) => line.trim())
-      .find(Boolean) || trimmed;
-  return truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX);
+      // `[stdout]` / `[stderr]` label a stream; they are never the outcome.
+      .find((line) => line && !/^\[(?:stdout|stderr)(?: preview)?\]$/.test(line));
+    return output ? truncateSingleLine(output, AGENT_SURFACE_BRIEF_MAX) : null;
+  }
+  return truncateSingleLine(lines[0], AGENT_SURFACE_BRIEF_MAX);
 }
 
 function summarizeGitResult({ text, trimmed, translate }) {
@@ -560,9 +606,32 @@ function summarizeAgentCounts(text, translate = keepOriginal) {
   return compactParts(parts) || none();
 }
 
-function summarizeAgentResult({ text, translate }) {
+// "Shell task completed (exit 0): npm test": the status word and the exit are
+// UI; the command after the colon is the user's own text.
+function localizeShellSummary(summary, translate) {
+  const match = /^Shell task (was cancelled|[a-z_]+)(?:: (.*?))? \(exit ([^)]+)\)(?:: ([\s\S]*))?$/.exec(summary ?? '');
+  if (!match) return summary;
+  const [, word, error, code, command] = match;
+  const status = localizeStatus(word === 'was cancelled' ? 'cancelled' : word, translate);
+  const head = translate('Shell task {{status}} (exit {{code}})', `Shell task ${word} (exit ${code})`, {
+    status,
+    code,
+  });
+  const withError = error ? `${head}: ${error}` : head;
+  return command ? `${withError}: ${command}` : withError;
+}
+
+function summarizeAgentResult({ text, trimmed, translate }) {
   const counts = summarizeAgentCounts(text, translate);
   if (counts) return counts;
+  // A cancel call answers with the one word; a task list opens with its total;
+  // a read of a live job says it has no new lines yet.
+  if (/^(?:cancelled|canceled)[.!]?$/i.test(trimmed)) return translate('Cancelled', trimmed, {});
+  const listed = /^background tasks:\s*(\d+)\s*$/im.exec(trimmed);
+  if (listed && trimmed.startsWith('background tasks:')) {
+    return translate('Background tasks: {{count}}', `background tasks: ${listed[1]}`, { count: Number(listed[1]) });
+  }
+  if (/^Job still running;\s*\d+ new lines?\.?$/i.test(trimmed)) return translate('Running', 'Running', {});
   const answerLine = firstAgentResultLine(text);
   // Agent/task result cards show only a one-liner; full report via ctrl+o.
   if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), AGENT_SURFACE_BRIEF_MAX);
@@ -612,8 +681,10 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
 export function summarizeToolResult(name, args, resultText, isError = false, translate = keepOriginal) {
   const notification = parseTaskNotification(resultText);
   if (notification) {
+    if (notification.surface === 'shell' && !(isError && notification.error)) {
+      return localizeShellSummary(notification.summary, translate);
+    }
     if (isError) return notification.error || notification.summary;
-    if (notification.surface === 'shell') return notification.summary;
     return summarizeToolResult(name, args, notification.result, false, translate);
   }
   if (isError) {

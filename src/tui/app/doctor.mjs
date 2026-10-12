@@ -115,6 +115,7 @@ function reportNode({ version, engines }, row) {
 }
 
 function providerUnusableReason(entry) {
+  if (entry.configError) return `has an invalid configuration (${entry.configError})`;
   if (entry.reauthRequired) return 'requires sign-in again';
   if (entry.enabled === false) return 'is disabled';
   if (entry.type === 'local' && !entry.detected) return 'has no installed runtime/model';
@@ -240,9 +241,7 @@ function reportRegistry(label) {
     const broken = active.filter(
       (entry) => entry.broken || entry.error || entry.invalid || entry.dependencyIssues?.length
     );
-    const missing = Array.isArray(status.missing)
-      ? status.missing.filter((entry) => entry.enabled !== false)
-      : [];
+    const missing = Array.isArray(status.missing) ? status.missing.filter((entry) => entry.enabled !== false) : [];
     let detail = `${active.length}/${entries.length} active${scopeDetail}`;
     const issues = [...broken, ...(label === 'plugins' ? missing : [])];
     if (!issues.length) {
@@ -340,7 +339,8 @@ async function readDataFolder(dataDir) {
 
 function reportDataFolder({ dataDir, writable, missing }, row) {
   if (writable) row('ok', `writable · ${dataDir}`);
-  else if (missing) row('fail', `not found · ${dataDir}`, { hint: 'create the folder or point MIXDOG_DATA_DIR at an existing one' });
+  else if (missing)
+    row('fail', `not found · ${dataDir}`, { hint: 'create the folder or point MIXDOG_DATA_DIR at an existing one' });
   else row('fail', `not writable · ${dataDir}`, { hint: 'check the folder permissions' });
 }
 
@@ -398,15 +398,11 @@ export async function runDoctorChecks(runtime = {}, getState = () => ({}), optio
     [
       'voice',
       'voice',
-      async () => (runtime.getVoiceStatus || (await import('../lib/voice-setup.mjs')).getVoiceStatus)(),
+      async () =>
+        (runtime.getVoiceStatus || (await import('../../runtime/channels/lib/voice-setup.mjs')).getVoiceStatus)(),
       reportVoice,
     ],
-    [
-      'automation',
-      'automation',
-      () => runtime.getChannelSettings?.({ includeStatus: true }),
-      reportChannels(runtime),
-    ],
+    ['automation', 'automation', () => runtime.getChannelSettings?.({ includeStatus: true }), reportChannels(runtime)],
     ['skills', 'skills', () => runtime.skillsStatus?.(), reportRegistry('skills')],
     ['plugins', 'plugins', () => runtime.pluginsStatus?.(), reportRegistry('plugins')],
     ['hooks', 'hooks', () => runtime.hooksStatus?.(), reportHooks],

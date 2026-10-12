@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>원격 화면 정리 v3 — 최종 적용 스크린샷</title>
+<style>
+  body { margin: 0; padding: 32px 40px 64px; background: #0b0b0d; color: #e9e9ea; font: 400 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  p.lead { color: #9a9aa1; margin: 0 0 28px; }
+  h2 { font-size: 16px; margin: 36px 0 12px; }
+  .row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  figure { margin: 0; background: #151518; border: 1px solid #26262b; border-radius: 12px; padding: 12px; }
+  figure img { display: block; border-radius: 8px; }
+  .phone img { height: 640px; }
+  .tablet img { height: 640px; }
+  .desk img { width: 760px; }
+  figcaption { margin-top: 10px; color: #b5b5bb; font-size: 13px; max-width: 760px; }
+  figcaption b { color: #e9e9ea; }
+</style>
+</head>
+<body>
+<h1>원격 화면 정리 v3 — 최종 적용 스크린샷</h1>
+<p class="lead">스테이징 서버에 적용된 상태를 실제 화면에서 찍은 것입니다. (안드로이드 에뮬레이터 · 가상 아이폰/아이패드 · PC 원격 창 · 메인 PC)</p>
+
+<h2>폰 (안드로이드 앱)</h2>
+<div class="row">
+  <figure class="phone"><img src="1-phone-main.png" alt="" /><figcaption><b>메인 화면</b> — 맨 위 "This PC · Remote" 줄 없음.<br/>로고 오른쪽 아래 초록 점 = 연결됨</figcaption></figure>
+  <figure class="phone"><img src="2-phone-logo-menu.png" alt="" /><figcaption><b>로고를 누른 메뉴</b> — 맨 위 한 줄 "● DESKTOP-IBLP835".<br/>패널 제목과 같은 모양, 아래 패널은 원래 너비</figcaption></figure>
+</div>
+
+<h2>가상 아이폰 · 아이패드 (iOS 앱)</h2>
+<div class="row">
+  <figure class="phone"><img src="3-iphone.png" alt="" /><figcaption><b>아이폰</b> — 상태표시줄과 겹치지 않음, 로고에 연결 점.<br/>(가운데는 iOS 알림 권한 창)</figcaption></figure>
+  <figure class="tablet"><img src="4-ipad.png" alt="" /><figcaption><b>아이패드</b> — 상태표시줄 아래 제목줄에 "● DESKTOP-IBLP835 ⌄".<br/>(가운데는 iOS 알림 권한 창)</figcaption></figure>
+</div>
+
+<h2>PC에서 다른 PC로 붙은 원격 창</h2>
+<div class="row">
+  <figure class="desk"><img src="5-pc-remote-window.png" alt="" /><figcaption><b>원격 창</b> — 별도 줄 없이 제목줄 왼쪽에 "● DESKTOP-IBLP835 ⌄"만</figcaption></figure>
+  <figure class="desk"><img src="6-pc-remote-pc-menu.png" alt="" /><figcaption><b>PC 이름을 누른 메뉴</b> — PC 목록, 다른 PC 연결 (코드), 연결 관리</figcaption></figure>
+</div>
+
+<h2>원격에서 연 설정</h2>
+<div class="row">
+  <figure class="desk"><img src="7-remote-settings-pc.png" alt="" /><figcaption><b>PC 설정</b> — 왼쪽 "● DESKTOP-IBLP835" 묶음, 제목 옆에 적용 위치 표시</figcaption></figure>
+  <figure class="desk"><img src="8-remote-settings-this-device.png" alt="" /><figcaption><b>이 기기 설정</b> — "이 기기 → 표시" (표시 언어 · 테마 · 링크 미리보기 · 사이드 패널)</figcaption></figure>
+</div>
+
+<h2>메인 PC (변화 없음)</h2>
+<div class="row">
+  <figure class="desk"><img src="9-main-pc-unchanged.png" alt="" /><figcaption><b>메인 PC 설정 → 연결</b> — 원격이 아니므로 묶음·PC 버튼 없이 기존 그대로</figcaption></figure>
+</div>
+</body>
+</html>

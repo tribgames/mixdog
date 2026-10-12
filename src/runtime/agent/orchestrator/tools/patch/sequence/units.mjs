@@ -16,7 +16,13 @@ import {
   parseV4APatch,
   prepareInput,
 } from '../parsing.mjs';
-import { entryHeaderName, parsedEntryResolvedPath, resolveV4AEntryPath, stripDiffPrefix } from '../paths.mjs';
+import {
+  classifyEntry,
+  entryHeaderName,
+  parsedEntryResolvedPath,
+  resolveV4AEntryPath,
+  stripDiffPrefix,
+} from '../paths.mjs';
 import { rewriteParsedReadRedirects, rewriteV4AReadRedirects } from '../read-redirects.mjs';
 import { coalesceCompatibleV4ASections } from '../section-coalesce.mjs';
 import {
@@ -51,6 +57,7 @@ function sectionUnit(section, basePath, { v4aConvertOpts, readStateScope, dryRun
     };
   }
   return {
+    kind: section.kind,
     displayPath,
     fullPath,
     // Honor reject_partial via v4aConvertOpts: a bad hunk throws under
@@ -67,6 +74,7 @@ function parsedEntryUnit(entry, basePath) {
   // Throws the "header could not be parsed (no target path)" error for a headerless entry.
   const fullPath = parsedEntryResolvedPath(entry, basePath);
   return {
+    kind: classifyEntry(entry),
     displayPath: normalizeOutputPath(stripDiffPrefix(entryHeaderName(entry))),
     fullPath,
     buildParsed: async () => [entry],

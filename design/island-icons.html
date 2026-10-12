@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>섬 아이콘 정리 시안</title>
+<style>
+  :root {
+    --bg: #111113; --base: #222225; --l1: #2a2a2d; --l2: #323236; --text: #e9e9e9; --muted: #a8a8a8;
+    --soft: color-mix(in srgb, #e9e9e9 85%, transparent); --accent: #79b8ff; --warn: #f2cf76; --ok: #6bd586; --danger: #f17471;
+    --line: rgba(255,255,255,.09); --strong: rgba(255,255,255,.24); --island: #0b0b0d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #101013; color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 26px 30px 50px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 20px; max-width: 980px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1200px; }
+  th, td { text-align: left; padding: 14px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.why { color: var(--soft); max-width: 300px; }
+  .stage { background: var(--bg); border-radius: 12px; padding: 14px; display: flex; justify-content: center; box-shadow: inset 0 0 0 1px var(--line); }
+  .pill { display: inline-flex; align-items: center; height: 36px; padding: 0 6px; border-radius: 999px; background: var(--island); box-shadow: 0 0 0 1px rgba(255,255,255,.13), 0 8px 20px rgba(0,0,0,.3); white-space: nowrap; font-size: 13px; }
+  .seg { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; color: var(--soft); font-variant-numeric: tabular-nums; }
+  .seg + .seg { box-shadow: -1px 0 0 rgba(255,255,255,.1); }
+  svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .spin { animation: spin 1.1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .bar { width: 22px; height: 3px; border-radius: 2px; background: #3d3d41; overflow: hidden; flex: none; } .bar i { display: block; height: 100%; width: 60%; background: var(--soft); }
+  .muted { color: var(--muted); } .w { color: var(--warn); } .acc { color: var(--accent); } .plus { color: var(--ok); } .minus { color: var(--danger); }
+  .card { width: 420px; border-radius: 18px; background: var(--island); box-shadow: 0 0 0 1px rgba(255,255,255,.13), 0 8px 20px rgba(0,0,0,.3); padding: 12px 14px; font-size: 13px; }
+  .card .h { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+  .card .h small { font-weight: 400; color: var(--muted); font-size: 12.5px; }
+  .card pre { margin: 8px 0 0; padding: 7px 10px; border-radius: 9px; background: #18181b; font: 12.5px/18px "JetBrains Mono", Consolas, monospace; }
+  .card.border { box-shadow: 0 0 0 1px rgba(242,207,118,.55), 0 8px 20px rgba(0,0,0,.3); }
+  .card.tint { background: color-mix(in srgb, #443f2e 70%, #0b0b0d); box-shadow: 0 0 0 1px rgba(242,207,118,.18), 0 8px 20px rgba(0,0,0,.3); }
+  .card.tint pre { background: rgba(0,0,0,.28); }
+  .line { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+  .rec { color: var(--ok); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>섬 아이콘 정리 시안</h1>
+<p class="lead">섬과 그 주변에서 쓰는 아이콘을 모두 모았습니다. 원칙: 색 있는 경고 삼각형·방패·회전 링처럼 "알림 앱" 느낌 나는 아이콘은 빼고, 앱의 1px 선 lucide 스타일과 회색 글자 위주로 정리합니다. 상태는 아이콘보다 <b>글자 · 작은 점 · 숫자</b>로 보여 줍니다(Codex 하단 줄, Claude Code 상태줄과 같은 방식). 바꿀 항목을 골라 주세요.</p>
+
+<table>
+  <tr><th style="width:14%">어디</th><th style="width:28%">지금</th><th style="width:28%">제안</th><th>바꾸는 이유</th></tr>
+
+  <tr><td>모델 불일치 칸</td>
+    <td><div class="stage"><span class="pill"><span class="seg w"><svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>This chat: Claude Opus 5.5</span></span></div></td>
+    <td><div class="stage"><span class="pill"><span class="seg"><span class="dot" style="background:var(--warn)"></span>Claude Opus 5.5로 계속</span></span></div></td>
+    <td class="why">노란 삼각형 + 노란 글자가 오류처럼 보입니다. 작은 점 하나만 색을 주고 글자는 회색으로 둡니다.</td></tr>
+
+  <tr><td>Goal 칸</td>
+    <td><div class="stage"><span class="pill"><span class="seg" style="color:var(--text)"><svg class="spin acc" viewBox="0 0 24 24" style="stroke-width:2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>결제 모듈을 새 API로 이전 <span class="muted">3/5 · 12m</span></span></span></div></td>
+    <td><div class="stage"><span class="pill"><span class="seg" style="color:var(--text)"><span class="bar"><i></i></span>결제 모듈을 새 API로 이전 <span class="muted">3/5</span></span></span></div></td>
+    <td class="why">파란 회전 링이 "로딩 중"처럼 읽힙니다. 진행률은 짧은 막대로, 경과 시간은 펼쳤을 때만 보여 줍니다.</td></tr>
+
+  <tr><td>작업 칸</td>
+    <td><div class="stage"><span class="pill"><span class="seg"><svg class="spin acc" viewBox="0 0 24 24" style="stroke-width:2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>작업 2</span></span></div></td>
+    <td><div class="stage"><span class="pill"><span class="seg"><span class="pulse"></span>작업 2</span></span></div></td>
+    <td class="why">회전 아이콘이 Goal과 겹쳐 두 개씩 돌면 산만합니다. 천천히 깜박이는 작은 점 하나로 "실행 중"만 알립니다.</td></tr>
+
+  <tr><td>파일 칸</td>
+    <td><div class="stage"><span class="pill"><span class="seg">Files 3 <span class="plus">+107</span><span class="minus">−37</span></span></span></div></td>
+    <td><div class="stage"><span class="pill"><span class="seg">파일 3 <span class="plus">+107</span> <span class="minus">−37</span></span></span></div></td>
+    <td class="why">지금도 단순합니다. 숫자 사이 간격만 띄웁니다. <span class="rec">유지</span></td></tr>
+
+  <tr><td>칸이 모두 있을 때</td>
+    <td><div class="stage"><span class="pill"><span class="seg w"><svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>This chat: Claude</span><span class="seg"><svg class="spin acc" viewBox="0 0 24 24" style="stroke-width:2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>3/5</span><span class="seg"><svg class="spin acc" viewBox="0 0 24 24" style="stroke-width:2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>작업 2</span><span class="seg">Files 3 <span class="plus">+107</span><span class="minus">−37</span></span></span></div></td>
+    <td><div class="stage"><span class="pill"><span class="seg"><span class="dot" style="background:var(--warn)"></span>Claude로 계속</span><span class="seg"><span class="bar"><i></i></span>3/5</span><span class="seg"><span class="pulse"></span>작업 2</span><span class="seg">파일 3 <span class="plus">+107</span> <span class="minus">−37</span></span></span></div></td>
+    <td class="why">지금은 노란 삼각형 + 파란 링 2개가 동시에 움직입니다. 제안은 움직이는 것이 점 하나뿐입니다.</td></tr>
+
+  <tr><td>승인 카드</td>
+    <td><div class="stage"><div class="card"><div class="h"><svg class="w" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Tool approval required <small>shell wants to run</small></div><pre>npm run migrate -- --env=staging</pre></div></div></td>
+    <td><div class="stage" style="flex-direction:column;align-items:center;gap:10px">
+      <div class="tag">A · 테두리 색</div>
+      <div class="card border"><div class="h">승인 필요 <small>shell</small></div><pre>npm run migrate -- --env=staging</pre></div>
+      <div class="tag">B · 배경 색</div>
+      <div class="card tint"><div class="h">승인 필요 <small>shell</small></div><pre>npm run migrate -- --env=staging</pre></div>
+    </div></td>
+    <td class="why">아이콘과 왼쪽 띠 없이, A는 카드 테두리 전체를 옅은 노란색으로, B는 카드 배경을 아주 옅은 노란 톤(앱의 경고 배경 <code>--mx-warning-bg</code> 계열)으로 바꿔 구분합니다.</td></tr>
+
+  <tr><td>잠깐 뜨는 소식</td>
+    <td><div class="stage"><span class="pill"><span class="seg" style="color:var(--text)"><svg class="plus" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>MacBook에서 허용했어요</span></span></div></td>
+    <td><div class="stage"><span class="pill"><span class="seg" style="color:var(--text)"><svg class="muted" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>MacBook에서 허용됨</span></span></div></td>
+    <td class="why">초록 체크 대신 회색 체크로 조용하게 알립니다.</td></tr>
+
+  <tr><td>완료 줄 (대기 중)</td>
+    <td><div class="stage" style="justify-content:flex-start"><span class="line"><svg class="spin acc" viewBox="0 0 24 24" style="stroke-width:2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>백그라운드 작업 2개 대기 중 · 셸 1 · 에이전트 1</span></div></td>
+    <td><div class="stage" style="justify-content:flex-start"><span class="line"><span class="pulse"></span>백그라운드 작업 2개 대기 중 · 셸 1 · 에이전트 1</span></div></td>
+    <td class="why">섬의 작업 칸과 같은 점으로 맞춥니다. 대화 안에서 회전 아이콘이 계속 도는 것을 없앱니다.</td></tr>
+</table>
+</body>
+</html>

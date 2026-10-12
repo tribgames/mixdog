@@ -79,10 +79,9 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
       .filter((text) => String(text || '').trim())
       .join('\n');
     const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
+    const verb = unreadable === 1 ? ' was' : 's were';
     return {
-      ...(unreadable
-        ? { notice: `${unreadable} attachment${unreadable === 1 ? ' was' : 's were'} no longer available and dropped.` }
-        : {}),
+      ...(unreadable ? { notice: `${unreadable} attachment${verb} no longer available and dropped.` } : {}),
       count: queued.length,
       ids: queued.map((item) => String(item.id || '')).filter(Boolean),
       text: combinedText,

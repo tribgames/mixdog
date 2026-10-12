@@ -120,6 +120,8 @@ export interface ProjectFileSearchOptions {
   /** Also list gitignored files (still pruning `.git` and `node_modules`):
    *  chat links name build outputs and deliverables the picker leaves out. */
   includeIgnored?: boolean;
+  /** Also list folders, as `path/` (the composer @-mention palette). */
+  includeDirectories?: boolean;
 }
 
 async function collectProjectFiles(root: string, options: ProjectFileSearchOptions = {}): Promise<string[]> {
@@ -152,6 +154,8 @@ async function collectProjectFiles(root: string, options: ProjectFileSearchOptio
       if (entry.isDirectory()) {
         if (!DEFAULT_PRUNED_DIRECTORIES.has(entry.name) && !ignoredPath(path, true, rules)) {
           directories.push({ relative: path, rules });
+          // Folders share the index, marked by a trailing slash.
+          files.push(`${path}/`);
         }
       } else if (entry.isFile() && !ignoredPath(path, false, rules)) {
         files.push(path);
@@ -227,7 +231,9 @@ export async function searchProjectDirectory(
     : await collectProjectFiles(root, options);
   const matches: Array<{ path: string; score: number }> = [];
   for (const path of files) {
-    const score = matchScore(path, normalizedQuery);
+    const directory = path.endsWith('/');
+    if (directory && !options.includeDirectories) continue;
+    const score = matchScore(directory ? path.slice(0, -1) : path, normalizedQuery);
     if (score !== null) matches.push({ path, score });
   }
   return matches

@@ -8,6 +8,8 @@ import { providerLabel, type PanelContext, type RecordValue } from './capability
 import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
+import { CustomModelEditor } from './custom-model-editor';
+import { errorMessage } from '../editor-pane-session-errors';
 
 export const CUSTOM_PROTOCOLS = [
   { value: 'openai-chat', label: 'OpenAI Chat Completions' },
@@ -21,14 +23,36 @@ interface CustomModel {
   name?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
+  hidden?: boolean;
+  manual?: boolean;
 }
 
 export function isCustomProvider(provider: RecordValue): boolean {
   return provider.custom === true;
 }
 
+// Effective model rows: the provider row's `models` and the discovery result's.
 function customModels(provider: RecordValue): CustomModel[] {
   return rows(provider.models).flatMap((model) => (model.id ? [model as unknown as CustomModel] : []));
+}
+
+// The provider's manually added model ids (v2 `modelOverrides[id].manual`).
+function manualModels(provider: RecordValue | undefined): CustomModel[] {
+  return Object.entries(record(provider?.modelOverrides)).flatMap(([id, override]) =>
+    record(override).manual === true ? [{ id }] : []
+  );
+}
+
+// The v2 overrides to save: every stored override kept (so per-model
+// settings survive), `manual` set exactly for the listed manual models.
+function overridesWithManual(provider: RecordValue | undefined, manual: CustomModel[]): RecordValue {
+  const out: RecordValue = {};
+  for (const [id, override] of Object.entries(record(provider?.modelOverrides))) {
+    const { manual: _manual, ...rest } = record(override);
+    if (Object.keys(rest).length) out[id] = rest;
+  }
+  for (const model of manual) out[model.id] = { ...record(out[model.id]), manual: true };
+  return out;
 }
 
 function protocolLabel(value: unknown): string {
@@ -36,7 +60,7 @@ function protocolLabel(value: unknown): string {
 }
 
 function failure(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
+  return errorMessage(reason);
 }
 
 type Run = PanelContext['run'];
@@ -77,7 +101,21 @@ function CustomProviderForm({
   onClose(): void;
 }) {
   const uid = useId();
-  const existing = provider ? customModels(provider) : [];
+  const [rows, setRows] = useState<CustomModel[]>(provider ? customModels(provider) : []);
+  // A saved model edit (or any other change of the provider's effective
+  // models) refreshes the rows; the other form fields keep their drafts.
+  const modelsKey = provider ? JSON.stringify(customModels(provider)) : '';
+  const shownModelsKey = useRef(modelsKey);
+  useEffect(() => {
+    if (shownModelsKey.current === modelsKey) return;
+    shownModelsKey.current = modelsKey;
+    setRows(provider ? customModels(provider) : []);
+  }, [modelsKey, provider]);
+  const existing = manualModels(provider);
+  const [keyless, setKeyless] = useState(provider?.auth === 'none');
+  // Discovery errors come from discoverCustomProviderModels (Refresh models).
+  const [discoveryError, setDiscoveryError] = useState('');
+  const [editingModel, setEditingModel] = useState<string | null>(null);
   const [name, setName] = useState(provider ? String(provider.name || '') : '');
   const [protocol, setProtocol] = useState<Protocol>(
     CUSTOM_PROTOCOLS.some((item) => item.value === provider?.protocol)
@@ -110,14 +148,36 @@ function CustomProviderForm({
     if (!url || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))) {
       throw new Error(t('Base URL must use HTTPS (HTTP is allowed only for localhost).'));
     }
-    // Every visible explicit model is submitted (the user can remove any);
-    // an empty list means automatic discovery.
+    // Every visible manual model is submitted as a v2 manual override (the
+    // user can remove any); none means automatic discovery.
     const draft = modelDraft.trim();
     const withDraft = draft && !models.some((model) => model.id === draft) ? [...models, { id: draft }] : models;
-    const input: RecordValue = { name: name.trim(), protocol, baseURL: baseURL.trim(), models: withDraft };
+    const input: RecordValue = {
+      schemaVersion: 2,
+      name: name.trim(),
+      protocol,
+      baseURL: baseURL.trim(),
+      auth: keyless ? 'none' : 'key',
+      modelOverrides: overridesWithManual(provider, withDraft),
+    };
     if (provider) input.id = provider.id;
-    if (apiKey.trim()) input.apiKey = apiKey;
+    if (!keyless && apiKey.trim()) input.apiKey = apiKey;
     return input;
+  };
+  const refreshModels = async () => {
+    setWorking('test');
+    setSaveError('');
+    try {
+      const found = record(
+        await run('discoverCustomProviderModels', [buildInput()], `custom-refresh-${uid}`, false, true, 'throw')
+      );
+      setRows(customModels(found));
+      setDiscoveryError(found.error ? discoveryFailure(record(found.error)) : '');
+    } catch (reason) {
+      setDiscoveryError(failure(reason));
+    } finally {
+      setWorking('');
+    }
   };
   const connectionReady = baseURL.trim() !== '';
   const changed = () => {
@@ -175,9 +235,9 @@ function CustomProviderForm({
     setWorking('save');
     setSaveError('');
     try {
-      if (!provider && !apiKey.trim()) throw new Error(t('No API key'));
+      if (!keyless && !apiKey.trim() && (!provider || provider.auth === 'none')) throw new Error(t('No API key'));
       const input = buildInput();
-      if (!(input.models as CustomModel[]).length) {
+      if (!manualModels(input).length) {
         if (!(await discover(input))) {
           setWorking('');
           return;
@@ -271,15 +331,27 @@ function CustomProviderForm({
             id={keyId}
             type="password"
             value={apiKey}
-            disabled={disabled}
-            required={!provider}
+            disabled={disabled || keyless}
+            required={!keyless && (!provider || provider.auth === 'none')}
             autoComplete="new-password"
-            placeholder={provider ? t('Leave blank to keep the saved key') : t('API key')}
+            placeholder={provider && provider.auth !== 'none' ? t('Leave blank to keep the saved key') : t('API key')}
             onChange={(event) => {
               setApiKey(event.target.value);
               changed();
             }}
           />
+          <label className="settings-model-check">
+            <input
+              type="checkbox"
+              checked={keyless}
+              disabled={disabled}
+              onChange={(event) => {
+                setKeyless(event.target.checked);
+                changed();
+              }}
+            />
+            {t('No authentication (local server)')}
+          </label>
           <details
             className="settings-custom-models"
             open={manualOpen}
@@ -302,7 +374,7 @@ function CustomProviderForm({
                   changed();
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                     event.preventDefault();
                     addModel();
                   }
@@ -320,24 +392,60 @@ function CustomProviderForm({
               </button>
             </div>
             <ul>
-              {models.map((model) => (
-                <li className="extensions-mcp-list-row" key={model.id}>
-                  <span title={model.id}>{model.id}</span>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    aria-label={t('Remove {{name}}', { name: model.id })}
-                    onClick={() => {
-                      setModels(models.filter((item) => item !== model));
-                      changed();
-                    }}
+              {(provider
+                ? [...rows, ...models.filter((model) => !rows.some((row) => row.id === model.id))]
+                : models
+              ).map((model) => {
+                const explicit = models.find((item) => item.id === model.id);
+                const backed = rows.some((row) => row.id === model.id);
+                return (
+                  <li
+                    className={`extensions-mcp-list-row${model.hidden ? ' settings-model-hidden' : ''}`}
+                    key={model.id}
                   >
-                    <X size={14} aria-hidden="true" />
-                  </button>
-                </li>
-              ))}
+                    <span title={model.id}>
+                      {model.id}
+                      {model.hidden ? ` (${t('Hidden')})` : ''}
+                    </span>
+                    {provider && backed && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={disabled}
+                        aria-label={t('Edit model {{name}}', { name: model.id })}
+                        onClick={() => setEditingModel(model.id)}
+                      >
+                        {t('Edit')}
+                      </button>
+                    )}
+                    {explicit && (
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        aria-label={t('Remove {{name}}', { name: model.id })}
+                        onClick={() => {
+                          setModels(models.filter((item) => item !== explicit));
+                          changed();
+                        }}
+                      >
+                        <X size={14} aria-hidden="true" />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
+            {provider && (
+              <button type="button" className="secondary" disabled={disabled} onClick={() => void refreshModels()}>
+                {t('Refresh models')}
+              </button>
+            )}
           </details>
+          {discoveryError && (
+            <p className="settings-error" role="alert">
+              {discoveryError}
+            </p>
+          )}
           <div aria-live="polite">
             {testResult && (
               <p
@@ -366,6 +474,16 @@ function CustomProviderForm({
           </button>
         </footer>
       </section>
+      {provider && editingModel !== null && rows.some((row) => row.id === editingModel) && (
+        <CustomModelEditor
+          providerId={String(provider.id)}
+          protocol={protocol}
+          row={rows.find((row) => row.id === editingModel) as unknown as RecordValue}
+          override={record(record(provider.modelOverrides)[editingModel])}
+          run={run}
+          onClose={() => setEditingModel(null)}
+        />
+      )}
     </div>
   );
 }
@@ -394,7 +512,13 @@ export function CustomProvidersSection({
   }, [editing]);
   const status = (provider: RecordValue) =>
     // Raw status words: ResourceRow classifies them, then translates the label.
-    provider.enabled === false ? 'Disabled' : provider.authenticated === false ? 'No API key' : 'Connected';
+    provider.configError
+      ? 'Failed'
+      : provider.enabled === false
+        ? 'Disabled'
+        : provider.authenticated === false
+          ? 'No API key'
+          : 'Connected';
   return (
     <section className="settings-group settings-custom-providers">
       <header>
@@ -426,6 +550,7 @@ export function CustomProvidersSection({
               title={providerLabel(provider)}
               description={`${protocolLabel(provider.protocol)} · ${String(provider.baseURL || '')} · ${t('Models: {{total}}', { total })}`}
               status={status(provider)}
+              meta={provider.configError ? String(provider.configError) : undefined}
               actions={
                 <>
                   <ActionButton disabled={busy || editing !== null} onClick={() => openEditor(id)}>

@@ -18,9 +18,12 @@ import {
 } from './ScmContextMenu';
 import { copyTextToClipboard } from './text-format';
 import { openEditorFileExternally } from './editor-external-file';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
+import { useBrowserSiteFavicon } from './browser-page-identity';
+import { linkOpenTarget } from './link-open-target';
 import { openConfirmedFile } from './file-launch-confirmation';
+import { openSandboxedPagePreview } from './sandboxed-page-preview';
 
 /** Plain text of rendered children: highlighted code and link captions are
  *  hast-derived spans, so a String() cast would not yield their source. */
@@ -110,6 +113,94 @@ async function owningProjectFolder(folder: string): Promise<{ project: string; r
   return owner;
 }
 
+function reportOpenFailure(error: unknown) {
+  showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
+}
+
+/** Open a web page (a web URL or a served local page) where linkOpenTarget
+ *  says: the session's browser pane, or the system browser. Rejects when the
+ *  system browser cannot be opened. */
+async function openWebLink(
+  sessionId: string | undefined,
+  url: string,
+  external?: boolean,
+  newTab?: boolean
+): Promise<void> {
+  if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable(), external }) === 'pane') {
+    requestBrowserPage(sessionId as string, url, newTab ? { newTab: true } : undefined);
+    return;
+  }
+  const api = window.mixdogDesktop;
+  if (api?.openExternal) {
+    await api.openExternal(url);
+    return;
+  }
+  // Only a surface without the desktop bridge opens a tab itself.
+  window.open(url, '_blank', 'noopener');
+}
+
+/** Ctrl/Cmd-click and middle-click on a web link: the system browser. */
+export function openWebLinkInSystemBrowser(sessionId: string | undefined, url: string): void {
+  void openWebLink(sessionId, url, true).catch(reportOpenFailure);
+}
+
+/** File name offered by "Save link as": the URL's last path segment. */
+function linkSaveName(url: string): string {
+  try {
+    const segment = new URL(url).pathname.split('/').filter(Boolean).at(-1) || '';
+    return decodeURIComponent(segment) || 'download';
+  } catch {
+    return 'download';
+  }
+}
+
+/** The right-click menu of a web link, shared by chat links and page cards.
+ *  The browser-pane entries exist only where linkOpenTarget picks the pane. */
+export function webLinkMenu(
+  sessionId: string | undefined,
+  url: string,
+  point: { x: number; y: number }
+): ScmContextMenuState {
+  const pane = linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) === 'pane';
+  const run = (action: Promise<unknown>) => void action.catch(reportOpenFailure);
+  return {
+    label: t('Open in'),
+    heading: t('Open in'),
+    ...point,
+    items: [
+      ...(pane
+        ? [
+            { id: 'open-mixdog-browser', label: t('Mixdog Browser'), onSelect: () => run(openWebLink(sessionId, url)) },
+            {
+              id: 'open-mixdog-browser-new-tab',
+              label: t('Mixdog Browser (New Tab)'),
+              onSelect: () => run(openWebLink(sessionId, url, false, true)),
+            },
+          ]
+        : []),
+      { id: 'open-system-browser', label: t('System Browser'), onSelect: () => run(openWebLink(sessionId, url, true)) },
+      {
+        id: 'copy-link',
+        label: t('Copy link'),
+        separatorBefore: true,
+        onSelect: () => run(copyTextToClipboard(url)),
+      },
+      {
+        id: 'save-link-as',
+        label: t('Save link as…'),
+        onSelect: () =>
+          run(
+            (async () => {
+              const save = window.mixdogDesktop?.saveFileAs;
+              if (!save) throw new Error(t('Desktop file access is unavailable.'));
+              await save(url, linkSaveName(url));
+            })()
+          ),
+      },
+    ],
+  };
+}
+
 function displayPath(project: string, rel: string, suffix: string): string {
   const separator = project.includes('\\') ? '\\' : '/';
   return `${project.replace(/[\\/]+$/, '')}${separator}${rel.replace(/\//g, separator)}${suffix}`;
@@ -141,7 +232,10 @@ interface LocalLinkTarget {
   onPointerCancel: () => void;
   /** Mouse hover / keyboard focus on a convertible document link. */
   prefetchDocument?: () => void;
-  open: () => Promise<void>;
+  /** `external` sends a local web page to the system browser instead of the pane. */
+  open: (external?: boolean) => Promise<void>;
+  /** A local HTML page that opens as a served web page (can go external). */
+  webPage: boolean;
   openDefault: () => Promise<void>;
   reveal: () => Promise<void>;
   copyPath: () => Promise<void>;
@@ -311,8 +405,9 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   // Chat links deserve the file tree's treatment: start Monaco's chunk on the
   // open intent, rather than paying its whole fetch + evaluate after the
   // click, behind the path resolution.
-  const editorTarget =
-    local && kind === 'file' && editorFileOpener(location.path) === 'editor' && !isLocalWebPage(location.path);
+  // A web page link shows the page; naming a line asks for its source instead.
+  const pageLink = isLocalWebPage(location.path) && !location.line;
+  const editorTarget = local && kind === 'file' && editorFileOpener(location.path) === 'editor' && !pageLink;
   const warmEditor = () => {
     if (editorTarget) void prefetchEditorPane().catch(() => {});
   };
@@ -331,7 +426,8 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
           .catch(() => {});
       }
     : undefined;
-  const open = async () => {
+  const webPage = local && pageLink && typeof window !== 'undefined' && Boolean(window.mixdogDesktop?.localPageUrl);
+  const open = async (external?: boolean) => {
     warmEditor();
     try {
       const { project, path: file, accessToken, directory } = await resolveTarget();
@@ -339,10 +435,16 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       // main serves; with no pane to reveal (a draft) the system browser takes
       // the same address. Without the server (a paired phone) it stays source.
       const pageUrl = window.mixdogDesktop?.localPageUrl;
-      if (!directory && isLocalWebPage(file) && pageUrl) {
+      if (!directory && pageLink && pageUrl) {
         const url = await pageUrl(project, file, accessToken);
-        if (sessionId && browserPageRequestsAvailable()) requestBrowserPage(sessionId, url);
-        else await window.mixdogDesktop.openExternal(url);
+        await openWebLink(sessionId, url, external);
+        return;
+      }
+      // A paired browser cannot reach the host's loopback server: the page
+      // arrives as a self-contained document for a sandboxed frame instead.
+      const pageSource = window.mixdogDesktop?.localPageSource;
+      if (!directory && pageLink && pageSource) {
+        openSandboxedPagePreview(await pageSource(project, file, accessToken), file);
         return;
       }
       // A Project folder opens beside the conversation as the dock's Files
@@ -418,13 +520,14 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       const { project, path: file } = await resolveTarget();
       await copyTextToClipboard(displayPath(project, file, ''));
     } catch (error) {
-      showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
+      showDesktopToast(`${t('Copy failed')}: ${errorMessageText(error)}`, 'error');
     }
   };
   return {
     openDefault,
     reveal,
     copyPath,
+    webPage,
     local,
     verified: verifiedKey === resolutionKey,
     missing: missingKey === resolutionKey,
@@ -508,15 +611,24 @@ export function MarkdownLink({
   const verify = automatic && typeof window !== 'undefined';
   const link = useLocalLinkTarget(target, verify);
   const sessionId = useContext(MarkdownSessionContext);
+  const siteFavicon = useBrowserSiteFavicon(external ? target : undefined);
   const local = link.local;
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  const openWebLinkExternal = () => openWebLinkInSystemBrowser(sessionId, target);
   const openMenu = (point: { x: number; y: number }) => {
-    const external = !isRemoteBrowserRenderer();
+    if (!local) {
+      setMenu(webLinkMenu(sessionId, target, point));
+      return;
+    }
+    const external = !isRemoteHostRenderer();
     setMenu({
       label: link.name,
       ...point,
       items: [
         { id: 'open', label: t('Open'), onSelect: () => void link.open() },
+        ...(link.webPage
+          ? [{ id: 'open-browser', label: t('Open in browser'), onSelect: () => void link.open(true) }]
+          : []),
         ...(external
           ? [
               { id: 'open-default', label: t('Open in default app'), onSelect: () => void link.openDefault() },
@@ -556,7 +668,7 @@ export function MarkdownLink({
   } else if (external) {
     label = (
       <>
-        <LinkKindIcon kind="external" />
+        <LinkKindIcon kind="external" favicon={siteFavicon} />
         {children}
       </>
     );
@@ -581,6 +693,10 @@ export function MarkdownLink({
         aria-disabled="true"
       >
         {label}
+        {/* Session entry waits for the lookup: a mention that turns out
+            missing would otherwise swap its look in front of the reader
+            (user: 세션 재진입 시 링크 폰트가 바뀌면서 튄다). */}
+        {verify && local && <span hidden data-transcript-pending />}
       </span>
     );
   }
@@ -614,53 +730,48 @@ export function MarkdownLink({
               }
             : undefined
         }
-        onContextMenu={
-          local
-            ? (event) => {
-                event.preventDefault();
-                openMenu(pointerMenuPoint(event));
-              }
-            : undefined
-        }
-        onKeyDown={
-          local
-            ? (event) => {
-                if (!isContextMenuKey(event)) return;
-                event.preventDefault();
-                openMenu(elementMenuPoint(event.currentTarget));
-              }
-            : undefined
-        }
+        onContextMenu={(event) => {
+          event.preventDefault();
+          openMenu(pointerMenuPoint(event));
+        }}
+        onKeyDown={(event) => {
+          if (!isContextMenuKey(event)) return;
+          event.preventDefault();
+          openMenu(elementMenuPoint(event.currentTarget));
+        }}
         onPointerDown={local ? link.onPointerDown : undefined}
         onPointerUp={local ? link.onPointerUp : undefined}
         onPointerCancel={local ? link.onPointerCancel : undefined}
-        onAuxClick={local ? (event) => event.preventDefault() : undefined}
+        // Windows middle-click autoscroll swallows auxclick unless the press is cancelled.
+        onMouseDown={(event) => {
+          if (event.button === 1) event.preventDefault();
+        }}
+        onAuxClick={(event) => {
+          // Never a renderer navigation or Electron window; middle click asks
+          // for the system browser on web links and local web pages.
+          event.preventDefault();
+          if (event.button !== 1) return;
+          if (local) {
+            if (link.webPage) void openLocal(true);
+          } else openWebLinkExternal();
+        }}
         onClick={(event) => {
+          const asksExternal = event.ctrlKey || event.metaKey;
           if (local) {
             // A local link must never navigate the renderer, including modified clicks.
             event.preventDefault();
-            if (event.button === 0) void openLocal();
+            if (event.button === 0) void openLocal(asksExternal);
             return;
           }
           if (event.button !== undefined && event.button !== 0) return;
-          if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-          event.preventDefault();
-          const fallback = () => {
-            try {
-              window.open(target, '_blank', 'noopener');
-            } catch {
-              /* popup blocked */
-            }
-          };
-          // The conversation's own side-panel browser takes web links; a draft
-          // (no session) or a surface without a reveal shell uses the system browser.
-          if (sessionId && browserPageRequestsAvailable()) {
-            requestBrowserPage(sessionId, target);
+          if (asksExternal) {
+            event.preventDefault();
+            openWebLinkExternal();
             return;
           }
-          const api = window.mixdogDesktop;
-          if (api?.openExternal) void api.openExternal(target).catch(fallback);
-          else fallback();
+          if (event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          void openWebLink(sessionId, target).catch(reportOpenFailure);
         }}
       >
         {label}

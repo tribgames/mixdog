@@ -78,3 +78,9 @@ test('pushAsyncAgentResponse falls back to the user/synthetic path for plain tex
   assert.equal(getState().items[0].kind, 'user');
   assert.equal(getState().items[0].id, 'r1');
 });
+
+test('a prompt row carries the device that submitted it', () => {
+  const { intake, getState } = createHarness();
+  intake.pushUserOrSyntheticItem('from the phone', 'u2', 'user', { device: 'Pixel' });
+  assert.equal(getState().items[0].device, 'Pixel');
+});

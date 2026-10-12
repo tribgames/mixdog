@@ -165,33 +165,19 @@ test('a model pause is the user-requested pause and never a waiting state', asyn
   assert.equal(f.runtime.snapshot(f.sessionId).timeUsedMs, 0);
 });
 
-test('blocking audit counts distinct consecutive turns, survives restart, and ignores duplicate reports', async (t) => {
+test('block stops the Goal on the reporting turn and survives restart', async (t) => {
   const f = fixture(t);
   await f.control({ command: 'Deliver work' });
-  for (let turn = 1; turn <= 2; turn++) {
-    await f.runtime.startTurn(f.sessionId);
-    for (let repeat = 0; repeat < 2; repeat++) {
-      const reply = await f.call({ action: 'block', blocker: 'External credentials unavailable' });
-      assert.equal(reply.goal.status, 'active');
-      assert.equal(reply.goal.blockAudit.count, turn);
-    }
-    await f.runtime.settleTurn(f.sessionId, { status: 'done' });
-  }
+  await f.runtime.startTurn(f.sessionId);
+  const reply = await f.call({ action: 'block', blocker: 'External credentials unavailable' });
+  assert.equal(reply.goal.status, 'blocked');
+  assert.equal(reply.goal.blocker, 'External credentials unavailable');
+  await f.runtime.settleTurn(f.sessionId, { status: 'done' });
+  assert.equal(f.runtime.continuation(f.sessionId).run, false);
   f.runtime.close();
   const restored = createGoalRuntime(f.options);
   t.after(() => restored.close());
-  await restored.startTurn(f.sessionId);
-  const blocked = JSON.parse(
-    await restored.executeTool(
-      'goal',
-      {
-        action: 'block',
-        blocker: 'External credentials unavailable',
-      },
-      { sessionId: f.sessionId }
-    )
-  );
-  assert.equal(blocked.goal.status, 'blocked');
+  assert.equal(restored.snapshot(f.sessionId).status, 'blocked');
   assert.equal(restored.continuation(f.sessionId).run, false);
 });
 

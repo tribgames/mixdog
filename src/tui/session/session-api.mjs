@@ -11,6 +11,7 @@ import { createSessionSettingsApi } from './session-api/settings.mjs';
 import { createSessionControlsApi } from './session-api/controls.mjs';
 import { createSessionExtensionsApi } from './session-api/extensions.mjs';
 import { createSessionCommandsApi } from './session-api/commands.mjs';
+import { createQuotaResumeApi } from './session-api/quota-resume.mjs';
 
 export function createSessionApi(bag) {
   const api = { ...createSessionApiA(bag), ...createSessionApiB(bag) };
@@ -57,5 +58,6 @@ export function createSessionApiA(bag) {
     ...createSessionControlsApi(bag),
     ...createSessionExtensionsApi(bag),
     ...createSessionCommandsApi(bag),
+    ...createQuotaResumeApi(bag),
   };
 }

@@ -414,7 +414,7 @@ export async function readPhoneSettingsAssertions(window: BrowserWindow): Promis
         body,
         ...body.querySelectorAll(
           '.settings-group, .settings-group-body, .core-memory-list, .settings-shortcut-list, '
-          + '.settings-connection-grid',
+          + '.settings-connection-body, .settings-connection-pair',
         ),
       ].every((element) => element instanceof HTMLElement && overflowFree(element));
       for (const row of rows) {

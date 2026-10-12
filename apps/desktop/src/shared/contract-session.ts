@@ -24,6 +24,8 @@ export interface DesktopTranscriptItem extends Readonly<Record<string, unknown>>
   modelId?: string;
   provider?: string;
   agent?: string;
+  /** Device that submitted this prompt (user rows only). */
+  device?: string;
 }
 
 export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
@@ -115,6 +117,16 @@ export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> 
 }
 export type DesktopOrchestrationMode = 'none' | 'focused' | 'balanced' | 'swarm';
 
+export interface DesktopQuotaResume {
+  state: 'waiting';
+  turnKey: string;
+  provider: string;
+  model: string;
+  /** Epoch ms the provider's quota resets. */
+  resetAt: number;
+  attempts: number;
+}
+
 export interface DesktopGoalTask extends Readonly<Record<string, unknown>> {
   id?: string;
   text?: string;
@@ -160,7 +172,12 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   spinner?: DesktopActivityState | null;
   commandStatus?: DesktopActivityState | null;
   goal?: DesktopGoalState | null;
+  /** A quota-stopped turn waiting to resume itself at the provider's reset. */
+  quotaResume?: DesktopQuotaResume | null;
   progressHint?: { text?: string; tone?: string; percent?: number } | null;
+  /** The session object's own route (may differ from provider/model after a route change). */
+  sessionProvider?: string | null;
+  sessionModel?: string | null;
   fast?: boolean;
   fastCapable?: boolean;
   modelParameters?: Readonly<Record<string, string>>;
@@ -181,6 +198,11 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   workflow?: DesktopWorkflowState | null;
   orchestrationMode?: DesktopOrchestrationMode;
   remoteEnabled?: boolean;
+  /** How the last tool approval ended and from which device. */
+  toolApprovalResult?: { id: string; approved: boolean; device: string; at: number } | null;
+  /** A prompt cancelled from another device, to be handed back to the device
+   *  that sent it (`ids` are that device's submission ids). */
+  promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   providerAccountChange?: { provider: string; accountId: string; at: number };
 }
 
@@ -260,6 +282,8 @@ export type DesktopSessionStateWireUpdate = Omit<DesktopSessionStateUpdate, 'sna
 export interface ToolApprovalDecision {
   approved: boolean;
   reason?: string;
+  /** Host-stamped name of the device that answered. */
+  device?: string;
 }
 
 export interface DesktopModelEffortOption {
@@ -384,9 +408,14 @@ export interface DesktopSubmitOptions {
   priority?: DesktopPromptPriority;
   pastedImages?: Record<string, DesktopPromptAttachment>;
   pastedTexts?: Record<string, DesktopPastedText>;
+  /** Host-stamped name of the device that sent this (see session-device.ts).
+   *  Request validation rejects it from a caller. */
+  device?: string;
 }
 
 export interface DesktopAbortOptions {
+  /** Host-stamped name of the device cancelling. */
+  device?: string;
   /** Rewind a submitted prompt only when the composer was empty at cancel. */
   restorePrompt?: boolean;
   /** Renderer submission identity used to reclaim an accepted prompt before

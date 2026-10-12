@@ -398,7 +398,6 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         'beforeend',
         `
         <div class="sidebar-usage-row" id="item-usage"></div>
-        <div class="sidebar-usage-reset-credit" id="item-credit"></div>
         <div class="session-sidebar"><div class="session-row selected" id="item-selected" style="transition:none"></div></div>
         <div class="message user"><div class="message-body" id="item-bubble"></div></div>
       `
@@ -415,11 +414,11 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         return {
           popup: root.getPropertyValue('--mx-popup-bg').trim(),
           base: root.getPropertyValue('--mx-bg-base').trim(),
-          cards: [read('item-usage', '::before'), read('item-credit'), read('item-selected'), read('item-bubble')],
+          cards: [read('item-usage', '::before'), read('item-selected'), read('item-bubble')],
         };
       }, theme);
-      const [usage, credit, selected, bubble] = items.cards;
-      for (const frame of [usage, credit]) {
+      const [usage, selected, bubble] = items.cards;
+      for (const frame of [usage]) {
         assert.equal(frame.background, 'rgba(0, 0, 0, 0)', theme);
         assert.match(frame.shadow, /0px 0px 0px 1px inset/, theme);
       }
@@ -509,10 +508,13 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
     for (const theme of ['light', 'dark']) {
       const { elements: paper, tones } = await read(theme);
       // Containers: no plate, one hairline frame.
-      for (const id of ['paper-group', 'paper-chart', 'paper-tool', 'paper-notice']) {
+      for (const id of ['paper-group', 'paper-chart', 'paper-notice']) {
         assert.equal(paper[id].bg, clear, `${theme}: ${id}`);
         assert.match(paper[id].shadow, /0px 0px 0px 1px/, `${theme}: ${id}`);
       }
+      // Tool output sits bare inside its list card, which is the one frame.
+      assert.equal(paper['paper-tool'].bg, clear, theme);
+      assert.equal(paper['paper-tool'].shadow, 'none', theme);
       // The table card's frame is a real border so its opaque header and
       // rows cannot paint over it.
       assert.equal(paper['paper-table'].bg, clear, theme);

@@ -10,7 +10,8 @@ type SessionSelection = Extract<NavigationSelection, { kind: 'session' }>;
 interface InheritanceTarget {
   inherit(
     sourceId: string,
-    route: DesktopModelSelection
+    route: DesktopModelSelection,
+    options?: { compact: boolean }
   ): Promise<{
     sessionId: string;
     snapshot: SessionSnapshot;
@@ -30,7 +31,8 @@ interface InheritanceTarget {
 export async function inheritSessionInPlace(
   sourceId: string,
   route: DesktopModelSelection,
-  target: InheritanceTarget
+  target: InheritanceTarget,
+  options?: { compact: boolean }
 ): Promise<void> {
   const sourceKey = navigationKey({ kind: 'session', id: sourceId });
   const ownsSource = (leaf: PaneLeaf) => leaf.tabs.some((tab) => navigationKey(tab) === sourceKey);
@@ -40,7 +42,7 @@ export async function inheritSessionInPlace(
   if (!owner) throw new Error('The source session tab is no longer open.');
   const fallbackTitle = target.sourceTitle();
 
-  const result = await target.inherit(sourceId, route);
+  const result = await target.inherit(sourceId, route, options);
   const sessionId = String(result?.sessionId || '').trim();
   if (!sessionId || sessionId === sourceId) {
     throw new Error('The inherited session was not created.');

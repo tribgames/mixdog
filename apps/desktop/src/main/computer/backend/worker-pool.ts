@@ -6,14 +6,15 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createHostScriptPublisher, HOST_ASSEMBLY_CACHE_DIRECTORY } from './host-script';
-import { RESPONSE_MARKER } from './program';
+import { INACTIVE_LEDGER_RECOVERY_PROGRAM, RESPONSE_MARKER } from './program';
 import { runElevatedRequest } from './elevated-launcher';
 import { computerNativeBinary, computerNativeEnvironment } from './native-host';
 import { createSessionJobs } from './session-jobs';
+import { createInactiveLedgerRegistry, type ProcessIdentity } from './inactive-ledger-registry';
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
 import type { PowerShellResponse } from '../shared/types';
@@ -150,6 +151,21 @@ export interface WorkerPoolHost {
   spawnProcess?: typeof spawn;
 }
 
+/**
+ * A finished elevated run recovers its ledger only when the worker is known to
+ * have stopped; otherwise the ledger is held with the launcher's identity until
+ * that process is verified gone.
+ */
+export function settleElevatedLedger(
+  stopped: boolean,
+  path: string,
+  recover: (path: string) => void,
+  hold: (path: string) => void
+): void {
+  if (stopped) recover(path);
+  else hold(path);
+}
+
 export function createWorkerPool(host: WorkerPoolHost) {
   const { dataDirectory, onSessionRetired } = host;
 
@@ -168,6 +184,36 @@ export function createWorkerPool(host: WorkerPoolHost) {
   assertComputerWorkerCapacity(0, maxWorkers);
   let elevatedSlots = 0;
   const inputMarker = String(randomBytes(4).readUInt32LE() & 0x7fffffff || 1);
+  // WS_EX_NOACTIVATE bits a worker added to other windows are journaled in a
+  // per-worker ledger so they can be cleared however the worker ends.
+  const pendingInactiveLedgers = createInactiveLedgerRegistry();
+  const ledgerByWorker = new Map<ChildProcessWithoutNullStreams, string>();
+
+  function newInactiveLedgerPath(): string {
+    const directory = dataDirectory();
+    mkdirSync(directory, { recursive: true });
+    return join(directory, `computer-inactive-${randomBytes(12).toString('hex')}.ledger`);
+  }
+
+  /** The worker is gone: clear what it left behind, then forget the ledger. */
+  function recoverInactiveLedger(path: string): void {
+    pendingInactiveLedgers.exited(path);
+    if (!existsSync(path)) {
+      pendingInactiveLedgers.forget(path);
+      return;
+    }
+    const recovery = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', INACTIVE_LEDGER_RECOVERY_PROGRAM],
+      { windowsHide: true, stdio: 'ignore', env: { ...process.env, MIXDOG_ABORT_LEDGERS: path } }
+    );
+    recovery.once('error', () => {
+      /* the ledger stays pending for the abort cleanup */
+    });
+    recovery.once('exit', (code) => {
+      if (code === 0) pendingInactiveLedgers.forget(path);
+    });
+  }
 
   /** An exited worker keeps its slot until its `exit` event arrives, and a
    * confirmed session release can outrun that event. Dead children are pruned
@@ -192,7 +238,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
     // with the per-command JSON we also write to stdin. -File leaves stdin
     // dedicated to runtime commands.
     const scriptPath = hostScript.ensure();
-    return spawnProcess(
+    const ledgerPath = newInactiveLedgerPath();
+    const child = spawnProcess(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
       {
@@ -202,9 +249,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
           MIXDOG_COMPUTER_HOST_CACHE: join(dataDirectory(), HOST_ASSEMBLY_CACHE_DIRECTORY),
           MIXDOG_COMPUTER_HOST_BUILD: hostScript.build(),
           MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
+          MIXDOG_COMPUTER_INACTIVE_LEDGER: ledgerPath,
         },
       }
     );
+    ledgerByWorker.set(child, ledgerPath);
+    return child;
   }
 
   function spawnHostWorker(): ChildProcessWithoutNullStreams {
@@ -249,6 +299,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
     });
     child.once('exit', () => {
       hostWorkers.delete(child);
+      const ledgerPath = ledgerByWorker.get(child);
+      if (ledgerPath) {
+        ledgerByWorker.delete(child);
+        recoverInactiveLedger(ledgerPath);
+      }
       retirePowerShell(child, new Error('computer host exited'));
     });
     return child;
@@ -394,24 +449,36 @@ export function createWorkerPool(host: WorkerPoolHost) {
     const directory = dataDirectory();
     mkdirSync(directory, { recursive: true });
     assertComputerWorkerCapacity(liveWorkerCount() + elevatedSlots + 2, maxWorkers);
+    const inactiveLedger = newInactiveLedgerPath();
+    let launcher: ProcessIdentity | undefined;
+    let stopped = false;
+    const settle = () =>
+      settleElevatedLedger(stopped, inactiveLedger, recoverInactiveLedger, (path) =>
+        pendingInactiveLedgers.hold(path, launcher)
+      );
     return runElevatedRequest({
       request,
       id: nextId++,
       directory,
       hostScriptPath,
       inputMarker,
+      inactiveLedger,
       spawnProcess,
+      onWorkerIdentity: (identity) => {
+        launcher = identity;
+      },
       begin: (cancel) => {
         const job = elevatedJobs.begin(sessionId, cancel);
         elevatedSlots += 3;
         return {
-          finish(stopped) {
-            job.finish(stopped);
-            if (stopped) elevatedSlots -= 3;
+          finish(confirmed) {
+            stopped = confirmed;
+            job.finish(confirmed);
+            if (confirmed) elevatedSlots -= 3;
           },
         };
       },
-    });
+    }).finally(settle);
   }
 
   function residentWorkerPids(): number[] {
@@ -459,8 +526,17 @@ export function createWorkerPool(host: WorkerPoolHost) {
     },
     /** User-acknowledged recovery only: releases unconfirmed elevated sessions
      *  and their slots, unless an elevated job is still pending. */
-    releaseUnconfirmedElevated(): void {
+    async releaseUnconfirmedElevated(): Promise<boolean> {
+      // Only a verified-gone launcher releases its job; one still alive (or
+      // unverifiable) keeps its ledger held and the sessions unconfirmed.
+      if (!(await pendingInactiveLedgers.promoteGone())) return false;
       elevatedSlots -= elevatedJobs.releaseUnconfirmed() * 3;
+      return true;
+    },
+    /** Ledgers of workers confirmed gone, safe for any cleanup to recover. */
+    pendingInactiveLedgers: (): string[] => pendingInactiveLedgers.recoverable(),
+    inactiveLedgersRecovered(paths: string[]): void {
+      for (const path of paths) pendingInactiveLedgers.forget(path);
     },
     callPowerShell,
     callPowerShellElevated,

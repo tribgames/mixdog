@@ -164,8 +164,16 @@ pub(super) fn install_response_queue(
     std::mem::replace(&mut *slot, queue)
 }
 
+/// Only replies to client requests (they carry an id) count as activity;
+/// unsolicited watcher events must not keep an idle server alive.
+pub(super) fn note_outbound_activity(response: &serde_json::Value) {
+    if response.get("id").is_some() {
+        note_serve_search_activity();
+    }
+}
+
 pub(super) fn enqueue_response(response: &serde_json::Value, control: bool) {
-    note_serve_search_activity();
+    note_outbound_activity(response);
     response_queue().push(response.to_string(), control);
 }
 
@@ -191,7 +199,7 @@ pub(super) struct ClientSink {
 
 impl ClientSink {
     pub(super) fn enqueue(&self, response: &serde_json::Value, control: bool) {
-        note_serve_search_activity();
+        note_outbound_activity(response);
         self.queue.push(response.to_string(), control);
     }
 

@@ -15,7 +15,11 @@ function get(url, path, headers = {}) {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () =>
-        resolve({ status: response.statusCode, type: response.headers['content-type'], body: Buffer.concat(chunks).toString() })
+        resolve({
+          status: response.statusCode,
+          type: response.headers['content-type'],
+          body: Buffer.concat(chunks).toString(),
+        })
       );
     });
     req.on('error', reject);
@@ -51,6 +55,19 @@ test('a page and its relative web assets are served from an unguessable loopback
   const another = await projectPageUrl(root, 'assets/../page.html');
   assert.notEqual(new URL(another).pathname, pathname);
   assert.equal((await get(another, new URL(another).pathname)).body, page.body);
+});
+
+test('newly supported web asset types carry their content type', async (t) => {
+  const root = await site(t);
+  await writeFile(join(root, 'app.webmanifest'), '{}');
+  await writeFile(join(root, 'notes.md'), '# hi');
+  await writeFile(join(root, 'model.glb'), 'glb');
+  const url = await projectPageUrl(root, 'page.html');
+  const { pathname } = new URL(url);
+  const prefix = pathname.slice(0, pathname.lastIndexOf('/'));
+  assert.equal((await get(url, `${prefix}/app.webmanifest`)).type, 'application/manifest+json; charset=utf-8');
+  assert.equal((await get(url, `${prefix}/notes.md`)).type, 'text/markdown; charset=utf-8');
+  assert.equal((await get(url, `${prefix}/model.glb`)).type, 'model/gltf-binary');
 });
 
 test('nothing outside the root, no dotfiles and no non-web files are served', async (t) => {
@@ -90,4 +107,20 @@ test('directory links cannot expose hidden or out-of-root files, but public asse
   assert.equal(asset.status, 200);
   assert.equal(asset.type, 'text/css; charset=utf-8');
   assert.equal(asset.body, 'p{color:red}');
+});
+
+test('a selected page outside every Project serves only that page, never its neighbors', async (t) => {
+  const base = await mkdtemp(join(tmpdir(), 'mixdog-outside-page-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  await mkdir(join(base, 'pages'), { recursive: true });
+  await mkdir(join(base, 'shared'), { recursive: true });
+  await writeFile(join(base, 'pages', 'page.html'), '<p>x</p>');
+  await writeFile(join(base, 'pages', 'data.json'), '{"a":1}');
+  await writeFile(join(base, 'shared', 'style.css'), 'p{color:blue}');
+  const url = await localPageUrl(join(base, 'pages'), 'page.html', { scope: 'file', authorize: async () => {} });
+  const { pathname } = new URL(url);
+  const dir = pathname.replace(/[^/]+$/, '');
+  assert.equal((await get(url, pathname)).status, 200);
+  assert.equal((await get(url, `${dir}data.json`)).status, 404);
+  assert.equal((await get(url, `${dir}../shared/style.css`)).status, 404);
 });

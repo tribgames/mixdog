@@ -12,6 +12,8 @@ interface HastLikeNode {
   tagName?: unknown;
   properties?: Record<string, unknown>;
   children?: HastLikeNode[];
+  url?: unknown;
+  position?: { start: { offset?: number } };
 }
 
 const adjacentStrongPunctuation =
@@ -96,6 +98,67 @@ export function repairAdjacentStrongPunctuation() {
         repaired.push(...sliceSpans(spans, cursor, projection.length));
         node.children = repaired;
       }
+    };
+    visit(tree);
+  };
+}
+
+// GFM extends a bare URL through every non-space character, so Korean prose
+// glued to a link (`페이지(https://a.io/x/)와`) ended up inside the href and
+// opened a 404. Cut a literal autolink at its first CJK character, then drop
+// the trailing punctuation and unbalanced `)` that cut exposes, returning the
+// remainder to prose. Only literal autolinks are cut: their label starts where
+// the link starts, while `[..](..)` and `<..>` carry a delimiter first.
+const CJK_CHARACTER =
+  /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303f\uff00-\uffef]/u;
+const TRAILING_URL_PUNCTUATION = /[?!.,:*_~]$/;
+
+function autolinkCut(label: string): number {
+  const found = label.search(CJK_CHARACTER);
+  if (found <= 0) return -1;
+  let end = found;
+  for (;;) {
+    const head = label.slice(0, end);
+    if (TRAILING_URL_PUNCTUATION.test(head)) end -= 1;
+    else if (head.endsWith(')') && head.split(')').length > head.split('(').length) end -= 1;
+    else return end;
+  }
+}
+
+/** The URL and sole text label of a literal autolink: the label is the URL's
+ *  tail and starts where the link starts. Null for any other node. */
+function literalAutolink(link: HastLikeNode): { url: string; label: HastLikeNode & { value: string } } | null {
+  const url = link.url;
+  const label = link.children?.[0];
+  if (link.type !== 'link' || typeof url !== 'string' || link.children?.length !== 1) return null;
+  if (label?.type !== 'text' || typeof label.value !== 'string' || !url.endsWith(label.value)) return null;
+  const start = link.position?.start.offset;
+  if (start === undefined || start !== label.position?.start.offset) return null;
+  return { url, label: label as HastLikeNode & { value: string } };
+}
+
+export function trimAutolinkCjkSuffix() {
+  return (tree: HastLikeNode) => {
+    const visit = (node: HastLikeNode) => {
+      const children = node.children;
+      if (!children) return;
+      const repaired: HastLikeNode[] = [];
+      for (const child of children) {
+        visit(child);
+        repaired.push(child);
+        const autolink = literalAutolink(child);
+        if (!autolink) continue;
+        const { url, label } = autolink;
+        const end = autolinkCut(label.value);
+        if (end <= 0) continue;
+        const tail = label.value.slice(end);
+        child.url = url.slice(0, url.length - tail.length);
+        label.value = label.value.slice(0, end);
+        delete child.position;
+        delete label.position;
+        repaired.push({ type: 'text', value: tail });
+      }
+      node.children = repaired;
     };
     visit(tree);
   };

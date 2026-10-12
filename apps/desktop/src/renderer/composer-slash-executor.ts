@@ -43,6 +43,8 @@ type SlashExecutorDeps = {
   clearNotice: () => void;
   showNotice: (message: string) => void;
   openGoalDialog: () => void;
+  /** /skills opens the composer's add menu, where a skill is picked for the next message. */
+  openSkillMenu: () => void;
   onNewTask: () => void;
   onClearToNewTask?: () => void;
   onResumeSession: (id: string) => void;
@@ -112,6 +114,7 @@ async function runSlashCommand(
   else if (name === 'effort' && argument) await runEffort(run, argument);
   else if (name === 'model') deps.onOpenSettings('model');
   else if (name === 'usage') await runUsage(run, argument);
+  else if (name === 'skills') deps.openSkillMenu();
   else if (command.surface) deps.onOpenCommandSurface(command.surface);
   else if (command.settingsRow) deps.onOpenSettings(command.settingsRow);
   return undefined;
@@ -246,7 +249,7 @@ async function runUsage(run: SlashRun, argument: string) {
   if (['refresh', '--refresh', '-r', 'true'].includes(argument.toLowerCase())) {
     await commandCapability(run, 'getUsageDashboard', [{ refresh: true }]);
   }
-  run.deps.onOpenCommandSurface('usage');
+  run.deps.onOpenCommandSurface('stats');
 }
 
 export function parseFastArgument(argument: string, current: boolean): RouteSpeed | null {

@@ -6,6 +6,7 @@ import {
   type SessionSnapshot,
 } from '../shared/contract';
 import { isSessionId, requiredSessionId, requiredSessionIds } from './desktop-state';
+import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
 import { requiredTranscriptItemLimit } from './ipc-validation';
@@ -42,11 +43,14 @@ type SessionProvenance = Pick<DesktopSessionStateUpdate, 'frameSource' | 'conten
 // The frame still carries the read's trace id; it is admitted for this long.
 const REQUESTED_READ_FRAME_GRACE_MS = 10_000;
 
+const SESSION_RECOVERY_COALESCE_MS = 3_000;
+
 export class DesktopStateBridge {
   private readonly stateEncoder = createSnapshotDeltaEncoder();
   private readonly visibleSessionIds = new Set<string>();
   private readonly requestedReads = createSessionReadWindow();
   private readonly requestedReadTraces = new Map<string, { sessionId: string; timer: ReturnType<typeof setTimeout> }>();
+  private readonly pendingRecoveries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly sessionEncoders = new Map<string, SnapshotDeltaEncoder>();
   private readonly latestSessionStates = new Map<string, SessionSnapshot>();
   private readonly latestSessionProvenance = new Map<string, SessionProvenance>();
@@ -94,6 +98,7 @@ export class DesktopStateBridge {
         if (name === 'folder-changed') this.send(DESKTOP_IPC.folderChanged, value);
         else if (name === 'activity-rail-pins-changed') this.send(DESKTOP_IPC.activityRailPinsChanged, value);
         else if (name === 'provider-models-changed') this.send(DESKTOP_IPC.providerModelsChanged, value);
+        else if (name === SETTINGS_CHANGED_EVENT) this.send(DESKTOP_IPC.settingsChanged, value);
         else if (name === 'lsp-diagnostics') this.send(DESKTOP_IPC.lspDiagnostics, value);
         else if (name === 'lsp-status') this.send(DESKTOP_IPC.lspStatus, value);
         else if (name === 'relay-payload-refused') {
@@ -101,6 +106,8 @@ export class DesktopStateBridge {
         } else if (name === 'remote-client-claim') {
           // Delivery stays global, but only Settings → Connection renders it.
           this.send(DESKTOP_IPC.remoteClientClaim, value);
+        } else if (name === 'remote-access-settings-changed') {
+          this.send(DESKTOP_IPC.remoteAccessSettingsChanged, value);
         }
       }) ?? (() => {});
 
@@ -125,7 +132,8 @@ export class DesktopStateBridge {
 
   private readonly sendSessionState = (update: DesktopSessionStateUpdate): void => {
     const sessionId = String(update.sessionId || '');
-    const answersRequestedRead = this.takeRequestedReadTrace(sessionId, update.readTraceId);
+    const answersRecovery = sessionId ? this.takePendingRecovery(sessionId) : false;
+    const answersRequestedRead = this.takeRequestedReadTrace(sessionId, update.readTraceId) || answersRecovery;
     if (
       !sessionId ||
       (!answersRequestedRead &&
@@ -137,6 +145,7 @@ export class DesktopStateBridge {
     let encoder = this.sessionEncoders.get(sessionId);
     // The preload decodes with this same build, so older-history pages travel as prepends.
     if (!encoder) encoder = createSnapshotDeltaEncoder({ prepend: true });
+    else if (answersRecovery) encoder.reset();
     if (update.snapshot === null) {
       this.send(DESKTOP_IPC.sessionState, {
         sessionId,
@@ -167,6 +176,25 @@ export class DesktopStateBridge {
       ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
     });
   };
+
+  /** One in-flight service recovery per session; the next frame or the timeout ends it. */
+  private requestServiceRecovery(sessionId: string): void {
+    if (this.pendingRecoveries.has(sessionId) || typeof this.options.host.requestSessionStateResync !== 'function') {
+      return;
+    }
+    const timer = setTimeout(() => this.pendingRecoveries.delete(sessionId), SESSION_RECOVERY_COALESCE_MS);
+    timer.unref?.();
+    this.pendingRecoveries.set(sessionId, timer);
+    this.options.host.requestSessionStateResync(sessionId);
+  }
+
+  private takePendingRecovery(sessionId: string): boolean {
+    const timer = this.pendingRecoveries.get(sessionId);
+    if (!timer) return false;
+    clearTimeout(timer);
+    this.pendingRecoveries.delete(sessionId);
+    return true;
+  }
 
   private rememberRequestedReadTrace(traceId: string, sessionId: string): void {
     const previous = this.requestedReadTraces.get(traceId);
@@ -244,9 +272,11 @@ export class DesktopStateBridge {
     const sessionId = String(value || '');
     if (!isSessionId(sessionId)) return;
     const snapshot = this.latestSessionStates.get(sessionId);
-    if (!snapshot) return;
     const provenance = this.latestSessionProvenance.get(sessionId);
-    if (!provenance) return;
+    if (!snapshot || !provenance) {
+      this.requestServiceRecovery(sessionId);
+      return;
+    }
     this.sessionEncoders.get(sessionId)?.reset();
     this.sendSessionState({
       sessionId,
@@ -271,6 +301,8 @@ export class DesktopStateBridge {
     this.visibleSessionIds.clear();
     for (const { timer } of this.requestedReadTraces.values()) clearTimeout(timer);
     this.requestedReadTraces.clear();
+    for (const timer of this.pendingRecoveries.values()) clearTimeout(timer);
+    this.pendingRecoveries.clear();
     if (typeof powerMonitor?.removeListener === 'function') {
       powerMonitor.removeListener('resume', this.onSystemResume);
     }

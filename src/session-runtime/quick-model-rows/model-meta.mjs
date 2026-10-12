@@ -2,6 +2,31 @@
 // model record filled from it.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { getModelMetadataSync } from '../../runtime/agent/orchestrator/providers/model-catalog.mjs';
+import { isCustomProviderName } from '../../runtime/agent/orchestrator/providers/custom-reasoning.mjs';
+
+const CUSTOM_DECLARED_FIELDS = [
+  'supportsReasoning',
+  'reasoningOptions',
+  'reasoningLevels',
+  'reasoningContentField',
+  'hidden',
+  'manual',
+  'customReasoning',
+];
+
+/** A custom provider's effective row is authoritative: every contract field it
+ *  states (an explicit [] or false included) wins over catalog metadata, and
+ *  declared levels are not overridden by catalog effort options. First-party
+ *  rows get nothing here. */
+export function declaredCustomFields(provider, model) {
+  if (!isCustomProviderName(provider) || !model || typeof model !== 'object') return {};
+  const out = {};
+  for (const key of CUSTOM_DECLARED_FIELDS) {
+    if (Object.hasOwn(model, key) && model[key] !== undefined) out[key] = model[key];
+  }
+  if (Object.hasOwn(out, 'reasoningLevels') && !Object.hasOwn(out, 'reasoningOptions')) out.reasoningOptions = [];
+  return out;
+}
 
 export function metadataFor(provider, modelId) {
   try {
@@ -28,5 +53,6 @@ export function hydratedModel(provider, model = {}) {
         ? base.reasoningOptions
         : meta.reasoningOptions || [],
     reasoningContentField: base?.reasoningContentField || meta.reasoningContentField || null,
+    ...declaredCustomFields(provider, base),
   };
 }

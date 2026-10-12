@@ -6,6 +6,7 @@
 const ASSET_CACHE = 'mixdog-assets-v2';
 importScripts('/sw-shell.js');
 importScripts('/ui-language.js');
+importScripts('/sw-media.js');
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
 // One page boot requests several hashed chunks together. Trimming after every
@@ -75,6 +76,38 @@ const TURN_FINISHED_TEXT = {
   vi: 'Đã hoàn tất công việc.',
   'zh-CN': '工作已完成。',
   'zh-TW': '工作已完成。',
+};
+
+// Spoken when a session starts waiting on a tool approval.
+const APPROVAL_PENDING_TEXT = {
+  de: 'Wartet auf deine Freigabe.',
+  en: 'Waiting for your approval.',
+  es: 'Esperando tu aprobación.',
+  fr: 'En attente de votre approbation.',
+  it: 'In attesa della tua approvazione.',
+  ja: '承認を待っています。',
+  ko: '승인을 기다리고 있습니다.',
+  'pt-BR': 'Aguardando sua aprovação.',
+  ru: 'Ожидает вашего подтверждения.',
+  vi: 'Đang chờ bạn phê duyệt.',
+  'zh-CN': '正在等待您的批准。',
+  'zh-TW': '正在等待您的核准。',
+};
+
+// Spoken when a session is waiting for the user's own input or action.
+const INPUT_NEEDED_TEXT = {
+  de: 'Wartet auf deine Eingabe.',
+  en: 'Waiting for your input.',
+  es: 'Esperando tu respuesta.',
+  fr: 'En attente de votre réponse.',
+  it: 'In attesa della tua risposta.',
+  ja: '入力を待っています。',
+  ko: '입력을 기다리고 있습니다.',
+  'pt-BR': 'Aguardando sua resposta.',
+  ru: 'Ожидает вашего ответа.',
+  vi: 'Đang chờ bạn phản hồi.',
+  'zh-CN': '正在等待您的输入。',
+  'zh-TW': '正在等待您的輸入。',
 };
 
 self.addEventListener('install', () => {
@@ -315,6 +348,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (request.method !== 'GET') return;
+  // Encrypted media (sw-media.js): the relay only carries ciphertext, so an
+  // <img>/<video>/<audio> request is answered here, decrypted, with Range.
+  const mediaRoute = mixdogMediaLane.match(request, url);
+  if (mediaRoute) {
+    event.respondWith(mixdogMediaLane.answer(request, mediaRoute));
+    return;
+  }
   if (request.mode === 'navigate') {
     const operation = shellFirst(request);
     event.respondWith(operation.then((result) => result.response).catch(() => fetch(request)));
@@ -345,6 +385,37 @@ self.addEventListener('fetch', (event) => {
   event.waitUntil(operation.then((result) => result.maintenance).catch(() => undefined));
 });
 
+// The app hands this worker the session's media key (and withdraws it) by
+// message; see remote-media-lane.ts.
+self.addEventListener('message', (event) => {
+  mixdogMediaLane.acceptKey(event.data);
+});
+
+// Relay device ids, the same shape the /d/<deviceId>/ route accepts. Anything
+// else is not used to build a route.
+const HOST_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,64})$/;
+
+function notificationHostId(value) {
+  const hostId = typeof value === 'string' ? value.toLowerCase() : '';
+  return HOST_ID.test(hostId) ? hostId : '';
+}
+
+function notificationTag(hostId, sessionId) {
+  if (!sessionId) return 'mixdog';
+  return hostId ? `session:${hostId}:${sessionId}` : `session:${sessionId}`;
+}
+
+/** Where a tap launches the app when nothing is running: the installed scope,
+ *  naming the session AND the PC that sent it. Only the app knows which PCs
+ *  this browser is paired with, so it opens the session there, moves to that
+ *  PC's route, or ignores a PC it no longer knows
+ *  (push-notification-bridge.ts routeNotificationTap). */
+function notificationLaunchUrl(scope, hostId, sessionId) {
+  if (!sessionId) return scope;
+  const query = `session=${encodeURIComponent(sessionId)}`;
+  return hostId ? `${scope}?${query}&host=${hostId}` : `${scope}?${query}`;
+}
+
 // Web Push. This is the ONLY path that reaches an installed web app whose
 // relay socket is gone: the OS wakes this worker even when the app was swiped
 // away. The desktop that owns the session encrypts the payload for this
@@ -362,20 +433,28 @@ self.addEventListener('push', (event) => {
   const title = (payload && typeof payload.title === 'string' && payload.title.trim()) || 'Mixdog';
   const supplied = payload && typeof payload.body === 'string' ? payload.body.trim() : '';
   const sessionId = payload?.data && typeof payload.data.sessionId === 'string' ? payload.data.sessionId : '';
+  const reason = payload?.data?.reason;
+  // The PC that sent it: one browser hears from every PC it is paired with,
+  // and a tap must open the session on THAT PC (an older PC names none).
+  const hostId = notificationHostId(payload?.data?.hostId ?? payload?.hostId);
   event.waitUntil(
     (async () => {
       // What the session actually said travels verbatim; only the stand-in for
       // a turn that produced no text is spoken in this device's language.
-      const body = supplied || TURN_FINISHED_TEXT[await notificationLanguage()] || TURN_FINISHED_TEXT.en;
+      let standIn = TURN_FINISHED_TEXT;
+      if (reason === 'approval-pending') standIn = APPROVAL_PENDING_TEXT;
+      else if (reason === 'input-needed') standIn = INPUT_NEEDED_TEXT;
+      const body = supplied || standIn[await notificationLanguage()] || standIn.en;
       await self.registration.showNotification(title, {
         body,
         icon: '/mixdog-192.png',
         badge: '/mixdog-192.png',
         // One session collapses onto one notification instead of stacking a row
-        // per finished turn, and the replacement re-alerts.
-        tag: sessionId ? `session:${sessionId}` : 'mixdog',
+        // per finished turn, and the replacement re-alerts. Two PCs may share a
+        // session id, so the PC is part of the identity.
+        tag: notificationTag(hostId, sessionId),
         renotify: Boolean(sessionId),
-        data: { sessionId },
+        data: { sessionId, hostId },
       });
     })()
   );
@@ -401,6 +480,7 @@ self.addEventListener('notificationclick', (event) => {
     event.notification.data && typeof event.notification.data.sessionId === 'string'
       ? event.notification.data.sessionId
       : '';
+  const hostId = notificationHostId(event.notification.data?.hostId);
   event.waitUntil(
     (async () => {
       // Park it FIRST. focus() can hand the tap to a document the phone
@@ -409,7 +489,7 @@ self.addEventListener('notificationclick', (event) => {
       // tap does nothing at all (user: 눌러도 동작이 안 되냐). The app claims
       // this on boot, the same way a shared payload travels.
       if (sessionId) {
-        await writeAppState(NOTIFICATION_CLICK_ENTRY, JSON.stringify({ sessionId, createdAt: Date.now() }));
+        await writeAppState(NOTIFICATION_CLICK_ENTRY, JSON.stringify({ sessionId, hostId, createdAt: Date.now() }));
       }
       const windows = await self.clients.matchAll({
         type: 'window',
@@ -418,12 +498,14 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of windows) {
         if (!client.url.startsWith(self.location.origin)) continue;
         await client.focus().catch(() => undefined);
-        client.postMessage({ type: OPEN_SESSION_MESSAGE, sessionId: sessionId || null });
+        // The app decides whether that PC is the one it drives, another
+        // paired PC to switch to, or one it no longer knows.
+        client.postMessage({ type: OPEN_SESSION_MESSAGE, sessionId: sessionId || null, hostId: hostId || null });
         return;
       }
       // The route this install was made from, never the bare origin.
       const scope = (await readAppState(APP_SCOPE_ENTRY)) || '/';
-      await self.clients.openWindow(sessionId ? `${scope}?session=${encodeURIComponent(sessionId)}` : scope);
+      await self.clients.openWindow(notificationLaunchUrl(scope, hostId, sessionId));
     })()
   );
 });

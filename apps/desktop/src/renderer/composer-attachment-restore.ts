@@ -168,6 +168,32 @@ function restoreFileAttachments(
     : textValue;
 }
 
+/** Lift every occurrence of each attachment's bracket token out of a restored
+ *  draft and mark the attachment chip-only, so the draft shows the card
+ *  instead of the raw token; the send path appends chip-only tokens again.
+ *  A `[PDF #n …]`/`[File #n …]` token without an attachment (its bytes were
+ *  not kept) is dropped rather than sent as literal text. */
+export function foldAttachmentTokens(
+  text: string,
+  attachments: ComposerAttachment[]
+): { text: string; attachments: ComposerAttachment[] } {
+  const tokens = new Set(attachments.map((attachment) => attachment.token).filter(Boolean));
+  const sources = [...[...tokens].map(escapeRegExp), FILE_TOKEN_SOURCE];
+  const present = new Set<string>();
+  const folded = text.replace(new RegExp(` ?(?:${sources.join('|')})`, 'g'), (match) => {
+    const token = match.trimStart();
+    if (tokens.has(token)) present.add(token);
+    return '';
+  });
+  if (folded === text) return { text, attachments };
+  return {
+    text: folded.replace(/[ \t]+$/gm, '').trim(),
+    attachments: attachments.map((attachment) =>
+      present.has(attachment.token) ? { ...attachment, chipOnly: true } : attachment
+    ),
+  };
+}
+
 /** `@path` mentions for project-relative paths; drive letters and `..` are refused. */
 export function projectMentionTokens(paths: string[]): string[] {
   return paths

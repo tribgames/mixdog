@@ -36,8 +36,11 @@ An attached Desktop or TUI may navigate and return `opened:true`.
 - Settings → General: profile, Web Search exposure, display language, theme,
   side panels, and notifications.
 - Settings → Context: auto-compact and auto-clear.
-- Settings → Output style: output style selection.
-- Settings → Providers: API-key, OAuth, local providers, and usage sign-in.
+- Settings → Output style: output style selection, plus the desktop-only
+  "Expand tool activity" choice (collapsed / commands and edits / everything),
+  saved per device; Ctrl+O toggles everything open for the current window.
+- Settings → Providers: API-key, OAuth, custom provider registration, local
+  providers, and usage sign-in.
 - Extensions → Plugin → Git & GitHub: Git/GitHub CLI installation and connection.
 - Settings → Connection: web-app pairing and linked devices.
 - Settings → System: update, keep-awake, run in background after the window
@@ -53,11 +56,12 @@ the user to Desktop.
 
 ## Desktop-backed settings
 
-Setup can read and change Desktop appearance, keep-awake, run in background,
-usage pin, activity rail pins, Computer observe-only, Browser/Computer/voice installation and
-toggles, Projects, and linked-device revocation through the attached
-Desktop. A receipt identifies `scope:desktop-host`; appearance is not applied
-to the paired browser. No Desktop claimant means no confirmed change.
+Setup can read and change Desktop appearance (including markdown default
+view, link previews, and tool activity expansion), keep-awake, run in
+background, turn-completion notifications, notification volume (Windows),
+usage pin, activity rail pins, Computer observe-only, Browser/Computer
+installation and toggles, Projects, and linked-device revocation through the
+attached Desktop. A receipt identifies `scope:desktop-host`.
 
 Computer observe-only and background Memory cycles (`set_recap_enabled`)
 have no settings control in either app; setup is their only supported route. Usage pin is the pin toggle on the activity rail usage card.
@@ -74,12 +78,10 @@ The setup tool does not mutate:
 - web-app pairing credentials and OS permission dialogs;
 - TUI-local theme palettes (use `/theme`; Desktop themes are separate).
 
-Use `open` where a target exists, then let the user act. Never simulate a
-missing or denied operation by editing storage or switching surfaces.
+Use `open` where a target exists, then let the user act.
 
 ## TUI notes
 
 The TUI settings hub exposes system shell in addition to common settings.
 Desktop-host actions need the Desktop app; opening the TUI is not a substitute.
-Use the schema and `status capabilities` as the supported API boundary.
 

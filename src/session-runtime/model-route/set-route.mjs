@@ -16,6 +16,7 @@ import { resolveRouteContextState, selectionFastCapable } from '../route-state.m
 import { writeStatuslineRoute } from '../statusline-route.mjs';
 import {
   sessionHasRouteHistory,
+  sessionRouteCommitted,
   shouldRecreateEmptySessionForRouteChange,
 } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
 import { rebuildDeferredToolSurfaceForProvider } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
@@ -84,7 +85,7 @@ async function recreateEmptySession(deps) {
 }
 
 /** Rewrite the addressed empty session to the route it was asked to run on. */
-function updateEmptySessionInPlace(deps, session) {
+function updateSessionInPlace(deps, session, updateOptions) {
   const { getRoute, getSession, setSession, mgr, statusRoutes } = deps;
   const route = getRoute();
   const fields = {
@@ -96,56 +97,83 @@ function updateEmptySessionInPlace(deps, session) {
     contextPercent: route.contextPercent,
     selectedContextWindow: route.selectedContextWindow || null,
   };
-  const updated = mgr.updateSessionRoute?.(session.id, fields);
+  const updated = mgr.updateSessionRoute?.(session.id, fields, updateOptions);
   if (updated) setSession(updated);
   else Object.assign(session, fields);
   rebuildDeferredToolSurfaceForProvider(getSession(), route.provider);
   writeStatuslineRoute(statusRoutes, getSession(), route);
 }
 
-export function createSetRoute(deps, persist) {
+/** Validate, persist and adopt the requested route as the runtime's route. */
+async function adoptRoute(deps, persist, next, options) {
   const {
     getConfig,
     getRoute,
     setRouteState,
-    getSession,
     resolveRoute,
     refreshRouteEffort,
     refreshStatuslineUsageSnapshot,
     scheduleStatuslineUsageRefresh,
-    invalidateContextStatusCache,
-    createCurrentSession,
   } = deps;
+  const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
+  persist.saveRouteModelSettings(selectedRoute, fastCapable);
+  // An heir opening on its source's model is not a main-model choice.
+  const leadRoute = persist.persistAdoptedModelSettings(selectedRoute, {
+    keepMainModel: options?.keepMainModel === true,
+  });
+  setRouteState(resolveRoute(getConfig(), leadRoute ? { model: workflowPresetId('lead') } : selectedRoute));
+  await refreshRouteEffort(modelMeta);
+  refreshStatuslineUsageSnapshot(getRoute());
+  scheduleStatuslineUsageRefresh();
+}
+
+/**
+ * Quota-exhaustion escape hatch: apply `next` to the addressed, ESTABLISHED
+ * session in place. The caller (session API) has already proven the latest
+ * settled turn failed on quota and that nothing is running. Starts no turn;
+ * the next turn's auto-compaction fits history to the new window.
+ */
+export function createContinueSessionInModel(deps, persist) {
+  const { getSession, invalidateContextStatusCache } = deps;
+  return async function continueSessionInModel(sessionId, next) {
+    const session = getSession();
+    if (!sessionId || !session?.id || session.id !== sessionId) {
+      throw new Error(`session ${sessionId || ''} is not the active session`);
+    }
+    await adoptRoute(deps, persist, next, {});
+    updateSessionInPlace(deps, session, { crossProvider: true });
+    invalidateContextStatusCache();
+    return true;
+  };
+}
+
+export function createSetRoute(deps, persist) {
+  const { getRoute, getSession, invalidateContextStatusCache, createCurrentSession } = deps;
 
   return async function setRoute(next, options = {}) {
     // Selection is for a new/inherited session. An explicit durable address
     // permits initializing an EMPTY session, never rewriting an existing
     // conversation's model, context boundary or provider cache.
     const applyToCurrentSession = options?.applyToCurrentSession === true;
-    const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
-    persist.saveRouteModelSettings(selectedRoute, fastCapable);
-    // An heir opening on its source's model is not a main-model choice.
-    const leadRoute = persist.persistAdoptedModelSettings(selectedRoute, {
-      keepMainModel: options?.keepMainModel === true,
-    });
-    setRouteState(resolveRoute(getConfig(), leadRoute ? { model: workflowPresetId('lead') } : selectedRoute));
-    await refreshRouteEffort(modelMeta);
-    refreshStatuslineUsageSnapshot(getRoute());
-    scheduleStatuslineUsageRefresh();
+    await adoptRoute(deps, persist, next, options);
     const session = getSession();
     // Model/provider changes are next-session-only for a session the user
     // has already talked in or compacted (provider-keyed prompt cache). But
-    // an EMPTY current session — no committed route history and no in-flight
-    // first-turn prompt — has no cache to protect, so /model before the first
-    // chat takes effect live: route + statusline update immediately.
-    const currentSessionEmpty = !!session && !sessionHasRouteHistory(session);
+    // a current session with no model reply, no compaction summary and no
+    // in-flight first turn — empty, or holding only refused prompts — has no
+    // cache to protect, so /model takes effect live: route + statusline
+    // update immediately. Only a truly empty session is recreated below.
+    const currentSessionEmpty = !!session && !sessionRouteCommitted(session);
     if (!currentSessionEmpty) {
       // Some desktop effort changes travel as a same-model route update.
       // Only effort/Fast may affect the source, starting with its next turn.
       if (applyToCurrentSession) persist.applySessionTuning();
       return getRoute();
     }
+    // An addressed runtime keeps its durable id: the empty session is updated
+    // in place, never closed and replaced by a freshly minted one.
     if (
+      !deps.getAddressedSessionId?.() &&
       shouldRecreateEmptySessionForRouteChange(session, applyToCurrentSession) &&
       session?.id &&
       typeof createCurrentSession === 'function'
@@ -159,7 +187,7 @@ export function createSetRoute(deps, persist) {
       // durable address. The caller asked to apply this route to THIS empty
       // session, so update it in place instead of closing A and silently
       // materializing B before the first prompt.
-      updateEmptySessionInPlace(deps, session);
+      updateSessionInPlace(deps, session);
       invalidateContextStatusCache();
     }
     return getRoute();

@@ -16,6 +16,8 @@ import type {
   DesktopGithubCliStatus,
 } from '../../shared/contract';
 import { t } from '../i18n';
+import { useRemoteHostOpenAccess } from '../remote-host-access';
+import { capabilityBlockedRemotely, friendlyCapabilityError, manageOnHostNote } from './remote-capability-guard';
 import { ErrorNotice } from '../ErrorNotice';
 import { OpenSelect } from '../OpenSelect';
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
@@ -26,9 +28,11 @@ import { acquireTitleBarDim } from '../titlebar-dim';
 import { OAuthControl } from './CapabilitySettings';
 import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
+import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
 import { useGithubLoginPolling } from './github-login-polling';
 import { probeGithubStarred, readGithubStarred, rememberGithubStarred } from './github-star-storage';
 import '../desktop/21-onboarding.css';
+import { errorMessage } from '../editor-pane-session-errors';
 
 type RecordValue = Record<string, unknown>;
 type RunCapability = <T = unknown>(
@@ -100,13 +104,16 @@ async function readCapabilityBatch(
         const result = await api.invokeCapability({ capability: request.capability, args: request.args });
         return { ok: true as const, value: result.value };
       } catch (reason) {
-        return { ok: false as const, error: reason instanceof Error ? reason.message : String(reason) };
+        return { ok: false as const, error: errorMessage(reason) };
       }
     })
   );
 }
 
 export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): void }) {
+  // Provider setup works remotely on a current host; only an older host still
+  // refuses it, and re-renders this wizard when its level is learned.
+  useRemoteHostOpenAccess();
   const [step, setStep] = useState(savedStep);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState('');
@@ -171,8 +178,9 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
           // Invalidate only after the authoritative mutation has resolved.
           invalidateSidebarReferenceForMutation(capability);
           return result;
-        } catch (reason) {
-          if (!silent) setError(reason instanceof Error ? reason.message : String(reason));
+        } catch (rawReason) {
+          const reason = friendlyCapabilityError(rawReason);
+          if (!silent) setError(errorMessage(reason));
           return undefined;
         } finally {
           if (!silent && --mutationCount.current === 0) {
@@ -205,7 +213,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
         setProviderSetup(record(values[0]));
         setProfile(record(values[1]));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
       } finally {
         loadedRef.current = true;
         setLoading(false);
@@ -393,7 +401,14 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
                     onProfile={(patch) => setProfile((current) => ({ ...current, ...patch }))}
                   />
                 )}
-                {meta.id === 'providers' && (
+                {meta.id === 'providers' && capabilityBlockedRemotely('saveProviderApiKey') && (
+                  <div className="onboarding-model-section">
+                    <h3>{t('Providers')}</h3>
+                    <p>{t('Finish provider setup on the desktop.')}</p>
+                    <small>{manageOnHostNote()}</small>
+                  </div>
+                )}
+                {meta.id === 'providers' && !capabilityBlockedRemotely('saveProviderApiKey') && (
                   <ProviderStep
                     api={api}
                     setup={providerSetup}
@@ -669,7 +684,7 @@ function GitStep({ api }: { api: DesktopApi }) {
       setStatus(next);
       patchCachedGitPanelInfo(api, { status: next });
     } catch (reason) {
-      setGitError(reason instanceof Error ? reason.message : String(reason));
+      setGitError(errorMessage(reason));
     }
   }, [api]);
 
@@ -689,6 +704,7 @@ function GitStep({ api }: { api: DesktopApi }) {
   const flowId = flow?.flowId || '';
   const flowState = flow?.state || '';
   useGithubLoginPolling({ host: api, flowId, flowState, setFlow, setStatus, refreshStatus: refresh });
+  const deviceCode = useGithubDeviceCode(api, flow, (url) => void api.openExternal?.(url).catch(() => undefined));
 
   const authenticated = status?.authenticated === true;
   useEffect(() => {
@@ -730,7 +746,7 @@ function GitStep({ api }: { api: DesktopApi }) {
         throw new Error(t('The setting could not be saved.'));
       }
     } catch (reason) {
-      setGitError(reason instanceof Error ? reason.message : String(reason));
+      setGitError(errorMessage(reason));
     } finally {
       setIdentityBusy(false);
     }
@@ -754,7 +770,7 @@ function GitStep({ api }: { api: DesktopApi }) {
         void syncIdentity();
       })
       .catch((reason) => {
-        if (live) setGitError(reason instanceof Error ? reason.message : String(reason));
+        if (live) setGitError(errorMessage(reason));
       });
     return () => {
       live = false;
@@ -773,7 +789,7 @@ function GitStep({ api }: { api: DesktopApi }) {
     setBusy(key);
     setGitError('');
     void Promise.resolve(action())
-      .catch((reason) => setGitError(reason instanceof Error ? reason.message : String(reason)))
+      .catch((reason) => setGitError(errorMessage(reason)))
       .finally(() => setBusy(''));
   };
   const open = (url: string) => void api.openExternal?.(url).catch(() => undefined);
@@ -808,10 +824,14 @@ function GitStep({ api }: { api: DesktopApi }) {
         </div>
       </div>
       {/* A failed automatic identity shows its error instead of "ready". */}
-      {!(authenticated && gitError) && (
-        <p className="onboarding-card-text">
-          {authenticated ? t('Commits and pull requests are ready to go.') : connectHint}
-        </p>
+      {flowLive && deviceCode.active ? (
+        <GithubDeviceCodeText state={deviceCode} />
+      ) : (
+        !(authenticated && gitError) && (
+          <p className="onboarding-card-text">
+            {authenticated ? t('Commits and pull requests are ready to go.') : connectHint}
+          </p>
+        )
       )}
       {authenticated && (
         <div className="onboarding-card-actions">
@@ -857,6 +877,15 @@ function GitStep({ api }: { api: DesktopApi }) {
               <Github size={14} /> {t('Sign in with GitHub')}
             </button>
           )}
+          {flowLive && deviceCode.active && (
+            <button
+              type="button"
+              disabled={busyAny}
+              onClick={deviceCode.opened ? deviceCode.reopen : deviceCode.openGithub}
+            >
+              {deviceCode.opened ? t('Open GitHub again ↗') : t('Copy & open GitHub ↗')}
+            </button>
+          )}
           {flowLive && (
             <button
               type="button"
@@ -873,23 +902,9 @@ function GitStep({ api }: { api: DesktopApi }) {
           )}
         </div>
       )}
-      {flowLive && (
+      {flowLive && !deviceCode.active && (
         <p className="onboarding-note" role="status">
-          {flow?.code ? (
-            <>
-              {t('Enter code')} <code className="onboarding-code">{flow.code}</code>{' '}
-              {t('at github.com/login/device — the browser should open by itself.')}{' '}
-              <button
-                type="button"
-                className="onboarding-link"
-                onClick={() => open(flow.url || 'https://github.com/login/device')}
-              >
-                {t('Open github.com ↗')}
-              </button>
-            </>
-          ) : (
-            t('Starting GitHub sign-in…')
-          )}
+          {t('Starting GitHub sign-in…')}
         </p>
       )}
       <ErrorNotice errors={[flowState === 'error' ? flow?.message || t('unknown error') : '', gitError]} />
@@ -1065,7 +1080,7 @@ function ProfileStep({
             }}
             onBlur={commitTitle}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) event.currentTarget.blur();
             }}
           />
         </label>

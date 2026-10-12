@@ -9,6 +9,7 @@ import {
   requiredDesktopCapabilityReadRequests,
   requiredDesktopCapabilityRequest,
   requiredDesktopSettingKey,
+  requiredNotificationVolume,
   requiredString,
   requiredZoomFactor,
 } from './ipc-validation';
@@ -20,9 +21,14 @@ interface WindowSettingsIpcOptions {
   host: Pick<DesktopService, 'invokeCapability' | 'readCapabilities' | 'getSnapshot'>;
   handle: Handle;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
-  settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
+  settingsStore?: Pick<
+    DesktopSettingsStore,
+    'read' | 'update' | 'updateNotificationVolume' | 'readZoom' | 'updateZoom'
+  >;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
+  /** Settings → Notifications: play the notification sound at the saved volume. */
+  previewNotificationSound?: () => Promise<string>;
 }
 
 export function registerWindowSettingsIpc({
@@ -33,6 +39,7 @@ export function registerWindowSettingsIpc({
   invokeDesktopOperation,
   settingsStore,
   onDesktopSettingsChanged,
+  previewNotificationSound,
 }: WindowSettingsIpcOptions): void {
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
@@ -55,9 +62,21 @@ export function registerWindowSettingsIpc({
       : invokeDesktopOperation<DesktopSettings>('updateSetting', [settingKey, enabled]);
     return update.then((saved) => {
       onDesktopSettingsChanged?.(saved);
+      // Paired browsers and any other local renderer re-read what was written.
+      void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
       return saved;
     });
   });
+  handle(DESKTOP_IPC.setNotificationVolume, async (_event, value) => {
+    const volume = requiredNotificationVolume(value);
+    const saved = settingsStore
+      ? await settingsStore.updateNotificationVolume(volume)
+      : await invokeDesktopOperation<DesktopSettings>('updateNotificationVolume', [volume]);
+    onDesktopSettingsChanged?.(saved);
+    void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    return saved;
+  });
+  handle(DESKTOP_IPC.previewNotificationSound, () => previewNotificationSound?.() ?? 'unsupported');
   handle(DESKTOP_IPC.getZoomFactor, async () => {
     const factor = settingsStore
       ? await settingsStore.readZoom()

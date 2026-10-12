@@ -22,6 +22,7 @@ import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-reque
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { xaiCacheRouting } from './openai-compat-xai.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
+import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 
 export async function sendCompatChat(provider, messages, useModel, tools, opts) {
   const signal = opts.signal || null;
@@ -29,13 +30,31 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     const reason = signal.reason;
     throw reason instanceof Error ? reason : new Error('OpenAI-compat request aborted by session close');
   }
-  const modelInfo =
-    provider.name === 'opencode-go'
-      ? provider.getCachedModelInfo(useModel) || getModelMetadataSync(useModel, provider.name)
-      : null;
-  const replaysReasoningContent =
-    modelInfo?.reasoningContentField === 'reasoning_content' ||
-    (provider.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
+  const isCustom = isCustomProviderName(provider.name);
+  // Opt-in per-provider wire profile (config.chatProfile): only a wrapper that
+  // sets it gets the extra hooks below; every other provider is untouched.
+  const profile = provider.config?.chatProfile || null;
+  // Custom providers read only their own model rows: a same-id model in the
+  // global catalog must not shape a user-defined endpoint's request.
+  let modelInfo = null;
+  if (isCustom) modelInfo = provider.getCachedModelInfo(useModel) || null;
+  else if (provider.name === 'opencode-go')
+    modelInfo = provider.getCachedModelInfo(useModel) || getModelMetadataSync(useModel, provider.name);
+  else if (profile?.resolveModelInfo) modelInfo = profile.resolveModelInfo(provider, useModel) || null;
+  // Resolved before lowering: replay eligibility depends on the snapped level
+  // (thinking disabled → nothing to replay).
+  const customReasoning = isCustom
+    ? resolveCustomReasoning({
+        protocol: 'openai-chat',
+        model: modelInfo,
+        effort: opts.effort ?? provider.config?.reasoningEffort,
+      })
+    : null;
+  const replaysReasoningContent = isCustom
+    ? customReasoning.replay
+    : modelInfo?.reasoningContentField === 'reasoning_content' ||
+      profile?.replaysReasoningContent === true ||
+      (provider.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
   messages = await preparePdfTextForProvider(messages, provider);
   const params = {
     model: useModel,
@@ -43,7 +62,11 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     // (cancel/abort) is hard-rejected unpaired, so synthesize the
     // missing tool messages here.
     messages: ensureChatToolPairs(
-      toOpenAIMessages(messages, provider.name, { replaysReasoningContent, nativePdf: provider.nativePdf })
+      toOpenAIMessages(messages, provider.name, {
+        replaysReasoningContent,
+        ...(isCustom ? { customReplay: customReasoning.replay } : {}),
+        nativePdf: provider.nativePdf,
+      })
     ),
   };
   const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
@@ -51,6 +74,8 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   if (tools?.length) params.tools = toOpenAITools(tools);
   applyCompatToolChoice(params, opts);
   applyCompatProviderChatOptions(params, provider.name, opts, provider.config, modelInfo);
+  profile?.applyParams?.(params, { opts, config: provider.config, modelInfo });
+  const firstByteTimeoutMs = profile?.firstByteTimeoutMs || PROVIDER_FIRST_BYTE_TIMEOUT_MS;
   const totalSignal = createPassthroughSignal(signal);
   const cacheRouting = provider.name === 'xai' ? xaiCacheRouting(opts, params, tools || [], useModel) : null;
   const cacheRoutingKey = cacheRouting?.key || null;
@@ -60,7 +85,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   try {
     try {
       assembled = await withRetry(
-        async ({ signal: attemptSignal }) => {
+        refineAttemptErrors(profile, async ({ signal: attemptSignal }) => {
           try {
             opts.onStageChange?.('requesting');
           } catch {
@@ -79,7 +104,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
               // owned by the outer withRetry — nesting retry loops
               // here multiplied tail latency (5x5).
               maxAttempts: 1,
-              perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+              perAttemptTimeoutMs: firstByteTimeoutMs,
               perAttemptLabel: `${provider.name} first byte`,
             }
           );
@@ -101,6 +126,8 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
               // recovered leaked calls only synthesize when they name
               // a tool actually offered to this request.
               knownToolNames: knownToolNamesFromOpenAITools(params.tools),
+              ...(profile?.firstByteTimeoutMs ? { firstByteTimeoutMs: profile.firstByteTimeoutMs } : {}),
+              ...(profile?.semanticIdleTimeoutMs ? { semanticIdleTimeoutMs: profile.semanticIdleTimeoutMs } : {}),
             });
           } catch (error) {
             // Grok's reference sampler treats content-idle as a
@@ -112,7 +139,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
             }
             throw error;
           }
-        },
+        }),
         {
           signal: totalSignal.signal,
           onRetry: compatStreamRetryReporter(provider.name, opts),
@@ -144,6 +171,19 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     cacheRouting,
     replaysReasoningContent,
   });
+}
+
+// Opt-in: a provider profile may rewrite an attempt's error (gateway detail,
+// permanent-failure stamps) before the retry classifier sees it.
+function refineAttemptErrors(profile, attempt) {
+  if (typeof profile?.refineError !== 'function') return attempt;
+  return async (ctx) => {
+    try {
+      return await attempt(ctx);
+    } catch (error) {
+      throw profile.refineError(error) || error;
+    }
+  };
 }
 
 export async function recoverCompatNonStreaming(provider, { streamErr, params, opts, signal, useModel }) {

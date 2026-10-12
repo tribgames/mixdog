@@ -114,11 +114,21 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
       if (document.visibilityState === 'hidden') suspendRemoteConnection();
     }, BACKGROUND_GRACE_MS);
   };
+  // A frozen page is thawed AFTER `visibilitychange` (and `focus`) fire, and
+  // the engine fails any WebSocket opened while the page is still frozen
+  // ("Page entered Back-Forward Cache", close 1006, ~20-100 ms). Every wake
+  // therefore waits for `resume`, which re-runs this same probe.
+  let frozen = false;
+  document.addEventListener('freeze', () => {
+    frozen = true;
+  });
   const wakeProbe = (event?: Event): void => {
+    if (event?.type === 'resume') frozen = false;
     if (document.visibilityState === 'hidden') {
       beginBackgroundGrace();
       return;
     }
+    if (frozen) return;
     clearBackgroundGrace();
     reportForeground(true);
     if (ctx.backgroundSuspended) beginRemoteConnectionTimeline('wake');
@@ -173,6 +183,7 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     }
   };
   document.addEventListener('visibilitychange', wakeProbe);
+  document.addEventListener('resume', wakeProbe);
   window.addEventListener('online', wakeProbe);
   window.addEventListener('focus', wakeProbe);
   window.addEventListener('pageshow', wakeProbe);

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { UsageLedger, makeUsageRecord } from './usage-ledger.mjs';
-import { rollupUsage } from './usage-ledger-rollup.mjs';
+import { assembleRollup, knownRollupDays, rollupDelta, rollupUsage } from './usage-ledger-rollup.mjs';
 import { usageRollupDayKey } from './usage-rollup.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
 
@@ -181,4 +181,99 @@ test('the rollup query does not run on the event loop', async (t) => {
   const result = await ledger.rollupAsync({ fromDay: '2000-01-01' });
   assert.ok(Object.keys(result.days).length > 0);
   assert.equal(inThreadQueries, 0);
+});
+
+test('an incremental rollup equals a full recompute as rows arrive across a day boundary', async (t) => {
+  const ledger = fileLedger(t);
+  const noon = new Date(2026, 5, 10, 12).getTime();
+  const row = (id, ts, extra = {}) =>
+    makeUsageRecord({
+      ts,
+      provider: 'openai',
+      model: id % 2 ? 'gpt-5.5' : 'claude-opus-4-8',
+      sessionId: `session-${id % 3}`,
+      sourceType: id % 4 ? 'lead' : 'worker',
+      inputTokens: 100 + id,
+      outputTokens: 10 + id,
+      durationMs: 50 + id,
+      responseId: `incremental-${id}`,
+      ...extra,
+    });
+  const range = (from, count) => Array.from({ length: count }, (_, i) => from + i);
+  ledger.record(range(0, 12).map((id) => row(id, noon - (id % 4) * DAY - id * 60_000)));
+  const store = new Map();
+  const incremental = (query, now) => {
+    const delta = rollupDelta(ledger.db, query, knownRollupDays(store), now);
+    return { delta, result: assembleRollup(store, delta, now) };
+  };
+  const queries = [{}, { fromDay: usageRollupDayKey(noon - 2 * DAY), toDay: usageRollupDayKey(noon) }];
+  const check = (now, label) => {
+    for (const query of queries) {
+      assert.deepEqual(
+        incremental(query, now).result,
+        rollupUsage(ledger.db, query),
+        `${label} ${JSON.stringify(query)}`
+      );
+    }
+  };
+  check(noon, 'initial');
+  assert.equal(
+    incremental({}, noon).delta.fresh[usageRollupDayKey(noon - DAY)],
+    undefined,
+    'completed days are reused'
+  );
+  assert.notEqual(incremental({}, noon).delta.fresh[usageRollupDayKey(noon)], undefined, 'today is recomputed');
+
+  // New rows today, and a late record landing in a completed day.
+  ledger.record([row(100, noon + 60_000), row(101, noon + 120_000), row(102, noon - DAY + 5 * HOUR)]);
+  const late = rollupDelta(ledger.db, {}, knownRollupDays(store), noon + 180_000).fresh;
+  check(noon + 180_000, 'same day');
+  assert.notEqual(late[usageRollupDayKey(noon - DAY)], undefined, 'a changed completed day is recomputed');
+
+  // Midnight passes: yesterday completes, new rows open the next day.
+  const nextDay = noon + DAY;
+  ledger.record([row(200, nextDay), row(201, nextDay + 60_000, { origin: 'gateway' })]);
+  check(nextDay + 120_000, 'next day');
+  assert.equal(
+    incremental({}, nextDay + 120_000).delta.fresh[usageRollupDayKey(noon)],
+    undefined,
+    'the day that just completed is reused'
+  );
+  ledger.record([row(202, nextDay + 180_000)]);
+  check(nextDay + 240_000, 'after boundary');
+});
+
+test('a balanced cost repair that swaps two models costs invalidates the held day', async (t) => {
+  const ledger = fileLedger(t);
+  const noon = new Date(2026, 5, 10, 12).getTime();
+  const row = (model, cost) =>
+    makeUsageRecord({
+      ts: noon - DAY,
+      provider: 'openai',
+      model,
+      inputTokens: 10,
+      outputTokens: 1,
+      costUsd: cost,
+      responseId: `swap-${model}`,
+    });
+  ledger.record([row('gpt-5.5', 1), row('claude-opus-4-8', 2)]);
+  const store = new Map();
+  const run = () => {
+    const delta = rollupDelta(ledger.db, {}, knownRollupDays(store), noon);
+    return assembleRollup(store, delta, noon);
+  };
+  assert.deepEqual(run(), rollupUsage(ledger.db, {}));
+  // Both the cached daily amounts and the per-event costs swap; every sum stays equal.
+  ledger.db.exec(`
+    UPDATE daily SET cost_usd = CASE WHEN cost_usd=1 THEN 2 ELSE 1 END;
+    UPDATE usage_events SET cost_usd = CASE WHEN cost_usd=1 THEN 2 ELSE 1 END;`);
+  const after = run();
+  assert.deepEqual(after, rollupUsage(ledger.db, {}));
+  const costs = Object.values(after.days)[0].rows?.map?.((r) => r.costUsd) ?? null;
+  if (costs) assert.deepEqual(costs.sort(), [1, 2]);
+
+  // A route signature rewrite (price repair) invalidates every held day.
+  ledger.db.exec('UPDATE usage_routes SET signature=signature');
+  const delta = rollupDelta(ledger.db, {}, knownRollupDays(store), noon);
+  assert.notEqual(delta.fresh[usageRollupDayKey(noon - DAY)], undefined);
 });

@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>백그라운드 작업 표시 시안 v3 — 추가 아이디어</title>
+<style>
+  :root {
+    --bg: #111113; --sheet: #161618; --pane: #1b1b1e; --text: #e7e7ea; --muted: #8b8b93; --faint: #5d5d66;
+    --accent: #6aa7ff; --add: #5fc58a; --del: #e0726b; --border: rgba(255,255,255,.08); --hover: rgba(255,255,255,.05);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .card { border: 1px solid var(--border); border-radius: 10px; background: var(--sheet); padding: 16px 18px 18px; }
+  .card h3 { font-size: 14px; margin: 0 0 2px; display: flex; gap: 8px; align-items: baseline; }
+  .tag { font-size: 11px; color: var(--bg); background: var(--accent); border-radius: 4px; padding: 1px 6px; }
+  .card p { color: var(--muted); margin: 0 0 12px; font-size: 12.5px; }
+  .pros { color: var(--faint); font-size: 11.5px; margin-top: 10px; line-height: 1.6; }
+  .pros b { color: var(--muted); font-weight: 600; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin: 0 0 18px; color: var(--muted); font-size: 12.5px; }
+  button.sim { background: var(--pane); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font: inherit; cursor: pointer; }
+
+  .spin { width: 12px; height: 12px; border-radius: 50%; border: 1.6px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-top-color: var(--accent); animation: spin .9s linear infinite; flex: none; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .shimmer { background: linear-gradient(90deg, var(--muted) 0%, var(--text) 45%, var(--muted) 90%); background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 2.2s linear infinite; }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  .dotp { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; flex: none; display: inline-block; }
+  @keyframes pulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+  .win { border: 1px solid var(--border); border-radius: 10px; background: var(--pane); display: flex; flex-direction: column; height: 380px; position: relative; overflow: hidden; }
+  .win-head { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; flex: none; }
+  .win-head .tab { padding: 4px 10px; border-radius: 6px; background: var(--hover); }
+  .win-head .sp { flex: 1; }
+  .hbtn { width: 26px; height: 24px; border-radius: 6px; display: inline-grid; place-items: center; color: var(--muted); position: relative; cursor: pointer; }
+  .hbtn:hover { background: var(--hover); }
+  .hbtn .bd { position: absolute; top: -3px; right: -4px; min-width: 15px; height: 14px; padding: 0 4px; border-radius: 7px; font-size: 9.5px;
+    background: var(--accent); color: var(--bg); display: grid; place-items: center; font-weight: 700; }
+  .content { flex: 1; display: flex; min-height: 0; }
+  .col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .body { flex: 1; padding: 12px 14px; font-size: 12.5px; color: var(--text); overflow: hidden; }
+  .call { margin: 6px 0; border: 1px solid var(--border); border-radius: 8px; font: 11.5px/1 ui-monospace, Consolas, monospace; color: var(--muted); overflow: hidden; }
+  .call .top { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; }
+  .call b { color: var(--text); }
+  .call .tail { border-top: 1px solid var(--border); padding: 6px 10px; font-size: 11px; color: var(--faint); line-height: 1.5; }
+  .bar { height: 2px; background: var(--border); position: relative; overflow: hidden; }
+  .bar::after { content: ""; position: absolute; inset: 0; width: 30%; background: var(--accent); animation: slide 1.6s ease-in-out infinite; }
+  @keyframes slide { from { left: -30%; } to { left: 100%; } }
+  .turn { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+  .turn small { color: var(--faint); }
+  .dock { padding: 0 12px 12px; flex: none; position: relative; }
+  .goal { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; margin: 0 24px 6px; border-radius: 15px;
+    background: #222226; border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+  .goal b { color: var(--text); font-weight: 600; }
+  .goal .bg { color: var(--accent); display: inline-flex; align-items: center; gap: 5px; }
+  .review { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-bottom: none;
+    border-radius: 10px 10px 0 0; background: #1f1f22; font-size: 12px; color: var(--muted); margin: 0 10px; }
+  .review .a { color: var(--add); } .review .d { color: var(--del); }
+  .composer { border: 1px solid var(--border); border-radius: 12px; background: var(--sheet); padding: 10px 12px 8px; position: relative; overflow: hidden; }
+  .composer.edge::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: edge 1.8s linear infinite; }
+  @keyframes edge { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+  .composer .ph { color: var(--faint); font-size: 12.5px; height: 26px; }
+  .cfoot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+  .cfoot .model { padding: 2px 8px; }
+  .cfoot .sp { flex: 1; }
+  .send { width: 28px; height: 28px; border-radius: 50%; background: var(--text); color: var(--bg); display: inline-grid; place-items: center; font-size: 13px; }
+  .pane { width: 190px; border-left: 1px solid var(--border); padding: 10px 8px; font-size: 12px; background: #19191c; }
+  .pane .h { color: var(--faint); font-size: 11px; padding: 2px 6px 6px; display: flex; }
+  .pane .r { display: flex; align-items: center; gap: 7px; padding: 6px; border-radius: 6px; color: var(--muted); }
+  .pane .r .nm { color: var(--text); flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .pane .r .t { font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .pane .sec { color: var(--faint); font-size: 10.5px; padding: 8px 6px 2px; }
+  .toast { position: absolute; right: 12px; top: 44px; width: 250px; background: #232327; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45); padding: 10px 12px; font-size: 12px; color: var(--muted); z-index: 3; }
+  .toast b { color: var(--text); display: flex; align-items: center; gap: 7px; margin-bottom: 3px; font-weight: 600; }
+  .toast.ok b { color: var(--add); }
+  .hidden { display: none !important; }
+  .reco { margin-top: 24px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 6%, transparent); font-size: 13px; color: var(--muted); }
+  .reco b { color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>백그라운드 작업 표시 시안 v3</h1>
+  <p class="lead">v1(칩)·v2(대기 줄 / 입력창 하단 / 보내기 링 / 상태바)에 이어, 기존 요소에 녹이거나 아예 다른 방향의 안입니다.
+    골·디프 스택은 모든 목업에서 그대로 두었습니다.</p>
+
+  <div class="toolbar">
+    <button class="sim" id="simBtn" type="button">▶ 백그라운드 작업 끝내기 (시뮬레이션)</button>
+    <span id="simState">현재: 셸 1개 · 에이전트 1개 실행 중</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- H: 도구 카드 자체가 살아 있음 -->
+    <div class="card">
+      <h3><span class="tag">H</span> 도구 카드가 직접 “실행 중”</h3>
+      <p>백그라운드로 띄운 셸·에이전트 카드에 진행 바와 경과 시간, 마지막 출력 한 줄을 실시간으로 붙입니다. 완료 문구는 “응답 완료 · 1개는 계속 실행 중”처럼 사실대로 적습니다.</p>
+      <div class="win">
+        <div class="win-head"><span class="tab">빌드 오류 수정</span><span class="sp"></span></div>
+        <div class="body">
+          빌드를 백그라운드로 돌려 두었습니다.
+          <div class="call">
+            <div class="top"><span class="spin js-running"></span><span class="js-done hidden">✓</span><b>shell</b> npm run build
+              <span style="margin-left:auto" class="js-running">실행 중 · 1:12</span><span style="margin-left:auto" class="js-done hidden">완료 · 2:05</span></div>
+            <div class="bar js-running"></div>
+            <div class="tail js-running">▸ transforming (482) src/renderer/Composer.tsx</div>
+          </div>
+          <div class="turn"><span>✓</span><span>응답 완료</span><small class="js-running">· 작업 2개는 백그라운드에서 계속</small></div>
+        </div>
+        <div class="dock">
+          <div class="goal"><span>◎</span><b>골</b><span>빌드 통과시키기</span><span style="margin-left:auto">작업 중</span></div>
+          <div class="review"><span>변경 3개 파일</span><span class="a">+42</span><span class="d">−7</span></div>
+          <div class="composer"><div class="ph">메시지 입력…</div><div class="cfoot"><span class="model">Opus · high</span><span class="sp"></span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+      <div class="pros"><b>장점</b> 무엇이 도는지 맥락 그대로 보임, 새 영역 없음 · <b>단점</b> 스크롤 위로 가면 안 보임, 다른 표시와 같이 쓰는 게 좋음</div>
+    </div>
+
+    <!-- I: 골 캡슐 슬롯 공유 -->
+    <div class="card">
+      <h3><span class="tag">I</span> 골 캡슐 자리를 같이 씀</h3>
+      <p>줄을 새로 만들지 않습니다. 골이 있으면 캡슐 오른쪽에 “⟳ 백그라운드 2”를 덧붙이고, 골이 없으면 같은 자리에 같은 모양의 작은 캡슐로 뜹니다.</p>
+      <div class="win">
+        <div class="win-head"><span class="tab">빌드 오류 수정</span><span class="sp"></span>
+          <label style="font-size:11px;color:var(--faint);display:flex;gap:4px;align-items:center;"><input type="checkbox" id="goalToggle" checked>골 있음</label></div>
+        <div class="body">
+          빌드를 백그라운드로 돌려 두었습니다.
+          <div class="call"><div class="top"><b>shell</b> npm run build <span style="margin-left:auto">background</span></div></div>
+          <div class="turn"><span>✓</span><span>작업 완료 · 14초</span></div>
+        </div>
+        <div class="dock">
+          <div class="goal" id="goalWith"><span>◎</span><b>골</b><span>빌드 통과시키기</span>
+            <span class="bg js-running" style="margin-left:auto"><span class="spin"></span>백그라운드 2</span>
+            <span class="js-done hidden" style="margin-left:auto">작업 중</span></div>
+          <div class="goal hidden" id="goalWithout" style="width:fit-content;margin-left:auto;margin-right:auto;">
+            <span class="bg js-running"><span class="spin"></span>백그라운드 작업 2개 실행 중</span></div>
+          <div class="review"><span>변경 3개 파일</span><span class="a">+42</span><span class="d">−7</span></div>
+          <div class="composer"><div class="ph">메시지 입력…</div><div class="cfoot"><span class="model">Opus · high</span><span class="sp"></span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+      <div class="pros"><b>장점</b> 기존 골 UI 문법 재사용, 스택 높이 그대로 · <b>단점</b> 골 캡슐 의미가 “골 + 작업 상태”로 넓어짐</div>
+    </div>
+
+    <!-- J: 사이드 패널 버튼 배지 -->
+    <div class="card">
+      <h3><span class="tag">J</span> 상단 패널 버튼 배지 + 작업 패널</h3>
+      <p>지금 있는 에이전트 활동 패널에 셸 작업까지 합칩니다. 상단 패널 버튼에 숫자 배지만 붙고, 누르면 오른쪽에 목록이 열립니다.</p>
+      <div class="win">
+        <div class="win-head"><span class="tab">빌드 오류 수정</span><span class="sp"></span>
+          <span class="hbtn">⎇</span><span class="hbtn" id="paneBtn">☰<span class="bd js-running">2</span></span></div>
+        <div class="content">
+          <div class="col">
+            <div class="body">
+              빌드를 백그라운드로 돌려 두었습니다.
+              <div class="call"><div class="top"><b>shell</b> npm run build <span style="margin-left:auto">background</span></div></div>
+              <div class="turn"><span>✓</span><span>작업 완료 · 14초</span></div>
+            </div>
+            <div class="dock">
+              <div class="review" style="margin:0 6px;"><span>변경 3개 파일</span><span class="a">+42</span><span class="d">−7</span></div>
+              <div class="composer"><div class="ph">메시지 입력…</div><div class="cfoot"><span class="model">Opus</span><span class="sp"></span><span class="send">↑</span></div></div>
+            </div>
+          </div>
+          <div class="pane" id="paneJ">
+            <div class="h">백그라운드 작업</div>
+            <div class="sec">셸</div>
+            <div class="r"><span class="spin js-running"></span><span class="js-done hidden">✓</span><span class="nm">npm run build</span><span class="t">1:12</span></div>
+            <div class="sec">에이전트</div>
+            <div class="r"><span class="spin js-running"></span><span class="js-done hidden">✓</span><span class="nm">Worker · ui-fix</span><span class="t">3:40</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="pros"><b>장점</b> 기존 패널 확장이라 자연스러움, 상세(출력·중지)까지 담기 좋음 · <b>단점</b> 패널을 닫아 두면 배지만 보임</div>
+    </div>
+
+    <!-- K: 토스트 + 완료 알림 -->
+    <div class="card">
+      <h3><span class="tag">K</span> 토스트 안내 + 끝나면 알림</h3>
+      <p>상시 표시 대신, 턴이 끝날 때 작업이 남아 있으면 잠깐 안내를 띄우고, 끝나면 “완료” 알림(창이 뒤에 있으면 OS 알림)을 보냅니다.</p>
+      <div class="win">
+        <div class="win-head"><span class="tab">빌드 오류 수정</span><span class="sp"></span></div>
+        <div class="toast js-running"><b><span class="spin"></span>백그라운드 작업 2개 진행 중</b>끝나면 결과를 보고 이어서 답변합니다.</div>
+        <div class="toast ok js-done hidden"><b>✓ 백그라운드 작업 완료</b>npm run build · Worker 결과를 확인하는 중…</div>
+        <div class="body">
+          빌드를 백그라운드로 돌려 두었습니다.
+          <div class="call"><div class="top"><b>shell</b> npm run build <span style="margin-left:auto">background</span></div></div>
+          <div class="turn"><span>✓</span><span>작업 완료 · 14초</span></div>
+        </div>
+        <div class="dock">
+          <div class="goal"><span>◎</span><b>골</b><span>빌드 통과시키기</span><span style="margin-left:auto">작업 중</span></div>
+          <div class="review"><span>변경 3개 파일</span><span class="a">+42</span><span class="d">−7</span></div>
+          <div class="composer"><div class="ph">메시지 입력…</div><div class="cfoot"><span class="model">Opus · high</span><span class="sp"></span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+      <div class="pros"><b>장점</b> 화면 상시 점유 0, “끝났다”는 순간을 확실히 알려 줌 · <b>단점</b> 토스트가 사라진 뒤엔 상태를 다시 확인할 곳이 필요</div>
+    </div>
+
+    <!-- L: 입력창 테두리 흐름 -->
+    <div class="card">
+      <h3><span class="tag">L</span> 입력창 윗테두리에 흐르는 선</h3>
+      <p>입력창 카드 윗선을 따라 얇은 빛이 흐릅니다. 마우스를 올리면 툴팁으로 “셸 1 · 에이전트 1 실행 중”.</p>
+      <div class="win">
+        <div class="win-head"><span class="tab">빌드 오류 수정</span><span class="sp"></span></div>
+        <div class="body">
+          빌드를 백그라운드로 돌려 두었습니다.
+          <div class="call"><div class="top"><b>shell</b> npm run build <span style="margin-left:auto">background</span></div></div>
+          <div class="turn"><span>✓</span><span>작업 완료 · 14초</span></div>
+        </div>
+        <div class="dock">
+          <div class="goal"><span>◎</span><b>골</b><span>빌드 통과시키기</span><span style="margin-left:auto">작업 중</span></div>
+          <div class="review"><span>변경 3개 파일</span><span class="a">+42</span><span class="d">−7</span></div>
+          <div class="composer edge js-edge" title="셸 1 · 에이전트 1 실행 중"><div class="ph">메시지 입력…</div><div class="cfoot"><span class="model">Opus · high</span><span class="sp"></span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+      <div class="pros"><b>장점</b> 공간 0, 분위기로 “뭔가 돌고 있음”을 전달 · <b>단점</b> 개수·내용은 툴팁 없이는 모름</div>
+    </div>
+
+  </div>
+
+  <div class="reco">
+    <b>조합 예시</b><br>
+    · 맥락형: <b>H</b>(카드가 실시간) + <b>K</b>(끝나면 알림) — 대화 안에서 다 보이고, 끝나는 순간도 놓치지 않음<br>
+    · 기존 UI 재사용형: <b>I</b>(골 캡슐 자리 공유) 또는 <b>J</b>(패널 배지) + v2의 <b>D</b>(대기 줄)<br>
+    · 최소형: v2의 <b>D</b> + <b>L</b>(테두리 흐름)
+  </div>
+</main>
+<script>
+  let done = false;
+  const btn = document.getElementById('simBtn');
+  const state = document.getElementById('simState');
+  btn.addEventListener('click', () => {
+    done = !done;
+    document.querySelectorAll('.js-running').forEach((el) => el.classList.toggle('hidden', done));
+    document.querySelectorAll('.js-done').forEach((el) => el.classList.toggle('hidden', !done));
+    document.querySelectorAll('.js-edge').forEach((el) => el.classList.toggle('edge', !done));
+    syncGoal();
+    btn.textContent = done ? '↺ 다시 실행 중으로' : '▶ 백그라운드 작업 끝내기 (시뮬레이션)';
+    state.textContent = done ? '현재: 실행 중인 작업 없음' : '현재: 셸 1개 · 에이전트 1개 실행 중';
+  });
+  const goalToggle = document.getElementById('goalToggle');
+  function syncGoal() {
+    document.getElementById('goalWith').classList.toggle('hidden', !goalToggle.checked);
+    document.getElementById('goalWithout').classList.toggle('hidden', goalToggle.checked || done);
+  }
+  goalToggle.addEventListener('change', syncGoal);
+  document.getElementById('paneBtn').addEventListener('click', () => document.getElementById('paneJ').classList.toggle('hidden'));
+</script>
+</body>
+</html>

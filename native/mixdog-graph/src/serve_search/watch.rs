@@ -12,6 +12,10 @@ pub(super) fn overlaps_any_root(operand: &Path, roots: &[PathBuf]) -> bool {
         .any(|root| FileListStore::paths_overlap(operand, root))
 }
 
+const REPAIR_DEBOUNCE: Duration = Duration::from_millis(300);
+const REPAIR_MIN_GAP: Duration = Duration::from_millis(1_000);
+const REPAIR_BATCH_LIMIT: usize = 2_048;
+
 impl FileListStore {
     pub(super) fn schedule_inventory_repairs(self: &Arc<Self>, paths: &[PathBuf]) -> Vec<PathBuf> {
         let roots = self.affected_roots(paths);
@@ -53,6 +57,8 @@ impl FileListStore {
                     });
                 entry.paths.extend(repair_paths.iter().cloned());
             }
+            // A search already waiting on this key must see the new paths.
+            self.repair_changed.notify_all();
         }
         self.invalidate_roots_with_paths(&roots, Some(&repair_paths));
         self.start_inventory_repair_worker();
@@ -69,13 +75,51 @@ impl FileListStore {
         }
         let store = Arc::clone(self);
         std::thread::spawn(move || {
+            // Debounce: collect paths for a window, enforce a minimum gap per
+            // key, and drop to lazy invalidation (the caches were already
+            // evicted, so the next search rescans) for huge batches.
             loop {
-                std::thread::sleep(Duration::from_millis(50));
-                let jobs = {
+                // Debounce wait, cut short the moment a search demands a repair.
+                {
+                    let deadline = Instant::now() + REPAIR_DEBOUNCE;
                     let mut pending = lock_recover(&store.pending_repairs);
-                    pending
+                    while lock_recover(&store.repair_demanded).is_empty() {
+                        let now = Instant::now();
+                        if now >= deadline {
+                            break;
+                        }
+                        pending = store
+                            .repair_changed
+                            .wait_timeout(pending, deadline.saturating_duration_since(now))
+                            .unwrap_or_else(|error| error.into_inner())
+                            .0;
+                    }
+                }
+                let demanded = std::mem::take(&mut *lock_recover(&store.repair_demanded));
+                let now = Instant::now();
+                let recent = {
+                    let mut last_run = lock_recover(&store.repair_last_run);
+                    last_run.retain(|_, at| now.duration_since(*at) < REPAIR_MIN_GAP);
+                    last_run.keys().cloned().collect::<HashSet<_>>()
+                };
+                let (jobs, waiting) = {
+                    let mut pending = lock_recover(&store.pending_repairs);
+                    let before = pending.len();
+                    pending.retain(|_, entry| {
+                        entry.processing || entry.paths.len() <= REPAIR_BATCH_LIMIT
+                    });
+                    if pending.len() != before {
+                        store.repair_changed.notify_all();
+                    }
+                    let mut waiting = false;
+                    let jobs = pending
                         .iter_mut()
                         .filter(|(_, entry)| !entry.processing && !entry.paths.is_empty())
+                        .filter(|(key, _)| {
+                            let ready = demanded.contains(*key) || !recent.contains(*key);
+                            waiting |= !ready;
+                            ready
+                        })
                         .map(|(key, entry)| {
                             entry.processing = true;
                             (
@@ -85,13 +129,15 @@ impl FileListStore {
                                 Arc::clone(&entry.token),
                             )
                         })
-                        .collect::<Vec<_>>()
+                        .collect::<Vec<_>>();
+                    (jobs, waiting)
                 };
-                if jobs.is_empty() {
+                if jobs.is_empty() && !waiting {
                     break;
                 }
                 for (key, base, paths, token) in jobs {
                     let repaired = repair_inventory(&key, &base, &paths);
+                    lock_recover(&store.repair_last_run).insert(key.clone(), Instant::now());
                     store.finish_inventory_repair(&key, &token, repaired);
                 }
             }
@@ -166,8 +212,10 @@ impl FileListStore {
                         Arc::clone(&entry.directory_failures),
                     );
                     pending.remove(key);
-                    self.repair_changed.notify_all();
                 }
+                // Done, or more paths arrived mid-repair and a waiting search
+                // must re-evaluate (and demand) the follow-up repair.
+                self.repair_changed.notify_all();
             }
             Err(_) => {
                 pending.remove(key);

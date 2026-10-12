@@ -528,16 +528,19 @@ function balanceFromCredits(credits, source) {
   if (balance === null) return null;
   return {
     source,
-    remainingUsd: round(balance, 4),
-    currency: cleanString(credits.currency) || 'USD',
+    unit: 'credits',
+    remainingCredits: round(balance, 4),
+    unlimited: credits.unlimited === true,
+    hasCredits: credits.has_credits === true,
   };
 }
 
 function balanceFromExtraUsage(extra) {
   if (!extra || typeof extra !== 'object') return null;
-  const limit = num(extra.monthly_limit, null);
-  const used = num(extra.used_credits, 0);
-  if (limit === null) return null;
+  const limitCents = num(extra.monthly_limit, null);
+  if (limitCents === null) return null;
+  const limit = limitCents / 100;
+  const used = num(extra.used_credits, 0) / 100;
   return {
     source: 'anthropic-oauth-extra',
     period: 'monthly',
@@ -606,7 +609,7 @@ function balanceFromAnthropicSpend(spend) {
   return null;
 }
 
-function normalizeOpenAIWhamUsage(data) {
+export function normalizeOpenAIWhamUsage(data) {
   const rate = data?.rate_limit && typeof data.rate_limit === 'object' ? data.rate_limit : null;
   if (!rate) return null;
   const windows = [
@@ -687,13 +690,15 @@ function anthropicLimitWindows(limits, source) {
 // The extra-usage (pay-as-you-go) window when it is enabled, else null.
 function anthropicExtraUsageWindow(extraUsage) {
   if (extraUsage?.is_enabled !== true) return null;
+  const limitUsd = num(extraUsage.monthly_limit, 0) / 100;
+  const usedUsd = num(extraUsage.used_credits, 0) / 100;
   return windowFromPercent(
     'EXTRA',
     {
       utilization: extraUsage.utilization,
-      limit_dollars: extraUsage.monthly_limit,
-      used_dollars: extraUsage.used_credits,
-      remaining_dollars: Math.max(0, num(extraUsage.monthly_limit, 0) - num(extraUsage.used_credits, 0)),
+      limit_dollars: limitUsd,
+      used_dollars: usedUsd,
+      remaining_dollars: Math.max(0, limitUsd - usedUsd),
     },
     'anthropic-oauth-extra'
   );

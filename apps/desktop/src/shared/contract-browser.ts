@@ -116,6 +116,15 @@ export interface DesktopRemoteBrowserFrame {
  *  them. */
 export const MAIN_BROWSER_PAGE_PREFIX = 'main-browser-';
 
+/** A main-workspace browser tab as a paired client lists it: the page id is
+ *  the stream/control key, the rest is display metadata. */
+export interface DesktopRemoteBrowserTab {
+  id: string;
+  title: string;
+  url: string;
+  loading: boolean;
+}
+
 /** Local display client. The document token is scoped to the session-owned
  * page, so queued human input cannot land in a replacement document. */
 export interface DesktopBrowserTab {
@@ -125,6 +134,16 @@ export interface DesktopBrowserTab {
   active: boolean;
   loading: boolean;
   kind: 'page' | 'popup' | 'background';
+}
+
+/** What the in-app browser saw of a page: its title, its site icon and a
+ *  208×132 screenshot, each as a data URL and each present only once known.
+ *  A page never shown still answers its site's icon when the site was. */
+export interface DesktopBrowserPageIdentity {
+  url: string;
+  title?: string;
+  favicon?: string;
+  thumbnail?: string;
 }
 
 /** A capture that lost a race against navigation or a resize owns no pixels for

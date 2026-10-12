@@ -22,7 +22,7 @@ import {
   TOOL_ACTIVITY_BULK_ARGS,
   TOOL_ACTIVITY_INTERNAL_ARGS,
   TOOL_ACTIVITY_MEANINGLESS_RESULT,
-  TOOL_ACTIVITY_OPERATIONAL_ARGS,
+  toolActivityIsOperationalArg,
   TOOL_ACTIVITY_ROUTINE_RESULT,
   toolActivityCodeLanguage,
   toolActivityCommand,
@@ -30,6 +30,7 @@ import {
   toolActivityFieldValue,
   toolActivityFirstText,
   toolActivityRedactInlineSecrets,
+  shortMachineId,
   toolActivityRepresentedKeys,
   toolActivitySubject,
   toolActivityTargets,
@@ -41,6 +42,9 @@ import {
   toolActivityIsCompleted,
   toolActivityOutputText,
   toolActivityResultValue,
+  toolActivityLocalizeTaskList,
+  toolActivityShellFailureLabel,
+  toolActivityStripInstructions,
   toolActivityStructuredRows,
   type ToolActivityStructuredKind,
   type ToolActivityStructuredRow,
@@ -89,6 +93,10 @@ interface DesktopToolActivityItemPresentation {
   fields: Array<{ key: string; label: string; value: string }>;
   diffPatch: string;
   outputText: string;
+  /** One quiet line under the output ("종료 코드 2", the still-running note). */
+  outputNote: string;
+  /** The part of the closed-row outcome that may ellipsize (an error's first line). */
+  outcomeReason: string;
   metaText: string;
   outputLanguage: string;
   previewText: string;
@@ -125,6 +133,63 @@ interface DesktopToolActivityItemPresentation {
   outputLiteral: boolean;
   /** The instructions an agent call handed over. */
   promptText: string;
+}
+
+/** Tools whose output is a task/background envelope carrying the runtime's
+ *  instructions to the model; every other tool's output is the user's content. */
+const TASK_ENVELOPE_TOOLS = /^(?:task|agent)$/;
+
+const AGENT_TITLE_VERBS: Record<string, () => string> = {
+  'Agent status': () => t('Agent status'),
+  Spawn: () => t('Spawn'),
+  Send: () => t('Send'),
+  Cancel: () => t('Cancel'),
+  Close: () => t('Close'),
+  Cleanup: () => t('Cleanup'),
+  Read: () => t('Read'),
+  Status: () => t('Status'),
+  Response: () => t('Response'),
+};
+
+/** A patch's target count ("2 Files") reads in the active language. */
+function localizePatchTarget(target: string): string {
+  const count = /^(\d+) files?$/i.exec(target.trim());
+  return count ? t('{{count}} files', { count: Number(count[1]) }) : target.toLowerCase();
+}
+
+/** What the closed row reports for a finished or failed call, from one place:
+ *  a failed background task keeps its status and exit, a running one reports
+ *  nothing (its output is the body), a failed command reads "실패 · <why>". */
+function toolActivityFailureOutcome(input: {
+  backgroundTask: ReturnType<typeof toolActivityBackgroundTask>;
+  foregroundShellFailure: boolean;
+  rawResult: string;
+  outputText: string;
+  resultLabel: string;
+}): { resultLabel: string; outputText: string; reason: string } {
+  const { backgroundTask, foregroundShellFailure, rawResult } = input;
+  let { outputText, resultLabel } = input;
+  let reason = '';
+  if (backgroundTask?.failed) {
+    resultLabel = backgroundTask.outcome;
+    reason = backgroundTask.reason;
+  } else if (backgroundTask?.running) resultLabel = '';
+  if (foregroundShellFailure) {
+    // The live result drops the `[exit code: N]` marker the raw result keeps.
+    if (/^\[exit(?: code)?:\s*-?\d+\]/m.test(rawResult) && !/^\[exit(?: code)?:/m.test(outputText)) {
+      outputText = toolActivityCleanOutput(toolActivityOutputText(rawResult))
+        .replace(/\r\n?/g, '\n')
+        .replace(/[ \t]+$/gm, '');
+    }
+    ({ label: resultLabel, reason } = toolActivityShellFailureLabel(outputText, resultLabel));
+  }
+  return { resultLabel, outputText, reason };
+}
+
+/** The shared agent title opens with an English action word ("Spawn (r)"). */
+function localizeAgentTitle(title: string): string {
+  const match = /^(Agent status|Spawn|Send|Cancel|Close|Cleanup|Read|Status|Response)\b([\s\S]*)$/.exec(title);
+  return match ? `${AGENT_TITLE_VERBS[match[1]]()}${match[2]}` : title;
 }
 
 const LITERAL_OUTPUT_CATEGORIES = new Set(['Read', 'Search', 'Git', 'Shell', 'Patch', 'Task']);
@@ -252,10 +317,19 @@ export function desktopToolActivityItemPresentation(
     const resultText = String(item.result ?? item.rawResult ?? '');
     agentTitle = model.isAgentResponse ? agentResponseTitle(args, 1, resultText) : agentActionTitle(args, resultText);
   }
-  const subject = toolActivityRedactInlineSecrets(
-    agentTitle || toolActivitySubject(normalizedName, args, oneLine(String(model.summaryText || ''))),
+  let subject = toolActivityRedactInlineSecrets(
+    agentTitle
+      ? localizeAgentTitle(agentTitle)
+      : toolActivitySubject(normalizedName, args, oneLine(String(model.summaryText || ''))),
     args
   );
+  // A command is the user's own text; every other subject may carry machine
+  // ids. Only task and agent subjects can carry the runtime's instructions.
+  if (!CODE_SUBJECT_TOOLS.test(normalizedName)) {
+    subject = shortMachineId(
+      TASK_ENVELOPE_TOOLS.test(normalizedName) ? toolActivityStripInstructions(subject, true) : subject
+    );
+  }
   const targets = toolActivityTargets(normalizedName, args).map((target) =>
     toolActivityRedactInlineSecrets(target, args)
   );
@@ -281,13 +355,13 @@ export function desktopToolActivityItemPresentation(
         !represented.has(key) &&
         !TOOL_ACTIVITY_INTERNAL_ARGS.has(key) &&
         !TOOL_ACTIVITY_BULK_ARGS.has(key) &&
-        !TOOL_ACTIVITY_OPERATIONAL_ARGS.has(key) &&
+        !toolActivityIsOperationalArg(normalizedName, key) &&
         value !== false &&
         value !== 0
     )
     .map(([key, value]) => ({
       key,
-      label: toolActivityFieldLabel(key),
+      label: toolActivityFieldLabel(key, normalizedName),
       value: toolActivityFieldValue(key, value),
     }));
   // The argument fallback is the raw apply_patch envelope (`*** Begin Patch`),
@@ -314,9 +388,29 @@ export function desktopToolActivityItemPresentation(
       : toolActivityCleanOutput(
           toolActivityOutputText(normalizedName === 'read' ? readRowsForDisplay(rawOutput) : rawOutput)
         );
-  const backgroundTask = toolActivityBackgroundTask(outputText);
+  // A restored completion notice keeps only its `<result>` guidance as the
+  // result; the envelope itself rides in rawResult.
+  const restoredNotice = args.type === 'result';
+  // Only a task wait result carries the producer's cue paragraph.
+  const taskWait = normalizedName === 'task' && args.action === 'wait';
+  const backgroundTask =
+    toolActivityBackgroundTask(outputText, taskWait) ??
+    (restoredNotice ? toolActivityBackgroundTask(String(item.rawResult ?? '')) : null);
+  let waitingForOutput = false;
+  let outputNote = '';
   const metaText = backgroundTask ? backgroundTask.meta : '';
   if (backgroundTask) outputText = backgroundTask.body;
+  else if (TASK_ENVELOPE_TOOLS.test(normalizedName) || restoredNotice) {
+    // A read of a live job has no lines yet: its whole result is that one
+    // label, so say so instead of showing it as output.
+    waitingForOutput = /^Job still running; \d+ new lines?\.?$/i.test(outputText.trim());
+    outputText = waitingForOutput ? '' : toolActivityStripInstructions(outputText, false, taskWait);
+  }
+  if (backgroundTask?.running && !outputText.trim()) waitingForOutput = true;
+  // The card is a snapshot of the call: the note must stay true after the job ends.
+  if (waitingForOutput) outputNote = t('Running in the background · a notice appears when it completes');
+  if (normalizedName === 'task') outputText = toolActivityLocalizeTaskList(outputText);
+  if (backgroundTask?.failed && tone === 'neutral') tone = 'error';
   const mutation = normalizedName === 'edit' || normalizedName === 'apply_patch';
   const quietSuccessSurface = QUIET_SUCCESS_TOOLS.has(normalizedName);
   const routineSurface = mutation || quietSuccessSurface || ROUTINE_RESULT_TOOLS.has(normalizedName);
@@ -331,6 +425,16 @@ export function desktopToolActivityItemPresentation(
   if (tone === 'neutral' && diffPatch && mutation) {
     outputText = '';
   }
+  // A foreground command that failed reads "실패 · <why>" and keeps its output.
+  // (A non-zero exit is a "warning" tone: the call itself did not fail.)
+  const foregroundShellFailure =
+    tone !== 'neutral' &&
+    !model.pending &&
+    !backgroundTask &&
+    /^(?:shell|bash|bash_session|shell_command|job_wait)$/.test(normalizedName);
+  // A failed command looks like every other failure to the reader; "warning"
+  // stays the internal tone (a non-zero exit is not a failed call).
+  if (foregroundShellFailure) tone = 'error';
   let resultLabel = '';
   let localizeResultLabel = (text: string): string => text;
   if (!model.pending) {
@@ -366,6 +470,9 @@ export function desktopToolActivityItemPresentation(
   }
   if (
     normalizedName !== 'git' &&
+    !backgroundTask?.failed &&
+    !backgroundTask?.running &&
+    !foregroundShellFailure &&
     resultLabel &&
     outputText &&
     oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()
@@ -374,6 +481,9 @@ export function desktopToolActivityItemPresentation(
   }
   // A clean exit is the default; the row only reports the ones that are not.
   if (/^Exit 0$/i.test(resultLabel)) resultLabel = '';
+  // A finished shell task restates its command and exit; the row's subject and
+  // status already carry both.
+  if (/^Shell task completed \(exit 0\)(?::|$)/.test(resultLabel)) resultLabel = '';
   // A patch's first line ("diff --git a/… b/…") is not an outcome.
   if (/^diff --git /.test(resultLabel)) resultLabel = '';
   // A patch summary ("Updated 2 Files · +129 lines") repeats the row's verb:
@@ -386,11 +496,30 @@ export function desktopToolActivityItemPresentation(
     resultLabel = patchSummary[2] ?? '';
     localizeResultLabel = (text) => text;
   }
-  resultLabel = resultLabel ? localizeResultLabel(resultLabel) : '';
+  if (resultLabel && (backgroundTask || restoredNotice || TASK_ENVELOPE_TOOLS.test(normalizedName))) {
+    resultLabel = toolActivityStripInstructions(resultLabel, true);
+  }
+  resultLabel = resultLabel ? shortMachineId(localizeResultLabel(resultLabel)) : '';
+  const failure = toolActivityFailureOutcome({
+    backgroundTask,
+    foregroundShellFailure,
+    rawResult: typeof item.rawResult === 'string' ? item.rawResult : '',
+    outputText,
+    resultLabel,
+  });
+  ({ resultLabel, outputText } = failure);
+  const outcomeReason = failure.reason;
   // Only text that parses is JSON: a log line opening with "[warn]" is not.
   const outputLanguage = outputText && !command && isJsonText(outputText) ? 'json' : '';
   // A clean exit is the default; only a failing code is worth a line.
-  if (command && normalizedName !== 'git') outputText = outputText.replace(/^\[exit code: 0\]\n*/, '');
+  // Only a failing code is worth a line, and it reads as a quiet note.
+  if (command && normalizedName !== 'git') {
+    const exit = /^\[exit(?: code)?:\s*(-?\d+)\]\n*/.exec(outputText);
+    if (exit) {
+      outputText = outputText.slice(exit[0].length);
+      if (Number(exit[1]) !== 0) outputNote = t('Exit code {{code}}', { code: exit[1] });
+    }
+  }
   // `git diff` output is a patch: it renders as the diff card, not as text.
   if (normalizedName === 'git' && command && !diffPatch && isCompletePatch(outputText)) {
     diffPatch = outputText;
@@ -424,13 +553,16 @@ export function desktopToolActivityItemPresentation(
   }
   if (subjectKind === 'text' && CODE_SUBJECT_TOOLS.test(normalizedName)) subjectKind = 'code';
   const promptText = normalizedName === 'agent' && !model.isAgentResponse ? toolActivityFirstText(args, 'prompt') : '';
+  // A finished background task with nothing to read keeps no disclosure: its
+  // command is already the subject, its status and id ride on the closed row.
+  const commandIsDetail = Boolean(command) && !(backgroundTask && !outputText.trim() && !outputNote);
   const hasDetails = Boolean(
-    command ||
+    commandIsDetail ||
       targets.length ||
       fields.length ||
       diffPatch ||
       outputText ||
-      metaText ||
+      outputNote ||
       sections.length ||
       promptText ||
       beforeText ||
@@ -450,6 +582,8 @@ export function desktopToolActivityItemPresentation(
     fields,
     diffPatch,
     outputText,
+    outputNote,
+    outcomeReason,
     metaText,
     outputLanguage,
     previewText,
@@ -464,7 +598,7 @@ export function desktopToolActivityItemPresentation(
     ...(normalizedName === 'read' && Number(args.offset) > 0 ? { targetLine: Math.floor(Number(args.offset)) } : {}),
     headerSubject: rowSubject(
       normalizedName,
-      patchSummary?.[1].toLowerCase() ?? fileHeaderSubject(subject, targetPath)
+      patchSummary ? localizePatchTarget(patchSummary[1]) : fileHeaderSubject(subject, targetPath)
     ),
     subjectIsTarget: Boolean(targetPath) && subject.startsWith(targetPath),
     subjectKind: patchSummary ? 'target' : subjectKind,

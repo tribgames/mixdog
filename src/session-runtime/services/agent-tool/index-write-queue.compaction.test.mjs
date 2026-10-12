@@ -48,9 +48,9 @@ for (const synchronous of [false, true]) {
       const mutations = Array.from({ length: 48 }, (_, step) => {
         const key = `w${(next() >>> 16) % 7}`;
         const kind = (next() >>> 16) % 3;
-        return kind === 0 ? (map) => map.delete(key)
-          : kind === 1 ? (_map, set) => set.add(key)
-          : (map) => map.set(key, { v: step, seed });
+        if (kind === 0) return (map) => map.delete(key);
+        if (kind === 1) return (_map, set) => set.add(key);
+        return (map) => map.set(key, { v: step, seed });
       });
       const { root, queue, readFile } = setup(initial);
       try {
@@ -110,12 +110,24 @@ test('process exit preserves both the in-flight and newer pending state', () => 
 });
 
 const SCENARIO = [
-  (m, s) => { m.set('a', { v: 1 }); m.set('b', { v: 1 }); s.add('x'); },
+  (m, s) => {
+    m.set('a', { v: 1 });
+    m.set('b', { v: 1 });
+    s.add('x');
+  },
   (m) => m.set('a', { v: 2 }),
   (m) => m.delete('a'),
-  (m, s) => { m.set('a', { v: 3 }); m.set('c', { v: 1 }); s.add('y'); s.add('x'); },
+  (m, s) => {
+    m.set('a', { v: 3 });
+    m.set('c', { v: 1 });
+    s.add('y');
+    s.add('x');
+  },
   (m) => m.set('b', { v: 4 }),
-  (m) => { m.set('tmp', { v: 1 }); m.delete('tmp'); },
+  (m) => {
+    m.set('tmp', { v: 1 });
+    m.delete('tmp');
+  },
   (m) => m.delete('foreign-del'),
 ];
 const INITIAL = { map: { first: { v: 0 }, 'foreign-del': { v: 9 }, a: { v: 0 } }, set: ['s0'] };
@@ -124,7 +136,11 @@ test('async persistence matches sequential replay incl. order, reinsert, deletes
   const { root, queue, readFile, calls } = setup(INITIAL);
   try {
     let runs = 0;
-    for (const mutate of SCENARIO) queue.write((...args) => { runs += 1; mutate(...args); });
+    for (const mutate of SCENARIO)
+      queue.write((...args) => {
+        runs += 1;
+        mutate(...args);
+      });
     assert.equal(runs, SCENARIO.length);
     await queue.flush();
     assert.equal(runs, SCENARIO.length);
@@ -173,7 +189,11 @@ test('foreign keys are merged and new keys keep sequential order after them', as
     writeFileSync(file, JSON.stringify({ map: { foreign: { v: 1 } }, set: ['f'] }));
     await queue.flush();
     const doc = readFile();
-    assert.deepEqual(Object.entries(doc.map), [['foreign', { v: 1 }], ['a', { v: 2 }], ['b', { v: 1 }]]);
+    assert.deepEqual(Object.entries(doc.map), [
+      ['foreign', { v: 1 }],
+      ['a', { v: 2 }],
+      ['b', { v: 1 }],
+    ]);
     assert.deepEqual(doc.set, ['f']);
   } finally {
     await flushAllIndexWrites();

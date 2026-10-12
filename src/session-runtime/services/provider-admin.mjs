@@ -64,6 +64,10 @@ import {
   ACCOUNT_PROVIDERS,
 } from '../../runtime/shared/provider-accounts.mjs';
 import { currentProviderAccountId, withProviderAccount } from '../../runtime/shared/provider-auth-binding.mjs';
+import {
+  effectiveCustomModelRows,
+  normalizeCustomProviderConfig as normalizeStoredCustomConfig,
+} from '../../runtime/agent/orchestrator/providers/custom-provider-config.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
@@ -162,11 +166,14 @@ function availableOAuthProvider(id) {
 
 export function isKnownProvider(provider, config = {}) {
   const id = String(provider || '').trim();
-  return id !== '' && (
-    API_PROVIDER_IDS.has(id) ||
-    BUILTIN_PROVIDER_IDS.has(id) ||
-    !!availableOAuthProvider(id) ||
-    (isCustomProviderId(id) && isCustomProviderConfig(config.providers?.[id]) && config.providers[id].enabled !== false)
+  return (
+    id !== '' &&
+    (API_PROVIDER_IDS.has(id) ||
+      BUILTIN_PROVIDER_IDS.has(id) ||
+      !!availableOAuthProvider(id) ||
+      (isCustomProviderId(id) &&
+        isCustomProviderConfig(config.providers?.[id]) &&
+        config.providers[id].enabled !== false))
   );
 }
 
@@ -298,27 +305,96 @@ export function isCustomProviderId(id) {
 
 const loadCustomProviderModule = () => import('../../runtime/agent/orchestrator/providers/custom-provider.mjs');
 
-// Secret-free public view of a custom provider. Never carries an API key.
+// The stored entry as a normalized v2 config (legacy entries migrated), or
+// the normalizer's message when it does not normalize.
+function inspectStoredCustomConfig(entry) {
+  try {
+    return { config: normalizeStoredCustomConfig(entry), error: null };
+  } catch (error) {
+    return { config: null, error: String(error?.message || error).replace(/^\[custom-provider\]\s*/, '') };
+  }
+}
+
+function storedCustomConfig(entry) {
+  return inspectStoredCustomConfig(entry).config;
+}
+
+// Public (setup UI) view of effective model rows: one field vocabulary for the
+// provider row and discovery alike — the override names (`maxOutputTokens`,
+// not the runtime row's `outputTokens`).
+function publicCustomModelRows(rows) {
+  const seen = new Set();
+  const models = [];
+  for (const item of Array.isArray(rows) ? rows : []) {
+    const modelId = String(item?.id || '').trim();
+    if (!modelId || seen.has(modelId)) continue;
+    seen.add(modelId);
+    const model = { id: modelId };
+    const name = String(item.name || item.display || '').trim();
+    if (name && name !== modelId) model.name = name;
+    if (Number(item.contextWindow) > 0) model.contextWindow = Math.floor(Number(item.contextWindow));
+    const out = Number(item.maxOutputTokens ?? item.outputTokens);
+    if (out > 0) model.maxOutputTokens = Math.floor(out);
+    model.hidden = item.hidden === true;
+    model.manual = item.manual === true;
+    for (const key of [
+      'supportsReasoning',
+      'reasoningOptions',
+      'reasoningLevels',
+      'customReasoning',
+      'reasoningContentField',
+    ]) {
+      if (item[key] !== undefined) model[key] = structuredClone(item[key]);
+    }
+    models.push(model);
+  }
+  return models;
+}
+
+// Secret-free public view of a custom provider, always in the v2 shape.
+// `models` are the effective rows known without network I/O (manual models
+// with their overrides); discovered rows come from discoverCustomProviderModels.
+// Never carries an API key.
 function customProviderRow(id, entry, checkSecrets = true) {
+  const { config, error: configError } = inspectStoredCustomConfig(entry);
   const configuredEnabled = entry.enabled !== false;
+  const keyless = (config?.auth ?? entry.auth) === 'none';
   const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(id)) : false;
-  return {
+  const unstoredStatus = configuredEnabled ? 'No Key' : 'Off';
+  const row = {
     id,
     name: entry.name,
     protocol: entry.protocol,
     baseURL: entry.baseURL,
-    models: Array.isArray(entry.models) ? entry.models.map((m) => ({ ...m })) : [],
+    models: config ? publicCustomModelRows(effectiveCustomModelRows(config, [], { providerId: id })) : [],
     custom: true,
     group: 'api',
     type: 'api-key',
     enabled: configuredEnabled,
-    authenticated: checkSecrets ? stored : configuredEnabled,
+    authenticated: keyless ? true : checkSecrets ? stored : configuredEnabled,
     stored,
     env: false,
     envName: null,
-    status: stored ? 'Set' : configuredEnabled ? 'No Key' : 'Off',
-    detail: stored ? 'stored in keychain' : 'custom endpoint',
+    status: keyless ? (configuredEnabled ? 'Keyless' : 'Off') : stored ? 'Set' : unstoredStatus,
+    detail: keyless ? 'no API key required' : stored ? 'stored in keychain' : 'custom endpoint',
   };
+  row.schemaVersion = config?.schemaVersion ?? entry.schemaVersion;
+  row.auth = keyless ? 'none' : 'key';
+  row.discovery = structuredClone(config?.discovery ?? entry.discovery ?? { newModelsHidden: false });
+  row.modelOverrides = structuredClone(config?.modelOverrides ?? entry.modelOverrides ?? {});
+  // A stored config that does not normalize cannot run (the registry skips
+  // it): say so explicitly instead of listing it as connected.
+  // Every readiness flag consumers read says "not ready" (`stored` stays the
+  // keychain fact).
+  if (configError) {
+    row.configError = configError;
+    row.status = 'Invalid config';
+    row.detail = configError;
+    row.usable = false;
+    row.ready = false;
+    row.authenticated = false;
+  }
+  return row;
 }
 
 function customProviderRows(providers, checkSecrets) {
@@ -456,8 +532,9 @@ function assertOAuthLoginOptions(options) {
     !options ||
     typeof options !== 'object' ||
     Array.isArray(options) ||
-    Object.keys(options).some((key) => !['addAccount', 'label', 'accountId'].includes(key)) ||
+    Object.keys(options).some((key) => !['addAccount', 'label', 'accountId', 'openBrowser'].includes(key)) ||
     (options.addAccount !== undefined && typeof options.addAccount !== 'boolean') ||
+    (options.openBrowser !== undefined && typeof options.openBrowser !== 'boolean') ||
     (options.label !== undefined && (typeof options.label !== 'string' || options.label.length > 80))
   ) {
     throw new TypeError('Invalid OAuth account login options.');
@@ -532,7 +609,9 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   if (options.addAccount && readProviderAccountPool(id).accounts.length >= 20) {
     throw new Error('At most 20 accounts can be connected.');
   }
-  const started = await inAccount(() => oauth.begin());
+  // A remote client opens the authorization URL on its own machine and pastes
+  // the final redirect back (completeCode), so the host must not pop a browser.
+  const started = await inAccount(() => oauth.begin({ openBrowser: options.openBrowser !== false }));
   let cancelled = false;
   const login = {
     cfgMod,
@@ -582,6 +661,7 @@ export function listProviderAccounts(provider) {
   return {
     provider,
     auto: pool.auto !== false,
+    useCredits: pool.useCredits === true,
     selectedId: pool.selectedId || accounts[0]?.id || null,
     accounts: accounts.map((row) => {
       const auth = withProviderAccount(provider, row.id, () => oauth.describe?.() || {});
@@ -669,42 +749,77 @@ function existingCustomEntry(cfgMod, id) {
   return entry;
 }
 
+export const CUSTOM_API_KEY_MAX = 65_536;
+
+// Transport fields of a setup input, with the desktop IPC validator's rules
+// (parity-tested): `id` absent (new provider) or a generated custom id, and
+// `apiKey` absent or a bounded string — never null, whatever the auth mode.
+function validateCustomTransportFields(input) {
+  if (input.id !== undefined && (typeof input.id !== 'string' || !CUSTOM_ID_RE.test(input.id)))
+    throw new TypeError('custom provider id is invalid');
+  if (input.apiKey !== undefined && (typeof input.apiKey !== 'string' || input.apiKey.length > CUSTOM_API_KEY_MAX))
+    throw new TypeError('custom provider apiKey is invalid');
+}
+
 function inputObject(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('custom provider is invalid');
   return input;
 }
 
+// An edit that omits a stored setting keeps it: `auth` for every input shape,
+// and `discovery` / `modelOverrides` for a v2 input (a legacy `models` input
+// states the whole manual model list itself).
+function withStoredSettings(input, entry) {
+  const stored = storedCustomConfig(entry);
+  if (!stored) {
+    // Fixing an invalid entry still keeps its stated auth mode.
+    if (input.auth !== undefined || (entry.auth !== 'key' && entry.auth !== 'none')) return input;
+    return { ...input, auth: entry.auth };
+  }
+  const out = { ...input };
+  if (out.auth === undefined) out.auth = stored.auth;
+  if (out.schemaVersion === stored.schemaVersion) {
+    if (out.discovery === undefined) out.discovery = stored.discovery;
+    if (out.modelOverrides === undefined) out.modelOverrides = stored.modelOverrides;
+  }
+  return out;
+}
+
 // Validated, secret-free config for `input`; the key (typed, else stored for an
 // existing provider) is resolved separately and never enters the config.
 async function resolveCustomInput(cfgMod, rawInput, options) {
-  const input = inputObject(rawInput);
-  const id = input.id === undefined || input.id === null || input.id === '' ? null : String(input.id);
-  if (id) existingCustomEntry(cfgMod, id);
+  let input = inputObject(rawInput);
+  validateCustomTransportFields(input);
+  const id = input.id === undefined ? null : input.id;
+  if (id) input = withStoredSettings(input, existingCustomEntry(cfgMod, id));
   const { normalizeCustomProviderConfig } = await loadCustomProviderModule();
   const config = normalizeCustomProviderConfig(input, options);
   const typed = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
-  const apiKey = typed || (id ? getAgentApiKey(id) || '' : '');
-  return { id, config, typed, apiKey };
+  const keyless = config.auth === 'none';
+  const apiKey = keyless ? '' : typed || (id ? getAgentApiKey(id) || '' : '');
+  return { id, config, typed: keyless ? '' : typed, apiKey, keyless };
 }
 
 export async function saveCustomProvider(cfgMod, rawInput) {
-  const { id: existingId, config, typed, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
-  if (!apiKey) throw new Error('API key is required');
+  const {
+    id: existingId,
+    config,
+    typed,
+    apiKey,
+    keyless,
+  } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
+  if (!keyless && !apiKey) throw new Error('API key is required');
   const id = existingId || `custom-${randomUUID()}`;
-  const entry = {
-    type: 'custom',
-    name: config.name,
-    protocol: config.protocol,
-    baseURL: config.baseURL,
-    models: config.models,
-    enabled: true,
-  };
+  const entry = { ...config, type: 'custom', enabled: config.enabled !== false };
   const account = SECRET_ACCOUNTS.agentApiKey(id);
   const previousKey = typed && existingId ? getAgentApiKey(id) : null;
   if (typed) saveSecret(account, typed);
   try {
     const current = cfgMod.loadConfig();
-    cfgMod.saveConfig({ ...current, providers: { ...(current.providers || {}), [id]: entry } }, { baseConfig: current });
+    cfgMod.saveConfig(
+      { ...current, providers: { ...(current.providers || {}), [id]: entry } },
+      { baseConfig: current }
+    );
   } catch (error) {
     if (typed) {
       if (previousKey) saveSecret(account, previousKey);
@@ -713,6 +828,88 @@ export async function saveCustomProvider(cfgMod, rawInput) {
     throw error;
   }
   return customProviderRow(id, entry);
+}
+
+const MODEL_PATCH_KEYS = new Set(['manual', 'hidden', 'name', 'contextWindow', 'maxOutputTokens', 'reasoning']);
+const REASONING_PATCH_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 'replay']);
+
+// Tri-state merge: undefined preserves, null deletes the property, a value replaces it.
+function applyTriState(base, patch) {
+  const out = new Map(Object.entries(base || {}));
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (value === null) out.delete(key);
+    else out.set(key, value);
+  }
+  return Object.fromEntries(out);
+}
+
+function plainPatch(value, allowed, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${label} is invalid`);
+  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new TypeError(`${label} has unsupported field`);
+  return value;
+}
+
+// Edit one model's override without resubmitting the provider. `patch === null`
+// removes the whole override; reasoning is merged key by key with the same
+// tri-state rules. Semantic validation is the runtime normalizer's.
+export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch) {
+  const id = String(rawId || '').trim();
+  const modelId = typeof rawModelId === 'string' ? rawModelId.trim() : '';
+  if (!modelId) throw new TypeError('model id is required');
+  const { normalizeCustomProviderConfig, canonicalReasoningLevel, assertCustomReasoningPatch } =
+    await loadCustomProviderModule();
+  // Everything below is synchronous: the provider is read, patched and saved
+  // without yielding, so a concurrent update can never be overwritten by a
+  // provider object read before the await above.
+  const entry = existingCustomEntry(cfgMod, id);
+  const current = normalizeCustomProviderConfig(entry, { requireModels: false });
+  const overrides = new Map(Object.entries(current.modelOverrides || {}));
+  if (patch === null) {
+    overrides.delete(modelId);
+  } else {
+    plainPatch(patch, MODEL_PATCH_KEYS, 'model patch');
+    const { reasoning, ...rest } = patch;
+    let next = applyTriState(overrides.get(modelId), rest);
+    // The supplied reasoning values are validated as sent, before any pruning
+    // can hide a malformed mapping.
+    if (reasoning !== undefined && reasoning !== null) {
+      plainPatch(reasoning, REASONING_PATCH_KEYS, 'reasoning patch');
+      assertCustomReasoningPatch(reasoning);
+    }
+    if (reasoning !== undefined) {
+      const nextReasoning =
+        reasoning === null
+          ? {}
+          : applyTriState(next.reasoning, plainPatch(reasoning, REASONING_PATCH_KEYS, 'reasoning patch'));
+      // New levels retire the wire values of levels they no longer list
+      // (clearing the last level included), instead of failing validation.
+      if (
+        Array.isArray(reasoning?.levels) &&
+        nextReasoning.wireValues &&
+        typeof nextReasoning.wireValues === 'object'
+      ) {
+        const kept = new Set(reasoning.levels.map(canonicalReasoningLevel));
+        const wireValues = Object.fromEntries(
+          Object.entries(nextReasoning.wireValues).filter(([level]) => kept.has(canonicalReasoningLevel(level)))
+        );
+        if (Object.keys(wireValues).length) nextReasoning.wireValues = wireValues;
+        else delete nextReasoning.wireValues;
+      }
+      const { reasoning: _old, ...withoutReasoning } = next;
+      next = Object.keys(nextReasoning).length ? { ...withoutReasoning, reasoning: nextReasoning } : withoutReasoning;
+    }
+    if (Object.keys(next).length) overrides.set(modelId, next);
+    else overrides.delete(modelId);
+  }
+  const config = normalizeCustomProviderConfig(
+    { ...current, modelOverrides: Object.fromEntries(overrides) },
+    { requireModels: false }
+  );
+  const saved = { ...config, type: 'custom', enabled: entry.enabled !== false };
+  const full = cfgMod.loadConfig();
+  cfgMod.saveConfig({ ...full, providers: { ...(full.providers || {}), [id]: saved } }, { baseConfig: full });
+  return customProviderRow(id, saved);
 }
 
 export function removeCustomProvider(cfgMod, rawId) {
@@ -728,15 +925,20 @@ export function removeCustomProvider(cfgMod, rawId) {
 export async function testCustomProvider(cfgMod, rawInput) {
   const { id, config, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
   try {
-    const discovery = config.models.length ? { models: config.models } : await discoverCustomProviderModels(cfgMod, rawInput);
-    if (discovery.error) return { ok: false, phase: 'discovery', error: discovery.error };
-    const models = discovery.models;
-    const model = models[0]?.id;
-    if (!model) return {
-      ok: false,
-      phase: 'discovery',
-      error: { kind: 'empty', message: 'No models were found for this provider' },
-    };
+    // The first visible manual model needs no discovery; otherwise the first
+    // visible discovered one.
+    let model = effectiveCustomModelRows(config, [], { providerId: id || 'custom-test' }).find((m) => !m.hidden)?.id;
+    if (!model) {
+      const discovery = await discoverCustomProviderModels(cfgMod, rawInput);
+      if (discovery.error) return { ok: false, phase: 'discovery', error: discovery.error };
+      model = discovery.models.find((m) => !m.hidden)?.id;
+    }
+    if (!model)
+      return {
+        ok: false,
+        phase: 'discovery',
+        error: { kind: 'empty', message: 'No models were found for this provider' },
+      };
     const { createCustomProvider } = await loadCustomProviderModule();
     const provider = await createCustomProvider(id || 'custom-test', { ...config, apiKey });
     await withTimeout(
@@ -754,34 +956,25 @@ export async function discoverCustomProviderModels(cfgMod, rawInput) {
   const { id, config, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
   try {
     const { createCustomProvider } = await loadCustomProviderModule();
-    const provider = await createCustomProvider(id || 'custom-discovery', { ...config, models: [], apiKey });
+    const provider = await createCustomProvider(id || 'custom-discovery', { ...config, apiKey });
     const listed = await withTimeout(() => provider.listModels(), CUSTOM_DISCOVERY_TIMEOUT_MS, 'model discovery');
-    const seen = new Set();
-    const models = [];
-    for (const item of Array.isArray(listed) ? listed : []) {
-      const modelId = String(item?.id || '').trim();
-      if (!modelId || seen.has(modelId)) continue;
-      seen.add(modelId);
-      const model = { id: modelId };
-      const name = String(item.name || item.display || '').trim();
-      if (name && name !== modelId) model.name = name;
-      if (Number(item.contextWindow) > 0) model.contextWindow = Math.floor(Number(item.contextWindow));
-      const out = Number(item.maxOutputTokens ?? item.outputTokens);
-      if (out > 0) model.maxOutputTokens = Math.floor(out);
-      models.push(model);
-    }
-    return { models };
+    const models = publicCustomModelRows(listed);
+    // A failed discovery that still left manual rows reports its error too.
+    const failure = provider.customDiscoveryError;
+    return failure ? { models, error: discoveryErrorView(failure, apiKey) } : { models };
   } catch (error) {
-    const status = Number.isInteger(error?.status) ? error.status : undefined;
-    return {
-      models: [],
-      error: {
-        kind: status === 404 || status === 405 ? 'unavailable' : status === 401 || status === 403 ? 'authentication' : 'request',
-        ...(status === undefined ? {} : { status }),
-        message: sanitizeCustomError(error, [apiKey]).message,
-      },
-    };
+    return { models: [], error: discoveryErrorView(error, apiKey) };
   }
+}
+
+function discoveryErrorView(error, apiKey) {
+  const status = Number.isInteger(error?.status) ? error.status : undefined;
+  const authKind = status === 401 || status === 403 ? 'authentication' : 'request';
+  return {
+    kind: status === 404 || status === 405 ? 'unavailable' : authKind,
+    ...(status === undefined ? {} : { status }),
+    message: sanitizeCustomError(error, [apiKey]).message,
+  };
 }
 
 export function saveOpenAIUsageSessionKey(cfgMod, secret) {

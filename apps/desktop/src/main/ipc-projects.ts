@@ -82,17 +82,21 @@ export function registerProjectIpc({
   handle(DESKTOP_IPC.removeProject, (_event, projectPath) =>
     host.removeProject(requiredString(projectPath, 'projectPath'))
   );
-  handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit, includeIgnored) => {
-    if (typeof query !== 'string' || query.length > 1_024) {
-      throw new TypeError('query is invalid.');
+  handle(
+    DESKTOP_IPC.searchProjectFiles,
+    (_event, projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) => {
+      if (typeof query !== 'string' || query.length > 1_024) {
+        throw new TypeError('query is invalid.');
+      }
+      return host.searchProjectFiles(
+        requiredString(projectIdOrWorkspaceId, 'projectIdOrWorkspaceId'),
+        query,
+        requiredFileSearchLimit(limit),
+        includeIgnored === true,
+        includeDirectories === true
+      );
     }
-    return host.searchProjectFiles(
-      requiredString(projectIdOrWorkspaceId, 'projectIdOrWorkspaceId'),
-      query,
-      requiredFileSearchLimit(limit),
-      includeIgnored === true
-    );
-  });
+  );
   handle(DESKTOP_IPC.searchWorkspaceText, async (_event, projectPath, rawOptions) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);

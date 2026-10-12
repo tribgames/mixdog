@@ -16,6 +16,7 @@ export function useEditorDiskWatch({
   readModel,
   savedMtime,
   savedText,
+  held,
   reload,
   setDiskChanged,
   setSaveError,
@@ -29,6 +30,9 @@ export function useEditorDiskWatch({
   readModel: () => import('monaco-editor').editor.ITextModel | null;
   savedMtime: RefObject<number>;
   savedText: RefObject<string>;
+  /** Whether an edit the model lacks is held (Rich): unsaved like a dirty
+   *  model, so it must not be reloaded over. */
+  held?: RefObject<boolean>;
   reload: () => void;
   setDiskChanged: (changed: boolean) => void;
   setSaveError: (message: string) => void;
@@ -43,7 +47,7 @@ export function useEditorDiskWatch({
         .then((info) => {
           if (!info || info.mtimeMs <= savedMtime.current) return;
           const model = readModel();
-          const isDirty = model ? model.getValue() !== savedText.current : false;
+          const isDirty = Boolean(held?.current) || (model ? model.getValue() !== savedText.current : false);
           if (isDirty) setDiskChanged(true);
           else reload();
         })

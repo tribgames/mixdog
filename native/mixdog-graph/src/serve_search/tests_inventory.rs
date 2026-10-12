@@ -326,6 +326,145 @@ fn inventory_repair_during_walk_preserves_ignore_and_hidden_rules() {
 }
 
 #[test]
+fn unsolicited_invalidate_events_do_not_refresh_the_idle_stamp() {
+    SERVE_SEARCH_LAST_ACTIVITY_MS.store(7, Ordering::Relaxed);
+    note_outbound_activity(&serde_json::json!({"event": "invalidate", "paths": ["/x"]}));
+    assert_eq!(SERVE_SEARCH_LAST_ACTIVITY_MS.load(Ordering::Relaxed), 7);
+    note_outbound_activity(&serde_json::json!({"id": 1, "ok": true}));
+    assert_ne!(SERVE_SEARCH_LAST_ACTIVITY_MS.load(Ordering::Relaxed), 7);
+}
+
+#[test]
+fn search_right_after_a_file_change_sees_the_change() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("mg-fresh-{nonce}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+    let mut req = request(&["--files", "."], 0);
+    req.cwd = dir.to_string_lossy().into_owned();
+    let store = Arc::new(FileListStore::new());
+    let before = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+    assert_eq!(before["lines"].as_array().unwrap().len(), 1);
+    let added = dir.join("b.txt");
+    std::fs::write(&added, "x\n").unwrap();
+    store.schedule_inventory_repairs(&[added]);
+    let after = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+    assert_eq!(after["lines"].as_array().unwrap().len(), 2);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn search_during_debounce_window_gets_repaired_inventory_within_wait() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("mg-demand-{nonce}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+    let mut req = request(&["--files", "."], 0);
+    req.cwd = dir.to_string_lossy().into_owned();
+    let parsed = parse_args(&req.args).unwrap();
+    let key = walk_key(&dir, &parsed);
+    let store = Arc::new(FileListStore::new());
+    assert!(store.watch_root(&dir));
+    handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+    // Burn the min gap so only demand can start the next repair promptly.
+    let added = dir.join("b.txt");
+    std::fs::write(&added, "x\n").unwrap();
+    store.schedule_inventory_repairs(std::slice::from_ref(&added));
+    let started = Instant::now();
+    let ready = store.take_ready(&key);
+    assert!(started.elapsed() < Duration::from_millis(250));
+    let files = ready.expect("repaired inventory, not a full-walk fallback");
+    assert!(files.contains(&added));
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn multiple_waiters_bound_wakeups_and_still_get_the_repair() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("mg-waiters-{nonce}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+    let mut req = request(&["--files", "."], 0);
+    req.cwd = dir.to_string_lossy().into_owned();
+    let parsed = parse_args(&req.args).unwrap();
+    let key = walk_key(&dir, &parsed);
+    let store = Arc::new(FileListStore::new());
+    assert!(store.watch_root(&dir));
+    handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+    let added = dir.join("b.txt");
+    // The worker is busy elsewhere, so nobody serves the repair; let the
+    // real watcher's own events land first so they cannot race the phases.
+    store.repair_worker_running.store(true, Ordering::Release);
+    std::fs::write(&added, "x\n").unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Phase 1: nobody serves the repair.
+    store.pending_repairs.lock().unwrap().insert(
+        key.clone(),
+        PendingInventoryRepair {
+            base: Arc::new(vec![dir.join("a.txt")]),
+            directory_failures: Arc::new(Vec::new()),
+            paths: HashSet::from([added.clone()]),
+            processing: false,
+            token: Arc::new(()),
+        },
+    );
+    let waiters = (0..2)
+        .map(|_| {
+            let store = Arc::clone(&store);
+            let key = key.clone();
+            std::thread::spawn(move || {
+                let started = Instant::now();
+                store.take_ready(&key);
+                started.elapsed()
+            })
+        })
+        .collect::<Vec<_>>();
+    for waiter in waiters {
+        assert!(waiter.join().unwrap() >= Duration::from_millis(240));
+    }
+    assert_eq!(store.repair_demand_wakeups.load(Ordering::Relaxed), 1);
+
+    // Phase 2: a live worker serves both waiters well inside the wait.
+    store.pending_repairs.lock().unwrap().clear();
+    store.repair_demanded.lock().unwrap().clear();
+    store.repair_worker_running.store(false, Ordering::Release);
+    handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+    let added = dir.join("c.txt");
+    std::fs::write(&added, "x\n").unwrap();
+    store.schedule_inventory_repairs(std::slice::from_ref(&added));
+    let waiters = (0..2)
+        .map(|_| {
+            let store = Arc::clone(&store);
+            let key = key.clone();
+            std::thread::spawn(move || {
+                let started = Instant::now();
+                let files = store.take_ready(&key);
+                (started.elapsed(), files)
+            })
+        })
+        .collect::<Vec<_>>();
+    for waiter in waiters {
+        let (elapsed, files) = waiter.join().unwrap();
+        assert!(elapsed < Duration::from_millis(250));
+        assert!(files.expect("repaired inventory").contains(&added));
+    }
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn lost_notifications_cannot_republish_an_obsolete_repair() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)

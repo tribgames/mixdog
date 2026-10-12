@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>한도 소진 — 최종 시안 v2 (테마 정합)</title>
+<style>
+  /* Real dark-theme tokens (01-tokens.css, ui/tokens.css). */
+  :root {
+    --mx-bg-deep: #101013;
+    --mx-workspace-sheet: #111113;
+    --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d;
+    --mx-text: #e9e9e9;
+    --mx-text-muted: #a8a8a8;
+    --mx-text-soft: color-mix(in srgb, #e9e9e9 85%, transparent);
+    --mx-text-accent: #79b8ff;
+    --mx-accent-bg: #1967d2;
+    --mx-warning: #f2cf76;
+    --mx-danger: #f17471;
+    --mx-success: #6bd586;
+    --mx-border-muted: rgba(255,255,255,.09);
+    --mx-hover: rgba(255,255,255,.08);
+    --mx-button: 0 0 0 1px rgba(255,255,255,.2);
+    --mx-raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 1px #ffffff29, 0 -0.5px 0 #ffffff0f;
+    --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+    --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mx-radius-md: 6px;
+    --mx-radius-xl: 12px;
+    --mx-radius-sheet: 16px;
+    --mx-op-disabled: .6;
+    /* composer island material (15-composer.css) */
+    --island-bg: color-mix(in srgb, #101013 70%, #000);
+    --island-edge: 0 0 0 1px rgb(255 255 255 / 13%);
+    --island-wash: rgb(255 255 255 / 8%);
+    --island-rule: rgb(255 255 255 / 8%);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px; background: var(--mx-bg-deep); color: var(--mx-text);
+    font: 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 20px; line-height: 28px; margin: 0 0 4px; font-weight: 600; }
+  .lead { color: var(--mx-text-muted); margin: 0 0 28px; font-size: 13px; max-width: 1180px; }
+  .board { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .case { width: 600px; }
+  .case > h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .case > p { font-size: 13px; color: var(--mx-text-muted); margin: 0 0 10px; min-height: 32px; }
+
+  svg { display: block; }
+
+  /* workspace pane */
+  .pane { position: relative; background: var(--mx-workspace-sheet); border-radius: 10px; box-shadow: 0 0 0 1px var(--mx-border-muted); padding: 18px 20px 16px; overflow: hidden; }
+  .msg { font-size: 15px; line-height: 24px; color: var(--mx-text); margin: 0 0 8px; }
+  .tool { font-size: 13px; color: var(--mx-text-muted); margin: 0 0 6px; display: flex; gap: 6px; align-items: center; }
+  .tool b { color: var(--mx-text-soft); font-weight: 400; }
+  .spacer { height: 70px; }
+
+  /* transcript status line — error-notice grammar (unboxed, muted mark) */
+  .notice { display: flex; gap: 8px; align-items: flex-start; color: var(--mx-text-soft); font-size: 14px; margin: 4px 0 10px; }
+  .notice svg { flex: 0 0 15px; margin-top: 2px; color: var(--mx-text-muted); }
+
+  /* composer island */
+  .slot { position: relative; height: 48px; }
+  .stage { position: absolute; inset-inline: 0; bottom: 12px; display: flex; justify-content: center; }
+  .stage.over::before { content: ""; position: absolute; inset-inline: -20px; top: -72px; bottom: -12px;
+    background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--mx-workspace-sheet) 92%, transparent) 48px, var(--mx-workspace-sheet)); }
+  .island { position: relative; z-index: 1; max-width: 100%; border-radius: 22px; background: var(--island-bg);
+    box-shadow: var(--island-edge), var(--mx-popup-shadow); font-size: 13px; line-height: 18px; color: var(--mx-text); }
+  .island.flash { box-shadow: var(--island-edge), 0 0 0 4px color-mix(in srgb, var(--mx-success) 12%, transparent), var(--mx-popup-shadow); }
+  .panel { width: 560px; max-width: 100%; padding: 14px 16px 12px; }
+  .ptitle { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+  .ptitle svg { color: var(--mx-warning); flex: none; }
+  .pnote { margin: 4px 0 0; color: var(--mx-text-muted); }
+  .pnote .num { font-variant-numeric: tabular-nums; }
+  .pfoot { display: flex; justify-content: flex-end; gap: 6px; padding-top: 8px; }
+  .ibtn { height: 26px; padding: 0 10px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: transparent;
+    box-shadow: var(--mx-button); font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  .ibtn:hover { background: var(--mx-hover); }
+  .ibtn.primary { color: #fff; background: var(--mx-accent-bg); box-shadow: none; }
+  .ibtn.open { box-shadow: 0 0 0 2px color-mix(in srgb, var(--mx-text-accent) 45%, transparent); }
+  .pill { height: 36px; display: flex; align-items: center; padding: 0 6px; white-space: nowrap; }
+  .seg { height: 28px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border-radius: 999px; color: var(--mx-text-soft); font-variant-numeric: tabular-nums; }
+  .seg.warn { color: var(--mx-warning); }
+  .seg.on { background: var(--island-wash); }
+  .seg .sub { color: var(--mx-text-muted); }
+  .flashrow { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+  .flashrow svg { color: var(--mx-success); }
+
+  /* composer card */
+  .composer { min-height: 96px; border-radius: var(--mx-radius-sheet); background: var(--mx-bg-layer-1);
+    box-shadow: var(--mx-raised), var(--mx-composer-lift); display: flex; flex-direction: column; justify-content: space-between; padding: 12px 10px 8px 14px; }
+  .composer .ph { font-size: 15px; color: #77777c; }
+  .cbar { display: flex; align-items: center; gap: 6px; color: var(--mx-text-muted); font-size: 14px; }
+  .cbar .plus { width: 28px; height: 28px; display: grid; place-items: center; color: var(--mx-text-muted); }
+  .trig { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 4px 0 8px; border-radius: 999px; color: var(--mx-text); }
+  .trig .eff { color: var(--mx-text-muted); }
+  .trig.changed { background: var(--mx-hover); }
+  .cbar .grow { flex: 1; }
+  .send { width: 28px; height: 28px; border-radius: 50%; background: #3d3d41; display: grid; place-items: center; color: var(--mx-text-muted); }
+
+  /* route sheet (model menu) */
+  .sheet { position: absolute; z-index: 20; width: 280px; padding: 4px; border-radius: var(--mx-radius-xl); background: var(--mx-bg-base);
+    box-shadow: var(--mx-popup-shadow); font-size: 14px; }
+  .sheet .lbl { padding: 6px 8px 4px; font-size: 12px; line-height: 16px; color: var(--mx-text-muted); }
+  .row { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: var(--mx-radius-md); }
+  .row.hl { background: var(--mx-hover); }
+  .row .m { flex: 1; }
+  .row .e { color: var(--mx-text-muted); font-size: 13px; }
+  .row.off { opacity: var(--mx-op-disabled); }
+  .row.off .e { font-variant-numeric: tabular-nums; }
+  /* model catalog flyout (ModelCatalog: search + sticky provider groups + scroll) */
+  .sheet.cat { width: 300px; height: 372px; padding: 0; background: var(--mx-bg-layer-1); display: flex; flex-direction: column; overflow: hidden; }
+  .search { margin: 8px 8px 0; min-height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: var(--mx-radius-md);
+    background: rgba(255,255,255,.06); color: var(--mx-text-muted); font-size: 14px; }
+  .scroll { flex: 1; min-height: 0; overflow: hidden; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .grp h3 { margin: 0; min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: 13px; font-weight: 500; color: var(--mx-text-muted); }
+  .grp .row { padding-left: 32px; }
+  .grp:first-child .row { padding-left: 8px; }
+  .grp.off { opacity: var(--mx-op-disabled); }
+  .grp .reset { margin-left: auto; font-weight: 400; font-size: 12px; font-variant-numeric: tabular-nums; }
+  /* route sheet rows (23-route-editor.css: .route-sheet-row / .route-sheet-toggle) */
+  .sheet.rsheet { width: 260px; padding: 4px; }
+  .rrow { height: 36px; display: grid; grid-template-columns: max-content minmax(0,1fr) 14px; column-gap: 8px; align-items: center; padding: 0 10px; border-radius: var(--mx-radius-md); font-size: 14px; }
+  .rrow .rv { color: var(--mx-text-muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rrow svg { color: var(--mx-text-muted); }
+  .rrow.open { background: var(--mx-hover); }
+  .rrow.toggle { display: flex; justify-content: space-between; border-top: 1px solid var(--mx-border-muted); border-radius: 0 0 var(--mx-radius-md) var(--mx-radius-md); }
+  .sw { width: 30px; height: 18px; border-radius: 99px; background: #3d3d41; position: relative; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #bdbdbd; }
+  .sw.on { background: var(--mx-accent-bg); }
+  .sw.on::after { left: 14px; background: #fff; }
+  /* settings page (17-settings.css: settings-group / mixdog-settings__row) */
+  .settings-page { background: var(--mx-workspace-sheet); border-radius: 10px; box-shadow: 0 0 0 1px var(--mx-border-muted); padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 20px; }
+  .sg { display: flex; flex-direction: column; gap: 16px; }
+  .sg header { display: grid; gap: 6px; }
+  .sg h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 20px; }
+  .sg header p { margin: 0; color: var(--mx-text-muted); font-size: 13px; line-height: 16px; }
+  .sg-body { padding: 0 20px; border-radius: 10px; background: var(--mx-bg-layer-1); box-shadow: inset 0 0 0 1px var(--mx-border-muted); }
+  .srow { min-height: 56px; padding: 12px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 14px; }
+  .srow + .srow { border-top: 1px solid var(--mx-border-muted); }
+  .srow.dim { opacity: .55; }
+  .srow .muted { color: var(--mx-text-muted); font-size: 13px; }
+  .thumb { position: absolute; right: 3px; top: 52px; width: 4px; height: 120px; border-radius: 99px; background: rgba(255,255,255,.18); }
+  .rule { height: 1px; background: var(--mx-border-muted); margin: 4px 6px; }
+  .pico { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; font-weight: 700; flex: none; }
+  .pico.claude { background: #d97757; color: #1b1b1b; }
+  .pico.codex { background: #2e2e2e; color: #ddd; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+  .pico.gemini { background: #3b5bdb; color: #fff; }
+  .pico.grok { background: #e6e6e6; color: #111; }
+
+  .rules { margin-top: 36px; max-width: 1228px; font-size: 13px; color: var(--mx-text-soft); }
+  .rules h2 { font-size: 15px; margin: 0 0 10px; color: var(--mx-text); }
+  .rules table { border-collapse: collapse; width: 100%; }
+  .rules th, .rules td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--mx-border-muted); vertical-align: top; }
+  .rules th { color: var(--mx-text-muted); font-weight: 600; white-space: nowrap; }
+  .rules code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; color: var(--mx-text-accent); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="warn" viewBox="0 0 16 16"><path d="M8 2.2 14.3 13.3H1.7L8 2.2Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.4v3.4M8 11.6v.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="check" viewBox="0 0 16 16"><path d="m3.5 8.4 2.9 2.9 6.1-6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="chev" viewBox="0 0 16 16"><path d="m4.5 6.2 3.5 3.5 3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="chevr" viewBox="0 0 16 16"><path d="m6.2 4.5 3.5 3.5-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="arrow" viewBox="0 0 16 16"><path d="M8 13V3.5M4 7.2 8 3.2l4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.3v3.6M8 5.1v.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+</svg>
+
+<h1>한도 소진 — 최종 시안 v2</h1>
+<p class="lead">기존 <b>입력창 위 아일랜드</b>(모델 불일치 패널과 같은 형태)에 소진 패널을 띄웁니다. 경고는 아이콘 색으로만, 버튼은 오른쪽 정렬 · 보조는 테두리 버튼 · 주 버튼만 파란 채움. 색·글자·모서리는 앱의 실제 다크 테마 값을 그대로 썼습니다.</p>
+
+<div class="board">
+
+  <!-- A -->
+  <section class="case">
+    <h2>A. 소진 순간 — 자동 재개 설정을 끈 경우</h2>
+    <p>설정이 켜져 있으면(기본) 이 패널 없이 바로 D(대기)로 갑니다. 꺼져 있을 때만 아일랜드가 펼쳐져 묻습니다. 모델 불일치 패널과 같은 구조입니다.</p>
+    <div class="pane">
+      <p class="msg">account-pool 순번 로직을 정리하고 테스트를 추가하는 중입니다.</p>
+      <div class="tool"><b>Edited</b> src/runtime/shared/provider-accounts.mjs</div>
+      <div class="tool"><b>Ran</b> npm test</div>
+      <div class="spacer"></div>
+      <div class="slot">
+        <div class="stage over">
+          <div class="island">
+            <div class="panel">
+              <p class="ptitle"><svg width="16" height="16"><use href="#warn"/></svg>Claude 한도를 모두 사용했습니다</p>
+              <p class="pnote">연결된 계정 2개 모두 소진 · <span class="num">18:40</span> 리셋. 다른 모델로 이어가면 대화와 Goal이 그대로 넘어갑니다.</p>
+              <div class="pfoot">
+                <button class="ibtn">멈춤</button>
+                <button class="ibtn">18:40에 자동 재개</button>
+                <button class="ibtn primary">다른 모델로 이어서</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="cbar"><span class="plus"><svg width="16" height="16"><use href="#plus"/></svg></span><span class="trig">Claude Opus 5.5 <span class="eff">Auto</span><svg width="14" height="14"><use href="#chev"/></svg></span><span class="grow"></span><span class="send"><svg width="14" height="14"><use href="#arrow"/></svg></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="case">
+    <h2>B. "다른 모델로 이어서" — 기존 모델 메뉴가 그대로 열림</h2>
+    <p>버튼은 입력창 모델 칩을 대신 눌러 줄 뿐입니다. 열리는 건 지금 피커 그대로 — 모델 · 추론 강도 · 컨텍스트 · 속도 · 자동 추론 조절, 모델 행에서 옆으로 카탈로그. 추가·변경 없음. 모델을 고르면 멈춘 턴이 이어집니다.</p>
+    <div class="pane" style="padding-top:250px">
+      <p class="msg">account-pool 순번 로직을 정리하고 테스트를 추가하는 중입니다.</p>
+      <div class="tool"><b>Ran</b> npm test</div>
+      <div class="spacer"></div>
+      <div class="slot">
+        <div class="stage over">
+          <div class="island">
+            <div class="panel">
+              <p class="ptitle"><svg width="16" height="16"><use href="#warn"/></svg>Claude 한도를 모두 사용했습니다</p>
+              <p class="pnote">연결된 계정 2개 모두 소진 · <span class="num">18:40</span> 리셋. 다른 모델로 이어가면 대화와 Goal이 그대로 넘어갑니다.</p>
+              <div class="pfoot">
+                <button class="ibtn">멈춤</button>
+                <button class="ibtn">18:40에 자동 재개</button>
+                <button class="ibtn primary">다른 모델로 이어서</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sheet rsheet" style="left:24px; bottom:62px;">
+        <div class="rrow open"><span>모델</span><span class="rv">Claude Opus 5.5</span><svg width="14" height="14"><use href="#chevr"/></svg></div>
+        <div class="rrow"><span>추론 강도</span><span class="rv">Medium</span><svg width="14" height="14"><use href="#chevr"/></svg></div>
+        <div class="rrow"><span>컨텍스트</span><span class="rv">1M</span><svg width="14" height="14"><use href="#chevr"/></svg></div>
+        <div class="rrow"><span>속도</span><span class="rv">Standard</span><svg width="14" height="14"><use href="#chevr"/></svg></div>
+        <div class="rrow toggle"><span>자동 추론 조절</span><span class="sw on"></span></div>
+      </div>
+      <div class="sheet cat" style="left:290px; bottom:62px;">
+        <div class="search"><svg width="14" height="14"><use href="#search"/></svg><span>모델 검색</span></div>
+        <div class="scroll">
+          <div class="grp"><h3><span class="pico claude">✳</span>Claude</h3>
+            <div class="row"><span class="m">Claude Opus 5.5</span><span class="e">✓</span></div>
+            <div class="row"><span class="m">Claude Sonnet 5.5</span></div>
+          </div>
+          <div class="grp"><h3><span class="pico codex">◎</span>Codex</h3>
+            <div class="row hl"><span class="m">GPT-6-Astra</span></div>
+            <div class="row"><span class="m">GPT-6-Luna</span></div>
+            <div class="row"><span class="m">GPT-5.5</span></div>
+          </div>
+          <div class="grp"><h3><span class="pico gemini">✦</span>Gemini</h3>
+            <div class="row"><span class="m">Gemini 3.8 Pro</span></div>
+          </div>
+        </div>
+        <div class="thumb"></div>
+      </div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="cbar"><span class="plus"><svg width="16" height="16"><use href="#plus"/></svg></span><span class="trig changed">Claude Opus 5.5 <span class="eff">Auto</span><svg width="14" height="14"><use href="#chev"/></svg></span><span class="grow"></span><span class="send"><svg width="14" height="14"><use href="#arrow"/></svg></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section class="case">
+    <h2>C. 모델을 고른 뒤</h2>
+    <p>대화에는 상자 없는 알림 한 줄(기존 알림 줄 형식)이 남고, 아일랜드는 초록 테두리 확인 메시지로 잠깐 바뀝니다. 입력창 모델은 고른 모델로.</p>
+    <div class="pane">
+      <p class="msg">account-pool 순번 로직을 정리하고 테스트를 추가하는 중입니다.</p>
+      <div class="notice"><svg width="15" height="15"><use href="#info"/></svg>Claude 한도 소진 — GPT-6-Astra High로 이어서 진행</div>
+      <p class="msg">이어서 진행합니다. 테스트까지 확인했고 남은 작업은 UI 연결입니다.</p>
+      <div class="tool"><b>Edited</b> apps/desktop/src/renderer/ProviderAccountsList.tsx</div>
+      <div class="slot">
+        <div class="stage">
+          <div class="island flash"><div class="flashrow"><svg width="16" height="16"><use href="#check"/></svg>GPT-6-Astra High로 이어서 진행합니다</div></div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="cbar"><span class="plus"><svg width="16" height="16"><use href="#plus"/></svg></span><span class="trig">GPT-6-Astra <span class="eff">High</span><svg width="14" height="14"><use href="#chev"/></svg></span><span class="grow"></span><span class="send"><svg width="14" height="14"><use href="#arrow"/></svg></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- D -->
+  <section class="case">
+    <h2>D. 소진 순간 (기본) · 또는 "자동 재개"를 고른 뒤</h2>
+    <p>자동 재개 설정이 켜져 있으면 소진되자마자 이 상태. 아일랜드 알약에 경고색 구간 하나로 남고, 누르면 D-2 패널(재개 취소 · 다른 모델로 이어서)이 펼쳐집니다.</p>
+    <div class="pane">
+      <p class="msg">account-pool 순번 로직을 정리하고 테스트를 추가하는 중입니다.</p>
+      <div class="notice"><svg width="15" height="15"><use href="#info"/></svg>Claude 한도 소진 — 18:40에 자동 재개 예정</div>
+      <div class="spacer" style="height:40px"></div>
+      <div class="slot">
+        <div class="stage">
+          <div class="island"><div class="pill"><span class="seg warn on"><svg width="16" height="16"><use href="#clock"/></svg>18:40에 Claude Opus 5.5로 재개 <span class="sub">2시간 15분</span></span></div></div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="cbar"><span class="plus"><svg width="16" height="16"><use href="#plus"/></svg></span><span class="trig">Claude Opus 5.5 <span class="eff">Auto</span><svg width="14" height="14"><use href="#chev"/></svg></span><span class="grow"></span><span class="send"><svg width="14" height="14"><use href="#arrow"/></svg></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- D2 -->
+  <section class="case">
+    <h2>D-2. 대기 알약을 눌렀을 때 — 재개 취소</h2>
+    <p>대기용 패널로 펼쳐집니다. "재개 취소"는 예약만 지우고 멈춘 상태로 돌아갑니다(아일랜드 닫힘). 다른 모델로 바로 이어갈 수도 있습니다.</p>
+    <div class="pane">
+      <div class="spacer" style="height:40px"></div>
+      <div class="slot">
+        <div class="stage over">
+          <div class="island">
+            <div class="panel">
+              <p class="ptitle"><svg width="16" height="16" style="color:var(--mx-warning)"><use href="#clock"/></svg>18:40에 Claude Opus 5.5로 자동 재개합니다</p>
+              <p class="pnote">2시간 15분 남음. 앱을 닫았다 열어도 예약은 유지됩니다.</p>
+              <div class="pfoot">
+                <button class="ibtn">재개 취소</button>
+                <button class="ibtn primary">다른 모델로 이어서</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="cbar"><span class="plus"><svg width="16" height="16"><use href="#plus"/></svg></span><span class="trig">Claude Opus 5.5 <span class="eff">Auto</span><svg width="14" height="14"><use href="#chev"/></svg></span><span class="grow"></span><span class="send"><svg width="14" height="14"><use href="#arrow"/></svg></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- F settings -->
+  <section class="case">
+    <h2>F. 설정 › Providers — 자동 재개 스위치 (기본 켜짐)</h2>
+    <p>Providers 페이지 맨 위에 그룹 하나 추가. 기존 <code>Group</code> + <code>ToggleRow</code> 그대로(알림 설정과 같은 모양).</p>
+    <div class="settings-page">
+      <div class="sg">
+        <header><h3>사용 한도</h3><p>연결된 계정을 모두 소진했을 때의 동작입니다. 리셋 시각을 아는 구독 계정에만 적용됩니다.</p></header>
+        <div class="sg-body">
+          <div class="srow"><span>한도가 리셋되면 자동으로 이어서 진행</span><span class="sw on"></span></div>
+        </div>
+      </div>
+      <div class="sg">
+        <header><h3>OAuth providers</h3></header>
+        <div class="sg-body">
+          <div class="srow dim"><span><span class="pico claude" style="display:inline-grid;margin-right:8px;vertical-align:-3px">✳</span>Claude</span><span class="muted">계정 2개</span></div>
+          <div class="srow dim"><span><span class="pico codex" style="display:inline-grid;margin-right:8px;vertical-align:-3px">◎</span>Codex</span><span class="muted">계정 1개</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- E -->
+  <section class="case">
+    <h2>E. 리셋 시각을 모르는 계정 (API 키 등)</h2>
+    <p>자동 재개 버튼 없이 두 개만.</p>
+    <div class="pane">
+      <div class="spacer" style="height:40px"></div>
+      <div class="slot">
+        <div class="stage over">
+          <div class="island">
+            <div class="panel">
+              <p class="ptitle"><svg width="16" height="16"><use href="#warn"/></svg>OpenAI API 사용 한도에 도달했습니다</p>
+              <p class="pnote">리셋 시각 정보가 없습니다. 다른 모델로 이어가면 대화와 Goal이 그대로 넘어갑니다.</p>
+              <div class="pfoot">
+                <button class="ibtn">멈춤</button>
+                <button class="ibtn primary">다른 모델로 이어서</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="ph">메시지 입력…</div>
+        <div class="cbar"><span class="plus"><svg width="16" height="16"><use href="#plus"/></svg></span><span class="trig">GPT-6-Astra <span class="eff">High</span><svg width="14" height="14"><use href="#chev"/></svg></span><span class="grow"></span><span class="send"><svg width="14" height="14"><use href="#arrow"/></svg></span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="rules">
+  <h2>테마 정합 근거 · 동작 규칙</h2>
+  <table>
+    <tr><th>자리</th><td>입력창 위 아일랜드 패널 (560px, 22px 모서리, 아일랜드 배경). 기존 <code>ModelPanel</code>(모델 불일치)과 같은 구조: <code>composer-island-ptitle</code> · <code>pnote</code> · <code>pfoot</code>.</td></tr>
+    <tr><th>경고 표시</th><td>제목 앞 아이콘만 <code>--mx-warning</code>(#f2cf76). 배경·테두리 색칠 없음.</td></tr>
+    <tr><th>버튼</th><td><code>composer-island-button</code>(26px, 테두리 버튼) · 주 버튼만 <code>composer-island-button-primary</code>(<code>--mx-accent-bg</code> #1967d2). 오른쪽 정렬, 주 버튼이 맨 오른쪽.</td></tr>
+    <tr><th>모델 메뉴</th><td>입력창 모델 메뉴와 같은 <code>route-sheet</code>(<code>--mx-popup-bg</code> #222225, 12px 모서리, 팝업 그림자). "다른 모델로 이어서"는 입력창 피커(<code>RouteEditor</code>: 모델·추론 강도·컨텍스트·속도·자동 추론 조절 + 모델 카탈로그 플라이아웃)를 입력창 칩 위에서 그대로 엽니다. 메뉴 자체는 변경 없음. 소진 패널이 떠 있는 동안 모델이 바뀌면 = 이어서 진행. 소진된 모델을 고르면 패널이 다시 뜸.</td></tr>
+    <tr><th>대화 기록</th><td>상자 없는 알림 줄(<code>error-notice</code> 형식, 흐린 아이콘). 확인은 아일랜드 flash(초록 테두리).</td></tr>
+    <tr><th>대기 상태</th><td>아일랜드 알약의 경고색 구간 하나(<code>composer-island-seg-warning</code>). 누르면 대기 패널(D-2): [재개 취소] [다른 모델로 이어서]. 취소 = 예약만 삭제, 멈춘 상태 유지. 대기 중 사용자가 새 메시지를 보내도 예약은 자동 취소.</td></tr>
+    <tr><th>글자</th><td>Pretendard, 12 / 13 / 14px 단계만 (본문 15/24).</td></tr>
+    <tr><th>자동 재개 설정</th><td>설정 › Providers 맨 위 "사용 한도" 그룹의 스위치 하나, <b>기본 켜짐</b>. 켜짐: 소진 즉시 대기(D), 리셋 시 자동으로 이어감. 꺼짐: 소진 패널(A)로 물어봄. 리셋 시각을 모르는 계정은 설정과 관계없이 E.</td></tr>
+    <tr><th>동작</th><td>프로바이더의 사용 가능한 계정이 모두 소진됐을 때만. 고른 모델은 입력창에서 바꾼 것과 동일하게 그 세션 모델이 됨. 하위 에이전트는 지금처럼 실패 보고.</td></tr>
+  </table>
+</div>
+
+</body>
+</html>

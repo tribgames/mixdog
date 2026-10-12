@@ -7,8 +7,7 @@
 import { getProvider } from '../../providers/registry.mjs';
 import { prepareExplicitSkills } from '../explicit-skills.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
-import { autoEffortStepsEnabled, resolveTurnAutoEffort } from './ask-turn-auto-effort.mjs';
-import { effortJudgeSupportsSteps } from '../../../../effort-judge/judge-client.mjs';
+import { resolveTurnAutoEffort, turnStepAutoEffort } from './ask-turn-auto-effort.mjs';
 import { saveSessionAsync } from '../store.mjs';
 import { hasUserConversationMessage, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
@@ -37,10 +36,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   );
   // Auto effort also judges every tool-result step of the turn when the
   // installed judge was trained on steps (session/loop/step-auto-effort.mjs).
-  const stepAutoEffort =
-    autoEffort?.mode === 'on' && effortConfiguration && autoEffortStepsEnabled() && effortJudgeSupportsSteps()
-      ? { request: autoEffort.request, base: autoEffort.base }
-      : null;
+  const stepAutoEffort = turnStepAutoEffort(autoEffort, effortConfiguration);
   applyTurnContextMeta(session, provider);
   const effectiveCwd = cwdOverride || session.cwd;
   // A failed-turn retry resubmits the prompt the failure left unanswered;

@@ -7,8 +7,8 @@ import { ErrorNotice } from './ErrorNotice.tsx';
 import { DesktopToastRegion, showDesktopToast } from './desktop-toasts.tsx';
 import { groupToasts, reduceToasts } from './desktop-toast-state.ts';
 import { projectSettledTranscriptRows } from './transcript-rows.ts';
-import { RemoteClaimPrompt } from './RemoteClaimPrompt.tsx';
-import { setRemoteClaimPromptActive } from './remote-claim-prompt-state.ts';
+import { ConnectDeviceDialog } from './settings/connection-dialogs.tsx';
+import { updateClaimQueue } from './remote-claim-store.ts';
 import RemoteBrowserPane from './RemoteBrowserPane.tsx';
 
 const failure = (index) =>
@@ -253,29 +253,27 @@ test('state errors expire too and X still dismisses errors immediately', async (
 
 test('a failed remote approval stays actionable and explains the failure', async () =>
   withDom(async ({ render }) => {
-    let listener;
     let attempts = 0;
     window.mixdogDesktop = {
-      subscribeRemoteClientClaim: (callback) => {
-        listener = callback;
-        return () => {};
-      },
       resolveRemoteClientClaim: async () => {
         attempts++;
         throw new Error('connection temporarily lost');
       },
     };
-    setRemoteClaimPromptActive(true);
     try {
-      await render(React.createElement(RemoteClaimPrompt));
-      await act(async () => listener({ claimId: 'c', clientId: 'client', expiresAt: Date.now() + 60_000 }));
-      const approve = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Approve');
+      await act(async () =>
+        updateClaimQueue(() => [
+          { claimId: 'c', clientId: 'client', name: '', platform: '', browser: '', expiresAt: Date.now() + 60_000 },
+        ])
+      );
+      await render(React.createElement(ConnectDeviceDialog, { api: {}, info: null, onClose: () => {} }));
+      const approve = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Allow');
       await act(async () => approve.click());
       assert.equal(attempts, 1);
       assert.match(document.querySelector('.error-notice').textContent, /connection temporarily lost/);
       assert.equal(approve.disabled, false);
     } finally {
-      await act(async () => setRemoteClaimPromptActive(false));
+      await act(async () => updateClaimQueue(() => []));
     }
   }));
 

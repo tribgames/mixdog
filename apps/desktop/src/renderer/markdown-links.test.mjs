@@ -12,6 +12,7 @@ import {
   MarkdownSessionContext,
 } from './MarkdownLink';
 import { onBrowserPageAddressRequested, onBrowserPageRevealRequested } from './browser-page-request';
+import { resetBrowserPageIdentityCache } from './browser-page-identity';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts';
 import { healStreamingMarkdownTail } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
@@ -100,6 +101,45 @@ async function mount(t, render, text, project = 'C:/Project/conversation', confi
 }
 
 const PROJECT = 'C:/Project/conversation';
+
+for (const [pipeline, render] of Object.entries(renderers)) {
+  test(`${pipeline}: a web link wears its site icon once the in-app browser has shown the site, else the globe`, async (t) => {
+    const FAVICON = 'data:image/png;base64,AAAA';
+    const asked = [];
+    resetBrowserPageIdentityCache();
+    t.after(resetBrowserPageIdentityCache);
+    const f = await mount(
+      t,
+      render,
+      '[MDN fetch](https://developer.mozilla.org/en-US/docs/Web/API/fetch) and [new site](https://example.org/doc)',
+      PROJECT,
+      (fixture) => {
+        fixture.dom.window.mixdogDesktop.browserPageIdentity = async (url) => {
+          asked.push(url);
+          return url === 'https://developer.mozilla.org/' ? { url, favicon: FAVICON } : null;
+        };
+      }
+    );
+    await act(async () => {});
+    const [visited, fresh] = f.links();
+    assert.equal(visited.querySelector('.seti-icon').getAttribute('data-icon-kind'), 'favicon');
+    const icon = visited.querySelector('.seti-icon img');
+    assert.equal(icon.getAttribute('src'), FAVICON);
+    assert.equal(icon.getAttribute('width'), '14');
+    assert.equal(fresh.querySelector('.seti-icon').getAttribute('data-icon-kind'), 'external');
+    assert.equal(fresh.querySelector('.seti-icon img'), null);
+    assert.ok(fresh.querySelector('.seti-icon svg'));
+    assert.deepEqual(f.labels(), ['MDN fetch', 'new site']);
+    // Asked per site, never per address, and never anywhere but the app.
+    assert.deepEqual(asked.sort(), ['https://developer.mozilla.org/', 'https://example.org/']);
+    // A recorded icon that fails to decode falls back to the globe.
+    await act(async () => icon.dispatchEvent(new f.dom.window.Event('error')));
+    const glyph = f.links()[0].querySelector('.seti-icon');
+    assert.equal(glyph.getAttribute('data-icon-kind'), 'external');
+    assert.equal(glyph.querySelector('img'), null);
+    assert.ok(glyph.querySelector('svg'));
+  });
+}
 
 test('hovering a document link prefetches its first page once; other links and touch do not', async (t) => {
   const f = await mount(
@@ -1100,14 +1140,19 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       await act(async () => f.links()[index].dispatchEvent(event));
       return event;
     };
-    assert.equal((await contextMenu(1)).defaultPrevented, false);
-    assert.deepEqual(labelsOf(), []);
+    f.dom.window.mixdogRemoteServer = 'https://relay.test';
+    assert.equal((await contextMenu(1)).defaultPrevented, true);
+    assert.deepEqual(labelsOf(), ['System Browser', 'Copy link', 'Save link as…']);
+    await act(async () =>
+      f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
+    );
     // A remote browser has no OS bridge, so only the in-app actions appear.
     assert.equal((await contextMenu(0)).defaultPrevented, true);
     assert.deepEqual(labelsOf(), ['Open', 'Copy path']);
     await act(async () =>
       f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
     );
+    delete f.dom.window.mixdogRemoteServer;
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: desktopNavigator });
     await contextMenu(0);
     assert.deepEqual(labelsOf(), ['Open', 'Open in default app', 'Reveal in Explorer', 'Copy path']);
@@ -1174,6 +1219,13 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     f.dom.window.mixdogDesktop.openExternal = async () => {
       throw new Error('browser unavailable');
     };
+    await f.click();
+    // The desktop bridge exists, so no tab is opened by the page; the failure is shown.
+    assert.deepEqual(f.popups, []);
+    assert.equal(f.toasts.length, 1);
+    assert.match(f.toasts[0].text, /Unable to open file: .*browser unavailable/);
+    // Only a surface without the bridge opens a tab itself.
+    delete f.dom.window.mixdogDesktop.openExternal;
     await f.click();
     assert.deepEqual(f.popups, [['https://example.com/report', '_blank', 'noopener']]);
   });
@@ -1256,6 +1308,58 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     }
   });
 
+  test(`${pipeline}: bare URLs stop before glued Korean prose`, async (t) => {
+    const f = await mount(t, render, 'See https://example.com/docs');
+    for (const [source, href, text] of [
+      [
+        '페이지(https://aiscroll.io/ko/mixdog/)와 비교',
+        'https://aiscroll.io/ko/mixdog/',
+        '페이지(https://aiscroll.io/ko/mixdog/)와 비교',
+      ],
+      ['주소는 https://example.com/a_(b)입니다', 'https://example.com/a_(b)', '주소는 https://example.com/a_(b)입니다'],
+      ['주소는 https://example.com/docs.에서', 'https://example.com/docs', '주소는 https://example.com/docs.에서'],
+      ['www.example.com/x)를 여세요', 'http://www.example.com/x', 'www.example.com/x)를 여세요'],
+      ['[https://example.com/와](https://example.com/와)', 'https://example.com/와', 'https://example.com/와'],
+    ]) {
+      await f.update(PROJECT, source);
+      const links = f.links();
+      assert.equal(links.length, 1, source);
+      assert.equal(decodeURI(links[0].getAttribute('href')), href, source);
+      assert.equal(readableText(f.dom.window.document.querySelector('p')), text, source);
+    }
+  });
+
+  test(`${pipeline}: a parenthesised bare URL before Korean prose keeps prose and inline code outside the link`, async (t) => {
+    const release = 'https://github.com/tribgames/mixdog/releases/tag/untagged-3c4969055a3702501c68';
+    const f = await mount(t, render, 'See https://example.com/docs');
+    for (const [source, href, caption, text] of [
+      [
+        `1. **폴드7:** 초안 릴리스(${release})에서 \`Mixdog-0.1.3.apk\`를 받아 설치합니다.`,
+        release,
+        release,
+        `폴드7: 초안 릴리스(${release})에서 Mixdog-0.1.3.apk를 받아 설치합니다.`,
+      ],
+      ['페이지(https://a.io/x)와', 'https://a.io/x', 'https://a.io/x', '페이지(https://a.io/x)와'],
+      ['https://a.io/x에서', 'https://a.io/x', 'https://a.io/x', 'https://a.io/x에서'],
+      ['(https://a.io/x)', 'https://a.io/x', 'https://a.io/x', '(https://a.io/x)'],
+      [
+        'https://en.wikipedia.org/wiki/Foo_(bar)',
+        'https://en.wikipedia.org/wiki/Foo_(bar)',
+        'https://en.wikipedia.org/wiki/Foo_(bar)',
+        'https://en.wikipedia.org/wiki/Foo_(bar)',
+      ],
+      ['[label](https://a.io/x)에서', 'https://a.io/x', 'label', 'label에서'],
+    ]) {
+      await f.update(PROJECT, source);
+      const links = f.links();
+      assert.equal(links.length, 1, source);
+      assert.equal(links[0].getAttribute('href'), href, source);
+      assert.equal(readableText(links[0]), caption, source);
+      assert.equal(links[0].querySelector('code'), null, source);
+      assert.equal(readableText(f.dom.window.document.querySelector('p, li')), text, source);
+    }
+  });
+
   test(`${pipeline}: streamed link captions never flash brackets or a partial destination`, async (t) => {
     const f = await mount(t, render, 'See [do');
     for (const [source, caption, href] of [
@@ -1331,6 +1435,23 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     assert.equal(f.toasts.length, 0);
   });
 
+  test(`${pipeline}: a web page link naming a line opens its source, not the page`, async (t) => {
+    const inSession = (text) =>
+      React.createElement(MarkdownSessionContext.Provider, { value: 'sess-source' }, render(text));
+    const f = await mount(t, inSession, '[source](site/index.html:12)', PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: ['site/index.html'] });
+      f.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => `http://127.0.0.1:9/token/${rel}`;
+    });
+    const stopReveal = onBrowserPageRevealRequested(() => {});
+    t.after(stopReveal);
+    await f.click();
+    assert.deepEqual(f.opened, [[PROJECT, 'site/index.html', 12]]);
+    assert.deepEqual(f.external, []);
+    const loaded = [];
+    onBrowserPageAddressRequested('sess-source', (url) => loaded.push(url))();
+    assert.deepEqual(loaded, []);
+  });
+
   test(`${pipeline}: web links open in the session side browser, else the system browser`, async (t) => {
     const inSession = (text) =>
       React.createElement(MarkdownSessionContext.Provider, { value: 'sess-web' }, render(text));
@@ -1339,7 +1460,7 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     await f.click();
     assert.deepEqual(f.external, [['https://example.com/docs']]);
     const revealed = [];
-    const stopReveal = onBrowserPageRevealRequested((id) => revealed.push(id));
+    const stopReveal = onBrowserPageRevealRequested(({ sessionId }) => revealed.push(sessionId));
     t.after(stopReveal);
     await f.click();
     const loaded = [];
@@ -1347,6 +1468,52 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     assert.deepEqual(revealed, ['sess-web']);
     assert.deepEqual(loaded, ['https://example.com/docs']);
     assert.equal(f.external.length, 1);
+  });
+
+  test(`${pipeline}: Ctrl/Meta/middle click and the menu send web links and local pages to the system browser`, async (t) => {
+    const inSession = (text) =>
+      React.createElement(MarkdownSessionContext.Provider, { value: 'sess-ext' }, render(text));
+    const f = await mount(t, inSession, '[web](https://example.com/docs)\n\n[page](site/index.html)', PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: ['site/index.html'] });
+      f.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => `http://127.0.0.1:9/token/${rel}`;
+    });
+    const revealed = [];
+    const stopReveal = onBrowserPageRevealRequested(({ sessionId }) => revealed.push(sessionId));
+    t.after(stopReveal);
+    const served = 'http://127.0.0.1:9/token/site/index.html';
+    assert.equal((await f.click(0, { ctrlKey: true })).defaultPrevented, true);
+    assert.equal((await f.click(0, { metaKey: true })).defaultPrevented, true);
+    assert.equal((await f.click(0, { button: 1 }, 'auxclick')).defaultPrevented, true);
+    assert.equal((await f.click(1, { ctrlKey: true })).defaultPrevented, true);
+    assert.equal((await f.click(1, { button: 1 }, 'auxclick')).defaultPrevented, true);
+    assert.deepEqual(f.external, [
+      ['https://example.com/docs'],
+      ['https://example.com/docs'],
+      ['https://example.com/docs'],
+      [served],
+      [served],
+    ]);
+    assert.deepEqual(revealed, []);
+    // Plain click stays in the pane.
+    await f.click(0);
+    await f.click(1);
+    assert.deepEqual(revealed, ['sess-ext', 'sess-ext']);
+    assert.equal(f.external.length, 5);
+    // The HTML link's menu offers the system browser with the served URL.
+    const menuItems = () => [...f.dom.window.document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+    await act(async () =>
+      f
+        .links()[1]
+        .dispatchEvent(
+          new f.dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 6 })
+        )
+    );
+    const item = menuItems().find((entry) => entry.textContent === 'Open in browser');
+    assert.ok(item);
+    await act(async () => item.click());
+    await act(async () => {});
+    assert.deepEqual(f.external.at(-1), [served]);
+    assert.equal(f.toasts.length, 0);
   });
 
   test(`${pipeline}: a draft's web links use the system browser even with a pane shell up`, async (t) => {

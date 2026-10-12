@@ -275,10 +275,10 @@ test('resolveToolApproval maps boolean and object decisions onto finishToolAppro
   h.api.resolveToolApproval('t3', {});
   h.api.resolveToolApproval('t4');
   assert.deepEqual(h.calls, [
-    ['finishToolApproval', 't1', true, 'approved by user'],
-    ['finishToolApproval', 't2', false, 'nope'],
-    ['finishToolApproval', 't3', false, 'denied by user'],
-    ['finishToolApproval', 't4', false, 'denied by user'],
+    ['finishToolApproval', 't1', true, 'approved by user', ''],
+    ['finishToolApproval', 't2', false, 'nope', ''],
+    ['finishToolApproval', 't3', false, 'denied by user', ''],
+    ['finishToolApproval', 't4', false, 'denied by user', ''],
   ]);
 });
 
@@ -321,4 +321,63 @@ test('dispose tears down subscriptions, approvals, oauth flows and the runtime e
   h.calls.length = 0;
   await h.api.dispose();
   assert.deepEqual(h.calls, []);
+});
+
+test('resolveToolApproval forwards the answering device', (t) => {
+  const h = createHarness();
+  t.after(h.dispose);
+  h.api.resolveToolApproval('t5', { approved: true, device: 'Pixel' });
+  assert.deepEqual(h.calls, [['finishToolApproval', 't5', true, 'approved by user', 'Pixel']]);
+});
+
+test('continueSessionInModel applies the route only after a failed quota turn while idle', async (t) => {
+  const quotaFailure = [
+    { kind: 'user', text: 'hi' },
+    { kind: 'turndone', status: 'failed', quota: { provider: 'p', model: 'm', resetAt: null } },
+  ];
+  const route = { provider: 'q', model: 'n' };
+  const h = createHarness({
+    runtime: {
+      continueSessionInModel: async (id, next) => {
+        h.calls.push(['runtime.continueSessionInModel', id, next]);
+        return true;
+      },
+    },
+    state: { items: quotaFailure, busy: false },
+    routeState: () => ({ provider: 'q', model: 'n' }),
+  });
+  t.after(h.dispose);
+  assert.equal(await h.api.continueSessionInModel('sess_current', route), true);
+  assert.deepEqual(h.calls[0], ['runtime.continueSessionInModel', 'sess_current', route]);
+  assert.equal(h.state.model, 'n');
+  assert.equal(h.state.commandBusy, false);
+});
+
+test('continueSessionInModel rejects busy, wrong-session and non-quota states', async (t) => {
+  const quota = { provider: 'p', model: 'm', resetAt: 1 };
+  const failed = (extra = {}) => ({ kind: 'turndone', status: 'failed', ...extra });
+  const cases = [
+    [{ items: [failed({ quota })], busy: true }, 'sess_current'],
+    [{ items: [failed({ quota })], commandBusy: true }, 'sess_current'],
+    [{ items: [failed({ quota })] }, 'sess_other'],
+    [{ items: [failed()] }, 'sess_current'],
+    [{ items: [{ kind: 'turndone', status: 'done', quota }] }, 'sess_current'],
+    [{ items: [failed({ quota }), { kind: 'user', text: 'again' }] }, 'sess_current'],
+    [{ items: [] }, 'sess_current'],
+  ];
+  for (const [state, id] of cases) {
+    let called = false;
+    const h = createHarness({
+      runtime: {
+        continueSessionInModel: async () => {
+          called = true;
+          return true;
+        },
+      },
+      state,
+    });
+    t.after(h.dispose);
+    await assert.rejects(h.api.continueSessionInModel(id, { model: 'n' }));
+    assert.equal(called, false);
+  }
 });

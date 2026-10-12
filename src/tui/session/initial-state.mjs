@@ -23,6 +23,12 @@ export function createInitialSessionState({ runtime, runtimeCwd, baseRouteState 
     queued: [],
     thinking: null,
     toolApproval: null,
+    // How the last approval ended and from which device, so every device can
+    // say who answered ({ id, approved, device, at }).
+    toolApprovalResult: null,
+    // A prompt reclaimed by a DIFFERENT device than the one that sent it:
+    // { id, ids, text, device, at } — only the sender's composer applies it.
+    promptRestore: null,
     lastTurn: null,
     stats: createSessionStats(),
     // Incremental derivations published by the session runtime so App does not scan all

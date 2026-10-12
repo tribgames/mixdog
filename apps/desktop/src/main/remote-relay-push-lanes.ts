@@ -6,6 +6,7 @@ import { clientReadsLane, type RelayClientState } from './remote-relay-clients';
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
+import { SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
 
 export interface RelayPushLaneDeps {
@@ -22,6 +23,14 @@ const readsLane =
 const readsTerminal = readsLane('terminal');
 const readsFiles = readsLane('files');
 const readsEditor = readsLane('editor');
+
+/** Desktop events every client receives under their own name. */
+const GLOBAL_DESKTOP_EVENTS = new Set<string>([
+  ACTIVITY_RAIL_PINS_EVENT,
+  PROVIDER_MODELS_EVENT,
+  SETTINGS_CHANGED_EVENT,
+  UPDATER_STATE_EVENT,
+]);
 
 export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void } {
   let terminalBuffer!: TerminalDataBufferer;
@@ -53,11 +62,10 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
       // Electron window receives; a paired browser stays as fresh as the desktop.
       // None of them is droppable: a dropped frame leaves a stale listing or a
       // stale squiggle behind with no later push to correct it.
-      if (name === ACTIVITY_RAIL_PINS_EVENT) {
-        // Pins are global UI state, not a panel-specific subscription lane.
-        deps.broadcastEncrypted({ event: ACTIVITY_RAIL_PINS_EVENT, payload: value }, false);
-      } else if (name === PROVIDER_MODELS_EVENT) {
-        deps.broadcastEncrypted({ event: PROVIDER_MODELS_EVENT, payload: value }, false);
+      if (GLOBAL_DESKTOP_EVENTS.has(name)) {
+        // Global UI state (pins, models, settings, updater), not a
+        // panel-specific subscription lane: every client hears it as is.
+        deps.broadcastEncrypted({ event: name, payload: value }, false);
       } else if (name === BROWSER_OPEN_REQUESTED_DESKTOP_EVENT) {
         // An agent handoff (CAPTCHA): losing it leaves the user unaware the
         // page needs them, so it is never droppable.

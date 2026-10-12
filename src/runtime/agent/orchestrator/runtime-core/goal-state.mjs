@@ -149,7 +149,6 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     tasks: normalizeGoalTasks(value.tasks ?? value.criteria ?? []),
     blocker: clean(value.blocker),
     pauseReason: ['waiting', 'cancelled'].includes(value.pauseReason) ? value.pauseReason : 'user',
-    blockAudit: value.blockAudit && typeof value.blockAudit === 'object' ? value.blockAudit : null,
     failureReason: clean(value.failureReason),
     failureCount: Math.max(0, Math.floor(Number(value.failureCount) || 0)),
     // Observations report progress; they never decide when work is complete.
@@ -207,7 +206,6 @@ export function publicGoal(goal, now = Date.now()) {
     ...goalTaskProgress(tasks),
     blocker: goal.blocker || '',
     pauseReason: goal.pauseReason || 'user',
-    blockAudit: goal.blockAudit || null,
     timeLimitMs: goal.timeLimitMs,
     timeMode: goal.timeMode,
     timeUsedMs,
@@ -288,7 +286,6 @@ export function activateGoal(goal, now = Date.now()) {
   goal.completedAt = null;
   goal.archivedAt = null;
   goal.blocker = '';
-  goal.blockAudit = null;
   // A running Goal has no pause to explain. Leaving the previous reason behind
   // left active records reading as a wait that had already ended.
   goal.pauseReason = 'user';

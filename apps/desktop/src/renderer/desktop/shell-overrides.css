@@ -236,3 +236,221 @@ html[data-mixdog-mobile-tabs] .model-trigger {
     background: HighlightText;
   }
 }
+
+/* ── Phone audit pass ──────────────────────────────────────────────────────
+   Checked on the Android WebView at 360/412dp, the 870dp unfolded Fold and
+   landscape. Everything here is phone-only (the mobile marker), so desktop
+   widths keep their layout. */
+
+/* Tap targets: standalone controls and list rows reach 40dp. Icon buttons that
+   sit inside a fixed-height row grow their box and pull it back with a
+   negative margin, so the row keeps its footprint but the hit area is 40. */
+html[data-mixdog-mobile-tabs] {
+  --mx-touch-min: 40px;
+}
+html[data-mixdog-mobile-tabs]
+  :is(
+    .sidebar-heading-toggle,
+    .starter-guide-toggle,
+    .starter-guide-pill,
+    .schedules-row.utilities-row,
+    .context-action,
+    .changes-file-main,
+    .turn-review-summary,
+    .turn-review-file,
+    .settings-action,
+    .settings-form-controls button,
+    .settings-provider-secret button,
+    .mx-select-trigger,
+    .slash-palette > button,
+    .workspace-tab-context-menu button,
+    .dock-header-menu button
+  ),
+html[data-mixdog-mobile-tabs]
+  .mixdog-settings
+  :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select),
+html[data-mixdog-mobile-tabs] .workbench-side-panel-tabs button,
+html[data-mixdog-mobile-tabs] .extensions-tabs button,
+html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-pane .schedules-row.utilities-row,
+html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-row.utilities-row,
+html[data-mixdog-mobile-tabs] .sidebar-section-toolbar button,
+html[data-mixdog-mobile-tabs] .review-style-toggle button,
+html[data-mixdog-mobile-tabs] .dock-scm-branch-button,
+html[data-mixdog-mobile-tabs] .dock-scm-remote-button,
+html[data-mixdog-mobile-tabs] .extensions-action,
+html[data-mixdog-mobile-tabs] .dock-scm-commit-summary,
+html[data-mixdog-mobile-tabs] .schedules-dialog input:not([type="checkbox"]):not([type="radio"]),
+html[data-mixdog-mobile-tabs] .settings-oauth-dialog button,
+html[data-mixdog-mobile-tabs] .stats-range,
+html[data-mixdog-mobile-tabs] .settings-feedback-attach,
+html[data-mixdog-mobile-tabs] .settings-feedback-kinds label,
+html[data-mixdog-mobile-tabs] .settings-changelog-list button[aria-expanded],
+html[data-mixdog-mobile-tabs] .mixdog-settings__rail-group button {
+  min-height: var(--mx-touch-min);
+}
+html[data-mixdog-mobile-tabs]
+  :is(
+    .session-panel-action,
+    .browser-pane-nav-button,
+    .provider-account-add-button,
+    .provider-account-grip,
+    .dock-scm-context-pin,
+    .changes-file-open,
+    .turn-review-open,
+    .turn-review-revert,
+    .starter-guide-close
+  ) {
+  min-width: var(--mx-touch-min);
+  min-height: var(--mx-touch-min);
+}
+html[data-mixdog-mobile-tabs] .browser-tab-new,
+html[data-mixdog-mobile-tabs] .settings-feedback-attach {
+  min-width: var(--mx-touch-min);
+}
+html[data-mixdog-mobile-tabs] .starter-guide-close {
+  margin-right: 0;
+}
+html[data-mixdog-mobile-tabs] .provider-account-picker-trigger {
+  min-width: var(--mx-touch-min);
+  min-height: var(--mx-touch-min);
+  margin: -10px -6px -10px -12px;
+}
+html[data-mixdog-mobile-tabs] .tool-header.tool-activity-header {
+  min-height: var(--mx-touch-min);
+  margin-block: -8px;
+}
+html[data-mixdog-mobile-tabs] .tool-path-link {
+  min-height: var(--mx-touch-min);
+  margin-block: -10px;
+}
+html[data-mixdog-mobile-tabs] .markdown-code-copy {
+  min-width: var(--mx-touch-min);
+  min-height: var(--mx-touch-min);
+  margin: -6px;
+}
+html[data-mixdog-mobile-tabs] :is(.agent-activity-page, .utility-dock-header) .row-overflow-trigger {
+  min-width: var(--mx-touch-min);
+  min-height: var(--mx-touch-min);
+  margin: -8px;
+}
+html[data-mixdog-mobile-tabs] .provider-account-name {
+  min-height: var(--mx-touch-min);
+  margin-block: -8px;
+}
+html[data-mixdog-mobile-tabs] .editor-breadcrumb-item {
+  min-height: var(--mx-touch-min);
+  margin-block: -8px;
+}
+html[data-mixdog-mobile-tabs] .side-file-status-items button {
+  min-height: var(--mx-touch-min);
+  margin-block: -10px;
+}
+/* The usage popover's credit switch is a 28x16 track; its knob owns ::after,
+   so the 40dp hit frame hangs off ::before. */
+html[data-mixdog-mobile-tabs] .sidebar-usage-credit-switch::before {
+  content: "";
+  position: absolute;
+  inset: -12px -6px;
+}
+html[data-mixdog-mobile-tabs] .sidebar-usage-reset-use {
+  min-height: var(--mx-touch-min);
+  margin-block: -9px;
+}
+html[data-mixdog-mobile-tabs] .sidebar-usage-reset-info {
+  min-width: var(--mx-touch-min);
+  min-height: var(--mx-touch-min);
+  margin: -12px -12px -12px -10px;
+}
+
+/* Settings: label/value pairs keep the narrow two-column grid, but a resource
+   (provider, key, account) carries a whole control group that does not fit a
+   45% value column — it takes its own full-width line under the label. */
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .settings-resource {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 10px;
+}
+html[data-mixdog-mobile-tabs] .settings-resource-control {
+  justify-content: flex-start;
+}
+html[data-mixdog-mobile-tabs] .settings-resource-control .settings-resource-actions,
+html[data-mixdog-mobile-tabs] .settings-resource-control .settings-provider-secret {
+  width: 100%;
+  justify-content: flex-start;
+}
+html[data-mixdog-mobile-tabs] .settings-resource-control .settings-provider-secret {
+  flex-wrap: nowrap;
+}
+html[data-mixdog-mobile-tabs] .settings-resource-control .settings-provider-secret input {
+  flex: 1 1 0;
+  width: auto;
+}
+html[data-mixdog-mobile-tabs] .provider-account-row {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+html[data-mixdog-mobile-tabs] .provider-account-row > .settings-resource-actions {
+  flex: 1 0 100%;
+  margin-left: 0;
+  justify-content: flex-end;
+}
+
+/* Shortcuts: label left, keybind chip right, as on the PC. Only a chord that
+   does not fit beside its label (Ctrl+Shift+Tab) wraps, and it wraps whole to
+   the next line's right edge instead of breaking mid-word. */
+html[data-mixdog-mobile-tabs] .settings-shortcut-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 16px;
+  row-gap: 4px;
+  padding-block: 8px;
+}
+html[data-mixdog-mobile-tabs] .settings-shortcut-row kbd {
+  margin-left: auto;
+  overflow-wrap: normal;
+  text-align: right;
+  white-space: normal;
+}
+
+/* Pairing v2 PC switcher: the chip is a 40dp hit area that keeps its 28dp
+   footprint, and the saved-PC menu stays inside the narrow viewport. */
+html[data-mixdog-mobile-tabs] .remote-pc-button {
+  min-height: var(--mx-touch-min);
+  margin-block: -6px;
+}
+html[data-mixdog-mobile-tabs] .remote-pc-menu {
+  max-width: calc(100vw - 24px);
+}
+html[data-mixdog-mobile-tabs] .remote-pc-item {
+  min-height: var(--mx-touch-min);
+}
+
+/* Source Control / Search / Explorer dock, dialogs: phone tap targets. */
+html[data-mixdog-mobile-tabs] .dock-scm-tab-bar,
+html[data-mixdog-mobile-tabs] .workbench-search-mode {
+  height: var(--mx-touch-min);
+}
+html[data-mixdog-mobile-tabs] .dock-scm-tab,
+html[data-mixdog-mobile-tabs] .workbench-search-mode button {
+  height: 100%;
+  min-height: var(--mx-touch-min);
+}
+html[data-mixdog-mobile-tabs] .dock-scm-tab[aria-checked="true"]::after,
+html[data-mixdog-mobile-tabs] .workbench-search-mode button[aria-selected="true"]::after {
+  bottom: 0;
+}
+
+/* Assistant response footer: the desktop rule outranks the compact mobile tier (24px). */
+html[data-mixdog-mobile-tabs] .message.assistant .response-footer .message-actions {
+  width: var(--mx-touch-fixed-main);
+  height: var(--mx-touch-fixed-main);
+}
+
+/* OAuth login dialog: in phone landscape the card is taller than the viewport, so scroll it instead of clipping the footer. */
+html[data-mixdog-mobile-tabs] .settings-oauth-dialog {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+html[data-mixdog-mobile-tabs] .settings-oauth-dialog > * {
+  flex-shrink: 0;
+}

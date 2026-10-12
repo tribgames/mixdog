@@ -8,7 +8,9 @@
    per device dp), so the row lands at native size on ANY phone. Order matches
    Chrome: [pill][+][count][menu/trailing]. */
 /* The desktop title band is dead weight on a phone (user: 상단 상태줄 하나
-   날리고 최상단): the Chrome toolbar IS the top row. */
+   날리고 최상단): the Chrome toolbar IS the top row. The band takes no row at
+   all; the PC being driven shows as the brand button's dot and the drawer's PC
+   card, and the tab strip below clears the status bar. */
 html[data-mixdog-mobile-tabs] .topbar {
   display: none;
 }
@@ -67,13 +69,30 @@ html[data-mixdog-mobile-tabs] .remote-connection-overlay > svg {
    the row. The brand mark opens the session drawer. */
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-mobile="true"] {
   gap: calc(4px * var(--mx-device-scale, 2.5));
-  padding: calc(8px * var(--mx-device-scale, 2.5));
-  padding-top: max(calc(8px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top));
+  /* This is the first visible row, so it clears the iOS status bar. */
+  padding: max(calc(8px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top, 0px))
+    calc(8px * var(--mx-device-scale, 2.5)) calc(8px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-home {
+  position: relative;
   width: var(--mx-touch-main);
   height: var(--mx-touch-main);
   min-width: var(--mx-touch-main);
+}
+/* Connection dot at the brand button's bottom-right (remote surface only). */
+html[data-mixdog-mobile-tabs] .workspace-tab-home-dot {
+  position: absolute;
+  right: calc(6px * var(--mx-device-scale, 2.5));
+  bottom: calc(6px * var(--mx-device-scale, 2.5));
+  box-sizing: content-box;
+  width: calc(7px * var(--mx-device-scale, 2.5));
+  height: calc(7px * var(--mx-device-scale, 2.5));
+  border: calc(1.5px * var(--mx-device-scale, 2.5)) solid var(--mx-window-band);
+  border-radius: 50%;
+  background: var(--mx-success, #4ac885);
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-home-dot.off {
+  background: var(--mx-text-muted);
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
   /* Chrome-glyph optical size (계측: ~20dp); the frameless mark inks its
@@ -549,6 +568,52 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame::after {
   border-radius: inherit;
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
   pointer-events: none;
+}
+/* Remote phone drawer: the PC card spans the full width above the rail and the
+   active side panel; its menu overlays the content below. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card) {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+/* The frame-tall divider would cross the header: draw it on the rail instead,
+   which starts below the header's own hairline. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card)::before {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card) > .activity-rail {
+  box-sizing: border-box;
+  border-right: 1px solid var(--mx-border-muted);
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .remote-pc-card {
+  position: relative;
+  z-index: 2;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame:has(> .remote-pc-card) > :not(.remote-pc-card) {
+  grid-row: 2;
+}
+/* The panel's own "100% - 48px" width assumed a flex row; inside the grid cell
+   that left it narrower than the drawer. The cell (1fr) sets the width. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame.sidebar-drawer-frame:has(> .remote-pc-card) > :is(.workbench-side-panel, .sidebar.session-sidebar) {
+  width: auto;
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .remote-pc-card > .remote-pc-card-menu {
+  position: absolute;
+  top: 100%;
+  left: 8px;
+  right: 8px;
+  max-height: 60vh;
+  margin-top: 4px;
+  padding: 6px;
+  overflow-y: auto;
+  border-radius: var(--mx-radius-lg, 12px);
+  background: var(--mx-bg-elevated, var(--mx-bg-base));
+  box-shadow:
+    var(--mx-card-outline),
+    0 16px 40px rgba(0, 0, 0, 0.45);
 }
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-state="open"] {
   transform: none;
@@ -1066,8 +1131,8 @@ html[data-mixdog-mobile-tabs]
 
 @media (orientation: landscape) and (max-height: 500px) {
   html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-mobile="true"] {
-    padding-block: calc(4px * var(--mx-device-scale, 2.5));
     padding-top: max(calc(4px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top, 0px));
+    padding-bottom: calc(4px * var(--mx-device-scale, 2.5));
   }
   html[data-mixdog-mobile-tabs] .mobile-tab-overview-scale {
     gap: 6px;
@@ -1130,14 +1195,38 @@ html[data-mixdog-mobile-tabs] .mx-select-root.route-select .mx-select-trigger {
 html[data-mixdog-mobile-tabs] .effort-control select {
   line-height: var(--mx-touch-main);
 }
-html[data-mixdog-mobile-tabs] .composer-attachments > div:not(.image) {
-  height: calc(36px * var(--mx-device-scale, 2.5));
+/* No hover on touch: a card's edit/remove rest visible at touch size. The
+   row's top padding grows with them so the corner buttons are not clipped. */
+html[data-mixdog-mobile-tabs] .composer-attachments {
+  padding-top: calc(var(--mx-touch-fixed-main) / 2 + 4px);
+  row-gap: calc(var(--mx-touch-fixed-main) / 2 + 8px);
 }
-html[data-mixdog-mobile-tabs] .composer-attachments .attachment-edit,
-html[data-mixdog-mobile-tabs] .composer-attachments .attachment-remove {
+/* The thumbnail art and name bar of a file card scale with the card through
+   `--attachment-unit` (15-composer). */
+html[data-mixdog-mobile-tabs] .attachment-card {
+  --attachment-unit: var(--mx-device-scale, 2.5);
+  width: calc(104px * var(--mx-device-scale, 2.5));
+  height: calc(80px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .attachment-card-body {
+  padding: calc(7px * var(--mx-device-scale, 2.5)) calc(8px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .attachment-card-body > .attachment-card-name,
+html[data-mixdog-mobile-tabs] .attachment-card-meta {
+  font-size: calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .attachment-card-edit,
+html[data-mixdog-mobile-tabs] .attachment-card-remove {
+  top: calc(var(--mx-touch-fixed-main) / -2);
   width: var(--mx-touch-fixed-main);
   height: var(--mx-touch-fixed-main);
-  flex-basis: var(--mx-touch-fixed-main);
+  opacity: 1;
+}
+html[data-mixdog-mobile-tabs] .attachment-card-remove {
+  right: calc(var(--mx-touch-fixed-main) / -2);
+}
+html[data-mixdog-mobile-tabs] .attachment-card-edit {
+  right: calc(var(--mx-touch-fixed-main) * 0.6);
 }
 
 /* ── 3. Transcript ─────────────────────────────────────────────────────────
@@ -1153,8 +1242,7 @@ html[data-mixdog-mobile-tabs] .tool-detail-copy,
 html[data-mixdog-mobile-tabs] .markdown-code-copy,
 html[data-mixdog-mobile-tabs] .markdown-code-run,
 html[data-mixdog-mobile-tabs] .turn-review-open,
-html[data-mixdog-mobile-tabs] .turn-review-revert,
-html[data-mixdog-mobile-tabs] .queue-remove {
+html[data-mixdog-mobile-tabs] .turn-review-revert {
   width: var(--mx-touch-fixed-main);
   height: var(--mx-touch-fixed-main);
   flex-basis: var(--mx-touch-fixed-main);
@@ -1198,6 +1286,7 @@ html[data-mixdog-mobile-tabs] .session-row-status {
 }
 html[data-mixdog-mobile-tabs] .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .row-overflow-trigger,
+html[data-mixdog-mobile-tabs] .queue-list .queue-remove,
 html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-pin {
   width: var(--mx-touch-row);
   height: var(--mx-touch-row);
@@ -1211,6 +1300,11 @@ html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-category-header > .row-o
   height: var(--mx-touch-row);
   flex-basis: var(--mx-touch-row);
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 18px);
+}
+/* The folder + takes the same 36px row box; the desktop offset centers a 28px
+   box, which left this one 4px inboard of every other trailing control. */
+html[data-mixdog-mobile-tabs] .session-sidebar .project-folder > .project-folder-new {
+  right: calc(var(--mx-rail-trailing-center, 20px) - 18px);
 }
 /* Card actions start after a 12px inner gutter. A 36px overflow target ends
    2px before the card edge so its glyph center stays on the same 20px line. */

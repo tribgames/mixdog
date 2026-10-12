@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>세션 이어가기 · 문구 시안</title>
+<style>
+  :root {
+    --mx-bg-deep: #101013; --mx-window-band: #18181b; --mx-workspace-sheet: #111113; --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d; --mx-bg-layer-2: #323236; --mx-bg-contrast: #5c5c61;
+    --mx-text: #e9e9e9; --mx-text-muted: #a8a8a8; --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-icon-muted: #a8a8a8; --mx-accent: #79b8ff; --mx-warning: #f2cf76; --mx-danger: #f17471; --mx-success: #6bd586;
+    --mx-border-muted: rgba(255,255,255,.09); --mx-border-strong: rgba(255,255,255,.24); --mx-hover: rgba(255,255,255,.08);
+    --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mx-button-contrast: 0 0 0 1px #ffffff66; --mx-radius-md: 6px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--mx-bg-deep); color: var(--mx-text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 24px 28px 48px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .lead { color: var(--mx-text-muted); font-size: 13px; margin: 0 0 22px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 30px 0 10px; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .col { display: flex; flex-direction: column; gap: 8px; }
+  .tag { font-size: 12px; color: var(--mx-text-muted); }
+  .tag b { color: var(--mx-text); font-weight: 600; }
+  .tag.now b { color: var(--mx-text-muted); }
+
+  /* 실제 /inherit 창 (23-route-editor.css 그대로) */
+  .dialog { width: 400px; border-radius: 16px; background: var(--mx-bg-base); box-shadow: var(--mx-popup-shadow); overflow: hidden; }
+  .dh { height: 48px; display: flex; align-items: center; padding: 0 12px 0 20px; border-bottom: 1px solid var(--mx-border-muted); font-size: 16px; font-weight: 600; }
+  .dh .x { margin-left: auto; color: var(--mx-text-muted); width: 28px; height: 28px; display: grid; place-items: center; }
+  .body { display: grid; gap: 12px; padding: 16px 16px 18px; }
+  .lede { margin: 0; color: var(--mx-text-muted); font-size: 13px; line-height: 16px; }
+  .facts { display: grid; gap: 4px; margin: 0; }
+  .facts > div { min-height: 34px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; padding: 6px 10px; border-radius: 6px;
+                 box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-border-muted) 76%, transparent); }
+  .facts dt { color: var(--mx-text-muted); font-size: 14px; line-height: 18px; }
+  .facts dd { margin: 0; justify-self: end; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .facts dd.warn { color: var(--mx-warning); } .facts dd.danger { color: var(--mx-danger); }
+  .picker { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 6px; }
+  .picker .e { color: var(--mx-text-muted); }
+  .choices { display: grid; gap: 4px; }
+  .choices-label { font-size: 12px; color: var(--mx-text-muted); margin: 2px 0 -2px 2px; }
+  .choice { display: grid; grid-template-columns: 16px 1fr; gap: 10px; align-items: start; padding: 9px 10px; border-radius: 6px;
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-border-muted) 76%, transparent); }
+  .choice.on { background: var(--mx-hover); box-shadow: inset 0 0 0 1px var(--mx-border-strong); }
+  .choice.off { opacity: .45; }
+  .radio { width: 16px; height: 16px; margin-top: 1px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--mx-icon-muted); }
+  .choice.on .radio { box-shadow: inset 0 0 0 1.5px var(--mx-text); background: radial-gradient(var(--mx-text) 0 3.5px, transparent 4px); }
+  .ct { display: grid; gap: 2px; }
+  .ct b { font-size: 14px; font-weight: 500; line-height: 18px; }
+  .ct span { color: var(--mx-text-muted); font-size: 13px; line-height: 16px; }
+  .ct span.why { color: var(--mx-danger); }
+  .notice { font-size: 13px; line-height: 18px; color: var(--mx-danger); padding: 8px 10px; border-radius: 6px; background: rgba(241,116,113,.08); }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--mx-border-muted); }
+  .btn { min-height: 30px; padding: 0 14px; border: 0; border-radius: 6px; font: inherit; font-size: 14px; font-weight: 600; color: #fafafa; background: var(--mx-bg-contrast); box-shadow: var(--mx-button-contrast); }
+  .btn.cancel { color: var(--mx-text); background: var(--mx-hover); box-shadow: none; font-weight: 400; }
+  .btn.dis { opacity: .5; }
+
+  /* 대화 안 구분선 */
+  .pane { width: 560px; background: var(--mx-workspace-sheet); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--mx-border-muted); padding: 18px 22px; display: grid; gap: 14px; }
+  .divider { min-height: 28px; display: flex; align-items: center; gap: 8px; color: var(--mx-text-muted); font-size: 13px; font-weight: 500; }
+  .divider::after { content: ""; flex: 1; min-width: 24px; height: 2px; background: var(--mx-border-muted); border-radius: 1px; }
+  .divider small { font-weight: 400; font-size: 12.5px; }
+  .u { justify-self: end; background: var(--mx-bg-layer-1); border-radius: 16px; padding: 8px 14px; font-size: 14px; }
+  .a { font-size: 15px; line-height: 24px; color: var(--mx-text-soft); }
+
+  /* 사이드바 메뉴 · 컨텍스트 팝업 */
+  .menu { width: 220px; background: var(--mx-bg-base); border-radius: 12px; box-shadow: var(--mx-popup-shadow); padding: 6px; font-size: 14px; }
+  .menu div { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 6px; color: var(--mx-text-soft); }
+  .menu div.hl { background: var(--mx-hover); color: var(--mx-text); }
+  .menu .sep { height: 1px; padding: 0; background: var(--mx-border-muted); margin: 4px 2px; }
+  .ctxpop { width: 260px; background: var(--mx-bg-base); border-radius: 12px; box-shadow: var(--mx-popup-shadow); padding: 12px; font-size: 13px; display: grid; gap: 8px; }
+  .ctxpop .r { display: flex; justify-content: space-between; color: var(--mx-text-muted); } .ctxpop .r b { color: var(--mx-text); font-weight: 500; }
+  .ctxpop .act { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 6px; background: color-mix(in srgb, var(--mx-text) 4%, transparent); color: var(--mx-text); }
+  .toast { background: var(--mx-bg-base); box-shadow: var(--mx-popup-shadow); border-radius: 12px; padding: 9px 14px; font-size: 13px; display: inline-flex; gap: 8px; align-items: center; }
+  .mut { color: var(--mx-text-muted); }
+</style>
+</head>
+<body>
+<h1>세션 이어가기 · 문구 시안</h1>
+<p class="lead">"승계"를 "이어가기"로 바꾼 문구가 실제 화면에서 어떻게 보이는지 그렸습니다. 레이아웃 · 크기 · 색은 지금 앱(<code>/inherit</code> 창, 대화 구분선, 메뉴)을 그대로 따랐고 문구만 바뀝니다.</p>
+
+<h2>1. 이어가기 창 (/inherit, 사이드바 메뉴, 컨텍스트 팝업에서 열림)</h2>
+<div class="row">
+  <div class="col"><div class="tag now"><b>지금</b></div>
+    <div class="dialog"><div class="dh">세션 승계<span class="x">✕</span></div>
+      <div class="body"><p class="lede">대화를 새 세션으로 넘깁니다. 지금 세션은 그대로 남습니다.</p>
+        <dl class="facts"><div><dt>모델</dt><dd><span class="picker">Gemini 3.8 Flash <span class="e">High ⌄</span></span></dd></div><div><dt>메시지</dt><dd>48</dd></div><div><dt>컨텍스트</dt><dd class="warn">87%</dd></div></dl>
+        <div class="choices"><div class="choice on"><span class="radio"></span><span class="ct"><b>원본 승계</b><span>대화 전체를 그대로 넘깁니다.</span></span></div>
+          <div class="choice"><span class="radio"></span><span class="ct"><b>압축 후 승계</b><span>대화를 요약해서 넘깁니다. 새 세션은 가볍게 시작하지만 세부 내용 일부는 요약됩니다.</span></span></div></div></div>
+      <div class="actions"><button class="btn cancel">취소</button><button class="btn">원본 승계</button></div></div></div>
+
+  <div class="col"><div class="tag"><b>바꾼 뒤 · 원본 선택</b></div>
+    <div class="dialog"><div class="dh">세션 이어가기<span class="x">✕</span></div>
+      <div class="body"><p class="lede">새 세션으로 이어갑니다. 현재 세션은 유지됩니다.</p>
+        <dl class="facts"><div><dt>모델</dt><dd><span class="picker">Gemini 3.8 Flash <span class="e">High ⌄</span></span></dd></div><div><dt>메시지</dt><dd>48</dd></div><div><dt>예상 사용량</dt><dd class="warn">87%</dd></div></dl>
+        <div class="choices"><div class="choices-label">방식</div>
+          <div class="choice on"><span class="radio"></span><span class="ct"><b>원본</b><span>대화 전체를 그대로 가져갑니다.</span></span></div>
+          <div class="choice"><span class="radio"></span><span class="ct"><b>요약</b><span>요약본으로 가볍게 시작합니다. 세부 내용 일부가 생략됩니다.</span></span></div></div></div>
+      <div class="actions"><button class="btn cancel">취소</button><button class="btn">이어가기</button></div></div></div>
+
+  <div class="col"><div class="tag"><b>바꾼 뒤 · 원본이 안 들어갈 때</b></div>
+    <div class="dialog"><div class="dh">세션 이어가기<span class="x">✕</span></div>
+      <div class="body"><p class="lede">새 세션으로 이어갑니다. 현재 세션은 유지됩니다.</p>
+        <dl class="facts"><div><dt>모델</dt><dd><span class="picker">Gemini 3.5 Flash Lite <span class="e">⌄</span></span></dd></div><div><dt>메시지</dt><dd>48</dd></div><div><dt>예상 사용량</dt><dd class="danger">134%</dd></div></dl>
+        <div class="choices"><div class="choices-label">방식</div>
+          <div class="choice off"><span class="radio"></span><span class="ct"><b>원본</b><span>대화 전체를 그대로 가져갑니다.</span><span class="why">원본은 이 모델 용량을 초과합니다.</span></span></div>
+          <div class="choice on"><span class="radio"></span><span class="ct"><b>요약</b><span>요약본으로 가볍게 시작합니다. 세부 내용 일부가 생략됩니다.</span></span></div></div></div>
+      <div class="actions"><button class="btn cancel">취소</button><button class="btn">요약 후 이어가기</button></div></div></div>
+</div>
+
+<div class="row" style="margin-top:20px">
+  <div class="col"><div class="tag"><b>바꾼 뒤 · 이어갈 수 없을 때</b></div>
+    <div class="dialog"><div class="dh">세션 이어가기<span class="x">✕</span></div>
+      <div class="body"><p class="lede">새 세션으로 이어갑니다. 현재 세션은 유지됩니다.</p>
+        <dl class="facts"><div><dt>모델</dt><dd><span class="picker">Claude Opus 5.5 <span class="e">High ⌄</span></span></dd></div><div><dt>메시지</dt><dd>212</dd></div><div><dt>예상 사용량</dt><dd class="danger">—</dd></div></dl>
+        <div class="notice">용량 초과. 먼저 /compact를 실행하세요.</div></div>
+      <div class="actions"><button class="btn cancel">취소</button><button class="btn dis">이어가기</button></div></div></div>
+  <div class="col"><div class="tag"><b>바꾼 뒤 · 진행 중</b></div>
+    <div class="dialog"><div class="dh">세션 이어가기<span class="x">✕</span></div>
+      <div class="body"><p class="lede">새 세션으로 이어갑니다. 현재 세션은 유지됩니다.</p>
+        <dl class="facts"><div><dt>모델</dt><dd><span class="picker">Gemini 3.8 Flash <span class="e">High ⌄</span></span></dd></div><div><dt>메시지</dt><dd>48</dd></div><div><dt>예상 사용량</dt><dd>62%</dd></div></dl></div>
+      <div class="actions"><button class="btn cancel dis">취소</button><button class="btn dis">이어가는 중…</button></div></div></div>
+  <div class="col"><div class="tag"><b>바꾼 뒤 · 자동 요약 알림 (토스트)</b></div>
+    <div class="toast"><span class="mut">ⓘ</span>모델 용량에 맞춰 요약 후 이어갑니다.</div>
+    <div class="tag" style="margin-top:14px"><b>바꾼 뒤 · 열 수 없을 때 안내</b></div>
+    <div class="toast"><span style="color:var(--mx-danger)">!</span>이어갈 대화가 없습니다.</div>
+    <div class="toast"><span style="color:var(--mx-danger)">!</span>이 화면에서는 이어가기를 지원하지 않습니다.</div></div>
+</div>
+
+<h2>2. 새 세션 맨 위 구분선</h2>
+<div class="row">
+  <div class="col"><div class="tag now"><b>지금</b></div>
+    <div class="pane"><div class="divider">⑂ 이전 대화 맥락 연결됨 <small>이전 맥락을 이어갑니다</small></div><div class="u">웹훅 서명 검증 이어서 해줘</div><div class="a">이전 세션에서 정리한 내용을 바탕으로 계속하겠습니다.</div></div></div>
+  <div class="col"><div class="tag"><b>바꾼 뒤</b></div>
+    <div class="pane"><div class="divider">⑂ 이전 세션에서 이어짐 <small>이전 맥락 유지</small></div><div class="u">웹훅 서명 검증 이어서 해줘</div><div class="a">이전 세션에서 정리한 내용을 바탕으로 계속하겠습니다.</div></div></div>
+</div>
+
+<h2>3. 여는 곳</h2>
+<div class="row">
+  <div class="col"><div class="tag"><b>사이드바 세션 메뉴</b> · 지금 "세션 승계" → "세션 이어가기"</div>
+    <div class="menu"><div>이름 바꾸기</div><div>고정</div><div class="hl">⑂ 세션 이어가기</div><div class="sep"></div><div>보관</div><div style="color:var(--mx-danger)">삭제</div></div></div>
+  <div class="col"><div class="tag"><b>입력창 옆 컨텍스트 팝업</b> · 모델을 바꿨을 때 · 지금 "세션 승계" → "세션 이어가기"</div>
+    <div class="ctxpop"><div class="r"><span>컨텍스트</span><b>42%</b></div><div class="r"><span>사용량</span><b>84k / 200k</b></div><div class="act">⑂ 세션 이어가기</div></div></div>
+</div>
+</body>
+</html>

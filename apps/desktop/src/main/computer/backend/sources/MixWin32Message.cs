@@ -193,6 +193,11 @@ public partial class MixWin32
     public static string BackgroundPointer(
       IntPtr top, int screenX, int screenY, string kind, string modifiers)
     {
+        return WhileInactive(top, delegate { return BackgroundPointerCore(top, screenX, screenY, kind, modifiers); });
+    }
+    static string BackgroundPointerCore(
+      IntPtr top, int screenX, int screenY, string kind, string modifiers)
+    {
         IntPtr target = MessageTargetAtPoint(top, screenX, screenY);
         POINT p = ClientPoint(target, screenX, screenY);
         IntPtr point = PointParam(p.x, p.y);
@@ -261,6 +266,10 @@ public partial class MixWin32
     /// general form and a two-point drag is its shortest case.
     public static string BackgroundDragPath(IntPtr top, int[] screenX, int[] screenY, string modifiers)
     {
+        return WhileInactive(top, delegate { return BackgroundDragPathCore(top, screenX, screenY, modifiers); });
+    }
+    static string BackgroundDragPathCore(IntPtr top, int[] screenX, int[] screenY, string modifiers)
+    {
         if (screenX == null || screenY == null || screenX.Length != screenY.Length || screenX.Length < 2)
         {
             throw new InvalidOperationException("drag path requires at least two points");
@@ -310,6 +319,11 @@ public partial class MixWin32
         return BackgroundWheel(top, screenX, screenY, clicks, modifiers, false);
     }
     public static string BackgroundWheel(
+      IntPtr top, int screenX, int screenY, int clicks, string modifiers, bool horizontal)
+    {
+        return WhileInactive(top, delegate { return BackgroundWheelCore(top, screenX, screenY, clicks, modifiers, horizontal); });
+    }
+    static string BackgroundWheelCore(
       IntPtr top, int screenX, int screenY, int clicks, string modifiers, bool horizontal)
     {
         IntPtr target = MessageTargetAtPoint(top, screenX, screenY);

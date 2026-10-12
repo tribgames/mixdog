@@ -1,10 +1,11 @@
-import { ShieldAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Approval } from './desktop-types';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { isApprovalDismissKey } from './renderer-logic.mjs';
 import { asRecord, textOf } from './text-format';
+import { useRemoteHostImageUrl } from './local-image-preview';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 function approvalText(value: unknown, preferredKey: string): string {
   const preferred = asRecord(value)?.[preferredKey];
@@ -26,11 +27,23 @@ function localPreviewUrl(path: unknown): string {
   return value ? `file:///${encodeURI(value).replace(/^\/+/, '')}` : '';
 }
 
+// Desktop shows the host file directly; a paired browser has no access to the
+// host disk, so it reads the image through the remote preview lane instead.
+function ApprovalPreviewImage({ path, alt }: { path: unknown; alt: string }) {
+  const remoteUrl = useRemoteHostImageUrl(String(path || ''));
+  const src = isRemoteHostRenderer() ? remoteUrl : localPreviewUrl(path);
+  return <img src={src || undefined} alt={alt} />;
+}
+
+/** The pending tool approval, shown as the expanded composer island. An answer
+ *  given on another device is not a card here: the island flashes it. */
 export function ApprovalCard({
   approval,
   resolve,
 }: {
   approval: Approval;
+  /** true: recorded; false: another device already answered (the buttons
+   *  stay disabled until the approval leaves the snapshot). */
   resolve: (approved: boolean) => Promise<unknown>;
 }) {
   const reason = approvalText(approval.reason, 'message') || t('Review this tool request before continuing.');
@@ -67,7 +80,9 @@ export function ApprovalCard({
     setResolving(true);
     try {
       const accepted = await resolveRef.current(approved);
-      if (accepted === true) return;
+      // false: the host answered "not pending" — another device already
+      // decided; the buttons stay disabled (resolvingRef stays set).
+      if (typeof accepted === 'boolean') return;
       setApprovalError(t('Mixdog could not record this decision. Please try again.'));
       resolvingRef.current = false;
       setResolving(false);
@@ -119,9 +134,6 @@ export function ApprovalCard({
       previousFocus?.focus();
     };
   }, [decide]);
-  // Inline approval: the request renders in the
-  // transcript flow with a warning ring instead of a modal overlay, so the
-  // user can keep reading and typing while deciding.
   return (
     // biome-ignore lint/a11y/useSemanticElements: an <article> must keep its tag; role="group" names the approval region
     <article
@@ -131,12 +143,9 @@ export function ApprovalCard({
       aria-labelledby="approval-title"
       aria-describedby="approval-description"
     >
-      {/* Icon column + title on one row; the reason and the call itself hang
-          from the title's left edge, and the decision sits under them. */}
+      {/* Title · tool on one row (no glyph: the island's amber ring marks the
+          approval); the reason and the call hang under it, then the decision. */}
       <div className="approval-heading">
-        <span>
-          <ShieldAlert size={16} />
-        </span>
         <div>
           <b id="approval-title">{officeTransaction ? t('Office transaction review') : t('Tool approval required')}</b>
           <small>
@@ -200,8 +209,8 @@ export function ApprovalCard({
             {previewImages.map((image, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: preview pages are positional and never reorder
               <figure key={`${String(image.path)}:${index}`}>
-                <img
-                  src={localPreviewUrl(image.path)}
+                <ApprovalPreviewImage
+                  path={image.path}
                   alt={
                     image.kind === 'visual-diff'
                       ? t('Visual diff page {{page}}', { page: Number(image.page || index + 1) })

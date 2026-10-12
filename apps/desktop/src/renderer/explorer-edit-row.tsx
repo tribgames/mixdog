@@ -91,7 +91,7 @@ export function ExplorerEditRow({
               const next = nextExplorerRenameSelection(selectionPhase.current, input.value, dotIndex);
               selectionPhase.current = next.phase;
               input.setSelectionRange(next.start, next.end);
-            } else if (event.key === 'Enter') {
+            } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               if (problem?.severity === 'error') return;
               onCommit();
             } else if (event.key === 'Escape') {

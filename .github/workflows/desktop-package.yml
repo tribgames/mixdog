@@ -50,12 +50,15 @@ on:
         required: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   package:
     name: desktop-${{ inputs.platform }}-${{ inputs.arch }}
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: write # upload assets to the hidden draft release
     env:
       ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
       # Outside the checkout: electron-builder runs CommonJS helpers (icon-tool.js)
@@ -67,6 +70,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"

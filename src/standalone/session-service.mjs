@@ -22,6 +22,7 @@ import { createSessionRetention } from './session-service/retention.mjs';
 import { createViewerRegistry } from './session-service/viewers.mjs';
 import { createSessionEntries } from './session-service/entries.mjs';
 import { createSessionCalls } from './session-service/session-calls.mjs';
+import { createQuotaResumeScheduler } from './session-service/quota-resume.mjs';
 
 const EXTERNAL_SESSION_ACTIONS = new Set([
   ...SESSION_READ_ACTION_SET,
@@ -56,6 +57,10 @@ export function createSessionService({
   onDesktopReady = () => {},
   idleEvictMs = null,
   evictSweepMs = null,
+  // Quota auto-resume: the durable queue module and the fresh usage reading
+  // (provider, model) => Promise<boolean>. Without a store nothing is scheduled.
+  quotaResumeStore = null,
+  readQuotaUsable = null,
 } = {}) {
   const createRuntime = createSessionRuntime;
   if (typeof createRuntime !== 'function') throw new Error('createSessionRuntime is required');
@@ -165,6 +170,9 @@ export function createSessionService({
     statStoredSession,
     forgetStoredSession,
     releaseStoredSession,
+    readQuotaResume: quotaResumeStore
+      ? (sessionId) => quotaResumeStore.publicQuotaResume(quotaResumeStore.quotaResumeEntry(sessionId))
+      : null,
     sessionOwner: projection.sessionOwner,
     log,
   });
@@ -197,10 +205,21 @@ export function createSessionService({
     retainUnwatched: retention.retainUnwatched,
     createSession: calls.createSession,
   });
+  const quotaUsableReader = typeof readQuotaUsable === 'function' ? readQuotaUsable : async () => false;
+  const quotaResume = quotaResumeStore
+    ? createQuotaResumeScheduler({
+        store: quotaResumeStore,
+        materializeSession: calls.materializeSession,
+        readQuotaUsable: quotaUsableReader,
+        log,
+        isClosed,
+      })
+    : null;
 
   function stop(reason = 'service stop') {
     if (stopPromise) return stopPromise;
     closed = true;
+    quotaResume?.stop();
     stopPromise = Promise.resolve().then(async () => {
       try {
         unsubscribeExternalSessionStates();
@@ -264,6 +283,8 @@ export function createSessionService({
     methods: {
       ...calls,
       stop,
+      startQuotaResume: () => quotaResume?.start(),
+      runDueQuotaResumes: () => quotaResume?.tick() ?? Promise.resolve(),
       releaseClient: viewers.releaseClient,
       agentSurface: agentTree.agentSurface,
       agentManager: agentTree.agentManager,

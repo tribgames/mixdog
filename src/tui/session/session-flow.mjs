@@ -36,6 +36,7 @@ export function createSessionFlow(bag) {
     dequeueQueueBatch: queue.dequeueQueueBatch,
     drain: loop.drain,
     enqueue: loop.enqueue,
+    settleClosedQueue: loop.settleClosedQueue,
     hasPendingSteering: steering.hasPendingSteering,
     drainPendingSteering: steering.drainPendingSteering,
     restoreLeadSteeringFromDisk: steering.restoreLeadSteeringFromDisk,

@@ -34,8 +34,9 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 
 - [63% fewer tokens](#benchmarks) than Codex CLI on the same model, at the
   same success rate.
-- **Auto reasoning effort** — each message and tool step gets the effort it
-  needs. On by default.
+- [**Auto reasoning effort**](docs/auto-reasoning-effort.md) — each message
+  and tool step gets the effort it needs, judged in about 0.1 s by a 130 MB
+  model that runs locally on the CPU. On by default.
 - Use the **Claude, ChatGPT, or Grok** subscription you already have, API
   keys, or local models on your own GPU.
 - Mix models by role and scale from **Solo to Swarm** — a strong model leads
@@ -127,6 +128,7 @@ savings come from.
 ## Documentation
 
 - [Context efficiency](docs/context-efficiency.md)
+- [Auto reasoning effort](docs/auto-reasoning-effort.md)
 - [Benchmarks](benchmarks/terminal-bench-2.1/)
 - [Code Tidy](docs/code-tidy.md)
 - [Git & GitHub](docs/git-github-integration.md)

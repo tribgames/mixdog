@@ -8,11 +8,23 @@ import {
   type UiLanguagePreference,
 } from './i18n';
 import { getSidePanelMode, setSidePanelMode, type SidePanelMode } from './side-panel-preferences';
-import { executeSetupDesktopAction, type SetupPreferences } from './setup-desktop-actions';
+import { getLinkPreview, setLinkPreview } from './link-preview-preference';
+import {
+  setToolActivityExpansion,
+  storedToolActivityExpansion,
+  type ToolActivityExpansion,
+} from './tool-activity-expansion';
+import { executeSetupDesktopAction, hostMethod, type SetupPreferences } from './setup-desktop-actions';
 import type { SetupLaneSource } from './app-shell-ui-open-request';
 
-async function readDesktopAppearance() {
+const MARKDOWN_DEFAULT_VIEWS = ['preview', 'rich', 'source'];
+const TOOL_ACTIVITY_EXPANSIONS = ['collapsed', 'commands', 'all'];
+
+async function readDesktopAppearance(api: DesktopApi) {
   return {
+    markdownDefaultView: (await api.readMarkdownDefaultView?.()) ?? null,
+    linkPreview: getLinkPreview(),
+    toolActivityExpansion: storedToolActivityExpansion(),
     theme: getDesktopThemePreference(),
     themes: desktopThemeOptions(),
     displayLanguage: getUiLanguagePreference(),
@@ -23,8 +35,21 @@ async function readDesktopAppearance() {
 
 function assertAppearanceInput(
   input: Record<string, unknown>,
-  before: Awaited<ReturnType<typeof readDesktopAppearance>>
+  before: Awaited<ReturnType<typeof readDesktopAppearance>>,
+  api: DesktopApi
 ): void {
+  if (input.markdownDefaultView !== undefined) {
+    if (!MARKDOWN_DEFAULT_VIEWS.includes(String(input.markdownDefaultView)))
+      throw new Error('markdownDefaultView must be preview, rich or source');
+    hostMethod(api, 'writeMarkdownDefaultView');
+  }
+  if (input.linkPreview !== undefined && typeof input.linkPreview !== 'boolean')
+    throw new Error('linkPreview must be true or false');
+  if (
+    input.toolActivityExpansion !== undefined &&
+    !TOOL_ACTIVITY_EXPANSIONS.includes(String(input.toolActivityExpansion))
+  )
+    throw new Error('toolActivityExpansion must be collapsed, commands or all');
   if (input.theme !== undefined && !before.themes.some((entry) => entry.value === input.theme))
     throw new Error('Unknown Desktop theme');
   if (input.displayLanguage !== undefined && !before.languages.some((entry) => entry.value === input.displayLanguage))
@@ -36,14 +61,33 @@ function assertAppearanceInput(
     throw new Error('Unknown side-panel mode');
 }
 
-function desktopSetupPreferences(assertActive: () => Promise<void> = async () => {}): SetupPreferences {
-  const read = () => readDesktopAppearance();
+export function desktopSetupPreferences(
+  api: DesktopApi,
+  assertActive: () => Promise<void> = async () => {}
+): SetupPreferences {
+  const read = () => readDesktopAppearance(api);
   return {
     read,
     async write(input) {
       const before = await read();
-      assertAppearanceInput(input, before);
+      assertAppearanceInput(input, before, api);
       await assertActive();
+      if (input.markdownDefaultView !== undefined) {
+        const saved = await hostMethod(
+          api,
+          'writeMarkdownDefaultView'
+        )(input.markdownDefaultView as 'preview' | 'rich' | 'source');
+        if (saved !== input.markdownDefaultView) throw new Error('Markdown default view was not persisted');
+      }
+      if (input.linkPreview !== undefined) {
+        setLinkPreview(input.linkPreview as boolean);
+        if (getLinkPreview() !== input.linkPreview) throw new Error('Link preview was not persisted');
+      }
+      if (input.toolActivityExpansion !== undefined) {
+        setToolActivityExpansion(input.toolActivityExpansion as ToolActivityExpansion);
+        if (storedToolActivityExpansion() !== input.toolActivityExpansion)
+          throw new Error('Tool activity expansion was not persisted');
+      }
       if (input.theme !== undefined) {
         setDesktopThemePreference(String(input.theme));
         if (getDesktopThemePreference() !== input.theme) throw new Error('Desktop theme was not persisted');
@@ -110,7 +154,7 @@ export function useSetupDesktopRequest(
         const result = await executeSetupDesktopAction(
           claimed.value.args,
           api,
-          desktopSetupPreferences(assertActive),
+          desktopSetupPreferences(api, assertActive),
           sessionId,
           assertActive
         );

@@ -1,6 +1,6 @@
 import { Plus, Search, Sparkles, SquarePen } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { DesktopSessionSummary } from '../shared/contract';
+import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import type { NavigationSelection } from './nav-types';
@@ -22,8 +22,21 @@ import {
   favoritesSection,
   sidebarResizeHandle,
   type SidebarResizeStart,
+  PROJECT_SESSION_PAGE_ROWS,
+  groupProjectSessions,
+  persistExpandedProjects,
+  projectsSection,
+  readStoredExpandedProjects,
 } from './session-sidebar-sections';
+import { usePersistedListOrder } from './use-persisted-list-order';
+import { ScmContextMenu, type ScmContextMenuItem, type ScmContextMenuState } from './ScmContextMenu';
+import { copyTextToClipboard } from './text-format';
+import type { ProjectSessionGroup } from './session-sidebar-sections';
 
+const NO_PROJECTS: readonly DesktopProjectSummary[] = [];
+/** Default top-to-bottom order of the session categories; the user can drag
+ *  any heading to reorder them. */
+const SIDEBAR_SECTIONS = ['favorites', 'projects', 'automations', 'recent', 'archived'] as const;
 const RECENT_SESSION_INITIAL_ROWS = 24;
 const RECENT_SESSION_PAGE_ROWS = 32;
 /** How close a session list's end sentinel has to come to the scroller viewport
@@ -87,6 +100,19 @@ interface SessionSidebarProps {
   children?: React.ReactNode;
   sessions: DesktopSessionSummary[];
   sessionsReady: boolean;
+  /** Registered projects: listed as folders in a Projects section above
+   *  Recent; with none, the section is absent. */
+  projects?: readonly DesktopProjectSummary[];
+  /** + on a project section: a new task staged in that project ('' = none). */
+  onNewProjectTask?(projectPath: string): void;
+  /** Session menu: open beside the focused pane (the drag-to-split result). */
+  onOpenSessionInSplit?(sessionId: string, title: string): void;
+  /** Session menu: open the session, then its /inherit surface. */
+  onInheritSession?(sessionId: string): void;
+  /** Project folder menu actions. */
+  onRenameProject?(projectPath: string, alias: string): void;
+  onRevealProject?(projectPath: string): void;
+  onOpenProjectSettings?(projectPath: string): void;
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
   selection: NavigationSelection;
@@ -111,6 +137,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   children,
   sessions,
   sessionsReady,
+  projects = NO_PROJECTS,
+  onNewProjectTask,
+  onOpenSessionInSplit,
+  onInheritSession,
+  onRenameProject,
+  onRevealProject,
+  onOpenProjectSettings,
   workingSessionIds,
   unreadSessionIds,
   selection,
@@ -206,6 +239,48 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   );
   const [recentOpen, setRecentOpen] = useState(true);
   const [recentRowLimit, setRecentRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const sectionOrder = usePersistedListOrder('mixdog:session-sidebar-section-order', SIDEBAR_SECTIONS, {
+    dropAnchor: ':scope > .sidebar-category-header',
+  });
+  const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(
+    () => new Set(readStoredExpandedProjects())
+  );
+  const [projectRowLimits, setProjectRowLimits] = useState<ReadonlyMap<string, number>>(new Map());
+  const toggleProject = useCallback((key: string) => {
+    setExpandedProjects((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      persistExpandedProjects([...next]);
+      return next;
+    });
+  }, []);
+  const showMoreProjectRows = useCallback((key: string) => {
+    setProjectRowLimits((current) =>
+      new Map(current).set(key, (current.get(key) ?? PROJECT_SESSION_PAGE_ROWS) + RECENT_SESSION_PAGE_ROWS)
+    );
+  }, []);
+  // Favorites stay in their project folder: the folder is a classification,
+  // not a second Recent.
+  const activityProjectGroups = useMemo(
+    () =>
+      projects.length === 0
+        ? []
+        : groupProjectSessions(
+            projects,
+            allRows.filter((session) => session.archived !== true && !isAutomationRow(session))
+          ),
+    [allRows, projects]
+  );
+  const activityProjectKeys = useMemo(() => activityProjectGroups.map((group) => group.key), [activityProjectGroups]);
+  const projectOrder = usePersistedListOrder('mixdog:session-sidebar-project-order', activityProjectKeys, {
+    dropAnchor: ':scope > .project-folder',
+  });
+  const projectGroups = useMemo(() => {
+    const byKey = new Map(activityProjectGroups.map((group) => [group.key, group]));
+    return projectOrder.orderedIds.flatMap((key) => byKey.get(key) ?? []);
+  }, [activityProjectGroups, projectOrder.orderedIds]);
   const [automationsOpen, setAutomationsOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [archivedRowLimit, setArchivedRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
@@ -366,6 +441,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     automationsOpen,
     captureRecentScrollAnchor,
     collapsedAutomations,
+    expandedProjects,
+    projectGroups,
+    projectRowLimits,
+    projectsOpen,
+    sectionOrder.orderedIds,
     open,
     panelActive,
     recentOpen,
@@ -450,6 +530,124 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       setConfirmingSessionId('');
     }
   }, [confirmingSessionId, sessions]);
+  // Right-click menus: one shared menu surface, items per target. A menu item
+  // runs after the menu has closed and handed focus back to the row, so an
+  // item that opens an inline editor starts it on the next tick — otherwise
+  // that returning focus would blur (and commit) the new editor at once.
+  const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  const afterMenu = (action: () => void) => () => window.setTimeout(action, 0);
+  const openSessionMenu = (session: DesktopSessionSummary, point: { x: number; y: number }) => {
+    const label = sessionLabel(session);
+    const archived = session.archived === true;
+    const items: ScmContextMenuItem[] = [{ id: 'open', label: t('Open'), onSelect: () => onResumeSession(session.id) }];
+    if (onOpenSessionInSplit) {
+      items.push({
+        id: 'open-split',
+        label: t('Open in split pane'),
+        onSelect: () => onOpenSessionInSplit(session.id, label),
+      });
+    }
+    items.push({
+      id: 'rename',
+      label: t('Rename'),
+      separatorBefore: true,
+      onSelect: afterMenu(() => openSessionEditor(session)),
+    });
+    if (onInheritSession && !archived) {
+      items.push({ id: 'inherit', label: t('Inherit session'), onSelect: () => onInheritSession(session.id) });
+    }
+    if (archived) {
+      items.push({
+        id: 'restore',
+        label: t('Restore'),
+        separatorBefore: true,
+        onSelect: () => void onArchiveSession(session.id, false).catch(() => {}),
+      });
+    } else {
+      items.push(
+        {
+          id: 'favorite',
+          label: session.favorite === true ? t('Remove from favorites') : t('Add to favorites'),
+          separatorBefore: true,
+          onSelect: () => void onFavoriteSession(session.id, session.favorite !== true).catch(() => {}),
+        },
+        { id: 'archive', label: t('Archive'), onSelect: () => void onArchiveSession(session.id, true).catch(() => {}) }
+      );
+    }
+    // Delete never runs from the menu itself: it arms the row's inline
+    // cancel/confirm pair, the same confirmation archived rows use.
+    items.push({
+      id: 'delete',
+      label: t('Delete'),
+      danger: true,
+      separatorBefore: true,
+      onSelect: afterMenu(() => {
+        closeSessionEditor();
+        setConfirmingSessionId(session.id);
+      }),
+    });
+    setContextMenu({ label, ...point, items });
+  };
+  const [projectRename, setProjectRename] = useState<{ key: string; draft: string; original: string } | null>(null);
+  const projectRenameRef = useRef(projectRename);
+  projectRenameRef.current = projectRename;
+  // Enter commits and the input's removal may still blur it: the ref makes the
+  // second call a no-op.
+  const commitProjectRename = (group: ProjectSessionGroup) => {
+    const current = projectRenameRef.current;
+    if (!current || current.key !== group.key) return;
+    projectRenameRef.current = null;
+    setProjectRename(null);
+    const alias = current.draft.trim();
+    if (alias && alias !== current.original) onRenameProject?.(group.path, alias);
+  };
+  const openProjectMenu = (group: ProjectSessionGroup, point: { x: number; y: number }) => {
+    const expanded = expandedProjects.has(group.key);
+    const items: ScmContextMenuItem[] = [
+      {
+        id: 'new-task',
+        label: t('New task'),
+        onSelect: () => (onNewProjectTask ? onNewProjectTask(group.path) : onNewTask()),
+      },
+      {
+        id: 'toggle',
+        label: expanded ? t('Collapse {{label}}', { label: group.name }) : t('Expand {{label}}', { label: group.name }),
+        onSelect: () => toggleProject(group.key),
+      },
+    ];
+    if (onRevealProject) {
+      items.push({
+        id: 'reveal',
+        label: t('Reveal in Explorer'),
+        separatorBefore: true,
+        onSelect: () => onRevealProject(group.path),
+      });
+    }
+    items.push({
+      id: 'copy-path',
+      label: t('Copy path'),
+      separatorBefore: !onRevealProject,
+      onSelect: () => void copyTextToClipboard(group.path).catch(() => {}),
+    });
+    if (onRenameProject) {
+      items.push({
+        id: 'rename',
+        label: t('Rename'),
+        separatorBefore: true,
+        onSelect: afterMenu(() => setProjectRename({ key: group.key, draft: group.name, original: group.name })),
+      });
+    }
+    if (onOpenProjectSettings) {
+      items.push({
+        id: 'settings',
+        label: t('Project settings'),
+        separatorBefore: !onRenameProject,
+        onSelect: () => onOpenProjectSettings(group.path),
+      });
+    }
+    setContextMenu({ label: group.name, ...point, items });
+  };
   // Recent, Automations and Archived all render the same row with the same
   // rename/confirm wiring; only the session differs.
   const renderSessionRow = (session: DesktopSessionSummary) => (
@@ -476,6 +674,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       onDeleteSession={onDeleteSession}
       onArchiveSession={onArchiveSession}
       onFavoriteSession={onFavoriteSession}
+      onOpenMenu={openSessionMenu}
     />
   );
   const displayedSidebarWidth = resizeStart.current?.pendingWidth ?? sidebarWidth;
@@ -561,63 +760,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </button>
           </nav>
           <div className="session-sidebar-scroll" ref={recentScrollerRef} onScroll={handleRecentScroll}>
-            {favoriteRows.length > 0 &&
-              favoritesSection({
-                rows: favoriteRows,
-                open: favoritesOpen,
-                onToggleOpen: () => setFavoritesOpen((open) => !open),
-                renderSessionRow,
-              })}
-            {automationGroups.length > 0 &&
-              automationsSection({
-                groups: automationGroups,
-                open: automationsOpen,
-                onToggleOpen: () => setAutomationsOpen((open) => !open),
-                hasHeadingDot: automationsHaveHeadingDot,
-                archiveAllDisabled: Boolean(bulkAction) || automationRows.length === 0,
-                onArchiveAll: () => {
-                  void updateSessionArchives('archive-automations', automationRows, true);
-                },
-                collapsedGroups: collapsedAutomations,
-                onToggleGroup: toggleAutomationGroup,
-                workingSessionIds,
-                unreadSessionIds,
-                renderSessionRow,
-              })}
-            {recentSection({
-              sessionsReady,
-              rowCount: rows.length,
-              visibleRows: visibleRecentRows,
-              hasMoreRows: hasMoreRecentRows,
-              sentinelRef: recentSentinelRef,
-              open: recentOpen,
-              onToggleOpen: () => setRecentOpen((open) => !open),
-              hasHeadingDot: recentHasHeadingDot,
-              archiveAllDisabled: Boolean(bulkAction) || rows.length === 0,
-              onArchiveAll: () => {
-                void updateSessionArchives('archive-recent', rows, true);
-              },
-              renderSessionRow,
-            })}
-            {archivedRows.length > 0 &&
-              archivedSection({
-                visibleRows: visibleArchivedRows,
-                hasMoreRows: hasMoreArchivedRows,
-                sentinelRef: archivedSentinelRef,
-                open: archivedOpen,
-                onToggleOpen: () => {
-                  setArchivedRowLimit(RECENT_SESSION_INITIAL_ROWS);
-                  setArchivedOpen((open) => !open);
-                },
-                actionsDisabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
-                onRestoreAll: () => {
-                  void updateSessionArchives('restore', deletableArchivedRows, false);
-                },
-                onDeleteAll: () => {
-                  void deleteAllArchived();
-                },
-                renderSessionRow,
-              })}
+            {sectionOrder.orderedIds.map((section) => (
+              <React.Fragment key={section}>{renderSection(section)}</React.Fragment>
+            ))}
           </div>
         </div>
       )}
@@ -631,6 +776,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       >
         <SidebarPanelHeaderSlot.Provider value={panelActionSlot}>{children}</SidebarPanelHeaderSlot.Provider>
       </div>
+      <ScmContextMenu state={contextMenu} onClose={closeContextMenu} />
       {sidebarResizeHandle({
         width: displayedSidebarWidth,
         sidebarWidth,
@@ -640,4 +786,111 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       })}
     </aside>
   );
+  // Each category renders through its section builder; the heading row is its
+  // drag handle for the persisted category order.
+  function renderSection(section: string): React.ReactNode {
+    const headerProps = sectionOrder.getReorderProps(section);
+    switch (section) {
+      case 'favorites':
+        return (
+          favoriteRows.length > 0 &&
+          favoritesSection({
+            rows: favoriteRows,
+            open: favoritesOpen,
+            onToggleOpen: () => setFavoritesOpen((open) => !open),
+            headerProps,
+            renderSessionRow,
+          })
+        );
+      case 'projects':
+        return (
+          projectGroups.length > 0 &&
+          projectsSection({
+            groups: projectGroups,
+            open: projectsOpen,
+            onToggleOpen: () => setProjectsOpen((open) => !open),
+            expandedProjects,
+            onToggleProject: toggleProject,
+            rowLimits: projectRowLimits,
+            onShowMore: showMoreProjectRows,
+            onNewTask: (projectPath) => (onNewProjectTask ? onNewProjectTask(projectPath) : onNewTask()),
+            folderReorderProps: projectOrder.getReorderProps,
+            headerProps,
+            unreadSessionIds,
+            renderSessionRow,
+            onFolderMenu: openProjectMenu,
+            rename: projectRename && {
+              key: projectRename.key,
+              draft: projectRename.draft,
+              onDraft: (draft) => setProjectRename((current) => current && { ...current, draft }),
+              onCommit: commitProjectRename,
+              onCancel: () => {
+                projectRenameRef.current = null;
+                setProjectRename(null);
+              },
+            },
+          })
+        );
+      case 'automations':
+        return (
+          automationGroups.length > 0 &&
+          automationsSection({
+            groups: automationGroups,
+            open: automationsOpen,
+            onToggleOpen: () => setAutomationsOpen((open) => !open),
+            hasHeadingDot: automationsHaveHeadingDot,
+            archiveAllDisabled: Boolean(bulkAction) || automationRows.length === 0,
+            onArchiveAll: () => {
+              void updateSessionArchives('archive-automations', automationRows, true);
+            },
+            collapsedGroups: collapsedAutomations,
+            onToggleGroup: toggleAutomationGroup,
+            workingSessionIds,
+            unreadSessionIds,
+            headerProps,
+            renderSessionRow,
+          })
+        );
+      case 'recent':
+        return recentSection({
+          sessionsReady,
+          rowCount: rows.length,
+          visibleRows: visibleRecentRows,
+          hasMoreRows: hasMoreRecentRows,
+          sentinelRef: recentSentinelRef,
+          open: recentOpen,
+          onToggleOpen: () => setRecentOpen((open) => !open),
+          hasHeadingDot: recentHasHeadingDot,
+          archiveAllDisabled: Boolean(bulkAction) || rows.length === 0,
+          onArchiveAll: () => {
+            void updateSessionArchives('archive-recent', rows, true);
+          },
+          headerProps,
+          renderSessionRow,
+        });
+      case 'archived':
+        return (
+          archivedRows.length > 0 &&
+          archivedSection({
+            visibleRows: visibleArchivedRows,
+            hasMoreRows: hasMoreArchivedRows,
+            sentinelRef: archivedSentinelRef,
+            open: archivedOpen,
+            onToggleOpen: () => {
+              setArchivedRowLimit(RECENT_SESSION_INITIAL_ROWS);
+              setArchivedOpen((open) => !open);
+            },
+            actionsDisabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
+            onRestoreAll: () => {
+              void updateSessionArchives('restore', deletableArchivedRows, false);
+            },
+            onDeleteAll: () => {
+              void deleteAllArchived();
+            },
+            headerProps,
+            renderSessionRow,
+          })
+        );
+    }
+  }
 });

@@ -1,4 +1,5 @@
 import { SESSION_ID_PATTERN } from '../runtime/agent/orchestrator/runtime-core/session-id.mjs';
+import { SessionAddressError, bindSessionAddress } from './session-address.mjs';
 
 function requiredSessionId(value) {
   const sessionId = String(value || '').trim();
@@ -25,9 +26,19 @@ export function createRuntimeFacade({
   getContextStatusForSession,
   renameSessionTitle,
 }) {
-  const currentSessionId = () => state.session?.id || state.reservedSessionId || null;
+  // The durable address outlives the session object (terminal/closed, evicted).
+  const currentSessionId = () => state.session?.id || state.reservedSessionId || state.addressedSessionId || null;
   return {
     ...leadingApi,
+    /** Bind the durable address to the conversation this runtime just
+     *  loaded (resume / load-on-demand). Idempotent for the same id. */
+    bindSessionAddress(sessionId) {
+      const id = requiredSessionId(sessionId);
+      if (state.session?.id && state.session.id !== id) {
+        throw new SessionAddressError(`runtime holds ${state.session.id}, not ${id}`, id);
+      }
+      return bindSessionAddress(state, id) === id;
+    },
     get id() {
       return currentSessionId();
     },
@@ -47,6 +58,14 @@ export function createRuntimeFacade({
     },
     get model() {
       return state.route.model;
+    },
+    // The current session object's own route; diverges from provider/model
+    // (the selected route) after a model change on a session with history.
+    get sessionProvider() {
+      return state.session?.provider ?? null;
+    },
+    get sessionModel() {
+      return state.session?.model ?? null;
     },
     get effort() {
       return state.route.effectiveEffort || state.route.effort || state.route.preset?.effort || null;

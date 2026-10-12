@@ -285,9 +285,12 @@ export function DockHeaderRow({
   restoreLabel,
   className,
   ariaLabel,
+  controlsLead,
 }: {
   /** Accessible name for the row when it carries no visible title. */
   ariaLabel?: string;
+  /** A control group drawn before the action buttons (the file view switch). */
+  controlsLead?: ReactNode;
   /** The surface identity: file chip, tab strip, or title text. */
   left: ReactNode;
   actions?: readonly DockAction[];
@@ -315,6 +318,7 @@ export function DockHeaderRow({
     >
       <div className="dock-header-left">{left}</div>
       <div className="dock-header-controls">
+        {controlsLead}
         {inline.map((action) => {
           const Glyph = action.icon;
           return (

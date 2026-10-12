@@ -246,11 +246,8 @@ export async function runRawContentInFlight(fullPath, loader = fsPromises.readFi
 
 export async function runReadOnlyStatInFlight(fullPath, loader = fsPromises.stat, kind = 'stat') {
   const canonicalPath = canonicalCachePath(fullPath);
-  return await runPathInFlight(
-    READ_ONLY_STAT_INFLIGHT,
-    `${kind}|${canonicalPath}`,
-    canonicalPath,
-    () => loader(fullPath)
+  return await runPathInFlight(READ_ONLY_STAT_INFLIGHT, `${kind}|${canonicalPath}`, canonicalPath, () =>
+    loader(fullPath)
   );
 }
 

@@ -43,7 +43,10 @@ async function assertUnpublished(f) {
 function mockFs(t, name, impl) {
   const mocked = t.mock.method(fs, name, impl(fs[name]));
   syncBuiltinESMExports();
-  return () => { mocked.mock.restore(); syncBuiltinESMExports(); };
+  return () => {
+    mocked.mock.restore();
+    syncBuiltinESMExports();
+  };
 }
 const routes = [
   { name: 'source', run: (f) => readSourceWindows(f.path, [{ start: 9001, end: 9001 }]), finalStat: 4 },
@@ -51,39 +54,45 @@ const routes = [
   { name: 'count', run: (f) => countLogicalLinesBytesSync(f.path, f.st.size, f.st), finalStat: 3 },
 ];
 
-for (const route of routes) for (const seed of [false, true]) for (const stage of ['descriptor', 'path']) {
-  test(`${route.name}: expiry during final ${stage} validation cannot publish (${seed ? 'prior anchors' : 'fresh'})`, async (t) => {
-    const f = await fixture(seed);
-    let now = 1000;
-    let expired = false;
-    t.mock.method(Date, 'now', () => now);
-    const expire = () => { expired = true; now += READ_STREAM_TIMEOUT_MS + 1; };
-    const restore = stage === 'path'
-      ? mockFs(t, 'stat', (original) => async (path, ...args) => {
-          const st = await original(path, ...args);
-          if (path === f.path) expire();
-          return st;
-        })
-      : mockFs(t, 'open', (original) => async (path, ...args) => {
-          const handle = await original(path, ...args);
-          if (path === f.path) {
-            const stat = handle.stat.bind(handle);
-            let calls = 0;
-            handle.stat = async (...options) => {
-              const st = await stat(...options);
-              if (++calls === route.finalStat) expire();
-              return st;
-            };
-          }
-          return handle;
-        });
-    t.after(restore);
-    await assert.rejects(route.run(f), /timed out/);
-    assert.equal(expired, true, 'the final validation barrier was reached');
-    restore();
-    await assertUnpublished(f);
-  });
-}
+for (const route of routes)
+  for (const seed of [false, true])
+    for (const stage of ['descriptor', 'path']) {
+      test(`${route.name}: expiry during final ${stage} validation cannot publish (${seed ? 'prior anchors' : 'fresh'})`, async (t) => {
+        const f = await fixture(seed);
+        let now = 1000;
+        let expired = false;
+        t.mock.method(Date, 'now', () => now);
+        const expire = () => {
+          expired = true;
+          now += READ_STREAM_TIMEOUT_MS + 1;
+        };
+        const restore =
+          stage === 'path'
+            ? mockFs(t, 'stat', (original) => async (path, ...args) => {
+                const st = await original(path, ...args);
+                if (path === f.path) expire();
+                return st;
+              })
+            : mockFs(t, 'open', (original) => async (path, ...args) => {
+                const handle = await original(path, ...args);
+                if (path === f.path) {
+                  const stat = handle.stat.bind(handle);
+                  let calls = 0;
+                  handle.stat = async (...options) => {
+                    const st = await stat(...options);
+                    if (++calls === route.finalStat) expire();
+                    return st;
+                  };
+                }
+                return handle;
+              });
+        t.after(restore);
+        await assert.rejects(route.run(f), /timed out/);
+        assert.equal(expired, true, 'the final validation barrier was reached');
+        restore();
+        await assertUnpublished(f);
+      });
+    }
 
 for (const route of routes) {
   test(`${route.name}: expired validation IO failure still checks the unpublished return path`, async (t) => {
@@ -112,14 +121,20 @@ test('successful source publication is the terminal deadline decision', async (t
     if (ms === 750) {
       // Persistence scheduling occurs after the synchronous shared-state commit.
       // Run before the awaiting source reader resumes, without timing a real race.
-      queueMicrotask(() => { now += READ_STREAM_TIMEOUT_MS + 1; crossedAfterCommit = true; });
+      queueMicrotask(() => {
+        now += READ_STREAM_TIMEOUT_MS + 1;
+        crossedAfterCommit = true;
+      });
     }
     return timer(fn, ms, ...args);
   });
   assert.equal((await routes[0].run(f)).get(9001), rows[9000]);
   assert.equal(crossedAfterCommit, true);
   flushReadRangeIndexesSync();
-  assert.equal(JSON.parse(await fs.readFile(diskPath(f.path), 'utf8')).anchors.some(([line]) => line === 8192), true);
+  assert.equal(
+    JSON.parse(await fs.readFile(diskPath(f.path), 'utf8')).anchors.some(([line]) => line === 8192),
+    true
+  );
 });
 
 test('a synchronous publication guard failure propagates without erasing committed anchors', async () => {
@@ -129,8 +144,15 @@ test('a synchronous publication guard failure propagates without erasing committ
     const draft = await getReadRangeIndex(f.path, f.st, handle);
     maybeRecordReadRangeAnchor(draft, 8192, 42);
     const failure = new Error('publication guard refused');
-    await assert.rejects(publishReadRangeIndex(draft, handle, null, () => { throw failure; }), (error) => error === failure);
+    await assert.rejects(
+      publishReadRangeIndex(draft, handle, null, () => {
+        throw failure;
+      }),
+      (error) => error === failure
+    );
     assert.equal(await publishReadRangeIndex(draft, handle), false, 'a refused draft is consumed');
     await assertUnpublished(f);
-  } finally { await handle.close(); }
+  } finally {
+    await handle.close();
+  }
 });

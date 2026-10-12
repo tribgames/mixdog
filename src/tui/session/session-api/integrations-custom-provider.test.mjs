@@ -5,7 +5,13 @@ import { SESSION_CONFIGURE_ACTIONS } from '../../../standalone/session-protocol.
 
 test('desktop session custom-provider capabilities delegate inputs and results without exposing keys', async () => {
   const id = 'custom-84a2a4a1-30f6-43de-8813-c215de6046b6';
-  const input = { name: 'Hive', protocol: 'openai-chat', baseURL: 'https://api-cdn.thehive.ai/api/v3', apiKey: 'private-test-key', models: [{ id: 'vendor/model' }] };
+  const input = {
+    name: 'Hive',
+    protocol: 'openai-chat',
+    baseURL: 'https://api-cdn.thehive.ai/api/v3',
+    apiKey: 'private-test-key',
+    models: [{ id: 'vendor/model' }],
+  };
   const replies = {
     saveCustomProvider: { id, name: input.name },
     removeCustomProvider: { provider: id, removed: true },
@@ -16,17 +22,28 @@ test('desktop session custom-provider capabilities delegate inputs and results w
   const notices = [];
   const states = [];
   let refreshes = 0;
-  const runtime = Object.fromEntries(Object.entries(replies).map(([method, result]) => [
-    method, async (value) => { calls.push([method, value]); return result; },
-  ]));
-  const session = createSessionIntegrationsApi({
-    runtime,
-    getState: () => ({ stats: {} }),
-    set: (state) => states.push(state),
-    pushNotice: (message) => notices.push(message),
-    routeState: () => ({ provider: '', model: '' }),
-    resetStatsAndSyncContext: () => { refreshes += 1; },
-  }, { oauthFlows: new Map() });
+  const runtime = Object.fromEntries(
+    Object.entries(replies).map(([method, result]) => [
+      method,
+      async (value) => {
+        calls.push([method, value]);
+        return result;
+      },
+    ])
+  );
+  const session = createSessionIntegrationsApi(
+    {
+      runtime,
+      getState: () => ({ stats: {} }),
+      set: (state) => states.push(state),
+      pushNotice: (message) => notices.push(message),
+      routeState: () => ({ provider: '', model: '' }),
+      resetStatsAndSyncContext: () => {
+        refreshes += 1;
+      },
+    },
+    { oauthFlows: new Map() }
+  );
   for (const [method, result] of Object.entries(replies)) {
     assert.ok(SESSION_CONFIGURE_ACTIONS.includes(method));
     const value = method === 'removeCustomProvider' ? id : input;
@@ -37,7 +54,35 @@ test('desktop session custom-provider capabilities delegate inputs and results w
   assert.deepEqual(states.at(-1), { provider: '', model: '', stats: {} });
   assert.equal(notices.length, 2);
   assert.equal(JSON.stringify(notices).includes(input.apiKey), false);
-  runtime.saveCustomProvider = async () => { throw new Error('save failed'); };
+  runtime.saveCustomProvider = async () => {
+    throw new Error('save failed');
+  };
   await assert.rejects(session.saveCustomProvider(input), /save failed/);
   assert.equal(notices.length, 2);
+});
+
+test('updateCustomProviderModel is exposed with identical arguments and result in TUI and standalone', async () => {
+  const result = { id: 'custom-x', modelOverrides: {} };
+  const calls = [];
+  const runtime = {
+    updateCustomProviderModel: async (...args) => {
+      calls.push(args);
+      return result;
+    },
+  };
+  const session = createSessionIntegrationsApi(
+    {
+      runtime,
+      getState: () => ({ stats: {} }),
+      set() {},
+      pushNotice() {},
+      routeState: () => ({ provider: '', model: '' }),
+      resetStatsAndSyncContext() {},
+    },
+    { oauthFlows: new Map() }
+  );
+  assert.ok(SESSION_CONFIGURE_ACTIONS.includes('updateCustomProviderModel'));
+  const patch = { hidden: null, reasoning: { levels: ['low'] } };
+  assert.equal(await session.updateCustomProviderModel('custom-x', 'm', patch), result);
+  assert.deepEqual(calls, [['custom-x', 'm', patch]]);
 });

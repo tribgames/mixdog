@@ -80,6 +80,9 @@ export function createSessionResetActions(bag) {
   return {
     clear: () =>
       withResetLock(async () => {
+        const clearedId = getState().sessionId;
+        // A cleared session has no failed turn left to resume.
+        bag.supersedeQuotaResume?.(clearedId);
         const rollbackSnapshot = beginTuiReset();
         set(blankSessionPatch());
         try {
@@ -101,6 +104,7 @@ export function createSessionResetActions(bag) {
             if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
             return false;
           }
+          bag.supersedeQuotaResume?.(id);
           if (deletingCurrent) commitEmptySession(rollbackSnapshot, { sessionId: null, cwd: runtime.cwd });
           return true;
         } catch (error) {

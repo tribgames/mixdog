@@ -12,7 +12,7 @@ import { ACTIVITY_RAIL_PIN_IDS } from '../shared/activity-rail-pins.ts';
 function fixture() {
   let settings = desktopSettingsFromConfig({});
   let projects = [{ path: '/project', name: 'project', alias: null }];
-  let voice = { installed: false, enabled: false };
+  const voice = { installed: false, enabled: false };
   let clients = [
     { id: 'phone', name: 'Phone', platform: 'mobile', browser: 'Browser', createdAt: 1, lastSeenAt: 2, online: true },
   ];
@@ -50,9 +50,7 @@ function fixture() {
       return api.getRemoteAccessInfo();
     },
     invokeCapability: async ({ capability, args }) => {
-      if (capability === 'getVoiceStatus') return { value: voice };
-      assert.equal(capability, 'toggleVoice');
-      voice = { installed: true, enabled: args[0] };
+      assert.equal(capability, 'getVoiceStatus', `unexpected capability ${capability}(${JSON.stringify(args)})`);
       return { value: voice };
     },
   };
@@ -105,7 +103,7 @@ test('Desktop changes use existing setters and preserve false and unrelated valu
   assert.equal(writes.length, 2);
 });
 
-test('Browser install and toggle are separate; voice installation uses the existing managed runtime', async () => {
+test('Browser install and toggle are separate; voice is not a Desktop-hosted setup action', async () => {
   const { run } = fixture();
   await assert.rejects(run({ action: 'set_builtin_enabled', name: 'browser', enabled: true }), /Install browser/);
   const installed = await run({ action: 'install_builtin', name: 'browser' });
@@ -114,11 +112,12 @@ test('Browser install and toggle are separate; voice installation uses the exist
   const disabled = await run({ action: 'set_builtin_enabled', name: 'browser', enabled: false });
   assert.equal(disabled.settings.browserInstalled, true);
   assert.equal(disabled.settings.browserControl, false);
-  const voice = await run({ action: 'install_builtin', name: 'voice' });
-  assert.deepEqual(voice.voice, { installed: true, enabled: true });
-  const off = await run({ action: 'set_builtin_enabled', name: 'voice', enabled: false });
-  assert.equal(off.voice.installed, true);
-  assert.equal(off.voice.enabled, false);
+  // The runtime setup tool toggles voice itself; a stray request is refused.
+  await assert.rejects(run({ action: 'install_builtin', name: 'voice' }), /Unsupported Desktop built-in/);
+  await assert.rejects(
+    run({ action: 'set_builtin_enabled', name: 'voice', enabled: false }),
+    /Unsupported Desktop built-in/
+  );
 });
 
 test('Git and Office installs bring in their system dependency before activating the feature', async () => {
@@ -208,4 +207,72 @@ test('cancellation between settings stops all remaining mutations and reports th
   );
   assert.deepEqual(writes, [['keepAwake', false]]);
   assert.equal((await api.readSettings()).computerObserveOnly, false);
+});
+
+function stubWindow() {
+  const store = new Map();
+  const target = new EventTarget();
+  globalThis.window = {
+    localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) },
+    addEventListener: (...a) => target.addEventListener(...a),
+    removeEventListener: (...a) => target.removeEventListener(...a),
+    dispatchEvent: (e) => target.dispatchEvent(e),
+    Event,
+    CustomEvent,
+  };
+}
+
+test('notificationVolume: written via setNotificationVolume, read back in status, invalid rejected', async () => {
+  const { api, run } = fixture();
+  const calls = [];
+  let volume = 100;
+  api.readSettings = async () => ({ notificationVolume: volume });
+  api.setNotificationVolume = async (v) => {
+    calls.push(v);
+    volume = v;
+    return { notificationVolume: v };
+  };
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'Windows' }, configurable: true });
+  try {
+    const result = await run({ action: 'set_desktop_settings', desktop: { notificationVolume: 250 } });
+    assert.equal(result.scope, 'desktop-host');
+    assert.deepEqual(calls, [250]);
+    assert.equal((await run({ action: 'status', domain: 'desktop' })).notificationVolume, 250);
+    for (const bad of [-1, 401, 1.5, '50', true]) {
+      await assert.rejects(run({ action: 'set_desktop_settings', desktop: { notificationVolume: bad } }), /0 to 400/);
+    }
+    assert.deepEqual(calls, [250]);
+    Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'Mac' }, configurable: true });
+    await assert.rejects(
+      run({ action: 'set_desktop_settings', desktop: { notificationVolume: 10 } }),
+      /only available on Windows/
+    );
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original);
+  }
+});
+
+test('appearance markdownDefaultView, linkPreview and toolActivityExpansion write, read back and reject bad values', async () => {
+  stubWindow();
+  const { desktopSetupPreferences } = await import('./use-setup-desktop-request.ts');
+  let view = 'preview';
+  const api = {
+    readMarkdownDefaultView: async () => view,
+    writeMarkdownDefaultView: async (v) => (view = v),
+  };
+  const prefs = desktopSetupPreferences(api);
+  const result = await prefs.write({ markdownDefaultView: 'source', linkPreview: false, toolActivityExpansion: 'all' });
+  assert.equal(result.saved, true);
+  const status = await prefs.read();
+  assert.equal(status.markdownDefaultView, 'source');
+  assert.equal(status.linkPreview, false);
+  assert.equal(status.toolActivityExpansion, 'all');
+  await assert.rejects(prefs.write({ markdownDefaultView: 'html' }), /preview, rich or source/);
+  await assert.rejects(prefs.write({ linkPreview: 'yes' }), /true or false/);
+  await assert.rejects(prefs.write({ toolActivityExpansion: 'some' }), /collapsed, commands or all/);
+  const after = await prefs.read();
+  assert.equal(after.markdownDefaultView, 'source');
+  assert.equal(after.linkPreview, false);
+  assert.equal(after.toolActivityExpansion, 'all');
 });
