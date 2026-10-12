@@ -63,7 +63,8 @@ function subscriptionRow(dashboard: unknown, subscription: Subscription): UsageR
       if (group !== 'oauth') return false;
       if (subscription.key === 'codex') return /openai|codex/.test(`${id} ${label}`);
       if (subscription.key === 'claude') return /anthropic|claude/.test(`${id} ${label}`);
-      return /grok|xai/.test(`${id} ${label}`);
+      if (subscription.key === 'grok') return /grok|xai/.test(`${id} ${label}`);
+      return id === subscription.provider;
     }) || {}
   );
 }
