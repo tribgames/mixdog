@@ -1447,11 +1447,6 @@ html[data-window-material="mica"] .jump-to-latest {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.session-goal-finished {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-}
 .session-goal-drawer {
   display: none;
 }

@@ -47,9 +47,11 @@ function GoalBar({ completed, total, label }: { completed: number; total: number
   );
 }
 
+const TERMINAL_STATE_ICONS: Partial<Record<GoalStateKind, string>> = { complete: 'check', stopped: 'stop' };
+
 /** The segment's leading mark: one glyph whose shape names the state. */
 function GoalStateIcon({ kind, label }: { kind: GoalStateKind; label?: string }) {
-  const name = kind === 'complete' ? 'check' : kind === 'stopped' ? 'stop' : `goal-${kind}`;
+  const name = TERMINAL_STATE_ICONS[kind] ?? `goal-${kind}`;
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role="img" is set whenever label (the aria-label) is defined
     <span

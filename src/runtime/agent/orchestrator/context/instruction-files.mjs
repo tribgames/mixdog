@@ -30,7 +30,7 @@ export function configuredInstructionFilesMode() {
 }
 
 /** Candidate paths in load order: global files first, then the project root's. */
-export function instructionFilePaths({ mode, cwd, homeDir = homedir() } = {}) {
+function instructionFilePaths({ mode, cwd, homeDir = homedir() } = {}) {
   const kinds = KINDS_BY_MODE[effectiveInstructionFilesMode(mode)];
   const paths = homeDir ? kinds.map((kind) => join(resolve(homeDir), GLOBAL_DIR[kind], FILE_NAME[kind])) : [];
   if (cwd) paths.push(...kinds.map((kind) => join(resolve(cwd), FILE_NAME[kind])));

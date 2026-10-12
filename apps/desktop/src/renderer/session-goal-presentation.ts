@@ -114,7 +114,7 @@ export type GoalTaskProgress = {
   pips: NonNullable<GoalTask['status']>[] | null;
 };
 
-export const GOAL_MAX_PIPS = 8;
+const GOAL_MAX_PIPS = 8;
 
 export function goalTaskProgress(goal: GoalSnapshot): GoalTaskProgress {
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];

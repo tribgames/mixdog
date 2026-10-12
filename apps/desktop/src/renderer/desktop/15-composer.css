@@ -305,18 +305,6 @@
 .composer-island-seg > svg {
   flex: none;
 }
-/* Every segment reads "mark · words · meta" (agent states, shell command +N,
-   Goal time); no rule inside a segment, only between segments. A narrow
-   column (<420px) keeps icon + bare count; the words move to the tooltip.
-   Counts never drop out. */
-.composer-island-seg-meta {
-  min-width: 0;
-  display: inline-flex;
-  overflow: hidden;
-  color: var(--mx-text-muted);
-  font-weight: var(--mx-weight-regular);
-  white-space: nowrap;
-}
 /* Agent attention states: glyph + words on a wide island, glyph + bare count
    on a narrow one (the waiting dot only appears next to the bare count). */
 .composer-island-seg-states {
@@ -339,12 +327,6 @@
 .composer-island-seg-state + .composer-island-seg-state::before {
   content: "·";
   margin-inline-end: 2px;
-}
-.composer-island-seg-cmd {
-  min-width: 0;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .composer-island-pill > .composer-island-seg.composer-island-seg-shell {
   flex-shrink: 1;
@@ -374,7 +356,6 @@
 }
 @container composer-island (max-width: 419px) {
   .composer-island-seg-word,
-  .composer-island-seg-meta,
   .composer-island-seg.turn-review-segment .diff-stats,
   .composer-island-seg-model > .composer-island-seg-text {
     display: none;
