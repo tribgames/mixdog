@@ -472,8 +472,9 @@ export default function TerminalPane({
         view.localEcho?.onInput(data);
         window.mixdogDesktop.termWrite?.(view.id, data);
       };
-      // ibus/Linux IME commits are double-sent by xterm's textarea handling.
-      const imeGuard = IS_LINUX ? new TerminalImeGuard(sendToPty) : null;
+      // ibus/Linux IME commits reach xterm's onData several times; the guard
+      // sends each commit once and keeps xterm from re-reading it.
+      const imeGuard = IS_LINUX && term.textarea ? new TerminalImeGuard(sendToPty, term.textarea) : null;
       if (imeGuard && term.element) imeDetach ??= imeGuard.attach(term.element);
       dataDisposable ??= term.onData((data) => {
         const out = imeGuard ? imeGuard.filter(data) : data;

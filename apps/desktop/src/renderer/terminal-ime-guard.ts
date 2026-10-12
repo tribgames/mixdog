@@ -1,17 +1,28 @@
-// Korean (and other) IME commits in xterm under Linux/ibus arrive TWICE: xterm's
-// CompositionHelper re-reads the helper textarea (substring from the composition
-// start, never cleared) after compositionend AND `input`/keydown-229 paths send
-// the committed syllable again, so `한글 안녕하세요` became `한글글 안녕하녕요`.
-// The guard sends the committed text exactly once and strips xterm's echoes of
-// it (also when combined with following input in one event, or arriving
-// shortly after finalize). Everything else — space, Latin letters, punctuation,
-// control bytes — always passes through.
+// Korean (and other) IME commits in xterm under Linux/ibus reach onData more
+// than once: xterm's CompositionHelper re-reads the helper textarea (substring
+// from the composition start) in a timer after compositionend, a following
+// keydown re-reads it again, and the `input` insertText path emits the same
+// text a third time. Which of these fire, and when, depends on timing (the
+// timer can run 100 ms late, after the next syllable already started), so
+// filtering xterm's echoes by time window or prefix both doubled syllables and
+// could drop real input.
 //
-// ibus-hangul commits a syllable in one of two shapes (real log: n3-events):
-//   compositionend{data:'한'}                       — data on the event
-//   compositionupdate '' → input(deleteContentBackward) → compositionend{data:''}
-//     → input(insertText '글')                      — empty end, text on the input
-// The committed text is whichever of the two is non-empty, sent exactly once.
+// The guard instead removes what xterm re-reads. It runs in the capture phase,
+// ahead of xterm's own textarea listeners, sends every committed text exactly
+// once itself and empties the textarea. xterm's timer then reads nothing, with
+// one exception: when the next syllable's composition has already started it
+// reads a slice of that preedit text — those slices (printable data that is
+// part of the textarea content while composing) are dropped. Everything else
+// on xterm's onData stream — keys, space, digits, punctuation, control bytes,
+// paste — always passes.
+//
+// ibus-hangul commits a syllable in one of two shapes (real capture, VM QA5):
+//   A  compositionend{data:'한'}
+//   B  compositionupdate '' → input(deleteContentBackward) → compositionend{data:''}
+//        → input(insertText '글')
+// In B the text arrives on the insertText input event that follows within a few
+// milliseconds; xterm's own _inputEvent would emit it again, so that event is
+// consumed here.
 
 function printable(data: string): boolean {
   for (const char of data) {
@@ -21,115 +32,89 @@ function printable(data: string): boolean {
   return data.length > 0;
 }
 
-// Commit texts xterm may echo again. An entry stays active until its finalize
-// task ran, plus a short grace window for a late echo.
-const ECHO_GRACE_MS = 100;
+// How long after a compositionend an insertText is still the same commit.
+const COMMIT_WINDOW_MS = 200;
 
-interface CommitEntry {
-  seq: number;
-  text: string;
-  done: boolean;
-  doneAt: number;
+export interface ImeTextarea {
+  value: string;
 }
 
 export class TerminalImeGuard {
   private composing = false;
-  private finalizing = false;
-  private committed = false;
-  private seq = 0;
-  private current: CommitEntry | null = null;
-  private entries: CommitEntry[] = [];
+  // B: the commit text is still to arrive on insertText. A: the text already
+  // sent from compositionend, which a repeated insertText must not send again.
+  private awaitingInsert = false;
+  private lastCommit = '';
+  private endedAt = 0;
 
   constructor(
     private readonly send: (data: string) => void,
+    private readonly textarea: ImeTextarea,
     private readonly now: () => number = Date.now
   ) {}
 
   compositionStart(): void {
     this.composing = true;
+    this.awaitingInsert = false;
+    this.lastCommit = '';
   }
 
-  /** Returns this composition's sequence number for its finalize task. */
-  compositionEnd(data: string): number {
+  compositionEnd(data: string): void {
     this.composing = false;
-    this.finalizing = true;
-    this.committed = false;
-    this.seq += 1;
-    this.current = { seq: this.seq, text: '', done: false, doneAt: 0 };
-    this.entries.push(this.current);
-    if (printable(data)) this.commit(data);
-    return this.seq;
-  }
-
-  private commit(text: string): void {
-    this.committed = true;
-    if (this.current) this.current.text = text;
-    this.send(text);
-  }
-
-  /** The textarea input event: its insertText commits a composition whose
-   *  compositionend carried no data. Ignored once a commit was sent. */
-  inputCommit(text: string, inputType: string): void {
-    if (!this.finalizing || this.committed || inputType !== 'insertText' || !printable(text)) return;
-    this.commit(text);
-  }
-
-  /** Call from a task queued AFTER xterm's own post-compositionend task. A
-   *  stale task of an earlier composition (overlapping timers) is ignored. */
-  finalizeDone(seq: number = this.seq): void {
-    const entry = this.entries.find((e) => e.seq === seq);
-    if (entry && !entry.done) {
-      entry.done = true;
-      entry.doneAt = this.now();
+    this.endedAt = this.now();
+    this.textarea.value = '';
+    if (printable(data)) {
+      this.awaitingInsert = false;
+      this.lastCommit = data;
+      this.send(data);
+    } else {
+      this.awaitingInsert = true;
+      this.lastCommit = '';
     }
-    if (seq === this.seq) this.finalizing = false;
   }
 
-  private activeEntries(): CommitEntry[] {
-    const now = this.now();
-    this.entries = this.entries.filter((e) => !e.done || now - e.doneAt < ECHO_GRACE_MS);
-    return this.entries.filter((e) => e.text !== '');
+  /** True when the input event carried IME commit text that was handled here
+   *  and must not reach xterm. Everything else is left to xterm. */
+  input(inputType: string, data: string): boolean {
+    if (this.composing || inputType !== 'insertText' || !printable(data)) return false;
+    if (this.now() - this.endedAt > COMMIT_WINDOW_MS) return false;
+    if (this.awaitingInsert) {
+      this.awaitingInsert = false;
+      this.send(data);
+    } else if (this.lastCommit === data) {
+      this.lastCommit = '';
+    } else {
+      return false;
+    }
+    this.textarea.value = '';
+    return true;
   }
 
-  /** The part of xterm's data event that is NOT a duplicate of a guarded
-   *  commit ('' = drop all). Non-duplicate input (space, Latin letters,
-   *  punctuation, control bytes) is always kept, also when xterm combined it
-   *  with the echo in one event ("글 "). */
+  /** What of xterm's onData event may be sent ('' = nothing). */
   filter(data: string): string {
-    if (this.composing) return printable(data) ? '' : data;
-    let rest = data;
-    for (let stripped = true; stripped && rest !== ''; ) {
-      stripped = false;
-      for (const entry of this.activeEntries()) {
-        if (rest.startsWith(entry.text)) {
-          rest = rest.slice(entry.text.length);
-          stripped = true;
-          break;
-        }
-      }
-    }
-    return rest;
+    return this.composing && printable(data) && this.textarea.value.includes(data) ? '' : data;
   }
 
   attach(element: HTMLElement): () => void {
-    const start = () => this.compositionStart();
+    const textarea = this.textarea as unknown as EventTarget;
+    const start = (event: Event) => {
+      if (event.target === textarea) this.compositionStart();
+    };
     const end = (event: Event) => {
-      const seq = this.compositionEnd((event as CompositionEvent).data ?? '');
-      // Bubble phase on an ancestor runs after xterm's textarea listener, so
-      // this timeout is queued after xterm's own setTimeout(0) commit.
-      setTimeout(() => this.finalizeDone(seq), 0);
+      if (event.target === textarea) this.compositionEnd((event as CompositionEvent).data ?? '');
     };
     const input = (event: Event) => {
+      if (event.target !== textarea) return;
       const e = event as InputEvent;
-      this.inputCommit(e.data ?? '', e.inputType);
+      if (this.input(e.inputType, e.data ?? '')) e.stopPropagation();
     };
     element.addEventListener('compositionstart', start, true);
-    element.addEventListener('input', input);
-    element.addEventListener('compositionend', end);
+    element.addEventListener('compositionend', end, true);
+    element.addEventListener('input', input, true);
     return () => {
       element.removeEventListener('compositionstart', start, true);
-      element.removeEventListener('compositionend', end);
-      element.removeEventListener('input', input);
+      element.removeEventListener('compositionend', end, true);
+      element.removeEventListener('input', input, true);
     };
   }
 }
