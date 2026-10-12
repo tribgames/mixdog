@@ -778,7 +778,7 @@ async function adaptStrReplace(args, workDir, options) {
   if (read.error) return read.error;
   const edit = { fullPath, workDir, options, ...read };
   if (oldStr.length === 0) {
-    if (edit.content.length > 0) return `Error: cannot create ${fullPath}: file already exists and is not empty — to modify it pass the existing text as old_string and the replacement as new_string`;
+    if (edit.content.length > 0) return `Error: cannot create ${fullPath}: file exists: to replace it entirely pass its current content as old_string (read it first); to change part, pass that part as old_string with the replacement as new_string`;
     const stale = await commitEdit(edit, {
       bytes: encodeEditContent(newStr, edit.fileEnc),
       after: newStr,

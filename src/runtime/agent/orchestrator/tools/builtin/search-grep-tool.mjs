@@ -7,7 +7,7 @@ import {
   normalizeOutputPath,
   trueCasePath,
 } from './path-utils.mjs';
-import { _suggestIndexedPaths, buildNotFoundHint, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
+import { _suggestIndexedPaths, appendNotFoundCwdNote, buildNotFoundHintBody, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
 import { buildGrepCacheKey, buildGrepRgArgs } from './search-builders.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
 import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../session/cache/scoped-cache-outcome.mjs';
@@ -200,9 +200,9 @@ async function runGrepSearch(request, sharedSignal) {
 
 async function grepMissingPathResult({ workDir, grepResolvedPath, searchPath, executeChildBuiltinTool }, err) {
   const msg = `Error: path does not exist: ${normalizeOutputPath(grepResolvedPath)} (${err?.code || 'ENOENT'})`;
-  let hint = buildNotFoundHint(workDir, grepResolvedPath, 'Search', err?.code, {});
+  let hint = buildNotFoundHintBody(workDir, grepResolvedPath, 'Search', err?.code, {});
   if (!hint) hint = await _suggestIndexedPaths(grepResolvedPath, executeChildBuiltinTool, workDir);
-  return msg + finalizeReadFamilyEnoentTail(hint, searchPath, err?.code);
+  return msg + finalizeReadFamilyEnoentTail(appendNotFoundCwdNote(hint, workDir, err?.code), searchPath, err?.code);
 }
 
 // Per-call search scope on top of the resolved request: the stat, the

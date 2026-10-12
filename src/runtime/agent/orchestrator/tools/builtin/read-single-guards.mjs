@@ -6,7 +6,7 @@
  * none of them opens a body.
  */
 import * as fsPromises from 'node:fs/promises';
-import { buildNotFoundHint, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
+import { appendNotFoundCwdNote, buildNotFoundHint, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
 
 const GUARD_REASON = {
   // R1: UNC / SMB share (\\server\share, //server/share). Reading these on
@@ -152,7 +152,7 @@ export function readNotFoundResponse(err, { fullPath, filePath, workDir }, helpe
   const { findSimilarFile, normalizeErrorMessage, normalizeOutputPath } = helpers;
   const similar = findSimilarFile(fullPath);
   let hint = similar
-    ? ` Did you mean "${normalizeOutputPath(similar)}"?`
+    ? appendNotFoundCwdNote(` Did you mean "${normalizeOutputPath(similar)}"?`, workDir, err?.code)
     : buildNotFoundHint(workDir, fullPath, 'Read', err?.code);
   hint = finalizeReadFamilyEnoentTail(hint, filePath, err?.code);
   const safeMsg = normalizeErrorMessage(err instanceof Error ? err.message : String(err), workDir);
