@@ -412,6 +412,27 @@ jobs:
           name: npm-package
           path: staged-npm
 
+      # electron-updater on macOS reads one latest-mac.yml, but each macOS job
+      # builds a single architecture and so emits a feed for its own zip only.
+      # Merge both into the one feed and add it to the hidden draft.
+      - name: Download macOS update feeds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: desktop-mac-feed-*
+          path: mac-feeds
+
+      - name: Merge and upload macOS update feed
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/merge-mac-update-feed.mjs --version="${RELEASE_TAG#v}" --out=latest-mac.yml \
+            mac-feeds/desktop-mac-feed-arm64/latest-mac.yml mac-feeds/desktop-mac-feed-x64/latest-mac.yml
+          bash .github/scripts/upload-release-assets.sh latest-mac.yml
+
       - name: Verify complete hidden release
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -455,11 +476,16 @@ jobs:
               'mixdog-desktop-win-x64.exe',
               'mixdog-desktop-win-x64.exe.blockmap',
             ],
+            // latest-mac.yml is merged from both architectures' feeds by the
+            // publish job; the zip blockmaps serve the differential updater.
             macos: [
+              'latest-mac.yml',
               'mixdog-desktop-mac-arm64.dmg',
               'mixdog-desktop-mac-arm64.zip',
+              'mixdog-desktop-mac-arm64.zip.blockmap',
               'mixdog-desktop-mac-x64.dmg',
               'mixdog-desktop-mac-x64.zip',
+              'mixdog-desktop-mac-x64.zip.blockmap',
             ],
             // electron-updater reads latest-linux*.yml; a .deb install uses
             // DebUpdater, which downloads the .deb named in that feed.
