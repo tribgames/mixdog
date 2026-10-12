@@ -1,5 +1,6 @@
 import { createElement, type ComponentType, type SVGProps } from 'react';
 import {
+  createLucideIcon,
   AlertTriangle,
   Bot,
   Check,
@@ -42,6 +43,14 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+
+// The island's shell glyph: a compact chevron with a short underscore close to it,
+// optically centred on the 24-unit grid so it carries the same weight as the
+// agent and file glyphs (lucide's Terminal spreads the two marks apart).
+const ShellPrompt = createLucideIcon('ShellPrompt', [
+  ['path', { d: 'm4 5 7 7-7 7', key: 'chevron' }],
+  ['path', { d: 'M13 19h7', key: 'underscore' }],
+]);
 
 // Name-keyed facade over the shared lucide icon set, so call sites stay
 // declarative and every glyph picks up the global `svg.lucide` stroke tuning.
@@ -96,6 +105,7 @@ const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: nu
   stop: Square,
   tasks: ListChecks,
   terminal: Terminal,
+  'shell-prompt': ShellPrompt,
   tests: FlaskConical,
   warning: AlertTriangle,
   zap: Zap,

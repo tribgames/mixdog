@@ -185,7 +185,11 @@ test('an agent blocked on a user approval reads as needing the user, not working
   const segment = document.querySelector('.composer-island-seg-agents');
   // Counted apart from the running total, so it is never hidden in it.
   assert.match(segment.textContent, new RegExp(`^2 agents.*${translate('Needs you {{needs}}', { needs: 1 })}`));
-  assert.ok(segment.querySelector('.composer-island-attention'));
+  // Glyph + count survive a narrow island (only the words hide there).
+  const needs = segment.querySelector('.composer-island-seg-state .composer-island-attention')?.parentElement;
+  assert.ok(needs);
+  assert.equal(needs.querySelector('.composer-island-seg-num').dataset.count, '1');
+  assert.ok(needs.querySelector('.composer-island-seg-word'));
   await act(async () => segment.click());
   const rows = [...document.querySelectorAll('.composer-island-row')];
   assert.equal(rows.length, 2);

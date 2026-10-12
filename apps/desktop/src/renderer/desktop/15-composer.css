@@ -317,6 +317,29 @@
   font-weight: var(--mx-weight-regular);
   white-space: nowrap;
 }
+/* Agent attention states: glyph + words on a wide island, glyph + bare count
+   on a narrow one (the waiting dot only appears next to the bare count). */
+.composer-island-seg-states {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-regular);
+  white-space: nowrap;
+}
+.composer-island-seg-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
+  display: none;
+}
+.composer-island-seg-state + .composer-island-seg-state::before {
+  content: "·";
+  margin-inline-end: 2px;
+}
 .composer-island-seg-cmd {
   min-width: 0;
   max-width: 200px;
@@ -358,6 +381,12 @@
   }
   .composer-island-seg-num {
     display: inline-block;
+  }
+  .composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
+    display: inline-block;
+  }
+  .composer-island-seg-state + .composer-island-seg-state::before {
+    content: none;
   }
   .composer-island-seg,
   .composer-island .session-goal-trigger {

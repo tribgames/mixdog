@@ -548,8 +548,29 @@ export function ComposerIsland({
                     count={agentRows.length}
                     icon="agent"
                   />
-                  <AgentMark working={agentWorking > 0} needsUser={agentNeedsUser > 0} />
-                  {agentStates ? <span className="composer-island-seg-meta">{agentStates}</span> : null}
+                  {agentNeedsUser === 0 ? <AgentMark working={agentWorking > 0} /> : null}
+                  {agentNeedsUser > 0 || agentWaiting > 0 ? (
+                    <span className="composer-island-seg-states">
+                      {agentNeedsUser > 0 ? (
+                        <span className="composer-island-seg-state">
+                          <MxIcon name="warning" size={14} className="composer-island-attention" aria-hidden="true" />
+                          <span className="composer-island-seg-word">
+                            {t('Needs you {{needs}}', { needs: agentNeedsUser })}
+                          </span>
+                          <span className="composer-island-seg-num" data-count={agentNeedsUser} aria-hidden="true" />
+                        </span>
+                      ) : null}
+                      {agentWaiting > 0 ? (
+                        <span className="composer-island-seg-state" data-kind="waiting">
+                          <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />
+                          <span className="composer-island-seg-word">
+                            {t('Island: {{waiting}} waiting', { waiting: agentWaiting })}
+                          </span>
+                          <span className="composer-island-seg-num" data-count={agentWaiting} aria-hidden="true" />
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null}
                 </button>
               ) : null}
               {shellCount > 0 ? (
@@ -563,7 +584,7 @@ export function ComposerIsland({
                   <IslandSegLabel
                     text={t('Island: {{count}} shells', { count: shellCount })}
                     count={shellCount}
-                    icon="terminal"
+                    icon="shell-prompt"
                   />
                   <JobsPulse />
                 </button>
