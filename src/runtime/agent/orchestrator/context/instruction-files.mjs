@@ -32,13 +32,15 @@ export function configuredInstructionFilesMode() {
 const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 
 /** Candidate files in load order: global files first, then the project root's.
- *  Each is confined to the real directory of its `root` (home or project). */
+ *  Project files are confined to the real directory of their `root`; global
+ *  files carry no root and may resolve anywhere. */
 function instructionFileCandidates({ mode, cwd, homeDir = homedir() } = {}) {
   const kinds = KINDS_BY_MODE[effectiveInstructionFilesMode(mode)];
   const candidates = [];
   if (homeDir) {
     const root = resolve(homeDir);
-    for (const kind of kinds) candidates.push({ path: join(root, GLOBAL_DIR[kind], FILE_NAME[kind]), root });
+    // Global files may be symlinks into a dotfiles repo: no containment root.
+    for (const kind of kinds) candidates.push({ path: join(root, GLOBAL_DIR[kind], FILE_NAME[kind]) });
   }
   if (cwd) {
     const root = resolve(cwd);
@@ -85,12 +87,12 @@ function boundedText(head) {
 }
 
 /** The file's bounded content, or '' when it is absent, unreadable, not a
- *  regular file, or resolves (symlink/junction) outside `root`. */
+ *  regular file, or resolves (symlink/junction) outside `root` when one is set. */
 function readInstructionFile({ path, root }) {
   let fd;
   try {
     const realPath = realpathSync.native(path);
-    if (!isInside(realpathSync.native(root), realPath)) {
+    if (root && !isInside(realpathSync.native(root), realPath)) {
       skipNote(path, 'resolves outside its root');
       return '';
     }

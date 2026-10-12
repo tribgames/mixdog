@@ -159,16 +159,18 @@ test('a project file symlinked outside the project root is rejected; one inside 
   }
 });
 
-test('a global directory junction/symlink leaving the home directory is rejected', () => {
+test('a global directory junction pointing outside home is followed, with the bounded read', () => {
   const fx = fixture({});
   const elsewhere = join(fx.root, 'elsewhere');
   mkdirSync(elsewhere, { recursive: true });
-  writeFileSync(join(elsewhere, 'AGENTS.md'), 'escaped global rules');
+  writeFileSync(join(elsewhere, 'AGENTS.md'), `dotfiles rules ${'word '.repeat(100_000)}`);
   mkdirSync(fx.homeDir, { recursive: true });
   try {
     symlinkSync(elsewhere, join(fx.homeDir, '.codex'), 'junction');
-    assert.equal(load(fx, 'agents'), '');
-    assert.equal(load(fx, 'all'), '');
+    const block = load(fx, 'agents');
+    assert.ok(block.includes('dotfiles rules'));
+    assert.ok(block.endsWith('[... truncated]'));
+    assert.ok(Buffer.byteLength(block, 'utf8') < budgetBytes + 512);
   } finally {
     fx.dispose();
   }
