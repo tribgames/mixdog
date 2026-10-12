@@ -52,7 +52,7 @@ test('every preview state renders the real logo, a title, a subtitle slot and at
 test('start: v4 copy, QR primary + keypad secondary, text-only buttons, no saved-PC list or link', () => {
   const empty = paint('start-empty');
   assert.equal(empty.querySelector('.mxp-title')?.textContent, 'PC에 연결');
-  assert.equal(empty.querySelector('.mxp-sub')?.textContent, 'PC의 Mixdog에서 설정 > 연결 > 모바일로 이동하세요.');
+  assert.equal(empty.querySelector('.mxp-sub')?.textContent, 'PC의 Mixdog에서 설정 > 연결 > 휴대폰으로 이동하세요.');
   const buttons = [...empty.querySelectorAll<HTMLButtonElement>('.mxp-actions button')];
   assert.deepEqual(
     buttons.map((b) => [b.textContent, b.classList.contains('sec'), Boolean(b.querySelector('svg'))]),

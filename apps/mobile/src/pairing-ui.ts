@@ -27,7 +27,7 @@ export type ResultKind = 'declined' | 'expired' | 'revoked' | 'network-error' | 
 export const STRINGS = {
   en: {
     heading: 'Connect to PC',
-    note: 'On your PC, go to Mixdog Settings > Connection > Mobile.',
+    note: 'On your PC, go to Mixdog Settings > Connection > Phone.',
     scan: 'Scan QR code',
     enterCode: 'Connect with a code',
     codeHeading: 'Connect with a code',
@@ -68,7 +68,7 @@ export const STRINGS = {
   },
   ko: {
     heading: 'PC에 연결',
-    note: 'PC의 Mixdog에서 설정 > 연결 > 모바일로 이동하세요.',
+    note: 'PC의 Mixdog에서 설정 > 연결 > 휴대폰으로 이동하세요.',
     scan: 'QR 코드 스캔',
     enterCode: '코드로 연결',
     codeHeading: '코드로 연결',
