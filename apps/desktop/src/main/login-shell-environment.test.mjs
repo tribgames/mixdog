@@ -57,6 +57,16 @@ test('missing Homebrew directories that exist are appended after the shell order
   assert.deepEqual(withHomebrewPath(undefined, () => false), { path: '', added: [] });
 });
 
+test('the original PATH string is kept verbatim, empty components included', () => {
+  const installed = (dir) => dir === '/opt/homebrew/bin';
+  assert.deepEqual(withHomebrewPath(':/usr/bin::/bin:', installed), {
+    path: ':/usr/bin::/bin::/opt/homebrew/bin',
+    added: ['/opt/homebrew/bin'],
+  });
+  assert.deepEqual(withHomebrewPath('/usr/bin::/bin', () => false), { path: '/usr/bin::/bin', added: [] });
+  assert.deepEqual(withHomebrewPath('', installed), { path: '/opt/homebrew/bin', added: ['/opt/homebrew/bin'] });
+});
+
 test('Windows launches keep the inherited environment without spawning a shell', async () => {
   assert.deepEqual(await readLoginShellEnvironment({ platform: 'win32', shells: ['/bin/zsh'] }), {
     environment: null,

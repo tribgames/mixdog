@@ -85,14 +85,17 @@ export function loginShellOverrides(
 const HOMEBREW_PATH_DIRS = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/local/sbin'];
 
 /** PATH with every existing Homebrew directory it lacks appended — never
- *  prepended, so the order the user's shell chose keeps winning. */
+ *  prepended, so the order the user's shell chose keeps winning. The original
+ *  string is kept verbatim, empty components (the current directory) included. */
 export function withHomebrewPath(
   path: string | undefined,
   exists: (dir: string) => boolean = existsSync
 ): { path: string; added: string[] } {
-  const segments = (path || '').split(':').filter(Boolean);
+  const original = path ?? '';
+  const segments = original.split(':');
   const added = HOMEBREW_PATH_DIRS.filter((dir) => !segments.includes(dir) && exists(dir));
-  return { path: [...segments, ...added].join(':'), added };
+  if (!added.length) return { path: original, added };
+  return { path: original ? `${original}:${added.join(':')}` : added.join(':'), added };
 }
 
 function readShell(shell: string, timeoutMs: number): Promise<Record<string, string> | string> {
