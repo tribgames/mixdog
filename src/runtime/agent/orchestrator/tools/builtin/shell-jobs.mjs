@@ -33,6 +33,8 @@ import {
   backgroundShellEvictionReason,
   clearBackgroundShellBudget,
   forgetBackgroundShellJob,
+  pinBackgroundShellJob,
+  setBackgroundShellEvictionFailureHandler,
 } from './shell-background-budget.mjs';
 import {
   renderShellCompletionEnvelope,
@@ -182,7 +184,15 @@ export function buildShellCompletion(jobId, detail) {
 
 export async function waitForShellJob(jobId, { timeoutMs = 30_000, signal = null } = {}) {
   const started = Date.now();
-  const detail = normalizeShellJobDetail(await waitNativeTask(jobId, timeoutMs, signal));
+  // A live waiter is using the job: the background budget may not evict it.
+  const unpin = pinBackgroundShellJob(jobId);
+  let waited;
+  try {
+    waited = await waitNativeTask(jobId, timeoutMs, signal);
+  } finally {
+    unpin();
+  }
+  const detail = normalizeShellJobDetail(waited);
   const withInsights = attachJobInsights(detail);
   if (!withInsights) return null;
   withInsights.waitedMs = Date.now() - started;
@@ -267,6 +277,35 @@ function enqueueCompletionFallback(sessionId, message, meta) {
   if (!visible) return false;
   return enqueuePendingMessage(sessionId, markCompletionEntry(visible, { executionId: meta?.execution_id, meta })) > 0;
 }
+
+// The budget could not stop an evicted job: tell its owner it still runs and
+// still counts, through the same owner notification path completions use.
+// Distinct id: the job's own completion must not be deduplicated against it.
+setBackgroundShellEvictionFailureHandler(({ jobId, ownerSessionId, command, reason }) => {
+  const ctx = jobNotifyCtxByJobId.get(jobId);
+  const owner = String(ctx?.callerSessionId || ownerSessionId || '');
+  if (!ctx && !owner) return;
+  const id = `${jobId}-eviction`;
+  notifyToolCompletion({
+    surface: 'shell',
+    id,
+    status: 'failed',
+    text: renderShellCompletionEnvelope({
+      jobId: id,
+      status: 'failed',
+      command,
+      result:
+        `The background shell budget tried to evict task ${jobId} but could not stop it. It keeps running, stays ` +
+        `counted against the background cap, and the stop is retried. Stop it with task cancel task_id=${jobId} ` +
+        'if it is no longer needed.',
+      error: reason,
+    }),
+    resultType: 'shell_task_result',
+    context: ctx || { callerSessionId: owner },
+    enqueueFallback: enqueueCompletionFallback,
+    logPrefix: 'shell-budget',
+  });
+});
 
 export function watchBackgroundShellJob(jobId, notifyCtx) {
   const ctx =

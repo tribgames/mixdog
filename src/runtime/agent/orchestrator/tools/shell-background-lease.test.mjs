@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ResourceAdmissionController, resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { cancelBackgroundTask, getBackgroundTask, registerBackgroundTask } from '../../../shared/background-tasks.mjs';
 import { execShellCommand } from './shell-command.mjs';
-import { shutdownShellJobs, watchBackgroundShellJob } from './builtin/shell-jobs.mjs';
+import { killShellJob, shutdownShellJobs, watchBackgroundShellJob } from './builtin/shell-jobs.mjs';
 import { backgroundShellBudgetSnapshot } from './builtin/shell-background-budget.mjs';
 import { executeTaskTool } from './builtin/task-tool.mjs';
 import {
@@ -60,6 +60,17 @@ async function until(predicate, timeoutMs = 10_000) {
     await delay(20);
   }
   return predicate();
+}
+
+function withEnv(values) {
+  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, values);
+  return () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
 }
 
 async function stopAll() {
@@ -117,8 +128,7 @@ test('promotion releases the foreground lease: 8 promoted servers leave a 9th ca
 
 test('the background cap evicts the least-recently-active job and notifies its owner', { skip: skipNative, timeout: 60_000 }, async () => {
   const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 8, maxHighLoad: 12 } });
-  const previous = process.env.MIXDOG_MAX_BACKGROUND_SHELLS;
-  process.env.MIXDOG_MAX_BACKGROUND_SHELLS = '1';
+  const restore = withEnv({ MIXDOG_MAX_BACKGROUND_SHELLS: '5', MIXDOG_BACKGROUND_SHELL_MIN_IDLE_MS: '0' });
   const notices = new Map();
   try {
     const jobIds = [];
@@ -133,6 +143,8 @@ test('the background cap evicts the least-recently-active job and notifies its o
         })
       );
       assert.equal(result.backgrounded, true, result.stderr);
+      // The 6th waited for the slot the eviction freed: no pending notice.
+      assert.doesNotMatch(result.backgroundMessage, /budget full/);
       jobIds.push(result.jobId);
       watchBackgroundShellJob(result.jobId, {
         callerSessionId: 'sess_evict',
@@ -142,6 +154,7 @@ test('the background cap evicts the least-recently-active job and notifies its o
     // Recent four (3..6) and the explicit-timeout job (1) are protected: only
     // job 2, the least-recently-active unprotected one, is evicted.
     const evictedId = jobIds[1];
+    assert.equal(backgroundShellBudgetSnapshot().jobs.length, 5, 'the cap holds');
     const notice = await until(() => notices.get(evictedId));
     assert.ok(notice, 'the evicted job owner was notified');
     assert.match(notice, new RegExp(`task-id.*${evictedId}`));
@@ -152,11 +165,41 @@ test('the background cap evicts the least-recently-active job and notifies its o
     assert.equal(notices.size, 1);
     assert.equal(admission.snapshot().active.shell, 0);
   } finally {
-    if (previous === undefined) delete process.env.MIXDOG_MAX_BACKGROUND_SHELLS;
-    else process.env.MIXDOG_MAX_BACKGROUND_SHELLS = previous;
+    restore();
     await stopAll();
   }
   assert.equal(backgroundShellBudgetSnapshot().jobs.length, 0);
+});
+
+test('a full cap of protected jobs keeps the new job on its foreground lease and names the caller\u2019s jobs', { skip: skipNative, timeout: 60_000 }, async () => {
+  const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 8, maxHighLoad: 12 } });
+  const restore = withEnv({ MIXDOG_MAX_BACKGROUND_SHELLS: '2' });
+  try {
+    const first = await execShellCommand(longJob('cap-0', { admission, ownerSessionId: 'sess_cap' }));
+    const second = await execShellCommand(
+      longJob('cap-1 --token=SECRET-OTHER', { admission, ownerSessionId: 'sess_other' })
+    );
+    const third = await execShellCommand(longJob('cap-2', { admission, ownerSessionId: 'sess_cap' }));
+    for (const result of [first, second, third]) assert.equal(result.backgrounded, true, result.stderr);
+    assert.match(third.backgroundMessage, /background shell budget full \(2\/2\)/);
+    assert.match(third.backgroundMessage, new RegExp(`task ${third.jobId} keeps its foreground execution slot`));
+    assert.match(third.backgroundMessage, new RegExp(`task cancel task_id=${first.jobId}`));
+    assert.match(third.backgroundMessage, /1 background job\(s\) belong to other sessions/);
+    assert.doesNotMatch(third.backgroundMessage, /SECRET-OTHER/);
+    assert.equal(backgroundShellBudgetSnapshot().jobs.length, 2, 'the hard cap is not exceeded');
+    assert.equal(admission.snapshot().active.shell, 1, 'the waiting job still holds its foreground lease');
+    assert.equal(getNativeTask(third.jobId)?.status, 'running');
+
+    // Cancelling an owned job frees a slot: the waiter moves in and its lease returns.
+    killShellJob(first.jobId);
+    assert.ok(await until(() => admission.snapshot().active.shell === 0));
+    assert.ok(backgroundShellBudgetSnapshot().jobs.some((job) => job.jobId === third.jobId));
+  } finally {
+    restore();
+    await stopAll();
+  }
+  assert.equal(admission.snapshot().active.shell, 0);
+  assert.equal(backgroundShellBudgetSnapshot().jobs.length + backgroundShellBudgetSnapshot().pending.length, 0);
 });
 
 test('a queued saturated command releases its lease when it is promoted', { skip: skipNative, timeout: 60_000 }, async () => {
@@ -192,7 +235,7 @@ test('a queued saturated command releases its lease when it is promoted', { skip
   }
 });
 
-test('the saturation error lists holders with task ids and exact cancel calls', async () => {
+test('the saturation error names only the caller\u2019s holders, with task ids and exact cancel calls', async () => {
   let clock = 1;
   const admission = new ResourceAdmissionController({
     env: {},
@@ -200,7 +243,10 @@ test('the saturation error lists holders with task ids and exact cancel calls', 
     limits: { maxShells: 2, maxHighLoad: 12 },
   });
   registerBackgroundTask({ taskId: 'job_mine_1', surface: 'shell', context: { callerSessionId: 'sess_me' } });
-  const other = await admission.acquire('shell', { label: '[task_id: job_other_1] vite', ownerKey: 'sess_other' });
+  const other = await admission.acquire('shell', {
+    label: '[task_id: job_other_1] curl -H "Authorization: Bearer FAKE-TOKEN-123" api',
+    ownerKey: 'sess_other',
+  });
   clock = 1_001;
   const mine = await admission.acquire('shell', { label: '[task_id: job_mine_1] npm run dev', ownerKey: 'sess_me' });
   clock = 61_001;
@@ -211,13 +257,11 @@ test('the saturation error lists holders with task ids and exact cancel calls', 
     assert.equal(result.failureReason, 'resource pressure');
     const text = result.stderr;
     assert.match(text, /shell admission wait exceeded 200ms — 2\/2 shell leases active/);
-    assert.match(
-      text,
-      /Holders, oldest first: \[61s\] \[task_id: job_other_1\] vite \(session sess_other\) \| \[60s\] \[task_id: job_mine_1\] npm run dev \(session sess_me, yours\)/
-    );
+    assert.match(text, /Your holders, oldest first: \[60s\] \[task_id: job_mine_1\] npm run dev\./);
     assert.match(text, /Free your own slots: task cancel task_id=job_mine_1\./);
-    assert.doesNotMatch(text, /task cancel task_id=job_other_1/);
-    assert.match(text, /1 holder\(s\) belong to other sessions/);
+    assert.match(text, /1 holder\(s\) belong to other sessions of this runtime \(ages 61s\)/);
+    // Another session's holder is a count and an age, never its command.
+    assert.doesNotMatch(text, /FAKE-TOKEN-123|curl|job_other_1|sess_other/);
   } finally {
     await other.release();
     await mine.release();
@@ -227,10 +271,14 @@ test('the saturation error lists holders with task ids and exact cancel calls', 
 });
 
 test('task list shows other sessions\u2019 shell holders as a read-only count', async () => {
-  const lease = await resourceAdmission.acquire('shell', { label: '[task_id: job_x] server', ownerKey: 'sess_someone' });
+  const lease = await resourceAdmission.acquire('shell', {
+    label: '[task_id: job_x] server --password=FAKE-TOKEN-456',
+    ownerKey: 'sess_someone',
+  });
   try {
     const listed = await executeTaskTool({ action: 'list' }, { sessionId: 'sess_viewer' });
     assert.match(listed, /\[other sessions in this runtime\] 1 foreground shell lease\(s\), 0 background shell job\(s\)/);
+    assert.doesNotMatch(listed, /FAKE-TOKEN-456|job_x|sess_someone/);
     const own = await executeTaskTool({ action: 'list' }, { sessionId: 'sess_someone' });
     assert.doesNotMatch(own, /other sessions in this runtime/);
   } finally {

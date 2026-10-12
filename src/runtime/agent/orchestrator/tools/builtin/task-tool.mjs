@@ -24,7 +24,7 @@ import {
 import { recordDeliveredCompletion } from '../../session/manager/delivered-completions.mjs';
 import { listShellJobRecords, readShellJobRecord } from './lib/shell-job-records.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
-import { backgroundShellBudgetSnapshot, touchBackgroundShellJob } from './shell-background-budget.mjs';
+import { backgroundShellBudgetSnapshot, pinBackgroundShellJob } from './shell-background-budget.mjs';
 import { readShellTaskOutput } from './lib/shell-task-output.mjs';
 
 // Ceiling for confirming that a cancelled task's process really exited. The
@@ -280,41 +280,49 @@ export async function executeTaskTool(args, options = {}) {
   const isShellTask = task.surface === 'shell';
 
   if (action === 'read' || action === 'wait') {
-    let waitInterruptedByUser = false;
-    if (action === 'wait') {
-      if (!isShellTask) return `Error: task wait is only available for shell tasks: ${taskId}`;
-      waitInterruptedByUser = await waitForShellTask(task, taskId, args, options);
+    // The job is in use for the whole read/wait: never evicted meanwhile.
+    const unpin = isShellTask ? pinBackgroundShellJob(taskId) : () => {};
+    try {
+      return await readOrWaitTask(task, taskId, action, args, options);
+    } finally {
+      unpin();
     }
-    if (isShellTask) {
-      touchBackgroundShellJob(taskId);
-      refreshShellTask(taskId, { includeRunning: true });
-    }
-    const latest = getBackgroundTask(taskId, { context: options }) || task;
-    const visible =
-      isShellTask && latest.result && typeof latest.result === 'object'
-        ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
-        : latest;
-    let rendered = renderBackgroundTask(visible, { includeResult: true });
-    if (action === 'wait' && latest.status === 'running') {
-      if (waitInterruptedByUser) {
-        rendered +=
-          '\n\nWait interrupted by new user input; task still running. Handle the new message now and reply to it before waiting on this task again.';
-      } else {
-        // In-band report cue: the static "periodic reports" rule does not
-        // survive a long tool loop, so a ceiling-hit wait carries the
-        // protocol reminder itself.
-        rendered +=
-          '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
-      }
-    }
-    if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {
-      recordDeliveredCompletion({ executionId: taskId });
-    }
-    return rendered;
   }
 
   // action is 'cancel': the read|wait|cancel guard above admits nothing else.
   if (isShellTask) return await cancelShellTask(task, taskId, options);
   cancelBackgroundTask(taskId, 'cancelled by task control');
   return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
+}
+
+async function readOrWaitTask(task, taskId, action, args, options) {
+  const isShellTask = task.surface === 'shell';
+  let waitInterruptedByUser = false;
+  if (action === 'wait') {
+    if (!isShellTask) return `Error: task wait is only available for shell tasks: ${taskId}`;
+    waitInterruptedByUser = await waitForShellTask(task, taskId, args, options);
+  }
+  if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
+  const latest = getBackgroundTask(taskId, { context: options }) || task;
+  const visible =
+    isShellTask && latest.result && typeof latest.result === 'object'
+      ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
+      : latest;
+  let rendered = renderBackgroundTask(visible, { includeResult: true });
+  if (action === 'wait' && latest.status === 'running') {
+    if (waitInterruptedByUser) {
+      rendered +=
+        '\n\nWait interrupted by new user input; task still running. Handle the new message now and reply to it before waiting on this task again.';
+    } else {
+      // In-band report cue: the static "periodic reports" rule does not
+      // survive a long tool loop, so a ceiling-hit wait carries the
+      // protocol reminder itself.
+      rendered +=
+        '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
+    }
+  }
+  if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {
+    recordDeliveredCompletion({ executionId: taskId });
+  }
+  return rendered;
 }

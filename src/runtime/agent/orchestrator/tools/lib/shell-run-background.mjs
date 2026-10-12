@@ -113,7 +113,7 @@ export function createAutoBackground({
     }
     const jobId = job.jobId;
     run.autoBackgroundJobId = jobId;
-    await handOverToBackgroundBudget(run, jobId, { command, ownerSessionId, explicitTimeout });
+    const budgetNotice = await handOverToBackgroundBudget(run, jobId, { command, ownerSessionId, explicitTimeout });
     // Snapshot the partial output captured so far for the immediate result.
     const { stdout, stderr } = await readCapturedOutput(taskOutput);
     const capture = { stdout, stderr, spill: { ...promotedSpillPaths(taskOutput), stdoutPath } };
@@ -138,7 +138,7 @@ export function createAutoBackground({
       resolveCompletedDuringPromotion(run, { ...capture, stdout: final.stdout, stderr: final.stderr });
       return;
     }
-    resolveBackgrounded(run, { jobId, reason, remainingBackgroundTimeoutMs }, capture);
+    resolveBackgrounded(run, { jobId, reason, remainingBackgroundTimeoutMs, budgetNotice }, capture);
   };
 
   return (options) => {

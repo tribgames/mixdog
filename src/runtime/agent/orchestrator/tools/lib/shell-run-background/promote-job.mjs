@@ -5,7 +5,8 @@
  * that follows a failed one.
  */
 import { promoteForegroundShellJob } from '../../builtin/shell-jobs.mjs';
-import { registerBackgroundShellJob } from '../../builtin/shell-background-budget.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { backgroundShellPendingNotice, registerBackgroundShellJob } from '../../builtin/shell-background-budget.mjs';
 import { treeKillForceSettle } from '../shell-run-state.mjs';
 
 export async function promoteWithRetry(
@@ -76,14 +77,32 @@ export function killAfterFailedPromotion(run, reason, promotionFailure) {
   );
 }
 
+// How long a promotion waits for the slot an in-flight eviction is freeing
+// before reporting the job as pending.
+const ADMIT_WAIT_AFTER_EVICTION_MS = 2_000;
+
 /**
- * The promoted job leaves foreground admission: its lease is RELEASED (a
- * long-lived server must never hold a foreground slot for its whole life) and
- * the job joins the background budget, which may evict an older idle job.
+ * The promoted job leaves foreground admission: it joins the background
+ * budget and its lease is RELEASED (a long-lived server must never hold a
+ * foreground slot for its whole life). When the hard background cap is full
+ * the job stays pending: the budget keeps the lease until a slot frees, and
+ * the returned notice tells the model why. Returns null when admitted.
  */
 export async function handOverToBackgroundBudget(run, jobId, { command, ownerSessionId, explicitTimeout }) {
-  const promotedLease = run.resourceLease;
+  const lease = run.resourceLease;
   run.resourceLease = null;
-  await promotedLease?.release();
-  registerBackgroundShellJob(jobId, { command, ownerSessionId, explicitTimeout });
+  const outcome = registerBackgroundShellJob(jobId, { command, ownerSessionId, explicitTimeout, lease });
+  if (outcome.admitted) {
+    await lease?.release();
+    return null;
+  }
+  // Admitted later, the budget releases the lease itself.
+  const admitted =
+    outcome.evicted.length > 0 &&
+    (await Promise.race([outcome.whenAdmitted, delay(ADMIT_WAIT_AFTER_EVICTION_MS, false)]));
+  if (admitted) return null;
+  // Still pending: the foreground slot stays held, but the caller's own
+  // (agent) lease is given back so it is not blocked behind this job.
+  await lease?.detachDependency?.();
+  return backgroundShellPendingNotice(jobId, ownerSessionId);
 }

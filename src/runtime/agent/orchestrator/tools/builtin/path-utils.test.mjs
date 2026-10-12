@@ -112,6 +112,32 @@ test('joined multi-path strings: spaced single path unchanged, existing pieces s
   }
 });
 
+test('joined multi-path strings never widen scope beyond the working directory', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'mixdog-joined-scope-'));
+  const outside = mkdtempSync(join(tmpdir(), 'mixdog-joined-outside-'));
+  const dir = join(parent, 'project');
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    mkdirSync(join(dir, 'docs'));
+    writeFileSync(join(dir, 'a.txt'), 'a\n');
+    for (const value of ['src, ..', `src,${parent}`, `src ${outside}`, '., src', `src,${dir}`]) {
+      const args = { path: value };
+      const message = splitJoinedPathScopes('grep', args, dir);
+      assert.match(String(message), /send an array \(path\[\]\)/, value);
+      assert.equal(args.path, value, `${value} stays unsplit`);
+    }
+    const ordinary = { path: 'src, docs' };
+    assert.equal(splitJoinedPathScopes('glob', ordinary, dir), null);
+    assert.deepEqual(ordinary.path, ['src', 'docs']);
+    const nested = { file_path: 'src a.txt' };
+    assert.equal(splitJoinedPathScopes('read', nested, dir), null);
+    assert.deepEqual(nested.file_path, ['src', 'a.txt']);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('toDisplayPath matches Windows drive-letter casing', () => {
   assert.equal(toDisplayPath('c:/proj/src/a.ts', 'C:/PROJ'), 'src/a.ts');
 });

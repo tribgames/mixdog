@@ -83,7 +83,7 @@ export function resolveCompletedDuringPromotion(run, capture) {
   );
 }
 
-export function resolveBackgrounded(run, { jobId, reason, remainingBackgroundTimeoutMs }, capture) {
+export function resolveBackgrounded(run, { jobId, reason, remainingBackgroundTimeoutMs, budgetNotice = null }, capture) {
   // The promoted job now owns cancellation through task control. Retaining
   // the foreground caller's signal listener would keep the completed tool
   // frame alive and could later kill an unrelated, already-returned job.
@@ -102,9 +102,12 @@ export function resolveBackgrounded(run, { jobId, reason, remainingBackgroundTim
       backgrounded: true,
       jobId,
       backgroundTimeoutMs: remainingBackgroundTimeoutMs,
-      backgroundMessage: jobId
-        ? `${verb}; still running. ${BACKGROUND_GUIDANCE}`
-        : `${verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
+      backgroundMessage:
+        (jobId
+          ? `${verb}; still running. ${BACKGROUND_GUIDANCE}`
+          : `${verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`) +
+        // The hard background cap kept this job on its foreground slot.
+        (budgetNotice ? `\n${budgetNotice}` : ''),
     })
   );
 }

@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { isWSL } from '../../../../shared/wsl.mjs';
@@ -342,7 +342,12 @@ const JOINED_PATH_LIMIT = 10;
 // is itself an existing path is left alone (so `C:\Program Files\x` works);
 // otherwise, when EVERY piece exists, it becomes a path array. Anything else
 // is left for the normal not-found error (which carries the array hint).
-// Returns an error message when the split exceeds the batch limit, else null.
+// A split never widens scope: every piece must resolve strictly INSIDE the
+// session working directory (the project root). `.`, `..`, the directory
+// itself, its ancestors and anything outside it keep the string unsplit and
+// return the array hint instead.
+// Returns an error message when the split is refused or exceeds the batch
+// limit, else null.
 export function splitJoinedPathScopes(toolName, args, workDir) {
   const keys = JOINED_PATH_KEYS[toolName];
   if (!keys || !args || typeof args !== 'object' || Array.isArray(args)) return null;
@@ -353,11 +358,20 @@ export function splitJoinedPathScopes(toolName, args, workDir) {
       return false;
     }
   };
+  const strictlyInside = (p) => {
+    const piece = normalizeInputPath(p);
+    if (piece === '.' || piece === '..') return false;
+    const rel = relative(resolve(workDir), resolveAgainstCwd(piece, workDir));
+    return Boolean(rel) && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  };
   for (const key of keys) {
     const value = args[key];
     if (typeof value !== 'string' || !/[\s,]/.test(value.trim()) || exists(value)) continue;
     const pieces = value.split(/[\s,]+/).filter(Boolean);
     if (pieces.length < 2 || !pieces.every(exists)) continue;
+    if (!pieces.every(strictlyInside)) {
+      return `Error: ${toolName} arg "${key}" joins several paths in one string, and one is ".", "..", a parent of the working directory or outside it, so it is not split automatically. To pass several paths, send an array (path[]), not a comma- or space-joined string.`;
+    }
     if (pieces.length > JOINED_PATH_LIMIT) {
       return `Error: ${toolName} arg "${key}" joins ${pieces.length} paths in one string (${pieces.length} given, max ${JOINED_PATH_LIMIT}); split or pass the parent directory.`;
     }

@@ -56,9 +56,9 @@ const SHELL_ADMISSION_WAIT_MS =
 // the command keeps once promoted, or its queued task's id).
 const LEASE_TASK_ID = /^\[task_id: ([^\]\s]+)\]/;
 
-// Holders oldest first, each with its task_id and owner session; the caller's
-// own cancellable holders get exact `task cancel` calls, other sessions' a
-// count (task list/cancel are session-scoped, so those stay out of reach).
+// Only the caller's OWN holders are described (oldest first, with task_id and
+// an exact `task cancel` call when cancellable). Other sessions' holders are
+// reported as a count with ages: their command text is never shown here.
 function _admissionSaturationError(admission, waitMs, ownerKey = null) {
   const own = String(ownerKey || '');
   let detail = '';
@@ -69,31 +69,33 @@ function _admissionSaturationError(admission, waitMs, ownerKey = null) {
       .sort((a, b) => b.ageMs - a.ageMs);
     const rows = [];
     const cancels = [];
-    let others = 0;
+    const otherAges = [];
     for (const lease of holders) {
+      const age = `${Math.round(lease.ageMs / 1000)}s`;
+      if (!own || lease.ownerKey !== own) {
+        otherAges.push(age);
+        continue;
+      }
       const label = String(lease.label || '(unlabeled)');
       const taskId = LEASE_TASK_ID.exec(label)?.[1] || null;
-      const mine = Boolean(own) && lease.ownerKey === own;
-      if (!mine) others += 1;
-      const cancellable = mine && taskId && getBackgroundTask(taskId);
+      const cancellable = taskId && getBackgroundTask(taskId);
       if (cancellable) cancels.push(`task cancel task_id=${taskId}`);
-      const tags = [`session ${lease.ownerKey || 'unknown'}`];
-      if (mine) tags.push(cancellable ? 'yours' : 'yours, foreground call');
-      rows.push(`[${Math.round(lease.ageMs / 1000)}s] ${label} (${tags.join(', ')})`);
+      rows.push(`[${age}] ${label}${cancellable ? '' : ' (foreground call)'}`);
     }
     detail =
       ` ${snap.active.shell}/${snap.limits.maxShells} shell leases active, ${snap.queued} queued.` +
-      (rows.length ? ` Holders, oldest first: ${rows.join(' | ')}.` : '') +
+      (rows.length ? ` Your holders, oldest first: ${rows.join(' | ')}.` : '') +
       (cancels.length ? ` Free your own slots: ${cancels.join('; ')}.` : '') +
-      (others
-        ? ` ${others} holder(s) belong to other sessions of this runtime; only their owners can cancel them.`
+      (otherAges.length
+        ? ` ${otherAges.length} holder(s) belong to other sessions of this runtime (ages ${otherAges.join(', ')}); only their owners can cancel them.`
         : '');
   } catch {
     /* diagnostics must not mask the timeout */
   }
   const error = new Error(
     `shell admission wait exceeded ${waitMs}ms —${detail} ` +
-      'Foreground leases return when their call ends or auto-backgrounds; background jobs hold none.'
+      'A lease returns when its call ends or is promoted to the background; a promoted job keeps it only while ' +
+      'the background shell budget is full.'
   );
   error.code = 'ERESOURCEPRESSURE';
   error.admissionSaturated = true;
