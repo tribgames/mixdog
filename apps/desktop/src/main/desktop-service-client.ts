@@ -737,6 +737,9 @@ export class DesktopServiceClient implements DesktopService {
   cancelQuotaResume(sessionId: string): Promise<boolean> {
     return this.invoke('cancelQuotaResume', [sessionId]);
   }
+  stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }> {
+    return this.invoke('stopShellJob', [sessionId, taskId]);
+  }
   getQuotaAutoResume(): Promise<boolean> {
     return this.invoke('getQuotaAutoResume', []);
   }

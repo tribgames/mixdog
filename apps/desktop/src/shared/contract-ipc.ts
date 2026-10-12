@@ -56,6 +56,7 @@ export const DESKTOP_IPC = {
   continueSessionInModel: 'mixdog:continue-session-in-model',
   scheduleQuotaResume: 'mixdog:schedule-quota-resume',
   cancelQuotaResume: 'mixdog:cancel-quota-resume',
+  stopShellJob: 'mixdog:stop-shell-job',
   getQuotaAutoResume: 'mixdog:get-quota-auto-resume',
   viewerDevice: 'mixdog:viewer-device',
   setQuotaAutoResume: 'mixdog:set-quota-auto-resume',

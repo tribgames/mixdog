@@ -56,6 +56,17 @@ export function createAgentOps(deps) {
     });
   }
 
+  // Stop one background shell job of THIS session through the task tool's
+  // cancel path; the answer is structured so a surface never parses text.
+  async function stopShellJob(taskId) {
+    const session = getSession();
+    const { stopBackgroundShellJob } = await import('../../runtime/agent/orchestrator/tools/builtin/task-tool.mjs');
+    return stopBackgroundShellJob(taskId, {
+      callerSessionId: session?.id || null,
+      clientHostPid: session?.clientHostPid || process.pid,
+    });
+  }
+
   function onNotification(listener) {
     if (typeof listener !== 'function') return () => {};
     const sessionId = getSession()?.id || getReservedSessionId?.() || '';
@@ -94,5 +105,5 @@ export function createAgentOps(deps) {
     return { ...result, status: toolsStatus() };
   }
 
-  return { agentControl, taskControl, onNotification, toolsStatus, selectTools };
+  return { agentControl, taskControl, stopShellJob, onNotification, toolsStatus, selectTools };
 }

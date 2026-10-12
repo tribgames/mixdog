@@ -553,6 +553,10 @@ export class SessionHost implements DesktopService {
     return this.lifecycle.cancelQuotaResume(sessionId);
   }
 
+  async stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }> {
+    return this.lifecycle.stopShellJob(sessionId, taskId);
+  }
+
   async getQuotaAutoResume(): Promise<boolean> {
     return this.lifecycle.getQuotaAutoResume();
   }

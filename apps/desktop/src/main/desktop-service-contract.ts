@@ -59,6 +59,7 @@ export interface DesktopService {
   continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean>;
   scheduleQuotaResume(sessionId: string): Promise<boolean>;
   cancelQuotaResume(sessionId: string): Promise<boolean>;
+  stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
   getQuotaAutoResume(): Promise<boolean>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
@@ -152,6 +153,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'continueSessionInModel',
   'scheduleQuotaResume',
   'cancelQuotaResume',
+  'stopShellJob',
   'getQuotaAutoResume',
   'setQuotaAutoResume',
   'setSessionArchived',

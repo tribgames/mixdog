@@ -323,6 +323,10 @@ export interface DesktopApi {
   scheduleQuotaResume(sessionId: string): Promise<boolean>;
   /** Drops a waiting auto-resume; the session stays stopped. */
   cancelQuotaResume(sessionId: string): Promise<boolean>;
+  /** Stops one running background shell job of the session through its
+   *  runtime (the task tool's cancel). `stopped` is true only when the job was
+   *  actually cancelled; unknown, finished or failed cancels carry `error`. */
+  stopShellJob?(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
   /** Whether quota-stopped sessions resume by themselves at reset (default true). */
   getQuotaAutoResume(): Promise<boolean>;
   /** The device name this window's own actions are stamped with (the host's

@@ -180,7 +180,10 @@ async function waitForShellTask(task, taskId, args, options) {
   return interruptedByUser;
 }
 
-async function cancelShellTask(task, taskId, options) {
+// Outcome of a shell cancel: `outcome` is 'cancelled' only when the process is
+// confirmed gone (or never had one), 'unconfirmed' when the kill was delivered
+// but the exit could not be confirmed, 'not-found' for an unknown task.
+async function cancelShellTaskOutcome(task, taskId, options) {
   // A tracked task with no native job is still cancellable: the
   // registry's own cancel hook owns it (descendants that outlived
   // their shell). Remember that it WAS live so the outcome is
@@ -196,11 +199,14 @@ async function cancelShellTask(task, taskId, options) {
     if (confirmed && confirmed.status === 'running') {
       // Watcher and notify context stay armed: the eventual exit
       // must still reach the owner.
-      return [
-        'status: cancel-unconfirmed',
-        `task_id: ${taskId}`,
-        'the cancellation was delivered but the process has not exited yet. It stays tracked and its completion is still delivered; re-run task cancel or task read to check again.',
-      ].join('\n');
+      return {
+        outcome: 'unconfirmed',
+        text: [
+          'status: cancel-unconfirmed',
+          `task_id: ${taskId}`,
+          'the cancellation was delivered but the process has not exited yet. It stays tracked and its completion is still delivered; re-run task cancel or task read to check again.',
+        ].join('\n'),
+      };
     }
     if (!confirmed) {
       // No terminal event and no observable task: absence of
@@ -209,19 +215,56 @@ async function cancelShellTask(task, taskId, options) {
       cancelBackgroundShellJobWatch(taskId);
       clearShellJobNotifyCtx(taskId);
       cancelBackgroundTask(taskId, 'cancelled by task control; termination unconfirmed');
-      return [
-        'status: cancel-unconfirmed',
-        `task_id: ${taskId}`,
-        'the cancellation was delivered but this task is no longer observable, so its termination could not be confirmed. Verify the process directly if it must be gone.',
-      ].join('\n');
+      return {
+        outcome: 'unconfirmed',
+        text: [
+          'status: cancel-unconfirmed',
+          `task_id: ${taskId}`,
+          'the cancellation was delivered but this task is no longer observable, so its termination could not be confirmed. Verify the process directly if it must be gone.',
+        ].join('\n'),
+      };
     }
   }
   cancelBackgroundShellJobWatch(taskId);
   clearShellJobNotifyCtx(taskId);
   cancelBackgroundTask(taskId, 'cancelled by task control');
   return job || wasRunning
-    ? renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task)
-    : buildJobNotFoundMessage(taskId);
+    ? {
+        outcome: 'cancelled',
+        text: renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task),
+      }
+    : { outcome: 'not-found', text: buildJobNotFoundMessage(taskId) };
+}
+
+async function cancelShellTask(task, taskId, options) {
+  return (await cancelShellTaskOutcome(task, taskId, options)).text;
+}
+
+/**
+ * Stop one BACKGROUND shell job of the caller's session (desktop stop button).
+ * The same cancel the `task` tool runs, with a structured answer: `stopped` is
+ * true only when the job was actually cancelled. Only promoted/async jobs hold
+ * a background task, so a foreground command can never match; the session
+ * scope is the caller's, so another session's job reads as unknown.
+ */
+export async function stopBackgroundShellJob(taskId, options = {}) {
+  const id = typeof taskId === 'string' ? taskId.trim() : '';
+  if (!id) return { stopped: false, error: 'task_id is required' };
+  const task = getBackgroundTask(id, { context: options });
+  if (!task || task.surface !== 'shell') return { stopped: false, error: `task not found: ${id}` };
+  const job = peekShellJob(id);
+  const status = job ? job.status : task.status;
+  if (status !== 'running') return { stopped: false, error: `task already ${status}: ${id}` };
+  try {
+    const { outcome, text } = await cancelShellTaskOutcome(task, id, options);
+    if (outcome === 'cancelled') return { stopped: true };
+    return {
+      stopped: false,
+      error: outcome === 'unconfirmed' ? `cancellation not confirmed: ${id}` : text.replace(/^Error:\s*/, ''),
+    };
+  } catch (error) {
+    return { stopped: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export async function executeTaskTool(args, options = {}) {

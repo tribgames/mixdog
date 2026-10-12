@@ -163,6 +163,9 @@ export function registerSessionIpc({
     host.scheduleQuotaResume(requiredSessionId(sessionId))
   );
   handle(DESKTOP_IPC.cancelQuotaResume, (_event, sessionId) => host.cancelQuotaResume(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.stopShellJob, (_event, sessionId, taskId) =>
+    host.stopShellJob(requiredSessionId(sessionId), requiredString(taskId, 'taskId', 256))
+  );
   handle(DESKTOP_IPC.getQuotaAutoResume, () => host.getQuotaAutoResume());
   handle(DESKTOP_IPC.viewerDevice, () => hostDeviceName());
   handle(DESKTOP_IPC.setQuotaAutoResume, (_event, enabled) => {

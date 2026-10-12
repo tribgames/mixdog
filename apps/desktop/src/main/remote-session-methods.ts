@@ -44,6 +44,8 @@ export function sessionRemoteMethods(
       host.continueSessionInModel(requiredSessionId(sessionId), requiredModelSelection(route)),
     scheduleQuotaResume: ([sessionId]) => host.scheduleQuotaResume(requiredSessionId(sessionId)),
     cancelQuotaResume: ([sessionId]) => host.cancelQuotaResume(requiredSessionId(sessionId)),
+    stopShellJob: ([sessionId, taskId]) =>
+      host.stopShellJob(requiredSessionId(sessionId), requiredString(taskId, 'taskId', 256)),
     getQuotaAutoResume: () => host.getQuotaAutoResume(),
     setQuotaAutoResume: ([enabled]) => {
       if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');

@@ -195,6 +195,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.continueSessionInModel, sessionId, route),
   scheduleQuotaResume: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.scheduleQuotaResume, sessionId),
   cancelQuotaResume: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.cancelQuotaResume, sessionId),
+  stopShellJob: (sessionId, taskId) => ipcRenderer.invoke(DESKTOP_IPC.stopShellJob, sessionId, taskId),
   getQuotaAutoResume: () => ipcRenderer.invoke(DESKTOP_IPC.getQuotaAutoResume),
   viewerDevice: () => ipcRenderer.invoke(DESKTOP_IPC.viewerDevice),
   setQuotaAutoResume: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.setQuotaAutoResume, enabled),

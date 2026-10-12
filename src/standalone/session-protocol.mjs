@@ -192,6 +192,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'saveStarterGuideState',
   'skipOnboarding',
   'startMediaJob',
+  'stopShellJob',
   'switchContext',
   'taskControl',
   'testWebhook',
