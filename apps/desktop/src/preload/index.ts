@@ -63,6 +63,8 @@ function subscribeIpc<Args extends unknown[]>(channel: string, listener: (...arg
 
 const api: DesktopApi = {
   ...(bootContext ? { bootContext } : {}),
+  // This app's own host always takes per-route Auto reasoning.
+  routeAutoEffort: true,
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
   chooseFile: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFile, defaultPath),
   chooseFiles: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFiles, defaultPath),

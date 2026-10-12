@@ -125,6 +125,10 @@ export type { GithubRequest, GithubResult } from '../../../../src/runtime/github
 export interface DesktopApi {
   /** Immutable process timeline identity injected before renderer modules run. */
   readonly bootContext?: DesktopBootContext;
+  /** The host accepts per-route Auto reasoning: `autoEffort` in model
+   *  selections and `+noauto` automation model refs. Absent on an older
+   *  remote host, which rejects both. */
+  readonly routeAutoEffort?: boolean;
   chooseProject(): Promise<string | null>;
   chooseFile?(defaultPath?: string | null): Promise<{
     projectPath: string;

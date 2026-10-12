@@ -1,7 +1,7 @@
 // Pieces the Schedules and Webhooks panels share: they edit the same
 // automation shape (model route, project, workflow) in the same dialog grammar.
 import type { DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
-import { cachedAutoEffortCapable } from './auto-effort-store';
+import { cachedAutoEffortCapable, hostRouteAutoEffort } from './auto-effort-store';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
 import { NO_AUTO_EFFORT_SUFFIX, parseModelRef, routeSpeed } from './model-route-utils';
@@ -18,9 +18,11 @@ export function automationFastSuffix(
   return fast && modelFastAvailable(selected, effort, modelParameters) ? '+fast' : '';
 }
 
-/** `+noauto` route suffix: only a route that turned Auto reasoning off carries it. */
+/** `+noauto` route suffix: only a route that turned Auto reasoning off carries
+ *  it, and only for a host that reads it (an older host would take it as part
+ *  of the model id). */
 export function automationAutoEffortSuffix(autoEffort: boolean): string {
-  return autoEffort ? '' : NO_AUTO_EFFORT_SUFFIX;
+  return autoEffort || !hostRouteAutoEffort() ? '' : NO_AUTO_EFFORT_SUFFIX;
 }
 
 /** `provider/model` route split at its first slash; a bare id has no provider. */

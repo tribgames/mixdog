@@ -9,6 +9,7 @@ import type {
 
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { preferredModelEffort } from '../model-route-utils';
+import { routeAutoEffortCapable } from '../auto-effort-store';
 import { showDesktopToast, useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
@@ -256,7 +257,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           else fast = model.fastPreferred;
         }
         let autoEffort: boolean | undefined;
-        if (model.autoEffortCapable) {
+        if (routeAutoEffortCapable(model)) {
           if (isActiveRoute && typeof active.autoEffort === 'boolean') autoEffort = active.autoEffort;
           else autoEffort = model.savedAutoEffort ?? true;
         }

@@ -62,6 +62,16 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     fire,
   } = ctx;
   const parity = (): boolean => ctx.peerRemoteParity === true;
+  // Per-route Auto reasoning follows its own flag: an older host's selection
+  // validator rejects the unknown `autoEffort` key, so it never reaches one.
+  const routeAutoEffort = (): boolean => ctx.peerRouteAutoEffort === true;
+  const hostSelection = <T>(selection: T): T => {
+    if (routeAutoEffort() || !selection || typeof selection !== 'object' || !('autoEffort' in selection)) {
+      return selection;
+    }
+    const { autoEffort: _omitted, ...rest } = selection as T & { autoEffort?: unknown };
+    return rest as T;
+  };
   // The worker can only answer same-origin requests.
   const laneUrl = (assetId: string, variant?: string): string => {
     const base = ctx.serverBase || location.origin;
@@ -159,7 +169,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     searchSessionContent: (query) => call('searchSessionContent', [query]),
     subscribeAgentPool: (listener) => agentsCatalog.subscribe(listener),
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
-    continueSessionInModel: (sessionId, route) => call('continueSessionInModel', [sessionId, route]),
+    continueSessionInModel: (sessionId, route) => call('continueSessionInModel', [sessionId, hostSelection(route)]),
     scheduleQuotaResume: (sessionId) => call('scheduleQuotaResume', [sessionId]),
     cancelQuotaResume: (sessionId) => call('cancelQuotaResume', [sessionId]),
     getQuotaAutoResume: () => call('getQuotaAutoResume', []),
@@ -299,7 +309,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     submitNewTask: (prompt, options, draft) => {
       const stable = { ...options, id: options?.id || newBrowserId() };
       return recoverableCreation(
-        () => call('submitNewTask', [prompt, stable, draft ?? {}]),
+        () =>
+          call('submitNewTask', [prompt, stable, draft?.route ? { ...draft, route: hostSelection(draft.route) } : (draft ?? {})]),
         async () => {
           if (document.visibilityState === 'hidden') {
             await new Promise<void>((resolve) => {
@@ -335,9 +346,9 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
     subscribeSessionState: (listener) => sessionInbox.subscribe(listener),
     inheritSession: (sourceSessionId, selection, options) =>
-      call('inheritSession', [sourceSessionId, selection ?? null, options ?? null]),
+      call('inheritSession', [sourceSessionId, hostSelection(selection ?? null), options ?? null]),
     listProviderModels: (options) => call('listProviderModels', [options]),
-    setModelRoute: (selection, sessionId) => call('setModelRoute', [selection, sessionId]),
+    setModelRoute: (selection, sessionId) => call('setModelRoute', [hostSelection(selection), sessionId]),
     setFast: (enabled, sessionId) => call('setFast', [enabled, sessionId]),
     readSettings: () => call('readSettings'),
     updateSetting: (key, enabled) => call('updateSetting', [key, enabled]),
@@ -382,6 +393,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       get: () => (parity() ? gated[key] : undefined),
     });
   }
+  Object.defineProperty(api, 'routeAutoEffort', { enumerable: true, get: routeAutoEffort });
   // The remote browser pane's extras follow their own flag: a host that
   // predates `browserParity` leaves them absent and the pane keeps one stream.
   const browserGated: Pick<DesktopApi, BrowserGatedKey> = {

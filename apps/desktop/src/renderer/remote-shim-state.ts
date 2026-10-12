@@ -102,6 +102,9 @@ export interface RemoteShimState {
    *  the remote browser pane's tabs, history, saved-login fill and profile
    *  import. Absent means an older host: the pane keeps its single stream. */
   peerBrowserParity: boolean;
+  /** The current host advertised `routeAutoEffort` in its challenge: it takes
+   *  `autoEffort` in model selections and `+noauto` automation refs. */
+  peerRouteAutoEffort: boolean;
   /** The current host serves the encrypted HTTP media lane (`mediaE2ee` in
    *  its challenge). Absent means an older host: media stays on RPC. */
   peerMediaE2ee: boolean;
@@ -348,6 +351,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerRemoteParity: false,
     peerNativePush: false,
     peerBrowserParity: false,
+    peerRouteAutoEffort: false,
     peerMediaE2ee: false,
     mediaSid: null,
     legacyVisibleSessionsQueue: Promise.resolve(),

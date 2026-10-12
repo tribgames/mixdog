@@ -51,9 +51,21 @@ function masterAutoEffortOn(master: AutoEffortState | null): boolean {
   return master?.installed === true && master.supported && master.enabled;
 }
 
+/** The host accepts per-route Auto reasoning: the `autoEffort` selection field
+ *  and `+noauto` automation refs. An older remote host rejects both. */
+export function hostRouteAutoEffort(): boolean {
+  return window.mixdogDesktop?.routeAutoEffort === true;
+}
+
+/** A model whose route may carry its own `autoEffort` on this host. */
+export function routeAutoEffortCapable(option: { autoEffortCapable?: boolean } | null | undefined): boolean {
+  return option?.autoEffortCapable === true && hostRouteAutoEffort();
+}
+
 /** RouteEditor's Auto props for a model: the switch shows only when the model
- *  supports it and the master (Settings → Built-in) is installed, supported and
- *  enabled; its state and changes belong to the route, never the master. */
+ *  supports it, the host takes per-route Auto, and the master (Settings →
+ *  Built-in) is installed, supported and enabled; its state and changes belong
+ *  to the route, never the master. */
 export function useAutoEffortRoute(
   capable: boolean,
   routeAutoEffort: boolean | null | undefined,
@@ -62,7 +74,9 @@ export function useAutoEffortRoute(
   const master = useAutoEffort(capable);
   return {
     autoEffort:
-      capable && masterAutoEffortOn(master) ? { enabled: routeAutoEffortOn(routeAutoEffort), pending: false } : null,
+      capable && hostRouteAutoEffort() && masterAutoEffortOn(master)
+        ? { enabled: routeAutoEffortOn(routeAutoEffort), pending: false }
+        : null,
     onChangeAutoEffort: (enabled: boolean) => {
       void onChange(enabled);
     },

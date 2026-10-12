@@ -250,6 +250,7 @@ const openSocketAttempt = (
     ctx.peerRemoteParity = false;
     ctx.peerNativePush = false;
     ctx.peerBrowserParity = false;
+    ctx.peerRouteAutoEffort = false;
     dropMediaSession(ctx);
     ctx.limits.resetLearnedCaps();
     if (!ctx.e2eePairing) {
@@ -314,6 +315,7 @@ const openSocketAttempt = (
         ctx.peerRemoteParity = clear.remoteParity === 1;
         ctx.peerNativePush = clear.nativePush === 1;
         ctx.peerBrowserParity = clear.browserParity === 1;
+        ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;
         // The previous leg's media session ended with it.
         dropMediaSession(ctx);
         ctx.peerMediaE2ee = clear.mediaE2ee === 1;

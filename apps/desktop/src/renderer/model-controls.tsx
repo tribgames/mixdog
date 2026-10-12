@@ -26,7 +26,7 @@ import {
 } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
 import { cancelQuotaContinue, takeQuotaContinue } from './quota-continue';
-import { useAutoEffortRoute } from './auto-effort-store';
+import { hostRouteAutoEffort, routeAutoEffortCapable, useAutoEffortRoute } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
 import { InitialSurface } from './InitialSurface';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
@@ -369,7 +369,8 @@ export const ModelSelector = memo(function ModelSelector({
   });
   const { provider, model, effort = '', fast = false, autoEffort, modelParameters, contextPercent } = selection;
   // Every route write carries the route's known Auto flag, like `fast`.
-  const autoEffortField = typeof autoEffort === 'boolean' ? { autoEffort } : {};
+  // An older host rejects the field, so it travels only to a host that takes it.
+  const autoEffortField = hostRouteAutoEffort() && typeof autoEffort === 'boolean' ? { autoEffort } : {};
   const catalogInFlight = useRef<Promise<void> | null>(null);
   // Newest request wins. An older reply may land after a newer choice, so only
   // the current token may publish its snapshot; useModelSelection already
@@ -580,7 +581,7 @@ export const ModelSelector = memo(function ModelSelector({
       else requestedFast = option.fastPreferred;
     }
     let nextAutoEffort: boolean | undefined;
-    if (option.autoEffortCapable) {
+    if (routeAutoEffortCapable(option)) {
       if (sameModel) nextAutoEffort = autoEffort !== false;
       else if (typeof remembered?.autoEffort === 'boolean') nextAutoEffort = remembered.autoEffort;
       else nextAutoEffort = option.savedAutoEffort ?? true;

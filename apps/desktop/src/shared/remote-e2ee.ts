@@ -50,6 +50,9 @@ export interface RelayE2EEChallenge {
   /** This host accepts `registerNativePush` (APNs/FCM through a relay that
    *  holds the credentials). Absent on an older host or an unable relay. */
   nativePush?: 1;
+  /** This host accepts per-route Auto reasoning (`autoEffort` in model
+   *  selections, `+noauto` automation refs). Absent on an older host. */
+  routeAutoEffort?: 1;
 }
 
 interface RelayE2EEHello {

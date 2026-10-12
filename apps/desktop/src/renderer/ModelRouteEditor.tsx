@@ -1,5 +1,5 @@
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
-import { useAutoEffortRoute } from './auto-effort-store';
+import { routeAutoEffortCapable, useAutoEffortRoute } from './auto-effort-store';
 import { t } from './i18n';
 import {
   modelOffersUltrafast,
@@ -75,7 +75,7 @@ export function ModelRouteEditor({
       model: option.model,
       ...(nextEffort ? { effort: nextEffort } : {}),
       ...(option.fastCapable ? { fast: nextFast } : {}),
-      ...(option.autoEffortCapable ? { autoEffort: nextAutoEffort } : {}),
+      ...(routeAutoEffortCapable(option) ? { autoEffort: nextAutoEffort } : {}),
       ...(option.modelParameterOptions?.length ? { modelParameters: nextParameters } : {}),
       ...(nextContextPercent ? { contextPercent: nextContextPercent } : {}),
     };
