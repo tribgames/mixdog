@@ -81,7 +81,7 @@ export function goalStatusLabel(goal: GoalSnapshot): string {
   if (goal.status === 'usage_limited') return t('Provider usage limit reached');
   if (goal.status === 'stopped') return t('Stopped');
   if (goal.status === 'complete') return t('Complete');
-  return t('Working');
+  return t('Goal state: In progress');
 }
 
 export type GoalStateKind = 'active' | 'paused' | 'blocked' | 'waiting' | 'complete' | 'stopped';
@@ -100,7 +100,7 @@ export function goalStateKind(goal: GoalSnapshot, displayStatus: GoalDisplayStat
 
 export function goalStateLabel(goal: GoalSnapshot, kind: GoalStateKind, displayStatus?: GoalDisplayStatus): string {
   if (displayStatus === 'responding') return t('Responding');
-  if (kind === 'active') return t('Working');
+  if (kind === 'active') return t('Goal state: In progress');
   if (kind === 'paused') return t('Paused');
   if (kind === 'waiting') return t('Waiting for your answer');
   return goalStatusLabel(goal);

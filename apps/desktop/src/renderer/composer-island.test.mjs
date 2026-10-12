@@ -144,10 +144,10 @@ test('an agent blocked on a user approval reads as needing the user, not working
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   const segment = document.querySelector('.composer-island-seg-agents');
-  // Counted apart from Working, so it is never hidden in it.
+  // Counted apart from Running, so it is never hidden in it.
   assert.match(
     segment.textContent,
-    new RegExp(`${translate('Needs you {{needs}}', { needs: 1 })} · ${translate('Working {{working}}', { working: 1 })}`)
+    new RegExp(`${translate('Needs you {{needs}}', { needs: 1 })} · ${translate('Jobs: Running {{running}}', { running: 1 })}`)
   );
   await act(async () => segment.click());
   const rows = [...document.querySelectorAll('.composer-island-row')];

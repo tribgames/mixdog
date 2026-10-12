@@ -432,7 +432,7 @@ export function ComposerIsland({
   const running = agentRows.length + shellCount;
   const agentStates = [
     agentNeedsUser > 0 ? t('Needs you {{needs}}', { needs: agentNeedsUser }) : '',
-    agentWorking > 0 ? t('Working {{working}}', { working: agentWorking }) : '',
+    agentWorking > 0 ? t('Jobs: Running {{running}}', { running: agentWorking }) : '',
     agentWaiting > 0 ? t('Waiting {{waiting}}', { waiting: agentWaiting }) : '',
   ]
     .filter(Boolean)

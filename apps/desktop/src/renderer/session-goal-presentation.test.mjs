@@ -50,7 +50,7 @@ test('a paused Goal shows reply activity without inventing approval or elapsed w
     assert.equal(activity(), t('Paused'), 'a question-only turn returns to its original wait');
     assert.equal(goal.status, 'paused');
     await render(true, null, { ...goal, status: 'active' });
-    assert.equal(activity(), t('Working'), 'a durable resume replaces the reply-only state');
+    assert.equal(activity(), t('Goal state: In progress'), 'a durable resume replaces the reply-only state');
     await render(false, null, goal);
     assert.equal(activity(), t('Paused'), 'settled cancellation restores the pause affordance');
   } finally {
@@ -85,7 +85,7 @@ test('background shell execution stays visible without resuming a paused Goal', 
     await render({ jobs: [{ taskId: 'running-shell' }] }, { id: 'other-approval' });
     assert.equal(activity(), t('Responding'));
     await render({ count: 1 }, { id: 'other-approval' }, { ...goal, status: 'active' });
-    assert.equal(activity(), t('Working'));
+    assert.equal(activity(), t('Goal state: In progress'));
     await render({ count: 0, jobs: [] });
     assert.equal(activity(), t('Paused'));
     assert.equal(goal.status, 'paused');
