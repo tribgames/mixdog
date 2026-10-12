@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>파일 · 첨부 카드 시안</title>
+<style>
+  :root {
+    --deep: #101013; --sheet: #111113; --base: #222225; --l1: #2a2a2d; --l2: #323236; --l3: #3d3d41;
+    --text: #e9e9e9; --muted: #a8a8a8; --soft: color-mix(in srgb, #e9e9e9 85%, transparent);
+    --accent: #79b8ff; --border-muted: rgba(255,255,255,.09); --border: rgba(255,255,255,.125); --hover: rgba(255,255,255,.08);
+    --red: #f17471; --green: #6bd586; --amber: #f59e0b; --blue: #79b8ff; --grey: #aeaeae; --yellow: #f2cf76;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--deep); color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 26px 30px 60px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 22px; max-width: 1100px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 32px 0 4px; }
+  .desc { color: var(--soft); font-size: 13px; margin: 0 0 12px; max-width: 1100px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 18px; max-width: 1400px; }
+  .cap { font-size: 12px; color: var(--muted); margin-bottom: 6px; } .cap b { color: var(--text); font-weight: 600; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--border-muted); color: var(--muted); margin-left: 6px; }
+  .stage { background: var(--sheet); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border-muted); padding: 18px 20px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 18px; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  /* 가짜 문서 첫 페이지 */
+  .pg { position: absolute; inset: 0; background: #fff; padding: 10% 9%; display: flex; flex-direction: column; gap: 6%; }
+  .pg i { display: block; height: 5%; background: #d5d8dc; border-radius: 1px; } .pg i.h { height: 9%; width: 70%; background: #2b2f33; } .pg i.s { width: 60%; } .pg i.m { width: 85%; }
+  .pg.sheet { padding: 0; gap: 0; display: grid; grid-template-columns: 22% 26% 26% 26%; grid-auto-rows: 9%; }
+  .pg.sheet b { border-right: 1px solid #e3e6ea; border-bottom: 1px solid #e3e6ea; background: #fff; } .pg.sheet b.hd { background: #e8f3ec; } .pg.sheet b.c { background: #f6f8fa; }
+  .pg.slide { background: #1e3a5f; padding: 12%; } .pg.slide i.h { background: #fff; width: 75%; } .pg.slide i { background: #8fb3dc; }
+
+  /* ── 대화 속 파일 카드: 지금 ── */
+  .af { position: relative; width: 160px; height: 160px; border-radius: 10px; background: var(--l1); overflow: hidden; box-shadow: inset 0 0 0 1px var(--border-muted); display: flex; flex-direction: column; }
+  .af .badge { flex: 1; display: grid; place-items: center; font-weight: 700; font-size: 22px; letter-spacing: .04em; color: var(--soft); }
+  .af .capt { padding: 8px 10px; display: grid; gap: 1px; background: linear-gradient(to bottom, transparent, rgba(0,0,0,.35)); }
+  .af .capt span { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .af .capt small { font-size: 11.5px; color: var(--muted); }
+
+  /* ── 대화 속 파일 카드: 안 A (가로 카드, 첫 페이지 섬네일) ── */
+  .fc { width: 340px; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .fc .thumb { position: relative; width: 44px; height: 56px; flex: none; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px var(--border-muted); }
+  .fc .thumb.wide { width: 64px; height: 40px; }
+  .fc .ico { width: 44px; height: 44px; flex: none; border-radius: 10px; background: var(--l2); display: grid; place-items: center; color: var(--soft); }
+  .fc .body { min-width: 0; flex: 1; display: grid; gap: 1px; }
+  .fc .body b { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fc .body small { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .type { font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+  .type.pdf { color: var(--red); } .type.xlsx { color: var(--green); } .type.pptx { color: var(--amber); } .type.docx { color: var(--blue); } .type.md { color: var(--grey); }
+  .btn { flex: none; min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--text); background: var(--hover); font: inherit; font-size: 13px; }
+  svg.l { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ── 대화 속 파일 카드: 안 B (세로 타일, 큰 섬네일) ── */
+  .ft { width: 160px; height: 160px; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--border-muted); display: flex; flex-direction: column; background: var(--l1); }
+  .ft .shot { position: relative; flex: 1; overflow: hidden; background: var(--l2); }
+  .ft .shot .pg { inset: 10px 18px -20px; border-radius: 3px; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+  .ft .shot .pg.sheet { inset: 10px 10px -20px; } .ft .shot .pg.slide { inset: 16px 10px auto; height: 70px; }
+  .ft .meta { padding: 7px 10px 8px; display: grid; gap: 0; border-top: 1px solid var(--border-muted); }
+  .ft .meta span { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ft .meta small { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; }
+
+  /* ── 첨부 카드: 지금 (색 그라데이션) ── */
+  .ac { position: relative; width: 104px; height: 80px; border-radius: 10px; border: 1px solid var(--border); background: var(--l2); padding: 8px; display: flex; flex-direction: column; justify-content: space-between; }
+  .ac.now { --tint: var(--grey); border-color: color-mix(in srgb, var(--tint) 28%, var(--border)); background: linear-gradient(150deg, color-mix(in srgb, var(--tint) 20%, transparent), transparent 75%), var(--l2); }
+  .ac.now.pdf { --tint: var(--red); } .ac.now.xlsx { --tint: var(--green); } .ac.now.pptx { --tint: var(--amber); } .ac.now.docx { --tint: var(--blue); } .ac.now.paste { --tint: var(--yellow); }
+  .ac .n { font-size: 12px; line-height: 15px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
+  .ac .m { font-size: 11px; color: var(--muted); }
+  .ac .t { position: absolute; right: 6px; bottom: 6px; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; color: #111; }
+  .ac.now.pdf .t { background: var(--red); } .ac.now.xlsx .t { background: var(--green); } .ac.now.pptx .t { background: var(--amber); } .ac.now.docx .t { background: var(--blue); } .ac.now.paste .t { background: var(--yellow); } .ac.now.md .t { background: var(--grey); }
+
+  /* ── 첨부 카드: 제안 (첫 페이지 섬네일 + 이름 줄) ── */
+  .ak { width: 104px; height: 80px; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--border); background: var(--l2); display: flex; flex-direction: column; position: relative; }
+  .ak .shot { position: relative; flex: 1; overflow: hidden; }
+  .ak .shot .pg { inset: 6px 14px -12px; border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .ak .shot .pg.sheet { inset: 6px 8px -12px; } .ak .shot .pg.slide { inset: 8px 8px auto; height: 30px; }
+  .ak .shot.ico { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--soft); }
+  .ak .shot.ico small { font-size: 11px; color: var(--muted); }
+  .ak .shot.txt { padding: 7px 8px 0; font: 10.5px/13px "JetBrains Mono", Consolas, monospace; color: var(--soft); white-space: pre; overflow: hidden; }
+  .ak .bar { height: 24px; flex: none; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-top: 1px solid var(--border-muted); background: var(--l1); }
+  .ak .bar span { font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .ak .bar .type { font-size: 9.5px; flex: none; }
+  .ak .x { position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; display: grid; place-items: center; }
+  .composer { margin-top: 12px; height: 46px; border-radius: 0 0 16px 16px; background: var(--l1); box-shadow: inset 0 1px 0 var(--border-muted); display: flex; align-items: center; padding: 0 14px; color: var(--muted); font-size: 13px; }
+  .cbox { border-radius: 16px; background: var(--l1); padding: 10px 10px 0; box-shadow: 0 0 0 1px rgba(255,255,255,.16); }
+  .cbox .composer { margin: 10px -10px 0; }
+</style>
+</head>
+<body>
+<h1>파일 · 첨부 카드 시안</h1>
+<p class="lead">PDF · 워드 · 엑셀 · 파워포인트의 <b>첫 페이지</b>는 앱이 이미 가진 문서 미리보기(<code>previewDocumentPages</code>: LibreOffice로 PDF 변환 → 페이지 이미지, 캐시)로 만듭니다. 미리보기가 준비되기 전이나 실패하면 아이콘 판으로 보여 줍니다. 종류는 색 그라데이션 대신 <b>작은 색 글자 하나</b>로만 구분합니다(Codex 문서 카드처럼 무채색 판).</p>
+
+<h2>1. 대화 속 파일 카드 (에이전트가 만든 파일)</h2>
+<div class="row">
+  <div><div class="cap"><b>지금</b> · 형식 글자 타일</div>
+    <div class="stage"><div class="wrap">
+      <div class="af"><div class="badge">PDF</div><div class="capt"><span>결제모듈_검토보고서.pdf</span><small>파일 열기</small></div></div>
+      <div class="af"><div class="badge">XLSX</div><div class="capt"><span>월별_매출.xlsx</span><small>파일 열기</small></div></div>
+      <div class="af"><div class="badge">PPTX</div><div class="capt"><span>분기_발표.pptx</span><small>파일 열기</small></div></div>
+    </div></div></div>
+
+  <div><div class="cap"><b>안 A · 가로 카드 + 첫 페이지 섬네일</b><span class="tag">추천 · Codex 문서 카드 구조</span></div>
+    <div class="stage"><div style="display:grid;gap:8px">
+      <div class="fc"><div class="thumb"><div class="pg"><i class="h"></i><i class="m"></i><i></i><i class="s"></i><i class="m"></i><i class="s"></i></div></div>
+        <div class="body"><b>결제모듈_검토보고서.pdf</b><small><span class="type pdf">PDF</span>12쪽 · 1.4MB</small></div><button class="btn">열기</button></div>
+      <div class="fc"><div class="thumb wide"><div class="pg sheet"><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b></div></div>
+        <div class="body"><b>월별_매출.xlsx</b><small><span class="type xlsx">XLSX</span>시트 3개 · 86KB</small></div><button class="btn">열기</button></div>
+      <div class="fc"><div class="thumb wide"><div class="pg slide"><i class="h"></i><i class="m"></i><i class="s"></i></div></div>
+        <div class="body"><b>분기_발표.pptx</b><small><span class="type pptx">PPTX</span>슬라이드 18장 · 4.2MB</small></div><button class="btn">열기</button></div>
+      <div class="fc"><div class="ico"><svg class="l" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div>
+        <div class="body"><b>회의록_초안.docx</b><small><span class="type docx">DOCX</span>미리보기 준비 중…</small></div><button class="btn">열기</button></div>
+    </div>
+    <div class="note">세로 문서(PDF·워드)는 세로 섬네일, 엑셀·파워포인트는 가로 섬네일. 마지막 줄은 미리보기 변환 중이거나 실패했을 때의 모습(무채색 아이콘 판). 둘째 줄에 쪽수·크기 같은 실제 정보를 보여 줍니다.</div></div></div>
+
+  <div><div class="cap"><b>안 B · 세로 타일 + 큰 섬네일</b><span class="tag">이미지 결과물과 같은 크기</span></div>
+    <div class="stage"><div class="wrap">
+      <div class="ft"><div class="shot"><div class="pg"><i class="h"></i><i class="m"></i><i></i><i class="s"></i><i class="m"></i><i class="s"></i><i></i></div></div><div class="meta"><span>결제모듈_검토보고서.pdf</span><small><span class="type pdf">PDF</span>12쪽</small></div></div>
+      <div class="ft"><div class="shot"><div class="pg sheet"><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b></div></div><div class="meta"><span>월별_매출.xlsx</span><small><span class="type xlsx">XLSX</span>시트 3개</small></div></div>
+      <div class="ft"><div class="shot"><div class="pg slide"><i class="h"></i><i class="m"></i><i class="s"></i></div></div><div class="meta"><span>분기_발표.pptx</span><small><span class="type pptx">PPTX</span>18장</small></div></div>
+    </div>
+    <div class="note">지금 타일과 같은 160×160이라 이미지 결과물과 한 줄에 섞여도 크기가 맞습니다. 대신 파일이 많으면 공간을 많이 씁니다.</div></div></div>
+</div>
+
+<h2>2. 첨부 카드 (입력창 · 보낸 메시지)</h2>
+<div class="row">
+  <div><div class="cap"><b>지금</b> · 종류별 색 그라데이션 + 색 태그</div>
+    <div class="stage"><div class="cbox"><div class="wrap">
+      <div class="ac now pdf"><span class="n">결제모듈_검토보고서.pdf</span><span class="m">1.4 MB</span><span class="t">PDF</span></div>
+      <div class="ac now xlsx"><span class="n">월별_매출.xlsx</span><span class="m">86 KB</span><span class="t">XLSX</span></div>
+      <div class="ac now pptx"><span class="n">분기_발표.pptx</span><span class="m">4.2 MB</span><span class="t">PPTX</span></div>
+      <div class="ac now paste"><span class="n">const total = items…</span><span class="m">42줄</span><span class="t">붙여넣기</span></div>
+    </div><div class="composer">메시지 입력…</div></div></div></div>
+
+  <div><div class="cap"><b>제안 · 첫 페이지 섬네일 + 이름 줄</b><span class="tag">그라데이션 없음</span></div>
+    <div class="stage"><div class="cbox"><div class="wrap">
+      <div class="ak"><div class="shot"><div class="pg"><i class="h"></i><i class="m"></i><i></i><i class="s"></i><i class="m"></i></div></div><div class="bar"><span>결제모듈_검토보고서.pdf</span><span class="type pdf">PDF</span></div><span class="x">✕</span></div>
+      <div class="ak"><div class="shot"><div class="pg sheet"><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="hd"></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b><b class="c"></b><b></b><b></b><b></b></div></div><div class="bar"><span>월별_매출.xlsx</span><span class="type xlsx">XLSX</span></div></div>
+      <div class="ak"><div class="shot"><div class="pg slide"><i class="h"></i><i class="m"></i></div></div><div class="bar"><span>분기_발표.pptx</span><span class="type pptx">PPTX</span></div></div>
+      <div class="ak"><div class="shot ico"><svg class="l" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 11h8"/><path d="M8 15h5"/></svg><small>42줄</small></div><div class="bar"><span>붙여넣은 텍스트</span><span class="type md">TXT</span></div></div>
+      <div class="ak"><div class="shot ico"><svg class="l" viewBox="0 0 24 24"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg><small>218줄</small></div><div class="bar"><span>checkout.ts</span><span class="type md">TS</span></div></div>
+    </div><div class="composer">메시지 입력…</div></div>
+    <div class="note">카드 크기(104×80)는 그대로. 위쪽은 문서의 첫 페이지, 아래 24px 줄에 이름과 종류 글자. 붙여넣은 글과 코드·텍스트 파일은 내용을 미리 보여 줘도 알아보기 어려워서, 종류 아이콘과 줄 수만 둡니다. 섬네일 준비 전에는 위쪽에 무채색 문서 아이콘. 이미지 첨부는 지금처럼 이미지 자체가 카드.</div></div></div>
+</div>
+</body>
+</html>

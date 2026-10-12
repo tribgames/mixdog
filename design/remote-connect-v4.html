@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Mixdog 연결 화면·문구 정리 v4 시안</title>
+<style>
+  :root { --bg:#0e0e10; --band:#151518; --layer:#1b1b1f; --layer2:#232328; --line:rgba(255,255,255,.08); --text:#e9e9ea; --muted:#9a9aa1; --faint:#6d6d74; --green:#4ac885; --red:#e5484d; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background:#08080a; color:var(--text); font:400 14px/20px system-ui,-apple-system,"Segoe UI",sans-serif; padding:40px 48px 80px; }
+  h1 { font-size:22px; line-height:30px; margin-bottom:6px; }
+  .lead { color:var(--muted); max-width:980px; margin-bottom:28px; }
+  h2 { font-size:17px; margin:52px 0 6px; }
+  h3 { font-size:14px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; max-width:980px; }
+  .row { display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start; }
+  .note { color:var(--muted); font-size:12.5px; margin-top:10px; max-width:640px; }
+  .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:99px; margin-bottom:8px; background:rgba(74,200,133,.15); color:#7fe0ab; }
+  table.words { border-collapse:collapse; margin-top:8px; font-size:13px; }
+  table.words td, table.words th { border-bottom:1px solid var(--line); padding:7px 14px 7px 0; text-align:left; vertical-align:top; }
+  table.words th { color:var(--muted); font-weight:600; font-size:12px; }
+  .old { color:#ff8b8f; text-decoration:line-through; text-decoration-color:rgba(255,139,143,.5); }
+  .new { color:#7fe0ab; }
+
+  /* settings window */
+  .settings { width:900px; border-radius:14px; background:var(--layer); border:1px solid #2a2a2f; display:flex; overflow:hidden; }
+  .settings nav { width:190px; padding:16px 10px; background:rgba(0,0,0,.12); border-right:1px solid var(--line); }
+  .nav-i { padding:7px 10px; border-radius:8px; font-size:13px; color:var(--muted); }
+  .nav-i.on { background:rgba(255,255,255,.08); color:var(--text); }
+  .settings section { flex:1; padding:22px 28px 26px; }
+  .page-h { font-size:19px; font-weight:700; }
+  .page-d { color:var(--muted); font-size:13px; margin:4px 0 16px; }
+  .tabs { display:flex; gap:22px; border-bottom:1px solid var(--line); margin-bottom:18px; }
+  .tabs span { padding:0 2px 10px; font-size:13px; color:var(--muted); }
+  .tabs span.on { color:var(--text); box-shadow:inset 0 -2px 0 var(--text); font-weight:600; }
+  .card { border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); padding:18px; display:flex; gap:22px; align-items:center; }
+  .qr { width:150px; height:150px; border-radius:10px; background:
+        repeating-linear-gradient(90deg,#111 0 10px,#fff 10px 20px), #fff; background-blend-mode:difference; flex:none; position:relative; }
+  .qr::after { content:""; position:absolute; inset:0; border-radius:10px; background:
+        repeating-linear-gradient(0deg,rgba(255,255,255,.95) 0 10px,transparent 10px 20px); mix-blend-mode:difference; }
+  .steps { list-style:none; padding:0; display:grid; gap:10px; counter-reset:s; flex:1; }
+  .steps li { display:grid; grid-template-columns:22px 1fr; gap:10px; font-size:13.5px; counter-increment:s; }
+  .steps li::before { content:counter(s); width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,.1); display:grid; place-items:center; font-size:11.5px; font-weight:700; }
+  .steps b { font-weight:600; }
+  .steps small { display:block; color:var(--muted); font-size:12px; }
+  .foot { margin-top:10px; color:var(--muted); font-size:12px; }
+  .link { color:#8ab4ff; }
+  .code { font:700 30px/40px ui-monospace,Consolas,monospace; letter-spacing:.12em; padding:4px 14px; border-radius:10px; background:rgba(255,255,255,.07); display:inline-block; }
+  .timer { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; margin-top:8px; }
+  .bar { width:120px; height:4px; border-radius:2px; background:rgba(255,255,255,.1); overflow:hidden; } .bar i { display:block; width:70%; height:100%; background:var(--text); }
+  .btn { display:inline-flex; align-items:center; height:28px; padding:0 12px; border-radius:8px; background:var(--layer2); border:1px solid var(--line); font-size:12.5px; color:var(--text); }
+  .btn.primary { background:#e9e9ea; color:#111; border-color:transparent; font-weight:600; }
+  .addr { display:inline-flex; align-items:center; gap:8px; font:500 12.5px ui-monospace,Consolas,monospace; padding:3px 6px 3px 10px; border-radius:8px; background:rgba(255,255,255,.06); }
+  .list-h { margin:22px 0 8px; font-size:13px; font-weight:600; display:flex; justify-content:space-between; align-items:baseline; }
+  .list-h span { color:var(--muted); font-weight:400; font-size:12px; }
+  .dev { display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; margin-bottom:6px; font-size:13px; }
+  .dev .meta { color:var(--muted); font-size:12px; }
+  .dev .end { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .pill { font-size:11px; padding:1px 8px; border-radius:99px; background:rgba(74,200,133,.15); color:#7fe0ab; }
+  .pill.off { background:rgba(255,255,255,.06); color:var(--muted); }
+  .empty { color:var(--faint); font-size:12.5px; padding:10px 2px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .two .card { flex-direction:column; align-items:stretch; gap:12px; }
+  .input { height:40px; width:160px; border-radius:9px; border:1px solid rgba(255,255,255,.18); display:grid; place-items:center; font:700 18px ui-monospace,Consolas,monospace; color:var(--faint); letter-spacing:.2em; }
+
+  /* dialogs and phone */
+  .dialog { width:420px; border-radius:14px; background:var(--layer); border:1px solid #2a2a2f; padding:20px; box-shadow:0 20px 50px rgba(0,0,0,.5); }
+  .dialog .t { font-size:16px; font-weight:700; margin-bottom:6px; }
+  .dialog p { color:var(--muted); font-size:13px; }
+  .dl { margin:14px 0; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.04); display:grid; grid-template-columns:70px 1fr; gap:6px 10px; font-size:13px; }
+  .dl dt { color:var(--muted); } .dl dd { margin:0; }
+  .dialog .acts { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+  .phone { width:290px; height:600px; border-radius:36px; background:var(--bg); border:8px solid #2a2a2f; overflow:hidden; display:flex; flex-direction:column; }
+  .status { height:32px; display:flex; justify-content:space-between; align-items:center; padding:0 20px; font-size:12px; font-weight:600; }
+  .pbody { flex:1; display:grid; place-items:center; padding:18px; }
+  .pcard { width:100%; border-radius:20px; background:#17171a; padding:22px 18px; display:grid; gap:12px; justify-items:center; text-align:center; }
+  .pcard .logo { width:46px; height:46px; border-radius:12px; background:#0b0b0d; display:grid; place-items:center; font-weight:800; }
+  .pcard .h { font-size:17px; font-weight:700; } .pcard p { color:var(--muted); font-size:12.5px; }
+  .pbtn { width:100%; padding:11px; border-radius:11px; background:#e9e9e9; color:#111; font-weight:600; font-size:14px; }
+  .pbtn.sec { background:transparent; color:var(--text); border:1px solid rgba(255,255,255,.18); }
+  .psteps { list-style:none; padding:0; width:100%; display:grid; gap:6px; text-align:left; counter-reset:s; }
+  .psteps li { counter-increment:s; display:flex; gap:8px; align-items:center; padding:9px 10px; border-radius:10px; background:rgba(255,255,255,.06); font-size:12.5px; }
+  .psteps li::before { content:counter(s); flex:none; width:18px; height:18px; border-radius:50%; background:rgba(255,255,255,.14); display:grid; place-items:center; font-size:10.5px; font-weight:700; }
+  .spin { width:24px; height:24px; border-radius:50%; border:2.5px solid rgba(255,255,255,.18); border-top-color:#e9e9e9; }
+  .bad { color:#ff8b8f; font-size:12.5px; }
+  .browser { width:520px; border-radius:12px; border:1px solid #2a2a2f; overflow:hidden; background:var(--bg); }
+  .browser .url { height:34px; background:var(--band); display:flex; align-items:center; padding:0 12px; font:12px ui-monospace,Consolas,monospace; color:var(--muted); }
+  .browser .pbody { padding:30px; }
+  .refs { margin-top:10px; display:grid; grid-template-columns:repeat(2, minmax(0, 460px)); gap:12px; }
+  .ref { border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:13px; }
+  .ref b { display:block; margin-bottom:4px; }
+  .ref span { color:var(--muted); font-size:12.5px; }
+</style>
+</head>
+<body>
+<h1>연결 화면 · 문구 정리 v4 — 시안</h1>
+<p class="lead">텔레그램 · WhatsApp · 카카오톡 · Chrome 원격 데스크톱의 실제 한국어 문구를 기준으로 다시 썼습니다. <b>짧은 "~하세요" 지시</b>, <b>"설정 &gt; 연결 &gt; 모바일" 경로 표기</b>, <b>QR 밑 대안 링크 하나</b>, <b>권한 설명은 허용 창에서만</b>.</p>
+
+<h2>참고한 실제 문구</h2>
+<div class="refs">
+  <div class="ref"><b>텔레그램 PC (공식 한국어 번역)</b><span>제목 "모바일 텔레그램에서 스캔하기"<br/>① 휴대전화에서 텔레그램을 여세요<br/>② 설정 &gt; 기기 &gt; 기기 추가로 이동하세요<br/>③ 위 이미지를 스캔하여 로그인하세요</span></div>
+  <div class="ref"><b>WhatsApp 웹</b><span>폰 앱 메뉴 "연결된 기기 → 기기 연결". QR 아래 대안 하나 "전화번호로 연결" → 웹에 코드가 뜨고 폰에서 입력.</span></div>
+  <div class="ref"><b>카카오톡 PC</b><span>"QR코드 로그인" → 폰 카카오톡의 "스캔"으로 비추기 → 확인. 자주 쓰는 PC는 "내 PC"로 인증.</span></div>
+  <div class="ref"><b>Chrome 원격 데스크톱</b><span>"코드 생성" → 일회용 코드(5분) 전달 → 상대가 접속하면 "공유"로 허용. 코드 옆에는 남은 시간만.</span></div>
+  <div class="ref"><b>Claude Code Remote Control · Orca · Paseo</b><span>"Scan this code with the Orca mobile app." / "Or paste this code in the mobile app" / "No devices paired yet." / "Pair device — Connect your phone". 한 줄 설명 + 대안 하나.</span></div>
+  <div class="ref"><b>공통점 → 이번 원칙</b><span>① 지시는 "~하세요"로 짧게(10자 안팎) ② 메뉴 경로는 "설정 &gt; 연결 &gt; 모바일" ③ QR 밑 대안은 링크 하나 ④ 설명 문장 대신 제목·버튼 이름이 말하게 ⑤ 권한·보안 설명은 승인 창에서만.</span></div>
+</div>
+
+<h2>용어 통일</h2>
+<table class="words">
+  <tr><th>지금</th><th>바꾼 뒤</th><th>이유</th></tr>
+  <tr><td class="old">데스크톱 / 메인 PC</td><td class="new">PC (저장 목록은 "내 PC")</td><td>카카오톡·텔레그램처럼 짧게</td></tr>
+  <tr><td class="old">이 장치를 승인합니다</td><td class="new">PC에서 허용을 기다리는 중</td><td>지금 상태만 말하기</td></tr>
+  <tr><td class="old">페어링 해제 / 모든 기기 페어링 해제</td><td class="new">연결 해제 / 모두 연결 해제</td><td>"페어링"은 낯선 말</td></tr>
+  <tr><td class="old">승인 / 거부</td><td class="new">허용 / 거절</td><td>Chrome 원격 데스크톱 "공유"·"허용" 계열</td></tr>
+  <tr><td class="old">릴레이에 연결할 수 없습니다</td><td class="new">연결하지 못했습니다. 인터넷 연결을 확인하세요.</td><td>내부 용어 제거</td></tr>
+  <tr><td class="old">Mixdog은(는) 자신이 속한 데스크톱의 일회성 승인이 필요합니다.</td><td class="new">(삭제)</td><td>번역투 · 불필요</td></tr>
+  <tr><td class="old">승인한 기기는 이 PC와 같은 권한을 갖습니다. (탭마다)</td><td class="new">승인 창에서만 한 번</td><td>허용하는 순간에 알려주면 충분</td></tr>
+  <tr><td class="old">카메라가 안 되면 웹 탭의 코드를 입력하세요.</td><td class="new">QR 밑 링크 "코드로 연결"</td><td>WhatsApp "전화번호로 연결"</td></tr>
+  <tr><td class="old">코드는 5분 동안, 한 번만 사용할 수 있습니다. 이 PC에서 모든 요청을 승인해야 합니다.</td><td class="new">"4:15 후 만료" + [새 코드]</td><td>Chrome 원격 데스크톱처럼 남은 시간만</td></tr>
+</table>
+
+<!-- ============ MAIN PC SETTINGS ============ -->
+<h2>1. 메인 PC — 설정 → 연결</h2>
+<p class="sub">페이지 설명은 맨 위 한 줄. 세 탭 모두 "왼쪽 QR/코드 · 오른쪽 1-2-3 단계 · 아래 연결된 기기" 같은 뼈대. 연결된 기기는 그 탭 방식으로 붙은 것만.</p>
+
+<span class="tag">모바일 탭</span>
+<div class="settings">
+  <nav><div class="nav-i">일반</div><div class="nav-i">프로바이더</div><div class="nav-i">시스템</div><div class="nav-i on">연결</div><div class="nav-i">정보</div></nav>
+  <section>
+    <div class="page-h">연결</div>
+    <div class="page-d">휴대폰, 브라우저, 다른 PC에서 이 PC를 사용하세요.</div>
+    <div class="tabs"><span class="on">모바일</span><span>웹</span><span>다른 PC</span></div>
+    <div class="card">
+      <div class="qr"></div>
+      <div style="flex:1">
+        <h3 style="margin-bottom:12px">Mixdog 앱에서 스캔하기</h3>
+        <ol class="steps">
+          <li><div><b>휴대폰에서 Mixdog 앱을 여세요</b></div></li>
+          <li><div><b>QR 코드 스캔을 누르세요</b></div></li>
+          <li><div><b>이 QR 코드를 스캔하세요</b></div></li>
+        </ol>
+        <div class="foot"><span class="link">코드로 연결</span> · <span class="link">앱 다운로드</span></div>
+      </div>
+    </div>
+    <div class="list-h">연결된 기기</div>
+    <div class="dev">📱 <div>Galaxy Z Fold7<div class="meta">Mixdog 앱 · 오늘 오후 9:57</div></div><div class="end"><span class="pill">온라인</span><span class="btn">연결 해제</span></div></div>
+    <div class="dev">📱 <div>iPad<div class="meta">Mixdog 앱 · 오늘 오후 9:18</div></div><div class="end"><span class="pill off">오프라인</span><span class="btn">연결 해제</span></div></div>
+  </section>
+</div>
+<p class="note">텔레그램과 같은 짧은 3단계. "코드로 연결"을 누르면 QR 자리에 6자리 코드가 열림(WhatsApp의 "전화번호로 연결"과 같은 자리).</p>
+
+<div style="height:26px"></div>
+<span class="tag">웹 탭</span>
+<div class="settings">
+  <nav><div class="nav-i">일반</div><div class="nav-i">프로바이더</div><div class="nav-i">시스템</div><div class="nav-i on">연결</div><div class="nav-i">정보</div></nav>
+  <section>
+    <div class="page-h">연결</div>
+    <div class="page-d">휴대폰, 브라우저, 다른 PC에서 이 PC를 사용하세요.</div>
+    <div class="tabs"><span>모바일</span><span class="on">웹</span><span>다른 PC</span></div>
+    <div class="card">
+      <div style="flex:none">
+        <div class="code">209 979</div>
+        <div class="timer"><div class="bar"><i></i></div>4:15 후 만료 <span class="btn">새 코드</span></div>
+      </div>
+      <div style="flex:1">
+        <h3 style="margin-bottom:12px">브라우저에서 연결하기</h3>
+        <ol class="steps">
+          <li><div><b>브라우저에서 이 주소를 여세요</b><small><span class="addr">mixdog.app/connect <span class="btn" style="height:22px">복사</span></span></small></div></li>
+          <li><div><b>왼쪽 코드를 입력하세요</b></div></li>
+        </ol>
+        <div class="foot">설치 없이 사용할 수 있어요. 알림은 앱에서만 받을 수 있어요.</div>
+      </div>
+    </div>
+    <div class="list-h">연결된 기기</div>
+    <div class="empty">연결된 기기가 없습니다.</div>
+  </section>
+</div>
+
+<div style="height:26px"></div>
+<span class="tag">다른 PC 탭</span>
+<div class="settings">
+  <nav><div class="nav-i">일반</div><div class="nav-i">프로바이더</div><div class="nav-i">시스템</div><div class="nav-i on">연결</div><div class="nav-i">정보</div></nav>
+  <section>
+    <div class="page-h">연결</div>
+    <div class="page-d">휴대폰, 브라우저, 다른 PC에서 이 PC를 사용하세요.</div>
+    <div class="tabs"><span>모바일</span><span>웹</span><span class="on">다른 PC</span></div>
+    <div class="two">
+      <div class="card">
+        <h3>이 PC의 코드</h3>
+        <div><div class="code" style="font-size:24px;line-height:32px">209 979</div><div class="timer"><div class="bar"><i></i></div>4:15 후 만료 <span class="btn">새 코드</span></div></div>
+        <div style="color:var(--muted);font-size:12.5px">다른 PC에서 설정 &gt; 연결 &gt; 다른 PC로 이동해 이 코드를 입력하세요.</div>
+      </div>
+      <div class="card">
+        <h3>다른 PC에 연결</h3>
+        <div style="color:var(--muted);font-size:12.5px">연결할 PC의 코드를 입력하세요.</div>
+        <div style="display:flex;gap:8px;align-items:center"><div class="input">000 000</div><span class="btn primary">연결</span></div>
+        <div class="list-h" style="margin:6px 0 0">내 PC</div>
+        <div class="dev">🖥 <div>사무실 PC<div class="meta">어제</div></div><div class="end"><span class="pill">온라인</span><span class="btn">열기</span></div></div>
+      </div>
+    </div>
+    <div class="list-h">연결된 기기</div>
+    <div class="dev">🖥 <div>노트북<div class="meta">Mixdog PC · 오늘 오후 9:26</div></div><div class="end"><span class="pill">온라인</span><span class="btn">연결 해제</span></div></div>
+  </section>
+</div>
+<p class="note">Chrome 원격 데스크톱처럼 왼쪽은 "코드 보여주기", 오른쪽은 "코드 입력". 제목은 명사로 짧게.</p>
+
+<h2>2. 메인 PC — 승인 창</h2>
+<div class="row">
+  <div class="dialog">
+    <div class="t">기기 연결 요청</div>
+    <p><b style="color:var(--text)">iPhone</b>에서 이 PC에 연결하려고 합니다.<br/>허용하면 이 PC의 모든 기능을 사용할 수 있습니다. 직접 요청한 경우에만 허용하세요.</p>
+    <dl class="dl"><dt>기기</dt><dd>iPhone · Mixdog 앱</dd><dt>방법</dt><dd>QR 코드</dd><dt>시각</dt><dd>오후 9:53</dd></dl>
+    <div class="acts"><span class="btn">거절</span><span class="btn primary">허용</span></div>
+  </div>
+  <div class="dialog">
+    <div class="t">기기 연결 요청</div>
+    <p><b style="color:var(--text)">노트북</b>(Mixdog PC)에서 이 PC에 연결하려고 합니다.<br/>허용하면 이 PC의 모든 기능을 사용할 수 있습니다. 직접 요청한 경우에만 허용하세요.</p>
+    <dl class="dl"><dt>기기</dt><dd>노트북 · Mixdog PC</dd><dt>방법</dt><dd>코드</dd><dt>시각</dt><dd>오후 9:26</dd></dl>
+    <div class="acts"><span class="btn">거절</span><span class="btn primary">허용</span></div>
+  </div>
+</div>
+<p class="note">권한·보안 설명은 여기 한 곳에만. 버튼은 "허용 / 거절".</p>
+
+<h2>3. 연결하는 쪽 — 폰 앱 첫 화면</h2>
+<div class="row">
+  <div><div class="phone"><div class="status"><span>9:41</span><span>▂▄▆ ▮</span></div><div class="pbody"><div class="pcard">
+    <div class="logo">M</div><div class="h">PC에 연결</div><p>PC의 Mixdog에서 설정 &gt; 연결 &gt; 모바일로 이동하세요.</p>
+    <span class="pbtn">QR 코드 스캔</span><span class="pbtn sec">코드로 연결</span>
+    <div style="width:100%;text-align:left;margin-top:6px;font-size:12.5px;font-weight:600">내 PC</div>
+    <div class="psteps" style="counter-reset:none"><div style="display:flex;justify-content:space-between;padding:9px 10px;border-radius:10px;background:rgba(255,255,255,.06);font-size:12.5px">● DESKTOP-IBLP835 <span style="color:var(--muted)">삭제</span></div></div>
+  </div></div></div><p class="note">첫 화면: 한 줄 안내 + 버튼 두 개 + 내 PC.</p></div>
+  <div><div class="phone"><div class="status"><span>9:41</span><span>▂▄▆ ▮</span></div><div class="pbody"><div class="pcard">
+    <div class="h">코드로 연결</div><p>PC에 표시된 6자리 코드를 입력하세요.</p>
+    <div class="input" style="width:100%">000 000</div><span class="pbtn">연결</span><span class="pbtn sec">뒤로</span>
+    <p class="bad">코드가 올바르지 않거나 만료되었습니다.</p>
+  </div></div></div><p class="note">오류 예: "코드가 올바르지 않거나 만료되었습니다."</p></div>
+  <div><div class="phone"><div class="status"><span>9:41</span><span>▂▄▆ ▮</span></div><div class="pbody"><div class="pcard">
+    <div class="logo">M</div><div class="h">PC에서 허용을 기다리는 중</div><p>PC에 표시된 요청을 허용하세요.</p><div class="spin"></div>
+  </div></div></div><p class="note">대기(앱·브라우저 공통).</p></div>
+  <div><div class="phone"><div class="status"><span>9:41</span><span>▂▄▆ ▮</span></div><div class="pbody"><div class="pcard">
+    <div class="logo">M</div><div class="h">연결이 해제되었습니다</div><p>PC에서 이 기기의 연결을 해제했습니다.</p><span class="pbtn">다시 연결</span>
+  </div></div></div><p class="note">거절: "PC에서 요청을 거절했습니다." · 만료: "요청이 만료되었습니다." — 같은 버튼 "다시 연결".</p></div>
+</div>
+
+<h2>4. 연결하는 쪽 — 브라우저 연결 페이지 (/connect)</h2>
+<div class="browser"><div class="url">mixdog.app/connect</div><div class="pbody"><div class="pcard" style="max-width:340px;margin:auto">
+  <div class="logo">M</div><div class="h">PC에 연결</div><p>PC의 Mixdog에서 설정 &gt; 연결 &gt; 웹으로 이동해 코드를 확인하세요.</p>
+  <div class="input" style="width:100%">000 000</div><span class="pbtn">연결</span>
+  <p style="font-size:11.5px;color:var(--faint)">알림을 받으려면 <span class="link">Mixdog 앱</span>을 사용하세요.</p>
+</div></div></div>
+
+<h2>5. 원격 화면 안 — PC 전환 메뉴</h2>
+<table class="words">
+  <tr><th>지금</th><th>바꾼 뒤</th></tr>
+  <tr><td class="old">다른 PC 연결 (코드)</td><td class="new">PC 추가</td></tr>
+  <tr><td class="old">연결 관리</td><td class="new">연결 설정</td></tr>
+  <tr><td class="old">온라인 · 사용 중</td><td class="new">사용 중</td></tr>
+  <tr><td class="old">This PC (이름을 모를 때)</td><td class="new">PC</td></tr>
+</table>
+</body>
+</html>

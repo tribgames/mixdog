@@ -61,10 +61,10 @@ test('settling an assistant preserves its rendered Markdown without an empty int
   assert.ok(document.querySelector('.response-footer'));
 });
 
-test('the review slot takes no space until the review bar actually renders, including an empty final diff', async (t) => {
+test('the island files segment appears only once the review read finds changes, including an empty final diff', async (t) => {
   const { root, document, window } = mount(t);
-  // ComposerDock loads the review bar lazily; with the chunk cached it mounts
-  // in the first commit.
+  // ComposerDock loads the review module lazily; with the chunk cached it
+  // mounts in the first commit.
   await import('./TurnReview');
   for (const hasDiff of [true, false]) {
     const pending = [];
@@ -80,6 +80,7 @@ test('the review slot takes no space until the review bar actually renders, incl
     const scope = turnReviewScope(items).key;
     rememberAgentReviews(`${sessionId}:${scope}`, [], '', [], 'worktree', scope);
     const props = {
+      sessionId: '',
       goalSubmissionId: '',
       showProjectSelector: false,
       reviewActive: true,
@@ -89,12 +90,14 @@ test('the review slot takes no space until the review bar actually renders, incl
     };
     const render = (busy, reviewItems) =>
       act(async () => root.render(React.createElement(ComposerDock, { ...props, reviewItems, reviewBusy: busy })));
-    const slot = () => document.querySelector('.turn-review-slot');
+    const segment = () => document.querySelector('.turn-review-segment');
+    const islandSlot = () => document.querySelector('.composer-island-slot');
     await render(true, items);
+    const slot = islandSlot();
     assert.equal(pending.length, 1);
-    assert.equal(slot().childElementCount, 0, 'an in-flight read holds no blank space');
+    assert.equal(segment(), null, 'an in-flight read shows no files segment');
     await render(false, [...items, { kind: 'turndone', id: 'done', status: 'complete' }]);
-    assert.equal(slot().childElementCount, 0);
+    assert.equal(segment(), null);
     const response = (files) => ({
       value: {
         supported: true,
@@ -108,13 +111,29 @@ test('the review slot takes no space until the review bar actually renders, incl
     });
     await act(async () => pending.shift()(response([])));
     assert.equal(pending.length, 1);
-    assert.equal(slot().childElementCount, 0, 'an empty response renders nothing');
+    assert.equal(segment(), null, 'an empty response renders nothing');
     await act(async () =>
       pending.shift()(response(hasDiff ? [{ path: 'demo.ts', status: 'M', additions: 1, deletions: 1 }] : []))
     );
-    assert.equal(Boolean(document.querySelector('.turn-review-bar')), hasDiff);
-    assert.equal(slot().childElementCount, hasDiff ? 1 : 0);
+    assert.equal(document.querySelector('.turn-review-bar'), null, 'the review bar left the composer stack');
+    assert.equal(Boolean(segment()), hasDiff);
+    if (hasDiff) assert.equal(segment().closest('.composer-island-pill')?.parentElement?.className, 'composer-island');
+    assert.ok(slot);
+    assert.equal(islandSlot(), slot, 'the island slot stays mounted whatever it shows');
     assert.equal(pending.length, 0);
+    if (hasDiff) {
+      assert.match(segment().textContent, /\+1 −1$/, 'a space separates the line counts');
+      // No side dock here (no onOpenSessionDiff): the segment expands the
+      // island to the turn's file list in place, and Escape collapses it.
+      await act(async () => segment().click());
+      assert.equal(document.querySelector('.composer-island').dataset.expanded, 'files');
+      const bar = document.querySelector('.composer-island-pill > .turn-review-bar');
+      assert.equal(bar?.dataset.expanded, 'true');
+      assert.match(bar.querySelector('.turn-review-files').textContent, /demo\.ts/);
+      await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+      assert.equal(document.querySelector('.composer-island').dataset.expanded, undefined);
+      assert.ok(segment(), 'collapsing returns to the segment');
+    }
     await act(async () => root.render(null));
   }
 });
@@ -141,6 +160,7 @@ test('a transcript tail without its prompt row keeps the turn review of that tur
         React.createElement(
           ComposerDock,
           {
+            sessionId: '',
             goalSubmissionId: '',
             showProjectSelector: false,
             reviewActive: true,
@@ -153,7 +173,7 @@ test('a transcript tail without its prompt row keeps the turn review of that tur
         )
       )
     );
-  const answer = (checkpointId, path) =>
+  const answer = (checkpointId, path, additions = 1) =>
     act(async () => {
       for (const resolve of pending.splice(0)) {
         resolve({
@@ -163,24 +183,26 @@ test('a transcript tail without its prompt row keeps the turn review of that tur
             snapshotKind: checkpointId === 'prompt' ? 'worktree' : 'scoped',
             checkpointId,
             patch: '',
-            files: [{ path, status: 'M', additions: 1, deletions: 1 }],
+            files: [{ path, status: 'M', additions, deletions: 1 }],
             agents: [],
           },
         });
       }
     });
-  const barText = () => document.querySelector('.turn-review-bar')?.textContent || '';
+  // The segment names counts, not paths: this turn's demo.ts is +1, the
+  // unrelated stale review is +900.
+  const segmentText = () => document.querySelector('.turn-review-segment')?.textContent || '';
   await render([{ kind: 'user', id: 'prompt', text: 'Change a file' }, edit('edit-1')]);
   await answer('prompt', 'demo.ts');
-  assert.match(barText(), /demo\.ts/);
+  assert.match(segmentText(), /\+1(?!\d)/);
   // The daemon re-cut its tail: the prompt row is gone, the turn goes on.
   await render([edit('edit-1'), edit('edit-2')]);
-  assert.match(barText(), /demo\.ts/);
-  assert.doesNotMatch(barText(), /stale\.ts/);
+  assert.match(segmentText(), /\+1(?!\d)/);
+  assert.doesNotMatch(segmentText(), /900/);
   // A previous turn's recorded review still fails the checkpoint check.
-  await answer('old', 'stale.ts');
-  assert.match(barText(), /demo\.ts/);
-  assert.doesNotMatch(barText(), /stale\.ts/);
+  await answer('old', 'stale.ts', 900);
+  assert.match(segmentText(), /\+1(?!\d)/);
+  assert.doesNotMatch(segmentText(), /900/);
 });
 
 test('media preview frames survive decoding, metadata and fallback failures', async (t) => {
@@ -252,7 +274,7 @@ test('inline image markers preserve user text and attachment chips', async (t) =
   await act(async () => root.render(React.createElement(TranscriptRow, { item })));
   assert.equal(document.querySelector('.message-body > p').textContent, 'Compare with now.');
   assert.deepEqual(
-    [...document.querySelectorAll('.message-image-chip')].map((chip) => chip.textContent),
+    [...document.querySelectorAll('.message-attachments > .attachment-card')].map((chip) => chip.textContent),
     ['a.png640×480', 'Image']
   );
 
@@ -265,7 +287,7 @@ test('inline image markers preserve user text and attachment chips', async (t) =
   );
   assert.equal(document.querySelector('.message-body > p').textContent, 'Compare with now.');
   assert.deepEqual(
-    [...document.querySelectorAll('.message-image-chip')].map((chip) => chip.textContent),
+    [...document.querySelectorAll('.message-attachments > .attachment-card')].map((chip) => chip.textContent),
     ['uploaded.png']
   );
 });

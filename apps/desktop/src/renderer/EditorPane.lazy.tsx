@@ -120,7 +120,10 @@ export default function EditorPane({
   revealed = true,
   onSideChrome,
   onShowProblems,
+  onOpenPreviewToSide,
 }: {
+  /** Main tab: "Open Preview to the Side" opens this file as a dock Preview. */
+  onOpenPreviewToSide?(project: string, rel: string, accessToken?: string): void;
   /** Side-dock mode: the status-bar Problems button calls this instead. */
   onShowProblems?(): void;
   /** Side-dock mode: the editor draws no breadcrumb row. The dock's own strip
@@ -238,6 +241,7 @@ export default function EditorPane({
     onEditorChange,
     completePreview,
     failPreview,
+    setRichHeld,
   } = useEditorFileSession({
     editorRef,
     modelRef,
@@ -252,12 +256,21 @@ export default function EditorPane({
     onSaveHandle,
     syncLspRef,
   });
-  const { viewMode, viewSnapshot, setViewSnapshot, changeViewMode } = useEditorViewMode({
-    viewKind,
-    modelRef,
-    loadedContent: load?.content,
-    contentRevision,
-  });
+  const { viewMode, richNotice, viewSnapshot, setViewSnapshot, changeViewMode, reportRichUnsupported } =
+    useEditorViewMode({
+      viewKind,
+      modelRef,
+      loadedContent: load?.content,
+      contentRevision,
+      modeKey: viewStateKey,
+      markdownDefaultView: editorSettings.markdownDefaultView,
+      readOnly: Boolean(load?.readOnly),
+    });
+  const [tocOpen, setTocOpen] = useState(false);
+  const toggleToc = useCallback(() => setTocOpen((open) => !open), []);
+  const openPreviewToSide = onOpenPreviewToSide
+    ? () => onOpenPreviewToSide(projectPath, relPath, accessToken)
+    : undefined;
   const {
     modelUri,
     setModelUri,
@@ -463,6 +476,9 @@ export default function EditorPane({
     viewMode,
     viewSnapshot,
     changeViewMode,
+    tocOpen,
+    toggleToc,
+    onOpenPreviewToSide: onSideChrome ? undefined : openPreviewToSide,
     dirty,
     saving,
     save,
@@ -494,6 +510,7 @@ export default function EditorPane({
       cursorLine={cursorPosition.line}
       outline={breadcrumbOutline}
       menuActions={breadcrumbMenuActions}
+      viewControls={fileChrome}
       onSave={() => {
         void save();
       }}
@@ -600,6 +617,10 @@ export default function EditorPane({
           previewError={previewError}
           viewKind={viewKind}
           viewMode={viewMode}
+          richNotice={richNotice}
+          tocOpen={tocOpen}
+          onViewSource={() => changeViewMode('source')}
+          onRichUnsupported={reportRichUnsupported}
           viewSnapshot={viewSnapshot}
           onSnapshotChange={setViewSnapshot}
           projectPath={projectPath}
@@ -617,6 +638,7 @@ export default function EditorPane({
           onSave={() => {
             void save();
           }}
+          onRichHeldChange={setRichHeld}
           onMount={onMonacoMount}
           onRelease={releaseEditorSurface}
         />

@@ -13,12 +13,45 @@ export interface DesktopRemoteClientInfo {
   createdAt: number;
   lastSeenAt: number;
   online: boolean;
+  /** Unpair requested but not yet acknowledged by the relay; still paired there. */
+  pendingRemoval?: boolean;
 }
 
 export interface DesktopRemoteAccessInfo {
+  /** The pairing URL the QR encodes. Never shown in the UI. */
   relayBrowserUrl: string;
   relayBrowserQrSvg: string;
+  /** QR of `<relay origin>/app`: the Mixdog app install page. The Phone
+   *  segment shows it beside the 6-digit code. */
+  relayAppQrSvg: string;
+  /** Where a browser enters a 6-digit code (relay origin + /connect). Shown as
+   *  plain text. */
+  relayConnectUrl: string;
   clients: DesktopRemoteClientInfo[];
+  /** False while "Use this PC from other devices" is off: no relay link, so
+   *  the URLs are empty and `clients` is the last list seen. */
+  enabled?: boolean;
+}
+
+/** "Use this PC from other devices" and this PC's name as other devices see it. */
+export interface DesktopRemoteAccessSettings {
+  enabled: boolean;
+  /** Saved PC name, or `defaultName` when none is saved. */
+  name: string;
+  /** The OS hostname. */
+  defaultName: string;
+}
+
+/** The 6-digit code of an open Settings → Connection screen. */
+export interface DesktopRemotePairCode {
+  /** Six digits, no separator. */
+  code: string;
+  expiresAt: number;
+}
+
+/** The relay cannot issue codes (older relay): show no code, say why. */
+export interface DesktopRemotePairCodeUnsupported {
+  unsupported: true;
 }
 
 /** An installed web app asking this desktop for access. It arrives with no
@@ -29,7 +62,28 @@ export interface DesktopRemoteClientClaim {
   name: string;
   platform: string;
   browser: string;
+  /** Another Mixdog desktop app's remote window is asking. */
+  desktop?: boolean;
+  /** QR/route, or a relay-redeemed 6-digit code. Absent from older hosts. */
+  method?: 'qr' | 'code' | 'retry';
+  /** When the request arrived on this desktop (epoch ms). */
+  requestedAt?: number;
   expiresAt: number;
+}
+
+/** A saved "Connect to another PC" host on this machine. */
+export interface DesktopRemoteHost {
+  id: string;
+  name: string;
+  /** The host's pairing link: the relay origin plus its device route. */
+  url: string;
+  addedAt: number;
+  lastConnectedAt: number | null;
+  /** Whether its window is open right now. */
+  open: boolean;
+  /** Whether the host's desktop is connected to its relay right now. Absent
+   *  when the relay could not be asked. */
+  online?: boolean;
 }
 
 export interface DesktopSessionSummary {
@@ -105,6 +159,8 @@ export interface DesktopEditorSettings {
   formatOnSave: boolean;
   formatOnPaste: boolean;
   formatOnType: boolean;
+  /** View a Markdown file opens in when it has no remembered mode. */
+  markdownDefaultView: 'preview' | 'rich' | 'source';
   tabSize: number;
   insertSpaces: boolean;
   detectIndentation: boolean;

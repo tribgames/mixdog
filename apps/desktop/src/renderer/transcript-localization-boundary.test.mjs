@@ -93,7 +93,8 @@ test('tool output and agent answers cannot be mistaken for UI summaries', async 
       isError: true,
       completedAt: 1,
     });
-    assert.equal(failed.resultLabel, 'Image');
+    // A failed command reads "실패 · <why>"; the tool's own text stays untranslated.
+    assert.equal(failed.resultLabel, `${catalog.Failed} · Image`);
     for (const language of ['en', 'ko']) {
       await i18n.changeLanguage(language);
       for (const result of ['[exit code: 0]', '[status: completed]']) {

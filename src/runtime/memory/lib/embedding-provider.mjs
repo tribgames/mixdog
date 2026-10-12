@@ -163,8 +163,10 @@ function embeddingWorkerTimeout(action) {
     : EMBED_WORKER_TIMEOUT_MS;
 }
 
+const EMBEDDING_UNSUPPORTED = 'embedding runtime unsupported on darwin-x64';
+
 export function assertEmbeddingRuntimeSupported() {
-  if (!onnxRuntimeSupported()) throw new Error('embedding runtime unsupported on darwin-x64');
+  if (!onnxRuntimeSupported()) throw new Error(EMBEDDING_UNSUPPORTED);
 }
 
 function sendToWorker(action, extra = {}, timeoutMs = embeddingWorkerTimeout(action)) {
@@ -314,7 +316,7 @@ async function runEmbeddingWarmup() {
 }
 
 export function warmupEmbeddingProvider() {
-  if (!onnxRuntimeSupported()) return Promise.reject(new Error('embedding runtime unsupported on darwin-x64'));
+  if (!onnxRuntimeSupported()) return Promise.reject(new Error(EMBEDDING_UNSUPPORTED));
   if (_configurePromise) return _configurePromise.then(() => warmupEmbeddingProvider());
   if (_modelReady && cachedDims) return Promise.resolve(true);
   if (!_warmupPromise) {

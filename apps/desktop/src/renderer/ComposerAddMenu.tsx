@@ -204,6 +204,7 @@ export function ComposerAddMenu({
   disabled,
   goalDisabled,
   sessionId,
+  openRequest = 0,
   onAttach,
   onSkill,
   onGoal,
@@ -213,6 +214,8 @@ export function ComposerAddMenu({
   disabled: boolean;
   goalDisabled: boolean;
   sessionId?: string | null;
+  /** Each change opens the menu (/skills); the value at mount is already handled. */
+  openRequest?: number;
   onAttach(): void;
   onSkill(name: string): void;
   onGoal(command: string): Promise<boolean>;
@@ -255,6 +258,12 @@ export function ComposerAddMenu({
   useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled]);
+  const handledOpenRequest = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === handledOpenRequest.current) return;
+    handledOpenRequest.current = openRequest;
+    if (!disabled) setOpen(true);
+  }, [openRequest, disabled]);
   return (
     <React.Fragment>
       <button

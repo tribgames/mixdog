@@ -261,3 +261,13 @@ test('a traced host read preserves its original rejection', async (t) => {
     false
   );
 });
+
+test('a replayed submission id joins the original instead of double-submitting', async (t) => {
+  const f = await sessionFixture(t);
+  await f.host.setVisibleSessions([f.id]);
+  const first = f.host.submitToSession(f.id, 'once', { id: 'retry-id' });
+  const replay = f.host.submitToSession(f.id, 'once', { id: 'retry-id' });
+  assert.deepEqual(await Promise.all([first, replay]), [true, true]);
+  assert.equal(await f.host.submitToSession(f.id, 'once', { id: 'retry-id' }), true);
+  assert.equal(f.texts().filter((text) => text === 'once').length, 1);
+});

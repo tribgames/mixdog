@@ -79,6 +79,9 @@ export function createSessionOps(deps) {
     } catch {
       /* best-effort: PostCompact hook must never break manual compact */
     }
+    // The awaited compaction may outlive its session (user resumed/started
+    // another one). Only touch the active session if it is still this id.
+    if (getSession()?.id !== session.id) return result;
     setSession(mgr.getSession(session.id) || session);
     // Manual /compact drops the Goal's tool results exactly like the
     // automatic path, so it marks the same one-shot state reminder.

@@ -13,6 +13,7 @@ export function createNotificationRouter({
   statusRefresh,
   executionDelivery,
   modelNotification,
+  getAdmission = () => 'open',
 }) {
   let uiOpenSeq = 0;
   let setupChangeSeq = 0;
@@ -68,6 +69,8 @@ export function createNotificationRouter({
       });
     }
     statusRefresh.refresh(parsed);
+    // A closing/closed owner enqueues no model work from a notification.
+    if (getAdmission() !== 'open' || event?.meta?.owner_closed === true) return false;
     return modelNotification.enqueueNotification({ event, text, delivery, notificationKey });
   };
 }

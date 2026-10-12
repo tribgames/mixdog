@@ -28,6 +28,16 @@ export function createPromotedCaptureRelease(run) {
     if (run.child?.exitCode == null && run.child?.signalCode == null) return;
     released = true;
     try {
+      // Flush the decoders before the capture closes: held bytes (a pending
+      // encoding decision or a split character) would otherwise be lost.
+      const stdoutTail = run.stdoutDecoder.end();
+      const stderrTail = run.stderrDecoder.end();
+      if (stdoutTail) run.taskOutput.writeStdout(stdoutTail);
+      if (stderrTail) run.taskOutput.writeStderr(stderrTail);
+    } catch {
+      /* best-effort */
+    }
+    try {
       // The spill files stay, even when empty: the promoted task record and
       // its completion notice point at these paths.
       run.taskOutput.closeFds();
@@ -64,16 +74,16 @@ function deferCleanupToChildExit(run) {
 // leaves the outer settle promise unresolved, hanging the call. Capture as
 // writeError so the caller sees outputCaptureError and the partial inline
 // buffer (if any) is still surfaced via partialOutput.
-export async function readCapturedOutput(taskOutput) {
+export async function readCapturedOutput(taskOutput, final = false) {
   let stdout = '';
   let stderr = '';
   try {
-    stdout = await taskOutput.getStdout();
+    stdout = await taskOutput.getStdout(final);
   } catch (err) {
     taskOutput.writeError = taskOutput.writeError || err;
   }
   try {
-    stderr = await taskOutput.getStderr();
+    stderr = await taskOutput.getStderr(final);
   } catch (err) {
     taskOutput.writeError = taskOutput.writeError || err;
   }
@@ -116,7 +126,7 @@ export function createSettle(run, releasePromotedCapture) {
     const stderrTail = run.stderrDecoder.end();
     if (stdoutTail) taskOutput.writeStdout(stdoutTail);
     if (stderrTail) taskOutput.writeStderr(stderrTail);
-    let { stdout, stderr } = await readCapturedOutput(taskOutput);
+    let { stdout, stderr } = await readCapturedOutput(taskOutput, true);
     if (run.spawnError && !stderr) stderr = String(run.spawnError.message || run.spawnError);
     // Inline-only path: nothing spilled. Nothing to clean up.
     // Spilled but within the inline cap: getStdout/getStderr already

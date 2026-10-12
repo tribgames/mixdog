@@ -1,8 +1,11 @@
-import { Suspense, memo, useEffect, useRef } from 'react';
+import { Suspense, createContext, memo, useContext, useEffect, useRef } from 'react';
+import { AttachmentCard, composerCardMeta } from './attachment-card';
+import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource } from './attachment-menu';
+import { useAttachmentContextMenu } from './attachment-context-menu';
+import { MarkdownOpenFileContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import MarkdownBody from './MarkdownBody';
-import { MxIcon } from './MxIcon';
 import {
   createStreamingMarkdownCache,
   healStreamingMarkdownTail,
@@ -12,7 +15,7 @@ import {
 import StreamingMarkdownBody from './StreamingMarkdownBody';
 import { imagePreviewCache, imagePreviewKey } from './transcript-metrics';
 import { CopyControl } from './transcript-primitives';
-import { CompletionStatus } from './transcript-status';
+import { type BackgroundWorkCounts, CompletionStatus } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
 import { ToolCard } from './transcript-tool-ui';
 // biome-ignore format: @ts-expect-error must precede the specifier
@@ -89,12 +92,14 @@ function stripImageTokens(text: string): string {
 
 interface PastedTextChip {
   name: string;
+  token: string;
+  lines: number;
 }
 
 function extractPastedTextMarkers(text: string): { text: string; chips: PastedTextChip[] } {
   const chips: PastedTextChip[] = [];
-  const stripped = String(text || '').replace(/ ?\[Pasted text #\d+ \+(\d+) lines\] ?/g, (_match, lines) => {
-    chips.push({ name: `Pasted text · ${lines} lines` });
+  const stripped = String(text || '').replace(/ ?(\[Pasted text #\d+ \+(\d+) lines\]) ?/g, (_match, token, lines) => {
+    chips.push({ name: `Pasted text · ${lines} lines`, token, lines: Number(lines) });
     return ' ';
   });
   if (chips.length === 0) return { text, chips };
@@ -231,15 +236,21 @@ export function transcriptSourceLabel(item: TranscriptItem): string {
   return String(item.sender || '').toLowerCase() === 'lead' ? 'LEAD' : '';
 }
 
+/** Whether the conversation was used from more than one device. Only then does
+ *  a prompt row say which device sent it. */
+export const TranscriptDevicesContext = createContext(false);
+
 export const TranscriptRow = memo(
   function TranscriptRow({
     item,
     completion,
     animateComplete = false,
     completionActivityKey = '',
+    backgroundWork,
     attachedUser = false,
     disclosureScope = '',
   }: {
+    backgroundWork?: BackgroundWorkCounts;
     item: TranscriptItem;
     completion?: TranscriptItem;
     animateComplete?: boolean;
@@ -247,17 +258,19 @@ export const TranscriptRow = memo(
     attachedUser?: boolean;
     disclosureScope?: string;
   }) {
+    const multiDevice = useContext(TranscriptDevicesContext);
     const previousStreaming = useRef(Boolean(item.streaming));
     const announceSettled = previousStreaming.current && !item.streaming;
     useEffect(() => {
       previousStreaming.current = Boolean(item.streaming);
     }, [item.streaming]);
+    const { menuProps, menuElement } = useAttachmentContextMenu(useContext(MarkdownOpenFileContext));
     if (item.kind === 'tool') {
       if (shouldSuppressFullyFailedToolItem(item)) return null;
       return <ToolCard item={item} disclosureScope={disclosureScope} />;
     }
     if (item.kind === 'statusdone' || item.kind === 'turndone') {
-      return <CompletionStatus item={item} />;
+      return <CompletionStatus item={item} backgroundWork={backgroundWork} />;
     }
     if (item.kind === 'notice') {
       const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
@@ -285,7 +298,8 @@ export const TranscriptRow = memo(
     const pastedFold = user
       ? extractPastedTextMarkers(userDisplayText)
       : { text: userDisplayText, chips: [] as PastedTextChip[] };
-    const webhookFold = user ? extractWebhookPayload(pastedFold.text) : { text: pastedFold.text, payload: '' };
+    const fileFold = user ? extractFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
+    const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
     return (
       <>
         <article
@@ -294,75 +308,105 @@ export const TranscriptRow = memo(
           aria-busy={item.pending === true ? 'true' : undefined}
         >
           {sourceLabel && <small className="message-source">{sourceLabel}</small>}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control. */}
-          <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-            {user && (
-              <>
-                {(attachedImages.length > 0 || markerChips.length > 0 || pastedFold.chips.length > 0) && (
-                  // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the chip row.
-                  <div className="message-image-chips" role="group" aria-label={t('Attachments')}>
-                    {attachedImages.map((image, index) => {
-                      const preview = imagePreviewCache.peek(imagePreviewKey(image.id, image.bytes));
-                      const name = image.name || t('Attached image');
-                      return preview ? (
-                        <button
-                          type="button"
-                          className="message-image-chip message-image-chip-button"
-                          // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
-                          key={`${image.id ?? 'img'}-${index}`}
-                          title={name}
-                          aria-label={t('Open image')}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={() =>
-                            void window.mixdogDesktop?.openAttachmentImage?.(preview, name)?.catch(() => undefined)
-                          }
-                        >
-                          <img src={preview} alt={name} />
-                        </button>
-                      ) : (
-                        // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
-                        <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`} title={name}>
-                          <span className="message-image-fallback">
-                            <MxIcon name="photo" size={14} />
-                            <span>{image.name || 'Image'}</span>
-                          </span>
-                        </span>
-                      );
-                    })}
-                    {markerChips.map((chip, index) => (
+          {user &&
+            (attachedImages.length > 0 ||
+              markerChips.length > 0 ||
+              pastedFold.chips.length > 0 ||
+              fileFold.chips.length > 0) && (
+              // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
+              <div className="message-attachments" role="group" aria-label={t('Attachments')}>
+                {attachedImages.map((image, index) => {
+                  const preview = imagePreviewCache.peek(imagePreviewKey(image.id, image.bytes));
+                  const name = image.name || t('Attached image');
+                  return (
+                    <AttachmentCard
+                      // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
+                      key={`${image.id ?? 'img'}-${index}`}
+                      kind="image"
+                      name={preview ? name : image.name || 'Image'}
+                      imageUrl={preview || undefined}
+                      menu={menuProps(
+                        preview ? { kind: 'image', name, dataUrl: preview } : { kind: 'image-marker', name }
+                      )}
+                      onOpen={
+                        preview
+                          ? () =>
+                              void window.mixdogDesktop?.openAttachmentImage?.(preview, name)?.catch(() => undefined)
+                          : undefined
+                      }
+                    />
+                  );
+                })}
+                {markerChips.map((chip, index) => (
+                  <AttachmentCard
+                    // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
+                    key={`marker-${index}`}
+                    kind="image"
+                    name={chip.name}
+                    tooltip={chip.title}
+                    meta={chip.dims}
+                    menu={menuProps({ kind: 'image-marker', name: chip.name })}
+                  />
+                ))}
+                {pastedFold.chips.map((chip, index) => {
+                  const stored = sentPastedTextSource(chip.token, chip.name, item.id);
+                  return (
+                    <AttachmentCard
                       // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
-                      <span className="message-image-chip" key={`marker-${index}`} title={chip.title}>
-                        <span className="message-image-fallback">
-                          <MxIcon name="photo" size={14} />
-                          <span>{chip.name}</span>
-                          {chip.dims ? <small>{chip.dims}</small> : null}
-                        </span>
-                      </span>
-                    ))}
-                    {pastedFold.chips.map((chip, index) => (
-                      <span
-                        className="message-image-chip message-pasted-chip"
-                        // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
-                        key={`pasted-${index}`}
-                        title={chip.name}
-                      >
-                        <span className="message-image-fallback">
-                          <MxIcon name="open-file" size={14} />
-                          <span>{chip.name}</span>
-                        </span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {webhookFold.text ? <p>{webhookFold.text}</p> : null}
-              </>
+                      key={`pasted-${index}`}
+                      kind="pasted"
+                      name={chip.name}
+                      content={stored.kind === 'pasted-text' ? stored.text : undefined}
+                      meta={t('{{count}} lines', { count: chip.lines })}
+                      menu={menuProps(() => sentPastedTextSource(chip.token, chip.name, item.id))}
+                    />
+                  );
+                })}
+                {fileFold.chips.map((chip, index) => {
+                  const kind = fileChipKind(chip);
+                  const stored = sentFileSource(chip, item.id);
+                  let meta = '';
+                  let content: string | undefined;
+                  if (stored.kind === 'text-file' && stored.text !== undefined) {
+                    content = stored.text;
+                    meta = composerCardMeta({ kind: 'text', data: stored.text });
+                  } else if ((stored.kind === 'pdf' || stored.kind === 'office') && stored.dataUrl) {
+                    content = stored.dataUrl.split(',')[1] || '';
+                    meta = composerCardMeta({ kind: stored.kind, data: content });
+                  }
+                  return (
+                    <AttachmentCard
+                      // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
+                      key={`file-${index}`}
+                      kind={kind === 'text-file' ? 'text' : kind}
+                      name={chip.name}
+                      content={content}
+                      meta={meta}
+                      menu={menuProps(() => sentFileSource(chip, item.id))}
+                    />
+                  );
+                })}
+              </div>
             )}
-            {!user && <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
-          </div>
+          {menuElement}
+          {(!user || webhookFold.text) && (
+            // biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control.
+            <div className="message-body" onDragStart={(event) => event.preventDefault()}>
+              {user ? <p>{webhookFold.text}</p> : <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
+            </div>
+          )}
+          {user && multiDevice && typeof item.device === 'string' && item.device && (
+            <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
+          )}
           {!user && !item.streaming && completion && (
             // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.
             <footer className="response-footer" role="group" aria-label={t('Response details')}>
-              <CompletionStatus item={completion} animateComplete={animateComplete} completionActivityKey={completionActivityKey} />
+              <CompletionStatus
+                item={completion}
+                animateComplete={animateComplete}
+                completionActivityKey={completionActivityKey}
+                backgroundWork={backgroundWork}
+              />
               {metadata.shortTime && <time className="message-time">{metadata.shortTime}</time>}
               {text && <CopyControl value={text} label="Copy response" className="message-actions response-copy" />}
             </footer>
@@ -381,6 +425,8 @@ export const TranscriptRow = memo(
     transcriptItemsEqual(previous.completion, next.completion) &&
     previous.animateComplete === next.animateComplete &&
     previous.completionActivityKey === next.completionActivityKey &&
+    previous.backgroundWork?.shell === next.backgroundWork?.shell &&
+    previous.backgroundWork?.agent === next.backgroundWork?.agent &&
     previous.attachedUser === next.attachedUser &&
     previous.disclosureScope === next.disclosureScope
 );

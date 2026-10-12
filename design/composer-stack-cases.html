@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴포저 위 스택 · 전체 케이스와 개선 시안</title>
+<style>
+  :root {
+    --bg: #161616; --card: #232323; --edge: #303030; --text: #e8e8e8; --muted: #9a9a9a;
+    --accent: #6ea8ff; --warn: #e8b64c; --ok: #5fc48a; --danger: #ef6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f0f0f; color: var(--text); font: 14px/1.5 "Pretendard", "Segoe UI", sans-serif; padding: 32px 40px 80px; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 44px 0 6px; padding-top: 18px; border-top: 1px solid #242424; }
+  .lead, .sub { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1500px; font-size: 12.8px; }
+  th, td { border-bottom: 1px solid #262626; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; background: #141414; }
+  td b { color: #fff; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; margin: 1px 2px 1px 0; background: #222; border: 1px solid #333; color: #c8c8c8; }
+  .tag.w { border-color: #4a3d1f; color: #f0dca8; background: #26221a; }
+  .tag.r { border-color: #4a2525; color: #f3b0b0; background: #2a1c1c; }
+  .tag.n { border-color: #23405f; color: #b8d4ff; background: #19222e; }
+  .prob { color: #f3b0b0; }
+  .fix { color: #b8e6c8; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; max-width: 1500px; }
+  .case h3 { font-size: 14px; margin: 0 0 2px; }
+  .case p { color: var(--muted); font-size: 12.3px; margin: 0 0 8px; min-height: 34px; }
+  .frame { position: relative; background: var(--bg); border: 1px solid #262626; border-radius: 12px; padding: 16px 16px 14px; height: 470px;
+           display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+  .transcript { position: absolute; inset: 16px 16px auto; color: #555; font-size: 12.5px; }
+  .gap { height: 8px; flex: none; }
+
+  .rail { display: flex; gap: 6px; }
+  .pill { display: flex; align-items: center; gap: 7px; background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+          height: 32px; padding: 0 11px; font-size: 12.3px; min-width: 0; }
+  .pill.goal { flex: 1 1 auto; }
+  .pill.diff { flex: 0 0 auto; }
+  .pill .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill .meta { color: var(--muted); margin-left: auto; white-space: nowrap; }
+  .pill.chip { height: 26px; border-radius: 999px; padding: 0 10px; font-size: 11.8px; color: var(--muted); flex: none; }
+  .pill.warn { border-color: #4a3d1f; background: #26221a; color: #f0dca8; }
+  .pill.done { color: var(--muted); }
+  .bar { width: 40px; height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; flex: none; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .plus { color: var(--ok); } .minus { color: var(--danger); }
+  .muted { color: var(--muted); }
+  .spin { color: var(--accent); }
+
+  .panel { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 10px 12px; font-size: 12.3px; }
+  .panel .h { display: flex; gap: 8px; align-items: center; font-weight: 600; margin-bottom: 4px; }
+  .panel .h .g { color: var(--warn); }
+  .panel code { display: block; background: #1a1a1a; border-radius: 7px; padding: 6px 9px; margin: 6px 0 8px; color: #cfcfcf; font-size: 12px; }
+  .panel .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .panel .rows { display: grid; grid-template-columns: 1fr auto auto; gap: 3px 10px; color: #cfcfcf; }
+
+  .send-group { background: var(--card); border: 1px solid var(--edge); border-radius: 16px; overflow: hidden; }
+  .tray { display: flex; align-items: center; gap: 9px; padding: 6px 12px; font-size: 12.2px; border-bottom: 1px solid #2c2c2c; }
+  .tray .k { color: var(--muted); flex: none; }
+  .tray .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tray .actions { margin-left: auto; display: flex; gap: 4px; flex: none; color: var(--muted); }
+  .tray.model { background: #26221a; color: #f0dca8; }
+  .tray.model .k { color: var(--warn); }
+  .tray.settings { gap: 6px; }
+  .sel { border: 1px solid #383838; border-radius: 7px; padding: 1px 8px; color: #d8d8d8; font-size: 12px; }
+  .composer { padding: 10px 12px 9px; }
+  .composer .input { color: #6d6d6d; height: 26px; font-size: 13px; }
+  .cbar { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+  .cbar .add { color: var(--muted); font-size: 16px; }
+  .ring { width: 14px; height: 14px; border: 2px solid #777; border-radius: 50%; }
+  .send { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; background: #3a3a3a; display: grid; place-items: center; color: #bbb; font-size: 12px; }
+  .btn { border: 1px solid #3a3a3a; background: #2b2b2b; color: var(--text); border-radius: 7px; padding: 1px 8px; font-size: 11.8px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0d1626; font-weight: 600; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  .toast { position: absolute; top: 14px; right: 14px; background: #262626; border: 1px solid #383838; border-radius: 10px; padding: 7px 12px; font-size: 12px; color: #cfcfcf; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+  .note { position: absolute; top: 60px; left: 16px; right: 16px; font-size: 11.5px; color: #6f6f6f; border: 1px dashed #333; border-radius: 8px; padding: 6px 9px; }
+
+  .rules { max-width: 1500px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .rules div { background: #1a1a1a; border: 1px solid #262626; border-radius: 10px; padding: 12px 14px; font-size: 13px; color: #cfcfcf; }
+  .rules b { display: block; color: #fff; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<h1>컴포저 위 스택 · 전체 케이스와 개선 시안</h1>
+<p class="lead">현재 코드(<code>ComposerDock.tsx</code>, <code>Composer.tsx</code>, <code>SessionGoalIsland.tsx</code>, <code>ApprovalCard.tsx</code>, <code>TurnReview.tsx</code>, <code>composer-support.tsx</code>의 <code>QueueList</code>)에서 나올 수 있는 상태를 전부 뽑고, 같이 뜨는 조합별로 개선안을 그렸습니다.</p>
+
+<h2>1. 지금 뜰 수 있는 요소와 상태 (전수)</h2>
+<table>
+  <tr><th style="width:13%">요소</th><th style="width:9%">언제</th><th style="width:34%">상태</th><th style="width:22%">지금 문제</th><th>개선</th></tr>
+  <tr>
+    <td><b>Goal 캡슐</b></td><td>Goal이 있는 세션</td>
+    <td><span class="tag n">진행 중</span><span class="tag n">작업 중(스피너)</span><span class="tag n">응답 중</span><span class="tag">일시정지</span><span class="tag w">막힘(blocked)</span><span class="tag w">한도 소진(usage_limited)</span><span class="tag">시간 초과</span><span class="tag">완료</span><span class="tag">중단</span><br>+ 서랍 열림(작업 목록) · 수정 창 · 중단 확인 · 오류</td>
+    <td class="prob">가운데 캡슐이라 다른 요소와 정렬이 따로 놉니다. 승인 대기 중에는 "일시정지" 아이콘으로 바뀌는데, 승인 카드와 같은 사실을 두 번 알립니다.</td>
+    <td class="fix">1층 상태줄의 왼쪽 칸으로 옮깁니다. 승인 대기 중에는 칩 "Goal · 승인 대기"로 접습니다. 한도 소진은 모델 안내와 문구를 합칩니다(케이스 ⑥).</td>
+  </tr>
+  <tr>
+    <td><b>Diff 바</b></td><td>파일을 바꾼 턴 뒤</td>
+    <td><span class="tag">접힘: 파일 N개 +a −b</span><span class="tag">에이전트 기여 표시</span><span class="tag">펼침: 파일 목록 + 보기 방식 전환</span><span class="tag">파일 diff 열림</span><span class="tag w">되돌리기 확인</span><span class="tag r">되돌리기 오류</span></td>
+    <td class="prob">전체 폭을 차지하고, 펼치면 Goal을 위로 밀어 올립니다. Goal 서랍과 동시에 열 수 있습니다.</td>
+    <td class="fix">1층 오른쪽의 짧은 칸으로 옮깁니다. 펼친 목록은 위로 여는 팝오버로 바꾸고, Goal 서랍과는 하나만 열리게 합니다.</td>
+  </tr>
+  <tr>
+    <td><b>도구 승인 카드</b></td><td>도구가 허락을 기다릴 때</td>
+    <td><span class="tag w">일반 승인(명령·경로 표시)</span><span class="tag w">Office 변경 검토(미리보기 이미지·요약)</span><span class="tag">다른 기기에서 처리됨</span><span class="tag">○○ 기기에서 허용/거절</span><span class="tag r">기록 실패 오류</span></td>
+    <td class="prob">"다른 기기에서 처리됨" 카드가 끝난 뒤에도 자리를 차지합니다. Office 미리보기는 높이가 큽니다.</td>
+    <td class="fix">2층에 단독으로 둡니다. "처리됨" 결과는 카드 대신 토스트로 띄웁니다. Office 미리보기는 최대 높이를 두고 안에서 스크롤합니다.</td>
+  </tr>
+  <tr>
+    <td><b>대기 메시지</b></td><td>응답 중 추가로 보낸 메시지</td>
+    <td><span class="tag">1개 이상(편집 · 바로 끼어들기 · 삭제)</span><span class="tag">이미지 개수</span><span class="tag">편집 불러오는 중</span><span class="tag">슬래시 명령은 끼어들기 불가</span></td>
+    <td class="prob">입력창과 떨어진 별도 목록이라, 개수가 늘면 스택이 끝없이 길어집니다.</td>
+    <td class="fix">3층 트레이로 옮겨 입력창과 한 카드로 묶습니다. 3개 이상이면 "대기 N개 ⌄"로 접습니다.</td>
+  </tr>
+  <tr>
+    <td><b>새 대화 설정줄</b></td><td>새 대화(초안)에서만</td>
+    <td><span class="tag">프로젝트</span><span class="tag">워크플로</span><span class="tag">실행 방식</span></td>
+    <td class="prob">초안에서만 뜨는데도 스택의 한 층을 차지합니다.</td>
+    <td class="fix">입력창 카드의 맨 위 줄(3층)로 넣습니다. 초안에는 다른 요소가 없어서 겹칠 일이 없습니다.</td>
+  </tr>
+  <tr>
+    <td><b>모델 안내 띠</b> <span class="tag n">신규</span></td><td>대화 모델 ≠ 고른 모델</td>
+    <td><span class="tag w">이 대화는 X로 계속 · [이어받기] [되돌리기]</span><span class="tag w">한도 소진과 합친 문구</span></td>
+    <td class="prob">지금은 아무 안내가 없습니다(제보 원인).</td>
+    <td class="fix">3층 맨 아래, 입력창 바로 위에 둡니다.</td>
+  </tr>
+  <tr>
+    <td><b>백그라운드 작업</b> <span class="tag n">신규</span></td><td>셸 작업·에이전트가 도는 동안</td>
+    <td><span class="tag n">⟳ N개 (셸 a · 에이전트 b)</span><span class="tag">펼침: 이름 · 경과 시간 · 중지/열기</span><span class="tag">끝남 → 토스트</span></td>
+    <td class="prob">Desktop에서는 셸 작업이 어디에도 보이지 않습니다. 턴 완료 줄도 작업이 남아 있는데 "완료"로 뜹니다.</td>
+    <td class="fix">1층 상태줄의 세 번째 칸에 둡니다(Goal·Diff와 같은 줄이라 높이가 늘지 않음). 완료 줄은 "백그라운드 작업 N개 대기 중"으로 바꿉니다.</td>
+  </tr>
+  <tr>
+    <td><b>파일 놓기 표시</b></td><td>파일을 끌어올 때</td>
+    <td><span class="tag">"파일이나 경로를 놓으세요"</span></td>
+    <td class="muted">대화 영역 전체를 덮는 오버레이라서 스택과 관계없습니다.</td>
+    <td class="muted">그대로 둡니다.</td>
+  </tr>
+  <tr>
+    <td><b>오류·알림</b></td><td>—</td>
+    <td class="muted">이미 토스트로 옮겨져 있습니다("되도록 컴포저 위에 안 떴으면").</td>
+    <td class="muted">—</td><td class="muted">원칙을 유지합니다. 새 요소도 일시적인 결과는 토스트로 보냅니다.</td>
+  </tr>
+</table>
+
+<h2>2. 층 구조</h2>
+<div class="rules">
+  <div><b>1층 · 세션 상태 (높이 32px 고정 한 줄)</b>왼쪽에 Goal, 가운데에 백그라운드 작업 "⟳ N", 오른쪽에 Diff를 둡니다. 셋 다 "세션이 지금 어떤 상태인지"를 보여 주는 요소라 한 줄에 모읍니다. 둘 중 하나만 있으면 그 하나가 폭을 다 씁니다. 펼친 내용은 위쪽 팝오버로 열려서 읽던 위치를 건드리지 않고, 한 번에 하나만 열립니다.</div>
+  <div><b>2층 · 지금 처리할 일</b>도구 승인 카드만 둡니다. 떠 있는 동안 1층은 26px 칩으로 접힙니다. 결과("다른 기기에서 처리됨")는 토스트로 보냅니다.</div>
+  <div><b>3층 · 다음 전송 (입력창과 한 카드)</b>위에서부터 새 대화 설정줄(초안만), 대기 메시지(2개까지 펼침, 3개부터 접음), 모델 안내, 입력창 순서입니다.</div>
+  <div><b>높이 예산</b>스택 전체는 대화 영역 높이의 45%를 넘지 않게 합니다. 넘치면 1층을 칩으로 접고 → 대기 메시지를 접고 → 승인 카드 안을 스크롤하는 순서로 줄입니다. 입력창과 모델 안내는 절대 접지 않습니다.</div>
+</div>
+
+<h2>3. 같이 뜨는 조합별 개선안</h2>
+<p class="sub">실제로 함께 나올 수 있는 조합만 그렸습니다. 새 대화(초안)에는 세션이 없어서 Goal·Diff·승인·대기 메시지가 함께 뜨지 않습니다.</p>
+<div class="grid">
+
+  <section class="case">
+    <h3>① 새 대화(초안)</h3>
+    <p>설정줄이 입력창 카드 안 첫 줄로 들어갑니다.</p>
+    <div class="frame">
+      <div class="transcript">(빈 대화)</div>
+      <div class="send-group">
+        <div class="tray settings"><span class="sel">📁 mixdog ⌄</span><span class="sel">Default ⌄</span><span class="sel">Swarm ⌄</span></div>
+        <div class="composer"><div class="input">무엇을 할까요?</div><div class="cbar"><span class="add">＋</span><span>Gemini Flash Lite Latest <span class="muted">High ⌄</span></span><span class="send">↑</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>② 응답 중 + Goal 진행 + 대기 1개</h3>
+    <p>가장 흔한 작업 중 화면입니다. 1층은 Goal만 있어서 한 줄을 다 씁니다.</p>
+    <div class="frame">
+      <div class="transcript">…도구 실행 중…</div>
+      <div class="rail"><div class="pill goal"><span class="spin">◌</span><span class="title">결제 모듈을 새 API로 이전</span><span class="bar"><i style="width:40%"></i></span><span class="meta">2/5 · 8m</span></div></div>
+      <div class="gap"></div>
+      <div class="send-group">
+        <div class="tray"><span class="k">대기</span><span class="v">테스트도 같이 돌려줘</span><span class="actions">⚡ ✎ ✕</span></div>
+        <div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">■</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>③ 승인 대기 + Goal + Diff + 대기 2개</h3>
+    <p>요소가 가장 많은 조합입니다. 1층은 칩으로 접히고, Goal의 "일시정지"는 "승인 대기"로 표시합니다.</p>
+    <div class="frame">
+      <div class="transcript">…</div>
+      <div class="rail"><div class="pill chip warn">◎ Goal · 승인 대기</div><div class="pill chip">파일 4개 <span class="plus">+128</span></div></div>
+      <div class="gap"></div>
+      <div class="panel">
+        <div class="h"><span class="g">⚠</span>도구 승인 필요 <span class="muted" style="font-weight:400">· shell</span></div>
+        <code>npm run migrate -- --env=staging</code>
+        <div class="actions"><button class="btn">거절 (D)</button><button class="btn primary">허용 (A)</button></div>
+      </div>
+      <div class="gap"></div>
+      <div class="send-group">
+        <div class="tray"><span class="k">대기</span><span class="v">테스트도 같이 돌려줘</span><span class="actions">⚡ ✎ ✕</span></div>
+        <div class="tray"><span class="k">대기</span><span class="v">끝나면 변경점 요약해줘</span><span class="actions">⚡ ✎ ✕</span></div>
+        <div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">■</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>④ 턴 끝 · Goal + Diff + 모델 불일치</h3>
+    <p>대기 중인 화면입니다. 1층에 Goal과 Diff가 나란히 있고, 모델 안내는 입력창 바로 위에 붙습니다.</p>
+    <div class="frame">
+      <div class="transcript">네, 세 부분으로 나눠 정리했습니다. (Claude Opus 5.5)</div>
+      <div class="rail">
+        <div class="pill goal"><span>◎</span><span class="title">결제 모듈을 새 API로 이전</span><span class="meta">3/5 · 12m</span></div>
+        <div class="pill diff">파일 4개 <span class="plus">+128</span><span class="minus">−41</span></div>
+      </div>
+      <div class="gap"></div>
+      <div class="send-group">
+        <div class="tray model"><span class="k">⚠</span><span class="v">이 대화는 <b>Claude Opus 5.5</b>로 계속됩니다</span><span class="actions"><button class="btn primary">Gemini로 이어받기</button><button class="btn ghost">되돌리기</button></span></div>
+        <div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Gemini Flash Lite Latest <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑤ Diff 펼침 (Goal 서랍은 자동으로 닫힘)</h3>
+    <p>목록은 위쪽 팝오버로 열려 대화 위를 덮고, 입력창과 1층 높이는 그대로입니다.</p>
+    <div class="frame">
+      <div class="transcript">…</div>
+      <div class="panel" style="margin-left:auto;width:78%">
+        <div class="h">변경 파일 4개 <span class="muted" style="font-weight:400;margin-left:auto">통합 | 나란히</span></div>
+        <div class="rows">
+          <span>src/payments/client.ts</span><span class="plus">+62</span><span class="minus">−18</span>
+          <span>src/payments/webhook.ts</span><span class="plus">+40</span><span class="minus">−12</span>
+          <span>src/payments/types.ts</span><span class="plus">+21</span><span class="minus">−4</span>
+          <span>test/payments.test.ts</span><span class="plus">+5</span><span class="minus">−7</span>
+        </div>
+      </div>
+      <div class="gap"></div>
+      <div class="rail">
+        <div class="pill goal"><span>◎</span><span class="title">결제 모듈을 새 API로 이전</span><span class="meta">3/5</span></div>
+        <div class="pill diff" style="border-color:#4a6a9a">파일 4개 <span class="plus">+128</span><span class="minus">−41</span> ⌄</div>
+      </div>
+      <div class="gap"></div>
+      <div class="send-group"><div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div></div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑥ Goal 한도 소진 + 모델 불일치 (제보 상황)</h3>
+    <p>같은 원인을 두 번 말하지 않게, 모델 안내 하나에 Goal 이어가기를 합칩니다.</p>
+    <div class="frame">
+      <div class="transcript">All connected accounts have exhausted their quota.</div>
+      <div class="rail"><div class="pill goal warn"><span>⚠</span><span class="title">결제 모듈을 새 API로 이전</span><span class="meta">한도 소진 · 3/5</span></div></div>
+      <div class="gap"></div>
+      <div class="send-group">
+        <div class="tray model"><span class="k">⚠</span><span class="v">Claude 한도 소진 · 고른 <b>Gemini</b>로 이어받으면 Goal도 이어갑니다</span><span class="actions"><button class="btn primary">이어받기</button></span></div>
+        <div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Gemini Flash Lite Latest <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑦ 실패만 한 대화에서 모델 변경 (1번 수정 후)</h3>
+    <p>답을 받은 적이 없어서 바로 바뀝니다. 안내 띠는 뜨지 않고 결과만 토스트로 알립니다.</p>
+    <div class="frame">
+      <div class="toast">이 대화가 Gemini Flash Lite Latest로 바뀌었어요</div>
+      <div class="transcript" style="top:60px">안뇽 · ⓘ 한도 소진 · [다시 시도]</div>
+      <div class="send-group"><div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Gemini Flash Lite Latest <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div></div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑧ 넘칠 때 (대기 5개 + Goal + Diff + 모델 불일치)</h3>
+    <p>높이 예산을 넘으면 1층을 칩으로 접고, 대기 메시지는 묶어 접습니다.</p>
+    <div class="frame">
+      <div class="transcript">…</div>
+      <div class="rail"><div class="pill chip">◎ Goal 3/5</div><div class="pill chip">파일 4개</div></div>
+      <div class="gap"></div>
+      <div class="send-group">
+        <div class="tray"><span class="k">대기 5개</span><span class="v muted">테스트도 같이 돌려줘 외 4개</span><span class="actions">⌄</span></div>
+        <div class="tray model"><span class="k">⚠</span><span class="v">이 대화는 <b>Claude Opus 5.5</b>로 계속됩니다</span><span class="actions"><button class="btn primary">이어받기</button></span></div>
+        <div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Gemini Flash Lite Latest <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">■</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑨ 다른 기기에서 승인이 처리됐을 때</h3>
+    <p>"처리됨" 카드를 남기지 않고 토스트로 알린 뒤, 1층을 원래대로 펼칩니다.</p>
+    <div class="frame">
+      <div class="toast">MacBook에서 허용했어요</div>
+      <div class="transcript" style="top:60px">…</div>
+      <div class="rail">
+        <div class="pill goal"><span class="spin">◌</span><span class="title">결제 모듈을 새 API로 이전</span><span class="meta">3/5 · 12m</span></div>
+        <div class="pill diff">파일 4개 <span class="plus">+128</span></div>
+      </div>
+      <div class="gap"></div>
+      <div class="send-group"><div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">■</span></div></div></div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑩ 턴 끝 · 백그라운드 작업 남음 + Goal + Diff</h3>
+    <p>완료 줄은 "대기 중"으로 바뀌고, 1층에 ⟳ 칸이 끼어듭니다. 높이는 그대로입니다.</p>
+    <div class="frame">
+      <div class="transcript">테스트를 백그라운드로 돌려 두었습니다…<br><span class="spin">⟳</span> 백그라운드 작업 2개 대기 중 · 셸 1 · 에이전트 1</div>
+      <div class="rail">
+        <div class="pill goal"><span>◎</span><span class="title">결제 모듈을 새 API로 이전</span><span class="meta">3/5</span></div>
+        <div class="pill diff" style="color:#b8d4ff;border-color:#23405f;background:#19222e"><span class="spin">⟳</span> 2</div>
+        <div class="pill diff">파일 4개 <span class="plus">+128</span></div>
+      </div>
+      <div class="gap"></div>
+      <div class="send-group"><div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div></div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑪ 백그라운드 작업 펼침</h3>
+    <p>Diff와 같은 위쪽 팝오버를 씁니다. 한 번에 하나만 열립니다.</p>
+    <div class="frame">
+      <div class="transcript">…</div>
+      <div class="panel">
+        <div class="h"><span class="spin">⟳</span>백그라운드 작업 2개</div>
+        <div class="rows" style="grid-template-columns:1fr auto auto">
+          <span>셸 · npm test -- --watch=false</span><span class="muted">2m 14s</span><span class="muted">열기 · 중지</span>
+          <span>에이전트 · Worker (결제 테스트 보강)</span><span class="muted">48s</span><span class="muted">열기 · 중지</span>
+        </div>
+      </div>
+      <div class="gap"></div>
+      <div class="rail">
+        <div class="pill goal"><span>◎</span><span class="title">결제 모듈을 새 API로 이전</span><span class="meta">3/5</span></div>
+        <div class="pill diff" style="color:#b8d4ff;border-color:#4a6a9a;background:#19222e"><span class="spin">⟳</span> 2 ⌄</div>
+        <div class="pill diff">파일 4개</div>
+      </div>
+      <div class="gap"></div>
+      <div class="send-group"><div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div></div>
+    </div>
+  </section>
+
+  <section class="case">
+    <h3>⑫ 작업 끝남 / 작업만 있을 때</h3>
+    <p>끝나면 토스트를 띄우고 칸이 사라집니다. Goal·Diff가 없으면 ⟳ 칸 하나만 남습니다.</p>
+    <div class="frame">
+      <div class="toast">백그라운드 작업 2개가 끝났어요</div>
+      <div class="transcript" style="top:60px">…</div>
+      <div class="rail"><div class="pill" style="color:#b8d4ff;border-color:#23405f;background:#19222e"><span class="spin">⟳</span> 백그라운드 작업 1개 · 셸</div></div>
+      <div class="gap"></div>
+      <div class="send-group"><div class="composer"><div class="input">메시지 입력…</div><div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="muted">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div></div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

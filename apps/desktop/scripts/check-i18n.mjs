@@ -1,8 +1,8 @@
 // One keyed catalog per language, shared by explicit and legacy UI text.
 import { readFileSync } from 'node:fs';
-import { catalogProblems, hasLatinText } from './i18n/source-keys.mjs';
+import { catalogProblems, untranslatedProblems } from './i18n/source-keys.mjs';
 import { generatedCatalogs } from './i18n/native-catalogs.mjs';
-import { catalogState, rendererUrl, readJson, supportedLanguages, requiredCatalogKeys } from './i18n/catalog-state.mjs';
+import { catalogState, neutralAllowlist, supportedLanguages, requiredCatalogKeys } from './i18n/catalog-state.mjs';
 
 const state = catalogState();
 const { catalogs, sources, keys } = state;
@@ -23,11 +23,14 @@ for (const [name, catalog] of catalogs) {
     console.error(`  · ${reason}: ${key}${sources.has(key) ? ` (${sources.get(key)})` : ''}`);
   }
 }
-const neutral = new Set(readJson(new URL('ui-untranslated-allowlist.json', rendererUrl)));
-for (const key of keys) {
-  if (!neutral.has(key) && hasLatinText(key) && [...catalogs.values()].every((catalog) => catalog[key] === key)) {
-    console.error(`check-i18n: English-only UI phrase: ${key}`);
-    failed = true;
+const allowlist = neutralAllowlist();
+for (const [name, catalog] of catalogs) {
+  const problems = untranslatedProblems(name, catalog, keys, allowlist);
+  if (!problems.length) continue;
+  failed = true;
+  console.error(`check-i18n: ${name} — ${problems.length} untranslated`);
+  for (const { key } of problems.slice(0, 25)) {
+    console.error(`  · untranslated: ${key}${sources.has(key) ? ` (${sources.get(key)})` : ''}`);
   }
 }
 try {

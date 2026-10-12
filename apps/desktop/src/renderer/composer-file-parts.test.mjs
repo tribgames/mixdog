@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { requiredPromptContent } from '../main/ipc-validation.ts';
-import { restoreAttachmentsFromRecord } from './composer-attachment-restore.ts';
+import { foldAttachmentTokens, restoreAttachmentsFromRecord } from './composer-attachment-restore.ts';
 import { attachmentPolicyError } from './composer-attachments.ts';
 import {
   ATTACHMENT_ACCEPT,
@@ -103,5 +103,26 @@ test('restore removes file tokens whose bytes are unavailable but keeps restored
   assert.deepEqual(
     attachments.map((attachment) => attachment.kind),
     ['text']
+  );
+});
+
+test('restored drafts fold attachment tokens into chip-only cards and sending restores them', () => {
+  const attachments = [
+    { id: 3, name: 'a.docx', kind: 'office', mimeType: 'application/pdf', data: 'UEs=', token: '[File #3: a.docx]' },
+    { id: 4, name: 'b.pdf', kind: 'pdf', mimeType: 'application/pdf', data: 'JVBERg==', token: '[PDF #4: b.pdf]' },
+    { id: 5, name: 'img.png', kind: 'image', mimeType: 'image/png', data: 'iVBO', token: '' },
+  ];
+  const folded = foldAttachmentTokens('see [File #3: a.docx] and\n[PDF #4: b.pdf]', attachments);
+  assert.equal(folded.text, 'see and');
+  assert.deepEqual(
+    folded.attachments.map((attachment) => attachment.chipOnly === true),
+    [true, true, false]
+  );
+  const { expandedText } = buildSubmissionContent(folded.text, folded.attachments);
+  assert.equal(expandedText, 'see and\n[File #3: a.docx]\n[PDF #4: b.pdf]');
+  assert.equal(foldAttachmentTokens('plain', attachments).text, 'plain');
+  assert.equal(
+    foldAttachmentTokens('[PDF #4: b.pdf] vs [PDF #4: b.pdf] and [PDF #9: gone.pdf]', attachments).text,
+    'vs and'
   );
 });

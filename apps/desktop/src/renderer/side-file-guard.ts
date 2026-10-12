@@ -20,7 +20,7 @@ export type SideFileTarget = { project: string; rel: string; accessToken?: strin
 
 export const sideFileTargetKey = sideFileKey;
 
-export type SideFileDockRequest = { preview?: boolean; from?: string };
+export type SideFileDockRequest = { preview?: boolean; from?: string; sidePreview?: boolean };
 
 export type OpenFileTab = (
   project: string,
@@ -110,7 +110,8 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
    *  two editors. This is also what "Open in main tab" does. */
   const openFileTab: OpenFileTab = (project, rel, line, accessToken, preview, mode) => {
     const key = sideFileTargetKey({ project, rel, accessToken });
-    const holder = deps.sideFiles().find((entry) => sideFileTargetKey(entry.file) === key);
+    // A side preview holds no editor, so it never takes the file over.
+    const holder = deps.sideFiles().find((entry) => sideFileTargetKey(entry.file) === key && !entry.file.sidePreview);
     if (!holder) {
       deps.openMainTab(project, rel, line, accessToken, preview, mode);
       return;
@@ -137,8 +138,7 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
   ) => {
     const preview = deps.linkPreview?.() ?? true;
     const request: SideFileDockRequest = { preview, ...(from ? { from } : {}) };
-    const dockOpen = () =>
-      deps.dockOpenFile(leafId, project, rel, line, accessToken, column || undefined, request);
+    const dockOpen = () => deps.dockOpenFile(leafId, project, rel, line, accessToken, column || undefined, request);
     const key = sideFileTargetKey({ project, rel, accessToken });
     const holder = deps.sideFiles().find((entry) => sideFileTargetKey(entry.file) === key);
     if (holder?.leafId === leafId) {
@@ -180,5 +180,13 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
     dropFrom(0);
   };
 
-  return { closeSideFile, closeSideFileTab, openFileTab, openFileInSideDock };
+  /** "Open Preview to the Side": the file a main tab edits, as a read-only
+   *  rendered tab in the pane's dock. It never mounts a second editor (it
+   *  follows the tab's Monaco model), so the one-editor-per-file rule above
+   *  holds. */
+  const openPreviewToSide = (leafId: string, project: string, rel: string, accessToken?: string) => {
+    deps.dockOpenFile(leafId, project, rel, undefined, accessToken, undefined, { preview: false, sidePreview: true });
+  };
+
+  return { closeSideFile, closeSideFileTab, openFileTab, openFileInSideDock, openPreviewToSide };
 }

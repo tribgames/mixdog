@@ -1,7 +1,8 @@
 // What the native apply must be able to prove afterwards: the encoding gate,
 // the pre-write identity of every target, and the predicted post-apply hash
 // for files this session had fully read.
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
+import { readPatchTargetBytes } from '../content-guard.mjs';
 import { getReadSnapshot } from '../../builtin/read-snapshot-runtime.mjs';
 import { snapshotCoversFullFile } from '../../builtin/snapshot-helpers.mjs';
 import { hashText } from '../../builtin/hash-utils.mjs';
@@ -53,7 +54,10 @@ export function predictBodyProofs(entries, readStateScope, predictAppliedHash) {
     if (!prior?.contentHash) continue;
     if (prior.bodyDelivered !== true && !snapshotCoversFullFile(prior)) continue;
     try {
-      const { text } = decodePatchTargetBuffer(readFileSync(entry.fullPath), entry.displayPath);
+      const { text } = decodePatchTargetBuffer(
+        readPatchTargetBytes(entry.fullPath, entry.displayPath),
+        entry.displayPath
+      );
       if (hashText(text) !== prior.contentHash) continue; // already stale — claim nothing
       const proof = predictAppliedHash(entry, text);
       if (proof) bodyProofs.set(entry.fullPath, proof);

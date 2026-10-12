@@ -1028,3 +1028,90 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
     false
   );
 });
+
+test('load-on-demand binds the loaded id as the durable address and a failed durable close is not a successful cancel', async (t) => {
+  const events = [];
+  const records = new Map();
+  const bound = [];
+  let failClose = true;
+  const base = durableRuntimeFactory(events, records);
+  const createSessionRuntime = async (options = {}) => {
+    const runtime = await base(options);
+    return {
+      ...runtime,
+      bindSessionAddress(sessionId) {
+        bound.push(sessionId);
+        return true;
+      },
+      async closeCanonicalSession(reason) {
+        if (failClose) {
+          events.push(['close-failed', runtime.getState().sessionId, reason]);
+          return false;
+        }
+        return runtime.closeCanonicalSession(reason);
+      },
+    };
+  };
+  const createService = () =>
+    createSessionService({
+      createSessionRuntime,
+      sessionExists: async (sessionId) => records.has(sessionId),
+      readStoredSession: async (sessionId, readOptions = {}) => {
+        const stored = records.get(sessionId);
+        if (!stored) return null;
+        if (readOptions.metadataOnly === true) {
+          return {
+            id: sessionId,
+            sessionId,
+            owner: stored.owner,
+            agent: stored.agent,
+            parentSessionId: stored.parentSessionId,
+            ownerSessionId: stored.ownerSessionId,
+            visibility: stored.visibility,
+          };
+        }
+        return { sessionId, provider: stored.provider, model: stored.model, cwd: stored.cwd, items: [] };
+      },
+      listSessions: async (listOptions = {}) =>
+        listOptions.includeAgentOnly === true ? [...records.values()].map((record) => _sessionSummary(record)) : [],
+    });
+  let service = createService();
+  t.after(() => service.stop('test complete'));
+
+  const { session } = await service.agentSurface.createChild({
+    tag: 'addr-worker',
+    spec: {
+      parentSessionId: 'sess_addr_root',
+      ownerSessionId: 'sess_addr_root',
+      agent: 'worker',
+      agentTag: 'addr-worker',
+      cwd: 'C:\\Project\\tree',
+      preset: { provider: 'test-provider', model: 'test-model' },
+    },
+  });
+  await service.agentSurface.runTurn({ session, prompt: 'first brief' });
+  const transcript = JSON.stringify(records.get(session.id).messages);
+
+  // A close that cannot be made durable is not reported as a cancel.
+  await assert.rejects(service.agentManager.closeSession(session.id, 'agent cancel'), /could not be durably closed/);
+  assert.notEqual(service.agentDescriptor(session.id).status, 'closed');
+  assert.notEqual(records.get(session.id).closed, true);
+
+  // Daemon replacement / idle eviction: the open record is loaded on demand
+  // under the SAME id and that id becomes the new entry's durable address.
+  await service.stop('simulated eviction');
+  service = createService();
+  failClose = false;
+  assert.equal(await service.agentManager.closeSession(session.id, 'agent cancel'), true);
+  assert.deepEqual(bound, [session.id]);
+  const resumes = events.filter(([kind]) => kind === 'resume').map(([, id]) => id);
+  assert.deepEqual(resumes, [session.id], 'resumed exactly once, same id');
+  assert.deepEqual(
+    events.filter(([kind]) => kind === 'reserve').map(([, id]) => id),
+    [session.id],
+    'no second conversation was ever reserved'
+  );
+  assert.equal(records.get(session.id).closed, true);
+  assert.equal(JSON.stringify(records.get(session.id).messages), transcript, 'transcript untouched by the close');
+  assert.equal(records.size, 1);
+});

@@ -1,20 +1,19 @@
 // Credentials, browser registration and the approval handoff.
 import type { RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 import { earlyUiT } from './early-ui-i18n';
-import { clearStoredRemotePairing, isRemoteClientCredential } from './remote-pairing-recovery';
+import {
+  REMOTE_PAIRING_STORAGE_KEYS,
+  clearStoredRemotePairing,
+  isRemoteClientCredential,
+} from './remote-pairing-recovery';
 import { browserProfile, newBrowserId } from './remote-browser-identity';
 import { createRemotePairingScreen } from './remote-pairing-screen';
 import { clearRemoteConnectionState, setRemoteConnectionPhase } from './remote-connection-state';
 import {
-  TOKEN_STORAGE_KEY,
-  SERVER_STORAGE_KEY,
-  BROWSER_ID_STORAGE_KEY,
   DEVICE_STORAGE_KEY,
   REMOTE_CREDENTIAL_READY_EVENT,
   REMOTE_CONNECTION_READY_EVENT,
   REMOTE_PAIRING_INVALID_EVENT,
-  E2EE_PUBLIC_KEY_STORAGE_KEY,
-  E2EE_SECRET_STORAGE_KEY,
 } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
 
@@ -23,7 +22,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
   // rotating the per-browser credential; always dial with the freshest one.
   const currentToken = (): string => {
     try {
-      const stored = localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+      const stored = localStorage.getItem(ctx.pairingKeys.token) || '';
       if (stored && isRemoteClientCredential(stored)) ctx.token = stored;
     } catch {
       /* keep the in-memory token */
@@ -91,7 +90,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
       if (typeof result.clientId === 'string' && result.clientId) {
         ctx.browserId = result.clientId;
         try {
-          localStorage.setItem(BROWSER_ID_STORAGE_KEY, ctx.browserId);
+          localStorage.setItem(ctx.pairingKeys.browserId, ctx.browserId);
         } catch {
           /* session only */
         }
@@ -99,7 +98,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
       if (typeof result.token === 'string' && isRemoteClientCredential(result.token)) {
         ctx.token = result.token;
         try {
-          localStorage.setItem(TOKEN_STORAGE_KEY, ctx.token);
+          localStorage.setItem(ctx.pairingKeys.token, ctx.token);
         } catch {
           /* session only */
         }
@@ -117,6 +116,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
   // before anything else can run.
   const showPairingScreen = createRemotePairingScreen({
     deviceId: ctx.deviceId,
+    claimStorageKey: ctx.pairingKeys.claim,
     serverBase: () => ctx.serverBase || location.origin,
     clientId: () => ctx.browserId,
     acceptApproval: (credential, material) => adoptApproval(credential, material),
@@ -127,11 +127,14 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
    *  E2EE material that travelled sealed to a key only this container holds. */
   const persistApproval = (credential: string, material: RelayE2EEPairingMaterial): boolean => {
     try {
-      localStorage.setItem(SERVER_STORAGE_KEY, ctx.serverBase || location.origin);
-      localStorage.setItem(TOKEN_STORAGE_KEY, credential);
-      localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, material.serverPublicKey);
-      localStorage.setItem(E2EE_SECRET_STORAGE_KEY, material.pairingSecret);
-      localStorage.setItem(BROWSER_ID_STORAGE_KEY, ctx.browserId);
+      const keys = ctx.pairingKeys;
+      localStorage.setItem(keys.server, ctx.serverBase || location.origin);
+      // The origin-wide label catalog-storage-scope reads.
+      localStorage.setItem(REMOTE_PAIRING_STORAGE_KEYS.server, ctx.serverBase || location.origin);
+      localStorage.setItem(keys.token, credential);
+      localStorage.setItem(keys.e2eePublicKey, material.serverPublicKey);
+      localStorage.setItem(keys.e2eeSecret, material.pairingSecret);
+      localStorage.setItem(keys.browserId, ctx.browserId);
       if (ctx.deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, ctx.deviceId);
       return true;
     } catch {
@@ -155,7 +158,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
         const message =
           event instanceof CustomEvent && typeof event.detail === 'string'
             ? event.detail
-            : earlyUiT('This device could not complete secure pairing.');
+            : earlyUiT('Could not complete the connection.');
         reject(new Error(message));
       };
       window.addEventListener(REMOTE_CONNECTION_READY_EVENT, ready, { once: true });
@@ -202,7 +205,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     ctx.resetDeltaState();
     clearRemoteConnectionState();
     try {
-      clearStoredRemotePairing(localStorage);
+      clearStoredRemotePairing(localStorage, ctx.pairingKeys);
       if (ctx.deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, ctx.deviceId);
     } catch {
       /* private storage */

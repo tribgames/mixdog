@@ -14,6 +14,7 @@ import { changedFiles, selectChangedTests } from './lib/changed-tests.mjs';
 const runnerUrl = new URL('./test.mjs', import.meta.url);
 const runnerPath = fileURLToPath(runnerUrl);
 const summaryReporterUrl = new URL('./lib/test-summary-reporter.mjs', import.meta.url).href;
+const spawnLedgerUrl = new URL('./lib/test-spawn-ledger.mjs', import.meta.url).href;
 
 async function fixture(t, entries) {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-test-runner-'));
@@ -385,11 +386,19 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
     'src/omega.slow.test.mjs': '',
   });
   const probe = `
+    import { EventEmitter } from 'node:events';
+    import { Readable } from 'node:stream';
     import { mock } from 'node:test';
     const { runnerPath, runnerUrl, code, signal } = JSON.parse(process.argv[1]);
     mock.module('node:child_process', {
       namedExports: {
         spawn(executable, args, options) {
+          // The runner's leftover-process probe finds nothing here.
+          if (executable !== process.execPath) {
+            const helper = Object.assign(new EventEmitter(), { stdout: Readable.from([]) });
+            helper.stdout.on('end', () => helper.emit('close', 0, null));
+            return helper;
+          }
           return {
             on(event, listener) {
               if (event !== 'exit') return;
@@ -463,6 +472,7 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
         '--experimental-test-module-mocks',
         '--test',
         '--test-force-exit',
+        `--import=${spawnLedgerUrl}`,
         `--test-reporter=${summaryReporterUrl}`,
         '--test-reporter-destination=stdout',
         '--test-reporter=spec',

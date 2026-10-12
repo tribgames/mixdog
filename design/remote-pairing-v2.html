@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mixdog 연결 시안 v2 — QR + 6자리 코드</title>
+<style>
+  :root {
+    --bg: #0e0e0e; --panel: #17171a; --card: #1f1f23; --row: rgba(255,255,255,.07);
+    --line: rgba(255,255,255,.10); --fg: #e9e9e9; --muted: #a8a8a8; --dim: #7a7a80;
+    --ok: #4ac885; --bad: #e5484d; --accent: #8ab4ff;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #0a0a0b; color: var(--fg); font: 400 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; padding: 32px; }
+  h1 { font-size: 22px; line-height: 30px; margin-bottom: 6px; }
+  .lead { color: var(--muted); margin-bottom: 28px; max-width: 980px; }
+  .section { margin: 0 0 44px; }
+  .section > h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin-bottom: 14px; letter-spacing: .02em; }
+  .section > h2 b { color: var(--fg); }
+  .row-wrap { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .note { color: var(--dim); font-size: 12.5px; line-height: 18px; max-width: 300px; }
+  .note b { color: var(--muted); }
+
+  /* desktop window */
+  .win { width: 880px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .titlebar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+  .settings { display: grid; grid-template-columns: 190px 1fr; min-height: 520px; }
+  .nav { background: var(--panel); border-right: 1px solid var(--line); padding: 14px 10px; display: grid; gap: 2px; align-content: start; }
+  .nav span { padding: 7px 10px; border-radius: 8px; color: var(--muted); }
+  .nav span.on { background: rgba(255,255,255,.08); color: var(--fg); }
+  .content { padding: 22px 28px; }
+  .content h3 { font-size: 18px; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+  .tabs span { padding: 8px 2px; color: var(--muted); }
+  .tabs span.on { color: var(--fg); border-bottom: 2px solid var(--fg); margin-bottom: -1px; font-weight: 600; }
+  .group { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .pair { display: grid; grid-template-columns: 168px 1fr; gap: 24px; align-items: center; }
+  .qr { width: 168px; height: 168px; border-radius: 12px; background:
+      conic-gradient(from 0deg at 50% 50%, #fff 0 25%, #111 0 50%, #fff 0 75%, #111 0) 0 0 / 14px 14px;
+      border: 10px solid #fff; position: relative; }
+  .qr::after { content: ""; position: absolute; inset: 52px; background: #fff; border-radius: 6px; }
+  .or { color: var(--dim); font-size: 12px; margin: 2px 0 8px; }
+  .code { display: flex; gap: 8px; align-items: center; }
+  .code b { font: 700 30px/40px ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .12em; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 4px 14px; }
+  .code .sep { color: var(--dim); font-size: 26px; }
+  .timer { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+  .bar { width: 160px; height: 4px; border-radius: 2px; background: var(--row); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 62%; background: var(--fg); border-radius: 2px; }
+  .ghost { background: transparent; border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12.5px; }
+  .help { color: var(--muted); font-size: 12.5px; margin-top: 12px; line-height: 19px; }
+  .devices { display: grid; gap: 0; }
+  .dev { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+  .dev:first-child { border-top: 0; }
+  .dev .ic { width: 30px; height: 30px; border-radius: 8px; background: var(--row); display: grid; place-items: center; font-size: 15px; }
+  .dev .meta { flex: 1; }
+  .dev .meta small { display: block; color: var(--dim); font-size: 12px; }
+  .pill { font-size: 11.5px; padding: 1px 8px; border-radius: 99px; background: rgba(74,200,133,.12); color: var(--ok); margin-left: 6px; }
+  .pill.off { background: var(--row); color: var(--dim); }
+  .label { font-weight: 600; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 12.5px; margin-bottom: 14px; }
+  .codeinput { display: flex; gap: 8px; }
+  .codeinput span { width: 44px; height: 52px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); display: grid; place-items: center; font: 700 24px ui-monospace, Consolas, monospace; }
+  .codeinput span.focus { border-color: var(--fg); }
+  .phone .codeinput { gap: 6px; }
+  .phone .codeinput span { width: 36px; height: 46px; font-size: 20px; }
+  .btn { background: var(--fg); color: #111114; border: 0; border-radius: 10px; padding: 11px 16px; font: 600 14px system-ui, sans-serif; }
+  .btn.wide { width: 100%; }
+  .btn.sec { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+
+  /* approval dialog */
+  .dialog { width: 400px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .dialog h4 { font-size: 15.5px; margin-bottom: 8px; }
+  .dialog p { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .dialog .kv { background: var(--card); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; font-size: 13px; margin-bottom: 16px; }
+  .dialog .kv span { color: var(--dim); display: inline-block; width: 64px; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* phone */
+  .phone { width: 320px; height: 660px; border-radius: 36px; border: 1px solid var(--line); background: var(--bg); padding: 14px; position: relative; overflow: hidden; }
+  .status { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; padding: 2px 10px 14px; }
+  .pcard { background: var(--panel); border-radius: 22px; padding: 24px 18px; display: grid; gap: 14px; justify-items: center; text-align: center; }
+  .logo { width: 52px; height: 52px; border-radius: 14px; background: #050506; display: grid; place-items: center; font-size: 24px; }
+  .pcard h5 { font-size: 18px; }
+  .pcard p { color: var(--muted); font-size: 13px; line-height: 18px; }
+  .steps { width: 100%; display: grid; gap: 7px; text-align: left; }
+  .steps div { background: var(--row); border-radius: 12px; padding: 10px 12px; font-size: 13px; display: flex; gap: 10px; align-items: center; }
+  .steps i { flex: none; width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,.14); display: grid; place-items: center; font-style: normal; font-size: 11.5px; font-weight: 700; }
+  .divider { display: flex; align-items: center; gap: 10px; width: 100%; color: var(--dim); font-size: 12px; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* top bar with PC switcher */
+  .appbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .switch { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 5px 10px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .dot.off { background: var(--dim); }
+  .menu { width: 280px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px; box-shadow: 0 16px 40px rgba(0,0,0,.55); }
+  .menu .item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; }
+  .menu .item.on { background: rgba(255,255,255,.07); }
+  .menu .item small { display: block; color: var(--dim); font-size: 11.5px; }
+  .menu .sepline { height: 1px; background: var(--line); margin: 6px 4px; }
+  .check { margin-left: auto; color: var(--fg); }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>Mixdog 연결 시안 v2 — QR + 6자리 코드</h1>
+  <p class="lead">긴 페어링 링크는 화면에서 빠집니다. 연결은 <b>QR</b>(카메라 있는 기기)과 <b>6자리 코드</b>(PC·브라우저·카메라 없는 기기) 두 가지뿐입니다. 어떤 방법이든 메인 PC 승인이 필요하고, 승인된 기기는 메인 PC와 같은 권한을 받습니다. 권한 회수는 "연결된 기기"에서 해제하는 것뿐입니다.</p>
+
+  <!-- 1. Main PC: settings → connection -->
+  <div class="section">
+    <h2>① <b>메인 PC</b> — 설정 → 연결 (이 PC로 연결)</h2>
+    <div class="row-wrap">
+      <div class="win">
+        <div class="titlebar">Mixdog</div>
+        <div class="settings">
+          <div class="nav"><span>일반</span><span>컨텍스트</span><span>프로바이더</span><span>출력 스타일</span><span>시스템</span><span>개발자 옵션</span><span>단축키</span><span class="on">연결</span><span>정보</span></div>
+          <div class="content">
+            <h3>연결</h3>
+            <div class="tabs"><span class="on">이 PC로 연결</span><span>다른 PC에 연결</span></div>
+            <div class="group">
+              <div class="pair">
+                <div class="qr"></div>
+                <div>
+                  <div class="label">폰·태블릿은 QR을 찍으세요</div>
+                  <div class="help" style="margin-top:0">Mixdog 앱(안드로이드·iPhone/iPad) 또는 카메라로 스캔</div>
+                  <div class="or" style="margin-top:16px">PC·브라우저는 코드를 입력하세요</div>
+                  <div class="code"><b>482</b><span class="sep">·</span><b>917</b></div>
+                  <div class="timer"><div class="bar"><i></i></div>3:06 남음 <button class="ghost">새 코드</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="group">
+              <div class="label" style="margin-bottom:10px">연결된 기기</div>
+              <div class="devices">
+                <div class="dev"><div class="ic">📱</div><div class="meta">Galaxy Z Fold7 · Mixdog 앱 <span class="pill">연결됨</span><small>추가 10/11 · 마지막 사용 방금</small></div><button class="ghost">해제</button></div>
+                <div class="dev"><div class="ic">🖥</div><div class="meta">사무실 PC · Mixdog <span class="pill off">오프라인</span><small>추가 10/09 · 마지막 사용 10/10 21:40</small></div><button class="ghost">해제</button></div>
+                <div class="dev"><div class="ic">🌐</div><div class="meta">노트북 · Chrome 브라우저 <span class="pill off">오프라인</span><small>추가 10/08 · 마지막 사용 10/08 14:12</small></div><button class="ghost">해제</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">
+        <b>코드</b>는 이 화면을 연 동안만 만들어지고 5분 뒤 또는 한 번 쓰면 사라집니다. 3자리씩 끊어 보여 읽기 쉽게.<br><br>
+        <b>QR</b> 안에는 연결 주소가 들어 있지만 화면엔 링크 칸·복사 버튼이 없습니다.<br><br>
+        <b>연결된 기기</b>: 앱/PC/브라우저 아이콘, 연결 상태, 마지막 사용 시각. 자동 만료는 없습니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Approval dialog -->
+  <div class="section">
+    <h2>② <b>메인 PC</b> — 승인 창 (QR·코드 공통)</h2>
+    <div class="row-wrap">
+      <div class="dialog">
+        <h4>새 기기를 연결할까요?</h4>
+        <p>승인하면 이 기기가 메인 PC와 같은 권한으로 Mixdog을 사용합니다.</p>
+        <div class="kv"><div><span>기기</span>사무실 PC · Mixdog</div><div><span>방법</span>6자리 코드</div><div><span>요청</span>방금</div></div>
+        <div class="actions"><button class="btn sec">거부</button><button class="btn">승인</button></div>
+      </div>
+      <div class="note">코드를 맞혀도 여기서 승인해야 연결됩니다. 틀린 코드 입력은 릴레이가 횟수를 제한합니다.</div>
+    </div>
+  </div>
+
+  <!-- 3. Other PC: connect to another PC -->
+  <div class="section">
+    <h2>③ <b>다른 PC의 Mixdog</b> — 설정 → 연결 → 다른 PC에 연결</h2>
+    <div class="row-wrap">
+      <div class="win" style="width:700px">
+        <div class="titlebar">Mixdog</div>
+        <div class="content">
+          <div class="tabs"><span>이 PC로 연결</span><span class="on">다른 PC에 연결</span></div>
+          <div class="group">
+            <div class="label">메인 PC의 6자리 코드</div>
+            <div class="sub">메인 PC에서 설정 → 연결을 열면 코드가 보입니다.</div>
+            <div class="row-wrap" style="gap:14px;align-items:center">
+              <div class="codeinput"><span>4</span><span>8</span><span>2</span><span style="border:0;background:none;width:12px;color:var(--dim)">·</span><span>9</span><span class="focus"></span><span></span></div>
+              <button class="btn">연결</button>
+            </div>
+          </div>
+          <div class="group">
+            <div class="label" style="margin-bottom:10px">저장된 PC</div>
+            <div class="devices">
+              <div class="dev"><div class="ic">🖥</div><div class="meta">집 메인 PC <span class="pill">온라인</span><small>마지막 연결 방금</small></div><button class="ghost">열기</button></div>
+              <div class="dev"><div class="ic">🖥</div><div class="meta">작업실 PC <span class="pill off">오프라인</span><small>마지막 연결 10/09</small></div><button class="ghost">열기</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">링크 붙여넣기 칸은 없습니다. 한 번 연결한 PC는 "저장된 PC"에 남아 다음부터 목록에서 엽니다. 메인 PC가 옛 버전이면 "메인 PC를 업데이트하세요" 안내.</div>
+    </div>
+  </div>
+
+  <!-- 4. Phone app + browser landing -->
+  <div class="section">
+    <h2>④ <b>폰 앱 첫 화면</b> / <b>브라우저 접속 화면</b> (설치 없이 바로 연결)</h2>
+    <div class="row-wrap">
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+        <div class="pcard">
+          <div class="logo">◐</div>
+          <h5>Mixdog 연결</h5>
+          <p>메인 PC에서 설정 → 연결을 여세요.</p>
+          <div class="steps"><div><i>1</i>메인 PC에서 설정 → 연결 열기</div><div><i>2</i>QR을 찍거나 코드 입력</div><div><i>3</i>메인 PC에서 승인</div></div>
+          <button class="btn wide">QR 코드 스캔</button>
+          <div class="divider">또는</div>
+          <button class="btn sec wide">6자리 코드 입력</button>
+        </div>
+      </div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●● 100%</span></div>
+        <div class="pcard">
+          <div class="logo">◐</div>
+          <h5>코드 입력</h5>
+          <p>메인 PC 화면에 보이는 6자리 코드를 입력하세요.</p>
+          <div class="codeinput"><span>4</span><span>8</span><span>2</span><span>9</span><span>1</span><span class="focus">7</span></div>
+          <button class="btn wide">연결</button>
+          <div class="divider">승인 대기</div>
+          <p>메인 PC에서 승인하면 자동으로 열립니다.</p>
+        </div>
+      </div>
+      <div class="win" style="width:520px">
+        <div class="titlebar">🌐 192-255-139-161.sslip.io — Chrome</div>
+        <div class="content" style="display:grid;place-items:center;min-height:420px">
+          <div class="pcard" style="width:340px">
+            <div class="logo">◐</div>
+            <h5>Mixdog 연결</h5>
+            <p>설치 없이 이 브라우저에서 바로 사용합니다.<br>메인 PC의 6자리 코드를 입력하세요.</p>
+            <div class="codeinput"><span>4</span><span>8</span><span>2</span><span>9</span><span class="focus"></span><span></span></div>
+            <button class="btn wide">연결</button>
+            <p style="font-size:12px;color:var(--dim)">알림을 받으려면 Mixdog 앱을 설치하세요.</p>
+          </div>
+        </div>
+      </div>
+      <div class="note">폰 앱: "QR 스캔"과 "코드 입력" 두 가지만. 링크 붙여넣기 없음.<br><br>브라우저: 설치 안내 없이 코드 입력 → 승인 → 바로 사용. 아이폰 브라우저는 웹 푸시가 안 되므로 알림이 필요하면 앱 설치 안내.</div>
+    </div>
+  </div>
+
+  <!-- 5. PC switcher -->
+  <div class="section">
+    <h2>⑤ <b>상단 PC 전환</b> (원격 화면 — 폰·다른 PC·브라우저 공통)</h2>
+    <div class="row-wrap">
+      <div class="win" style="width:560px">
+        <div class="appbar">
+          <div class="switch"><span class="dot"></span>집 메인 PC ▾</div>
+          <span class="badge">원격</span>
+          <span style="margin-left:auto;color:var(--dim);font-size:12px">설정은 연결된 PC의 값입니다</span>
+        </div>
+        <div style="padding:14px 12px;min-height:250px;position:relative">
+          <div class="menu">
+            <div class="item on"><span class="dot"></span><div>집 메인 PC<small>온라인 · 지금 사용 중</small></div><span class="check">✓</span></div>
+            <div class="item"><span class="dot off"></span><div>작업실 PC<small>오프라인 · 10/09</small></div></div>
+            <div class="sepline"></div>
+            <div class="item"><span style="width:8px"></span><div>＋ 다른 PC 연결 (코드 입력)</div></div>
+            <div class="item"><span style="width:8px"></span><div>연결 관리</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">PC가 여러 대면 위에서 바로 전환. 현재 조종 중인 PC 이름과 "원격" 표시, 설정 화면은 연결된 PC 값이라는 안내를 항상 보여 줍니다. PC가 한 대면 전환 메뉴 없이 이름만.</div>
+    </div>
+  </div>
+</body>
+</html>

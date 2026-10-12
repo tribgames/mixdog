@@ -73,10 +73,13 @@ export function useAppPersistentPaneSurfaces({
   handleFileDirty,
   registerEditorSaveHandle,
   openFileTab,
+  openPreviewToSide,
   latestEditorLocation,
   sidebarOpen,
   toggleSidebar,
 }: {
+  /** Absent where there is no side dock to host the preview. */
+  openPreviewToSide?(leafId: string, project: string, rel: string, accessToken?: string): void;
   paneWorkspace: PaneWorkspace;
   workbenchWorkspace: WorkbenchWorkspace;
   fileReveal: { key: string; line: number; nonce: number } | null;
@@ -169,6 +172,11 @@ export function useAppPersistentPaneSurfaces({
                   fileSelection.accessToken ? undefined : (rel, line) => openFileTab(fileSelection.project, rel, line)
                 }
                 onOpenFile={openFileTab}
+                onOpenPreviewToSide={
+                  openPreviewToSide
+                    ? (project, rel, accessToken) => openPreviewToSide(leaf.id, project, rel, accessToken)
+                    : undefined
+                }
                 onNavigationLocation={(rel, line) => {
                   if (!fileActive || !focused) return;
                   latestEditorLocation.current = {

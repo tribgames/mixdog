@@ -179,36 +179,6 @@
   font-size: var(--mx-font-micro);
   line-height: var(--mx-line-minor);
 }
-/* Reserve the closed header only. The disclosure opens upward over the
-   transcript, just like Goal, without moving the text being read. */
-.turn-review-slot {
-  --turn-review-head-height: 32px;
-  position: relative;
-  z-index: 6;
-  width: 100%;
-  max-width: 100%;
-  min-height: 0;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-}
-.turn-review-slot:empty {
-  display: none;
-}
-/* A bar that appears while the transcript is on screen opens this slot once
-   (TurnReviewBar); one already there when a session is entered lands at full
-   height. */
-.turn-review-slot:has(.turn-review-bar) {
-  height: var(--turn-review-head-height);
-  margin-bottom: 8px;
-}
-.turn-review-slot > .turn-review-bar {
-  position: absolute;
-  bottom: 0;
-}
-.turn-review-slot > * {
-  pointer-events: auto;
-}
 /* Cut from the prompt card's own material — its fill, corner and raised
    edge, without the card's drop — so the stack above the input reads as one
    family (user: 디프랑 골 같은 거 컴포저랑 이질감이 심한데). The outlined 6px
@@ -224,6 +194,20 @@
   border-radius: var(--mx-radius-xl);
   background: var(--mx-composer-surface);
   box-shadow: var(--mx-raised);
+}
+/* Without a side dock (remote/phone) the island's files segment expands into
+   this list in place; the island supplies the surface. */
+.composer-island[data-expanded="files"] .composer-island-pill:not([hidden]) {
+  height: auto;
+  display: block;
+  padding: 0;
+}
+.composer-island[data-expanded="files"] .composer-island-pill > :not(.turn-review-bar) {
+  display: none;
+}
+.composer-island .turn-review-bar {
+  background: transparent;
+  box-shadow: none;
 }
 .turn-review-summary {
   width: 100%;
@@ -623,6 +607,83 @@
   scrollbar-gutter: stable;
   list-style: none;
 }
+.session-diff-status {
+  flex: none;
+  min-width: 1.2em;
+  text-align: center;
+  font-size: var(--mx-font-meta);
+  font-weight: 600;
+  color: var(--mx-warning);
+}
+.session-diff-status[data-status='A'] {
+  color: var(--mx-success);
+}
+.session-diff-status[data-status='D'] {
+  color: var(--mx-danger);
+}
+.session-diff-file-head {
+  gap: 6px;
+}
+.session-diff-file-head .session-diff-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.session-diff-back {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  background: transparent;
+  color: var(--mx-text-muted);
+  cursor: pointer;
+}
+.session-diff-back:hover {
+  color: var(--mx-text);
+}
+.session-diff-crumb {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px calc(var(--dock-scm-gutter) + var(--dock-scm-row-inset) + 2px);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.session-diff-crumb button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.session-diff-crumb button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.session-diff-crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--mx-text);
+}
+.session-diff-crumb-nav {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 8px;
+}
+.session-diff-body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--dock-scm-gutter);
+}
 .session-diff-files::-webkit-scrollbar {
   width: var(--mx-scrollbar-size);
 }
@@ -634,23 +695,6 @@
   border-radius: var(--mx-radius-pill);
   background: var(--mx-scrollbar-thumb);
   background-clip: padding-box;
-}
-.queue-remove {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-icon-muted);
-  background: transparent;
-  cursor: pointer;
-}
-.queue-remove:hover {
-  color: var(--mx-danger);
-  background: var(--mx-hover);
 }
 .session-context-indicator[data-open="true"] .session-context-popover {
   pointer-events: auto;

@@ -1,7 +1,8 @@
 // Built-in Git & GitHub: GitHub CLI status/install/device-flow login and the
 // global git identity sourced from the signed-in GitHub account. The Connect
 // flow follows the Providers OAuth grammar: start → one-time code card →
-// status polling until a terminal state; gh itself opens the browser.
+// status polling until a terminal state; gh opens the browser once the user
+// asks from the code card.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
@@ -14,6 +15,7 @@ import type {
 import { useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
+import { subscribeSetupChanges } from '../setup-change-refresh';
 
 import {
   ExtensionAction,
@@ -24,7 +26,9 @@ import {
   type ExtensionItemTone,
 } from './extension-detail';
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
+import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
 import { useGithubLoginPolling } from './github-login-polling';
+import { errorMessage } from '../editor-pane-session-errors';
 
 const CLI_DOWNLOAD_URL = 'https://cli.github.com';
 
@@ -59,7 +63,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
       setStatus(next);
       patchCachedGitPanelInfo(host, { status: next });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     }
   }, [host]);
 
@@ -72,14 +76,19 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
       setStatus(info.status);
       setAccount(info.account);
     });
-    void host
-      ?.gitGlobalConfig?.()
-      .then((next) => {
-        if (live) setConfig(next);
-      })
-      .catch(() => {});
+    const readConfig = () =>
+      void host
+        ?.gitGlobalConfig?.()
+        .then((next) => {
+          if (live) setConfig(next);
+        })
+        .catch(() => {});
+    readConfig();
+    // A Git identity written elsewhere (host or another client) re-reads here.
+    const unsubscribe = subscribeSetupChanges(readConfig);
     return () => {
       live = false;
+      unsubscribe();
     };
   }, [host]);
 
@@ -87,6 +96,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const flowId = flow?.flowId || '';
   const flowState = flow?.state || '';
   useGithubLoginPolling({ host, flowId, flowState, setFlow, setStatus, refreshStatus });
+  const deviceCode = useGithubDeviceCode(host, flow, (url) => void host?.openExternal?.(url).catch(() => undefined));
 
   // The signed-in GitHub account is the identity source of truth (user
   // decision): load it whenever gh reports authenticated.
@@ -150,7 +160,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
     setBusy(key);
     setError('');
     void Promise.resolve(action())
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
+      .catch((reason) => setError(errorMessage(reason)))
       .finally(() => setBusy(''));
   };
   const open = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
@@ -211,6 +221,14 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
                   {t('Connect')}
                 </ExtensionAction>
               )}
+              {flowLive && deviceCode.active && (
+                <ExtensionAction
+                  disabled={busyAny}
+                  onClick={deviceCode.opened ? deviceCode.reopen : deviceCode.openGithub}
+                >
+                  {deviceCode.opened ? t('Open GitHub again ↗') : t('Copy & open GitHub ↗')}
+                </ExtensionAction>
+              )}
               {flowLive && (
                 <ExtensionAction
                   danger
@@ -251,23 +269,12 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
           />
         )}
       </ExtensionItemList>
-      {flowLive && (
-        <ExtensionNote role="status">
-          {flow?.code ? (
-            <>
-              {t('Enter this code at github.com/login/device — the browser should open by itself.')}{' '}
-              <code>
-                <b>{flow.code}</b>
-              </code>{' '}
-              <ExtensionAction onClick={() => open(flow.url || 'https://github.com/login/device')}>
-                {t('Open github.com ↗')}
-              </ExtensionAction>
-            </>
-          ) : (
-            t('Starting GitHub sign-in…')
-          )}
-        </ExtensionNote>
-      )}
+      {flowLive &&
+        (deviceCode.active ? (
+          <GithubDeviceCodeText state={deviceCode} />
+        ) : (
+          <ExtensionNote role="status">{t('Starting GitHub sign-in…')}</ExtensionNote>
+        ))}
       {flowState === 'error' && <ErrorNotice error={flow?.message || t('Sign-in failed')} />}
     </ExtensionSection>
   );

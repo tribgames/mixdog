@@ -84,6 +84,25 @@ button {
 .titlebar-spacer {
   flex: 1;
 }
+/* Another computer's window: always visible, never draggable-away chrome. */
+.titlebar-remote-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 50%;
+  margin-right: 8px;
+  padding: 2px 10px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-surface-plate);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-accent);
+  color: var(--mx-accent);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.titlebar-remote-host span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .workspace-tabs {
   min-width: 0;
   overflow-x: auto;
@@ -409,8 +428,7 @@ button {
   align-items: center;
 }
 .composer-tool,
-.send-button,
-.composer-attachments button {
+.send-button {
   display: grid;
   place-items: center;
   padding: 0;
@@ -418,24 +436,6 @@ button {
 }
 .composer-attachments {
   overflow-x: auto;
-}
-.composer-attachments > div {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-.composer-attachments img,
-.composer-attachments > div > span:first-child {
-  display: grid;
-  place-items: center;
-  object-fit: cover;
-}
-.composer-attachments > div > span:nth-child(2) {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .slash-palette {
   position: fixed;
@@ -615,4 +615,161 @@ button {
     border: 0;
     background: var(--mx-scrim);
   }
+}
+
+/* Remote UI: the PC being driven, a Remote badge and the saved-PC menu. */
+.remote-pc-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 70%;
+  margin-right: 8px;
+  font-size: var(--mx-font-meta);
+}
+/* Title-bar button at the leading edge: "● PC name ▾". */
+.remote-pc-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.remote-pc-button {
+  cursor: pointer;
+}
+.remote-pc-button:hover,
+.remote-pc-button[aria-expanded="true"] {
+  background: var(--mx-hover);
+}
+.remote-pc-button > svg {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.remote-pc-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mx-success);
+}
+.remote-pc-dot.off {
+  background: var(--mx-text-muted);
+}
+/* Slim header row in the side-panel title style (.session-panel-header). */
+.remote-pc-card {
+  flex: 0 0 auto;
+}
+.remote-pc-card-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 48px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-rail-panel-title);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-emphasis);
+  text-align: left;
+}
+button.remote-pc-card-head {
+  cursor: pointer;
+}
+.remote-pc-card-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.remote-pc-card-name > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-pc-card-name > svg {
+  margin-left: auto;
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.remote-pc-card-menu {
+  margin-top: 6px;
+}
+.remote-pc-label-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-pc-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: 280px;
+  padding: 6px;
+  border-radius: var(--mx-radius-lg, 12px);
+  background: var(--mx-bg-elevated, var(--mx-bg-base));
+  box-shadow:
+    var(--mx-card-outline),
+    0 16px 40px rgba(0, 0, 0, 0.45);
+}
+.remote-pc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.remote-pc-item:hover:not(:disabled),
+.remote-pc-item.on {
+  background: var(--mx-hover);
+}
+.remote-pc-item:disabled {
+  cursor: default;
+}
+.remote-pc-item:not(.remote-pc-action) {
+  min-height: 56px;
+}
+.remote-pc-action {
+  min-height: 34px;
+  font-weight: var(--mx-weight-semibold);
+}
+.remote-pc-action > svg {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.remote-pc-item small {
+  display: block;
+  color: var(--mx-text-muted);
+}
+.remote-pc-item span {
+  flex: 1;
+  min-width: 0;
+}
+.remote-pc-sep {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--mx-border-muted);
 }

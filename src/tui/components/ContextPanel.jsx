@@ -28,6 +28,10 @@ function formatTokens(value) {
   return `${Math.round(n)}`;
 }
 
+function formatSpeed(speed) {
+  return speed < 10 ? speed.toFixed(1) : Math.round(speed);
+}
+
 function percent(value, total) {
   if (value == null) return null;
   const n = finiteNumber(value);
@@ -180,7 +184,7 @@ function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) 
     usage.rawWindowTokens && usage.rawWindowTokens !== usage.windowTokens
       ? `raw ${formatTokens(usage.rawWindowTokens)}`
       : '',
-    speed == null ? '' : `${speed < 10 ? speed.toFixed(1) : Math.round(speed)} tok/s`,
+    speed == null ? '' : `${formatSpeed(speed)} tok/s`,
   ]);
   const apiLine = metricValue([
     `last ctx ${formatTokens(lastApi.contextTokens)}`,

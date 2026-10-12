@@ -3,7 +3,15 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { collectUiKeys, catalogProblems, reusableTranslation } from './source-keys.mjs';
+import { collectUiKeys, catalogProblems, reusableTranslation, untranslatedProblems } from './source-keys.mjs';
+
+test('untranslated check is per locale and honours terms and locale exceptions', () => {
+  const keys = ['Edit document', 'GitHub', 'Terminal', '{{value0}}%', 'Launch'];
+  const catalog = { 'Edit document': 'Edit document', GitHub: 'GitHub', Terminal: 'Terminal', '{{value0}}%': '{{value0}}%', Launch: 'Lancer' };
+  const allowlist = { terms: { GitHub: 'brand' }, localeExceptions: { fr: { Terminal: 'cognate' } } };
+  assert.deepEqual(untranslatedProblems('fr', catalog, keys, allowlist).map((p) => p.key), ['Edit document']);
+  assert.deepEqual(untranslatedProblems('de', catalog, keys, allowlist).map((p) => p.key), ['Edit document', 'Terminal']);
+});
 
 test('UI extraction covers TS data, variable phrases, JSX, and direct translations', () => {
   const directory = mkdtempSync(join(tmpdir(), 'mixdog-i18n-'));

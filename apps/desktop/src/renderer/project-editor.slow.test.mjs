@@ -9,7 +9,12 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
       loader: 'tsx',
+      // TUI-shared modules read \`process\` and \`import.meta.url\` at module
+      // scope. As in the renderer entries (main.tsx, bootstrap.tsx) the
+      // process shim loads first, and the URL is a chunk's, as Vite's ESM
+      // output gives it.
       contents: `
+        import './process-shim';
         import React, { useState } from 'react';
         import { createRoot } from 'react-dom/client';
         import { flushSync } from 'react-dom';
@@ -76,7 +81,10 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
     write: false,
     format: 'iife',
     loader: { '.css': 'empty' },
-    define: { 'process.env.NODE_ENV': '"production"' },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      'import.meta.url': '"http://mixdog.test/assets/index.js"',
+    },
   });
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),

@@ -69,8 +69,12 @@ function serialiseReadRangeIndex(index) {
 function readRangeIndexMatches(row, fullPath, version) {
   // Version-1 rows lack replacement identity. Never upgrade their anchors by
   // attaching today's metadata; rebuild them from current bytes instead.
-  return row?.version === 2 && row.path === fullPath
-    && sameFileVersion(row.fileVersion, version) && Array.isArray(row.anchors);
+  return (
+    row?.version === 2 &&
+    row.path === fullPath &&
+    sameFileVersion(row.fileVersion, version) &&
+    Array.isArray(row.anchors)
+  );
 }
 
 // Hash the first up to 64KiB of the file using the same sha256-of-bytes
@@ -267,7 +271,7 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
   let slot = READ_RANGE_INDEX_CACHE.get(key);
   if (!slot) slot = refreshReadRangeIndexSlot(key, freshReadRangeIndex(fullPath));
   const hint = fileVersion(st);
-  const readStat = () => handle ? handle.stat() : stat(fullPath);
+  const readStat = () => (handle ? handle.stat() : stat(fullPath));
   let version;
   try {
     const observed = await readStat();
@@ -294,7 +298,7 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
       source = slot;
     }
   }
-  if (!slot.published) source = await loadReadRangeIndexFromDisk(fullPath, version, handle, prefix) || slot;
+  if (!slot.published) source = (await loadReadRangeIndexFromDisk(fullPath, version, handle, prefix)) || slot;
   // Neither a delayed disk lookup nor a changed source can authorize offsets.
   try {
     if (!sameFileVersion(version, await readStat())) return null;
@@ -304,7 +308,9 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
   if (READ_RANGE_INDEX_CACHE.get(key) !== slot) return null;
   refreshReadRangeIndexSlot(key, slot);
   const draft = {
-    fullPath, fileVersion: version, prefixHash: source.prefixHash,
+    fullPath,
+    fileVersion: version,
+    prefixHash: source.prefixHash,
     anchors: new Map(source.anchors),
     ...(Number.isFinite(source.totalLines) ? { totalLines: source.totalLines } : {}),
   };
@@ -323,8 +329,8 @@ export async function publishReadRangeIndex(index, handle, signal = null, before
   const key = canonicalCachePath(slot.fullPath);
   if (signal?.aborted || READ_RANGE_INDEX_CACHE.get(key) !== slot) return false;
   try {
-    if (!sameFileVersion(version, await handle.stat())
-      || !sameFileVersion(version, await stat(slot.fullPath))) return false;
+    if (!sameFileVersion(version, await handle.stat()) || !sameFileVersion(version, await stat(slot.fullPath)))
+      return false;
   } catch {
     return false;
   }

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴포저 주변 v6 · 완전히 다른 세 스타일</title>
+<style>
+  :root {
+    --mx-bg-deep: #101013; --mx-window-band: #18181b; --mx-workspace-sheet: #111113; --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d; --mx-bg-layer-2: #323236; --mx-bg-layer-3: #3d3d41; --mx-composer-surface: var(--mx-bg-layer-1);
+    --mx-text: #e9e9e9; --mx-text-muted: #a8a8a8; --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-accent: #79b8ff; --mx-accent-bg: #1967d2;
+    --mx-warning: #f2cf76; --mx-warning-bg: #443f2e; --mx-success: #6bd586; --mx-danger: #f17471;
+    --mx-border-muted: rgba(255,255,255,.09); --mx-border: rgba(255,255,255,.125); --mx-border-strong: rgba(255,255,255,.24);
+    --mx-hover: rgba(255,255,255,.08); --mx-pressed: rgba(255,255,255,.12);
+    --mx-raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 1px #ffffff29, 0 -0.5px 0 #ffffff0f;
+    --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+    --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mx-button: 0 0 0 1px #ffffff33;
+    --r-md: 6px; --r-xl: 12px; --r-sheet: 16px; --r-pill: 999px;
+    --pane-inset: 24px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--mx-bg-deep); color: var(--mx-text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 50; background: var(--mx-window-band); border-bottom: 1px solid var(--mx-border-muted);
+           display: flex; align-items: center; gap: 20px; padding: 10px 24px; }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; white-space: nowrap; }
+  .tabs { display: flex; gap: 4px; }
+  .tab { border: 0; background: transparent; color: var(--mx-text-muted); font: inherit; font-size: 13px; height: 30px; padding: 0 12px; border-radius: var(--r-md); cursor: pointer; }
+  .tab:hover { background: var(--mx-hover); color: var(--mx-text); }
+  .tab[aria-selected="true"] { background: var(--mx-pressed); color: var(--mx-text); font-weight: 500; }
+  .summary { margin-left: auto; font-size: 12.5px; color: var(--mx-text-muted); }
+  main { padding: 20px 24px 40px; }
+  .intro { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: start; margin-bottom: 16px; max-width: 1640px; }
+  .intro h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .intro p { margin: 0; color: var(--mx-text-soft); font-size: 13px; max-width: 900px; }
+  .pc { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; min-width: 330px; }
+  .pc .p { color: var(--mx-success); } .pc .c { color: var(--mx-danger); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; max-width: 1640px; }
+  .scene .cap { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+  .scene .cap b { font-weight: 600; } .scene .cap span { color: var(--mx-text-muted); font-size: 12px; }
+  .hmeter { margin-left: 10px; font-size: 11.5px; color: var(--mx-text-muted); font-variant-numeric: tabular-nums; }
+  .hmeter b { color: var(--mx-text-soft); font-weight: 500; }
+
+  .win { position: relative; height: 430px; border-radius: var(--r-xl); overflow: hidden; background: var(--mx-workspace-sheet);
+         box-shadow: inset 0 0 0 1px var(--mx-border-muted); display: flex; flex-direction: column; }
+  .tabbar { height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--mx-border-muted);
+            background: var(--mx-window-band); font-size: 13px; color: var(--mx-text-soft); }
+  .tabbar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mx-accent); }
+  .tabbar .ctx { margin-left: auto; color: var(--mx-text-muted); font-size: 12px; }
+  .body { position: relative; flex: 1; min-height: 0; }
+  .transcript { position: absolute; left: var(--pane-inset); right: var(--tx-right, var(--pane-inset)); top: 0; bottom: var(--clear, 120px);
+                padding: 18px 0 14px; display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; overflow: hidden; }
+  .older { color: var(--mx-text-soft); line-height: 24px; font-size: 15px; }
+  .u { align-self: flex-end; max-width: 72%; background: var(--mx-bg-layer-1); border-radius: var(--r-sheet); padding: 9px 14px; }
+  .a { line-height: 24px; font-size: 15px; }
+  code { font: 13px "JetBrains Mono", Consolas, monospace; color: var(--mx-accent); }
+  .tool-row, .turnline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mx-text-muted); }
+  .turnline { font-weight: 500; }
+  .tool-row b { color: var(--mx-text-soft); font-weight: 500; }
+  .dock { position: absolute; left: var(--pane-inset); right: var(--dock-right, var(--pane-inset)); bottom: 0; padding-bottom: 16px; }
+  .acc { color: var(--mx-accent); } .plus { color: var(--mx-success); } .minus { color: var(--mx-danger); } .warn { color: var(--mx-warning); } .muted { color: var(--mx-text-muted); }
+  .spin { display: inline-block; animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .composer { position: relative; z-index: 2; height: 96px; border-radius: var(--r-sheet); background: var(--mx-composer-surface);
+              box-shadow: var(--mx-raised), var(--mx-composer-lift); padding: 12px 10px 8px 14px; display: flex; flex-direction: column; justify-content: space-between; }
+  .composer.dim { opacity: .45; }
+  .ph { color: var(--mx-text-muted); }
+  .bar { display: flex; align-items: center; gap: 2px; min-width: 0; }
+  .tool { width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r-md); color: var(--mx-text-muted); flex: none; font-size: 16px; }
+  .model { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--r-md); white-space: nowrap; flex: none; }
+  .model .e { color: var(--mx-text-muted); }
+  .ring { width: 16px; height: 16px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--mx-text) 30%, transparent); margin: 0 6px; flex: none; }
+  .send { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--mx-bg-layer-2); color: var(--mx-text-muted); font-size: 11px; flex: none; }
+  .send.go { background: var(--mx-text); color: var(--mx-workspace-sheet); }
+  .mm { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--r-pill); background: var(--mx-warning-bg); color: var(--mx-warning); font-size: 12px; white-space: nowrap; flex: none; }
+  .btn { border: 0; border-radius: var(--r-md); padding: 0 12px; height: 28px; background: transparent; box-shadow: var(--mx-button); color: var(--mx-text); font: inherit; font-size: 13px; }
+  .btn.p { background: var(--mx-accent-bg); box-shadow: none; color: #fff; }
+
+  /* ── D · 아일랜드 ── */
+  .island-slot { height: 40px; display: flex; align-items: flex-start; justify-content: center; }
+  .island { display: inline-flex; align-items: center; gap: 0; height: 32px; padding: 0 6px; border-radius: var(--r-pill);
+            background: #0b0b0d; box-shadow: 0 0 0 1px var(--mx-border), var(--mx-popup-shadow); font-size: 13px; white-space: nowrap; max-width: 100%; }
+  .island .seg { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: var(--r-pill); color: var(--mx-text-soft); font-variant-numeric: tabular-nums; }
+  .island .seg + .seg { box-shadow: -1px 0 0 0 var(--mx-border-muted); border-radius: 0; }
+  .island .seg.lead { color: var(--mx-text); }
+  .island .seg .t { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .island.big { height: auto; border-radius: 20px; padding: 12px 14px; display: block; width: 100%; white-space: normal; }
+  .island.big .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .island.big .h small { font-weight: 400; color: var(--mx-text-muted); }
+  .island.big pre { margin: 8px 0 10px; padding: 7px 10px; border-radius: 10px; background: #18181b; font: 13px/18px "JetBrains Mono", Consolas, monospace; }
+  .island.big .acts { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+  .island.big .acts .tail { margin-right: auto; color: var(--mx-text-muted); font-size: 12px; }
+  .island-overlay { position: absolute; left: 0; right: 0; bottom: calc(100% - 40px); }
+  .queue-line { display: flex; align-items: center; gap: 8px; padding: 0 14px 6px; font-size: 13px; color: var(--mx-text-muted); }
+  .queue-line .v { color: var(--mx-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── E · 오른쪽 세로 레일 ── */
+  .gutter { position: absolute; right: 14px; bottom: 16px; width: 44px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .gbtn { position: relative; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--mx-bg-base);
+          box-shadow: var(--mx-raised); color: var(--mx-text-soft); font-size: 15px; }
+  .gbtn.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--mx-border-muted); color: var(--mx-text-muted); }
+  .gbtn .badge { position: absolute; top: -4px; right: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: var(--r-pill); background: var(--mx-accent-bg);
+                 color: #fff; font-size: 11px; line-height: 17px; text-align: center; font-variant-numeric: tabular-nums; }
+  .gbtn .badge.w { background: var(--mx-warning); color: #1a1a1a; }
+  .gbtn svg { display: block; }
+  .gtip { position: absolute; right: 52px; top: 50%; transform: translateY(-50%); background: var(--mx-bg-base); box-shadow: var(--mx-popup-shadow); border-radius: 8px;
+          padding: 4px 9px; font-size: 12px; white-space: nowrap; color: var(--mx-text); }
+  .gpanel { position: absolute; right: 70px; bottom: 16px; width: 300px; background: var(--mx-bg-base); border-radius: var(--r-xl); box-shadow: var(--mx-popup-shadow); padding: 10px 12px; font-size: 13px; z-index: 5; }
+  .gpanel .h { font-weight: 600; margin-bottom: 6px; display: flex; gap: 8px; }
+  .gpanel .rows { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; color: var(--mx-text-soft); }
+  .approval-e { position: relative; z-index: 2; border-radius: var(--r-sheet); background: var(--mx-composer-surface); min-height: 96px;
+                box-shadow: var(--mx-raised), var(--mx-composer-lift), inset 0 0 0 1px #f2cf7650; padding: 12px 12px 10px 14px; }
+  .approval-e .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .approval-e .h small { font-weight: 400; color: var(--mx-text-muted); }
+  .approval-e pre { margin: 8px 0 10px; padding: 7px 10px; border-radius: var(--r-md); background: var(--mx-workspace-sheet); font: 13px/18px "JetBrains Mono", Consolas, monospace; }
+  .approval-e .acts { display: flex; justify-content: flex-end; gap: 6px; }
+
+  /* ── F · 폴더 탭 ── */
+  .tabs-row { height: 28px; display: flex; align-items: flex-end; gap: 4px; padding-left: 14px; position: relative; z-index: 3; }
+  .ftab { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px; border-radius: 10px 10px 0 0; background: var(--mx-bg-layer-2);
+          color: var(--mx-text-muted); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; position: relative; top: 1px; }
+  .ftab.on { background: var(--mx-composer-surface); color: var(--mx-text); height: 28px; box-shadow: 0 -0.5px 0 #ffffff1a, -1px 0 0 #ffffff14, 1px 0 0 #ffffff14; }
+  .ftab .t { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+  .ftab.warn { background: var(--mx-warning-bg); color: var(--mx-warning); }
+  .composer.tabbed { border-top-left-radius: 6px; }
+  .fpanel { padding: 2px 0 6px; font-size: 13px; color: var(--mx-text-soft); }
+  .fpanel .rowx { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+  .fpanel .rowx .r { margin-left: auto; color: var(--mx-text-muted); }
+  .progress-edge { position: absolute; left: 16px; right: 16px; top: 0; height: 2px; border-radius: 2px; background: var(--mx-bg-layer-3); overflow: hidden; }
+  .progress-edge i { display: block; height: 100%; background: var(--mx-accent); }
+  .approval-f { height: auto; min-height: 96px; padding: 12px 12px 10px 14px; }
+  .approval-f pre { margin: 8px 0 10px; padding: 7px 10px; border-radius: var(--r-md); background: var(--mx-workspace-sheet); font: 13px/18px "JetBrains Mono", Consolas, monospace; }
+
+  footer { max-width: 1640px; margin-top: 22px; font-size: 13px; color: var(--mx-text-soft); border-radius: var(--r-xl); box-shadow: inset 0 0 0 1px var(--mx-border-muted); padding: 14px 16px; }
+  footer b { color: var(--mx-text); }
+</style>
+</head>
+<body>
+<header><h1>컴포저 주변 v6</h1><div class="tabs" id="tabs"></div><div class="summary" id="summary"></div></header>
+<main>
+  <div class="intro"><div><h2 id="dtitle"></h2><p id="ddesc"></p></div><div class="pc" id="dpc"></div></div>
+  <div class="grid" id="grid"></div>
+  <footer><b>v5(A·B·C)와 다른 점</b> — v5는 모두 "칩을 한 줄에 늘어놓는" 방식이었습니다. v6는 상태를 담는 그릇 자체를 바꿨습니다: D는 하나로 모였다 펼쳐지는 섬, E는 대화 옆의 세로 버튼, F는 입력창에 꽂힌 폴더 탭입니다. 제목 옆 "하단 영역" 숫자로 장면 사이 밀림 정도를 비교할 수 있습니다.</footer>
+</main>
+<script>
+const spin = '<span class="acc"><span class="spin">⟳</span></span>';
+function transcript(n) {
+  const head = '<div class="older">클라이언트는 <code>PaymentsClient</code> 하나로 묶여 있고, 웹훅 처리는 <code>webhook.ts</code>에 따로 있습니다. 새 API는 서명 방식이 달라서 검증 로직도 바꿔야 합니다.</div><div class="u">결제 모듈을 새 API로 옮겨줘. 테스트도 같이.</div>';
+  if (n === 1) return head + '<div class="tool-row">' + spin + '<b>Read</b> src/payments/client.ts</div><div class="turnline">' + spin + '응답 중 · 12s</div>';
+  if (n === 2) return head + '<div class="a">테스트를 백그라운드로 돌리고, 웹훅 검증은 Worker에게 맡겼습니다.</div><div class="turnline">' + spin + '응답 중 · 1m 04s</div>';
+  if (n === 3) return head + '<div class="a">마이그레이션까지 끝냈습니다. 테스트와 웹훅 검증은 백그라운드에서 계속 돌고 있습니다.</div><div class="turnline">' + spin + '백그라운드 작업 2개 대기 중 · 셸 1 · 에이전트 1</div>';
+  return head + '<div class="a">스테이징 DB에 마이그레이션을 적용하려고 합니다.</div>';
+}
+function composer(n, opts = {}) {
+  const mismatch = n === 3;
+  const model = mismatch ? 'Gemini Flash Lite Latest' : 'Claude Opus 5.5';
+  return '<div class="composer' + (opts.cls ? ' ' + opts.cls : '') + '">' + (opts.inner || '') + '<div class="ph">' + (opts.ph || '메시지 입력…') + '</div><div class="bar"><span class="tool">＋</span><span class="model">' + model +
+    ' <span class="e">High ⌄</span></span>' + (mismatch ? '<span class="mm">⚠ 이 대화: Claude</span>' : '') + '<span class="ring"></span><span class="send' + (n === 3 ? ' go' : '') + '">' + (n === 3 ? '↑' : '■') + '</span></div></div>';
+}
+const cmd = 'npm run migrate -- --env=staging';
+
+/* D · 아일랜드: 입력창 위 40px 고정 슬롯에 섬 하나. 항상 같은 자리, 내용만 바뀜 */
+function dockD(n) {
+  let island = '';
+  if (n === 2) island = '<div class="island"><span class="seg lead">' + spin + '작업 2</span><span class="seg">대기 1</span></div>';
+  if (n === 3) island = '<div class="island"><span class="seg lead">◎ <span class="t">결제 모듈을 새 API로 이전</span> 3/5</span><span class="seg">' + spin + '2</span><span class="seg"><span class="plus">+128</span><span class="minus">−41</span></span></div>';
+  if (n === 4) {
+    return '<div style="position:relative"><div class="island-slot"></div><div class="island-overlay"><div class="island big"><div class="h"><span class="warn">⚠</span>도구 승인 필요 <small>shell</small><span style="margin-left:auto" class="muted">' + spin + ' 2 · 대기 1</span></div><pre>' + cmd + '</pre><div class="acts"><span class="tail">A 허용 · D 거절</span><button class="btn">거절</button><button class="btn p">허용</button></div></div></div></div>' + composer(4, { cls: 'dim' });
+  }
+  let q = '';
+  if (n === 2) q = '';
+  return '<div class="island-slot">' + island + '</div>' + composer(n);
+}
+const D_NOTE = { 2: '대기 메시지는 섬 안의 "대기 1"로 들어갑니다. 누르면 섬이 펼쳐져 편집 · 작업 조정 · 삭제가 나옵니다.', 4: '승인 요청이 오면 섬이 승인 카드로 커집니다. 입력창은 흐려지고, 승인하면 섬이 다시 작아집니다.' };
+
+/* E · 오른쪽 세로 레일: 대화 열 오른쪽 바깥 44px. 높이 0 */
+function goalRing(p) {
+  const c = 2 * Math.PI * 11, off = c * (1 - p);
+  return '<svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="11" fill="none" stroke="#3d3d41" stroke-width="2.5"/><circle cx="13" cy="13" r="11" fill="none" stroke="#79b8ff" stroke-width="2.5" stroke-dasharray="' + c + '" stroke-dashoffset="' + off + '" transform="rotate(-90 13 13)" stroke-linecap="round"/><text x="13" y="17" text-anchor="middle" font-size="10" fill="#e9e9e9">3</text></svg>';
+}
+function gutter(n) {
+  const b = [];
+  if (n === 3) b.push('<div class="gbtn">' + goalRing(0.6) + '</div>');
+  if (n >= 2) b.push('<div class="gbtn"><span class="acc"><span class="spin">⟳</span></span><span class="badge">2</span></div>');
+  if (n === 2 || n === 4) b.push('<div class="gbtn">✉<span class="badge">1</span></div>');
+  if (n === 3) b.push('<div class="gbtn" style="font-size:12px"><span class="plus">±</span><span class="badge">4</span>' + '<span class="gtip">파일 4개 · +128 −41</span></div>');
+  b.push('<div class="gbtn ghost">⋯</div>');
+  return '<div class="gutter">' + b.join('') + '</div>';
+}
+function dockE(n) {
+  if (n === 4) return '<div class="approval-e"><div class="h"><span class="warn">⚠</span>도구 승인 필요 <small>shell이 실행하려고 합니다</small></div><pre>' + cmd + '</pre><div class="acts"><button class="btn">거절</button><button class="btn p">허용</button></div></div>';
+  return composer(n);
+}
+const E_NOTE = { 2: '레일의 ✉ 1을 누르면 대기 메시지 패널이 옆으로 열립니다.', 3: '버튼에 마우스를 올리면 옆에 요약이 뜹니다(파일 칩에 표시한 상태). Goal은 진행률 링으로 보입니다.' };
+
+/* F · 폴더 탭: 입력창 위에 28px 탭 줄(항상 자리 유지). 탭을 누르면 입력창 카드 안이 그 탭 내용으로 바뀜 */
+function dockF(n) {
+  const tabs = [];
+  if (n === 1) tabs.push('<span class="ftab on">입력</span>');
+  if (n === 2) { tabs.push('<span class="ftab on">입력</span>', '<span class="ftab">' + spin + '작업 2</span>', '<span class="ftab">대기 1</span>'); }
+  if (n === 3) { tabs.push('<span class="ftab on">입력</span>', '<span class="ftab">◎ <span class="t">결제 모듈을 새 API로 이전</span> 3/5</span>', '<span class="ftab">' + spin + '작업 2</span>', '<span class="ftab">파일 4 <span class="plus">+128</span></span>'); }
+  if (n === 4) { tabs.push('<span class="ftab on warn">⚠ 승인 필요</span>', '<span class="ftab">입력</span>', '<span class="ftab">' + spin + '작업 2</span>', '<span class="ftab">대기 1</span>'); }
+  const row = '<div class="tabs-row">' + tabs.join('') + '</div>';
+  if (n === 4) return row + '<div class="composer tabbed approval-f"><div style="font-weight:600;display:flex;gap:8px"><span class="warn">⚠</span>shell이 실행하려고 합니다</div><pre>' + cmd + '</pre><div style="display:flex;justify-content:flex-end;gap:6px"><button class="btn">거절</button><button class="btn p">허용</button></div></div>';
+  return row + composer(n, { cls: 'tabbed', inner: n === 3 ? '<div class="progress-edge"><i style="width:60%"></i></div>' : '' });
+}
+const F_NOTE = { 3: '입력창 위쪽 가장자리의 가는 파란 선이 Goal 진행률입니다. 탭을 누르면 입력창 카드 안이 작업 목록 · 파일 목록으로 바뀝니다.', 4: '승인 요청은 맨 앞 탭이 되어 입력창 카드 자리를 차지합니다. "입력" 탭을 누르면 승인을 미루고 메시지를 쓸 수 있습니다.' };
+
+const DIRS = {
+  D: { title: 'D · 아일랜드', tag: '하나로 모였다 펼쳐지는 섬',
+       desc: '입력창 위 40px 고정 자리에 검은 알약 하나만 둡니다. 상태가 없으면 비어 있고, 생기면 Goal · 작업 · 대기 · 파일이 한 알약 안에 칸으로 들어갑니다. 누르면 그 자리에서 커져서 목록이나 승인 카드가 됩니다.',
+       p: ['상태가 몇 개든 한 덩어리라 시선이 한 곳', '자리가 고정이라 장면 사이 밀림 없음', '승인도 같은 섬이 커지는 것이라 일관됨'], c: ['상태가 없어도 40px 자리를 비워 둠', '섬이 길어지면 Goal 제목이 잘림'], dock: dockD, note: D_NOTE },
+  E: { title: 'E · 오른쪽 세로 레일', tag: '대화 열 바깥, 높이 0',
+       desc: '상태를 입력창 위아래가 아니라 대화 열 오른쪽 바깥의 세로 버튼 줄로 옮깁니다. 아이콘 + 숫자 배지만 보이고, 누르면 옆으로 패널이 열립니다. 입력창 주변은 지금보다도 비어 있습니다.',
+       p: ['입력창 위아래 공간을 전혀 안 씀', '버튼이 늘어도 대화가 밀리지 않음', '넓은 창에서 보기 좋음'], c: ['좁은 창이나 분할 화면에서는 자리가 없음', '아이콘만으로는 의미를 바로 알기 어려움'], dock: dockE, note: E_NOTE, right: 76 },
+  F: { title: 'F · 폴더 탭', tag: '입력창에 꽂힌 탭',
+       desc: '입력창 카드 위에 폴더 탭을 꽂습니다. 기본 탭은 "입력"이고, 상태가 생기면 탭이 하나씩 늘어납니다. 탭을 누르면 입력창 카드 안이 그 내용(작업 목록 · 파일 목록 · 대기 메시지)으로 바뀌어서 위로 아무것도 쌓이지 않습니다.',
+       p: ['펼친 내용도 입력창 카드 안에서만 보여서 밀림 없음', '승인 · 대기 · 작업을 같은 문법으로 다룸', 'Goal 진행률을 입력창 테두리 선으로 표현'], c: ['상태가 없어도 28px 탭 줄을 유지', '탭이 많으면 가로로 넘침'], dock: dockF, note: F_NOTE },
+};
+const SCENES = [
+  { id: 1, title: '평소 응답 중', sub: 'Goal 없음 · 작업 없음' },
+  { id: 2, title: '작업 + 대기 메시지', sub: '백그라운드 작업 2개, 메시지 하나 추가' },
+  { id: 3, title: '전부 있음', sub: '작업 남음 · Goal · 파일 4개 · 모델 변경' },
+  { id: 4, title: '도구 승인', sub: '작업 + 대기 메시지가 있는 상태' },
+];
+let cur = 'D';
+function render() {
+  document.getElementById('tabs').innerHTML = Object.keys(DIRS).map((k) => '<button class="tab" aria-selected="' + (k === cur) + '" data-k="' + k + '">' + DIRS[k].title + '</button>').join('');
+  document.querySelectorAll('.tab').forEach((b) => b.onclick = () => { cur = b.dataset.k; render(); });
+  const d = DIRS[cur];
+  document.getElementById('summary').textContent = d.tag + ' · 키보드 1 · 2 · 3으로 전환';
+  document.getElementById('dtitle').textContent = d.title;
+  document.getElementById('ddesc').textContent = d.desc;
+  document.getElementById('dpc').innerHTML = d.p.map((x) => '<span class="p">＋ ' + x + '</span>').join('') + d.c.map((x) => '<span class="c">－ ' + x + '</span>').join('');
+  const rightVar = d.right ? '--tx-right:' + d.right + 'px;--dock-right:' + d.right + 'px;' : '';
+  document.getElementById('grid').innerHTML = SCENES.map((s) =>
+    '<section class="scene"><div class="cap"><b>' + s.id + ' · ' + s.title + '</b><span>' + s.sub + '</span><span class="hmeter"></span></div>' +
+    '<div class="win" style="' + rightVar + '"><div class="tabbar"><span class="dot"></span>결제 모듈 이전<span class="ctx">mixdog · Default · Swarm</span></div>' +
+    '<div class="body"><div class="transcript">' + transcript(s.id) + '</div><div class="dock">' + d.dock(s.id) + '</div>' + (cur === 'E' ? gutter(s.id) : '') + '</div></div>' +
+    (d.note[s.id] ? '<div class="hmeter" style="margin:6px 0 0">' + d.note[s.id] + '</div>' : '') + '</section>').join('');
+  document.querySelectorAll('.scene').forEach((sec) => {
+    const h = sec.querySelector('.dock').offsetHeight;
+    sec.querySelector('.win').style.setProperty('--clear', h + 'px');
+    sec.querySelector('.cap .hmeter').innerHTML = '하단 영역 <b>' + h + 'px</b>';
+  });
+}
+document.addEventListener('keydown', (e) => { const k = { '1': 'D', '2': 'E', '3': 'F' }[e.key]; if (k) { cur = k; render(); } });
+render();
+</script>
+</body>
+</html>

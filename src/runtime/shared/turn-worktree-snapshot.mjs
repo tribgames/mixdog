@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { existsSync, realpathSync } from 'node:fs';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
@@ -9,6 +11,9 @@ const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
 const PATCH_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
+// Largest tool-supplied baseline kept for `hash-object`: the apply_patch edit
+// limit. (2–64 MiB explicit untracked edits keep their exact revert.)
+const MAX_TOOL_BASELINE_BYTES = PATCH_EDIT_MAX_BYTES;
 // Baselines used to live in the OS temp directory, where a reboot or a disk
 // cleaner could remove the only copy of a turn's revert source. Keep them with
 // the rest of the runtime data.
@@ -19,11 +24,32 @@ function snapshotRoot() {
 // A baseline tree is unreachable by design (no commit, no ref), so collection
 // is what bounds how long a review stays revertible.
 const SHADOW_GC_PRUNE = '7.days.ago';
+// A review poll with no change signal since the last capture reuses it for
+// this long, so the review bar's timer polls stop re-running git. Writes no
+// signal reports (an external editor, a command the shell classifies
+// read-only) still show within this gap.
+const MIN_RECAPTURE_GAP_MS = 15_000;
+// The same gap for a timer poll of a review the user has open. Shorter than
+// the desktop bar's 6 s poll, so each of those polls still captures.
+const VISIBLE_RECAPTURE_GAP_MS = 5_000;
 const states = new Map();
 
 function pathKey(value) {
   const text = clean(value).replace(/\\/g, '/');
   return process.platform === 'win32' ? text.toLowerCase() : text;
+}
+
+/** `resolve` plus symlinks of the nearest existing ancestor: git reports the
+ *  worktree root canonically (macOS /var -> /private/var), callers may not. */
+function canonicalPath(value) {
+  const full = resolve(value);
+  let head = full;
+  while (!existsSync(head)) {
+    const parent = dirname(head);
+    if (parent === head) return full;
+    head = parent;
+  }
+  return join(realpathSync(head), relative(head, full));
 }
 
 /** Non-empty entries of a NUL-separated git output list. */
@@ -84,9 +110,25 @@ function stateForRoot(root) {
     sourceTracked: new Set(),
     lineEndingArgs: [],
     lock: Promise.resolve(),
+    // Bumped by every reported write under `root`; a capture records the
+    // value it started from.
+    changeStamp: 0,
   };
   states.set(key, state);
   return state;
+}
+
+/** Report written paths (or `null`: anything may have changed). The next
+ *  review poll of an affected worktree captures instead of reusing. */
+export function noteTurnWorktreeChange(paths = null) {
+  const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
+  const keys = list.map((value) => pathKey(canonicalPath(value)));
+  for (const state of states.values()) {
+    const root = pathKey(state.root);
+    if (keys.length === 0 || keys.some((key) => key === root || key.startsWith(`${root}/`))) {
+      state.changeStamp += 1;
+    }
+  }
 }
 
 function withStateLock(state, task) {
@@ -172,15 +214,19 @@ async function syncAlternates(state) {
   await writeFile(target, `${[...new Set(alternates)].join('\n')}\n`, 'utf8');
 }
 
-async function refreshSourceTracked(state, { force = false } = {}) {
+async function sourceIndexIdentity(state) {
   state.sourceIndexPath ??= await sourceGitPath(state.root, 'index');
-  let identity = 'missing';
-  if (state.sourceIndexPath) {
-    try {
-      const stat = await lstat(state.sourceIndexPath);
-      identity = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-    } catch {}
+  if (!state.sourceIndexPath) return 'missing';
+  try {
+    const stat = await lstat(state.sourceIndexPath);
+    return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  } catch {
+    return 'missing';
   }
+}
+
+async function refreshSourceTracked(state, { force = false } = {}) {
+  const identity = await sourceIndexIdentity(state);
   if (!force && state.sourceIndexIdentity === identity) return;
   const result = await runGit(['-c', 'core.quotepath=false', 'ls-files', '--cached', '-z'], {
     cwd: state.root,
@@ -340,17 +386,85 @@ async function captureTreeUnlocked(state, toolPaths = []) {
  * bytes fill holes in the shadow baseline, not the user's repository index. */
 export function recordTurnWorktreeFileChange(snapshot, fullPath, before) {
   if (!snapshot) return;
-  const rel = relative(snapshot.root, resolve(fullPath)).replace(/\\/g, '/');
+  const rel = relative(snapshot.root, canonicalPath(fullPath)).replace(/\\/g, '/');
   if (!rel || isAbsolute(rel) || rel.split('/').includes('..')) return;
+  snapshot.state.changeStamp += 1;
   if (snapshot.toolPaths.has(rel)) return;
   snapshot.toolPaths.add(rel);
+  // Before-bytes that were never captured (an omitted marker) or exceed the
+  // tool-baseline bound are neither kept nor hashed: only their size stays,
+  // so materializeToolBaselines can record an omitted (unrestorable) baseline
+  // instead of shipping a file-sized buffer to git.
+  if (before !== null && !(Buffer.isBuffer(before) && before.length <= MAX_TOOL_BASELINE_BYTES)) {
+    const size = Buffer.isBuffer(before) ? before.length : Number(before?.size) || 0;
+    snapshot.pendingBaselines.set(rel, { omitted: true, size });
+    return;
+  }
   snapshot.pendingBaselines.set(rel, before);
 }
 
-async function applyBaselineFilesUnlocked(state, tree, entries) {
-  if (entries.length === 0) return { tree, files: [] };
+const isOmittedBaseline = (content) => content !== null && content !== undefined && !Buffer.isBuffer(content);
+
+/** Review rows and patch sections for omitted baselines inside the review scope. */
+function withOmittedBaselines(snapshot, review) {
+  const scope = snapshot.scopePaths ? new Set(snapshot.scopePaths.map(pathKey)) : null;
+  const omitted = [...snapshot.baselineFiles.values()].filter(
+    (entry) => entry.omitted === true && (!scope || scope.has(pathKey(entry.path)))
+  );
+  if (omitted.length === 0) return review;
+  const keys = new Set(omitted.map((entry) => pathKey(entry.path)));
+  const files = (review.files || []).filter((file) => !keys.has(pathKey(file.path)));
+  let patch = review.patch || '';
+  for (const entry of omitted) {
+    const exists = existsSync(resolve(snapshot.root, entry.path));
+    const size = Number(entry.size) || 0;
+    files.push({
+      path: entry.path,
+      oldPath: null,
+      status: exists ? 'M' : 'D',
+      additions: null,
+      deletions: null,
+      binary: true,
+      omitted: true,
+      size,
+    });
+    if (review.patchOmitted) continue;
+    const newHeader = exists ? `b/${entry.path}` : '/dev/null';
+    patch +=
+      `diff --git a/${entry.path} b/${entry.path}\n` +
+      (exists ? '' : 'deleted file mode 100644\n') +
+      `binary/large file ${exists ? 'changed' : 'deleted'} (${size} bytes; content not captured)\n` +
+      `Binary files a/${entry.path} and ${newHeader} differ\n`;
+  }
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  return { ...review, files, patch };
+}
+
+/** Revert never claims success for a path whose baseline bytes were not captured. */
+function assertRevertable(snapshot, targets) {
+  for (const target of targets) {
+    const entry = snapshot.baselineFiles.get(pathKey(target));
+    if (entry?.omitted === true) {
+      throw new Error(
+        `turn review revert is unavailable for ${target}: binary/large file content was not captured (${Number(entry.size) || 0} bytes)`
+      );
+    }
+  }
+}
+
+async function applyBaselineFilesUnlocked(state, tree, allEntries) {
+  // Omitted baselines change no tree: they are carried as metadata only.
+  const files = allEntries
+    .filter((entry) => entry?.omitted === true)
+    .map((entry) => ({
+      path: safeRelativePath(state.root, entry.path),
+      oid: null,
+      omitted: true,
+      size: Number(entry.size) || 0,
+    }));
+  const entries = allEntries.filter((entry) => entry?.omitted !== true);
+  if (entries.length === 0) return { tree, files };
   const saved = clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root })).stdout);
-  const files = [];
   try {
     await runGit(shadowArgs(state, ['read-tree', tree]), { cwd: state.root });
     for (const entry of entries) {
@@ -408,10 +522,15 @@ async function materializeToolBaselines(snapshot) {
       ([path, content]) =>
         !present.has(pathKey(path)) &&
         (content === null ||
+          isOmittedBaseline(content) ||
           (!state.sourceTracked.has(pathKey(path)) &&
             (ignored.has(pathKey(path)) || content.length > MAX_UNTRACKED_FILE_BYTES)))
     )
-    .map(([path, content]) => ({ path, content }));
+    // A path whose exact baseline is already in the tree keeps it; one that is
+    // not and whose bytes were never captured is recorded as omitted.
+    .map(([path, content]) =>
+      isOmittedBaseline(content) ? { path, omitted: true, size: content.size } : { path, content }
+    );
   const applied = await applyBaselineFilesUnlocked(state, snapshot.baselineTree, missing);
   snapshot.baselineTree = applied.tree;
   for (const entry of applied.files) snapshot.baselineFiles.set(pathKey(entry.path), entry);
@@ -548,6 +667,7 @@ export async function createTurnWorktreeSnapshot(worktree) {
   if (!root) return null;
   const state = stateForRoot(root);
   return await withStateLock(state, async () => {
+    const mark = await captureMark(state);
     const baselineTree = await captureTreeUnlocked(state);
     if (!baselineTree) return null;
     scheduleShadowGc(state);
@@ -556,6 +676,9 @@ export async function createTurnWorktreeSnapshot(worktree) {
       root,
       baselineTree,
       currentTree: baselineTree,
+      captured: mark,
+      refreshing: null,
+      refreshSeq: 0,
       patch: '',
       files: [],
       patchTruncated: false,
@@ -609,22 +732,72 @@ export async function resumeTurnWorktreeSnapshot(
     const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths);
     Object.assign(
       snapshot,
-      await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
+      withOmittedBaselines(
+        snapshot,
+        await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
+      )
     );
     return snapshot;
   });
 }
 
-export async function refreshTurnWorktreeSnapshot(snapshot) {
-  if (!snapshot?.state || !snapshot.baselineTree) return null;
-  return await withStateLock(snapshot.state, async () => {
+/** What a capture starting now has seen: the change stamp, the source index
+ *  identity (commits, checkouts, staging) and the time. */
+async function captureMark(state) {
+  return { stamp: state.changeStamp, index: await sourceIndexIdentity(state), at: Date.now() };
+}
+
+/** Could the worktree differ from the snapshot's last capture? */
+async function captureNeeded(snapshot, gapMs) {
+  const mark = snapshot.captured;
+  if (!mark || snapshot.pendingBaselines.size > 0) return true;
+  if (mark.stamp !== snapshot.state.changeStamp) return true;
+  if (Date.now() - mark.at >= gapMs) return true;
+  return (await sourceIndexIdentity(snapshot.state)) !== mark.index;
+}
+
+function startRefresh(snapshot) {
+  const flight = { seq: (snapshot.refreshSeq || 0) + 1, promise: null };
+  snapshot.refreshSeq = flight.seq;
+  snapshot.refreshing = flight;
+  flight.promise = withStateLock(snapshot.state, async () => {
+    const mark = await captureMark(snapshot.state);
     await materializeToolBaselines(snapshot);
     const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
-    if (currentTree === snapshot.currentTree) return snapshot;
-    const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
-    Object.assign(snapshot, review);
+    if (currentTree !== snapshot.currentTree) {
+      const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
+      Object.assign(snapshot, withOmittedBaselines(snapshot, review));
+    }
+    snapshot.captured = mark;
     return snapshot;
+  }).finally(() => {
+    if (snapshot.refreshing === flight) snapshot.refreshing = null;
   });
+  return flight.promise;
+}
+
+/** Bring the snapshot up to date with the worktree. Single-flight: a call
+ *  made while a capture runs waits for it, then captures again only if a
+ *  change was reported after that capture began. Without a reported change,
+ *  an index change or the recapture gap elapsed (VISIBLE_RECAPTURE_GAP_MS
+ *  for an open review's poll, `visible`; else MIN_RECAPTURE_GAP_MS), the
+ *  last capture stands. `force` always answers with a capture that began
+ *  after this call. */
+export async function refreshTurnWorktreeSnapshot(snapshot, { force = false, visible = false } = {}) {
+  if (!snapshot?.state || !snapshot.baselineTree) return null;
+  const gapMs = visible ? VISIBLE_RECAPTURE_GAP_MS : MIN_RECAPTURE_GAP_MS;
+  const calledAtSeq = snapshot.refreshSeq || 0;
+  for (;;) {
+    const flight = snapshot.refreshing;
+    if (flight) {
+      await flight.promise;
+      if (flight.seq > calledAtSeq) return snapshot;
+      continue;
+    }
+    if (!force && !(await captureNeeded(snapshot, gapMs))) return snapshot;
+    if (snapshot.refreshing) continue;
+    return await startRefresh(snapshot);
+  }
 }
 
 function safeRelativePath(root, value) {
@@ -658,20 +831,27 @@ async function restorePathFromTree(snapshot, rel) {
 }
 
 async function revertPathsUnlocked(snapshot, targets) {
+  // Checked for every target before the first restore: no partial revert.
+  assertRevertable(snapshot, targets);
   for (const target of targets) {
     await restorePathFromTree(snapshot, target);
   }
+  // Restores report no change signal; the next poll captures afresh.
+  snapshot.captured = null;
   const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
   Object.assign(
     snapshot,
-    await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
+    withOmittedBaselines(
+      snapshot,
+      await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
+    )
   );
   return snapshot;
 }
 
 export async function revertTurnWorktreeFile(snapshot, value) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
-  await refreshTurnWorktreeSnapshot(snapshot);
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
   return await withStateLock(snapshot.state, async () => {
     const rel = safeRelativePath(snapshot.root, value);
     const entry = snapshot.files.find(
@@ -686,7 +866,7 @@ export async function revertTurnWorktreeFile(snapshot, value) {
 
 export async function revertTurnWorktreeSnapshot(snapshot) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
-  await refreshTurnWorktreeSnapshot(snapshot);
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
   return await withStateLock(snapshot.state, async () => {
     // Resolve and validate every path before the first mutation. Renames and
     // copies contribute both sides so the worktree returns to the exact

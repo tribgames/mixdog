@@ -1,24 +1,25 @@
-import { ExternalLink, FileText as FileIcon, FolderOpen, PanelTop, Save, X } from 'lucide-react';
+import { Columns2, ExternalLink, FileText as FileIcon, FolderOpen, ListTree, PanelTop, Save, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
+import { EditorViewSwitch, type EditorViewControls } from './editor-view-switch';
 import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
 import './tab-strip.css';
 
 /** What the side-dock file editor reports upward so the dock can draw the
  *  actions in its own strip instead of the editor's breadcrumb row. */
-export interface SideFileChrome {
+export interface SideFileChrome extends EditorViewControls {
   /** False for previews, binaries and read-only files: no Save / Problems. */
   editable: boolean;
   dirty: boolean;
   saving: boolean;
-  /** Markdown / SVG / table files: the Preview (or Table) ⇄ Source switch. */
-  viewToggle?: { value: 'rendered' | 'source'; renderedLabel: string; onChange(next: 'rendered' | 'source'): void };
   /** Rendered CSV/TSV table: body rows × columns, shown on the footer's right. */
   tableSize?: { rows: number; columns: number };
   save(): void;
-  reveal(): void;
+  /** Host-only (undefined on a remote surface, which offers `copyPath`). */
+  reveal?(): void;
+  copyPath?(): void;
   /** Previews and binaries: hand the file to the OS default app. */
   openDefault?(): void;
   /** Editor readout that used to live in the footer: problem counts (a ⋯ item
@@ -75,6 +76,25 @@ export function sideFileActions(
 ): DockAction[] {
   const actions: DockAction[] = [];
   if (onKeepOpen) actions.push({ id: 'keep-open', label: t('Keep Open'), onSelect: onKeepOpen });
+  if (chrome?.toc) {
+    actions.push({
+      id: 'toc',
+      label: t('Table of contents'),
+      icon: ListTree,
+      inline: true,
+      checked: chrome.toc.open,
+      onSelect: chrome.toc.onToggle,
+    });
+  }
+  if (chrome?.sideBySide) {
+    actions.push({
+      id: 'preview-side',
+      label: t('Open Preview to the Side'),
+      icon: Columns2,
+      inline: true,
+      onSelect: chrome.sideBySide.onOpen,
+    });
+  }
   if (chrome?.editable && chrome.dirty) {
     actions.push({
       id: 'save',
@@ -93,8 +113,10 @@ export function sideFileActions(
       onSelect: chrome.openDefault,
     });
   }
-  if (chrome) {
+  if (chrome?.reveal) {
     actions.push({ id: 'reveal', label: t('Reveal in Explorer'), icon: FolderOpen, onSelect: chrome.reveal });
+  } else if (chrome?.copyPath) {
+    actions.push({ id: 'copy-path', label: t('Copy path'), icon: FolderOpen, onSelect: chrome.copyPath });
   }
   actions.push({ id: 'open-main', label: t('Open in main tab'), icon: PanelTop, onSelect: onOpenInMain });
   if (chrome?.format) {
@@ -229,6 +251,7 @@ export function SideFileStrip({
             })}
           </div>
         }
+        controlsLead={chrome?.viewToggle && <EditorViewSwitch toggle={chrome.viewToggle} />}
         actions={sideFileActions(
           chrome,
           onOpenInMain,

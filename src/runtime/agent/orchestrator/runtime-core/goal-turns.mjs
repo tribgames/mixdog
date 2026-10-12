@@ -10,6 +10,7 @@ import {
   checkpointActiveClock,
   clearTurnFailures,
   publicGoal,
+  resumeGoalState,
   runningAgentWork,
   startActiveClock,
   stopActiveClock,
@@ -28,8 +29,7 @@ function settledDurationWait(goal) {
     goal.remainingMs > 0 &&
     !goal.needsTaskReview &&
     goal.tasks.length > 0 &&
-    goal.tasks.every((task) => GOAL_TASK_SETTLED.includes(task.status)) &&
-    goal.blockAudit?.turn !== goal.turnCount
+    goal.tasks.every((task) => GOAL_TASK_SETTLED.includes(task.status))
   );
 }
 
@@ -89,8 +89,7 @@ function applyTurnOutcome(goal, detail, at) {
   }
   if (status === 'failed' && goal.status === 'active') {
     // A failed turn has exhausted its recovery. Starting another Goal turn
-    // retries the same terminal error with a larger transcript. The model's
-    // separate external-blocker audit still spans 3 turns.
+    // retries the same terminal error with a larger transcript.
     stopActiveClock(goal, at);
     goal.status = 'blocked';
     goal.failureReason = clean(detail?.error) || 'Goal turn failed';
@@ -167,6 +166,21 @@ export function createGoalTurnLifecycle(ctx) {
         const published = await commit(id, goal);
         if (automaticTurnWithoutActivity(detail, published)) idleReviewTurns.set(id, idleReviewKey(published));
         return published;
+      });
+    },
+    // A quota resume revives exactly the Goal its failure suspended, and only
+    // while that Goal is still waiting on the limit: a Goal the user paused,
+    // stopped, replaced or completed meanwhile stays as it is.
+    reactivateUsageLimited(sessionId, goalId) {
+      return withMutation(sessionId, async (id) => {
+        const goal = readRecord(id).goal;
+        if (!goal || goal.archivedAt || goal.id !== clean(goalId) || goal.status !== 'usage_limited') return null;
+        try {
+          resumeGoalState(goal, now());
+        } catch {
+          return null;
+        }
+        return commit(id, goal);
       });
     },
     continuation(sessionId, { agentStatus = null } = {}) {

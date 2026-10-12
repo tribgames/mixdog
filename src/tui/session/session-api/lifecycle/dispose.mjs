@@ -31,6 +31,7 @@ export function createDisposeAction(bag, { oauthFlows }) {
       clearToastTimers();
       disposeTranscriptSpill?.();
       disposeGoalContinuation?.();
+      bag.disposeQuotaResume?.();
       try {
         clearInterval(lifecycle.runtimePulseTimer);
       } catch {}

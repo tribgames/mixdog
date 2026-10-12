@@ -15,9 +15,8 @@ process.on('exit', () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const { createTurnWorktreeSnapshot, refreshTurnWorktreeSnapshot, revertTurnWorktreeSnapshot } = await import(
-  './turn-worktree-snapshot.mjs'
-);
+const { createTurnWorktreeSnapshot, noteTurnWorktreeChange, refreshTurnWorktreeSnapshot, revertTurnWorktreeSnapshot } =
+  await import('./turn-worktree-snapshot.mjs');
 
 function git(cwd, ...args) {
   const result = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
@@ -58,6 +57,7 @@ test('turn worktree snapshots spawn git off the event loop and keep their conten
   writeFileSync(join(repo, 'a.txt'), 'changed a\n');
   rmSync(join(repo, 'b.txt'));
   writeFileSync(join(repo, 'new.txt'), 'new file\n');
+  noteTurnWorktreeChange([join(repo, 'a.txt'), join(repo, 'b.txt'), join(repo, 'new.txt')]);
   await refreshTurnWorktreeSnapshot(snapshot);
 
   assert.deepEqual(
@@ -96,10 +96,12 @@ test('an autocrlf checkout touched without edits is not a diff', {
   writeFileSync(join(repo, 'a.txt'), 'one\r\ntwo\r\nthree\r\n');
   const later = new Date(Date.now() + 60_000);
   utimesSync(join(repo, 'a.txt'), later, later);
+  noteTurnWorktreeChange([join(repo, 'a.txt')]);
   await refreshTurnWorktreeSnapshot(snapshot);
   assert.deepEqual(snapshot.files, []);
 
   writeFileSync(join(repo, 'a.txt'), 'one\r\nTWO\r\nthree\r\n');
+  noteTurnWorktreeChange([join(repo, 'a.txt')]);
   await refreshTurnWorktreeSnapshot(snapshot);
   assert.deepEqual(
     snapshot.files.map(({ path, additions, deletions }) => ({ path, additions, deletions })),
@@ -108,6 +110,118 @@ test('an autocrlf checkout touched without edits is not a diff', {
 
   await revertTurnWorktreeSnapshot(snapshot);
   assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8'), 'one\r\ntwo\r\nthree\r\n');
+});
+
+function seedRepo(name) {
+  const repo = join(root, name);
+  mkdirSync(repo, { recursive: true });
+  git(repo, 'init', '-q');
+  git(repo, 'config', 'core.autocrlf', 'false');
+  writeFileSync(join(repo, 'a.txt'), 'original a\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'seed');
+  return repo;
+}
+
+test('overlapping review polls share one capture', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('overlap-repo');
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  writeFileSync(join(repo, 'a.txt'), 'changed a\n');
+  noteTurnWorktreeChange([join(repo, 'a.txt')]);
+  const before = snapshot.refreshSeq;
+  const results = await Promise.all([
+    refreshTurnWorktreeSnapshot(snapshot),
+    refreshTurnWorktreeSnapshot(snapshot),
+    refreshTurnWorktreeSnapshot(snapshot),
+  ]);
+  assert.equal(snapshot.refreshSeq - before, 1, 'one capture answers every overlapping poll');
+  assert.ok(results.every((value) => value === snapshot));
+  assert.deepEqual(
+    snapshot.files.map(({ path }) => path),
+    ['a.txt']
+  );
+  // Nothing reported since: a poll right after reuses that capture.
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.equal(snapshot.refreshSeq - before, 1);
+});
+
+test('an edit after the last capture shows on the next poll', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('next-poll-repo');
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  writeFileSync(join(repo, 'a.txt'), 'first edit\n');
+  noteTurnWorktreeChange([join(repo, 'a.txt')]);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.match(snapshot.patch, /^\+first edit$/m);
+
+  // A tool write reports its path; the very next poll captures it.
+  writeFileSync(join(repo, 'b.txt'), 'new b\n');
+  noteTurnWorktreeChange([join(repo, 'b.txt')]);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.deepEqual(
+    snapshot.files.map(({ path, status }) => ({ path, status })),
+    [
+      { path: 'a.txt', status: 'M' },
+      { path: 'b.txt', status: 'A' },
+    ]
+  );
+
+  // A write under another root is not a signal for this one.
+  const before = snapshot.refreshSeq;
+  noteTurnWorktreeChange([join(root, 'elsewhere', 'x.txt')]);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.equal(snapshot.refreshSeq, before);
+
+  // An unreported write is still captured by a forced refresh.
+  writeFileSync(join(repo, 'a.txt'), 'second edit\n');
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
+  assert.match(snapshot.patch, /^\+second edit$/m);
+});
+
+test('an unreported write waits for the recapture gap, a reported one does not', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  const repo = seedRepo('gap-repo');
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  t.after(() => t.mock.timers.reset());
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+
+  // Unreported, well inside the gap (a 6 s timer poll): the capture stands.
+  writeFileSync(join(repo, 'a.txt'), 'unreported edit\n');
+  t.mock.timers.tick(6_000);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.deepEqual(snapshot.files, []);
+
+  // Past the 15 s gap the next poll captures it.
+  t.mock.timers.tick(9_000);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.match(snapshot.patch, /^\+unreported edit$/m);
+
+  // Reported writes capture at once, at any point in the gap.
+  writeFileSync(join(repo, 'b.txt'), 'reported b\n');
+  noteTurnWorktreeChange([join(repo, 'b.txt')]);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.deepEqual(
+    snapshot.files.map(({ path }) => path),
+    ['a.txt', 'b.txt']
+  );
+
+  // An open review's poll uses the shorter visible gap: 6 s on, it captures.
+  writeFileSync(join(repo, 'a.txt'), 'visible edit\n');
+  t.mock.timers.tick(6_000);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.doesNotMatch(snapshot.patch, /^\+visible edit$/m, 'a collapsed poll is still gated');
+  await refreshTurnWorktreeSnapshot(snapshot, { visible: true });
+  assert.match(snapshot.patch, /^\+visible edit$/m);
+
+  // So does a change of the repository's own index (a commit or staging).
+  writeFileSync(join(repo, 'c.txt'), 'staged c\n');
+  git(repo, 'add', 'c.txt');
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.ok(snapshot.files.some(({ path }) => path === 'c.txt'));
 });
 
 test('a directory outside any repository yields no snapshot', {

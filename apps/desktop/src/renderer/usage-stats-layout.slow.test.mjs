@@ -28,7 +28,12 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       stdin: {
         resolveDir,
         loader: 'tsx',
+        // The inherit surface's model picker reaches TUI-shared modules that
+        // read \`process\` and \`import.meta.url\` at module scope. As in the
+        // renderer entries (main.tsx, bootstrap.tsx) the process shim loads
+        // first, and the URL is a chunk's, as Vite's ESM output gives it.
         contents: `
+          import "./process-shim";
           import React from "react";
           import { createRoot } from "react-dom/client";
           import { CommandSurface } from "./CommandSurface";
@@ -68,7 +73,10 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       outfile: 'usage-stats-layout.js',
       format: 'iife',
       jsx: 'automatic',
-      define: { 'process.env.NODE_ENV': '"production"' },
+      define: {
+        'process.env.NODE_ENV': '"production"',
+        'import.meta.url': '"http://mixdog.test/assets/index.js"',
+      },
       plugins: [lazyChunkBoundary],
     }),
     build({

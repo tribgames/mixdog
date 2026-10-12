@@ -329,6 +329,15 @@ export function desktopToolActivityCategory(name: unknown, args: unknown): strin
   return String(classifyToolCategory(modeledName, surface.args) || 'Other');
 }
 
+/** `generate_image` / `generate_video` name a generation like `generate` with a
+ *  kind; the shared unit table would count them as a media status check. */
+function mediaGenerateArgs(surface: { normalizedName: string; args: unknown }): unknown {
+  if (surface.normalizedName !== 'media') return surface.args;
+  const args = asRecord(surface.args) ?? {};
+  const match = /^generate[_-]?(image|video)$/i.exec(String(args.action || ''));
+  return match ? { ...args, action: 'generate', kind: match[1].toLowerCase() } : args;
+}
+
 function desktopToolActivityUnit(
   name: unknown,
   args: unknown
@@ -344,7 +353,7 @@ function desktopToolActivityUnit(
   const modeledName = desktopToolActivityModeledName(name, args);
   const surface = formatToolSurface(modeledName, args);
   const category = desktopToolActivityCategory(modeledName, surface.args);
-  const entry = aggregateToolCategoryEntry(modeledName, surface.args, category) as {
+  const entry = aggregateToolCategoryEntry(modeledName, mediaGenerateArgs(surface), category) as {
     done?: string;
     noun?: string;
     count?: number;

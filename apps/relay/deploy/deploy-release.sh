@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DOMAIN="${1:?usage: deploy-release.sh <relay-domain> <release-tag>}"
-RELEASE_TAG="${2:?usage: deploy-release.sh <relay-domain> <release-tag>}"
+DOMAIN="${1:?usage: deploy-release.sh <relay-domain> <release-tag> [desktop-version]}"
+RELEASE_TAG="${2:?usage: deploy-release.sh <relay-domain> <release-tag> [desktop-version]}"
+# The desktop build the uploaded renderer belongs to. It names the renderer as
+# an ADDITIONAL side-by-side release; a relay-only deploy (renderer reused)
+# passes none and registers nothing new.
+DESKTOP_VERSION="${3:-}"
+DATA_DIR=/var/lib/mixdog-relay
 [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]
 [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+[[ -z "$DESKTOP_VERSION" || "$DESKTOP_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$ ]]
 [[ "$(id -u)" = 0 ]]
 
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -81,6 +87,32 @@ else
 	cp -al "$INSTALL_DIR/renderer" "$NEXT_DIR/"
 fi
 LOCAL_HASH="$(sha256sum "$NEXT_DIR/renderer/index.html" | awk '{print $1}')"
+
+# Side-by-side renderer releases. The installed registry is hardlinked into the
+# staged tree, the new renderer is added as one more release (never replacing
+# the others), and releases past the retention rule are collected — all inside
+# NEXT_DIR, so the swap below stays the single atomic step and rollback restores
+# the previous registry along with the previous install.
+if [[ "$RENDERER_MODE" != "reused" && -z "$DESKTOP_VERSION" ]]; then
+	echo "[deploy] a renderer deploy needs the desktop version: deploy-release.sh <domain> <tag> <desktop-version>" >&2
+	exit 1
+fi
+RELEASES_DIR="$NEXT_DIR/renderer-releases"
+mkdir -p "$RELEASES_DIR"
+if [[ -d "$INSTALL_DIR/renderer-releases" ]]; then
+	cp -al "$INSTALL_DIR/renderer-releases/." "$RELEASES_DIR/"
+fi
+LEGACY_ARGS=()
+if [[ ! -f "$INSTALL_DIR/renderer-releases/index.json" && -f "$INSTALL_DIR/renderer/index.html" ]]; then
+	# The renderer serving today becomes the `legacy` release.
+	LEGACY_ARGS=("--legacy=$INSTALL_DIR/renderer")
+fi
+RELEASE_RESULT="$(node "$SRC_DIR/deploy/renderer-releases.mjs" --action=prepare \
+	"--releases=$RELEASES_DIR" "--renderer=$NEXT_DIR/renderer" \
+	"--desktop-version=$DESKTOP_VERSION" "--devices=$DATA_DIR/devices.json" \
+	${LEGACY_ARGS[@]+"${LEGACY_ARGS[@]}"})"
+RELEASE_ID="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).releaseId||""))' "$RELEASE_RESULT")"
+echo "[deploy] renderer releases: $RELEASE_RESULT"
 cd "$NEXT_DIR"
 # Deploy-time shortcut (CI/CD 단축): the relay's dependency tree is tiny and
 # rarely moves — when the lockfile hash matches the installed tree, reuse it
@@ -102,9 +134,10 @@ activate_release
 systemctl is-active --quiet mixdog-relay
 test "$(sha256sum "$INSTALL_DIR/renderer/index.html" | awk '{print $1}')" = "$LOCAL_HASH"
 node "$INSTALL_DIR/deploy/verify-release.mjs" \
-	"--origin=https://$DOMAIN" "--address=127.0.0.1" "--expected-index=$LOCAL_HASH"
+	"--origin=https://$DOMAIN" "--address=127.0.0.1" "--expected-index=$LOCAL_HASH" \
+	"--expected-release=$RELEASE_ID"
 
 commit_release_transaction
 rm -rf "$BACKUP_DIR"
 cleanup_stale_releases
-echo "[deploy] activated $RELEASE_TAG renderer=$LOCAL_HASH mode=$RENDERER_MODE"
+echo "[deploy] activated $RELEASE_TAG renderer=$LOCAL_HASH release=${RELEASE_ID:-none} mode=$RENDERER_MODE"

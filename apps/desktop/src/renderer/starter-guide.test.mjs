@@ -16,6 +16,7 @@ const { StarterGuide } = await import('./StarterGuide.tsx');
 const { resetSidebarReferenceCache } = await import('./sidebar-reference-cache.ts');
 const { inertBackground } = await import('./settings/dialog-modality.ts');
 const { tourCardPosition } = await import('./StarterTour.tsx');
+const { setCachedConnectionInfo } = await import('./settings/connection-info.ts');
 
 test.after(() => dom.window.close());
 
@@ -74,6 +75,26 @@ function button(text) {
 async function click(element) {
   await act(async () => element.click());
 }
+
+test('a paired device completes remote access once: emptied connection info does not re-announce it', async (t) => {
+  const { render } = await mount(t);
+  const api = window.mixdogDesktop;
+  const toasts = () => document.querySelectorAll('.starter-guide-toast').length;
+  setCachedConnectionInfo(api, { clients: [{ id: 'c1' }] });
+  await render();
+  await settle();
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).visited, ['remote']);
+  // The relay reconnects / access is switched off: the cache empties and refills.
+  setCachedConnectionInfo(api, null);
+  await render();
+  await settle();
+  assert.match(pill().textContent, /1\/5/, 'still done while the cache is empty');
+  const before = toasts();
+  setCachedConnectionInfo(api, { clients: [{ id: 'c1' }] });
+  await render();
+  await settle();
+  assert.equal(toasts(), before, 'no second "Done" notice');
+});
 
 test('the guide counts real provider and project state and lists the steps in guided order', async (t) => {
   await mount(t, { connected: true, projects: [{ path: 'C:/work', name: 'work' }] });

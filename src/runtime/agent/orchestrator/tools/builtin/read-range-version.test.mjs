@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay, setImmediate as nextTurn } from 'node:timers/promises';
 import test from 'node:test';
+import { differentFieldValue } from './file-version-test-helpers.mjs';
 
 const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-range-version-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -15,8 +16,13 @@ const { readSourceWindows } = await import('./read-source-windows.mjs');
 const { renderReadLine } = await import('./read-formatting.mjs');
 const { hashText } = await import('./hash-utils.mjs');
 const { fileVersion } = await import('./file-version.mjs');
-const { getReadRangeIndex, publishReadRangeIndex, maybeRecordReadRangeAnchor,
-  flushReadRangeIndexesSync, deleteReadRangeIndexForPath } = indexes;
+const {
+  getReadRangeIndex,
+  publishReadRangeIndex,
+  maybeRecordReadRangeAnchor,
+  flushReadRangeIndexesSync,
+  deleteReadRangeIndexForPath,
+} = indexes;
 test.after(async () => {
   flushReadRangeIndexesSync();
   await fs.rm(root, { recursive: true, force: true });
@@ -39,15 +45,17 @@ async function borrowed(t, path) {
   return handle;
 }
 function changed(st, field) {
-  const value = field === 'ino' || field === 'dev' ? (st[field] === 0 ? 1 : 0)
-    : st[field] + (field.endsWith('Ms') ? 0.5 : 1);
-  assert.notEqual(value, st[field], 'identity perturbation must also differ on NTFS');
-  return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { [field]: value });
+  return Object.assign(Object.create(Object.getPrototypeOf(st)), st, {
+    [field]: differentFieldValue(st[field], field),
+  });
 }
 function mockFs(t, name, fn) {
   const mock = t.mock.method(fs, name, fn);
   syncBuiltinESMExports();
-  const restore = () => { mock.mock.restore(); syncBuiltinESMExports(); };
+  const restore = () => {
+    mock.mock.restore();
+    syncBuiltinESMExports();
+  };
   t.after(restore);
   return restore;
 }
@@ -106,11 +114,21 @@ test('disk reload rejects a suffix rewrite outside the prefix hash', async (t) =
 test('version-1 rows are ignored, not relabelled with current file identity', async () => {
   const { path, st } = await fixture();
   await fs.mkdir(join(root, 'data', 'read-range-index'), { recursive: true });
-  await fs.writeFile(rowFile(path), JSON.stringify({
-    version: 1, path, size: st.size, mtimeMs: st.mtimeMs,
-    prefixHash: hashText(Buffer.from(text).subarray(0, 65536)),
-    anchors: [[0, 0], [8192, 0]], totalLines: 99,
-  }));
+  await fs.writeFile(
+    rowFile(path),
+    JSON.stringify({
+      version: 1,
+      path,
+      size: st.size,
+      mtimeMs: st.mtimeMs,
+      prefixHash: hashText(Buffer.from(text).subarray(0, 65536)),
+      anchors: [
+        [0, 0],
+        [8192, 0],
+      ],
+      totalLines: 99,
+    })
+  );
   assert.equal(first(await streamReadRange(path, 9000, 1, st)), renderReadLine(9001, rows[9000]));
   flushReadRangeIndexesSync();
   const stored = JSON.parse(await fs.readFile(rowFile(path), 'utf8'));
@@ -142,7 +160,9 @@ for (const invalid of [undefined, NaN, Infinity]) {
     const { path, st } = await fixture();
     await streamReadRange(path, 9000, 1, st);
     const handle = await borrowed(t, path);
-    t.mock.method(handle, 'stat', async () => Object.assign(Object.create(Object.getPrototypeOf(st)), st, { dev: invalid }));
+    t.mock.method(handle, 'stat', async () =>
+      Object.assign(Object.create(Object.getPrototypeOf(st)), st, { dev: invalid })
+    );
     assert.equal(await getReadRangeIndex(path, st, handle), null);
   });
 }
@@ -157,14 +177,23 @@ for (const route of ['range', 'count', 'source']) {
         const read = handle.read.bind(handle);
         const stat = handle.stat.bind(handle);
         let readBody = false;
-        handle.read = async (...args) => { const result = await read(...args); readBody = true; return result; };
-        handle.stat = async () => { const live = await stat(); return readBody ? changed(live, 'ctimeMs') : live; };
+        handle.read = async (...args) => {
+          const result = await read(...args);
+          readBody = true;
+          return result;
+        };
+        handle.stat = async () => {
+          const live = await stat();
+          return readBody ? changed(live, 'ctimeMs') : live;
+        };
       }
       return handle;
     });
-    if (route === 'range') assert.equal(first(await streamReadRange(path, 9000, 1, st)), renderReadLine(9001, rows[9000]));
+    if (route === 'range')
+      assert.equal(first(await streamReadRange(path, 9000, 1, st)), renderReadLine(9001, rows[9000]));
     if (route === 'count') assert.equal(await countLogicalLinesBytesSync(path, st.size, st), rows.length);
-    if (route === 'source') assert.equal((await readSourceWindows(path, [{ start: 9001, end: 9001 }])).get(9001), rows[9000]);
+    if (route === 'source')
+      assert.equal((await readSourceWindows(path, [{ start: 9001, end: 9001 }])).get(9001), rows[9000]);
     restore();
     await noPublishedAnchors(path);
   });
@@ -177,15 +206,28 @@ for (const boundary of ['handle', 'path']) {
     const read = handle.read.bind(handle);
     const stat = handle.stat.bind(handle);
     let readBody = false;
-    t.mock.method(handle, 'read', async (...args) => { const result = await read(...args); readBody = true; return result; });
+    t.mock.method(handle, 'read', async (...args) => {
+      const result = await read(...args);
+      readBody = true;
+      return result;
+    });
     const failure = Object.assign(new Error('injected post-stat error'), { code: 'EIO' });
     let restore = () => {};
-    if (boundary === 'handle') t.mock.method(handle, 'stat', async () => { if (readBody) throw failure; return stat(); });
+    if (boundary === 'handle')
+      t.mock.method(handle, 'stat', async () => {
+        if (readBody) throw failure;
+        return stat();
+      });
     else {
       const pathStat = fs.stat;
-      restore = mockFs(t, 'stat', (file, ...args) => file === path && readBody ? Promise.reject(failure) : pathStat(file, ...args));
+      restore = mockFs(t, 'stat', (file, ...args) =>
+        file === path && readBody ? Promise.reject(failure) : pathStat(file, ...args)
+      );
     }
-    assert.equal(first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })), renderReadLine(9001, rows[9000]));
+    assert.equal(
+      first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })),
+      renderReadLine(9001, rows[9000])
+    );
     restore();
     await noPublishedAnchors(path);
   });
@@ -220,17 +262,24 @@ test('a replacement path cannot certify offsets from the old borrowed handle', a
   });
   // Hold the descriptor evidence stable to isolate the required path check.
   t.mock.method(handle, 'stat', async () => st);
-  assert.equal(first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })), renderReadLine(9001, rows[9000]));
+  assert.equal(
+    first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })),
+    renderReadLine(9001, rows[9000])
+  );
   await noPublishedAnchors(path);
 });
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
-test('partial anchors stay private while a scan waits, then a failed read publishes nothing', { timeout: 5000 }, async (t) => {
+test('partial anchors stay private while a scan waits, then a failed read publishes nothing', {
+  timeout: 5000,
+}, async (t) => {
   const { path, st } = await fixture();
   const handle = await borrowed(t, path);
   const read = handle.read.bind(handle);
@@ -240,7 +289,11 @@ test('partial anchors stay private while a scan waits, then a failed read publis
   let calls = 0;
   const failure = new Error('injected third-read failure');
   t.mock.method(handle, 'read', async (...args) => {
-    if (++calls === 3) { entered.resolve(); await release.promise; throw failure; }
+    if (++calls === 3) {
+      entered.resolve();
+      await release.promise;
+      throw failure;
+    }
     return read(...args);
   });
   const reading = streamReadRange(path, 9000, 1, st, { fileHandle: handle });
@@ -248,7 +301,9 @@ test('partial anchors stay private while a scan waits, then a failed read publis
   try {
     await entered.promise; // the first two data chunks crossed the 4096 anchor
     await noPublishedAnchors(path);
-  } finally { release.resolve(); }
+  } finally {
+    release.resolve();
+  }
   await rejection;
   await noPublishedAnchors(path);
   assert.ok((await handle.stat()).isFile(), 'borrowed handles are still owned by the caller');
@@ -263,14 +318,17 @@ test('invalidation during a scan prevents its late completion from publishing', 
   t.after(release.resolve);
   t.mock.method(handle, 'read', async (...args) => {
     const result = await read(...args);
-    entered.resolve(); await release.promise;
+    entered.resolve();
+    await release.promise;
     return result;
   });
   const reading = streamReadRange(path, 9000, 1, st, { fileHandle: handle });
   try {
     await entered.promise;
     deleteReadRangeIndexForPath(path);
-  } finally { release.resolve(); }
+  } finally {
+    release.resolve();
+  }
   assert.equal(first(await reading), renderReadLine(9001, rows[9000]));
   await noPublishedAnchors(path);
 });
@@ -286,12 +344,19 @@ test('a delayed disk lookup cannot resurrect an invalidated slot', { timeout: 50
   t.after(release.resolve);
   const restore = mockFs(t, 'readFile', async (file, ...args) => {
     const data = await read(file, ...args);
-    if (file === rowFile(path)) { entered.resolve(); await release.promise; }
+    if (file === rowFile(path)) {
+      entered.resolve();
+      await release.promise;
+    }
     return data;
   });
   const loading = fresh.getReadRangeIndex(path, st, await borrowed(t, path));
-  try { await entered.promise; fresh.deleteReadRangeIndexForPath(path); }
-  finally { release.resolve(); }
+  try {
+    await entered.promise;
+    fresh.deleteReadRangeIndexForPath(path);
+  } finally {
+    release.resolve();
+  }
   assert.equal(await loading, null);
   restore();
 });
@@ -328,7 +393,9 @@ test('capacity eviction detaches old builders and their pending disk publication
 });
 
 for (const changedBeforeSave of [false, true]) {
-  test(`eviction saves only a still-valid published snapshot (changed: ${changedBeforeSave})`, { timeout: 5000 }, async (t) => {
+  test(`eviction saves only a still-valid published snapshot (changed: ${changedBeforeSave})`, {
+    timeout: 5000,
+  }, async (t) => {
     flushReadRangeIndexesSync();
     // Keep the 750ms debounce pending regardless of machine speed. All other
     // IO is real; the eviction write is observed at its filesystem boundary.
@@ -365,7 +432,9 @@ for (const changedBeforeSave of [false, true]) {
       try {
         const live = await pathStat(file, ...args);
         return changedBeforeSave ? changed(live, 'ino') : live;
-      } finally { settled.resolve(); }
+      } finally {
+        settled.resolve();
+      }
     });
     const rename = fs.rename;
     mockFs(t, 'rename', async (from, to, ...args) => {
@@ -419,10 +488,18 @@ test('cancellation while the final stat waits denies publication', { timeout: 50
   const release = deferred();
   t.after(release.resolve);
   const stat = handle.stat.bind(handle);
-  t.mock.method(handle, 'stat', async () => { entered.resolve(); await release.promise; return stat(); });
+  t.mock.method(handle, 'stat', async () => {
+    entered.resolve();
+    await release.promise;
+    return stat();
+  });
   const publishing = publishReadRangeIndex(index, handle, control.signal);
-  try { await entered.promise; control.abort(); }
-  finally { release.resolve(); }
+  try {
+    await entered.promise;
+    control.abort();
+  } finally {
+    release.resolve();
+  }
   assert.equal(await publishing, false);
   await noPublishedAnchors(path);
 });
@@ -441,7 +518,10 @@ test('unchanged inspection prefixes avoid extra data IO and preserve borrowed po
   const handle = await borrowed(t, path);
   const read = handle.read.bind(handle);
   let reads = 0;
-  t.mock.method(handle, 'read', async (...args) => { reads++; return read(...args); });
+  t.mock.method(handle, 'read', async (...args) => {
+    reads++;
+    return read(...args);
+  });
   const hooks = { fileHandle: handle, prefixBuffer: Buffer.from(text).subarray(0, 65536) };
   await streamReadRange(path, 0, 2, st, hooks);
   const result = await streamReadRange(path, 0, 2, st, hooks);
@@ -467,7 +547,9 @@ test('stable deep windows reuse published anchors instead of rescanning from zer
   });
   const result = await streamReadRange(path, 9000, 1, st, {
     fileHandle: handle,
-    ioTraceDone: (_event, _start, detail) => { trace = detail; },
+    ioTraceDone: (_event, _start, detail) => {
+      trace = detail;
+    },
   });
   assert.equal(first(result), renderReadLine(9001, rows[9000]));
   assert.equal(trace.anchorLine, 8192);
@@ -481,8 +563,15 @@ test('an unverified extension cannot mutate an already published same-version in
   const stat = handle.stat.bind(handle);
   const read = handle.read.bind(handle);
   let bodyRead = false;
-  t.mock.method(handle, 'read', async (...args) => { const result = await read(...args); bodyRead = true; return result; });
-  t.mock.method(handle, 'stat', async () => { const live = await stat(); return bodyRead ? changed(live, 'ino') : live; });
+  t.mock.method(handle, 'read', async (...args) => {
+    const result = await read(...args);
+    bodyRead = true;
+    return result;
+  });
+  t.mock.method(handle, 'stat', async () => {
+    const live = await stat();
+    return bodyRead ? changed(live, 'ino') : live;
+  });
   await streamReadRange(path, 10000, 1, st, { fileHandle: handle, prefixBuffer: Buffer.from(text).subarray(0, 65536) });
   const current = await getReadRangeIndex(path, st);
   assert.ok(current.anchors.has(4096));
@@ -502,8 +591,13 @@ test('a stale inspection prefix is not read as the current first lines', async (
 test('failed pre-stat leaves the current read usable but disables index reuse/publication', async (t) => {
   const { path, st } = await fixture();
   const handle = await borrowed(t, path);
-  t.mock.method(handle, 'stat', async () => { throw Object.assign(new Error('pre-stat error'), { code: 'EIO' }); });
-  assert.equal(first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })), renderReadLine(9001, rows[9000]));
+  t.mock.method(handle, 'stat', async () => {
+    throw Object.assign(new Error('pre-stat error'), { code: 'EIO' });
+  });
+  assert.equal(
+    first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })),
+    renderReadLine(9001, rows[9000])
+  );
   await noPublishedAnchors(path);
 });
 
@@ -515,9 +609,15 @@ test('post-read checks use an owned version, not a mutable Stats instance', asyn
   let once = false;
   t.mock.method(handle, 'read', async (...args) => {
     const result = await read(...args);
-    if (!once) { once = true; st.ctimeMs += 1; }
+    if (!once) {
+      once = true;
+      st.ctimeMs += 1;
+    }
     return result;
   });
-  assert.equal(first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })), renderReadLine(9001, rows[9000]));
+  assert.equal(
+    first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })),
+    renderReadLine(9001, rows[9000])
+  );
   await noPublishedAnchors(path);
 });

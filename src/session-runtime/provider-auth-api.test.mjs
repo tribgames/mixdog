@@ -25,6 +25,8 @@ const admin = {
   saveProviderApiKey: (_cfg, providerId, secret) => calls.push(['saveKey', providerId, secret]) && 'saved-key',
   saveCustomProvider: async (_cfg, input) => calls.push(['saveCustom', input]) && { id: 'custom-1' },
   removeCustomProvider: (_cfg, id) => calls.push(['removeCustom', id]) && { provider: id },
+  updateCustomProviderModel: async (_cfg, id, modelId, patch) =>
+    calls.push(['updateCustomModel', id, modelId, patch]) && { id },
   testCustomProvider: async (_cfg, input) => calls.push(['testCustom', input]) && { ok: true },
   discoverCustomProviderModels: async (_cfg, input) => calls.push(['discoverCustom', input]) && { models: [] },
   listProviderAccounts: (providerId) => ({
@@ -124,9 +126,15 @@ test('custom provider save/remove refresh like credential changes; removal drops
   assert.deepEqual(calls.slice(0, 2), [['keychain'], ['removeCustom', 'custom-1']]);
   assert.ok(calls.some(([name]) => name === 'invalidate'));
   calls.length = 0;
+  assert.deepEqual(await api.updateCustomProviderModel('custom-1', 'm', { hidden: null }), { id: 'custom-1' });
+  assert.deepEqual(calls[0], ['updateCustomModel', 'custom-1', 'm', { hidden: null }]);
+  calls.length = 0;
   assert.deepEqual(await api.testCustomProvider({ a: 1 }), { ok: true });
   assert.deepEqual(await api.discoverCustomProviderModels({ b: 2 }), { models: [] });
-  assert.equal(calls.some(([name]) => name === 'reload'), false);
+  assert.equal(
+    calls.some(([name]) => name === 'reload'),
+    false
+  );
 });
 
 test('usage-only credentials reload and invalidate without touching admission cooldowns', async () => {

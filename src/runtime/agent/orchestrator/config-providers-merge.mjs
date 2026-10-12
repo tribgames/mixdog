@@ -50,9 +50,17 @@ export function mergeStoredProviders({ raw, defaults, includeSecrets }) {
     }
   }
   // Custom providers: the keychain account is the generated custom-<uuid> id.
+  // A keyless (auth 'none') custom provider never carries a key, not even a
+  // hand-edited plaintext one.
+  for (const [name, val] of Object.entries(mergedProviders)) {
+    if (val?.type === 'custom' && val.auth === 'none' && Object.hasOwn(val, 'apiKey')) {
+      const { apiKey: _dropped, ...rest } = val;
+      mergedProviders[name] = rest;
+    }
+  }
   if (includeSecrets) {
     for (const [name, val] of Object.entries(mergedProviders)) {
-      if (val?.type !== 'custom' || !name.startsWith('custom-')) continue;
+      if (val?.type !== 'custom' || !name.startsWith('custom-') || val.auth === 'none') continue;
       const kc = getAgentApiKey(name);
       if (kc) mergedProviders[name] = { ...val, apiKey: kc, enabled: raw.providers?.[name]?.enabled !== false };
     }

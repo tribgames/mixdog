@@ -41,7 +41,9 @@ function get(url, path = new URL(url).pathname, { method = 'GET', headers = {} }
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('error', reject);
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() }));
+      res.on('end', () =>
+        resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() })
+      );
     });
     req.on('error', reject);
     req.end();
@@ -53,7 +55,10 @@ function owner() {
   const sender = new EventEmitter();
   sender.closed = false;
   sender.isDestroyed = () => sender.closed;
-  sender.close = () => { sender.closed = true; sender.emit('destroyed'); };
+  sender.close = () => {
+    sender.closed = true;
+    sender.emit('destroyed');
+  };
   return sender;
 }
 
@@ -63,9 +68,12 @@ function harness(t, root) {
   t.after(() => sender.close());
   const authority = { project: root, granted: join(root, 'page.html'), projectCalls: 0, grantCalls: 0 };
   registerProjectFileIpc({
-    app: {}, shell: {},
+    app: {},
+    shell: {},
     handle: (name, run) => handlers.set(name, run),
-    invokeDesktopOperation: async () => { throw new Error('preview must not dispatch a file mutation'); },
+    invokeDesktopOperation: async () => {
+      throw new Error('preview must not dispatch a file mutation');
+    },
     host: {
       async projectDirectory(path) {
         authority.projectCalls++;
@@ -84,7 +92,8 @@ function harness(t, root) {
     },
   });
   return {
-    authority, sender,
+    authority,
+    sender,
     url: (token, rel = 'page.html', from = sender) =>
       handlers.get(DESKTOP_IPC.localPageUrl)({ sender: from }, root, rel, token, { scope: 'project' }),
   };
@@ -261,8 +270,11 @@ test('denied paths and transient authorization errors cannot refresh LRU', async
   t.after(() => pages.revokeLocalPagesFor(identity));
   let busy = false;
   const oldest = await pages.localPageUrl(root, 'page.html', {
-    scope: 'file', owner: identity,
-    async authorize() { if (busy) throw new Error('temporary daemon failure'); },
+    scope: 'file',
+    owner: identity,
+    async authorize() {
+      if (busy) throw new Error('temporary daemon failure');
+    },
   });
   const access = { scope: 'file', owner: identity, authorize: async () => {} };
   for (let i = 1; i < pages.MAX_LOCAL_PAGE_LEASES; i++) await pages.localPageUrl(root, 'page.html', access);
@@ -279,7 +291,9 @@ test('denied paths and transient authorization errors cannot refresh LRU', async
 
 for (const cause of ['expiry', 'owner closure', 'capacity eviction']) {
   for (const fails of [false, true]) {
-    test(`authorization ${fails ? 'failure' : 'success'} after ${cause} cannot revive the lease`, { timeout: 10000 }, async (t) => {
+    test(`authorization ${fails ? 'failure' : 'success'} after ${cause} cannot revive the lease`, {
+      timeout: 10000,
+    }, async (t) => {
       const { root } = await fixture(t);
       const identity = {};
       const entered = Promise.withResolvers();
@@ -308,7 +322,9 @@ for (const cause of ['expiry', 'owner closure', 'capacity eviction']) {
             await direct(t, root, 'page.html', { owner: identity });
           }
         }
-      } finally { release.resolve(); }
+      } finally {
+        release.resolve();
+      }
       assert.equal((await pending).status, 404);
       assert.equal((await get(url)).status, 404);
     });
@@ -326,7 +342,12 @@ test('a closed renderer during URL creation cannot publish a usable lease', { ti
 test('policy object mutation cannot widen a file lease or replace its authorizer', async (t) => {
   const { root } = await fixture(t);
   let enabled = true;
-  const access = { scope: 'file', async authorize() { if (!enabled) throw new LocalAccessDeniedError('revoked'); } };
+  const access = {
+    scope: 'file',
+    async authorize() {
+      if (!enabled) throw new LocalAccessDeniedError('revoked');
+    },
+  };
   const url = await pages.localPageUrl(root, 'page.html', access);
   access.scope = 'project';
   access.authorize = async () => {};
@@ -358,10 +379,12 @@ test('retargeting a selected directory alias invalidates the pinned preview', as
 test('a selected page alias is pinned and cannot change to another allowed HTML file', async (t) => {
   const { root } = await fixture(t);
   const alias = join(root, 'alias.html');
-  try { await symlink(join(root, 'page.html'), alias, 'file'); }
-  catch (error) {
+  try {
+    await symlink(join(root, 'page.html'), alias, 'file');
+  } catch (error) {
     if (process.platform !== 'win32' || error.code !== 'EPERM') throw error;
-    t.skip('Windows file symlink privilege unavailable'); return;
+    t.skip('Windows file symlink privilege unavailable');
+    return;
   }
   const url = await direct(t, root, 'alias.html');
   await unlink(alias);
@@ -433,8 +456,10 @@ test('an explicit denial survives the desktop-service error envelope without par
   const url = await h.url(undefined);
   const denial = new LocalAccessDeniedError('not for the page to see');
   // The service transports name/message/code, not an Error prototype.
-  h.authority.projectError = Object.assign(new Error('changed diagnostic wording'),
-    JSON.parse(JSON.stringify({ code: denial.code })));
+  h.authority.projectError = Object.assign(
+    new Error('changed diagnostic wording'),
+    JSON.parse(JSON.stringify({ code: denial.code }))
+  );
   assert.equal((await get(url)).status, 404);
   h.authority.projectError = null;
   assert.equal((await get(url)).status, 404, 'a definite denial stays revoked after recovery');
@@ -466,8 +491,10 @@ test('a parallel definite denial wins over an older successful authorization', {
   let mode = 'ready';
   const url = await direct(t, root, 'page.html', {
     async authorize() {
-      if (mode === 'wait') { entered.resolve(); await release.promise; }
-      else if (mode === 'deny') throw new LocalAccessDeniedError('revoked');
+      if (mode === 'wait') {
+        entered.resolve();
+        await release.promise;
+      } else if (mode === 'deny') throw new LocalAccessDeniedError('revoked');
     },
   });
   mode = 'wait';
@@ -476,7 +503,9 @@ test('a parallel definite denial wins over an older successful authorization', {
   try {
     mode = 'deny';
     assert.equal((await get(url)).status, 404);
-  } finally { release.resolve(); }
+  } finally {
+    release.resolve();
+  }
   assert.equal((await pending).status, 404);
   mode = 'ready';
   assert.equal((await get(url)).status, 404);

@@ -3,22 +3,11 @@ import type { GoalSnapshot } from './desktop-types';
 
 export const GoalSubmissionContext = createContext('');
 
-// Kept outside SessionGoalIsland so the composer can mount the host while the
-// capsule module loads only for a session that has a Goal.
-export function SessionGoalHost({
-  placement,
-  children,
-  submissionId = '',
-}: {
-  placement: 'composer';
-  children?: ReactNode;
-  submissionId?: string;
-}) {
-  return createElement(
-    GoalSubmissionContext.Provider,
-    { value: submissionId },
-    createElement('div', { className: 'session-goal-host', 'data-goal-placement': placement }, children)
-  );
+// Kept outside SessionGoalIsland so the composer island can provide the
+// submission scope while the Goal module loads only for a session that has a
+// Goal. It adds no element: the Goal is a direct segment of the island pill.
+export function SessionGoalHost({ children, submissionId = '' }: { children?: ReactNode; submissionId?: string }) {
+  return createElement(GoalSubmissionContext.Provider, { value: submissionId }, children);
 }
 
 // Clock/transport publications are not a new goal. Only an actual change to

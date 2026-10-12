@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopUpdaterState } from '../shared/contract';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 
 type Invoke = (action: () => unknown) => Promise<void>;
 
@@ -16,24 +17,31 @@ export function useDesktopUpdater(invoke: Invoke) {
     const host = window.mixdogDesktop;
     let live = true;
     const getState = host?.getUpdaterState;
-    if (typeof getState !== 'function') {
-      setReady(true);
-    } else {
-      void getState()
-        .then((next) => {
-          if (live) setState(next);
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (live) setReady(true);
-        });
-    }
+    const read =
+      typeof getState === 'function'
+        ? () => {
+            void getState()
+              .then((next) => {
+                if (live) setState(next);
+              })
+              .catch(() => {})
+              .finally(() => {
+                if (live) setReady(true);
+              });
+          }
+        : null;
+    if (read) read();
+    else setReady(true);
     const unsubscribe = host?.subscribeUpdaterState?.((next) => {
       if (live) setState(next);
     });
+    // Remote clients: a read made while the connection was down fails and
+    // would leave the update state stale until a reload.
+    if (read) window.addEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     return () => {
       live = false;
       unsubscribe?.();
+      if (read) window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     };
   }, []);
 

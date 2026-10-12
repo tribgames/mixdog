@@ -22,7 +22,7 @@ function requireSessionAction(action, allowed) {
 }
 
 export function createSessionActionCalls(ctx) {
-  const { isClosed, log, listSessions, getRemoteSessionState, loadProjectStore, advanceForCaller, readStoredReview } =
+  const { isClosed, log, listSessions, getRemoteSessionState, loadProjectStore, advanceForCaller, readStoredReview, responseSessionId } =
     ctx;
   const { bodyForClient } = ctx.projection;
   const { retainUnwatched } = ctx.retention;
@@ -83,7 +83,7 @@ export function createSessionActionCalls(ctx) {
     retainUnwatched(entry);
     return {
       value: sanitizeForWire(value) ?? null,
-      sessionId: String(entry.runtime.getState?.()?.sessionId || id),
+      sessionId: responseSessionId(entry, id),
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
     };
   }

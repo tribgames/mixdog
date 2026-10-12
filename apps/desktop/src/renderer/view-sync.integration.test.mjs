@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import WebSocket from 'ws';
 import { startRelay } from '../../../relay/server.mjs';
 import { startRemoteRelay } from '../main/remote-relay.ts';
+import { remotePairingKeys } from './remote-pairing-recovery.ts';
 import { viewSyncHost } from '../main/test-support/view-sync-host.mjs';
 import { createSessionLaneStore } from './session-lane-store.ts';
 
@@ -111,12 +112,14 @@ test('real host, relay and browser shim recover through reconnects and backgroun
       realClearTimeout(id);
       fn();
     };
+    // Pairing is stored per relay origin + device.
+    const keys = remotePairingKeys(origin, deviceId);
     for (const [key, value] of Object.entries({
-      'mixdog.remote-token': registered.token,
-      'mixdog.remote-paired': '1',
-      'mixdog.remote-browser-id': registered.clientId,
-      'mixdog.remote-e2ee-public-key': handle.pairing.serverPublicKey,
-      'mixdog.remote-e2ee-secret': handle.pairing.pairingSecret,
+      [keys.token]: registered.token,
+      [keys.paired]: '1',
+      [keys.browserId]: registered.clientId,
+      [keys.e2eePublicKey]: handle.pairing.serverPublicKey,
+      [keys.e2eeSecret]: handle.pairing.pairingSecret,
     }))
       w.localStorage.setItem(key, value);
     const bundle = await build({
@@ -440,12 +443,14 @@ test('a cold launch receives its restored transcript in the first view sync', as
       graceTimers.delete(id);
       realClearTimeout(id);
     };
+    // Pairing is stored per relay origin + device.
+    const keys = remotePairingKeys(origin, deviceId);
     for (const [key, value] of Object.entries({
-      'mixdog.remote-token': registered.token,
-      'mixdog.remote-paired': '1',
-      'mixdog.remote-browser-id': registered.clientId,
-      'mixdog.remote-e2ee-public-key': handle.pairing.serverPublicKey,
-      'mixdog.remote-e2ee-secret': handle.pairing.pairingSecret,
+      [keys.token]: registered.token,
+      [keys.paired]: '1',
+      [keys.browserId]: registered.clientId,
+      [keys.e2eePublicKey]: handle.pairing.serverPublicKey,
+      [keys.e2eeSecret]: handle.pairing.pairingSecret,
       // The previous visit's panes.
       'mixdog.remote-visible-sessions': JSON.stringify(['lead']),
     }))

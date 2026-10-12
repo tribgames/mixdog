@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createInactiveLedgerRegistry, processIdentityGone } from '../backend/inactive-ledger-registry.ts';
 import { createSessionLifecycle } from './session-lifecycle.ts';
 import { createExecutionState } from './execution-state.ts';
 import { ComputerUseCoordinator } from '../session/coordinator.ts';
@@ -481,6 +485,69 @@ test('a user Stop clears background and elevated unconfirmed latches after a con
   assert.deepEqual(latches, { background: false, elevated: false });
   assert.equal(coordinator.snapshot().cleanupState, 'ready');
   assert.equal(coordinator.snapshot().userControlActive, false);
+});
+
+test('a user Stop promotes a held elevated ledger and recovers it in the same cleanup', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-stop-ledger-'));
+  try {
+    const ledger = join(directory, 'held.ledger');
+    await writeFile(ledger, '');
+    const registry = createInactiveLedgerRegistry();
+    const identity = { pid: 4242, startTicks: '100' };
+    registry.hold(ledger, identity);
+    // The launcher process: alive, then gone, then its PID reused.
+    let startTicksOfPid = '100';
+    let elevated = true;
+    const seenByCleanup = [];
+    const coordinator = new ComputerUseCoordinator();
+    const host = createSessionLifecycle({
+      coordinator,
+      execution: createExecutionState(),
+      powerShellBySession: new Map(),
+      workerLastUsedAt: new Map(),
+      retirePowerShell() {},
+      callPowerShell: async () => ({ ok: true }),
+      cancelElevatedSession: async () => true,
+      elevatedSessionIds: () => (elevated ? ['a'] : []),
+      sessionIdFor: (command) => command.session_id,
+      releaseSessionState() {},
+      invalidateWorkerGeneration() {},
+      releaseCaptureSession() {},
+      waitForResidentWorkersExit: async () => true,
+      releaseUnconfirmedElevated: async () => {
+        if (!(await registry.promoteGone((held) => processIdentityGone(held, async () => startTicksOfPid)))) {
+          return false;
+        }
+        elevated = false;
+        return true;
+      },
+      // Stands in for the cleanup process: it recovers what the pool offers.
+      cleanupInput: async () => {
+        const offered = registry.recoverable();
+        seenByCleanup.push(...offered);
+        for (const path of offered) registry.forget(path);
+        return true;
+      },
+      runCommand: async () => ({ text: '' }),
+      recaptureRequiredReply: async () => null,
+    });
+    coordinator.pauseForUser('user_stop', ['a']);
+    coordinator.beginCleanup('background')(false);
+    // Without the user's acknowledgement the held ledger is not offered.
+    await assert.rejects(host.stopAllComputerSessions(false), /computer_abort_cleanup_unconfirmed/);
+    assert.deepEqual(seenByCleanup, []);
+    // Acknowledged, but the launcher process is still alive: stays latched.
+    await assert.rejects(host.stopAllComputerSessions(), /computer_abort_cleanup_unconfirmed/);
+    assert.deepEqual(seenByCleanup, []);
+    assert.equal(elevated, true);
+    // The PID now belongs to a different process: the original is gone.
+    startTicksOfPid = '999';
+    await host.stopAllComputerSessions();
+    assert.deepEqual(seenByCleanup, [ledger]);
+    assert.deepEqual(registry.recoverable(), []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('authorization-change stop and the next agent command never clear the latches', async () => {

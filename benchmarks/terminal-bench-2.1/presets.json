@@ -151,6 +151,14 @@
       "suite": "core",
       "routeProfile": "sol61-auto"
     },
+    "sol61-autostep": {
+      "suite": "core",
+      "routeProfile": "sol61-autostep"
+    },
+    "opus55-autostep": {
+      "suite": "core",
+      "routeProfile": "opus55-autostep"
+    },
     "fast8-2-opus5-solo": {
       "suite": "fast8-2",
       "routeProfile": "opus5-solo"

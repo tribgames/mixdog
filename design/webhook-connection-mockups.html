@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Webhook editor — connection layout mockups</title>
+<style>
+  :root {
+    --bg: #111214; --card: #232325; --text: #e9e9e9; --muted: #a8a8a8;
+    --line: rgba(255,255,255,.09); --edge: rgba(255,255,255,.125);
+    --btn: #343437; --btn-hover: #3d3d40; --success: #5fcf80; --danger: #f06a6a;
+    --mono: "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Pretendard", "Segoe UI", "Malgun Gothic", sans-serif; }
+  .grid { display: grid; grid-template-columns: repeat(2, 780px); gap: 32px; }
+  .tag { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+  .why { color: var(--muted); font-size: 13px; margin: 0 0 12px; min-height: 38px; }
+  .dialog { background: var(--card); border-radius: 14px; padding: 20px 20px 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 16px; }
+  .dialog > header { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 15px; }
+  .toggle { width: 34px; height: 20px; border-radius: 10px; background: #2f6fd6; position: relative; }
+  .toggle::after { content: ""; position: absolute; right: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+  .field { display: grid; gap: 8px; }
+  .field > b { font-size: 14px; }
+  .field > small, small.note { display: block; color: var(--muted); font-size: 13px; margin-top: -6px; }
+  .select { display: inline-flex; gap: 8px; align-items: center; height: 32px; padding: 0 10px;
+    border: 1px solid var(--edge); border-radius: 7px; font-weight: 600; font-size: 13px; width: max-content; }
+  .select::after { content: "⌄"; color: var(--muted); margin-top: -6px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 7px;
+    background: var(--btn); font-weight: 600; font-size: 13px; white-space: nowrap; width: max-content; }
+  .btn.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--edge); }
+  .icon { width: 26px; height: 26px; display: inline-grid; place-items: center; color: var(--muted); border-radius: 6px; flex: none; }
+  .value { display: flex; align-items: center; gap: 8px; min-width: 0; height: 36px; padding: 0 6px 0 12px;
+    border: 1px solid var(--edge); border-radius: 8px; }
+  .value code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); }
+  .ok { color: var(--success); font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+  .ok::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .bad { color: var(--danger); }
+  footer { display: flex; justify-content: space-between; align-items: center; padding-top: 4px; }
+  footer .del { color: #f07070; background: #4a1c1f; padding: 6px 12px; border-radius: 7px; font-weight: 600; font-size: 13px; }
+  footer .right { display: flex; gap: 14px; align-items: center; font-size: 13px; }
+  footer .save { background: #5a5a5e; padding: 6px 14px; border-radius: 7px; font-weight: 700; }
+  .card { border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line); }
+  .row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 16px; align-items: center; padding: 12px 14px; }
+  .row + .row { box-shadow: inset 0 1px 0 var(--line); }
+  .row > div > b { display: block; font-size: 14px; }
+  .row > div > small { color: var(--muted); font-size: 13px; }
+  .row > .full { grid-column: 1 / -1; }
+  .inline { display: flex; align-items: center; gap: 12px; }
+  .section-title { font-size: 15px; font-weight: 700; margin-top: 4px; }
+  .masked { font: 13px var(--mono); color: var(--muted); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<div class="grid">
+
+<!-- A -->
+<section>
+  <p class="tag">A. 필드 그대로 — 상자 없앰</p>
+  <p class="why">프로젝트·페이로드 형식과 똑같은 "제목 → 설명 → 컨트롤" 필드로 통일. URL은 입력칸 모양 값 상자, 버튼은 필드 컨트롤 자리에. 가장 일관됨.</p>
+  <div class="dialog">
+    <header>웹훅 편집 <span class="inline"><span class="toggle"></span>✕</span></header>
+    <div class="field"><b>페이로드 형식</b><small>요청 본문을 해석하는 방식입니다.</small><span class="select">GitHub</span></div>
+    <div class="field"><b>엔드포인트 URL</b><small>외부 서비스에 이 URL을 등록하세요.</small>
+      <div class="value"><code>https://192-255-139-161.sslip.io/hook/825327fe-6674-484d-a744-a16af3a15793/webhook/github-issues</code><span class="icon">⧉</span></div></div>
+    <div class="field"><b>서명 시크릿</b><small>저장된 키는 다시 표시되지 않습니다. 재생성하면 새 키를 복사할 수 있습니다.</small><span class="btn">시크릿 재생성</span></div>
+    <div class="field"><b>전송 테스트</b><small>서명된 테스트 요청을 보냅니다. 작업은 실행되지 않습니다.</small>
+      <div class="inline"><span class="btn">테스트 보내기</span><span class="ok">확인됨 — 서명이 수락되었습니다</span></div></div>
+    <footer><span class="del">삭제</span><span class="right">취소 <span class="save">저장</span></span></footer>
+  </div>
+</section>
+
+<!-- B -->
+<section>
+  <p class="tag">B. 설정 카드 — 섹션 제목 + 행 목록</p>
+  <p class="why">온보딩·설정 카드 문법. "연결" 섹션 제목을 상자 밖에, 상자 안은 굵은 제목 + 오른쪽 컨트롤 행. URL은 행 아래 전체 폭.</p>
+  <div class="dialog">
+    <header>웹훅 편집 <span class="inline"><span class="toggle"></span>✕</span></header>
+    <div class="field"><b>페이로드 형식</b><small>요청 본문을 해석하는 방식입니다.</small><span class="select">GitHub</span></div>
+    <div class="field"><b>연결</b><small>외부 서비스에 등록할 정보입니다.</small>
+      <div class="card">
+        <div class="row"><div><b>엔드포인트 URL</b></div><span class="icon">⧉</span>
+          <div class="full value"><code>https://192-255-139-161.sslip.io/hook/825327fe-6674-484d-a744-a16af3a15793/webhook/github-issues</code></div></div>
+        <div class="row"><div><b>서명 시크릿</b><small>저장된 키는 다시 표시되지 않습니다.</small></div><span class="btn">재생성</span></div>
+        <div class="row"><div><b>전송 테스트</b><small><span class="ok">확인됨 — 서명이 수락되었습니다</span></small></div><span class="btn">테스트 보내기</span></div>
+      </div></div>
+    <footer><span class="del">삭제</span><span class="right">취소 <span class="save">저장</span></span></footer>
+  </div>
+</section>
+
+<!-- C -->
+<section>
+  <p class="tag">C. 연결 탭 스타일 — 값 상자 안에 버튼</p>
+  <p class="why">설정 › 연결 › 다른 PC 화면 문법. 각 항목은 바깥 제목 + 값 상자, 버튼은 상자 안 오른쪽. 시크릿은 "•••• 저장됨"으로 상태를 보여줌.</p>
+  <div class="dialog">
+    <header>웹훅 편집 <span class="inline"><span class="toggle"></span>✕</span></header>
+    <div class="field"><b>페이로드 형식</b><small>요청 본문을 해석하는 방식입니다.</small><span class="select">GitHub</span></div>
+    <div class="field"><b>엔드포인트 URL</b><small>외부 서비스에 이 URL을 등록하세요.</small>
+      <div class="value"><code>https://192-255-139-161.sslip.io/hook/825327fe-6674-484d-a744-a16af3a15793/webhook/github-issues</code><span class="icon">⧉</span></div></div>
+    <div class="field"><b>서명 시크릿</b><small>저장된 키는 다시 표시되지 않습니다.</small>
+      <div class="value"><span class="masked" style="flex:1">●●●●●●●●●●●● 저장됨</span><span class="btn">재생성</span></div></div>
+    <div class="field"><b>전송 테스트</b><small>작업은 실행되지 않습니다.</small>
+      <div class="value"><span class="ok" style="flex:1">확인됨 — 서명이 수락되었습니다</span><span class="btn">테스트 보내기</span></div></div>
+    <footer><span class="del">삭제</span><span class="right">취소 <span class="save">저장</span></span></footer>
+  </div>
+</section>
+
+<!-- D -->
+<section>
+  <p class="tag">D. 압축형 — URL + 하단 버튼 묶음</p>
+  <p class="why">세로 공간 최소. 연결 상자 하나에 URL만 두고, 시크릿·테스트는 상자 바닥의 버튼 두 개로. 결과는 버튼 옆 상태 표시.</p>
+  <div class="dialog">
+    <header>웹훅 편집 <span class="inline"><span class="toggle"></span>✕</span></header>
+    <div class="field"><b>페이로드 형식</b><small>요청 본문을 해석하는 방식입니다.</small><span class="select">GitHub</span></div>
+    <div class="field"><b>연결</b><small>외부 서비스에 URL과 서명 시크릿을 등록하세요. 저장된 시크릿은 다시 표시되지 않습니다.</small>
+      <div class="card" style="padding:12px 14px; display:grid; gap:12px">
+        <div class="value"><code>https://192-255-139-161.sslip.io/hook/825327fe-6674-484d-a744-a16af3a15793/webhook/github-issues</code><span class="icon">⧉</span></div>
+        <div class="inline"><span class="btn ghost">시크릿 재생성</span><span class="btn ghost">테스트 보내기</span><span class="ok" style="margin-left:auto">확인됨</span></div>
+      </div></div>
+    <footer><span class="del">삭제</span><span class="right">취소 <span class="save">저장</span></span></footer>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
@@ -61,6 +62,39 @@ export function notificationSoundPath(input: { packaged: boolean; resourcesPath:
     ? join(input.resourcesPath, 'app.asar.unpacked', 'out', 'renderer')
     : join(input.appPath, 'src', 'renderer', 'public');
   return join(root, 'notification-sounds', 'soft-rise.wav');
+}
+
+/** The notification WAV at `volume` percent: 16-bit PCM samples scaled and
+ *  clamped into a cached copy under `directory`; 100% is the source itself. */
+export function scaledNotificationSound(sourcePath: string, volume: number, directory: string): string {
+  if (volume === 100) return sourcePath;
+  const target = join(directory, `${basename(sourcePath, '.wav')}-${volume}.wav`);
+  if (existsSync(target)) return target;
+  const wav = readFileSync(sourcePath);
+  let bits = 0;
+  for (let offset = 12; offset + 8 <= wav.length; ) {
+    const id = wav.toString('ascii', offset, offset + 4);
+    const size = wav.readUInt32LE(offset + 4);
+    const body = offset + 8;
+    if (id === 'fmt ') {
+      if (wav.readUInt16LE(body) !== 1) throw new Error('Notification sound must be PCM');
+      bits = wav.readUInt16LE(body + 14);
+    } else if (id === 'data') {
+      if (bits !== 16) throw new Error('Notification sound must be 16-bit PCM');
+      const end = Math.min(body + size, wav.length);
+      for (let index = body; index + 1 < end; index += 2) {
+        const sample = Math.round((wav.readInt16LE(index) * volume) / 100);
+        wav.writeInt16LE(Math.max(-32768, Math.min(32767, sample)), index);
+      }
+      mkdirSync(directory, { recursive: true });
+      const temporary = `${target}.${process.pid}.tmp`;
+      writeFileSync(temporary, wav);
+      renameSync(temporary, target);
+      return target;
+    }
+    offset = body + size + (size & 1);
+  }
+  throw new Error('Notification sound has no PCM data');
 }
 
 export async function playWindowsNotificationSound(

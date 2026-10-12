@@ -528,7 +528,7 @@ export function SchedulesPane({
   const [runningName, setRunningName] = useState('');
   // The editor portals to document.body, so the sidebar's inert/aria-hidden
   // does not reach it: a collapsed sidebar — or another destination taking the
-  // panel area — must close it explicitly. Search/filter state is untouched.
+  // panel area — must close it explicitly. Search state is untouched.
   useSidebarPanelDismiss(active, () => {
     setEditor(null);
   });
@@ -675,7 +675,7 @@ export function SchedulesPane({
         {!loading && visible.length === 0 && (
           <div className="schedules-empty">
             <AlarmClock size={40} aria-hidden="true" />
-            <p>{schedules.length ? t('No schedules match the current filter.') : t('No scheduled tasks yet.')}</p>
+            <p>{schedules.length ? t('No schedules match your search.') : t('No scheduled tasks yet.')}</p>
           </div>
         )}
       </div>

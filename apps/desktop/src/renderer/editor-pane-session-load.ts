@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { documentPreviewFormatForPath, filePreviewTypeForPath } from '../shared/file-preview';
 import {
   normalizeEditorModelText,
@@ -9,6 +9,7 @@ import {
 import { documentPreviewFromResult, type DocumentPreview } from './editor-document-model';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
 import { errorMessage, fileAccessError } from './editor-pane-session-errors';
+import { useMediaSessionEpoch } from './remote-file-preview';
 import { reportEditorLoadStage } from './renderer-load-metrics';
 import { t } from './i18n';
 
@@ -240,6 +241,22 @@ export function useEditorSessionLoad({
   useEffect(() => {
     reload();
   }, [reload]);
+  // A new media session (reconnect) kills a streamed preview's URL: fetch the
+  // URL again and swap only the preview. The text model and dirty state (an
+  // editable SVG's unsaved source) are never touched.
+  const mediaSession = useMediaSessionEpoch();
+  const shownMediaSession = useRef(mediaSession);
+  const previewShown = useRef(false);
+  previewShown.current = preview !== null;
+  useEffect(() => {
+    if (shownMediaSession.current === mediaSession) return;
+    shownMediaSession.current = mediaSession;
+    if (!previewShown.current || !api?.previewProjectFile) return;
+    void api
+      .previewProjectFile(projectPath, relPath, accessToken)
+      .then(setPreview)
+      .catch(() => undefined);
+  }, [mediaSession, api, projectPath, relPath, accessToken, setPreview]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: documentPreview is read but deliberately not a trigger - reload() clears it while the previous binary load is still present, and re-running then would announce the binary fallback before the new document opens.
   useEffect(() => {
     if ((error && !load) || (load && !preview && !documentPreview && (load.binary || load.tooLarge))) {

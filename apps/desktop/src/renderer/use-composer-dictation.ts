@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
 } from 'react';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 // `preparing` runs from the tap until audio is actually captured: a phone
 // takes a noticeable moment to open the mic, and words spoken before capture
@@ -120,7 +122,7 @@ function warmTranscription(): void {
 function microphoneFailureText(reason: unknown): string {
   const name = reason instanceof DOMException ? reason.name : '';
   if (name === 'NotAllowedError') {
-    return (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
+    return isRemoteHostRenderer()
       ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
       : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.';
   }
@@ -183,9 +185,14 @@ export function useComposerDictation({
     };
     refresh();
     window.addEventListener('mixdog:voice-runtime-changed', refresh);
+    // Remote clients: a probe made while the connection was down (or still
+    // syncing) fails and would hide the mic until a reload. Re-probe every
+    // time the connection becomes ready.
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
     return () => {
       live = false;
       window.removeEventListener('mixdog:voice-runtime-changed', refresh);
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
     };
   }, []);
   const dictationSession = useRef<{

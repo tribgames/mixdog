@@ -187,14 +187,21 @@ function Do-Type($req) {
         $before = Get-ObservableTargetState $refRecord 'type'
         $pointerCompleted = $false
         try {
-            if ($null -ne $req.x -and $null -ne $req.y) {
-                [void][MixWin32]::BackgroundPointer(
-                    $target, [int]$req.x, [int]$req.y, 'click', $null)
-                $pointerCompleted = $true
-                Start-Sleep -Milliseconds 80
+            # One hold covers the click, the wait and the text, so the target is
+            # never activatable between them; the settle and foreground recovery
+            # run once, when the scope ends.
+            $inactive = [MixWin32]::BeginInactive($target)
+            try {
+                if ($null -ne $req.x -and $null -ne $req.y) {
+                    [void][MixWin32]::BackgroundPointer(
+                        $target, [int]$req.x, [int]$req.y, 'click', $null)
+                    $pointerCompleted = $true
+                    Start-Sleep -Milliseconds 80
+                }
+                Assert-ExecutionAuthorization $req $target
+                $messageTarget = [MixWin32]::BackgroundText($target, $preferred, $text)
             }
-            Assert-ExecutionAuthorization $req $target
-            $messageTarget = [MixWin32]::BackgroundText($target, $preferred, $text)
+            finally { [MixWin32]::EndInactive($inactive) }
             return Complete-NativeAction 'type' $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord "typed $($text.Length) literal characters into $messageTarget as native window messages"
         }
         catch {

@@ -3,7 +3,7 @@
 // Run explicitly with --write, then review the translations before committing.
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
-import { catalogState, localesUrl, rendererUrl, readJson, pluralVariants } from './catalog-state.mjs';
+import { catalogState, localesUrl, neutralAllowlist, pluralVariants } from './catalog-state.mjs';
 import { hasLatinText, reusableTranslation, sameInterpolationTokens } from './source-keys.mjs';
 
 if (process.argv[2] !== '--write' || process.argv.length !== 3) {
@@ -13,7 +13,7 @@ const cancellation = new AbortController();
 process.once('SIGINT', () => cancellation.abort(new Error('Translation cancelled')));
 const signal = AbortSignal.any([cancellation.signal, AbortSignal.timeout(15 * 60_000)]);
 const { catalogs } = catalogState();
-const neutral = new Set(readJson(new URL('ui-untranslated-allowlist.json', rendererUrl)));
+const { terms: neutral } = neutralAllowlist();
 const protectedLiteral =
   /\{\{[^}]+\}\}|--[a-z][\w-]*|\b(?:Mixdog|mixdog|GitHub|Git|OAuth|MCP|API|TUI|CLI|HEAD|Whisper|ffmpeg|soft|mixed|hard)\b/g;
 
@@ -105,7 +105,7 @@ async function complete(language, catalog) {
     if (typeof value === 'string' && value.trim()) continue;
     const reused = reusableTranslation(key, catalog);
     if (reused) catalog[key] = reused;
-    else if (neutral.has(key) || !hasLatinText(key)) catalog[key] = key;
+    else if (key in neutral || !hasLatinText(key)) catalog[key] = key;
     else missing.push([key, value]);
   }
   const save = () => {

@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: runtime-platform-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   memory-runtime:
     strategy:
@@ -18,6 +22,7 @@ jobs:
           - { platform: linux, arch: arm64, runner: ubuntu-22.04-arm }
     name: memory-${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 

@@ -11,6 +11,9 @@ import { useEditorDocumentPages, useEditorPreviewPoll } from './use-editor-docum
 
 type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
 
+const heldSaveError = () =>
+  t('Rich holds an edit that is not in the file yet. Resolve or discard it in the Rich editor before saving.');
+
 export function useEditorFileSession({
   editorRef,
   modelRef,
@@ -88,9 +91,20 @@ export function useEditorFileSession({
   const onSaveHandleRef = useRef(onSaveHandle);
   onSaveHandleRef.current = onSaveHandle;
 
+  // An edit Rich holds is not in the model, yet leaving would lose it: it
+  // keeps the file dirty, so every close path asks first, and blocks saving.
+  const richHeldRef = useRef(false);
+  // While held: the file text with the held edit, which backups keep
+  // instead of the model's (so quitting cannot lose it).
+  const richHeldText = useRef<(() => string | null) | null>(null);
+  // While held: the disk text the held edit was based on. Its backup keeps
+  // this as the expected content, never a newer disk version, so recovery
+  // after an outside change reports the conflict.
+  const richHeldDiskText = useRef<string | null>(null);
   const markDirty = useCallback((next: boolean) => {
-    setDirty(next);
-    onDirtyRef.current(next);
+    const effective = next || richHeldRef.current;
+    setDirty(effective);
+    onDirtyRef.current(effective);
   }, []);
 
   const { backupTimer, writeBackupNow, deleteBackup, scheduleBackup } = useEditorBackup({
@@ -102,7 +116,40 @@ export function useEditorFileSession({
     savedText,
     savedDiskText,
     skipUnmountBackup,
+    heldText: richHeldText,
+    heldDiskText: richHeldDiskText,
   });
+  /** What a backup keeps while Rich holds an edit. */
+  const heldBackupText = useCallback(() => richHeldText.current?.() ?? readModel()?.getValue() ?? null, [readModel]);
+  const heldBackupBase = useCallback(() => richHeldDiskText.current ?? undefined, []);
+  // Bumped by an explicit discard and on unmount: backup work started
+  // before then (with an older generation) must not write afterwards.
+  const backupGeneration = useRef(0);
+  useEffect(
+    () => () => {
+      backupGeneration.current++;
+    },
+    []
+  );
+  /** Brings the backup in line with the model (`modelText` when it differs
+   *  from the saved text, null when clean), for work that started at
+   *  `generation`. A held edit is never left without its backup: held state
+   *  is re-checked after each await, and while held the held text is
+   *  written instead of deleting. Nothing is written once a discard or
+   *  unmount has followed `generation`. */
+  const settleBackup = useCallback(
+    async (modelText: string | null, generation: number): Promise<void> => {
+      if (generation !== backupGeneration.current) return;
+      if (!richHeldRef.current) {
+        if (modelText !== null) await writeBackupNow(modelText);
+        else await deleteBackup();
+        if (generation !== backupGeneration.current || !richHeldRef.current) return;
+      }
+      const held = heldBackupText();
+      if (held !== null) await writeBackupNow(held, heldBackupBase());
+    },
+    [deleteBackup, heldBackupBase, heldBackupText, writeBackupNow]
+  );
 
   const reload = useEditorSessionLoad({
     api,
@@ -144,6 +191,11 @@ export function useEditorFileSession({
       const editor = editorRef.current;
       const model = readModel();
       const writer = api?.writeProjectFile;
+      const generation = backupGeneration.current;
+      if (richHeldRef.current) {
+        setSaveError(heldSaveError());
+        return false;
+      }
       if (!model || !writer || readOnlyRef.current) return false;
       if (!encoding && model.getValue() === savedText.current) return true;
       if (editorSettings.formatOnSave) {
@@ -152,6 +204,10 @@ export function useEditorFileSession({
           else await editor?.getAction('editor.action.formatDocument')?.run();
         } catch (reason) {
           setSaveError(t('Format on save failed: {{value0}}', { value0: errorMessage(reason) }));
+          return false;
+        }
+        if (richHeldRef.current) {
+          setSaveError(heldSaveError());
           return false;
         }
       }
@@ -180,9 +236,14 @@ export function useEditorFileSession({
           window.clearTimeout(backupTimer.current);
           backupTimer.current = null;
         }
-        if (changedAfterSave) await writeBackupNow(currentContent).catch(() => undefined);
-        else await deleteBackup().catch(() => undefined);
+        await settleBackup(changedAfterSave ? currentContent : null, generation).catch(() => undefined);
         void syncLspRef.current('save');
+        // An edit held during the write is still not in the file.
+        if (richHeldRef.current) {
+          markDirty(true);
+          setSaveError(heldSaveError());
+          return false;
+        }
         return true;
       } catch (reason) {
         setSaveError(fileAccessError(reason));
@@ -197,7 +258,6 @@ export function useEditorFileSession({
       accessToken,
       api,
       backupTimer,
-      deleteBackup,
       editorRef,
       readModel,
       formatDocument,
@@ -205,8 +265,8 @@ export function useEditorFileSession({
       markDirty,
       projectPath,
       relPath,
+      settleBackup,
       syncLspRef,
-      writeBackupNow,
     ]
   );
 
@@ -223,6 +283,7 @@ export function useEditorFileSession({
 
   const discard = useCallback(async (): Promise<void> => {
     skipUnmountBackup.current = true;
+    backupGeneration.current++;
     await deleteBackup();
   }, [deleteBackup]);
 
@@ -245,6 +306,7 @@ export function useEditorFileSession({
     readModel,
     savedMtime,
     savedText,
+    held: richHeldRef,
     reload,
     setDiskChanged,
     setSaveError,
@@ -254,6 +316,7 @@ export function useEditorFileSession({
   const revertFromDisk = useCallback(async (): Promise<boolean> => {
     const reader = api?.readProjectFile;
     const model = readModel();
+    const generation = backupGeneration.current;
     if (!reader || !model || reverting || savingRef.current) return false;
     setReverting(true);
     setRevertError('');
@@ -275,7 +338,12 @@ export function useEditorFileSession({
       markDirty(false);
       setContentRevision((revision) => revision + 1);
       setDiffTick((tick) => tick + 1);
-      await deleteBackup().catch(() => undefined);
+      // A held edit survives the revert (Rich keeps it), and so does its backup.
+      if (backupTimer.current !== null) {
+        window.clearTimeout(backupTimer.current);
+        backupTimer.current = null;
+      }
+      await settleBackup(null, generation).catch(() => undefined);
       editorRef.current?.focus();
       return true;
     } catch (reason) {
@@ -284,7 +352,7 @@ export function useEditorFileSession({
     } finally {
       setReverting(false);
     }
-  }, [accessToken, api, deleteBackup, editorRef, readModel, markDirty, projectPath, relPath, reverting]);
+  }, [accessToken, api, backupTimer, editorRef, readModel, markDirty, projectPath, relPath, reverting, settleBackup]);
 
   const restoreConflictingBackup = useCallback(() => {
     const model = readModel();
@@ -307,6 +375,7 @@ export function useEditorFileSession({
     const model = readModel();
     const reader = api?.readProjectFile;
     if (!model || !reader) return;
+    const generation = backupGeneration.current;
     setSaveError('');
     void reader(projectPath, relPath, accessToken)
       .then((result) => {
@@ -322,14 +391,36 @@ export function useEditorFileSession({
         setError('');
         const changed = currentContent !== savedContent;
         markDirty(changed);
-        if (changed) void writeBackupNow(currentContent).catch(() => undefined);
-        else void deleteBackup().catch(() => undefined);
+        void settleBackup(changed ? currentContent : null, generation).catch(() => undefined);
       })
       .catch((reason) => {
         setDiskChanged(true);
         setSaveError(fileAccessError(reason));
       });
-  }, [accessToken, api, deleteBackup, readModel, markDirty, projectPath, relPath, writeBackupNow]);
+  }, [accessToken, api, readModel, markDirty, projectPath, relPath, settleBackup]);
+
+  /** Rich reports whether it holds an edit the model does not have, and
+   *  how to read the file text with it. A held edit is backed up like any
+   *  unsaved edit; once released, the backup follows the model again. */
+  const setRichHeld = useCallback(
+    (held: boolean, heldText?: () => string | null) => {
+      const wasHeld = richHeldRef.current;
+      if (!held && !wasHeld) return;
+      richHeldRef.current = held;
+      richHeldText.current = held ? (heldText ?? null) : null;
+      if (!held) richHeldDiskText.current = null;
+      else if (!wasHeld) richHeldDiskText.current = savedDiskText.current;
+      const model = readModel();
+      const changed = model ? model.getValue() !== savedText.current : false;
+      markDirty(changed);
+      if (held) {
+        skipUnmountBackup.current = false;
+        scheduleBackup(heldBackupText, heldBackupBase);
+      } else if (changed && model) scheduleBackup(model.getValue());
+      else void deleteBackup().catch(() => undefined);
+    },
+    [deleteBackup, heldBackupBase, heldBackupText, markDirty, readModel, scheduleBackup]
+  );
 
   const onEditorChange = useCallback(
     (value: string | undefined) => {
@@ -338,13 +429,14 @@ export function useEditorFileSession({
       skipUnmountBackup.current = false;
       setRevertError('');
       markDirty(changed);
-      if (changed) scheduleBackup(content);
+      if (richHeldRef.current) scheduleBackup(heldBackupText, heldBackupBase);
+      else if (changed) scheduleBackup(content);
       else {
         setRecovery(null);
         void deleteBackup().catch(() => undefined);
       }
     },
-    [deleteBackup, markDirty, scheduleBackup]
+    [deleteBackup, heldBackupBase, heldBackupText, markDirty, scheduleBackup]
   );
 
   // Previews are binary loads, which the text watch above skips.
@@ -399,6 +491,7 @@ export function useEditorFileSession({
     diffTick,
     savedText,
     markDirty,
+    setRichHeld,
     reload,
     save,
     saveRef,

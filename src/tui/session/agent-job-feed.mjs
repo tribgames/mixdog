@@ -40,6 +40,7 @@ export function createAgentJobFeed({
   now = () => Date.now(),
   executionResumeTombstoneTtlMs = 30_000,
   executionResumeTombstoneLimit = 128,
+  getAdmission = () => 'open',
 }) {
   const dedup = createExecutionDedup({ displayedNotificationKeys: displayedExecutionNotificationKeys });
   const pendingResume = createPendingResume({
@@ -51,6 +52,7 @@ export function createAgentJobFeed({
     now,
     tombstoneTtlMs: executionResumeTombstoneTtlMs,
     tombstoneLimit: executionResumeTombstoneLimit,
+    getAdmission,
   });
   const card = createAgentJobCard({ getState, itemIndexById, patchItem });
   const statusRefresh = createAgentStatusRefresh({ set, getDisposed, agentStatusState });
@@ -61,6 +63,7 @@ export function createAgentJobFeed({
     nextId,
     pushResponse: pushAsyncAgentResponse || pushUserOrSyntheticItem,
     statusRefresh,
+    getAdmission,
   });
   const modelNotification = createModelNotificationEnqueue({
     chain: createNotificationEnqueueChain({ pushNotice }),
@@ -76,6 +79,7 @@ export function createAgentJobFeed({
     statusRefresh,
     executionDelivery,
     modelNotification,
+    getAdmission,
   });
 
   function subscribeRuntimeNotifications() {

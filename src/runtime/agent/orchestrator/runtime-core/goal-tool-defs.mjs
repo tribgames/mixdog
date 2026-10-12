@@ -99,7 +99,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([
           minLength: 1,
           maxLength: 1_000,
           description:
-            'block: stable description of the same impasse only external state or the user can clear, reported once per turn; the runtime stops after 3.',
+            'block: stable description of an impasse only external state or the user can clear; stops the Goal immediately.',
         },
       },
       required: ['action'],

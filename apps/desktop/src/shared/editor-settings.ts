@@ -18,6 +18,7 @@ export const DEFAULT_DESKTOP_EDITOR_SETTINGS: DesktopEditorSettings = Object.fre
   formatOnSave: false,
   formatOnPaste: false,
   formatOnType: false,
+  markdownDefaultView: 'preview',
   tabSize: 4,
   insertSpaces: true,
   detectIndentation: true,

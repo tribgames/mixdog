@@ -2,7 +2,8 @@
 // pill, the attachment budget model, prompt-history persistence, and the
 // queued-follow-up list. Composer.tsx holds the editor and its interaction
 // handlers.
-import { Folder, X } from 'lucide-react';
+import { CornerDownRight, Folder } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import {
@@ -15,9 +16,13 @@ import { MIXDOG_PROJECT_PATHS_MIME } from './file-drag';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { OpenSelect } from './OpenSelect';
+import { RowOverflowMenu } from './RowOverflowMenu';
 import { asRecord, displayProject, queueText } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { formatPastedTextRef, pastedTextLineCount } from '../../../../src/tui/paste-text-policy.mjs';
+
+/** Line count a paste chip reports, reused for attached text files. */
+export const textLineCount: (text: string) => number = pastedTextLineCount;
 
 /** Label, payload and prompt token of a folded paste chip for `text`. */
 export function pastedTextFields(id: number, text: string): Pick<ComposerAttachment, 'name' | 'data' | 'token'> {
@@ -217,13 +222,31 @@ export function QueueList({
   onSteer: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const items = useRef<HTMLDivElement>(null);
+  const count = Array.isArray(queued) ? queued.length : 0;
+  // The list scrolls past 30dvh; a bottom fade shows only while rows remain
+  // below the fold.
+  useLayoutEffect(() => {
+    const list = items.current;
+    if (!list || !count) return undefined;
+    const update = () => {
+      list.dataset.more = String(list.scrollHeight - list.scrollTop - list.clientHeight > 1);
+    };
+    update();
+    list.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      list.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [count]);
   if (!Array.isArray(queued) || queued.length === 0) return null;
   const label =
     queued.length === 1 ? t('1 queued follow-up') : t('{{count}} queued follow-ups', { count: queued.length });
   return (
     <section className="queue-list" aria-label={label}>
       {/* biome-ignore lint/a11y/useSemanticElements: the queue container must stay a div; role="list" gives the follow-ups list semantics */}
-      <div className="queue-items" role="list">
+      <div className="queue-items" role="list" ref={items}>
         {queued.map((entry, index) => {
           const id = String(asRecord(entry)?.id || '');
           const text = queuedFollowupPreview(entry);
@@ -231,7 +254,9 @@ export function QueueList({
           return (
             // biome-ignore lint/a11y/useSemanticElements: the queue item must stay a div; role="listitem" gives it list semantics
             <div className="queue-item" role="listitem" key={id || index}>
-              <span className="queue-item-text" title={text}>
+              <CornerDownRight className="queue-item-icon" size={14} aria-hidden="true" />
+              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the clipped message is focusable so keyboard users reach its full-text tooltip */}
+              <span className="queue-item-text" tabIndex={0} data-tooltip={text}>
                 {text}
               </span>
               {imageCount > 0 && (
@@ -248,23 +273,13 @@ export function QueueList({
               )}
               <button
                 type="button"
-                className="queue-edit"
-                disabled={restoring || !id}
-                onClick={() => onEdit(id)}
-                aria-label={t('Edit queued follow-up: {{text}}', { text })}
-              >
-                {restoring ? t('Editing…') : t('Edit')}
-              </button>
-              <button
-                type="button"
                 className="queue-steer"
                 disabled={restoring || !id || text.trim().startsWith('/')}
                 onClick={() => onSteer(id)}
                 aria-label={t('Steer queued follow-up now: {{text}}', { text })}
                 data-tooltip={t('Interrupt and steer now')}
               >
-                <MxIcon name="zap" size={14} />
-                <span>{t('Steer now')}</span>
+                {t('Steer now')}
               </button>
               <button
                 type="button"
@@ -272,10 +287,20 @@ export function QueueList({
                 disabled={restoring || !id}
                 onClick={() => onRemove(id)}
                 aria-label={t('Remove queued follow-up: {{text}}', { text })}
-                data-tooltip={t('Remove')}
               >
-                <X size={14} />
+                <MxIcon name="delete" size={14} />
               </button>
+              <RowOverflowMenu
+                label={t('Edit queued follow-up: {{text}}', { text })}
+                items={[
+                  {
+                    id: 'edit',
+                    label: restoring ? t('Editing…') : t('Edit'),
+                    disabled: restoring || !id,
+                    onSelect: () => onEdit(id),
+                  },
+                ]}
+              />
             </div>
           );
         })}

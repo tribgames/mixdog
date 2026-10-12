@@ -232,7 +232,7 @@ test('boot ignores invalid saved preferences and honors explicit Chinese scripts
   }
 });
 
-test('the real pre-React installation guide uses early catalogs and treats translations as text', () => {
+test('the real pre-React installation guide uses early catalogs and treats translations as text', async () => {
   const remoteSource = buildSync({
     entryPoints: [fileURLToPath(new URL('./remote-shim.ts', import.meta.url))],
     bundle: true,
@@ -249,11 +249,13 @@ test('the real pre-React installation guide uses early catalogs and treats trans
       h.dom.window.TextEncoder = TextEncoder;
       h.dom.window.TextDecoder = TextDecoder;
       h.dom.window.eval(remoteSource);
-      const heading = h.document.querySelector('[data-role="heading"]');
+      // The guide waits for the host's pairing-v2 probe before it draws.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const heading = h.document.querySelector('.mxp-title');
       const key = 'Install Mixdog on your phone';
       assert.equal(heading?.textContent, catalog[key] || key, language);
       assert.equal(
-        h.document.querySelector('[data-role="step-one"]').textContent,
+        h.document.querySelector('.mxp-step span').textContent,
         catalog['Open this page on your phone or tablet'] || 'Open this page on your phone or tablet',
         language
       );
@@ -265,7 +267,8 @@ test('the real pre-React installation guide uses early catalogs and treats trans
   try {
     h.dom.window.bootT = () => '<img src=x onerror="throw 1">';
     h.dom.window.eval(remoteSource);
-    assert.equal(h.document.querySelector('[data-role="heading"]').textContent, '<img src=x onerror="throw 1">');
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(h.document.querySelector('.mxp-title').textContent, '<img src=x onerror="throw 1">');
     assert.equal(h.document.querySelector('img[onerror]'), null);
   } finally {
     h.dom.window.close();

@@ -12,6 +12,7 @@ import { skillTitle, withSelectedSkill } from './composer-skill';
 import type { RecordValue } from './desktop-types';
 import { asRecord } from './text-format';
 import { hasSendablePromptContent, shouldBlockPromptSubmit } from './renderer-logic.mjs';
+import { registerSentAttachments, sentAttachmentData } from './attachment-menu';
 import { registerImagePreview } from './transcript-metrics';
 import { MAX_SUBMIT_TEXT_LENGTH, type ComposerAttachment } from './composer-support';
 import {
@@ -252,6 +253,7 @@ export function useComposerSubmission({
           throw error;
         }
         if (accepted === true) {
+          registerSentAttachments(submissionId, sentAttachmentData(committedAttachments));
           if (selectedSkill) onSkillSubmitted?.(selectedSkill);
           resolveComposerSubmissionRecovery(submissionId);
           if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;

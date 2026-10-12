@@ -7,13 +7,15 @@ const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs('MIXDOG_COMPAT_MODEL_LIST_TIMEOUT
   maxMs: PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
 });
 
-export async function fetchCompatModelItems(provider) {
-  const timeout = createTimeoutSignal(null, MODEL_LIST_TIMEOUT_MS, `${provider.name} model list`);
+// `keyless` omits the Authorization header entirely (keyless endpoints);
+// `signal` aborts the request together with the list timeout.
+export async function fetchCompatModelItems(provider, { signal = null, keyless = false } = {}) {
+  const timeout = createTimeoutSignal(signal, MODEL_LIST_TIMEOUT_MS, `${provider.name} model list`);
   try {
     const res = await fetch(`${String(provider.baseURL || '').replace(/\/+$/, '')}/models`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${provider.apiKey || 'no-key'}`,
+        ...(keyless ? {} : { Authorization: `Bearer ${provider.apiKey || 'no-key'}` }),
         ...(provider.defaultHeaders || {}),
       },
       signal: timeout.signal,
@@ -28,9 +30,9 @@ export async function fetchCompatModelItems(provider) {
   }
 }
 
-export async function listCompatModels(provider, { throwOnError = false } = {}) {
+export async function listCompatModels(provider, { throwOnError = false, signal = null } = {}) {
   try {
-    const list = await provider._fetchModelItems();
+    const list = await provider._fetchModelItems({ signal });
     const models = [];
     for (const m of list) {
       const contextWindow = Number(

@@ -60,7 +60,12 @@ export const SETTINGS_ITEMS = [
   { value: 'developer', label: 'Developer options', description: 'Developer-only options.', kind: 'open' },
   { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
   // Desktop-only: lets the getting-started guide deep-link to remote pairing.
-  { value: 'connection', label: 'Connection', description: 'Pair a remote', kind: 'open' },
+  {
+    value: 'connection',
+    label: 'Connection',
+    description: 'Use this PC from your phone, browser, or another PC.',
+    kind: 'open',
+  },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
 type SettingsItemValue = (typeof SETTINGS_ITEMS)[number]['value'];
@@ -78,7 +83,8 @@ export type SettingsCategory =
   | 'system'
   | 'developer'
   | 'shortcuts'
-  | 'about';
+  | 'about'
+  | 'display';
 
 interface SettingsCategoryItem {
   value: SettingsCategory;
@@ -169,13 +175,24 @@ export const SETTINGS_CATEGORIES = [
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 
-const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'developer']);
+/** Remote surfaces only: the settings stored on THIS device (theme, display
+ *  language, link preview, side panels) instead of on the connected PC. */
+export const DEVICE_SETTINGS_CATEGORY = {
+  value: 'display',
+  label: 'Display',
+  group: 'Mixdog',
+  items: ['theme'],
+} as const satisfies SettingsCategoryItem;
+
+// Pages whose calls an older host still refuses to remote clients. A host that
+// announces open access (every paired client is trusted) shows them all.
+const LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'developer']);
 const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>(['git', 'skills', 'mcp', 'plugins']);
 const LOCAL_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
   (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value)
 );
-const REMOTE_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
-  (category) => !REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value)
+const LEGACY_REMOTE_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
+  (category) => !LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value)
 );
 
 export function categoryForSettingsItem(value: SettingsItemValue): SettingsCategory {
@@ -185,11 +202,18 @@ export function categoryForSettingsItem(value: SettingsItemValue): SettingsCateg
   );
 }
 
-export function settingsCategoryForSurface(category: SettingsCategory, remote: boolean): SettingsCategory {
-  if (MOVED_EXTENSION_CATEGORIES.has(category)) return 'general';
-  return remote && REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
+export function settingsCategoryForSurface(
+  category: SettingsCategory,
+  remote: boolean,
+  hostOpenAccess = false
+): SettingsCategory {
+  if (MOVED_EXTENSION_CATEGORIES.has(category) || (category === 'display' && !remote)) return 'general';
+  return remote && !hostOpenAccess && LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
 }
 
-export function settingsCategoriesForSurface(remote: boolean): ReadonlyArray<SettingsCategoryItem> {
-  return remote ? REMOTE_SETTINGS_CATEGORIES : LOCAL_SETTINGS_CATEGORIES;
+export function settingsCategoriesForSurface(
+  remote: boolean,
+  hostOpenAccess = false
+): ReadonlyArray<SettingsCategoryItem> {
+  return remote && !hostOpenAccess ? LEGACY_REMOTE_SETTINGS_CATEGORIES : LOCAL_SETTINGS_CATEGORIES;
 }

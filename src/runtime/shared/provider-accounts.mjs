@@ -134,7 +134,7 @@ export function changeProviderAccounts(provider, change) {
     !change ||
     typeof change !== 'object' ||
     Array.isArray(change) ||
-    Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'rename'].includes(key))
+    Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'useCredits', 'rename'].includes(key))
   ) {
     throw new TypeError('Invalid provider account change.');
   }
@@ -174,6 +174,10 @@ export function changeProviderAccounts(provider, change) {
     if (change.auto !== undefined) {
       if (typeof change.auto !== 'boolean') throw new TypeError('Automatic account switching must be boolean.');
       pool.auto = change.auto;
+    }
+    if (change.useCredits !== undefined) {
+      if (typeof change.useCredits !== 'boolean') throw new TypeError('Credit use must be boolean.');
+      pool.useCredits = change.useCredits;
     }
   });
 }
@@ -217,7 +221,9 @@ const MAX_BLOCK_MS = 6 * 60 * 60_000;
 // account-wide, as before. `source` records whether the server scheduled the
 // window or we inferred it, which decides whether re-measuring the account
 // early can tell us anything.
-export function blockProviderAccount(provider, id, until, model = '', source = 'inferred') {
+// `options.quota` records that the block came from a typed quota refusal or an
+// exhausted usage window, so later sends still count it as quota evidence.
+export function blockProviderAccount(provider, id, until, model = '', source = 'inferred', options = {}) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
@@ -227,6 +233,8 @@ export function blockProviderAccount(provider, id, until, model = '', source = '
     else delete row.blockedModel;
     if (source === 'retry-after') row.blockedSource = source;
     else delete row.blockedSource;
+    if (options.quota === true) row.blockedQuota = true;
+    else delete row.blockedQuota;
   });
 }
 
@@ -248,6 +256,7 @@ function clearAccountBlock(row) {
   delete row.blockedUntil;
   delete row.blockedModel;
   delete row.blockedSource;
+  delete row.blockedQuota;
 }
 
 // Single-token weekly labels ("7D Fable", "7D Opus") belong to that Claude
@@ -256,7 +265,7 @@ function clearAccountBlock(row) {
 // model.
 const FAMILY_QUOTA_WINDOW = /^7D\s+([A-Za-z][A-Za-z0-9]*)$/i;
 
-function quotaWindowAppliesToModel(window, model) {
+export function quotaWindowAppliesToModel(window, model) {
   const match = FAMILY_QUOTA_WINDOW.exec(String(window?.label || '').trim());
   if (!match) return true;
   const family = match[1].toLowerCase();
@@ -280,8 +289,36 @@ function blockAppliesToModel(row, model) {
   return scoped.some((window) => quotaWindowAppliesToModel(window, scope) && quotaWindowAppliesToModel(window, model));
 }
 
-export function providerAccountExhausted(row, now = Date.now(), model = '') {
+// Earliest moment any of the given exhausted accounts can serve `model` again,
+// or null when unknown. Per account the LATEST blocking reset counts (every
+// blocking window must clear); across accounts the EARLIEST account does. A
+// server-scheduled block (`retry-after`) is a known time; an inferred block or
+// a full window without a reset time leaves that account's reset unknown.
+export function providerAccountsResetAt(rows, now = Date.now(), model = '', options = {}) {
+  const known = [];
+  for (const row of rows || []) {
+    if (!providerAccountExhausted(row, now, model, options)) continue;
+    const times = [];
+    let unknown = false;
+    if (row.blockedUntil > now && blockAppliesToModel(row, model)) {
+      if (row.blockedSource === 'retry-after') times.push(row.blockedUntil);
+      else unknown = true;
+    }
+    if (options.useCredits !== true) {
+      for (const window of row.usage?.windows || []) {
+        if (!(window.usedPct >= 100) || !quotaWindowAppliesToModel(window, model)) continue;
+        if (window.resetAt > now) times.push(window.resetAt);
+        else if (!window.resetAt && now - row.usage.checkedAt < 60_000) unknown = true;
+      }
+    }
+    if (!unknown && times.length) known.push(Math.max(...times));
+  }
+  return known.length ? Math.min(...known) : null;
+}
+
+export function providerAccountExhausted(row, now = Date.now(), model = '', options = {}) {
   if (row?.blockedUntil > now && blockAppliesToModel(row, model)) return true;
+  if (options.useCredits === true) return false;
   return (row?.usage?.windows || []).some(
     (window) =>
       window.usedPct >= 100 &&
@@ -309,9 +346,13 @@ function accountHeadroom(row, now, model) {
 }
 
 export function chooseProviderAccount(pool, excluded = new Set(), now = Date.now(), model = '') {
-  const usable = (row) => row && !excluded.has(row.id) && !providerAccountExhausted(row, now, model);
+  const options = { useCredits: pool.useCredits === true };
+  const usable = (row) => row && !excluded.has(row.id) && !providerAccountExhausted(row, now, model, options);
   const selected = pool.accounts.find((row) => row.id === pool.selectedId);
-  if (pool.auto === false) return excluded.has(selected?.id) ? null : selected || null;
+  if (pool.auto === false) {
+    if (excluded.has(selected?.id)) return null;
+    return options.useCredits || usable(selected) ? selected || null : null;
+  }
   if (usable(selected)) return selected;
   // Falling back in roster order is blind: the account after the one that just
   // refused may itself be nearly spent, so the request pays a second switch to

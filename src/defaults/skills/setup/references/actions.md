@@ -7,7 +7,8 @@ Read this when choosing a `setup` mutation.
 - `status` reads one domain: summary, model, agents, workflow, websearch,
   output-style, profile, autoclear, compaction, memory, features, local-provider, shell,
   providers, mcp, skills, plugins, update, onboarding, capabilities, developer,
-  desktop, appearance, projects, connection, schedules, or webhooks.
+  desktop, appearance, projects, connection, schedules, webhooks, hooks, or
+  media.
 - `open` navigates to a supported UI surface. Read `surfaces.md` for targets and
   UI-only settings.
 
@@ -26,9 +27,9 @@ Read this when choosing a `setup` mutation.
 | Memory capability | `set_memory_enabled` |
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
-| Git, Office, Code Tidy, Local Provider, Browser, Computer, or voice enabled state | `set_builtin_enabled` |
-| Git, Memory, Office, Code Tidy, Local Provider, Browser, Computer, or voice preparation | `install_builtin` |
-| Managed local model installation (use the local-provider skill) | `install_local_model` |
+| Git, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice enabled state | `set_builtin_enabled` |
+| Git, Memory, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice preparation | `install_builtin` |
+| Managed local model installation | `install_local_model` |
 | Start or resume a background runtime/model download | `start_local_installation` |
 | Pause a shared local download, retaining partial files | `cancel_local_installation` |
 | Local model idle memory release (0 disables) | `set_local_idle_ttl` |
@@ -41,7 +42,7 @@ Read this when choosing a `setup` mutation.
 | TUI system shell | `set_system_shell` |
 | Automatic updates | `set_auto_update` |
 | Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
-| Select, rename, reorder, or auto-switch OAuth accounts | `set_provider_account` |
+| Select, rename, reorder, or auto-switch OAuth accounts, or allow paid credits | `set_provider_account` |
 | Developer options such as risk-gated OAuth providers | `set_developer_option` |
 | Add an MCP server | `add_mcp_server` |
 | Edit or rename an MCP server | `save_mcp_server` |
@@ -55,7 +56,7 @@ Read this when choosing a `setup` mutation.
 | Enable or disable a plugin | `set_plugin_enabled` |
 | Remove a plugin | `remove_plugin` |
 | Install or reconfigure the MCP server a plugin ships | `enable_plugin_mcp` |
-| Available hosted models and their options; optionally native-search capable only | `list_models` |
+| Available hosted models and their options; optionally one provider, native-search capable only, or a refreshed catalog | `list_models` |
 | Agent orchestration, independent of workflow instructions | `set_orchestration_mode` |
 | Safe MCP edit metadata, excluding raw connection/credential values | `get_mcp_server` |
 | Read a workflow, agent, or skill definition | `read_definition` |
@@ -66,8 +67,12 @@ Read this when choosing a `setup` mutation.
 | Delete an existing schedule/webhook | `delete_automation` |
 | Enable/disable a schedule/webhook | `set_automation_enabled` |
 | Webhook listener enabled state, port, or domain | `set_webhook_config` |
-| Desktop keep-awake, run in background after window close, usage pin, or Computer observe-only state | `set_desktop_settings` |
-| Desktop theme, display language, or side panels | `set_appearance` |
+| Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, or Computer observe-only state | `set_desktop_settings` |
+| Desktop theme, display language, side panels, markdown default view, link previews, or tool activity expansion | `set_appearance` |
+| Add a before-tool hook rule | `add_hook_rule` |
+| Enable or disable a hook rule by its `status hooks` index | `set_hook_rule_enabled` |
+| Delete a hook rule by its `status hooks` index | `delete_hook_rule` |
+| Remembered image/video lane and model used when a generation omits them | `set_media_default` |
 | Which activity rail items are pinned, in order (current list in `status desktop`) | `set_activity_rail_pins` |
 | Register a Project and optionally set its display alias | `save_project` |
 | Unregister a Project without deleting its files | `remove_project` |
@@ -79,13 +84,12 @@ Read this when choosing a `setup` mutation.
 Inspect `status model`, `status agents`, `status websearch`, or `status
 workflow` before changing the corresponding domain.
 
-- A partial route preserves omitted values. Main routes also accept
-  `modelParameters` and `contextPercent`; agent routes accept `disabled`.
+- Main and agent routes also accept `modelParameters` and `contextPercent`; agent routes accept `disabled`.
   Use the model catalog for actual available options, not remembered model ids.
 - A Web Search route must support native web search; tool exposure is changed
   separately.
-- Definition actions use `definitionKind` (workflow, agent, skill). Read first,
-  then supply only changed fields. Workflow/agent ids cannot be renamed through
+- Definition actions use `definitionKind` (workflow, agent, skill).
+  Workflow/agent ids cannot be renamed through
   a save; change their display name instead. User skills may be renamed with
   `originalName` and `name`. Skill deletion is not exposed; disable it instead.
   Built-in and plugin skills accept only `toolDependencies` edits (`null`
@@ -94,11 +98,12 @@ workflow` before changing the corresponding domain.
 
 ## Providers and authentication
 
-Use `status providers` for authenticated state and source. Never request secret
-values through chat.
+Use `status providers` for authenticated state and source.
 
 - API-key and OAuth providers: `open providers`, then the user completes
   authentication in the visible UI.
+- Custom providers are registered, tested, and removed in the Providers UI;
+  `status providers` lists them as API rows with `custom: true`.
 - Local Provider is installed and enabled as a Built-in. Its endpoint is
   Mixdog-managed and is never configured by the user.
   Use the `local-provider` skill for hardware checks, model selection, downloads,
@@ -108,12 +113,11 @@ values through chat.
   It removes one OAuth account; a provider with several accounts requires
   `accountId` from the account list in `status providers`.
 - `set_provider_account` changes the selected account, automatic switching,
-  account order (every account id exactly once), or an account label. Sign-in
+  paid-credit use after plan limits (`useCredits`), account order (every account id exactly once), or an account label. Sign-in
   for a new account still happens in the Providers UI.
 - `status developer` lists developer options. An option with a `warning` is
   enabled only after the user explicitly accepts that warning, passed as
   `riskAccepted:true`; never assume acceptance.
-- Usage sign-in is completed on the Usage or Providers surface.
 
 ## Profile, session, and Memory
 
@@ -125,8 +129,8 @@ values through chat.
   duration; `provider: "default"` sets the fallback for providers without a
   built-in window. A reset and a duration are mutually exclusive; provider
   reset requires a provider.
-- Compaction supports `enabled` and either `mainBufferTokens` or
-  `mainBufferPercent`. Changing representation replaces the previous budget.
+- Compaction supports `enabled` and a `compaction` object with either
+  `mainBufferTokens` or `mainBufferPercent`. Changing representation replaces the previous budget.
 - If no supported action exposes a requested Memory interval, report it as
   unavailable rather than editing configuration.
 
@@ -134,9 +138,10 @@ values through chat.
 
 Read `status features` and distinguish installation, enabled state, and live
 bridge state. `status features` covers Git, Memory, Office, Code Tidy, Local
-Provider and Web Search plus Browser/Computer bridge activity; voice status and
-the Browser Use / Computer Use installed and enabled markers are read with
-`status desktop`.
+Provider, Auto Effort and Web Search plus Browser/Computer/Terminal bridge
+activity and voice state (enabled, runtime installed, missing whisper/model/
+ffmpeg components); the Browser Use / Computer Use installed and enabled
+markers are read with `status desktop`.
 
 - Git, Memory, Office, and Local Provider are install-first capabilities.
 - Git and Office installation run on the Desktop when this conversation is
@@ -146,18 +151,43 @@ the Browser Use / Computer Use installed and enabled markers are read with
   (Office fonts only), so system Git and LibreOffice must already be present.
 - Memory installation downloads the embedding model; an offline or failed
   download fails the install.
-- Browser Use, Computer Use, and voice installation/toggles use the same
+- Auto Effort is on by default where supported; it picks each turn's
+  reasoning effort with a local judge model downloaded in the background.
+  Enabling or installing it fails on unsupported machines; `status features`
+  reports `supported`, `installing` (judge download running) and `ready`.
+- Terminal follows the live Desktop terminal bridge and has no toggle.
+- Browser Use and Computer Use installation/toggles use the same
   `install_builtin` and `set_builtin_enabled` actions through a live Desktop
   receipt. Computer Use runs on Windows, macOS, and Linux desktops. These
   actions do not approve OS permission dialogs on the user's behalf.
+- Voice runs on the runtime, with or without a Desktop window. Enabling it
+  (`set_builtin_enabled` true or `install_builtin`) first downloads any missing
+  whisper runtime, model, or ffmpeg, which can take minutes; a failed or
+  already-running install fails the action. Disabling keeps the installed
+  runtime. `status features` reports `installing` while a download runs.
+
+## Hooks and media
+
+- `status hooks` lists before-tool rules with their `index`, plus configured
+  lifecycle events, config sources and errors. Argument edits are reported
+  only as `hasArgumentEdit`; their contents are never returned. Indexes shift
+  after a delete;
+  re-read status before addressing another rule.
+- `add_hook_rule` takes `action` (allow, deny, block, modify, rewrite, ask)
+  and optional `tool`, `match`, `cwd`, `reason`. modify/rewrite need exactly
+  one of `patch` (merged into the arguments) or `args` (replaces them).
+- `delete_hook_rule` is destructive and requires explicit approval for the
+  named rule; disabling with `set_hook_rule_enabled` preserves it.
+- `status media` shows the remembered lane/model per kind. `set_media_default`
+  accepts only a signed-in lane that offers the kind (and the model, when
+  given) in the live media catalog; the media tool's `list` reads that catalog.
 - Environment feature overrides are diagnostics for headless or benchmark
   environments, not ordinary user settings.
 
 ## Skills, MCP, and plugins
 
 - `status skills` plus `set_disabled_skills` manage activation.
-- User skills live in the machine-global Mixdog data skills directory;
-  `set_extension_scope` limits a global item to selected Project roots.
+- `set_extension_scope` limits a global item to selected Project roots.
 - Plugin scope is inherited by the skills and MCP integrations it contributes.
 - MCP mutation results include reconnection state. Diagnose the returned error
   before making another change.
@@ -177,17 +207,17 @@ the Browser Use / Computer Use installed and enabled markers are read with
 
 - `status capabilities` lists supported actions and deliberate handoffs.
 - Desktop-only operations require the owning conversation visible in the local
-  Desktop app. They affect the Desktop host, not a paired phone. Never claim a
-  persisted change from merely delivering a request.
-- A display-language change returns `requiresReload`; setup does not reload,
-  quit, deploy, or restart the app.
+  Desktop app. Never claim a persisted change from merely delivering a request.
+- A display-language change returns `requiresReload`.
 - A Project removal unregisters it only.
 - Inspect schedules/webhooks before editing. `overwrite:true` updates an
   existing named entry and preserves omitted fields; a new schedule needs
-  instructions plus exactly one of cron `time` or one-shot `at`.
+  instructions, a `model` (no default-model fallback), and exactly one of cron
+  `time` or one-shot `at`.
 - Attachment contents and webhook signing secrets are not returned by setup.
-  Omitted attachments and existing webhook secrets are preserved. Copy a
-  signing secret through the Webhooks UI, never chat.
+  Omitted attachments and existing webhook secrets are preserved. A saved
+  secret is never shown again: tell the user to open the Webhooks panel, edit
+  the webhook, press Regenerate secret, copy the new value, and save.
 - Enabling or creating automation may start its background worker. This is a
   persisted automation change, not permission to run an unrelated task now.
 

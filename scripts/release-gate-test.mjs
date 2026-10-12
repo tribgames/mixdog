@@ -596,7 +596,10 @@ function assertReleaseWorkflowContract(release) {
   assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@[0-9a-f]{40} # v7/);
   assert.doesNotMatch(release, /desktop-runtime\.yml|desktop-runtime-(?:win32|darwin|linux)/);
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
-  assert.match(release, /desktop-darwin-x64:[\s\S]*?runner:\s*macos-15-intel[\s\S]*?artifact_arch:\s*x64[\s\S]*?target:\s*mac/);
+  assert.match(
+    release,
+    /desktop-darwin-x64:[\s\S]*?runner:\s*macos-15-intel[\s\S]*?artifact_arch:\s*x64[\s\S]*?target:\s*mac/
+  );
   assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*desktop-darwin-x64[^\]]*\]/);
   assert.match(release, /'mixdog-desktop-mac-x64\.dmg'[\s\S]*'mixdog-desktop-mac-x64\.zip'/);
   for (const packageJob of ['windows', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
@@ -648,6 +651,8 @@ function assertReleaseWorkflowContract(release) {
   assert.equal(release.includes("awk '{print \\\\$1}'"), false);
   assert.match(release, /secrets\.RELAY_SSH_KEY/);
   assert.match(release, /vars\.RELAY_DOMAIN/);
+  assert.match(release, /DESKTOP_VERSION="\$\{RELEASE_TAG#v\}"/);
+  assert.match(release, /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION'/);
   assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);
   assert.match(release, /release-timing-report\.mjs/);
 }
@@ -815,12 +820,13 @@ advisoryTest('desktop production dependencies contain only main-process runtime 
   assert.deepEqual(Object.keys(desktop.dependencies).sort(), [
     '@homebridge/node-pty-prebuilt-multiarch',
     'electron-updater',
-    'graceful-fs',
+    'koffi',
     'vscode-jsonrpc',
     'ws',
   ]);
   for (const bundled of [
-    '@fontsource-variable/inter',
+    '@fontsource-variable/jetbrains-mono',
+    'jsonc-parser',
     'qrcode',
     '@git-diff-view/react',
     '@monaco-editor/react',

@@ -1,4 +1,10 @@
-export type EditorViewMode = 'rendered' | 'source';
+/** 'rich' (the WYSIWYG editor) exists for Markdown only. */
+export type EditorViewMode = 'rendered' | 'rich' | 'source';
+
+/** The views a file kind offers, in header order. */
+export function editorViewModes(viewKind: 'svg' | 'markdown' | 'table'): readonly EditorViewMode[] {
+  return viewKind === 'markdown' ? ['rendered', 'rich', 'source'] : ['rendered', 'source'];
+}
 
 /** Rows shown by the read-only table view; larger files get a notice. */
 export const DELIMITED_ROW_CAP = 1000;

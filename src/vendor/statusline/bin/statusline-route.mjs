@@ -17,6 +17,7 @@ import {
 } from '../src/gateway/route-meta.mjs';
 import { getModelMetadataSync } from '../../../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { resolveRuntimeRoot } from '../../../runtime/shared/runtime-root.mjs';
+import { withDefaultPresets } from '../../../runtime/agent/orchestrator/config-presets.mjs';
 
 function positiveInt(value) {
   const n = parseInt(String(value || ''), 10);
@@ -142,7 +143,7 @@ function resolveConfiguredModelTarget(cfg, rawModel) {
   const lower = stripped.toLowerCase();
   const agent = cfg?.agent && typeof cfg.agent === 'object' ? cfg.agent : {};
   const providers = agent.providers && typeof agent.providers === 'object' ? agent.providers : {};
-  const presets = Array.isArray(agent.presets) ? agent.presets : [];
+  const presets = withDefaultPresets(agent.presets);
   for (const p of presets) {
     if (!p || typeof p !== 'object' || !p.provider || !p.model) continue;
     const providerEntry = providers[p.provider];
@@ -455,7 +456,7 @@ function configuredGatewayStatus(options = {}) {
     model = aliasTarget.model;
   }
   if (!provider || !model) return null;
-  const presets = Array.isArray(cfg?.agent?.presets) ? cfg.agent.presets : [];
+  const presets = withDefaultPresets(cfg?.agent?.presets);
   const preset = presets.find(p =>
     p?.provider === provider &&
     p?.model === model &&

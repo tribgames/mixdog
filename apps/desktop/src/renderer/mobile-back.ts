@@ -12,6 +12,7 @@
 // 바가 잠시 흰색으로 반전). Browsers without it keep one history sentinel per
 // layer.
 import { useEffect, useRef } from 'react';
+import { nativeAppInfo } from '../shared/native-app';
 
 type CloseWatcherLike = { onclose: (() => void) | null; destroy(): void };
 type CloseWatcherConstructor = new () => CloseWatcherLike;
@@ -55,6 +56,10 @@ function mobileBackSurface(): boolean {
 }
 
 function closeWatcherConstructor(): CloseWatcherConstructor | null {
+  // Inside the Mixdog phone app the Android WebView exposes CloseWatcher but
+  // never routes the hardware back to it; the app's back handler pops the
+  // history sentinels instead.
+  if (nativeAppInfo()) return null;
   const ctor = (window as unknown as { CloseWatcher?: CloseWatcherConstructor }).CloseWatcher;
   return typeof ctor === 'function' ? ctor : null;
 }

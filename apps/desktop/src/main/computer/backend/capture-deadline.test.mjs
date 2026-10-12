@@ -115,7 +115,7 @@ test('native capture replies preserve cleanup evidence and retire only unconfirm
   const loop = PS_RUNTIME.slice(PS_RUNTIME.indexOf('[Console]::OutputEncoding'));
   const script = `
 Add-Type @'
-public static class MixWin32 { public static int PointerEventsGenerated, PointerEventsFailed; public static object PointerProgress; }
+public static class MixWin32 { public static int PointerEventsGenerated, PointerEventsFailed; public static object PointerProgress; public static bool ActivationUnprotected; }
 public static class MixNativeInput { public static void InitializeOwnership(int value) {} }
 public static class MixInputObservation { public static int Marker = 1; }
 '@

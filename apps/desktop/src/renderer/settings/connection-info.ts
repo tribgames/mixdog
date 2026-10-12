@@ -7,6 +7,7 @@ type ConnectionInfoApi = Partial<
 interface ConnectionInfoCacheEntry {
   value?: DesktopRemoteAccessInfo | null;
   promise?: Promise<DesktopRemoteAccessInfo | null>;
+  promiseActivates?: boolean;
   requestVersion?: number;
   appliedRequestVersion?: number;
 }
@@ -44,7 +45,8 @@ export function setCachedConnectionInfo(api: ConnectionInfoApi, value: DesktopRe
 
 export function preloadConnectionInfo(
   api: ConnectionInfoApi,
-  timeoutMs = DEFAULT_CONNECTION_INFO_TIMEOUT_MS
+  timeoutMs = DEFAULT_CONNECTION_INFO_TIMEOUT_MS,
+  { activate = true }: { activate?: boolean } = {}
 ): Promise<DesktopRemoteAccessInfo | null> {
   const entry = cacheEntry(api);
   // Null results stay cached for instant paint but are refetched on the next
@@ -52,7 +54,8 @@ export function preloadConnectionInfo(
   // attempt has its own deadline: an IPC request that never answers must
   // release the cache so the next poll can make a fresh request.
   if (connectionInfoReady(entry.value)) return Promise.resolve(entry.value);
-  if (entry.promise) return entry.promise;
+  // A read-only attempt in flight must not satisfy an activating request.
+  if (entry.promise && (entry.promiseActivates || !activate)) return entry.promise;
   if (!api.getRemoteAccessInfo) {
     entry.value = null;
     return Promise.resolve(null);
@@ -61,7 +64,7 @@ export function preloadConnectionInfo(
   entry.requestVersion = requestVersion;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const request = api
-    .getRemoteAccessInfo()
+    .getRemoteAccessInfo(activate ? undefined : { activate: false })
     .then((value) => {
       const next = value ?? null;
       const appliedRequestVersion = entry.appliedRequestVersion ?? 0;
@@ -93,5 +96,6 @@ export function preloadConnectionInfo(
     if (entry.promise === attempt) entry.promise = undefined;
   });
   entry.promise = attempt;
+  entry.promiseActivates = activate;
   return attempt;
 }

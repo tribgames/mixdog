@@ -45,6 +45,8 @@ export function actionTitle(blocked: string | undefined, capable: boolean, missi
 export interface ScmContextMenuState {
   /** Accessible name AND the open-menu identity (drives aria-expanded). */
   label: string;
+  /** Optional visible caption above the items; not focusable or selectable. */
+  heading?: string;
   x: number;
   y: number;
   items: ScmContextMenuItem[];
@@ -65,6 +67,22 @@ export function elementMenuPoint(element: Element | null): { x: number; y: numbe
 /** True for the two shortcuts every platform maps to "open the context menu". */
 export function isContextMenuKey(event: { key: string; shiftKey: boolean }): boolean {
   return event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
+}
+
+/** Row handlers that open a context menu: at the pointer on right-click, under
+ *  the row on Menu / Shift+F10. */
+export function contextMenuRowProps(open: (point: { x: number; y: number }) => void) {
+  return {
+    onContextMenu(event: React.MouseEvent<HTMLElement>) {
+      event.preventDefault();
+      open(pointerMenuPoint(event));
+    },
+    onKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+      if (!isContextMenuKey(event)) return;
+      event.preventDefault();
+      open(elementMenuPoint(event.currentTarget));
+    },
+  };
 }
 
 export function ScmContextMenu({
@@ -164,6 +182,11 @@ export function ScmContextMenu({
       onKeyDown={onMenuKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
+      {state.heading && (
+        <div className="dock-scm-context-heading" role="presentation">
+          {state.heading}
+        </div>
+      )}
       {state.items.map((item) => {
         const action = (
           // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is menuitemradio/menuitemcheckbox whenever checked is defined

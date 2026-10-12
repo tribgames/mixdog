@@ -110,11 +110,9 @@ export function createAutoClearPicker({
       const enabled = current?.enabled !== false;
       const idleMs = Number(current?.idleMs || HOUR_MS);
       const cacheTtlLabel = !enabled || idleMs >= HOUR_MS ? '1h' : '5m';
-      const sourceLabel = current?.providerCustom
-        ? `${current.provider} override`
-        : current?.custom
-          ? 'global'
-          : `${current?.provider || 'default'} default`;
+      let sourceLabel = `${current?.provider || 'default'} default`;
+      if (current?.providerCustom) sourceLabel = `${current.provider} override`;
+      else if (current?.custom) sourceLabel = 'global';
       const items = [
         {
           value: 'toggle',

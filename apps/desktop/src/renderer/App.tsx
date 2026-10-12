@@ -1,5 +1,6 @@
 import type React from 'react';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DesktopTitlebar, type NavigationSelection } from './navigation';
 import { usePaneWorkspace } from './pane-workspace-state';
@@ -11,7 +12,7 @@ import { desktopBootPrerequisitesReady, markBootStage } from './boot-metrics';
 import { DesktopBootGate } from './PaneSurfaceGate';
 import { usePaneTypingFocus } from './use-composer-focus';
 import { navigationKey } from './text-format';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSideFileGuardOpeners } from './app-root/use-side-file-guard';
 import { bindAppFrameSideFileGuard } from './app-root/app-frame-side-file-guard';
 import { useAppFrameEntryIntake } from './app-root/app-frame-entry-intake';
@@ -66,6 +67,7 @@ import { useSidebarFocusRestore } from './app-root/use-sidebar-focus-restore';
 import { useStartupPaneSelection } from './app-root/use-startup-pane-selection';
 import { useTranscriptRendererReadiness } from './app-root/use-transcript-renderer-readiness';
 import { useUnreadViewedSession } from './app-root/use-unread-viewed-session';
+import { useStableEvent } from './use-stable-event';
 
 export function App() {
   markBootStage('app-render');
@@ -325,7 +327,7 @@ export function App() {
   }, [refreshSessions]);
 
   // Project navigation and registry edits: app-project-actions.ts.
-  const { startProject, renameProject, removeProject } = createProjectActions({
+  const { startProject, renameProject, removeProject, openProjectInExplorer } = createProjectActions({
     projects,
     invoke,
     applySnapshot,
@@ -378,6 +380,19 @@ export function App() {
     setupUiRequest: snapshot.setupUiRequest,
     setupChanged: snapshot.setupChanged,
   });
+  // A remote window's PC menu asks this window for Settings → Connection.
+  useEffect(
+    () => window.mixdogDesktop?.subscribeShowConnectionSettings?.(() => openSettings('connection')),
+    [openSettings]
+  );
+
+  // The title-bar PC menu and the "a device is asking to connect" notice open
+  // the page (with the dialog they asked for).
+  useEffect(() => {
+    const open = () => openSettings('connection');
+    window.addEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
+    return () => window.removeEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
+  }, [openSettings]);
 
   useLaunchTabMeasurements();
   const { paneDraftSubmitFor, paneSubmitFor, submit } = useAppSubmitRouting({
@@ -454,7 +469,8 @@ export function App() {
     openSelectionInFocusedPane: paneWorkspace.openInFocused,
   });
   // Every main-tab open passes the side-file guard (bound below).
-  const { sideFileGuardRef, openFileTab, openFileInSideDock } = useSideFileGuardOpeners(openFileTabRaw);
+  const { sideFileGuardRef, openFileTab, openFileInSideDock, openPreviewToSide } =
+    useSideFileGuardOpeners(openFileTabRaw);
 
   const {
     openStudioTab,
@@ -478,6 +494,7 @@ export function App() {
     openFileTab,
     openSession,
     activeProjectPath,
+    openQuickOpen: () => setQuickAccessMode('files'),
   });
 
   const { focusPaneTypingSurface, navigateTab } = usePaneTabNavigation({
@@ -586,6 +603,8 @@ export function App() {
     sidebarNewStudio,
     sidebarResumeSession,
     renderSidebarPanel,
+    openProjectSettings,
+    projectEditorHost,
     sideViewDescriptors,
     selectWorkbenchSideView,
     moveWorkbenchSideGroup,
@@ -620,7 +639,11 @@ export function App() {
   });
 
   // A phone/web renderer has no side dock to host the editor: it keeps main tabs.
-  const sideDockHostsFiles = !isRemoteBrowserRenderer() && workbenchSideLayout.layout.right.length > 0;
+  const sideDockHostsFiles = !isRemoteHostRenderer() && workbenchSideLayout.layout.right.length > 0;
+  const openSessionDiffInSideDock = useCallback(
+    (leafId: string) => selectWorkbenchSideView('session-diff', leafId),
+    [selectWorkbenchSideView]
+  );
   const paneConversationSurface = usePaneConversationRenderer({
     ...taskLifecycle,
     ...sessionTitle,
@@ -650,6 +673,7 @@ export function App() {
     openFileTab,
     openFileInSideDock: sideDockHostsFiles ? openFileInSideDock : undefined,
     openFolderInSideDock: sideDockHostsFiles ? paneSideDocks.openFolder : undefined,
+    openSessionDiffInSideDock: sideDockHostsFiles ? openSessionDiffInSideDock : undefined,
   });
 
   const { paneFileEditors, paneUtilitySurfacePortals, paneUtilityTabs } = useAppPersistentPaneSurfaces({
@@ -659,6 +683,7 @@ export function App() {
     handleFileDirty,
     registerEditorSaveHandle,
     openFileTab,
+    openPreviewToSide: sideDockHostsFiles ? openPreviewToSide : undefined,
     latestEditorLocation,
     sidebarOpen,
     toggleSidebar,
@@ -680,9 +705,45 @@ export function App() {
 
   const renameProjectEntry = useProjectEntryRename({ paneWorkspace, dirtyFileKeys, registerWorkspaceSelection });
 
+  // + on a sidebar project section: a fresh task staged in that project.
+  const sidebarNewProjectTask = useStableEvent((projectPath: string) => {
+    sidebarNewTask();
+    stageNewTaskProject(projectPath);
+  });
+  // Sidebar right-click menus. "Open to the Side" is the drag-to-split result
+  // (a new pane right of the focused one); inheritance needs the session's own
+  // tab, so it opens the session first and then its /inherit surface.
+  const sidebarOpenSessionInSplit = useStableEvent((sessionId: string, title: string) => {
+    closeSidebarForNavigation();
+    paneWorkspace.splitLeafAt(paneWorkspace.focusedLeafId, 'right', { kind: 'session', id: sessionId, title });
+  });
+  const sidebarInheritSession = useStableEvent((sessionId: string) => {
+    closeSidebarForNavigation();
+    void openSession(sessionId).then(() => openConversationCommandSurface('inherit', sessionId));
+  });
+  const sidebarRenameProject = useStableEvent((projectPath: string, alias: string) => {
+    void renameProject(projectPath, alias);
+  });
+  // Host-only: a remote surface has no file manager, so the item is hidden
+  // whenever the project actions omit the reveal.
+  const sidebarRevealProjectEvent = useStableEvent((projectPath: string) => {
+    void openProjectInExplorer?.(projectPath);
+  });
+  const sidebarRevealProject = typeof openProjectInExplorer === 'function' ? sidebarRevealProjectEvent : undefined;
+  const sidebarOpenProjectSettings = useStableEvent((projectPath: string) => {
+    openProjectSettings(projectPath);
+  });
+
   const { renderWorkbenchSideView, renderPaneSideDock, renderPaneProblems } = useAppWorkbenchViews({
     sessions,
     sessionCatalogReady,
+    projects,
+    sidebarNewProjectTask,
+    sidebarOpenSessionInSplit,
+    sidebarInheritSession,
+    sidebarRenameProject,
+    sidebarRevealProject,
+    sidebarOpenProjectSettings,
     workingSessionIds,
     unreadSessionIds,
     sidebarSelection,
@@ -838,6 +899,7 @@ export function App() {
           setError={setError}
           snapshot={snapshot}
         />
+        {projectEditorHost}
       </div>
     </DesktopBootGate>
   );

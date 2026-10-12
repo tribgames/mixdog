@@ -92,9 +92,29 @@ export function composerDraftAfterScopeChange({
   return typingLive && candidate.trim() ? candidate : '';
 }
 
+// Submissions THIS device minted. Another device cancelling a turn hands the
+// prompt back through the session state; only the device that sent it applies it.
+const ownSubmissionIds = new Set<string>();
+const OWN_SUBMISSION_LIMIT = 128;
+
 export function nextComposerSubmissionId(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
-  return `desktop-submit-${uuid || `${Date.now()}-${++submissionSequence}`}`;
+  const id = `desktop-submit-${uuid || `${Date.now()}-${++submissionSequence}`}`;
+  ownSubmissionIds.add(id);
+  if (ownSubmissionIds.size > OWN_SUBMISSION_LIMIT) {
+    ownSubmissionIds.delete(ownSubmissionIds.values().next().value as string);
+  }
+  return id;
+}
+
+export function wasSubmittedHere(id: string): boolean {
+  return ownSubmissionIds.has(id);
+}
+
+/** Prompt text handed back to the composer of the device that sent it: it is
+ *  placed beside whatever is already typed there, never replacing it. */
+export function draftWithRestoredPrompt(current: string, restored: string): string {
+  return [restored, current].filter(Boolean).join('\n');
 }
 
 export function submissionRetryKey(text: string, attachments: readonly ComposerAttachment[]): string {

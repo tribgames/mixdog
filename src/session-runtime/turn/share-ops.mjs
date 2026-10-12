@@ -3,13 +3,16 @@
  * the owner side: pending-spool intake, presence beacon, and the viewer's
  * owner-liveness probe.
  */
-export function createShareOps({ getSession, getActiveTurnCount, mgr }) {
+export function createShareOps({ getSession, getActiveTurnCount, mgr, isSessionAdmissionOpen }) {
   // Owner-side injection intake: foreign user messages persisted into the
   // shared spool by an attached surface. Engine pollers call this while
   // idle and run each returned text through the normal submit queue.
   async function takeRemoteInjections() {
     const session = getSession();
     if (!session?.id || session.remoteAttached) return [];
+    // Pending-spool intake is an admission route: a fenced/closed owner leaves
+    // the spool untouched.
+    if (isSessionAdmissionOpen && !isSessionAdmissionOpen()) return [];
     if (getActiveTurnCount() > 0) return [];
     try {
       return (await mgr.drainForeignUserInjections?.(session.id)) || [];

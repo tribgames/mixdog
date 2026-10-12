@@ -3,6 +3,7 @@ import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
 /** Additional settings surfaces. Keep this registry shared by the wire schema,
  * dispatch coverage tests and the model-visible capability inventory. */
 const text = { type: 'string' };
+const nonBlank = { type: 'string', minLength: 1, pattern: '\\S' };
 const removableText = { type: ['string', 'null'] };
 const boolean = { type: 'boolean' };
 const strings = { type: 'array', items: text };
@@ -33,7 +34,14 @@ export const SETUP_EXTENDED_ACTION_FIELDS = Object.freeze({
   revoke_linked_device: 'name',
   set_activity_rail_pins: 'activityRailPins',
   set_developer_option: 'name enabled riskAccepted?',
+  add_hook_rule: 'hookRule',
+  set_hook_rule_enabled: 'ruleIndex enabled',
+  delete_hook_rule: 'ruleIndex',
+  set_media_default: 'kind lane model?',
 });
+
+/** Mirrors RULE_ACTIONS in services/hook-bus/rule-store.mjs. */
+export const SETUP_HOOK_RULE_ACTIONS = Object.freeze(['allow', 'deny', 'block', 'modify', 'rewrite', 'ask']);
 
 /** Mirrors ACTIVITY_RAIL_PIN_IDS in apps/desktop/src/shared/activity-rail-pins.ts. */
 export const SETUP_ACTIVITY_RAIL_PIN_IDS = Object.freeze([
@@ -57,6 +65,8 @@ export const SETUP_EXTENDED_DOMAINS = Object.freeze([
   'connection',
   'schedules',
   'webhooks',
+  'hooks',
+  'media',
 ]);
 
 export const SETUP_DESKTOP_ACTIONS = Object.freeze([
@@ -185,6 +195,12 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     turnNotifications: boolean,
     usagePinned: boolean,
     computerObserveOnly: boolean,
+    notificationVolume: {
+      type: 'integer',
+      minimum: 0,
+      maximum: 400,
+      description: 'Windows only: notification sound volume percent.',
+    },
   }),
   appearance: object({
     theme: { type: 'string', enum: ['system', 'dark', 'white'] },
@@ -193,13 +209,40 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       description: 'Desktop UI language id from status appearance; independent of profile language.',
     },
     sidePanels: { type: 'string', enum: ['close-left', 'close-right', 'close-both', 'keep-open'] },
+    markdownDefaultView: { type: 'string', enum: ['preview', 'rich', 'source'] },
+    linkPreview: boolean,
+    toolActivityExpansion: { type: 'string', enum: ['collapsed', 'commands', 'all'] },
   }),
+  hookRule: object(
+    {
+      tool: { ...nonBlank, description: 'Tool name, prefix* pattern, or * (default).' },
+      action: { type: 'string', enum: [...SETUP_HOOK_RULE_ACTIONS] },
+      match: { ...nonBlank, description: 'Substring the tool arguments or cwd must contain.' },
+      cwd: { ...nonBlank, description: 'Substring the working directory must contain.' },
+      reason: nonBlank,
+      patch: { type: 'object', description: 'modify/rewrite: fields merged into the tool arguments.' },
+      args: { type: 'object', description: 'modify/rewrite: arguments that replace the tool arguments.' },
+      enabled: boolean,
+    },
+    ['action']
+  ),
+  ruleIndex: {
+    type: 'integer',
+    minimum: 0,
+    description: 'set_hook_rule_enabled/delete_hook_rule: rule index from status hooks.',
+  },
+  lane: { ...nonBlank, description: 'set_media_default: lane id from the media catalog.' },
+  model: {
+    ...nonBlank,
+    description: 'set_media_default: model id offered by the lane for the kind; omitted = the lane default.',
+  },
   project: object({ path: text, alias: text }, ['path']),
   projectPath: { ...text, description: 'Exact registered Project root.' },
   activityRailPins: {
     type: 'array',
     items: { type: 'string', enum: [...SETUP_ACTIVITY_RAIL_PIN_IDS] },
-    description: 'set_activity_rail_pins: complete ordered list of pinned activity rail items; it replaces the current list.',
+    description:
+      'set_activity_rail_pins: complete ordered list of pinned activity rail items; it replaces the current list.',
   },
   riskAccepted: {
     ...boolean,

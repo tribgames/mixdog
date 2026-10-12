@@ -5,6 +5,7 @@ import { normalizeSystemShellConfig } from '../../runtime/agent/orchestrator/run
 import { webSearchRouteOrDefault } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { createRuntimeFacade } from '../runtime-facade.mjs';
 import { bootProfile } from '../boot-profile.mjs';
+import { assertAdmissionOpen, bindSessionAddress } from '../session-address.mjs';
 import { dataDirOf, workflowHelpers } from './shared.mjs';
 
 export function buildFacade(boot) {
@@ -42,7 +43,9 @@ function reserveSessionId(boot, id) {
   if (rt.session?.id && rt.session.id !== id) {
     throw new Error(`session ${rt.session.id} is already materialized`);
   }
-  rt.reservedSessionId = id;
+  assertAdmissionOpen(rt);
+  bindSessionAddress(rt, id);
+  if (!rt.session?.id) rt.reservedSessionId = id;
   boot.bindRuntimeNotificationSession(id);
   boot.goalRuntime?.watchSession(id);
   // Reservation is the earliest safe point to prepare keychain, memory,

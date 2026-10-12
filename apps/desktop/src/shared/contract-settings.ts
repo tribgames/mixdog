@@ -62,6 +62,9 @@ export interface DesktopTidyEngineStatus {
   installing: DesktopTidyInstallStatus | null;
 }
 
+export const NOTIFICATION_VOLUME_DEFAULT = 100;
+export const NOTIFICATION_VOLUME_MAX = 400;
+
 export type DesktopSettingKey =
   | 'autoClear'
   | 'autoCompact'
@@ -86,6 +89,9 @@ export interface DesktopSettings {
   /** Desktop-only: an OS notification when a session gives its final answer
    *  while the window is not focused. Default on. */
   turnNotifications: boolean;
+  /** Desktop-only (Windows): notification sound volume in percent,
+   *  0..NOTIFICATION_VOLUME_MAX. Default NOTIFICATION_VOLUME_DEFAULT. */
+  notificationVolume: number;
   /** Activity-rail usage pin mode, shared by desktop and remote surfaces. */
   usagePinned: boolean;
   /** Opt-in: expose the agent `computer` tool that controls the local desktop

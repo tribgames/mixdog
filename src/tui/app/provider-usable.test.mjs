@@ -46,6 +46,44 @@ test('the provider setup footer marks a provider active only per the same rule',
   }
 });
 
+test('a custom provider with an invalid stored config is never ready on any TUI surface', async () => {
+  // The real service row (provider-admin providerSetup), keyless so it would
+  // otherwise count as authenticated.
+  const { providerSetup } = await import('../../session-runtime/services/provider-admin.mjs');
+  const id = 'custom-0b7e1c2a-3d4f-4a5b-8c6d-7e8f9a0b1c2d';
+  const entry = {
+    type: 'custom',
+    schemaVersion: 2,
+    name: 'Broken',
+    protocol: 'openai-chat',
+    baseURL: 'https://gw.example.com/v1',
+    enabled: true,
+    auth: 'none',
+    modelOverrides: { m: { contextWindow: '4096' } },
+  };
+  const setup = await providerSetup({ providers: { [id]: entry } }, { checkSecrets: false });
+  const row = setup.api.find((r) => r.id === id);
+  assert.ok(row.configError);
+  assert.equal(row.usable, false);
+  assert.equal(row.authenticated, false);
+  const only = { api: [row], oauth: [], local: [] };
+  assert.equal(providerSetupHasUsableProvider(only), false);
+  assert.equal(providerStatusFooter(row)[0].glyph, '○');
+  assert.match(providerStatusFooter(row)[0].text, /Invalid config/);
+  const report = await buildDoctorReport({ getProviderSetup: () => only }, () => ({ provider: id }));
+  const line = report.split('\n').find((l) => l.includes(' providers: '));
+  assert.match(line, /^✗ providers: route .* has an invalid configuration \(.*contextWindow.*\) · 0 ready/);
+  // The same entry, once valid, is ready.
+  const fixed = await providerSetup(
+    { providers: { [id]: { ...entry, modelOverrides: { m: { contextWindow: 4096 } } } } },
+    { checkSecrets: false }
+  );
+  assert.equal(
+    providerSetupHasUsableProvider({ api: fixed.api.filter((r) => r.id === id), oauth: [], local: [] }),
+    true
+  );
+});
+
 test('/doctor reports the active route ready only per the same rule', async () => {
   for (const [row, usable] of ROWS) {
     const report = await buildDoctorReport({ getProviderSetup: () => setupWith(row) }, () => ({ provider: row.id }));

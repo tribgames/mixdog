@@ -107,11 +107,15 @@ function assertSetRouteStaysNextSessionOnly() {
       'setRoute must default applyToCurrentSession to false (model changes apply to the next session only)'
     );
   }
-  // A live session that already owns route history is never rewritten in
-  // place, whatever applyToCurrentSession says: only effort/Fast tuning may
-  // reach it, from its next turn.
+  // A live session whose route is committed (a model reply, a compaction
+  // summary, or an in-flight turn) is never rewritten in place, whatever
+  // applyToCurrentSession says: only effort/Fast tuning may reach it, from its
+  // next turn. Prompts that were all refused before any reply commit nothing.
   if (
-    !/const currentSessionEmpty = !!session && !sessionHasRouteHistory\(session\)/.test(setRouteBlock) ||
+    !/const currentSessionEmpty = !!session && !sessionRouteCommitted\(session\)/.test(setRouteBlock) ||
+    !/export function sessionRouteCommitted/.test(runtimeSrc) ||
+    !/hasRouteHistoryMessage\(session\?\.liveTurnMessages\) \|\|/.test(runtimeSrc) ||
+    !/message\?\.role === 'assistant'/.test(runtimeSrc) ||
     !/if \(!currentSessionEmpty\) \{/.test(setRouteBlock) ||
     !/return getRoute\(\);/.test(setRouteBlock)
   ) {
@@ -155,7 +159,9 @@ function assertUpdateSessionRouteRefreshesCacheFields() {
   // The route change reset lives in resetSessionForRouteChange; the guard
   // covers the caller and the helper together.
   const updateSessionRouteBlock = [
-    sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '',
+    sessionLifecycleSrc.match(
+      /export function updateSessionRoute\(id, route = \{\}, options = \{\}\) \{[\s\S]*?\n\}/
+    )?.[0] || '',
     sessionLifecycleSrc.match(/function resetSessionForRouteChange\([^)]*\) \{[\s\S]*?\n\}/)?.[0] || '',
   ].join('\n');
   if (

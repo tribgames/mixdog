@@ -2,7 +2,7 @@ import type { App, Shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import { DESKTOP_IPC } from '../shared/contract';
+import { DESKTOP_IPC, type DesktopLocalPathEntry } from '../shared/contract';
 import {
   requiredCommitHash,
   requiredGitIgnoreScope,
@@ -24,10 +24,12 @@ import {
   requiredGitPath,
   requiredGitPaths,
   requiredString,
+  optionalGithubLoginOptions,
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 import { launchFile } from './file-launch';
+import { writeAttachmentFile } from './attachment-files';
 
 type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
 
@@ -36,6 +38,7 @@ interface SourceControlIpcOptions {
   handle: Handle;
   operations: Record<string, ServiceOperation>;
   shell: Pick<Shell, 'openPath' | 'showItemInFolder'>;
+  describeLocalPaths: (paths: unknown) => Promise<DesktopLocalPathEntry[]>;
   grantedFile: (
     accessToken: unknown,
     projectPath: unknown,
@@ -57,13 +60,14 @@ export function registerSourceControlIpc({
   operations,
   shell,
   grantedFile,
+  describeLocalPaths,
 }: SourceControlIpcOptions): void {
   registerGitToolingIpc({ handle, operations });
   registerWorkingTreeIpc({ handle, operations });
   registerGitHubPullRequestIpc({ handle, operations });
   registerRepositorySyncIpc({ handle, operations });
   registerRepositoryHistoryIpc({ handle, operations });
-  registerRepositoryFileIpc({ app, handle, shell, grantedFile });
+  registerRepositoryFileIpc({ app, handle, shell, grantedFile, describeLocalPaths });
 }
 
 /** Presence, installation and identity of the Git/GitHub command-line tools. */
@@ -75,6 +79,7 @@ function registerGitToolingIpc({ handle, operations }: SourceControlRegistration
     installGithubCli,
     githubCliLoginStart,
     githubCliLoginStatus,
+    githubCliLoginOpenBrowser,
     cancelGithubCliLogin,
     githubCliLogout,
     githubCliAccount,
@@ -86,9 +91,11 @@ function registerGitToolingIpc({ handle, operations }: SourceControlRegistration
   handle(DESKTOP_IPC.installGitCli, () => installGitCli());
   handle(DESKTOP_IPC.githubCliStatus, () => githubCliStatus());
   handle(DESKTOP_IPC.installGithubCli, () => installGithubCli());
-  handle(DESKTOP_IPC.githubCliLoginStart, () => githubCliLoginStart());
-  handle(DESKTOP_IPC.githubCliLoginStatus, (_event, flowId) =>
+  handle(DESKTOP_IPC.githubCliLoginStart, () => githubCliLoginStart());  handle(DESKTOP_IPC.githubCliLoginStatus, (_event, flowId) =>
     githubCliLoginStatus(requiredString(flowId, 'flowId', 200))
+  );
+  handle(DESKTOP_IPC.githubCliLoginOpenBrowser, (_event, flowId, options) =>
+    githubCliLoginOpenBrowser(requiredString(flowId, 'flowId', 200), optionalGithubLoginOptions(options))
   );
   handle(DESKTOP_IPC.githubCliLoginCancel, (_event, flowId) =>
     cancelGithubCliLogin(requiredString(flowId, 'flowId', 200))
@@ -101,7 +108,10 @@ function registerGitToolingIpc({ handle, operations }: SourceControlRegistration
     if (typeof value !== 'string' || value.length > 500) {
       throw new TypeError('value must be a string of at most 500 characters.');
     }
-    return setGitGlobalConfig(requiredGitGlobalConfigKey(key), value);
+    return setGitGlobalConfig(requiredGitGlobalConfigKey(key), value).then(async (saved) => {
+      await operations.notifySettingsChanged('git').catch(() => {});
+      return saved;
+    });
   });
 }
 
@@ -309,7 +319,8 @@ function registerRepositoryFileIpc({
   handle,
   shell,
   grantedFile,
-}: Pick<SourceControlIpcOptions, 'app' | 'handle' | 'shell' | 'grantedFile'>): void {
+  describeLocalPaths,
+}: Pick<SourceControlIpcOptions, 'app' | 'handle' | 'shell' | 'grantedFile' | 'describeLocalPaths'>): void {
   const resolveInsideProject = (cwd: unknown, path: unknown): string => {
     const root = resolve(requiredRepositoryCwd(cwd));
     const absolute = resolve(root, requiredString(path, 'file path', 4_096));
@@ -343,5 +354,17 @@ function registerRepositoryFileIpc({
     await writeFile(file, image.bytes, { mode: 0o600 });
     const failure = await shell.openPath(file);
     if (failure) throw new Error(`Unable to open image: ${failure}`);
+  });
+  const tempDir = () => (typeof app.getPath === 'function' ? app.getPath('temp') : '');
+  handle(DESKTOP_IPC.openAttachmentFile, async (_event, dataUrl, name) => {
+    const file = await writeAttachmentFile(tempDir(), dataUrl, name);
+    const failure = await shell.openPath(file);
+    if (failure) throw new Error(`Unable to open file: ${failure}`);
+  });
+  handle(DESKTOP_IPC.stageAttachmentFile, async (_event, dataUrl, name) => {
+    const file = await writeAttachmentFile(tempDir(), dataUrl, name);
+    const [row] = await describeLocalPaths([file]);
+    if (!row) throw new Error('Unable to stage file.');
+    return row;
   });
 }

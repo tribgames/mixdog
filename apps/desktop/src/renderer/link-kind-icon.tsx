@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useCallback, useState, type CSSProperties, type ReactNode } from 'react';
 import { FileArchive, Folder, Globe, Presentation } from 'lucide-react';
 import { SetiFileIcon } from './SetiFileIcon';
 
@@ -9,6 +9,14 @@ const SLIDE_EXTENSION = /\.(?:pptx?|odp)$/i;
 const ARCHIVE_EXTENSION = /\.(?:zip|7z|rar|tar|gz|tgz)$/i;
 
 export type LinkIconKind = 'folder' | 'external' | 'file';
+
+/** A recorded site icon until the image fails to decode; then undefined, so
+ *  the caller draws its globe. A new `src` gets a fresh try. */
+export function useLoadableFavicon(src: string | undefined): [string | undefined, () => void] {
+  const [failed, setFailed] = useState<string | null>(null);
+  const onError = useCallback(() => setFailed(src ?? null), [src]);
+  return [src && src !== failed ? src : undefined, onError];
+}
 
 function GlyphBox({ kind, color, children }: { kind: string; color?: string; children: ReactNode }) {
   return (
@@ -23,10 +31,12 @@ function GlyphBox({ kind, color, children }: { kind: string; color?: string; chi
   );
 }
 
-/** The icon before a transcript link: a folder glyph, a monochrome globe for
- *  web links, otherwise the file-type glyph of `name` (the same one the
- *  explorer and auto-detected paths show). */
-export function LinkKindIcon({ kind, name = '' }: { kind: LinkIconKind; name?: string }) {
+/** The icon before a transcript link: a folder glyph, for web links the site
+ *  icon the in-app browser recorded (`favicon`) or else a monochrome globe,
+ *  otherwise the file-type glyph of `name` (the same one the explorer and
+ *  auto-detected paths show). */
+export function LinkKindIcon({ kind, name = '', favicon }: { kind: LinkIconKind; name?: string; favicon?: string }) {
+  const [icon, onIconError] = useLoadableFavicon(kind === 'external' ? favicon : undefined);
   if (kind === 'folder') {
     return (
       <GlyphBox kind="folder">
@@ -36,8 +46,20 @@ export function LinkKindIcon({ kind, name = '' }: { kind: LinkIconKind; name?: s
   }
   if (kind === 'external') {
     return (
-      <GlyphBox kind="external">
-        <Globe size="1em" aria-hidden="true" />
+      <GlyphBox kind={icon ? 'favicon' : 'external'}>
+        {icon ? (
+          <img
+            src={icon}
+            alt=""
+            width={14}
+            height={14}
+            draggable={false}
+            onError={onIconError}
+            style={{ borderRadius: 3, objectFit: 'contain' }}
+          />
+        ) : (
+          <Globe size="1em" aria-hidden="true" />
+        )}
       </GlyphBox>
     );
   }

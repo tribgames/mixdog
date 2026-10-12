@@ -5,6 +5,30 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-11
+
+- Une nouvelle option Téléphone dans Réglages > Connexion affiche un code QR pour installer l'application mobile Mixdog (disponible sur iPhone via la bêta TestFlight et sur Android sous forme d'APK). Une fois installée, l'association s'effectue en saisissant un code à 6 chiffres dans l'application et en l'approuvant sur votre PC de bureau.
+
+- L'application web peut désormais recevoir des notifications push de tous les PC associés, vous tenant informé des tâches terminées et des réponses du modèle sur l'ensemble de vos ordinateurs.
+
+- Les fichiers Markdown proposent désormais les modes Aperçu, Enrichi et Source, accompagnés d'un plan et d'un aperçu côte à côte. L'éditeur enrichi réécrit les modifications directement dans le fichier tout en préservant le frontmatter, les sauts de ligne et le formatage d'origine, avec détection des conflits et sauvegardes des modifications retenues en cas de changement externe.
+
+- Les projets enregistrés dans la barre latérale des sessions sont désormais organisés en dossiers au-dessus des sessions récentes, affichant leurs dernières conversations et un bouton pour démarrer une tâche dans ce projet. Les catégories et les dossiers peuvent être réorganisés par glisser-déposer, et les menus contextuels par clic droit permettent d'ouvrir, renommer, ajouter aux favoris, archiver, supprimer ou hériter des sessions.
+
+- La prise en charge de l'application de bureau revient sur les Mac Intel (macOS x64) sans dépendances ONNX. La mémoire conserve la recherche lexicale, tandis que la recherche sémantique locale et le raisonnement automatique sont exclus sur le matériel Intel.
+
+- Enregistrer sous n'écrase ni ne supprime plus le fichier de destination existant si le téléchargement échoue. La suppression d'un appareil associé depuis Réglages > Connexion est automatiquement réessayée lors de la reconnexion si le relais était temporairement indisponible.
+
+- La lecture et l'édition de fichiers associent la réutilisation du cache et les index de plage à des versions de fichiers exactes et vérifiées. La suppression ou l'application de correctifs sur des fichiers de plus de 8 MiB dans apply_patch limite l'utilisation de la mémoire au lieu de lire les fichiers entiers, et les autorisations d'aperçu HTML local restent strictement cantonnées à leur session d'origine.
+
+- Les valeurs de configuration par défaut résident désormais dans le code plutôt que dans les fichiers sur disque : les fichiers de configuration ne conservent que vos modifications personnalisées, permettant aux réglages inchangés d'adopter naturellement les valeurs par défaut des nouvelles versions.
+
+- La consommation de ressources en arrière-plan est nettement réduite en période d'inactivité, avec moins de vérifications du démon, une surveillance des fichiers temporisée pour la recherche et des récapitulatifs quotidiens mis en cache pour les statistiques d'utilisation.
+
+- Shift+Enter insère fidèlement un saut de ligne dans le compositeur de message même après un caractère avec majuscule, et l'appui sur Entrée n'envoie plus prématurément lors de la saisie de texte coréen dans un IME.
+
+- Passe de révision de la qualité des traductions sur l'ensemble des 11 langues prises en charge, corrigeant les libellés de l'interface et mettant à jour les boîtes de dialogue localisées.
+
 ## v1.0.12 - 2026-10-10
 
 - Le journal des modifications de Réglages > À propos liste les notes de la version installée ;

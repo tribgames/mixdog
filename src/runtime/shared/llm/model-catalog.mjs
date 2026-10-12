@@ -583,6 +583,8 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
       preserveBaseLimits: !nativeLimitsAuthoritative,
     });
   }
+  if (!meta && String(provider || '').startsWith('custom-'))
+    return customCatalogDefaults(originalId, catalog, modelsDevCatalog);
   return meta
     ? {
         ...meta,
@@ -590,6 +592,27 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
         pricingProvider: meta.pricingProvider || mappedProvider || provider || null,
       }
     : null;
+}
+
+// A user-defined (`custom-*`) provider is in no catalog under its own id, so
+// its discovered models match by bare model id (as listed, then without a
+// `vendor/` route prefix) under the vendor the id names. Only the reasoning
+// capabilities become defaults for the custom row (its overrides win); prices
+// and limits describe the vendor's own API, not the custom endpoint.
+function customCatalogDefaults(originalId, catalog, modelsDevCatalog) {
+  const listed = String(originalId || '');
+  for (const id of new Set([listed, listed.slice(listed.lastIndexOf('/') + 1)])) {
+    if (!id) continue;
+    const vendor = _relayedModelVendor(id) || _modelsDevProviderId(catalog[id]?.litellm_provider);
+    const meta = lookupModelMetadata(id, vendor, catalog, modelsDevCatalog);
+    if (!meta) continue;
+    return {
+      supportsReasoning: meta.supportsReasoning === true,
+      reasoningOptions: Array.isArray(meta.reasoningOptions) ? meta.reasoningOptions : [],
+      reasoningContentField: meta.reasoningContentField || null,
+    };
+  }
+  return null;
 }
 
 function _normalize(entry) {

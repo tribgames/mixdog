@@ -7,7 +7,11 @@ import { createStandaloneHookBus } from '../services/hook-bus.mjs';
 import { updateCurrentCwdOverride, writeLastSessionCwd } from '../../runtime/shared/user-cwd.mjs';
 import { listRegisteredPlugins, pluginAdminStatus } from '../services/plugin-admin.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import { countSkillFiles, pluginManifest, pluginMcpServerName } from '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
+import {
+  countSkillFiles,
+  pluginManifest,
+  pluginMcpServerName,
+} from '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
 import { createSelfUpdateController } from '../self-update.mjs';
@@ -15,6 +19,7 @@ import { createCompletionWakeScheduler, createNotificationBus } from '../notific
 import { createSkillsApi } from '../skills-api.mjs';
 import { createCwdPlugins } from '../cwd-plugins.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
+import { SessionAddressError, isAdmissionOpen, ownerLifecycle } from '../session-address.mjs';
 import { dataDirOf } from './shared.mjs';
 
 export function wireInfrastructure(boot) {
@@ -113,6 +118,7 @@ function wireNotifications(boot) {
   const wakeQueuedCompletion = createCompletionWakeScheduler({
     getCurrentSessionId: () => rt.session?.id || rt.reservedSessionId || null,
     getTurnApi: () => boot.sessionTurnApi,
+    getOwnerLifecycle: (sessionId) => ownerLifecycle(rt, sessionId),
   });
   const {
     emitRuntimeNotification,
@@ -126,6 +132,7 @@ function wireNotifications(boot) {
   } = createNotificationBus({
     listeners: notificationListeners,
     mgr,
+    getOwnerLifecycle: (sessionId) => ownerLifecycle(rt, sessionId),
     onCompletionQueued: params.autoWakeCompletions ? wakeQueuedCompletion : null,
   });
   Object.assign(boot, {
@@ -147,9 +154,21 @@ function wireNotifications(boot) {
 // with listeners subscribed before any session id existed — completion
 // notifications then emitted into an empty session bucket and the transcript
 // card never rendered while the queued model twin worked.
-function sessionAdopter(boot) {
+export function sessionAdopter(boot) {
   const { rt } = boot;
   return (v) => {
+    if (v?.id) {
+      // Late async adoption (clear/rewind/compaction/turn settle/resume) must
+      // never revive a fenced or closed conversation, nor retarget the
+      // durable address to another id.
+      if (!isAdmissionOpen(rt)) return;
+      if (rt.addressedSessionId && rt.addressedSessionId !== v.id) {
+        throw new SessionAddressError(
+          `runtime is addressed as ${rt.addressedSessionId}; refusing to adopt ${v.id}`,
+          rt.addressedSessionId
+        );
+      }
+    }
     rt.session = v;
     if (v?.id) {
       rt.desktopSession = v.desktopSession || null;

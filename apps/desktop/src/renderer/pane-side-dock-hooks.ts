@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
 import { expandedDockRect } from './surface-slots';
-import { isMobileRemoteSurface } from './mobile-surface';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { useResizeGesture } from './resize-gesture';
 import { SIDE_FILE_PROBLEMS_DEFAULT_HEIGHT } from './side-file-problems';
 import type { SideFileChrome } from './side-surface-strip';
@@ -74,6 +74,74 @@ export function useSideFileProblems(hasSideFile: boolean) {
     fileProblemsHeight,
     setFileProblemsHeight,
     toggleFileProblems,
+  };
+}
+export type SideFileProblemsState = ReturnType<typeof useSideFileProblems>;
+
+export const commitWidthPref = (key: string, value: number) => {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    /* session-only */
+  }
+};
+
+/**
+ * Drag-resize of the panel column: the showing surface picks which width
+ * preference (terminal, browser — file/Files included — or panel) a gesture
+ * previews and commits. A cancel restores the stored preference as it stood
+ * when the gesture began, not the constrained rendered width it reports.
+ */
+export function usePanelWidthDrag({
+  terminalShowing,
+  sessionSurfaceShowing,
+  terminalPref,
+  setTerminalPref,
+  browserPref,
+  setBrowserPref,
+  panelPref,
+  setPanelPref,
+  storageKeys,
+}: {
+  terminalShowing: boolean;
+  sessionSurfaceShowing: boolean;
+  terminalPref: number;
+  setTerminalPref: (width: number) => void;
+  browserPref: number;
+  setBrowserPref: (width: number) => void;
+  panelPref: number;
+  setPanelPref: (width: number) => void;
+  storageKeys: { terminal: string; browser: string; panel: string };
+}) {
+  // The stored preference as it stood when a panel resize gesture began: a
+  // cancel restores it rather than the constrained rendered width.
+  const panelWidthSnapshot = useRef<{ kind: 'terminal' | 'browser' | 'panel'; pref: number } | null>(null);
+  return (next: number, phase: 'preview' | 'commit' | 'cancel') => {
+    const kind = terminalShowing ? 'terminal' : sessionSurfaceShowing ? 'browser' : 'panel';
+    if (phase === 'preview' && !panelWidthSnapshot.current) {
+      const pref = kind === 'terminal' ? terminalPref : kind === 'browser' ? browserPref : panelPref;
+      panelWidthSnapshot.current = { kind, pref };
+    }
+    if (phase === 'cancel') {
+      const snapshot = panelWidthSnapshot.current;
+      panelWidthSnapshot.current = null;
+      if (!snapshot) return;
+      if (snapshot.kind === 'terminal') setTerminalPref(snapshot.pref);
+      else if (snapshot.kind === 'browser') setBrowserPref(snapshot.pref);
+      else setPanelPref(snapshot.pref);
+      return;
+    }
+    if (phase === 'commit') panelWidthSnapshot.current = null;
+    if (kind === 'terminal') {
+      setTerminalPref(next);
+      if (phase === 'commit') commitWidthPref(storageKeys.terminal, next);
+    } else if (kind === 'browser') {
+      setBrowserPref(next);
+      if (phase === 'commit') commitWidthPref(storageKeys.browser, next);
+    } else {
+      setPanelPref(next);
+      if (phase === 'commit') commitWidthPref(storageKeys.panel, next);
+    }
   };
 }
 
@@ -202,8 +270,9 @@ export function useDockExpansion(
  * so they are named explicitly (user: 브라우저창 누르면 나가짐).
  */
 export function useMobileOutsideFold(hostRef: RefObject<HTMLDivElement | null>, openNow: boolean, onClose: () => void) {
+  const mobile = useMobileRemoteSurface();
   useEffect(() => {
-    if (!openNow || !isMobileRemoteSurface()) return undefined;
+    if (!openNow || !mobile) return undefined;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -220,7 +289,7 @@ export function useMobileOutsideFold(hostRef: RefObject<HTMLDivElement | null>, 
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [hostRef, openNow, onClose]);
+  }, [hostRef, openNow, mobile, onClose]);
 }
 
 /**

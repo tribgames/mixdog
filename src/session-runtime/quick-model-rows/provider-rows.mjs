@@ -3,7 +3,27 @@
 // workflow and agent routes), deduplicated per provider:model.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { providerCachedModelsSync } from '../../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
-import { metadataFor } from './model-meta.mjs';
+import {
+  effectiveCustomModelRows,
+  normalizeCustomProviderConfig,
+} from '../../runtime/agent/orchestrator/providers/custom-provider.mjs';
+import { declaredCustomFields, metadataFor } from './model-meta.mjs';
+
+// A custom provider's picker models: its effective rows (discovered + saved
+// overrides + manual models), read from the v2 config; a legacy `models`
+// config is migrated by the normalizer. A config that does not normalize
+// cannot run, so it lists nothing. `discovered` defaults to the cached catalog;
+// a saved route on an uncached model passes its own row so the same overrides
+// (hidden, metadata, reasoning) apply to it as in the full catalog.
+function customProviderModels(provider, providerConfig, discovered = providerCachedModelsSync(provider)) {
+  let config;
+  try {
+    config = normalizeCustomProviderConfig(providerConfig);
+  } catch {
+    return [];
+  }
+  return effectiveCustomModelRows(config, discovered, { providerId: provider });
+}
 
 export function createQuickProviderRows({
   getRoute,
@@ -39,16 +59,19 @@ export function createQuickProviderRows({
         reasoningOptions: model.reasoningOptions?.length ? model.reasoningOptions : meta.reasoningOptions || [],
         reasoningContentField: model.reasoningContentField || meta.reasoningContentField || null,
         mode: model.mode || meta.mode || 'chat',
+        ...declaredCustomFields(provider, model),
       });
-      rows.push(row);
       modelMetaByRoute.set(modelMetaKey(provider, modelId), row);
+      // A hidden model leaves the picker (a saved route on it included) while
+      // its metadata keeps resolving for sessions already on it.
+      if (row.hidden !== true) rows.push(row);
     };
     const addRoute = (routeLike = {}) => {
       const provider = clean(routeLike.provider);
       const model = clean(routeLike.model);
       if (!provider || !model || isDeletedCustom(provider)) return;
       const meta = metadataFor(provider, model);
-      addModel(provider, {
+      const routeRow = {
         id: model,
         name: routeLike.modelDisplay || routeLike.display || model,
         display: routeLike.modelDisplay || routeLike.display || model,
@@ -61,7 +84,14 @@ export function createQuickProviderRows({
         reasoningOptions: meta.reasoningOptions || [],
         reasoningContentField: meta.reasoningContentField || null,
         mode: 'chat',
-      });
+      };
+      const customConfig = customProviders[provider];
+      if (customConfig?.type === 'custom') {
+        const row = customProviderModels(provider, customConfig, [routeRow]).find((item) => item.id === model);
+        if (row) addModel(provider, row);
+        return;
+      }
+      addModel(provider, routeRow);
     };
 
     // A custom-* id with no live custom config entry was deleted: stale
@@ -72,16 +102,12 @@ export function createQuickProviderRows({
       !(customProviders[provider]?.type === 'custom' && customProviders[provider].enabled !== false);
     for (const [provider, providerConfig] of Object.entries(customProviders)) {
       if (!providerConfig?.enabled) continue;
-      if (providerConfig.type === 'custom') {
-        // Configured models are listed at once, before any catalog refresh.
-        for (const model of providerConfig.models || []) {
-          addModel(provider, {
-            ...model,
-            outputTokens: model.maxOutputTokens || null,
-          });
-        }
-      }
-      for (const model of providerCachedModelsSync(provider)) addModel(provider, model);
+      // Configured custom models are listed at once, before any catalog refresh.
+      const models =
+        providerConfig.type === 'custom'
+          ? customProviderModels(provider, providerConfig)
+          : providerCachedModelsSync(provider);
+      for (const model of models) addModel(provider, model);
     }
     addRoute(route);
     for (const preset of pickerConfig.presets || []) addRoute(preset);

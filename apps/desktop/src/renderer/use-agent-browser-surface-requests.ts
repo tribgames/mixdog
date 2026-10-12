@@ -118,7 +118,7 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
   // they closed earlier opens again and the layout change is theirs to keep.
   useEffect(
     () =>
-      onBrowserPageRevealRequested((sessionId) => {
+      onBrowserPageRevealRequested(({ sessionId }) => {
         surfaces.browserAutoRevealSuppressed.current.delete(sessionId);
         requestRef.current({ sessionId });
       }),
