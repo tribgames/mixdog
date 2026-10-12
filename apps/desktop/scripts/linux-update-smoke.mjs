@@ -95,14 +95,17 @@ async function fail(message) {
 }
 
 const deadline = Date.now() + 240_000;
-while (!/status: 'ready'/.test(output)) {
-  if (/status: 'error'/.test(output)) await fail(`updater reported an error: ${output.match(/status: 'error'[^}]*/)?.[0]}`);
-  if (/status: 'up-to-date'/.test(output)) await fail('updater found no newer version in the feed');
+// Only the updater's own state lines count (the boot-phase log also prints status: 'ready').
+const updaterState = (status) =>
+  output.match(new RegExp(`Mixdog updater status: \\{[^}]*status: '${status}'[^}]*\\}`))?.[0];
+while (!updaterState('ready')) {
+  if (updaterState('error')) await fail(`updater reported an error: ${updaterState('error')}`);
+  if (updaterState('up-to-date')) await fail('updater found no newer version in the feed');
   if (exited) await fail(`app exited early ${JSON.stringify(exited)}`);
   if (Date.now() > deadline) await fail('timed out waiting for updater ready');
   await sleep(1000);
 }
-if (!output.includes(`version: '${expectedVersion}'`)) await fail(`ready state is not for ${expectedVersion}`);
+if (!updaterState('ready').includes(`version: '${expectedVersion}'`)) await fail(`ready state is not for ${expectedVersion}`);
 console.log(`updater ready for ${expectedVersion}`);
 
 async function walk(dir) {

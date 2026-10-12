@@ -6,8 +6,8 @@
 # --appimage-extract-and-run and the app with --no-sandbox.
 set -euo pipefail
 family=$1
-cat /etc/os-release | head -n 3
-ldd --version | head -n 1
+head -n 3 /etc/os-release
+ldd --version | sed -n 1p
 export PATH=/w/node/bin:$PATH
 if [ "$family" = debian ]; then
   export DEBIAN_FRONTEND=noninteractive
