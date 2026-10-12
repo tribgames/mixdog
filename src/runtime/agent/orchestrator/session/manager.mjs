@@ -1,9 +1,5 @@
 // src/runtime/agent/orchestrator/session/manager.mjs
-// Thin facade over the split session-manager modules in ./manager/. This file
-// re-exports the EXACT public surface the previous monolith exposed so every
-// importer (loop.mjs, loop/tool-exec.mjs, agent-dispatch.mjs, session-builder,
-// abort-lookup, statusline-agents, headless-role, session-runtime, and the
-// smoke scripts) keeps resolving its symbols through manager.mjs unchanged.
+// Thin facade over the split session-manager modules in ./manager/.
 //
 // Module map:
 //   manager/runtime-liveness.mjs       — in-memory stage/heartbeat + accessors

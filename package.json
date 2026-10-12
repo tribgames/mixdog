@@ -203,7 +203,6 @@
     "eslint-scope": "^9.1.2",
     "lucide-static": "^1.41.0"
   },
-  "main": "index.js",
   "directories": {
     "doc": "docs"
   },

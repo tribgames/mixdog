@@ -140,8 +140,8 @@ export async function runHeadlessRole({
 } = {}) {
   const cleanAgent = clean(agent);
   const cleanMessage = clean(message);
-  // Classic headless surface: web search and memory tools start OFF
-  // and opt back in per run (--web-search / --memory). An explicit
+  // Web search and memory start OFF. This call can pass webSearch or memory;
+  // exec accepts --web-search and rejects --memory. An explicit
   // MIXDOG_FEATURE_* value from the caller environment always wins.
   for (const [key, enabled] of [
     ['MIXDOG_FEATURE_WEB_SEARCH', webSearch],
