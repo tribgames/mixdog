@@ -28,6 +28,9 @@ for (const name of ['MainActivity', 'MixdogMessagingService', 'MixdogNativeHost'
   check(existsSync(join(root, `android/app/src/main/java/io/mixdog/app/${name}.java`)), `android ${name}.java`);
 }
 check(existsSync(join(root, 'android/app/src/main/res/drawable/ic_stat_mixdog.xml')), 'android notification icon');
+check(existsSync(join(root, 'android/app/src/main/java/io/mixdog/app/MixdogAppUpdater.java')), 'android MixdogAppUpdater.java');
+check(manifest.includes('android.permission.REQUEST_INSTALL_PACKAGES'), 'manifest REQUEST_INSTALL_PACKAGES');
+check(read('android/app/src/main/res/xml/file_paths.xml').includes('<external-files-path name="updates" path="updates/" />'), 'file_paths updates folder');
 
 // iOS
 const pbx = read('ios/App/App.xcodeproj/project.pbxproj');

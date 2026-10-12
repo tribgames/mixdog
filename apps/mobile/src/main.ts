@@ -20,7 +20,6 @@ import {
 import { createNativeFetch } from './native-fetch.ts';
 import { openHostFlow } from './open-host.ts';
 import { originsOfBook } from './origins.ts';
-import { checkForUpdate, type AvailableUpdate } from './update.ts';
 import { nativeAppInfo } from '../../desktop/src/shared/native-app.ts';
 import {
   previewFromLocation,
@@ -33,6 +32,7 @@ import {
   type ResultKind,
   type ScreenState,
   type Step,
+  type UpdatePhase,
 } from './pairing-ui.ts';
 
 /** Code redemption goes through the native HTTP stack: the bundled page is a
@@ -44,7 +44,27 @@ const relayFetch: typeof fetch = (input, init) =>
   Capacitor.isNativePlatform() ? nativeFetch(input, init) : fetch(input, init);
 
 const HOSTS_KEY = 'mixdog.hosts';
-const DISMISSED_UPDATE_KEY = 'mixdog.update.dismissed';
+
+/** The native self-update bridge (MixdogAppUpdater). Android only; the update
+ *  state lives natively, this screen only mirrors it. */
+interface AppUpdateReply {
+  status: string;
+  version?: string;
+  receivedBytes?: number;
+  totalBytes?: number;
+  dismissed?: boolean;
+}
+type UpdateCall = (method: string, args?: unknown) => Promise<unknown>;
+/** Statuses the pairing screen offers an update for. */
+const OFFERABLE_STATUSES = new Set(['available', 'downloading', 'ready', 'needs-permission', 'installing', 'failed']);
+/** Fallback when the in-app update cannot run and the native side has no URL. */
+const RELEASES_URL = 'https://github.com/tribgames/mixdog/releases';
+
+async function updateBridge(method: string, args?: unknown): Promise<unknown> {
+  const info = nativeAppInfo() as unknown as { call?: UpdateCall } | null;
+  if (!info?.call) throw new Error('Native bridge unavailable.');
+  return info.call(method, args);
+}
 
 const korean = navigator.language.toLowerCase().startsWith('ko');
 const strings = korean ? STRINGS.ko : STRINGS.en;
@@ -56,7 +76,12 @@ let book: HostBook = emptyHostBook();
 let ui: ScreenState = { step: 'start' };
 let codeValue = '';
 let previewing = false;
-let pendingUpdate: AvailableUpdate | null = null;
+// The user pressed "Download update": the flow runs download → install.
+let updateRequested = false;
+// Boot is opening the saved host; a late update offer must not interrupt it.
+let launching = false;
+// Last native update status seen, to tell a finished download from a re-read.
+let lastUpdateStatus = '';
 let redeeming = false;
 // Bumped by Cancel: a redemption that finishes later must not save or navigate.
 let pairingAttempt = 0;
@@ -192,10 +217,111 @@ async function scan(): Promise<void> {
   }
 }
 
+/** Mirror the native update state into the screen. */
+function applyUpdate(state: AppUpdateReply | null): void {
+  const version = state?.version;
+  if (!state || !version || state.dismissed || !OFFERABLE_STATUSES.has(state.status)) {
+    if (ui.update) ui = { ...ui, update: undefined };
+    return;
+  }
+  // A finished download ('ready', or 'needs-permission' waiting on settings) offers Install.
+  const phase: UpdatePhase =
+    state.status === 'downloading' || (state.status === 'available' && updateRequested)
+      ? 'downloading'
+      : state.status === 'ready' || state.status === 'needs-permission'
+        ? 'downloaded'
+        : state.status === 'installing'
+          ? 'installing'
+          : state.status === 'failed'
+            ? 'failed'
+            : 'available';
+  const percent =
+    phase === 'downloading' && state.totalBytes && state.receivedBytes !== undefined
+      ? Math.min(100, Math.floor((state.receivedBytes / state.totalBytes) * 100))
+      : undefined;
+  const current = ui.update;
+  if (current?.version === version && current.phase === phase && current.percent === percent) return;
+  ui = { ...ui, update: { version, phase, percent } };
+}
+
+async function readUpdate(method: string, args?: unknown): Promise<AppUpdateReply | null> {
+  try {
+    const state = (await updateBridge(method, args)) as AppUpdateReply | null;
+    return state && typeof state.status === 'string' ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The native lookup/download changed: refresh the offer, and carry on with an
+ *  update the user already asked for. */
+async function onUpdateEvent(): Promise<void> {
+  await advanceUpdate(await readUpdate('getAppUpdate'));
+}
+
+async function advanceUpdate(state: AppUpdateReply | null): Promise<void> {
+  const previous = lastUpdateStatus;
+  lastUpdateStatus = state?.status ?? '';
+  if (!updateRequested) {
+    if (launching) return;
+    const before = ui.update;
+    applyUpdate(state);
+    if (ui.step === 'start' && ui.update !== before) render();
+    return;
+  }
+  if (!state || state.status === 'failed') {
+    // No automatic browser: the screen offers retry and "Get in browser".
+    updateRequested = false;
+    if (state) applyUpdate(state);
+    else if (ui.update) ui = { ...ui, update: { version: ui.update.version, phase: 'failed' } };
+    render();
+    return;
+  }
+  if (state.status === 'ready') {
+    if (previous === 'installing') {
+      // The installer closed without replacing the app: the button works again.
+      updateRequested = false;
+    } else if (previous !== 'ready') {
+      // Download finished, or back from the "install unknown apps" settings.
+      const next = await readUpdate('installAppUpdate');
+      lastUpdateStatus = next?.status ?? lastUpdateStatus;
+      state = next ?? state;
+    }
+  }
+  applyUpdate(state);
+  render();
+}
+
+/** Last resort when the in-app update cannot run: the release APK in the browser. */
+async function openUpdateInBrowser(): Promise<void> {
+  updateRequested = false;
+  let opened = false;
+  try {
+    opened = (await updateBridge('openAppUpdateInBrowser')) === true;
+  } catch {
+    // Without the bridge, fall through to the releases page.
+  }
+  if (!opened) await Browser.open({ url: RELEASES_URL });
+  applyUpdate(await readUpdate('getAppUpdate'));
+  render();
+}
+
+async function getUpdate(): Promise<void> {
+  updateRequested = true;
+  // Already downloaded, or back from the settings screen without the permission: install.
+  if (lastUpdateStatus === 'ready' || lastUpdateStatus === 'needs-permission') {
+    await advanceUpdate(await readUpdate('installAppUpdate'));
+    return;
+  }
+  lastUpdateStatus = 'available';
+  await advanceUpdate(await readUpdate('startAppUpdate'));
+}
+
 function dismissUpdate(): void {
-  if (pendingUpdate) void Preferences.set({ key: DISMISSED_UPDATE_KEY, value: pendingUpdate.version });
+  const version = ui.update?.version;
+  updateRequested = false;
+  if (version) void readUpdate('dismissAppUpdate', { version });
   ui = { ...ui, update: undefined };
-  pendingUpdate = null;
 }
 
 const manage = new URLSearchParams(window.location.search).has('manage');
@@ -223,7 +349,11 @@ function onAction(id: Action['id']): void {
       go('start');
       break;
     case 'update-get':
-      if (pendingUpdate) void Browser.open({ url: pendingUpdate.apkUrl });
+    case 'update-retry':
+      if (ui.update?.phase !== 'downloading' && ui.update?.phase !== 'installing') void getUpdate();
+      break;
+    case 'update-browser':
+      void openUpdateInBrowser();
       break;
     case 'update-later':
       dismissUpdate();
@@ -240,13 +370,6 @@ const hooks = {
   },
 };
 
-async function offerUpdate(update: AvailableUpdate): Promise<void> {
-  const dismissed = (await Preferences.get({ key: DISMISSED_UPDATE_KEY })).value;
-  if (dismissed === update.version) return;
-  pendingUpdate = update;
-  ui = { ...ui, update: { version: update.version } };
-}
-
 /** `mixdog://pair?link=<pairing link>` (and plain https pairing links). */
 function linkFromAppUrl(url: string): string {
   try {
@@ -255,8 +378,6 @@ function linkFromAppUrl(url: string): string {
     return url;
   }
 }
-
-const LAUNCH_UPDATE_BUDGET_MS = 600;
 
 async function boot(): Promise<void> {
   // Screenshot switch: `?mxPairingPreview=<state>` renders one step with no
@@ -273,23 +394,22 @@ async function boot(): Promise<void> {
   await syncOrigins();
   void App.addListener('appUrlOpen', ({ url }) => void connectFrom(linkFromAppUrl(url)));
 
-  // Only Android sideloads: iOS updates arrive through TestFlight.
-  let update: AvailableUpdate | null = null;
+  // Only Android sideloads: iOS updates arrive through TestFlight. The native
+  // side owns the release lookup; the launch only reads its cached state (a
+  // notification Allow / Deny lands here too and must not wait on the network)
+  // and a lookup that finishes later arrives as a `mixdognativeupdate` event.
   if (Capacitor.getPlatform() === 'android') {
-    const info = await App.getInfo();
-    // A launch that goes straight to the saved host (a notification Allow /
-    // Deny lands here too) must not sit behind a slow release lookup: it gets a
-    // short budget, and only the picker screen, which stays up anyway, waits
-    // the full timeout.
-    update = await checkForUpdate(
-      info.version,
-      undefined,
-      !manage && book.last ? LAUNCH_UPDATE_BUDGET_MS : undefined
-    );
-    if (update) await offerUpdate(update);
+    window.addEventListener('mixdognativeupdate', () => void onUpdateEvent());
+    const cached = await readUpdate('getAppUpdate');
+    lastUpdateStatus = cached?.status ?? '';
+    applyUpdate(cached);
   }
   if (ui.update) render();
-  if (!manage && !ui.update && book.last) await openHost(book.last);
+  if (!manage && !ui.update && book.last) {
+    launching = true;
+    await openHost(book.last);
+    launching = false;
+  }
 }
 
 void boot();

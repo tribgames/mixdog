@@ -3781,5 +3781,17 @@
   "Sign out and sign in again to finish setting up window control for Mixdog.": "창 제어 설정을 마치려면 로그아웃한 뒤 다시 로그인해야 합니다.",
   "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Mixdog가 창을 조회하고 제어하려면 Mixdog Windows 확장을 활성화해야 합니다 (gnome-extensions enable mixdog-windows@mixdog.io).",
   "Rename device": "기기 이름 바꾸기",
-  "Leave empty to go back to the device’s own name.": "비워 두면 기기의 원래 이름으로 돌아가요."
+  "Leave empty to go back to the device’s own name.": "비워 두면 기기의 원래 이름으로 돌아가요.",
+  "Mixdog app v{{version}} is available": "Mixdog 앱 v{{version}} 버전을 사용할 수 있습니다",
+  "Currently installed: v{{installed}}": "현재 설치된 버전 v{{installed}}",
+  "Later": "나중에",
+  "v{{version}} downloaded": "v{{version}} 다운로드 완료",
+  "Installing continues on the Android install screen": "설치하면 Android 설치 화면으로 넘어갑니다",
+  "The downloaded update could not be verified": "내려받은 업데이트를 확인하지 못했습니다",
+  "Not enough storage space for the update": "업데이트를 저장할 공간이 부족합니다",
+  "The update could not be installed": "업데이트를 설치하지 못했습니다",
+  "Check your network connection and try again": "네트워크 연결을 확인한 뒤 다시 시도하세요",
+  "Couldn't download the update": "업데이트를 다운로드하지 못했습니다",
+  "Get in browser": "브라우저로 받기",
+  "Dismiss update notice": "업데이트 알림 닫기"
 }

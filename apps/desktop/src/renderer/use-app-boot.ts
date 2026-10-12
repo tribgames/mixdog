@@ -22,6 +22,7 @@ import { prefetchQuotaUsage } from './quota-usage-cache';
 import { connectionQuality } from './network-conditions';
 import { paneActiveSessionIds } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
+import { isMobileDeviceSurface } from './mobile-surface';
 import { isNativeDesktopWindow, isRemoteHostRenderer } from './remote-ui-projection';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from './sidebar-view-layout';
 import { loadStudioViewModule } from './studio-loader';
@@ -209,7 +210,8 @@ export function useAppOnboarding(setSettingsOpen: Dispatch<SetStateAction<boolea
   useEffect(() => {
     let live = true;
     const invoke = window.mixdogDesktop?.invokeCapability;
-    if (!invoke) {
+    // Phones and tablets never auto-open the wizard: setup belongs to the PC.
+    if (!invoke || isMobileDeviceSurface()) {
       setOnboardingReady(true);
       return () => {
         live = false;

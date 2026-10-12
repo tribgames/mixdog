@@ -25,8 +25,14 @@ The reason the app exists is **reliable native push**:
 - Approval notifications carry **Allow** / **Deny**; they open the app on that
   session and resolve the approval with `resolveToolApprovalForSession`. A plain
   tap opens the session through the web app's notification navigation.
-- Android checks GitHub Releases (`mobile-v*` with an `.apk` asset) at launch and
-  offers the download. iOS updates come through TestFlight.
+- Android updates itself in-app (`MixdogAppUpdater`): it looks up GitHub Releases
+  (`mobile-v*` with an `.apk` asset, at most every 6 hours or on a manual check),
+  downloads the APK with the system DownloadManager, verifies size, SHA-256 and
+  signing certificate against the installed app, and hands it to the system
+  installer. Web pages drive it through the native bridge (`getAppUpdate`,
+  `startAppUpdate`, `cancelAppUpdate`, `installAppUpdate`, `dismissAppUpdate`,
+  `openAppUpdateInBrowser`; state changes fire `mixdognativeupdate`). iOS updates
+  come through TestFlight.
 
 ## Origin allow-list (security)
 
@@ -55,7 +61,7 @@ which calls `openHostPicker` to return to the pairing screen.
 
 | Path | What |
 | --- | --- |
-| `src/` | Bundled pairing screen (`main.ts`, `hosts.ts`, `update.ts`) + tests |
+| `src/` | Bundled pairing screen (`main.ts`, `hosts.ts`) + tests |
 | `android/` | Gradle project; `io.mixdog.app` Java sources (`MixdogNativeHost`, `MixdogMessagingService`, `MixdogKeys`, `NativePushCrypto`, …) |
 | `ios/App/` | Xcode project (CocoaPods); `App` target, `NotificationService` extension, `Shared/` (compiled into both) |
 | `test-vectors/native-push-v1.json` | Cross-check vector for the native decryptors (mirrors `NATIVE_PUSH_TEST_VECTOR`) |

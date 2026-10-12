@@ -36,10 +36,21 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   private static WeakReference<MixdogNativeHost> current = new WeakReference<>(null);
 
   private final MainActivity activity;
+  private final MixdogAppUpdater updater;
 
   MixdogNativeHost(MainActivity activity) {
     this.activity = activity;
+    this.updater = new MixdogAppUpdater(activity, () -> dispatch("mixdognativeupdate"));
     current = new WeakReference<>(this);
+  }
+
+  /** The activity came back to the foreground (settings / installer closed). */
+  void onResume() {
+    updater.onResume();
+  }
+
+  void onDestroy() {
+    updater.close();
   }
 
   /**
@@ -82,12 +93,17 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   }
 
   private void fireEvent() {
+    dispatch("mixdognativepush");
+  }
+
+  /** Fire a window event in the WebView (callable from any thread). */
+  private void dispatch(String event) {
     WebView webView = activity.getBridge() == null ? null : activity.getBridge().getWebView();
     if (webView == null) return;
     webView.post(
         () ->
             webView.evaluateJavascript(
-                "window.dispatchEvent(new Event('mixdognativepush'))", null));
+                "window.dispatchEvent(new Event('" + event + "'))", null));
   }
 
   private String permission() {
@@ -162,6 +178,18 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
         case "takePendingAction":
           JSONObject action = MixdogPushStore.takeAction(activity);
           return action == null ? "null" : action.toString();
+        case "getAppUpdate":
+          return updater.get(args.optBoolean("check", false)).toString();
+        case "startAppUpdate":
+          return updater.start().toString();
+        case "cancelAppUpdate":
+          return updater.cancel().toString();
+        case "installAppUpdate":
+          return updater.install().toString();
+        case "dismissAppUpdate":
+          return updater.dismiss(args.optString("version", "")).toString();
+        case "openAppUpdateInBrowser":
+          return updater.openInBrowser() ? "true" : "false";
         case "openHostPicker":
           activity.runOnUiThread(
               () ->

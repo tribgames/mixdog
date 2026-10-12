@@ -156,6 +156,41 @@ test('code step: one redemption at a time — input and button wait with a pendi
   assert.equal(paint('start-empty').classList.contains('mxp-code-step'), false);
 });
 
+test('update offer mirrors the native phase: progress, Install when downloaded, retry + browser on failure', () => {
+  const phases = ['available', 'downloading', 'downloaded', 'installing', 'failed'] as const;
+  for (const s of [STRINGS.en, STRINGS.ko]) {
+    const shot = (phase: (typeof phases)[number]) => {
+      const dom = new JSDOM('<!doctype html><div id="screen"></div>');
+      const root = dom.window.document.getElementById('screen') as HTMLElement;
+      const state = { step: 'start' as const, update: { version: '1.2.3', phase, percent: phase === 'downloading' ? 42 : undefined } };
+      renderPairing(root, { view: viewFor(state, s), state, strings: s, codeValue: '' }, noHooks);
+      const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button'));
+      return { text: root.textContent ?? '', buttons };
+    };
+    const get = (r: ReturnType<typeof shot>) => r.buttons.find((b) => b.dataset.action === 'update-get');
+
+    assert.equal(get(shot('available'))?.textContent, s.updateGet);
+    const downloading = shot('downloading');
+    assert.match(downloading.text, /42%/);
+    assert.deepEqual([get(downloading)?.disabled, get(downloading)?.textContent], [true, s.updateDownloadingBtn]);
+    const downloaded = shot('downloaded');
+    assert.deepEqual([get(downloaded)?.disabled, get(downloaded)?.textContent], [false, s.updateInstall]);
+    assert.ok(downloaded.text.includes(s.updateDownloadedText.replace('{v}', '1.2.3')));
+    assert.equal(get(shot('installing'))?.disabled, true);
+    const failed = shot('failed');
+    assert.equal(get(failed), undefined);
+    assert.deepEqual(
+      failed.buttons.map((b) => b.dataset.action),
+      ['update-retry', 'update-browser', 'update-later']
+    );
+    assert.ok(failed.text.includes(s.updateFailedText.replace('{v}', '1.2.3')));
+  }
+  assert.equal(STRINGS.en.updateInstall, 'Install');
+  assert.equal(STRINGS.ko.updateInstall, '설치');
+  assert.equal(STRINGS.en.updateBrowser, 'Get in browser');
+  assert.equal(STRINGS.ko.updateBrowser, '브라우저로 받기');
+});
+
 test('code step on a phone: the form group is bottom-anchored and follows the visual viewport', () => {
   const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   assert.match(html, /@media \(max-width:599px\)\{\.mxp-code-step \.mxp-col\{[^}]*flex-direction:column/);

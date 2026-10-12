@@ -31,7 +31,39 @@ export interface NativeNotificationAction {
   hostId?: string;
 }
 
+/** Fired on `window` by the shell on every app-update state change. */
+export const NATIVE_UPDATE_EVENT = 'mixdognativeupdate';
+
+export interface NativeAppUpdateState {
+  status:
+    | 'idle'
+    | 'checking'
+    | 'up-to-date'
+    | 'available'
+    | 'downloading'
+    | 'ready'
+    | 'needs-permission'
+    | 'installing'
+    | 'failed';
+  /** Installed app version. */
+  installed: string;
+  /** Newest version, when one is known. */
+  version?: string;
+  receivedBytes?: number;
+  totalBytes?: number;
+  /** The user postponed this version. */
+  dismissed?: boolean;
+  error?: 'network' | 'verify' | 'storage' | 'install';
+}
+
 export interface MixdogNativeCalls {
+  /** Android only. Older shells answer `null` (or never answer): no update feature. */
+  getAppUpdate: [{ check?: boolean }, NativeAppUpdateState | null];
+  startAppUpdate: [undefined, NativeAppUpdateState | null];
+  cancelAppUpdate: [undefined, NativeAppUpdateState | null];
+  installAppUpdate: [undefined, NativeAppUpdateState | null];
+  dismissAppUpdate: [{ version: string }, NativeAppUpdateState | null];
+  openAppUpdateInBrowser: [undefined, boolean];
   getPushState: [undefined, NativePushState];
   requestPush: [undefined, NativePushState];
   takePendingAction: [undefined, NativeNotificationAction | null];

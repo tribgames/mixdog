@@ -1,6 +1,6 @@
 import type React from 'react';
 import { ActivityRail } from '../ActivityRail';
-import { useMobileRemoteSurface } from '../mobile-surface';
+import { isMobileDeviceSurface, useMobileRemoteSurface } from '../mobile-surface';
 import { RemotePcCard } from '../RemotePcSwitcher';
 import {
   WorkbenchSidePanel,
@@ -102,6 +102,8 @@ export function AppSidebarDrawer({
         onMoveView={moveWorkbenchSideView}
         renderView={(id, active, titleDragProps) => renderWorkbenchSideView('left', id, active, titleDragProps)}
         footer={
+          // Phones and tablets get no starter guide (welcome, tour, checklist).
+          isMobileDeviceSurface() ? undefined : (
           <StarterGuide
             descriptors={sideViewDescriptors}
             onboardingActive={onboardingActive}
@@ -112,6 +114,7 @@ export function AppSidebarDrawer({
             }}
             onCloseSettings={() => setSettingsOpen(false)}
           />
+          )
         }
       />
       <SidebarDiffColumn

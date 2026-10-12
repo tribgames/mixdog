@@ -8,6 +8,7 @@ import './remote-shim';
 import './i18n';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { AppUpdateBanner } from './AppUpdateBanner';
 import { RemoteClaimPrompt } from './RemoteClaimPrompt';
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from './RendererRecovery';
 import './bootstrap-styles';
@@ -86,6 +87,7 @@ createRoot(document.getElementById('root')!).render(
   <DesktopErrorBoundary>
     <App />
     <RemoteClaimPrompt />
+    <AppUpdateBanner />
   </DesktopErrorBoundary>
 );
 markBootStage('react-render-requested');

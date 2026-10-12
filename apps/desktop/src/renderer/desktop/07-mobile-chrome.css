@@ -1479,3 +1479,72 @@ html[data-mixdog-mobile-tabs] :is(.studio-detail-stage-close, .studio-detail-nav
   width: var(--mx-touch-glyph-main);
   height: var(--mx-touch-glyph-main);
 }
+
+/* Android phone app: "app update available" banner (AppUpdateBanner.tsx).
+   Toast skin, floated just under the phone tab strip over the transcript; the
+   renderer sets `top` from the strip, this fallback clears the status bar. */
+.mx-toast.app-update-banner {
+  position: fixed;
+  z-index: var(--mx-toast-z-index, 300);
+  top: calc(86px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  width: auto;
+  max-width: none;
+  border-radius: var(--mx-radius-xl);
+}
+.app-update-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+.app-update-copy > b {
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+.app-update-sub {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
+}
+.app-update-meter {
+  height: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-meter-track);
+}
+.app-update-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mx-text-accent);
+}
+.app-update-meter[data-done] > i {
+  background: var(--mx-success);
+}
+.app-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.app-update-actions .mx-button {
+  min-height: 36px;
+}
+.app-update-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  font-size: 16px;
+  line-height: 20px;
+  cursor: pointer;
+}
