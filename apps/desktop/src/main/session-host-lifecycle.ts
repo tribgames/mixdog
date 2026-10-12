@@ -445,6 +445,17 @@ export class SessionHostLifecycle {
     }
   }
 
+  /** Generated titles are advisory after durable acceptance. Keep metadata
+   *  load/repair errors local; explicit metadata mutations remain strict. */
+  private async rememberAcceptedTaskTitle(sessionId: string, title: string): Promise<void> {
+    try {
+      await this.owner.sessionMetadata.load();
+      this.owner.sessionMetadata.rememberGeneratedTitle(sessionId, title);
+    } catch (error) {
+      console.warn('[mixdog-session] Could not update generated title after task acceptance:', error);
+    }
+  }
+
   private async createNewTask(
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions,
@@ -482,10 +493,11 @@ export class SessionHostLifecycle {
           throw new Error(String(goalValue?.message || 'Goal could not be created.'));
         }
         const objective = String(goal?.objective || goalCommand).trim();
-        await this.owner.sessionMetadata.load();
-        this.owner.sessionMetadata.rememberGeneratedTitle(sessionId, objective);
-        this.owner.pendingCatalogSessionIds.delete(sessionId);
+        // Persist the authoritative outcome before optional title work.
+        // A receipt failure must still reject and retain the stable retry id.
         await request.commit('accepted');
+        await this.rememberAcceptedTaskTitle(sessionId, objective);
+        this.owner.pendingCatalogSessionIds.delete(sessionId);
         void this.owner.publishCatalogs();
         return { accepted: true, sessionId, snapshot: goalResult.snapshot };
       }
@@ -513,11 +525,10 @@ export class SessionHostLifecycle {
         await this.owner.client.unsubscribe({ sessionId }, this.owner.callOptions()).catch(() => ({}));
         return { accepted: false, sessionId: '', snapshot: null };
       }
-      if (registeredProject) await this.owner.touchProject(registeredProject);
-      await this.owner.sessionMetadata.load();
-      this.owner.sessionMetadata.rememberGeneratedTitle(sessionId, promptTitle(prompt, options.displayText || ''));
-      this.owner.pendingCatalogSessionIds.delete(sessionId);
       await request.commit('accepted');
+      if (registeredProject) await this.owner.touchProject(registeredProject);
+      await this.rememberAcceptedTaskTitle(sessionId, promptTitle(prompt, options.displayText || ''));
+      this.owner.pendingCatalogSessionIds.delete(sessionId);
       void this.owner.publishCatalogs();
       return { accepted: true, sessionId, snapshot };
     } catch (error) {
