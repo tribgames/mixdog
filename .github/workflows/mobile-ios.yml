@@ -1,18 +1,17 @@
-# Mixdog iOS app: creates a short-lived Apple Distribution certificate and App
-# Store profiles through the App Store Connect API key (nothing is stored in
-# the repo), archives, and uploads the build to TestFlight. Deploy calls it with
-# every release whose mobile sources changed (see scripts/mobile-release.mjs);
-# it also runs on mobile-v* tags and by hand.
+# Mixdog iOS app: signs with the one long-lived Apple Distribution certificate
+# kept in the repository secrets (.p12), fetches or creates the App Store
+# profiles bound to it through the App Store Connect API key, archives, and
+# uploads the build to TestFlight. Deploy calls it with every release whose
+# mobile sources changed (see scripts/mobile-release.mjs); it also runs on
+# mobile-v* tags and by hand.
 #
-# Revocation is deferred to the next run: App Store Connect processes the
-# upload asynchronously, and a certificate revoked right after the upload fails
-# that processing (ITMS-90035 Invalid Signature). This run's certificate and
-# profile ids are uploaded as the ios-ci-signing-state artifact
-# (ios-signing-state.json; artifacts, unlike caches, are shared across tag
-# runs), and the next run downloads the newest one through the API and revokes
-# exactly those ids at the start of `ios-ci-signing.py setup`.
+# Runs never create or revoke certificates. A run warns when the certificate
+# expires within 30 days and fails once it has; renew it with
+# `python3 apps/mobile/scripts/ios-ci-signing.py issue` (apps/mobile/README.md).
 #
-# Secrets: APPLE_API_KEY_P8, APPLE_API_KEY_ID, APPLE_API_ISSUER.
+# Secrets: APPLE_API_KEY_P8, APPLE_API_KEY_ID, APPLE_API_ISSUER,
+# IOS_DIST_P12_BASE64 (base64 .p12: certificate + private key),
+# IOS_DIST_P12_PASSWORD.
 # Team Q6C35DQU78, App Store Connect app 6821430566, bundle io.mixdog.app with
 # the Notification Service Extension io.mixdog.app.NotificationService (created
 # on first run by -allowProvisioningUpdates). See apps/mobile/README.md.
@@ -62,12 +61,15 @@ on:
         required: false
       APPLE_API_ISSUER:
         required: false
+      IOS_DIST_P12_BASE64:
+        required: false
+      IOS_DIST_P12_PASSWORD:
+        required: false
       TESTFLIGHT_EXTERNAL_GROUP_ID:
         required: false
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: mobile-ios-signing
@@ -149,38 +151,42 @@ jobs:
           chmod 600 "$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
           echo "ASC_KEY_PATH=$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8" >> "$GITHUB_ENV"
 
-      - name: Restore previous run's signing ids
+      - name: Distribution certificate
         env:
-          GH_TOKEN: ${{ github.token }}
+          IOS_DIST_P12_BASE64: ${{ secrets.IOS_DIST_P12_BASE64 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
         run: |
           set -euo pipefail
-          # Newest non-expired artifact; none (first run) means nothing to revoke.
-          url="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=ios-ci-signing-state&per_page=1" \
-            --jq '.artifacts[] | select(.expired | not) | .archive_download_url')"
-          if [ -n "$url" ]; then
-            gh api "$url" > "$RUNNER_TEMP/ios-ci-previous.zip"
-            unzip -oq "$RUNNER_TEMP/ios-ci-previous.zip" ios-signing-state.json -d "$RUNNER_TEMP"
-            rm -f "$RUNNER_TEMP/ios-ci-previous.zip"
-          fi
+          for name in IOS_DIST_P12_BASE64 IOS_DIST_P12_PASSWORD; do
+            if [ -z "${!name}" ]; then echo "Missing secret $name" >&2; exit 1; fi
+          done
+          (umask 077; printf '%s' "$IOS_DIST_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12")
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography
 
-      - name: Short-lived distribution certificate and profiles
+      - name: Check distribution certificate expiry
+        env:
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+        run: python3 scripts/ios-ci-signing.py check
+
+      - name: App Store profiles for the distribution certificate
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          set -euo pipefail
-          python3 -m pip install --quiet --break-system-packages pyjwt cryptography
-          python3 scripts/ios-ci-signing.py setup
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+        run: python3 scripts/ios-ci-signing.py setup
 
       - name: Signing keychain
+        env:
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
         run: |
           set -euo pipefail
           keychain="$RUNNER_TEMP/signing.keychain-db"
-          security create-keychain -p "$DIST_P12_PASSWORD" "$keychain"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$DIST_P12_PASSWORD" "$keychain"
-          security import "$DIST_P12_PATH" -P "$DIST_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$DIST_P12_PASSWORD" "$keychain" > /dev/null
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/dist.p12" -P "$IOS_DIST_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain"
 
@@ -252,26 +258,11 @@ jobs:
           echo "::error title=iOS TestFlight release failed::Mixdog iOS ${VERSION:-?} was not uploaded or not submitted for beta review. Desktop and Android releases are unaffected; re-run this job once the cause is fixed."
           printf '### iOS TestFlight release failed\n\nMixdog iOS %s was not uploaded or not submitted for beta review. Desktop and Android releases are unaffected; re-run this job once the cause is fixed.\n' "${VERSION:-?}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Remove local signing material (revocation is deferred to the next run)
-        id: signing-cleanup
+      - name: Remove signing keychain and .p12
         if: always()
         run: |
-          if [ -f "$RUNNER_TEMP/ios-signing-state.json" ]; then
-            echo "state=true" >> "$GITHUB_OUTPUT"
-            python3 scripts/ios-ci-signing.py cleanup
-          fi
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/dist.p12"
-
-      - name: Save signing ids for the next run to revoke
-        if: always() && steps.signing-cleanup.outputs.state == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ios-ci-signing-state
-          path: ${{ runner.temp }}/ios-signing-state.json
-          retention-days: 90
-          if-no-files-found: ignore
-          overwrite: true
 
       - name: Remove API key
         if: always()

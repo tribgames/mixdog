@@ -189,6 +189,8 @@ test('Deploy ships mobile with the release and the relay waits for the Android r
     'APPLE_API_ISSUER',
     'APPLE_API_KEY_ID',
     'APPLE_API_KEY_P8',
+    'IOS_DIST_P12_BASE64',
+    'IOS_DIST_P12_PASSWORD',
     'TESTFLIGHT_EXTERNAL_GROUP_ID',
   ]);
   assert.equal(deploy.jobs.release.with.mobile_version, '${{ needs.plan.outputs.mobile_version }}');

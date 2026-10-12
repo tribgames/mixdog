@@ -87,8 +87,13 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
   attaches it to the GitHub Release `mobile-vX.Y.Z` (created non-"latest" so the
   desktop updater is unaffected; tag and manual runs create a hidden draft).
 - `.github/workflows/mobile-ios.yml` — Deploy, tag `mobile-vX.Y.Z` or manual run.
-  Archives with automatic signing through the App Store Connect API key and
-  uploads to TestFlight. Build number = UTC `YYYYMMDDHHMM` of the run (rises
+  Signs with the one long-lived Apple Distribution certificate from the
+  `IOS_DIST_P12_*` secrets (imported into a temporary keychain), fetches or
+  creates the App Store profiles bound to it through the App Store Connect API
+  key (`scripts/ios-ci-signing.py`), archives and uploads to TestFlight. Runs
+  never create or revoke certificates; they warn 30 days before the certificate
+  expires and fail once it has (see *Renewing the iOS distribution certificate*).
+  Build number = UTC `YYYYMMDDHHMM` of the run (rises
   across Deploy, tag, manual runs and re-runs). Release builds use production
   APNs (`aps-environment` = `production`); Debug builds use `development` and the
   app then registers the token with `sandbox: true`.
@@ -107,6 +112,8 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
 | `APPLE_API_KEY_P8` | iOS | App Store Connect API key (`.p8` file text) |
 | `APPLE_API_KEY_ID` | iOS | its key id |
 | `APPLE_API_ISSUER` | iOS | issuer id |
+| `IOS_DIST_P12_BASE64` | iOS | base64 `.p12` of the Apple Distribution certificate + private key |
+| `IOS_DIST_P12_PASSWORD` | iOS | password of that `.p12` |
 | `ANDROID_KEYSTORE_B64` | Android | base64 of the release keystore |
 | `ANDROID_KEYSTORE_PASSWORD` | Android | keystore password |
 | `ANDROID_KEY_ALIAS` | Android | key alias (`mixdog`) |
@@ -116,11 +123,30 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
 Apple identifiers: team `Q6C35DQU78`, App Store Connect app `6821430566`, bundle
 `io.mixdog.app`, extension `io.mixdog.app.NotificationService`.
 
+### Renewing the iOS distribution certificate
+
+Create the certificate (first time, and again before it expires — Apple
+Distribution certificates last one year) from a machine with the App Store
+Connect API key and `gh` logged in with access to the repository secrets:
+
+```
+pip install pyjwt cryptography
+ASC_KEY_PATH=/path/to/AuthKey_<KEY_ID>.p8 APPLE_API_KEY_ID=<KEY_ID> APPLE_API_ISSUER=<ISSUER_ID> \
+  python3 apps/mobile/scripts/ios-ci-signing.py issue
+```
+
+It creates the certificate from a fresh key kept only in memory, prints its id
+and expiry, and sets `IOS_DIST_P12_BASE64` and `IOS_DIST_P12_PASSWORD`. The next
+run recreates the profiles for the new certificate. Revoke the replaced
+certificate only after App Store Connect has processed the last build signed
+with it (a revoked signature fails processing with ITMS-90035).
+
 ## One-time manual steps
 
-1. **Apple**: the App ID `io.mixdog.app` already has Push Notifications. The first
-   CI run creates the `io.mixdog.app.NotificationService` App ID and the profiles
-   (the API key needs the *App Manager*/*Admin* role). If it cannot, create the
+1. **Apple**: the App ID `io.mixdog.app` already has Push Notifications. Issue the
+   distribution certificate (*Renewing the iOS distribution certificate*); the
+   first CI run then creates the `io.mixdog.app.NotificationService` App ID and
+   the profiles (the API key needs the *App Manager*/*Admin* role). If it cannot, create the
    extension App ID in the developer portal by hand (no capabilities needed).
 2. **APNs key**: the host sender needs an APNs auth key (`.p8`) enabled for the
    team (sandbox and production); configure it on the host side — the phone app
