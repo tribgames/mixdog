@@ -3,6 +3,7 @@
 // progress, filtered by default to workers that can still do work.
 import { ACTIVE_STAGES } from '../tool-def.mjs';
 import { isTerminalWorkerStatus } from '../worker-rows.mjs';
+import { sessionUsageTotals } from '../../../../runtime/shared/session-usage-totals.mjs';
 
 // Idle, closed, errored and reaped/unknown rows are history and stay reachable
 // through the task section (status/read keep their terminal result).
@@ -52,6 +53,7 @@ function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
     clientHostPid: session.clientHostPid || null,
     lastStreamDeltaAt: runtime?.lastStreamDeltaAt ? new Date(runtime.lastStreamDeltaAt).toISOString() : null,
     staleSeconds: runtime?.lastStreamDeltaAt ? Math.floor((now - runtime.lastStreamDeltaAt) / 1000) : null,
+    ...sessionUsageTotals(session),
     windowTokens: Number(session.lastContextTokens ?? session.lastInputTokens) || 0,
     windowCap: Number(session.contextWindow) || null,
     permission: session.permission || null,

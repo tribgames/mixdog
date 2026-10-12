@@ -390,6 +390,7 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
     accumulateSessionUsage(session, {
       deltaInput: result.usage.inputTokens || 0,
       deltaOutput: result.usage.outputTokens || 0,
+      deltaToolCalls: result.toolCallsTotal || 0,
       ...reasoningUsage(result.usage),
       deltaCachedRead: result.usage.cachedTokens || 0,
       deltaCacheWrite: result.usage.cacheWriteTokens || 0,
@@ -465,6 +466,7 @@ function accumulateSessionUsage(session, delta) {
       : uncachedInputTokensForProvider(session.provider, deltaInput, deltaCachedRead, deltaCacheWrite);
   session.totalInputTokens = (session.totalInputTokens || 0) + (deltaInput || 0);
   session.totalOutputTokens = (session.totalOutputTokens || 0) + (deltaOutput || 0);
+  session.totalToolCalls = (session.totalToolCalls || 0) + (delta.deltaToolCalls || 0);
   session.tokensCumulative = (session.tokensCumulative || 0) + (deltaInput || 0) + (deltaOutput || 0);
   session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (deltaCachedRead || 0);
   session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (deltaCacheWrite || 0);

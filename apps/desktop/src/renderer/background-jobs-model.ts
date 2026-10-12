@@ -105,6 +105,8 @@ export function backgroundJobRows(snapshot: Snapshot, dismissed: ReadonlySet<str
         cwd: null,
         clientHostPid: null,
         taskId: null,
+        usage: agent.usage,
+        toolCalls: agent.toolCalls,
       } satisfies DesktopAgentPoolRow,
     }))
     .sort((a, b) => jobRowRank(a) - jobRowRank(b));

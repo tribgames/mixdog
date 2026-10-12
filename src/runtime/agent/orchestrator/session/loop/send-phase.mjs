@@ -375,6 +375,7 @@ export function settleSendResult(state, round, sent) {
             model: response.model || model,
             usage: reportedUsage,
             sendTools: round.sendTools,
+            toolCalls: response.toolCalls?.length || 0,
           })
         )
       );

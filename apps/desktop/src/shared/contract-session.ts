@@ -96,6 +96,16 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   cwd: string | null;
   clientHostPid: number | null;
   taskId: string | null;
+  /** Cumulative token usage over the agent session's turns so far; null when unknown. */
+  usage?: DesktopAgentPoolUsage | null;
+  /** Cumulative tool calls the agent session has made; null when unknown. */
+  toolCalls?: number | null;
+}
+
+export interface DesktopAgentPoolUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 
 export interface DesktopActiveToolState {

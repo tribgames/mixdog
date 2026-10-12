@@ -146,6 +146,7 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     lastHeartbeatAt: null,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalToolCalls: 0,
     // Refreshed on each completed ask() — surfaced by agent type=list for
     // debugging + consumed by store.mjs's idle-sweep to reclaim stalled
     // agent sessions past RUNNING_STALL_MS.

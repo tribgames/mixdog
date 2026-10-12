@@ -40,6 +40,7 @@ export function usageDeltaEvent({
   model,
   usage,
   sendTools,
+  toolCalls = 0,
 }) {
   return {
     sessionId,
@@ -51,6 +52,8 @@ export function usageDeltaEvent({
     usageMetricsEpoch,
     deltaInput: usage.inputTokens || 0,
     deltaOutput: usage.outputTokens || 0,
+    // Tool calls this response dispatched; the session's cumulative count.
+    deltaToolCalls: toolCalls,
     ...reasoningUsage(usage),
     deltaPrompt: usage.promptTokens || 0,
     // Cache delta carried alongside input/output so live metrics reflect
