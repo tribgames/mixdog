@@ -92,10 +92,10 @@ function sameGuideState(a: GuideState, b: GuideState): boolean {
   );
 }
 
-/** The config file is the durable copy (the renderer's localStorage can be
- *  lost); localStorage stays as the fast local one. */
 type GuideApi = Window['mixdogDesktop'] | undefined;
 
+/** The config file is the durable copy (the renderer's localStorage can be
+ *  lost); localStorage stays as the fast local one. */
 function writeLocalGuideState(state: GuideState): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -444,8 +444,7 @@ export function StarterGuide({
     }
   }, [api, finished, loading, diskRead]);
 
-  // An open checklist folds away when anything outside the guide is pressed
-  // (user: 시작 가이드 버튼 다른 영역 누르면 닫히는 형태로).
+  // An open checklist folds away when anything outside the guide is pressed.
   useEffect(() => {
     if (!expanded) return undefined;
     const onPointerDown = (event: PointerEvent) => {

@@ -659,9 +659,9 @@ async function submitNewMcp(name) {
   document.querySelector('[name="mcp-name"]').value = name;
   document.querySelector('[name="mcp-command"]').value = 'example';
   await act(async () => {
-    document.querySelector('.extensions-mcp-dialog form').dispatchEvent(
-      new window.Event('submit', { bubbles: true, cancelable: true })
-    );
+    document
+      .querySelector('.extensions-mcp-dialog form')
+      .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   });
 }
 

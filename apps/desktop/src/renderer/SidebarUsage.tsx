@@ -45,26 +45,30 @@ function timestamp(value: unknown): number | null {
   return parsed < 1_000_000_000_000 ? parsed * 1_000 : parsed;
 }
 
+/** Subscriptions matched by row id or label whatever the row's group. */
+const ROW_MATCHERS: Record<string, (id: string, label: string) => boolean> = {
+  'opencode-go': (id, label) => id === 'opencode-go' || label.includes('opencode go'),
+  cursor: (id, label) => id === 'cursor-oauth' || label.includes('cursor oauth'),
+  antigravity: (id, label) => id === 'antigravity-oauth' || label.includes('antigravity'),
+};
+
+/** Subscriptions matched inside the `oauth` group by id/label text. */
+const OAUTH_ROW_PATTERNS: Record<string, RegExp> = {
+  codex: /openai|codex/,
+  claude: /anthropic|claude/,
+  grok: /grok|xai/,
+};
+
 function subscriptionRow(dashboard: unknown, subscription: Subscription): UsageRecord {
   return (
     rows(dashboard).find((row) => {
       const id = String(row.id || '').toLowerCase();
       const label = String(row.label || '').toLowerCase();
-      const group = String(row.group || '').toLowerCase();
-      if (subscription.key === 'opencode-go') {
-        return id === 'opencode-go' || label.includes('opencode go');
-      }
-      if (subscription.key === 'cursor') {
-        return id === 'cursor-oauth' || label.includes('cursor oauth');
-      }
-      if (subscription.key === 'antigravity') {
-        return id === 'antigravity-oauth' || label.includes('antigravity');
-      }
-      if (group !== 'oauth') return false;
-      if (subscription.key === 'codex') return /openai|codex/.test(`${id} ${label}`);
-      if (subscription.key === 'claude') return /anthropic|claude/.test(`${id} ${label}`);
-      if (subscription.key === 'grok') return /grok|xai/.test(`${id} ${label}`);
-      return id === subscription.provider;
+      const matcher = ROW_MATCHERS[subscription.key];
+      if (matcher) return matcher(id, label);
+      if (String(row.group || '').toLowerCase() !== 'oauth') return false;
+      const pattern = OAUTH_ROW_PATTERNS[subscription.key];
+      return pattern ? pattern.test(`${id} ${label}`) : id === subscription.provider;
     }) || {}
   );
 }
@@ -102,10 +106,6 @@ function usedPercent(window: UsageRecord): number | null {
   return value === null ? null : Math.max(0, Math.min(100, value));
 }
 
-/** Rail pin mode (user: 핀모드): one entry per brand that has quota data —
- *  its icon plus the final quota window's usage, picked by longest period:
- *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
- *  the provider's final entry. */
 interface UsagePinEntry {
   key: string;
   label: string;
@@ -137,6 +137,10 @@ function pinPercent(windows: UsageRecord[], provider: string): number | null {
   return candidates[candidates.length - 1].percent;
 }
 
+/** Rail pin mode: one entry per brand that has quota data —
+ *  its icon plus the final quota window's usage, picked by longest period:
+ *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
+ *  the provider's final entry. */
 export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
     const percent = pinPercent(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);
@@ -152,8 +156,8 @@ export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   });
 }
 
-// Tidied schedule copy (user: 리셋시간 문구 정리): lowercase duration units
-// read as time, not as quota-window labels (5H/W/M stay uppercase).
+// Lowercase duration units read as time, not as quota-window labels
+// (5H/W/M stay uppercase).
 function resetSchedule(value: unknown): { state: 'due' | 'soon' | 'in' | ''; time: string } {
   const resetAt = timestamp(value);
   if (resetAt === null) return { state: '', time: '' };
@@ -177,9 +181,9 @@ function resetExpiryText(value: unknown): string {
   return schedule.state === 'soon' ? t('Expires soon') : '';
 }
 
-/** Every quota window carries its OWN schedule (user: 각각 항목마다 초기화시간
- *  개별로 하나씩): a compact duration that closes the meter row after the
- *  percentage, with the full sentence kept in the row tooltip.
+/** Every quota window carries its OWN schedule: a compact duration that closes
+ *  the meter row after the percentage, with the full sentence kept in the row
+ *  tooltip.
  *  The duration units are notation, not prose, so they stay untranslated like
  *  the 5d/13h reading itself. */
 function resetShortText(value: unknown): string {
@@ -193,8 +197,12 @@ function resetCredits(row: UsageRecord): UsageRecord {
   return record(row.resetCredits);
 }
 
+function availableResetCount(value: UsageRecord): number {
+  return Math.max(0, Math.floor(number(value.availableCount) || 0));
+}
+
 function availableResetCredits(value: UsageRecord): UsageRecord[] {
-  const availableCount = Math.max(0, Math.floor(number(value.availableCount) || 0));
+  const availableCount = availableResetCount(value);
   const credits = (Array.isArray(value.availableCredits) ? value.availableCredits : [])
     .map(record)
     .sort(
@@ -326,7 +334,7 @@ export function SidebarUsage({
   api?: UsageApi;
   sidebarOpen?: boolean;
   /** Rail pin mode: the header toggle swaps the rail's pie glyph for the
-   *  per-brand icon + % stack (user: 핀모드). */
+   *  per-brand icon + % stack. */
   pinned?: boolean;
   onTogglePin?(): void;
   /** Opens the usage surface: this panel answers what is LEFT, that one how
@@ -409,7 +417,7 @@ export function SidebarUsage({
   // concrete row remains afterward.
   const codexRow = subscriptionRow(dashboard, SUBSCRIPTIONS[0]);
   const codexResetCredits = resetCredits(codexRow);
-  const codexResetCount = Math.max(0, Math.floor(number(codexResetCredits.availableCount) || 0));
+  const codexResetCount = availableResetCount(codexResetCredits);
   const codexResetRows = availableResetCredits(codexResetCredits);
   const codexResetKeys = codexResetRows.map(resetCreditKey);
   const codexResetKeySignature = codexResetKeys.join('\u0000');

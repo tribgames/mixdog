@@ -212,8 +212,7 @@ test('the context card offers inheritance only after the selected model changes'
     await act(async () => {
       document.querySelector('.context-inherit').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     });
-    // No dialog stands between the button and the handover (user: 팝업 안 뜨고
-    // 바로 진행되게): one click carries the source session on its own route.
+    // No dialog stands between the button and the handover: one click carries the source session on its own route.
     assert.deepEqual(inherited, [
       {
         sourceSessionId: 'lead-inherit',
@@ -1050,10 +1049,12 @@ test('Korean Agents pane shows unread completion and idle after reading, regardl
     assert.equal(status.textContent, text);
   };
   const setShellCounts = async (lead, worker) => {
-    pool = pool.map((entry) => ({
-      ...entry,
-      shellJobCount: entry.sessionId === 'lead-shell' ? lead : entry.sessionId === 'worker-shell' ? worker : 0,
-    }));
+    const shellJobCount = (sessionId) => {
+      if (sessionId === 'lead-shell') return lead;
+      if (sessionId === 'worker-shell') return worker;
+      return 0;
+    };
+    pool = pool.map((entry) => ({ ...entry, shellJobCount: shellJobCount(entry.sessionId) }));
     await act(async () => push(pool));
   };
   try {
@@ -1353,7 +1354,13 @@ test('cancellation is its own lifecycle state, never queued, running, done or id
 test('a live turn blocked on a user approval needs the user, never running', () => {
   // The row shape the runtime status producer publishes while a PreToolUse
   // `ask` waits for the user (agent-list / job-views awaitingUser).
-  const blocked = { tag: 'review', agent: 'reviewer', status: 'running', stage: 'tool_running', awaitingUser: 'approval' };
+  const blocked = {
+    tag: 'review',
+    agent: 'reviewer',
+    status: 'running',
+    stage: 'tool_running',
+    awaitingUser: 'approval',
+  };
   assert.equal(desktopAgentActivityState(blocked), 'needs-user');
   assert.equal(desktopAgentActivityState(blocked, { waitingForTasks: true }), 'needs-user');
   // Only a live turn can be blocked; a cancel still outranks it.

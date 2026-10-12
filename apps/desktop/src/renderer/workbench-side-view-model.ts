@@ -6,8 +6,7 @@ export type WorkbenchSide = 'left' | 'right';
 /** Browser Use and Terminal are session-owned pane-dock child views. Their
  *  header icons select persistent surfaces stacked over the classic panel.
  *  Studio is no rail view at all: it opens as a workspace tab from the
- *  Sessions panel's fixed launcher rows (user: 세션 위에 새 작업·새 스튜디오
- *  고정), so a stored rail order still carrying the retired `studio` id
+ *  Sessions panel's fixed launcher rows, so a stored rail order still carrying the retired `studio` id
  *  drops it on load like any other unknown id. */
 export type WorkbenchSideViewId =
   | 'sessions'
@@ -30,7 +29,7 @@ type WorkbenchSideViewLayout = Readonly<Record<WorkbenchSide, readonly Workbench
 const WORKBENCH_SIDE_LAYOUT_KEY = 'mixdog.desktop.workbench-side-view-layout.v1';
 /** The rail order and the pane-scoped right side replace every earlier
  *  placement rule, so one shot drops the stored arrangement instead of
- *  patching it (user: 기본값 내 설정값도 바꿔주고). */
+ *  patching it. */
 const PANE_BOUND_RIGHT_MIGRATION_KEY = 'mixdog.desktop.workbench-side-view-layout.pane-bound-right.v1';
 const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   'sessions',
@@ -50,8 +49,7 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
 ];
 
 /** The left rail carries Project-wide destinations, including Source Control.
- *  The right side belongs to the PANE (user: 오른쪽 사이드탭은 이제 PANE
- *  종속이라): session Diff and session-owned surfaces lead, while legacy
+ *  The right side belongs to the PANE: session Diff and session-owned surfaces lead, while legacy
  *  Pull Requests remains available behind its feature flag. */
 const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
   left: [
@@ -99,8 +97,7 @@ export function normalizeWorkbenchSideViewLayout(
   // The right side belongs to the pane and cannot be rearranged, so only the
   // views that ship there may stay there. A stored placement from before a
   // view moved rails (Source Control, Search…) re-seats on the left in default
-  // order instead of lingering on the right forever (user: 소스컨트롤은 왼쪽
-  // 사이드탭으로 이동해야하고).
+  // order instead of lingering on the right forever.
   const paneBound = new Set(DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT.right.flat());
   const normalizeSide = (side: WorkbenchSide): WorkbenchSideViewId[][] => {
     const groups: WorkbenchSideViewId[][] = [];
@@ -155,8 +152,7 @@ function locateGroup(
 }
 
 /**
- * Rearranging is a LEFT-side gesture only (user: 이제 오른쪽 사이드탭으로는
- * 이동불가하게하고 왼쪽에서만 이동가능하게). The right side ships with the
+ * Rearranging is a LEFT-side gesture only. The right side ships with the
  * views its pane drives, so a move that starts there or lands there is a no-op.
  */
 function movableWithinLeft(
@@ -228,13 +224,12 @@ export function moveWorkbenchSideView(
 }
 
 /** The left drawer's home destination: Agents whenever the rail carries it
- *  (user: 재부팅하면 에이전트 디폴트로 — 세션이 선택되어 있음), regardless of
+ *  after a reboot, regardless of
  *  where a stored rail order happens to place it. */
 const LEFT_HOME_VIEW: WorkbenchSideViewId = 'agents';
 
 /**
- * First active view per side. No last-visited view survives a reload (user:
- * 좌·우·하단 도크 전부 첫 메뉴로 초기화) — the dock tab and the bottom panel
+ * First active view per side. No last-visited view survives a reload — the dock tab and the bottom panel
  * drop their persisted selection for the same reason — so every reconnect
  * lands on one predictable entry point per edge: the left opens on Agents
  * when present (else its leading group), the right on the group that leads

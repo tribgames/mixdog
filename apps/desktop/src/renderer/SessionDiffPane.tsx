@@ -29,7 +29,7 @@ function sessionDiffSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
 
 /** Every state renders inside the same flex-column frame, so an empty, loading
  *  or failed pane centres its message on both axes exactly like the other
- *  dock panes (user: 비어있을때 문구는 상하정렬). */
+ *  dock panes. */
 function SessionDiffFrame({
   children,
   onKeyDown,
@@ -144,7 +144,6 @@ export function SessionDiffPane({
   // one opens straight on its diff.
   const [listChoice, setListChoice] = useState<boolean | null>(null);
   const listOpen = listChoice ?? rows.length > 1;
-  const setListOpen = setListChoice;
   // Latch the choice when the first files arrive: a later file-count change
   // (1→2, 2→1) must not flip a view the user is already looking at.
   useEffect(() => {
@@ -218,7 +217,7 @@ export function SessionDiffPane({
           className="session-diff-back"
           aria-label={t('Back to changed files')}
           data-tooltip={t('Back to changed files')}
-          onClick={() => setListOpen(true)}
+          onClick={() => setListChoice(true)}
         >
           <ChevronLeft size={15} aria-hidden="true" />
         </button>
@@ -343,7 +342,7 @@ export function SessionDiffPane({
         if (event.key !== 'Escape' || !inDiff || event.defaultPrevented) return;
         event.preventDefault();
         event.stopPropagation();
-        setListOpen(true);
+        setListChoice(true);
       }}
     >
       {header}
@@ -353,18 +352,14 @@ export function SessionDiffPane({
         <p className="utility-dock-empty">{t('No changes from this session.')}</p>
       ) : inDiff && current ? (
         <div className="session-diff-body">
-          <FileDiffBody
-            key={current.path}
-            patch={current.parts.map((part) => part.patch).join('\n')}
-            mode={viewMode}
-          />
+          <FileDiffBody key={current.path} patch={current.parts.map((part) => part.patch).join('\n')} mode={viewMode} />
         </div>
       ) : (
         <SessionDiffFiles
           rows={rows}
           onSelect={(path) => {
             setSelectedPath(path);
-            setListOpen(false);
+            setListChoice(false);
           }}
         />
       )}

@@ -49,7 +49,7 @@ function sameNavigationTarget(left: PaneSideDockDiff, right: PaneSideDockDiff): 
 /** The Session Diff rows' open file, per session: it never enters the pane's
  *  own dock entry, so another session in the same pane sees the pane exactly
  *  as it was (closed stays closed) and the diff column returns with its
- *  session (user: 세션 종속이라 다른 쪽으로 넘어가면 그 세션 기본값으로). */
+ *  session. */
 export function withSessionDiff(
   current: ReadonlyMap<string, PaneSideDockDiff>,
   sessionId: string,
@@ -61,9 +61,11 @@ export function withSessionDiff(
 /** Session-owned classic panel views: today only the Session Diff list. The
  *  browser and terminal ride `SessionSideSurface` above; the diff FILE rides
  *  `withSessionDiff`. The list used to live in the pane entry itself, so it
- *  leaked across sessions in the same pane (user: 다른 세션으로 넘어가면 그
- *  세션 기본값으로 — 안 열려 있었으면 닫아줘야). */
+ *  leaked across sessions in the same pane. */
 export type SessionSidePanelView = 'session-diff' | 'background-jobs';
+
+export const isSessionSidePanelView = (view: unknown): view is SessionSidePanelView =>
+  view === 'session-diff' || view === 'background-jobs';
 
 export function withSessionPanelView(
   current: ReadonlyMap<string, SessionSidePanelView>,
@@ -120,9 +122,8 @@ export function sessionSideDockEntryForSession(
   }
   if (base.surface !== PANE_DOCK_BROWSER_SURFACE && base.surface !== PANE_DOCK_TERMINAL_SURFACE) {
     // A session-owned view never leaks across sessions: a pane showing
-    // Session Diff for one session folds for a session that never opened it
-    // (user: 거기 안 열려 있었으면 닫아줘야).
-    if (sessionId && (base.view === 'session-diff' || base.view === 'background-jobs')) {
+    // Session Diff for one session folds for a session that never opened it.
+    if (sessionId && isSessionSidePanelView(base.view)) {
       if (!base.open && base.surface === '') return base;
       return { ...base, open: false, surface: '' };
     }

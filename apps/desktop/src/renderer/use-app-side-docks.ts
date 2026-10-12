@@ -15,7 +15,7 @@ import {
   type WorkbenchSideViewId,
 } from './workbench-side-view-layout';
 import { usePaneSideDocks, type PaneSideDockDiff } from './pane-side-dock';
-import { sessionSideDockEntryForSession } from './session-side-surface-policy';
+import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
 import { useStableEvent } from './use-stable-event';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
@@ -126,7 +126,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       selectedPanelView === null &&
       selectedSurface === null &&
       rawEntry.surface === '' &&
-      (rawEntry.view === 'session-diff' || rawEntry.view === 'background-jobs')
+      isSessionSidePanelView(rawEntry.view)
     ) {
       setSessionPanelView(sessionId, rawEntry.view);
       paneSideDocks.setOpen(leafId, true);

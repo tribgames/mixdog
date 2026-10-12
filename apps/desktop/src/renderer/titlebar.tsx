@@ -11,7 +11,6 @@ import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { RemotePcSwitcher } from './RemotePcSwitcher';
 import { ProgressSpinner } from './ProgressSpinner';
-
 import { useWhatsNewNotice } from './settings/use-whats-new-notice';
 
 interface DesktopTitlebarProps {

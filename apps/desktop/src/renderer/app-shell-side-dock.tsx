@@ -14,7 +14,7 @@ import { t } from './i18n';
 import { sideFileDirtyKey, type createSideFileGuard } from './side-file-guard';
 import { sideFileKey } from './side-file-tabs';
 import type { EditorSaveHandle } from './use-pane-tab-close';
-import { sessionSideDockEntryForSession } from './session-side-surface-policy';
+import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
 import { SessionBrowserSlot } from './session-browser-surfaces';
 import { SessionTerminalSlot } from './session-terminal-surfaces';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
@@ -208,7 +208,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
       renderView={(id, viewActive, titleDragProps) =>
         context.renderRightView(
           id,
-          id === 'session-diff' || id === 'background-jobs' ? viewActive && entry.surface === '' : viewActive,
+          isSessionSidePanelView(id) ? viewActive && entry.surface === '' : viewActive,
           titleDragProps,
           {
             leafId: leaf.id,

@@ -370,12 +370,14 @@ test('nothing shows until the config copy has been read', async (t) => {
   resetSidebarReferenceCache();
   let release;
   window.mixdogDesktop = {
-    invokeCapability: ({ capability }) =>
-      capability === 'getOnboardingStatus'
-        ? new Promise((resolve) => {
-            release = () => resolve({ value: { starterGuide: { closed: true, welcomed: true, visited: [] } } });
-          })
-        : Promise.resolve({ value: capability === 'getProviderSetup' ? { api: [], oauth: [] } : {} }),
+    invokeCapability: ({ capability }) => {
+      if (capability === 'getOnboardingStatus') {
+        return new Promise((resolve) => {
+          release = () => resolve({ value: { starterGuide: { closed: true, welcomed: true, visited: [] } } });
+        });
+      }
+      return Promise.resolve({ value: capability === 'getProviderSetup' ? { api: [], oauth: [] } : {} });
+    },
     listProjects: async () => [],
   };
   const container = document.createElement('div');

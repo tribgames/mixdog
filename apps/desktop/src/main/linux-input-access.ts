@@ -74,12 +74,21 @@ let inFlight: Promise<LinuxInputAccessResult> | null = null;
 async function repair(deps: LinuxInputAccessDeps): Promise<LinuxInputAccessResult> {
   const status = await deps.runPkexec(INSTALL_SCRIPT);
   if (status === 'missing') {
-    return { ok: false, reason: 'pkexec_missing', message: 'pkexec (polkit) is not installed, so the /dev/uinput access rule cannot be installed from here.' };
+    return {
+      ok: false,
+      reason: 'pkexec_missing',
+      message: 'pkexec (polkit) is not installed, so the /dev/uinput access rule cannot be installed from here.',
+    };
   }
   // pkexec exits 126 when the user dismisses the dialog or is not authorized.
   if (status === 126) return { ok: false, reason: 'cancelled', message: 'Authorization was cancelled or denied.' };
   if (status !== 0) {
-    return { ok: false, reason: 'failed', exitCode: status, message: `The repair script failed (exit ${status}); the /dev/uinput access rule was not applied.` };
+    return {
+      ok: false,
+      reason: 'failed',
+      exitCode: status,
+      message: `The repair script failed (exit ${status}); the /dev/uinput access rule was not applied.`,
+    };
   }
   // A clean exit is not proof: confirm the signed-in user can really open the device.
   for (let attempt = 0; attempt < RECHECK_ATTEMPTS; attempt += 1) {

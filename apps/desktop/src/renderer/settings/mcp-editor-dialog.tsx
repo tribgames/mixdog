@@ -211,7 +211,7 @@ export function McpEditorDialog({
   takenNames?: string[];
   onClose(): void;
   /** A returned promise keeps the dialog open: its rejection shows in the form. */
-  onSave(payload: RecordValue): void | Promise<unknown>;
+  onSave(payload: RecordValue): unknown;
   onToggle?(): void;
   onRemove?(): void;
 }) {
@@ -251,6 +251,7 @@ export function McpEditorDialog({
         event.preventDefault();
         if (autoDetect) return;
         const data = new FormData(event.currentTarget);
+        const fail = (error: unknown) => setFormError(error instanceof Error ? error.message : String(error));
         try {
           const payload: RecordValue = {
             ...(editing ? { originalName: name } : {}),
@@ -273,10 +274,9 @@ export function McpEditorDialog({
             payload.env_http_headers = mcpPairRecord(envHeaders, t('Environment-backed headers'));
           }
           setFormError('');
-          const failure = (error: unknown) => setFormError(error instanceof Error ? error.message : String(error));
-          void Promise.resolve(onSave(payload)).catch(failure);
+          void Promise.resolve(onSave(payload)).catch(fail);
         } catch (error) {
-          setFormError(error instanceof Error ? error.message : String(error));
+          fail(error);
         }
       }}
       footer={

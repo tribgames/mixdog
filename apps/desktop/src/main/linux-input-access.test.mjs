@@ -43,7 +43,9 @@ test('one privileged script installs the rule and module config, then reloads ud
   assert.match(INSTALL_SCRIPT, /KERNEL=="uinput", SUBSYSTEM=="misc", TAG\+="uaccess", OPTIONS\+="static_node=uinput"/);
   assert.match(INSTALL_SCRIPT, /> \/etc\/udev\/rules\.d\/70-mixdog-uinput\.rules/);
   assert.match(INSTALL_SCRIPT, /> \/etc\/modules-load\.d\/mixdog-uinput\.conf/);
-  const order = ['modprobe uinput', 'udevadm control --reload', 'udevadm trigger'].map((part) => INSTALL_SCRIPT.indexOf(part));
+  const order = ['modprobe uinput', 'udevadm control --reload', 'udevadm trigger'].map((part) =>
+    INSTALL_SCRIPT.indexOf(part)
+  );
   assert.ok(order.every((index) => index > 0) && order[0] < order[1] && order[1] < order[2]);
 });
 
