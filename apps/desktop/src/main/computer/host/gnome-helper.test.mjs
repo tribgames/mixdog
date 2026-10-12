@@ -161,3 +161,27 @@ test('the indicator is one SetIndicator call with the spec as a GVariant string,
   assert.equal(calls[0][10], '--');
   assert.deepEqual(JSON.parse(calls[0][11].slice(1, -1)), { visible: true, title: '컴퓨터 사용 중', hint: 'Stop Ctrl+Alt+Esc' });
 });
+
+test('every screenshot gets its own file and is read only after the shell call has finished writing it', async () => {
+  const events = [];
+  let id = 0;
+  const deps = {
+    run: async (args) => {
+      events.push(`run ${args.at(-1)}`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      events.push('written');
+      return '';
+    },
+    runtimeDir: '/run/user/1000',
+    newId: () => `id${++id}`,
+    read: (path) => (events.push(`read ${path}`), Buffer.from(path)),
+    remove: (path) => events.push(`remove ${path}`),
+  };
+  const first = await gnomeShellScreenshot({ kind: 'stage' }, deps);
+  const second = await gnomeShellScreenshot({ kind: 'stage' }, deps);
+  assert.notEqual(String(first), String(second), 'a later shot can never be served from an earlier shot\'s file');
+  assert.deepEqual(events.filter((event) => !event.startsWith('run ')), [
+    'written', 'read /run/user/1000/mixdog-shot-id1.png', 'remove /run/user/1000/mixdog-shot-id1.png',
+    'written', 'read /run/user/1000/mixdog-shot-id2.png', 'remove /run/user/1000/mixdog-shot-id2.png',
+  ]);
+});
