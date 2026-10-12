@@ -116,6 +116,16 @@ linux:
     - target: AppImage
     - target: deb
 deb:
+  # AppArmor profile + alternatives (electron-builder defaults) plus Mixdog's
+  # uinput udev/modprobe setup for Computer Use; see build/linux/*.tpl.
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
+  fpm:
+    - build/linux/70-mixdog-uinput.rules=/usr/lib/udev/rules.d/70-mixdog-uinput.rules
+    - build/linux/mixdog-uinput.conf=/usr/lib/modules-load.d/mixdog-uinput.conf
+  recommends:
+    - wl-clipboard
+    - tesseract-ocr
   depends:
     - libgtk-3-0
     - libnotify4

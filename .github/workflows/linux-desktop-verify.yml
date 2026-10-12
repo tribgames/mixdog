@@ -254,6 +254,48 @@ jobs:
           chmod +x apps/desktop/dist/*.AppImage
           xvfb-run -a --server-args="-screen 0 1440x900x24" \
             node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-*.AppImage smoke
+      - name: .deb Computer Use input setup (udev rule, modules-load, Recommends, install/purge)
+        timeout-minutes: 8
+        run: |
+          deb=$(ls apps/desktop/dist/*.deb)
+          pkg=$(dpkg-deb -f "$deb" Package)
+          # Recommends (not Depends) for the Computer Use helpers.
+          dpkg-deb -f "$deb" Recommends | tee deb-recommends.txt
+          grep -q 'wl-clipboard' deb-recommends.txt
+          grep -q 'tesseract-ocr' deb-recommends.txt
+          if dpkg-deb -f "$deb" Depends | grep -Eq 'wl-clipboard|tesseract-ocr'; then echo "must be Recommends, not Depends"; exit 1; fi
+          dpkg-deb -c "$deb" | tee deb-contents-uinput.txt | grep -E 'udev|modules-load'
+          grep -q 'usr/lib/udev/rules.d/70-mixdog-uinput.rules' deb-contents-uinput.txt
+          grep -q 'usr/lib/modules-load.d/mixdog-uinput.conf' deb-contents-uinput.txt
+          dpkg-deb -I "$deb" postinst | tee deb-postinst.txt
+          grep -q 'modprobe uinput' deb-postinst.txt
+          grep -q 'udevadm trigger --action=add --subsystem-match=misc --sysname-match=uinput' deb-postinst.txt
+          grep -q 'apparmor_parser' deb-postinst.txt   # electron-builder AppArmor handling preserved
+          dpkg-deb -I "$deb" postrm | tee deb-postrm.txt
+          grep -q 'apparmor_parser --remove' deb-postrm.txt
+          sudo apt-get install -y "$deb"
+          rule=/usr/lib/udev/rules.d/70-mixdog-uinput.rules
+          conf=/usr/lib/modules-load.d/mixdog-uinput.conf
+          test -f "$rule"; test -f "$conf"
+          cat "$rule" "$conf"
+          grep -qxF 'KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"' "$rule"
+          grep -qx uinput "$conf"
+          # The rule must parse (udevadm verify exists since systemd 250).
+          if udevadm verify --help >/dev/null 2>&1; then udevadm verify "$rule"; else echo "udevadm verify unavailable"; fi
+          # Does the rule apply to the uinput device? Only when the device exists on this runner.
+          if [ -e /sys/devices/virtual/misc/uinput ]; then
+            sudo udevadm test --action=add /sys/devices/virtual/misc/uinput 2>&1 | tee udevadm-test.txt | grep -Ei 'mixdog-uinput|uaccess|static_node' || true
+            grep -q 'mixdog-uinput.rules' udevadm-test.txt
+          else
+            echo "uinput device absent on this runner: udevadm test skipped"
+          fi
+          # The runner has no logind seat session, so the uaccess ACL itself cannot be asserted here.
+          if [ -e /dev/uinput ]; then ls -l /dev/uinput; getfacl /dev/uinput || true; fi
+          # Purge removes the files (and does not break on a udev-less environment).
+          sudo apt-get purge -y "$pkg"
+          test ! -e "$rule"; test ! -e "$conf"
+          test ! -e /etc/apparmor.d/mixdog-desktop
+          test ! -e /opt/Mixdog
       - name: Headless launch smoke (installed .deb, Chromium sandbox ENABLED) [full lane]
         if: needs.plan.outputs.full == 'true'
         timeout-minutes: 8
