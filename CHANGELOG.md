@@ -35,6 +35,10 @@ Long-running background shell commands, such as dev servers, no longer block new
 
 Temporary files are now cleaned up more safely, and new tasks are no longer reported as failed when only the automatic title fails to save.
 
+Mixdog Desktop now runs on Linux as an AppImage or a .deb package, for x86_64 and arm64 (glibc 2.28 or newer), and updates itself automatically. On GNOME with Wayland, Computer Use captures screenshots through the bundled Mixdog GNOME Shell extension, shows its "in use" indicator in the shell without taking focus from the window being controlled, and stops with Ctrl+Alt+Esc; after the extension is first installed, sign out and back in once.
+
+Mixdog for Android 0.1.12 has new pairing: on your PC, open Settings > Connection > Phone, scan the QR code to install the app, then enter the 6-digit code shown there in the app and allow it on your PC. It also fixes the message box being hidden behind the keyboard on Android 15.
+
 ## v1.1.0 - 2026-10-11
 
 - A new Phone option in Settings > Connection displays a QR code to install the Mixdog mobile app (available on iPhone via TestFlight beta and on Android as an APK). Once installed, pairing completes by entering a 6-digit code in the mobile app and approving it on your desktop PC.

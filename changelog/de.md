@@ -34,6 +34,10 @@ Lang laufende Shell-Befehle im Hintergrund, etwa Dev-Server, blockieren neue She
 
 Temporäre Dateien werden sicherer aufgeräumt, und neue Aufgaben werden nicht mehr als fehlgeschlagen gemeldet, wenn nur das Speichern des automatischen Titels scheitert.
 
+Mixdog Desktop läuft jetzt unter Linux als AppImage oder .deb-Paket, für x86_64 und arm64 (glibc 2.28 oder neuer), und aktualisiert sich automatisch. Unter GNOME mit Wayland erstellt Computer Use Screenshots über die mitgelieferte Mixdog-GNOME-Shell-Erweiterung, zeigt seine „In Benutzung“-Anzeige in der Shell, ohne dem gesteuerten Fenster den Fokus zu nehmen, und lässt sich mit Ctrl+Alt+Esc stoppen; nach der erstmaligen Installation der Erweiterung einmal ab- und wieder anmelden.
+
+Mixdog für Android 0.1.12 bringt eine neue Kopplung: Öffnen Sie auf Ihrem PC Einstellungen > Verbindung > Smartphone, scannen Sie den QR-Code, um die App zu installieren, geben Sie dann den dort angezeigten 6-stelligen Code in der App ein und erlauben Sie ihn auf Ihrem PC. Außerdem ist behoben, dass das Nachrichtenfeld unter Android 15 von der Tastatur verdeckt wurde.
+
 ## v1.1.0 - 2026-10-11
 
 - Eine neue Option „Telefon“ unter Einstellungen > Verbindung zeigt einen QR-Code zur Installation der Mixdog-Mobil-App (verfügbar für iPhone über die TestFlight-Beta und für Android als APK). Nach der Installation wird die Kopplung durch Eingabe eines 6-stelligen Codes in der App und Bestätigung auf dem Desktop-PC abgeschlossen.

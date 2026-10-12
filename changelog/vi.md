@@ -34,6 +34,10 @@ Các lệnh shell chạy nền trong thời gian dài, chẳng hạn máy chủ 
 
 Tệp tạm được dọn dẹp an toàn hơn, và tác vụ mới không còn bị báo là thất bại khi chỉ việc lưu tiêu đề tự động bị lỗi.
 
+Mixdog Desktop nay chạy trên Linux dưới dạng AppImage hoặc gói .deb, cho x86_64 và arm64 (glibc 2.28 trở lên) và tự động cập nhật. Trên GNOME với Wayland, Computer Use chụp ảnh màn hình qua tiện ích GNOME Shell của Mixdog đi kèm, hiển thị chỉ báo «đang sử dụng» trong shell mà không lấy tiêu điểm khỏi cửa sổ đang được điều khiển, và dừng bằng Ctrl+Alt+Esc; sau khi cài tiện ích lần đầu, hãy đăng xuất rồi đăng nhập lại một lần.
+
+Mixdog cho Android 0.1.12 có cách ghép nối mới: trên PC, mở Cài đặt > Kết nối > Điện thoại, quét mã QR để cài ứng dụng, sau đó nhập mã 6 chữ số hiển thị ở đó vào ứng dụng và cho phép trên PC. Bản này cũng sửa lỗi ô nhập tin nhắn bị bàn phím che trên Android 15.
+
 ## v1.1.0 - 2026-10-11
 
 - Tùy chọn Điện thoại mới trong Cài đặt > Kết nối hiển thị mã QR để cài đặt ứng dụng di động Mixdog (có sẵn cho iPhone qua bản beta TestFlight và cho Android dưới dạng tệp APK). Sau khi cài đặt, quá trình ghép nối hoàn tất bằng cách nhập mã gồm 6 chữ số vào ứng dụng và phê duyệt trên máy tính để bàn của bạn.
