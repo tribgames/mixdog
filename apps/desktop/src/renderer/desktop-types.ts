@@ -156,6 +156,17 @@ export type Snapshot = RecordValue & {
       cwd?: string;
       startedAt?: number | string | null;
     }>;
+    /** Recently finished background jobs; never part of `count`. */
+    finished?: Array<{
+      taskId?: string;
+      task_id?: string;
+      command?: string;
+      cwd?: string;
+      startedAt?: number | string | null;
+      status?: string;
+      exitCode?: number | null;
+      finishedAt?: number | string | null;
+    }>;
   };
   workflow?: RecordValue | null;
   orchestrationMode?: import('../shared/contract').DesktopOrchestrationMode;

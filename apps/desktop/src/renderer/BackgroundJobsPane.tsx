@@ -1,6 +1,7 @@
 import { SquareTerminal } from 'lucide-react';
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { AgentPoolRow } from './AgentActivityPane';
+import { dismissShellJobs, useDismissedShellJobs } from './background-jobs-dismissed-store';
 import { backgroundJobRows, type JobKind, type JobRow } from './background-jobs-model';
 import { requestBackgroundJobsTab, useBackgroundJobsTab } from './background-jobs-tab-store';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
@@ -18,14 +19,23 @@ function ShellJobRow({
   tabIndex,
   posInSet,
   setSize,
+  onDismiss,
 }: {
   row: JobRow;
   clock: number;
   tabIndex: number;
   posInSet: number;
   setSize: number;
+  onDismiss(row: JobRow): void;
 }) {
   const elapsed = row.startedAt > 0 ? formatWorkElapsed(clock - row.startedAt) || '0s' : '0s';
+  const finishedLabel = row.finished
+    ? row.exitCode != null
+      ? t('Island: Exited {{code}}', { code: row.exitCode })
+      : row.status === 'cancelled'
+        ? t('Island: Stopped')
+        : t('Island: Finished')
+    : '';
   return (
     <div
       className="schedules-row workflows-agent-summary-row agent-pool-row"
@@ -47,10 +57,26 @@ function ShellJobRow({
         </span>
       </span>
       <span className="agent-activity-status">
-        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name */}
-        <time className="agent-activity-elapsed" aria-label={elapsed} data-state="running">
-          {elapsed}
-        </time>
+        {row.finished ? (
+          <>
+            <span className="agent-activity-elapsed" data-state="finished">
+              {finishedLabel}
+            </span>
+            <button
+              type="button"
+              className="composer-island-button"
+              aria-label={`${t('Dismiss')}: ${row.label}`}
+              onClick={() => onDismiss(row)}
+            >
+              {t('Dismiss')}
+            </button>
+          </>
+        ) : (
+          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name
+          <time className="agent-activity-elapsed" aria-label={elapsed} data-state="running">
+            {elapsed}
+          </time>
+        )}
       </span>
     </div>
   );
@@ -72,7 +98,8 @@ export function BackgroundJobsPane({
 }) {
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopHeaderSnapshotsEqual, Boolean(sessionId));
   const snapshot = lane ?? EMPTY_SNAPSHOT;
-  const rows = useMemo(() => backgroundJobRows(snapshot), [snapshot]);
+  const dismissed = useDismissedShellJobs(sessionId);
+  const rows = useMemo(() => backgroundJobRows(snapshot, dismissed), [snapshot, dismissed]);
   const clock = useClock(active);
   const requested = useBackgroundJobsTab(sessionId);
   const agents = rows.filter((row) => row.kind === 'agent');
@@ -109,7 +136,13 @@ export function BackgroundJobsPane({
   };
   const tabs: Array<[JobKind, number, string]> = [
     ['agent', agents.length, t('Agent {{agent}}', { agent: agents.length })],
-    ['shell', shells.length, t('Shell {{shell}}', { shell: shells.length })],
+    [
+      'shell',
+      shells.length,
+      shells.some((row) => !row.finished)
+        ? t('Shell {{shell}}', { shell: shells.filter((row) => !row.finished).length })
+        : t('Island: {{count}} finished shells', { count: shells.length }),
+    ],
   ];
   const left = (
     <span className="session-diff-summary">
@@ -170,6 +203,7 @@ export function BackgroundJobsPane({
                     posInSet={index + 1}
                     setSize={shownRows.length}
                     tabIndex={row.key === activeKey ? 0 : -1}
+                    onDismiss={(job) => dismissShellJobs(sessionId, [job.key])}
                   />
                 )
               )}

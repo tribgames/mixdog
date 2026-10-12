@@ -107,6 +107,9 @@ export interface DesktopShellJobsState {
   count: number;
   elapsedLabel: string;
   jobs?: DesktopShellJobRow[];
+  /** Recently finished background jobs of this session (rows carry status,
+   *  exitCode and finishedAt); never part of `count`. */
+  finished?: readonly DesktopShellJobRow[];
 }
 
 export interface DesktopShellJobRow extends Readonly<Record<string, unknown>> {

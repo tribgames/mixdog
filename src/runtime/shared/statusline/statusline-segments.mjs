@@ -23,7 +23,13 @@ const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 // Session buckets ride along with the owner-wide totals: one host process can
 // own many sessions (the desktop pools every pane's engine), so a pane must be
 // able to ask for ITS OWN jobs instead of the process aggregate.
-const EMPTY_SHELL_JOBS_SESSION = Object.freeze({ count: 0, elapsedLabel: '', jobs: Object.freeze([]) });
+const FINISHED_SHELL_JOB_TTL_MS = 30 * 60 * 1000;
+const EMPTY_SHELL_JOBS_SESSION = Object.freeze({
+  count: 0,
+  elapsedLabel: '',
+  jobs: Object.freeze([]),
+  finished: Object.freeze([]),
+});
 const EMPTY_SHELL_JOBS = Object.freeze({
   count: 0,
   elapsedLabel: '',
@@ -138,7 +144,7 @@ async function refreshShellJobsStatus(ownerPid) {
       rememberShellJobs(ownerPid, value);
       return;
     }
-    const { ids, ownerByJob } = listOpenShellJobs(names);
+    const { ids, ownerByJob, doneIds } = listOpenShellJobs(names);
     let count = 0;
     let oldestMs = Infinity;
     const jobs = [];
@@ -178,10 +184,37 @@ async function refreshShellJobsStatus(ownerPid) {
       };
       if (ownedByThisHost) jobs.push(job);
       if (!owner) continue;
-      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [] };
+      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [], finished: [] };
       bucket.count += 1;
       if (jobMs < bucket.oldestMs) bucket.oldestMs = jobMs;
       bucket.jobs.push(job);
+      bySession.set(owner, bucket);
+    }
+    // Recently finished background jobs ride in their session bucket only;
+    // they never touch the running counts.
+    const finishedCutoff = Date.now() - FINISHED_SHELL_JOB_TTL_MS;
+    for (const id of doneIds) {
+      let detail;
+      try {
+        detail = JSON.parse(await readFile(join(dir, `${id}.json`), 'utf-8'));
+      } catch {
+        continue;
+      }
+      if (detail?.foreground === true) continue;
+      const owner = String(detail?.ownerSessionId ?? '').trim();
+      if (!owner) continue;
+      const finishedMs = Date.parse(detail?.finishedAt || detail?.recordedAt || '');
+      if (Number.isFinite(finishedMs) && finishedMs < finishedCutoff) continue;
+      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [], finished: [] };
+      bucket.finished.push({
+        taskId: id,
+        command: String(detail?.command || '').trim(),
+        cwd: String(detail?.cwd || '').trim(),
+        startedAt: detail?.startedAt || null,
+        status: String(detail?.status || ''),
+        exitCode: Number.isInteger(detail?.exitCode) ? detail.exitCode : null,
+        finishedAt: detail?.finishedAt || detail?.recordedAt || null,
+      });
       bySession.set(owner, bucket);
     }
     // A desktop pane's job lands in a session bucket while the owner-wide
@@ -225,7 +258,11 @@ function listOpenShellJobs(names) {
     // the per-refresh cap doubles with it; a live (non-.done) record set is
     // a handful in practice and terminal ones age out on their own.
     .slice(0, 60);
-  return { ids, ownerByJob };
+  const doneIds = [...done]
+    .filter((id) => names.includes(`${id}.json`))
+    .sort((a, b) => jobStampMs(b) - jobStampMs(a))
+    .slice(0, 30);
+  return { ids, ownerByJob, doneIds };
 }
 
 function summarizeShellJobs({ count, oldestMs, jobs, bySession }) {
@@ -237,6 +274,7 @@ function summarizeShellJobs({ count, oldestMs, jobs, bySession }) {
       count: bucket.count,
       elapsedLabel: Number.isFinite(bucket.oldestMs) ? formatElapsed(now - bucket.oldestMs) : '',
       jobs: bucket.jobs,
+      finished: bucket.finished,
     };
   }
   return { count, elapsedLabel, jobs, sessions };

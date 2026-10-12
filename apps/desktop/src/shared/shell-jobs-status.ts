@@ -4,12 +4,16 @@ interface ShellJobStatusRowLike {
   command?: unknown;
   cwd?: unknown;
   startedAt?: unknown;
+  status?: unknown;
+  exitCode?: unknown;
+  finishedAt?: unknown;
 }
 
 interface ShellJobsStatusLike {
   count?: unknown;
   elapsedLabel?: unknown;
   jobs?: readonly ShellJobStatusRowLike[];
+  finished?: readonly ShellJobStatusRowLike[];
 }
 
 function shellJobRowKey(row: ShellJobStatusRowLike): string {
@@ -18,6 +22,9 @@ function shellJobRowKey(row: ShellJobStatusRowLike): string {
     String(row.command || ''),
     String(row.cwd || ''),
     String(row.startedAt ?? ''),
+    String(row.status ?? ''),
+    String(row.exitCode ?? ''),
+    String(row.finishedAt ?? ''),
   ].join('\u001f');
 }
 
@@ -35,5 +42,9 @@ export function shellJobsStatusEqual(
   const previousJobs = previous?.jobs || [];
   const nextJobs = next?.jobs || [];
   if (previousJobs.length !== nextJobs.length) return false;
-  return previousJobs.every((job, index) => shellJobRowKey(job) === shellJobRowKey(nextJobs[index]));
+  if (!previousJobs.every((job, index) => shellJobRowKey(job) === shellJobRowKey(nextJobs[index]))) return false;
+  const previousFinished = previous?.finished || [];
+  const nextFinished = next?.finished || [];
+  if (previousFinished.length !== nextFinished.length) return false;
+  return previousFinished.every((job, index) => shellJobRowKey(job) === shellJobRowKey(nextFinished[index]));
 }

@@ -26,6 +26,14 @@ export type JobRow = {
   pool?: DesktopAgentPoolRow;
   /** The lifecycle state the row shows (queued, waiting, running…). */
   state?: DesktopAgentActivityState;
+  /** A shell job that already exited and stays listed until dismissed. */
+  finished?: boolean;
+  /** Finished shell: exit code, null when it ended without one. */
+  exitCode?: number | null;
+  /** Finished shell: terminal status (completed, failed, cancelled…). */
+  status?: string;
+  /** Finished shell: epoch ms it ended; 0 when unknown. */
+  finishedAt?: number;
 };
 
 /** Rows that need the user lead, then working ones, then queued/waiting. */
@@ -34,9 +42,25 @@ function jobRowRank(row: JobRow): number {
   return row.idle ? 2 : 1;
 }
 
-/** Shell jobs newest first, then agents that need the user, work or wait (in
+/** Running shell jobs newest first, then finished shells (not in `dismissed`,
+ *  newest finish first), then agents that need the user, work or wait (in
  *  that order). Idle and finished agents are not background work. */
-export function backgroundJobRows(snapshot: Snapshot): JobRow[] {
+export function backgroundJobRows(snapshot: Snapshot, dismissed: ReadonlySet<string> = new Set()): JobRow[] {
+  const finishedShell = (snapshot.shellJobs?.finished ?? [])
+    .map((job, index) => ({
+      key: `shell:${String(job.taskId || job.task_id || index)}`,
+      kind: 'shell' as const,
+      label: String(job.command || '').trim(),
+      sub: '',
+      startedAt: timeMs(job.startedAt),
+      idle: false,
+      finished: true,
+      exitCode: Number.isInteger(job.exitCode) ? (job.exitCode as number) : null,
+      status: String(job.status || ''),
+      finishedAt: timeMs(job.finishedAt),
+    }))
+    .filter((row) => !dismissed.has(row.key))
+    .sort((a, b) => b.finishedAt - a.finishedAt);
   const shell = (snapshot.shellJobs?.jobs ?? [])
     .map((job, index) => ({
       key: `shell:${String(job.taskId || job.task_id || index)}`,
@@ -84,5 +108,5 @@ export function backgroundJobRows(snapshot: Snapshot): JobRow[] {
       } satisfies DesktopAgentPoolRow,
     }))
     .sort((a, b) => jobRowRank(a) - jobRowRank(b));
-  return [...shell, ...agents];
+  return [...shell, ...finishedShell, ...agents];
 }

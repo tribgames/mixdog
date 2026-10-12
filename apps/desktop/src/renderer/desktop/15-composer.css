@@ -483,6 +483,17 @@ button.composer-island-tab {
   color: var(--mx-accent);
   font-family: var(--mx-font-mono);
 }
+/* A finished background shell: muted until the user dismisses it. */
+.composer-island-row[data-finished="true"] .composer-island-row-main,
+.composer-island-row[data-finished="true"] .composer-island-row-main code {
+  color: var(--mx-text-muted);
+}
+.composer-island-row-dismiss {
+  flex: none;
+}
+.composer-island-pill > .composer-island-seg.composer-island-seg-shell[data-finished="true"] {
+  color: var(--mx-text-muted);
+}
 .composer-island-row-sub {
   flex: none;
   color: var(--mx-text-muted);

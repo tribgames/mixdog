@@ -39,6 +39,44 @@ test('foreground commands stay out of the shell job list', async () => {
   }
 });
 
+test('recently finished background jobs ride in the session bucket without counting', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-finished-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const dir = join(root, 'shell-jobs');
+    mkdirSync(dir, { recursive: true });
+    const now = Date.now();
+    const write = (jobId, record, done) => {
+      writeFileSync(join(dir, `${jobId}.json`), JSON.stringify({ pid: process.pid, ownerSessionId: 'sess-fin', ...record }));
+      writeFileSync(join(dir, `${jobId}.owner-${process.pid + 300_000}`), '');
+      if (done) writeFileSync(join(dir, `${jobId}.done`), '');
+    };
+    write(`job_${now}_run`, { command: 'npm run dev' });
+    write(`job_${now - 1}_ok`, { command: 'make', status: 'completed', exitCode: 0, finishedAt: new Date(now - 1000).toISOString() }, true);
+    write(`job_${now - 2}_fg`, { command: 'git status', foreground: true, status: 'completed', exitCode: 0, finishedAt: new Date(now).toISOString() }, true);
+    write(`job_${now - 3}_old`, { command: 'old', status: 'completed', exitCode: 0, finishedAt: new Date(now - 3 * 3600_000).toISOString() }, true);
+    const ownerPid = process.pid + 300_000;
+    const get = () => shellJobsStatus({ clientHostPid: ownerPid, sessionId: 'sess-fin' });
+    let status = get();
+    for (let attempt = 0; attempt < 40 && status.count === 0; attempt += 1) {
+      await delay(25);
+      status = get();
+    }
+    assert.equal(status.count, 1);
+    assert.equal(shellJobsStatus({ clientHostPid: ownerPid }).count, 1);
+    assert.equal(status.finished.length, 1);
+    assert.equal(status.finished[0].command, 'make');
+    assert.equal(status.finished[0].status, 'completed');
+    assert.equal(status.finished[0].exitCode, 0);
+    assert.ok(status.finished[0].finishedAt);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a session keeps its shell jobs while the polling owner pid alternates', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-owners-'));
   const previous = process.env.MIXDOG_DATA_DIR;
