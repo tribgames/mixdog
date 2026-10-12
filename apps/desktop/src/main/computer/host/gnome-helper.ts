@@ -107,6 +107,33 @@ export async function gnomeShellScreenshot(target: GnomeShotTarget, deps: GnomeS
   }
 }
 
+/** What the shell extension draws as the "Computer in use" pill. */
+export interface GnomeIndicatorSpec {
+  visible: boolean;
+  title?: string;
+  /** The Stop hint beside the title. */
+  hint?: string;
+  accent?: string;
+  paused?: boolean;
+  attention?: boolean;
+}
+
+/** A GVariant text-format string literal (what gdbus parses its arguments as). */
+export function gvariantString(text: string): string {
+  return `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+/** Shows, updates or hides the pill; the extension drops it again unless it is refreshed. */
+export async function gnomeSetIndicator(
+  spec: GnomeIndicatorSpec,
+  run: (args: string[]) => Promise<string> = realShotDeps.run
+): Promise<void> {
+  await run([
+    'call', '--session', '--timeout', '5', '--dest', DESTINATION, '--object-path', OBJECT_PATH,
+    '--method', `${INTERFACE}.SetIndicator`, '--', gvariantString(JSON.stringify(spec)),
+  ]);
+}
+
 /** True for a line of `gdbus monitor` output that reports the Stop signal. */
 export function isStopSignalLine(line: string): boolean {
   return line.includes(STOP_SIGNAL);

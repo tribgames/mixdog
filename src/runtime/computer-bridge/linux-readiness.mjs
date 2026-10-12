@@ -15,8 +15,8 @@ export const UINPUT_HINT =
 export const INPUT_GROUP_SECURITY_NOTE =
   'Security note: membership of the input group lets every program you run read and inject keyboard and mouse input system-wide. Grant it only on a machine and account you trust.';
 export const GNOME_EXTENSION_UUID = 'mixdog-windows@mixdog.io';
-/** The oldest helper interface this app can use (2 added Screenshot and StopRequested). */
-export const MIN_WINDOW_HELPER_VERSION = 2;
+/** The oldest helper interface this app can use (2 added Screenshot and StopRequested, 3 the in-shell indicator). */
+export const MIN_WINDOW_HELPER_VERSION = 3;
 export const WINDOW_CONTROL_HINT =
   'wayland_window_control_unavailable: this compositor offers no window control to other programs; on GNOME the Mixdog Windows extension (mixdog-windows@mixdog.io) provides it and must be enabled and loaded';
 export const WINDOW_HELPER_RELOGIN_HINT =

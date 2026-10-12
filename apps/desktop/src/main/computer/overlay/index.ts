@@ -6,10 +6,12 @@
  */
 import { globalShortcut, screen } from 'electron';
 
+import { getLinuxComputerReadiness } from '../../../../../../src/runtime/computer-bridge/linux-readiness.mjs';
 import { usesGnomeHelper, watchGnomeStopSignal } from '../host/gnome-helper';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
 import { createComputerUseCursorOverlay } from './cursor-overlay';
+import { createGnomeIndicator } from './gnome-indicator';
 import { computerUseOverlayPresentation } from './model';
 import { createOverlayFade } from './overlay-fade';
 import { createOverlayWindows } from './overlay-windows';
@@ -24,7 +26,13 @@ export interface ComputerUseOverlay {
 }
 
 export function createComputerUseOverlay(controls: ComputerUseOverlayControls, locale = 'en'): ComputerUseOverlay {
-  const cursorOverlay = createComputerUseCursorOverlay();
+  // On GNOME Wayland no Electron window may exist while an agent drives: a
+  // client window cannot refuse focus there and would take it from the target.
+  // The shell extension draws the pill instead, and the virtual cursor surface
+  // is skipped (the real pointer is moved, and is visible).
+  const gnome = usesGnomeHelper();
+  const indicator = gnome ? createGnomeIndicator(locale) : null;
+  const cursorOverlay = gnome ? { dispose(): void {} } : createComputerUseCursorOverlay();
   let disposed = false;
   let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
@@ -63,12 +71,22 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
     settleTimer.unref?.();
   };
 
+  const helperReady = async (): Promise<boolean> =>
+    (await getLinuxComputerReadiness()).capabilities.windows.state === 'ready';
+
   const render = async (): Promise<void> => {
     ensureShortcut();
     const currentRender = ++renderRevision;
     const revision = latestSnapshot.revision;
     const presentation = computerUseOverlayPresentation(latestSnapshot, locale, controller.state());
     latestPresentation = presentation;
+    if (indicator && (await helperReady())) {
+      if (currentRender !== renderRevision) return;
+      windows.forgetRendered();
+      fade.hideAll();
+      await indicator.show(presentation);
+      return;
+    }
     if (!presentation.visible) {
       windows.forgetRendered();
       fade.hideAll();
@@ -174,6 +192,7 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
       if (shortcutRegistered) globalShortcut.unregister(STOP_SHORTCUT);
       stopWatcher?.();
       stopWatcher = null;
+      indicator?.dispose();
       windows.destroyAll();
       cursorOverlay.dispose();
     },

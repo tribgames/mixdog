@@ -8,10 +8,11 @@ import Shell from 'gi://Shell';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import {Indicator} from './indicator.js';
 import {writeScreenshot} from './screenshot.js';
 
 const OBJECT_PATH = '/io/mixdog/Windows';
-const VERSION = 2;
+const VERSION = 3;
 // The emergency stop chord: Electron cannot register global shortcuts on Wayland.
 const STOP_ACCELERATOR = '<Control><Alt>Escape';
 const CYCLE_PANELS = 'cycle-panels';
@@ -44,6 +45,7 @@ const INTERFACE_XML = `
       <arg type="s" direction="in" name="path"/>
       <arg type="s" direction="out" name="written"/>
     </method>
+    <method name="SetIndicator"><arg type="s" direction="in" name="spec"/></method>
     <signal name="StopRequested"/>
   </interface>
 </node>`;
@@ -86,6 +88,24 @@ function describe(window) {
 }
 
 class Windows {
+    constructor() {
+        this._indicator = new Indicator();
+    }
+
+    destroy() {
+        this._indicator.hide();
+    }
+
+    // spec: {visible, title, hint, accent, paused, attention}. The pill hides
+    // itself unless the app keeps refreshing it.
+    SetIndicator(json) {
+        const spec = JSON.parse(json);
+        if (spec.visible)
+            this._indicator.show(spec);
+        else
+            this._indicator.hide();
+    }
+
     get Version() {
         return VERSION;
     }
@@ -143,7 +163,8 @@ class Windows {
 
 export default class MixdogWindows extends Extension {
     enable() {
-        this._exported = Gio.DBusExportedObject.wrapJSObject(INTERFACE_XML, new Windows());
+        this._windows = new Windows();
+        this._exported = Gio.DBusExportedObject.wrapJSObject(INTERFACE_XML, this._windows);
         this._exported.export(Gio.DBus.session, OBJECT_PATH);
         this._grabStopAccelerator();
     }
@@ -152,6 +173,8 @@ export default class MixdogWindows extends Extension {
         this._releaseStopAccelerator();
         this._exported?.unexport();
         this._exported = null;
+        this._windows?.destroy();
+        this._windows = null;
     }
 
     // Ctrl+Alt+Esc is handled in the compositor, so it works whichever window

@@ -148,3 +148,16 @@ test('a monitor that exits (the shell restarted) is restarted with a growing del
   state.timers[3].callback();
   assert.equal(state.spawned.length, 4, 'no restart after stop');
 });
+
+test('the indicator is one SetIndicator call with the spec as a GVariant string, quotes and backslashes escaped', async () => {
+  const { gnomeSetIndicator, gvariantString } = await import('./gnome-helper.ts');
+  assert.equal(gvariantString(`it's a \\ path`), `'it\\'s a \\\\ path'`);
+  const calls = [];
+  await gnomeSetIndicator({ visible: true, title: '컴퓨터 사용 중', hint: "Stop Ctrl+Alt+Esc" }, async (args) => (calls.push(args), ''));
+  assert.deepEqual(calls[0].slice(0, 10), [
+    'call', '--session', '--timeout', '5', '--dest', 'org.gnome.Shell', '--object-path', '/io/mixdog/Windows',
+    '--method', 'io.mixdog.Windows.SetIndicator',
+  ]);
+  assert.equal(calls[0][10], '--');
+  assert.deepEqual(JSON.parse(calls[0][11].slice(1, -1)), { visible: true, title: '컴퓨터 사용 중', hint: 'Stop Ctrl+Alt+Esc' });
+});
