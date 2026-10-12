@@ -5,9 +5,9 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
-Poursuivre une session après avoir changé son modèle (« Poursuivre dans <modèle> ») et relancer un tour en échec (« Réessayer ») n'échouent plus avec « submit options contains an unsupported field. »
-
 ## v1.1.1 - 2026-10-12
+
+Poursuivre une session après avoir changé son modèle (« Poursuivre dans <modèle> ») et relancer un tour en échec (« Réessayer ») n'échouent plus avec « submit options contains an unsupported field. »
 
 Muse Code (Meta) est disponible comme fournisseur par abonnement : connectez-vous avec un code d'appareil dans votre navigateur et consultez directement dans Mixdog votre utilisation glissante et hebdomadaire.
 

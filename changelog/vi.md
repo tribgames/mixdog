@@ -4,9 +4,9 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-Tiếp tục phiên sau khi đổi mô hình ("Tiếp tục ở <mô hình>") và thử lại lượt bị lỗi ("Thử lại") không còn thất bại với lỗi "submit options contains an unsupported field."
-
 ## v1.1.1 - 2026-10-12
+
+Tiếp tục phiên sau khi đổi mô hình ("Tiếp tục ở <mô hình>") và thử lại lượt bị lỗi ("Thử lại") không còn thất bại với lỗi "submit options contains an unsupported field."
 
 Muse Code (Meta) hiện có sẵn dưới dạng nhà cung cấp theo gói đăng ký: đăng nhập bằng mã thiết bị trong trình duyệt và xem mức sử dụng theo chu kỳ và theo tuần ngay trong Mixdog.
 

@@ -5,9 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-Continuing a session after switching its model ("Continue in <model>"), and retrying a failed turn ("Retry"), no longer fail with "submit options contains an unsupported field."
-
 ## v1.1.1 - 2026-10-12
+
+Continuing a session after switching its model ("Continue in <model>"), and retrying a failed turn ("Retry"), no longer fail with "submit options contains an unsupported field."
 
 Muse Code (Meta) is available as a subscription provider: sign in with a device code in your browser, and see your rolling and weekly usage directly in Mixdog.
 
