@@ -98,7 +98,9 @@ for (const [before, external] of [[0o644, 0o600], [0o600, 0o666]]) {
   test(`rollback preserves newer POSIX permissions ${before.toString(8)} to ${external.toString(8)}`, {
     skip: process.platform === 'win32' ? 'POSIX mode bits are not supported on Windows' : false,
   }, async (t) => {
-    const previousMask = process.umask(0o077);
+    // Do not let umask accidentally make the old saved mode equal the newer
+    // restrictive mode; separately prove wider permissions survive a tight mask.
+    const previousMask = process.umask(external === 0o600 ? 0o022 : 0o077);
     t.after(() => process.umask(previousMask));
     const root = await fixture(t);
     const file = join(root, 'a.txt');
