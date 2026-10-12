@@ -98,8 +98,7 @@ const admitted = (tools, names) => (tools || []).filter((tool) => names.includes
 
 /**
  * Assemble this runtime's tool definitions from the loaded tool-def modules.
- * Pure: callers resolve their own availability flags (skills env gate, channel
- * ownership) and pass the already-built goal/agent tool arrays.
+ * Pure: callers resolve their own availability flags (skills env gate) and pass the already-built goal/agent tool arrays.
  *
  * - `standaloneTools` is the model-facing set (also the deferred catalog base).
  * - `internalToolDefs` adds the `public: false` web-search tools: reachable
@@ -108,7 +107,6 @@ const admitted = (tools, names) => (tools || []).filter((tool) => names.includes
 export function collectStandaloneToolDefs({
   webSearchToolDefs,
   memoryToolDefs,
-  channelToolDefs,
   codeGraphToolDefs,
   browserToolDefs = [],
   computerToolDefs = [],
@@ -119,7 +117,6 @@ export function collectStandaloneToolDefs({
   setupToolDefs = [],
   goalTools = [],
   agentTools = [],
-  isChannelTool = () => false,
   skillToolEnabled = true,
 }) {
   const webSearchRuntimeTools = admitted(webSearchToolDefs?.TOOL_DEFS, WEB_SEARCH_RUNTIME_TOOLS);
@@ -129,7 +126,6 @@ export function collectStandaloneToolDefs({
     CWD_TOOL,
     ...webSearchRuntimeTools.filter((tool) => tool?.public !== false),
     ...admitted(memoryToolDefs?.TOOL_DEFS, MEMORY_RUNTIME_TOOLS),
-    ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => isChannelTool(tool?.name)),
     ...admitted(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS, CODE_GRAPH_RUNTIME_TOOLS),
     ...admitted(browserToolDefs, BROWSER_RUNTIME_TOOLS),
     ...admitted(computerToolDefs, COMPUTER_RUNTIME_TOOLS),
