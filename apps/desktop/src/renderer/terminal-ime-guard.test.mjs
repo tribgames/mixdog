@@ -7,13 +7,15 @@ import { TerminalImeGuard } from './terminal-ime-guard.ts';
 //   start | end <data> | input <text> (insertText) | xterm <data> | done
 function run(events) {
   const sent = [];
-  const guard = new TerminalImeGuard((d) => sent.push(d));
+  let clock = 0;
+  const guard = new TerminalImeGuard((d) => sent.push(d), () => clock);
   for (const [kind, data] of events) {
     if (kind === 'start') guard.compositionStart();
     else if (kind === 'end') guard.compositionEnd(data);
     else if (kind === 'input') guard.inputCommit(data, 'insertText');
-    else if (kind === 'done') guard.finalizeDone();
-    else if (!guard.shouldDrop(data)) sent.push(data);
+    else if (kind === 'done') guard.finalizeDone(data); // data = composition number, default latest
+    else if (kind === 'wait') clock += data;
+    else sent.push(guard.filter(data));
   }
   return sent.join('');
 }
@@ -68,14 +70,14 @@ test('late insertText duplicate of a data commit is not re-sent', () => {
   assert.equal(run([['start'], ['end', '한'], ['input', '한'], ['xterm', '한'], ['done']]), '한');
 });
 
-test('space, Latin letter and punctuation right after a commit (same task) are not lost', () => {
+test('space, Latin letter, punctuation right after a commit in the SAME task (no finalize in between) are not lost', () => {
   for (const next of [' ', 'a', ',', '.', '1']) {
-    assert.equal(run([...dataEnd('글'), ['xterm', next], ['done']]), '글' + next, "data commit then " + JSON.stringify(next));
-    assert.equal(run([...inputEnd('글'), ['xterm', next], ['done']]), '글' + next, "input commit then " + JSON.stringify(next));
+    assert.equal(run([['start'], ['end', '글'], ['xterm', '글'], ['xterm', next], ['xterm', '글'], ['done']]), '글' + next, 'data ' + JSON.stringify(next));
+    assert.equal(run([['start'], ['end', ''], ['input', '글'], ['xterm', '글'], ['xterm', next], ['done']]), '글' + next, 'input ' + JSON.stringify(next));
   }
 });
 
-test('한글 안녕하세요 with the space arriving before the finalize task', () => {
+test('한글 안녕: the space arrives before the finalize task', () => {
   const out = run([
     ['start'], ['end', '한'], ['xterm', '한'], ['done'],
     ['start'], ['end', '글'], ['xterm', '글'], ['xterm', ' '], ['done'],
@@ -84,3 +86,35 @@ test('한글 안녕하세요 with the space arriving before the finalize task', 
   assert.equal(out, '한글 안');
 });
 
+test('combined payload: committed text + delimiter in one data event', () => {
+  assert.equal(run([['start'], ['end', '글'], ['xterm', '글 '], ['done']]), '글 ');
+  assert.equal(run([['start'], ['end', ''], ['input', '글'], ['xterm', '글 '], ['done']]), '글 ');
+  assert.equal(run([['start'], ['end', '글'], ['xterm', '글.'], ['xterm', '글\r'], ['done']]), '글.\r');
+});
+
+test('delayed duplicate echo after finalize is dropped within the grace window only', () => {
+  assert.equal(run([['start'], ['end', '글'], ['xterm', '글'], ['done'], ['wait', 20], ['xterm', '글']]), '글');
+  // Long after, the same character is genuine new input.
+  assert.equal(run([['start'], ['end', '글'], ['xterm', '글'], ['done'], ['wait', 500], ['xterm', '글']]), '글글');
+});
+
+test('rapid successive compositions with overlapping finalize timers', () => {
+  // A ends, B starts and ends before A's timer fires; A's late timer must not
+  // end B's finalize window.
+  assert.equal(
+    run([
+      ['start'], ['end', '한'], ['xterm', '한'],
+      ['start'], ['end', ''], ['input', '글'],
+      ['done', 1], // stale timer of the first composition
+      ['xterm', '글'], ['xterm', '글'], ['xterm', ' '],
+      ['done', 2],
+    ]),
+    '한글 '
+  );
+  // Echo of A arriving while B is still finalizing is stripped too.
+  assert.equal(run([['start'], ['end', '한'], ['start'], ['end', '글'], ['xterm', '한'], ['xterm', '글'], ['done', 1], ['done', 2]]), '한글');
+});
+
+test('non-duplicate input is never dropped while finalizing', () => {
+  assert.equal(run([['start'], ['end', '글'], ['xterm', 'ab'], ['xterm', '\x7f'], ['xterm', '글'], ['done']]), '글ab\x7f');
+});

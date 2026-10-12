@@ -3773,5 +3773,6 @@
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "Le trousseau est verrouillé : déverrouillez-le (reconnectez-vous ou ouvrez Mots de passe et clés).",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Installez libsecret-tools (sudo apt install libsecret-tools) pour utiliser le trousseau du système.",
   "The system keyring could not be read — check that it is running and unlocked.": "Impossible de lire le trousseau du système : vérifiez qu’il est lancé et déverrouillé.",
-  "Unlock keyring": "Déverrouiller le trousseau"
+  "Unlock keyring": "Déverrouiller le trousseau",
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Le trousseau est inaccessible : vérifiez qu’il est lancé, puis cliquez sur « Déverrouiller le trousseau »."
 }

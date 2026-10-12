@@ -44,8 +44,11 @@ export function createSetupApi({
       // while every stored key read as absent.
       const recovered = await retryKeychain({ interactive: options?.unlockKeychain === true });
       if (force || recovered) reloadFullConfig();
-      await refreshKeychainStatus();
-      return withLiveKeychain(await cachedProviderSetup({ force: force || recovered }));
+      // Passive: detects a re-locked keyring and re-snapshots a stale cache so
+      // external (CLI / other process) changes show up.
+      const changed = await refreshKeychainStatus();
+      if (changed) reloadFullConfig();
+      return withLiveKeychain(await cachedProviderSetup({ force: force || recovered || changed }));
     },
     async getUsageDashboard(options = {}) {
       return await getUsageDashboard(options);

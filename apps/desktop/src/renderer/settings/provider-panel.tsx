@@ -119,7 +119,13 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   useEffect(() => {
     const refresh = () => void runRef.current('getProviderSetup', [{}], 'keychain-refresh', true, true);
     const timer = window.setInterval(refresh, 7000);
-    return () => window.clearInterval(timer);
+    // Returning to the window re-checks the keyring (the daemon re-snapshots
+    // when its cache is older than the TTL).
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
   }, []);
   const keychainState = String(keychainIssue.state || '');
   return (
@@ -127,7 +133,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       {keychainBlocked && (
         <p className="settings-error" role="alert" data-keychain-state={String(keychainIssue.state || '')}>
           {t(String(keychainIssue.message))}
-          {(keychainState === 'locked' || keychainState === 'error') && (
+          {(keychainState === 'locked' || keychainState === 'error' || keychainState === 'unreachable') && (
             <ActionButton
               disabled={busy}
               onClick={() => void run('getProviderSetup', [{ force: true, unlockKeychain: true }])}

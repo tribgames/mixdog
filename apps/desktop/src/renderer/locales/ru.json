@@ -3816,5 +3816,6 @@
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "Связка ключей заблокирована — разблокируйте её (войдите заново или откройте «Пароли и ключи»).",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Установите libsecret-tools (sudo apt install libsecret-tools), чтобы использовать системную связку ключей.",
   "The system keyring could not be read — check that it is running and unlocked.": "Не удалось прочитать системную связку ключей — убедитесь, что она запущена и разблокирована.",
-  "Unlock keyring": "Разблокировать связку ключей"
+  "Unlock keyring": "Разблокировать связку ключей",
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Связка ключей недоступна — убедитесь, что она запущена, и нажмите «Разблокировать связку ключей»."
 }

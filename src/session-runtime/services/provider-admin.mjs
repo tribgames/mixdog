@@ -236,6 +236,7 @@ function describeOAuthProvider(p, { detail = false } = {}) {
 // Fixed, translatable hints keyed by keyring state; internal error text never
 // reaches the UI.
 const KEYCHAIN_HINTS = Object.freeze({
+  unreachable: 'The keyring is not reachable — make sure it is running, then press Unlock keyring.',
   locked: 'Keyring is locked — unlock it (log in again or open Passwords and Keys).',
   missing: 'Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.',
   error: 'The system keyring could not be read — check that it is running and unlocked.',

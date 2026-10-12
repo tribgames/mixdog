@@ -85,14 +85,27 @@ function fakeSpawn(behavior) {
       probe.stdout = new PassThrough();
       probe.stderr = new PassThrough();
       probe.kill = () => {};
+      const p = behavior(['__probe']) || {};
+      const property = args[args.length - 1];
+      const objectPath = args[args.indexOf('--object-path') + 1];
+      const collections = p.collections || { login: !!p.locked };
       setImmediate(() => {
-        probe.stdout.end(behavior(['__probe']).locked ? '(<true>,)\n' : '(<false>,)\n');
+        if (p.missing) return probe.emit('error', Object.assign(new Error('spawn gdbus ENOENT'), { code: 'ENOENT' }));
+        if (p.unreachable || (property === 'Locked' && !(objectPath.split('/').pop() in collections))) {
+          probe.stdout.end();
+          probe.stderr.end('Error: no such object');
+          return setImmediate(() => probe.emit('close', 1));
+        }
+        probe.stdout.end(
+          property === 'Collections'
+            ? `(<[${Object.keys(collections).map((n) => `objectpath '/org/freedesktop/secrets/collection/${n}'`).join(', ')}]>,)\n`
+            : `(<${collections[objectPath.split('/').pop()]}>,)\n`
+        );
         probe.stderr.end();
         setImmediate(() => probe.emit('close', 0));
       });
       return probe;
-    }
-    assert.equal(cmd, 'secret-tool');
+    }    assert.equal(cmd, 'secret-tool');
     secretToolCalls++;
     const child = new EventEmitter();
     child.stdout = new PassThrough();
@@ -104,13 +117,13 @@ function fakeSpawn(behavior) {
       child.emit('close', null);
     };
     const result = behavior(args);
-    setImmediate(() => {
+    setTimeout(() => {
       if (result.enoent) return child.emit('error', Object.assign(new Error('spawn secret-tool ENOENT'), { code: 'ENOENT' }));
       if (result.hang) return;
       child.stdout.end(result.stdout || '');
       child.stderr.end(result.stderr || '');
       setImmediate(() => child.emit('close', result.code ?? 0));
-    });
+    }, result.delay || 0);
     return child;
   };
 }
@@ -287,6 +300,115 @@ test('linux: background retry never runs secret-tool (no unlock prompt) while th
       assert.equal(keychain.keychainStatus().state, 'locked');
       assert.equal(await keychain.retryKeychain({ interactive: true }), true);
       assert.ok(secretToolCalls > 0);
+    }
+  );
+});
+
+const SEARCH_ONE = { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n' };
+
+async function passiveCase(probe, expectState) {
+  secretToolCalls = 0;
+  await withLinuxKeychain(
+    (args) => (args[0] === '__probe' ? probe : args[0] === 'search' ? SEARCH_ONE : { stdout: 's3cret' }),
+    { MIXDOG_KEYCHAIN_RETRY_MS: '30' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      await new Promise((r) => setTimeout(r, 200));
+      assert.equal(keychain.keychainStatus().state, expectState);
+      if (expectState === 'ok') {
+        assert.ok(secretToolCalls > 0);
+        assert.equal(keychain.getSecret('acct'), 's3cret');
+      } else {
+        assert.equal(secretToolCalls, 0, 'passive paths must never run secret-tool: ' + expectState);
+        assert.doesNotMatch(keychain.keychainStatus().message, /gdbus|org\.freedesktop|exit \d/);
+      }
+    }
+  );
+}
+
+test('linux passive probe: gdbus missing -> unreachable, secret-tool never runs', async () => {
+  await passiveCase({ missing: true }, 'unreachable');
+});
+test('linux passive probe: Secret Service unreachable / alias missing -> unreachable', async () => {
+  await passiveCase({ unreachable: true }, 'unreachable');
+  await passiveCase({ collections: {} }, 'unreachable');
+});
+test('linux passive probe: default unlocked but another collection locked -> locked, no secret-tool', async () => {
+  await passiveCase({ collections: { login: false, work: true } }, 'locked');
+});
+test('linux passive probe: all collections unlocked -> snapshot runs', async () => {
+  await passiveCase({ collections: { login: false, work: false } }, 'ok');
+});
+
+test('linux: explicit interactive retry from an unreachable state may run secret-tool', async () => {
+  secretToolCalls = 0;
+  await withLinuxKeychain(
+    (args) => (args[0] === '__probe' ? { unreachable: true } : args[0] === 'search' ? SEARCH_ONE : { stdout: 's3cret' }),
+    {},
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'unreachable');
+      assert.equal(await keychain.retryKeychain({ interactive: true }), true);
+    }
+  );
+});
+
+test('linux snapshot refresh picks up external add / replace / delete (replace, not merge)', async () => {
+  const store = { a: 'one', b: 'bee' };
+  const search = () => ({
+    stdout: Object.keys(store).map((_, i) => `[/org/x/${i}]\nsecret = s\n`).join(''),
+    stderr: Object.keys(store).map((k) => `attribute.account = ${k}\n`).join(''),
+  });
+  await withLinuxKeychain(
+    (args) => (args[0] === 'search' ? search() : args[0] === 'lookup' ? (args[4] in store ? { stdout: store[args[4]] } : { code: 1 }) : { code: 0 }),
+    { MIXDOG_KEYCHAIN_SNAPSHOT_TTL_MS: '0' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.getSecret('a'), 'one');
+      store.a = 'two'; // replaced externally
+      store.c = 'sea'; // added externally
+      delete store.b; // deleted externally
+      assert.equal(await keychain.refreshKeychainStatus(), true);
+      assert.equal(keychain.getSecret('a'), 'two');
+      assert.equal(keychain.getSecret('c'), 'sea');
+      assert.equal(keychain.getSecret('b'), null);
+      assert.equal(await keychain.refreshKeychainStatus(), false, 'unchanged snapshot reports no change');
+    }
+  );
+});
+
+test('linux snapshot never overwrites a newer same-process set / delete', async () => {
+  await withLinuxKeychain(
+    (args) =>
+      args[0] === 'search'
+        ? { stdout: '[/org/x/1]\nsecret = s\n[/org/x/2]\nsecret = s\n', stderr: 'attribute.account = a\nattribute.account = b\n' }
+        : args[0] === 'lookup'
+          ? { stdout: 'stale', delay: 40 }
+          : { code: 0 },
+    { MIXDOG_KEYCHAIN_SNAPSHOT_TTL_MS: '0' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      const refresh = keychain.refreshKeychainStatus(); // lookups are slow
+      await new Promise((r) => setTimeout(r, 10));
+      // search finished instantly; the slow lookups are in flight
+      await keychain.setSecretAsync('a', 'fresh');
+      await keychain.deleteSecretAsync('b');
+      await refresh;
+      assert.equal(keychain.getSecret('a'), 'fresh');
+      assert.equal(keychain.getSecret('b'), null);
+    }
+  );
+});
+
+test('linux: raw secret-tool stderr never reaches user-facing errors', async () => {
+  await withLinuxKeychain(
+    (args) => (args[0] === 'store' ? { code: 1, stderr: 'secret-tool: /home/u/.secret-detail DBUS_X boom' } : {}),
+    {},
+    async (keychain) => {
+      await assert.rejects(keychain.setSecretAsync('acct', 'v'), (error) => {
+        assert.doesNotMatch(error.message, /home\/u|DBUS_X|boom/);
+        return true;
+      });
     }
   );
 });

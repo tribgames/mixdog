@@ -476,8 +476,8 @@ export default function TerminalPane({
       const imeGuard = IS_LINUX ? new TerminalImeGuard(sendToPty) : null;
       if (imeGuard && term.element) imeDetach ??= imeGuard.attach(term.element);
       dataDisposable ??= term.onData((data) => {
-        if (imeGuard?.shouldDrop(data)) return;
-        sendToPty(data);
+        const out = imeGuard ? imeGuard.filter(data) : data;
+        if (out !== '') sendToPty(out);
       });
       if (replayWrite) await replayWrite;
       if (disposed) return;

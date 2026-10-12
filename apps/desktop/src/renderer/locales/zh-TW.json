@@ -3687,5 +3687,6 @@
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "金鑰圈已鎖定——請解鎖（重新登入或開啟「密碼與金鑰」）。",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "請安裝 libsecret-tools (sudo apt install libsecret-tools) 以使用系統金鑰圈。",
   "The system keyring could not be read — check that it is running and unlocked.": "無法讀取系統金鑰圈——請確認它正在執行且已解鎖。",
-  "Unlock keyring": "解鎖金鑰圈"
+  "Unlock keyring": "解鎖金鑰圈",
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "無法存取金鑰圈——請確認它正在執行，然後按「解鎖金鑰圈」。"
 }

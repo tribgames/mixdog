@@ -23,6 +23,7 @@ import { computerErrorCode } from './error-code.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery } from '../bridge-discovery.mjs';
 import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
 import { computerActionHas } from './actions.mjs';
+import { linuxComputerPreflight } from './linux-readiness.mjs';
 import { continuePendingComputerWork, isPendingComputerWork } from './pending-continuation.mjs';
 
 export { canonicalComputerResultText };
@@ -258,6 +259,10 @@ export async function executeComputerTool(rawArgs, context = {}) {
   if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
     return computerErrorResult('Error: computer request exceeds byte limit; no input was dispatched');
   }
+  // Linux: report a missing uinput permission / window-control extension up
+  // front, before any input is dispatched, instead of failing mid-task.
+  const notReady = await linuxComputerPreflight({ mutating: computerMutationMayHaveExecuted(command) });
+  if (notReady) return computerErrorResult(`Error: ${notReady}`);
   const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
   if (releaseError) return releaseError;
   trackComputerSession(sessionId, command);

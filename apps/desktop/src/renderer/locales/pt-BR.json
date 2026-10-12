@@ -3773,5 +3773,6 @@
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "O chaveiro está bloqueado — desbloqueie-o (entre novamente ou abra Senhas e chaves).",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Instale o libsecret-tools (sudo apt install libsecret-tools) para usar o chaveiro do sistema.",
   "The system keyring could not be read — check that it is running and unlocked.": "Não foi possível ler o chaveiro do sistema — verifique se ele está em execução e desbloqueado.",
-  "Unlock keyring": "Desbloquear chaveiro"
+  "Unlock keyring": "Desbloquear chaveiro",
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "O chaveiro não está acessível — verifique se ele está em execução e clique em “Desbloquear chaveiro”."
 }

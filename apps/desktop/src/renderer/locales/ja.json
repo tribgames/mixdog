@@ -3687,5 +3687,6 @@
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "キーリングがロックされています。ロックを解除してください（再ログインするか「パスワードと鍵」を開く）。",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "システムのキーリングを使うには libsecret-tools をインストールしてください (sudo apt install libsecret-tools)。",
   "The system keyring could not be read — check that it is running and unlocked.": "システムのキーリングを読み取れません。起動していてロック解除されているか確認してください。",
-  "Unlock keyring": "キーリングのロックを解除"
+  "Unlock keyring": "キーリングのロックを解除",
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "キーリングに接続できません。起動していることを確認してから「キーリングのロックを解除」を押してください。"
 }
