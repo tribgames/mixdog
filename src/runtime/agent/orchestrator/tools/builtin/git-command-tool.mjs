@@ -200,10 +200,16 @@ function unwrapQuotedCommand(command) {
 
 function parseCommand(rawCommand, workDir) {
   const command = unwrapQuotedCommand(rawCommand);
-  if (commandHasShellSyntax(command))
+  if (commandHasShellSyntax(command)) {
+    // commandHasShellSyntax already skips quoted text; the pipe hint follows
+    // only when the rejected command really has an unquoted `|`.
+    const unquoted = command.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '');
     throw new Error(
-      'git command must not contain shell operators or substitution; multiple commands belong in the command array. For | head/tail use output_limit, for | grep use the grep tool'
+      `git command must not contain shell operators or substitution; multiple commands belong in the command array.${
+        unquoted.includes('|') ? ' For | head/tail use output_limit, for | grep use the grep tool' : ''
+      }`
     );
+  }
   const tokens = tokenizeDirectArgv(command);
   if (!tokens?.length || !/(^|[\\/])git(?:\.exe)?$/i.test(tokens[0])) {
     throw new Error('command must begin with git');

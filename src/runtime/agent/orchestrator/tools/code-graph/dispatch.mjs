@@ -133,7 +133,9 @@ function collectGraphParseWarnings(graph, options) {
 // instead of erroring "file not found in graph: (missing file)".
 function _resolveRequestedMode(args) {
   let mode = String(args?.mode || '').trim();
-  if (!mode) throw new Error('code_graph: "mode" is required');
+  if (!mode) {
+    throw new Error(`code_graph: "mode" is required, one of ${[...Object.keys(CODE_GRAPH_MODES), 'search'].join('|')}`);
+  }
   if (mode === 'search') mode = 'symbol_search';
   const nameOnlySymbols =
     mode === 'symbols' &&

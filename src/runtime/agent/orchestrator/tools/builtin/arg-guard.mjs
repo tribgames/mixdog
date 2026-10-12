@@ -954,7 +954,7 @@ const CODE_GRAPH_MODE_SET = new Set([...CODE_GRAPH_MODES, 'prewarm']);
 
 function guardCodeGraph(a) {
   if (!isPresent(a, 'mode')) {
-    return `Error: code_graph requires "mode", one of ${[...CODE_GRAPH_MODE_SET].filter((m) => m !== 'prewarm').join('|')}`;
+    return 'Error: code_graph requires "mode"';
   }
   if (!isString(a.mode)) {
     return `Error: code_graph arg "mode" must be a string (got ${describeType(a.mode)})`;
@@ -966,7 +966,7 @@ function guardCodeGraph(a) {
   // Absorb: file/files arriving as a JSON-stringified array
   // (file:"[\"a.mjs\",\"b.mjs\"]") — parse to a real array so the graph
   // lookup batches per file instead of treating the JSON text as one path.
-  for (const k of ['file', 'files', 'symbols']) {
+  for (const k of ['file', 'files']) {
     if (hasOwn(a, k) && typeof a[k] === 'string') {
       const c = coerceShapeFlex(a[k]);
       if (Array.isArray(c)) a[k] = c;

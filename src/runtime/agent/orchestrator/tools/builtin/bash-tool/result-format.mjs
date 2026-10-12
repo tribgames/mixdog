@@ -121,25 +121,44 @@ const _PS_UNIX_EQUIVALENTS = {
   grep: 'Select-String (or the grep tool)',
   sed: 'the edit tool',
   awk: 'ForEach-Object / the edit tool',
+  pgrep: 'Get-Process -Name <name>',
 };
 
 // One-line PowerShell equivalent for a failed command whose stderr is the
 // shell's own "bash-ism" error. Only ever appended to an already failed run.
+// Detection is locale-independent: the command text plus the error record's
+// structural markers, never the localized message prose. PowerShell keeps these
+// in English under any UI language: the `ParserError:` header or the
+// `RedirectionNotSupported`/`MissingFileSpecification` ids for parse failures,
+// and for a missing command either `ObjectNotFound: (name:String)` (detailed
+// view) or a `name:` header followed by the quoted `'name'` (concise view).
+function _missingCommandNames(err) {
+  const names = /\bCommandNotFoundException\b/.test(err)
+    ? [...err.matchAll(/\bObjectNotFound: \(([\w.-]+):String\)/g)].map((m) => m[1])
+    : [];
+  for (const m of err.matchAll(/^([\w.-]+): ?\r?\n?((?:.*\r?\n){0,4})/gm)) {
+    if (m[2].includes(`'${m[1]}'`)) names.push(m[1]);
+  }
+  return names;
+}
+
 export function _powershellBashismHint(command, stderr) {
   if (process.platform !== 'win32') return '';
   const err = String(stderr || '');
   const cmd = String(command || '');
-  if (/<\s*\/dev\/null/.test(cmd) && /redirection operator|'<' operator is reserved/i.test(err)) {
+  const parserRejected = /^ParserError:|\b(?:RedirectionNotSupported|MissingFileSpecification)\b/m.test(err);
+  if (/<\s*\/dev\/null/.test(cmd) && parserRejected) {
     return 'hint: PowerShell has no `<` redirection; drop </dev/null.';
   }
-  if (/<<-?\s*['"]?\w+/.test(cmd) && /redirection operator|'<' operator is reserved|missing/i.test(err)) {
+  if (/<<-?\s*['"]?\w+/.test(cmd) && parserRejected) {
     return "hint: PowerShell has no heredoc; use @'\\n…\\n'@ | python - (or node -).";
   }
   if (/2>\s*\/dev\/null/.test(cmd) && /dev\\null/i.test(err)) return 'hint: use 2>$null in PowerShell.';
-  const missing = /The term '(head|tail|wc|grep|sed|awk)' is not recognized/i.exec(err);
-  if (missing) {
-    const name = missing[1].toLowerCase();
-    return `hint: no \`${name}\` in PowerShell; use ${_PS_UNIX_EQUIVALENTS[name]}.`;
+  for (const name of _missingCommandNames(err)) {
+    const key = name.toLowerCase();
+    if (Object.hasOwn(_PS_UNIX_EQUIVALENTS, key) && new RegExp(`(^|[\\s|;&(])${key}(\\s|$)`).test(cmd)) {
+      return `hint: no \`${key}\` in PowerShell; use ${_PS_UNIX_EQUIVALENTS[key]}.`;
+    }
   }
   return '';
 }
