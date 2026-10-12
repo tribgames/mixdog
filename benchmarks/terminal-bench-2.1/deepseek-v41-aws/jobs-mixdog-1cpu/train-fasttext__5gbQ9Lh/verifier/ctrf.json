@@ -1,0 +1,44 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 2,
+            "passed": 0,
+            "failed": 2,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1791800734.0872583,
+            "stop": 1791800747.087049
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_accuracy",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 12.614496887999849,
+                "start": 1791800734.1953864,
+                "stop": 1791800746.9975789,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_accuracy():\n        \"\"\"Test accuracy of the fasttext model on the test set using CLI tool.\"\"\"\n        result = subprocess.run(\n            [\"fasttext\", \"test\", \"/app/model.bin\", \"/tests/private_test.txt\"],\n            capture_output=True,\n            text=True,\n            check=False,\n        )\n    \n        # Parse output format: \"N\\t10000\\nP@1\\t0.621\\nR@1\\t0.621\"\n        accuracy = None\n        for line in result.stdout.split(\"\\n\"):\n            if line.startswith(\"P@1\"):\n                parts = line.split(\"\\t\")\n                if len(parts) >= 2:\n                    accuracy = float(parts[1])\n                    break\n    \n        if accuracy is None:\n            raise AssertionError(\n                f\"Could not parse accuracy from fasttext output.\\nStdout: {result.stdout}\\nStderr: {result.stderr}\"\n            )\n    \n>       assert accuracy >= ACCURACY_THRESHOLD, (\n            f\"Accuracy {accuracy} is not at least {ACCURACY_THRESHOLD}\"\n        )\nE       AssertionError: Accuracy 0.584 is not at least 0.62\nE       assert 0.584 >= 0.62\n\n/tests/test_outputs.py:33: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_model_size",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.0007242989995575044,
+                "start": 1791800746.9978118,
+                "stop": 1791800747.086786,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_model_size():\n        \"\"\"Test the size of the model.\"\"\"\n        model_size = os.path.getsize(\"/app/model.bin\")\n>       assert model_size < MAX_MODEL_SIZE\nE       assert 200281405 < 157286400\n\n/tests/test_outputs.py:41: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            }
+        ]
+    }
+}

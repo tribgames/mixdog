@@ -1,0 +1,24 @@
+{
+    "task": {
+        "path": "/opt/hive-benchmark/payload/tasks-2cpu/compile-compcert",
+        "source": "tasks-2cpu"
+    },
+    "trial_name": "compile-compcert__6WBZb5C",
+    "trials_dir": "/opt/hive-benchmark/results/jobs-mixdog-2cpu/2026-10-12__10-41-27",
+    "agent": {
+        "name": "aws_agents:HiveMixdog",
+        "model_name": "deepseek-ai/deepseek-v4.1-flash"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/opt/hive-benchmark/payload",
+                "target": "/opt/hive-runtime",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "d8425267-59b8-4f56-92ee-2cc6e43ca4d4"
+}

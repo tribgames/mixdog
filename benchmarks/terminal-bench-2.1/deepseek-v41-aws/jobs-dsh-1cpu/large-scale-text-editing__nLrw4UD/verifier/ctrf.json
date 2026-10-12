@@ -1,0 +1,68 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 5,
+            "passed": 4,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1791792580.7357945,
+            "stop": 1791792618.1735234
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_apply_macros_exists",
+                "status": "passed",
+                "duration": 0.00038582900015171617,
+                "start": 1791792580.8073237,
+                "stop": 1791792580.8079205,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_apply_macros_well_formed",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.000672954000037862,
+                "start": 1791792580.8080993,
+                "stop": 1791792580.8202295,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_apply_macros_well_formed():\n        \"\"\"\n        Ensure the Vim macros script is well-formed and includes required commands and\n        only valid commands.\n        \"\"\"\n        text = APPLY_SCRIPT.read_text(encoding=\"utf-8\", errors=\"ignore\")\n        # Parse the script content\n        lines = [\n            line.strip()\n            for line in text.split(\"\\n\")\n            if line.strip() and not line.strip().startswith('\"')\n        ]\n        # Any use of :%normal! must be exactly with @a/@b/@c\n        other_normals = re.findall(r\"^\\s*:%normal!\\s+(\\S+)\", text, re.MULTILINE)\n        assert all(tok in (\"@a\", \"@b\", \"@c\") for tok in other_normals), (\n            f\"Only @a/@b/@c may be used with :%normal!, found: {other_normals}\"\n        )\n        # Check for required components\n        has_exit = any(line in (\":wq\", \":x\") for line in lines)\n        # Check for setreg calls for all three registers (flexible quote matching)\n        setreg_a = any(re.search(r\"call setreg\\(['\\\"]a['\\\"],\", line) for line in lines)\n        setreg_b = any(re.search(r\"call setreg\\(['\\\"]b['\\\"],\", line) for line in lines)\n        setreg_c = any(re.search(r\"call setreg\\(['\\\"]c['\\\"],\", line) for line in lines)\n        # Check for macro execution calls for all three registers\n        exec_a = any(\":%normal! @a\" in line for line in lines)\n        exec_b = any(\":%normal! @b\" in line for line in lines)\n        exec_c = any(\":%normal! @c\" in line for line in lines)\n        # Validate required components\n>       assert has_exit, \"Missing :wq or :x\"\nE       AssertionError: Missing :wq or :x\nE       assert False\n\n/tests/test_outputs.py:156: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_apply_macros_runs",
+                "status": "passed",
+                "duration": 37.276617485000315,
+                "start": 1791792580.820413,
+                "stop": 1791792618.097281,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_input_equiv_expected",
+                "status": "passed",
+                "duration": 0.06774902600045607,
+                "start": 1791792618.0975068,
+                "stop": 1791792618.165486,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_macros_nonempty_and_efficient",
+                "status": "passed",
+                "duration": 0.0074420209994059405,
+                "start": 1791792618.165729,
+                "stop": 1791792618.173344,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}
