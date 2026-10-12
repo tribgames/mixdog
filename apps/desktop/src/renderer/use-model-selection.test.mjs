@@ -5,6 +5,49 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { useModelSelection } from './use-model-selection.ts';
 
+test('a route autoEffort preview is acknowledged from the snapshot and absent reads as on', async () => {
+  const { dom } = installTestDom(null, {
+    html: '<!doctype html><body><main></main></body>',
+    jsdom: { url: 'about:blank' },
+  });
+  const root = createRoot(document.querySelector('main'));
+  let paint;
+  let acknowledge;
+  function Harness() {
+    const [source, setSource] = useState({ provider: 'openai', model: 'gpt-test', effort: 'high' });
+    paint = setSource;
+    const { selection, pending, begin, settle } = useModelSelection('auto-session', source);
+    return React.createElement(
+      'button',
+      {
+        type: 'button',
+        disabled: pending,
+        onClick() {
+          const token = begin({ ...source, autoEffort: false });
+          acknowledge = (snapshot) => settle(token, snapshot);
+        },
+      },
+      String(selection.autoEffort)
+    );
+  }
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const button = document.querySelector('button');
+    assert.equal(button.textContent, 'undefined');
+    await act(async () => button.click());
+    assert.equal(button.textContent, 'false');
+    await act(async () => acknowledge({ provider: 'openai', model: 'gpt-test', effort: 'high', autoEffort: false }));
+    // The source still reads "on" (field absent) until the snapshot catches up.
+    assert.equal(button.disabled, false);
+    assert.equal(button.textContent, 'false');
+    await act(async () => paint({ provider: 'openai', model: 'gpt-test', effort: 'high', autoEffort: false }));
+    assert.equal(button.textContent, 'false');
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+  }
+});
+
 test('a canonical default response releases the preview and accepts later tuning', async () => {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><body><main></main></body>',

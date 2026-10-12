@@ -48,6 +48,8 @@ export function createAgentRouteApi(deps) {
       ...selectedRoute,
       effort: requested.effort !== undefined ? selectedRoute.effort : inheritedEffort,
       fast: requested.fast !== undefined ? selectedRoute.fast === true : sameModel && stored.fast === true,
+      // Main's modelSettings bucket must not decide an agent's Auto effort.
+      autoEffort: requested.autoEffort !== undefined ? requested.autoEffort !== false : !sameModel || stored.autoEffort !== false,
       modelParameters:
         requested.modelParameters !== undefined ? selectedRoute.modelParameters : inheritedModelParameters,
       // resolveRoute reads contextPercent from Main's modelSettings bucket;

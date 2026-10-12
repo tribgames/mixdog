@@ -123,6 +123,8 @@ export type Snapshot = RecordValue & {
   turnEffort?: string | null;
   fast?: boolean;
   fastCapable?: boolean;
+  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
+  autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
   thinking?: unknown;

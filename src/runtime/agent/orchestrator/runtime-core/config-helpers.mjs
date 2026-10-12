@@ -60,8 +60,19 @@ function resolveFast({ hasExplicitFast, explicitFast, saved, presetFast = false,
   return presetFast || preference();
 }
 
+/** The route's Auto effort flag: an explicit request, else the saved choice,
+ *  else the preset. Absent means on; only `false` turns it off. */
+function resolveAutoEffort({ autoEffort, saved, preset = null }) {
+  if (autoEffort !== undefined) return autoEffort !== false;
+  if (hasOwn(saved, 'autoEffort')) return saved.autoEffort !== false;
+  return preset?.autoEffort !== false;
+}
+
 export function makeResolveRoute(resolveDefaultProvider) {
-  return function resolveRoute(config, { provider, model, effort, fast, modelParameters, contextPercent } = {}) {
+  return function resolveRoute(
+    config,
+    { provider, model, effort, fast, autoEffort, modelParameters, contextPercent } = {}
+  ) {
     const explicitProvider = clean(provider);
     const explicitModel = clean(model);
     const hasExplicitEffort = effort !== undefined;
@@ -90,6 +101,7 @@ export function makeResolveRoute(resolveDefaultProvider) {
               presetFast: preset.fast === true,
               preference: () => fastPreferenceFor(config, p, m),
             }),
+            autoEffort: resolveAutoEffort({ autoEffort, saved, preset }),
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
@@ -110,6 +122,7 @@ export function makeResolveRoute(resolveDefaultProvider) {
       preset: null,
       effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort),
       fast: resolveFast({ hasExplicitFast, explicitFast, saved, preference: () => fastPreferenceFor(config, p, m) }),
+      autoEffort: resolveAutoEffort({ autoEffort, saved }),
       modelParameters: hasExplicitModelParameters
         ? cleanModelParameters(modelParameters)
         : cleanModelParameters(saved.modelParameters),

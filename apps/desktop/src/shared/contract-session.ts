@@ -36,6 +36,8 @@ export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
   model?: string;
   effort?: string;
   fast?: boolean;
+  /** Per-route Auto reasoning; absent means on. */
+  autoEffort?: boolean;
   status?: string;
   stage?: string;
   startedAt?: number | string;
@@ -51,6 +53,7 @@ export interface DesktopAgentJob extends Readonly<Record<string, unknown>> {
   model?: string;
   effort?: string;
   fast?: boolean;
+  autoEffort?: boolean;
   task_id?: string;
   taskId?: string;
   status?: string;
@@ -80,6 +83,8 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   model: string | null;
   effort?: string | null;
   fast?: boolean | null;
+  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
+  autoEffort?: boolean | null;
   status: string;
   stage: string;
   startedAt: number | string | null;
@@ -180,6 +185,8 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   sessionModel?: string | null;
   fast?: boolean;
   fastCapable?: boolean;
+  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
+  autoEffort?: boolean;
   modelParameters?: Readonly<Record<string, string>>;
   contextPercent?: number;
   desktopSessionTitle?: string;
@@ -317,6 +324,7 @@ export interface DesktopModelOption {
   fastPreferred: boolean;
   savedEffort?: string;
   savedFast?: boolean;
+  savedAutoEffort?: boolean;
   defaultEffort?: string;
   defaultFast?: boolean;
   /** Effort can change per turn without breaking the prompt cache, so the
@@ -343,6 +351,8 @@ export interface DesktopModelSelection {
   model: string;
   effort?: string;
   fast?: boolean;
+  /** Per-route Auto reasoning; absent means on, only `false` turns it off. */
+  autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
 }

@@ -27,6 +27,8 @@ type SlashExecutorDeps = {
   effort: string;
   fast: boolean;
   fastCapable: boolean;
+  /** The route's own Auto reasoning flag; absent means on. */
+  autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   /** Whether the current model offers the Ultrafast service tier. */
   ultrafastCapable?: () => boolean;
@@ -156,6 +158,7 @@ function modelSelection(
     model,
     effort,
     ...rest,
+    ...(typeof deps.autoEffort === 'boolean' ? { autoEffort: deps.autoEffort } : {}),
     ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
   };
 }

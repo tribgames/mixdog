@@ -123,6 +123,11 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   else delete nextSetting.effort;
   if (fastCapable) nextSetting.fast = route.fast === true;
   else nextSetting.fast = false;
+  // Auto effort is on unless turned off: only the off state is stored.
+  if (hasOwn(route, 'autoEffort')) {
+    if (route.autoEffort === false) nextSetting.autoEffort = false;
+    else delete nextSetting.autoEffort;
+  }
   if (route.modelParameters && typeof route.modelParameters === 'object') {
     nextSetting.modelParameters = Object.fromEntries(
       Object.entries(route.modelParameters)

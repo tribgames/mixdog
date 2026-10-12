@@ -87,6 +87,7 @@ export const draftModelSelectionFromSnapshot = (snapshot: Snapshot): DesktopMode
     model,
     ...(effort ? { effort } : {}),
     ...(typeof snapshot.fast === 'boolean' ? { fast: snapshot.fast } : {}),
+    ...(typeof snapshot.autoEffort === 'boolean' ? { autoEffort: snapshot.autoEffort } : {}),
     ...(snapshot.modelParameters ? { modelParameters: { ...snapshot.modelParameters } } : {}),
     ...(Number(snapshot.contextPercent) >= 10 ? { contextPercent: Number(snapshot.contextPercent) } : {}),
   };

@@ -133,6 +133,7 @@ export function workerRowToSession(row = {}) {
     presetName: row.preset || null,
     effort: row.effort || null,
     fast: row.fast === true,
+    ...(row.autoEffort === false ? { autoEffort: false } : {}),
     status: row.status || 'idle',
     stage: row.stage || row.status || 'idle',
     createdAt: row.createdAt || null,

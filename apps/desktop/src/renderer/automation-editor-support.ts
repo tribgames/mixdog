@@ -4,7 +4,7 @@ import type { DesktopModelOption, DesktopProjectSummary } from '../shared/contra
 import { cachedAutoEffortCapable } from './auto-effort-store';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
-import { parseModelRef, routeSpeed } from './model-route-utils';
+import { NO_AUTO_EFFORT_SUFFIX, parseModelRef, routeSpeed } from './model-route-utils';
 import { modelDisplayName, modelFastAvailable, routeDaybreakBlue } from './provider-display';
 
 /** `+fast` route suffix, emitted only when the selected model supports fast
@@ -18,6 +18,11 @@ export function automationFastSuffix(
   return fast && modelFastAvailable(selected, effort, modelParameters) ? '+fast' : '';
 }
 
+/** `+noauto` route suffix: only a route that turned Auto reasoning off carries it. */
+export function automationAutoEffortSuffix(autoEffort: boolean): string {
+  return autoEffort ? '' : NO_AUTO_EFFORT_SUFFIX;
+}
+
 /** `provider/model` route split at its first slash; a bare id has no provider. */
 export function splitModelRoute(route: string): { provider: string; id: string } {
   const slash = route.indexOf('/');
@@ -28,7 +33,15 @@ export function splitModelRoute(route: string): { provider: string; id: string }
  *  reference, or null when the row carries no model. */
 export function automationRouteSummary(
   rawModel: string
-): { model: string; effort: string; fast: boolean; ultra: boolean; blue: boolean; autoEffortCapable: boolean } | null {
+): {
+  model: string;
+  effort: string;
+  fast: boolean;
+  ultra: boolean;
+  blue: boolean;
+  autoEffortCapable: boolean;
+  autoEffort: boolean;
+} | null {
   const ref = parseModelRef(rawModel);
   if (!ref.route) return null;
   const slash = ref.route.indexOf('/');
@@ -41,6 +54,7 @@ export function automationRouteSummary(
     ultra: routeSpeed(ref.fast, ref.modelParameters) === 'ultrafast',
     blue: slash > 0 && routeDaybreakBlue(ref.modelParameters),
     autoEffortCapable,
+    autoEffort: ref.autoEffort,
   };
 }
 

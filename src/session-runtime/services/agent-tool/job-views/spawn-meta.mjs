@@ -16,6 +16,7 @@ export function preparedSpawnMeta(prepared, extras = {}) {
     model: prepared.preset.model,
     effort: prepared.preset.effort || null,
     fast: prepared.preset.fast === true,
+    ...(prepared.preset.autoEffort === false ? { autoEffort: false } : {}),
   });
 }
 

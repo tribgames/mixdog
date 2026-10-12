@@ -12,6 +12,7 @@ function normalizeMaintenanceCandidate(candidate) {
     model,
     effort: String(candidate.effort || '').trim() || undefined,
     fast: candidate.fast === true,
+    ...(candidate.autoEffort === false ? { autoEffort: false } : {}),
   };
 }
 

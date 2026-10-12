@@ -65,6 +65,7 @@ export function hydrateProviderModelRow(cfg, row) {
       ) || customAutoEffortCapable(row.provider, cfg?.providers?.[row.provider]?.protocol, row),
     savedEffort: saved.effort || null,
     savedFast: Object.hasOwn(saved, 'fast') ? saved.fast === true : undefined,
+    savedAutoEffort: Object.hasOwn(saved, 'autoEffort') ? saved.autoEffort !== false : undefined,
     savedModelParameters: saved.modelParameters || {},
     savedContextPercent: Number(saved.contextPercent) || undefined,
   };

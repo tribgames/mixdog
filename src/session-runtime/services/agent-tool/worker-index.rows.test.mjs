@@ -33,6 +33,29 @@ const stored = (root) => {
 };
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
+test('a worker row records Auto effort off from the session or an explicit spawn descriptor', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-auto-effort-'));
+  try {
+    const { index } = workerIndex(root);
+    index.upsertWorkerSession({ id: 'sess-off', agentTag: 'off', agent: 'worker', autoEffort: false }, '', {});
+    index.upsertWorkerSession({ id: 'sess-spawn', agentTag: 'spawn', agent: 'worker' }, '', { autoEffort: false });
+    index.upsertWorkerSession({ id: 'sess-on', agentTag: 'on', agent: 'worker', autoEffort: false }, '', {
+      autoEffort: true,
+    });
+    const rows = Object.fromEntries(Object.values(stored(root).workers).map((row) => [row.tag, row]));
+    assert.equal(rows.off.autoEffort, false);
+    assert.equal(rows.spawn.autoEffort, false);
+    assert.equal(Object.hasOwn(rows.on, 'autoEffort'), false);
+    assert.equal(
+      index.readWorkerRows().find((row) => row.tag === 'off').autoEffort,
+      false,
+      'the stored row reads back with the flag'
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a session upsert projects into the tag maps and the file; deferred upserts land in one batched write', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-'));
   try {
@@ -62,6 +85,7 @@ test('a session upsert projects into the tag maps and the file; deferred upserts
     assert.equal(row.messages, 3);
     assert.equal(row.tools, 1);
     assert.equal(row.fast, null);
+    assert.equal(Object.hasOwn(row, 'autoEffort'), false, 'Auto effort on is the absent default');
 
     index.upsertWorkerSessionDeferred({ id: 'sess-beta' }, 'beta', { status: 'idle' });
     index.upsertWorkerSessionDeferred({ id: 'sess-gamma' }, 'gamma', { status: 'idle' });

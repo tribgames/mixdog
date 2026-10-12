@@ -315,6 +315,7 @@ export const ModelSelector = memo(function ModelSelector({
   effort: sourceEffort,
   fast: sourceFast,
   fastCapable: sourceFastCapable,
+  autoEffort: sourceAutoEffort,
   modelParameters: sourceModelParameters,
   contextPercent: sourceContextPercent,
   modelDisabled,
@@ -334,6 +335,8 @@ export const ModelSelector = memo(function ModelSelector({
   effort: string;
   fast: boolean;
   fastCapable: boolean;
+  /** The route's own Auto reasoning flag; absent means on. */
+  autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
   modelDisabled: boolean;
@@ -360,10 +363,13 @@ export const ModelSelector = memo(function ModelSelector({
     model: sourceModel,
     effort: sourceEffort,
     fast: sourceFast,
+    ...(typeof sourceAutoEffort === 'boolean' ? { autoEffort: sourceAutoEffort } : {}),
     modelParameters: sourceModelParameters,
     contextPercent: sourceContextPercent,
   });
-  const { provider, model, effort = '', fast = false, modelParameters, contextPercent } = selection;
+  const { provider, model, effort = '', fast = false, autoEffort, modelParameters, contextPercent } = selection;
+  // Every route write carries the route's known Auto flag, like `fast`.
+  const autoEffortField = typeof autoEffort === 'boolean' ? { autoEffort } : {};
   const catalogInFlight = useRef<Promise<void> | null>(null);
   // Newest request wins. An older reply may land after a newer choice, so only
   // the current token may publish its snapshot; useModelSelection already
@@ -397,7 +403,9 @@ export const ModelSelector = memo(function ModelSelector({
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
   const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
-  const autoEffortRoute = useAutoEffortRoute(known?.autoEffortCapable === true);
+  const autoEffortRoute = useAutoEffortRoute(known?.autoEffortCapable === true, autoEffort, (enabled) =>
+    changeAutoEffort(enabled)
+  );
   useEffect(() => {
     reportBootSurfaceStage('model-controls', modelBootKey, 'module');
     if (!awaitingRoute) reportBootSurfaceReady('model-controls', modelBootKey, 'shell');
@@ -571,6 +579,12 @@ export const ModelSelector = memo(function ModelSelector({
       else if (typeof option.savedFast === 'boolean') requestedFast = option.savedFast;
       else requestedFast = option.fastPreferred;
     }
+    let nextAutoEffort: boolean | undefined;
+    if (option.autoEffortCapable) {
+      if (sameModel) nextAutoEffort = autoEffort !== false;
+      else if (typeof remembered?.autoEffort === 'boolean') nextAutoEffort = remembered.autoEffort;
+      else nextAutoEffort = option.savedAutoEffort ?? true;
+    }
     const nextModelParameters = preferredModelParameters(
       option,
       sameModel ? selectedModelParameters : remembered?.modelParameters || {}
@@ -590,6 +604,7 @@ export const ModelSelector = memo(function ModelSelector({
       model: option.model,
       ...(nextEffort ? { effort: nextEffort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
+      ...(nextAutoEffort === undefined ? {} : { autoEffort: nextAutoEffort }),
       ...(option.modelParameterOptions?.length
         ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
         : {}),
@@ -612,6 +627,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         ...(effort ? { effort } : {}),
         fast: enabled,
+        ...autoEffortField,
         contextPercent: normalizedContextPercent,
       });
       return;
@@ -650,6 +666,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       fast: next.fast,
+      ...autoEffortField,
       modelParameters: routeModelParameters(next.modelParameters, maxContextWindow),
       contextPercent: normalizedContextPercent,
     });
@@ -665,6 +682,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         ...(nextFast === undefined ? {} : { fast: nextFast }),
+        ...autoEffortField,
         ...routedParameterFields,
         contextPercent: normalizedContextPercent,
       });
@@ -676,6 +694,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         fast: false,
+        ...autoEffortField,
         ...routedParameterFields,
         contextPercent: normalizedContextPercent,
       });
@@ -707,6 +726,7 @@ export const ModelSelector = memo(function ModelSelector({
             model,
             effort,
             ...(nextFast === undefined ? {} : { fast: nextFast }),
+            ...autoEffortField,
             ...routedParameterFields,
             contextPercent: normalizedContextPercent,
           });
@@ -724,9 +744,28 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(fastControlVisible ? { fast: displayedFast } : {}),
+      ...autoEffortField,
       ...routedParameterFields,
       contextPercent: nextContextPercent,
     });
+  };
+  // This route's Auto reasoning switch: the route changes, never the master.
+  const changeAutoEffort = async (enabled: boolean) => {
+    if (!known || tuningUnavailable || !provider || !model) return;
+    const selection: DesktopModelSelection = {
+      provider,
+      model,
+      ...(effort ? { effort } : {}),
+      ...(fastControlVisible ? { fast: displayedFast } : {}),
+      autoEffort: enabled,
+      ...routedParameterFields,
+      contextPercent: normalizedContextPercent,
+    };
+    if (onDraftSelection) {
+      onDraftSelection(selection);
+      return;
+    }
+    await route(selection);
   };
   const changeModelParameter = async (id: string, value: string) => {
     if (!known || tuningUnavailable) return;
@@ -739,6 +778,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
+      ...autoEffortField,
       modelParameters: routeModelParameters(nextModelParameters, maxContextWindow),
       contextPercent: normalizedContextPercent,
     });
@@ -787,7 +827,7 @@ export const ModelSelector = memo(function ModelSelector({
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelPane={() => void loadCatalog()}
         autoEffort={autoEffortRoute.autoEffort}
-        onChangeAutoEffort={(enabled) => void autoEffortRoute.onChangeAutoEffort(enabled)}
+        onChangeAutoEffort={autoEffortRoute.onChangeAutoEffort}
         onOpenSheet={autoEffortRoute.onOpenSheet}
         answersModelPickerRequests={answersModelPickerRequests}
         onClosed={() => {

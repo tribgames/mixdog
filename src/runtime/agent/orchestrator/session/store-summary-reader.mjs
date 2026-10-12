@@ -431,6 +431,7 @@ function storedSessionMetadata(sessionId, session) {
     presetName: session.presetName || session.profileId || null,
     effort: session.effort || null,
     fast: session.fast === true,
+    ...(session.autoEffort === false ? { autoEffort: false } : {}),
     modelParameters: session.modelParameters || null,
     taskType: session.taskType || null,
     permission: session.permission || null,

@@ -36,6 +36,7 @@ function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
     preset: session.presetName || null,
     effort: session.effort || null,
     fast: session.fast === true,
+    ...(session.autoEffort === false ? { autoEffort: false } : {}),
     // Additive: route model parameters (e.g. Daybreak Blue) when the route has any.
     ...(session.modelParameters && Object.keys(session.modelParameters).length
       ? { modelParameters: { ...session.modelParameters } }

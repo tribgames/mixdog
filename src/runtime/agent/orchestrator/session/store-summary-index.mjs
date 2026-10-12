@@ -187,6 +187,7 @@ export function _sessionSummary(session) {
     presetName: session.presetName || session.profileId || null,
     effort: session.effort || null,
     fast: session.fast === true,
+    ...(session.autoEffort === false ? { autoEffort: false } : {}),
     modelParameters:
       session.modelParameters && typeof session.modelParameters === 'object' ? { ...session.modelParameters } : null,
     agentTag: session.agentTag || null,
@@ -236,6 +237,7 @@ function _normalizeSummaryRow(row) {
     presetName: row.presetName || row.profileId || null,
     effort: row.effort || null,
     fast: row.fast === true,
+    ...(row.autoEffort === false ? { autoEffort: false } : {}),
     modelParameters: row.modelParameters && typeof row.modelParameters === 'object' ? { ...row.modelParameters } : null,
     agentTag: row.agentTag || null,
     task_id: row.task_id || null,

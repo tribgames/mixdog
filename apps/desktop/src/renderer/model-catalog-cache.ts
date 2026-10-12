@@ -98,6 +98,7 @@ function modelOption(value: unknown): DesktopModelOption | null {
     fastPreferred: option.fastPreferred === true,
     ...(typeof option.savedEffort === 'string' ? { savedEffort: option.savedEffort } : {}),
     ...(typeof option.savedFast === 'boolean' ? { savedFast: option.savedFast } : {}),
+    ...(typeof option.savedAutoEffort === 'boolean' ? { savedAutoEffort: option.savedAutoEffort } : {}),
     ...(typeof option.savedContextPercent === 'number' && Number.isFinite(option.savedContextPercent)
       ? { savedContextPercent: option.savedContextPercent }
       : {}),

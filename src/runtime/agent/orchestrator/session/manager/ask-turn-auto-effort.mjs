@@ -70,6 +70,8 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
   // Agent sessions are judged like any other: their spawn brief and later Lead
   // `send` messages arrive as plain prompts.
   if (mode === 'off' || input?.promptSource) return null;
+  // The session's route turned Auto effort off: its chosen effort stands.
+  if (session?.autoEffort === false) return null;
   const request = promptContentText(input?.prompt).trim();
   // Skill bodies and runtime blocks arrive as tagged text, not as a request.
   if (!request || request.startsWith('<')) return null;

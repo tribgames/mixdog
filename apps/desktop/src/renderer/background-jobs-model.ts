@@ -71,6 +71,7 @@ export function backgroundJobRows(snapshot: Snapshot): JobRow[] {
         effort: agent.effort || null,
         fast: agent.fast,
         ...(agent.modelParameters ? { modelParameters: agent.modelParameters } : {}),
+        autoEffort: agent.autoEffort,
         status: agent.status,
         stage: '',
         startedAt: agent.startedAt || null,

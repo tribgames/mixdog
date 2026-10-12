@@ -145,6 +145,7 @@ const LANE_PRESENTATION_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'effort',
   'fast',
   'fastCapable',
+  'autoEffort',
   'modelParameters',
   'contextPercent',
   'workflow',
@@ -223,6 +224,10 @@ function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Sna
     }
     if (typeof next.fast !== 'boolean' && typeof prior.fast === 'boolean') {
       merged.fast = prior.fast;
+      changed = true;
+    }
+    if (typeof next.autoEffort !== 'boolean' && typeof prior.autoEffort === 'boolean') {
+      merged.autoEffort = prior.autoEffort;
       changed = true;
     }
     if (typeof next.fastCapable !== 'boolean' && typeof prior.fastCapable === 'boolean') {

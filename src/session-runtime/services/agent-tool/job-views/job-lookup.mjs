@@ -69,6 +69,7 @@ export function createJobLookup({ mgr, tags, refreshTagsFromSessions }) {
         model: session.model || null,
         effort: session.effort || null,
         fast: session.fast === true,
+        ...(session.autoEffort === false ? { autoEffort: false } : {}),
       },
     };
   }

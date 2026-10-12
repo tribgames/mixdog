@@ -153,6 +153,8 @@ function resolveSessionRoute(opts, presetObj, profile) {
   const toolPreset = opts.tools || presetObj?.tools || (typeof opts.preset === 'string' ? opts.preset : null) || 'full';
   const effort = Object.hasOwn(opts, 'effort') ? opts.effort || null : presetObj?.effort || null;
   const fast = presetObj?.fast === true || opts.fast === true;
+  // Absent means on: an explicit request wins, else the preset's own flag.
+  const autoEffort = opts.autoEffort !== undefined ? opts.autoEffort !== false : presetObj?.autoEffort !== false;
   let modelParameters = {};
   if (opts.modelParameters && typeof opts.modelParameters === 'object') {
     modelParameters = { ...opts.modelParameters };
@@ -172,7 +174,18 @@ function resolveSessionRoute(opts, presetObj, profile) {
   // materialization. Supplying that reservation here keeps the address
   // stable across intake -> queued turn -> provider execution.
   const id = requestedId || mintSessionId();
-  return { providerName, modelName, provider, toolPreset, effort, fast, modelParameters, contextPercent, id };
+  return {
+    providerName,
+    modelName,
+    provider,
+    toolPreset,
+    effort,
+    fast,
+    autoEffort,
+    modelParameters,
+    contextPercent,
+    id,
+  };
 }
 
 // Unified-shard policy — no broad role-specific schema filter. Keep
@@ -287,6 +300,10 @@ function applyRouteFields(session, route) {
   if (route.provider) session.provider = route.provider;
   if (route.model) session.model = route.model;
   if (Object.hasOwn(route, 'fast')) session.fast = route.fast === true;
+  if (Object.hasOwn(route, 'autoEffort')) {
+    if (route.autoEffort === false) session.autoEffort = false;
+    else delete session.autoEffort;
+  }
   if (Object.hasOwn(route, 'effort')) session.effort = route.effort || null;
   ensureCodexWireSessionId(session);
   if (Object.hasOwn(route, 'modelParameters')) {

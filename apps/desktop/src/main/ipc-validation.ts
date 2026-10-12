@@ -71,7 +71,7 @@ const SUBMIT_OPTION_KEYS = new Set([
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
-const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'modelParameters', 'contextPercent']);
+const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'autoEffort', 'modelParameters', 'contextPercent']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
@@ -916,6 +916,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   requireAllowedKeys(selection, MODEL_SELECTION_KEYS, 'model selection');
   const effort = selection.effort;
   const fast = selection.fast;
+  const autoEffort = selection.autoEffort;
   const modelParameters = selection.modelParameters;
   const contextPercent = selection.contextPercent;
   if (effort !== undefined && typeof effort !== 'string') {
@@ -923,6 +924,9 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   }
   if (fast !== undefined && typeof fast !== 'boolean') {
     throw new TypeError('selection.fast must be a boolean.');
+  }
+  if (autoEffort !== undefined && typeof autoEffort !== 'boolean') {
+    throw new TypeError('selection.autoEffort must be a boolean.');
   }
   if (
     modelParameters !== undefined &&
@@ -948,6 +952,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
     model: requiredString(selection.model, 'selection.model', 512),
     ...(effort === undefined ? {} : { effort: requiredString(effort, 'selection.effort', 64) }),
     ...(fast === undefined ? {} : { fast }),
+    ...(autoEffort === undefined ? {} : { autoEffort }),
     ...(modelParameters === undefined ? {} : { modelParameters: { ...(modelParameters as Record<string, string>) } }),
     ...(contextPercent === undefined ? {} : { contextPercent }),
   };

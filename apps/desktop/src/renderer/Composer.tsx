@@ -228,6 +228,8 @@ export type ComposerProps = {
   effort: string;
   fast: boolean;
   fastCapable: boolean;
+  /** The route's own Auto reasoning flag; absent means on. */
+  autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
   draftMode?: boolean;
@@ -284,6 +286,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     effort,
     fast,
     fastCapable,
+    autoEffort,
     modelParameters,
     contextPercent,
     draftMode,
@@ -495,6 +498,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     effort,
     fast,
     fastCapable,
+    autoEffort,
     modelParameters,
     ultrafastCapable: () =>
       modelOffersUltrafast(
@@ -805,6 +809,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           effort={effort}
           fast={fast}
           fastCapable={fastCapable}
+          autoEffort={autoEffort}
           modelParameters={modelParameters}
           contextPercent={contextPercent}
           sessionId={sessionId}

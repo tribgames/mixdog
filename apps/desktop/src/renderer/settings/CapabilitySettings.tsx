@@ -255,11 +255,17 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           else if (typeof model.savedFast === 'boolean') fast = model.savedFast;
           else fast = model.fastPreferred;
         }
+        let autoEffort: boolean | undefined;
+        if (model.autoEffortCapable) {
+          if (isActiveRoute && typeof active.autoEffort === 'boolean') autoEffort = active.autoEffort;
+          else autoEffort = model.savedAutoEffort ?? true;
+        }
         await api.setModelRoute({
           provider: model.provider,
           model: model.model,
           ...(effort ? { effort } : {}),
           ...(fast === undefined ? {} : { fast }),
+          ...(autoEffort === undefined ? {} : { autoEffort }),
         });
         setRevision((value) => value + 1);
       } catch (reason) {

@@ -20,6 +20,7 @@ export function wireSessionLifecycle(boot) {
       params.model !== undefined ||
       params.effort !== undefined ||
       params.fast !== undefined ||
+      params.autoEffort !== undefined ||
       params.modelParameters !== undefined,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     invalidateOutputStyleStatusCache: boot.invalidateOutputStyleStatusCache,

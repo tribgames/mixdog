@@ -79,6 +79,7 @@ function rehydratedDescriptor(candidate, ownerSessionId) {
     presetName: row.presetName || row.preset || row.profileId || null,
     effort: row.effort || null,
     fast: row.fast === true,
+    ...(row.autoEffort === false ? { autoEffort: false } : {}),
     modelParameters: row.modelParameters || null,
     taskType: row.taskType || null,
     permission: row.permission || null,

@@ -79,6 +79,17 @@ test('a busy child accepts follow-ups on its existing runtime', async () => {
   assert.equal(accepted[0].options.context, 'extra');
 });
 
+test('createAgentChild passes the preset Auto effort explicitly and records only the off state', async () => {
+  const h = createHarness();
+  const { session: on } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const off = (await h.tree.createAgentChild({ spec: spec('lead-1', { preset: { ...spec('').preset, autoEffort: false } }) }))
+    .session;
+  assert.equal(h.created[0].autoEffort, true, 'explicit, so the Main model bucket cannot decide it');
+  assert.equal(h.created[1].autoEffort, false);
+  assert.equal(Object.hasOwn(on, 'autoEffort'), false);
+  assert.equal(off.autoEffort, false);
+});
+
 test('createAgentChild links the child under its parent with the root owner carried down the chain', async () => {
   const h = createHarness();
   const { session: child } = await h.tree.createAgentChild({ spec: spec('lead-1'), tag: 'r1' });

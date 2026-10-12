@@ -5,14 +5,25 @@ type ParsedModelRef = {
   route: string;
   effort: string;
   fast: boolean;
+  /** Per-route Auto reasoning; `+noauto` turns it off, absent means on. */
+  autoEffort: boolean;
   modelParameters: Record<string, string>;
 };
+
+/** `+noauto` route suffix: this route opts out of Auto reasoning (the stored
+ *  form of `autoEffort: false`, next to `+fast`). */
+export const NO_AUTO_EFFORT_SUFFIX = '+noauto';
 
 export function parseModelRef(ref: string): ParsedModelRef {
   const raw = String(ref || '');
   const queryAt = raw.indexOf('?');
   let route = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
   const modelParameters = queryAt >= 0 ? Object.fromEntries(new URLSearchParams(raw.slice(queryAt + 1))) : {};
+  let autoEffort = true;
+  if (route.endsWith(NO_AUTO_EFFORT_SUFFIX)) {
+    autoEffort = false;
+    route = route.slice(0, -NO_AUTO_EFFORT_SUFFIX.length);
+  }
   let fast = false;
   if (route.endsWith('+fast')) {
     fast = true;
@@ -27,7 +38,7 @@ export function parseModelRef(ref: string): ParsedModelRef {
       route = route.slice(0, at);
     }
   }
-  return { route, effort, fast, modelParameters };
+  return { route, effort, fast, autoEffort, modelParameters };
 }
 
 /** Effort picked for a model whose remembered choices it does not offer. */
@@ -105,6 +116,7 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
   });
   const savedEffort = String(value.savedEffort || '');
   const savedFast = typeof value.savedFast === 'boolean' ? value.savedFast : undefined;
+  const savedAutoEffort = typeof value.savedAutoEffort === 'boolean' ? value.savedAutoEffort : undefined;
   const fastCapable = value.fastCapable === true;
   const fastEfforts = Array.isArray(value.fastEfforts)
     ? value.fastEfforts.map((entry) =>
@@ -126,6 +138,7 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
     fastPreferred: fastCapable && (value.fastPreferred === true || savedFast === true),
     ...(savedEffort ? { savedEffort } : {}),
     ...(savedFast === undefined ? {} : { savedFast }),
+    ...(savedAutoEffort === undefined ? {} : { savedAutoEffort }),
     ...(value.supportsVision === true ? { supportsVision: true } : {}),
     ...(value.defaultEffort ? { defaultEffort: String(value.defaultEffort) } : {}),
     ...(value.defaultFast === true ? { defaultFast: true } : {}),

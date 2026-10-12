@@ -36,6 +36,8 @@ export function createAgentChildFactory({ registry, rehydrateAgentSessions, crea
       model,
       effort: preset.effort,
       fast: preset.fast === true,
+      // Explicit, so Main's modelSettings bucket cannot decide the agent's Auto effort.
+      autoEffort: preset.autoEffort !== false,
       modelParameters: preset.modelParameters,
       contextPercent: spec.contextPercent,
       selectedContextWindow: spec.selectedContextWindow,
@@ -51,6 +53,7 @@ export function createAgentChildFactory({ registry, rehydrateAgentSessions, crea
       presetName: preset.id || preset.name || null,
       effort: preset.effort || null,
       fast: preset.fast === true,
+      ...(preset.autoEffort === false ? { autoEffort: false } : {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),
       status: 'idle',

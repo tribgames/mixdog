@@ -122,6 +122,8 @@ interface LiveAgentSummary {
   fast: boolean;
   /** The route's model parameters (service tier, Daybreak…); absent when it has none. */
   modelParameters?: Record<string, string>;
+  /** Per-route Auto reasoning; only an explicit `false` opts out. */
+  autoEffort: boolean;
   tag: string;
   title: string;
   status: string;
@@ -205,6 +207,7 @@ function liveAgentSummary(
     ...(Object.keys(record(entry.modelParameters)).length
       ? { modelParameters: record(entry.modelParameters) as Record<string, string> }
       : {}),
+    autoEffort: entry.autoEffort !== false,
     tag: tag || taskId,
     title: String(entry.title || '').trim(),
     status: unconfirmed || desktopAgentStatus(entry),
@@ -232,6 +235,7 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
     ...(current.modelParameters || next.modelParameters
       ? { modelParameters: current.modelParameters || next.modelParameters }
       : {}),
+    autoEffort: current.autoEffort && next.autoEffort,
     tag: current.tag || next.tag,
     title: current.title || next.title,
     // Keeping the earlier status is safe ONLY because a confirmed cancel

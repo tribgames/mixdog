@@ -257,6 +257,54 @@ test('saving a secrets-less snapshot keeps a signed-in OAuth provider usable', (
   );
 });
 
+test('preset and maintenance Auto effort opt-outs survive load, canonicalization and a save/reload', () => {
+  runIsolatedConfigTest(
+    'mixdog-config-auto-effort-',
+    `
+    import assert from 'node:assert/strict';
+    import { readFileSync, writeFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    import { loadConfig, saveConfig } from './src/runtime/agent/orchestrator/config.mjs';
+    import { normalizePreset } from './src/runtime/agent/orchestrator/config-presets.mjs';
+    import { canonicalizeAgentStorage } from './src/runtime/agent/orchestrator/config-storage.mjs';
+    import { makeResolveRoute } from './src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+    import { modelRouteFields } from './src/runtime/shared/schedule-model-ref.mjs';
+
+    const path = join(process.env.MIXDOG_DATA_DIR, 'mixdog-config.json');
+    const off = { id: 'lead-off', name: 'LEAD OFF', provider: 'openai', model: 'gpt-off', autoEffort: false };
+    const on = { id: 'lead-on', name: 'LEAD ON', provider: 'openai', model: 'gpt-on', autoEffort: true };
+    writeFileSync(path, JSON.stringify({ agent: {
+      presets: [off, on],
+      default: 'lead-off',
+      maintenance: { webhook: { provider: 'openai', model: 'gpt-hook', fast: true, autoEffort: false } },
+    } }));
+
+    const check = (config, label) => {
+      const presets = Object.fromEntries(config.presets.map((preset) => [preset.id, preset]));
+      assert.equal(presets['lead-off'].autoEffort, false, label + ': preset opt-out kept');
+      assert.equal(Object.hasOwn(presets['lead-on'], 'autoEffort'), false, label + ': on is omitted');
+      assert.equal(config.maintenance.webhook.autoEffort, false, label + ': maintenance opt-out kept');
+      assert.equal(config.maintenance.webhook.fast, true, label + ': fast unchanged');
+      assert.equal(makeResolveRoute(() => 'openai')(config).autoEffort, false, label + ': Lead resolves off');
+      assert.equal(modelRouteFields(config.maintenance.webhook).autoEffort, false, label + ': webhook run route');
+    };
+
+    assert.equal(normalizePreset(off).autoEffort, false);
+    assert.equal(Object.hasOwn(normalizePreset(on), 'autoEffort'), false);
+    const canonical = canonicalizeAgentStorage({ presets: [off, on] });
+    assert.equal(canonical.presets.find((preset) => preset.id === 'lead-off').autoEffort, false);
+
+    const loaded = loadConfig({ secrets: false });
+    check(loaded, 'load');
+    saveConfig(loaded);
+    const stored = JSON.parse(readFileSync(path, 'utf8')).agent;
+    assert.equal(stored.presets.find((preset) => preset.id === 'lead-off').autoEffort, false, 'stored preset');
+    assert.equal(stored.maintenance.webhook.autoEffort, false, 'stored maintenance');
+    check(loadConfig({ secrets: false }), 'reload');
+  `
+  );
+});
+
 test('preset lookup and maintenance normalization preserve storage boundaries', () => {
   runIsolatedConfigTest(
     'mixdog-config-normalization-',
@@ -279,7 +327,9 @@ test('preset lookup and maintenance normalization preserve storage boundaries', 
 
     assert.deepEqual(normalizeMaintenanceRoutes({
       aliased: { provider: ' openai-api ', model: ' gpt-test ', effort: ' high ', fast: true, ignored: 'x' },
-      ordinary: { provider: 'anthropic', model: 'haiku', effort: ' ', fast: 1 },
+      ordinary: { provider: 'anthropic', model: 'haiku', effort: ' ', fast: 1, autoEffort: true },
+      noAuto: { provider: 'openai', model: 'gpt-test', autoEffort: false },
+      truthyOff: { provider: 'openai', model: 'gpt-test', autoEffort: 0 },
       noProvider: { model: 'haiku' },
       noModel: { provider: 'openai' },
       nil: null,
@@ -288,6 +338,8 @@ test('preset lookup and maintenance normalization preserve storage boundaries', 
     }), {
       aliased: { provider: 'openai', model: 'gpt-test', effort: 'high', fast: true },
       ordinary: { provider: 'anthropic', model: 'haiku' },
+      noAuto: { provider: 'openai', model: 'gpt-test', autoEffort: false },
+      truthyOff: { provider: 'openai', model: 'gpt-test' },
     });
     assert.deepEqual(normalizeMaintenanceRoutes(null), {});
     assert.deepEqual(normalizeMaintenanceRoutes([{ provider: 'gemini-api', model: 'gemini-test' }]), {

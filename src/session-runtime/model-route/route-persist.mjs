@@ -52,6 +52,9 @@ export function createRoutePersistence(deps) {
       // A selection for the heir must not leak its tuning into the source model.
       if (!sessionUsesRoute(session, route)) return;
       session.fast = route.fast === true;
+      // Absent means on; only the off state is stored on the session.
+      if (route.autoEffort === false) session.autoEffort = false;
+      else delete session.autoEffort;
       session.effort = route.effectiveEffort || null;
       // The request path reads session.modelParameters; keep only serviceTier in step.
       const { serviceTier: _previous, ...otherParameters } = session.modelParameters || {};

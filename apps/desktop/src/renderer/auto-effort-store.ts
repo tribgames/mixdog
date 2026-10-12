@@ -1,10 +1,11 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import type { RecordValue } from './desktop-types';
 import { readCachedModelCatalog } from './model-catalog-cache';
 
-// The app-wide Auto reasoning switch, shared by every route sheet. It is read
+// The app-wide Auto reasoning MASTER switch (Settings → Built-in). It is read
 // once on demand (only a model that supports it asks), re-read when a sheet
-// opens, and published by whichever surface changes it.
+// opens, and published by Settings when it changes. Each route keeps its own
+// `autoEffort` flag (absent = on); the master gates whether routes show Auto.
 export type AutoEffortState = { installed: boolean; enabled: boolean; supported: boolean };
 
 let current: AutoEffortState | null = null;
@@ -36,36 +37,34 @@ function refreshAutoEffort(): Promise<void> {
   return reading;
 }
 
-async function setAutoEffortEnabled(enabled: boolean): Promise<void> {
-  const result = await window.mixdogDesktop.invokeCapability<RecordValue>({
-    capability: 'setBuiltinToolEnabled',
-    args: ['autoEffort', enabled],
-  });
-  publishAutoEffort(result?.value);
-}
-
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
+/** The route's own Auto flag: only an explicit `false` turns it off. */
+export function routeAutoEffortOn(routeAutoEffort: boolean | null | undefined): boolean {
+  return routeAutoEffort !== false;
+}
+
+function masterAutoEffortOn(master: AutoEffortState | null): boolean {
+  return master?.installed === true && master.supported && master.enabled;
+}
+
 /** RouteEditor's Auto props for a model: the switch shows only when the model
- *  supports it and the tool is installed; failed toggles re-read the state. */
-export function useAutoEffortRoute(capable: boolean) {
-  const autoEffort = useAutoEffort(capable);
-  const [pending, setPending] = useState(false);
+ *  supports it and the master (Settings → Built-in) is installed, supported and
+ *  enabled; its state and changes belong to the route, never the master. */
+export function useAutoEffortRoute(
+  capable: boolean,
+  routeAutoEffort: boolean | null | undefined,
+  onChange: (enabled: boolean) => unknown
+) {
+  const master = useAutoEffort(capable);
   return {
     autoEffort:
-      capable && autoEffort?.installed && autoEffort.supported ? { enabled: autoEffort.enabled, pending } : null,
-    onChangeAutoEffort: async (enabled: boolean) => {
-      setPending(true);
-      try {
-        await setAutoEffortEnabled(enabled);
-      } catch {
-        await refreshAutoEffort();
-      } finally {
-        setPending(false);
-      }
+      capable && masterAutoEffortOn(master) ? { enabled: routeAutoEffortOn(routeAutoEffort), pending: false } : null,
+    onChangeAutoEffort: (enabled: boolean) => {
+      void onChange(enabled);
     },
     onOpenSheet: () => {
       if (capable) void refreshAutoEffort();
@@ -91,10 +90,15 @@ export function cachedAutoEffortCapable(provider: string, model: string): boolea
   );
 }
 
-/** Live `displayEffortLabel` for a route: subscribes to the Auto switch. */
-export function useAutoEffortShown(capable: boolean, savedEffort: string): boolean {
-  const autoEffort = useAutoEffort(capable);
-  const autoOn = autoEffort?.installed === true && autoEffort.supported && autoEffort.enabled;
+/** Live `displayEffortLabel` for a route: "Auto" needs the master switch on AND
+ *  the route's own `autoEffort` not turned off. */
+export function useAutoEffortShown(
+  capable: boolean,
+  savedEffort: string,
+  routeAutoEffort?: boolean | null
+): boolean {
+  const master = useAutoEffort(capable);
+  const autoOn = masterAutoEffortOn(master) && routeAutoEffortOn(routeAutoEffort);
   return displayEffortLabel(savedEffort, { autoOn, capable }) !== null;
 }
 

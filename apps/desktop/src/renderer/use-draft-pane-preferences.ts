@@ -84,6 +84,7 @@ export function useDraftPanePreferences({
       snapshot.sessionId,
       snapshot.effort,
       snapshot.fast,
+      snapshot.autoEffort,
       snapshot.modelParameters,
       snapshot.model,
       snapshot.provider,

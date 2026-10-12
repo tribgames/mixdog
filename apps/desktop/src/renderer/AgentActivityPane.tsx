@@ -211,6 +211,7 @@ export function AgentPoolRow({
             ultra={(agent.modelParameters as Record<string, string> | undefined)?.serviceTier === 'ultrafast'}
             blue={routeDaybreakBlue(agent.modelParameters as Record<string, string> | undefined)}
             autoEffortCapable={autoEffortCapable}
+            autoEffort={agent.autoEffort}
           />
         </small>
       </span>

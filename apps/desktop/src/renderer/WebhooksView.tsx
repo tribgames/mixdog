@@ -20,6 +20,7 @@ import {
 } from './automation-attachments';
 import { ModelRouteLabel, normalizeModelOptions } from './provider-display';
 import {
+  automationAutoEffortSuffix,
   automationFastSuffix,
   automationProjectOptions,
   automationRouteSummary,
@@ -98,6 +99,7 @@ function webhookMeta(webhook: RecordValue) {
             ultra={route.ultra}
             blue={route.blue}
             autoEffortCapable={route.autoEffortCapable}
+            autoEffort={route.autoEffort}
           />
         </>
       )}
@@ -315,6 +317,7 @@ function WebhookEditor({
   const [model, setModel] = useState(initialModel.route);
   const [effort, setEffort] = useState(initialModel.effort);
   const [fast, setFast] = useState(initialModel.fast);
+  const [autoEffort, setAutoEffort] = useState(initialModel.autoEffort);
   const [modelParameters, setModelParameters] = useState(initialModel.modelParameters);
   const [formError, setFormError] = useState('');
   const { provider: modelProvider, id: modelId } = splitModelRoute(model);
@@ -371,7 +374,7 @@ function WebhookEditor({
               // Session-only delivery (user decision, schedules parity): every
               // webhook fire runs as a fresh New-task session — no channel
               // target, so saving a legacy channel webhook converts it.
-              ...(model ? { model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}` } : {}),
+              ...(model ? { model: `${model}${effortSuffix}${fastSuffix}${automationAutoEffortSuffix(autoEffort)}${parameterSuffix}` } : {}),
               ...(cwd ? { cwd } : {}),
               ...(workflow ? { workflow } : {}),
               ...(attachments.length ? { attachments } : {}),
@@ -421,17 +424,20 @@ function WebhookEditor({
                 models={models}
                 disabled={busy}
                 ariaLabel={t('Webhook model')}
+                autoEffortSwitch
                 value={{
                   provider: modelProvider,
                   model: modelId,
                   ...(effortValue ? { effort: effortValue } : {}),
                   fast,
+                  autoEffort,
                   modelParameters: selectedModelParameters,
                 }}
                 onChange={(selection) => {
                   setModel(`${selection.provider}/${selection.model}`);
                   setEffort(String(selection.effort || ''));
                   setFast(selection.fast === true);
+                  setAutoEffort(selection.autoEffort !== false);
                   setModelParameters(selection.modelParameters || {});
                   setFormError('');
                 }}

@@ -92,6 +92,7 @@ function updateSessionInPlace(deps, session, updateOptions) {
     provider: route.provider,
     model: route.model,
     fast: route.fast === true,
+    autoEffort: route.autoEffort !== false,
     effort: route.effectiveEffort || null,
     modelParameters: route.modelParameters || {},
     contextPercent: route.contextPercent,

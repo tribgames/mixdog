@@ -74,6 +74,10 @@ export function createRuntimeFacade({
     get fast() {
       return state.route.fast === true;
     },
+    // The route's Auto effort switch; absent means on.
+    get autoEffort() {
+      return state.route.autoEffort !== false;
+    },
     get fastCapable() {
       return state.route.fastCapable === true;
     },

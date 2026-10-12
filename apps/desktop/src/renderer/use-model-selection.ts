@@ -15,6 +15,7 @@ function sameSelection(left: DesktopModelSelection, right: DesktopModelSelection
     left.model !== right.model ||
     (left.effort || '') !== (right.effort || '') ||
     Boolean(left.fast) !== Boolean(right.fast) ||
+    (left.autoEffort !== false) !== (right.autoEffort !== false) ||
     left.contextPercent !== right.contextPercent
   )
     return false;
@@ -37,6 +38,7 @@ function acknowledgedSelection(
     ...(typeof value.model === 'string' ? { model: value.model } : {}),
     ...(Object.hasOwn(value, 'effort') ? { effort } : {}),
     ...(typeof value.fast === 'boolean' ? { fast: value.fast } : {}),
+    ...(typeof value.autoEffort === 'boolean' ? { autoEffort: value.autoEffort } : {}),
     ...(Object.hasOwn(value, 'contextPercent') ? { contextPercent } : {}),
     ...(value.modelParameters && typeof value.modelParameters === 'object'
       ? { modelParameters: value.modelParameters as Record<string, string> }

@@ -16,6 +16,7 @@ type ModelProps = Pick<
   | 'effort'
   | 'fast'
   | 'fastCapable'
+  | 'autoEffort'
   | 'modelParameters'
   | 'contextPercent'
   | 'sessionId'

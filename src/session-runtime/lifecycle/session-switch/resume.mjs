@@ -71,6 +71,7 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
       model: resumed.model,
       effort: resumeEffort,
       fast: resumed.fast === true,
+      autoEffort: resumed.autoEffort !== false,
       modelParameters: resumed.modelParameters || {},
     });
   }
@@ -92,6 +93,8 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
       const activeSession = getSession();
       activeSession.effort = getRoute().effectiveEffort || null;
       activeSession.fast = getRoute().fast === true;
+      if (getRoute().autoEffort === false) activeSession.autoEffort = false;
+      else delete activeSession.autoEffort;
       activeSession.cwd = getCurrentCwd();
       restoreResumedToolSurface(activeSession, getRoute());
       writeStatuslineRoute(statusRoutes, activeSession, getRoute());

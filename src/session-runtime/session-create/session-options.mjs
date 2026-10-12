@@ -64,6 +64,7 @@ export function sessionOptions(deps, coreMemoryContext) {
     workflowContext,
     orchestrationMode,
     fast: rt.route.fast === true,
+    autoEffort: rt.route.autoEffort !== false,
     modelParameters: rt.route.modelParameters || {},
     contextPercent: rt.route.contextPercent,
     selectedContextWindow: rt.route.selectedContextWindow || null,

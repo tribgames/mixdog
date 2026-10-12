@@ -30,6 +30,7 @@ export async function resolveConfig(boot) {
     model: params.model,
     effort: params.effort,
     fast: params.fast,
+    autoEffort: params.autoEffort,
     modelParameters: params.modelParameters,
     contextPercent: params.contextPercent,
     selectedContextWindow: params.selectedContextWindow,

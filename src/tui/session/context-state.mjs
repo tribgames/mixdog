@@ -61,6 +61,7 @@ export function createContextState({
     effortOptions: runtime.effortOptions,
     fast: runtime.fast,
     fastCapable: runtime.fastCapable,
+    autoEffort: runtime.autoEffort !== false,
     modelParameters: runtime.modelParameters || {},
     contextPercent: runtime.contextPercent,
     contextWindow: runtime.contextWindow,

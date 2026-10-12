@@ -220,6 +220,7 @@ export function normalizeAgentRoute(routeLike) {
     model,
     effort: clean(routeLike?.effort) || undefined,
     fast: routeLike?.fast === true,
+    ...(routeLike?.autoEffort === false ? { autoEffort: false } : {}),
     ...(routeLike?.modelParameters && typeof routeLike.modelParameters === 'object'
       ? { modelParameters: { ...routeLike.modelParameters } }
       : {}),

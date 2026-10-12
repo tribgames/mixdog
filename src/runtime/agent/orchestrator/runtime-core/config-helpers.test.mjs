@@ -6,6 +6,8 @@ import {
   resolveAutoClearIdleMs,
   validateRequestedModelSelector,
 } from './config-helpers.mjs';
+import { saveModelSettings } from './model-capabilities.mjs';
+import { normalizeWorkflowRoute, upsertWorkflowPreset } from './workflow.mjs';
 
 const resolveRoute = makeResolveRoute(() => 'fallback');
 
@@ -49,6 +51,7 @@ test('named and default presets share explicit, saved, and preset setting preced
       preset,
       effort: 'high',
       fast: true,
+      autoEffort: true,
       modelParameters: { context: '1m' },
       contextPercent: 80,
     });
@@ -64,6 +67,7 @@ test('named and default presets share explicit, saved, and preset setting preced
       preset,
       effort: 'low',
       fast: false,
+      autoEffort: true,
       modelParameters: { context: '2m' },
       contextPercent: 60,
     });
@@ -75,11 +79,47 @@ test('named and default presets share explicit, saved, and preset setting preced
         preset,
         effort: 'medium',
         fast: true,
+        autoEffort: true,
         modelParameters: {},
         contextPercent: 40,
       }
     );
   }
+});
+
+test('Auto effort resolves explicit > saved > preset > on, and round-trips through saved settings and the lead preset', () => {
+  const preset = { id: 'main', provider: 'demo', model: 'model', autoEffort: false };
+  const config = { default: 'main', presets: [preset] };
+  // Absent everywhere means on.
+  assert.equal(resolveRoute({}, { provider: 'demo', model: 'model' }).autoEffort, true);
+  assert.equal(resolveRoute({ default: 'main', presets: [{ ...preset, autoEffort: undefined }] }).autoEffort, true);
+  // Preset, then the saved model setting, then the explicit request.
+  assert.equal(resolveRoute(config).autoEffort, false);
+  const saved = { ...config, modelSettings: { 'demo/model': { autoEffort: true } } };
+  assert.equal(resolveRoute(saved).autoEffort, true);
+  assert.equal(resolveRoute(saved, { autoEffort: false }).autoEffort, false);
+  assert.equal(resolveRoute(config, { autoEffort: true }).autoEffort, true);
+  assert.equal(resolveRoute(config, { provider: 'demo', model: 'model' }).autoEffort, true, 'raw route has no preset');
+
+  // Selecting off stores only the off state; selecting on removes it.
+  const cfgMod = { loadConfig: () => ({}) };
+  const off = saveModelSettings(cfgMod, { provider: 'demo', model: 'model', autoEffort: false }, { baseConfig: {} });
+  assert.equal(off.modelSettings['demo/model'].autoEffort, false);
+  assert.equal(resolveRoute(off, { provider: 'demo', model: 'model' }).autoEffort, false);
+  const on = saveModelSettings(cfgMod, { provider: 'demo', model: 'model', autoEffort: true }, { baseConfig: off });
+  assert.equal(Object.hasOwn(on.modelSettings['demo/model'], 'autoEffort'), false);
+  // A route without the field leaves the saved choice untouched.
+  const untouched = saveModelSettings(cfgMod, { provider: 'demo', model: 'model' }, { baseConfig: off });
+  assert.equal(untouched.modelSettings['demo/model'].autoEffort, false);
+
+  // Workflow routes and presets carry only the off state.
+  assert.equal(normalizeWorkflowRoute({ provider: 'demo', model: 'model', autoEffort: false }).autoEffort, false);
+  assert.equal(Object.hasOwn(normalizeWorkflowRoute({ provider: 'demo', model: 'model', autoEffort: true }), 'autoEffort'), false);
+  const presets = upsertWorkflowPreset([], 'lead', { provider: 'demo', model: 'model', autoEffort: false });
+  assert.equal(presets[0].autoEffort, false);
+  assert.equal(resolveRoute({ default: presets[0].id, presets }).autoEffort, false);
+  const onPresets = upsertWorkflowPreset(presets, 'lead', { provider: 'demo', model: 'model' });
+  assert.equal(Object.hasOwn(onPresets[0], 'autoEffort'), false);
 });
 
 test('raw selectors, explicit providers, and incomplete presets do not select a fallback preset', () => {

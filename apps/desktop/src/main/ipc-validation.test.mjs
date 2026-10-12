@@ -5,6 +5,7 @@ import {
   requiredDesktopCapabilityReadRequests,
   requiredDesktopCapabilityRequest,
   requiredGitBranchName,
+  requiredModelSelection,
   requiredNewTaskDraft,
   requiredSubmitOptions,
   requiredTextFileEncoding,
@@ -20,6 +21,13 @@ test('an editor save without an encoding change passes the IPC and remote bounda
   for (const encoding of ['', 'latin1', 0, {}]) {
     assert.throws(() => requiredTextFileEncoding(encoding), TypeError);
   }
+});
+
+test('a model route selection carries the per-route autoEffort boolean like fast', () => {
+  const base = { provider: 'openai', model: 'gpt-test', effort: 'high', fast: true };
+  assert.deepEqual(requiredModelSelection({ ...base, autoEffort: false }), { ...base, autoEffort: false });
+  assert.deepEqual(requiredModelSelection(base), base);
+  assert.throws(() => requiredModelSelection({ ...base, autoEffort: 'off' }), /autoEffort must be a boolean/);
 });
 
 test('saveStarterGuideState passes only a well-formed guide state', () => {

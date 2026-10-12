@@ -101,6 +101,7 @@ export async function projectStoredTranscript(sessionId, doc, options) {
     model: session.model || '',
     effort: session.effort || '',
     fast: session.fast === true,
+    ...(session.autoEffort === false ? { autoEffort: false } : {}),
     modelParameters: session.modelParameters || {},
     cwd: session.cwd || '',
     desktopSession: desktopSession(session.desktopSession, session.cwd),

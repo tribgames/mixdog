@@ -103,6 +103,7 @@ export function normalizeMaintenanceRoutes(rawMaint) {
     const effort = String(value.effort || '').trim();
     if (effort) route.effort = effort;
     if (value.fast === true) route.fast = true;
+    if (value.autoEffort === false) route.autoEffort = false;
     out[slot] = route;
   }
   return out;

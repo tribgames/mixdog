@@ -428,6 +428,7 @@ export class SessionHostLifecycle {
         model: draft.route.model,
         ...(draft.route.effort ? { effort: draft.route.effort } : {}),
         ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
+        ...(typeof draft.route.autoEffort === 'boolean' ? { autoEffort: draft.route.autoEffort } : {}),
         ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
         ...(typeof draft.route.contextPercent === 'number' ? { contextPercent: draft.route.contextPercent } : {}),
         applyToCurrentSession: true,

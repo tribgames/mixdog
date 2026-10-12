@@ -20,6 +20,7 @@ export function resolveAgentSpawnPreset(config, args = {}) {
         model: clean(args.model),
         effort: clean(args.effort) || undefined,
         fast: args.fast === true,
+        ...(args.autoEffort === false ? { autoEffort: false } : {}),
         tools: 'full',
       },
     };
@@ -42,6 +43,7 @@ export function resolveAgentSpawnPreset(config, args = {}) {
         model: agentRoute.model,
         effort: agentRoute.effort,
         fast: agentRoute.fast === true,
+        ...(agentRoute.autoEffort === false ? { autoEffort: false } : {}),
         ...(agentRoute.modelParameters ? { modelParameters: agentRoute.modelParameters } : {}),
         ...(agentRoute.contextPercent ? { contextPercent: agentRoute.contextPercent } : {}),
         tools: 'full',

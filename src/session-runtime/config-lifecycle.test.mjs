@@ -231,6 +231,10 @@ test('boot route overrides apply only when the caller supplied them', () => {
   assert.equal(overridden.route.effort, null);
   assert.equal(overridden.route.fast, false);
   assert.deepEqual(overridden.route.modelParameters, { context: '1m' });
+  // Auto effort follows the same rule: only an explicit boolean overrides.
+  assert.equal(Object.hasOwn(untouched.route, 'autoEffort'), false);
+  assert.equal(initialState({ autoEffort: false }).route.autoEffort, false);
+  assert.equal(initialState({ autoEffort: true }).route.autoEffort, true);
 });
 
 test('an injected initial config is adopted instead of loading from disk', () => {

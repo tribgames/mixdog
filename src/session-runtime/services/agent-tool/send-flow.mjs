@@ -180,6 +180,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
         preset: session.presetName || null,
         effort: session.effort || null,
         fast: session.fast === true,
+        ...(session.autoEffort === false ? { autoEffort: false } : {}),
       },
       (job, ownerNotifyContext) => runSend(prepared, ownerNotifyContext, job),
       notifyContext

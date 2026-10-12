@@ -22,6 +22,15 @@ test('autoEffortCapable: custom Chat/Responses with levels on, without levels or
   assert.equal(capable('openai', { id: 'gpt-5.5' }), false);
 });
 
+test('savedAutoEffort exposes the saved per-model Auto effort choice next to savedFast', () => {
+  const saved = (setting) =>
+    hydrateProviderModelRow({ ...cfg, modelSettings: { 'openai/gpt-5.5': setting } }, { provider: 'openai', id: 'gpt-5.5' })
+      .savedAutoEffort;
+  assert.equal(saved({ fast: true }), undefined);
+  assert.equal(saved({ autoEffort: false }), false);
+  assert.equal(saved({ autoEffort: true }), true);
+});
+
 test('a hydrated custom row keeps its contract fields', () => {
   const customReasoning = { wireFormat: 'standard', wireValues: {}, replay: false };
   const row = hydrateProviderModelRow(cfg, {

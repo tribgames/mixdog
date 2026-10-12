@@ -35,6 +35,7 @@ type AgentRouteSummary = {
   blue: boolean;
   effortLabel: string;
   autoEffortCapable: boolean;
+  autoEffort: boolean;
 };
 
 function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): AgentRouteSummary {
@@ -59,6 +60,7 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
     blue: pinned && routeDaybreakBlue(record(route.modelParameters) as Record<string, string>, selected?.modelParameterOptions),
     effortLabel: rawEffortLabel,
     autoEffortCapable: selected?.autoEffortCapable === true,
+    autoEffort: route.autoEffort !== false,
   };
 }
 
@@ -89,6 +91,7 @@ function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
         blue={summary.blue}
         effortLabel={summary.effortLabel}
         autoEffortCapable={summary.autoEffortCapable}
+        autoEffort={summary.autoEffort}
       />
     </small>
   );

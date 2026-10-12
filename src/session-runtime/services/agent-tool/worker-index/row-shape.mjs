@@ -38,6 +38,7 @@ export function normalizeWorkerRows(value) {
       preset: clean(row.preset) || null,
       effort: clean(row.effort) || null,
       fast: typeof row.fast === 'boolean' ? row.fast : null,
+      ...(row.autoEffort === false ? { autoEffort: false } : {}),
       status: clean(row.status) || 'idle',
       stage: clean(row.stage) || clean(row.status) || 'idle',
       createdAt: clean(row.createdAt) || null,
@@ -87,6 +88,10 @@ export function workerRowFromSession(session, fallbackTag = '', extra = {}, getS
     preset: clean(extra.preset) || clean(session?.presetName) || null,
     effort: clean(extra.effort) || clean(session?.effort) || null,
     fast: fastFlag(extra.fast, session?.fast),
+    // Absent means Auto effort is on; an explicit boolean wins over the session's.
+    ...((typeof extra.autoEffort === 'boolean' ? extra.autoEffort : session?.autoEffort) === false
+      ? { autoEffort: false }
+      : {}),
     status,
     stage,
     createdAt: clean(session?.createdAt) || clean(extra.createdAt) || nowIso,

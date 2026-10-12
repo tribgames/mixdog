@@ -331,6 +331,7 @@ export function ModelRouteLabel({
   blue = false,
   effortLabel = '',
   autoEffortCapable = false,
+  autoEffort,
   ultra = false,
 }: {
   model: string | null | undefined;
@@ -341,10 +342,12 @@ export function ModelRouteLabel({
   /** Daybreak Blue is on: shown right after the model ("GPT-6 Sol Blue XHigh"). */
   blue?: boolean;
   effortLabel?: string;
-  /** The model supports Auto reasoning: the global switch then replaces the saved level. */
+  /** The model supports Auto reasoning: with the master switch on and this route not opted out, it replaces the saved level. */
   autoEffortCapable?: boolean;
+  /** The route's own Auto flag; only `false` opts out, absent means on. */
+  autoEffort?: boolean | null;
 }) {
-  const autoShown = useAutoEffortShown(autoEffortCapable, String(effort || ''));
+  const autoShown = useAutoEffortShown(autoEffortCapable, String(effort || ''), autoEffort);
   const parts = autoShown
     ? modelRouteDisplayParts(model, '', fast, 'Auto')
     : modelRouteDisplayParts(model, effort, fast, effortLabel);

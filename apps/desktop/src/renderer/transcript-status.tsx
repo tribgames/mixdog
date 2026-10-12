@@ -293,7 +293,8 @@ export function LiveActivity({
   // effort, the saved level must not stand in for it.
   const autoShown = useAutoEffortShown(
     cachedAutoEffortCapable(String(snapshot.provider || ''), String(snapshot.model || '')),
-    String(snapshot.effort || '')
+    String(snapshot.effort || ''),
+    snapshot.autoEffort
   );
   const pauseTurnRef = useRef(0);
   const pausedTotalRef = useRef(0);

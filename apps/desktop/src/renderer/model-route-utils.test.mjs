@@ -8,8 +8,12 @@ test('model route refs preserve effort, fast mode, and parameters', () => {
     route: 'openai/gpt-5',
     effort: 'high',
     fast: true,
+    autoEffort: true,
     modelParameters: { temperature: '1', style: 'brief' },
   });
+  assert.equal(parseModelRef('openai/gpt-5@high+fast+noauto?style=brief').autoEffort, false);
+  assert.equal(routeOption({ id: 'gpt-5', provider: 'openai', savedAutoEffort: false }).savedAutoEffort, false);
+  assert.equal('savedAutoEffort' in routeOption({ id: 'gpt-5', provider: 'openai' }), false);
 });
 
 test('preferred model effort follows saved, default, priority, then catalog order', () => {

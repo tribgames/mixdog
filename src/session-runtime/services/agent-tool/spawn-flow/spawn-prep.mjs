@@ -20,6 +20,7 @@ export function presetDescriptor(agent, preset, presetName) {
     model: preset.model,
     effort: preset.effort || null,
     fast: preset.fast === true,
+    ...(preset.autoEffort === false ? { autoEffort: false } : {}),
   };
 }
 
