@@ -11,11 +11,15 @@
 // exclusive with settle() via the autoBackgrounded flag set synchronously at
 // the top before any await.
 //
-//   shell-run-background/promote-job.mjs       — registry promotion, lease hand-over, kill fallback
+//   shell-run-background/promote-job.mjs       — registry promotion, lease release + background budget, kill fallback
 //   shell-run-background/promotion-results.mjs — the ExecResult of each promotion outcome
 import { clearForegroundRecord, clearForegroundTimers, elapsedSinceStart } from './shell-run-state.mjs';
 import { readCapturedOutput } from './shell-run-settle.mjs';
-import { handOverLease, killAfterFailedPromotion, promoteWithRetry } from './shell-run-background/promote-job.mjs';
+import {
+  handOverToBackgroundBudget,
+  killAfterFailedPromotion,
+  promoteWithRetry,
+} from './shell-run-background/promote-job.mjs';
 import {
   promotedSpillPaths,
   resolveBackgrounded,
@@ -56,6 +60,7 @@ export function createAutoBackground({
   ownerSessionId,
   promotedTimeoutMs,
   backgroundDeadlineMs,
+  explicitTimeout = false,
 }) {
   const { taskOutput, abortSignal } = run;
   const promotion = { run, command, cwd, clientHostPid, ownerSessionId };
@@ -108,7 +113,7 @@ export function createAutoBackground({
     }
     const jobId = job.jobId;
     run.autoBackgroundJobId = jobId;
-    await handOverLease(run, jobId);
+    await handOverToBackgroundBudget(run, jobId, { command, ownerSessionId, explicitTimeout });
     // Snapshot the partial output captured so far for the immediate result.
     const { stdout, stderr } = await readCapturedOutput(taskOutput);
     const capture = { stdout, stderr, spill: { ...promotedSpillPaths(taskOutput), stdoutPath } };

@@ -20,7 +20,7 @@ import { ShellTextDecoder, TaskOutput, treeKill } from '../shell-exec-output.mjs
 const KILL_CONFIRM_INTERVAL_MS = 5000;
 const KILL_CONFIRM_ATTEMPTS = 3;
 
-export function createShellRun({ abortSignal, resolve }) {
+export function createShellRun({ abortSignal, resolve, jobId = null }) {
   const taskId = `shell_${randomUUID().slice(0, 8)}`;
   let resultResolved = false;
   return {
@@ -80,7 +80,9 @@ export function createShellRun({ abortSignal, resolve }) {
     // reached a shell — not lease/preflight entry, and not a warm standby's
     // process-creation time.
     commandStartedAtMs: 0,
-    foregroundRecordId: `job_${Date.now()}_${randomUUID().slice(0, 6)}`,
+    // Also the task_id the command keeps once promoted. A queued command
+    // passes its queued task's id so one id names it before and after.
+    foregroundRecordId: jobId || `job_${Date.now()}_${randomUUID().slice(0, 6)}`,
     foregroundRecordTimer: null,
     foregroundRecordPublished: false,
   };

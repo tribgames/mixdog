@@ -30,6 +30,11 @@ import {
 } from './lib/shell-job-records.mjs';
 import { isPidAlive } from '../../../../shared/pid-liveness.mjs';
 import {
+  backgroundShellEvictionReason,
+  clearBackgroundShellBudget,
+  forgetBackgroundShellJob,
+} from './shell-background-budget.mjs';
+import {
   renderShellCompletionEnvelope,
   renderShellCompletionNotice,
   shellCompletionInstruction,
@@ -47,8 +52,6 @@ export function buildJobNotFoundMessage(jobId) {
 
 const backgroundShellJobWatchers = new Map();
 const jobNotifyCtxByJobId = new Map();
-const shellJobResourceLeases = new Map();
-const shellJobResourceLeaseSubscriptions = new Map();
 
 function demoteBackgroundShellPriority(pid) {
   if (process.env.MIXDOG_BG_PRIORITY === '0') return;
@@ -76,21 +79,6 @@ function trackShellJobRecord(task, options) {
   };
   unsubscribe = subscribeNativeTask(jobId, settle);
   settle(getNativeTask(jobId) || task);
-}
-
-function releaseShellJobResourceLease(jobId) {
-  const unsubscribe = shellJobResourceLeaseSubscriptions.get(jobId);
-  shellJobResourceLeaseSubscriptions.delete(jobId);
-  try {
-    unsubscribe?.();
-  } catch {}
-  const lease = shellJobResourceLeases.get(jobId);
-  if (!lease) return false;
-  shellJobResourceLeases.delete(jobId);
-  try {
-    Promise.resolve(lease.release()).catch(() => {});
-  } catch {}
-  return true;
 }
 
 /** Native task status → background-task status. A non-zero exit is a COMMAND
@@ -262,24 +250,6 @@ export function killShellJob(jobId) {
   return { ...attachJobInsights(normalizeShellJobDetail(detail)), killed: wasRunning };
 }
 
-export function attachShellJobResourceLease(jobId, lease) {
-  if (!jobId || !lease || typeof lease.release !== 'function') return false;
-  const detail = getNativeTask(jobId);
-  if (detail?.status !== 'running') {
-    try {
-      Promise.resolve(lease.release()).catch(() => {});
-    } catch {}
-    return false;
-  }
-  releaseShellJobResourceLease(jobId);
-  shellJobResourceLeases.set(jobId, lease);
-  const unsubscribe = subscribeNativeTask(jobId, (task) => {
-    if (task?.status !== 'running') releaseShellJobResourceLease(jobId);
-  });
-  shellJobResourceLeaseSubscriptions.set(jobId, unsubscribe);
-  return true;
-}
-
 export function clearShellJobNotifyCtx(jobId) {
   jobNotifyCtxByJobId.delete(jobId);
 }
@@ -319,8 +289,10 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
     unsubscribe();
     backgroundShellJobWatchers.delete(jobId);
     jobNotifyCtxByJobId.delete(jobId);
-    releaseShellJobResourceLease(jobId);
-    const enriched = attachJobInsights(normalizeShellJobDetail(detail));
+    // A budget eviction reaches the owner as a failure carrying its reason.
+    const evictedReason = backgroundShellEvictionReason(jobId);
+    const reported = evictedReason ? { ...detail, status: 'failed', error: evictedReason } : detail;
+    const enriched = attachJobInsights(normalizeShellJobDetail(reported));
     const completion = buildShellCompletion(jobId, enriched);
     const completedTask = completeBackgroundTask(jobId, {
       status: completion.taskStatus,
@@ -518,7 +490,7 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
     jobNotifyCtxByJobId.delete(task.jobId);
   }
   const settled = await Promise.all(jobs.map((task) => waitNativeTask(task.jobId, 1_200).catch(() => null)));
-  for (const task of jobs) releaseShellJobResourceLease(task.jobId);
+  for (const task of jobs) forgetBackgroundShellJob(task.jobId);
   if (scoped) {
     // The owning session is gone: nothing can query its tasks again, so
     // drop ALL of its retained state — not only the ones that happened to
@@ -533,9 +505,7 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
     }
   }
   if (!scoped) {
-    for (const jobId of [...shellJobResourceLeases.keys()]) {
-      releaseShellJobResourceLease(jobId);
-    }
+    clearBackgroundShellBudget();
     jobNotifyCtxByJobId.clear();
   }
   return {

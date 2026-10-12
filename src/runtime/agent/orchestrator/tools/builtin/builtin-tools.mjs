@@ -146,7 +146,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: true,
       compressible: true,
     },
-    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 15s foreground window (not a timeout; wait_ms extends it up to 120s for one call, e.g. a test suite), unfinished work continues under task_id; use task wait, not read polling. If no execution slot frees within the admission wait, the command is queued as a background task with a task_id.'}`,
+    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 15s foreground window (not a timeout; wait_ms extends it up to 120s for one call, e.g. a test suite), unfinished work continues under task_id; use task wait, not read polling. If no execution slot frees within the admission wait, the command is queued as a background task with a task_id. Dev servers/watchers: pass timeout_ms or stop them with task cancel when done.'}`,
     inputSchema: {
       type: 'object',
       properties: {

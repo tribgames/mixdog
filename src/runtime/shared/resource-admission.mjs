@@ -75,9 +75,15 @@ class ResourceAdmissionQueueFullError extends ResourcePressureError {
 }
 
 /**
- * Process-wide admission for memory-heavy agent work and child shells.
- * Running work is never revoked: pressure only rejects a new request or keeps a
- * concurrency-blocked request in the bounded FIFO queue.
+ * Process-wide admission for memory-heavy agent work and FOREGROUND child
+ * shells. Running work is never revoked: pressure only rejects a new request or
+ * keeps a concurrency-blocked request in the bounded FIFO queue.
+ *
+ * A shell lease covers only the foreground part of a command: promotion to a
+ * background job releases it (lib/shell-run-background/promote-job.mjs), so
+ * background jobs count toward neither maxShells nor the maxHighLoad budget
+ * shared with agents. They live under the separate per-runtime background
+ * budget (tools/builtin/shell-background-budget.mjs) instead.
  */
 export class ResourceAdmissionController {
   constructor({ limits = {}, metrics = defaultMetrics, now = Date.now, env = process.env } = {}) {

@@ -1,9 +1,11 @@
 /**
  * promote-job.mjs — hand the still-running foreground child to the shell-jobs
- * registry: the bounded promotion attempt, the lease hand-over that follows
- * a successful one, and the kill fallback that follows a failed one.
+ * registry: the bounded promotion attempt, the lease release + background
+ * budget registration that follows a successful one, and the kill fallback
+ * that follows a failed one.
  */
-import { attachShellJobResourceLease, promoteForegroundShellJob } from '../../builtin/shell-jobs.mjs';
+import { promoteForegroundShellJob } from '../../builtin/shell-jobs.mjs';
+import { registerBackgroundShellJob } from '../../builtin/shell-background-budget.mjs';
 import { treeKillForceSettle } from '../shell-run-state.mjs';
 
 export async function promoteWithRetry(
@@ -74,17 +76,14 @@ export function killAfterFailedPromotion(run, reason, promotionFailure) {
   );
 }
 
-export async function handOverLease(run, jobId) {
+/**
+ * The promoted job leaves foreground admission: its lease is RELEASED (a
+ * long-lived server must never hold a foreground slot for its whole life) and
+ * the job joins the background budget, which may evict an older idle job.
+ */
+export async function handOverToBackgroundBudget(run, jobId, { command, ownerSessionId, explicitTimeout }) {
   const promotedLease = run.resourceLease;
   run.resourceLease = null;
-  if (!promotedLease) return;
-  try {
-    await promotedLease.detachDependency?.();
-    attachShellJobResourceLease(jobId, promotedLease);
-  } catch (error) {
-    try {
-      await promotedLease.release();
-    } catch {}
-    throw error;
-  }
+  await promotedLease?.release();
+  registerBackgroundShellJob(jobId, { command, ownerSessionId, explicitTimeout });
 }
