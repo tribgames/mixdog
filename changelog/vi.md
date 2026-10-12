@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-12
+
 Thông báo "Có gì mới" giờ xuất hiện sau khi cập nhật ngay cả khi bộ nhớ cục bộ của ứng dụng bị mất, chờ đến khi màn hình chào mừng hoặc phần giới thiệu ban đầu được đóng, và không xuất hiện lại sau khi hạ cấp.
 
 Hướng dẫn khởi đầu không còn xuất hiện lại với người dùng hiện có sau khi mất bộ nhớ cục bộ hoặc cập nhật ứng dụng.

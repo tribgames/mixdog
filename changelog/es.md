@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-12
+
 El aviso «Novedades» ahora aparece tras una actualización aunque se haya perdido el almacenamiento local de la aplicación, espera a que se cierre la bienvenida o el recorrido inicial y ya no reaparece después de volver a una versión anterior.
 
 La guía de inicio ya no reaparece para los usuarios existentes tras perder el almacenamiento local o actualizar la aplicación.

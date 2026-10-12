@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-12
+
 The "What's new" notice now appears after an update even if the app's local storage was lost, waits until the starter welcome or tour is closed, and no longer reappears after a downgrade.
 
 The starter guide no longer reappears for existing users after local storage is lost or the app updates.

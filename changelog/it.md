@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-12
+
 L'avviso «Novità» ora compare dopo un aggiornamento anche se l'archiviazione locale dell'app è andata persa, attende la chiusura del benvenuto o del tour iniziale e non ricompare più dopo un downgrade.
 
 La guida iniziale non ricompare più per gli utenti esistenti dopo la perdita dell'archiviazione locale o un aggiornamento dell'app.

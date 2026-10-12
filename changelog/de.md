@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-12
+
 Der Hinweis „Neuigkeiten“ erscheint nach einem Update jetzt auch dann, wenn der lokale Speicher der App verloren gegangen ist, wartet, bis die Willkommensseite bzw. Tour des Starter-Guides geschlossen wurde, und erscheint nach einem Downgrade nicht mehr erneut.
 
 Der Starter-Guide erscheint für bestehende Nutzer nicht mehr erneut, nachdem der lokale Speicher verloren ging oder die App aktualisiert wurde.

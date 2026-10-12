@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-12
+
 O aviso "Novidades" agora aparece após uma atualização mesmo que o armazenamento local do app tenha sido perdido, espera até que a boas-vindas ou o tour inicial seja fechado e não reaparece após um downgrade.
 
 O guia inicial não reaparece mais para usuários existentes após a perda do armazenamento local ou uma atualização do app.

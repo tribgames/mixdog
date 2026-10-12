@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-12
+
 L'avis « Nouveautés » s'affiche désormais après une mise à jour même si le stockage local de l'application a été perdu, attend la fermeture de l'accueil ou de la visite de démarrage, et ne réapparaît plus après un retour à une version antérieure.
 
 Le guide de démarrage ne réapparaît plus pour les utilisateurs existants après une perte du stockage local ou une mise à jour de l'application.
