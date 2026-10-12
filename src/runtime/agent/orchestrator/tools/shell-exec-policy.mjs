@@ -83,23 +83,36 @@ function classifyExecPolicy(command) {
   const decodedPowerShell = decodePowerShellEncodedCommand(text);
   if (decodedPowerShell) executableTargets.push(stripQuotedAndHeredoc(decodedPowerShell));
   if (executableTargets.some((target) => isBlockedCommand(target))) {
-    return { decision: 'deny', reason: 'destructive or system-destabilising pattern (hard block)' };
+    return {
+      decision: 'deny',
+      reason: 'destructive or system-destabilising pattern (hard block)',
+      rule: 'hard-block',
+    };
   }
   // Hard-deny only real executable syntax. The policy scanner also sees user
   // search strings / regex literals (e.g. `-match 'powershell|bash|grep'`), so
   // high-risk pipe-to-shell / IEX / RunAs patterns must ignore quoted spans.
   const executableText = stripQuotedAndHeredoc(text);
   for (const pat of EXEC_POLICY_DENY_PATTERNS) {
-    if (pat.test(executableText)) {
+    const hit = pat.exec(executableText);
+    if (hit) {
       return {
         decision: 'deny',
         reason: 'high-risk shell invocation (pipe-to-shell, elevated launcher, or remote-exec pattern)',
+        rule: `high-risk-pattern-${EXEC_POLICY_DENY_PATTERNS.indexOf(pat) + 1}`,
+        match: hit[0].trim().slice(0, 80),
+        alternative: 'save the script to a file, inspect it, then run it directly',
       };
     }
   }
   for (const name of _commandNamesAtPositions(executableText)) {
     if (EXEC_POLICY_DENY_COMMANDS.has(name)) {
-      return { decision: 'deny', reason: `command "${name}" is not permitted` };
+      return {
+        decision: 'deny',
+        reason: `command "${name}" is not permitted`,
+        rule: 'denied-command',
+        match: name,
+      };
     }
   }
   // Destructive-but-legitimate commands are NOT judged here. The caller
@@ -131,7 +144,9 @@ export function evaluateExecPolicyFromTargets(targets) {
 export function formatExecPolicyBlockMessage(policyResult) {
   const r = policyResult || { decision: 'allow' };
   if (r.decision === 'deny') {
-    return `Error: command blocked by exec policy${r.reason ? ` — ${r.reason}` : ''}`;
+    const rule = r.rule ? ` [rule ${r.rule}${r.match ? `: "${r.match}"` : ''}]` : '';
+    const alt = r.alternative ? `; instead: ${r.alternative}` : '';
+    return `Error: command blocked by exec policy${r.reason ? ` — ${r.reason}` : ''}${rule}${alt}`;
   }
   return null;
 }

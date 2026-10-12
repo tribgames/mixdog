@@ -482,7 +482,20 @@ function readEditTextForDisplay(fullPath, enc) {
 
 // ── str_replace: the edit target record + the steps that mutate it ──────────
 
-const SAME_STRINGS_ERROR = 'Error: old_string and new_string are exactly the same';
+const SAME_STRINGS_ERROR =
+  'Error: old_string and new_string are exactly the same — no change needed; the file may already contain it, re-read before retrying';
+
+// 1-based line numbers where oldStr occurs in content (first 8), for the
+// non-unique-match error.
+function matchLineHint(content, oldStr) {
+  const lines = [];
+  let total = 0;
+  for (let at = content.indexOf(oldStr); at !== -1; at = content.indexOf(oldStr, at + Math.max(1, oldStr.length))) {
+    total += 1;
+    if (lines.length < 8) lines.push(content.slice(0, at).split('\n').length);
+  }
+  return lines.length ? ` at lines ${lines.join(', ')}${total > lines.length ? ', …' : ''}` : '';
+}
 
 function targetSnapshot(statBefore) {
   return statBefore ? { exists: true, ...fileVersion(statBefore) } : { exists: false };
@@ -643,7 +656,7 @@ async function applyEditInProcess(edit, oldStr, editPlan, replaceAll) {
   if (occurrences > 1 && !replaceAll) {
     const message = `old_string found ${occurrences} times`;
     return (
-      `Error: edit failed (${message}; pass replace_all:true or extend old_string)` +
+      `Error: edit failed (${message}${matchLineHint(content, oldStr)}; pass replace_all:true or extend old_string)` +
       formatEditFailureExcerpt(content, oldStr, message)
     );
   }
@@ -683,7 +696,10 @@ async function applyEditNative(edit, oldStr, newStr, editPlan, replaceAll) {
     const message = err?.message || String(err);
     if (/old_string (?:not found|found \d+ times)/i.test(message)) {
       const latest = readEditTextForDisplay(fullPath, fileEnc) ?? content;
-      return `Error: edit failed (${message})${formatEditFailureExcerpt(latest, oldStr, message)}`;
+      const hinted = /found \d+ times/i.test(message)
+        ? message.replace(/(found \d+ times)/i, `$1${matchLineHint(latest, oldStr)}`)
+        : message;
+      return `Error: edit failed (${hinted})${formatEditFailureExcerpt(latest, oldStr, message)}`;
     }
     throw err;
   }
@@ -762,7 +778,7 @@ async function adaptStrReplace(args, workDir, options) {
   if (read.error) return read.error;
   const edit = { fullPath, workDir, options, ...read };
   if (oldStr.length === 0) {
-    if (edit.content.length > 0) return `Error: cannot create ${fullPath}: file already exists and is not empty`;
+    if (edit.content.length > 0) return `Error: cannot create ${fullPath}: file already exists and is not empty — to modify it pass the existing text as old_string and the replacement as new_string`;
     const stale = await commitEdit(edit, {
       bytes: encodeEditContent(newStr, edit.fileEnc),
       after: newStr,

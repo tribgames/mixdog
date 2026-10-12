@@ -627,10 +627,12 @@ function normalizePublicReadTargets(a) {
     return 'Error: read arg "file_path" must contain at least 1 target';
   }
   const windowValue = (value, fallback) => (value === undefined ? fallback : value);
+  // limit:0 is rejected by the public schema; read it as "no explicit limit".
+  const limitValue = (value, fallback) => (value === 0 ? fallback : windowValue(value, fallback));
   const validOffset = (value) => Number.isSafeInteger(value) && value >= 1;
   const validLimit = (value) => Number.isInteger(value) && value >= 1 && value <= MAX_INT;
   const defaultOffset = windowValue(a.offset, 1);
-  const defaultLimit = windowValue(a.limit, READ_GUARD_DEFAULT_LIMIT);
+  const defaultLimit = limitValue(a.limit, READ_GUARD_DEFAULT_LIMIT);
   if (!validOffset(defaultOffset) || !validLimit(defaultLimit)) {
     return `Error: read ${READ_WINDOW_RANGE_TEXT}`;
   }
@@ -648,7 +650,7 @@ function normalizePublicReadTargets(a) {
       return `Error: read target ${index + 1} must be a path string or {file_path, offset?, limit?}`;
     }
     const offset = windowValue(record.offset, defaultOffset);
-    const limit = windowValue(record.limit, defaultLimit);
+    const limit = limitValue(record.limit, defaultLimit);
     if (!validOffset(offset) || !validLimit(limit)) {
       return `Error: read target ${index + 1} ${READ_WINDOW_RANGE_TEXT}`;
     }
@@ -784,8 +786,11 @@ function guardShell(a) {
   if (unsupported) {
     return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, and wait_ms`;
   }
-  if (hasOwn(a, 'wait_ms') && (!Number.isInteger(a.wait_ms) || a.wait_ms < 1000 || a.wait_ms > 120000)) {
-    return `Error: shell arg "wait_ms" must be an integer from 1000 to 120000 (got ${describeType(a.wait_ms)})`;
+  // Over-max is an unambiguous "wait as long as allowed"; clamp like the other
+  // saturating integer args instead of failing the call.
+  if (hasOwn(a, 'wait_ms') && Number.isInteger(a.wait_ms) && a.wait_ms > 120000) a.wait_ms = 120000;
+  if (hasOwn(a, 'wait_ms') && (!Number.isInteger(a.wait_ms) || a.wait_ms < 1000)) {
+    return `Error: shell arg "wait_ms" must be an integer from 15000 to 120000, e.g. wait_ms:30000 (got ${JSON.stringify(a.wait_ms)})`;
   }
   if (!hasOwn(a, 'command')) {
     return 'Error: shell requires "command"';
@@ -949,7 +954,7 @@ const CODE_GRAPH_MODE_SET = new Set([...CODE_GRAPH_MODES, 'prewarm']);
 
 function guardCodeGraph(a) {
   if (!isPresent(a, 'mode')) {
-    return 'Error: code_graph requires "mode"';
+    return `Error: code_graph requires "mode", one of ${[...CODE_GRAPH_MODE_SET].filter((m) => m !== 'prewarm').join('|')}`;
   }
   if (!isString(a.mode)) {
     return `Error: code_graph arg "mode" must be a string (got ${describeType(a.mode)})`;
@@ -961,7 +966,7 @@ function guardCodeGraph(a) {
   // Absorb: file/files arriving as a JSON-stringified array
   // (file:"[\"a.mjs\",\"b.mjs\"]") — parse to a real array so the graph
   // lookup batches per file instead of treating the JSON text as one path.
-  for (const k of ['file', 'files']) {
+  for (const k of ['file', 'files', 'symbols']) {
     if (hasOwn(a, k) && typeof a[k] === 'string') {
       const c = coerceShapeFlex(a[k]);
       if (Array.isArray(c)) a[k] = c;

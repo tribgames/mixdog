@@ -173,7 +173,15 @@ export function finalizeReadFamilyEnoentTail(hint, requestedPath, errCode = 'ENO
   return appendEnoentFindNudge(String(hint || ''));
 }
 
+// The base the missing relative path was resolved against (a `cd` in an earlier
+// shell call never moves it), appended once to every not-found hint.
 export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
+  const hint = buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode, cache);
+  if (!hint || !workDir || !NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return hint;
+  return `${hint} (relative paths resolve from ${normalizeOutputPath(workDir)})`;
+}
+
+function buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
   if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return '';
   // `C:tmpsmp` shape: a Windows path whose separators were eaten by JSON
   // escaping (`"C:\\tmp\\smp"` written as `"C:\tmp\smp"`). Name the cause —

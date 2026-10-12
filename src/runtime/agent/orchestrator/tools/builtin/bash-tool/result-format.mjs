@@ -114,6 +114,36 @@ export function _exitClassDiagnostic(exitCode) {
   return '';
 }
 
+const _PS_UNIX_EQUIVALENTS = {
+  head: 'Select-Object -First N',
+  tail: 'Select-Object -Last N',
+  wc: 'Measure-Object -Line',
+  grep: 'Select-String (or the grep tool)',
+  sed: 'the edit tool',
+  awk: 'ForEach-Object / the edit tool',
+};
+
+// One-line PowerShell equivalent for a failed command whose stderr is the
+// shell's own "bash-ism" error. Only ever appended to an already failed run.
+export function _powershellBashismHint(command, stderr) {
+  if (process.platform !== 'win32') return '';
+  const err = String(stderr || '');
+  const cmd = String(command || '');
+  if (/<\s*\/dev\/null/.test(cmd) && /redirection operator|'<' operator is reserved/i.test(err)) {
+    return 'hint: PowerShell has no `<` redirection; drop </dev/null.';
+  }
+  if (/<<-?\s*['"]?\w+/.test(cmd) && /redirection operator|'<' operator is reserved|missing/i.test(err)) {
+    return "hint: PowerShell has no heredoc; use @'\\n…\\n'@ | python - (or node -).";
+  }
+  if (/2>\s*\/dev\/null/.test(cmd) && /dev\\null/i.test(err)) return 'hint: use 2>$null in PowerShell.';
+  const missing = /The term '(head|tail|wc|grep|sed|awk)' is not recognized/i.exec(err);
+  if (missing) {
+    const name = missing[1].toLowerCase();
+    return `hint: no \`${name}\` in PowerShell; use ${_PS_UNIX_EQUIVALENTS[name]}.`;
+  }
+  return '';
+}
+
 export function _composeShellFailure(statusMarker, errorPrefix, warningBlock, payload) {
   return `${errorPrefix}${statusMarker}${warningBlock ? `\n${warningBlock}` : ''}\n\n${payload}`;
 }

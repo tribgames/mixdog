@@ -129,7 +129,21 @@ export function validateGoalToolCall(value) {
   if (!action) throw new Error('goal action is required');
   if (!ACTION_FIELDS[action]) throw new Error(`goal action must be one of: ${Object.keys(ACTION_FIELDS).join(', ')}`);
   const extras = Object.keys(value).filter((key) => !TOOL_FIELDS.has(key));
-  if (extras.length) throw new Error(`goal arguments contain unknown fields: ${extras.join(', ')}`);
+  if (extras.length) {
+    throw new Error(
+      `goal arguments contain unknown fields: ${extras.join(', ')}. Allowed for ${action}: ${ACTION_FIELDS[action].join(', ')}`
+    );
+  }
+  // A JSON-stringified tasks/updates array is the same list; parse it in place.
+  for (const key of ['tasks', 'updates']) {
+    if (typeof value[key] !== 'string' || !value[key].trim().startsWith('[')) continue;
+    try {
+      const parsed = JSON.parse(value[key]);
+      if (Array.isArray(parsed)) value[key] = parsed;
+    } catch {
+      /* left as-is for the handler's own rejection */
+    }
+  }
   // Restored providers can fill every optional field. Consume only the active
   // action's payload; an absent/empty revision keeps old frozen schemas usable.
   if (ACTION_FIELDS[action].includes('revision') && value.revision != null && value.revision !== '') {

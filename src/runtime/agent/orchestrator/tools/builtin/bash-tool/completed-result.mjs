@@ -10,6 +10,7 @@ import {
   SURVIVING_DESCENDANTS_WARNING,
   _composeShellFailure,
   _finalizeShellResult,
+  _powershellBashismHint,
   _placeDestructiveWarningsAfterStatus,
   _prependDestructiveWarning,
   _shellFailureStatus,
@@ -152,11 +153,12 @@ export function renderCompletedResult({
     losslessCompaction
   )}${rescueNote}`;
   if (outcome.statusMarker) {
+    const bashismHint = commandExitedNonzero || isReallyErrored ? _powershellBashismHint(analysisCommand, stderr) : '';
     const failure = _composeShellFailure(
       `${outcome.statusMarker}${outcome.outcomeNote}`,
       isReallyErrored ? 'Error: ' : '',
       warningBlock,
-      payload
+      bashismHint ? `${payload}\n${bashismHint}` : payload
     );
     return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, failure));
   }
