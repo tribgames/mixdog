@@ -35,7 +35,7 @@ const settle = () =>
   });
 
 /** A host API with the remote-access settings, pair code and saved hosts. */
-function makeApi({ info = readyInfo('aaaaaaaa'), settings = {}, hosts = [], pairCode } = {}) {
+function makeApi({ info = readyInfo('aaaaaaaa'), settings = {}, hosts = [], pairCode, clientAliases = false } = {}) {
   const state = {
     info,
     settings: { enabled: true, name: 'DESKTOP-IBLP835', defaultName: 'DESKTOP-IBLP835', ...settings },
@@ -94,6 +94,19 @@ function makeApi({ info = readyInfo('aaaaaaaa'), settings = {}, hosts = [], pair
       state.info = { ...state.info, clients: state.info.clients.filter((row) => row.id !== id) };
       return Promise.resolve(state.info);
     },
+    // Device aliases are opt-in so other tests keep Disconnect as each row's only button.
+    ...(clientAliases
+      ? {
+          setRemoteClientAlias: (id, alias) => {
+            calls.push(['alias', id, alias]);
+            state.info = {
+              ...state.info,
+              clients: state.info.clients.map((row) => (row.id === id ? { ...row, alias: alias || undefined } : row)),
+            };
+            return Promise.resolve();
+          },
+        }
+      : {}),
   };
   setCachedConnectionInfo(api, info);
   return { api, calls, state };
@@ -220,15 +233,7 @@ test('a connected device can be given a local alias; the default label stays as 
     client('c1', 'iPhone · Safari', 'Safari', true),
     client('c2', 'iPhone · Safari', 'Safari', false),
   ]);
-  const { api, document, calls, state } = await mount(t, { info });
-  api.setRemoteClientAlias = (id, alias) => {
-    calls.push(['alias', id, alias]);
-    state.info = {
-      ...state.info,
-      clients: state.info.clients.map((row) => (row.id === id ? { ...row, alias: alias || undefined } : row)),
-    };
-    return Promise.resolve();
-  };
+  const { document, calls } = await mount(t, { info, clientAliases: true });
   const rows = () => [...document.querySelectorAll('.conn-list .conn-row')];
   const renameButton = (row) => [...row.querySelectorAll('button')].find((b) => b.textContent === 'Rename');
   assert.equal(rows().filter((row) => renameButton(row)).length, 2, 'every device has a Rename action');
