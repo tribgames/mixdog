@@ -29,6 +29,7 @@ import { AutoSaveRow, Group, SelectRow, ToggleRow } from './capability-controls'
 import { label, rows, type PanelContext } from './capability-data';
 import { DesktopNotificationToggle } from './desktop-notification-toggle';
 import { PushNotificationToggle } from './push-notification-toggle';
+import { WorktreeSettings } from './worktree-settings';
 import { NARROW_SHELL_QUERY } from '../use-responsive-shell-bands';
 
 function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
@@ -248,6 +249,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
       </Group>
       <PushNotificationToggle api={api} />
       <DesktopNotificationToggle />
+      <WorktreeSettings />
       {!remoteSurface && (
         <>
           <UiLanguageChoices pending={pending} />

@@ -131,3 +131,72 @@ test('a retention-cleared entry on an address mismatch never serves the other co
   assert.equal(steps[1].changed, true);
   assert.equal(steps[1].snapshot.sessionId, 'sess_c');
 });
+
+test('a workspace change moves the entry execution root and revision with the projected state', () => {
+  const f = fixture();
+  const state = (workspace) => ({ sessionId: 'sess_w', items: [], queued: [], workspace });
+  const workspace = (cwd, revision) => ({ projectPath: 'C:/repo', cwd, revision });
+  let current = state(workspace('C:/repo', 0));
+  const entry = {
+    runtime: { getState: () => current, isWireSafe: true },
+    cwd: 'C:/repo',
+    workspaceRevision: null,
+    addressedSessionId: 'sess_w',
+    indexedSessionId: 'sess_w',
+    subscribers: new Set(['viewer']),
+    disposed: false,
+    timer: null,
+  };
+  f.projection.advance(entry);
+  assert.equal(entry.cwd, 'C:/repo');
+  assert.equal(entry.workspaceRevision, 0);
+  current = state(workspace('C:/data/worktrees-v1/abc/fix', 1));
+  const step = f.projection.advance(entry);
+  assert.equal(entry.cwd, 'C:/data/worktrees-v1/abc/fix');
+  assert.equal(entry.workspaceRevision, 1);
+  assert.equal(step.snapshot.workspace.cwd, 'C:/data/worktrees-v1/abc/fix');
+});
+
+test('a state without a workspace leaves the creation-time execution root alone', () => {
+  const f = fixture();
+  const entry = {
+    runtime: { getState: () => ({ sessionId: 'sess_p', items: [], queued: [] }), isWireSafe: true },
+    cwd: 'C:/repo',
+    workspaceRevision: null,
+    addressedSessionId: 'sess_p',
+    indexedSessionId: 'sess_p',
+    subscribers: new Set(['viewer']),
+    disposed: false,
+    timer: null,
+  };
+  f.projection.advance(entry);
+  assert.equal(entry.cwd, 'C:/repo');
+  assert.equal(entry.workspaceRevision, null);
+});
+
+test('another conversation on an address mismatch never moves the execution root', () => {
+  const f = fixture();
+  const entry = {
+    runtime: {
+      getState: () => ({
+        sessionId: 'sess_heir',
+        items: [],
+        queued: [],
+        workspace: { projectPath: 'C:/repo', cwd: 'C:/elsewhere', revision: 9 },
+      }),
+      isWireSafe: true,
+    },
+    cwd: 'C:/repo',
+    workspaceRevision: 2,
+    addressedSessionId: 'sess_a',
+    indexedSessionId: 'sess_a',
+    publishedSnapshot: { sessionId: 'sess_a', items: [], queued: [] },
+    revision: 1,
+    subscribers: new Set(['viewer']),
+    disposed: false,
+    timer: null,
+  };
+  f.projection.advance(entry);
+  assert.equal(entry.cwd, 'C:/repo');
+  assert.equal(entry.workspaceRevision, 2);
+});

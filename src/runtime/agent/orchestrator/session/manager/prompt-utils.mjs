@@ -185,6 +185,96 @@ export function refreshSessionBp3Environment(session, cwd) {
   return true;
 }
 
+const CORE_MEMORY_HEADING = '# Core Memory\n';
+const INSTRUCTION_FILES_HEADING = '# Instruction Files';
+
+function trimmedSlice(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+// Where a heading-led slice starts in a BP3 join: `cut` ends the text before
+// it (separator included), `start` is the slice's first character.
+function bp3SliceAt(text, heading) {
+  if (text.startsWith(heading)) return { cut: 0, start: 0 };
+  const at = text.indexOf(`${BP3_PART_SEPARATOR}${heading}`);
+  return at < 0 ? null : { cut: at, start: at + BP3_PART_SEPARATOR.length };
+}
+
+/**
+ * Replace the workspace-scoped tail of a BP3 core (composeSystemPrompt order:
+ * …, `# Core Memory`, `# Instruction Files`). The instruction-files slice is
+ * always last and may itself contain separators, so it is cut by position;
+ * the core-memory slice is one separator-free part. `undefined` keeps a slice,
+ * an empty string drops it.
+ * @param {string} core
+ * @param {{ coreMemoryContext?: string, instructionFilesContext?: string }} slices
+ */
+export function replaceWorkspaceCoreSlices(core, { coreMemoryContext, instructionFilesContext } = {}) {
+  let head = String(core || '');
+  let instructionFiles = '';
+  const instructionAt = bp3SliceAt(head, INSTRUCTION_FILES_HEADING);
+  if (instructionAt) {
+    instructionFiles = head.slice(instructionAt.start);
+    head = head.slice(0, instructionAt.cut);
+  }
+  let parts = head ? head.split(BP3_PART_SEPARATOR) : [];
+  if (coreMemoryContext !== undefined) {
+    parts = parts.filter((part) => !part.startsWith(CORE_MEMORY_HEADING));
+    const memory = trimmedSlice(coreMemoryContext);
+    if (memory) parts.push(`${CORE_MEMORY_HEADING}${memory}`);
+  }
+  if (instructionFilesContext !== undefined) instructionFiles = trimmedSlice(instructionFilesContext);
+  return [...parts, instructionFiles].filter((part) => part && part.trim()).join(BP3_PART_SEPARATOR);
+}
+
+/**
+ * Replace the shell/project facts that lead the persisted environment tail
+ * (`- Cwd …`, shell tools, git state, cwd listing); the trailing response
+ * language block is kept. `undefined` keeps the facts.
+ */
+export function replaceWorkspaceEnvironment(environmentTail, environmentContext) {
+  if (environmentContext === undefined) return environmentTail;
+  const parts = typeof environmentTail === 'string' && environmentTail ? environmentTail.split(BP3_PART_SEPARATOR) : [];
+  const facts = trimmedSlice(environmentContext);
+  if (parts[0]?.startsWith('- ')) parts[0] = facts;
+  else parts.unshift(facts);
+  return parts.filter((part) => part && part.trim()).join(BP3_PART_SEPARATOR);
+}
+
+/**
+ * Re-root an existing session's prompt at a new workspace without touching
+ * the conversation: environment facts, project memory and instruction files
+ * are replaced in place (never appended), then the `# Session` block is
+ * rebuilt for `cwd`. Messages are replaced, not mutated, so delta saves write
+ * a full snapshot.
+ * @param {object} session
+ * @param {{ cwd: string, environmentContext?: string, coreMemoryContext?: string, instructionFilesContext?: string }} context
+ * @returns {boolean}
+ */
+export function refreshSessionWorkspaceContext(
+  session,
+  { cwd, environmentContext, coreMemoryContext, instructionFilesContext } = {}
+) {
+  if (!session) return false;
+  if (typeof session.bp3EnvironmentContext === 'string') {
+    session.bp3EnvironmentContext = replaceWorkspaceEnvironment(session.bp3EnvironmentContext, environmentContext);
+  }
+  const slices = { coreMemoryContext, instructionFilesContext };
+  if (session.bp3EnvSplit === true) {
+    const target = bp3SystemMessage(session);
+    if (target && typeof target.content === 'string') {
+      const nextCore = replaceWorkspaceCoreSlices(target.content, slices);
+      replaceSystemMessageContent(session, target, nextCore);
+      session.bp3CoreContext = nextCore;
+    }
+  } else if (typeof session.bp3CoreContext === 'string') {
+    // Legacy combined layout: refreshSessionBp3Environment rebuilds the tier3
+    // block from the core plus the environment below.
+    session.bp3CoreContext = replaceWorkspaceCoreSlices(session.bp3CoreContext, slices);
+  }
+  return refreshSessionBp3Environment(session, cwd);
+}
+
 export function resetSessionBp3Environment(session) {
   if (session?.bp3EnvSplit === true) {
     const target = bpEnvSystemMessage(session);

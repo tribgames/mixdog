@@ -34,6 +34,7 @@ const leadRow = (id, messages = [{ role: 'user', content: 'hi' }]) => ({
 
 function fixture({ current = null, rows = [] } = {}) {
   const calls = [];
+  const cleaned = [];
   const state = {
     session: current,
     route: { provider: 'p', model: 'm', effort: 'low' },
@@ -94,6 +95,7 @@ function fixture({ current = null, rows = [] } = {}) {
       applyDeferredToolSurface: () => {},
       getStandaloneTools: () => [],
       clearRoutePreparation: () => calls.push(['clearPrep']),
+      cleanupDeletedSessionWorktree: async (id) => cleaned.push([id, state.session?.id ?? null, state.cwd]),
     },
     {
       ingestSessionIntoMemory: async (session) => calls.push(['ingest', session.id]),
@@ -101,8 +103,43 @@ function fixture({ current = null, rows = [] } = {}) {
       cancelBackgroundTasks: (opts) => calls.push(['cancelTasks', opts]),
     }
   );
-  return { api, calls, state };
+  return { api, calls, state, cleaned };
 }
+
+const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+test('a deleted session hands its worktree to the autoCleanup policy; a bound current one leaves it first', async () => {
+  const other = fixture({ current: { id: 'other' }, rows: [leadRow('parent')] });
+  assert.equal(await other.api.deleteSession('parent'), true);
+  await settled();
+  assert.deepEqual(other.cleaned, [['parent', 'other', 'C:\\one']]);
+
+  const bound = {
+    id: 'parent',
+    messages: [{ role: 'user', content: 'hi' }],
+    workspace: {
+      projectPath: 'C:\\project',
+      repoCommonDir: 'C:\\project\\.git',
+      cwd: 'C:\\worktrees\\fix',
+      worktreeId: 'fix',
+      branch: 'mixdog/fix',
+      baseCommit: null,
+      mergeTarget: 'main',
+      revision: 2,
+      transition: { state: 'idle', txId: null },
+    },
+  };
+  const current = fixture({ current: bound, rows: [leadRow('parent')] });
+  current.state.cwd = 'C:\\worktrees\\fix';
+  assert.equal(await current.api.deleteSession('parent'), true);
+  await settled();
+  const order = current.calls.map((call) => call[0]);
+  assert.ok(order.indexOf('cwd') < order.indexOf('create'), 'the replacement starts in the project folder');
+  assert.deepEqual(current.calls.find((call) => call[0] === 'cwd'), ['cwd', 'C:\\project']);
+  // Cleanup runs once the replacement exists and nothing runs in the worktree.
+  assert.deepEqual(current.cleaned, [['parent', 'fresh', 'C:\\project']]);
+  forgotten.length = 0;
+});
 
 test('deleteSession refuses malformed or unlisted ids without touching the store', async () => {
   const { api, calls } = fixture({ rows: [leadRow('parent')] });

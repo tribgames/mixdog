@@ -117,6 +117,7 @@ export * from './contract-browser';
 export * from './contract-git';
 export * from './contract-computer';
 export * from './contract-workspace';
+export * from './contract-worktree';
 
 export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 
@@ -444,12 +445,8 @@ export interface DesktopApi {
   /** Dock Git panel: plain git CLI over the active project directory. */
   gitStatus?(cwd: string, options?: DesktopGitStatusOptions): Promise<DesktopGitStatus>;
   gitBranches?(cwd: string): Promise<DesktopGitBranch[]>;
-  gitCheckoutBranch?(cwd: string, branch: string, remote?: boolean): Promise<string>;
-  gitCreateBranch?(cwd: string, branch: string): Promise<string>;
   gitRenameBranch?(cwd: string, branch: string, nextBranch: string): Promise<string>;
   gitDeleteBranch?(cwd: string, branch: string): Promise<string>;
-  /** Merge `branch` into the checked-out branch; conflicts reject with detail. */
-  gitMergeBranch?(cwd: string, branch: string): Promise<string>;
   gitDiff?(cwd: string, path: string, staged?: boolean, worktreeOnly?: boolean, untracked?: boolean): Promise<string>;
   gitApplyPatch?(cwd: string, path: string, patch: string, reverse?: boolean): Promise<void>;
   gitStage?(cwd: string, paths: string[]): Promise<void>;
@@ -516,8 +513,6 @@ export interface DesktopApi {
   gitCreateTag?(cwd: string, tag: string, hash: string): Promise<string>;
   gitDeleteTag?(cwd: string, tag: string): Promise<string>;
   /** Check out `hash` itself: a detached HEAD. */
-  gitCheckoutCommit?(cwd: string, hash: string): Promise<string>;
-  gitCreateBranchAtCommit?(cwd: string, branch: string, hash: string): Promise<string>;
   /** Review pane: cumulative diff of the working tree vs merge-base(origin default branch, HEAD). */
   gitReview?(cwd: string): Promise<{
     base: string;

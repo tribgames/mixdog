@@ -17,6 +17,7 @@ import type { EditorSaveHandle } from './use-pane-tab-close';
 import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
 import { SessionBrowserSlot } from './session-browser-surfaces';
 import { SessionTerminalSlot } from './session-terminal-surfaces';
+import { resolveTerminalCwd } from './session-terminal-tabs';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 import type { useAppSideDocks } from './use-app-side-docks';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -44,6 +45,8 @@ interface PaneDockContext {
   handleFileDirty: (key: string, dirty: boolean) => void;
   registerEditorSaveHandle: (key: string, save: EditorSaveHandle | null, released?: EditorSaveHandle) => void;
   paneProjectPathFor: (leaf: PaneLeaf) => string;
+  /** The session workspace's execution root (a managed worktree or the project folder). */
+  sessionWorkspaceCwdFor?: (sessionId: string) => string | null;
   renderRightView: (
     id: WorkbenchSideViewId,
     active: boolean,
@@ -197,7 +200,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           <SessionTerminalSlot
             controller={context.sessionSurfaces.terminalSurfaces}
             sessionId={sessionId}
-            cwd={context.paneProjectPathFor(leaf) || null}
+            cwd={resolveTerminalCwd(context.sessionWorkspaceCwdFor?.(sessionId), context.paneProjectPathFor(leaf))}
             active={surfaceActive}
             foreground={surfaceActive && focused}
           />

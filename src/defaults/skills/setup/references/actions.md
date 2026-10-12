@@ -6,7 +6,7 @@ Read this when choosing a `setup` mutation.
 
 - `status` reads one domain: summary, model, agents, workflow, websearch,
   output-style, profile, autoclear, compaction, memory, features, local-provider, shell,
-  providers, mcp, skills, plugins, update, onboarding, capabilities, developer,
+  providers, mcp, skills, plugins, update, onboarding, worktree, capabilities, developer,
   desktop, appearance, projects, connection, schedules, webhooks, hooks, or
   media.
 - `open` navigates to a supported UI surface. Read `surfaces.md` for targets and
@@ -42,6 +42,7 @@ Read this when choosing a `setup` mutation.
 | Permanently delete confirmed, unchanged, unused model files | `delete_local_model` |
 | TUI system shell | `set_system_shell` |
 | Automatic updates | `set_auto_update` |
+| Worktree defaults: new tasks on the current branch or a new worktree, branch prefix, large-repository warning size, automatic cleanup | `set_worktree_settings` |
 | Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
 | Select, rename, reorder, or auto-switch OAuth accounts, or allow paid credits | `set_provider_account` |
 | Developer options such as risk-gated OAuth providers | `set_developer_option` |

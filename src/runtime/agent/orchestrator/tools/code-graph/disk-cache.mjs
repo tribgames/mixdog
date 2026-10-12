@@ -573,6 +573,64 @@ export function listCachedCodeGraphRoots() {
   }
 }
 
+// Remove one root (exact canonical match) from the disk cache: its resident
+// entry, its staged call-site sidecar, its manifest row and its <hash>.json /
+// <hash>.calls.json files. The resident drop is synchronous and happens first,
+// so a flush already scheduled for other roots can no longer write this one
+// back; the manifest is edited under the same cross-process lock the persist
+// path takes, so a concurrent writer merges the result instead of restoring
+// the row. Never creates the cache directory. Returns { removed, kept }; kept
+// are cache files that matched but could not be deleted.
+export function forgetDiskCodeGraphRoot(root) {
+  const key = _canonicalGraphCwd(root);
+  const removed = [];
+  const kept = [];
+  if (_diskCodeGraphCache.has(key)) removed.push(`resident:${key}`);
+  _dropDiskEntry(key);
+  if (_pendingCallsSidecars.delete(key)) removed.push(`pending-calls-sidecar:${key}`);
+  const dir = _codeGraphDiskDir();
+  if (!existsSync(dir)) return { removed, kept };
+  withFileLockSync(
+    join(dir, '.persist.lock'),
+    () => {
+      const manifest = _readPreservedManifest(dir);
+      const hashes = new Set([_hashCwd(key)]);
+      let changed = false;
+      for (const [cwd, meta] of Object.entries(manifest)) {
+        let same = false;
+        try {
+          same = _canonicalGraphCwd(cwd) === key;
+        } catch {
+          /* a malformed key is not this root */
+        }
+        if (!same) continue;
+        if (_isCodeGraphCacheHash(meta?.hash)) hashes.add(meta.hash);
+        delete manifest[cwd];
+        changed = true;
+        removed.push(`manifest:${cwd}`);
+      }
+      for (const hash of hashes) {
+        for (const file of [join(dir, `${hash}.json`), callsSidecarPath(dir, hash)]) {
+          if (!existsSync(file)) continue;
+          try {
+            unlinkSync(file);
+            removed.push(file);
+          } catch {
+            kept.push(file);
+          }
+        }
+      }
+      if (changed) writeJsonAtomicSync(join(dir, 'manifest.json'), manifest, { compact: true, lock: false });
+      if (_diskManifest) {
+        delete _diskManifest[key];
+        if (changed) _diskManifest = manifest;
+      }
+    },
+    { timeoutMs: 10_000 }
+  );
+  return { removed, kept };
+}
+
 // ── call-site sidecar ───────────────────────────────────────────────────────
 // Resolve the sidecar file of a canonical cwd. The manifest hash wins when the
 // entry is known (it is what the persist loop wrote); otherwise the hash is

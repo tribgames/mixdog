@@ -1,4 +1,5 @@
 // Session state, transcript, agent pool, goal, model and prompt types.
+import type { DesktopNewTaskWorktree, DesktopSessionWorkspace } from './contract-worktree';
 
 export type DesktopUpdaterState =
   | { status: 'disabled' | 'idle' | 'checking' | 'up-to-date' }
@@ -224,6 +225,9 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
    *  that sent it (`ids` are that device's submission ids). */
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   providerAccountChange?: { provider: string; accountId: string; at: number };
+  /** The Lead's live workspace: execution root (`cwd`), worktree binding and
+   *  revision. Null while the session never left its project folder. */
+  workspace?: DesktopSessionWorkspace | null;
 }
 
 // These are the session runtime's real activity/completion fields, not a parallel
@@ -451,6 +455,8 @@ export interface DesktopNewTaskDraft {
   route?: DesktopModelSelection;
   workflowId?: string;
   orchestrationMode?: DesktopOrchestrationMode;
+  /** The draft picked "Worktree": created and entered before the prompt is sent. */
+  worktree?: DesktopNewTaskWorktree;
 }
 
 export interface DesktopNewTaskSubmitResult {

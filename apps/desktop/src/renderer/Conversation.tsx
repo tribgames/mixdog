@@ -46,6 +46,8 @@ import { useRetiredApproval } from './use-retired-approval';
 import { ApprovalCard } from './ApprovalCard';
 import { Composer, WorkflowSelect, OrchestrationModeSelect } from './Composer';
 import { ProjectContextSelector } from './composer-support';
+import { BranchChip } from './BranchChip';
+import { ComposerContextChips } from './composer-context-chips';
 import { BrandTile } from './WorkspaceEmptyState';
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from './desktop-types';
 import { ComposerDock } from './ComposerDock';
@@ -632,6 +634,24 @@ export function Conversation({
         }
       : null;
 
+  // The same control seats third in a New Task's context bar and alone in the
+  // session dock, so a running session can still change branch or worktree.
+  const branchChip = readOnly ? null : (
+    <BranchChip
+      sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
+      draftId={draftId}
+      projectPath={draftMode ? activeProjectPath : routeProject}
+      disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
+      refreshKey={[
+        Boolean(routeSnapshot.busy),
+        Boolean(routeSnapshot.commandBusy),
+        routeSnapshot.workspace?.revision ?? '',
+        routeSnapshot.workspace?.cwd ?? '',
+      ].join(':')}
+      onOpenSession={onResumeSession}
+    />
+  );
+
   return (
     <section
       className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
@@ -755,31 +775,39 @@ export function Conversation({
           onOpenSessionDiff={onOpenSessionDiff}
           onOpenAgentSession={onOpenAgentSession}
           showProjectSelector={showProjectSelector}
+          branchControl={branchChip}
           contextBar={
-            <>
-              <ProjectContextSelector
-                projects={projects}
-                activePath={activeProjectPath}
-                activeLabel={activeProjectLabel}
-                disabled={transitioning || Boolean(snapshot.busy)}
-                onClear={onClearProject}
-                onSelect={onSelectProject}
-              />
-              <WorkflowSelect
-                workflow={(draftWorkflow || (routeSnapshot.workflow as RecordValue | null)) ?? null}
-                disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
-                invokeResult={composerInvokeResult}
-                applySnapshot={composerApplySnapshot}
-                onDraftChange={onDraftWorkflow}
-              />
-              <OrchestrationModeSelect
-                mode={draftOrchestrationMode ?? (draftMode ? null : routeSnapshot.orchestrationMode)}
-                disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
-                invokeResult={composerInvokeResult}
-                applySnapshot={composerApplySnapshot}
-                onDraftChange={onDraftOrchestrationMode}
-              />
-            </>
+            <ComposerContextChips
+              project={
+                <ProjectContextSelector
+                  projects={projects}
+                  activePath={activeProjectPath}
+                  activeLabel={activeProjectLabel}
+                  disabled={transitioning || Boolean(snapshot.busy)}
+                  onClear={onClearProject}
+                  onSelect={onSelectProject}
+                />
+              }
+              workflow={
+                <WorkflowSelect
+                  workflow={(draftWorkflow || (routeSnapshot.workflow as RecordValue | null)) ?? null}
+                  disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
+                  invokeResult={composerInvokeResult}
+                  applySnapshot={composerApplySnapshot}
+                  onDraftChange={onDraftWorkflow}
+                />
+              }
+              delegation={
+                <OrchestrationModeSelect
+                  mode={draftOrchestrationMode ?? (draftMode ? null : routeSnapshot.orchestrationMode)}
+                  disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
+                  invokeResult={composerInvokeResult}
+                  applySnapshot={composerApplySnapshot}
+                  onDraftChange={onDraftOrchestrationMode}
+                />
+              }
+              branch={branchChip}
+            />
           }
           reviewItems={reviewItems}
           reviewActive={reviewActive}

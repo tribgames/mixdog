@@ -37,6 +37,7 @@ import {
   MAX_PROMPT_IMAGES,
 } from '../shared/prompt-limits';
 import { requiredSessionId } from './desktop-state';
+import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
 
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
@@ -69,7 +70,7 @@ const SUBMIT_OPTION_KEYS = new Set([
   'pastedTexts',
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
-const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode']);
+const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode', 'worktree']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
 const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'autoEffort', 'modelParameters', 'contextPercent']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
@@ -241,6 +242,7 @@ const CAPABILITY_ARITY = {
   deleteMediaAssets: [1, 1],
   openMediaAsset: [1, 1],
   openMediaFolder: [0, 1],
+  ...WORKTREE_CAPABILITY_ARITY,
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 
 /** Optional `{ openBrowser?: boolean }` for GitHub CLI sign-in. */
@@ -730,11 +732,23 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
   if (orchestrationMode !== undefined && !['none', 'focused', 'balanced', 'swarm'].includes(orchestrationMode)) {
     throw new TypeError('orchestrationMode is invalid.');
   }
+  let worktree: DesktopNewTaskDraft['worktree'];
+  if (input.worktree !== undefined) {
+    const value = input.worktree;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('worktree is invalid.');
+    const record = value as Record<string, unknown>;
+    requireAllowedKeys(record, new Set(['confirmLarge']), 'new task worktree');
+    if (record.confirmLarge !== undefined && typeof record.confirmLarge !== 'boolean') {
+      throw new TypeError('worktree.confirmLarge must be a boolean.');
+    }
+    worktree = record.confirmLarge === true ? { confirmLarge: true } : {};
+  }
   return {
     ...(projectPath ? { projectPath } : {}),
     ...(route ? { route } : {}),
     ...(workflowId ? { workflowId } : {}),
     ...(orchestrationMode !== undefined ? { orchestrationMode } : {}),
+    ...(worktree ? { worktree } : {}),
   };
 }
 
@@ -776,6 +790,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     throw new TypeError(`capability ${capability} received an invalid number of arguments.`);
   }
   validateStructuredValue(args);
+  if (isWorktreeCapability(capability)) validateWorktreeCapabilityArgs(capability, args);
   if (capability === 'contextStatus' && args.length) {
     const options = args[0];
     if (!options || typeof options !== 'object' || Array.isArray(options)) {

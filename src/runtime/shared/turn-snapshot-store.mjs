@@ -14,7 +14,7 @@
 // whole tree, but only these paths may be restored from it.
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { cleanString as clean } from './clean.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
@@ -257,6 +257,68 @@ export async function loadSessionSnapshotRecords(sessionId) {
   const record = await readRecordFile(recordPath(id));
   if (!record) return [];
   return sessionScopes(record).map(serializeScope);
+}
+
+// Absolute, slash-normalized and (on Windows) case-folded: equal for every
+// spelling of one folder, so a stored root and a caller's root compare equal.
+function matchKey(value) {
+  const text = clean(value);
+  if (!text) return '';
+  const key = resolve(text).replace(/\\/g, '/').replace(/\/+$/, '');
+  return process.platform === 'win32' ? key.toLowerCase() : key;
+}
+
+/**
+ * Remove one worktree root from every session record: its turns and its
+ * session scope. Other roots' scopes, turns and the rest of the session history
+ * stay; a record left with nothing is deleted. Serialized with saves through
+ * the per-session chain. Returns `{ removed, kept }`: removed are
+ * `<recordFile>#<root>` scopes (or the record file itself once emptied); kept
+ * are record files that matched but could not be rewritten.
+ */
+export async function forgetTurnSnapshotRoot(root) {
+  const removed = [];
+  const kept = [];
+  const target = matchKey(root);
+  if (!target) return { removed, kept };
+  let names = [];
+  try {
+    names = await readdir(recordRoot());
+  } catch {
+    return { removed, kept };
+  }
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const path = join(recordRoot(), name);
+    const sessionId = clean((await readRecordFile(path))?.sessionId);
+    if (!sessionId) continue;
+    await chain(sessionId, async () => {
+      const record = await readRecordFile(path);
+      if (!record) return;
+      const turns = record.turns.filter((turn) => matchKey(turn?.root) !== target);
+      const scopes = sessionScopes(record);
+      const remaining = scopes.filter((scope) => matchKey(scope.root) !== target);
+      if (turns.length === record.turns.length && remaining.length === scopes.length) return;
+      try {
+        if (turns.length === 0 && remaining.length === 0) {
+          await rm(path, { force: true });
+          removed.push(path);
+          return;
+        }
+        const temporary = `${path}.${process.pid}.tmp`;
+        await writeFile(
+          temporary,
+          JSON.stringify({ ...record, turns, sessionScopes: remaining.map(serializeScope) }),
+          'utf8'
+        );
+        await rename(temporary, path);
+        removed.push(`${path}#${target}`);
+      } catch {
+        kept.push(path);
+      }
+    });
+  }
+  return { removed, kept };
 }
 
 export function _setTurnSnapshotStoreRootForTest(directory) {

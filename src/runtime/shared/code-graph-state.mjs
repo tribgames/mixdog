@@ -74,6 +74,18 @@ export function markCodeGraphDirtyPaths(paths) {
   }
 }
 
+/** Drop the resident graph, pending dirty paths and dirty generation of one
+ *  root (exact canonical match; nested roots are other roots). Returns the
+ *  names of the state that was actually dropped. */
+export function forgetCodeGraphStateRoot(root) {
+  const key = canonicalGraphCwd(root);
+  const removed = [];
+  if (codeGraphCache.delete(key)) removed.push('resident-graph');
+  if (codeGraphDirtyPaths.delete(key)) removed.push('dirty-paths');
+  if (codeGraphDirtyGen.delete(key)) removed.push('dirty-generation');
+  return removed;
+}
+
 export function registerCodeGraphDrain(fn) {
   drainCodeGraphCacheFn = typeof fn === 'function' ? fn : null;
 }

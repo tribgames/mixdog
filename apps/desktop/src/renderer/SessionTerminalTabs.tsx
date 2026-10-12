@@ -13,9 +13,11 @@ import { DockHeaderRow, requestPaneDockClose, scrollTabListByWheel, type DockAct
 import {
   closeSessionTerminalTab,
   getSessionTerminalTabs,
+  followSessionTerminalRoot,
   openSessionTerminalTab,
   selectSessionTerminalTab,
   subscribeSessionTerminalTabs,
+  terminalRootLabel,
 } from './session-terminal-tabs';
 import { cachedShellProfiles, loadShellProfiles, type ShellProfilesState } from './terminal-shell-profiles';
 import {
@@ -44,6 +46,11 @@ export function SessionTerminalTabs({
 }) {
   const state = useSyncExternalStore(subscribeSessionTerminalTabs, () => getSessionTerminalTabs(sessionId));
   const strip = useRef<HTMLDivElement | null>(null);
+  const followedRoot = useRef<string | null>(null);
+  useEffect(() => {
+    followSessionTerminalRoot(sessionId, cwd, followedRoot.current !== null && followedRoot.current !== cwd);
+    followedRoot.current = cwd;
+  }, [sessionId, cwd]);
   const [shells, setShells] = useState<ShellProfilesState>(() => {
     const cached = cachedShellProfiles();
     return cached ? { status: 'ready', profiles: cached } : { status: 'loading' };
@@ -90,12 +97,15 @@ export function SessionTerminalTabs({
       ? profiles?.find((profile) => profile.id === shell)?.label || shell
       : defaultProfile?.label || t('Default shell');
   const nameCounts = new Map<string, number>();
+  // Tabs in different roots (project folder vs. a worktree) show their folder.
+  const mixedRoots = new Set(state.tabs.map((tab) => tab.cwd || '')).size > 1;
   const tabTitles = new Map(
     state.tabs.map((tab) => {
       const name = shellName(tab.shell);
       const count = (nameCounts.get(name) ?? 0) + 1;
       nameCounts.set(name, count);
-      return [tab.id, count > 1 ? `${name} ${count}` : name];
+      const base = count > 1 ? `${name} ${count}` : name;
+      return [tab.id, mixedRoots && tab.cwd ? `${base} · ${terminalRootLabel(tab.cwd)}` : base];
     })
   );
   const closeTab = (id: string) => {
@@ -121,7 +131,7 @@ export function SessionTerminalTabs({
         },
       ],
     });
-  const openTab = (shell: string) => openSessionTerminalTab(sessionId, shell);
+  const openTab = (shell: string) => openSessionTerminalTab(sessionId, shell, cwd ?? '');
   // ⋯ = "open a new tab with this shell" (the former chevron picker).
   let shellActions: DockAction[];
   if (shells.status === 'loading') {
@@ -238,7 +248,7 @@ export function SessionTerminalTabs({
         {state.tabs.map((tab) => (
           <div key={tab.id} className="session-terminal-tab-panel" hidden={tab.id !== state.activeId}>
             <ReadyTerminalPane
-              cwd={cwd}
+              cwd={tab.cwd || cwd}
               terminalId={tab.id}
               shell={tab.shell}
               active={active && tab.id === state.activeId}

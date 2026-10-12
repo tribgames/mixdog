@@ -218,14 +218,10 @@ const STATIC_OPERATIONS = {
   gitAmend: git.gitAmend,
   gitApplyPatch: git.gitApplyPatch,
   gitBranches: git.gitBranches,
-  gitCheckoutBranch: git.gitCheckoutBranch,
-  gitCheckoutCommit: git.gitCheckoutCommit,
   gitCherryPickCommit: git.gitCherryPickCommit,
   gitCommit: git.gitCommit,
   gitCommitPaths: git.gitCommitPaths,
   gitContinue: git.gitContinue,
-  gitCreateBranch: git.gitCreateBranch,
-  gitCreateBranchAtCommit: git.gitCreateBranchAtCommit,
   gitCreateTag: git.gitCreateTag,
   gitDeleteBranch: git.gitDeleteBranch,
   gitDeleteTag: git.gitDeleteTag,
@@ -233,7 +229,6 @@ const STATIC_OPERATIONS = {
   gitFetch: git.gitFetch,
   gitIgnore: git.gitIgnore,
   gitLog: git.gitLog,
-  gitMergeBranch: git.gitMergeBranch,
   gitPull: git.gitPull,
   gitPush: git.gitPush,
   gitRenameBranch: git.gitRenameBranch,
@@ -419,6 +414,14 @@ export function createDesktopOperations({
       terminalOutput.drop(terminalId);
       terminals.dispose(terminalId);
       return null;
+    }
+    if (name === 'termDisposeUnder') {
+      const ids = terminals.disposeTerminalsUnder(String(args[0] || ''));
+      for (const id of ids) terminalOutput.drop(id);
+      return ids;
+    }
+    if (name === 'lspDisposeUnder') {
+      return languageServers.disposeUnder(String(args[0] || ''));
     }
     if (name === 'folderWatch') {
       folderWatchers.watch(localFiles.absoluteLocalPath(args[0]), args[1] === true);

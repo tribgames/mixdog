@@ -5,6 +5,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { DesktopLspCapabilities } from '../shared/contract';
 // @ts-expect-error The shared runtime helper is plain ESM and has no declaration file.
 import { shutdownStdioChild } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
+import { isPathUnderRoot } from './terminal-manager';
 import { type LanguageServerState, sessionKey } from './language-server-state';
 import type { LanguageServerSpec, ServerSession, WithTimeout } from './language-server-types';
 import { objectRecord } from './workflow-config';
@@ -502,6 +503,13 @@ export class LanguageServerProcessManager {
       /* already closed */
     }
     await shutdownStdioChild({ _process: session.child, pid: session.child.pid }, { graceMs: 500 }).catch(() => false);
+  }
+
+  /** Stop every server rooted at `root` or inside it; returns their roots. */
+  async disposeUnder(root: string): Promise<string[]> {
+    const sessions = this.state.activeSessions().filter((session) => isPathUnderRoot(root, session.root));
+    await Promise.all(sessions.map((session) => this.stop(session)));
+    return sessions.map((session) => session.root);
   }
 
   async dispose(): Promise<void> {

@@ -578,7 +578,7 @@ function registerStdioDeathGuards(signalCleanup) {
   return listeners;
 }
 
-export async function runTui({ provider, model, toolMode, remote, forceOnboarding } = {}) {
+export async function runTui({ provider, model, toolMode, remote, forceOnboarding, worktree } = {}) {
   const startedAt = performance.now();
   bootProfile('run:start', { provider, model, toolMode, remote });
   // The React/ink TUI needs a raw-mode-capable TTY (interactive input). In a
@@ -636,7 +636,15 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   // Session runtime startup is independent from palette selection. Start it now and
   // overlap its runtime import/config work with the theme read, while still
   // awaiting the theme before the first React frame.
-  const storeOutcomePromise = createSessionRuntime({ provider, model, toolMode, remote }).then(
+  // An interactive Lead the user starts follows the worktree settings default
+  // unless `--worktree [name]` / `--no-worktree` decided.
+  const storeOutcomePromise = createSessionRuntime({
+    provider,
+    model,
+    toolMode,
+    remote,
+    worktree: worktree ?? { mode: 'default' },
+  }).then(
     (store) => ({ store, error: null }),
     (error) => ({ store: null, error })
   );

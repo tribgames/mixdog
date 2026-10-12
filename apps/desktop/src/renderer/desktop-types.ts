@@ -1,4 +1,4 @@
-import type { DesktopQuotaResume, DesktopSessionSummary } from '../shared/contract';
+import type { DesktopQuotaResume, DesktopSessionSummary, DesktopSessionWorkspace } from '../shared/contract';
 
 export type RecordValue = Record<string, unknown>;
 export type Project = string;
@@ -101,6 +101,8 @@ export type Snapshot = RecordValue & {
   toolApprovalResult?: { id: string; approved: boolean; device: string; at: number } | null;
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   cwd?: string;
+  /** The Lead's live workspace (execution root, worktree binding, revision). */
+  workspace?: DesktopSessionWorkspace | null;
   project?: Project | null;
   currentProject?: Project | null;
   recentProjects?: Project[];

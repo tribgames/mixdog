@@ -1,5 +1,6 @@
 // Sessions, projects, workspaces, editor, LSP, renderer diagnostics, boot,
 // workspace text search, local files and document previews.
+import type { DesktopSessionWorkspace } from './contract-worktree';
 
 export type DesktopSessionClassification = 'task' | 'project' | null;
 
@@ -126,6 +127,9 @@ export interface DesktopSessionSummary {
    *  snapshot, a peek, or pane focus. */
   provider?: string;
   model?: string;
+  /** The Lead's workspace: where it executes (`cwd`, possibly a managed
+   *  worktree) under its registered Project. Absent while it never moved. */
+  workspace?: DesktopSessionWorkspace;
 }
 
 export interface DesktopProjectSummary {

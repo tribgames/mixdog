@@ -129,6 +129,8 @@ export function createSessionSettingsApi(bag) {
     getTidyInstallStatus: () => runtime.getTidyInstallStatus?.(),
     getDeveloperSettings: () => runtime.getDeveloperSettings?.(),
     setDeveloperOption: lockedRuntimeCall((id, enabled) => runtime.setDeveloperOption?.(id, enabled)),
+    getWorktreeSettings: () => runtime.getWorktreeSettings(),
+    setWorktreeSettings: lockedRuntimeCall((patch) => runtime.setWorktreeSettings(patch)),
     setWebSearchEnabled: lockedRuntimeCall((enabled) => runtime.setWebSearchEnabled?.(enabled)),
     setInstructionFiles: lockedRuntimeCall((mode) => runtime.setInstructionFiles?.(mode)),
     setMemoryToolsEnabled: lockedRuntimeCall((enabled) => runtime.setMemoryToolsEnabled?.(enabled)),

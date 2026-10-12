@@ -10,6 +10,7 @@ import { prepareAgentSession } from '../../../../runtime/agent/orchestrator/agen
 import { getProvider } from '../../../../runtime/agent/orchestrator/providers/registry.mjs';
 import { resolveRouteContextState } from '../../../route-state.mjs';
 import { createSpawnPlanner } from './spawn-plan.mjs';
+import { enterWorkerSpawn } from '../../../workspace/admission-gate.mjs';
 
 /** The route fields every worker-row and tag record carries. */
 export function presetDescriptor(agent, preset, presetName) {
@@ -100,10 +101,20 @@ export function createSpawnPreparer({
   }
 
   async function prepareSpawnInProcess(args, callerCwd = null, context = {}, prepState = null) {
-    const plan = await resolveSpawnPlan(args, callerCwd, context, prepState);
-    const spec = spawnSessionSpec(plan, args, context);
-    const { session, effectiveCwd } = await createSpawnedSession(plan, spec, prepState);
-    bindSpawnedSession(session, plan);
+    // Shared admission with Lead workspace transitions: no spawn is prepared
+    // while the Lead's workspace changes, no transition starts mid-spawn.
+    const leaveSpawn = enterWorkerSpawn([context?.ownerSessionId, context?.callerSessionId || context?.sessionId]);
+    let plan;
+    let session;
+    let effectiveCwd;
+    try {
+      plan = await resolveSpawnPlan(args, callerCwd, context, prepState);
+      const spec = spawnSessionSpec(plan, args, context);
+      ({ session, effectiveCwd } = await createSpawnedSession(plan, spec, prepState));
+      bindSpawnedSession(session, plan);
+    } finally {
+      leaveSpawn();
+    }
     if (sessionSurface?.canonical !== true) {
       maybePrewarmSpawnTransport(plan, session);
     }

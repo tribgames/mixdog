@@ -6,10 +6,13 @@ import type {
   DesktopRemoteBrowserTab,
 } from '../shared/contract';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
+import { randomUUID } from 'node:crypto';
+
 import type {
   MixdogProjectsModule,
   MixdogSessionSearchModule,
   MixdogSessionStoreModule,
+  MixdogWorktreesModule,
   StatuslineSegmentsModule,
 } from './desktop-support';
 import { SessionHost, type SessionClient } from './session-host';
@@ -57,6 +60,8 @@ interface DesktopServiceRuntime {
     onFatal?(reason: string): void;
   }): Promise<SessionClient>;
   loadProjects(): Promise<MixdogProjectsModule>;
+  /** Worktree manager; optional: an older daemon has no managed worktrees. */
+  loadWorktrees?(): Promise<MixdogWorktreesModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
   loadSessionSearch?(): Promise<MixdogSessionSearchModule>;
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
@@ -143,6 +148,28 @@ function createRemoteClaimArbiter(publish: (claim: RemoteClientClaim) => void) {
   };
 }
 
+/** Removing a managed worktree — from the branch chip or the Lead's cwd tool,
+ *  both through the runtime's worktree manager — first disposes the desktop
+ *  terminals started inside it (termDisposeUnder) and stops the language
+ *  servers rooted in it (lspDisposeUnder), before the manager drops its caches
+ *  and runs `git worktree remove`, so no PTY or server keeps the folder
+ *  locked. Returns the unregister function (a no-op on an older daemon). */
+export async function registerWorktreeTerminalReleaser(
+  runtime: Pick<DesktopServiceRuntime, 'loadWorktrees'>,
+  disposeTerminalsUnder: (root: string) => unknown,
+  disposeLanguageServersUnder: (root: string) => unknown = () => undefined
+): Promise<() => void> {
+  const worktrees = await runtime.loadWorktrees?.();
+  const id = randomUUID();
+  const unregisters = [
+    worktrees?.registerRootReleaser?.(`desktop-terminals:${id}`, (root) => disposeTerminalsUnder(root)),
+    worktrees?.registerRootReleaser?.(`desktop-language-servers:${id}`, (root) => disposeLanguageServersUnder(root)),
+  ];
+  return () => {
+    for (const unregister of unregisters) unregister?.();
+  };
+}
+
 type WindowRequestMethod = BrowserRemoteMethod | RemoteHostRequestMethod;
 
 /** Desktop Browser Use, the OS trash and the updater run in the window process:
@@ -223,6 +250,11 @@ export async function createDesktopService({
     loadDocumentPreview: runtime.loadDocumentPreview ? () => runtime.loadDocumentPreview!() : undefined,
     emit: (event) => publishDesktopEvent(event.name, event.value),
   });
+  const unregisterTerminalReleaser = await registerWorktreeTerminalReleaser(
+    runtime,
+    (root) => operations.invoke('termDisposeUnder', [root]),
+    (root) => operations.invoke('lspDisposeUnder', [root])
+  );
   const settingsStore = operations.settingsStore;
   const remoteHost = new Proxy(host, {
     get(target, property) {
@@ -529,6 +561,7 @@ export async function createDesktopService({
       await stateSync.control(value as DesktopServiceInbound);
     },
     async dispose(): Promise<void> {
+      unregisterTerminalReleaser();
       stateSync.dispose();
       desktopEventListeners.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');

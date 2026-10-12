@@ -79,7 +79,8 @@
     "[Ln": "editor status line abbreviation fragment",
     "Ln {{line}}, Col {{column}}": "editor status line abbreviation",
     ", Col": "editor status column abbreviation fragment",
-    "Auto": "effort-tier name kept in English by design"
+    "Auto": "effort-tier name kept in English by design",
+    "Worktree": "established Git CLI and feature term"
   },
   "localeExceptions": {
     "de": {

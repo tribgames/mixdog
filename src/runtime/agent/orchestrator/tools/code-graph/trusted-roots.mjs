@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
-import { listProjects } from '../../../../shared/projects.mjs';
+import { listProjects, removeProject } from '../../../../shared/projects.mjs';
 import { explicitSessionCwd, readLastSessionCwd } from '../../../../shared/user-cwd.mjs';
 import { canonicalGraphPath } from '../code-graph-state.mjs';
 import { listCachedCodeGraphRoots } from './disk-cache.mjs';
@@ -83,6 +83,30 @@ export function collectTrustedCodeGraphRoots(
     if (!found.has(key)) found.set(key, candidate);
   }
   return [...found.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Stop trusting one root as a federation target. Trust is derived from the
+ * Project registry, the session's selected cwd and the cache manifest; the
+ * manifest row goes with forgetDiskCodeGraphRoot() and a selected cwd is
+ * dropped by the directory check once the folder is gone, so the registry is
+ * the only stored source left. Only the exact root is removed (nested Projects
+ * stay). Returns { removed, kept }; kept are registered paths that matched but
+ * could not be unregistered.
+ */
+export function forgetTrustedCodeGraphRoot(
+  root,
+  { registered = () => listProjects().map((entry) => entry.path), unregister = removeProject } = {}
+) {
+  const removed = [];
+  const kept = [];
+  const key = canonicalGraphPath(root);
+  for (const path of registered()) {
+    if (!path || canonicalGraphPath(path) !== key) continue;
+    if (unregister(path)) removed.push(path);
+    else kept.push(path);
+  }
+  return { removed, kept };
 }
 
 export function owningTrustedCodeGraphRoot(file, roots) {

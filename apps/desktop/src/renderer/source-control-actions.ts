@@ -1,11 +1,20 @@
 // The dock's Git actions as plain functions over one explicit context: the
 // bridge, the project, the action runner and the error sink. Each confirms
 // or prompts first, then hands the call to run().
-import type { DesktopGitBranch, DesktopGitFile, DesktopGitLogEntry, DesktopGitStatus } from '../shared/contract';
+import type {
+  DesktopGitBranch,
+  DesktopGitFile,
+  DesktopGitLogEntry,
+  DesktopGitStatus,
+  DesktopMergeProjectBranchResult,
+  DesktopSelectProjectBranchInput,
+  DesktopSelectProjectBranchResult,
+} from '../shared/contract';
 import { t } from './i18n';
 import { resetModePrompt } from './source-control-confirmations';
 import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal, reasonText } from './source-control-support';
 import type { GitActionRunner } from './use-source-control-runner';
+import { invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
 
 type SourceControlActionContext = {
   api: Window['mixdogDesktop'];
@@ -123,6 +132,53 @@ export function stashActions(ctx: SourceControlActionContext) {
   };
 }
 
+/** The guarded Project-folder checkout (selectProjectBranch); typed refusals
+ *  (dirty folder, sessions working there, occupied branch, …) become their
+ *  readable text. */
+export function selectProjectBranch(
+  projectPath: string,
+  branch: string,
+  options: { create?: true; remote?: true; startPoint?: string } = {}
+): Promise<DesktopSelectProjectBranchResult> {
+  return guardedProjectCheckout({ projectPath, branch, ...options });
+}
+
+/** A history entry checked out detached, through the same guarded checkout. */
+export async function checkoutProjectCommit(projectPath: string, commit: string): Promise<string> {
+  const result = await guardedProjectCheckout({ projectPath, detach: commit });
+  return `HEAD is now at ${String(result.commit || commit).slice(0, 8)} (detached).`;
+}
+
+async function guardedProjectCheckout(input: DesktopSelectProjectBranchInput): Promise<DesktopSelectProjectBranchResult> {
+  try {
+    return await invokeWorktree<DesktopSelectProjectBranchResult>('selectProjectBranch', [input]);
+  } catch (reason) {
+    const failure = worktreeFailure(reason);
+    if (failure.code) throw new Error(worktreeFailureText(failure, { checkout: true }));
+    throw reason;
+  }
+}
+
+/** The dock merge through the runtime (mergeProjectBranch): `target` is the
+ *  branch the user confirmed. A conflict changes nothing and is reported. */
+export async function mergeProjectBranch(projectPath: string, branch: string, target: string): Promise<string> {
+  let result: DesktopMergeProjectBranchResult;
+  try {
+    result = await invokeWorktree<DesktopMergeProjectBranchResult>('mergeProjectBranch', [
+      { projectPath, branch, target },
+    ]);
+  } catch (reason) {
+    const failure = worktreeFailure(reason);
+    if (failure.code) throw new Error(worktreeFailureText(failure));
+    throw reason;
+  }
+  if (result.upToDate) return 'Already up to date.';
+  if (!result.merged) {
+    throw new Error(worktreeFailureText({ code: 'MERGE_CONFLICT', message: '', details: { files: result.conflicts ?? [] } }));
+  }
+  return `Merged ${branch} into ${result.target} (${String(result.commit).slice(0, 8)}).`;
+}
+
 // ONE implementation per branch action, shared by the branch row's inline
 // buttons and by its right-click menu. `branch-` keys make run() reload the
 // branch list too.
@@ -132,14 +188,19 @@ export function branchActions(
     branchQuery,
     closePicker,
     exitMergeMode,
-  }: { branchQuery: string; closePicker: () => void; exitMergeMode: () => void }
+    currentBranch,
+  }: { branchQuery: string; closePicker: () => void; exitMergeMode: () => void; currentBranch: string }
 ) {
   const { api, projectPath, run } = ctx;
   return {
+    // Checkout and create switch the Project folder through the runtime's
+    // guarded path (repository lock, sessions working there, no carried
+    // changes); a remote branch checks out its local branch, creating it to
+    // track the remote branch when missing.
     checkoutBranch: (branch: DesktopGitBranch) =>
       void run(
         `branch-checkout:${branch.name}`,
-        () => api?.gitCheckoutBranch?.(projectPath, branch.name, branch.remote),
+        () => selectProjectBranch(projectPath, branch.name, branch.remote ? { remote: true } : {}),
         closePicker
       ),
     renameBranch: (branch: DesktopGitBranch) => {
@@ -155,17 +216,28 @@ export function branchActions(
       // Seed the create-branch flow with the current filter text.
       const name = branchQuery.trim() || window.prompt(t('New branch name')) || '';
       if (!name.trim()) return;
-      void run('branch-create', () => api?.gitCreateBranch?.(projectPath, name.trim()), closePicker);
+      void run('branch-create', () => selectProjectBranch(projectPath, name.trim(), { create: true }), closePicker);
     },
-    mergeIntoCurrent: (branch: DesktopGitBranch) =>
+    // The runtime's guarded merge (mergeProjectBranch): the confirmed target
+    // must still be checked out, sessions working in the folder refuse it and
+    // their turns wait meanwhile; the backend preflights conflicts, merges
+    // with --no-ff and never leaves a half-merged repository.
+    mergeIntoCurrent: (branch: DesktopGitBranch) => {
+      if (
+        !window.confirm(
+          t('Merge "{{branch}}" into "{{target}}" with a merge commit?', { branch: branch.name, target: currentBranch })
+        )
+      )
+        return;
       void run(
         `branch-merge:${branch.name}`,
-        () => api?.gitMergeBranch?.(projectPath, branch.name),
+        () => mergeProjectBranch(projectPath, branch.name, currentBranch),
         () => {
           closePicker();
           exitMergeMode();
         }
-      ),
+      );
+    },
   };
 }
 
@@ -243,7 +315,8 @@ export function historyCommitActions(
         'Check this commit out? HEAD becomes DETACHED: new commits belong to no branch until one is created from them.'
       );
       if (!confirmCommit(entry, question)) return;
-      void run(`checkout-commit:${entry.hash}`, () => api?.gitCheckoutCommit?.(projectPath, entry.hash));
+      // The guarded project checkout: dirty folder, sessions working there, repo lock.
+      void run(`checkout-commit:${entry.hash}`, () => checkoutProjectCommit(projectPath, entry.hash));
     },
     createTagAt: (entry: DesktopGitLogEntry) => {
       const name = namedPrompt(
@@ -285,8 +358,10 @@ export function historyCommitActions(
         setError(t('A branch name is required to create a branch.'));
         return;
       }
+      // Creating it checks it out: the same guarded project checkout as the
+      // branch picker (dirty folder, occupancy, sessions working there).
       void run(`branch-create-at:${entry.hash}`, () =>
-        api?.gitCreateBranchAtCommit?.(projectPath, name.trim(), entry.hash)
+        selectProjectBranch(projectPath, name.trim(), { create: true, startPoint: entry.hash })
       );
     },
   };

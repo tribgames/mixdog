@@ -3,6 +3,7 @@
  * new desktop context (cwd + desktop session) or a fresh session.
  */
 import { isScratchSession } from '../shared.mjs';
+import { replacementSessionCwd } from '../../workspace/workspace-state.mjs';
 
 export function createContextSwitch(deps, { ingestSessionIntoMemory, closeSurfaceSession, releaseSessionWork }) {
   const {
@@ -59,11 +60,15 @@ export function createContextSwitch(deps, { ingestSessionIntoMemory, closeSurfac
   async function newSession() {
     deps.assertNotAddressed?.('newSession');
     const session = getSession();
+    // Leaving a worktree-bound Lead: the new session starts in the Project
+    // folder, never in the worktree the old session retains.
+    const projectFolder = replacementSessionCwd(session);
     if (session?.id) {
       void ingestSessionIntoMemory(session);
       closeSurfaceSession(session, 'cli-new', { tombstone: isScratchSession(session) });
       setSession(null);
     }
+    if (projectFolder) await applyResolvedCwd(projectFolder);
     invalidateContextStatusCache();
     await createCurrentSession();
     return getSession().id;

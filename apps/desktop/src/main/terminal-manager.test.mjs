@@ -85,3 +85,25 @@ test('sessionTabs lists only one session in tab order and snapshot is read-only'
   assert.equal(manager.snapshot('session-terminal:missing'), null);
   assert.equal(manager.snapshot('session-terminal:a').text, 'hello pwsh');
 });
+
+test('disposeTerminalsUnder kills only terminals inside the removed root', () => {
+  const manager = new TerminalManager();
+  const killed = [];
+  const entry = (cwd) => ({
+    pty: { kill: () => killed.push(cwd) },
+    buffer: new TerminalReplayBuffer(),
+    disposed: false,
+    outputPaused: false,
+    shell: 'sh',
+    cwd,
+  });
+  const root = process.platform === 'win32' ? 'C:\\repo\\.wt\\a' : '/repo/.wt/a';
+  const sep = process.platform === 'win32' ? '\\' : '/';
+  manager.terminals.set('session-terminal:a', entry(root));
+  manager.terminals.set('session-terminal:a:2', entry(`${root}${sep}src`));
+  manager.terminals.set('session-terminal:a:3', entry(`${root}-sibling`));
+  manager.terminals.set('session-terminal:a:4', entry(null));
+  assert.deepEqual(manager.disposeTerminalsUnder(`${root}${sep}`).sort(), ['session-terminal:a', 'session-terminal:a:2']);
+  assert.equal(killed.length, 2);
+  assert.deepEqual([...manager.terminals.keys()].sort(), ['session-terminal:a:3', 'session-terminal:a:4']);
+});

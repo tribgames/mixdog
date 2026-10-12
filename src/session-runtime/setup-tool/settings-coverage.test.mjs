@@ -837,6 +837,42 @@ test('media defaults: status per kind; set_media_default validates kind, lane an
   assert.equal(calls.length, 2);
 });
 
+test('worktree settings: status reads defaults, set_worktree_settings patches and rejects invalid values', async () => {
+  let config = { worktree: { autoCleanup: false }, profile: { title: 'unchanged' } };
+  const api = createSettingsApi({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+  });
+  const status = await run(api, { action: 'status', domain: 'worktree' });
+  assert.deepEqual(status, {
+    domain: 'worktree',
+    newTaskDefault: 'branch',
+    branchPrefix: 'mixdog/',
+    sizeWarnBytes: 2 * 1024 ** 3,
+    autoCleanup: false,
+  });
+  const saved = await run(api, {
+    action: 'set_worktree_settings',
+    worktree: { newTaskDefault: 'worktree', branchPrefix: 'agents/' },
+  });
+  assert.equal(saved.newTaskDefault, 'worktree');
+  assert.equal(saved.saved, true);
+  assert.deepEqual(config.worktree, {
+    newTaskDefault: 'worktree',
+    branchPrefix: 'agents/',
+    sizeWarnBytes: 2 * 1024 ** 3,
+    autoCleanup: false,
+  });
+  assert.deepEqual(config.profile, { title: 'unchanged' });
+  for (const worktree of [{}, { newTaskDefault: 'on' }, { sizeWarnBytes: -1 }, { other: true }]) {
+    await assert.rejects(run(api, { action: 'set_worktree_settings', worktree }));
+  }
+  await assert.rejects(run(api, { action: 'set_worktree_settings', worktree: { branchPrefix: 'no-slash' } }), /ending/);
+  assert.equal(config.worktree.branchPrefix, 'agents/');
+});
+
 test('getAutoClear: provider override beats global idleMs and is flagged', () => {
   const config = {
     autoClear: { enabled: true, idleMs: 7200000, providerIdleMs: { 'openai-oauth': 1800000 } },

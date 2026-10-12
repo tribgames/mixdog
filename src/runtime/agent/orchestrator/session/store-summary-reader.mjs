@@ -24,7 +24,7 @@ import {
 } from './store-transcript-worker.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { dataDir, sessionHeartbeatMtimes } from './store-summary-locations.mjs';
-import { desktopSession, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
+import { desktopSession, isStoredSessionId, positiveNumber, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
@@ -200,6 +200,7 @@ function normalizedRow(row, heartbeatAt = 0) {
     clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
     cwd: row.cwd || '',
     desktopSession: desktopSession(row.desktopSession, row.cwd),
+    ...(workspaceSummary(row.workspace) ? { workspace: workspaceSummary(row.workspace) } : {}),
     provider: row.provider || null,
     model: row.model || null,
     agentTag: row.agentTag || null,
@@ -426,6 +427,7 @@ function storedSessionMetadata(sessionId, session) {
     visibility: sessionVisibility(session),
     agentTag: session.agentTag || null,
     cwd: session.cwd || '',
+    ...(workspaceSummary(session.workspace) ? { workspace: workspaceSummary(session.workspace) } : {}),
     provider: session.provider || null,
     model: session.model || null,
     presetName: session.presetName || session.profileId || null,

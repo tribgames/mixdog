@@ -765,6 +765,11 @@ export class LanguageServerManager {
     return this.router.request(projectPath, root, relPath, languageId, method, params);
   }
 
+  /** Stop the servers rooted in `root` (a managed worktree being removed). */
+  async disposeUnder(root: string): Promise<string[]> {
+    return this.process.disposeUnder(root);
+  }
+
   async dispose(): Promise<void> {
     return this.process.dispose();
   }

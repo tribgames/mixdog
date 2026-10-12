@@ -30,6 +30,7 @@ function bootParams({
   initialConfig = null,
   desktopSession = null,
   sessionProfile = null,
+  worktree = null,
   executeAgentControl = null,
 } = {}) {
   return {
@@ -49,6 +50,8 @@ function bootParams({
     initialConfig,
     desktopSession,
     sessionProfile,
+    // Creation-time worktree intent (workspace/transitions.mjs creationIntent).
+    worktree,
     executeAgentControl,
   };
 }

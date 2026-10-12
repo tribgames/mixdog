@@ -1,6 +1,9 @@
 // cwd-plugins/cwd-apply.mjs — resolving a requested cwd and retargeting the
 // live session to it (project selection persistence, code-graph prewarm,
 // CwdChanged hook) without recreating the session.
+import { setWorkspaceCwdLock } from '../workspace/admission-gate.mjs';
+import { workspaceForProjectSelection } from '../workspace/workspace-state.mjs';
+
 export function createCwdApply({
   getCurrentCwd,
   setCurrentCwd,
@@ -31,9 +34,16 @@ export function createCwdApply({
   }
 
   function persistProjectSelection(session, currentCwd) {
+    // A Lead in its worktree keeps the registered Project as projectPath; a
+    // switch elsewhere leaves the worktree at a new workspace revision.
+    const { workspace, projectPath } = workspaceForProjectSelection(session, currentCwd);
+    if (session && workspace !== (session.workspace ?? null)) {
+      session.workspace = workspace;
+      setWorkspaceCwdLock(session.id, null);
+    }
     const desktop = getDesktopSession?.() || session?.desktopSession;
     if (desktop && typeof desktop === 'object') {
-      const nextDesktop = { classification: 'project', projectPath: currentCwd };
+      const nextDesktop = { classification: 'project', projectPath };
       setDesktopSession?.(nextDesktop);
       if (session) session.desktopSession = nextDesktop;
     }

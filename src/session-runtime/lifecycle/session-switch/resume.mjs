@@ -10,8 +10,14 @@ import {
   deferredSurfaceModeForLead,
 } from '../../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { isScratchConversation } from '../shared.mjs';
+import { boundWorkspaceCwd, restoreWorkspaceAfterResume } from '../../workspace/workspace-state.mjs';
 
 export function resolveResumeCwd(session, currentCwd) {
+  // A worktree-bound Lead resumes in its worktree whatever its desktop class;
+  // a vanished worktree resumes in the Project folder in `recovery`, where
+  // turns are refused (restoreWorkspaceAfterResume) rather than silently run.
+  const bound = boundWorkspaceCwd(session);
+  if (bound) return bound.cwd;
   const desktop = session?.desktopSession;
   if (desktop?.classification === 'project') {
     // `session.cwd` is the execution source of truth. Older builds updated it
@@ -132,6 +138,7 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
     // Resume is not work: the Lead pool row is written only by turn
     // start/settle, so opening an old conversation never re-lists it in the
     // Agent window for another reap window (user report).
+    restoreWorkspaceAfterResume(resumed);
     applyResolvedCwd(resolveResumeCwd(resumed, getCurrentCwd()));
     // Commit the applied cwd before returning the resume transcript.
     resumed.cwd = getCurrentCwd();

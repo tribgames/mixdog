@@ -39,6 +39,7 @@ export function ComposerDock({
   quotaResume,
   showProjectSelector,
   contextBar,
+  branchControl,
   reviewItems,
   reviewActive,
   reviewBusy,
@@ -64,6 +65,8 @@ export function ComposerDock({
   quotaResume?: ComposerIslandQuotaResume | null;
   showProjectSelector: boolean;
   contextBar?: ReactNode;
+  /** The branch chip, shown in its own row under the island mid-session. */
+  branchControl?: ReactNode;
   reviewItems: TranscriptItem[];
   reviewActive: boolean;
   reviewBusy: boolean;
@@ -103,34 +106,40 @@ export function ComposerDock({
       {showProjectSelector ? (
         <div className="composer-context-bar">{contextBar}</div>
       ) : (
-        <ComposerIsland
-          sessionId={sessionId}
-          onOpenAgentSession={onOpenAgentSession}
-          goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}
-          files={
-            // Keep the entry gate until the module and its authoritative read
-            // are ready, but do not let Suspense's reveal throttle hold an
-            // already loaded segment (and the entire transcript) for 300ms.
-            TurnReviewBar ? (
-              <TurnReviewBar
-                variant="segment"
-                items={reviewItems}
-                active={reviewActive}
-                busy={reviewBusy}
-                sessionId={reviewSessionId}
-                cwd={reviewCwd}
-                onOpenChanges={onOpenSessionDiff}
-              />
-            ) : (
-              <span hidden data-entry-pending />
-            )
-          }
-          approval={approval}
-          flash={islandFlash}
-          modelMismatch={modelMismatch}
-          quotaExhausted={quotaExhausted}
-          quotaResume={quotaResume}
-        />
+        <>
+          <ComposerIsland
+            sessionId={sessionId}
+            onOpenAgentSession={onOpenAgentSession}
+            goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}
+            files={
+              // Keep the entry gate until the module and its authoritative read
+              // are ready, but do not let Suspense's reveal throttle hold an
+              // already loaded segment (and the entire transcript) for 300ms.
+              TurnReviewBar ? (
+                <TurnReviewBar
+                  variant="segment"
+                  items={reviewItems}
+                  active={reviewActive}
+                  busy={reviewBusy}
+                  sessionId={reviewSessionId}
+                  cwd={reviewCwd}
+                  onOpenChanges={onOpenSessionDiff}
+                />
+              ) : (
+                <span hidden data-entry-pending />
+              )
+            }
+            approval={approval}
+            flash={islandFlash}
+            modelMismatch={modelMismatch}
+            quotaExhausted={quotaExhausted}
+            quotaResume={quotaResume}
+          />
+          {/* The island swapped the context bar out; the branch control keeps
+              its own constant-height row below it so a running session can
+              still change branch or worktree. */}
+          {branchControl ? <div className="composer-context-bar composer-session-context">{branchControl}</div> : null}
+        </>
       )}
       <div className="composer-queue-tray" ref={setQueueTray} />
       <ComposerQueueTrayContext.Provider value={queueTray}>{children}</ComposerQueueTrayContext.Provider>

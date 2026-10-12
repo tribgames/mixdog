@@ -106,3 +106,26 @@ test('shell profiles distinguish failed, empty-ready and ready, and a failure re
     globalThis.window = previous;
   }
 });
+
+test('terminal cwd follows the workspace root; a root change opens a new tab, never re-roots', async () => {
+  const { resolveTerminalCwd, followSessionTerminalRoot } = await import('./session-terminal-tabs.ts');
+  assert.equal(resolveTerminalCwd('P:\.wt\a', '/p'), 'P:\.wt\a');
+  assert.equal(resolveTerminalCwd(null, '/p'), '/p');
+  assert.equal(resolveTerminalCwd('', ''), null);
+  const sid = 'tabs-root';
+  followSessionTerminalRoot(sid, '/p', false);
+  const first = sessionTerminalId(sid);
+  assert.equal(getSessionTerminalTabs(sid).tabs[0].cwd, '/p');
+  followSessionTerminalRoot(sid, 'P:\.wt\a');
+  const moved = getSessionTerminalTabs(sid);
+  assert.equal(moved.tabs.length, 2);
+  assert.equal(moved.tabs[0].cwd, '/p');
+  assert.equal(moved.tabs[1].cwd, 'P:\.wt\a');
+  assert.notEqual(moved.tabs[1].id, first);
+  assert.equal(moved.activeId, moved.tabs[1].id);
+  followSessionTerminalRoot(sid, '/p');
+  const back = getSessionTerminalTabs(sid);
+  assert.equal(back.tabs.length, 2);
+  assert.equal(back.activeId, first);
+  releaseSessionTerminalTabs(sid);
+});

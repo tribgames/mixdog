@@ -91,14 +91,27 @@ export function createCallRoute({ handleCall, clients, lanes, callCache, nowMs }
       // tell a failed CALL from a dead TRANSPORT (which must re-attach). The
       // machine-readable `code` (ECALLIDCONFLICT / ECALLRESULTDROPPED) travels
       // with it: a client must be able to branch on it, not parse prose.
+      // Typed (worktree) failures also carry their plain JSON `details`.
       sendJson(
         res,
         {
           error: err?.message || String(err),
           ...(err?.code ? { code: String(err.code) } : {}),
+          ...jsonDetails(err),
         },
         200
       );
     }
   };
+}
+
+/** `{ details }` when the error's details are a JSON-safe object, else {}. */
+function jsonDetails(err) {
+  const details = err?.details;
+  if (!details || typeof details !== 'object') return {};
+  try {
+    return { details: JSON.parse(JSON.stringify(details)) };
+  } catch {
+    return {};
+  }
 }

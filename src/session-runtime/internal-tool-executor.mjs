@@ -31,6 +31,7 @@ export function createInternalToolExecutor({
   mcpStatus,
   applyResolvedCwd,
   skillToolContent,
+  getWorkspaceApi,
 }) {
   const handlers = {
     ...createBridgeToolHandlers({ rt }),
@@ -46,7 +47,14 @@ export function createInternalToolExecutor({
       mcpStatus,
       skillToolContent,
     }),
-    ...createWorkspaceToolHandlers({ rt, goalRuntime, agentTool, notifyFnForSession, applyResolvedCwd }),
+    ...createWorkspaceToolHandlers({
+      rt,
+      goalRuntime,
+      agentTool,
+      notifyFnForSession,
+      applyResolvedCwd,
+      getWorkspaceApi,
+    }),
   };
 
   // Settings-disabled features are refused for model-initiated calls before

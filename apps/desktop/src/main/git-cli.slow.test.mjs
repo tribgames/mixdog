@@ -24,13 +24,9 @@ import {
   gitAmend,
   gitApplyPatch,
   gitBranches,
-  gitCheckoutBranch,
-  gitCheckoutCommit,
   gitCherryPickCommit,
   gitCommitPaths,
   gitContinue,
-  gitCreateBranch,
-  gitCreateBranchAtCommit,
   gitCreateTag,
   gitDeleteBranch,
   gitDeleteTag,
@@ -39,7 +35,6 @@ import {
   gitAbortOperation,
   gitFetch,
   gitIgnore,
-  gitMergeBranch,
   gitPull,
   gitRenameBranch,
   gitReview,
@@ -470,7 +465,9 @@ describe('working tree and history', { concurrency: 4 }, () => {
     }
   });
 
-  test('branch operations cover local and remote checkout without losing work', async () => {
+  // Checkout and create go through the runtime's guarded selectProjectBranch
+  // (covered by src/runtime/shared/worktrees and src/session-runtime/workspace).
+  test('branch listing, rename and delete cover local and remote branches', async () => {
     const cwd = await createRepository();
     const remote = await mkdtemp(join(tmpdir(), 'mixdog-git-branch-remote-'));
     const peer = await mkdtemp(join(tmpdir(), 'mixdog-git-branch-peer-'));
@@ -483,10 +480,10 @@ describe('working tree and history', { concurrency: 4 }, () => {
       await git(cwd, ['remote', 'add', 'origin', remote]);
       await git(cwd, ['push', '-u', 'origin', 'main']);
 
-      await gitCreateBranch(cwd, 'feature/local');
+      await git(cwd, ['switch', '-c', 'feature/local']);
       assert.equal((await gitBranches(cwd)).find((branch) => branch.current)?.name, 'feature/local');
       await gitRenameBranch(cwd, 'feature/local', 'feature/renamed');
-      await gitCheckoutBranch(cwd, 'main');
+      await git(cwd, ['switch', 'main']);
       await gitDeleteBranch(cwd, 'feature/renamed');
       assert.equal(
         (await gitBranches(cwd)).some((branch) => branch.name === 'feature/renamed'),
@@ -501,8 +498,6 @@ describe('working tree and history', { concurrency: 4 }, () => {
       await git(peer, ['push', '-u', 'origin', 'review']);
       await gitFetch(cwd);
       assert.ok((await gitBranches(cwd)).some((branch) => branch.remote && branch.name === 'origin/review'));
-      await gitCheckoutBranch(cwd, 'origin/review', true);
-      assert.equal((await gitStatus(cwd)).branch, 'review');
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(remote, { recursive: true, force: true });
@@ -547,74 +542,6 @@ describe('working tree and history', { concurrency: 4 }, () => {
       assert.equal(conflicted.files[0]?.conflicted, true);
       await gitAbortOperation(cwd);
       assert.equal((await gitStatus(cwd)).operation, '');
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test('merge folds a branch into the current one and reports conflicts as errors', async () => {
-    const cwd = await createRepository();
-    try {
-      await commit(cwd, 'merge.txt', 'base\n', 'Base');
-      await git(cwd, ['checkout', '-b', 'feature']);
-      await commit(cwd, 'feature.txt', 'feature\n', 'Feature');
-      await git(cwd, ['checkout', 'main']);
-      const merged = await gitMergeBranch(cwd, 'feature');
-      assert.match(merged, /feature\.txt|Fast-forward/);
-      assert.equal((await gitStatus(cwd)).files.length, 0);
-      assert.equal((await readFile(join(cwd, 'feature.txt'), 'utf8')).replace(/\r\n/g, '\n'), 'feature\n');
-      assert.match(await gitMergeBranch(cwd, 'feature'), /Already up to date/i);
-
-      await git(cwd, ['checkout', '-b', 'rival']);
-      await commit(cwd, 'merge.txt', 'rival\n', 'Rival');
-      await git(cwd, ['checkout', 'main']);
-      await commit(cwd, 'merge.txt', 'mainline\n', 'Mainline');
-      await assert.rejects(
-        () => gitMergeBranch(cwd, 'rival'),
-        (error) => /conflicts/i.test(error.message) && /merge\.txt/.test(error.message)
-      );
-      const conflicted = await gitStatus(cwd);
-      assert.equal(conflicted.operation, 'merge');
-      assert.equal(conflicted.files[0]?.conflicted, true);
-
-      // A live operation must never be stacked under a second merge.
-      await assert.rejects(
-        () => gitMergeBranch(cwd, 'rival'),
-        (error) => /merge is already in progress/i.test(error.message)
-      );
-      assert.equal((await gitStatus(cwd)).operation, 'merge');
-      await gitAbortOperation(cwd);
-      assert.equal((await gitStatus(cwd)).operation, '');
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test('merge refuses to run over uncommitted changes and leaves them untouched', async () => {
-    const cwd = await createRepository();
-    try {
-      await commit(cwd, 'shared.txt', 'base\n', 'Base');
-      await git(cwd, ['checkout', '-b', 'incoming']);
-      await commit(cwd, 'incoming.txt', 'incoming\n', 'Incoming');
-      await git(cwd, ['checkout', 'main']);
-
-      await writeFile(join(cwd, 'shared.txt'), 'base\nlocal work\n', 'utf8');
-      await writeFile(join(cwd, 'scratch.txt'), 'untracked\n', 'utf8');
-      await assert.rejects(
-        () => gitMergeBranch(cwd, 'incoming'),
-        (error) => /uncommitted changes/i.test(error.message) && /shared\.txt/.test(error.message)
-      );
-      const untouched = await gitStatus(cwd);
-      assert.equal(untouched.operation, '');
-      assert.equal(untouched.files.length, 2);
-      assert.equal((await readFile(join(cwd, 'shared.txt'), 'utf8')).replace(/\r\n/g, '\n'), 'base\nlocal work\n');
-      assert.equal(
-        await gitStatus(cwd).then((status) => status.files.some((file) => file.path === 'incoming.txt')),
-        false
-      );
-
-      await gitStash(cwd, 'before merge');
-      assert.match(await gitMergeBranch(cwd, 'incoming'), /incoming\.txt|Fast-forward/);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -2256,15 +2183,13 @@ test('only cherry-pick refuses to stack on a live Git operation', async () => {
     assert.equal((await git(cwd, ['tag', '-l'])).trim(), 'v1.0.0');
     assert.match(await gitDeleteTag(cwd, 'v1.0.0'), /v1\.0\.0/);
 
-    // Reset, revert, checkout and branch creation are handed to git: what it
-    // cannot do here it refuses in its OWN words ("Cannot do a soft reset in
-    // the middle of a merge", unmerged entries), never with mixdog's
-    // "already in progress".
+    // Reset and revert are handed to git: what it cannot do here it refuses
+    // in its OWN words ("Cannot do a soft reset in the middle of a merge",
+    // unmerged entries), never with mixdog's "already in progress".
+    // (Checking a commit out is the runtime's guarded selectProjectBranch.)
     for (const action of [
       () => gitResetToCommit(cwd, base, 'soft'),
       () => gitRevertCommit(cwd, rival),
-      () => gitCheckoutCommit(cwd, base),
-      () => gitCreateBranchAtCommit(cwd, 'from-history', base),
     ]) {
       await assert.rejects(action, (error) => !inProgress(error));
     }
@@ -2637,69 +2562,8 @@ test('tags are created at a commit and deleted, and invalid names never reach gi
   }
 });
 
-test('a commit can be checked out detached or opened as a new branch', async () => {
-  const cwd = await createRepository();
-  try {
-    await commit(cwd, 'history.txt', 'base\n', 'Base');
-    const base = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
-    await commit(cwd, 'history.txt', 'later\n', 'Later');
-
-    assert.match(await gitCheckoutCommit(cwd, base), /detached/i);
-    const detached = await gitStatus(cwd);
-    assert.equal(detached.detached, true);
-    assert.equal((await git(cwd, ['rev-parse', 'HEAD'])).trim(), base);
-    assert.equal((await readFile(join(cwd, 'history.txt'), 'utf8')).replace(/\r\n/g, '\n'), 'base\n');
-    await git(cwd, ['checkout', 'main']);
-
-    await gitCreateBranchAtCommit(cwd, 'from-history', base);
-    const branched = await gitStatus(cwd);
-    assert.equal(branched.branch, 'from-history');
-    assert.equal(branched.detached, false);
-    assert.equal((await git(cwd, ['rev-parse', 'HEAD'])).trim(), base);
-    await git(cwd, ['checkout', 'main']);
-
-    // Local work neither action would overwrite is CARRIED ACROSS, not refused:
-    // the reference's "Check out commit" tolerates safe local changes, and
-    // branch creation likewise.
-    await writeFile(join(cwd, 'scratch.txt'), 'local\n', 'utf8');
-    await gitCheckoutCommit(cwd, base);
-    assert.equal((await git(cwd, ['rev-parse', 'HEAD'])).trim(), base);
-    assert.equal((await readFile(join(cwd, 'scratch.txt'), 'utf8')).replace(/\r\n/g, '\n'), 'local\n');
-    await git(cwd, ['checkout', 'main']);
-    await gitCreateBranchAtCommit(cwd, 'second-try', base);
-    const carried = await gitStatus(cwd);
-    assert.equal(carried.branch, 'second-try');
-    assert.equal(
-      carried.files.some((entry) => entry.path === 'scratch.txt'),
-      true
-    );
-    await git(cwd, ['checkout', 'main']);
-    await rm(join(cwd, 'scratch.txt'), { force: true });
-
-    // The checkout that really WOULD overwrite an edit is still refused — by
-    // git, in git's words, and nothing moves.
-    await writeFile(join(cwd, 'history.txt'), 'later\nlocal work\n', 'utf8');
-    const head = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
-    await assert.rejects(
-      () => gitCheckoutCommit(cwd, base),
-      (error) => !mixdogDirtyRefusal(error) && /local changes|overwritten/i.test(error.message)
-    );
-    assert.equal((await git(cwd, ['rev-parse', 'HEAD'])).trim(), head);
-    assert.equal((await readFile(join(cwd, 'history.txt'), 'utf8')).replace(/\r\n/g, '\n'), 'later\nlocal work\n');
-    await git(cwd, ['checkout', '--', 'history.txt']);
-
-    await assert.rejects(() => gitCheckoutCommit(cwd, '--detach'), TypeError);
-    await assert.rejects(() => gitCheckoutCommit(cwd, 'main'), TypeError);
-    await assert.rejects(() => gitCreateBranchAtCommit(cwd, 'later', '--force'), TypeError);
-    await assert.rejects(
-      () => gitCreateBranchAtCommit(cwd, 'bad name', base),
-      (error) => /not a valid branch name|invalid/i.test(error.message)
-    );
-    await assert.rejects(() => gitCreateBranchAtCommit(cwd, '', base), TypeError);
-  } finally {
-    await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
-  }
-});
+// Checking a commit out (detached) or opening it as a new branch is the
+// runtime's guarded selectProjectBranch (src/runtime/shared/worktrees/manager.slow.test.mjs).
 
 test('a merge commit is reverted and cherry-picked against its first parent', async () => {
   const cwd = await createRepository();
@@ -2773,18 +2637,11 @@ test('a hex-shaped ref never shadows the commit a history action names', async (
     // Every action still lands on the object the caller named.
     assert.match(await gitCreateTag(cwd, 'v-shadow', shadow), new RegExp(base.slice(0, 8)));
     assert.equal((await git(cwd, ['rev-parse', 'v-shadow^{commit}'])).trim(), base);
-    assert.match(await gitCheckoutCommit(cwd, shadow), new RegExp(base.slice(0, 8)));
-    assert.equal((await git(cwd, ['rev-parse', 'HEAD'])).trim(), base);
-    await git(cwd, ['checkout', 'main']);
-    await gitCreateBranchAtCommit(cwd, 'from-shadow', shadow);
-    assert.equal((await git(cwd, ['rev-parse', 'refs/heads/from-shadow'])).trim(), base);
-    await git(cwd, ['checkout', 'main']);
     await gitResetToCommit(cwd, shadow, 'hard');
     assert.equal((await git(cwd, ['rev-parse', 'HEAD'])).trim(), base);
 
     // A hex-shaped name that is ONLY a ref names no commit at all.
     await git(cwd, ['branch', 'abcdef1234567', later]);
-    await assert.rejects(() => gitCheckoutCommit(cwd, 'abcdef1234567'), TypeError);
     await assert.rejects(() => gitCreateTag(cwd, 'v-nope', 'abcdef1234567'), TypeError);
     assert.equal((await git(cwd, ['rev-parse', 'HEAD'])).trim(), base);
   } finally {
