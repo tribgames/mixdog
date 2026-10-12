@@ -132,6 +132,12 @@ is published in [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1
 and [Context efficiency](docs/context-efficiency.md) explains where the
 savings come from.
 
+On the same 89 tasks with **DeepSeek V4.1 Flash**, the native DSH harness
+reached 72.7% while Mixdog solved 76.4% at 15% faster solves and 22% fewer
+model calls on the tasks it passes — with 84% of its input served from
+prompt cache.
+
+
 ## Documentation
 
 - [Context efficiency](docs/context-efficiency.md)
