@@ -17,8 +17,8 @@ spec.loader.exec_module(tfs)
 
 
 class Fake:
-    def __init__(self, builds, locs=(), groups=(), review=None, existing=None):
-        self.builds, self.locs, self.groups, self.review = list(builds), list(locs), groups, review
+    def __init__(self, builds, locs=(), review=None, existing=None):
+        self.builds, self.locs, self.review = list(builds), list(locs), review
         self.existing = existing  # body of GET /builds/{id}/betaAppReviewSubmission
         self.calls = []
 
@@ -28,8 +28,8 @@ class Fake:
             return {"data": [self.builds.pop(0)]} if self.builds else {"data": []}
         if path.endswith("/betaBuildLocalizations?limit=200"):
             return {"data": self.locs}
-        if path.endswith("/betaGroups?limit=200"):
-            return {"data": [{"id": g} for g in self.groups]}
+        if "/betaGroups" in path and method == "GET":
+            raise AssertionError("App Store Connect has no GET on a build's betaGroups")
         if path.endswith("/betaAppReviewSubmissions"):
             if isinstance(self.review, BaseException):
                 raise self.review
@@ -59,13 +59,19 @@ class Tests(unittest.TestCase):
         self.assertEqual(calls[-1], ("POST", "/betaAppReviewSubmissions"))
         self.assertIn("filter%5Bversion%5D=7", fake.calls[0][1])
 
-    def test_skips_group_and_accepts_existing_review_on_409(self):
+    def test_group_add_tolerates_conflict_and_accepts_existing_review_on_409(self):
         conflict = tfs.asc_api.AscError("POST", "/betaAppReviewSubmissions", 409, "{dup}")
         existing = {"data": {"id": "R1", "attributes": {"betaReviewState": "WAITING_FOR_REVIEW"}}}
-        fake = Fake([build("VALID")], groups=[tfs.DEFAULT_GROUP], review=conflict, existing=existing)
-        with mock.patch("builtins.print") as out:
-            self.run_main(fake)
-        self.assertFalse(any("relationships/builds" in p for _, p, _ in fake.calls))
+        fake = Fake([build("VALID")], review=conflict, existing=existing)
+        tolerated = []
+        def spy(method, path, body=None, tolerate=()):
+            if path.endswith("/relationships/builds"):
+                tolerated.append(tolerate)
+            return fake(method, path, body, tolerate)
+        with mock.patch("builtins.print") as out, mock.patch.object(tfs.asc_api, "call", spy), \
+                mock.patch.object(tfs.time, "sleep"):
+            tfs.main("1.2.3", "7")
+        self.assertEqual(tolerated, [(409,)])
         self.assertEqual(fake.calls[-1][:2], ("GET", "/builds/B1/betaAppReviewSubmission"))
         self.assertTrue(any("WAITING_FOR_REVIEW" in str(c) for c in out.call_args_list))
 

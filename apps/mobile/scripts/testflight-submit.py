@@ -72,13 +72,11 @@ def set_whats_new(build_id):
 
 
 def add_to_group(build_id, group_id):
-    groups = asc_api.call("GET", f"/builds/{build_id}/betaGroups?limit=200").get("data", [])
-    if any(group["id"] == group_id for group in groups):
-        print(f"Build already in group {group_id}")
-        return
+    # The API offers no GET on a build's betaGroups relationship; adding a
+    # build that is already in the group is accepted, so add it directly.
     asc_api.call("POST", f"/betaGroups/{group_id}/relationships/builds",
-                 {"data": [{"type": "builds", "id": build_id}]})
-    print(f"Added build to group {group_id}")
+                 {"data": [{"type": "builds", "id": build_id}]}, tolerate=(409,))
+    print(f"Build is in group {group_id}")
 
 
 ACCEPTED_REVIEW_STATES = ("WAITING_FOR_REVIEW", "IN_REVIEW", "APPROVED")
