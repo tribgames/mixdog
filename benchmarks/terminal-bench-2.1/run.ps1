@@ -256,7 +256,8 @@ $manifestPath = Join-Path $resolvedJobsDir "preset-run.json"
 # archived with the run.
 $provenancePath = Join-Path $resolvedJobsDir "runtime-provenance.json"
 $runnerArgs.ProvenanceOut = $provenancePath
-# The fingerprint pins dataset and routes only. Capture the prompt surface —
+# The fingerprint pins the run definition (dataset, suite, routes, concurrency,
+# attempts, retries, effort judge), not the prompt surface. Capture the prompt surface —
 # rules and tool schemas as the container will see them — before the snapshot
 # is taken, so the report identifies the exact contract under measurement.
 $contractArgs = @(
