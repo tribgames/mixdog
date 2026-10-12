@@ -3688,5 +3688,9 @@
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Cài libsecret-tools (sudo apt install libsecret-tools) để dùng chuỗi khóa của hệ thống.",
   "The system keyring could not be read — check that it is running and unlocked.": "Không đọc được chuỗi khóa hệ thống — hãy kiểm tra nó đang chạy và đã được mở khóa.",
   "Unlock keyring": "Mở khóa chuỗi khóa",
-  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Không thể truy cập chuỗi khóa — hãy kiểm tra nó đang chạy rồi nhấn “Mở khóa chuỗi khóa”."
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Không thể truy cập chuỗi khóa — hãy kiểm tra nó đang chạy rồi nhấn “Mở khóa chuỗi khóa”.",
+  "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Hãy cho phép Mixdog gửi thao tác bàn phím và chuột: cấp quyền truy cập /dev/uinput (thêm người dùng của bạn vào nhóm input) rồi đăng nhập lại.",
+  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Hãy cài đặt và bật trình hỗ trợ cửa sổ cho môi trường máy tính của bạn (trên GNOME là tiện ích mở rộng Window Calls) để Mixdog có thể liệt kê và điều khiển cửa sổ.",
+  "Install {{package}} to enable this Computer Use feature.": "Hãy cài đặt {{package}} để bật tính năng Computer Use này.",
+  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use không thể thực hiện thao tác này vì một tính năng cần thiết chưa sẵn sàng."
 }

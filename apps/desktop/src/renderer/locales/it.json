@@ -3774,5 +3774,9 @@
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Installa libsecret-tools (sudo apt install libsecret-tools) per usare il portachiavi di sistema.",
   "The system keyring could not be read — check that it is running and unlocked.": "Impossibile leggere il portachiavi di sistema: verifica che sia in esecuzione e sbloccato.",
   "Unlock keyring": "Sblocca portachiavi",
-  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Il portachiavi non è raggiungibile: verifica che sia in esecuzione, poi premi «Sblocca portachiavi»."
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Il portachiavi non è raggiungibile: verifica che sia in esecuzione, poi premi «Sblocca portachiavi».",
+  "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Consenti a Mixdog di inviare input da tastiera e mouse: concedi l’accesso a /dev/uinput (aggiungi il tuo utente al gruppo input), quindi accedi di nuovo.",
+  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Installa e abilita un helper per le finestre per il tuo desktop (in GNOME, l’estensione Window Calls) così Mixdog può elencare e controllare le finestre.",
+  "Install {{package}} to enable this Computer Use feature.": "Installa {{package}} per abilitare questa funzione di Computer Use.",
+  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use non può eseguire questa azione perché una funzione richiesta non è pronta."
 }

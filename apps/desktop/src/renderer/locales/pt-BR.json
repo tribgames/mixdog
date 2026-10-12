@@ -3774,5 +3774,9 @@
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Instale o libsecret-tools (sudo apt install libsecret-tools) para usar o chaveiro do sistema.",
   "The system keyring could not be read — check that it is running and unlocked.": "Não foi possível ler o chaveiro do sistema — verifique se ele está em execução e desbloqueado.",
   "Unlock keyring": "Desbloquear chaveiro",
-  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "O chaveiro não está acessível — verifique se ele está em execução e clique em “Desbloquear chaveiro”."
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "O chaveiro não está acessível — verifique se ele está em execução e clique em “Desbloquear chaveiro”.",
+  "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Permita que o Mixdog envie entradas de teclado e mouse: conceda acesso a /dev/uinput (adicione seu usuário ao grupo input) e faça login novamente.",
+  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Instale e ative um auxiliar de janelas para o seu desktop (no GNOME, a extensão Window Calls) para que o Mixdog possa listar e controlar janelas.",
+  "Install {{package}} to enable this Computer Use feature.": "Instale {{package}} para habilitar este recurso do Computer Use.",
+  "Computer Use cannot run this action because a required capability is not ready.": "O Computer Use não pode executar esta ação porque um recurso necessário não está pronto."
 }

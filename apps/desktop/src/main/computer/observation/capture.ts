@@ -81,7 +81,7 @@ export interface CaptureEngineHost {
   /** Window-owned surfaces this platform's worker renders after the
    *  composited capture, in order. */
   nativeSurfaceBackends: readonly NativeCaptureBackend[];
-  readPermissions(): ComputerPermissions;
+  readPermissions(): ComputerPermissions | Promise<ComputerPermissions>;
 }
 
 export function createCaptureEngine(host: CaptureEngineHost) {

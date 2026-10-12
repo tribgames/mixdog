@@ -259,10 +259,11 @@ export async function executeComputerTool(rawArgs, context = {}) {
   if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
     return computerErrorResult('Error: computer request exceeds byte limit; no input was dispatched');
   }
-  // Linux: report a missing uinput permission / window-control extension up
-  // front, before any input is dispatched, instead of failing mid-task.
-  const notReady = await linuxComputerPreflight({ mutating: computerMutationMayHaveExecuted(command) });
-  if (notReady) return computerErrorResult(`Error: ${notReady}`);
+  // Linux: refuse an action whose own capability (input device, window
+  // control, AT-SPI, ...) is missing, before anything is dispatched, instead of
+  // failing mid-task. Actions that need none of it still run.
+  const notReady = await linuxComputerPreflight({ command });
+  if (notReady) return computerErrorResult(`Error: ${notReady.message}`);
   const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
   if (releaseError) return releaseError;
   trackComputerSession(sessionId, command);

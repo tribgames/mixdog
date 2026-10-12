@@ -3688,5 +3688,9 @@
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "시스템 키링을 사용하려면 libsecret-tools를 설치하세요 (sudo apt install libsecret-tools).",
   "The system keyring could not be read — check that it is running and unlocked.": "시스템 키링을 읽을 수 없습니다 — 실행 중이며 잠금 해제되어 있는지 확인하세요.",
   "Unlock keyring": "키링 잠금 해제",
-  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "키링에 연결할 수 없습니다 — 실행 중인지 확인한 뒤 “키링 잠금 해제”를 누르세요."
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "키링에 연결할 수 없습니다 — 실행 중인지 확인한 뒤 “키링 잠금 해제”를 누르세요.",
+  "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Mixdog가 키보드와 마우스 입력을 보내려면 /dev/uinput 접근을 허용해야 합니다 (사용자를 input 그룹에 추가한 뒤 다시 로그인하십시오).",
+  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Mixdog가 창을 조회하고 제어하려면 데스크톱용 창 도우미를 설치하고 활성화해야 합니다 (GNOME에서는 Window Calls 확장입니다).",
+  "Install {{package}} to enable this Computer Use feature.": "이 Computer Use 기능을 사용하려면 {{package}}을(를) 설치해야 합니다.",
+  "Computer Use cannot run this action because a required capability is not ready.": "필요한 기능이 준비되지 않아 Computer Use가 이 작업을 실행할 수 없습니다."
 }

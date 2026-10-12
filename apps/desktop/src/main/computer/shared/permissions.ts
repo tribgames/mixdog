@@ -1,3 +1,5 @@
+import type { LinuxComputerReadiness } from '../../../../../../src/runtime/computer-bridge/linux-readiness.mjs';
+
 /**
  * The operating-system grants Computer Use runs under. Windows needs none:
  * capture and input are bounded by window integrity instead. macOS gates
@@ -8,6 +10,8 @@ export interface ComputerPermissions {
   screen_capture: string;
   accessibility: string;
   input: string;
+  /** Linux only: per-capability readiness (what the string fields summarize). */
+  linux?: LinuxComputerReadiness;
 }
 
 const MACOS_GRANT_REQUIRED = new Set(['not-determined', 'denied', 'restricted']);
@@ -27,4 +31,13 @@ export function screenCaptureBlocked(permissions: ComputerPermissions): boolean 
  *  accessibility tree. */
 export function accessibilityBlocked(permissions: ComputerPermissions): boolean {
   return MACOS_GRANT_REQUIRED.has(permissions.accessibility);
+}
+
+/** Linux grants nothing to read: each capability's probed state is reported
+ *  structurally under `linux`, and the string fields summarize it (input is the
+ *  first of pointer and keyboard that is not ready). */
+export function linuxComputerPermissions(linux: LinuxComputerReadiness): ComputerPermissions {
+  const { capture, accessibility, pointer, keyboard } = linux.capabilities;
+  const input = [pointer, keyboard].find((capability) => capability.state !== 'ready') ?? pointer;
+  return { screen_capture: capture.state, accessibility: accessibility.state, input: input.state, linux };
 }

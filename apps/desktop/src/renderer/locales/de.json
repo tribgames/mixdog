@@ -3731,5 +3731,9 @@
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Installieren Sie libsecret-tools (sudo apt install libsecret-tools), um den System-Schlüsselbund zu verwenden.",
   "The system keyring could not be read — check that it is running and unlocked.": "Der System-Schlüsselbund konnte nicht gelesen werden – prüfen Sie, ob er läuft und entsperrt ist.",
   "Unlock keyring": "Schlüsselbund entsperren",
-  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Der Schlüsselbund ist nicht erreichbar – stellen Sie sicher, dass er läuft, und klicken Sie dann auf „Schlüsselbund entsperren“."
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Der Schlüsselbund ist nicht erreichbar – stellen Sie sicher, dass er läuft, und klicken Sie dann auf „Schlüsselbund entsperren“.",
+  "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Erlauben Sie Mixdog, Tastatur- und Mauseingaben zu senden: Gewähren Sie Zugriff auf /dev/uinput (Benutzer zur Gruppe input hinzufügen) und melden Sie sich erneut an.",
+  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Installieren und aktivieren Sie ein Fensterhilfsprogramm für Ihre Desktop-Umgebung (unter GNOME die Erweiterung Window Calls), damit Mixdog Fenster auflisten und steuern kann.",
+  "Install {{package}} to enable this Computer Use feature.": "Installieren Sie {{package}}, um diese Computer-Use-Funktion zu aktivieren.",
+  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use kann diese Aktion nicht ausführen, weil eine erforderliche Funktion nicht bereit ist."
 }

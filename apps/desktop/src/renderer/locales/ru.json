@@ -3817,5 +3817,9 @@
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Установите libsecret-tools (sudo apt install libsecret-tools), чтобы использовать системную связку ключей.",
   "The system keyring could not be read — check that it is running and unlocked.": "Не удалось прочитать системную связку ключей — убедитесь, что она запущена и разблокирована.",
   "Unlock keyring": "Разблокировать связку ключей",
-  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Связка ключей недоступна — убедитесь, что она запущена, и нажмите «Разблокировать связку ключей»."
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Связка ключей недоступна — убедитесь, что она запущена, и нажмите «Разблокировать связку ключей».",
+  "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Разрешите Mixdog отправлять ввод с клавиатуры и мыши: предоставьте доступ к /dev/uinput (добавьте пользователя в группу input) и войдите в систему заново.",
+  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Установите и включите помощник управления окнами для вашего рабочего стола (в GNOME — расширение Window Calls), чтобы Mixdog мог получать список окон и управлять ими.",
+  "Install {{package}} to enable this Computer Use feature.": "Установите {{package}}, чтобы включить эту функцию Computer Use.",
+  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use не может выполнить это действие, так как необходимая функция не готова."
 }

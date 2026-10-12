@@ -3774,5 +3774,9 @@
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Installez libsecret-tools (sudo apt install libsecret-tools) pour utiliser le trousseau du système.",
   "The system keyring could not be read — check that it is running and unlocked.": "Impossible de lire le trousseau du système : vérifiez qu’il est lancé et déverrouillé.",
   "Unlock keyring": "Déverrouiller le trousseau",
-  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Le trousseau est inaccessible : vérifiez qu’il est lancé, puis cliquez sur « Déverrouiller le trousseau »."
+  "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Le trousseau est inaccessible : vérifiez qu’il est lancé, puis cliquez sur « Déverrouiller le trousseau ».",
+  "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Autorisez Mixdog à envoyer les saisies clavier et souris : accordez l’accès à /dev/uinput (ajoutez votre utilisateur au groupe input), puis reconnectez-vous.",
+  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Installez et activez un assistant de fenêtres pour votre bureau (sous GNOME, l’extension Window Calls) afin que Mixdog puisse lister et contrôler les fenêtres.",
+  "Install {{package}} to enable this Computer Use feature.": "Installez {{package}} pour activer cette fonction de Computer Use.",
+  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use ne peut pas exécuter cette action car une fonction requise n’est pas prête."
 }
