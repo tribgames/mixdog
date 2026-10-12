@@ -1,4 +1,4 @@
-import { Plus, Search, Sparkles, SquarePen } from 'lucide-react';
+import { Search, Sparkles, SquarePen } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
@@ -29,6 +29,20 @@ import {
   readStoredExpandedProjects,
 } from './session-sidebar-sections';
 import { usePersistedListOrder } from './use-persisted-list-order';
+import { RowOverflowMenu } from './RowOverflowMenu';
+import {
+  applySessionOrder,
+  commitVisibleOrder,
+  listOrderId,
+  readCustomOrders,
+  readOrderPrefs,
+  splitListOrderId,
+  syncCustomOrders,
+  writeCustomOrders,
+  writeOrderPrefs,
+  type CustomSessionOrders,
+  type SessionOrderPrefs,
+} from './session-order';
 import { ScmContextMenu, type ScmContextMenuItem, type ScmContextMenuState } from './ScmContextMenu';
 import { copyTextToClipboard } from './text-format';
 import type { ProjectSessionGroup } from './session-sidebar-sections';
@@ -206,16 +220,40 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             }),
     [hasSessionSurface, sessions]
   );
-  const favoriteRows = useMemo(
+  const [orderPrefs, setOrderPrefs] = useState(readOrderPrefs);
+  const [customOrders, setCustomOrders] = useState(readCustomOrders);
+  const activityFavoriteRows = useMemo(
     () =>
       allRows.filter((session) => session.favorite === true && session.archived !== true && !isAutomationRow(session)),
     [allRows]
   );
-  const rows = useMemo(
+  const activityRows = useMemo(
     () =>
       allRows.filter((session) => session.archived !== true && session.favorite !== true && !isAutomationRow(session)),
     [allRows]
   );
+  const favoriteRows = useMemo(
+    () => applySessionOrder(activityFavoriteRows, orderPrefs.favorites, customOrders.favorites),
+    [activityFavoriteRows, orderPrefs.favorites, customOrders.favorites]
+  );
+  const rows = useMemo(
+    () => applySessionOrder(activityRows, orderPrefs.sessions, customOrders.recent),
+    [activityRows, orderPrefs.sessions, customOrders.recent]
+  );
+  const updateOrderPrefs = useCallback((update: Partial<SessionOrderPrefs>) => {
+    setOrderPrefs((current) => {
+      const next = { ...current, ...update };
+      writeOrderPrefs(next);
+      return next;
+    });
+  }, []);
+  const updateCustomOrders = useCallback((update: (current: CustomSessionOrders) => CustomSessionOrders) => {
+    setCustomOrders((current) => {
+      const next = update(current);
+      if (next !== current) writeCustomOrders(next);
+      return next;
+    });
+  }, []);
   const [favoritesOpen, setFavoritesOpen] = useState(true);
   // allRows is activity-desc, which is the order the grouped runs keep.
   const automationGroups = useMemo(() => groupAutomationSessions(allRows), [allRows]);
@@ -279,8 +317,41 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   });
   const projectGroups = useMemo(() => {
     const byKey = new Map(activityProjectGroups.map((group) => [group.key, group]));
-    return projectOrder.orderedIds.flatMap((key) => byKey.get(key) ?? []);
-  }, [activityProjectGroups, projectOrder.orderedIds]);
+    return projectOrder.orderedIds.flatMap((key) => {
+      const group = byKey.get(key);
+      return group
+        ? [
+            {
+              ...group,
+              rows: applySessionOrder(group.rows, orderPrefs.sessions, customOrders[`project:${key}`]),
+            },
+          ]
+        : [];
+    });
+  }, [activityProjectGroups, customOrders, orderPrefs.sessions, projectOrder.orderedIds]);
+  // A custom list keeps its positions when activity later reorders: persist
+  // sessions the stored order does not know yet (they sit on top).
+  useEffect(() => {
+    if (!sessionsReady) return;
+    const lists: { key: string; ids: string[] }[] = [];
+    if (orderPrefs.favorites === 'custom') {
+      lists.push({ key: 'favorites', ids: activityFavoriteRows.map((session) => session.id) });
+    }
+    if (orderPrefs.sessions === 'custom') {
+      lists.push({ key: 'recent', ids: activityRows.map((session) => session.id) });
+      for (const group of activityProjectGroups) {
+        lists.push({ key: `project:${group.key}`, ids: group.rows.map((session) => session.id) });
+      }
+    }
+    if (lists.length) updateCustomOrders((current) => syncCustomOrders(current, lists));
+  }, [
+    activityFavoriteRows,
+    activityProjectGroups,
+    activityRows,
+    orderPrefs,
+    sessionsReady,
+    updateCustomOrders,
+  ]);
   const [automationsOpen, setAutomationsOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [archivedRowLimit, setArchivedRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
@@ -343,6 +414,43 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     setRecentRowLimit((current) => Math.min(rows.length, current + RECENT_SESSION_PAGE_ROWS));
   }, [rows.length]);
   const visibleRecentRows = rows.slice(0, recentRowLimit);
+  // Drag-reorder of session rows inside their own list (Favorites, Recent, one
+  // project folder). One hook instance serves every list: ids are list-scoped,
+  // and `accepts` keeps a drop inside the list the drag started in.
+  const orderLists = new Map<string, { rows: readonly DesktopSessionSummary[]; visible: number }>();
+  orderLists.set('favorites', { rows: favoriteRows, visible: favoriteRows.length });
+  orderLists.set('recent', { rows, visible: visibleRecentRows.length });
+  for (const group of projectGroups) {
+    const limit = projectRowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
+    orderLists.set(`project:${group.key}`, {
+      rows: group.rows,
+      visible: expandedProjects.has(group.key) ? Math.min(limit, group.rows.length) : 0,
+    });
+  }
+  const visibleOrderIds = [...orderLists].flatMap(([listKey, list]) =>
+    list.rows.slice(0, list.visible).map((session) => listOrderId(listKey, session.id))
+  );
+  const sessionReorder = usePersistedListOrder('mixdog:session-sidebar-session-rows', visibleOrderIds, {
+    accepts: (sourceId, targetId) => splitListOrderId(sourceId).listKey === splitListOrderId(targetId).listKey,
+    onCommit: (next, sourceId) => {
+      const { listKey } = splitListOrderId(sourceId);
+      const list = orderLists.get(listKey);
+      if (!list) return;
+      const nextVisible = next
+        .map(splitListOrderId)
+        .filter((entry) => entry.listKey === listKey)
+        .map((entry) => entry.sessionId);
+      const full = commitVisibleOrder(
+        list.rows.map((session) => session.id),
+        list.visible,
+        nextVisible
+      );
+      updateCustomOrders((current) => ({ ...current, [listKey]: full }));
+      // Dragging in an activity-ordered list turns that list's mode to Custom.
+      const kind = listKey === 'favorites' ? 'favorites' : 'sessions';
+      if (orderPrefs[kind] !== 'custom') updateOrderPrefs({ [kind]: 'custom' });
+    },
+  });
   // Pagination has NO control of its own (user decision: no "Show more"):
   // an invisible end sentinel inside the Recent list reveals the next page as
   // the reader approaches it. The full list is still never rendered up front —
@@ -650,10 +758,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   };
   // Recent, Automations and Archived all render the same row with the same
   // rename/confirm wiring; only the session differs.
-  const renderSessionRow = (session: DesktopSessionSummary) => (
+  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string) => (
     <SessionSidebarRow
       key={session.id}
       session={session}
+      reorder={listKey ? sessionReorder.getReorderProps(listOrderId(listKey, session.id)) : undefined}
       active={selection.kind === 'session' && selection.id === session.id}
       working={workingSessionIds?.has(session.id) === true}
       unread={unreadSessionIds?.has(session.id) === true}
@@ -677,6 +786,23 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       onOpenMenu={openSessionMenu}
     />
   );
+  const renderSessionRow = (session: DesktopSessionSummary) => renderOrderedRow(session);
+  const orderMenuItems: React.ComponentProps<typeof RowOverflowMenu>['items'] = [
+    { id: 'sessions-order-label', label: t('Session order'), disabled: true },
+    ...(['recent', 'custom'] as const).map((mode) => ({
+      id: `sessions-order-${mode}`,
+      label: mode === 'recent' ? t('Recent activity') : t('Custom'),
+      checked: orderPrefs.sessions === mode,
+      onSelect: () => updateOrderPrefs({ sessions: mode }),
+    })),
+    { id: 'favorites-order-label', label: t('Favorites order'), disabled: true, separatorBefore: true },
+    ...(['recent', 'custom'] as const).map((mode) => ({
+      id: `favorites-order-${mode}`,
+      label: mode === 'recent' ? t('Recent activity') : t('Custom'),
+      checked: orderPrefs.favorites === mode,
+      onSelect: () => updateOrderPrefs({ favorites: mode }),
+    })),
+  ];
   const displayedSidebarWidth = resizeStart.current?.pendingWidth ?? sidebarWidth;
   return (
     <aside
@@ -706,8 +832,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         </span>
         {/* Creation belongs to Sessions rather than the Activity Rail: this
             button creates an ordinary task tab and never owns a selected
-            navigation state. + IS New Task; Studio has its own launcher and
-            Terminal lives in the session-owned right side. Other panels
+            navigation state; the New task launcher below owns creation, and
+            ⋯ holds the session sort options. Other panels
             portal their own primary action into the same title-row slot. */}
         <div className="session-panel-header-actions" ref={setPanelActionSlot}>
           {!panelActive && (
@@ -721,15 +847,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               >
                 <Search size={16} aria-hidden="true" />
               </button>
-              <button
-                type="button"
-                className="session-panel-action session-new-task"
-                aria-label={t('New task')}
-                data-tooltip={t('New task')}
-                onClick={onNewTask}
-              >
-                <Plus size={16} aria-hidden="true" />
-              </button>
+              <RowOverflowMenu label={t('Session order')} items={orderMenuItems} />
             </>
           )}
         </div>
@@ -799,7 +917,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             open: favoritesOpen,
             onToggleOpen: () => setFavoritesOpen((open) => !open),
             headerProps,
-            renderSessionRow,
+            renderSessionRow: (session) => renderOrderedRow(session, 'favorites'),
           })
         );
       case 'projects':
@@ -817,7 +935,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             folderReorderProps: projectOrder.getReorderProps,
             headerProps,
             unreadSessionIds,
-            renderSessionRow,
+            renderSessionRow: (session, groupKey) => renderOrderedRow(session, `project:${groupKey}`),
             onFolderMenu: openProjectMenu,
             rename: projectRename && {
               key: projectRename.key,
@@ -866,7 +984,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             void updateSessionArchives('archive-recent', rows, true);
           },
           headerProps,
-          renderSessionRow,
+          renderSessionRow: (session) => renderOrderedRow(session, 'recent'),
         });
       case 'archived':
         return (

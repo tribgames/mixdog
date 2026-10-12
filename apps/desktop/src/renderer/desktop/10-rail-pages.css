@@ -1382,6 +1382,31 @@ html[data-window-material="mica"] .session-sidebar {
 .session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="after"] {
   box-shadow: inset 0 -2px 0 var(--mx-focus);
 }
+/* Session rows reorder inside their own list (custom order): same drop line. */
+.session-sidebar-sessions .session-row[data-reordering="true"] {
+  opacity: var(--mx-op-dim);
+}
+.session-sidebar-sessions .session-row[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus);
+}
+.session-sidebar-sessions .session-row[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus);
+}
+/* Header ⋯ (session order) takes the header action's 28px box and trailing
+   centerline; the menu's group labels are inert captions. */
+.session-panel-header-actions > .row-overflow {
+  margin-left: 0;
+}
+.session-panel-header-actions > .row-overflow .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
+}
+.row-overflow-menu button[data-action-id$="-order-label"]:disabled {
+  color: var(--mx-text-muted);
+  opacity: 1;
+  cursor: default;
+}
 .project-group-more .session-row-copy b,
 .project-group-sessions .sidebar-section-empty {
   color: var(--mx-text-muted);

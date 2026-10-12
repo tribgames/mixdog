@@ -481,7 +481,7 @@ export function projectsSection({
   folderReorderProps(key: string): ReorderProps;
   headerProps?: ReorderProps;
   unreadSessionIds?: ReadonlySet<string>;
-  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+  renderSessionRow(session: DesktopSessionSummary, groupKey: string): React.ReactNode;
 }) {
   return (
     <section className="sidebar-recent sidebar-projects" aria-label={t('Projects')} {...reorderTarget(headerProps)}>
@@ -585,7 +585,7 @@ export function projectsSection({
                 {expanded && (
                   <div className="project-group-sessions">
                     {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>}
-                    {group.rows.slice(0, limit).map(renderSessionRow)}
+                    {group.rows.slice(0, limit).map((session) => renderSessionRow(session, group.key))}
                     {group.rows.length > limit && (
                       <button
                         type="button"
