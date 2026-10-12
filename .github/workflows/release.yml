@@ -268,13 +268,30 @@ jobs:
 
       - name: Install build dependencies
         if: steps.desktop-out.outputs.cache-hit != 'true'
+        # The two trees are independent, so they install side by side; each
+        # PID is waited on so either failure fails the step.
         run: |
-          npm ci --prefer-offline --no-audit --no-fund
-          npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+          npm ci --prefer-offline --no-audit --no-fund &
+          root_pid=$!
+          npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund &
+          desktop_pid=$!
+          status=0
+          wait "$root_pid" || status=1
+          wait "$desktop_pid" || status=1
+          exit "$status"
 
+      # `npm run build` is typecheck && build:fast in sequence. The typecheck
+      # emits nothing the build reads, so it runs beside build:fast; the step
+      # still fails if either does, and the output is cached only on success.
       - name: Build platform-neutral desktop output
         if: steps.desktop-out.outputs.cache-hit != 'true'
-        run: npm run build --prefix apps/desktop
+        run: |
+          npm run typecheck --prefix apps/desktop &
+          typecheck_pid=$!
+          status=0
+          npm run build:fast --prefix apps/desktop || status=1
+          wait "$typecheck_pid" || status=1
+          exit "$status"
 
       - name: Stage common desktop output
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

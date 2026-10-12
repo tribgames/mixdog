@@ -2,7 +2,7 @@
 // and version discipline. Referenced by deploy.yml and test:release-assets.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -21,7 +21,14 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildReleaseTimingReport } from './release-timing-report.mjs';
-import { desktopGateRegex, patchGateRegex, runtimeGateRegex, RELEASE_CRITICAL_PATHS } from './release-paths.mjs';
+import {
+  desktopGateRegex,
+  historyGateRegex,
+  mobileGateRegex,
+  patchGateRegex,
+  runtimeGateRegex,
+  RELEASE_CRITICAL_PATHS,
+} from './release-paths.mjs';
 
 // Product/workflow shape is intentionally non-blocking. Opt in from the
 // advisory runner when reviewing a deliberate specification change.
@@ -456,6 +463,33 @@ test('release path selection classifies desktop, runtime, and critical paths', (
   for (const path of ['docs/testing.md', 'native/mixdog-graph/src/main.rs', 'apps/desktop/src/renderer/App.tsx']) {
     assert.doesNotMatch(path, patch);
   }
+  // The shipped-history check follows the trees its history is generated from.
+  const history = new RegExp(historyGateRegex());
+  for (const path of [
+    'src/defaults/shipped-history.json',
+    'src/defaults/skills/office/SKILL.md',
+    'src/agents/worker/AGENT.md',
+    'src/workflows/default/WORKFLOW.md',
+    'src/output-styles/concise.md',
+    'scripts/build-shipped-history.mjs',
+    'src/runtime/shared/shipped-definitions.mjs',
+    '.github/workflows/release-gate.yml',
+  ])
+    assert.match(path, history, `history gate must select ${path}`);
+  for (const path of ['src/tui/app.mjs', 'scripts/test.mjs', 'apps/mobile/scripts/asc_api.py'])
+    assert.doesNotMatch(path, history, `history gate must skip ${path}`);
+  // The mobile Python suites follow the mobile scripts and workflows.
+  const mobile = new RegExp(mobileGateRegex());
+  for (const path of [
+    'apps/mobile/scripts/test_testflight_submit.py',
+    'apps/mobile/scripts/ios-ci-signing.py',
+    '.github/workflows/mobile-ios.yml',
+    '.github/workflows/mobile-android.yml',
+    '.github/workflows/release-gate.yml',
+  ])
+    assert.match(path, mobile, `mobile gate must select ${path}`);
+  for (const path of ['apps/mobile/src/App.tsx', '.github/workflows/release.yml', 'scripts/test.mjs'])
+    assert.doesNotMatch(path, mobile, `mobile gate must skip ${path}`);
 });
 
 // Workflow YAML has no local executable surface; validate the job's source-binary
@@ -484,6 +518,127 @@ test('the PR patch gate builds source before testing it and participates in the 
   assert.ok(jobs.complete.needs.includes('patch'));
   assert.equal(jobs.complete.steps[0].env.PATCH, '${{ needs.patch.result }}');
   assert.match(jobs.complete.steps[0].run, /\[\[ "\$PATCH" == success \|\| "\$PATCH" == skipped \]\]/);
+});
+
+test('every workflow parses as YAML without duplicate keys', async () => {
+  const dir = new URL('../.github/workflows/', import.meta.url);
+  const names = (await readdir(dir)).filter((name) => name.endsWith('.yml'));
+  assert.ok(names.length > 0);
+  for (const name of names) {
+    // The yaml parser rejects duplicate mapping keys, which GitHub would
+    // otherwise resolve silently (last wins) or reject at dispatch time.
+    assert.doesNotThrow(() => parseYaml(readFileSync(new URL(name, dir), 'utf8'), { uniqueKeys: true }), name);
+  }
+});
+
+test('the gate shards its long lanes, installs in parallel, and adds history and mobile checks to the verdict', async () => {
+  const { jobs, on } = parseYaml(await workflow('release-gate.yml'));
+  const stepRun = (job, pattern) => job.steps.find((step) => pattern.test(step.run ?? ''));
+
+  // Sharded lanes: a matrix without its --test-shard flag, or the reverse, would
+  // run the whole lane twice or half of it once.
+  for (const name of ['runtime', 'runtime-slow', 'runtime-macos'])
+    assert.deepEqual(jobs[name].strategy.matrix.shard, [1, 2], `${name} shard matrix`);
+  assert.match(
+    stepRun(jobs['runtime-slow'], /test:slow/).run,
+    /npm run test:slow -- --test-shard=\$\{\{ matrix\.shard \}\}\/2/
+  );
+  const desktopTests = jobs['desktop-tests'];
+  const legs = desktopTests.strategy.matrix.include;
+  assert.deepEqual(
+    legs.filter((leg) => leg.lane === 'fast').map((leg) => [leg.runner, leg.shard]),
+    [
+      ['ubuntu-22.04', 1],
+      ['ubuntu-22.04', 2],
+    ],
+    'the desktop fast lane is two legs on separate machines'
+  );
+  assert.deepEqual(
+    legs.filter((leg) => leg.lane !== 'fast').map((leg) => leg.shard),
+    [undefined, undefined]
+  );
+  const fastStep = desktopTests.steps.find((step) => step.if === "matrix.lane == 'fast'");
+  assert.equal(fastStep.run, 'npm test --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/2');
+
+  // Parallel installs wait on every PID, so one failed install fails the step.
+  for (const install of [
+    stepRun(jobs.desktop, /npm_ci --prefix apps\/desktop &/),
+    stepRun(desktopTests, /npm_ci --prefix apps\/desktop &/),
+  ]) {
+    assert.match(install.run, /npm_ci --prefix apps\/desktop &\s*desktop_pid=\$!/);
+    assert.match(install.run, /npm_ci &\s*root_pid=\$!/);
+    assert.match(install.run, /wait "\$desktop_pid" \|\| status=1/);
+    assert.match(install.run, /wait "\$root_pid" \|\| status=1/);
+    assert.match(install.run, /exit "\$status"/);
+  }
+
+  // The selection step diffs two commits' trees: shallow checkout, base by SHA.
+  const checkout = jobs.changes.steps[0];
+  assert.match(checkout.uses, /^actions\/checkout@/);
+  assert.equal(checkout.with, undefined, 'the changes job does not fetch full history');
+  const selection = jobs.changes.steps.find((step) => step.id === 'paths').run;
+  assert.match(selection, /git fetch --no-tags --depth=1 origin "\$BASE" \|\| true/);
+  assert.match(selection, /git ls-files > \/tmp\/changed/, 'an unfetchable base still selects everything');
+  assert.match(selection, /history-regex/);
+  assert.match(selection, /mobile-regex/);
+  assert.match(selection, /grep -Eq "\$RUNTIME_RE" \/tmp\/changed-runtime/);
+  assert.equal(jobs.changes.outputs.history, '${{ steps.paths.outputs.history }}');
+  assert.equal(jobs.changes.outputs.mobile, '${{ steps.paths.outputs.mobile }}');
+  assert.equal((selection.match(/echo "history=false"/g) || []).length, 2, 'history is set on every path');
+  assert.equal((selection.match(/echo "mobile=false"/g) || []).length, 2, 'mobile is set on every path');
+
+  // The shipped history is checked on a full clone, on pushes (the final history).
+  const history = jobs['shipped-history'];
+  assert.equal(history.needs, 'changes');
+  assert.equal(history.if, "needs.changes.outputs.history == 'true' && github.event_name != 'pull_request'");
+  assert.equal(history.steps[0].with['fetch-depth'], 0);
+  assert.ok(history.steps.some((step) => step.run === 'node scripts/build-shipped-history.mjs --check'));
+
+  // Mobile Python suites: stdlib only, so there is nothing to install.
+  const mobile = jobs['mobile-scripts'];
+  assert.equal(mobile.if, "needs.changes.outputs.mobile == 'true'");
+  assert.equal(mobile.steps.length, 2);
+  assert.match(mobile.steps[1].run, /python3 -m unittest discover -s apps\/mobile\/scripts -p "test_\*\.py"/);
+  for (const trigger of [on.pull_request.paths, on.push.paths]) {
+    const exclusion = trigger.indexOf('!.github/workflows/mobile-*.yml');
+    assert.ok(exclusion >= 0 && trigger.indexOf('.github/workflows/mobile-*.yml') > exclusion);
+    assert.ok(trigger.indexOf('apps/mobile/scripts/**') > exclusion);
+  }
+
+  // `complete` waits on, and judges, every gate job.
+  const gates = Object.keys(jobs).filter((name) => name !== 'changes' && name !== 'complete');
+  assert.deepEqual([...jobs.complete.needs].sort(), [...gates].sort());
+  const verdict = jobs.complete.steps[0];
+  for (const name of gates) {
+    const variable = name.toUpperCase().replaceAll('-', '_');
+    assert.equal(verdict.env[variable], `\${{ needs.${name}.result }}`, name);
+    assert.ok(verdict.run.includes(`[[ "$${variable}" == success || "$${variable}" == skipped ]]`), name);
+  }
+});
+
+test('Linux native tools build per-tool caches and compile the missing tools concurrently', async () => {
+  const { jobs } = parseYaml(await workflow('linux-native-tools.yml'));
+  const steps = jobs.build.steps;
+  for (const tool of ['computer', 'graph', 'patch']) {
+    const cache = steps.find((step) => step.id === `cache-${tool}`);
+    assert.equal(cache.with.path, `native-out/mixdog-${tool}`);
+    assert.match(
+      cache.with.key,
+      new RegExp(
+        `^native-glibc228-\\$\\{\\{ matrix\\.arch \\}\\}-${tool}-\\$\\{\\{ hashFiles\\('native/mixdog-${tool}/\\*\\*', 'apps/desktop/scripts/linux-build-native-old-glibc\\.sh'\\) \\}\\}$`
+      )
+    );
+    assert.equal(cache.with['restore-keys'], undefined, 'a prefix hit would ship a binary from other sources');
+    assert.equal(steps.find((step) => step.id === 'missing').env[`HIT_${tool.toUpperCase()}`].includes(`cache-${tool}`), true);
+  }
+  const build = steps.find((step) => step.run?.includes('linux-build-native-old-glibc.sh'));
+  assert.equal(build.if, "steps.missing.outputs.tools != ''");
+  assert.match(build.run, /-e MIXDOG_NATIVE_TOOLS="\$\{\{ steps\.missing\.outputs\.tools \}\}"/);
+  assert.ok(steps.some((step) => step.run?.includes('test -f "native-out/mixdog-$tool"')));
+  const script = await readFile(new URL('../apps/desktop/scripts/linux-build-native-old-glibc.sh', import.meta.url), 'utf8');
+  assert.match(script, /tools=\$\{MIXDOG_NATIVE_TOOLS:-computer graph patch\}/);
+  assert.match(script, /CARGO_TARGET_DIR=\/tmp\/target-\$tool cargo build[\s\S]*\) &\s*pids\+=\("\$!"\)/);
+  assert.match(script, /for pid in "\$\{pids\[@\]\}"; do\s*wait "\$pid" \|\| status=1/);
 });
 
 test('the weekly suite-health sweep runs the opt-out catalog and reports failures', async () => {
@@ -641,7 +796,19 @@ function assertReleaseWorkflowContract(release) {
   );
   assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*linux-verify-full[^\]]*linux-verify-sha-gate[^\]]*\]/);
   assert.match(release, /prepare-github-release:[\s\S]*needs:\s*\[identity\][\s\S]*draft:\s*true/);
-  assert.equal((release.match(/npm run build --prefix apps\/desktop/g) || []).length, 1);
+  // `npm run build` is typecheck && build:fast; the one build runs them side by
+  // side and fails if either does.
+  assert.doesNotMatch(release, /npm run build --prefix apps\/desktop/);
+  assert.equal((release.match(/npm run build:fast --prefix apps\/desktop/g) || []).length, 1);
+  assert.match(
+    release,
+    /npm run typecheck --prefix apps\/desktop &\s*typecheck_pid=\$!\s*status=0\s*npm run build:fast --prefix apps\/desktop \|\| status=1\s*wait "\$typecheck_pid" \|\| status=1\s*exit "\$status"/
+  );
+  assert.match(
+    release,
+    /npm ci --prefer-offline --no-audit --no-fund &\s*root_pid=\$!\s*npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund &\s*desktop_pid=\$!\s*status=0\s*wait "\$root_pid" \|\| status=1\s*wait "\$desktop_pid" \|\| status=1\s*exit "\$status"/,
+    'the build installs both trees in parallel and waits on each PID'
+  );
   assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);
   assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
   assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);

@@ -2,7 +2,7 @@
 // Single source of truth for CI/CD path selection.
 //
 // Consumers:
-//   - .github/workflows/release-gate.yml  → `node scripts/release-paths.mjs desktop-regex|runtime-regex`
+//   - .github/workflows/release-gate.yml  → `node scripts/release-paths.mjs desktop-regex|runtime-regex|patch-regex|history-regex|mobile-regex`
 //     (grep -E patterns selecting which incremental gates a change requires)
 //   - .github/workflows/deploy.yml        → `import { RELEASE_CRITICAL_PATHS }`
 //     (git diff paths whose change invalidates the previous release's
@@ -47,6 +47,24 @@ const PATCH_GATE_FILES = [
   ...GATE_SELECTION_SOURCES,
 ];
 
+// The shipped-definition history is generated from git history of the agent,
+// workflow, output-style and bundled-skill trees (scripts/build-shipped-history.mjs)
+// and committed under src/defaults/. Release re-checks it, so the gate checks
+// it first instead of letting a stale file fail the deploy late.
+const HISTORY_GATE_PREFIXES = ['src/agents/', 'src/workflows/', 'src/output-styles/', 'src/defaults/'];
+const HISTORY_GATE_FILES = [
+  'scripts/build-shipped-history.mjs',
+  'src/runtime/shared/shipped-definitions.mjs',
+  '.github/workflows/release-gate.yml',
+  ...GATE_SELECTION_SOURCES,
+];
+
+// The mobile release scripts (Python) carry unittest suites that no Node lane
+// discovers; they run when those scripts or the mobile workflows change.
+const MOBILE_GATE_PREFIXES = ['apps/mobile/scripts/'];
+const MOBILE_WORKFLOW_PATTERN = '\\.github/workflows/mobile-[^/]*\\.yml$';
+const MOBILE_GATE_FILES = ['.github/workflows/release-gate.yml', ...GATE_SELECTION_SOURCES];
+
 // deploy.yml plan: paths whose change since the published release tag marks
 // the default lane as unverified.
 export const RELEASE_CRITICAL_PATHS = ['native', 'scripts', 'src', ...PACKAGE_MANIFESTS];
@@ -77,14 +95,33 @@ export function patchGateRegex() {
   ].join('|')})`;
 }
 
+export function historyGateRegex() {
+  return `^(${[
+    ...HISTORY_GATE_PREFIXES.map(escapeRegex),
+    ...HISTORY_GATE_FILES.map((file) => `${escapeRegex(file)}$`),
+  ].join('|')})`;
+}
+
+export function mobileGateRegex() {
+  return `^(${[
+    ...MOBILE_GATE_PREFIXES.map(escapeRegex),
+    ...MOBILE_GATE_FILES.map((file) => `${escapeRegex(file)}$`),
+    MOBILE_WORKFLOW_PATTERN,
+  ].join('|')})`;
+}
+
 const mode = process.argv[2];
 if (mode) {
   if (mode === 'desktop-regex') process.stdout.write(`${desktopGateRegex()}\n`);
   else if (mode === 'runtime-regex') process.stdout.write(`${runtimeGateRegex()}\n`);
   else if (mode === 'patch-regex') process.stdout.write(`${patchGateRegex()}\n`);
+  else if (mode === 'history-regex') process.stdout.write(`${historyGateRegex()}\n`);
+  else if (mode === 'mobile-regex') process.stdout.write(`${mobileGateRegex()}\n`);
   else if (mode === 'critical-paths') process.stdout.write(`${RELEASE_CRITICAL_PATHS.join('\n')}\n`);
   else {
-    process.stderr.write(`unknown mode: ${mode} (expected desktop-regex|runtime-regex|patch-regex|critical-paths)\n`);
+    process.stderr.write(
+      `unknown mode: ${mode} (expected desktop-regex|runtime-regex|patch-regex|history-regex|mobile-regex|critical-paths)\n`
+    );
     process.exit(1);
   }
 }

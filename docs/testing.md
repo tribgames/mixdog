@@ -159,7 +159,9 @@ store) covering one domain is one file, whatever its line count.
 A test file over ~10s is renamed `*.slow.test.mjs`. Nothing else changes: it
 is still discovered, still runs in CI, but in the `runtime-slow` job (root)
 or the `slow` leg of `desktop-tests` beside the default lane, so the gate
-finishes at the longer of the two instead of their sum.
+finishes at the longer of the two instead of their sum. The root slow lane and
+the desktop fast lane are each split in two with `--test-shard=N/2` (forwarded
+by `scripts/test.mjs` to `node --test`), one machine per shard.
 
 `apps/desktop/src/main/git-cli.slow.test.mjs` drives real `git` processes and
 takes minutes while the other ~120 desktop files finish in ~7s together. The

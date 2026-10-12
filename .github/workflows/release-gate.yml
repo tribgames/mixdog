@@ -7,6 +7,10 @@ on:
       - "!.github/workflows/mobile-*.yml"
       - "!.github/workflows/*-health.yml"
       - "!.github/workflows/tidy-engines-mirror.yml"
+      # Re-included after the exclusion above: the mobile workflows and their
+      # Python scripts select only the mobile-scripts job (see `changes`).
+      - ".github/workflows/mobile-*.yml"
+      - "apps/mobile/scripts/**"
       - ".github/actions/**"
       - "apps/desktop/**"
       - "apps/relay/**"
@@ -22,6 +26,8 @@ on:
       - "!.github/workflows/mobile-*.yml"
       - "!.github/workflows/*-health.yml"
       - "!.github/workflows/tidy-engines-mirror.yml"
+      - ".github/workflows/mobile-*.yml"
+      - "apps/mobile/scripts/**"
       - ".github/actions/**"
       - "apps/desktop/**"
       - "apps/relay/**"
@@ -54,13 +60,15 @@ jobs:
       desktop: ${{ steps.paths.outputs.desktop }}
       desktop_css_only: ${{ steps.paths.outputs.desktop_css_only }}
       graph: ${{ steps.paths.outputs.graph }}
+      history: ${{ steps.paths.outputs.history }}
+      mobile: ${{ steps.paths.outputs.mobile }}
       patch: ${{ steps.paths.outputs.patch }}
       relay: ${{ steps.paths.outputs.relay }}
       runtime: ${{ steps.paths.outputs.runtime }}
     steps:
+      # Shallow: the selection below diffs two commits' trees, which needs the
+      # base commit itself and no ancestry; it is fetched by SHA in the step.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
 
       - name: Select incremental gates
         id: paths
@@ -79,6 +87,8 @@ jobs:
             echo "desktop=false" >> "$GITHUB_OUTPUT"
             echo "desktop_css_only=false" >> "$GITHUB_OUTPUT"
             echo "graph=false" >> "$GITHUB_OUTPUT"
+            echo "history=false" >> "$GITHUB_OUTPUT"
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
             echo "patch=false" >> "$GITHUB_OUTPUT"
             echo "relay=false" >> "$GITHUB_OUTPUT"
             echo "runtime=false" >> "$GITHUB_OUTPUT"
@@ -86,6 +96,9 @@ jobs:
           fi
           BASE=$PUSH_BASE
           if [[ "$EVENT_NAME" == pull_request ]]; then BASE=$PR_BASE; fi
+          # A base that cannot be fetched (force-pushed away) falls through to
+          # the full file list below, exactly as a missing base always has.
+          if [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]]; then git fetch --no-tags --depth=1 origin "$BASE" || true; fi
           if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             git ls-files > /tmp/changed
           else
@@ -96,6 +109,11 @@ jobs:
           DESKTOP_RE=$(node scripts/release-paths.mjs desktop-regex)
           RUNTIME_RE=$(node scripts/release-paths.mjs runtime-regex)
           PATCH_RE=$(node scripts/release-paths.mjs patch-regex)
+          HISTORY_RE=$(node scripts/release-paths.mjs history-regex)
+          MOBILE_RE=$(node scripts/release-paths.mjs mobile-regex)
+          # A mobile workflow change selects the mobile gate only, never the
+          # runtime lanes the `.github/workflows/` prefix would otherwise pull in.
+          grep -Ev '^\.github/workflows/mobile-[^/]*\.yml$' /tmp/changed > /tmp/changed-runtime || true
           if grep -Eq "$DESKTOP_RE" /tmp/changed; then
             echo "desktop=true" >> "$GITHUB_OUTPUT"
           else
@@ -126,10 +144,20 @@ jobs:
           else
             echo "relay=false" >> "$GITHUB_OUTPUT"
           fi
-          if grep -Eq "$RUNTIME_RE" /tmp/changed; then
+          if grep -Eq "$RUNTIME_RE" /tmp/changed-runtime; then
             echo "runtime=true" >> "$GITHUB_OUTPUT"
           else
             echo "runtime=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -Eq "$HISTORY_RE" /tmp/changed; then
+            echo "history=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "history=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -Eq "$MOBILE_RE" /tmp/changed; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
           fi
 
   # The default lane is split across two legs (node --test --test-shard), so
@@ -188,11 +216,16 @@ jobs:
 
   # Files over ~10s (*.slow.test.mjs) run beside the default lane, not inside
   # it, so the gate finishes at the longer of the two instead of their sum.
+  # Split in two like the default lane: the slow files were the longest leg.
   runtime-slow:
     needs: changes
     if: needs.changes.outputs.runtime == 'true'
     timeout-minutes: 20
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -222,8 +255,8 @@ jobs:
           restore-keys: spawn-test-cargo-${{ runner.os }}-
       - name: Build the native spawn test binary
         run: npm run build:spawn:test
-      - name: Run the slow test lane
-        run: npm run test:slow
+      - name: Run the slow test lane (shard ${{ matrix.shard }}/2)
+        run: npm run test:slow -- --test-shard=${{ matrix.shard }}/2
 
   # The same default lane on macOS, where the CLI and desktop runtime ship as
   # well: platform branches (paths, shells, keychain, native assets) are only
@@ -386,30 +419,38 @@ jobs:
               'src/runtime/shared/**',
               '!src/runtime/shared/**/*.test.mjs'
             ) }}
-      - name: Install desktop dependencies
+      # The two installs are independent trees (the desktop package has no
+      # install scripts that read the root tree), so they run side by side; each
+      # is waited on by its own PID so either failure fails the step. The CSS-only
+      # path needs the desktop tree alone.
+      - name: Install dependencies
         if: >-
           needs.changes.outputs.desktop_css_only == 'true'
           || steps.desktop-out.outputs.cache-hit != 'true'
+        env:
+          CSS_ONLY: ${{ needs.changes.outputs.desktop_css_only }}
         shell: bash
         run: |
-          for attempt in 1 2 3; do
-            npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund && exit 0
-            echo "npm ci failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 10))
-          done
-          exit 1
-      - name: Install root dependencies
-        if: >-
-          needs.changes.outputs.desktop_css_only != 'true'
-          && steps.desktop-out.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            npm ci --prefer-offline --no-audit --no-fund && exit 0
-            echo "npm ci failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 10))
-          done
-          exit 1
+          npm_ci() {
+            local attempt
+            for attempt in 1 2 3; do
+              npm ci "$@" --prefer-offline --no-audit --no-fund && return 0
+              echo "npm ci $* failed (attempt ${attempt}/3)" >&2
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+          npm_ci --prefix apps/desktop &
+          desktop_pid=$!
+          root_pid=
+          if [[ "$CSS_ONLY" != true ]]; then
+            npm_ci &
+            root_pid=$!
+          fi
+          status=0
+          wait "$desktop_pid" || status=1
+          if [[ -n "$root_pid" ]]; then wait "$root_pid" || status=1; fi
+          exit "$status"
       - name: Build CSS-only renderer
         if: needs.changes.outputs.desktop_css_only == 'true'
         run: npm run build:fast --prefix apps/desktop
@@ -443,8 +484,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The fast lane is split in two (node --test --test-shard, forwarded
+          # by scripts/test.mjs). Every leg is its own machine, so the
+          # electron-lane files never overlap on one.
           - runner: ubuntu-22.04
             lane: fast
+            shard: 1
+          - runner: ubuntu-22.04
+            lane: fast
+            shard: 2
           - runner: ubuntu-22.04
             lane: slow
           # Computer Use compiles and executes a generated PowerShell input
@@ -465,29 +513,41 @@ jobs:
       # modules, so the Windows leg skips the heavy root install
       # (sharp/onnxruntime/tesseract) — the slowest step on the slowest runner.
       # test-env.mjs treats a missing root tree as "nothing to compare".
-      - name: Install root dependencies
-        if: matrix.lane != 'computer'
+      # The two installs are independent trees, so they run side by side; each
+      # is waited on by its own PID so either failure fails the step.
+      - name: Install dependencies
+        env:
+          LANE: ${{ matrix.lane }}
         shell: bash
         run: |
-          for attempt in 1 2 3; do
-            npm ci --prefer-offline --no-audit --no-fund && exit 0
-            echo "npm ci failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 10))
-          done
-          exit 1
-      - name: Install desktop dependencies
+          npm_ci() {
+            local attempt
+            for attempt in 1 2 3; do
+              npm ci "$@" --prefer-offline --no-audit --no-fund && return 0
+              echo "npm ci $* failed (attempt ${attempt}/3)" >&2
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+          npm_ci --prefix apps/desktop &
+          desktop_pid=$!
+          root_pid=
+          if [[ "$LANE" != computer ]]; then
+            npm_ci &
+            root_pid=$!
+          fi
+          status=0
+          wait "$desktop_pid" || status=1
+          if [[ -n "$root_pid" ]]; then wait "$root_pid" || status=1; fi
+          exit "$status"
+      - name: Run the desktop fast lane (shard ${{ matrix.shard }}/2)
+        if: matrix.lane == 'fast'
         shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund && exit 0
-            echo "npm ci failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 10))
-          done
-          exit 1
-      - name: Run the desktop ${{ matrix.lane }} lane
-        if: matrix.lane != 'computer'
+        run: npm test --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/2
+      - name: Run the desktop slow lane
+        if: matrix.lane == 'slow'
         shell: bash
-        run: npm run ${{ matrix.lane == 'fast' && 'test' || 'test:slow' }} --prefix apps/desktop
+        run: npm run test:slow --prefix apps/desktop
       - name: Run the Computer Use suites on Windows
         if: matrix.lane == 'computer'
         shell: bash
@@ -586,9 +646,46 @@ jobs:
           restore-keys: graph-test-cargo-1.95.0-
       - run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
 
+  # release.yml re-checks the committed shipped-definition history against the
+  # git history of the definitions; a stale file used to surface only after the
+  # whole deploy had started. build-shipped-history keeps the committed file
+  # when the clone is shallow, so this job needs the full history (and no npm
+  # install: the script imports node builtins and repo files only). Pull
+  # requests are left out: the history holds one entry per commit that touched
+  # a definition, so a PR that is squash-merged later would be checked against
+  # intermediate commits that never reach main. The push to main is the final
+  # history, and Deploy requires that run to be green.
+  shipped-history:
+    needs: changes
+    if: needs.changes.outputs.history == 'true' && github.event_name != 'pull_request'
+    timeout-minutes: 15
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Verify shipped definition history is current
+        run: node scripts/build-shipped-history.mjs --check
+
+  # The mobile release scripts are Python with their own unittest suites,
+  # which no Node lane discovers. Standard library only (the tests stub the
+  # JWT module), so there is nothing to install.
+  mobile-scripts:
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    timeout-minutes: 5
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Run the mobile script unit tests
+        run: python3 -m unittest discover -s apps/mobile/scripts -p "test_*.py" -v
+
   complete:
     if: always()
-    needs: [runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph]
+    needs: [runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, shipped-history, mobile-scripts]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -603,6 +700,8 @@ jobs:
           RELAY: ${{ needs.relay.result }}
           PATCH: ${{ needs.patch.result }}
           GRAPH: ${{ needs.graph.result }}
+          SHIPPED_HISTORY: ${{ needs.shipped-history.result }}
+          MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
         run: |
           [[ "$RUNTIME" == success || "$RUNTIME" == skipped ]]
           [[ "$RUNTIME_SLOW" == success || "$RUNTIME_SLOW" == skipped ]]
@@ -613,3 +712,5 @@ jobs:
           [[ "$RELAY" == success || "$RELAY" == skipped ]]
           [[ "$PATCH" == success || "$PATCH" == skipped ]]
           [[ "$GRAPH" == success || "$GRAPH" == skipped ]]
+          [[ "$SHIPPED_HISTORY" == success || "$SHIPPED_HISTORY" == skipped ]]
+          [[ "$MOBILE_SCRIPTS" == success || "$MOBILE_SCRIPTS" == skipped ]]

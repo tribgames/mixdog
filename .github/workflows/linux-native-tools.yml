@@ -41,18 +41,51 @@ jobs:
       - uses: ./.github/actions/assert-sha
         with:
           expected: ${{ inputs.ref || github.sha }}
-      - name: Cache built tools
-        id: cache
+      # One exact-key cache per tool (no restore-keys: a prefix hit would ship a
+      # binary built from other sources). A tool's key follows only its own
+      # crate and the build script, so a change to one tool rebuilds just that
+      # tool. Release cargo target dirs are deliberately not cached.
+      - name: Cache built mixdog-computer
+        id: cache-computer
         uses: actions/cache@v4
         with:
-          path: native-out
-          key: native-glibc228-${{ matrix.arch }}-${{ hashFiles('native/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
-      - name: Build mixdog-computer, mixdog-graph, mixdog-patch (glibc 2.28)
-        if: steps.cache.outputs.cache-hit != 'true'
+          path: native-out/mixdog-computer
+          key: native-glibc228-${{ matrix.arch }}-computer-${{ hashFiles('native/mixdog-computer/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+      - name: Cache built mixdog-graph
+        id: cache-graph
+        uses: actions/cache@v4
+        with:
+          path: native-out/mixdog-graph
+          key: native-glibc228-${{ matrix.arch }}-graph-${{ hashFiles('native/mixdog-graph/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+      - name: Cache built mixdog-patch
+        id: cache-patch
+        uses: actions/cache@v4
+        with:
+          path: native-out/mixdog-patch
+          key: native-glibc228-${{ matrix.arch }}-patch-${{ hashFiles('native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+      - name: Select the tools that missed their cache
+        id: missing
+        env:
+          HIT_COMPUTER: ${{ steps.cache-computer.outputs.cache-hit }}
+          HIT_GRAPH: ${{ steps.cache-graph.outputs.cache-hit }}
+          HIT_PATCH: ${{ steps.cache-patch.outputs.cache-hit }}
+        run: |
+          missing=()
+          [[ "$HIT_COMPUTER" == true ]] || missing+=(computer)
+          [[ "$HIT_GRAPH" == true ]] || missing+=(graph)
+          [[ "$HIT_PATCH" == true ]] || missing+=(patch)
+          echo "tools=${missing[*]}" >> "$GITHUB_OUTPUT"
+      - name: Build the missing tools concurrently (glibc 2.28)
+        if: steps.missing.outputs.tools != ''
         run: |
           mkdir -p native-out
-          docker run --rm -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-native-old-glibc.sh 2>&1 | tee native-out/build.log
+          docker run --rm -e MIXDOG_NATIVE_TOOLS="${{ steps.missing.outputs.tools }}" -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-native-old-glibc.sh 2>&1 | tee native-out/build.log
           test "${PIPESTATUS[0]}" -eq 0
+      - name: Require all three tools
+        run: |
+          for tool in computer graph patch; do
+            test -f "native-out/mixdog-$tool"
+          done
       - uses: actions/upload-artifact@v5
         with:
           name: native-tools-glibc228-${{ matrix.arch }}
