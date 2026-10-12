@@ -594,11 +594,12 @@ test('the gate shards its long lanes, installs in parallel, and adds history and
   assert.equal(history.steps[0].with['fetch-depth'], 0);
   assert.ok(history.steps.some((step) => step.run === 'node scripts/build-shipped-history.mjs --check'));
 
-  // Mobile Python suites: stdlib only, so there is nothing to install.
+  // Mobile Python suites: the iOS workflow's packages, then every test_*.py.
   const mobile = jobs['mobile-scripts'];
   assert.equal(mobile.if, "needs.changes.outputs.mobile == 'true'");
-  assert.equal(mobile.steps.length, 2);
-  assert.match(mobile.steps[1].run, /python3 -m unittest discover -s apps\/mobile\/scripts -p "test_\*\.py"/);
+  assert.equal(mobile.steps.length, 3);
+  assert.match(mobile.steps[1].run, /pip install .*pyjwt cryptography/);
+  assert.match(mobile.steps[2].run, /python3 -m unittest discover -s apps\/mobile\/scripts -p "test_\*\.py"/);
   for (const trigger of [on.pull_request.paths, on.push.paths]) {
     const exclusion = trigger.indexOf('!.github/workflows/mobile-*.yml');
     assert.ok(exclusion >= 0 && trigger.indexOf('.github/workflows/mobile-*.yml') > exclusion);

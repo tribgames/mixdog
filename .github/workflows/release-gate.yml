@@ -671,8 +671,8 @@ jobs:
         run: node scripts/build-shipped-history.mjs --check
 
   # The mobile release scripts are Python with their own unittest suites,
-  # which no Node lane discovers. Standard library only (the tests stub the
-  # JWT module), so there is nothing to install.
+  # which no Node lane discovers. They need the same packages the iOS
+  # workflow installs (the certificate tests build real keys and .p12s).
   mobile-scripts:
     needs: changes
     if: needs.changes.outputs.mobile == 'true'
@@ -680,6 +680,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install the script dependencies
+        run: python3 -m pip install --quiet pyjwt cryptography
       - name: Run the mobile script unit tests
         run: python3 -m unittest discover -s apps/mobile/scripts -p "test_*.py" -v
 
