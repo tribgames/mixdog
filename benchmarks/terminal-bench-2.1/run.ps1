@@ -77,33 +77,63 @@ function Assert-PrebakeCurrent {
     "prebake $baked ok"
 }
 
+function Get-EffortJudgeBundleProblem([string]$Mode, [string]$TarPath, [string]$Release) {
+    # $null when the bundle holds exactly the manifest release (step-trained
+    # for steps mode) and matches its stamp digest; else what is wrong.
+    $stampPath = "$TarPath.json"
+    if (-not (Test-Path -LiteralPath $TarPath -PathType Leaf) -or -not (Test-Path -LiteralPath $stampPath -PathType Leaf)) {
+        return "effort-judge bundle or its stamp missing ($TarPath)"
+    }
+    try {
+        $stamp = Get-Content -Raw -LiteralPath $stampPath | ConvertFrom-Json
+    }
+    catch {
+        return "effort-judge bundle stamp unreadable ($stampPath)"
+    }
+    if ([string]$stamp.release -ne $Release) {
+        return "effort-judge bundle holds $($stamp.release) but the manifest names $Release"
+    }
+    if ($Mode -eq "steps" -and $stamp.steps -ne $true) {
+        return "effort judge $Release is not step-trained; -EffortJudge steps needs one"
+    }
+    if ((Get-FileHash -LiteralPath $TarPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne [string]$stamp.sha256) {
+        return "effort-judge bundle digest differs from its stamp"
+    }
+    return $null
+}
+
 function Assert-EffortJudgeBundle([string]$Mode) {
     # The bundle must hold exactly the release the product manifest names;
-    # check it here, in seconds, instead of in every trial container.
+    # check it here, in seconds, instead of in every trial container. A real
+    # run builds a missing or stale bundle; a dry run never does.
     $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
     $release = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "src/runtime/effort-judge/model-manifest.json") | ConvertFrom-Json).release)
     $tarPath = [string]$env:MIXDOG_TB_EFFORT_JUDGE_BUNDLE
     if ([string]::IsNullOrWhiteSpace($tarPath)) {
         $tarPath = Join-Path $benchRoot "mixdog-prebake/effort-judge-bundle.tar"
     }
-    $stampPath = "$tarPath.json"
     $rebuildHint = "rebuild with: pwsh -NoLogo -NoProfile -File harness/build-effort-judge-bundle.ps1 (or run with -EffortJudge off)"
-    if (-not (Test-Path -LiteralPath $tarPath -PathType Leaf) -or -not (Test-Path -LiteralPath $stampPath -PathType Leaf)) {
-        throw "effort-judge bundle or its stamp missing ($tarPath); $rebuildHint"
+    $problem = Get-EffortJudgeBundleProblem $Mode $tarPath $release
+    if ($null -eq $problem) {
+        return $release
     }
-    $stamp = Get-Content -Raw -LiteralPath $stampPath | ConvertFrom-Json
-    if ([string]$stamp.release -ne $release) {
-        throw "effort-judge bundle holds $($stamp.release) but the manifest names $release; $rebuildHint"
+    if ($DryRun) {
+        Write-Host "NOTICE: $problem - effort-judge bundle missing/stale; a real run builds it automatically"
+        return $release
     }
-    if ($Mode -eq "steps" -and $stamp.steps -ne $true) {
-        throw "effort judge $release is not step-trained; -EffortJudge steps needs one"
+    Write-Host "$problem; building the effort-judge bundle (harness/build-effort-judge-bundle.ps1)"
+    try {
+        & (Join-Path $benchRoot "harness/build-effort-judge-bundle.ps1") -Out $tarPath | ForEach-Object { Write-Host $_ }
     }
-    if ((Get-FileHash -LiteralPath $tarPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne [string]$stamp.sha256) {
-        throw "effort-judge bundle digest differs from its stamp; $rebuildHint"
+    catch {
+        throw "effort-judge bundle build failed: $($_.Exception.Message); $rebuildHint"
+    }
+    $problem = Get-EffortJudgeBundleProblem $Mode $tarPath $release
+    if ($null -ne $problem) {
+        throw "$problem after the automatic build; $rebuildHint"
     }
     return $release
 }
-
 function Write-JsonAtomic([object]$Value, [string]$Path) {
     $temporary = "$Path.tmp-$PID"
     $Value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $temporary -Encoding utf8
