@@ -35,6 +35,7 @@ const {
   deleteSecretAsync: _deleteSecretAsyncImpl,
   keychainStatus: _keychainStatus,
   retryKeychain: _retryKeychain,
+  onKeychainRecovered: _onKeychainRecovered,
 } = _require('../../lib/keychain-cjs.cjs');
 const _setSecretAsync = _setSecretAsyncImpl ?? (async (account, value) => _setSecret(account, value));
 const _deleteSecretAsync = _deleteSecretAsyncImpl ?? (async (account) => _deleteSecret(account));
@@ -639,6 +640,11 @@ export async function deleteSecretAsync(account) {
 /** Retry a failed Linux keyring read; true when it just recovered. */
 export async function retryKeychain() {
   return typeof _retryKeychain === 'function' ? await _retryKeychain() : false;
+}
+
+/** Subscribe to a locked/failed Linux keyring becoming readable again. */
+export function onKeychainRecovered(listener) {
+  return typeof _onKeychainRecovered === 'function' ? _onKeychainRecovered(listener) : () => {};
 }
 
 /** Keyring health for the UI: { state: ok|locked|missing|error|unknown, message }. */

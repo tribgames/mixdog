@@ -3683,5 +3683,8 @@
   "Zoom options": "缩放选项",
   "Zoom out": "缩小",
   "Zoom Out": "缩小",
-  "Zoom to {{value0}}%": "缩放到 {{value0}}%"
+  "Zoom to {{value0}}%": "缩放到 {{value0}}%",
+  "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "密钥环已锁定——请解锁（重新登录或打开“密码和密钥”）。",
+  "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "请安装 libsecret-tools (sudo apt install libsecret-tools) 以使用系统密钥环。",
+  "The system keyring could not be read — check that it is running and unlocked.": "无法读取系统密钥环——请确认它正在运行且已解锁。"
 }

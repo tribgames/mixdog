@@ -233,10 +233,19 @@ function describeOAuthProvider(p, { detail = false } = {}) {
 
 // When the OS keyring is locked/missing a stored key reads as absent; say so
 // (the UI shows the unlock / install hint) instead of a bare "No Key".
+// Fixed, translatable hints keyed by keyring state; internal error text never
+// reaches the UI.
+const KEYCHAIN_HINTS = Object.freeze({
+  locked: 'Keyring is locked — unlock it (log in again or open Passwords and Keys).',
+  missing: 'Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.',
+  error: 'The system keyring could not be read — check that it is running and unlocked.',
+});
+
 function keychainIssueFor(checkSecrets) {
   if (!checkSecrets) return null;
-  const { state, message } = getKeychainStatus();
-  return state === 'locked' || state === 'missing' || state === 'error' ? { state, message } : null;
+  const { state } = getKeychainStatus();
+  const message = KEYCHAIN_HINTS[state];
+  return message ? { state, message } : null;
 }
 
 function apiProviderSetup(p, providers, checkSecrets) {

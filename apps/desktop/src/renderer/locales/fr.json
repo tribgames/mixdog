@@ -3769,5 +3769,8 @@
   "Zoom options": "Options de zoom",
   "Zoom out": "Zoom arrière",
   "Zoom Out": "Zoom arrière",
-  "Zoom to {{value0}}%": "Zoom à {{value0}} %"
+  "Zoom to {{value0}}%": "Zoom à {{value0}} %",
+  "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "Le trousseau est verrouillé : déverrouillez-le (reconnectez-vous ou ouvrez Mots de passe et clés).",
+  "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Installez libsecret-tools (sudo apt install libsecret-tools) pour utiliser le trousseau du système.",
+  "The system keyring could not be read — check that it is running and unlocked.": "Impossible de lire le trousseau du système : vérifiez qu’il est lancé et déverrouillé."
 }

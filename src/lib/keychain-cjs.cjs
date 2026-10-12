@@ -444,13 +444,42 @@ function linuxGetBlocking(account) {
 // snapshot succeeds the sync read throws the actionable keyring error (callers
 // already treat a throw as "no stored key") and a retry is scheduled lazily.
 const LINUX_PREWARM_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS || 4000);
-const LINUX_PREWARM_RETRY_MS = 5000;
+const LINUX_PREWARM_RETRY_MS = Number(process.env.MIXDOG_KEYCHAIN_RETRY_MS || 5000);
+const LINUX_LOCKED_MESSAGE =
+  '[keychain] the keyring is locked — unlock it (log in again or open Passwords and Keys) and retry';
 let _linuxLoadedUntil = 0;
 let _linuxLastFailureAt = 0;
+let _linuxPrewarmInFlight = false;
+let _linuxBgTimer = null;
+let _linuxBgAttempt = 0;
+const _recoveryListeners = new Set();
 let _keychainStatus = { state: 'unknown', message: '' };
 
 function _noteKeychainOk() {
   _keychainStatus = { state: 'ok', message: '' };
+  _linuxBgAttempt = 0;
+  clearTimeout(_linuxBgTimer);
+  _linuxBgTimer = null;
+}
+
+/** Subscribe to a failed Linux keyring becoming readable (e.g. user unlocked it). */
+function onKeychainRecovered(listener) {
+  _recoveryListeners.add(listener);
+  return () => _recoveryListeners.delete(listener);
+}
+
+// While the keyring is locked/failing nothing may depend on a read to retry, so
+// retry in the background with a bounded backoff (5s → 10s). A missing
+// secret-tool cannot fix itself and is not retried.
+function _scheduleLinuxBackgroundRetry() {
+  if (_linuxBgTimer || _keychainStatus.state === 'missing') return;
+  const delay = Math.min(LINUX_PREWARM_RETRY_MS * 2, LINUX_PREWARM_RETRY_MS + _linuxBgAttempt * (LINUX_PREWARM_RETRY_MS / 2));
+  _linuxBgAttempt++;
+  _linuxBgTimer = setTimeout(async () => {
+    _linuxBgTimer = null;
+    await retryKeychain();
+  }, delay);
+  _linuxBgTimer.unref?.();
 }
 
 function _noteKeychainFailure(error) {
@@ -499,25 +528,39 @@ function parseSecretToolSearchAccounts(stdout, stderr) {
     }
   }
   if (attributeLines !== items) {
-    throw new Error(
-      `[keychain] secret-tool search returned ${items} item(s) but ${attributeLines} account attribute(s); refusing a possibly incomplete snapshot`
-    );
+    // A locked keyring answers the search with items but no attributes. Keep
+    // the parse detail out of the UI-facing message.
+    const error = new Error(LINUX_LOCKED_MESSAGE);
+    error.detail = `secret-tool search returned ${items} item(s) but ${attributeLines} account attribute(s)`;
+    throw error;
   }
   return [...accounts];
 }
 async function _prewarmLinuxOnce() {
+  _linuxPrewarmInFlight = true;
   try {
     if (KEYCHAIN_CACHE_TTL_MS === 0) return;
+    // One deadline covers the search AND every per-account lookup.
+    const deadline = Date.now() + LINUX_PREWARM_TIMEOUT_MS;
+    const remaining = () => {
+      const ms = deadline - Date.now();
+      if (ms <= 0) {
+        const error = new Error(LINUX_LOCKED_MESSAGE);
+        error.detail = 'prewarm deadline exceeded';
+        throw error;
+      }
+      return ms;
+    };
     const epoch = _cacheEpoch;
     const generations = new Map(_cacheGenerations);
-    const r = await secretToolAsync(['search', '--all', 'service', SERVICE], undefined, LINUX_PREWARM_TIMEOUT_MS);
+    const r = await secretToolAsync(['search', '--all', 'service', SERVICE], undefined, remaining());
     // Exit 1 with an empty stderr just means "no items".
     if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('search', r);
     if (_cacheEpoch !== epoch) return;
     const accounts = parseSecretToolSearchAccounts(r.stdout, r.stderr);
     const values = [];
     for (const account of accounts) {
-      const value = await linuxGetAsync(account);
+      const value = await linuxGetAsync(account, remaining());
       if (value !== null) values.push([account, value]);
     }
     if (_cacheEpoch !== epoch) return;
@@ -530,12 +573,25 @@ async function _prewarmLinuxOnce() {
         ? Number.POSITIVE_INFINITY
         : Date.now() + KEYCHAIN_CACHE_TTL_MS;
     _linuxLastFailureAt = 0;
+    const recovered = _keychainStatus.state !== 'ok' && _keychainStatus.state !== 'unknown';
     _noteKeychainOk();
+    if (recovered) {
+      for (const listener of [..._recoveryListeners]) {
+        try {
+          listener();
+        } catch {
+          /* listener failures must not break keyring recovery */
+        }
+      }
+    }
   } catch (error) {
     _linuxLastFailureAt = Date.now();
     _noteKeychainFailure(error);
     // Allow a later lazy retry once the cool-down passes.
     _prewarmPromise = null;
+    _scheduleLinuxBackgroundRetry();
+  } finally {
+    _linuxPrewarmInFlight = false;
   }
 }
 
@@ -549,8 +605,8 @@ function linuxDelete(account) {
   if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('clear', r);
 }
 
-async function linuxGetAsync(account) {
-  const r = await secretToolAsync(['lookup', 'service', SERVICE, 'account', account]);
+async function linuxGetAsync(account, timeoutMs) {
+  const r = await secretToolAsync(['lookup', 'service', SERVICE, 'account', account], undefined, timeoutMs);
   if (r.status === 0) return r.stdout;
   if ((r.stderr || '').trim()) throw secretToolFailure('lookup', r);
   return null;
@@ -688,8 +744,12 @@ function prewarmSecrets() {
  *  recovered it, so callers can drop caches built while it was unavailable. */
 async function retryKeychain() {
   if (platform() !== 'linux' || _keychainStatus.state === 'ok' || _keychainStatus.state === 'unknown') return false;
-  _prewarmPromise = null;
-  await prewarmSecrets();
+  if (_linuxPrewarmInFlight && _prewarmPromise) {
+    await _prewarmPromise;
+  } else {
+    _prewarmPromise = null;
+    await prewarmSecrets();
+  }
   return _keychainStatus.state === 'ok';
 }
 
@@ -837,5 +897,6 @@ module.exports = {
   invalidateSecretCache,
   prewarmSecrets,
   retryKeychain,
+  onKeychainRecovered,
   SERVICE,
 };

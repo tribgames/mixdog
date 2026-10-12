@@ -191,17 +191,41 @@ test('linux: a search whose items cannot all be matched to accounts is not cache
       }
       return args[0] === 'lookup' ? { stdout: 's3cret' } : { code: 1 };
     },
-    {},
+    { MIXDOG_KEYCHAIN_RETRY_MS: '50' },
     async (keychain) => {
       await keychain.prewarmSecrets();
-      assert.equal(keychain.keychainStatus().state, 'error');
-      assert.throws(() => keychain.getSecret('acct'), /incomplete snapshot/);
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      // The internal parse detail never reaches the user-facing message.
+      assert.doesNotMatch(keychain.keychainStatus().message, /attribute|snapshot|item\(s\)/);
+      assert.throws(() => keychain.getSecret('acct'), /unlock it/);
       unlocked = true;
-      await new Promise((r) => setTimeout(r, 5100));
-      assert.throws(() => keychain.getSecret('acct')); // triggers the lazy retry
-      await keychain.prewarmSecrets();
+      await new Promise((r) => setTimeout(r, 400));
       assert.equal(keychain.getSecret('acct'), 's3cret');
       assert.equal(keychain.keychainStatus().state, 'ok');
+    }
+  );
+});
+
+test('linux: prewarm is bounded as a whole (search + lookups) and a background retry picks up an unlock without any read', async () => {
+  let unlocked = false;
+  await withLinuxKeychain(
+    (args) => {
+      if (args[0] === 'search') return { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n' };
+      return unlocked ? { stdout: 's3cret' } : { hang: true };
+    },
+    { MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS: '300', MIXDOG_KEYCHAIN_RETRY_MS: '60' },
+    async (keychain) => {
+      let recovered = 0;
+      keychain.onKeychainRecovered(() => recovered++);
+      const started = Date.now();
+      await keychain.prewarmSecrets();
+      assert.ok(Date.now() - started < 600, 'search and lookups share one deadline');
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      unlocked = true;
+      await new Promise((r) => setTimeout(r, 700));
+      assert.equal(keychain.keychainStatus().state, 'ok');
+      assert.equal(recovered, 1);
+      assert.equal(keychain.getSecret('acct'), 's3cret');
     }
   );
 });

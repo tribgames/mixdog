@@ -110,11 +110,23 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     />
   );
   const keychainIssue = record(setup.keychain);
+  const keychainBlocked = typeof keychainIssue.message === 'string' && keychainIssue.message !== '';
+  const runRef = useRef(run);
+  runRef.current = run;
+  // Loading the setup retries a failed keyring daemon-side; while it is
+  // locked/failing keep re-reading so unlocking it is picked up without a restart.
+  useEffect(() => {
+    const refresh = () =>
+      void runRef.current('getProviderSetup', [{ force: true }], 'keychain-refresh', true, true);
+    if (!keychainBlocked) return undefined;
+    const timer = window.setInterval(refresh, 7000);
+    return () => window.clearInterval(timer);
+  }, [keychainBlocked]);
   return (
     <>
-      {typeof keychainIssue.message === 'string' && keychainIssue.message && (
+      {keychainBlocked && (
         <p className="settings-error" role="alert" data-keychain-state={String(keychainIssue.state || '')}>
-          {keychainIssue.message}
+          {t(String(keychainIssue.message))}
         </p>
       )}
       <QuotaAutoResumeToggle />

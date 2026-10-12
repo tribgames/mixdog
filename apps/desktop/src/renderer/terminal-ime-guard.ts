@@ -6,6 +6,12 @@
 // data xterm emits while a composition is open or still finalizing is dropped,
 // and the committed text is sent exactly once. Control bytes (Enter, DEL)
 // always pass through.
+//
+// ibus-hangul commits a syllable in one of two shapes (real log: n3-events):
+//   compositionend{data:'한'}                       — data on the event
+//   compositionupdate '' → input(deleteContentBackward) → compositionend{data:''}
+//     → input(insertText '글')                      — empty end, text on the input
+// The committed text is whichever of the two is non-empty, sent exactly once.
 
 function printable(data: string): boolean {
   for (const char of data) {
@@ -18,6 +24,7 @@ function printable(data: string): boolean {
 export class TerminalImeGuard {
   private composing = false;
   private finalizing = false;
+  private committed = false;
 
   constructor(private readonly send: (data: string) => void) {}
 
@@ -28,7 +35,19 @@ export class TerminalImeGuard {
   compositionEnd(data: string): void {
     this.composing = false;
     this.finalizing = true;
-    if (printable(data)) this.send(data);
+    this.committed = false;
+    if (printable(data)) {
+      this.committed = true;
+      this.send(data);
+    }
+  }
+
+  /** The textarea input event: its insertText commits a composition whose
+   *  compositionend carried no data. Ignored once a commit was sent. */
+  inputCommit(text: string, inputType: string): void {
+    if (!this.finalizing || this.committed || inputType !== 'insertText' || !printable(text)) return;
+    this.committed = true;
+    this.send(text);
   }
 
   /** Call from a task queued AFTER xterm's own post-compositionend task. */
@@ -49,11 +68,17 @@ export class TerminalImeGuard {
       // this timeout is queued after xterm's own setTimeout(0) commit.
       setTimeout(() => this.finalizeDone(), 0);
     };
+    const input = (event: Event) => {
+      const e = event as InputEvent;
+      this.inputCommit(e.data ?? '', e.inputType);
+    };
     element.addEventListener('compositionstart', start, true);
+    element.addEventListener('input', input);
     element.addEventListener('compositionend', end);
     return () => {
       element.removeEventListener('compositionstart', start, true);
       element.removeEventListener('compositionend', end);
+      element.removeEventListener('input', input);
     };
   }
 }

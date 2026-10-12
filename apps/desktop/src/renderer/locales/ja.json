@@ -3683,5 +3683,8 @@
   "Zoom options": "ズームオプション",
   "Zoom out": "縮小",
   "Zoom Out": "ズームアウト",
-  "Zoom to {{value0}}%": "{{value0}}%にする"
+  "Zoom to {{value0}}%": "{{value0}}%にする",
+  "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "キーリングがロックされています。ロックを解除してください（再ログインするか「パスワードと鍵」を開く）。",
+  "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "システムのキーリングを使うには libsecret-tools をインストールしてください (sudo apt install libsecret-tools)。",
+  "The system keyring could not be read — check that it is running and unlocked.": "システムのキーリングを読み取れません。起動していてロック解除されているか確認してください。"
 }

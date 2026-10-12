@@ -2,40 +2,68 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TerminalImeGuard } from './terminal-ime-guard.ts';
 
-// Event order ibus-hangul produces for `gksrmf dkssudgktpdy`, as xterm 5.5 turns
-// it into data events: the commit is emitted by compositionend's delayed read,
-// again by the textarea `input` event, and the residual textarea text rides
-// along with the next syllable.
+// Replays the DOM events ibus-hangul emits (real log C:\VM\qa3\n3-events.txt)
+// plus the data events xterm 5.5 derives from them. Event kinds:
+//   start | end <data> | input <text> (insertText) | xterm <data> | done
 function run(events) {
   const sent = [];
   const guard = new TerminalImeGuard((d) => sent.push(d));
-  const xterm = (d) => {
-    if (!guard.shouldDrop(d)) sent.push(d);
-  };
   for (const [kind, data] of events) {
     if (kind === 'start') guard.compositionStart();
     else if (kind === 'end') guard.compositionEnd(data);
+    else if (kind === 'input') guard.inputCommit(data, 'insertText');
     else if (kind === 'done') guard.finalizeDone();
-    else xterm(data);
+    else if (!guard.shouldDrop(data)) sent.push(data);
   }
   return sent.join('');
 }
 
-test('duplicated ibus commits are sent once', () => {
+// Pattern A: data on compositionend (한, 녕, 하 in the log).
+const dataEnd = (s) => [['start'], ['end', s], ['xterm', s], ['xterm', s], ['done']];
+// Pattern B: empty compositionend, text on the following insertText (글, 안, 세).
+const inputEnd = (s) => [['start'], ['end', ''], ['input', s], ['xterm', s], ['xterm', s], ['done']];
+
+test('real log: 한글 안녕하세요 mixes both commit patterns and nothing is dropped', () => {
   const out = run([
-    ['start'], ['end', '한'], ['xterm', '한'], ['xterm', '한'], ['done'],
-    ['start'], ['end', '글'], ['xterm', '글글'], ['done'],
+    ...dataEnd('한'), ...inputEnd('글'),
     ['xterm', ' '],
-    ['start'], ['end', '안'], ['xterm', '안'], ['done'],
-    ['start'], ['end', '녕'], ['xterm', '안녕'], ['done'],
+    ...inputEnd('안'), ...dataEnd('녕'), ...dataEnd('하'), ...inputEnd('세'),
+    ['start'], // 요 still composing
   ]);
-  assert.equal(out, '한글 안녕');
+  assert.equal(out, '한글 안녕하세');
 });
 
-test('control bytes pass through during finalization and plain typing is untouched', () => {
-  assert.equal(run([['start'], ['end', '가'], ['xterm', '\r'], ['xterm', '가'], ['done'], ['xterm', 'a']]), '가\ra');
+test('empty compositionend followed by insertText is committed once', () => {
+  assert.equal(run(inputEnd('글')), '글');
 });
 
-test('data from a composition that starts before the finalize task is still guarded', () => {
-  assert.equal(run([['start'], ['end', '한'], ['start'], ['xterm', '한'], ['done'], ['end', '글'], ['done']]), '한글');
+test('fast typing: next compositionstart arrives before the finalize task', () => {
+  assert.equal(
+    run([
+      ['start'], ['end', ''], ['input', '글'], ['start'], ['xterm', '글'], ['done'],
+      ['end', '안'], ['xterm', '안'], ['done'],
+    ]),
+    '글안'
+  );
+});
+
+test('slow typing: finalize completes between syllables', () => {
+  assert.equal(run([...inputEnd('한'), ...dataEnd('글'), ...inputEnd('안')]), '한글안');
+});
+
+test('mixed Korean and English', () => {
+  assert.equal(run([['xterm', 'l'], ['xterm', 's'], ...inputEnd('한'), ['xterm', ' '], ['xterm', 'a'], ...dataEnd('글')]), 'ls한 a글');
+});
+
+test('backspace mid-composition cancels with no output, then next syllable commits', () => {
+  assert.equal(run([['start'], ['end', ''], ['done'], ...inputEnd('가')]), '가');
+});
+
+test('Enter after composing passes through exactly once', () => {
+  assert.equal(run([...inputEnd('가'), ['xterm', '\r']]), '가\r');
+  assert.equal(run([['start'], ['end', ''], ['input', '가'], ['xterm', '\r'], ['xterm', '가'], ['done']]), '가\r');
+});
+
+test('late insertText duplicate of a data commit is not re-sent', () => {
+  assert.equal(run([['start'], ['end', '한'], ['input', '한'], ['xterm', '한'], ['done']]), '한');
 });

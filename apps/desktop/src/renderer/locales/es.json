@@ -3769,5 +3769,8 @@
   "Zoom options": "Opciones de zoom",
   "Zoom out": "Alejar",
   "Zoom Out": "Alejar",
-  "Zoom to {{value0}}%": "Zoom al {{value0}}%"
+  "Zoom to {{value0}}%": "Zoom al {{value0}}%",
+  "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "El llavero está bloqueado: desbloquéalo (vuelve a iniciar sesión o abre Contraseñas y claves).",
+  "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Instala libsecret-tools (sudo apt install libsecret-tools) para usar el llavero del sistema.",
+  "The system keyring could not be read — check that it is running and unlocked.": "No se pudo leer el llavero del sistema: comprueba que se está ejecutando y está desbloqueado."
 }

@@ -59,6 +59,10 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
     modelMetaByRoute.clear();
   }
 
+  // A keyring unlocked after boot: every cache built while stored keys read as
+  // absent (provider setup, init gates) is stale.
+  keychain.onKeychainRecovered?.(() => invalidateProviderCaches());
+
   async function ensureProvidersReady(providerConfig = rt.config.providers || {}) {
     await awaitKeychainPrewarm();
     if (rt.closeRequested) throw new Error('runtime is closing');
