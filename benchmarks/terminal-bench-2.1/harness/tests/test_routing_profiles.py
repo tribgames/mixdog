@@ -43,8 +43,7 @@ EXPECTED_AUDIT_LINE = (
     "lead=anthropic-oauth/claude-fable-5 effort=xhigh fast=false; "
     "worker=openai-oauth/gpt-5.6-terra effort=high fast=true; "
     "heavy-worker=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
-    "reviewer=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
-    "debugger=openai-oauth/gpt-5.6-sol effort=xhigh fast=true"
+    "reviewer=openai-oauth/gpt-5.6-sol effort=xhigh fast=true"
 )
 
 
@@ -79,7 +78,6 @@ const agentKeys = {{
   worker: 'worker',
   'heavy-worker': 'heavy-worker',
   reviewer: 'reviewer',
-  debugger: 'debugger',
 }};
 const agents = Object.fromEntries(Object.entries(agentKeys).map(
   ([role, key]) => [role, cleanRoute(normalizeAgentRoute(config.agents?.[key]))]
@@ -150,12 +148,6 @@ class RoutingProfileTests(unittest.TestCase):
                     "fast": True,
                 },
                 "reviewer": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
-                    "effort": "xhigh",
-                    "fast": True,
-                },
-                "debugger": {
                     "provider": "openai-oauth",
                     "model": "gpt-5.6-sol",
                     "effort": "xhigh",
@@ -325,7 +317,7 @@ class RoutingProfileTests(unittest.TestCase):
             resolved["agents"],
             {
                 role: profile["routes"][role]
-                for role in ("worker", "heavy-worker", "reviewer", "debugger")
+                for role in ("worker", "heavy-worker", "reviewer")
             },
         )
 

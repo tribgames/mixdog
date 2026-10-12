@@ -66,12 +66,6 @@
           "model": "gpt-5.6-sol",
           "effort": "high",
           "fast": false
-        },
-        "debugger": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "high",
-          "fast": false
         }
       }
     },
@@ -146,12 +140,6 @@
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
           "fast": true
-        },
-        "debugger": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
         }
       }
     },
@@ -182,12 +170,6 @@
           "fast": true
         },
         "reviewer": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
-        },
-        "debugger": {
           "provider": "openai-oauth",
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
@@ -246,12 +228,6 @@
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
           "fast": true
-        },
-        "debugger": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
         }
       }
     },
@@ -282,12 +258,6 @@
           "fast": false
         },
         "reviewer": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
-        },
-        "debugger": {
           "provider": "openai-oauth",
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
@@ -326,12 +296,6 @@
           "model": "claude-opus-4-8",
           "effort": "xhigh",
           "fast": false
-        },
-        "debugger": {
-          "provider": "anthropic-oauth",
-          "model": "claude-opus-4-8",
-          "effort": "xhigh",
-          "fast": false
         }
       }
     },
@@ -362,12 +326,6 @@
           "fast": false
         },
         "reviewer": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
-        },
-        "debugger": {
           "provider": "openai-oauth",
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
@@ -406,12 +364,6 @@
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
           "fast": true
-        },
-        "debugger": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
         }
       }
     },
@@ -442,12 +394,6 @@
           "fast": true
         },
         "reviewer": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
-        },
-        "debugger": {
           "provider": "openai-oauth",
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
@@ -486,12 +432,6 @@
           "model": "gpt-5.6-sol",
           "effort": "xhigh",
           "fast": true
-        },
-        "debugger": {
-          "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
-          "effort": "xhigh",
-          "fast": true
         }
       }
     },
@@ -520,12 +460,6 @@
           "model": "claude-opus-4-8",
           "effort": "high",
           "fast": false
-        },
-        "debugger": {
-          "provider": "anthropic-oauth",
-          "model": "claude-opus-4-8",
-          "effort": "high",
-          "fast": false
         }
       }
     },
@@ -550,12 +484,6 @@
           "fast": false
         },
         "reviewer": {
-          "provider": "anthropic-oauth",
-          "model": "claude-opus-5",
-          "effort": "high",
-          "fast": false
-        },
-        "debugger": {
           "provider": "anthropic-oauth",
           "model": "claude-opus-5",
           "effort": "high",

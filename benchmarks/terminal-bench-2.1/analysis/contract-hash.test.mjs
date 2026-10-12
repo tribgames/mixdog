@@ -43,23 +43,23 @@ test('contract digest captures wrappers, edit dialect, provider wire schema, and
   assert.equal(digest.activeToolCount, lead.activeToolCount);
 });
 
-test('contract digest includes worker, reviewer, and debugger routes', async () => {
+test('contract digest includes worker, heavy-worker, and reviewer routes', async () => {
   const digest = await buildContractDigest(undefined, {
     provider: 'openai-oauth',
     model: 'gpt-5.6-sol',
     workflow: 'default',
     routes: [
       { id: 'worker', provider: 'openai-oauth', model: 'gpt-5.6-luna' },
+      { id: 'heavy-worker', provider: 'openai-oauth', model: 'gpt-5.6-sol' },
       { id: 'reviewer', provider: 'openai-oauth', model: 'gpt-5.6-sol' },
-      { id: 'debugger', provider: 'openai-oauth', model: 'gpt-5.6-sol' },
     ],
   });
   assert.deepEqual(
     Object.keys(digest.routeContracts),
-    ['lead', 'worker', 'reviewer', 'debugger'],
+    ['lead', 'worker', 'heavy-worker', 'reviewer'],
   );
   assert.equal(digest.routeContracts.worker.model, 'gpt-5.6-luna');
   assert.ok(digest.routeContracts.worker.toolCatalogHash);
   assert.ok(digest.routeContracts.reviewer.promptSurfaceHash);
-  assert.ok(digest.routeContracts.debugger.providerToolHash);
+  assert.ok(digest.routeContracts['heavy-worker'].providerToolHash);
 });

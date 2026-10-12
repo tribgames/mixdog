@@ -306,7 +306,7 @@ $contractArgs = @(
     "--model", [string]$lead.model,
     "--workflow", "headless"
 )
-foreach ($slot in @('worker', 'heavy-worker', 'reviewer', 'debugger')) {
+foreach ($slot in @('worker', 'heavy-worker', 'reviewer')) {
     $routeSlot = $routeProperty.Value.routes.PSObject.Properties[$slot]
     if ($null -eq $routeSlot -or $null -eq $routeSlot.Value) { continue }
     $contractArgs += @(
