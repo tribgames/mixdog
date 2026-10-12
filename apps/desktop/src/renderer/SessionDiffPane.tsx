@@ -1,5 +1,5 @@
 import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronUp, RefreshCw, Undo2 } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { SESSION_DIFF_STYLE_KEY, type Snapshot } from './desktop-types';
 import { diffModeActions, useDiffViewState, type DiffViewState } from './diff-header-controls';
 import { DockHeaderRow } from './pane-dock-chrome';
@@ -30,9 +30,15 @@ function sessionDiffSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
 /** Every state renders inside the same flex-column frame, so an empty, loading
  *  or failed pane centres its message on both axes exactly like the other
  *  dock panes (user: 비어있을때 문구는 상하정렬). */
-function SessionDiffFrame({ children }: { children: ReactNode }) {
+function SessionDiffFrame({
+  children,
+  onKeyDown,
+}: {
+  children: ReactNode;
+  onKeyDown?(event: KeyboardEvent<HTMLElement>): void;
+}) {
   return (
-    <section className="session-diff-pane" aria-label={t('Session diff')}>
+    <section className="session-diff-pane" aria-label={t('Session diff')} onKeyDown={onKeyDown}>
       {children}
     </section>
   );
@@ -132,14 +138,18 @@ export function SessionDiffPane({
   const additions = rows.reduce((total, row) => total + row.additions, 0);
   const deletions = rows.reduce((total, row) => total + row.deletions, 0);
 
-  // Drill-down: the first file's diff shows directly; ‹ swaps to the list and
-  // choosing a file swaps back. The two are never on screen together.
-  const [listOpen, setListOpen] = useState(false);
+  // Drill-down: ‹ (or Escape) swaps a file's diff to the list and choosing a
+  // file swaps back. The two are never on screen together.
+  // `null` = not chosen yet: several changed files open on the list, a single
+  // one opens straight on its diff.
+  const [listChoice, setListChoice] = useState<boolean | null>(null);
+  const listOpen = listChoice ?? rows.length > 1;
+  const setListOpen = setListChoice;
   const [selectedPath, setSelectedPath] = useState('');
   const [revertError, setRevertError] = useState('');
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger; a session switch resets the drill-down.
   useEffect(() => {
-    setListOpen(false);
+    setListChoice(null);
     setSelectedPath('');
     setRevertError('');
   }, [sessionId]);
@@ -323,7 +333,14 @@ export function SessionDiffPane({
     );
   }
   return (
-    <SessionDiffFrame>
+    <SessionDiffFrame
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !inDiff || event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setListOpen(true);
+      }}
+    >
       {header}
       {result?.patchTruncated && <p className="session-diff-notice">{t('The session diff was truncated.')}</p>}
       {revertError && <p className="session-diff-notice">{revertError}</p>}

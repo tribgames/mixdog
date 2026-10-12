@@ -120,6 +120,11 @@ test('file list rows pick a file; the pane drills list → diff', async () => {
   try {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
     const q = (selector) => view.container.querySelector(selector);
+    // Several changed files: the pane opens on the list, not on one diff.
+    assert.ok(q('.session-diff-files'));
+    assert.equal(q('.session-diff-body'), null);
+    assert.equal(view.container.querySelectorAll('.changes-file-main').length, 2);
+    await view.click(view.container.querySelectorAll('.changes-file-main')[0]);
     assert.equal(q('.session-diff-files'), null);
     assert.ok(q('.session-diff-body'));
     assert.equal(q('.session-diff-path').textContent, 'cart.js');
@@ -129,6 +134,32 @@ test('file list rows pick a file; the pane drills list → diff', async () => {
     await view.click(view.container.querySelectorAll('.changes-file-main')[1]);
     assert.equal(q('.session-diff-files'), null);
     assert.equal(q('.session-diff-path').textContent, 'receipt.js');
+    // Escape is the keyboard way back to the list.
+    await act(async () => {
+      q('.session-diff-body').dispatchEvent(new view.container.ownerDocument.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    assert.ok(q('.session-diff-files'));
+  } finally {
+    await view.done();
+  }
+});
+
+test('a single changed file opens straight on its diff', async () => {
+  const view = await mount(h(SessionDiffPane, { sessionId: 'sd-single', active: true, onClose() {} }), (win) => {
+    win.mixdogDesktop = {
+      invokeCapability: async () => ({
+        value: {
+          supported: true,
+          files: [{ path: 'src/cart.js', status: 'M', additions: 2, deletions: 1, binary: false }],
+          patch: PATCH,
+        },
+      }),
+    };
+  });
+  try {
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.equal(view.container.querySelector('.session-diff-files'), null);
+    assert.equal(view.container.querySelector('.session-diff-path').textContent, 'cart.js');
   } finally {
     await view.done();
   }
