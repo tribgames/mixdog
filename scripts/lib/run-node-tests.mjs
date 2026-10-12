@@ -77,7 +77,7 @@ const positiveInt = (value) => {
 // capped share; with none of them Node's default (cores-1) stands.
 // Returns the flag to add, or null.
 export function testConcurrencyArg(nodeArgs, env = process.env, parallelism = availableParallelism()) {
-  if (nodeArgs.some((arg) => arg === '--test-concurrency' || arg.startsWith('--test-concurrency='))) return null;
+  if (nodeArgs.some(concurrencyFlag)) return null;
   const explicit = positiveInt(env.MIXDOG_TEST_CONCURRENCY);
   if (explicit) return `--test-concurrency=${explicit}`;
   const cap = positiveInt(env.MIXDOG_SHELL_CONCURRENCY_CAP);
@@ -109,9 +109,7 @@ function concurrencyOf(runArgs, fileArgs) {
 }
 
 function withoutConcurrency(args) {
-  return args.flatMap((arg, i) =>
-    concurrencyFlag(arg) ? [] : i > 0 && args[i - 1] === '--test-concurrency' ? [] : [arg]
-  );
+  return args.filter((arg, i) => !concurrencyFlag(arg) && !(i > 0 && args[i - 1] === '--test-concurrency'));
 }
 
 export const DEFAULT_TEST_TIMEOUT_MS = 120_000;
@@ -396,7 +394,7 @@ export async function runNodeTests(
   // across them instead of multiplied.
   const overlapped = batches.length > 1;
   const totalConcurrency = overlapped ? concurrencyOf(runArgs, fileArgs) : 0;
-  const batchRunArgs = (index) => {
+  const batchRunArgs = () => {
     if (!overlapped) return runArgs;
     const share = Math.max(1, Math.ceil(totalConcurrency / batches.length));
     return [...withoutConcurrency(runArgs), `--test-concurrency=${share}`];
@@ -440,7 +438,7 @@ export async function runNodeTests(
   const outcomes = await Promise.all(
     batches.map((batch, index) =>
       spawnBatch(
-        [...batchRunArgs(index), `--test-reporter-destination=${batchLogOf(index)}`, ...batch],
+        [...batchRunArgs(), `--test-reporter-destination=${batchLogOf(index)}`, ...batch],
         childEnv(batchFailuresOf(index)),
         batchOptions(batch, batchFailuresOf(index), !overlapped)
       )
