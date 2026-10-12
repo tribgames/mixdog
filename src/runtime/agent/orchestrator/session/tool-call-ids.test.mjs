@@ -46,18 +46,90 @@ test('a provider that reuses a tool call id across turns still gets every result
   assert.deepEqual([...new Set(results)].sort(), [...calls].sort());
 });
 
+const call = (id) => ({ id, name: 't', arguments: {} });
+const turn = (...ids) => [
+  { role: 'assistant', content: '', toolCalls: ids.map(call) },
+  ...ids.map((id) => ({ role: 'tool', toolCallId: id, content: 'r' })),
+];
+const withHistory = (...ids) => [{ role: 'user', content: 'x' }, ...turn(...ids)];
+const idsOf = (calls) => calls.map((c) => c.id);
+const assertUnique = (ids) => assert.equal(new Set(ids).size, ids.length, `ids must be unique: ${ids}`);
+
 test('resolver: only ids the history already carries are renamed, consistently within a round', () => {
-  const history = [
-    { role: 'user', content: 'x' },
-    { role: 'assistant', content: '', toolCalls: [{ id: 'a', name: 't', arguments: {} }] },
-    { role: 'tool', toolCallId: 'a', content: 'r' },
-    { role: 'assistant', content: '', toolCalls: [{ id: 'a-2', name: 't', arguments: {} }] },
-    { role: 'tool', toolCallId: 'a-2', content: 'r' },
-  ];
-  const resolve = createToolCallIdResolver(history);
-  const streamed = resolve({ id: 'a', name: 't', arguments: {} });
-  assert.equal(streamed.id, 'a-3');
-  assert.equal(resolve({ id: 'a', name: 't', arguments: {} }).id, 'a-3', 'the same call in the final response');
-  assert.equal(resolve({ id: 'b', name: 't', arguments: {} }).id, 'b');
+  const resolve = createToolCallIdResolver([...withHistory('a'), ...turn('a-2')]);
+  const streamed = call('a');
+  assert.equal(resolve(streamed).id, 'a-3');
+  assert.equal(resolve(streamed).id, 'a-3', 'the same call object resolves again to the same id');
+  const [final] = resolve.all([call('a')]);
+  assert.equal(final.id, 'a-3', 'the final-batch copy of the streamed call');
+  assert.equal(resolve(call('b')).id, 'b');
   assert.equal(resolve({ name: 't', arguments: {} }).id, undefined);
+});
+
+test('resolver: history {a}, batch {a, a-2} yields two distinct ids', () => {
+  const batch = [call('a'), call('a-2')];
+  createToolCallIdResolver(withHistory('a')).all(batch);
+  assert.deepEqual(idsOf(batch), ['a-3', 'a-2'], 'the unclaimed a-2 keeps its id, the clash moves past it');
+});
+
+test('resolver: batch {a-2, a} in either order stays distinct', () => {
+  const batch = [call('a-2'), call('a')];
+  createToolCallIdResolver(withHistory('a')).all(batch);
+  assert.deepEqual(idsOf(batch), ['a-2', 'a-3']);
+  const noHistory = [call('a-2'), call('a')];
+  createToolCallIdResolver([{ role: 'user', content: 'x' }]).all(noHistory);
+  assert.deepEqual(idsOf(noHistory), ['a-2', 'a']);
+});
+
+test('resolver: batch {a, a} gets two distinct ids, with and without history', () => {
+  const fresh = [call('a'), call('a')];
+  createToolCallIdResolver([{ role: 'user', content: 'x' }]).all(fresh);
+  assert.deepEqual(idsOf(fresh), ['a', 'a-2']);
+  const clash = [call('a'), call('a')];
+  createToolCallIdResolver(withHistory('a')).all(clash);
+  assert.deepEqual(idsOf(clash), ['a-2', 'a-3']);
+});
+
+test('resolver: streamed calls (clones) and the final batch agree and stay distinct', () => {
+  const resolve = createToolCallIdResolver(withHistory('a'));
+  const streamed = [resolve(call('a')), resolve(call('a-2')), resolve(call('a'))];
+  assertUnique(idsOf(streamed));
+  const final = [call('a'), call('a-2'), call('a')];
+  resolve.all(final);
+  assert.deepEqual(idsOf(final), idsOf(streamed), 'result pairing follows the streamed ids');
+  assertUnique(idsOf(final));
+  assert.ok(!idsOf(final).includes('a'), 'the id the history holds is never reused');
+});
+
+test('resolver: a streamed object that is also in the final batch keeps its renamed id', () => {
+  const resolve = createToolCallIdResolver(withHistory('a'));
+  const shared = resolve(call('a'));
+  const other = call('a');
+  const batch = [shared, other];
+  resolve.all(batch);
+  assert.equal(batch[0].id, shared.id);
+  assertUnique(idsOf(batch));
+});
+
+test('resolver: repeated rounds that all answer the same id never collide', () => {
+  const messages = [{ role: 'user', content: 'x' }];
+  const seen = [];
+  for (let round = 0; round < 5; round += 1) {
+    const batch = [call('call_1'), call('call_1')];
+    createToolCallIdResolver(messages).all(batch);
+    seen.push(...idsOf(batch));
+    messages.push(...turn(...idsOf(batch)));
+  }
+  assertUnique(seen);
+  assert.equal(seen.length, 10);
+  const streamedRounds = [{ role: 'user', content: 'x' }];
+  const streamedSeen = [];
+  for (let round = 0; round < 5; round += 1) {
+    const resolve = createToolCallIdResolver(streamedRounds);
+    const batch = [resolve(call('call_1')), resolve(call('call_1-2'))];
+    resolve.all([call('call_1'), call('call_1-2')]);
+    streamedSeen.push(...idsOf(batch));
+    streamedRounds.push(...turn(...idsOf(batch)));
+  }
+  assertUnique(streamedSeen);
 });

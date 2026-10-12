@@ -18,7 +18,7 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   const { opts, messages, tools, sessionId, sessionRef, signal, response, suppressMidTurnText } = state;
   state.noToolTurn.noteToolCallTurn();
   const calls = response.toolCalls;
-  for (const call of calls) round.resolveToolCallId(call);
+  round.resolveToolCallId.all(calls);
   state.toolCallsTotal += calls.length;
   // Surface any mid-turn assistant text (preamble before a tool call) to the
   // UI. Providers that stream via onTextDelta already rendered it; providers
