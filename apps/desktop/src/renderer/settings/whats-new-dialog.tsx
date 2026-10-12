@@ -14,7 +14,11 @@ import './changelog-dialog.css';
 /** The running version's section in the UI language, parsed and ready to paint. */
 export async function prepareWhatsNew(): Promise<ChangelogRelease | undefined> {
   const release = selectWhatsNew(await loadReleases(), appVersion);
-  if (release) await parseStreamingMarkdownAst(release.body).then(() => undefined, () => undefined);
+  if (release)
+    await parseStreamingMarkdownAst(release.body).then(
+      () => undefined,
+      () => undefined
+    );
   return release;
 }
 

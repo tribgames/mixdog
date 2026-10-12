@@ -229,11 +229,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       >
         <GoalStateIcon kind={kind} label={stateLabel} />
         <GoalProgress progress={progress} />
-        <span
-          className="session-goal-objective"
-          data-label={showStateLabel ? 'status' : 'title'}
-          title={objective}
-        >
+        <span className="session-goal-objective" data-label={showStateLabel ? 'status' : 'title'} title={objective}>
           {showStateLabel ? stateLabel : title}
         </span>
         <span className="session-goal-meta">
@@ -294,13 +290,21 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                           data-status={taskStatus}
                           data-stalled={stalled ? 'true' : undefined}
                         >
-                          <span>{stalled ? <MxIcon name="goal-blocked" size={14} /> : <GoalTaskGlyph status={taskStatus} />}</span>
+                          <span>
+                            {stalled ? <MxIcon name="goal-blocked" size={14} /> : <GoalTaskGlyph status={taskStatus} />}
+                          </span>
                           <div>
                             <span>{String(task.text || '')}</span>
                           </div>
-                          {stalled && <em className="session-goal-badge" data-tone="blocked">{t('Blocked')}</em>}
+                          {stalled && (
+                            <em className="session-goal-badge" data-tone="blocked">
+                              {t('Blocked')}
+                            </em>
+                          )}
                           {taskStatus === 'awaiting_approval' && (
-                            <em className="session-goal-badge" data-tone="waiting">{t('Needs your answer')}</em>
+                            <em className="session-goal-badge" data-tone="waiting">
+                              {t('Needs your answer')}
+                            </em>
                           )}
                         </li>
                       );

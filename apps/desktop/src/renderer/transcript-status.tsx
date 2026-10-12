@@ -358,12 +358,17 @@ export function LiveActivity({
   });
   // The TUI formats these parts as lowercase English; the desktop translates them.
   const thinkingLabel = (() => {
-    const parts = meta.thinkingParts as { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null;
+    const parts = meta.thinkingParts as
+      | { kind: 'thinking'; effort: string }
+      | { kind: 'thought'; seconds: number }
+      | null;
     if (!parts) return '';
     if (parts.kind === 'thought') return t('Thought for {{seconds}}s', { seconds: parts.seconds });
     // The effort word is an untranslated name, spelled like the model chip's.
     const effortWord = modelRouteDisplayParts('', parts.effort).effort;
-    return effortWord ? t('Thinking ({{effort}})', { effort: effortWord }) : t('Thinking (spinner)', { defaultValue: 'Thinking' });
+    return effortWord
+      ? t('Thinking ({{effort}})', { effort: effortWord })
+      : t('Thinking (spinner)', { defaultValue: 'Thinking' });
   })();
   const tokensLabel = meta.showTokens ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
   const activityMeta = [elapsed, tokensLabel, thinkingLabel].filter(Boolean).join(' · ');
@@ -635,4 +640,3 @@ export function CompletionStatus({
     </div>
   );
 }
-

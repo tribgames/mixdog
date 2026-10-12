@@ -232,44 +232,44 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     </div>
   ) : (
     settings && (
-    <div className="conn-card">
-      <ConnRow
-        icon={<Monitor size={16} aria-hidden="true" />}
-        title={settings.name}
-        meta={
-          settings.name === settings.defaultName
-            ? t('This PC · Default name (computer name)')
-            : t('This PC · Computer name {{name}}', { name: settings.defaultName })
-        }
-        actions={
-          <button type="button" className="conn-btn conn-btn--sm" onClick={() => setDialog({ kind: 'rename-self' })}>
-            {t('Rename')}
-          </button>
-        }
-      />
-      <div className="conn-row">
-        <span className="conn-tile">
-          <Wifi size={16} aria-hidden="true" />
-        </span>
-        <div className="conn-row-text">
-          <div className="conn-row-title">
-            <span>{t('Use this PC from other devices')}</span>
-          </div>
-          <div className="conn-row-meta">
-            {enabled
-              ? t('Phones, browsers and other PCs can connect.')
-              : t('Off. Connected devices can’t use this PC for now.')}
-          </div>
-        </div>
-        <CompactSwitch
-          label={t('Use this PC from other devices')}
-          checked={enabled}
-          disabled={toggling}
-          optimistic={false}
-          onChange={toggle}
+      <div className="conn-card">
+        <ConnRow
+          icon={<Monitor size={16} aria-hidden="true" />}
+          title={settings.name}
+          meta={
+            settings.name === settings.defaultName
+              ? t('This PC · Default name (computer name)')
+              : t('This PC · Computer name {{name}}', { name: settings.defaultName })
+          }
+          actions={
+            <button type="button" className="conn-btn conn-btn--sm" onClick={() => setDialog({ kind: 'rename-self' })}>
+              {t('Rename')}
+            </button>
+          }
         />
+        <div className="conn-row">
+          <span className="conn-tile">
+            <Wifi size={16} aria-hidden="true" />
+          </span>
+          <div className="conn-row-text">
+            <div className="conn-row-title">
+              <span>{t('Use this PC from other devices')}</span>
+            </div>
+            <div className="conn-row-meta">
+              {enabled
+                ? t('Phones, browsers and other PCs can connect.')
+                : t('Off. Connected devices can’t use this PC for now.')}
+            </div>
+          </div>
+          <CompactSwitch
+            label={t('Use this PC from other devices')}
+            checked={enabled}
+            disabled={toggling}
+            optimistic={false}
+            onChange={toggle}
+          />
+        </div>
       </div>
-    </div>
     )
   );
 

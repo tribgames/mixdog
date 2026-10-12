@@ -58,7 +58,10 @@ export function reportWhatsNew(
       ...(detail?.reason ? { reason: detail.reason } : {}),
       ...(error === undefined
         ? {}
-        : { errorName: error instanceof Error ? error.name : 'Error', message: String((error as Error)?.message ?? error) }),
+        : {
+            errorName: error instanceof Error ? error.name : 'Error',
+            message: String((error as Error)?.message ?? error),
+          }),
     });
   } catch {
     /* diagnostics only */
