@@ -95,6 +95,7 @@ function webhookMeta(webhook: RecordValue) {
             model={route.model}
             effort={route.effort}
             fast={route.fast}
+            ultra={route.ultra}
             blue={route.blue}
             autoEffortCapable={route.autoEffortCapable}
           />

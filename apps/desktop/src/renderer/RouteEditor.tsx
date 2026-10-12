@@ -39,6 +39,7 @@ import {
   currentViewport,
   moveRouteFocus,
   routeEffortPane,
+  routeSpeedClassName,
   routeSpeedPane,
   routeContextPane,
   routeParameterPane,
@@ -416,7 +417,7 @@ export function RouteEditor({
     hoverSwitchTimer.current = null;
   };
 
-  const row = (id: RouteSheetPane, label: string, value: string, disabled = false) => (
+  const row = (id: RouteSheetPane, label: string, value: ReactNode, disabled = false) => (
     <button
       key={id}
       ref={(node) => {
@@ -615,6 +616,7 @@ export function RouteEditor({
             model={triggerModel}
             effort={autoEffortOn ? '' : effort}
             fast={fast}
+            ultra={speed === 'ultrafast'}
             blue={daybreakOn}
             effortLabel={effortLabel}
           />
@@ -674,7 +676,7 @@ export function RouteEditor({
                     tuningDisabled
                   )
                 )}
-                {rows.includes('speed') && row('speed', t('Speed'), speedLabel, tuningDisabled)}
+                {rows.includes('speed') && row('speed', t('Speed'), <span className={routeSpeedClassName(speed)}>{speedLabel}</span>, tuningDisabled)}
                 {autoEffortRow && autoEffort && (
                   <RouteAutoEffortToggle
                     enabled={autoEffort.enabled}
