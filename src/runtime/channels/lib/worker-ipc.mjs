@@ -14,7 +14,7 @@ export function runWorkerIpc({
   getProvider: _getProvider,
   getConfig: _getConfig,
   handleMemoryCallResponse,
-  handleToolCallWithBridgeRetry,
+  handleToolCall,
   bootProfile,
 }) {
   const sendToParent = (message) =>
@@ -94,7 +94,7 @@ export function runWorkerIpc({
       _inFlightChannelCalls.set(msg.callId, ac);
       let result;
       try {
-        result = await handleToolCallWithBridgeRetry(msg.name, msg.args || {}, ac.signal);
+        result = await handleToolCall(msg.name, msg.args || {}, ac.signal);
       } finally {
         _inFlightChannelCalls.delete(msg.callId);
       }

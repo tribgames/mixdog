@@ -2,8 +2,7 @@ import { readFileSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 
 export const ACTIVATE_TOOL = 'activate_channel_bridge';
-export const REBIND_TOOL = 'rebind_current_transcript';
-export const BINDING_TOOLS = new Set([ACTIVATE_TOOL, REBIND_TOOL]);
+export const BINDING_TOOLS = new Set([ACTIVATE_TOOL]);
 
 export function remoteSessionIdFromBinding(name, args) {
   if (!BINDING_TOOLS.has(name) || !args || typeof args !== 'object') return null;

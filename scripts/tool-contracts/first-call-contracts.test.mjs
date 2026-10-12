@@ -7,7 +7,6 @@ import { CODE_GRAPH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools
 import { PATCH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { TOOL_DEFS as memory } from '../../src/runtime/memory/tool-defs.mjs';
 import { TOOL_DEFS as web } from '../../src/runtime/web-search/tool-defs.mjs';
-import { TOOL_DEFS as channels } from '../../src/runtime/channels/tool-defs.mjs';
 import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs.mjs';
 import { TOOL_DEFS as computer } from '../../src/runtime/computer-bridge/tool-defs.mjs';
 import { TOOL_DEFS as office } from '../../src/runtime/office/tool-defs.mjs';
@@ -34,7 +33,6 @@ const catalog = [
   ...PATCH_TOOL_DEFS,
   ...memory,
   ...web,
-  ...channels,
   ...browser,
   ...computer,
   ...office,

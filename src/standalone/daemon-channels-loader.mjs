@@ -46,14 +46,13 @@ export function createChannelsRuntimeLoader({ log, onLoaded = () => {}, setOwner
 
   async function handleCall(name, args, ctx) {
     const module = await ensure();
-    // Accepted owner controls refresh active-instance context. The transport
-    // admits rebind only for the current manual owner.
+    // Accepted owner controls refresh active-instance context.
     if (ctx && BINDING_TOOLS.has(name)) {
       try {
         setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd });
       } catch {}
     }
-    return module.handleToolCallWithBridgeRetry(name, args || {});
+    return module.handleToolCall(name, args || {});
   }
 
   return { ensure, start, handleCall };
