@@ -646,7 +646,7 @@ function assertReleaseWorkflowContract(release) {
   );
   assert.match(
     release,
-    /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay\][\s\S]*Download staged production relay/
+    /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay,\s*android-link\][\s\S]*Download staged production relay/
   );
   // A partial re-run preserves stage-relay and re-runs deploy-relay as a
   // dependent of the failed job, so an attempt-scoped artifact name would

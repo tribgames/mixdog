@@ -15,6 +15,18 @@ on:
         type: choice
         options: [auto, force, skip]
         default: auto
+      mobile:
+        description: "Mobile apps (Android APK + iOS TestFlight): auto ships when mobile sources changed since the last mobile-v* tag"
+        required: true
+        type: choice
+        options: [auto, force, skip]
+        default: auto
+      mobile_bump:
+        description: "Mobile version increment from the last mobile-v* tag"
+        required: true
+        type: choice
+        options: [patch, minor]
+        default: patch
 
 permissions:
   contents: read
@@ -52,6 +64,8 @@ jobs:
       voice_runtime_needed: ${{ steps.plan.outputs.voice_runtime_needed }}
       critical_changed: ${{ steps.plan.outputs.critical_changed }}
       run_critical: ${{ steps.plan.outputs.run_critical }}
+      mobile_release: ${{ steps.mobile.outputs.mobile_release }}
+      mobile_version: ${{ steps.mobile.outputs.mobile_version }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -308,6 +322,15 @@ jobs:
           console.log(JSON.stringify({ mode, resume, preBumped, ...values }, null, 2));
           NODE
 
+      # Mobile apps ship with this release when their sources changed since the
+      # newest mobile-v* tag; the version is that tag's next patch (or minor).
+      - name: Plan the mobile release
+        id: mobile
+        env:
+          MOBILE_MODE: ${{ inputs.mobile }}
+          MOBILE_BUMP: ${{ inputs.mobile_bump }}
+        run: node scripts/mobile-release.mjs plan
+
   prepare-native:
     name: prepare-native-tags
     needs: plan
@@ -561,6 +584,28 @@ jobs:
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  # iOS ships beside the release, not inside it: a failed upload or beta-review
+  # submission fails this job (and the run) loudly but holds back neither the
+  # desktop publish nor the relay, and TestFlight review is never awaited.
+  # Android ships inside release.yml because the relay deploy waits for it.
+  mobile-ios:
+    name: release-mobile-ios
+    needs: [plan, prepare-app]
+    # prepare-app's transitive skips would fail the implicit success().
+    if: ${{ !cancelled() && needs.prepare-app.result == 'success' && needs.plan.outputs.mobile_release == 'true' }}
+    uses: ./.github/workflows/mobile-ios.yml
+    permissions:
+      contents: read
+      actions: read # callee restores the previous run's signing-state artifact
+    with:
+      version: ${{ needs.plan.outputs.mobile_version }}
+      ref: ${{ needs.prepare-app.outputs.sha }}
+    secrets:
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ secrets.TESTFLIGHT_EXTERNAL_GROUP_ID }}
+
   release:
     name: release-all-platforms
     needs: [plan, prepare-app]
@@ -577,6 +622,7 @@ jobs:
       tag: ${{ needs.plan.outputs.app_tag }}
       ref: ${{ needs.prepare-app.outputs.sha }}
       run_critical: ${{ needs.plan.outputs.run_critical == 'true' }}
+      mobile_version: ${{ needs.plan.outputs.mobile_version }} # empty: no mobile release
     secrets: inherit
 
   # Last job: confirm what users will actually see once publish and the relay

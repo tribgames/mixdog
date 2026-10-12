@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DOMAIN="${1:?usage: deploy-release.sh <relay-domain> <release-tag> [desktop-version]}"
-RELEASE_TAG="${2:?usage: deploy-release.sh <relay-domain> <release-tag> [desktop-version]}"
+DOMAIN="${1:?usage: deploy-release.sh <relay-domain> <release-tag> [desktop-version] [android-url]}"
+RELEASE_TAG="${2:?usage: deploy-release.sh <relay-domain> <release-tag> [desktop-version] [android-url]}"
 # The desktop build the uploaded renderer belongs to. It names the renderer as
 # an ADDITIONAL side-by-side release; a relay-only deploy (renderer reused)
 # passes none and registers nothing new.
 DESKTOP_VERSION="${3:-}"
+# The Android release the /app install page links (lib/app-page.mjs reads it
+# from mobile-release.json at startup). Deploy passes the newest release whose
+# APK it verified downloadable; without one the installed link is kept.
+ANDROID_URL="${4:-}"
 DATA_DIR=/var/lib/mixdog-relay
 [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]
 [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 [[ -z "$DESKTOP_VERSION" || "$DESKTOP_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$ ]]
+[[ -z "$ANDROID_URL" || "$ANDROID_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases(/tag/mobile-v[0-9]+\.[0-9]+\.[0-9]+)?$ ]]
 [[ "$(id -u)" = 0 ]]
 
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -73,6 +78,12 @@ mkdir -p "$NEXT_DIR"
 cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$NEXT_DIR/"
 cp -r "$SRC_DIR/lib" "$NEXT_DIR/"
 cp -r "$SRC_DIR/deploy" "$NEXT_DIR/"
+if [[ -n "$ANDROID_URL" ]]; then
+	# The pattern above admits no character that needs JSON escaping.
+	printf '{"androidUrl":"%s"}\n' "$ANDROID_URL" >"$NEXT_DIR/mobile-release.json"
+elif [[ -f "$INSTALL_DIR/mobile-release.json" ]]; then
+	cp "$INSTALL_DIR/mobile-release.json" "$NEXT_DIR/"
+fi
 if [[ "$RENDERER_MODE" = "delta" ]]; then
 	node "$SRC_DIR/deploy/renderer-delta.mjs" --action=apply \
 		"--base=$INSTALL_DIR/renderer" \

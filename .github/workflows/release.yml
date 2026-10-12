@@ -26,6 +26,11 @@ on:
         required: false
         type: boolean
         default: true
+      mobile_version:
+        description: "Android app version X.Y.Z to publish as mobile-vX.Y.Z before the relay deploy; empty for none"
+        required: false
+        type: string
+        default: ""
     secrets:
       NPM_TOKEN:
         required: true
@@ -52,6 +57,17 @@ on:
       AZURE_CLIENT_ID:
         required: false
       AZURE_CLIENT_SECRET:
+        required: false
+      # Android APK signing and Firebase config; only read with mobile_version.
+      ANDROID_KEYSTORE_B64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+      FIREBASE_GOOGLE_SERVICES_JSON_B64:
         required: false
 
 # Read-only by default; jobs that create/publish releases or use npm
@@ -598,9 +614,65 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
+  # The Android APK release ships with the app release when Deploy planned one
+  # (scripts/mobile-release.mjs). It runs beside the desktop build and gates
+  # only the relay deploy below, whose /app page links it.
+  mobile-android:
+    name: release-mobile-android
+    if: ${{ inputs.mobile_version != '' }}
+    uses: ./.github/workflows/mobile-android.yml
+    permissions:
+      contents: write # callee creates the mobile-v* release and its tag
+    with:
+      version: ${{ inputs.mobile_version }}
+      ref: ${{ inputs.ref }}
+    secrets:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      FIREBASE_GOOGLE_SERVICES_JSON_B64: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON_B64 }}
+
+  # The Android release /app links: the newest published mobile-v* release
+  # whose APK downloads, re-checked here. It runs once the Android release is
+  # done; when that was skipped or failed, the newest earlier release stays
+  # linked, never one that is missing.
+  android-link:
+    name: resolve-android-install-link
+    needs: [mobile-android]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      url: ${{ steps.link.outputs.url }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - name: Resolve the newest downloadable Android release
+        id: link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MOBILE_VERSION: ${{ inputs.mobile_version }}
+          ANDROID_RESULT: ${{ needs.mobile-android.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/mobile-release.mjs link
+          linked="$(sed -n 's/^tag=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+          if [[ -n "$MOBILE_VERSION" && "$linked" != "mobile-v${MOBILE_VERSION}" ]]; then
+            echo "::error title=Android release not linked::mobile-v${MOBILE_VERSION} (${ANDROID_RESULT}) is not downloadable; /app keeps linking ${linked:-the releases list}."
+          fi
+
   deploy-relay:
     name: deploy-production-web-relay
-    needs: [publish, stage-relay]
+    needs: [publish, stage-relay, android-link]
+    # android-link follows a possibly skipped Android release; that transitive
+    # skip would fail the implicit success().
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.stage-relay.result == 'success' && needs.android-link.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     environment: production
@@ -628,23 +700,27 @@ jobs:
           RELAY_USER: ${{ vars.RELAY_USER }}
           RELAY_DOMAIN: ${{ vars.RELAY_DOMAIN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          ANDROID_URL: ${{ needs.android-link.outputs.url }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$RELAY_PORT" =~ ^[0-9]+$ ]]
+          [[ "$ANDROID_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases(/tag/mobile-v[0-9]+\.[0-9]+\.[0-9]+)?$ ]]
           DESKTOP_VERSION="${RELEASE_TAG#v}"
           ARCHIVE="/tmp/mixdog-relay-${RELEASE_TAG}.tar.gz"
           REMOTE_DIR="/tmp/mixdog-relay-${RELEASE_TAG}"
           tar -czf "$ARCHIVE" -C apps/relay .
           scp -P "$RELAY_PORT" "$ARCHIVE" "$RELAY_USER@$RELAY_HOST:$ARCHIVE"
           ssh -p "$RELAY_PORT" "$RELAY_USER@$RELAY_HOST" \
-            "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf '$ARCHIVE' -C '$REMOTE_DIR'; bash '$REMOTE_DIR/deploy/deploy-release.sh' '$RELAY_DOMAIN' '$RELEASE_TAG' '$DESKTOP_VERSION'; rm -rf '$REMOTE_DIR' '$ARCHIVE'"
+            "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf '$ARCHIVE' -C '$REMOTE_DIR'; bash '$REMOTE_DIR/deploy/deploy-release.sh' '$RELAY_DOMAIN' '$RELEASE_TAG' '$DESKTOP_VERSION' '$ANDROID_URL'; rm -rf '$REMOTE_DIR' '$ARCHIVE'"
           EXPECTED=$(sha256sum apps/relay/renderer/index.html | awk '{print $1}')
           ACTUAL=$(ssh -p "$RELAY_PORT" "$RELAY_USER@$RELAY_HOST" \
             "sha256sum /opt/mixdog-relay/renderer/index.html | awk '{print \$1}'")
           test "$EXPECTED" = "$ACTUAL"
           curl --fail --silent --show-error "https://$RELAY_DOMAIN/healthz" | grep -q '"status":"ok"'
+          app_page="$(curl --fail --silent --show-error "https://$RELAY_DOMAIN/app")"
+          grep -qF "href=\"$ANDROID_URL\"" <<<"$app_page"
 
   release-timings:
     if: always()

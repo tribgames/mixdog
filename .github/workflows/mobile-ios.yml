@@ -1,7 +1,8 @@
 # Mixdog iOS app: creates a short-lived Apple Distribution certificate and App
 # Store profiles through the App Store Connect API key (nothing is stored in
-# the repo), archives, and uploads the build to TestFlight. Runs on mobile-v*
-# tags and by hand.
+# the repo), archives, and uploads the build to TestFlight. Deploy calls it with
+# every release whose mobile sources changed (see scripts/mobile-release.mjs);
+# it also runs on mobile-v* tags and by hand.
 #
 # Revocation is deferred to the next run: App Store Connect processes the
 # upload asynchronously, and a certificate revoked right after the upload fails
@@ -33,6 +34,36 @@ on:
         required: false
         type: boolean
         default: true
+      ref:
+        description: "Commit to build (default: the selected branch or tag)"
+        required: false
+        type: string
+  # Deploy's call. The mobile-v* tag Deploy's Android release creates is made
+  # with the workflow token, which starts no workflow run, so the tag trigger
+  # above does not upload the same version again.
+  workflow_call:
+    inputs:
+      version:
+        description: "App version X.Y.Z"
+        required: true
+        type: string
+      ref:
+        description: "Release commit SHA to build"
+        required: true
+        type: string
+      submit_review:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      APPLE_API_KEY_P8:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      TESTFLIGHT_EXTERNAL_GROUP_ID:
+        required: false
 
 permissions:
   contents: read
@@ -54,6 +85,9 @@ jobs:
       INPUT_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Empty outside Deploy's call: the triggering tag or branch.
+          ref: ${{ inputs.ref }}
 
       - name: Select Xcode 26 (App Store Connect requires the iOS 26 SDK)
         run: |
@@ -66,10 +100,12 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#mobile-v}"
-          elif [ -n "${INPUT_VERSION}" ]; then
+          # A called run inherits the caller's ref (a branch), so an explicit
+          # version wins; a tag push carries no inputs.
+          if [ -n "${INPUT_VERSION}" ]; then
             version="${INPUT_VERSION}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#mobile-v}"
           else
             version="$(node -p "require('./package.json').version")"
           fi
@@ -78,6 +114,10 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Build numbers must rise within a version across every route that
+          # uploads it (Deploy, tag and manual runs number their runs
+          # separately, and a job re-run keeps its run number): UTC minutes.
+          echo "build=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -148,7 +188,6 @@ jobs:
         run: |
           set -euo pipefail
           # Release signing is manual (Apple Distribution + the CI profiles).
-          # Build numbers must rise for a given version: the run number does.
           xcodebuild archive \
             -workspace ios/App/App.xcworkspace \
             -scheme App \
@@ -156,7 +195,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Mixdog.xcarchive" \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
-            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}"
 
       - name: Export and upload to TestFlight
         env:
@@ -201,7 +240,17 @@ jobs:
           TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.TESTFLIGHT_EXTERNAL_GROUP_ID || secrets.TESTFLIGHT_EXTERNAL_GROUP_ID }}
         run: |
           set -euo pipefail
-          python3 scripts/testflight-submit.py "${{ steps.version.outputs.version }}" "${{ github.run_number }}"
+          python3 scripts/testflight-submit.py "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.build }}"
+
+      # Deploy does not hold the desktop release on iOS, so a failed upload or
+      # submission must be impossible to miss in the run summary.
+      - name: Report a failed TestFlight release
+        if: failure()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "::error title=iOS TestFlight release failed::Mixdog iOS ${VERSION:-?} was not uploaded or not submitted for beta review. Desktop and Android releases are unaffected; re-run this job once the cause is fixed."
+          printf '### iOS TestFlight release failed\n\nMixdog iOS %s was not uploaded or not submitted for beta review. Desktop and Android releases are unaffected; re-run this job once the cause is fixed.\n' "${VERSION:-?}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove local signing material (revocation is deferred to the next run)
         id: signing-cleanup

@@ -1,6 +1,8 @@
 # Mixdog Android app: builds the release APK signed with the upload keystore and
 # attaches it to a GitHub Release tagged mobile-vX.Y.Z (the app's own update
-# check reads these releases). Runs on mobile-v* tags and by hand.
+# check reads these releases). Deploy calls it with every release whose mobile
+# sources changed (see scripts/mobile-release.mjs); it also runs on mobile-v*
+# tags and by hand.
 #
 # Secrets: ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
 # ANDROID_KEY_PASSWORD, FIREBASE_GOOGLE_SERVICES_JSON_B64. See apps/mobile/README.md.
@@ -22,6 +24,48 @@ on:
         required: false
         type: boolean
         default: false
+      draft:
+        description: "Create a new release as a hidden draft (publish it by hand later)"
+        required: false
+        type: boolean
+        default: true
+      ref:
+        description: "Commit to build (default: the selected branch or tag)"
+        required: false
+        type: string
+  # Deploy's call publishes directly. Creating that release creates its
+  # mobile-v* tag at `ref` through the API with the workflow token, and events
+  # caused by that token start no workflow run, so the tag trigger above never
+  # builds the same version a second time.
+  workflow_call:
+    inputs:
+      version:
+        description: "App version X.Y.Z (the release tag becomes mobile-vX.Y.Z)"
+        required: true
+        type: string
+      ref:
+        description: "Release commit SHA to build; a new mobile-v* tag points at it"
+        required: true
+        type: string
+      publish:
+        required: false
+        type: boolean
+        default: true
+      draft:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      ANDROID_KEYSTORE_B64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+      FIREBASE_GOOGLE_SERVICES_JSON_B64:
+        required: false
 
 permissions:
   contents: write # release creation + asset upload
@@ -39,20 +83,32 @@ jobs:
         working-directory: apps/mobile
     env:
       INPUT_VERSION: ${{ inputs.version }}
+      INPUT_PUBLISH: ${{ inputs.publish }}
+      INPUT_DRAFT: ${{ inputs.draft }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Empty outside Deploy's call: the triggering tag or branch.
+          ref: ${{ inputs.ref }}
 
       - name: Resolve version
         id: version
         working-directory: .
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          # A called run inherits the caller's ref (a branch), so an explicit
+          # version wins; a tag push carries no inputs.
+          if [ -n "${INPUT_VERSION}" ]; then
+            version="${INPUT_VERSION}"
+            publish="${INPUT_PUBLISH}"
+            draft="${INPUT_DRAFT}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             version="${GITHUB_REF_NAME#mobile-v}"
             publish=true
+            draft=true
           else
-            version="${INPUT_VERSION}"
-            publish="${{ inputs.publish }}"
+            echo "A version is required outside a mobile-v* tag run" >&2
+            exit 1
           fi
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Version must be X.Y.Z, got '$version'" >&2
@@ -63,6 +119,7 @@ jobs:
           echo "code=$((major * 1000000 + minor * 1000 + patch))" >> "$GITHUB_OUTPUT"
           echo "tag=mobile-v$version" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -134,17 +191,39 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          DRAFT: ${{ steps.version.outputs.draft }}
+          TARGET_SHA: ${{ inputs.ref || github.sha }}
           APK: ${{ runner.temp }}/Mixdog-${{ steps.version.outputs.version }}.apk
         run: |
           set -euo pipefail
-          # --latest=false: the desktop updater follows the repo's "latest"
-          # release, which must stay a desktop release.
-          # --draft: a new mobile release stays private (repo maintainers only;
-          # the app's update check ignores drafts) until someone publishes it.
+          # publish-asset-release.mjs passes --latest=false and fails if Latest
+          # moved: the desktop updater follows the repo's "latest" release,
+          # which must stay a desktop release.
+          # --draft (tag and manual runs): a new mobile release stays private
+          # (repo maintainers only; the app's update check ignores drafts) until
+          # someone publishes it. Deploy's call publishes directly.
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
+            if [ "$DRAFT" != true ] && [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+              # A draft left by a manual run has no tag yet; publishing creates
+              # it at the release commit.
+              gh release edit "$TAG" --target "$TARGET_SHA"
+              node scripts/publish-asset-release.mjs publish "$TAG"
+            fi
           else
-            node scripts/publish-asset-release.mjs create "$TAG" "$APK" --target "$GITHUB_SHA" --title "Mixdog mobile ${TAG#mobile-v}" \
+            draft_flag=()
+            if [ "$DRAFT" = true ]; then draft_flag=(--draft); fi
+            node scripts/publish-asset-release.mjs create "$TAG" "$APK" --target "$TARGET_SHA" --title "Mixdog mobile ${TAG#mobile-v}" \
               --notes "Mixdog Android app ${TAG#mobile-v}. Install the APK; the iOS build ships through TestFlight." \
-              --draft
+              "${draft_flag[@]}"
           fi
+
+      # The relay's /app page links the release this run published: it must
+      # be public with an APK that actually downloads.
+      - name: Verify the published APK downloads
+        if: steps.version.outputs.publish == 'true' && steps.version.outputs.draft != 'true'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: node scripts/mobile-release.mjs link --require="$TAG"

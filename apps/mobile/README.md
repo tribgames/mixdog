@@ -73,13 +73,23 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
 
 ## CI
 
-- `.github/workflows/mobile-android.yml` — tag `mobile-vX.Y.Z` or manual run
-  (`version`, `publish`). Builds a signed release APK and attaches it to the
-  GitHub Release `mobile-vX.Y.Z` (created non-"latest" so the desktop updater is
-  unaffected).
-- `.github/workflows/mobile-ios.yml` — tag `mobile-vX.Y.Z` or manual run. Archives
-  with automatic signing through the App Store Connect API key and uploads to
-  TestFlight. Build number = workflow run number. Release builds use production
+- Deploy (`.github/workflows/deploy.yml`) ships both apps with the app release
+  when anything they are built from changed since the newest `mobile-v*` tag
+  (`apps/mobile/**` except Markdown, `apps/desktop/src/shared/native-app.ts`,
+  the two mobile workflows; see `scripts/mobile-release.mjs`). Inputs `mobile`
+  (`auto`/`force`/`skip`) and `mobile_bump` (`patch`/`minor`). Deploy publishes
+  the Android release (which creates the `mobile-vX.Y.Z` tag on the release
+  commit) before the relay deploy, and the relay's `/app` page links the newest
+  release whose APK downloads. iOS runs beside the release: its failure fails
+  the run but holds back neither the desktop release nor the relay.
+- `.github/workflows/mobile-android.yml` — Deploy, tag `mobile-vX.Y.Z` or manual
+  run (`version`, `publish`, `draft`, `ref`). Builds a signed release APK and
+  attaches it to the GitHub Release `mobile-vX.Y.Z` (created non-"latest" so the
+  desktop updater is unaffected; tag and manual runs create a hidden draft).
+- `.github/workflows/mobile-ios.yml` — Deploy, tag `mobile-vX.Y.Z` or manual run.
+  Archives with automatic signing through the App Store Connect API key and
+  uploads to TestFlight. Build number = UTC `YYYYMMDDHHMM` of the run (rises
+  across Deploy, tag, manual runs and re-runs). Release builds use production
   APNs (`aps-environment` = `production`); Debug builds use `development` and the
   app then registers the token with `sandbox: true`.
   After the upload, `scripts/testflight-submit.py` waits (up to 45 min) for the
