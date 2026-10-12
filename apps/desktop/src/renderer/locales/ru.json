@@ -2317,6 +2317,7 @@
   "Only the most recent commit can be undone": "Отменить можно только последний коммит",
   "Only this computer shows the new name.": "Новое имя видно только на этом компьютере.",
   "Open": "Открыто",
+  "Open {{agent}}": "Открыть {{agent}}",
   "Open {{kind}}: {{prompt}}": "Открыть {{kind}}: {{prompt}}",
   "Open {{label}}": "Открыть {{label}}",
   "Open {{role}} in {{title}}": "Открыть {{role}} в {{title}}",

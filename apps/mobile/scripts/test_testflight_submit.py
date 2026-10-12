@@ -76,6 +76,26 @@ class Tests(unittest.TestCase):
         self.assertIn("409", str(ctx.exception))
         self.assertIn("{apple says no}", str(ctx.exception))
 
+    def existing_review(self, attributes):
+        conflict = tfs.asc_api.AscError("POST", "/betaAppReviewSubmissions", 409, "{dup}")
+        existing = {"data": {"id": "R1", "attributes": attributes}}
+        return Fake([build("VALID")], review=conflict, existing=existing)
+
+    def test_existing_review_rejected_or_unknown_state_fails(self):
+        for attrs, label in (({"betaReviewState": "REJECTED"}, "REJECTED"),
+                             ({}, "UNKNOWN"),
+                             ({"betaReviewState": "SOMETHING_ELSE"}, "SOMETHING_ELSE")):
+            with self.subTest(label), self.assertRaises(SystemExit) as ctx:
+                self.run_main(self.existing_review(attrs))
+            self.assertIn("{dup}", str(ctx.exception))
+            self.assertIn(label, str(ctx.exception))
+
+    def test_existing_review_accepted_states_succeed(self):
+        for state in ("WAITING_FOR_REVIEW", "IN_REVIEW", "APPROVED"):
+            with self.subTest(state), mock.patch("builtins.print") as out:
+                self.run_main(self.existing_review({"betaReviewState": state}))
+                self.assertTrue(any(state in str(c) for c in out.call_args_list))
+
     def test_timeout_error_without_submission_fails(self):
         err = tfs.asc_api.AscError("POST", "/betaAppReviewSubmissions", None, "TimeoutError: timed out")
         with self.assertRaises(SystemExit) as ctx:

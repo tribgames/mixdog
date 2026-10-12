@@ -2191,6 +2191,7 @@
   "Only the most recent commit can be undone": "只能撤销最近的一次提交",
   "Only this computer shows the new name.": "新名称只会显示在这台电脑上。",
   "Open": "打开",
+  "Open {{agent}}": "打开{{agent}}",
   "Open {{kind}}: {{prompt}}": "打开{{kind}}：{{prompt}}",
   "Open {{label}}": "打开{{label}}",
   "Open {{role}} in {{title}}": "打开 {{title}} 中的 {{role}}",

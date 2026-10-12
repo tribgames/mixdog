@@ -2191,6 +2191,7 @@
   "Only the most recent commit can be undone": "가장 최근 커밋만 실행 취소할 수 있습니다",
   "Only this computer shows the new name.": "이 컴퓨터에서만 새 이름으로 보여요.",
   "Open": "열기",
+  "Open {{agent}}": "{{agent}} 열기",
   "Open {{kind}}: {{prompt}}": "{{kind}} 열기: {{prompt}}",
   "Open {{label}}": "{{label}} 열기",
   "Open {{role}} in {{title}}": "{{title}}의 {{role}} 열기",

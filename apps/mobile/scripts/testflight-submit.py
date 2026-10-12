@@ -81,6 +81,9 @@ def add_to_group(build_id, group_id):
     print(f"Added build to group {group_id}")
 
 
+ACCEPTED_REVIEW_STATES = ("WAITING_FOR_REVIEW", "IN_REVIEW", "APPROVED")
+
+
 def submit_review(build_id):
     try:
         asc_api.call("POST", "/betaAppReviewSubmissions", {"data": {
@@ -95,7 +98,9 @@ def submit_review(build_id):
             sys.exit(f"{err}\nLookup of existing submission failed: {lookup}")
         if not existing:
             sys.exit(str(err))
-        state = existing.get("attributes", {}).get("betaReviewState", "UNKNOWN")
+        state = existing.get("attributes", {}).get("betaReviewState")
+        if state not in ACCEPTED_REVIEW_STATES:
+            sys.exit(f"{err}\nExisting beta review submission state: {state or 'UNKNOWN'}")
         print(f"Beta app review already submitted for build {build_id}: {state}")
         return
     print("Submitted for beta app review")

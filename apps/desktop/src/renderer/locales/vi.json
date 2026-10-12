@@ -2191,6 +2191,7 @@
   "Only the most recent commit can be undone": "Chỉ có thể hoàn tác commit gần nhất",
   "Only this computer shows the new name.": "Chỉ máy tính này hiển thị tên mới.",
   "Open": "Mở",
+  "Open {{agent}}": "Mở {{agent}}",
   "Open {{kind}}: {{prompt}}": "Mở {{kind}}: {{prompt}}",
   "Open {{label}}": "Mở {{label}}",
   "Open {{role}} in {{title}}": "Mở {{role}} trong {{title}}",

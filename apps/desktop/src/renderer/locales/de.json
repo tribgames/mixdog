@@ -2233,6 +2233,7 @@
   "Only the most recent commit can be undone": "Nur der letzte Commit kann rückgängig gemacht werden",
   "Only this computer shows the new name.": "Nur dieser Computer zeigt den neuen Namen.",
   "Open": "Offen",
+  "Open {{agent}}": "{{agent}} öffnen",
   "Open {{kind}}: {{prompt}}": "{{kind}} öffnen: {{prompt}}",
   "Open {{label}}": "{{label}} öffnen",
   "Open {{role}} in {{title}}": "{{role}} in {{title}} öffnen",

@@ -2275,6 +2275,7 @@
   "Only the most recent commit can be undone": "Solo se puede deshacer el commit más reciente",
   "Only this computer shows the new name.": "Solo este equipo muestra el nombre nuevo.",
   "Open": "Abierto",
+  "Open {{agent}}": "Abrir {{agent}}",
   "Open {{kind}}: {{prompt}}": "Abrir {{kind}}: {{prompt}}",
   "Open {{label}}": "Abrir {{label}}",
   "Open {{role}} in {{title}}": "Abrir {{role}} en {{title}}",

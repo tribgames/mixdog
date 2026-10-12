@@ -2191,6 +2191,7 @@
   "Only the most recent commit can be undone": "取り消せるのは最新のコミットだけです",
   "Only this computer shows the new name.": "新しい名前はこのコンピューターにのみ表示されます。",
   "Open": "オープン",
+  "Open {{agent}}": "{{agent}}を開く",
   "Open {{kind}}: {{prompt}}": "{{kind}}を開く: {{prompt}}",
   "Open {{label}}": "{{label}}を開く",
   "Open {{role}} in {{title}}": "{{title}}の{{role}}を開く",
