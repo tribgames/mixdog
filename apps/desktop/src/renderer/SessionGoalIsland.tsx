@@ -178,7 +178,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       data-open={open ? 'true' : 'false'}
     >
       {/* The island segment: progress bar, title (dropped when the island
-          is crowded), n/m. Elapsed time reads in the open Goal tab only. */}
+          is crowded), n/m and elapsed minutes. */}
       <button
         type="button"
         className="session-goal-trigger"
@@ -187,7 +187,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
         aria-label={t('Goal: {{objective}}', { objective })}
         onClick={() => setOpen(!open)}
       >
-        {goal.status === 'complete' || goal.status === 'stopped' ? (
+        {terminal ? (
           <span
             className="session-goal-finished"
             data-status={goal.status}

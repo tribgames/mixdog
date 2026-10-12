@@ -89,7 +89,10 @@ type JobRow = {
 };
 
 /** Rows that need the user lead, then working ones, then queued/waiting. */
-const jobRowRank = (row: JobRow) => (row.needsUser ? 0 : row.idle ? 2 : 1);
+function jobRowRank(row: JobRow): number {
+  if (row.needsUser) return 0;
+  return row.idle ? 2 : 1;
+}
 
 /** Shell jobs newest first, then agents that need the user, work or wait (in
  *  that order). Idle and finished agents are not background work. */
@@ -150,6 +153,12 @@ function AgentMark({ working, needsUser = false }: { working: boolean; needsUser
   );
 }
 
+function rowSubLabel(row: JobRow, clock: number): string {
+  if (row.needsUser) return t('Waiting for approval');
+  if (row.idle) return t(row.queued ? 'Queued' : 'Waiting for tasks');
+  return row.startedAt > 0 ? formatElapsed(clock - row.startedAt) : '';
+}
+
 function JobsPanel({
   rows,
   tab,
@@ -165,7 +174,8 @@ function JobsPanel({
   const agents = rows.filter((row) => row.kind === 'agent');
   const shells = rows.filter((row) => row.kind === 'shell');
   // The requested tab may have emptied while open: show the one that has rows.
-  const shown: JobKind = (tab === 'agent' ? agents : shells).length > 0 ? tab : tab === 'agent' ? 'shell' : 'agent';
+  const other: JobKind = tab === 'agent' ? 'shell' : 'agent';
+  const shown: JobKind = (tab === 'agent' ? agents : shells).length > 0 ? tab : other;
   const tabs: Array<[JobKind, JobRow[], string]> = [
     ['agent', agents, t('Agent {{agent}}', { agent: agents.length })],
     ['shell', shells, t('Shell {{shell}}', { shell: shells.length })],
@@ -224,13 +234,7 @@ function JobsPanel({
               )}
             </span>
             {/* Time spent waiting on the user is not work: no running timer. */}
-            {row.needsUser ? (
-              <span className="composer-island-row-sub">{t('Waiting for approval')}</span>
-            ) : row.idle ? (
-              <span className="composer-island-row-sub">{t(row.queued ? 'Queued' : 'Waiting for tasks')}</span>
-            ) : row.startedAt > 0 ? (
-              <span className="composer-island-row-sub">{formatElapsed(clock - row.startedAt)}</span>
-            ) : null}
+            {rowSubLabel(row, clock) ? <span className="composer-island-row-sub">{rowSubLabel(row, clock)}</span> : null}
           </li>
         ))}
       </ul>
@@ -416,8 +420,8 @@ export function ComposerIsland({
     setExpanded(open ? '' : 'jobs');
   };
   const islandRef = useRef<HTMLDivElement | null>(null);
-  // Finished background work announces nothing: a flash per job made the
-  // island pop in and out (user: 레이아웃 쉬프트가 많다).
+  // Finished background work announces nothing: a flash per job would make
+  // the island pop in and out.
   const visibleFlash = useIslandFlash(flash ?? null);
 
   // A tab whose content went away closes; a new session starts collapsed.

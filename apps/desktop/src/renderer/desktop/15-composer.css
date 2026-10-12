@@ -27,8 +27,7 @@
   inset: 0;
   background: var(--mx-workspace-sheet);
 }
-/* Rows fade out ABOVE the dock (user: 경계에서 그라데이션이 없어 잘리는
-   느낌), so nothing inside the dock is washed. */
+/* Rows fade out ABOVE the dock, so nothing inside the dock is washed. */
 .conversation > .composer-region::after {
   content: "";
   position: absolute;
@@ -59,13 +58,12 @@
 .composer-island-slot {
   position: relative;
   z-index: 9;
-  height: 46px;
+  height: 42px;
   pointer-events: none;
   transition: height 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* Nothing to carry: the slot collapses too (user: 컴포저 위에 뜬 게 없어도
-   한 칸을 비워버린다). Same content test as the island's hidden rule below;
-   :root outranks the mobile slot height. */
+/* Nothing to carry: the slot collapses too. Same content test as the
+   island's hidden rule below; :root outranks the mobile slot height. */
 :root
   .composer-island-slot:not(
     :has(
@@ -93,7 +91,9 @@
 .composer-island-stage {
   position: absolute;
   inset-inline: 0;
-  bottom: 12px;
+  /* 8px above the input: close enough to read as the composer's own chrome
+     (user: 컴포저랑 아일랜드가 너무 동떨어졌다). */
+  bottom: 8px;
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -116,10 +116,11 @@
   pointer-events: none;
 }
 .composer-island {
-  --composer-island-bg: color-mix(in srgb, var(--mx-bg-deep) 70%, var(--mx-grey-1200));
-  /* A soft ring plus a faint top highlight instead of a flat hairline. */
-  --composer-island-edge: 0 0 0 1px color-mix(in srgb, var(--mx-text) 9%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--mx-text) 6%, transparent);
+  /* The composer's own surface, so island and input read as one family. */
+  --composer-island-bg: var(--mx-composer-surface);
+  /* The same raised edge as the composer, approval card and search bar
+     (user: 테두리를 다른 쪽과 비슷한 정도로). */
+  --composer-island-edge: var(--mx-raised);
   --composer-island-wash: var(--mx-hover);
   --composer-island-rule: var(--mx-border-muted);
   position: relative;
@@ -129,10 +130,10 @@
   border-radius: 18px;
   color: var(--mx-text);
   background: var(--composer-island-bg);
-  box-shadow: var(--composer-island-edge), 0 6px 18px rgb(0 0 0 / 0.22);
+  box-shadow: var(--composer-island-edge), var(--mx-composer-lift);
   overflow: hidden;
   /* One step above the transcript's meta lines: inside the dark pill the
-     same 13px read smaller than the rows around it (user). */
+     same 13px read smaller than the rows around it. */
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-label);
   line-height: var(--mx-line-ui);
@@ -140,9 +141,6 @@
   transform-origin: 50% 100%;
   pointer-events: auto;
   animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-:root[data-mixdog-theme="light"] .composer-island {
-  --composer-island-bg: var(--mx-bg-base);
 }
 /* Nothing to carry: the island vanishes, its slot stays. A distinct
    animation per mode replays the pop whenever the island changes shape. */

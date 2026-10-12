@@ -14,7 +14,7 @@ import { accountIdentityFields, scrubOAuthSecrets } from './lib/oauth-token-util
 export const CLIENT_ID = '1031625952748946';
 export const DEVICE_AUTH_URL = 'https://auth.meta.com/oidc/device/authorization/';
 export const DEVICE_TOKEN_URL = 'https://auth.meta.com/oidc/device/token/';
-export const KEY_URL = 'https://api.meta.ai/muse-code/key';
+const KEY_URL = 'https://api.meta.ai/muse-code/key';
 export const MODEL_API_BASE_URL = 'https://api.meta.ai/v1';
 export const API_VERSION = '1.0.0';
 export const REQUEST_TIMEOUT_MS = 20_000;
@@ -179,7 +179,7 @@ const isUsageWindow = (w) => {
 };
 
 /** Reject a key response whose fields have the wrong types rather than stringifying them. */
-export function validateKeyPayload(payload) {
+function validateKeyPayload(payload) {
   const bad = (field) =>
     museError(`[muse-code-oauth] key response has an invalid ${field}`, { kind: 'validation' });
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw bad('body');

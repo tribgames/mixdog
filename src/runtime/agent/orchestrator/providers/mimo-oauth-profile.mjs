@@ -7,9 +7,9 @@ import { PROVIDER_MAX_BEFORE_WARN_MS, STALL_ABORT_S, STALL_TICK_MS } from '../st
 import { PACKAGE_VERSION } from '../../../web-search/lib/package-version.mjs';
 import { DEFAULT_MODEL } from './mimo-oauth-tokens.mjs';
 
-export const MIMO_EFFORT_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high']);
-export const MIMO_DEFAULT_TEMPERATURE = 1.0;
-export const MIMO_DEFAULT_MAX_OUTPUT_TOKENS = 128_000;
+const MIMO_EFFORT_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high']);
+const MIMO_DEFAULT_TEMPERATURE = 1.0;
+const MIMO_DEFAULT_MAX_OUTPUT_TOKENS = 128_000;
 // Slow reasoning can stay silent for minutes: wait for the first byte as long
 // as the agent stall watchdog allows, and tolerate long gaps between events.
 export const MIMO_FIRST_BYTE_TIMEOUT_MS = Math.min(300_000, PROVIDER_MAX_BEFORE_WARN_MS);
@@ -193,7 +193,7 @@ export function mimoErrorDetail(err, secrets = []) {
 }
 
 // Keep gateway detail on the error; a quota refusal can never succeed on replay.
-export function refineMimoError(err) {
+function refineMimoError(err) {
   if (!err || typeof err !== 'object') return err;
   const gw = gatewayError(err);
   if (!gw) return err;

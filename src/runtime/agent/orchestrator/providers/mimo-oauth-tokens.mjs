@@ -10,20 +10,20 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { accountIdentityFields, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 
 const DEFAULT_PLATFORM_ORIGIN = 'https://platform.xiaomimimo.com';
-export const DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1';
+const DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1';
 export const DEFAULT_MODEL = 'mimo-v2.6-pro';
 export const SOURCE_HEADER = Object.freeze({ 'X-Mimo-Source': 'mimocode-cli' });
 export const LOGIN_TIMEOUT_MS = 5 * 60_000;
-export const TOKEN_PLAN_KEY_PREFIX = 'tp-';
+const TOKEN_PLAN_KEY_PREFIX = 'tp-';
 // Probe order for a Token Plan key that arrives without a gateway URL.
 export const TOKEN_PLAN_BASE_URLS = Object.freeze(
   ['sgp', 'ams', 'cn'].map((region) => `https://token-plan-${region}.xiaomimimo.com/v1`)
 );
-export const TOKEN_PLAN_PROBE_TIMEOUT_MS = 15_000;
+const TOKEN_PLAN_PROBE_TIMEOUT_MS = 15_000;
 const TOKEN_PLAN_PROBE_MODEL = 'mimo-v2.5';
 
 // Read per call so MIMO_PLATFORM_URL can point every login URL at another host.
-export function platformOrigin() {
+function platformOrigin() {
   const override = String(process.env.MIMO_PLATFORM_URL || '')
     .trim()
     .replace(/\/+$/, '');

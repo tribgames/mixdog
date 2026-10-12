@@ -1347,7 +1347,7 @@ html[data-window-material="mica"] .jump-to-latest {
   display: none;
 }
 /* Progress as a short static meter: no motion, so it never reads as a
-   loading spinner; the fill is the accent blue (user: 진행률은 파랑이 낫다). */
+   loading spinner; the fill is the accent blue. */
 .session-goal-bar {
   width: 22px;
   height: 3px;

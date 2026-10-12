@@ -82,8 +82,7 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the top-level header is the window's banner landmark, which takes a name.
     <header className="topbar" aria-label={t('Window bar')}>
-      {/* No brand mark: the bare band reads lighter (user: 로고 뺄까 뭔가
-          로고 있으니까 답답하네). */}
+      {/* No brand mark: the bare band reads lighter. */}
       {/* The leading edge holds the PC menu: a remote surface names the PC it
           drives ("● PC ▾"); the main window shows nothing until
           PCs are saved, then "● this PC ▾". The phone has no title row; its

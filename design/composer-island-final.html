@@ -7,7 +7,7 @@
   :root {
     --bg: #161618; --text: #e9e9e9; --soft: #d6d6d6; --muted: #a8a8a8; --faint: #7a7a80;
     --accent: #79b8ff; --warn: #f2cf76; --ok: #6bd586; --danger: #f17471;
-    --line: rgba(255,255,255,.08); --island: #0d0d0f; --composer: #232326;
+    --line: rgba(255,255,255,.08); --island: #232326; --composer: #232326;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: #0f0f11; color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 32px 40px 80px; }
@@ -18,7 +18,7 @@
 
   /* 아일랜드 */
   .pill { display: inline-flex; align-items: center; height: 34px; padding: 0 4px; border-radius: 999px; background: var(--island);
-    box-shadow: 0 0 0 1px rgba(255,255,255,.09), inset 0 1px 0 rgba(255,255,255,.06), 0 6px 18px rgba(0,0,0,.22);
+    box-shadow: 0 2px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 -.5px 0 rgba(255,255,255,.06), 0 12px 24px -4px rgba(0,0,0,.22);
     font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: -.005em; white-space: nowrap; max-width: 100%; }
   .seg { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 999px; color: var(--soft); font-variant-numeric: tabular-nums; }
   .seg + .seg { margin-left: 5px; }
@@ -39,7 +39,7 @@
   .screen { background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 18px 22px 16px; }
   .msg { color: var(--soft); font-size: 13px; }
   .fade { height: 24px; margin-top: -24px; background: linear-gradient(transparent, var(--bg)); position: relative; }
-  .wrap { display: flex; justify-content: center; margin: 14px 0 12px; }
+  .wrap { display: flex; justify-content: center; margin: 14px 0 8px; }
   .composer { height: 76px; border-radius: 18px; background: var(--composer); box-shadow: 0 0 0 1px rgba(255,255,255,.06); padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; color: var(--faint); font-size: 13px; }
   .composer .b { display: flex; gap: 10px; color: var(--muted); font-size: 12.5px; }
   .composer.dim { opacity: .4; filter: saturate(.6); }
@@ -75,6 +75,19 @@
   .btn { height: 24px; padding: 0 10px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); display: inline-flex; align-items: center; font-size: 12px; }
   .btn.pri { background: #2f6fc7; box-shadow: none; }
 
+  /* 재질 비교 */
+  .mat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .mat { position: relative; background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 14px 18px 16px; overflow: hidden; }
+  .mat .lbl { font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+  .mat .behind { color: var(--soft); font-size: 13px; line-height: 20px; height: 60px; overflow: hidden; }
+  .mat .float { display: flex; justify-content: center; margin: -30px 0 8px; position: relative; }
+  .mat .pill { background: var(--k-bg); box-shadow: var(--k-shadow); backdrop-filter: var(--k-blur); -webkit-backdrop-filter: var(--k-blur); }
+  .m1 { --k-bg: #232326; --k-shadow: 0 2px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 -.5px 0 rgba(255,255,255,.06), 0 12px 24px -4px rgba(0,0,0,.22); --k-blur: none; }
+  .m2 { --k-bg: #232326; --k-shadow: 0 8px 24px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.4); --k-blur: none; }
+  .m3 { --k-bg: linear-gradient(180deg, #2c2c30 0%, #1f1f22 100%); --k-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 0 0 1px rgba(0,0,0,.35), 0 8px 22px rgba(0,0,0,.35); --k-blur: none; }
+  .m4 { --k-bg: rgba(35,35,38,.62); --k-shadow: inset 0 0 0 1px rgba(255,255,255,.07), inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.3); --k-blur: blur(14px) saturate(140%); }
+  .m5 { --k-bg: linear-gradient(180deg, rgba(48,48,54,.72), rgba(30,30,34,.72)); --k-shadow: inset 0 1px 0 rgba(255,255,255,.1), inset 0 0 0 1px rgba(255,255,255,.05), 0 10px 28px rgba(0,0,0,.35); --k-blur: blur(16px) saturate(150%); }
+  .m6 { --k-bg: rgba(255,255,255,.045); --k-shadow: inset 0 0 0 1px rgba(255,255,255,.06); --k-blur: blur(10px); }
   ul.rules { color: var(--soft); font-size: 13px; line-height: 22px; padding-left: 18px; margin: 0; }
   ul.rules b { color: var(--text); }
 </style>
@@ -97,6 +110,36 @@
   <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div>
 </div>
 <p class="lead" style="margin-top:10px">아무것도 없으면 아일랜드 자리를 비워 두지 않습니다. 대화와 컴포저 사이에는 24px 페이드가 들어가서 글이 딱 잘리지 않습니다.</p>
+
+<!-- 재질 -->
+<h2>1-1. 아일랜드 재질 비교 — <span style="color:var(--ok)">A 결정(테두리만)</span></h2>
+<p class="lead">아일랜드 뒤로 대화 글이 지나가는 상황입니다. 반투명 후보는 뒤 글이 흐리게 비칩니다.</p>
+<div class="mat-grid">
+  <div class="mat m1"><div class="lbl">A. 지금(같은 표면색 + 얇은 테두리)</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m2"><div class="lbl">B. 테두리 없이 그림자만</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m3"><div class="lbl">C. 위→아래 은은한 그라데이션 + 윗선 하이라이트</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m4"><div class="lbl">D. 반투명 유리(뒤 흐림)</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m5"><div class="lbl">E. 유리 + 그라데이션 + 윗선 하이라이트 <span style="color:var(--ok)">추천</span></div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+  <div class="mat m6"><div class="lbl">F. 아주 옅은 반투명(거의 글자만)</div>
+    <div class="behind">Advisor가 이번엔 정상적으로 떠서 7개 작업이 모두 진행 중입니다. 아직 결과는 나오지 않았습니다. 설정 버그 1건: 제가 세운 두 가설이 맞는지 소스 코드와 백업 파일로 검증합니다.</div>
+    <div class="float"><span class="pill"><span class="seg goal"><span class="bar"><i></i></span><span>3/5</span><span class="meta">12m</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="meta">작업 중 4 · 대기 2</span></span><span class="seg">4개 파일 변경됨 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+    <div class="composer">메시지를 입력하세요<div class="b">+ Claude Opus 5.5 Auto</div></div></div>
+</div>
 
 <!-- 2 -->
 <h2>2. 칸별 모습</h2>
@@ -189,8 +232,4 @@
   <li><b>클릭</b>: 에이전트 칸을 누르면 에이전트 탭이, 셸 칸을 누르면 셸 탭이, Goal 칸을 누르면 Goal 작업 목록이 열립니다</li>
   <li><b>승인 개수</b>: 승인 카드와 같은 데이터를 봅니다. 승인 대기를 정확히 구분할 수 없으면 "대기"로 합칩니다</li>
   <li><b>테마 · 기기</b>: 라이트 테마와 휴대폰 화면도 같은 규칙으로 맞춥니다</li>
-  <li><b>빈 상태</b>: 표시할 게 없으면 아일랜드 자리가 0으로 접힙니다. 나타날 때는 0.18초 동안 부드럽게 펼쳐집니다</li>
-</ul>
-</main>
-</body>
-</html>
+  <li><b>빈 상태</b>: 표시할 게 없으면 아일랜드 자리가 0으로 접힙니다. 나타날 때는 0.18초 동안 부드럽
