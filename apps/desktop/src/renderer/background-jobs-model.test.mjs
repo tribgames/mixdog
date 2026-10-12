@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { backgroundJobRows } from './background-jobs-model.ts';
+import { compactCount, agentUsageMeta } from './agent-row-meta.ts';
+import { t as translate } from './i18n.ts';
+import { backgroundJobRows, cwdFolderName, shellFinishedLabel, shellRowAction } from './background-jobs-model.ts';
 import {
   dismissedShellJobs,
   dismissShellJobs,
@@ -33,6 +35,39 @@ test('finished shell rows follow running ones, newest finish first, with exit in
   assert.equal(rows[1].exitCode, 2);
   assert.equal(rows[1].status, 'failed');
   assert.equal(rows[2].exitCode, 0);
+});
+
+test('compact counts and usage meta omit unknown parts', () => {
+  assert.deepEqual([0, 999, 1000, 128_400, 999_960, 1_250_000].map(compactCount), ['0', '999', '1k', '128.4k', '1M', '1.3M']);
+  assert.equal(agentUsageMeta(undefined), '');
+  assert.equal(agentUsageMeta({ usage: null, toolCalls: null }), '');
+  assert.equal(agentUsageMeta({ usage: { totalTokens: 128_400 }, toolCalls: null }), translate('{{tokens}} tokens', { tokens: '128.4k' }));
+  assert.equal(
+    agentUsageMeta({ usage: { totalTokens: 41_200 }, toolCalls: 9 }),
+    `${translate('{{tokens}} tokens', { tokens: '41.2k' })} · ${translate('Island: {{count}} tool calls', { count: 9 })}`
+  );
+  assert.equal(agentUsageMeta({ usage: null, toolCalls: 0 }), translate('Island: {{count}} tool calls', { count: 0 }));
+});
+
+test('shell row action follows the stop state; finished rows only dismiss', () => {
+  const running = { finished: false };
+  assert.equal(shellRowAction(running, undefined), 'stop');
+  assert.equal(shellRowAction(running, 'stopping'), 'stopping');
+  assert.equal(shellRowAction(running, 'failed'), 'retry');
+  assert.equal(shellRowAction({ finished: true }, 'stopping'), 'dismiss');
+});
+
+test('finished shell labels: cancelled reads Stopped, then exit code, then Finished', () => {
+  assert.equal(shellFinishedLabel({ status: 'cancelled', exitCode: 1 }), translate('Island: Stopped'));
+  assert.equal(shellFinishedLabel({ status: 'failed', exitCode: 2 }), translate('Island: Exited {{code}}', { code: 2 }));
+  assert.equal(shellFinishedLabel({ status: 'completed', exitCode: null }), translate('Island: Finished'));
+});
+
+test('cwd folder name takes the last segment of either separator', () => {
+  assert.equal(cwdFolderName('C:\\Project\\cart-service\\'), 'cart-service');
+  assert.equal(cwdFolderName('/work/api'), 'api');
+  assert.equal(cwdFolderName(''), '');
+  assert.equal(backgroundJobRows({ shellJobs: { count: 1, elapsedLabel: '', jobs: [{ taskId: 'a', command: 'x', cwd: '/w/p', startedAt: 1 }] } })[0].taskId, 'a');
 });
 
 test('dismissed finished rows never come back, and persist per session', () => {

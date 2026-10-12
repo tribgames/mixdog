@@ -14,9 +14,8 @@ import {
 } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
-import { cachedAutoEffortCapable } from './auto-effort-store';
-import { modelDisplayName, ModelRouteLabel, ProviderIcon, routeDaybreakBlue } from './provider-display';
-import { formatWorkElapsed, timeMs } from './transcript-primitives';
+import { agentElapsedText } from './agent-row-meta';
+import { AgentProviderMark, AgentRouteSummary } from './agent-row-parts';
 import { TextShimmer } from './transcript-primitives';
 import {
   AGENT_POOL_RECONCILE_MS,
@@ -90,8 +89,6 @@ export function AgentPoolRow({
   // (an agent cancelled mid-turn still carries stage `running`, and one
   // cancelled while waiting still carries stage `queued`).
   const state = stateOverride ?? desktopAgentActivityState(agent, { unread, waitingForTasks });
-  const queued = state === 'queued';
-  const running = state === 'running';
   const role = agentRoleLabel(agent.agent || agent.tag);
   const sessionId = String(agent.sessionId || '').trim();
   const lead = Boolean(sessionId) && sessionId === ownerSessionId;
@@ -102,25 +99,7 @@ export function AgentPoolRow({
     tag && tag.toLowerCase() !== sessionTitle.toLowerCase()
       ? [sessionTitle, tag].filter(Boolean).join(' · ')
       : sessionTitle || tag || role;
-  const elapsedBase = timeMs(agent.turnStartedAt) || timeMs(agent.startedAt);
-  // Idle duration carries no information (user: 대기중인데 왜 시간 표기하냐):
-  // a resting agent's card says only that it rests. Time belongs to work.
-  const done = state === 'done';
-  const workMeta = elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : '0s';
-  let elapsed = t('Idle');
-  if (queued) elapsed = t('Queued');
-  else if (running) elapsed = workMeta;
-  // Blocked on the user: what it waits for, never a running timer.
-  else if (state === 'needs-user') elapsed = t('Waiting for approval');
-  else if (state === 'cancel-unconfirmed') elapsed = t('Cancel unconfirmed');
-  else if (state === 'cancelled') elapsed = t('Cancelled');
-  // A finished turn reads as a plain completion (user: 태스크 없애고 컴플리트만).
-  else if (done) elapsed = t('Completed');
-  else if (state === 'waiting') elapsed = t('Waiting for tasks');
-  else if (state === 'unknown') elapsed = t('Unknown');
-  const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
-  const effortValue = String(agent.effort || '').trim();
-  const autoEffortCapable = cachedAutoEffortCapable(String(agent.provider || ''), String(agent.model || ''));
+  const elapsed = agentElapsedText(state, agent, clock);
   const prefetch = () => {
     if (sessionId) onPrefetchSession?.(lead ? ownerSessionId : sessionId);
   };
@@ -195,25 +174,13 @@ export function AgentPoolRow({
     >
       {/* The brand of the model the agent runs on marks the row, as in the
       Workflows panel (user: 에이전트 창은 이번 적용 안 된 거?). */}
-      <span className="sidebar-resource-icon" aria-hidden="true">
-        {agent.provider ? <ProviderIcon provider={String(agent.provider)} width={16} height={16} /> : <Bot size={16} />}
-      </span>
+      <AgentProviderMark agent={agent} />
       <span className="schedules-row-copy">
         <span className="agent-pool-heading">
           <b className="agent-pool-name">{name}</b>
           {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
         </span>
-        <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
-          <ModelRouteLabel
-            model={modelLabel}
-            effort={effortValue}
-            fast={agent.fast === true}
-            ultra={(agent.modelParameters as Record<string, string> | undefined)?.serviceTier === 'ultrafast'}
-            blue={routeDaybreakBlue(agent.modelParameters as Record<string, string> | undefined)}
-            autoEffortCapable={autoEffortCapable}
-            autoEffort={agent.autoEffort}
-          />
-        </small>
+        <AgentRouteSummary agent={agent} />
       </span>
       <span className="agent-activity-status">
         {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name */}

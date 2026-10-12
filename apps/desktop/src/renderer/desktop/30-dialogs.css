@@ -625,7 +625,7 @@
 /* The model a row runs on is its supporting line, not a second title: it
    shares the meta ink instead of matching the name's brightness. */
 .session-sidebar-panels .agent-route-summary .model-route-label-model,
-.utility-dock .agent-activity-page .agent-route-summary .model-route-label-model {
+:is(.utility-dock .agent-activity-page, .composer-island-jobs) .agent-route-summary .model-route-label-model {
   color: var(--mx-row-meta-ink);
 }
 /* ── Rail gutter ───────────────────────────────────────────────────────────

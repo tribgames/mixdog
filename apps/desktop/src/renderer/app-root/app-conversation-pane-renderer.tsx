@@ -213,12 +213,6 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
                 options.openSessionDiffInSideDock?.(leafId);
               }
             : undefined,
-          onOpenBackgroundJobs: options.openBackgroundJobsInSideDock
-            ? (kind) => {
-                focusPane();
-                options.openBackgroundJobsInSideDock?.(leafId, paneSessionId, kind);
-              }
-            : undefined,
           onOpenAgentSession: (sessionId, title, ownerSessionId) => {
             focusPane();
             options.openAgentSession(sessionId, title, ownerSessionId);

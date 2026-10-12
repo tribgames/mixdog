@@ -429,11 +429,6 @@ button.composer-island-tab {
   color: var(--mx-text);
   outline: none;
 }
-.composer-island-row-tag {
-  margin-inline-start: 6px;
-  color: var(--mx-text-muted);
-  font-weight: var(--mx-weight-regular);
-}
 .composer-island-close {
   width: 28px;
   height: 28px;
@@ -463,29 +458,62 @@ button.composer-island-tab {
   overscroll-behavior: contain;
   list-style: none;
 }
+/* Agent and shell rows share the Agents pane's row grammar: icon, a name over
+   a supporting line, and a right column. The pane's own sizes and tones are
+   shared through the selectors in 10-rail-pages.css and 30-dialogs.css. */
 .composer-island-row {
-  min-height: 34px;
+  min-height: 52px;
   display: flex;
   align-items: center;
   gap: 10px;
+  padding-block: 6px;
 }
 .composer-island-row + .composer-island-row {
   border-top: var(--mx-hairline) solid var(--composer-island-rule);
 }
-.composer-island-row-main {
+.composer-island-row > .composer-island-row-open,
+.composer-island-row > .schedules-row-copy {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
+}
+.composer-island-row .sidebar-resource-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--mx-icon-muted);
+}
+.composer-island-row .agent-pool-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.composer-island-row .agent-pool-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.composer-island-row-main code {
-  color: var(--mx-accent);
+.composer-island-row .agent-route-summary > .model-route-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-island-row .agent-route-meta {
+  flex: none;
+  white-space: nowrap;
+}
+.composer-island-row .composer-island-shell-command {
   font-family: var(--mx-font-mono);
 }
+.composer-island-row .schedules-row-copy > small.composer-island-row-error {
+  color: var(--mx-danger);
+}
+.composer-island-row .agent-activity-status {
+  flex: none;
+  text-align: right;
+}
 /* A finished background shell: muted until the user dismisses it. */
-.composer-island-row[data-finished="true"] .composer-island-row-main,
-.composer-island-row[data-finished="true"] .composer-island-row-main code {
+.composer-island-row[data-finished="true"] .agent-pool-name {
   color: var(--mx-text-muted);
 }
 .composer-island-row-dismiss {
@@ -494,13 +522,7 @@ button.composer-island-tab {
 .composer-island-pill > .composer-island-seg.composer-island-seg-shell[data-finished="true"] {
   color: var(--mx-text-muted);
 }
-.composer-island-row-sub {
-  flex: none;
-  color: var(--mx-text-muted);
-  font-variant-numeric: tabular-nums;
-}
 .composer-island-row-open {
-  width: 100%;
   min-height: inherit;
   display: flex;
   align-items: center;
@@ -513,9 +535,8 @@ button.composer-island-tab {
   text-align: start;
   cursor: pointer;
 }
-.composer-island-row-open:hover .composer-island-row-main,
-.composer-island-row-open:focus-visible .composer-island-row-main {
-  color: var(--mx-text);
+.composer-island-row-open:hover .agent-pool-name,
+.composer-island-row-open:focus-visible .agent-pool-name {
   text-decoration: underline;
 }
 .composer-island-row-open:focus-visible {

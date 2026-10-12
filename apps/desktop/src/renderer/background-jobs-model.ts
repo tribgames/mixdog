@@ -2,6 +2,7 @@ import type { DesktopAgentPoolRow } from '../shared/contract';
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import { liveAgentRows } from './agent-activity-model';
 import type { Snapshot } from './desktop-types';
+import { t } from './i18n';
 import { timeMs } from './transcript-primitives';
 
 export type JobKind = 'shell' | 'agent';
@@ -34,7 +35,39 @@ export type JobRow = {
   status?: string;
   /** Finished shell: epoch ms it ended; 0 when unknown. */
   finishedAt?: number;
+  /** Shell job id (what stopping addresses). */
+  taskId?: string;
+  /** Shell working directory; '' when unknown. */
+  cwd?: string;
 };
+
+/** Where a Stop request stands; absent before the user pressed Stop. */
+export type ShellStopState = 'stopping' | 'failed' | undefined;
+export type ShellRowAction = 'stop' | 'stopping' | 'retry' | 'dismiss';
+
+/** The one button a shell row offers: a finished row can only be dismissed;
+ *  a running one is stopped, shows it is stopping, or offers a retry. */
+export function shellRowAction(row: Pick<JobRow, 'finished'>, stop: ShellStopState): ShellRowAction {
+  if (row.finished) return 'dismiss';
+  if (stop === 'stopping') return 'stopping';
+  return stop === 'failed' ? 'retry' : 'stop';
+}
+
+/** A finished shell's status in words: cancelled reads as stopped. */
+export function shellFinishedLabel(row: Pick<JobRow, 'status' | 'exitCode'>): string {
+  if (row.status === 'cancelled') return t('Island: Stopped');
+  if (row.exitCode != null) return t('Island: Exited {{code}}', { code: row.exitCode });
+  return t('Island: Finished');
+}
+
+/** Last path segment of a working directory ('' for none). */
+export function cwdFolderName(cwd: string | undefined): string {
+  const segments = String(cwd || '')
+    .trim()
+    .split(/[\\/]+/)
+    .filter(Boolean);
+  return segments[segments.length - 1] ?? '';
+}
 
 /** Rows that need the user lead, then working ones, then queued/waiting. */
 function jobRowRank(row: JobRow): number {
@@ -58,6 +91,8 @@ export function backgroundJobRows(snapshot: Snapshot, dismissed: ReadonlySet<str
       exitCode: Number.isInteger(job.exitCode) ? (job.exitCode as number) : null,
       status: String(job.status || ''),
       finishedAt: timeMs(job.finishedAt),
+      taskId: String(job.taskId || job.task_id || ''),
+      cwd: String(job.cwd || ''),
     }))
     .filter((row) => !dismissed.has(row.key))
     .sort((a, b) => b.finishedAt - a.finishedAt);
@@ -69,6 +104,8 @@ export function backgroundJobRows(snapshot: Snapshot, dismissed: ReadonlySet<str
       sub: '',
       startedAt: timeMs(job.startedAt),
       idle: false,
+      taskId: String(job.taskId || job.task_id || ''),
+      cwd: String(job.cwd || ''),
     }))
     .sort((a, b) => b.startedAt - a.startedAt);
   const agents = liveAgentRows(snapshot)

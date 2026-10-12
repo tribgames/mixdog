@@ -1,15 +1,14 @@
-import { SquareTerminal } from 'lucide-react';
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { AgentPoolRow } from './AgentActivityPane';
 import { dismissShellJobs, useDismissedShellJobs } from './background-jobs-dismissed-store';
-import { backgroundJobRows, type JobKind, type JobRow } from './background-jobs-model';
+import { backgroundJobRows, type JobKind, type JobRow, type ShellStopState } from './background-jobs-model';
 import { requestBackgroundJobsTab, useBackgroundJobsTab } from './background-jobs-tab-store';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
 import { DockHeaderRow } from './pane-dock-chrome';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
-import { formatWorkElapsed } from './transcript-primitives';
+import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
 import { useClock } from './use-clock';
 
 /** A shell job in the agents list's row grammar: icon, command, elapsed. */
@@ -19,6 +18,8 @@ function ShellJobRow({
   tabIndex,
   posInSet,
   setSize,
+  stop,
+  onStop,
   onDismiss,
 }: {
   row: JobRow;
@@ -26,16 +27,10 @@ function ShellJobRow({
   tabIndex: number;
   posInSet: number;
   setSize: number;
+  stop: ShellStopState;
+  onStop(row: JobRow): void;
   onDismiss(row: JobRow): void;
 }) {
-  const elapsed = row.startedAt > 0 ? formatWorkElapsed(clock - row.startedAt) || '0s' : '0s';
-  const finishedLabel = row.finished
-    ? row.exitCode != null
-      ? t('Island: Exited {{code}}', { code: row.exitCode })
-      : row.status === 'cancelled'
-        ? t('Island: Stopped')
-        : t('Island: Finished')
-    : '';
   return (
     <div
       className="schedules-row workflows-agent-summary-row agent-pool-row"
@@ -46,38 +41,8 @@ function ShellJobRow({
       tabIndex={tabIndex}
       aria-label={row.label}
     >
-      <span className="sidebar-resource-icon" aria-hidden="true">
-        <SquareTerminal size={16} />
-      </span>
-      <span className="schedules-row-copy">
-        <span className="agent-pool-heading">
-          <b className="agent-pool-name" title={row.label}>
-            {row.label}
-          </b>
-        </span>
-      </span>
-      <span className="agent-activity-status">
-        {row.finished ? (
-          <>
-            <span className="agent-activity-elapsed" data-state="finished">
-              {finishedLabel}
-            </span>
-            <button
-              type="button"
-              className="composer-island-button"
-              aria-label={`${t('Dismiss')}: ${row.label}`}
-              onClick={() => onDismiss(row)}
-            >
-              {t('Dismiss')}
-            </button>
-          </>
-        ) : (
-          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name
-          <time className="agent-activity-elapsed" aria-label={elapsed} data-state="running">
-            {elapsed}
-          </time>
-        )}
-      </span>
+      <ShellJobContent row={row} clock={clock} stop={stop} />
+      <ShellRowButton row={row} stop={stop} onStop={onStop} onDismiss={onDismiss} />
     </div>
   );
 }
@@ -101,6 +66,7 @@ export function BackgroundJobsPane({
   const dismissed = useDismissedShellJobs(sessionId);
   const rows = useMemo(() => backgroundJobRows(snapshot, dismissed), [snapshot, dismissed]);
   const clock = useClock(active);
+  const { stopOf, stop } = useShellStops(sessionId);
   const requested = useBackgroundJobsTab(sessionId);
   const agents = rows.filter((row) => row.kind === 'agent');
   const shells = rows.filter((row) => row.kind === 'shell');
@@ -203,6 +169,8 @@ export function BackgroundJobsPane({
                     posInSet={index + 1}
                     setSize={shownRows.length}
                     tabIndex={row.key === activeKey ? 0 : -1}
+                    stop={stopOf(row)}
+                    onStop={stop}
                     onDismiss={(job) => dismissShellJobs(sessionId, [job.key])}
                   />
                 )

@@ -237,7 +237,10 @@ html[data-window-material="mica"] .session-sidebar {
   .utilities-row-copy
   > small
   :is(.model-route-label-model, .model-route-label-effort),
-.utility-dock .agent-activity-page .schedules-row-copy small :is(.model-route-label-model, .model-route-label-effort) {
+:is(.utility-dock .agent-activity-page, .composer-island-jobs)
+  .schedules-row-copy
+  small
+  :is(.model-route-label-model, .model-route-label-effort) {
   color: inherit;
 }
 .session-sidebar-panels .schedules-row[draggable="true"] {
@@ -586,7 +589,7 @@ html[data-window-material="mica"] .session-sidebar {
 }
 /* Keep clocks and state words at the live app's shared weight.
    The row centers this column across the name and model lines. */
-.utility-dock .agent-activity-elapsed {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-supporting);
   font-weight: var(--mx-weight-semibold);
@@ -595,28 +598,28 @@ html[data-window-material="mica"] .session-sidebar {
   white-space: nowrap;
 }
 /* Match the live app's accent for work in progress. */
-.utility-dock .agent-activity-elapsed[data-state="running"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="running"] {
   color: var(--mx-text-accent);
 }
 /* Waiting on child work has its own hue so it never reads like live work
    (user: 작업중 작업대기는 다른색). */
-.utility-dock .agent-activity-elapsed[data-state="waiting"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="waiting"] {
   color: var(--mx-warning);
 }
 /* Completion notice: an idle row whose session is still unseen reads in the
    success hue (user: 완료가 녹색) — the hue alone marks it. It fades back to
    the muted idle tone the moment the session is opened. */
-.utility-dock .agent-activity-elapsed[data-state="done"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="done"] {
   color: var(--mx-success);
 }
 /* A cancel is not a completion and not a rest. It never borrows the accented
    "done" tone or the live running tone: a stopped row reads as stopped. */
-.utility-dock .agent-activity-elapsed[data-state="cancelled"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="cancelled"] {
   color: var(--mx-danger);
 }
 /* Delivered but unproven (Windows git-bash survivors): the warning tone says
    the process could not be confirmed gone, never that the cancel succeeded. */
-.utility-dock .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
   color: var(--mx-warning);
 }
 /* Agents dock reuses the Workflows rail grammar. */
@@ -685,7 +688,7 @@ html[data-window-material="mica"] .session-sidebar {
   font-weight: var(--mx-weight-regular);
   line-height: 20px;
 }
-.utility-dock .agent-activity-page .schedules-row-copy small {
+:is(.utility-dock .agent-activity-page, .composer-island-jobs) .schedules-row-copy small {
   display: block;
   min-width: 0;
   overflow: hidden;

@@ -82,9 +82,10 @@ test('background jobs show as one segment, expand to rows, collapse on Escape an
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'panel');
   const rows = [...document.querySelectorAll('.composer-island-row')];
   assert.equal(rows.length, 1);
-  assert.ok(rows[0].querySelector('.composer-island-pulse'));
-  assert.equal(rows[0].querySelector('svg'), null);
+  assert.ok(rows[0].querySelector('.sidebar-resource-icon svg'));
   assert.match(rows[0].textContent, /npm test/);
+  assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'running');
+  assert.equal(rows[0].querySelector('button').textContent, translate('Stop'));
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
   await publish({ shellJobs: { count: 0, jobs: [] } });
@@ -195,14 +196,11 @@ test('an agent blocked on a user approval reads as needing the user, not working
   await act(async () => segment.click());
   const rows = [...document.querySelectorAll('.composer-island-row')];
   assert.equal(rows.length, 2);
-  // The blocked agent leads, with the attention mark instead of the working
-  // pulse and the label instead of a running timer.
+  // The blocked agent leads, with the label instead of a running timer.
   assert.match(rows[0].textContent, /ask-b/);
-  assert.equal(rows[0].querySelector('.composer-island-pulse'), null);
-  assert.ok(rows[0].querySelector('svg'));
-  assert.equal(rows[0].querySelector('.composer-island-row-sub').textContent, translate('Waiting for approval'));
-  assert.ok(rows[1].querySelector('.composer-island-pulse'));
-  assert.match(rows[1].querySelector('.composer-island-row-sub').textContent, /\d/);
+  assert.equal(rows[0].querySelector('.agent-activity-elapsed').textContent, translate('Waiting for approval'));
+  assert.equal(rows[1].querySelector('.agent-activity-elapsed').dataset.state, 'running');
+  assert.match(rows[1].querySelector('.agent-activity-elapsed').textContent, /\d/);
 });
 
 test('an agent row with a session is a button that opens it and closes the panel; others stay inert', async (t) => {
@@ -244,9 +242,10 @@ test('an agent row with a session is a button that opens it and closes the panel
   assert.equal(opened[0][0], 'child-1');
   assert.equal(opened[0][2], 'island-session');
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill', 'panel closed');
-  // Shell rows are never buttons.
+  // Shell rows are not openable: their only button is Stop.
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
-  assert.equal(document.querySelector('.composer-island-row button'), null);
+  assert.equal(document.querySelector('.composer-island-row-open'), null);
+  assert.equal(document.querySelector('.composer-island-row button').textContent, translate('Stop'));
 });
 
 test('without an open action agent rows stay non-interactive', async (t) => {
@@ -366,22 +365,57 @@ test('queued follow-up rows read icon, text, then Steer now, trash and a menu wh
   assert.equal(document.querySelector('.row-overflow-menu'), null, 'the menu closes after Edit');
 });
 
-test('with a side dock the agent and shell segments open it on their list instead of the popover', async (t) => {
+test('Stop calls stopShellJob once; a refused stop keeps the row running with a retry', async (t) => {
+  const { root, document, window } = mount(t);
+  const calls = [];
+  let result = { stopped: false, error: 'busy' };
+  window.mixdogDesktop.stopShellJob = async (...args) => {
+    calls.push(args);
+    return result;
+  };
+  await publish({
+    shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm test', cwd: '/work/cart-service', startedAt: Date.now() - 5_000 }] },
+  });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await act(async () => document.querySelector('.composer-island-seg-shell').click());
+  assert.equal(document.querySelector('.composer-island-row small').textContent, 'cart-service');
+  await act(async () => document.querySelector('.composer-island-row button').click());
+  assert.deepEqual(calls, [['island-session', 'j1']]);
+  assert.equal(document.querySelector('.composer-island-row-error').textContent, translate("Island: Couldn't stop"));
+  assert.equal(document.querySelector('.composer-island-row .agent-activity-elapsed').dataset.state, 'running');
+  const retry = document.querySelector('.composer-island-row button');
+  assert.equal(retry.textContent, translate('Retry'));
+  result = { stopped: true };
+  await act(async () => retry.click());
+  assert.equal(calls.length, 2);
+  assert.equal(document.querySelector('.composer-island-row-error'), null);
+  const button = document.querySelector('.composer-island-row button');
+  assert.equal(button.textContent, translate('Island: Stopping…'));
+  assert.equal(button.disabled, true);
+  // The status feed lists it as finished (cancelled): Stopped + Dismiss.
+  await publish({
+    shellJobs: {
+      count: 0,
+      jobs: [],
+      finished: [{ taskId: 'j1', command: 'npm test', status: 'cancelled', exitCode: 1, startedAt: 1, finishedAt: 2 }],
+    },
+  });
+  assert.equal(document.querySelector('.composer-island-row .agent-activity-elapsed').textContent, translate('Island: Stopped'));
+  assert.equal(document.querySelector('.composer-island-row button').textContent, translate('Dismiss'));
+});
+
+test('the agent and shell segments expand the island panel inline', async (t) => {
   const { root, document } = mount(t);
   await publish({
     agentWorkers: [{ tag: 'a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 }],
     shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
   });
-  const opened = [];
-  await act(async () =>
-    root.render(React.createElement(ComposerDock, dockProps({ onOpenBackgroundJobs: (kind) => opened.push(kind) })))
-  );
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'panel');
+  assert.ok(document.querySelector('.composer-island-jobs .agent-pool-name'));
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
-  assert.deepEqual(opened, ['agent', 'shell']);
-  // The popover stays the no-dock fallback: nothing expanded here.
-  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
-  assert.equal(document.querySelector('.composer-island-panel'), null);
+  assert.equal(document.querySelector('.composer-island-jobs .composer-island-shell-command').textContent, 'npm test');
 });
 
 test('the jobs dock pane lists agents with the sidebar row and shells with command and elapsed time', async (t) => {

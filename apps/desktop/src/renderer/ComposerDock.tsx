@@ -46,7 +46,6 @@ export function ComposerDock({
   reviewCwd,
   onOpenSessionDiff,
   onOpenAgentSession,
-  onOpenBackgroundJobs,
   children,
 }: {
   dockRef?: Ref<HTMLDivElement>;
@@ -75,9 +74,6 @@ export function ComposerDock({
   onOpenSessionDiff?: () => void;
   /** The jobs panel opens an agent's session. */
   onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
-  /** The agent/shell segments open the pane's side dock on the jobs list;
-   *  when absent they expand the island's popover. */
-  onOpenBackgroundJobs?: (kind: 'agent' | 'shell') => void;
   children: ReactNode;
 }) {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
@@ -110,7 +106,6 @@ export function ComposerDock({
         <ComposerIsland
           sessionId={sessionId}
           onOpenAgentSession={onOpenAgentSession}
-          onOpenBackgroundJobs={onOpenBackgroundJobs}
           goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}
           files={
             // Keep the entry gate until the module and its authoritative read
