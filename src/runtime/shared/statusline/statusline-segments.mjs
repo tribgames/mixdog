@@ -31,8 +31,20 @@ const EMPTY_SHELL_JOBS = Object.freeze({
   sessions: Object.freeze({}),
 });
 
-let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: EMPTY_SHELL_JOBS };
-let _shellJobsRefreshInFlight = false;
+// One entry per owner pid: a desktop host polls under whichever session frame
+// arrived last, so the owner can alternate between processes. A single shared
+// slot answered every switch with "no jobs" and made the job list flicker.
+const _shellJobsSegmentCache = new Map();
+const _shellJobsRefreshInFlight = new Set();
+const SHELL_JOBS_OWNER_CACHE_TTL_MS = 60_000;
+
+function rememberShellJobs(ownerPid, value) {
+  const at = Date.now();
+  for (const [pid, entry] of _shellJobsSegmentCache) {
+    if (at - entry.at > SHELL_JOBS_OWNER_CACHE_TTL_MS) _shellJobsSegmentCache.delete(pid);
+  }
+  _shellJobsSegmentCache.set(ownerPid, { at, value });
+}
 
 function dataDir() {
   return process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
@@ -50,15 +62,15 @@ export function shellJobsStatus({ clientHostPid, sessionId } = {}) {
   const scope = String(sessionId ?? '').trim();
   if (!ownerPid) return scoped ? EMPTY_SHELL_JOBS_SESSION : EMPTY_SHELL_JOBS;
   const now = Date.now();
-  const sameOwner = _shellJobsSegmentCache.ownerPid === ownerPid;
-  const fresh = sameOwner && now - _shellJobsSegmentCache.at < SHELL_JOBS_SEGMENT_CACHE_MS;
-  if (!fresh && !_shellJobsRefreshInFlight) {
-    _shellJobsRefreshInFlight = true;
+  const cached = _shellJobsSegmentCache.get(ownerPid);
+  const fresh = cached && now - cached.at < SHELL_JOBS_SEGMENT_CACHE_MS;
+  if (!fresh && !_shellJobsRefreshInFlight.has(ownerPid)) {
+    _shellJobsRefreshInFlight.add(ownerPid);
     refreshShellJobsStatus(ownerPid).finally(() => {
-      _shellJobsRefreshInFlight = false;
+      _shellJobsRefreshInFlight.delete(ownerPid);
     });
   }
-  const value = sameOwner ? _shellJobsSegmentCache.value || EMPTY_SHELL_JOBS : EMPTY_SHELL_JOBS;
+  const value = cached?.value || EMPTY_SHELL_JOBS;
   if (!scoped) return value;
   return (scope && value.sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
 }
@@ -123,7 +135,7 @@ async function refreshShellJobsStatus(ownerPid) {
     try {
       names = await readdir(dir);
     } catch {
-      _shellJobsSegmentCache = { ownerPid, at: Date.now(), value };
+      rememberShellJobs(ownerPid, value);
       return;
     }
     const { ids, ownerByJob } = listOpenShellJobs(names);
@@ -175,7 +187,7 @@ async function refreshShellJobsStatus(ownerPid) {
   } catch {
     value = EMPTY_SHELL_JOBS;
   }
-  _shellJobsSegmentCache = { ownerPid, at: Date.now(), value };
+  rememberShellJobs(ownerPid, value);
 }
 
 // Newest-first, capped ids of job records with no `.done` marker, plus the
