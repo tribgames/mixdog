@@ -54,8 +54,9 @@ export function createCallDispatch({
     const deactivating = activationCall && args.active === false;
     const bindingSessionId = remoteSessionIdFromBinding(name, args);
     // Auto/implicit activation is retired. A valid manual ON always carries
-    // its target session and explicitly overrides the old one.
-    if (activating && !bindingSessionId) {
+    // its target session and explicitly overrides the old one. Legacy automatic
+    // requests remain non-authoritative even when they include a session id.
+    if (activating && (args.claimIfVacant === true || !bindingSessionId)) {
       return {
         content: [{ type: 'text', text: 'channel bridge claim skipped: manual ON required' }],
         claimSkipped: true,
