@@ -322,7 +322,9 @@ export function useEditorFileSession({
     setRevertError('');
     try {
       const result = await reader(projectPath, relPath, accessToken);
-      if (result.binary || result.tooLarge) {
+      if (result.binary || result.tooLarge || result.readOnly) {
+        // Do not discard a writable buffer for a disk version we cannot save.
+        setDiskChanged(true);
         throw new Error(t('The disk version can no longer be safely edited as text.'));
       }
       const content = normalizeEditorModelText(result.content);
@@ -379,7 +381,8 @@ export function useEditorFileSession({
     setSaveError('');
     void reader(projectPath, relPath, accessToken)
       .then((result) => {
-        if (result.binary || result.tooLarge) {
+        if (result.binary || result.tooLarge || result.readOnly) {
+          // Keep the original save baseline and the user's dirty buffer.
           throw new Error(t('The disk version can no longer be safely edited as text.'));
         }
         const savedContent = normalizeEditorModelText(result.content);

@@ -2584,6 +2584,7 @@
   "Read output": "출력 읽기",
   "Read-only": "읽기 전용",
   "Read-only files open in Preview.": "읽기 전용 파일은 미리보기로 열립니다.",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "읽기 전용: 이 파일의 텍스트 인코딩이 올바르지 않습니다. 데이터 손실을 막으려면 외부 편집기에서 변환하거나 복구하세요.",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "읽기 전용: 1MB를 넘는 파일이라 볼 수만 있고 편집할 수는 없습니다.",
   "Read, create, and edit PDF documents.": "PDF 문서를 읽고 만들고 편집합니다.",
   "Readiness": "준비 상태",
