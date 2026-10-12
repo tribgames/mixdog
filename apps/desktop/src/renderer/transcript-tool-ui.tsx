@@ -41,7 +41,7 @@ import { ToolComputerReadinessCard } from './transcript-computer-card';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
 import { CodeDiff } from './transcript-diff';
-import { CopyControl, TextShimmer } from './transcript-primitives';
+import { CopyControl } from './transcript-primitives';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { useBrowserPageIdentity } from './browser-page-identity';
@@ -293,7 +293,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         </span>
         <span className="tool-title tool-activity-title" title={label}>
           <b>
-            <TextShimmer text={label} active={pending} />
+            {label}
           </b>
         </span>
         {pending && (
@@ -613,7 +613,7 @@ function renderToolActivityHeader({
       )}
       <span className="tool-title tool-activity-item-title">
         <b>
-          <TextShimmer text={presentation.verb} active={presentation.pending} />
+          {presentation.verb}
         </b>
         {presentation.headerSubject &&
           !(open && presentation.hideSubjectWhenOpen) &&
@@ -1111,7 +1111,7 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
             data-component={item.aggregate ? 'tool-count-summary' : 'tool-status-title'}
             data-active={!done ? 'true' : 'false'}
           >
-            <TextShimmer text={model.labelText} active={!done} />
+            {model.labelText}
           </b>
         </span>
         {model.headerFailureText && (
