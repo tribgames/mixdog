@@ -494,7 +494,8 @@ function matchLineHint(content, oldStr) {
     total += 1;
     if (lines.length < 8) lines.push(content.slice(0, at).split('\n').length);
   }
-  return lines.length ? ` at lines ${lines.join(', ')}${total > lines.length ? ', …' : ''}` : '';
+  if (!lines.length) return '';
+  return ` at lines ${lines.join(', ')}${total > lines.length ? ', …' : ''}`;
 }
 
 function targetSnapshot(statBefore) {
@@ -747,7 +748,9 @@ function resolveStrReplaceArgs(args) {
     const hasCanonical = args?.[canonical] !== undefined;
     const hasAlias = args?.[alias] !== undefined;
     if (hasCanonical && hasAlias && args[canonical] !== args[alias]) {
-      return { error: `Error: edit received both ${canonical} and ${alias} with different values; pass only ${canonical}` };
+      return {
+        error: `Error: edit received both ${canonical} and ${alias} with different values; pass only ${canonical}`,
+      };
     }
     out[canonical] = hasCanonical ? args[canonical] : args?.[alias];
   }
@@ -778,7 +781,8 @@ async function adaptStrReplace(args, workDir, options) {
   if (read.error) return read.error;
   const edit = { fullPath, workDir, options, ...read };
   if (oldStr.length === 0) {
-    if (edit.content.length > 0) return `Error: cannot create ${fullPath}: file exists: to replace it entirely pass its current content as old_string (read it first); to change part, pass that part as old_string with the replacement as new_string`;
+    if (edit.content.length > 0)
+      return `Error: cannot create ${fullPath}: file exists: to replace it entirely pass its current content as old_string (read it first); to change part, pass that part as old_string with the replacement as new_string`;
     const stale = await commitEdit(edit, {
       bytes: encodeEditContent(newStr, edit.fileEnc),
       after: newStr,

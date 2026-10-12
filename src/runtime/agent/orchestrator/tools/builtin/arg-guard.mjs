@@ -183,9 +183,7 @@ function splitListedAbsoluteWindowsPaths(value) {
     .trim()
     .replace(/^\[([\s\S]*)\]$/, '$1')
     .replace(/^[\s,;]+|[\s,;]+$/g, '');
-  const pieces = body
-    .split(/[\s,;]+(?=["']?[A-Za-z]:[\\/])/)
-    .map((piece) => piece.replace(/^(["'])(.*)\1$/, '$2'));
+  const pieces = body.split(/[\s,;]+(?=["']?[A-Za-z]:[\\/])/).map((piece) => piece.replace(/^(["'])(.*)\1$/, '$2'));
   return pieces.every((piece) => /^[A-Za-z]:[\\/]/.test(piece) && !/[A-Za-z]:[\\/]/.test(piece.slice(3)))
     ? pieces
     : null;

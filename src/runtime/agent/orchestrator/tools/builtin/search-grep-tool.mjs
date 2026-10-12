@@ -7,7 +7,12 @@ import {
   normalizeOutputPath,
   trueCasePath,
 } from './path-utils.mjs';
-import { _suggestIndexedPaths, appendNotFoundCwdNote, buildNotFoundHintBody, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
+import {
+  _suggestIndexedPaths,
+  appendNotFoundCwdNote,
+  buildNotFoundHintBody,
+  finalizeReadFamilyEnoentTail,
+} from './search-path-diagnostics.mjs';
 import { buildGrepCacheKey, buildGrepRgArgs } from './search-builders.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
 import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../session/cache/scoped-cache-outcome.mjs';
@@ -133,9 +138,15 @@ async function runCachedGrepSearch(request) {
 
   return await runScopedSearchInFlight(
     cacheKey,
-    ({ signal, scopedCacheOutcome }) => runGrepSearch({
-      ...request, cacheKey, options: { ...options, scopedCacheOutcome },
-    }, signal),
+    ({ signal, scopedCacheOutcome }) =>
+      runGrepSearch(
+        {
+          ...request,
+          cacheKey,
+          options: { ...options, scopedCacheOutcome },
+        },
+        signal
+      ),
     { signal: options?.signal || options?.abortSignal || null, scopes: [grepResolvedPath] },
     options?.scopedCacheOutcome
   );

@@ -304,7 +304,9 @@ function queueSaturatedAsTask(run, saturation, spec) {
       taskId,
       surface: 'shell',
       operation: 'shell',
-      label: String(spec.command || '').replace(/\s+/g, ' ').slice(0, 120),
+      label: String(spec.command || '')
+        .replace(/\s+/g, ' ')
+        .slice(0, 120),
       context: { callerSessionId: spec.ownerSessionId, clientHostPid: spec.clientHostPid },
       input: { command: spec.command, cwd: spec.cwd },
       meta: { task_id: taskId, stdout: null, stderr: null, cwd: spec.cwd, timeoutMs: spec.backgroundDeadlineMs || 0 },
@@ -560,23 +562,27 @@ export function execShellCommand(options) {
     // caller hangs forever. Every path below therefore has to settle the run
     // itself, including the unexpected one.
     try {
-      const spawned = await admitAndSpawn(run, {
-        admission,
-        shell,
-        shellArg,
-        shellArgs,
-        command,
-        env,
-        cwd,
-        abortSignal,
-        directArgv,
-        execScript,
-        ownerSessionId,
-        clientHostPid,
-      }, {
-        admissionWaitMs,
-        onSaturated: (err) => backgroundOnTimeout && queueSaturatedAsTask(run, err, options),
-      });
+      const spawned = await admitAndSpawn(
+        run,
+        {
+          admission,
+          shell,
+          shellArg,
+          shellArgs,
+          command,
+          env,
+          cwd,
+          abortSignal,
+          directArgv,
+          execScript,
+          ownerSessionId,
+          clientHostPid,
+        },
+        {
+          admissionWaitMs,
+          onSaturated: (err) => backgroundOnTimeout && queueSaturatedAsTask(run, err, options),
+        }
+      );
       if (!spawned) return;
 
       // Pre-aborted signal: kill immediately if the abort already fired

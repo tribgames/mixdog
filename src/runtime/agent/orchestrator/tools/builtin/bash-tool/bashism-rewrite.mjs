@@ -213,7 +213,9 @@ function collectEdits(text, mask, notes) {
     const before = code[m.index - 1];
     const prefixed = before === '&' || ((before === '1' || before === '2') && !/\w/.test(code[m.index - 2] ?? ''));
     const start = prefixed ? m.index - 1 : m.index;
-    const next = `${before === '&' ? '*' : prefixed ? before : ''}${m[1]}$null`;
+    let streamPrefix = '';
+    if (prefixed) streamPrefix = before === '&' ? '*' : before;
+    const next = `${streamPrefix}${m[1]}$null`;
     edits.push({ start, end: m.index + m[0].length, text: next });
     notes.push(`[rewritten: "${text.slice(start, m.index + m[0].length)}" → "${next}"]`);
   }

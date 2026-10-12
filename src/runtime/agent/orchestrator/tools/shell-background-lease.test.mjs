@@ -80,7 +80,10 @@ test.after(async () => {
   _resetNativeSpawnClientForTest();
 });
 
-test('promotion releases the foreground lease: 8+ background servers leave a 9th call admitted', { skip: skipNative, timeout: 60_000 }, async () => {
+test('promotion releases the foreground lease: 8+ background servers leave a 9th call admitted', {
+  skip: skipNative,
+  timeout: 60_000,
+}, async () => {
   const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 8, maxHighLoad: 12 } });
   try {
     // Two waves: more background jobs than foreground slots, with no cap.
@@ -122,7 +125,10 @@ test('promotion releases the foreground lease: 8+ background servers leave a 9th
   }
 });
 
-test('a scoped parent always resumes: maxHighLoad=1 with many background jobs', { skip: skipNative, timeout: 60_000 }, async () => {
+test('a scoped parent always resumes: maxHighLoad=1 with many background jobs', {
+  skip: skipNative,
+  timeout: 60_000,
+}, async () => {
   const admission = new ResourceAdmissionController({
     env: {},
     limits: { maxAgents: 1, maxShells: 8, maxHighLoad: 1 },
@@ -157,7 +163,10 @@ test('a scoped parent always resumes: maxHighLoad=1 with many background jobs', 
   assert.equal(admission.snapshot().activeLeases.length, 0);
 });
 
-test('a queued saturated command releases its lease when it is promoted', { skip: skipNative, timeout: 60_000 }, async () => {
+test('a queued saturated command releases its lease when it is promoted', {
+  skip: skipNative,
+  timeout: 60_000,
+}, async () => {
   const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 1, maxHighLoad: 12 } });
   try {
     const holder = await admission.acquire('shell', { label: 'holder' });
@@ -205,9 +214,7 @@ test('the saturation error names only the caller\u2019s holders, with task ids a
   const mine = await admission.acquire('shell', { label: '[task_id: job_mine_1] npm run dev', ownerKey: 'sess_me' });
   clock = 61_001;
   try {
-    const result = await execShellCommand(
-      quickJob({ admission, admissionWaitMs: 200, ownerSessionId: 'sess_me' })
-    );
+    const result = await execShellCommand(quickJob({ admission, admissionWaitMs: 200, ownerSessionId: 'sess_me' }));
     assert.equal(result.failureReason, 'resource pressure');
     const text = result.stderr;
     assert.match(text, /shell admission wait exceeded 200ms — 2\/2 shell leases active/);
@@ -231,7 +238,10 @@ test('task list shows other sessions\u2019 shell holders as a read-only count', 
   });
   try {
     const listed = await executeTaskTool({ action: 'list' }, { sessionId: 'sess_viewer' });
-    assert.match(listed, /\[other sessions in this runtime\] 1 foreground shell lease\(s\), 0 background shell job\(s\)/);
+    assert.match(
+      listed,
+      /\[other sessions in this runtime\] 1 foreground shell lease\(s\), 0 background shell job\(s\)/
+    );
     assert.doesNotMatch(listed, /FAKE-TOKEN-456|job_x|sess_someone/);
     const own = await executeTaskTool({ action: 'list' }, { sessionId: 'sess_someone' });
     assert.doesNotMatch(own, /other sessions in this runtime/);

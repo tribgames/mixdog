@@ -37,7 +37,10 @@ test('code_graph: the real route names the valid modes when mode is missing', as
     String,
     (err) => err.message
   );
-  assert.match(outcome, /code_graph: "mode" is required, one of overview\|imports\|.*\|find_symbol\|.*\|callers\|search$/);
+  assert.match(
+    outcome,
+    /code_graph: "mode" is required, one of overview\|imports\|.*\|find_symbol\|.*\|callers\|search$/
+  );
 });
 
 test('grep/read not-found always carry the cwd note, with or without a suggestion', async (t) => {
@@ -47,7 +50,10 @@ test('grep/read not-found always carry the cwd note, with or without a suggestio
   const note = /\(relative paths resolve from .*mixdog-zr-nf-/;
   assert.match(String(await executeBuiltinTool('grep', { pattern: 'x', path: 'nope/zz' }, dir)), note);
   assert.match(String(await executeBuiltinTool('read', { path: 'nope.txt' }, dir)), note);
-  assert.match(String(await executeBuiltinTool('read', { path: 'real.tx' }, dir)), /Did you mean .*\(relative paths resolve from/);
+  assert.match(
+    String(await executeBuiltinTool('read', { path: 'real.tx' }, dir)),
+    /Did you mean .*\(relative paths resolve from/
+  );
 });
 
 test('exec policy block names the rule and the matched fragment', () => {
@@ -92,22 +98,39 @@ const notFound = (name, prose) =>
 const parserError = (prose, id) =>
   `${prose}\n    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException\n    + FullyQualifiedErrorId : ${id}\n`;
 
-test('PowerShell bash-ism hint is locale-independent and needs the structural error id', { skip: process.platform !== 'win32' }, () => {
-  const koGrep = notFound('grep', "'grep' 용어는 cmdlet, 함수, 스크립트 파일 또는 실행할 수 있는 프로그램 이름으로 인식되지 않습니다.");
+test('PowerShell bash-ism hint is locale-independent and needs the structural error id', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const koGrep = notFound(
+    'grep',
+    "'grep' 용어는 cmdlet, 함수, 스크립트 파일 또는 실행할 수 있는 프로그램 이름으로 인식되지 않습니다."
+  );
   const enTail = notFound('tail', "The term 'tail' is not recognized as the name of a cmdlet");
   assert.match(_powershellBashismHint('x | grep a', koGrep), /no `grep` in PowerShell; use Select-String/);
   assert.match(_powershellBashismHint('x | tail -5', enTail), /Select-Object -Last N/);
-  assert.match(_powershellBashismHint('pgrep node', notFound('pgrep', "'pgrep' 용어는 인식되지 않습니다.")), /Get-Process/);
+  assert.match(
+    _powershellBashismHint('pgrep node', notFound('pgrep', "'pgrep' 용어는 인식되지 않습니다.")),
+    /Get-Process/
+  );
   assert.match(_powershellBashismHint('x | wc -l', notFound('wc', 'x')), /Measure-Object/);
   // Concise error view (pwsh 7): `name:` header + quoted name, Korean and English.
-  const koConcise = "wc: \nLine |\n   2 |  cd a; wc -c b\n     |         ~~에서\n     | 'wc' 용어는 cmdlet, 함수, 스크립트 파일 또는 실행 프로그램의 이름으로 인식되지 않습니다.\n";
+  const koConcise =
+    "wc: \nLine |\n   2 |  cd a; wc -c b\n     |         ~~에서\n     | 'wc' 용어는 cmdlet, 함수, 스크립트 파일 또는 실행 프로그램의 이름으로 인식되지 않습니다.\n";
   assert.match(_powershellBashismHint('cd a; wc -c b', koConcise), /no `wc` in PowerShell; use Measure-Object/);
-  const enConcise = "head: The term 'head' is not recognized as a name of a cmdlet, function, script file, or executable program.\n";
+  const enConcise =
+    "head: The term 'head' is not recognized as a name of a cmdlet, function, script file, or executable program.\n";
   assert.match(_powershellBashismHint('git status | head -20', enConcise), /Select-Object -First N/);
   assert.equal(_powershellBashismHint('grep -n a b', 'grep: b: No such file or directory\n'), '');
-  const koParser = "ParserError: 줄:2 char:46\n+ python - <<'EOF'\n+      ~에서\n리디렉션 연산자 뒤에 파일 사양이 없습니다.\n";
+  const koParser =
+    "ParserError: 줄:2 char:46\n+ python - <<'EOF'\n+      ~에서\n리디렉션 연산자 뒤에 파일 사양이 없습니다.\n";
   assert.match(_powershellBashismHint("cd x; python - <<'EOF'\nEOF", koParser), /no heredoc/);
-  assert.match(_powershellBashismHint("ssh h 'ls' </dev/null", "ParserError: 줄:1 char:9\n'<' 연산자는 나중에 사용하도록 예약되어 있습니다.\n"), /drop <\/dev\/null/);
+  assert.match(
+    _powershellBashismHint(
+      "ssh h 'ls' </dev/null",
+      "ParserError: 줄:1 char:9\n'<' 연산자는 나중에 사용하도록 예약되어 있습니다.\n"
+    ),
+    /drop <\/dev\/null/
+  );
   assert.equal(_powershellBashismHint("python - <<'EOF'\nEOF", 'ZeroDivisionError: missing'), '');
   // The missing name must be one the command used, and an unrelated command-not-found is untouched.
   assert.equal(_powershellBashismHint('echo hi', koGrep), '');
@@ -117,7 +140,10 @@ test('PowerShell bash-ism hint is locale-independent and needs the structural er
   assert.match(_powershellBashismHint('cat < /dev/null', koRedirect), /drop <\/dev\/null/);
   const koHeredoc = parserError('리디렉션 연산자 뒤에 파일 사양이 없습니다.', 'MissingFileSpecification');
   assert.match(_powershellBashismHint("python - <<'EOF'\nprint(1)\nEOF", koHeredoc), /no heredoc/);
-  assert.match(_powershellBashismHint("python - <<'EOF'\nEOF", parserError('The ‘<’ operator', 'RedirectionNotSupported')), /no heredoc/);
+  assert.match(
+    _powershellBashismHint("python - <<'EOF'\nEOF", parserError('The ‘<’ operator', 'RedirectionNotSupported')),
+    /no heredoc/
+  );
   // Heredoc text without the parser-error id (e.g. a plain "missing" message) gets no hint.
   assert.equal(_powershellBashismHint("python - <<'EOF'\nEOF", 'Traceback: missing module'), '');
   assert.match(_powershellBashismHint('x 2>/dev/null', "경로 'C:\\dev\\null'의 일부를 찾을 수 없습니다."), /2>\$null/);
@@ -132,10 +158,28 @@ test('edit errors: no-op, non-unique lines, create-over-existing', async (t) => 
   });
   const file = join(dir, 'f.txt');
   writeFileSync(file, 'dup\nx\ndup\ny\ndup\n', 'utf8');
-  const same = await tryExecuteExternalToolAdapter('edit', { file_path: file, old_string: 'x', new_string: 'x' }, dir, {});
+  const same = await tryExecuteExternalToolAdapter(
+    'edit',
+    { file_path: file, old_string: 'x', new_string: 'x' },
+    dir,
+    {}
+  );
   assert.match(String(same), /no change needed; the file may already contain it, re-read/);
-  const multi = await tryExecuteExternalToolAdapter('edit', { file_path: file, old_string: 'dup', new_string: 'z' }, dir, {});
+  const multi = await tryExecuteExternalToolAdapter(
+    'edit',
+    { file_path: file, old_string: 'dup', new_string: 'z' },
+    dir,
+    {}
+  );
   assert.match(String(multi), /old_string found 3 times at lines 1, 3, 5[;)]/);
-  const create = await tryExecuteExternalToolAdapter('edit', { file_path: file, old_string: '', new_string: 'z' }, dir, {});
-  assert.match(String(create), /file exists: to replace it entirely pass its current content as old_string \(read it first\); to change part/);
+  const create = await tryExecuteExternalToolAdapter(
+    'edit',
+    { file_path: file, old_string: '', new_string: 'z' },
+    dir,
+    {}
+  );
+  assert.match(
+    String(create),
+    /file exists: to replace it entirely pass its current content as old_string \(read it first\); to change part/
+  );
 });

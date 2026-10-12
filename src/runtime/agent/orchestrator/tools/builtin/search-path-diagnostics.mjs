@@ -181,7 +181,11 @@ export function appendNotFoundCwdNote(hint, workDir, errCode = 'ENOENT') {
 }
 
 export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
-  return appendNotFoundCwdNote(buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode, cache), workDir, errCode);
+  return appendNotFoundCwdNote(
+    buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode, cache),
+    workDir,
+    errCode
+  );
 }
 
 export function buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
@@ -190,7 +194,7 @@ export function buildNotFoundHintBody(workDir, missingPath, actionVerb, errCode 
   // escaping (`"C:\\tmp\\smp"` written as `"C:\tmp\smp"`). Name the cause —
   // the sibling/basename hints below can never resolve such a path.
   const rawMissing = String(missingPath || '');
-  if (/^[A-Za-z]:(?![\\/])[^\\/]/.test(rawMissing.replace(/\\/g, '\\'))) {
+  if (/^[A-Za-z]:(?![\\/])[^\\/]/.test(rawMissing)) {
     return ` The path has a drive letter but no separator after it — the backslashes were probably lost in escaping. Re-issue with forward slashes (e.g. "C:/tmp/smp").`;
   }
   if (missingPathIsOutsideProject(workDir, missingPath)) {

@@ -232,8 +232,7 @@ export const BUILTIN_TOOLS = [
       properties: {
         pattern: {
           anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, maxItems: 10 }],
-          description:
-            'Ripgrep regex(es); escape literal metacharacters.',
+          description: 'Ripgrep regex(es); escape literal metacharacters.',
         },
         path: {
           anyOf: [
@@ -370,7 +369,10 @@ export const BUILTIN_TOOLS = [
           description: 'Known directory; defaults to the current Project.',
         },
         hidden: { type: 'boolean', description: 'Include dotfiles.' },
-        meta: { type: 'boolean', description: 'Per-entry size bytes, UTC mtime, octal mode; text files also get a line count.' },
+        meta: {
+          type: 'boolean',
+          description: 'Per-entry size bytes, UTC mtime, octal mode; text files also get a line count.',
+        },
         limit: {
           type: 'integer',
           minimum: 0,
