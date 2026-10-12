@@ -799,4 +799,7 @@ export function stopPgForShutdownSync() {
   try {
     _pgProc.stopPgSync({ runtimeDir, pgdataDir });
   } catch {}
+  // The postmaster is gone, so drop its advert too (same guarded clear as the
+  // async path: never another live owner's); otherwise pg.json outlives the run.
+  patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null }, { timeoutMs: 1000 });
 }
