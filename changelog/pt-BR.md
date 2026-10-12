@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Continuar uma sessão depois de trocar o modelo ("Continuar em <modelo>") e tentar novamente um turno com falha ("Tentar novamente") não falham mais com "submit options contains an unsupported field."
+
 ## v1.1.1 - 2026-10-12
 
 O Muse Code (Meta) está disponível como provedor por assinatura: entre com um código de dispositivo no navegador e veja seu uso contínuo e semanal diretamente no Mixdog.

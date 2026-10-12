@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Continuare una sessione dopo aver cambiato il suo modello ("Continua in <modello>") e riprovare un turno non riuscito ("Riprova") non falliscono più con "submit options contains an unsupported field."
+
 ## v1.1.1 - 2026-10-12
 
 Muse Code (Meta) è disponibile come provider in abbonamento: accedi con un codice dispositivo nel browser e consulta direttamente in Mixdog l'utilizzo continuo e settimanale.

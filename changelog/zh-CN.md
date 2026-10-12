@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+切换会话模型后的“在 <模型> 中延续”,以及失败回合的“重试”,不再因“submit options contains an unsupported field.”而失败。
+
 ## v1.1.1 - 2026-10-12
 
 Muse Code(Meta)现已作为订阅服务提供商提供:在浏览器中使用设备代码登录,并可直接在 Mixdog 中查看滚动用量和每周用量。

@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Continuar una sesión tras cambiar su modelo ("Continuar en <modelo>") y reintentar un turno fallido ("Reintentar") ya no fallan con "submit options contains an unsupported field."
+
 ## v1.1.1 - 2026-10-12
 
 Muse Code (Meta) está disponible como proveedor por suscripción: inicia sesión con un código de dispositivo en tu navegador y consulta tu uso continuo y semanal directamente en Mixdog.

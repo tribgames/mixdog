@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Das Weiterführen einer Sitzung nach dem Wechsel des Modells („In <Modell> weiterführen“) und das erneute Versuchen eines fehlgeschlagenen Durchgangs („Erneut versuchen“) schlagen nicht mehr mit „submit options contains an unsupported field.“ fehl.
+
 ## v1.1.1 - 2026-10-12
 
 Muse Code (Meta) ist als Abo-Anbieter verfügbar: Melden Sie sich im Browser mit einem Gerätecode an und sehen Sie Ihre rollierende und wöchentliche Nutzung direkt in Mixdog.
