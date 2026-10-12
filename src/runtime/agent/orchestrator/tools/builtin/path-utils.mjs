@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { realpath } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { isWSL } from '../../../../shared/wsl.mjs';
 
 // Restore the on-disk casing of a path (win32 only). rg relativizes candidate
@@ -346,6 +346,9 @@ const JOINED_PATH_LIMIT = 10;
 // session working directory (the project root). `.`, `..`, the directory
 // itself, its ancestors and anything outside it keep the string unsplit and
 // return the array hint instead.
+// Residual ambiguity (accepted): a missing filename that contains spaces or
+// commas, whose pieces all happen to exist as separate in-project paths, is
+// read as those pieces rather than reported missing.
 // Returns an error message when the split is refused or exceeds the batch
 // limit, else null.
 export function splitJoinedPathScopes(toolName, args, workDir) {
@@ -358,10 +361,22 @@ export function splitJoinedPathScopes(toolName, args, workDir) {
       return false;
     }
   };
+  // Containment is judged on REAL targets: a symlink/junction inside the
+  // directory that points outside it is outside.
+  const realOrNull = (p) => {
+    try {
+      return realpathSync.native(p);
+    } catch {
+      return null;
+    }
+  };
+  const realRoot = realOrNull(resolve(workDir));
   const strictlyInside = (p) => {
     const piece = normalizeInputPath(p);
-    if (piece === '.' || piece === '..') return false;
-    const rel = relative(resolve(workDir), resolveAgainstCwd(piece, workDir));
+    if (piece === '.' || piece === '..' || !realRoot) return false;
+    const target = realOrNull(resolveAgainstCwd(piece, workDir));
+    if (!target) return false;
+    const rel = relative(realRoot, target);
     return Boolean(rel) && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
   };
   for (const key of keys) {

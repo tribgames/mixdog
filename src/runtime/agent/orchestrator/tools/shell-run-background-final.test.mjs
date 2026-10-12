@@ -10,7 +10,7 @@ mock.module('./lib/shell-run-background/promote-job.mjs', {
       run.child.exitCode = 0;
       return { job: { jobId: 'job-1' } };
     },
-    handOverToBackgroundBudget: async () => {},
+    handOverLease: async () => {},
     killAfterFailedPromotion: () => {},
   },
 });

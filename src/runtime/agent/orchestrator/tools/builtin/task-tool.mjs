@@ -3,6 +3,7 @@ import {
   buildJobNotFoundMessage,
   peekShellJob,
   killShellJob,
+  otherSessionBackgroundShellJobCount,
   cancelBackgroundShellJobWatch,
   clearShellJobNotifyCtx,
   shellJobPublicTaskResult,
@@ -24,7 +25,6 @@ import {
 import { recordDeliveredCompletion } from '../../session/manager/delivered-completions.mjs';
 import { listShellJobRecords, readShellJobRecord } from './lib/shell-job-records.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
-import { backgroundShellBudgetSnapshot, pinBackgroundShellJob } from './shell-background-budget.mjs';
 import { readShellTaskOutput } from './lib/shell-task-output.mjs';
 
 // Ceiling for confirming that a cancelled task's process really exited. The
@@ -90,9 +90,10 @@ function resolveTaskWaitTimeoutMs(value) {
   return Math.min(TASK_WAIT_TIMEOUT_MAX_MS, Math.max(TASK_WAIT_TIMEOUT_MIN_MS, Math.floor(raw)));
 }
 
-// Read-only count of this runtime's shell capacity held by OTHER sessions.
-// Admission and the background budget are runtime-wide while task list/cancel
-// are session-scoped, so without this those holders are invisible.
+// Read-only counts of this runtime's shell work owned by OTHER sessions.
+// Admission is runtime-wide while task list/cancel are session-scoped, so
+// without this those holders are invisible. Counts only: another session's
+// command text is never shown.
 function otherSessionShellHolders(options) {
   const context =
     options?.context && typeof options.context === 'object' ? { ...options.context, ...options } : options;
@@ -103,9 +104,7 @@ function otherSessionShellHolders(options) {
   const leases = (resourceAdmission.snapshot().activeLeases || []).filter(
     (lease) => lease.kind === 'shell' && !mine.has(String(lease.ownerKey || ''))
   ).length;
-  const jobs = backgroundShellBudgetSnapshot().jobs.filter(
-    (job) => !mine.has(String(job.ownerSessionId || ''))
-  ).length;
+  const jobs = otherSessionBackgroundShellJobCount(mine);
   if (!leases && !jobs) return '';
   return `[other sessions in this runtime] ${leases} foreground shell lease(s), ${jobs} background shell job(s) — read-only; only their owner sessions can cancel them.`;
 }
@@ -280,49 +279,38 @@ export async function executeTaskTool(args, options = {}) {
   const isShellTask = task.surface === 'shell';
 
   if (action === 'read' || action === 'wait') {
-    // The job is in use for the whole read/wait: never evicted meanwhile.
-    const unpin = isShellTask ? pinBackgroundShellJob(taskId) : () => {};
-    try {
-      return await readOrWaitTask(task, taskId, action, args, options);
-    } finally {
-      unpin();
+    let waitInterruptedByUser = false;
+    if (action === 'wait') {
+      if (!isShellTask) return `Error: task wait is only available for shell tasks: ${taskId}`;
+      waitInterruptedByUser = await waitForShellTask(task, taskId, args, options);
     }
+    if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
+    const latest = getBackgroundTask(taskId, { context: options }) || task;
+    const visible =
+      isShellTask && latest.result && typeof latest.result === 'object'
+        ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
+        : latest;
+    let rendered = renderBackgroundTask(visible, { includeResult: true });
+    if (action === 'wait' && latest.status === 'running') {
+      if (waitInterruptedByUser) {
+        rendered +=
+          '\n\nWait interrupted by new user input; task still running. Handle the new message now and reply to it before waiting on this task again.';
+      } else {
+        // In-band report cue: the static "periodic reports" rule does not
+        // survive a long tool loop, so a ceiling-hit wait carries the
+        // protocol reminder itself.
+        rendered +=
+          '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
+      }
+    }
+    if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {
+      recordDeliveredCompletion({ executionId: taskId });
+    }
+    return rendered;
   }
 
   // action is 'cancel': the read|wait|cancel guard above admits nothing else.
   if (isShellTask) return await cancelShellTask(task, taskId, options);
   cancelBackgroundTask(taskId, 'cancelled by task control');
   return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
-}
-
-async function readOrWaitTask(task, taskId, action, args, options) {
-  const isShellTask = task.surface === 'shell';
-  let waitInterruptedByUser = false;
-  if (action === 'wait') {
-    if (!isShellTask) return `Error: task wait is only available for shell tasks: ${taskId}`;
-    waitInterruptedByUser = await waitForShellTask(task, taskId, args, options);
-  }
-  if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
-  const latest = getBackgroundTask(taskId, { context: options }) || task;
-  const visible =
-    isShellTask && latest.result && typeof latest.result === 'object'
-      ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
-      : latest;
-  let rendered = renderBackgroundTask(visible, { includeResult: true });
-  if (action === 'wait' && latest.status === 'running') {
-    if (waitInterruptedByUser) {
-      rendered +=
-        '\n\nWait interrupted by new user input; task still running. Handle the new message now and reply to it before waiting on this task again.';
-    } else {
-      // In-band report cue: the static "periodic reports" rule does not
-      // survive a long tool loop, so a ceiling-hit wait carries the
-      // protocol reminder itself.
-      rendered +=
-        '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
-    }
-  }
-  if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {
-    recordDeliveredCompletion({ executionId: taskId });
-  }
-  return rendered;
 }

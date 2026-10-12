@@ -18,7 +18,6 @@
 import { getBackgroundTask, startBackgroundTask } from '../../../shared/background-tasks.mjs';
 import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { buildShellCompletion, killShellJob, peekShellJob, subscribeShellJobSettled } from './builtin/shell-jobs.mjs';
-import { backgroundShellEvictionReason } from './builtin/shell-background-budget.mjs';
 import { ExecResult, treeKill } from './shell-exec-output.mjs';
 import {
   clearForegroundTimers,
@@ -94,8 +93,7 @@ function _admissionSaturationError(admission, waitMs, ownerKey = null) {
   }
   const error = new Error(
     `shell admission wait exceeded ${waitMs}ms —${detail} ` +
-      'A lease returns when its call ends or is promoted to the background; a promoted job keeps it only while ' +
-      'the background shell budget is full.'
+      'A lease returns when its call ends or is promoted to the background; background jobs hold none.'
   );
   error.code = 'ERESOURCEPRESSURE';
   error.admissionSaturated = true;
@@ -285,9 +283,7 @@ async function settleQueuedPromotion(jobId) {
   await new Promise((resolve) => {
     if (!subscribeShellJobSettled(jobId, resolve)) resolve();
   });
-  const detail = peekShellJob(jobId);
-  const evicted = backgroundShellEvictionReason(jobId);
-  const completion = buildShellCompletion(jobId, evicted ? { ...detail, status: 'failed', error: evicted } : detail);
+  const completion = buildShellCompletion(jobId, peekShellJob(jobId));
   if (completion.taskStatus !== 'completed') {
     throw new Error(completion.error || `shell task ${completion.taskStatus}`);
   }
@@ -545,9 +541,6 @@ export function execShellCommand(options) {
     backgroundOnTimeout,
     promotedTimeoutMs = 0,
     backgroundDeadlineMs = 0,
-    // The caller passed its own timeout_ms: the promoted job is protected from
-    // background-budget eviction (its lifetime is already bounded).
-    explicitTimeout = false,
     // Fixed task_id for the run (a queued command reuses its task's id).
     jobId = null,
     admissionWaitMs = SHELL_ADMISSION_WAIT_MS,
@@ -604,7 +597,6 @@ export function execShellCommand(options) {
         ownerSessionId,
         promotedTimeoutMs,
         backgroundDeadlineMs,
-        explicitTimeout,
       });
       armDeadlines(run, { timeoutMs, autoBackgroundMs, backgroundOnTimeout, abortSignal }, fireAutoBackground);
       armProgressTimers(run, { onProgress, onOutputTail });

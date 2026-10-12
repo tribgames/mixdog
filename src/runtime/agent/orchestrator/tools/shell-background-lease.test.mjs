@@ -9,13 +9,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ResourceAdmissionController, resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { cancelBackgroundTask, getBackgroundTask, registerBackgroundTask } from '../../../shared/background-tasks.mjs';
 import { execShellCommand } from './shell-command.mjs';
-import { killShellJob, shutdownShellJobs, watchBackgroundShellJob } from './builtin/shell-jobs.mjs';
-import { backgroundShellBudgetSnapshot } from './builtin/shell-background-budget.mjs';
+import { shutdownShellJobs } from './builtin/shell-jobs.mjs';
 import { executeTaskTool } from './builtin/task-tool.mjs';
 import {
   _resetNativeSpawnClientForTest,
   _setNativeSpawnBinaryForTest,
   getNativeTask,
+  listNativeTasks,
   shutdownNativeSpawnServer,
 } from './lib/native-spawn-client.mjs';
 
@@ -62,16 +62,7 @@ async function until(predicate, timeoutMs = 10_000) {
   return predicate();
 }
 
-function withEnv(values) {
-  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
-  Object.assign(process.env, values);
-  return () => {
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  };
-}
+const runningJobs = () => listNativeTasks().filter((task) => task.status === 'running');
 
 async function stopAll() {
   await shutdownShellJobs('test-cleanup');
@@ -89,24 +80,27 @@ test.after(async () => {
   _resetNativeSpawnClientForTest();
 });
 
-test('promotion releases the foreground lease: 8 promoted servers leave a 9th call admitted', { skip: skipNative, timeout: 60_000 }, async () => {
+test('promotion releases the foreground lease: 8+ background servers leave a 9th call admitted', { skip: skipNative, timeout: 60_000 }, async () => {
   const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 8, maxHighLoad: 12 } });
   try {
-    const results = await Promise.all(
-      Array.from({ length: 8 }, (_, i) =>
-        execShellCommand(longJob(`server-${i}`, { admission, ownerSessionId: 'sess_lease' }))
-      )
-    );
+    // Two waves: more background jobs than foreground slots, with no cap.
+    const results = [];
+    for (const wave of [0, 1]) {
+      results.push(
+        ...(await Promise.all(
+          Array.from({ length: 6 }, (_, i) =>
+            execShellCommand(longJob(`server-${wave}-${i}`, { admission, ownerSessionId: 'sess_lease' }))
+          )
+        ))
+      );
+    }
     const jobIds = results.map((result) => {
       assert.equal(result.backgrounded, true, result.stderr);
       return result.jobId;
     });
+    assert.equal(jobIds.length, 12);
     assert.equal(admission.snapshot().active.shell, 0);
     assert.equal(admission.snapshot().activeLeases.length, 0);
-    assert.deepEqual(
-      backgroundShellBudgetSnapshot().jobs.map((job) => job.jobId).sort(),
-      [...jobIds].sort()
-    );
     for (const jobId of jobIds) assert.equal(getNativeTask(jobId)?.status, 'running');
 
     const started = Date.now();
@@ -117,89 +111,50 @@ test('promotion releases the foreground lease: 8 promoted servers leave a 9th ca
 
     // Shutdown still kills background jobs, and nothing stays counted.
     const shutdown = await shutdownShellJobs('test');
-    assert.ok(shutdown.killed >= 8);
+    assert.ok(shutdown.killed >= 12);
+    assert.deepEqual(shutdown.unconfirmedJobs, []);
     for (const jobId of jobIds) assert.notEqual(getNativeTask(jobId)?.status, 'running');
-    assert.equal(backgroundShellBudgetSnapshot().jobs.length, 0);
+    assert.deepEqual(runningJobs(), []);
     assert.equal(admission.snapshot().active.shell, 0);
+    assert.equal(admission.snapshot().activeLeases.length, 0);
   } finally {
     await stopAll();
   }
 });
 
-test('the background cap evicts the least-recently-active job and notifies its owner', { skip: skipNative, timeout: 60_000 }, async () => {
-  const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 8, maxHighLoad: 12 } });
-  const restore = withEnv({ MIXDOG_MAX_BACKGROUND_SHELLS: '5', MIXDOG_BACKGROUND_SHELL_MIN_IDLE_MS: '0' });
-  const notices = new Map();
+test('a scoped parent always resumes: maxHighLoad=1 with many background jobs', { skip: skipNative, timeout: 60_000 }, async () => {
+  const admission = new ResourceAdmissionController({
+    env: {},
+    limits: { maxAgents: 1, maxShells: 8, maxHighLoad: 1 },
+  });
+  const agent = await admission.acquire('agent', { label: 'parent agent', ownerKey: 'sess_parent' });
   try {
     const jobIds = [];
-    // Sequential promotions; the first passed an explicit timeout_ms.
-    for (let i = 0; i < 6; i += 1) {
-      const result = await execShellCommand(
-        longJob(`evict-${i}`, {
-          admission,
-          ownerSessionId: 'sess_evict',
-          explicitTimeout: i === 0,
-          backgroundDeadlineMs: i === 0 ? 50_000 : 0,
-        })
-      );
-      assert.equal(result.backgrounded, true, result.stderr);
-      // The 6th waited for the slot the eviction freed: no pending notice.
-      assert.doesNotMatch(result.backgroundMessage, /budget full/);
-      jobIds.push(result.jobId);
-      watchBackgroundShellJob(result.jobId, {
-        callerSessionId: 'sess_evict',
-        notifyFn: (message) => notices.set(result.jobId, String(message)),
-      });
-    }
-    // Recent four (3..6) and the explicit-timeout job (1) are protected: only
-    // job 2, the least-recently-active unprotected one, is evicted.
-    const evictedId = jobIds[1];
-    assert.equal(backgroundShellBudgetSnapshot().jobs.length, 5, 'the cap holds');
-    const notice = await until(() => notices.get(evictedId));
-    assert.ok(notice, 'the evicted job owner was notified');
-    assert.match(notice, new RegExp(`task-id.*${evictedId}`));
-    assert.match(notice, /status.*failed/);
-    assert.match(notice, /evicted by the background shell budget/);
-    assert.equal(getNativeTask(jobIds[0])?.status, 'running', 'explicit-timeout job protected');
-    for (const jobId of jobIds.slice(2)) assert.equal(getNativeTask(jobId)?.status, 'running');
-    assert.equal(notices.size, 1);
-    assert.equal(admission.snapshot().active.shell, 0);
+    await admission.runWithLease(agent, async () => {
+      for (let i = 0; i < 4; i += 1) {
+        // The shell takes the only high-load slot from the suspended parent;
+        // promotion must hand it back or this call never returns.
+        let timer;
+        const result = await Promise.race([
+          execShellCommand(longJob(`parent-${i}`, { admission, ownerSessionId: 'sess_parent' })),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('parent never resumed')), 10_000);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        assert.equal(result.backgrounded, true, result.stderr);
+        jobIds.push(result.jobId);
+        const snap = admission.snapshot();
+        assert.equal(snap.active.agent, 1, 'the parent agent holds its slot again');
+        assert.equal(snap.active.shell, 0);
+      }
+    });
+    for (const jobId of jobIds) assert.equal(getNativeTask(jobId)?.status, 'running');
   } finally {
-    restore();
+    await agent.release();
     await stopAll();
   }
-  assert.equal(backgroundShellBudgetSnapshot().jobs.length, 0);
-});
-
-test('a full cap of protected jobs keeps the new job on its foreground lease and names the caller\u2019s jobs', { skip: skipNative, timeout: 60_000 }, async () => {
-  const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 8, maxHighLoad: 12 } });
-  const restore = withEnv({ MIXDOG_MAX_BACKGROUND_SHELLS: '2' });
-  try {
-    const first = await execShellCommand(longJob('cap-0', { admission, ownerSessionId: 'sess_cap' }));
-    const second = await execShellCommand(
-      longJob('cap-1 --token=SECRET-OTHER', { admission, ownerSessionId: 'sess_other' })
-    );
-    const third = await execShellCommand(longJob('cap-2', { admission, ownerSessionId: 'sess_cap' }));
-    for (const result of [first, second, third]) assert.equal(result.backgrounded, true, result.stderr);
-    assert.match(third.backgroundMessage, /background shell budget full \(2\/2\)/);
-    assert.match(third.backgroundMessage, new RegExp(`task ${third.jobId} keeps its foreground execution slot`));
-    assert.match(third.backgroundMessage, new RegExp(`task cancel task_id=${first.jobId}`));
-    assert.match(third.backgroundMessage, /1 background job\(s\) belong to other sessions/);
-    assert.doesNotMatch(third.backgroundMessage, /SECRET-OTHER/);
-    assert.equal(backgroundShellBudgetSnapshot().jobs.length, 2, 'the hard cap is not exceeded');
-    assert.equal(admission.snapshot().active.shell, 1, 'the waiting job still holds its foreground lease');
-    assert.equal(getNativeTask(third.jobId)?.status, 'running');
-
-    // Cancelling an owned job frees a slot: the waiter moves in and its lease returns.
-    killShellJob(first.jobId);
-    assert.ok(await until(() => admission.snapshot().active.shell === 0));
-    assert.ok(backgroundShellBudgetSnapshot().jobs.some((job) => job.jobId === third.jobId));
-  } finally {
-    restore();
-    await stopAll();
-  }
-  assert.equal(admission.snapshot().active.shell, 0);
-  assert.equal(backgroundShellBudgetSnapshot().jobs.length + backgroundShellBudgetSnapshot().pending.length, 0);
+  assert.equal(admission.snapshot().active.agent + admission.snapshot().active.shell, 0);
+  assert.equal(admission.snapshot().activeLeases.length, 0);
 });
 
 test('a queued saturated command releases its lease when it is promoted', { skip: skipNative, timeout: 60_000 }, async () => {
@@ -214,9 +169,9 @@ test('a queued saturated command releases its lease when it is promoted', { skip
     assert.ok(taskId, queued.backgroundMessage);
     await holder.release();
     // It starts, then promotes under the queued task's own id.
-    assert.ok(await until(() => backgroundShellBudgetSnapshot().jobs.some((job) => job.jobId === taskId)));
-    assert.equal(admission.snapshot().active.shell, 0);
-    assert.equal(getNativeTask(taskId)?.status, 'running');
+    assert.ok(
+      await until(() => getNativeTask(taskId)?.status === 'running' && admission.snapshot().active.shell === 0)
+    );
     const task = getBackgroundTask(taskId);
     assert.equal(task.status, 'running');
 
@@ -227,7 +182,6 @@ test('a queued saturated command releases its lease when it is promoted', { skip
     await task.promise;
     assert.equal(task.status, 'cancelled');
     assert.ok(await until(() => getNativeTask(taskId)?.status !== 'running'));
-    assert.ok(await until(() => backgroundShellBudgetSnapshot().jobs.length === 0));
     assert.equal(admission.snapshot().active.shell, 0);
     assert.equal(admission.snapshot().activeLeases.length, 0);
   } finally {

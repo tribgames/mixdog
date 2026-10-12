@@ -82,10 +82,9 @@ class ResourceAdmissionQueueFullError extends ResourcePressureError {
  * A shell lease covers only the foreground part of a command: promotion to a
  * background job releases it (lib/shell-run-background/promote-job.mjs), so
  * background jobs count toward neither maxShells nor the maxHighLoad budget
- * shared with agents. They live under the separate hard per-runtime background
- * cap (tools/builtin/shell-background-budget.mjs, which documents the CPU and
- * memory reasoning). A promoted job that finds that cap full keeps its lease —
- * and so its maxShells/maxHighLoad share — until a background slot frees.
+ * shared with agents, and are not capped at all: they are mostly idle
+ * servers/watchers at below-normal OS priority whose memory lives in their own
+ * processes. Session/runtime close stops them (shell-jobs shutdownShellJobs).
  */
 export class ResourceAdmissionController {
   constructor({ limits = {}, metrics = defaultMetrics, now = Date.now, env = process.env } = {}) {

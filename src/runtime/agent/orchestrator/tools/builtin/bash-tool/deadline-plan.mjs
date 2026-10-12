@@ -74,9 +74,6 @@ export function planShellDeadlines({ args, wmicRewrite, backgroundOnTimeout }) {
   const promotedTimeoutMs = capForeground ? Math.max(0, totalTimeout - timeout) : 0;
   return {
     timeout,
-    // A caller-chosen timeout_ms bounds the job's life, so the background
-    // budget never evicts it.
-    explicitTimeout: hasExplicitTimeout,
     promotedTimeoutMs,
     // A caller deadline at or below the foreground window has no remaining
     // budget to transfer: execShellCommand enforces that timeout instead of

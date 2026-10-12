@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeInputPath, splitJoinedPathScopes, toDisplayPath, urlAsPathMessage } from './path-utils.mjs';
@@ -126,6 +126,11 @@ test('joined multi-path strings never widen scope beyond the working directory',
       assert.match(String(message), /send an array \(path\[\]\)/, value);
       assert.equal(args.path, value, `${value} stays unsplit`);
     }
+    // An in-project junction/symlink whose real target is outside is outside.
+    symlinkSync(outside, join(dir, 'link'), 'junction');
+    const linked = { path: 'src, link' };
+    assert.match(String(splitJoinedPathScopes('grep', linked, dir)), /send an array \(path\[\]\)/);
+    assert.equal(linked.path, 'src, link');
     const ordinary = { path: 'src, docs' };
     assert.equal(splitJoinedPathScopes('glob', ordinary, dir), null);
     assert.deepEqual(ordinary.path, ['src', 'docs']);

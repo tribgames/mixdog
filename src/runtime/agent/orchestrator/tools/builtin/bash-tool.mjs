@@ -107,7 +107,6 @@ export async function executeBashTool(args, workDir, options = {}) {
       backgroundOnTimeout: deadlines.promoteAtTimeout,
       promotedTimeoutMs: deadlines.promotedTimeoutMs,
       backgroundDeadlineMs: deadlines.backgroundDeadlineMs,
-      explicitTimeout: deadlines.explicitTimeout,
       // Threaded so an auto-backgrounded foreground job is stamped with the
       // dispatching terminal's claude.exe pid (per-terminal scope) and the
       // dispatching session (per-pane scope).
