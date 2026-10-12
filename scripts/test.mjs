@@ -116,10 +116,10 @@ export function parseArgs(argv) {
       const spec = argv[++index];
       if (spec === undefined) throw new Error('--import requires a value');
       options.nodeArgs.push(arg, spec);
-    } else if (arg === '--test-timeout') {
-      const ms = argv[++index];
-      if (ms === undefined) throw new Error('--test-timeout requires a value');
-      options.nodeArgs.push(`--test-timeout=${ms}`);
+    } else if (arg === '--test-timeout' || arg === '--test-concurrency') {
+      const value = argv[++index];
+      if (value === undefined) throw new Error(`${arg} requires a value`);
+      options.nodeArgs.push(`${arg}=${value}`);
     } else if (arg.startsWith('--import=') || arg.startsWith('--test-')) options.nodeArgs.push(arg);
     else options.filters.push(arg.replaceAll('\\', '/'));
   }

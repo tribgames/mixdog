@@ -380,6 +380,15 @@ test('--test-timeout consumes its value in both forms and a valueless one is a f
   assert.throws(() => parseArgs(['--test-timeout']), { message: '--test-timeout requires a value' });
 });
 
+test('--test-concurrency consumes its value in both forms and still beats the env cap', () => {
+  assert.deepEqual(parseArgs(['--test-concurrency', '3']).nodeArgs, ['--test-concurrency=3']);
+  assert.deepEqual(parseArgs(['--test-concurrency=3']).nodeArgs, ['--test-concurrency=3']);
+  assert.deepEqual(parseArgs(['--test-concurrency', '3', 'src/lib']).filters, ['src/lib']);
+  assert.throws(() => parseArgs(['--test-concurrency']), { message: '--test-concurrency requires a value' });
+  const { nodeArgs } = parseArgs(['--test-concurrency', '3']);
+  assert.equal(testConcurrencyArg(nodeArgs, { MIXDOG_SHELL_CONCURRENCY_CAP: '8' }, 20), null);
+});
+
 test('a non-zero exit with no failed test is reported as a failed run, not "0 failed"', async () => {
   const { formatFailureSummary } = await import('./lib/test-failure-summary.mjs');
   assert.match(formatFailureSummary({ exitCode: 9 }), /^\[failure-summary\] RUN FAILED: exit code 9/);
