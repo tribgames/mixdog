@@ -36,8 +36,7 @@ export function createToolCallIdResolver(messages) {
   const byCall = new WeakMap();
   const byOriginal = new Map();
 
-  const isTaken = (id, reserved) =>
-    handedOut.has(id) || reserved.has(id) || usedToolCallIds(messages).has(id);
+  const isTaken = (id, reserved) => handedOut.has(id) || reserved.has(id) || usedToolCallIds(messages).has(id);
 
   const allocate = (call, reserved) => {
     const original = call.id;

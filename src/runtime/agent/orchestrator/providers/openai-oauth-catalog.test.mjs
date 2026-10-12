@@ -69,10 +69,7 @@ test('a catalog past its TTL still answers capability lookups but not freshness 
   const models = [
     { slug: 'gpt-6-astra', priority: 3, visibility: 'list', service_tiers: [{ id: 'priority', name: 'Fast' }] },
   ].map(_normalizeCodexModel);
-  writeFileSync(
-    cache.path(),
-    JSON.stringify({ version: 6, fetchedAt: Date.now() - 2 * 24 * 60 * 60_000, models })
-  );
+  writeFileSync(cache.path(), JSON.stringify({ version: 6, fetchedAt: Date.now() - 2 * 24 * 60 * 60_000, models }));
 
   assert.equal(cache.loadSync(), null, 'the TTL still marks the cache as due for refetch');
   assert.equal(codexModelSupportsServiceTier('gpt-6-astra', 'priority'), true);

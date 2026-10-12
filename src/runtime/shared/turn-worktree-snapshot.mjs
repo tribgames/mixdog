@@ -208,7 +208,9 @@ async function syncAlternates(state) {
     for (const item of chained) {
       if (await exists(item)) alternates.push(item);
     }
-  } catch {}
+  } catch {
+    // A missing or unreadable alternates file just means there is no chain to follow.
+  }
   const target = join(state.gitDir, 'objects', 'info', 'alternates');
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, `${[...new Set(alternates)].join('\n')}\n`, 'utf8');

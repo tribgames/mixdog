@@ -17,7 +17,10 @@ const manifest = (release, bodies = BODIES) => ({
   schema_version: 1,
   release,
   files: Object.fromEntries(
-    Object.entries(bodies).map(([name, body]) => [name, { url: `https://example.test/${release}/${name}`, sha256: sha(body), size: Buffer.byteLength(body) }])
+    Object.entries(bodies).map(([name, body]) => [
+      name,
+      { url: `https://example.test/${release}/${name}`, sha256: sha(body), size: Buffer.byteLength(body) },
+    ])
   ),
 });
 // Serves `served` (default: the manifest bodies) and records each requested file.
@@ -26,7 +29,10 @@ function server(served = BODIES) {
   const fetchFn = async (url) => {
     const name = url.split('/').pop();
     calls.push(name);
-    return new Response(served[name], { status: 200, headers: { 'content-length': String(Buffer.byteLength(served[name])) } });
+    return new Response(served[name], {
+      status: 200,
+      headers: { 'content-length': String(Buffer.byteLength(served[name])) },
+    });
   };
   return { calls, fetchFn };
 }

@@ -180,8 +180,7 @@ const isUsageWindow = (w) => {
 
 /** Reject a key response whose fields have the wrong types rather than stringifying them. */
 function validateKeyPayload(payload) {
-  const bad = (field) =>
-    museError(`[muse-code-oauth] key response has an invalid ${field}`, { kind: 'validation' });
+  const bad = (field) => museError(`[muse-code-oauth] key response has an invalid ${field}`, { kind: 'validation' });
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw bad('body');
   const optional = (field, ...types) => {
     const v = payload[field];

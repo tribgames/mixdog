@@ -29,7 +29,10 @@ export function cleanJudgeText(text) {
     .trim();
 }
 
-const head = (text, n) => Array.from(String(text || '')).slice(0, n).join('');
+const head = (text, n) =>
+  Array.from(String(text || ''))
+    .slice(0, n)
+    .join('');
 const tail = (text, n) => {
   const cps = Array.from(String(text || ''));
   return cps.slice(Math.max(0, cps.length - n)).join('');
@@ -89,7 +92,7 @@ export function packJudgeIds(tokenizer, { request, prevRequest, prev }, maxToken
     : [];
   const [first, rest] = splitReply(cleanJudgeText(tail(prev, 1000)));
   const top = first ? tokenizer.encode(`previous reply: ${first}`).slice(0, PACK_BUDGET.replyHead) : [];
-  let left = Math.max(0, room - req.length - q.length - top.length);
+  const left = Math.max(0, room - req.length - q.length - top.length);
   const end = rest && left > 0 ? tokenizer.encode(rest) : [];
   const endIds = end.slice(Math.max(0, end.length - left));
   return [...tokenizer.prefix, ...req, ...q, ...top, ...endIds, ...tokenizer.suffix].slice(0, maxTokens);

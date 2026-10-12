@@ -97,7 +97,8 @@ function lineageRow(id) {
     }
   }
   if (!template) return null;
-  const revision = match[3] && Number(match[3]) !== 0 ? `${match[1]}.${match[2]}.${match[3]}` : `${match[1]}.${match[2]}`;
+  const revision =
+    match[3] && Number(match[3]) !== 0 ? `${match[1]}.${match[2]}.${match[3]}` : `${match[1]}.${match[2]}`;
   return {
     ...seedRow(template),
     id,
@@ -111,10 +112,18 @@ function lineageRow(id) {
 // A name supplied by discovery is always kept. Other discovered rows keep
 // their own metadata and only gain the default effort ladder when they report none.
 function museRow(id, discovered) {
-  const discoveredName = typeof discovered?.name === 'string' && discovered.name && discovered.name !== id ? discovered.name : '';
+  const discoveredName =
+    typeof discovered?.name === 'string' && discovered.name && discovered.name !== id ? discovered.name : '';
   if (SEEDS[id]) return { ...(discovered || {}), ...seedRow(id), ...(discoveredName ? { name: discoveredName } : {}) };
   const lineage = lineageRow(id);
-  const row = { id, name: id, provider: 'muse-code-oauth', family: 'muse-spark', ...(lineage || {}), ...(discovered || {}) };
+  const row = {
+    id,
+    name: id,
+    provider: 'muse-code-oauth',
+    family: 'muse-spark',
+    ...(lineage || {}),
+    ...(discovered || {}),
+  };
   if (discoveredName) row.name = discoveredName;
   else if (lineage) row.name = lineage.name;
   if (!row.reasoningOptions?.length) {
@@ -243,10 +252,12 @@ function rollingWindowSpec(minutes) {
   const rounded = Math.round(m);
   const hours = rounded / 60;
   const whole = rounded % 60 === 0;
+  const count = whole ? hours : rounded;
+  const unit = whole ? 'Hour' : 'Minute';
   return {
     id: `${rounded}m`,
     label: whole ? `${hours}H` : `${rounded}M`,
-    longLabel: whole ? `${hours} ${hours === 1 ? 'Hour' : 'Hours'}` : `${rounded} ${rounded === 1 ? 'Minute' : 'Minutes'}`,
+    longLabel: `${count} ${count === 1 ? unit : `${unit}s`}`,
     durationMs: m * 60_000,
   };
 }
@@ -428,7 +439,9 @@ export class MuseCodeOAuthProvider {
     } catch (err) {
       noteErrorUsage(err);
       if (Number(err?.httpStatus || err?.status) === 401) {
-        const detail = scrubMuseSecrets(String(err?.message || ''), [apiKey]).trim().slice(0, 300);
+        const detail = scrubMuseSecrets(String(err?.message || ''), [apiKey])
+          .trim()
+          .slice(0, 300);
         throw reauthError(`Model API key rejected${detail ? ` (${detail})` : ''}`);
       }
       if (err && typeof err.message === 'string') err.message = scrubMuseSecrets(err.message, [apiKey]);

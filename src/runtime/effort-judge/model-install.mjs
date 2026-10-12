@@ -21,7 +21,9 @@ export function effortJudgeManifest() {
   if (
     !manifest.release ||
     !files.length ||
-    files.some(([, f]) => !validSha256(f.sha256) || !Number.isSafeInteger(f.size) || f.size <= 0 || !/^https:\/\//.test(f.url))
+    files.some(
+      ([, f]) => !validSha256(f.sha256) || !Number.isSafeInteger(f.size) || f.size <= 0 || !/^https:\/\//.test(f.url)
+    )
   ) {
     throw new Error('effort judge model manifest is invalid');
   }
@@ -43,7 +45,10 @@ export function effortJudgeInstallCurrent(dir, manifest = effortJudgeManifest())
 }
 
 /** Download what is missing or different, then stamp the release. */
-export async function installEffortJudgeModel(dir, { fetchFn = globalThis.fetch, manifest = effortJudgeManifest() } = {}) {
+export async function installEffortJudgeModel(
+  dir,
+  { fetchFn = globalThis.fetch, manifest = effortJudgeManifest() } = {}
+) {
   mkdirSync(dir, { recursive: true });
   let replaced = false;
   for (const [name, file] of Object.entries(manifest.files)) {
@@ -58,7 +63,8 @@ export async function installEffortJudgeModel(dir, { fetchFn = globalThis.fetch,
         fetchFn,
       });
       const actual = await sha256File(partial);
-      if (actual !== file.sha256) throw new Error(`effort judge ${name}: sha256 mismatch (expected ${file.sha256}, got ${actual})`);
+      if (actual !== file.sha256)
+        throw new Error(`effort judge ${name}: sha256 mismatch (expected ${file.sha256}, got ${actual})`);
       // From the first replaced file until the new stamp, the folder is a mix of
       // releases: without a stamp it reads as not installed, so an interrupted
       // install is never loaded.

@@ -135,11 +135,11 @@ export async function pollDeviceToken(device, { fetchFn = fetch, signal, sleep =
   while (now() < deadline) {
     // The in-flight request dies with the device code.
     const remaining = deadline - now();
-    const pollSignal = Number.isFinite(remaining)
-      ? signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(remaining)])
-        : AbortSignal.timeout(remaining)
-      : signal;
+    let pollSignal = signal;
+    if (Number.isFinite(remaining)) {
+      const timeout = AbortSignal.timeout(remaining);
+      pollSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    }
     let reply;
     let waitMs = intervalMs;
     try {

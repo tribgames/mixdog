@@ -109,7 +109,10 @@ test('the picker hides the retired Blue model and offers the toggle only on Blue
     process.stderr.write = previousQuiet;
   }
   const rows = listed.map((model) =>
-    hydrateProviderModelRow({}, providerModelCacheRow('openai-oauth', model, () => false))
+    hydrateProviderModelRow(
+      {},
+      providerModelCacheRow('openai-oauth', model, () => false)
+    )
   );
   // Metadata keeps resolving for saved routes; the pickers drop hidden rows.
   const hidden = rows.filter((row) => row.hidden === true).map((row) => row.id);

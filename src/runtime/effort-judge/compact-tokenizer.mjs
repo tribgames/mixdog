@@ -23,16 +23,14 @@ function build(dir) {
   const json = JSON.parse(readFileSync(join(dir, 'tokenizer.json'), 'utf8'));
   const model = json.model;
   const pre = json.pre_tokenizer;
-  const spaceToMeta = json.normalizer?.type === 'Replace' && json.normalizer.pattern?.String === ' ' && json.normalizer.content === SPACE;
+  const spaceToMeta =
+    json.normalizer?.type === 'Replace' && json.normalizer.pattern?.String === ' ' && json.normalizer.content === SPACE;
   // metaspace: pieces start at every '▁' (mmBERT). whole: a split on ' ' after
   // the normalizer turned every ' ' into '▁' never fires, so BPE sees the
   // whole segment (EmbeddingGemma).
-  const split =
-    pre?.type === 'Metaspace' && pre.split !== false
-      ? 'metaspace'
-      : pre?.type === 'Split' && pre.pattern?.String === ' ' && spaceToMeta
-        ? 'whole'
-        : null;
+  let split = null;
+  if (pre?.type === 'Metaspace' && pre.split !== false) split = 'metaspace';
+  else if (pre?.type === 'Split' && pre.pattern?.String === ' ' && spaceToMeta) split = 'whole';
   if (model?.type !== 'BPE' || !spaceToMeta || !split || model.continuing_subword_prefix || model.end_of_word_suffix) {
     throw new Error('unsupported tokenizer.json layout for the compact encoder');
   }
@@ -68,7 +66,14 @@ function build(dir) {
   const prefix = template.slice(0, seqAt).flatMap(specialIds);
   const suffix = template.slice(seqAt + 1).flatMap(specialIds);
   const meta = Buffer.from(
-    JSON.stringify({ unk: vocab[model.unk_token] ?? -1, split, prepend: split === 'metaspace' ? pre.prepend_scheme || 'always' : 'never', added, prefix, suffix }),
+    JSON.stringify({
+      unk: vocab[model.unk_token] ?? -1,
+      split,
+      prepend: split === 'metaspace' ? pre.prepend_scheme || 'always' : 'never',
+      added,
+      prefix,
+      suffix,
+    }),
     'utf8'
   );
   const [size, mtime] = sourceStamp(dir);

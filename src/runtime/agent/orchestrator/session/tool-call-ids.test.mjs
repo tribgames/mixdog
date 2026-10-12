@@ -26,7 +26,8 @@ test('a provider that reuses a tool call id across turns still gets every result
       sends += 1;
       requests.push(JSON.parse(JSON.stringify(messages)));
       if (sends > 6) return { content: 'runaway', toolCalls: [], stopReason: 'end_turn' };
-      if (sends <= 2) return { content: '', toolCalls: [{ id: 'call_1', name: 'definitely_missing_dup_id_tool', arguments: {} }] };
+      if (sends <= 2)
+        return { content: '', toolCalls: [{ id: 'call_1', name: 'definitely_missing_dup_id_tool', arguments: {} }] };
       return { content: 'done', toolCalls: [], stopReason: 'end_turn' };
     },
   };

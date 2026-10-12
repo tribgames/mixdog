@@ -47,13 +47,21 @@ function withEnv(value, fn) {
 test('mode all loads global files first, then the project root, under path headings', () => {
   const fx = fixture(ALL_FILES);
   try {
-    const block = withEnv(undefined, () => loadInstructionFilesContext({ mode: 'all', cwd: fx.cwd, homeDir: fx.homeDir }));
-    assert.match(block, /^# Instruction Files\n\n.*Project files take precedence over global ones when they conflict\./);
+    const block = withEnv(undefined, () =>
+      loadInstructionFilesContext({ mode: 'all', cwd: fx.cwd, homeDir: fx.homeDir })
+    );
+    assert.match(
+      block,
+      /^# Instruction Files\n\n.*Project files take precedence over global ones when they conflict\./
+    );
     const order = [fx.paths.globalAgents, fx.paths.globalClaude, fx.paths.projectAgents, fx.paths.projectClaude].map(
       (path) => block.indexOf(`## ${path}\n\n`)
     );
     assert.ok(order.every((index) => index > 0));
-    assert.deepEqual([...order].sort((a, b) => a - b), order);
+    assert.deepEqual(
+      [...order].sort((a, b) => a - b),
+      order
+    );
     for (const text of Object.values(ALL_FILES)) assert.ok(block.includes(text));
   } finally {
     fx.dispose();
@@ -99,7 +107,9 @@ test('missing and empty files are skipped; no files yields no block', () => {
 test('a file whose trimmed content repeats an included one is dropped', () => {
   const fx = fixture({ globalAgents: 'shared rules\n', globalClaude: '\nshared rules', projectClaude: 'own rules' });
   try {
-    const block = withEnv(undefined, () => loadInstructionFilesContext({ mode: 'all', cwd: fx.cwd, homeDir: fx.homeDir }));
+    const block = withEnv(undefined, () =>
+      loadInstructionFilesContext({ mode: 'all', cwd: fx.cwd, homeDir: fx.homeDir })
+    );
     assert.ok(block.includes(`## ${fx.paths.globalAgents}`));
     assert.ok(!block.includes(`## ${fx.paths.globalClaude}`));
     assert.ok(block.includes(`## ${fx.paths.projectClaude}`));
@@ -113,8 +123,12 @@ test('a file over the 32 KiB budget is cut on a UTF-8 boundary with a truncation
   const big = '가나다 '.repeat(4000); // 10 bytes per repeat → ~40 KB
   const fx = fixture({ projectAgents: big });
   try {
-    const block = withEnv(undefined, () => loadInstructionFilesContext({ mode: 'agents', cwd: fx.cwd, homeDir: fx.homeDir }));
-    const body = block.slice(block.indexOf(`## ${fx.paths.projectAgents}\n\n`) + `## ${fx.paths.projectAgents}\n\n`.length);
+    const block = withEnv(undefined, () =>
+      loadInstructionFilesContext({ mode: 'agents', cwd: fx.cwd, homeDir: fx.homeDir })
+    );
+    const body = block.slice(
+      block.indexOf(`## ${fx.paths.projectAgents}\n\n`) + `## ${fx.paths.projectAgents}\n\n`.length
+    );
     assert.ok(body.endsWith('[... truncated]'));
     assert.ok(Buffer.byteLength(body, 'utf8') <= 32 * 1024);
     assert.ok(!body.includes('\uFFFD'));
@@ -218,7 +232,9 @@ test('an oversized file is read only up to the budget and truncated', () => {
   const fx = fixture({ projectAgents: 'word '.repeat(2_000_000) }); // ~10 MB
   try {
     const block = load(fx, 'agents');
-    const body = block.slice(block.indexOf(`## ${fx.paths.projectAgents}\n\n`) + `## ${fx.paths.projectAgents}\n\n`.length);
+    const body = block.slice(
+      block.indexOf(`## ${fx.paths.projectAgents}\n\n`) + `## ${fx.paths.projectAgents}\n\n`.length
+    );
     assert.ok(body.endsWith('\n\n[... truncated]'));
     assert.ok(Buffer.byteLength(body, 'utf8') <= budgetBytes);
     assert.ok(Buffer.byteLength(body, 'utf8') > budgetBytes - 64);
@@ -230,7 +246,9 @@ test('an oversized file is read only up to the budget and truncated', () => {
 test('a cut inside a multi-byte character never leaves a replacement character', () => {
   // The budget cut falls one byte into the first 3-byte character.
   const cutAt = budgetBytes - Buffer.byteLength('\n\n[... truncated]', 'utf8');
-  const fx = fixture({ projectAgents: `${'ab '.repeat(Math.floor((cutAt - 1) / 3))}${'x'.repeat((cutAt - 1) % 3)}${'가'.repeat(500)}` });
+  const fx = fixture({
+    projectAgents: `${'ab '.repeat(Math.floor((cutAt - 1) / 3))}${'x'.repeat((cutAt - 1) % 3)}${'가'.repeat(500)}`,
+  });
   try {
     const block = load(fx, 'agents');
     assert.ok(block.endsWith('[... truncated]'));
