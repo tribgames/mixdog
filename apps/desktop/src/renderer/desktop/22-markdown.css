@@ -164,48 +164,6 @@ html[data-window-material="mica"] .jump-to-latest {
     translate: none;
   }
 }
-/* Session status island (user: 우상단에 아이폰 다이나믹 아일랜드 같은 섬).
-   ONE capsule owns the context gauge and the live Agent/Shell chips at the
-   scroller's top-right corner. The readouts used to sit inside the composer
-   footer and float directly above the composer, where they competed with the
-   input surface (user: 채팅 입력을 가린다); here they hang on the pane edge
-   the other floating chrome already uses (--pane-chrome-inset, same ladder as
-   .jump-to-latest). */
-.transcript-shell > .session-status-island {
-  --session-island-frame-bg: color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
-}
-.transcript-shell > .session-status-island {
-  --session-status-slot: 28px;
-  /* The 20px glyphs leave only 4px of slot margin, so a 2px gap packed the
-     three marks edge to edge (user: 너무 밀착된 느낌) — the wider gap and
-     the horizontal lip below give the capsule real air. */
-  --session-status-gap: 4px;
-  --session-status-card-width: 220px;
-  position: absolute;
-  z-index: 9;
-  top: var(--pane-chrome-inset);
-  right: var(--pane-chrome-inset);
-  display: flex;
-  align-items: center;
-  gap: var(--session-status-gap);
-  padding: 2px 4px;
-  border-radius: var(--mx-radius-pill);
-}
-/* Both transcript-edge islands use one opaque theme blend, so content behind
-   either edge cannot tint one frame differently from the other. */
-.transcript-shell > .session-status-island::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: var(--session-island-frame-bg);
-  backdrop-filter: none;
-  box-shadow:
-    inset 0 0 0 var(--mx-hairline) var(--mx-border),
-    var(--mx-raised);
-}
 /* Workspace tabs live inside each pane's strip row (editor groups). */
 .workspace-tabs-shell {
   position: relative;
@@ -286,20 +244,6 @@ html[data-window-material="mica"] .jump-to-latest {
   opacity: 0.45;
   cursor: default;
   background: transparent;
-}
-/* Status island docked at the strip's right end (user: 최종결정은 우상단 —
-   Claude Desktop처럼 PANE 우상단). It joins the unified band frameless:
-   labels alone distinguish the tabs, and the island buttons float on the
-   shared sheet color with only their own hover pills anchoring them. */
-.workspace-tabs-trailing > .session-status-island {
-  --session-status-slot: 28px;
-  --session-status-gap: 4px;
-  --session-status-card-width: 220px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--session-status-gap);
-  padding-inline: 2px;
 }
 .workspace-utility-tab {
   min-width: 0;

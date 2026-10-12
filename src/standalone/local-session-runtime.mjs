@@ -37,88 +37,12 @@ import { tuiDebug, nextId, createTranscriptSpillBuffer } from '../tui/session/tr
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
 
-// The runtime graph is imported lazily, but that import (measured ~250ms) used
-// to land inside the FIRST session runtime creation, which desktop performs while it
-// holds its transition lock — so the user's first navigation paid for it. Hosts
-// can start it during their own idle startup instead; the promise is shared, so
-// the create path either awaits an in-flight preload or does the import itself.
+// Shared across create calls so concurrent session startups import the
+// runtime graph once.
 let sessionRuntimeModulePromise = null;
 function importSessionRuntimeModule() {
   sessionRuntimeModulePromise ??= import(SESSION_RUNTIME_MODULE);
   return sessionRuntimeModulePromise;
-}
-
-export function preloadSessionRuntimeModule() {
-  return importSessionRuntimeModule().catch(() => {
-    // A real load failure surfaces on the authoritative create path.
-    sessionRuntimeModulePromise = null;
-  });
-}
-
-let agentLoopPrewarmPromise = null;
-export function preloadAgentLoopRuntime() {
-  agentLoopPrewarmPromise ??= import('../runtime/agent/orchestrator/session/manager/runtime-loaders.mjs').then(
-    (module) => module.prewarmAgentLoop()
-  );
-  void agentLoopPrewarmPromise.catch(() => {
-    // Reservation-time prewarm retries through the same shared loader.
-    agentLoopPrewarmPromise = null;
-  });
-  return agentLoopPrewarmPromise;
-}
-
-// Memory-runtime attach (PG proxy + embed warmup) measured ~6.5s cold and is
-// the largest first-turn blocker: loadCoreMemoryContext races it with a 2s
-// cap, but a cold attach stalls the event loop hard enough that even that
-// timer fires seconds late (probe: core-memory settle at ~6.0s). Warm the
-// EXACT shared proxy instance the session create path resolves —
-// getStandaloneMemoryRuntime caches by entry+dataDir, so the first turn finds
-// it initialized. Honors the same MIXDOG_BOOT_CORE_MEMORY opt-out.
-let memoryRuntimePrewarmPromise = null;
-export function preloadMemoryRuntime() {
-  const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '')
-    .trim()
-    .toLowerCase();
-  if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') {
-    return Promise.resolve();
-  }
-  memoryRuntimePrewarmPromise ??= (async () => {
-    const [{ getStandaloneMemoryRuntime }, { getPluginData }, { fileURLToPath }] = await Promise.all([
-      import('../session-runtime/services/memory-runtime-proxy.mjs'),
-      import('../runtime/agent/orchestrator/config.mjs'),
-      import('node:url'),
-    ]);
-    const runtime = getStandaloneMemoryRuntime({
-      entry: fileURLToPath(new URL('../runtime/memory/index.mjs', import.meta.url)),
-      dataDir: process.env.MIXDOG_DATA_DIR || getPluginData?.() || undefined,
-    });
-    await runtime.init();
-  })();
-  void memoryRuntimePrewarmPromise.catch(() => {
-    // Opportunistic: loadCoreMemoryContext retries through the same proxy.
-    memoryRuntimePrewarmPromise = null;
-  });
-  return memoryRuntimePrewarmPromise;
-}
-
-// Windows keychain reads go through a DPAPI PowerShell host whose cold start
-// dominates a packaged boot (measured ~1.5s). The runtime batches every secret
-// into one call, but it only starts that batch when the runtime is created —
-// late enough that the first context switch waits on it. Hosts can start the
-// same batch while their window is still coming up.
-let keychainPrewarmPromise = null;
-export function preloadKeychainSecrets() {
-  keychainPrewarmPromise ??= (async () => {
-    try {
-      const { createRequire } = await import('node:module');
-      const require = createRequire(import.meta.url);
-      const keychain = require('../lib/keychain-cjs.cjs');
-      await keychain.prewarmSecrets?.();
-    } catch {
-      // Prewarm is opportunistic; the runtime still warms on its own path.
-    }
-  })();
-  return keychainPrewarmPromise;
 }
 
 const TOOL_APPROVAL_TIMEOUT_MS = (() => {
