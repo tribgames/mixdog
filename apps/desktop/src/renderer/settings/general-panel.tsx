@@ -187,7 +187,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const rawInstructionFiles = record(data.toolModules).instructionFiles;
   const instructionFilesMode = ['all', 'agents', 'claude', 'off'].includes(String(rawInstructionFiles))
     ? String(rawInstructionFiles)
-    : 'all';
+    : 'off';
   const languageOptions = rows(profile.languages).map((entry) => ({
     value: String(entry.id || entry.value || 'system'),
     label: t(label(entry)),

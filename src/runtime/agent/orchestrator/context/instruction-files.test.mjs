@@ -70,10 +70,9 @@ test('modes agents and claude load only their file name; off and an invalid valu
       assert.ok(claude.includes('global claude rule') && claude.includes('project claude rule'));
       assert.doesNotMatch(claude, /agents rule/);
       assert.equal(loadInstructionFilesContext({ mode: 'off', cwd: fx.cwd, homeDir: fx.homeDir }), '');
-      // Absent or invalid falls back to 'all'.
-      const fallback = loadInstructionFilesContext({ mode: 'bogus', cwd: fx.cwd, homeDir: fx.homeDir });
-      assert.equal(fallback, loadInstructionFilesContext({ mode: 'all', cwd: fx.cwd, homeDir: fx.homeDir }));
-      assert.equal(effectiveInstructionFilesMode(undefined), 'all');
+      // Absent or invalid falls back to the default, 'off'.
+      assert.equal(loadInstructionFilesContext({ mode: 'bogus', cwd: fx.cwd, homeDir: fx.homeDir }), '');
+      assert.equal(effectiveInstructionFilesMode(undefined), 'off');
     });
   } finally {
     fx.dispose();

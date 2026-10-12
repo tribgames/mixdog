@@ -101,8 +101,8 @@ test('built-in Git and Office settings persist and refresh empty-session tools',
 
 test('instruction files mode defaults to all, validates, persists and refreshes empty-session tools', async () => {
   const state = fixture();
-  assert.equal(state.api.getToolModuleSettings().instructionFiles, 'all');
-  for (const mode of ['agents', 'claude', 'off', 'all']) {
+  assert.equal(state.api.getToolModuleSettings().instructionFiles, 'off');
+  for (const mode of ['agents', 'claude', 'all', 'off']) {
     const result = await state.api.setInstructionFiles(mode);
     assert.equal(result.instructionFiles, mode);
     assert.equal(state.config().instructionFiles, mode);
