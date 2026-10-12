@@ -33,6 +33,7 @@ export function createSessionProjection({
     revisionEpoch,
     index,
     updateEntryBusy,
+    log,
   });
   const frames = createFramePublisher({
     index,

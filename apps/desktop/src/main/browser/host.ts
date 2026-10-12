@@ -18,13 +18,18 @@
  */
 import type { WebContents } from 'electron';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
 import { app, type BrowserWindow, dialog, screen, sharedTexture, webContents } from 'electron';
 
 import {
   DESKTOP_IPC,
+  MAIN_BROWSER_PAGE_PREFIX,
+  type DesktopBrowserImportProgress,
+  type DesktopRemoteBrowserTab,
   type DesktopBrowserViewportConfig,
   type DesktopBrowserPageFrame,
+  type DesktopBrowserPageIdentity,
   type DesktopBrowserPageResample,
   type DesktopBrowserPageControl,
   type DesktopRemoteBrowserControl,
@@ -99,7 +104,10 @@ import { createBrowserRefActions } from './ref-actions';
 import { redactBrowserText } from './redaction';
 import { createBrowserRefPoints } from './ref-points';
 import { createBrowserRemoteControl } from './remote-control';
+import { createBrowserRemoteTabs } from './remote-tabs';
 import { createPageInputDispatcher } from './page-surface-control';
+import { createBrowserPageIdentityStore, trackBrowserPageIdentity } from './page-identity';
+import { captureBrowserPageThumbnail, readBrowserFavicon } from './page-identity-capture';
 import { createBrowserReply } from './reply';
 import { createBrowserScreenshotService } from './screenshot';
 import { createBrowserVisualPrivacy } from './visual-privacy';
@@ -147,9 +155,17 @@ export interface BrowserHost {
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
   browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult>;
+  /** Title, site icon and thumbnail this browser recorded for `url`, or null. */
+  browserPageIdentity(url: string): DesktopBrowserPageIdentity | null;
   /** Start/renew (options) or stop (null) streaming a session's live frames. */
   remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
   remoteBrowserControl(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
+  /** The main-workspace browser tabs a paired client may switch between. */
+  remoteTabs(): DesktopRemoteBrowserTab[];
+  /** Start/stop publishing tab changes; returns the current list. */
+  remoteTabsWatch(on: boolean): DesktopRemoteBrowserTab[];
+  /** Open a new main-workspace tab on `url`. */
+  remoteTabOpen(url: string): Promise<DesktopRemoteBrowserTab>;
   dispose(): Promise<void>;
 }
 
@@ -259,6 +275,10 @@ export function createBrowserHost(
     onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
     /** One live frame of a remotely streamed session, handed to the service. */
     publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
+    /** The main-workspace tab list changed, for watching paired clients. */
+    publishRemoteTabs?: (tabs: DesktopRemoteBrowserTab[]) => Promise<void>;
+    /** Profile-import progress, for the paired client that may have started it. */
+    publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
   } = {}
 ): BrowserHost {
   const state = new BrowserGuestStateStore();
@@ -363,6 +383,19 @@ export function createBrowserHost(
       return owner !== undefined && remoteViewingSessions.has(owner) && browserSessions.currentGuest(owner) === guest;
     },
   });
+  // One change notice per site and tick: a load reports title, icon and
+  // thumbnail in quick succession.
+  const changedOrigins = new Set<string>();
+  const pageIdentity = createBrowserPageIdentityStore({
+    onChange: (origin) => {
+      if (!changedOrigins.size)
+        setImmediate(() => {
+          for (const changed of changedOrigins) sendToRenderer(DESKTOP_IPC.browserPageIdentityChanged, changed);
+          changedOrigins.clear();
+        });
+      changedOrigins.add(origin);
+    },
+  });
   const refreshSessionPower = (sessionId: string) => {
     for (const guest of browserSessions.visibleGuests(sessionId)) pagePower.refresh(guest);
     for (const page of browserSessions.backgroundPages(sessionId).values()) pagePower.refresh(page.guest);
@@ -383,6 +416,11 @@ export function createBrowserHost(
       guest.once('destroyed', () => panelActiveGuests.delete(guest));
       displayTextures.attach(guest);
       nativeViews?.watch(guest);
+      trackBrowserPageIdentity(guest, pageIdentity, {
+        // The page's own session: its cookies and cache, as the page loads it.
+        favicon: (url, pageUrl) => readBrowserFavicon(guest.session, url, pageUrl),
+        thumbnail: captureBrowserPageThumbnail,
+      });
     },
     onSurfaceRequest: (request) => {
       if (request.hide || request.reveal === true) options.onSurfaceRequest?.(request);
@@ -578,6 +616,11 @@ export function createBrowserHost(
       assertUrl: urls.assertResolvedUrlAllowed,
     }),
     publishFrame: (frame) => options.publishRemoteFrame?.(frame) ?? Promise.resolve(),
+  });
+  const remoteTabs = createBrowserRemoteTabs({
+    sessionIds: () => browserSessions.sessionIds(),
+    liveGuest: (sessionId) => browserSessions.liveGuest(sessionId),
+    publish: (tabs) => options.publishRemoteTabs?.(tabs) ?? Promise.resolve(),
   });
   // Fixed at startup: the live acceleration flag can flip after a GPU-crash
   // fallback while the capture path and window options do not.
@@ -903,6 +946,7 @@ export function createBrowserHost(
         ownerSessionId,
         options.restore === true ? 'unloaded' : 'gone'
       );
+      remoteTabs.changed();
     },
     setGuestActive(sessionId: string, webContentsId: number, active: boolean): void {
       const owner = browserSessionId(sessionId);
@@ -937,6 +981,7 @@ export function createBrowserHost(
     async browserImport(request: BrowserImportRequest): Promise<BrowserImportResult> {
       return await profileImporter.importProfile(request, (progress) => {
         sendToRenderer(DESKTOP_IPC.browserProfileImportProgress, progress);
+        void options.publishRemoteImportProgress?.(progress)?.catch(() => undefined);
       });
     },
     async browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]> {
@@ -954,6 +999,7 @@ export function createBrowserHost(
         credentialFill.fillCredentialInGuest(guest, credential)
       );
     },
+    browserPageIdentity: (url) => pageIdentity.lookup(url),
     remoteBrowserStream(sessionId: string, streamOptions: DesktopRemoteBrowserStreamOptions | null): Promise<void> {
       const owner = browserSessionId(sessionId);
       if (streamOptions) remoteViewingSessions.add(owner);
@@ -966,9 +1012,18 @@ export function createBrowserHost(
         remote.remoteBrowserControl(browserSessionId(sessionId), control)
       );
     },
+    remoteTabs: () => remoteTabs.list(),
+    remoteTabsWatch: (on) => remoteTabs.watch(on),
+    async remoteTabOpen(url: string): Promise<DesktopRemoteBrowserTab> {
+      const id = `${MAIN_BROWSER_PAGE_PREFIX}${randomUUID().replaceAll('-', '')}`;
+      await browserHost.remoteBrowserControl(id, { type: 'navigate', url });
+      remoteTabs.changed();
+      return remoteTabs.list().find((tab) => tab.id === id) ?? { id, title: '', url, loading: true };
+    },
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
+      remoteTabs.dispose();
       clearInterval(userReclaimTimer);
       screen.removeListener('display-metrics-changed', followPrimaryScale);
       screen.removeListener('display-added', followPrimaryScale);

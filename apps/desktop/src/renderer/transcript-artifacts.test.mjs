@@ -192,9 +192,11 @@ test('collapsed activity exposes image, playable video, a document that opens in
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     const gone = dom.window.document.querySelector('.transcript-artifact-file[aria-disabled="true"]');
     assert.equal(gone.tagName, 'SPAN');
-    assert.equal(gone.querySelector('.transcript-artifact-badge').textContent, 'XLSX');
-    assert.equal(gone.querySelector('.transcript-artifact-caption > span').textContent, 'gone.xlsx');
-    assert.equal(gone.querySelector('small').textContent, 'Deleted');
+    assert.equal(gone.querySelector('.file-type-word').textContent, 'XLSX');
+    assert.equal(gone.querySelector('.transcript-artifact-body > span').textContent, 'gone.xlsx');
+    assert.equal(gone.querySelector('small > span:last-child').textContent, 'Deleted');
+    assert.ok(gone.querySelector('.transcript-artifact-thumb svg.file-sheet'));
+    assert.equal(gone.querySelector('.transcript-artifact-open'), null);
     assert.equal(dom.window.document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'false');
     assert.ok(dom.window.document.querySelector('.transcript-artifacts img'));
     // A written SVG renders as an image through the file preview lane, never inline markup.

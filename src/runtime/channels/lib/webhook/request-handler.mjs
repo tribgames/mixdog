@@ -1,10 +1,5 @@
 import { logWebhook } from './log.mjs';
-import {
-  loadEndpointConfig,
-  readEndpointSecret,
-  claimDelivery,
-  updateDeliveryStatus,
-} from '../webhooks-db.mjs';
+import { loadEndpointConfig, readEndpointSecret, claimDelivery, updateDeliveryStatus } from '../webhooks-db.mjs';
 import { contentDeliveryId, extractDeliveryId, buildHeadersSummary } from './deliveries.mjs';
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
@@ -102,7 +97,29 @@ async function resolveWebhookEndpoint(name, rawBody, headers, res, { getConfig, 
     })
   )
     return null;
-  return { dbEndpoint };
+  // `signed`: the request passed an HMAC check, not merely an unsigned opt-in.
+  return { dbEndpoint, signed: Boolean(secret) };
+}
+
+// Desktop "Send test" probes carry a marker field INSIDE the signed body plus
+// the header. The marker cannot be added or removed without breaking the
+// signature; the header can, so header and marker must agree — either one
+// alone is rejected. A probe never dispatches.
+export const WEBHOOK_TEST_HEADER = 'x-mixdog-webhook-test';
+export const WEBHOOK_TEST_FIELD = 'mixdogWebhookTest';
+
+function webhookTestProbe(headers, rawBody) {
+  const header = headers[WEBHOOK_TEST_HEADER] === '1';
+  // Parsed, not substring-matched: an escaped key spelling must still count.
+  let marked = false;
+  try {
+    marked = JSON.parse(rawBody.toString('utf8'))?.[WEBHOOK_TEST_FIELD] === true;
+  } catch {
+    // Not JSON: it cannot carry the marker; the content-type gate handles it later.
+    marked = false;
+  }
+  if (!header && !marked) return null;
+  return header && marked ? 'probe' : 'mismatch';
 }
 
 async function claimWebhookDelivery(name, rawBody, body, headers) {
@@ -184,7 +201,24 @@ async function processWebhookBody(req, res, name, rawBody, { getConfig, verifyRe
     const body = rawBody.length === 0 ? '' : rawBody.toString('utf8');
     const request = await resolveWebhookEndpoint(name, rawBody, headers, res, { getConfig, verifyRequest });
     if (!request) return;
-    const { dbEndpoint } = request;
+    const { dbEndpoint, signed } = request;
+    const probe = webhookTestProbe(headers, rawBody);
+    if (probe) {
+      // Answered without a delivery row or dispatch; "verified" only after a real HMAC check.
+      let status = 200;
+      let payload = { status: 'verified', test: true };
+      if (probe === 'mismatch') {
+        status = 400;
+        payload = { error: 'invalid test request' };
+      } else if (!signed) {
+        status = 401;
+        payload = { error: 'test requires a signing secret' };
+      }
+      logWebhook(`${name}: test request ${status === 200 ? 'verified' : `rejected (${payload.error})`}`);
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(payload));
+      return;
+    }
     const claim = await claimWebhookDelivery(name, rawBody, body, headers);
     ({ deliveryId } = claim);
     if (!claim.claim.claimed) {

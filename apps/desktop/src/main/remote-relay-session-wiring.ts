@@ -1,21 +1,31 @@
 // Wires desktop session state and roster subscriptions to the relay. Recovery
 // stays beside those subscriptions so a replacement client cannot receive a
 // late read from the previous relay leg.
-import { createPushNotifier } from './push-notifier';
+import { createPushNotifier, type NativePushMessage } from './push-notifier';
+import type { NativePushStore } from './native-push-store';
 import type { PushSubscriptionStore } from './push-subscription-store';
 import type { DesktopService } from './desktop-service-contract';
 import type { RelayCatalogs } from './remote-relay-catalog';
 import type { RelayClientState, RelayClientRegistry, SendEncryptedFrame } from './remote-relay-clients';
 import { createRelayPushLanes } from './remote-relay-push-lanes';
+import type { RelayWebPush } from './remote-relay-web-push';
 import type { RelaySessionStateFanout } from './remote-relay-session-state';
 import { synchronizeRelayViews } from './remote-view-sync';
 
 export interface RelaySessionWiringDeps {
   host: DesktopService;
+  /** This desktop's relay device id, stamped into native push payloads. */
+  hostId?: string;
   clients: RelayClientRegistry;
   catalogs: RelayCatalogs;
   sessionStates: RelaySessionStateFanout;
   pushStore: PushSubscriptionStore;
+  nativePush?: {
+    store: NativePushStore;
+    send(message: NativePushMessage): boolean;
+  };
+  /** Relay-owned Web Push (remote-relay-web-push.ts). */
+  relayWebPush?: RelayWebPush;
   live(clientId: string, state: RelayClientState): boolean;
   closed(): boolean;
   sendEncryptedFrame: SendEncryptedFrame;
@@ -69,8 +79,18 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
     resyncClient,
     broadcastState,
     start: () => {
+      const { nativePush, relayWebPush } = deps;
+      // A paired credential is watching while any live leg of it has not gone
+      // to the background.
+      const credentialForeground = (clientId: string): boolean => {
+        for (const client of deps.clients.clients.values()) {
+          if (client.credentialId === clientId && !client.background) return true;
+        }
+        return false;
+      };
       const pushNotifier = createPushNotifier({
         store: deps.pushStore,
+        ...(deps.hostId ? { hostId: deps.hostId } : {}),
         isEnabled: () => !deps.closed(),
         readFinalAnswer: (sessionId, startedAt) => deps.host.readSessionFinalAnswer(sessionId, startedAt),
         // Connected is not enough: a phone that just left the app keeps its
@@ -83,6 +103,28 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
           }
           return false;
         },
+        ...(nativePush
+          ? {
+              native: {
+                list: () => nativePush.store.list(),
+                // A native client is a paired credential.
+                isClientForeground: credentialForeground,
+                send: (message: NativePushMessage) => nativePush.send(message),
+                removeByClient: (clientId: string) => nativePush.store.removeByClient(clientId),
+              },
+            }
+          : {}),
+        ...(relayWebPush
+          ? {
+              relayWebPush: {
+                available: () => relayWebPush.available(),
+                list: () => relayWebPush.list(),
+                // Associations are made with the browser's paired credential.
+                isClientForeground: credentialForeground,
+                send: (target, body) => relayWebPush.send(target, body),
+              },
+            }
+          : {}),
         onError: (detail) => console.error(`[mixdog-remote-push] ${detail}`),
         onDiagnostic: (event, details) =>
           console.info(
@@ -102,6 +144,7 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         pushNotifier.onAgentPool(agents);
       });
       const unsubscribeSessionStates = deps.host.subscribeSessionStates((update) => {
+        pushNotifier.onSessionState(update);
         if (deps.clients.size === 0) return;
         deps.sessionStates.publish(update);
       });

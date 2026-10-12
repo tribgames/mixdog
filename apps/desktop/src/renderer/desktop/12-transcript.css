@@ -226,10 +226,9 @@ html[data-mixdog-mobile-tabs] .conversation {
   /* Drives the shell's edge fade strips (no JS listeners). */
   scroll-timeline: --mx-transcript-scroll block;
 }
-/* Scroll fade strips. Absolute siblings of the scroller, so scroll geometry
-   and the virtual list's measurements are untouched. The bottom strip sits
-   above the dock's own 16px ::before fade (15-composer.css) and continues it
-   rather than stacking a second one. */
+/* Top scroll fade strip. Absolute sibling of the scroller, so scroll geometry
+   and the virtual list's measurements are untouched. No fade above the
+   composer (user: 컴포저위에 그라데이션제거). */
 .transcript-shell {
   --mx-scroll-fade-surface: var(--mx-workspace-sheet);
   timeline-scope: --mx-transcript-scroll;
@@ -237,8 +236,7 @@ html[data-mixdog-mobile-tabs] .conversation {
 html[data-window-material="mica"] .transcript-shell {
   --mx-scroll-fade-surface: var(--mx-mica-layer);
 }
-.transcript-shell::before,
-.transcript-shell::after {
+.transcript-shell::before {
   content: "";
   position: absolute;
   z-index: 8;
@@ -266,34 +264,12 @@ html[data-window-material="mica"] .transcript-shell {
   animation-name: mx-scroll-fade-in;
   animation-range: 0 32px;
 }
-.transcript-shell::after {
-  bottom: calc(var(--composer-dock-height, 0px) + 16px);
-  height: 48px;
-  background: linear-gradient(
-    to top,
-    var(--mx-scroll-fade-surface) 0,
-    color-mix(in srgb, var(--mx-scroll-fade-surface) 85%, transparent) 13%,
-    color-mix(in srgb, var(--mx-scroll-fade-surface) 50%, transparent) 40%,
-    color-mix(in srgb, var(--mx-scroll-fade-surface) 15%, transparent) 70%,
-    transparent 100%
-  );
-  animation-name: mx-scroll-fade-out;
-  animation-range: calc(100% - 48px) 100%;
-}
 @keyframes mx-scroll-fade-in {
   from {
     opacity: 0;
   }
   to {
     opacity: 1;
-  }
-}
-@keyframes mx-scroll-fade-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
   }
 }
 /* cursor inherits: anchors and any embedded fields resolved their shapes from
@@ -651,6 +627,13 @@ html[data-window-material="mica"] .transcript-shell {
   color: var(--mx-text);
   background: transparent;
   box-shadow: none;
+}
+.message.user .message-device {
+  margin: 3px 6px 0 0;
+  align-self: flex-end;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  opacity: 0.8;
 }
 .message.user .message-source {
   margin: 0 6px 3px 0;

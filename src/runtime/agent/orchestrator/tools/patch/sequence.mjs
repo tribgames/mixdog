@@ -8,7 +8,7 @@ import { withAdvisoryLocks } from '../builtin/advisory-lock.mjs';
 import { wrapPatchMutationOutput } from './mutation-output.mjs';
 import { ensureNativePatchBinaryAvailable } from './native-server.mjs';
 import { setPatchReplayPreSnapshots } from './replay-capture.mjs';
-import { capturePatchRollbackState } from './rollback-state.mjs';
+import { capturePatchRollbackState, deleteOnlyPaths } from './rollback-state.mjs';
 import { formatSequenceReport } from './sequence/report.mjs';
 import { runPatchUnits } from './sequence/run.mjs';
 import { buildPatchUnits } from './sequence/units.mjs';
@@ -52,22 +52,22 @@ export async function applyPatchSequence(patchStr, requestedFormat, basePath, ct
       let uiBeforeSnapshots = [];
       if (!dryRun && ((toolCallId && sessionId) || replayCapture)) {
         try {
-          uiBeforeSnapshots = capturePatchRollbackState(lockPaths);
+          uiBeforeSnapshots = capturePatchRollbackState(lockPaths, { deletePaths: deleteOnlyPaths(units) });
           setPatchReplayPreSnapshots(replayCapture, uiBeforeSnapshots);
         } catch {
           uiBeforeSnapshots = [];
         }
       }
       const outcome = await runPatchUnits(units, basePath, { waveOpts, abortSignal, continueAfterFailure });
-      // Whatever reached disk is reported to the review channel; a full
-      // success always has every unit in `applied`.
-      if (!dryRun && uiBeforeSnapshots.length > 0 && outcome.applied.length > 0) {
+      // Exactly what reached disk is reported to the review channel: the
+      // targets of committed units, never those of refused or failed ones.
+      if (!dryRun && uiBeforeSnapshots.length > 0 && outcome.mutatedPaths.length > 0) {
         registerCommittedPatchUiDiff({
           callId: toolCallId,
           sessionId,
           basePath,
           beforeSnapshots: uiBeforeSnapshots,
-          paths: lockPaths,
+          paths: outcome.mutatedPaths,
         });
       }
       const report = formatSequenceReport({

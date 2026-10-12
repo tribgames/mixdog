@@ -7,6 +7,7 @@ import {
   GitBranch,
   Heart,
   Keyboard,
+  Palette,
   PenLine,
   Plug,
   type Settings,
@@ -20,14 +21,19 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
+import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { t } from '../i18n';
-import { setRemoteClaimPromptActive } from '../remote-claim-prompt-state';
 import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
 import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import { preloadConnectionInfo } from './connection-info';
+import { preloadDesktopStatus } from './desktop-status-cache';
+import { preloadProviderPanel } from './provider-panel';
 import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
 import { preloadGitPanelInfo } from './git-panel-info';
+import { RemotePcLabel } from '../RemotePcSwitcher';
 import {
+  DEVICE_SETTINGS_CATEGORY,
   type SETTINGS_ITEMS,
   categoryForSettingsItem,
   settingsCategoriesForSurface,
@@ -41,7 +47,13 @@ export type SettingsSection = (typeof SETTINGS_ITEMS)[number]['value'];
 type SettingsApi = Partial<DesktopApi>;
 
 export function preloadSettings(api: SettingsApi): Promise<unknown> {
-  return Promise.all([preloadCapabilitySettings(api), preloadGitPanelInfo(api), preloadConnectionInfo(api)]);
+  return Promise.all([
+    preloadCapabilitySettings(api),
+    preloadGitPanelInfo(api),
+    preloadConnectionInfo(api, undefined, { activate: false }),
+    preloadDesktopStatus(api),
+    preloadProviderPanel(api),
+  ]);
 }
 
 export { preloadConnectionInfo };
@@ -69,6 +81,7 @@ const CATEGORY_ICONS = {
   developer: Code,
   shortcuts: Keyboard,
   about: Heart,
+  display: Palette,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
 export const SettingsView = memo(function SettingsView({
@@ -78,16 +91,24 @@ export const SettingsView = memo(function SettingsView({
   onCompose,
   onClose,
 }: SettingsViewProps) {
-  const remoteSettings = Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
-  const visibleCategories = settingsCategoriesForSurface(remoteSettings);
+  const remoteSettings = isRemoteHostRenderer();
+  // A host that announces open access serves the Providers and Developer pages;
+  // an older one refuses their calls, so they stay hidden.
+  const hostOpenAccess = useRemoteHostOpenAccess();
+  const visibleCategories = settingsCategoriesForSurface(remoteSettings, hostOpenAccess);
   const resolveCategory = (next: SettingsCategory): SettingsCategory =>
-    settingsCategoryForSurface(next, remoteSettings);
-  const [category, setCategory] = useState<SettingsCategory>(
-    resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general')
-  );
+    settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
+  // On a remote surface the theme lives on the device's own Display page.
+  const startCategory = (): SettingsCategory =>
+    initialSection === 'theme' && remoteSettings
+      ? 'display'
+      : initialSection
+        ? categoryForSettingsItem(initialSection)
+        : 'general';
+  const [category, setCategory] = useState<SettingsCategory>(resolveCategory(startCategory()));
   const openCategory = useCallback(
-    (next: SettingsCategory) => setCategory(settingsCategoryForSurface(next, remoteSettings)),
-    [remoteSettings]
+    (next: SettingsCategory) => setCategory(settingsCategoryForSurface(next, remoteSettings, hostOpenAccess)),
+    [remoteSettings, hostOpenAccess]
   );
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -103,9 +124,9 @@ export const SettingsView = memo(function SettingsView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: remoteSettings is the trigger (resolveCategory depends on it); resolveCategory is recreated every render.
   useEffect(() => {
     if (!open) return;
-    setCategory(resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general'));
+    setCategory(resolveCategory(startCategory()));
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [open, initialSection, remoteSettings]);
+  }, [open, initialSection, remoteSettings, hostOpenAccess]);
   // Windows caption controls are native chrome, outside the DOM backdrop.
   // Hold their matching composited colors for the full settings lifetime.
   useEffect(() => {
@@ -125,15 +146,10 @@ export const SettingsView = memo(function SettingsView({
   useEffect(() => {
     if (!open) return;
     void preloadGitPanelInfo(api);
-    void preloadConnectionInfo(api);
+    void preloadConnectionInfo(api, undefined, { activate: false });
+    void preloadDesktopStatus(api);
+    void preloadProviderPanel(api).catch(() => undefined);
   }, [open, api]);
-  useEffect(() => {
-    const active = open && !remoteSettings && category === 'connection';
-    setRemoteClaimPromptActive(active);
-    return () => {
-      if (active) setRemoteClaimPromptActive(false);
-    };
-  }, [open, remoteSettings, category]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: category is the trigger: scroll to the top on every page change.
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
@@ -208,6 +224,23 @@ export const SettingsView = memo(function SettingsView({
     return () => document.removeEventListener('keydown', handleKey, true);
   }, [open, onClose]);
 
+  const railButton = (item: { value: SettingsCategory; label: string }) => {
+    const Icon = CATEGORY_ICONS[item.value];
+    return (
+      <button
+        type="button"
+        key={item.value}
+        className={category === item.value ? 'active' : ''}
+        aria-label={t(item.label)}
+        aria-current={category === item.value ? 'page' : undefined}
+        onClick={() => setCategory(item.value)}
+      >
+        <Icon aria-hidden="true" size={16} />
+        <span>{t(item.label)}</span>
+      </button>
+    );
+  };
+
   return createPortal(
     <div
       className="mixdog-settings-layer stable-surface-preserved"
@@ -236,23 +269,22 @@ export const SettingsView = memo(function SettingsView({
               headings AND the gaps between their blocks are gone — twelve
               short rows read better as a single run. `group` survives in the
               data purely as the authoring order. */}
-            <div className="mixdog-settings__rail-group">
-              {visibleCategories.map((item) => {
-                const Icon = CATEGORY_ICONS[item.value];
-                return (
-                  <button
-                    type="button"
-                    key={item.value}
-                    className={category === item.value ? 'active' : ''}
-                    aria-label={t(item.label)}
-                    aria-current={category === item.value ? 'page' : undefined}
-                    onClick={() => setCategory(item.value)}
-                  >
-                    <Icon aria-hidden="true" size={16} />
-                    <span>{t(item.label)}</span>
-                  </button>
-                );
-              })}
+            {remoteSettings && (
+              <div className="mixdog-settings__rail-group" data-settings-group="device">
+                <div className="mixdog-settings__rail-group-label">
+                  <Smartphone aria-hidden="true" size={13} />
+                  <span>{t('This device')}</span>
+                </div>
+                {railButton(DEVICE_SETTINGS_CATEGORY)}
+              </div>
+            )}
+            <div className="mixdog-settings__rail-group" data-settings-group="pc">
+              {remoteSettings && (
+                <div className="mixdog-settings__rail-group-label">
+                  <RemotePcLabel />
+                </div>
+              )}
+              {visibleCategories.map(railButton)}
             </div>
           </nav>
           {/* No brand/version footer (user decision): the nav ends with its
@@ -262,8 +294,23 @@ export const SettingsView = memo(function SettingsView({
           <header className="mixdog-settings__header">
             <div className="mixdog-settings__header-title">
               <h1 id="mixdog-settings-title">
-                {t(visibleCategories.find((item) => item.value === category)?.label || 'Settings')}
+                {t(
+                  [...visibleCategories, DEVICE_SETTINGS_CATEGORY].find((item) => item.value === category)?.label ||
+                    'Settings'
+                )}
               </h1>
+              {remoteSettings && (
+                <span className="mixdog-settings__where" data-settings-where={category === 'display' ? 'device' : 'pc'}>
+                  {category === 'display' ? (
+                    <>
+                      <Smartphone aria-hidden="true" size={12} />
+                      {t('This device')}
+                    </>
+                  ) : (
+                    <RemotePcLabel />
+                  )}
+                </span>
+              )}
             </div>
             <button
               ref={closeRef}

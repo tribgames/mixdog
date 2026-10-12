@@ -199,7 +199,41 @@ export function sessionDaemonCompatibility(
   return { status: 'compatible', ...details };
 }
 
-async function replaceLowerDaemon(discovery, initialHealth, { log }) {
+/** Ask the running daemon to yield to this build immediately, aborting its
+ *  in-flight work. Resolves true when the request was accepted. */
+export async function forceDaemonUpgrade({ log = () => {} } = {}) {
+  const discovery = readSessionDiscovery();
+  if (!discovery) return false;
+  const result = await request({
+    port: discovery.port,
+    token: discovery.token,
+    method: 'POST',
+    path: '/upgrade',
+    body: {
+      protocol: SESSION_PROTOCOL,
+      revision: SESSION_REVISION,
+      version: runtimeVersion(),
+      force: true,
+    },
+    timeoutMs: 3_000,
+    control: true,
+  });
+  const accepted = result?.accepted === true;
+  log(`forced daemon upgrade ${accepted ? 'accepted' : 'not accepted'}`);
+  return accepted;
+}
+
+async function replaceLowerDaemon(discovery, initialHealth, { log, onUpgradeWait = null }) {
+  const info = { fromVersion: initialHealth?.version, toVersion: runtimeVersion() };
+  const notify = (state) => {
+    try {
+      onUpgradeWait?.({ state, ...info });
+    } catch {}
+  };
+  const done = () => {
+    notify('done');
+    return true;
+  };
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_UPGRADE_TIMEOUT_MS);
   // A stuck older daemon (a worker that never finishes draining) must not hang
   // every newer client forever: the wait is always bounded, and the caller
@@ -226,17 +260,18 @@ async function replaceLowerDaemon(discovery, initialHealth, { log }) {
   });
   if (result?.accepted !== true) throw new Error('daemon replacement was not accepted');
   log(`waiting for daemon build ${initialHealth?.version || 'unknown'}` + ` to yield to ${runtimeVersion()}`);
+  notify('waiting');
   while (Date.now() < deadline) {
     const current = readSessionDiscovery();
-    if (!current || Number(current.pid) !== Number(discovery.pid)) return true;
+    if (!current || Number(current.pid) !== Number(discovery.pid)) return done();
     const health = await probeSessionHealth({
       port: current.port,
       token: current.token,
       timeoutMs: 800,
     });
-    if (!health || Number(health.pid) !== Number(discovery.pid)) return true;
+    if (!health || Number(health.pid) !== Number(discovery.pid)) return done();
     const compatibility = sessionDaemonCompatibility(health);
-    if (compatibility.status === 'compatible' || compatibility.status === 'daemon-newer') return true;
+    if (compatibility.status === 'compatible' || compatibility.status === 'daemon-newer') return done();
     await delay(100);
   }
   const error = new Error('newer daemon build is still waiting for active work to finish');
@@ -285,14 +320,20 @@ export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = dae
 }
 
 /** Spawn-or-attach discovery for the machine-global daemon. */
-export async function ensureDaemon({ cwd = process.cwd(), log = () => {}, attempts = 5, readyTimeoutMs = null } = {}) {
+export async function ensureDaemon({
+  cwd = process.cwd(),
+  log = () => {},
+  attempts = 5,
+  readyTimeoutMs = null,
+  onUpgradeWait = null,
+} = {}) {
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS);
   let requestedTimeoutMs = DEFAULT_DAEMON_READY_TIMEOUT_MS;
   if (Number.isFinite(Number(readyTimeoutMs)) && Number(readyTimeoutMs) > 0)
     requestedTimeoutMs = Number(readyTimeoutMs);
   else if (configuredTimeoutMs > 0) requestedTimeoutMs = configuredTimeoutMs;
   const timeoutMs = Math.max(1, requestedTimeoutMs);
-  const deadline = Date.now() + timeoutMs;
+  let deadline = Date.now() + timeoutMs;
   const maxSpawnAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
   let spawnAttempts = 0;
   let waitingOwnerPid = 0;
@@ -334,7 +375,10 @@ export async function ensureDaemon({ cwd = process.cwd(), log = () => {}, attemp
           return discovery;
         }
         if (compatibility.status === 'client-newer') {
-          await replaceLowerDaemon(discovery, health, { log });
+          await replaceLowerDaemon(discovery, health, { log, onUpgradeWait });
+          // The older daemon's drain has its own bound; readiness of the
+          // successor gets a fresh budget instead of the one the drain spent.
+          deadline = Date.now() + timeoutMs;
           continue;
         }
         const err = new Error('daemon session protocol identity is invalid');
@@ -512,6 +556,7 @@ export async function shutdownDaemonForRuntimeRoot(root, options = {}) {
 export const createSession = createSessionProxyFactory({
   attachSession,
   ensureDaemon,
+  forceDaemonUpgrade,
   closeIdleConnections: () => {
     daemonCallAgent.destroy();
     daemonUrgentAgent.destroy();

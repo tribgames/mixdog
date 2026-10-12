@@ -14,7 +14,7 @@ import { TerminalWritePump } from './terminal-write-pump';
 import { attachTerminalOutput, detachTerminalOutput } from './terminal-output-subscription';
 import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
 import { dataTransferHasLocalFiles, droppedLocalPaths, terminalPathText } from './file-drag';
-import { remoteSurface } from './shell-viewport';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { onTerminalCommandRequested } from './terminal-command-request';
 
 type TerminalView = {
@@ -186,7 +186,7 @@ function terminalView(key: string): TerminalView {
   // Relay-served browsers pay a full round trip per echoed keystroke; the
   // predictor paints validated keystrokes immediately (user: RTT 때문에
   // 터미널 타이핑이 답답함). Electron's local PTY needs none of it.
-  const localEcho = remoteSurface()
+  const localEcho = isRemoteHostRenderer()
     ? new TerminalLocalEcho({
         write: (data) => {
           void writer.writeReplay(data);

@@ -7,7 +7,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { serveWorkerRequests } from '../worker-requests.mjs';
 import { UsageLedger } from './usage-ledger.mjs';
-import { readSessionUsage, rollupUsage } from './usage-ledger-rollup.mjs';
+import { readSessionUsage, rollupDelta, rollupUsage } from './usage-ledger-rollup.mjs';
 import { readQuotaHistory, readQuotaWindows } from './usage-ledger-quota.mjs';
 import { applyUsageRepairIfUnchanged, selectUsageRepairCandidates } from './usage-ledger-repair.mjs';
 import { unpricedCountAfter, unpricedPendingCounts } from './usage-pricing-refresh.mjs';
@@ -59,6 +59,7 @@ function recordBatch(ledger, rows) {
 
 const operations = {
   rollup: ({ path, options }) => read(path, (db) => rollupUsage(db, options)),
+  rollupDelta: ({ path, options, known, now }) => read(path, (db) => rollupDelta(db, options, known, now)),
   sessionUsage: ({ path, sessionIds }) => read(path, (db) => readSessionUsage(db, sessionIds)),
   record: ({ path, rows }) => write(path, (ledger) => recordBatch(ledger, rows)),
   recordQuota: ({ path, samples }) => write(path, (ledger) => ledger.recordQuota(samples)),

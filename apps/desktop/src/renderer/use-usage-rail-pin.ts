@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { usagePinStackFits } from './rail-usage-pin-room';
 import type { UsageDashboardSnapshot } from './usage-dashboard-store';
 import { subscribeSetupChanges } from './setup-change-refresh';
@@ -43,13 +44,15 @@ export function useUsageRailPin(
   },
   enabled: boolean
 ) {
+  // The config value (code default: pinned) is the single source; the retired
+  // localStorage mirror is dropped once.
   const [usagePinned, setUsagePinned] = useState(() => {
     try {
-      // Pinned unless the user explicitly unpinned (fresh installs start pinned).
-      return window.localStorage.getItem(USAGE_RAIL_PIN_KEY) !== '0';
+      window.localStorage.removeItem(USAGE_RAIL_PIN_KEY);
     } catch {
-      return true;
+      /* storage-less host */
     }
+    return true;
   });
   const [settingsReady, setSettingsReady] = useState(false);
   const revision = useRef(0);
@@ -63,14 +66,9 @@ export function useUsageRailPin(
         .then((settings) => {
           if (!live || token !== revision.current || typeof settings?.usagePinned !== 'boolean') return;
           setUsagePinned(settings.usagePinned);
-          try {
-            window.localStorage.setItem(USAGE_RAIL_PIN_KEY, settings.usagePinned ? '1' : '0');
-          } catch {
-            /* seed only */
-          }
         })
         .catch(() => {
-          /* preserve the local seed */
+          /* keep the code default */
         })
         .finally(() => {
           if (live) setSettingsReady(true);
@@ -78,9 +76,14 @@ export function useUsageRailPin(
     };
     read();
     const unsubscribe = subscribeSetupChanges(read);
+    // Remote clients: a read made while the connection was down fails and
+    // would keep the code default (pinned) over the user's real choice until
+    // a reload.
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     return () => {
       live = false;
       unsubscribe();
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     };
   }, [enabled]);
 
@@ -94,11 +97,6 @@ export function useUsageRailPin(
     pinnedRef.current = next;
     setSettingsReady(true);
     setUsagePinned(next);
-    try {
-      window.localStorage.setItem(USAGE_RAIL_PIN_KEY, next ? '1' : '0');
-    } catch {
-      /* the toggle still applies for this session */
-    }
     void window.mixdogDesktop?.updateSetting?.('usagePinned', next)?.catch(() => {
       /* local state still applies */
     });

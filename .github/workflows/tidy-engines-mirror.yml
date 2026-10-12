@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: tidy-engines-mirror
@@ -16,6 +16,9 @@ env:
 jobs:
   mirror:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # gh release create/upload
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:

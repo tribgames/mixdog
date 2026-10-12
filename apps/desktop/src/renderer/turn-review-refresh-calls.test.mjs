@@ -211,6 +211,49 @@ test('blurring a first foreground read never reveals a temporary transcript esti
   assert.equal(bar(), null);
 });
 
+test('only the interval timer marks its read as a background poll', async (t) => {
+  const { dom, render, answer, requests } = mount(t, 'sess-review-poll-kind');
+  const timers = [];
+  dom.window.setInterval = (callback) => timers.push(callback);
+  dom.window.clearInterval = () => {};
+  const tick = () => act(async () => timers.at(-1)());
+  const items = [prompt, edit('first')];
+  const changed = { files: [{ path: 'a.txt', status: 'M', additions: 1, deletions: 1 }] };
+
+  await render(items, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].args[0].poll, undefined, 'a tool-boundary read is a foreground read');
+  assert.equal(requests[0].args[0].refresh, true);
+  await answer(changed);
+
+  await tick();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].args[0].poll, 'background', 'the busy timer polls in the background');
+  assert.equal(requests[1].args[0].summary, true, 'a collapsed bar polls for a summary');
+  await answer(changed);
+
+  await act(async () => dom.window.document.querySelector('.turn-review-summary').click());
+  assert.equal(requests.length, 3);
+  assert.equal(requests[2].args[0].poll, undefined, 'opening the review reads in the foreground');
+  assert.equal(requests[2].args[0].summary, undefined);
+  await answer(changed);
+
+  await tick();
+  assert.equal(requests.length, 4);
+  assert.equal(requests[3].args[0].poll, 'background');
+  assert.equal(requests[3].args[0].summary, undefined, 'an open review polls for its patch');
+  await answer(changed);
+
+  // A foreground read queued behind a poll keeps its foreground kind.
+  await tick();
+  await render([...items, edit('second')], true);
+  assert.equal(requests.length, 5);
+  await answer(changed);
+  assert.equal(requests.length, 6);
+  assert.equal(requests[5].args[0].poll, undefined);
+  await answer(changed);
+});
+
 test('a review tag is only sent while the review it names is still cached', async (t) => {
   const { render, answer, requests } = mount(t);
   const tagged = { kind: 'user', id: 'tagged', text: 'Tagged' };

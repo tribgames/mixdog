@@ -14,6 +14,8 @@ import {
 } from '../runtime/shared/provider-accounts.mjs';
 
 const MAX_MODEL_LIMIT = 50;
+const SNAPSHOT_REUSE_MS = 1000;
+const SNAPSHOT_CACHE_LIMIT = 8;
 
 const quotaText = (value) => (typeof value === 'string' ? value.slice(0, 200) : '');
 
@@ -151,6 +153,7 @@ export function createUsageStatsApi({
 } = {}) {
   let importing = null;
   let imported = false;
+  const snapshots = new Map();
   // Until the first instrumented send establishes the cutover, the legacy
   // writer may still be active. A previous import is not a live subscription.
   async function ensureHistoryImported(store, liveSince) {
@@ -181,6 +184,15 @@ export function createUsageStatsApi({
       const period = usagePeriodFor(options, now);
       // The rollup query runs off the event loop (usage-rollup-worker.mjs).
       const rollup = await store.rollupAsync(usageRollupQuery(period));
+      // The ledger returns the same rollup object while nothing was committed
+      // (and while a rolling window lost no record), so identical back-to-back
+      // requests over it are one answer; the clock bound keeps the snapshot's
+      // time-relative fields from ageing.
+      const cacheKey = JSON.stringify([options, liveSince]);
+      const held = snapshots.get(cacheKey);
+      if (held && held.rollup === rollup && now - held.now >= 0 && now - held.now < SNAPSHOT_REUSE_MS) {
+        return held.snapshot;
+      }
       const snapshot = usageStatsSnapshot({
         rollup,
         days: normalizeDays(options?.days),
@@ -195,6 +207,9 @@ export function createUsageStatsApi({
       });
       snapshot.coverage.ledger = true;
       snapshot.coverage.liveSince = liveSince || null;
+      snapshots.delete(cacheKey);
+      snapshots.set(cacheKey, { rollup, now, snapshot });
+      if (snapshots.size > SNAPSHOT_CACHE_LIMIT) snapshots.delete(snapshots.keys().next().value);
       return snapshot;
     },
 

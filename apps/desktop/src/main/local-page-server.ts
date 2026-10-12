@@ -2,15 +2,16 @@
  * Local web pages for the session browser pane. The pane admits http(s) only,
  * so a page a chat link names is served from a loopback server. A selected-file
  * grant serves exactly one HTML file; only an explicit project grant serves
- * relative web assets (including JSON/CSV). Each URL has its own bounded lease
- * and rechecks its originating permission before returning bytes.
+ * relative web assets (styles, scripts, fonts, media, data and documents; no
+ * dotfiles, no source files). Each URL has its own bounded lease and rechecks
+ * its originating permission before returning bytes.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileExtension } from '../shared/file-extension';
 import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';
 
@@ -20,9 +21,7 @@ const PAGE_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   css: 'text/css; charset=utf-8',
   js: 'text/javascript; charset=utf-8',
   mjs: 'text/javascript; charset=utf-8',
-  json: 'application/json; charset=utf-8',
   map: 'application/json; charset=utf-8',
-  csv: 'text/csv; charset=utf-8',
   svg: 'image/svg+xml',
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -43,6 +42,19 @@ const PAGE_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   ogg: 'audio/ogg',
   m4a: 'audio/mp4',
   wasm: 'application/wasm',
+  gltf: 'model/gltf+json',
+  glb: 'model/gltf-binary',
+});
+
+/** Data and documents: served only inside an origin's `dataRoot`. */
+const DATA_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
+  json: 'application/json; charset=utf-8',
+  csv: 'text/csv; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  xml: 'application/xml; charset=utf-8',
+  webmanifest: 'application/manifest+json; charset=utf-8',
+  pdf: 'application/pdf',
 });
 
 const LOOPBACK = '127.0.0.1';
@@ -81,17 +93,28 @@ function reply(response: ServerResponse, status: number): void {
   response.end(String(status));
 }
 
-function pageAssetType(root: string, file: string): string {
+/** Mime of a web asset `file` that may be served from under `root` ('' when the
+ *  path is outside it, hidden, or not a web asset). Presentation types are
+ *  served anywhere under `root`; data and document types only under
+ *  `dataRoot` (inside `root`, default `root`). Shared with the remote page
+ *  preview so both surfaces expose the same files. */
+export function pageAssetType(root: string, file: string, dataRoot: string = root): string {
+  if (!inside(root, file)) return '';
+  // Hidden segments are refused below the page's own folder chain: the folders
+  // the user opened the page through may themselves be dot-named.
+  let base = dataRoot;
+  while (!inside(base, file) && base !== root) base = dirname(base);
   if (
-    !inside(root, file) ||
-    relative(root, file)
+    relative(base, file)
       .split(sep)
       .some((part) => part.startsWith('.'))
   ) {
     return '';
   }
   const extension = fileExtension(file);
-  return Object.hasOwn(PAGE_ASSET_TYPES, extension) ? PAGE_ASSET_TYPES[extension] : '';
+  if (Object.hasOwn(PAGE_ASSET_TYPES, extension)) return PAGE_ASSET_TYPES[extension];
+  if (Object.hasOwn(DATA_ASSET_TYPES, extension) && inside(dataRoot, file)) return DATA_ASSET_TYPES[extension];
+  return '';
 }
 
 function revokeLease(token: string): void {
@@ -122,8 +145,11 @@ async function pageLocation(root: string, rel: string): Promise<{ root: string; 
     throw new LocalAccessDeniedError('The page must be a visible HTML file inside its folder.');
   }
   const page = await realpath(requested);
-  if (!pageAssetType(realRoot, page) || !['html', 'htm'].includes(fileExtension(page))
-    || !(await stat(page)).isFile()) {
+  if (
+    !pageAssetType(realRoot, page) ||
+    !['html', 'htm'].includes(fileExtension(page)) ||
+    !(await stat(page)).isFile()
+  ) {
     throw new LocalAccessDeniedError('The page must be a visible HTML file inside its folder.');
   }
   return { root: realRoot, page };

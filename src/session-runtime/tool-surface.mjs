@@ -1,12 +1,20 @@
 // Lead tool surface: which tools the model sees before a session exists, and
 // how that pre-session selection is replayed once one does. runtime-core keeps
 // the mutable session/route/mode it injects here.
-import { applyDeferredToolSurface, filterDisallowedTools, selectDeferredTools } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import {
+  applyDeferredToolSurface,
+  filterDisallowedTools,
+  selectDeferredTools,
+} from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { LEAD_DISALLOWED_TOOLS } from '../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { loadSkillToolDependencies } from '../runtime/agent/orchestrator/runtime-core/skill-tool-loading.mjs';
-import { disallowedModelToolNamesForProfile, filterModelToolsForProfile } from '../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
-import { configuredOrchestrationMode, sessionOrchestrationMode } from '../runtime/shared/orchestration.mjs';
+import {
+  disallowedModelToolNamesForProfile,
+  filterModelToolsForProfile,
+} from '../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import { workflowDisallowsAgentTool } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import { configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
 
 export function createToolSurface({
   mgr,
@@ -26,16 +34,14 @@ export function createToolSurface({
 }) {
   let preSessionSurface = null;
 
-  // A live session keeps its frozen mode; a new session uses current settings.
+  // A live session keeps its frozen capability; a new session uses current
+  // agents. Solo still offers the tool (deferred) for explicit user requests.
   function workflowAllowsAgents() {
     const session = getSession();
     if (session?.id || session?.workflow || session?.orchestrationMode) {
-      return sessionOrchestrationMode(session) !== 'none' && session?.workflow?.delegatesAgents !== false;
+      return !workflowDisallowsAgentTool(session?.workflow);
     }
-    return (
-      configuredOrchestrationMode(getConfig()) !== 'none' &&
-      (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0
-    );
+    return (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0;
   }
 
   function modelStandaloneTools() {
@@ -80,6 +86,7 @@ export function createToolSurface({
       tools: Array.isArray(tools) ? tools.slice() : [],
       mcpScopeId: getMcpScopeId(),
       cwd: getCurrentCwd?.() || null,
+      orchestrationMode: configuredOrchestrationMode(getConfig()),
     };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {
       provider: getRoute().provider,

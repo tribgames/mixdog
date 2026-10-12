@@ -63,10 +63,22 @@ export function closeOwnSession(deps, closeSurfaceSession, reason) {
 /** Plant the ordinary manager/store tombstone barrier for a canonical
  *  child session without running whole-process teardown. */
 export function closeCanonicalSession(deps, reason = 'canonical-session-close') {
-  const { getSession, setSession, mgr, invalidateContextStatusCache } = deps;
+  const { getSession, setSession, mgr, invalidateContextStatusCache, beginCanonicalClose, finishCanonicalClose } = deps;
+  // Already terminal: closing is idempotent and keeps the address.
+  if (deps.isCanonicallyClosed?.() === true) return true;
   const session = getSession?.();
   if (!session?.id || session.remoteAttached === true) return false;
-  const closed = mgr.closeSession(session.id, reason, { tombstone: true }) === true;
+  // Fence execution admission BEFORE the manager close: that close cancels the
+  // session's shells synchronously, and their completions must not be able to
+  // enqueue model work or create a conversation.
+  const fence = beginCanonicalClose?.(session.id);
+  let closed = false;
+  try {
+    closed = mgr.closeSession(session.id, reason, { tombstone: true }) === true;
+  } finally {
+    // Terminal after a durable close; admission restored when it failed.
+    finishCanonicalClose?.(fence, closed);
+  }
   if (!closed) return false;
   setSession?.(null);
   invalidateContextStatusCache?.();

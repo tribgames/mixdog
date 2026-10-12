@@ -70,7 +70,11 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   const checkDeadline = () => {
     if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
   };
-  const lines = createReadLineCollector({ offset, limit, bodyOutputBytes, rangeIndex,
+  const lines = createReadLineCollector({
+    offset,
+    limit,
+    bodyOutputBytes,
+    rangeIndex,
     startLine: anchor.line,
     fileSize: stForIndex?.size || 0,
   });

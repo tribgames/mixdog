@@ -103,7 +103,7 @@ const CANONICAL_CLIENT_ID = '00000000-0000-4000-8000-000000000000';
  * the very leg state the enforcement path reads, so what is PUBLISHED is what
  * is ENFORCED, on every path, for the life of this connection.
  */
-export function relayCapabilities(leg, maxFrameBytes) {
+export function relayCapabilities(leg, maxFrameBytes, nativePushPlatforms = [], webPush = false) {
   const acknowledged = leg.textFrames === true;
   const ceilings = uplinkCeilings({
     capacity: leg.capacity,
@@ -119,6 +119,13 @@ export function relayCapabilities(leg, maxFrameBytes) {
     uplinkCapacityBytes: leg.capacity,
     uplinkBinaryCeilingBytes: ceilings.binary,
     uplinkTextCeilingBytes: ceilings.text,
+    // Present only when this relay holds APNs/FCM credentials: a desktop
+    // advertises native push to its phones only if the relay can deliver it.
+    ...(nativePushPlatforms.length > 0 ? { nativePush: 1, nativePushPlatforms: [...nativePushPlatforms] } : {}),
+    // Present when this relay owns the Web Push sender identity: the desktop
+    // then delivers browser push through `webpush-send` (lib/web-push-legs.mjs)
+    // instead of posting to the push service itself.
+    ...(webPush ? { webPush: 1 } : {}),
   };
 }
 

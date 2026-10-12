@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>설정 → 연결 v7: C안 팝업</title>
+<style>
+  :root {
+    --bg: #111112; --rail: #19191b; --page: #232325; --dlg: #262629; --card: #2b2b2e; --tile: #1b1b1d;
+    --line: #37373b; --line2: #2f2f32; --text: #ececee; --muted: #9d9da3; --faint: #6e6e74;
+    --accent: #84b4ff; --danger: #ff8f85; --ok: #5fd08a; --btn: #38383c;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px 24px 80px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Pretendard", "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .lead { color: var(--muted); margin: 0 0 28px; max-width: 1040px; }
+  h2 { font-size: 18px; margin: 48px 0 4px; }
+  .sec-p { color: var(--muted); margin: 0 0 18px; max-width: 1040px; }
+  .rules { display: grid; grid-template-columns: repeat(4, minmax(0, 260px)); gap: 12px; margin: 0 0 8px; }
+  .rules div { background: #1c1c1e; border: 1px solid var(--line2); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; color: var(--muted); }
+  .rules b { display: block; color: var(--text); font-size: 13px; margin-bottom: 2px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 464px); gap: 18px; }
+  .stage { background: #0b0b0c; border-radius: 12px; padding: 12px; display: grid; place-items: center; min-height: 470px; position: relative; }
+  .label { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+  .label b { color: #f5c451; margin-right: 6px; }
+
+  /* ---------- dialog: one shell for every popup ---------- */
+  .dlg { width: 440px; background: var(--dlg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,.55); }
+  .dlg-h { display: grid; grid-template-columns: 1fr 28px; gap: 8px; padding: 20px 20px 0 24px; align-items: start; }
+  .dlg-h h3 { margin: 0; font-size: 16px; line-height: 24px; }
+  .dlg-h p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+  .x { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: var(--muted); font-size: 15px; }
+  .dlg-b { padding: 16px 24px 0; }
+  .dlg-f { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 18px 20px 20px 24px; }
+  .dlg-f .left { margin-right: auto; }
+  .fixed { height: 284px; } /* body height kept across segments: no jump when switching */
+
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; gap: 2px; background: #1a1a1c; border: 1px solid var(--line2); border-radius: 9px; }
+  .seg span { text-align: center; padding: 5px 0; border-radius: 6px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .seg span.on { background: #36363a; color: var(--text); }
+
+  .btn { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--btn); color: var(--text); font: 600 13px/32px inherit; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .btn.pri { background: #ececee; color: #18181a; }
+  .btn.red { background: #6a2a26; color: #ffe1dc; }
+  .btn.dis { opacity: .4; }
+  .btn.ic { width: 28px; height: 28px; padding: 0; justify-content: center; }
+  .link { color: var(--accent); font-size: 12.5px; }
+  .muted { color: var(--muted); }
+
+  .pair { display: grid; grid-template-columns: 168px 1fr; gap: 20px; align-items: start; margin-top: 16px; }
+  .qr { display: block; border-radius: 10px; background: #fff; padding: 8px; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .steps li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; font-size: 13px; font-weight: 600; line-height: 22px; }
+  .steps .n { width: 22px; height: 22px; border-radius: 50%; background: var(--btn); display: grid; place-items: center; font-size: 11.5px; }
+  .steps .sub { display: block; font-weight: 400; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+  .codebox { margin-top: 16px; background: var(--tile); border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 12px; text-align: center; }
+  .codebox .code { font: 700 38px/1.1 var(--mono); letter-spacing: .08em; }
+  .codebox .code.loading { color: #3b3b40; }
+  .meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+  .bar { flex: 1; height: 3px; border-radius: 2px; background: #3a3a3e; overflow: hidden; } .bar i { display: block; height: 100%; width: 86%; background: #d9d9dd; }
+  .url { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--tile); border: 1px solid var(--line); font: 12.5px var(--mono); margin-top: 6px; }
+  .url span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .url .btn { height: 26px; line-height: 26px; padding: 0 10px; font-size: 12px; }
+  .note { margin-top: 12px; color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .otp { display: grid; grid-template-columns: repeat(3, 52px) 14px repeat(3, 52px); gap: 8px; justify-content: center; margin: 18px 0 4px; }
+  .otp span { height: 60px; border-radius: 10px; background: var(--tile); border: 1px solid var(--line); display: grid; place-items: center; font: 700 26px var(--mono); }
+  .otp span.f { border-color: #cfcfd4; box-shadow: 0 0 0 3px rgba(255,255,255,.08); }
+  .otp span.err { border-color: #a5463f; }
+  .otp i { display: grid; place-items: center; color: var(--faint); font-style: normal; }
+  .err-t { color: var(--danger); font-size: 12.5px; text-align: center; margin-top: 8px; min-height: 18px; }
+
+  .req { margin-top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: center; }
+  .req .ico { width: 44px; height: 44px; border-radius: 11px; background: #343438; display: grid; place-items: center; font-size: 20px; }
+  .req b { font-size: 14px; } .req .m { color: var(--muted); font-size: 12px; }
+  .kv { margin-top: 12px; display: grid; grid-template-columns: 56px 1fr; row-gap: 6px; font-size: 12.5px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  .warn { margin-top: 14px; padding: 10px 12px; border-radius: 9px; background: #2e2622; color: #e9c7a8; font-size: 12px; line-height: 1.5; }
+  .center { text-align: center; padding: 18px 0 4px; }
+  .center .big { width: 64px; height: 64px; border-radius: 18px; background: #2f3a31; display: grid; place-items: center; margin: 0 auto 12px; font-size: 28px; color: var(--ok); }
+  .center .big.red { background: #3a2a29; color: var(--danger); }
+  .center h4 { margin: 0; font-size: 16px; } .center p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #4a4a4f; border-top-color: #e5e5e8; animation: sp 1s linear infinite; display: inline-block; vertical-align: -4px; margin-right: 8px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .hostrow { margin-top: 14px; display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 10px; }
+
+  /* page */
+  .win { width: 900px; height: 560px; display: grid; grid-template-columns: 200px 1fr; border-radius: 14px; overflow: hidden; background: var(--page); border: 1px solid var(--line2); position: relative; }
+  .rail { background: var(--rail); border-right: 1px solid var(--line2); padding: 16px 12px; display: grid; align-content: start; gap: 4px; }
+  .rail span { height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; color: #cfcfd3; font-size: 13.5px; }
+  .rail span i { width: 14px; height: 14px; border: 1.5px solid #8b8b91; border-radius: 4px; }
+  .rail span.on { background: #2f2f33; color: var(--text); font-weight: 600; }
+  .main { display: grid; grid-template-rows: 64px 1fr; min-width: 0; }
+  .hdr { display: flex; align-items: center; justify-content: space-between; padding: 0 20px 0 36px; }
+  .hdr b { font-size: 19px; }
+  .body { padding: 8px 36px 32px; display: grid; align-content: start; gap: 22px; }
+  .sub { color: var(--muted); margin: 0; font-size: 13.5px; }
+  .sec-h { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 10px; }
+  .sec-h h4 { margin: 0; font-size: 14px; } .sec-h h4 small { color: var(--muted); font-weight: 500; margin-left: 6px; }
+  .danger-link { color: var(--danger); font-size: 12.5px; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .it { display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: center; padding: 10px 14px; min-height: 58px; }
+  .it + .it { border-top: 1px solid var(--line2); }
+  .it .ico { width: 30px; height: 30px; border-radius: 8px; background: #343438; display: grid; place-items: center; font-size: 14px; }
+  .it b { font-weight: 600; font-size: 13.5px; } .st { font-size: 11.5px; color: var(--muted); margin-left: 6px; } .st.on { color: var(--ok); }
+  .it .m { color: var(--muted); font-size: 12px; }
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; }
+</style>
+</head>
+<body>
+<h1>설정 → 연결 v7: C안 + 팝업 정리</h1>
+<p class="lead">C안: 평소에는 기기 목록만 보이고, 연결할 때만 팝업이 뜹니다. 팝업은 모두 같은 틀(폭 440 · 제목 + 한 줄 설명 · 본문 · 오른쪽 아래 버튼)로 맞추고, 연결 요청 승인도 <b>열려 있는 팝업 안에서</b> 바로 처리해 창이 겹치지 않게 했습니다.</p>
+<div class="rules">
+  <div><b>하나의 틀</b>폭 440px, 여백 24px, 제목 16px + 설명 한 줄, 닫기 ✕는 오른쪽 위</div>
+  <div><b>버튼 위치 고정</b>주 버튼은 항상 오른쪽 끝, 보조 링크는 왼쪽 끝</div>
+  <div><b>흔들림 없음</b>휴대폰·브라우저·다른 PC를 바꿔도 본문 높이 284px 고정</div>
+  <div><b>겹침 없음</b>요청이 오면 같은 팝업이 승인 화면으로 바뀜. 팝업이 닫혀 있을 때만 단독 승인 창</div>
+</div>
+
+<h2>0. 연결 페이지 (평소)</h2>
+<p class="sec-p">위에 두 버튼, 아래에 이 PC에 연결된 기기와 내가 연 PC. "모두 연결 해제"는 목록 제목 줄 오른쪽에 있습니다.</p>
+<div class="win">
+  <nav class="rail"><span><i></i>일반</span><span><i></i>컨텍스트</span><span><i></i>프로바이더</span><span><i></i>출력 스타일</span><span><i></i>시스템</span><span><i></i>개발자 옵션</span><span><i></i>단축키</span><span class="on"><i></i>연결</span><span><i></i>정보</span></nav>
+  <div class="main"><div class="hdr"><b>연결</b><span class="x">✕</span></div>
+    <div class="body">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+        <p class="sub">휴대폰, 브라우저, 다른 PC에서 이 PC를 사용하세요.</p>
+        <div style="display:flex;gap:8px"><button class="btn">다른 PC 열기</button><button class="btn pri">＋ 기기 연결</button></div>
+      </div>
+      <div><div class="sec-h"><h4>이 PC에 연결된 기기<small>4</small></h4><span class="danger-link">모두 연결 해제</span></div>
+        <div class="list">
+          <div class="it"><span class="ico">📱</span><div><b>Galaxy Z Fold7</b><span class="st on">온라인</span><div class="m">휴대폰 앱 · 오늘 오전 1:21</div></div><button class="btn">연결 해제</button></div>
+          <div class="it"><span class="ico">📱</span><div><b>iPad</b><span class="st">오프라인</span><div class="m">휴대폰 앱 · 어제</div></div><button class="btn">연결 해제</button></div>
+          <div class="it"><span class="ico">🌐</span><div><b>Windows</b><span class="st">오프라인</span><div class="m">Chrome · 어제</div></div><button class="btn">연결 해제</button></div>
+          <div class="it"><span class="ico">🖥</span><div><b>Office PC</b><span class="st">오프라인</span><div class="m">Mixdog PC · 오늘 오전 1:24</div></div><button class="btn">연결 해제</button></div>
+        </div></div>
+      <div><div class="sec-h"><h4>내가 연 PC<small>1</small></h4></div>
+        <div class="list"><div class="it"><span class="ico">🖥</span><div><b>Home PC</b><span class="st on">온라인</span><div class="m">마지막 연결 오늘 오전 1:24</div></div><div style="display:flex;gap:6px"><button class="btn">열기</button><button class="btn">삭제</button></div></div></div></div>
+    </div></div>
+</div>
+
+<h2>1. "＋ 기기 연결" 팝업</h2>
+<p class="sec-p">맨 위 세 칸에서 기기 종류를 고르면 아래 내용만 바뀝니다. 코드는 모든 종류가 같은 코드라 칸을 바꿔도 다시 기다리지 않고, 팝업이 열려 있는 동안만 만들어집니다.</p>
+<div class="grid">
+  <div><p class="label"><b>1-1</b>휴대폰 (기본: QR)</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>기기 연결</h3><p>연결할 기기를 고르세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed"><div class="seg"><span class="on">휴대폰</span><span>브라우저</span><span>다른 PC</span></div>
+      <div class="pair"><svg class="qr" data-qr width="168" height="168"></svg>
+        <ol class="steps"><li><span class="n">1</span><span>Mixdog 앱을 여세요</span></li><li><span class="n">2</span><span>QR 코드 스캔을 누르세요</span></li><li><span class="n">3</span><span>이 QR 코드를 스캔하세요<span class="sub">스캔하면 이 PC에서 허용만 누르면 돼요</span></span></li></ol></div></div>
+    <div class="dlg-f"><span class="link left">코드로 연결</span><button class="btn">닫기</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>1-2</b>휴대폰 → 코드로 연결</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>기기 연결</h3><p>연결할 기기를 고르세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed"><div class="seg"><span class="on">휴대폰</span><span>브라우저</span><span>다른 PC</span></div>
+      <ol class="steps" style="margin-top:16px"><li><span class="n">1</span><span>앱에서 코드로 연결을 누르세요</span></li><li><span class="n">2</span><span>이 코드를 입력하세요</span></li></ol>
+      <div class="codebox"><div class="code">716·386</div><div class="meta"><div class="bar"><i></i></div>4:48 후 만료<button class="btn ic">↻</button></div></div></div>
+    <div class="dlg-f"><span class="link left">QR 코드로 연결</span><button class="btn">닫기</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>1-3</b>브라우저</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>기기 연결</h3><p>연결할 기기를 고르세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed"><div class="seg"><span>휴대폰</span><span class="on">브라우저</span><span>다른 PC</span></div>
+      <ol class="steps" style="margin-top:16px"><li><span class="n">1</span><span>브라우저에서 이 주소를 여세요<div class="url"><span>192-255-139-161.sslip.io:8443/connect</span><button class="btn">복사</button></div></span></li><li><span class="n">2</span><span>이 코드를 입력하세요</span></li></ol>
+      <div class="codebox" style="margin-top:10px;padding:12px 16px 10px"><div class="code" style="font-size:32px">716·386</div><div class="meta"><div class="bar"><i></i></div>4:48 후 만료<button class="btn ic">↻</button></div></div></div>
+    <div class="dlg-f"><span class="muted left" style="font-size:12px">알림은 앱에서만 받을 수 있어요</span><button class="btn">닫기</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>1-4</b>다른 PC</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>기기 연결</h3><p>연결할 기기를 고르세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed"><div class="seg"><span>휴대폰</span><span>브라우저</span><span class="on">다른 PC</span></div>
+      <ol class="steps" style="margin-top:16px"><li><span class="n">1</span><span>다른 PC에서 설정 → 연결 → 다른 PC 열기</span></li><li><span class="n">2</span><span>이 코드를 입력하세요</span></li></ol>
+      <div class="codebox"><div class="code">716·386</div><div class="meta"><div class="bar"><i></i></div>4:48 후 만료<button class="btn ic">↻</button></div></div></div>
+    <div class="dlg-f"><button class="btn">닫기</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>1-5</b>코드 만드는 중 (0.5초 남짓)</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>기기 연결</h3><p>연결할 기기를 고르세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed"><div class="seg"><span>휴대폰</span><span class="on">브라우저</span><span>다른 PC</span></div>
+      <ol class="steps" style="margin-top:16px"><li><span class="n">1</span><span>브라우저에서 이 주소를 여세요<div class="url"><span>192-255-139-161.sslip.io:8443/connect</span><button class="btn">복사</button></div></span></li><li><span class="n">2</span><span>이 코드를 입력하세요</span></li></ol>
+      <div class="codebox" style="margin-top:10px;padding:12px 16px 10px"><div class="code loading" style="font-size:32px">···&nbsp;···</div><div class="meta"><div class="bar"></div>&nbsp;<button class="btn ic dis">↻</button></div></div></div>
+    <div class="dlg-f"><span class="muted left" style="font-size:12px">알림은 앱에서만 받을 수 있어요</span><button class="btn">닫기</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>1-6</b>연결 서버가 코드를 지원하지 않을 때</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>기기 연결</h3><p>연결할 기기를 고르세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed"><div class="seg"><span>휴대폰</span><span>브라우저</span><span class="on">다른 PC</span></div>
+      <div class="center" style="padding-top:34px"><div class="big red" style="width:52px;height:52px;font-size:22px">!</div><h4 style="font-size:14px">지금은 코드를 쓸 수 없어요</h4><p style="font-size:12.5px">이 연결 서버는 코드를 지원하지 않아요.<br>휴대폰은 QR 코드로 연결할 수 있어요.</p></div></div>
+    <div class="dlg-f"><span class="link left">휴대폰 QR로 가기</span><button class="btn">닫기</button></div>
+  </div></div></div>
+</div>
+
+<h2>2. 연결 요청이 오면: 같은 팝업에서 승인</h2>
+<p class="sec-p">기기가 QR·코드로 요청하면 열려 있던 "기기 연결" 팝업이 그대로 승인 화면으로 바뀝니다. 새 창이 위에 겹치지 않습니다. 허용하면 완료 화면, 거절하면 처음 화면으로 돌아갑니다.</p>
+<div class="grid">
+  <div><p class="label"><b>2-1</b>요청 도착</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>연결 요청</h3><p>직접 요청한 경우에만 허용하세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed">
+      <div class="req"><span class="ico">📱</span><div><b>Galaxy Z Fold7</b><div class="m">이 PC에 연결하려고 해요</div></div></div>
+      <div class="kv"><span>종류</span><span>Mixdog 앱 · Android</span><span>방법</span><span>코드</span><span>시각</span><span>오전 1:21</span></div>
+      <div class="warn">허용하면 이 기기에서 이 PC의 모든 기능(파일, 터미널, 에이전트)을 쓸 수 있어요.</div></div>
+    <div class="dlg-f"><button class="btn">거절</button><button class="btn pri">허용</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>2-2</b>허용 후</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>연결됨</h3><p>&nbsp;</p></div><span class="x">✕</span></div>
+    <div class="dlg-b fixed"><div class="center" style="padding-top:30px"><div class="big">✓</div><h4>Galaxy Z Fold7이 연결됐어요</h4><p>목록에서 언제든 연결을 해제할 수 있어요.</p></div></div>
+    <div class="dlg-f"><span class="link left">다른 기기 연결</span><button class="btn pri">완료</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>2-3</b>팝업이 닫혀 있을 때 (단독 승인 창)</p><div class="stage" style="align-content:start;justify-items:end;padding-top:24px">
+    <div style="background:#2a2a2d;border:1px solid var(--line);border-radius:12px;padding:10px 10px 10px 14px;display:flex;gap:12px;align-items:center;font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.4)">기기 연결 요청이 있어요 <button class="btn" style="height:28px;line-height:28px">보기</button></div>
+    <p class="muted" style="font-size:12px;justify-self:center;margin:24px 0 0;text-align:center;max-width:360px">다른 화면에서는 오른쪽 위 알림만 뜨고, "보기"를 누르면 연결 페이지가 열리며 2-1 승인 화면이 바로 나옵니다.</p>
+  </div></div>
+</div>
+
+<h2>3. "다른 PC 열기" 팝업</h2>
+<p class="sec-p">이 PC에서 다른 PC를 여는 쪽입니다. 6칸 입력(3+3), 다 채우면 자동으로 연결을 시작합니다. 성공하면 팝업이 닫히고 그 PC 창이 열립니다.</p>
+<div class="grid">
+  <div><p class="label"><b>3-1</b>입력</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>다른 PC 열기</h3><p>열려는 PC의 설정 → 연결 → ＋ 기기 연결 → 다른 PC에 나온 코드를 입력하세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b"><div class="otp"><span>4</span><span>8</span><span>2</span><i>·</i><span class="f"></span><span></span><span></span></div><div class="err-t"></div></div>
+    <div class="dlg-f"><button class="btn">취소</button><button class="btn pri dis">연결</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>3-2</b>상대 PC의 허용을 기다리는 중</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>다른 PC 열기</h3><p>&nbsp;</p></div><span class="x">✕</span></div>
+    <div class="dlg-b"><div class="center" style="padding:20px 0 6px"><h4 style="font-size:15px"><span class="spin"></span>Home PC에서 허용하세요</h4><p>그 PC 화면에 뜬 요청에서 허용을 누르면 바로 열려요.</p></div></div>
+    <div class="dlg-f"><button class="btn">취소</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>3-3</b>코드가 틀림</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>다른 PC 열기</h3><p>열려는 PC의 설정 → 연결 → ＋ 기기 연결 → 다른 PC에 나온 코드를 입력하세요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b"><div class="otp"><span class="err">4</span><span class="err">8</span><span class="err">2</span><i>·</i><span class="err">9</span><span class="err">1</span><span class="err">7</span></div><div class="err-t">코드가 틀렸거나 만료됐어요. 그 PC에서 새 코드를 확인하세요.</div></div>
+    <div class="dlg-f"><button class="btn">취소</button><button class="btn pri">다시 시도</button></div>
+  </div></div></div>
+</div>
+
+<h2>4. 확인 팝업</h2>
+<p class="sec-p">되돌릴 수 없는 일만 팝업으로 확인합니다. 한 대 해제는 지금처럼 줄 안의 두 번 누르기로 충분해서 팝업을 띄우지 않습니다.</p>
+<div class="grid">
+  <div><p class="label"><b>4-1</b>모두 연결 해제</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>모든 기기 연결 해제</h3><p>휴대폰, 브라우저, 다른 PC 4대가 모두 해제돼요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b"><div class="warn" style="margin-top:4px;background:#2e2424;color:#f0c4bf">해제된 기기는 다시 쓰려면 QR이나 코드로 새로 연결해야 해요. 지금 연결 중인 화면도 바로 끊어져요.</div></div>
+    <div class="dlg-f"><button class="btn">취소</button><button class="btn red">4대 모두 해제</button></div>
+  </div></div></div>
+
+  <div><p class="label"><b>4-2</b>내가 연 PC 삭제</p><div class="stage"><div class="dlg">
+    <div class="dlg-h"><div><h3>Home PC 삭제</h3><p>이 PC에 저장된 Home PC 연결 정보가 지워져요.</p></div><span class="x">✕</span></div>
+    <div class="dlg-b"><p class="muted" style="margin:4px 0 0;font-size:12.5px">다시 열려면 Home PC의 코드로 새로 연결해야 해요. Home PC 쪽 목록에서는 따로 해제할 수 있어요.</p></div>
+    <div class="dlg-f"><button class="btn">취소</button><button class="btn red">삭제</button></div>
+  </div></div></div>
+</div>
+
+<script>
+for (const svg of document.querySelectorAll('svg[data-qr]')) {
+  const size = +svg.getAttribute('width') - 16, n = 29, c = size / n;
+  svg.setAttribute('viewBox', `-8 -8 ${size + 16} ${size + 16}`);
+  let seed = size * 7 + 13; const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  const finder = (x, y) => x < 8 && y < 8 || x >= n - 8 && y < 8 || x < 8 && y >= n - 8;
+  let d = '';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    let on;
+    if (finder(x, y)) { const fx = x >= n - 8 ? x - (n - 7) : x, fy = y >= n - 8 ? y - (n - 7) : y;
+      on = fx >= 0 && fy >= 0 && fx < 7 && fy < 7 && (fx === 0 || fy === 0 || fx === 6 || fy === 6 || (fx >= 2 && fx <= 4 && fy >= 2 && fy <= 4)); }
+    else on = rnd() > 0.52;
+    if (on) d += `M${x * c} ${y * c}h${c}v${c}h-${c}z`;
+  }
+  svg.innerHTML = `<path d="${d}" fill="#111"/>`;
+}
+</script>
+</body>
+</html>

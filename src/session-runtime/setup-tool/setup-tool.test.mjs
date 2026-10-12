@@ -41,6 +41,7 @@ test('feature and summary status omit details retained by dedicated domains', as
   assert.deepEqual(features.localProvider, { enabled: true, installed: true });
   assert.deepEqual(features.memory, { enabled: true, installed: true });
   assert.deepEqual(features.git, { enabled: true, installed: true });
+  assert.equal(typeof features.terminal.active, 'boolean');
   const summary = await run(executor, { action: 'status', domain: 'summary' });
   assert.deepEqual(summary.features.localProvider, features.localProvider);
   const local = await run(executor, { action: 'status', domain: 'local-provider' });
@@ -225,6 +226,7 @@ test('status providers exposes connection state and key-console URL, never secre
               authenticated: true,
               env: true,
               envName: 'X_KEY',
+              custom: true,
               url: 'javascript:alert(1)',
             },
           ],
@@ -264,6 +266,7 @@ test('status providers exposes connection state and key-console URL, never secre
   assert.deepEqual(status.oauth[0].accounts, {
     selectedId: 'a1',
     auto: true,
+    useCredits: false,
     accounts: [{ id: 'a1', label: 'Work', authenticated: true, reauthRequired: false }],
   });
   assert.equal(status.domain, 'providers');
@@ -271,6 +274,8 @@ test('status providers exposes connection state and key-console URL, never secre
   assert.equal(status.api[0].source, 'none');
   assert.equal(status.api[1].keyUrl, null);
   assert.equal(status.api[1].source, 'env:X_KEY');
+  assert.equal(status.api[0].custom, false);
+  assert.equal(status.api[1].custom, true);
   assert.deepEqual(status.local, []);
   assert.doesNotMatch(JSON.stringify(status), /sk-live|accessToken|refreshToken|apiKey/);
   await assert.rejects(run(executor, { action: 'status', domain: 'secrets' }), /domain must be one of/);
@@ -320,6 +325,11 @@ test('mutations go through the runtime facade with validated input', async () =>
   await assert.rejects(
     run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }),
     /name must be one of git, office, tidy, localProvider/
+  );
+  // Terminal follows the Desktop terminal bridge; it has no persisted toggle.
+  await assert.rejects(
+    run(executor, { action: 'set_builtin_enabled', name: 'terminal', enabled: true }),
+    /name must be one of/
   );
   await assert.rejects(
     run(executor, { action: 'set_builtin_enabled', name: 'git', enabled: 'yes' }),

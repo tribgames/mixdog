@@ -3,7 +3,10 @@
    description, so the height, the span nowrap/muted ink, and the grid columns
    from the palette skin must all be released here or the two lines overflow
    their 28px box and collide with the next row. */
-.composer-add-menu {
+/* .slash-palette.composer-add-menu: the shared palette rules (padding, centred
+   empty text) have equal specificity and load later, so plain
+   .composer-add-menu selectors lost to them. */
+.slash-palette.composer-add-menu {
   padding: 6px;
   overflow-y: auto;
 }
@@ -60,23 +63,27 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
-.composer-add-heading,
-.composer-add-menu p {
-  padding: 8px 10px 4px;
-  margin: 0;
+/* Same section label box as the slash palette and model picker, inset to the
+   rows' icon line. */
+.composer-add-heading {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  margin-top: 4px;
+  padding: 0 10px;
   color: var(--mx-text-faint);
-  font-size: var(--mx-font-micro);
-  font-weight: var(--mx-weight-semibold);
-  letter-spacing: var(--mx-tracking-wide);
-  text-transform: uppercase;
-  text-align: left;
-}
-.composer-add-menu p {
-  text-transform: none;
-  font-weight: var(--mx-weight-regular);
   font-size: var(--mx-font-meta);
-  letter-spacing: 0;
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+}
+.slash-palette.composer-add-menu p {
+  margin: 0;
+  padding: 4px 10px 6px;
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-minor);
+  text-align: left;
 }
 .composer-add-menu .composer-add-divider {
   height: var(--mx-hairline);

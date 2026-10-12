@@ -4,6 +4,8 @@ import type { SessionSnapshot } from '../shared/contract';
 import { createRelayE2EEClientHandshake, isRelayE2EEChallenge } from '../shared/remote-e2ee';
 import { earlyUiT } from './early-ui-i18n';
 import { isInvalidRemotePairingClose } from './remote-pairing-recovery';
+import { setRemoteHostName, setRemoteHostOpenAccess } from './remote-host-access';
+import { currentDeviceId, savePcName } from './remote-saved-pcs';
 import {
   remoteConnectionInterruptedError,
   reportRemoteConnectionIssue,
@@ -12,8 +14,19 @@ import {
   shouldRunRemoteHeartbeat,
   type RemoteConnectionIssue,
 } from './remote-connection-state';
-import { REMOTE_CONNECTION_READY_EVENT, PAIRED_STORAGE_KEY } from './remote-shim-state';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
+import { publishMediaKey, revokeMediaKey } from './remote-media-lane';
+import { notifyMediaSessionChanged } from './remote-file-preview';
+
+export function dropMediaSession(ctx: RemoteShimContext): void {
+  if (ctx.mediaSid) {
+    revokeMediaKey(ctx.mediaSid);
+    notifyMediaSessionChanged();
+  }
+  ctx.mediaSid = null;
+  ctx.peerMediaE2ee = false;
+}
 
 export const installRemoteSocket = (ctx: RemoteShimContext): void => {
   const connect = async (): Promise<WebSocket> => {
@@ -31,14 +44,26 @@ export const installRemoteSocket = (ctx: RemoteShimContext): void => {
       if (status === 401 || status === 403 || status === 409) {
         // The status travels into the message on purpose: this is the one
         // failure a user can only report, never inspect.
-        ctx.resetApprovalAndAsk(earlyUiT('This device is no longer approved ({{status}}).', { status }));
+        ctx.resetApprovalAndAsk(earlyUiT('Your PC disconnected this device.'));
       } else {
         ctx.scheduleReconnect();
       }
       throw error instanceof Error ? error : new Error(String(error));
     }
     if (ctx.backgroundSuspended) throw remoteConnectionInterruptedError();
-    ctx.openPromise ??= new Promise<WebSocket>((resolve, reject) => openSocketAttempt(ctx, connect, resolve, reject));
+    if (!ctx.openPromise) {
+      const attempt = new Promise<WebSocket>((resolve, reject) => openSocketAttempt(ctx, connect, resolve, reject));
+      ctx.openPromise = attempt;
+      // An attempt that failed before a socket existed (the constructor threw)
+      // never reaches a close handler, so nothing would clear it or schedule
+      // the retry: every later connect() would return this rejected promise.
+      attempt.catch(() => {
+        if (ctx.openPromise !== attempt || ctx.openingSocket || ctx.socket) return;
+        ctx.openPromise = null;
+        reportRemoteConnectionIssue('websocket-error');
+        ctx.scheduleReconnect();
+      });
+    }
     return ctx.openPromise;
   };
 
@@ -166,7 +191,9 @@ const openSocketAttempt = (
     if (!ctx.everPaired) {
       ctx.everPaired = true;
       try {
-        localStorage.setItem(PAIRED_STORAGE_KEY, '1');
+        // Sticky proof that this pairing has worked once: a browser reopened
+        // while the desktop sleeps must not throw the pairing screen over it.
+        localStorage.setItem(ctx.pairingKeys.paired, '1');
       } catch {
         /* no storage */
       }
@@ -201,6 +228,12 @@ const openSocketAttempt = (
       // never sees `relay-capabilities` itself.
       ctx.limits.learnRoutingCaps(message);
       ctx.peerViewSync = message.viewSync === 1;
+      // Every handshake restates it: a reconnect may reach an older host.
+      setRemoteHostOpenAccess(message.remoteOpenAccess === 1);
+      if (typeof message.hostName === 'string') {
+        setRemoteHostName(message.hostName);
+        savePcName(currentDeviceId(), message.hostName);
+      }
       finishOpen();
       return;
     }
@@ -214,6 +247,10 @@ const openSocketAttempt = (
     ctx.connectionReady = false;
     ctx.secureChannel = null;
     ctx.relayBinaryFrames = false;
+    ctx.peerRemoteParity = false;
+    ctx.peerNativePush = false;
+    ctx.peerBrowserParity = false;
+    dropMediaSession(ctx);
     ctx.limits.resetLearnedCaps();
     if (!ctx.e2eePairing) {
       finishOpen();
@@ -273,6 +310,13 @@ const openSocketAttempt = (
         }
         ctx.secureChannel = null;
         ctx.relayBinaryFrames = clear.binaryFrames === 1;
+        // Restated by every challenge: a reconnect may reach another host.
+        ctx.peerRemoteParity = clear.remoteParity === 1;
+        ctx.peerNativePush = clear.nativePush === 1;
+        ctx.peerBrowserParity = clear.browserParity === 1;
+        // The previous leg's media session ended with it.
+        dropMediaSession(ctx);
+        ctx.peerMediaE2ee = clear.mediaE2ee === 1;
         // A replacement desktop leg on the same browser socket: its caps
         // are its own, and the previous leg's must not survive into it.
         ctx.limits.resetLearnedCaps();
@@ -283,6 +327,13 @@ const openSocketAttempt = (
         const handshake = await createRelayE2EEClientHandshake(ctx.e2eePairing, clear);
         if (closed) return;
         ctx.secureChannel = handshake.channel;
+        // The worker decrypts media with this session's key; it never leaves
+        // this browser. Only a host that advertised the lane derived one.
+        if (ctx.peerMediaE2ee && handshake.channel.mediaKey) {
+          ctx.mediaSid = clear.challenge;
+          publishMediaKey(clear.challenge, handshake.channel.mediaKey);
+          notifyMediaSessionChanged();
+        }
         // promptHistoryPatch: this build's snapshot decoder applies head
         // patches to the prompt history; a desktop that predates it
         // ignores the flag and keeps sending the whole field.
@@ -311,6 +362,7 @@ const openSocketAttempt = (
     ctx.openPromise = null;
     ctx.connectionReady = false;
     ctx.secureChannel = null;
+    dropMediaSession(ctx);
     ctx.relayBinaryFrames = false;
     ctx.clearWakePongTimer();
     ctx.awaitingPong = false;
@@ -333,7 +385,7 @@ const openSocketAttempt = (
     ctx.pending.clear();
     if (!opened) reject(failure);
     if (event && isInvalidRemotePairingClose(event)) {
-      ctx.resetApprovalAndAsk(earlyUiT('This device is no longer approved ({{status}}).', { status: event.code }));
+      ctx.resetApprovalAndAsk(earlyUiT('Your PC disconnected this device.'));
       return;
     }
     if (quietRecycle) {

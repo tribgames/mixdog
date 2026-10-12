@@ -78,9 +78,11 @@ function compactOps(batch) {
       for (const [key, json] of op.set) slot.final.set(key, json);
     });
   }
-  return slots.map((slot) =>
-    !slot ? null : slot.add ? { add: slot.add } : { del: slot.del, set: slot.final }
-  );
+  return slots.map((slot) => {
+    if (!slot) return null;
+    if (slot.add) return { add: slot.add };
+    return { del: slot.del, set: slot.final };
+  });
 }
 
 function replayOps(ops, args) {
@@ -132,12 +134,7 @@ export function createIndexWriteQueue({ file, rewrite, readDoc, onPersisted = ()
   async function persist(batch) {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await updateJsonAtomic(
-          file,
-          (cur) =>
-            rewrite(cur, (...args) => replayBatch(batch, args)),
-          { lock: true }
-        );
+        await updateJsonAtomic(file, (cur) => rewrite(cur, (...args) => replayBatch(batch, args)), { lock: true });
         return;
       } catch {
         if (attempt >= RETRY_DELAYS_MS.length) return; // dropped, like the sync writer's swallowed failure
@@ -184,12 +181,10 @@ export function createIndexWriteQueue({ file, rewrite, readDoc, onPersisted = ()
     clearTimer();
     pending = [];
     try {
-      updateJsonAtomicSync(
-        file,
-        (cur) =>
-          rewrite(cur, (...args) => replayBatch(ops, args)),
-        { lock: true, timeoutMs: EXIT_LOCK_TIMEOUT_MS }
-      );
+      updateJsonAtomicSync(file, (cur) => rewrite(cur, (...args) => replayBatch(ops, args)), {
+        lock: true,
+        timeoutMs: EXIT_LOCK_TIMEOUT_MS,
+      });
     } catch {
       pending = ops;
       return false;

@@ -4,120 +4,92 @@
 // runtime reuses the existing OpenAI-compat / Anthropic engines, constructed
 // under the custom id so model routes and provider identity stay `custom-…`.
 
+import { effectiveCustomModelRows, normalizeCustomProviderConfig } from './custom-provider-config.mjs';
 import { ANTHROPIC_VERSION } from './lib/anthropic-models.mjs';
-import { assertSafeBaseURL } from './provider-base-url.mjs';
-import { listCompatModels } from './openai-compat-models.mjs';
+import { enrichModels } from './model-catalog.mjs';
+import { fetchCompatModelItems, listCompatModels } from './openai-compat-models.mjs';
 
-export const CUSTOM_PROVIDER_PROTOCOLS = Object.freeze(['openai-chat', 'openai-responses', 'anthropic']);
+export {
+  CUSTOM_PROVIDER_PROTOCOLS,
+  CUSTOM_PROVIDER_SCHEMA_VERSION,
+  CUSTOM_REASONING_LEVELS,
+  assertCustomReasoningPatch,
+  canonicalReasoningLevel,
+  effectiveCustomModelRows,
+  normalizeCustomProviderConfig,
+} from './custom-provider-config.mjs';
 
-function fail(message) {
-  throw new Error(`[custom-provider] ${message}`);
+const DISCOVERY_TIMEOUT_MS = 10_000;
+
+// Discovery error safe to surface: the key is redacted, the HTTP status kept.
+function sanitizeDiscoveryError(error, apiKey) {
+  let message = String(error?.message || error || 'model discovery failed');
+  if (apiKey) message = message.split(apiKey).join('[redacted]');
+  const out = new Error(message);
+  if (Number.isInteger(error?.status)) out.status = error.status;
+  return out;
 }
 
-function text(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function positiveInt(value, label) {
-  if (value === undefined || value === null || value === '') return undefined;
-  const n = Number(value);
-  if (!Number.isInteger(n) || n <= 0) fail(`${label} must be a positive integer`);
-  return n;
-}
-
-function normalizeBaseURL(raw) {
-  const value = text(raw);
-  if (!value) fail('baseURL is required');
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    fail(`invalid baseURL: ${value}`);
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') fail('baseURL must use http or https');
-  if (url.username || url.password) fail('baseURL must not embed credentials');
-  if (url.search || url.hash || /[?#]/.test(value)) fail('baseURL must not contain a query or hash');
-  return assertSafeBaseURL(value.replace(/\/+$/, ''), 'custom');
-}
-
-function normalizeModels(raw, requireModels) {
-  if (raw === undefined || raw === null) raw = [];
-  if (!Array.isArray(raw)) fail('models must be an array');
-  const seen = new Set();
-  const models = raw.map((entry) => {
-    const id = text(entry?.id);
-    if (!id) fail('every model needs an id');
-    if (seen.has(id)) fail(`duplicate model id: ${id}`);
-    seen.add(id);
-    const name = text(entry.name);
-    const contextWindow = positiveInt(entry.contextWindow, `model ${id} contextWindow`);
-    const maxOutputTokens = positiveInt(entry.maxOutputTokens, `model ${id} maxOutputTokens`);
-    return {
-      id,
-      ...(name ? { name } : {}),
-      ...(contextWindow ? { contextWindow } : {}),
-      ...(maxOutputTokens ? { maxOutputTokens } : {}),
-    };
-  });
-  if (requireModels && models.length === 0) fail('at least one model is required');
-  return models;
-}
-
-export function normalizeCustomProviderConfig(input, { requireModels = true } = {}) {
-  if (!input || typeof input !== 'object') fail('config must be an object');
-  const name = text(input.name);
-  if (!name) fail('name is required');
-  const protocol = text(input.protocol);
-  if (!protocol) fail('protocol is required');
-  if (!CUSTOM_PROVIDER_PROTOCOLS.includes(protocol)) fail(`unsupported protocol: ${protocol}`);
-  return {
-    type: 'custom',
-    name,
-    protocol,
-    baseURL: normalizeBaseURL(input.baseURL),
-    models: normalizeModels(input.models, requireModels),
-    enabled: true,
-  };
-}
-
-function modelRow(id, m) {
-  return {
-    id: m.id,
-    name: m.name || m.id,
-    provider: id,
-    contextWindow: m.contextWindow || 0,
-    outputTokens: m.maxOutputTokens || null,
-  };
-}
-
-// Configured models win; an empty list falls back to protocol discovery.
-function withConfiguredModels(Base, discover) {
+// Discovery always runs; overrides layer on top. A failed discovery keeps the
+// last successful discovered rows plus manual rows, and throws only when
+// nothing is usable or the caller asks (`throwOnError`). The sanitized error
+// of the latest attempt is kept in `customDiscoveryError` (null on success).
+function withCustomModels(Base, discover) {
   return class extends Base {
-    _customModels = [];
-    async listModels() {
-      if (!this._customModels.length) return discover(this);
-      if ('_enrichedModels' in this) this._enrichedModels = this._customModels;
-      return this._customModels.map((m) => ({ ...m }));
+    customConfig = null;
+    customDiscoveryError = null;
+    _customDiscovered = null;
+    _customApiKey = '';
+    _customKeyless = false;
+    _customRows() {
+      return effectiveCustomModelRows(this.customConfig, this._customDiscovered || [], { providerId: this.name });
+    }
+    _applyCustomRows(rows) {
+      this._enrichedModels = rows;
+      if (rows.some((row) => row.id === this.defaultModel && !row.hidden)) return;
+      const first = rows.find((row) => !row.hidden);
+      if (first) this.defaultModel = first.id;
+    }
+    async listModels({ signal = null, throwOnError = false } = {}) {
+      let failure = null;
+      try {
+        this._customDiscovered = await discover(this, signal);
+        this.customDiscoveryError = null;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        failure = sanitizeDiscoveryError(error, this._customApiKey);
+        this.customDiscoveryError = failure;
+      }
+      const rows = this._customRows();
+      this._applyCustomRows(rows);
+      if (failure && (throwOnError || rows.length === 0)) throw failure;
+      return rows.map((row) => structuredClone(row));
     }
     async isAvailable() {
-      return this._customModels.length ? true : super.isAvailable();
+      if (this._enrichedModels?.length) return true;
+      if (this._customKeyless && this.customConfig.protocol === 'anthropic') return true;
+      return super.isAvailable();
     }
     getCachedModelInfo(model) {
-      return this._customModels.find((m) => m.id === model) || super.getCachedModelInfo?.(model) || null;
+      return this._enrichedModels?.find((row) => row.id === model) || null;
     }
   };
 }
 
-async function discoverAnthropicModels(provider) {
+async function discoverAnthropicModels(provider, signal) {
+  const timeout = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS);
   const res = await fetch(`${provider.config.baseURL}/v1/models`, {
     method: 'GET',
-    signal: AbortSignal.timeout(10_000),
-    headers: { 'x-api-key': provider.apiKey || '', 'anthropic-version': ANTHROPIC_VERSION },
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    headers: {
+      ...(provider._customKeyless ? {} : { 'x-api-key': provider.apiKey || '' }),
+      'anthropic-version': ANTHROPIC_VERSION,
+    },
   });
   if (!res.ok) throw Object.assign(new Error(`${provider.name} models ${res.status}`), { status: res.status });
   const data = await res.json();
   const items = Array.isArray(data?.data) ? data.data : [];
-  return items
+  const rows = items
     .filter((m) => m?.id)
     .map((m) => ({
       id: m.id,
@@ -126,40 +98,51 @@ async function discoverAnthropicModels(provider) {
       contextWindow: Number(m.max_input_tokens) > 0 ? Number(m.max_input_tokens) : 0,
       outputTokens: Number(m.max_tokens) > 0 ? Number(m.max_tokens) : null,
     }));
+  return enrichModels(rows);
 }
 
 export async function createCustomProvider(id, config) {
-  const providerId = text(id);
-  if (!/^custom-.+/.test(providerId)) fail(`invalid custom provider id: ${id}`);
-  const cfg = normalizeCustomProviderConfig(config, { requireModels: false });
+  const providerId = typeof id === 'string' ? id.trim() : '';
+  if (!/^custom-.+/.test(providerId)) throw new Error(`[custom-provider] invalid custom provider id: ${id}`);
+  const cfg = normalizeCustomProviderConfig(config);
+  // `auth: 'none'` is authoritative: a supplied/injected key is ignored and
+  // `keyless` makes the engine omit every credential header.
+  const keyless = cfg.auth === 'none';
+  const apiKey = keyless ? '' : config.apiKey || '';
   const engine = {
     baseURL: cfg.baseURL,
-    apiKey: config.apiKey || undefined,
+    apiKey: apiKey || undefined,
+    ...(keyless ? { keyless: true } : {}),
     ...(config.preconnect === false ? { preconnect: false } : {}),
   };
   let provider;
   if (cfg.protocol === 'anthropic') {
     const { AnthropicProvider } = await import('./anthropic.mjs');
-    const Custom = withConfiguredModels(AnthropicProvider, discoverAnthropicModels);
+    const Custom = withCustomModels(AnthropicProvider, discoverAnthropicModels);
     // The Anthropic SDK appends /v1/messages itself; accept a /v1 base URL.
     provider = new Custom({ ...engine, name: providerId, baseURL: cfg.baseURL.replace(/\/v1$/i, '') });
     // An unknown third-party gateway behind the Anthropic wire: PDFs lower to text.
     provider.nativePdf = false;
   } else {
     const { OpenAICompatProvider } = await import('./openai-compat.mjs');
-    const Base =
-      cfg.protocol === 'openai-responses'
-        ? class extends OpenAICompatProvider {
-            _doSend(messages, model, tools, sendOpts) {
-              return super._doSend(messages, model, tools, { ...(sendOpts || {}), compatWireApi: 'responses' });
-            }
-          }
-        : OpenAICompatProvider;
-    const Custom = withConfiguredModels(Base, (self) => listCompatModels(self, { throwOnError: true }));
+    const responses = cfg.protocol === 'openai-responses';
+    class CompatBase extends OpenAICompatProvider {
+      _fetchModelItems({ signal = null } = {}) {
+        return fetchCompatModelItems(this, { signal, keyless: this._customKeyless });
+      }
+      _doSend(messages, model, tools, sendOpts) {
+        if (!responses) return super._doSend(messages, model, tools, sendOpts);
+        return super._doSend(messages, model, tools, { ...(sendOpts || {}), compatWireApi: 'responses' });
+      }
+    }
+    const Custom = withCustomModels(CompatBase, (self, signal) =>
+      listCompatModels(self, { throwOnError: true, signal })
+    );
     provider = new Custom(providerId, engine);
-    if (cfg.models.length) provider.defaultModel = cfg.models[0].id;
   }
-  provider._customModels = cfg.models.map((m) => modelRow(providerId, m));
   provider.customConfig = cfg;
+  provider._customApiKey = apiKey;
+  provider._customKeyless = keyless;
+  provider._applyCustomRows(provider._customRows());
   return provider;
 }

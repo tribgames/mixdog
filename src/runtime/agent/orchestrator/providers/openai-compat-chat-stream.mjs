@@ -41,6 +41,7 @@ export async function consumeCompatChatCompletionStream(
     parseToolCalls,
     knownToolNames,
     semanticIdleTimeoutMs,
+    firstByteTimeoutMs,
   } = {}
 ) {
   const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
@@ -57,7 +58,11 @@ export async function consumeCompatChatCompletionStream(
   reportTransport(state);
   const iterator = stream[Symbol.asyncIterator]();
   let iteratorDone = false;
-  const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
+  const firstByteTimeout = createTimeoutSignal(
+    signal,
+    Number(firstByteTimeoutMs) > 0 ? Number(firstByteTimeoutMs) : PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+    `${label} first byte`
+  );
   try {
     while (true) {
       const { value: chunk, done } = await nextAsyncWithWatchdog(iterator, {

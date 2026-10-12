@@ -1,0 +1,36 @@
+{
+  "description": "Origin allow-list cases shared by src/origins.ts, android OriginPolicy.java and ios MixdogOriginPolicy.swift. bundled = https://localhost on Android, capacitor://localhost on iOS (both always allowed).",
+  "saved": ["https://relay.example.com", "https://other.example.com:8443", "http://localhost:8787"],
+  "origin": [
+    { "url": "https://relay.example.com/d/abc/", "origin": "https://relay.example.com" },
+    { "url": "HTTPS://Relay.Example.com:443/x?y=1#z", "origin": "https://relay.example.com" },
+    { "url": "https://other.example.com:8443/", "origin": "https://other.example.com:8443" },
+    { "url": "http://localhost:8787/d/x", "origin": "http://localhost:8787" },
+    { "url": "http://relay.example.com:80/", "origin": "http://relay.example.com" },
+    { "url": "capacitor://localhost/index.html", "origin": "capacitor://localhost" },
+    { "url": "capacitor://evil/", "origin": null },
+    { "url": "https://user:pw@relay.example.com/", "origin": null },
+    { "url": "https://relay.example.com@evil.com/", "origin": null },
+    { "url": "javascript:alert(1)", "origin": null },
+    { "url": "file:///etc/passwd", "origin": null },
+    { "url": "", "origin": null }
+  ],
+  "allowed": [
+    { "url": "https://localhost/index.html?manage=1", "allowed": true },
+    { "url": "capacitor://localhost/", "allowed": true },
+    { "url": "https://relay.example.com/d/abc/", "allowed": true },
+    { "url": "https://other.example.com:8443/", "allowed": true },
+    { "url": "https://other.example.com/", "allowed": false },
+    { "url": "https://relay.example.com:444/", "allowed": false },
+    { "url": "http://relay.example.com/", "allowed": false },
+    { "url": "http://localhost:8787/d/x", "allowed": true },
+    { "url": "http://localhost:9999/", "allowed": false },
+    { "url": "https://evil.com/?https://relay.example.com/", "allowed": false },
+    { "url": "https://relay.example.com.evil.com/", "allowed": false },
+    { "url": "https://localhost.evil.com/", "allowed": false }
+  ],
+  "sanitize": {
+    "input": ["https://a.example.com/d/1/", "https://a.example.com", "http://b.example.com", "http://127.0.0.1:8787/", "capacitor://localhost", "https://localhost/", "javascript:1", 5, null],
+    "output": ["https://a.example.com", "http://127.0.0.1:8787"]
+  }
+}

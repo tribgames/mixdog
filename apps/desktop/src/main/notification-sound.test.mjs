@@ -1,8 +1,33 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
-import { notificationSoundPath } from './notification-sound.ts';
+import { fileURLToPath } from 'node:url';
+import { notificationSoundPath, scaledNotificationSound } from './notification-sound.ts';
+
+test('scaled notification sound multiplies PCM samples, clamps, and caches per volume', async () => {
+  const source = fileURLToPath(new URL('../renderer/public/notification-sounds/soft-rise.wav', import.meta.url));
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-notification-volume-'));
+  try {
+    assert.equal(scaledNotificationSound(source, 100, directory), source);
+    const original = await readFile(source);
+    for (const volume of [0, 250, 400]) {
+      const target = scaledNotificationSound(source, volume, directory);
+      assert.equal(target, join(directory, `soft-rise-${volume}.wav`));
+      assert.equal(scaledNotificationSound(source, volume, directory), target);
+      const scaled = await readFile(target);
+      assert.equal(scaled.length, original.length);
+      assert.deepEqual(scaled.subarray(0, 44), original.subarray(0, 44));
+      for (let index = 44; index < original.length; index += 2) {
+        const expected = Math.max(-32768, Math.min(32767, Math.round((original.readInt16LE(index) * volume) / 100)));
+        assert.equal(scaled.readInt16LE(index), expected + 0);
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('Windows sound paths resolve to unpacked WAV assets, never inside an ASAR', () => {
   const root = resolve('notification-sound-fixture');

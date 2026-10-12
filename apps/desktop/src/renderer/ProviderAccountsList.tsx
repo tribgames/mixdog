@@ -40,6 +40,33 @@ type Pool = { accounts: ProviderAccount[]; selectedId: string | null; auto: bool
 // Last roster per provider. The rail picker remounts on every open; seeding
 // from here paints instantly and the fresh read merely revalidates.
 const lastPools = new Map<string, Pool>();
+// Bumped by every list-adopted roster (read or mutation result): a preload
+// started before it is stale and must not overwrite the newer roster.
+const poolGenerations = new Map<string, number>();
+const bumpPoolGeneration = (provider: string): number => {
+  const next = (poolGenerations.get(provider) ?? 0) + 1;
+  poolGenerations.set(provider, next);
+  return next;
+};
+
+/** Settings open: seed the rosters so the Providers page paints complete cards
+ *  on its first visit instead of growing under the rows below. */
+export function preloadProviderAccounts(api: UsageApi | undefined, providers: string[]): Promise<unknown> {
+  const invokeCapability = api?.invokeCapability;
+  if (!invokeCapability) return Promise.resolve();
+  return Promise.all(
+    providers.map((provider) => {
+      const generation = bumpPoolGeneration(provider);
+      return invokeCapability({ capability: 'getProviderAccounts', args: [provider] })
+        .then((response) => {
+          const result = record(response.value);
+          if (poolGenerations.get(provider) !== generation || !Array.isArray(result.accounts)) return;
+          lastPools.set(provider, result as unknown as Pool);
+        })
+        .catch(() => undefined);
+    })
+  );
+}
 
 /** Pointer-driven reorder: the grabbed row lifts and follows the pointer; the
  *  rows it passes slide out of its way; release commits the new order. HTML5
@@ -77,6 +104,7 @@ export function ProviderAccountsList({
   const [pool, setPoolState] = useState<Pool | null>(() => lastPools.get(provider) ?? null);
   const setPool = useCallback(
     (next: Pool) => {
+      bumpPoolGeneration(provider);
       lastPools.set(provider, next);
       setPoolState(next);
     },
@@ -362,7 +390,6 @@ export function ProviderAccountsList({
                     onClick={() => void change({ selectedId: account.id })}
                   >
                     <span>{account.label}</span>
-                    {account.email && account.email !== account.label && <small>{account.email}</small>}
                     {account.reauthRequired && <small>{t('Reauth required')}</small>}
                     {selected && <Check size={14} aria-label={t('Active')} />}
                   </button>

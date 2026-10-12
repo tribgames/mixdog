@@ -10,13 +10,28 @@ test('a pairing card is built from a relay descriptor', async () => {
   const info = await remoteAccessInfoFromDescriptor(descriptor('https://relay.example/d/device/'));
   assert.equal(info?.relayBrowserUrl, 'https://relay.example/d/device/');
   assert.match(String(info?.relayBrowserQrSvg), /<svg/);
+  assert.match(String(info?.relayAppQrSvg), /<svg/);
+  assert.notEqual(info?.relayAppQrSvg, info?.relayBrowserQrSvg);
   assert.equal(await remoteAccessInfoFromDescriptor(null), null);
+});
+
+test('the phone QR encodes the relay /app install page, not the browser client URL', async (t) => {
+  const QRCode = (await import('qrcode')).default;
+  const encoded = [];
+  const original = QRCode.toString;
+  t.mock.method(QRCode, 'toString', (value, options) => {
+    encoded.push(value);
+    return original.call(QRCode, value, options);
+  });
+  const info = await remoteAccessInfoFromDescriptor(descriptor('https://relay.example/d/device/'));
+  assert.deepEqual(encoded, ['https://relay.example/d/device/', 'https://relay.example/app']);
+  assert.equal(info?.relayBrowserUrl, 'https://relay.example/d/device/');
 });
 
 test('a QR build failure answers null and is logged instead of rejecting', async (t) => {
   const logged = t.mock.method(console, 'error', () => {});
   // Past QR capacity: the renderer itself throws.
-  const info = await remoteAccessInfoFromDescriptor(descriptor(`https://relay.example/${'x'.repeat(8_000)}`));
+  const info = await remoteAccessInfoFromDescriptor(descriptor(`https://relay.example/d/${'x'.repeat(8_000)}/`));
   assert.equal(info, null);
   assert.equal(logged.mock.callCount(), 1);
   assert.match(String(logged.mock.calls[0].arguments[0]), /pairing QR build failed/);

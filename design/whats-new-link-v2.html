@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>새로운 기능 링크 시안 v2 (텍스트 변형)</title>
+<style>
+  :root { font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  body { margin: 0; padding: 32px; background: #0f0f11; color: #e9e9e9; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  p.lead { margin: 0 0 24px; color: #9a9aa0; font-size: 13px; }
+  h2 { font-size: 14px; margin: 26px 0 8px; color: #c8c8cc; }
+  .note { font-size: 12px; color: #8a8a90; margin: 6px 0 0; }
+
+  .theme-dark  { --band: #18181b; --sheet: #1e1e21; --text: #e9e9e9; --soft: #a0a0a6; --accent: #79b8ff; --border: rgba(255,255,255,.07); }
+  .theme-light { --band: #f7f7f7; --sheet: #ffffff; --text: #222222; --soft: #6b6b6b; --accent: #185abc; --border: rgba(0,0,0,.08); }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .window { border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--band); }
+  .topbar { height: 35px; display: flex; align-items: center; padding-left: 10px; }
+  .spacer { flex: 1; }
+  .caption { display: flex; height: 35px; }
+  .caption span { width: 46px; display: grid; place-items: center; color: var(--soft); font-size: 12px; }
+  .body { height: 56px; background: var(--sheet); border-top: 1px solid var(--border); border-top-left-radius: 8px; }
+  .lbl { font-size: 11px; color: var(--soft); }
+
+  .wn { font-family: inherit; font-size: 12px; line-height: 28px; height: 28px; color: var(--accent); background: none;
+        border: 0; padding: 0 8px; border-radius: 6px; cursor: pointer; margin-right: 4px; display: inline-flex; align-items: center; gap: 4px; }
+  .wn:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  .v1 {}
+  .v2 { font-size: 11px; }
+  .v3 { color: color-mix(in srgb, var(--accent) 72%, var(--band)); }
+  .v3:hover { color: var(--accent); }
+  .v4 { font-weight: 600; }
+  .v5 { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px; }
+  .v5:hover { text-decoration-color: var(--accent); }
+  .v6 svg { flex: none; }
+  .v8 .ver { opacity: .7; }
+  .v9 { color: var(--soft); }
+  .v9 .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent); }
+  .v9:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>"새로운 기능" 텍스트 링크 변형</h1>
+<p class="lead">모두 창 버튼(─ ☐ ✕) 바로 왼쪽의 같은 자리에 둡니다. 마우스를 올려 호버 효과도 확인해 보세요.</p>
+
+<template id="caption"><div class="caption"><span>─</span><span>☐</span><span>✕</span></div></template>
+<template id="sparkle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></template>
+
+<div id="list"></div>
+
+<script>
+  const variants = [
+    ['1. 기본 (이전 A안)', 'v1', '새로운 기능', '12px, 강조 파란색. 기준 비교용.'],
+    ['2. 작게', 'v2', '새로운 기능', '11px. 존재감이 한 단계 줄어듭니다.'],
+    ['3. 흐린 파랑', 'v3', '새로운 기능', '평소엔 살짝 흐리고, 호버 시 또렷한 파랑.'],
+    ['4. 약간 굵게', 'v4', '새로운 기능', '굵기 600. 눈에 확실히 들어옵니다.'],
+    ['5. 옅은 밑줄 상시', 'v5', '새로운 기능', '링크라는 게 바로 보이게. 밑줄은 반투명.'],
+    ['6. 작은 반짝이 아이콘 + 텍스트', 'v6', '새로운 기능', '12px 아이콘 하나. 여전히 글자 위주.', true],
+    ['7. 영어 문구', 'v1', "What's new", 'Claude Code와 같은 표현.'],
+    ['8. 버전 표시', 'v8', 'v1.0.11 새로운 기능', '어떤 버전 소식인지 바로 보입니다.'],
+    ['9. 회색 글자 + 파란 점', 'v9', '새로운 기능', '가장 조용함. 점만 파랗고 호버 시 글자도 파랗게.'],
+  ];
+  const cap = document.getElementById('caption');
+  const sparkle = document.getElementById('sparkle');
+  const list = document.getElementById('list');
+  for (const [title, cls, label, note, icon] of variants) {
+    const h = document.createElement('h2'); h.textContent = title; list.append(h);
+    const row = document.createElement('div'); row.className = 'row';
+    for (const theme of ['dark', 'light']) {
+      const win = document.createElement('div'); win.className = `window theme-${theme}`;
+      const bar = document.createElement('div'); bar.className = 'topbar';
+      bar.innerHTML = `<span class="lbl">${theme === 'dark' ? '다크' : '라이트'}</span><div class="spacer"></div>`;
+      const btn = document.createElement('button'); btn.className = `wn ${cls}`;
+      if (icon) btn.append(sparkle.content.cloneNode(true));
+      if (cls === 'v9') { const d = document.createElement('span'); d.className = 'dot'; btn.append(d); }
+      if (cls === 'v8') { btn.innerHTML = '<span class="ver">v1.0.11</span>&nbsp;새로운 기능'; }
+      else btn.append(document.createTextNode(label));
+      bar.append(btn, cap.content.cloneNode(true));
+      win.append(bar);
+      const body = document.createElement('div'); body.className = 'body'; win.append(body);
+      row.append(win);
+    }
+    list.append(row);
+    const p = document.createElement('p'); p.className = 'note'; p.textContent = note; list.append(p);
+  }
+</script>
+</body>
+</html>

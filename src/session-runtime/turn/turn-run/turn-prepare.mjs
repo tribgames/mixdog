@@ -20,6 +20,7 @@ export function createTurnPreparation({
   hookCommonPayload,
   agentTool,
   getConfig,
+  assertSessionAdmission,
 }) {
   const scopedMcpTools = (session) => scopedMcpToolsFor(session, getConfig());
 
@@ -84,12 +85,17 @@ export function createTurnPreparation({
   // provider/model metadata initializes in the background. Only the next
   // actual turn waits, guaranteeing that it cannot run on a stale route.
   async function prepareSession(turn, prompt) {
+    // A closing/closed addressed runtime admits no turn (checked again after
+    // every await that could have outlived a close).
+    assertSessionAdmission?.();
     await turn.awaitTurn(() => awaitRoutePreparation?.());
+    assertSessionAdmission?.();
     turn.timing.routeWaitMs = performance.now() - turn.routeStartedAt;
     if (!getSession()?.id) {
       await turn.awaitTurn(() => createCurrentSession('turn', { signal: turn.signal }));
     }
     throwIfAborted(turn.signal);
+    assertSessionAdmission?.();
     ensureSessionTranscriptWriter?.();
     transcript.appendUser(prompt);
     const session0 = getSession();

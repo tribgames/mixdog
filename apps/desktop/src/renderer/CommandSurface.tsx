@@ -14,7 +14,6 @@ import { useCommandSurfaceLifecycle } from './command-surface-lifecycle';
 import { SurfaceBody } from './command-surface-body';
 import { commandSurfaceDisplaySnapshot } from './command-surface-state';
 import { ContextReading } from './ContextBody';
-import { UsageSkeleton } from './command-surface-usage';
 import { UsageModeTabs } from './UsageSurface';
 import { useUsageSurfaceMode } from './usage-surface-mode';
 import './settings/settings.css';
@@ -23,8 +22,6 @@ export function commandSurfaceTitle(surface: CommandSurfaceName): string {
   switch (surface) {
     case 'context':
       return t('Context');
-    case 'usage':
-      return t('Provider usage');
     case 'doctor':
       return t('Doctor');
     case 'inherit':
@@ -50,7 +47,7 @@ export function CommandSurface({
   snapshot?: unknown;
   sessionId?: string;
   /** /inherit only: hand the source session to the host and open the heir. */
-  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection, options?: { compact: boolean }) => Promise<void>;
   /** /doctor only: open the settings page that fixes a failing check. */
   onOpenSettings?: (section: SettingsSection) => void;
   onClose(): void;
@@ -191,8 +188,7 @@ export function CommandSurface({
                   {t('{{title}} for the active Mixdog session.', { title })}
                 </p>
                 {surface === 'stats' && error && <ErrorNotice error={error} className="stats-error" />}
-                {!showStatsErrorOnly && showLoadingPlaceholder && surface === 'usage' && <UsageSkeleton />}
-                {!showStatsErrorOnly && showLoadingPlaceholder && surface !== 'usage' && (
+                {!showStatsErrorOnly && showLoadingPlaceholder && (
                   <p className="settings-loading" role="status">
                     {t('Loading…')}
                   </p>

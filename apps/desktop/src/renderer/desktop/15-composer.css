@@ -22,10 +22,12 @@
   content: "";
   position: absolute;
   z-index: -1;
-  inset: -16px 0 0;
-  background: linear-gradient(to bottom, transparent, var(--mx-workspace-sheet) 16px);
+  /* Hard edge at the dock top (user: 컴포저 위 그라데이션 위치가 이상하다):
+     the 16px fade half-erased the line resting on the input. */
+  inset: 0;
+  background: var(--mx-workspace-sheet);
 }
-.conversation > .composer-region > :not(.session-goal-host):not(.turn-review-slot) {
+.conversation > .composer-region > :not(.composer-island-slot) {
   pointer-events: auto;
 }
 .composer-context-bar {
@@ -34,6 +36,473 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
+}
+
+/* ── Composer island ──────────────────────────────────────────────────────
+   One island above a session's composer carries every status (Goal, jobs,
+   changed files, model mismatch), expands upward in place, grows into the
+   tool approval card and flashes short notices. Its slot ALWAYS reserves the
+   pill's 36px + 12px gap, so the island coming and going never moves the
+   transcript; everything taller overlays upward. */
+.composer-island-slot {
+  position: relative;
+  z-index: 9;
+  height: 48px;
+  pointer-events: none;
+}
+.composer-island-stage {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 12px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+/* Expanded over the transcript: a fade from the island's top down to the
+   sheet keeps rows from reading through behind it. */
+.composer-island-slot:is([data-mode="panel"], [data-mode="approval"]) > .composer-island-stage::before {
+  content: "";
+  position: absolute;
+  inset-inline: calc(-1 * var(--pane-inset, 24px));
+  top: -72px;
+  bottom: -12px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--mx-workspace-sheet) 0%, transparent),
+    color-mix(in srgb, var(--mx-workspace-sheet) 92%, transparent) 48px,
+    var(--mx-workspace-sheet)
+  );
+  pointer-events: none;
+}
+.composer-island {
+  --composer-island-bg: color-mix(in srgb, var(--mx-bg-deep) 70%, var(--mx-grey-1200));
+  --composer-island-edge: 0 0 0 var(--mx-hairline) var(--mx-border);
+  --composer-island-wash: var(--mx-hover);
+  --composer-island-rule: var(--mx-border-muted);
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 22px;
+  color: var(--mx-text);
+  background: var(--composer-island-bg);
+  box-shadow: var(--composer-island-edge), var(--mx-popup-shadow);
+  overflow: hidden;
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
+  transform-origin: 50% 100%;
+  pointer-events: auto;
+  animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:root[data-mixdog-theme="light"] .composer-island {
+  --composer-island-bg: var(--mx-bg-base);
+}
+/* Nothing to carry: the island vanishes, its slot stays. A distinct
+   animation per mode replays the pop whenever the island changes shape. */
+.composer-island:not(
+    :has(
+      .composer-island-seg,
+      .session-goal-island,
+      .composer-island-approval,
+      .composer-island-flash,
+      .composer-island-quota,
+      .turn-review-bar
+    )
+  ) {
+  visibility: hidden;
+  animation: none;
+}
+/* An approval is marked by its ring alone: a 1px amber edge in place of the
+   neutral one (no icon, no stripe). :root outranks the light-theme tokens. */
+:root .composer-island[data-mode="approval"] {
+  --composer-island-edge: 0 0 0 1px color-mix(in srgb, var(--mx-warning) 55%, transparent);
+}
+.composer-island[data-mode="approval"] {
+  animation-name: composer-island-pop-approval;
+}
+.composer-island[data-mode="flash"] {
+  animation-name: composer-island-pop-flash;
+}
+@keyframes composer-island-pop {
+  from {
+    transform: scale(0.94);
+    opacity: 0.4;
+  }
+}
+@keyframes composer-island-pop-approval {
+  from {
+    transform: scale(0.94);
+    opacity: 0.4;
+  }
+}
+@keyframes composer-island-pop-flash {
+  from {
+    transform: scale(0.94);
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-island {
+    animation: none;
+  }
+}
+.composer-island-pill {
+  min-width: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.composer-island-pill[hidden] {
+  display: none;
+}
+.composer-island-seg,
+.composer-island .session-goal-trigger {
+  position: relative;
+  min-width: 0;
+  height: 28px;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-soft);
+  background: transparent;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.composer-island-seg:hover:not(:disabled),
+.composer-island-seg:focus-visible,
+.composer-island-seg[aria-expanded="true"],
+.composer-island .session-goal-trigger:hover,
+.composer-island .session-goal-trigger:focus-visible {
+  color: var(--mx-text);
+  background: var(--composer-island-wash);
+  outline: none;
+}
+.composer-island-seg:disabled {
+  cursor: default;
+}
+/* Hairline separators between segments, outside each segment's hover wash. */
+.composer-island-pill
+  > :is(.composer-island-seg, .session-goal-island)
+  ~ :is(.composer-island-seg, .session-goal-island) {
+  margin-inline-start: 5px;
+}
+.composer-island-pill
+  > :is(.composer-island-seg, .session-goal-island)
+  ~ :is(.composer-island-seg, .session-goal-island)::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline-start: -3px;
+  width: var(--mx-hairline);
+  height: 14px;
+  background: var(--composer-island-rule);
+  transform: translateY(-50%);
+}
+/* Only text that can ellipsize gives way on a narrow island: the model label,
+   and the Goal while it still shows its title. Counts never shrink. */
+.composer-island-pill > .composer-island-seg:not(.composer-island-seg-model),
+.composer-island-pill:has(> .composer-island-seg ~ .composer-island-seg) > .session-goal-island {
+  flex-shrink: 0;
+}
+/* Status reads as text, a dot and numbers, not coloured icons
+   (island-icons.html): only the dot carries the warning hue. */
+.composer-island-seg-model {
+  color: var(--mx-text-muted);
+}
+.composer-island-seg-warning svg {
+  color: var(--mx-warning);
+  flex: none;
+}
+.composer-island-seg-sub {
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.composer-island-dot,
+.composer-island-pulse {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+}
+.composer-island-dot {
+  background: var(--mx-warning);
+}
+.composer-island-pulse {
+  background: var(--mx-accent);
+  animation: composer-island-pulse 1.6s ease-in-out infinite;
+}
+@keyframes composer-island-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-island-pulse {
+    animation: none;
+  }
+}
+.composer-island-seg-text {
+  min-width: 0;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-island-seg > svg {
+  flex: none;
+}
+/* Inline, so the literal space between +a and −b shows. */
+.turn-review-segment .diff-stats {
+  display: inline;
+}
+.turn-review-segment .diff-stats i {
+  color: var(--mx-success);
+  font-style: normal;
+}
+.turn-review-segment .diff-stats em {
+  color: var(--mx-danger);
+  font-style: normal;
+}
+/* Expanded tabs: a 560px panel with a tab header and a close button. */
+.composer-island-panel,
+.composer-island-approval,
+.composer-island .session-goal-panel {
+  width: 560px;
+  max-width: 100%;
+}
+.composer-island-phead {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: var(--mx-hairline) solid var(--composer-island-rule);
+}
+.composer-island-tab {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text);
+  background: var(--composer-island-wash);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.composer-island-close {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin-inline-start: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.composer-island-close:hover,
+.composer-island-close:focus-visible {
+  color: var(--mx-text);
+  background: var(--composer-island-wash);
+  outline: none;
+}
+.composer-island-pbody {
+  margin: 0;
+  padding: 10px 14px 12px;
+}
+.composer-island-jobs {
+  max-height: min(320px, 40dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.composer-island-row {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.composer-island-row + .composer-island-row {
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+}
+.composer-island-row-main {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-island-row-main code {
+  color: var(--mx-accent);
+  font-family: var(--mx-font-mono);
+}
+.composer-island-row-sub {
+  flex: none;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.composer-island-model .composer-island-pbody,
+.composer-island-quota .composer-island-pbody {
+  padding: 14px 16px 12px;
+}
+.composer-island-quota .composer-island-ptitle svg {
+  color: var(--mx-warning);
+  flex: none;
+}
+.composer-island-ptitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+.composer-island-pnote {
+  margin: 4px 0 0;
+  color: var(--mx-text-muted);
+}
+.composer-island-pfoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+}
+.composer-island-button,
+.composer-island .session-goal-control {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: var(--mx-button);
+  font: inherit;
+  cursor: pointer;
+}
+.composer-island-button:hover,
+.composer-island .session-goal-control:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+.composer-island .session-goal-control:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.composer-island-button-primary,
+.composer-island-button-primary:hover {
+  color: var(--mx-grey-50);
+  background: var(--mx-accent-bg);
+  box-shadow: none;
+}
+/* The approval card wears the island's own material. */
+.composer-island-approval .approval-card {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.composer-island-flash {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+.composer-island-flash > svg {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+/* While the island asks for an approval the input steps back. */
+.composer-region .composer {
+  transition:
+    box-shadow var(--mx-motion-ink),
+    opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    filter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.composer-region:has(> .composer-island-slot[data-mode="approval"]) .composer {
+  opacity: 0.4;
+  filter: saturate(0.6);
+}
+html[data-mixdog-mobile-tabs] .composer-island-slot {
+  height: calc(48px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-stage {
+  bottom: calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island {
+  font-size: calc(13px * var(--mx-device-scale, 2.5));
+  line-height: calc(18px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-pill {
+  height: calc(36px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] :is(.composer-island-seg, .composer-island .session-goal-trigger) {
+  height: calc(28px * var(--mx-device-scale, 2.5));
+  padding-inline: calc(11px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] :is(.composer-island-dot, .composer-island-pulse) {
+  width: calc(6px * var(--mx-device-scale, 2.5));
+  height: calc(6px * var(--mx-device-scale, 2.5));
+}
+/* Panel controls share the Goal controls' 32px touch box; the header and
+   rows are tall enough to hold it. */
+html[data-mixdog-mobile-tabs] .composer-island-phead {
+  height: calc(44px * var(--mx-device-scale, 2.5));
+  padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-tab {
+  height: calc(32px * var(--mx-device-scale, 2.5));
+  gap: calc(7px * var(--mx-device-scale, 2.5));
+  padding-inline: calc(11px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-close {
+  width: calc(32px * var(--mx-device-scale, 2.5));
+  height: calc(32px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] :is(.composer-island-close, .composer-island-flash) > svg {
+  width: calc(16px * var(--mx-device-scale, 2.5));
+  height: calc(16px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-button {
+  height: calc(32px * var(--mx-device-scale, 2.5));
+  padding-inline: calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-pbody {
+  padding: calc(10px * var(--mx-device-scale, 2.5)) calc(14px * var(--mx-device-scale, 2.5))
+    calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] :is(.composer-island-model, .composer-island-quota) .composer-island-pbody {
+  padding: calc(14px * var(--mx-device-scale, 2.5)) calc(16px * var(--mx-device-scale, 2.5))
+    calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-pfoot {
+  gap: calc(6px * var(--mx-device-scale, 2.5));
+  padding-top: calc(8px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-row {
+  min-height: var(--mx-touch-row-main);
+  gap: calc(10px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-ptitle {
+  gap: calc(8px * var(--mx-device-scale, 2.5));
+  font-size: calc(14px * var(--mx-device-scale, 2.5));
+  line-height: calc(20px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-island-flash {
+  height: calc(36px * var(--mx-device-scale, 2.5));
+  gap: calc(8px * var(--mx-device-scale, 2.5));
+  padding-inline: calc(16px * var(--mx-device-scale, 2.5));
 }
 /* Project / workflow pills: one shared ghost-chip grammar. At rest the chip
    paints no plate or ring (it reads as part of the prompt area, not a second
@@ -837,16 +1306,18 @@
   line-height: var(--mx-line-minor);
   text-align: center;
 }
+/* Popup section label: one 28px box (a slash row's height), the 13px label
+   centred in it, inset to where the rows' own content starts. */
 .model-group h3,
 .slash-palette header {
-  min-height: 36px;
-  padding: 8px 4px;
+  min-height: 28px;
+  padding: 0 8px;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-micro);
+  font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-meta);
-  letter-spacing: var(--mx-tracking-wide);
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .model-group h3 {
   margin: 0;
@@ -925,12 +1396,9 @@
   background: var(--mx-popup-bg);
   box-shadow: var(--mx-popup-shadow);
 }
-/* Section label grammar of the + menu (composer-add-menu.css): small caps on
-   the rows' own 12px text line. The 14px label sat 8px left of the row text
-   and out-sized it (user: UI가 좀 튀는데 — 점프 그거). */
+/* Slash rows start their text 12px in; the label starts on the same line. */
 .slash-palette header {
-  min-height: 0;
-  padding: 8px 12px 4px;
+  padding: 0 12px;
   color: var(--mx-text-faint);
 }
 .slash-palette button {
@@ -985,87 +1453,228 @@
   position: relative;
 }
 .composer-attachments {
-  align-items: center;
-  gap: 6px;
-  /* The chip ring is drawn outside the chip, and this row clips vertically
-     (it scrolls sideways): 2px below keeps the ring's bottom edge, and the
-     negative margin hands those 2px back so the textarea does not move
-     (user: 컴포저 위에 복붙이 잘린다). */
-  padding: 8px 8px 2px;
+  box-sizing: border-box;
+  max-width: 100%;
+  align-items: flex-start;
+  gap: 8px;
+  /* The row scrolls sideways and so clips vertically: the top padding holds
+     the corner buttons that sit 6px outside each card, the bottom 2px keeps
+     the focus ring (user: 컴포저 위에 복붙이 잘린다). */
+  padding: 10px 10px 2px;
   margin-bottom: -2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--mx-scrollbar-thumb) transparent;
 }
-.composer-attachments > div {
-  border: 0;
+
+/* Attachment cards (composer, automation editors, sent messages): one size
+   for every kind — an image is its own thumbnail; anything else shows a
+   picture of its content (first page, code or prose minimap, else the drawn
+   sheet) above a 24px bar with its name and a small coloured type word.
+   `--attachment-unit` is the phone scale (07-mobile-chrome); the thumbnail
+   art draws in units of it. */
+.attachment-card {
+  --file-mini-char: calc(1.2px * var(--attachment-unit, 1));
+  --file-mini-unit: calc(2px * var(--attachment-unit, 1));
+  --file-mini-row: calc(2.5px * var(--attachment-unit, 1));
+  --file-mini-gap: calc(2.5px * var(--attachment-unit, 1));
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  box-sizing: border-box;
+  width: 104px;
+  height: 80px;
+  border: var(--mx-hairline) solid var(--mx-border);
+  border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
-  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-2);
   transition:
     background var(--mx-motion-ink),
-    box-shadow var(--mx-motion-ink);
+    border-color var(--mx-motion-ink);
 }
-.composer-attachments > div:not(.image) {
-  height: 32px;
-  max-width: 240px;
-  gap: 6px;
-  padding: 3px 4px 3px 6px;
-  background: var(--mx-hover);
-  box-shadow: none;
+.attachment-card:hover,
+.attachment-card:focus-within {
+  background: var(--mx-bg-layer-3);
 }
-.composer-attachments > div:hover,
-.composer-attachments > div:focus-within {
-  background: var(--mx-pressed);
-  box-shadow: none;
+.attachment-card:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
 }
-.composer-attachments > div.image {
-  height: 64px;
-}
-.composer-attachments > div:not(.image) > span:first-child {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  color: var(--mx-icon-muted);
+.attachment-card.thumb {
+  border-color: transparent;
   background: transparent;
 }
-.composer-attachments > div.image img {
-  width: 56px;
-  height: 56px;
-  flex-basis: 56px;
-}
-.composer-attachments > div > span:nth-child(2) {
-  padding-inline: 0;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-ui);
-}
-.composer-attachments .attachment-remove {
-  color: var(--mx-icon-muted);
-}
-.composer-attachments .attachment-remove:hover {
-  color: var(--mx-danger);
-  background: var(--mx-hover);
-}
-.composer-attachments .attachment-edit {
-  color: var(--mx-icon-muted);
-}
-.composer-attachments .attachment-edit:hover {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-}
-/* The paste chip's label opens its editor too; it reads as the plain label. */
-.composer-attachments .attachment-name {
+.attachment-card.thumb img {
   display: block;
-  width: auto;
-  height: auto;
-  min-width: 0;
-  max-width: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--mx-radius-lg);
+}
+.attachment-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
   padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-lg);
+  background: transparent;
+  cursor: zoom-in;
+}
+.attachment-card-open:focus-visible,
+.attachment-card-body:focus-visible,
+.attachment-card-file:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.attachment-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 7px 8px;
   overflow: hidden;
   border: 0;
+  border-radius: var(--mx-radius-lg);
   color: inherit;
   background: transparent;
   font: inherit;
+  text-align: left;
+}
+button.attachment-card-body {
+  cursor: pointer;
+}
+.attachment-card-body > svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+}
+/* Non-image card: thumbnail area over the name bar, clipped to the card's
+   corners (the card itself must not clip its corner buttons). */
+.attachment-card-file {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: calc(var(--mx-radius-lg) - var(--mx-hairline));
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+button.attachment-card-file {
+  cursor: pointer;
+}
+.attachment-card-shot {
+  position: relative;
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+}
+.attachment-card-shot > .file-sheet {
+  width: auto;
+  height: calc(44px * var(--attachment-unit, 1));
+}
+/* One paper frame for a rendered page and the minimaps: inset by equal side
+   margins, top-aligned, running off the plate under the name bar. The frame
+   is a box (not the image), so the page fills it with cover from the top
+   instead of keeping its own width. */
+.attachment-card-frame {
+  position: absolute;
+  inset: calc(6px * var(--attachment-unit, 1)) calc(8px * var(--attachment-unit, 1))
+    calc(-10px * var(--attachment-unit, 1));
+  overflow: hidden;
+  border-radius: calc(3px * var(--attachment-unit, 1));
+  box-shadow: 0 1px 4px var(--mx-alpha-dark-30);
+}
+.attachment-card-frame > .file-minimap {
+  padding: calc(6px * var(--attachment-unit, 1)) calc(7px * var(--attachment-unit, 1));
+}
+.attachment-card-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: calc(5px * var(--attachment-unit, 1));
+  height: calc(24px * var(--attachment-unit, 1));
+  padding: 0 calc(7px * var(--attachment-unit, 1));
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  background: var(--mx-bg-layer-1);
+}
+.attachment-card-bar > .attachment-card-name {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  font-size: calc(11.5px * var(--attachment-unit, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.attachment-card-bar > .file-type-word {
+  font-size: calc(9.5px * var(--attachment-unit, 1));
+}
+.attachment-card-name {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-medium);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.attachment-card-meta {
+  color: var(--mx-text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.attachment-card-edit,
+.attachment-card-remove {
+  position: absolute;
+  z-index: 2;
+  top: -6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-icon);
+  background: var(--mx-bg-layer-3);
+  box-shadow: var(--mx-button);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--mx-motion-ink);
+}
+.attachment-card-remove {
+  right: -6px;
+}
+.attachment-card-edit {
+  right: 18px;
+}
+.attachment-card:hover > .attachment-card-edit,
+.attachment-card:hover > .attachment-card-remove,
+.attachment-card:focus-within > .attachment-card-edit,
+.attachment-card:focus-within > .attachment-card-remove {
+  opacity: 1;
+}
+.attachment-card-remove:hover {
+  color: var(--mx-danger);
+}
+.attachment-card-remove:disabled {
+  cursor: default;
+  opacity: 0;
 }
 .composer-paste-dialog textarea {
   min-height: 320px;
@@ -1092,40 +1701,82 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
-/* Queued follow-ups ride the same material as the changes bar above them —
-   the prompt card's fill, 12px corner and raised edge, a gap apart — instead
-   of an outlined 6px tab tucked under the card (user: 스티어링 메시지도 좀
-   어색하네). */
+/* Queued follow-ups: a rail inset one card radius on each side of the prompt card, with
+   rounded top corners, whose lower edge tucks one card radius under the
+   card, so the card keeps all four corners (the Codex composer rail). Rows are
+   32px; the list grows to 30% of the viewport, then scrolls with a bottom
+   fade. This is the only dock member allowed to change the dock's height. */
+.composer-queue-tray:empty {
+  display: none;
+}
 .queue-list {
   position: relative;
   z-index: 0;
-  max-height: 168px;
-  margin-bottom: 8px;
+  /* Inset by the card's own corner radius, so the rail's sides meet the
+     card's straight top edge instead of landing inside its corner curve. */
+  margin: 0 var(--mx-radius-sheet) calc(-1 * var(--mx-radius-sheet));
+  padding-bottom: var(--mx-radius-sheet);
   overflow: hidden;
   border: 0;
-  border-radius: var(--mx-radius-xl);
+  border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
   color: var(--mx-text);
-  background: var(--mx-composer-surface);
-  box-shadow: var(--mx-raised);
+  background: var(--mx-bg-base);
+  /* The card's edge ink, so the seam where the rail meets the card reads as
+     one line weight. */
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  animation: queue-tray-rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes queue-tray-rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .queue-list {
+    animation: none;
+  }
+}
+.composer-region:has(> .composer-queue-tray .queue-list) .composer {
+  position: relative;
+  z-index: 1;
 }
 .queue-items {
-  max-height: 130px;
-  padding: 6px 12px;
+  max-height: 30dvh;
+  padding: 2px 6px 2px 12px;
   overflow-y: auto;
   scrollbar-width: none;
 }
 .queue-items::-webkit-scrollbar {
   display: none;
 }
+.queue-items[data-more="true"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
 .queue-item {
-  min-height: 28px;
-  gap: 6px;
+  height: 32px;
+  flex: none;
+  gap: 8px;
   padding: 0;
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
 .queue-item + .queue-item {
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.queue-item-icon {
+  flex: none;
+  color: var(--mx-text-muted);
+  opacity: 0.7;
+}
+.queue-item-text {
+  color: var(--mx-text-muted);
+  border-radius: var(--mx-radius-sm);
+}
+.queue-item-text:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  outline: 0;
 }
 .queue-item-attachments {
   flex: 0 0 auto;
@@ -1136,34 +1787,90 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.queue-edit,
-.queue-steer {
+.queue-steer,
+.queue-remove,
+.queue-item .row-overflow-trigger {
   height: 24px;
   flex: 0 0 auto;
-  padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
+  color: var(--mx-text-muted);
   background: transparent;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
 }
 .queue-steer {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  padding: 0 8px;
   color: var(--mx-accent);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
 }
-.queue-edit:hover:not(:disabled),
-.queue-edit:focus-visible,
+.queue-remove,
+.queue-item .row-overflow-trigger {
+  width: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.queue-item .row-overflow {
+  margin-inline-start: 0;
+}
+.queue-item .row-overflow-trigger svg {
+  width: 14px;
+  height: 14px;
+}
+.queue-remove:hover:not(:disabled),
+.queue-remove:focus-visible,
+.queue-item .row-overflow-trigger:hover,
+.queue-item .row-overflow-trigger:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  outline: 0;
+}
 .queue-steer:hover:not(:disabled),
 .queue-steer:focus-visible {
   background: var(--mx-hover);
   outline: 0;
 }
-.queue-edit:disabled,
-.queue-steer:disabled {
+.queue-steer:disabled,
+.queue-remove:disabled {
   opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+/* Phone: the tray is on the projected main surface, so rows and their touch
+   targets scale with the device like the island does. Rows are one step
+   taller than the 36px row-tier targets so the hairline never clips them. */
+html[data-mixdog-mobile-tabs] .queue-items {
+  padding: calc(2px * var(--mx-device-scale, 2.5)) calc(6px * var(--mx-device-scale, 2.5))
+    calc(2px * var(--mx-device-scale, 2.5)) calc(12px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .queue-item {
+  height: calc(40px * var(--mx-device-scale, 2.5));
+  gap: calc(8px * var(--mx-device-scale, 2.5));
+  font-size: calc(14px * var(--mx-device-scale, 2.5));
+  line-height: calc(20px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .queue-item-icon,
+html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-remove, .row-overflow-trigger) svg {
+  width: calc(14px * var(--mx-device-scale, 2.5));
+  height: calc(14px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .queue-item-attachments {
+  font-size: calc(13px * var(--mx-device-scale, 2.5));
+  line-height: calc(18px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-steer, .queue-remove, .row-overflow-trigger) {
+  height: var(--mx-touch-row-main);
+  min-height: var(--mx-touch-row-main);
+}
+html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-remove, .row-overflow-trigger) {
+  width: var(--mx-touch-row-main);
+  min-width: var(--mx-touch-row-main);
+  flex-basis: var(--mx-touch-row-main);
+  margin: 0;
+}
+html[data-mixdog-mobile-tabs] .queue-list .queue-steer {
+  padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+  font-size: calc(13px * var(--mx-device-scale, 2.5));
 }
 .composer {
   z-index: 1;

@@ -14,6 +14,7 @@ import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropi
 import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable } from './anthropic-fast-mode.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
+import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 import {
   applyAnthropicCacheMarkers,
   clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
@@ -44,7 +45,20 @@ import {
  * @param {boolean} deps.fastModeLatched  the provider's sticky fast-mode beta latch
  * @returns {Promise<{ params: object, requestHeaders: object|null, knownToolNames: Set<string>, fastModeLatched: boolean }>}
  */
-export async function buildAnthropicApiRequest({ name, config, messages, useModel, tools, opts, fastModeLatched }) {
+export async function buildAnthropicApiRequest({
+  name,
+  config,
+  messages,
+  useModel,
+  tools,
+  opts,
+  fastModeLatched,
+  modelInfo = null,
+}) {
+  // A user-defined provider's reasoning comes from its own model row only:
+  // the global by-model-id capability index and the Claude-id ladders are
+  // first-party knowledge and must not leak onto (or from) a custom endpoint.
+  const isCustom = isCustomProviderName(name);
   const maxTokens = resolveMaxTokens(useModel);
   const effortProjection = projectEffortConfiguration(messages, name, useModel, {
     ...config,
@@ -81,8 +95,10 @@ export async function buildAnthropicApiRequest({ name, config, messages, useMode
     system: systemBlocks.length ? systemBlocks : undefined,
     messages: await prepareAnthropicImages(anthropicMessages, { signal: opts.signal }),
   };
+  // Server-side fallback and fast mode are decided from Claude model ids:
+  // first-party knowledge, never applied to a custom endpoint.
   applyAnthropicServerFallback(params, useModel, {
-    enabled: config?.disableBetaHeaders !== true && opts.serverFallback !== false,
+    enabled: !isCustom && config?.disableBetaHeaders !== true && opts.serverFallback !== false,
   });
   if (requestTools.length) {
     // No cache_control on tools — the system BP covers tools via
@@ -105,18 +121,28 @@ export async function buildAnthropicApiRequest({ name, config, messages, useMode
       .map((t) => (t && typeof t.name === 'string' ? t.name : null))
       .filter(Boolean)
   );
-  applyAnthropicEffortToBody(params, {
-    model: useModel,
-    opts: effortProjection ? { ...opts, effort: effortProjection.initialEffort } : opts,
-    maxTokens,
-    clampThinkingBudgetTokens,
-    logTag: name,
-    progressUpdates: config?.disableBetaHeaders !== true,
-  });
+  if (isCustom) {
+    const { fields } = resolveCustomReasoning({
+      protocol: 'anthropic',
+      model: modelInfo,
+      effort: opts.effort ?? config?.reasoningEffort,
+    });
+    if (fields.thinking) params.thinking = fields.thinking;
+    if (fields.output_config) params.output_config = { ...(params.output_config || {}), ...fields.output_config };
+  } else {
+    applyAnthropicEffortToBody(params, {
+      model: useModel,
+      opts: effortProjection ? { ...opts, effort: effortProjection.initialEffort } : opts,
+      maxTokens,
+      clampThinkingBudgetTokens,
+      logTag: name,
+      progressUpdates: config?.disableBetaHeaders !== true,
+    });
+  }
   // Fast mode → speed: "fast" on models Anthropic marks as speed-capable.
   // Suppressed while the fast capacity pool is cooling down.
   let fastLatched = fastModeLatched;
-  if (opts.fast === true && supportsAnthropicFastMode(useModel) && fastModeAvailable()) {
+  if (!isCustom && opts.fast === true && supportsAnthropicFastMode(useModel) && fastModeAvailable()) {
     params.speed = 'fast';
     fastLatched = true;
   }
@@ -133,19 +159,23 @@ export async function buildAnthropicApiRequest({ name, config, messages, useMode
   // too — otherwise opencode-go's anthropic-compatible routing
   // (disableBetaHeaders:true) would still send beta strings that a
   // third-party endpoint may reject.
+  // A custom endpoint gets no first-party base betas; only those its own
+  // request body needs (row-driven effort, deferred tools).
   let betaHeaders = null;
   if (!config?.disableBetaHeaders) {
     const betas = [
       buildAnthropicBetaHeaders({
+        ...(isCustom ? { base: '' } : {}),
         fastMode: fastLatched,
         toolSearch: hasDeferredTools,
-        effort: shouldIncludeEffortBeta(useModel, opts),
+        // Custom: the beta follows the resolver's output, not the model id.
+        effort: isCustom ? Boolean(params.output_config?.effort) : shouldIncludeEffortBeta(useModel, opts),
         serverFallback: params.fallbacks === 'default',
         thinkingDisplayUpdates: params.thinking?.display === 'updates',
       }),
       ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
-    ];
-    betaHeaders = { 'anthropic-beta': betas.join(',') };
+    ].filter(Boolean);
+    if (betas.length) betaHeaders = { 'anthropic-beta': betas.join(',') };
   }
   const requestHeaders =
     betaHeaders || opts.requestHeaders ? { ...(betaHeaders || {}), ...(opts.requestHeaders || {}) } : null;

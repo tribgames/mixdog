@@ -19,6 +19,55 @@ export const REMOTE_PAIRING_STORAGE_KEYS = {
   approvedAt: 'mixdog.remote-approved-at',
 } as const;
 
+/** Per-PC pairing state. Everything here belongs to ONE desktop on ONE relay
+ *  origin; `server` and `device` stay origin-wide as routing labels. */
+const SCOPED_PAIRING_NAMES = [
+  'token',
+  'server',
+  'paired',
+  'browserId',
+  'e2eePublicKey',
+  'e2eeSecret',
+  'claim',
+  'approvedAt',
+] as const;
+
+export type RemotePairingKeys = Record<keyof typeof REMOTE_PAIRING_STORAGE_KEYS, string>;
+
+/** The storage keys for one relay origin + device. The PC switcher moves
+ *  between /d/<deviceId>/ routes on one origin, so a credential is only ever
+ *  read under the key of the device it was approved for. Without a device id
+ *  (no route yet) the unscoped keys apply. */
+export function remotePairingKeys(origin: string, deviceId: string): RemotePairingKeys {
+  if (!deviceId) return { ...REMOTE_PAIRING_STORAGE_KEYS };
+  const keys: RemotePairingKeys = { ...REMOTE_PAIRING_STORAGE_KEYS };
+  for (const name of SCOPED_PAIRING_NAMES) {
+    keys[name] = `${REMOTE_PAIRING_STORAGE_KEYS[name]}@${encodeURIComponent(origin)}/${deviceId}`;
+  }
+  return keys;
+}
+
+/** Move credentials written before pairing was namespaced to the device they
+ *  were stored for (the legacy `device` label) — never to whichever route is
+ *  open now. Nothing is moved when the label is missing or the target already
+ *  holds its own token. */
+export function migrateLegacyRemotePairing(
+  storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>,
+  origin: string
+): void {
+  const legacy = REMOTE_PAIRING_STORAGE_KEYS;
+  const owner = storage.getItem(legacy.device) || '';
+  if (!REMOTE_DEVICE_ID.test(owner) || !storage.getItem(legacy.token)) return;
+  const target = remotePairingKeys(origin, owner);
+  if (!storage.getItem(target.token)) {
+    for (const name of SCOPED_PAIRING_NAMES) {
+      const value = storage.getItem(legacy[name]);
+      if (value !== null) storage.setItem(target[name], value);
+    }
+  }
+  for (const name of SCOPED_PAIRING_NAMES) storage.removeItem(legacy[name]);
+}
+
 const REMOTE_DEVICE_ID = /^[0-9a-f-]{8,64}$/u;
 const REMOTE_CLIENT_CREDENTIAL = /^[0-9a-f]{32,128}$/u;
 const DEVICE_COOKIE_NAME = 'mixdog_device';
@@ -100,6 +149,9 @@ export function isInvalidRemotePairingClose(event: Pick<CloseEvent, 'code' | 're
   );
 }
 
-export function clearStoredRemotePairing(storage: Pick<Storage, 'removeItem'>): void {
-  for (const key of Object.values(REMOTE_PAIRING_STORAGE_KEYS)) storage.removeItem(key);
+export function clearStoredRemotePairing(
+  storage: Pick<Storage, 'removeItem'>,
+  keys: RemotePairingKeys = REMOTE_PAIRING_STORAGE_KEYS
+): void {
+  for (const key of Object.values(keys)) storage.removeItem(key);
 }

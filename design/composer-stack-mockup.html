@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴포저 위 스택 계층 시안</title>
+<style>
+  :root {
+    --bg: #161616; --card: #232323; --edge: #303030; --text: #e8e8e8; --muted: #9a9a9a;
+    --accent: #6ea8ff; --warn: #e8b64c; --ok: #5fc48a; --danger: #ef6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f0f0f; color: var(--text); font: 14px/1.5 "Pretendard", "Segoe UI", sans-serif; padding: 32px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 28px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; max-width: 1500px; }
+  .case h2 { font-size: 15px; margin: 0 0 2px; }
+  .case p { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+  .frame { position: relative; background: var(--bg); border: 1px solid #262626; border-radius: 12px; padding: 20px 22px 16px; height: 520px;
+           display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+  .transcript { position: absolute; inset: 20px 22px auto; color: #5a5a5a; font-size: 13px; }
+  .transcript div { margin-bottom: 10px; }
+
+  /* 층 라벨 (시안 설명용) */
+  .layer { position: relative; }
+  .layer::before { content: attr(data-layer); position: absolute; left: -18px; top: 50%; transform: translate(-100%, -50%);
+                   font-size: 10.5px; color: #6c6c6c; writing-mode: vertical-rl; }
+  .layer + .layer { margin-top: 8px; }
+
+  /* 1층: 세션 상태 */
+  .status-row { display: flex; gap: 8px; }
+  .pill { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+          height: 32px; padding: 0 12px; font-size: 12.5px; min-width: 0; }
+  .pill.goal { flex: 1 1 auto; }
+  .pill.diff { flex: 0 0 auto; }
+  .pill .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill .meta { color: var(--muted); margin-left: auto; white-space: nowrap; }
+  .bar { width: 46px; height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; flex: none; }
+  .bar i { display: block; height: 100%; width: 60%; background: var(--accent); }
+  .plus { color: var(--ok); } .minus { color: var(--danger); }
+  .chev { color: var(--muted); }
+  .pill.chip { height: 26px; border-radius: 999px; padding: 0 10px; font-size: 12px; color: var(--muted); }
+
+  /* 2층: 승인 */
+  .approval { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 12px 14px; }
+  .approval .head { display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: 13px; }
+  .approval .head .g { color: var(--warn); }
+  .approval code { display: block; background: #1a1a1a; border-radius: 8px; padding: 7px 10px; margin: 8px 0 10px; font-size: 12.5px; color: #cfcfcf; }
+  .approval .actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+  /* 3층: 다음 전송 트레이 + 입력창 */
+  .send-group { background: var(--card); border: 1px solid var(--edge); border-radius: 16px; overflow: hidden; }
+  .tray-row { display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-size: 12.5px; border-bottom: 1px solid #2c2c2c; }
+  .tray-row .k { color: var(--muted); flex: none; }
+  .tray-row .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tray-row .actions { margin-left: auto; display: flex; gap: 4px; flex: none; }
+  .tray-row.model { background: #26221a; color: #f0dca8; }
+  .tray-row.model .k { color: var(--warn); }
+  .composer { padding: 12px 14px 10px; }
+  .composer .input { color: #6d6d6d; height: 30px; }
+  .cbar { display: flex; align-items: center; gap: 12px; }
+  .cbar .add { color: var(--muted); font-size: 17px; }
+  .cbar .eff { color: var(--muted); }
+  .ring { width: 15px; height: 15px; border: 2px solid #777; border-radius: 50%; }
+  .send { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: #3a3a3a; display: grid; place-items: center; color: #bbb; }
+  .btn { border: 1px solid #3a3a3a; background: #2b2b2b; color: var(--text); border-radius: 7px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0d1626; font-weight: 600; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  .icon-btn { color: var(--muted); padding: 0 4px; }
+
+  /* 범례 */
+  .legend { max-width: 1500px; margin: 0 0 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .legend div { background: #1a1a1a; border: 1px solid #262626; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: #c8c8c8; }
+  .legend b { display: block; color: var(--text); margin-bottom: 2px; }
+</style>
+</head>
+<body>
+<h1>컴포저 위 스택 계층 시안</h1>
+<p class="lead">기준: 다음에 보낼 메시지와 관련 있을수록 입력창 가까이. 왼쪽 세로 글씨는 층 표시(설명용)입니다.</p>
+
+<div class="legend">
+  <div><b>1층 · 세션 상태</b>Goal과 Diff를 한 줄에 나란히. 기본은 접힘, 펼치면 대화 위로 열림.</div>
+  <div><b>2층 · 지금 처리할 일</b>도구 승인. 떠 있는 동안 1층은 칩으로 접힘.</div>
+  <div><b>3층 · 다음 전송</b>대기 메시지와 모델 안내를 입력창과 한 카드로 묶음. 모델 안내가 입력창 바로 위.</div>
+</div>
+
+<div class="grid">
+
+  <!-- 1. 전부 -->
+  <section class="case">
+    <h2>① 네 가지가 모두 있을 때 (승인 없음)</h2>
+    <p>Goal 진행 중 + 지난 턴 변경 파일 + 대기 메시지 2개 + 모델 불일치.</p>
+    <div class="frame">
+      <div class="transcript"><div>…지난 대화 내용…</div><div>네, 세 부분으로 나눠 정리했습니다. (Claude Opus 5.5)</div></div>
+      <div class="layer" data-layer="1층">
+        <div class="status-row">
+          <div class="pill goal"><span>◎</span><span class="title">결제 모듈을 새 API로 이전</span><span class="bar"><i></i></span><span class="meta">3/5 · 12m</span></div>
+          <div class="pill diff"><span>파일 4개</span><span class="plus">+128</span><span class="minus">−41</span><span class="chev">⌃</span></div>
+        </div>
+      </div>
+      <div class="layer" data-layer="3층">
+        <div class="send-group">
+          <div class="tray-row"><span class="k">대기 1</span><span class="v">테스트도 같이 돌려줘</span><span class="actions"><span class="icon-btn">↳</span><span class="icon-btn">✎</span><span class="icon-btn">✕</span></span></div>
+          <div class="tray-row"><span class="k">대기 2</span><span class="v">끝나면 변경점 요약해줘</span><span class="actions"><span class="icon-btn">↳</span><span class="icon-btn">✎</span><span class="icon-btn">✕</span></span></div>
+          <div class="tray-row model"><span class="k">⚠</span><span class="v">이 대화는 <b>Claude Opus 5.5</b>로 계속됩니다</span><span class="actions"><button class="btn primary">Gemini로 이어받기</button><button class="btn ghost">되돌리기</button></span></div>
+          <div class="composer"><div class="input">메시지 입력…</div>
+            <div class="cbar"><span class="add">＋</span><span>Gemini Flash Lite Latest <span class="eff">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 승인 -->
+  <section class="case">
+    <h2>② 도구 승인이 떠 있을 때</h2>
+    <p>2층이 가장 급하므로 1층은 칩으로 접히고, 3층은 그대로 유지.</p>
+    <div class="frame">
+      <div class="transcript"><div>…작업 중…</div></div>
+      <div class="layer" data-layer="1층">
+        <div class="status-row">
+          <div class="pill chip">◎ Goal 3/5</div>
+          <div class="pill chip">파일 4개</div>
+        </div>
+      </div>
+      <div class="layer" data-layer="2층">
+        <div class="approval">
+          <div class="head"><span class="g">⚠</span>명령 실행 승인이 필요합니다</div>
+          <code>npm run migrate -- --env=staging</code>
+          <div class="actions"><button class="btn ghost">거절</button><button class="btn">이번만 허용</button><button class="btn primary">항상 허용</button></div>
+        </div>
+      </div>
+      <div class="layer" data-layer="3층">
+        <div class="send-group">
+          <div class="tray-row"><span class="k">대기 1</span><span class="v">테스트도 같이 돌려줘</span><span class="actions"><span class="icon-btn">↳</span><span class="icon-btn">✎</span><span class="icon-btn">✕</span></span></div>
+          <div class="composer"><div class="input">메시지 입력…</div>
+            <div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="eff">High ⌄</span></span><span class="ring"></span><span class="send">■</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 모델 안내만 -->
+  <section class="case">
+    <h2>③ 모델 안내만 있을 때 (제보 사례)</h2>
+    <p>3층 한 줄만 입력창에 붙어서 나타남. 다른 층은 없음.</p>
+    <div class="frame">
+      <div class="transcript"><div>네, 세 부분으로 나눠 정리했습니다. (Claude Opus 5.5)</div></div>
+      <div class="layer" data-layer="3층">
+        <div class="send-group">
+          <div class="tray-row model"><span class="k">⚠</span><span class="v">이 대화는 <b>Claude Opus 5.5</b>로 계속됩니다. 고른 모델은 새 대화에 적용돼요</span><span class="actions"><button class="btn primary">Gemini로 이어받기</button><button class="btn ghost">되돌리기</button></span></div>
+          <div class="composer"><div class="input">메시지 입력…</div>
+            <div class="cbar"><span class="add">＋</span><span>Gemini Flash Lite Latest <span class="eff">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Goal + Diff 펼침 -->
+  <section class="case">
+    <h2>④ Diff를 펼쳤을 때</h2>
+    <p>펼친 목록은 대화 위로 열리고, 같은 줄의 Goal은 그 위로 올라감. 읽던 위치는 그대로.</p>
+    <div class="frame">
+      <div class="transcript"><div>…지난 대화 내용…</div></div>
+      <div class="layer" data-layer="1층">
+        <div class="pill goal" style="margin-bottom:8px"><span>◎</span><span class="title">결제 모듈을 새 API로 이전</span><span class="bar"><i></i></span><span class="meta">3/5 · 12m</span></div>
+        <div class="approval" style="padding:8px 12px">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px"><b>변경 파일 4개</b><span class="chev">⌄</span></div>
+          <div style="font-size:12.5px;color:#cfcfcf;display:grid;grid-template-columns:1fr auto auto;gap:4px 12px">
+            <span>src/payments/client.ts</span><span class="plus">+62</span><span class="minus">−18</span>
+            <span>src/payments/webhook.ts</span><span class="plus">+40</span><span class="minus">−12</span>
+            <span>src/payments/types.ts</span><span class="plus">+21</span><span class="minus">−4</span>
+            <span>test/payments.test.ts</span><span class="plus">+5</span><span class="minus">−7</span>
+          </div>
+        </div>
+      </div>
+      <div class="layer" data-layer="3층">
+        <div class="send-group">
+          <div class="composer"><div class="input">메시지 입력…</div>
+            <div class="cbar"><span class="add">＋</span><span>Claude Opus 5.5 <span class="eff">High ⌄</span></span><span class="ring"></span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

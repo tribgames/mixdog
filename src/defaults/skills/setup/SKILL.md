@@ -70,8 +70,10 @@ that a call returned without transport error.
   background cycles. Core Memory entries
   are read and changed with the `memory` tool, not setup.
 - Built-ins have installation state separate from enabled state. Browser Use,
-  Computer Use, and voice actions require this conversation open in the local
-  Desktop window.
+  Computer Use actions require this conversation open in the local Desktop
+  window; voice runs on the runtime and needs no Desktop.
+- Hook rules are before-tool policy, separate from MCP and plugins. Deleting a
+  rule is destructive; disabling preserves it.
 - Desktop appearance changes affect the Desktop host, not a paired phone.
   Display language is independent of profile response language. A required
   reload is reported, never performed automatically.
@@ -82,7 +84,6 @@ that a call returned without transport error.
   be scoped to selected Projects.
 - User skills are machine-global. Enabled plugin skills and built-in skills are
   also discoverable; project-local `.mixdog/skills` directories are ignored.
-  Use extension scope to limit where a global skill appears.
 - `set_disabled_skills` replaces the complete disabled list; inspect the
   current list before changing one entry.
 
@@ -93,8 +94,6 @@ that a call returned without transport error.
 - For an MCP failure, inspect the reported transport error before changing
   command, arguments, directory, environment, URL, headers, or enabled state.
 - MCP reads intentionally omit raw connection values that may contain secrets.
-  Partial edits preserve those values. Use environment-variable names for
-  credentials; never request or echo their values.
 - For an unavailable built-in, distinguish not installed, installed but
   disabled, and bridge inactive.
 - Desktop requests require a single live claimant and a confirmed receipt.
@@ -107,8 +106,6 @@ that a call returned without transport error.
 
 ## Finish
 
-- Do not expose secrets or internal-only configuration as supported user
-  options.
-- Do not claim the current session changed when the receipt says next session.
+- Do not expose internal-only configuration as a supported user option.
 - Do not commit, deploy, restart, or update the app unless separately requested
   and approved.

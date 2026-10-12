@@ -1,5 +1,6 @@
 // Reasoning-effort catalogs and coercion. Pure helpers.
 import { clean } from './session-text.mjs';
+import { customEffortLevels, snapCustomEffort } from '../providers/custom-reasoning.mjs';
 
 const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
 const ALL_EFFORT_LEVELS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
@@ -71,6 +72,9 @@ export function normalizeEffortInput(value) {
 }
 
 export function effortOptionsFor(provider, model) {
+  // Custom-provider rows declare their levels authoritatively: an explicit []
+  // (or no declaration) means none, with no family/provider fallback.
+  if (model?.customReasoning) return customEffortLevels(model) || [];
   const providerAllowed = EFFORT_OPTIONS_BY_PROVIDER[provider] || null;
   const normalizeCatalogValues = (values) => {
     const seen = new Set();
@@ -106,6 +110,7 @@ export function effortOptionsFor(provider, model) {
 
 export function coerceEffortFor(provider, model, effort) {
   if (!effort) return null;
+  if (model?.customReasoning) return snapCustomEffort(customEffortLevels(model), effort);
   const allowed = effortOptionsFor(provider, model);
   if (!allowed || allowed.length === 0) return null;
   if (allowed.includes(effort)) return effort;

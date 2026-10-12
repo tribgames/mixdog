@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>연결 화면 최종 — 경우별 스크린샷</title>
+<style>
+  body { margin:0; padding:32px 40px 64px; background:#0b0b0d; color:#e9e9ea; font:400 14px/20px system-ui,-apple-system,"Segoe UI",sans-serif; }
+  h1 { font-size:22px; margin:0 0 6px; } p.lead { color:#9a9aa1; margin:0 0 26px; max-width:980px; }
+  h2 { font-size:16px; margin:36px 0 12px; }
+  .row { display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; }
+  figure { margin:0; background:#151518; border:1px solid #26262b; border-radius:12px; padding:10px; }
+  figure img { display:block; border-radius:8px; }
+  .phone img { height:520px; } .desk img { width:720px; }
+  figcaption { margin-top:8px; color:#b5b5bb; font-size:12.5px; max-width:720px; }
+  figcaption b { color:#e9e9ea; }
+</style>
+</head>
+<body>
+<h1>연결 화면 최종 — 경우별 스크린샷</h1>
+<p class="lead">스테이징 서버 기준. 폰 앱은 Android 에뮬레이터, 브라우저 화면은 에뮬레이터의 실제 Chrome, PC 화면은 9343 시험 앱에서 찍었습니다. 에뮬레이터가 영어 설정이라 Chrome 아래쪽에 번역 제안 막대가 보이는 화면이 있습니다(한국어 폰에서는 나오지 않음).</p>
+
+<h2>폰 앱 — 연결 화면과 상태 12가지</h2>
+<div class="row">
+  <figure class="phone"><img src="app-01-start-empty.png" /><figcaption><b>첫 화면</b></figcaption></figure>
+  <figure class="phone"><img src="app-02-code.png" /><figcaption><b>코드로 연결</b></figcaption></figure>
+  <figure class="phone"><img src="app-03-code-error.png" /><figcaption>코드 오류</figcaption></figure>
+  <figure class="phone"><img src="app-04-code-ratelimited.png" /><figcaption>시도 횟수 초과</figcaption></figure>
+  <figure class="phone"><img src="app-05-waiting.png" /><figcaption><b>PC에서 허용하세요</b> (PC 이름 + 작은 스피너)</figcaption></figure>
+  <figure class="phone"><img src="app-06-waiting-offline.png" /><figcaption>PC가 꺼져 있음</figcaption></figure>
+  <figure class="phone"><img src="app-07-declined.png" /><figcaption>거절됨</figcaption></figure>
+  <figure class="phone"><img src="app-08-expired.png" /><figcaption>만료됨</figcaption></figure>
+  <figure class="phone"><img src="app-09-revoked.png" /><figcaption>연결 해제됨</figcaption></figure>
+  <figure class="phone"><img src="app-10-network-error.png" /><figcaption>네트워크 오류</figcaption></figure>
+  <figure class="phone"><img src="app-11-outdated.png" /><figcaption>PC 업데이트 필요 (옛 PC)</figcaption></figure>
+  <figure class="phone"><img src="app-12-scan-unavailable.png" /><figcaption>QR 스캔 불가</figcaption></figure>
+</div>
+
+<h2>브라우저 — 연결 페이지 (/connect)</h2>
+<div class="row">
+  <figure class="phone"><img src="web-connect-1-start-empty.png" /><figcaption><b>코드 입력</b></figcaption></figure>
+  <figure class="phone"><img src="web-connect-2-code-error.png" /><figcaption>코드 오류</figcaption></figure>
+  <figure class="phone"><img src="web-connect-3-code-ratelimited.png" /><figcaption>시도 횟수 초과</figcaption></figure>
+  <figure class="phone"><img src="web-connect-4-network-error.png" /><figcaption>네트워크 오류</figcaption></figure>
+</div>
+
+<h2>브라우저 — 허용 대기와 결과</h2>
+<div class="row">
+  <figure class="phone"><img src="web-pair-1-waiting.png" /><figcaption><b>허용 대기</b></figcaption></figure>
+  <figure class="phone"><img src="web-pair-2-waiting-offline.png" /><figcaption>PC가 꺼져 있음</figcaption></figure>
+  <figure class="phone"><img src="web-pair-3-declined.png" /><figcaption>거절됨</figcaption></figure>
+  <figure class="phone"><img src="web-pair-4-expired.png" /><figcaption>만료됨</figcaption></figure>
+  <figure class="phone"><img src="web-pair-5-revoked.png" /><figcaption>연결 해제됨</figcaption></figure>
+  <figure class="phone"><img src="web-pair-6-network-error.png" /><figcaption>네트워크 오류</figcaption></figure>
+</div>
+
+<h2>PC — 설정 → 연결, 승인 창</h2>
+<div class="row">
+  <figure class="desk"><img src="pc-1-mobile-tab.png" /><figcaption><b>모바일 탭</b> — QR + 3단계, 아래 "코드로 연결"</figcaption></figure>
+  <figure class="desk"><img src="pc-2-mobile-tab-code.png" /><figcaption><b>모바일 탭 → 코드로 연결</b> — 같은 자리에 코드</figcaption></figure>
+  <figure class="desk"><img src="pc-3-web-tab.png" /><figcaption><b>웹 탭</b> — 코드 + 주소(복사)</figcaption></figure>
+  <figure class="desk"><img src="pc-4-other-pc-tab.png" /><figcaption><b>다른 PC 탭</b> — 좌우 카드 같은 높이·같은 줄 구성</figcaption></figure>
+  <figure class="desk"><img src="pc-5-approval-dialog.png" /><figcaption><b>기기 연결 요청</b> — 거절 / 허용</figcaption></figure>
+</div>
+</body>
+</html>

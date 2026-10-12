@@ -12,7 +12,7 @@
  */
 import { createRoutePersistence } from './model-route/route-persist.mjs';
 import { createWebSearchRouteApi } from './model-route/web-search-route.mjs';
-import { createSetRoute } from './model-route/set-route.mjs';
+import { createSetRoute, createContinueSessionInModel } from './model-route/set-route.mjs';
 import { createRouteTuning } from './model-route/route-tuning.mjs';
 
 export { shouldRecreateEmptySessionForRouteChange } from '../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
@@ -22,6 +22,7 @@ export function createModelRouteApi(deps) {
   return {
     ...createWebSearchRouteApi(deps),
     setRoute: createSetRoute(deps, persist),
+    continueSessionInModel: createContinueSessionInModel(deps, persist),
     ...createRouteTuning(deps, persist),
   };
 }

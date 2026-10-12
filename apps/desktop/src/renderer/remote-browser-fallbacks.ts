@@ -6,9 +6,19 @@ import type { DesktopApi, DesktopUpdaterState } from '../shared/contract';
 import { normalizeRemoteExternalUrl } from './remote-pairing-recovery';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
-// Recoverable trash is an Electron API the daemon behind the relay cannot
+// Recoverable trash is an Electron API a host without remoteParity cannot
 // reach. Reporting that keeps a remote action honest instead of doing nothing.
 const DESKTOP_ONLY_TRASH = 'Moving items to the trash is available in the desktop app only.';
+
+/** What a host that does not advertise `remoteParity` gets for the methods it
+ *  lacks (it answers `unknown method`). The shim picks these per call. */
+export const LEGACY_HOST_FALLBACKS = {
+  getUpdaterState: (): Promise<DesktopUpdaterState> => Promise.resolve(DISABLED_UPDATER),
+  checkForDesktopUpdate: (): Promise<DesktopUpdaterState> => Promise.resolve(DISABLED_UPDATER),
+  showDesktopUpdate: (): Promise<DesktopUpdaterState> => Promise.resolve(DISABLED_UPDATER),
+  trashProjectEntry: (): Promise<void> => Promise.reject(new Error(DESKTOP_ONLY_TRASH)),
+  browserReleasePage: (): Promise<void> => Promise.resolve(),
+};
 
 type RemoteBrowserFallbacks = Pick<
   DesktopApi,
@@ -17,17 +27,13 @@ type RemoteBrowserFallbacks = Pick<
   | 'chooseFiles'
   | 'openProjectInExplorer'
   | 'openExternal'
-  | 'trashProjectEntry'
   | 'chooseWorkspace'
   | 'folderPathForFile'
   | 'rendererReady'
   | 'revealFile'
   | 'openFilePath'
   | 'openAttachmentImage'
-  | 'getUpdaterState'
-  | 'subscribeUpdaterState'
-  | 'checkForDesktopUpdate'
-  | 'showDesktopUpdate'
+  | 'saveFileAs'
   | 'getZoomFactor'
   | 'setZoomFactor'
   | 'onZoomFactorChanged'
@@ -51,7 +57,6 @@ export const REMOTE_BROWSER_FALLBACKS: RemoteBrowserFallbacks = {
     }
     return Promise.resolve();
   },
-  trashProjectEntry: () => Promise.reject(new Error(DESKTOP_ONLY_TRASH)),
   chooseWorkspace: () => Promise.resolve(null),
   // Only Electron's webUtils can name an OS-dropped file. A browser drop
   // carries the File itself, which the composer reads without a path.
@@ -82,10 +87,28 @@ export const REMOTE_BROWSER_FALLBACKS: RemoteBrowserFallbacks = {
     }
     return Promise.resolve();
   },
-  getUpdaterState: () => Promise.resolve(DISABLED_UPDATER),
-  subscribeUpdaterState: () => () => {},
-  checkForDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
-  showDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
+  // No dialog of ours to show, and the host's would appear on another
+  // machine. A data URL downloads through an anchor; a cross-origin http(s)
+  // URL ignores `download` and would navigate the app, so it opens in a new
+  // tab and reports no confirmed save.
+  saveFileAs: (source, suggestedName) => {
+    if (/^data:/i.test(source)) {
+      const link = document.createElement('a');
+      link.href = source;
+      link.download = suggestedName || '';
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return Promise.resolve(true);
+    }
+    try {
+      window.open(source, '_blank', 'noopener');
+    } catch {
+      /* popup blocked */
+    }
+    return Promise.resolve(false);
+  },
   getZoomFactor: () => Promise.resolve(1),
   setZoomFactor: () => {
     document.documentElement.style.removeProperty('zoom');

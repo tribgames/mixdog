@@ -16,21 +16,22 @@ import {
   type SetStateAction,
 } from 'react';
 import { X } from 'lucide-react';
-import { SideFileStatusRow, sideFileHasFooter } from './side-file-status-row';
-import { SideFileStrip, type SideFileChrome } from './side-surface-strip';
+import type { SideFileChrome } from './side-surface-strip';
 import { DockHeaderRow, PaneDockExpandContext } from './pane-dock-chrome';
 import { PaneDockDiffColumn } from './pane-dock-diff-column';
+import { PaneDockFileSurface } from './PaneDockFileSurface';
 import {
+  commitWidthPref,
   useDiffColumnResize,
   useDockCellWidth,
   useDockCloseRequest,
   useDockExpansion,
   useDockMounting,
   useMobileOutsideFold,
+  usePanelWidthDrag,
   useSideFileProblems,
 } from './pane-side-dock-hooks';
 import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
-import { SideFileProblems } from './side-file-problems';
 import { DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH, DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import type { WorkspaceSelection } from './nav-types';
 import { navigationKey } from './text-format';
@@ -39,7 +40,7 @@ import { DIFF_STARTUP_DELAY_MS, ReadyGitDiffPane } from './app-shell-components'
 import { FileText as FileIcon } from 'lucide-react';
 import { DiffHeaderControls, diffScopeLabel, useDiffViewState } from './diff-header-controls';
 import { DesktopLoadingSurface } from './RendererRecovery';
-import { isMobileRemoteSurface } from './mobile-surface';
+import { useMobileRemoteSurface } from './mobile-surface';
 import {
   WorkbenchSidePanel,
   type WorkbenchSideTitleDragProps,
@@ -140,7 +141,7 @@ export function paneFilesShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surfac
   return entry.open && entry.surface === PANE_DOCK_FILES_SURFACE && Boolean(entry.folder);
 }
 /** The file child is the showing surface of an open unit. */
-export function paneFileShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'files'>): boolean {
+function paneFileShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'files'>): boolean {
   return entry.open && entry.surface === PANE_DOCK_FILE_SURFACE && (entry.files?.length ?? 0) > 0;
 }
 /** The active file tab (the last one when the stored key is stale). */
@@ -274,6 +275,7 @@ function isDockFile(value: unknown): value is StoredDockFile {
     // A file-scoped access token does not outlive its session.
     record.accessToken === undefined &&
     (record.preview === undefined || typeof record.preview === 'boolean') &&
+    (record.sidePreview === undefined || typeof record.sidePreview === 'boolean') &&
     (record.openedAt === undefined || typeof record.openedAt === 'number') &&
     (record.line === undefined || typeof record.line === 'number') &&
     (record.column === undefined || typeof record.column === 'number')
@@ -439,7 +441,7 @@ export function withPaneDockFileOpened(
 }
 
 /** Activates an existing file tab. */
-export function withPaneDockFileActivated(entry: PaneSideDockEntry, fileKey: string): PaneSideDockEntry {
+function withPaneDockFileActivated(entry: PaneSideDockEntry, fileKey: string): PaneSideDockEntry {
   if (!entry.files?.some((file) => sideFileKey(file) === fileKey)) return entry;
   return { ...entry, open: true, surface: PANE_DOCK_FILE_SURFACE, activeFile: fileKey };
 }
@@ -734,7 +736,7 @@ function usePaneSideDockCommands({
       line?: number,
       accessToken?: string,
       column?: number,
-      request?: { preview?: boolean; from?: string }
+      request?: { preview?: boolean; from?: string; sidePreview?: boolean }
     ) => {
       const cleanProject = String(project || '').trim();
       const cleanRel = String(rel || '')
@@ -756,6 +758,7 @@ function usePaneSideDockCommands({
           {
             preview: request?.preview,
             from: request?.from,
+            sidePreview: request?.sidePreview,
             now: nonce,
             isDirty: (fileKey) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
           }
@@ -1103,14 +1106,6 @@ function MobileDockHeader({
   );
 }
 
-const commitWidthPref = (key: string, value: number) => {
-  try {
-    window.localStorage.setItem(key, String(value));
-  } catch {
-    /* session-only */
-  }
-};
-
 export function PaneSideDock({
   leafId,
   entry,
@@ -1196,18 +1191,8 @@ export function PaneSideDock({
 }) {
   const openNow = entry.open && (entry.view !== null || entry.surface !== '');
   const { panelMounted, dockBodyMounted } = useDockMounting(openNow, prewarm);
-  const {
-    fileChromes,
-    chromeSetter,
-    fileProblemsOpen,
-    setFileProblemsOpen,
-    fileProblemsHeight,
-    setFileProblemsHeight,
-    toggleFileProblems,
-  } = useSideFileProblems((entry.files?.length ?? 0) > 0);
+  const fileProblems = useSideFileProblems((entry.files?.length ?? 0) > 0);
   const activeFile = paneDockActiveFile(entry);
-  const activeFileId = activeFile ? sideFileKey(activeFile) : null;
-  const fileChrome = activeFileId ? (fileChromes[activeFileId] ?? null) : null;
   const surfaceShowing = openNow && entry.surface !== '';
   const browserShowing = surfaceShowing && entry.surface === PANE_DOCK_BROWSER_SURFACE;
   const terminalShowing = surfaceShowing && entry.surface === PANE_DOCK_TERMINAL_SURFACE;
@@ -1230,9 +1215,21 @@ export function PaneSideDock({
     entry.view,
     openNow
   );
-  // The stored preference as it stood when a panel resize gesture began: a
-  // cancel restores it rather than the constrained rendered width.
-  const panelWidthSnapshot = useRef<{ kind: 'terminal' | 'browser' | 'panel'; pref: number } | null>(null);
+  const panelWidthDrag = usePanelWidthDrag({
+    terminalShowing,
+    sessionSurfaceShowing,
+    terminalPref,
+    setTerminalPref,
+    browserPref,
+    setBrowserPref,
+    panelPref,
+    setPanelPref,
+    storageKeys: {
+      terminal: PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY,
+      browser: PANE_SIDE_DOCK_BROWSER_WIDTH_KEY,
+      panel: PANE_SIDE_DOCK_WIDTH_KEY,
+    },
+  });
   const diffResizeProps = useDiffColumnResize({
     diffPref,
     setDiffPref,
@@ -1259,8 +1256,8 @@ export function PaneSideDock({
     focused,
     onClose
   );
+  const mobileSheet = useMobileRemoteSurface();
   if (groups.length === 0) return null;
-  const mobileSheet = isMobileRemoteSurface();
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
   const sessionMin = terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH : PANE_SIDE_DOCK_BROWSER_MIN_WIDTH;
   const sessionMax = terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MAX_WIDTH : PANE_SIDE_DOCK_BROWSER_MAX_WIDTH;
@@ -1313,24 +1310,23 @@ export function PaneSideDock({
   );
   const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing) ?? null) : null;
   const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing) ?? null) : null;
-  // One mounted editor per file tab, so unsaved edits survive a tab switch;
-  // only the active tab's editor shows.
   const fileSurface =
-    dockBodyMounted && entry.files?.length
-      ? entry.files.map((file) => {
-          const fileId = sideFileKey(file);
-          const shown = fileId === activeFileId;
-          return (
-            <div key={fileId} className="pane-side-file-tab" hidden={!shown}>
-              {renderFileSurface?.(file, fileShowing && shown, {
-                onChrome: chromeSetter(fileId),
-                onShowProblems: toggleFileProblems,
-              }) ?? null}
-            </div>
-          );
-        })
-      : null;
-  const fileProblems = fileProblemsOpen && activeFile ? (renderFileProblems?.(activeFile) ?? null) : null;
+    dockBodyMounted && entry.files?.length ? (
+      <PaneDockFileSurface
+        files={entry.files}
+        activeFile={activeFile}
+        active={fileShowing}
+        problems={fileProblems}
+        renderFileSurface={renderFileSurface}
+        renderFileProblems={renderFileProblems}
+        onActivateFile={onActivateFile}
+        onCloseFileTab={onCloseFileTab}
+        onKeepFile={onKeepFile}
+        onCloseFile={onCloseFile}
+        onClose={onClose}
+        openFileTab={openFileTab}
+      />
+    ) : null;
   const filesSurface =
     dockBodyMounted && entry.folder
       ? (renderFilesSurface?.(entry.folder, filesShowing, { onClose: onCloseFolder ?? onClose }) ?? null)
@@ -1338,42 +1334,7 @@ export function PaneSideDock({
   const surfaces = (browserSurface || terminalSurface || fileSurface || filesSurface || twoDepthDiff) && (
     <>
       {filesSurface && <PaneDockSurfaceSlot active={filesShowing}>{filesSurface}</PaneDockSurfaceSlot>}
-      {fileSurface && (
-        <div
-          className="workbench-side-surface-slot"
-          data-surface-active={fileShowing ? 'true' : 'false'}
-          inert={fileShowing ? undefined : true}
-          aria-hidden={fileShowing ? undefined : true}
-        >
-          <SideFileStrip
-            files={entry.files ?? []}
-            activeKey={activeFileId}
-            chrome={fileChrome}
-            onSelect={(fileKey) => onActivateFile?.(fileKey)}
-            onCloseTab={(fileKey) => (onCloseFileTab ? onCloseFileTab(fileKey) : (onCloseFile ?? onClose)())}
-            onKeep={(fileKey) => onKeepFile?.(fileKey)}
-            onClose={onCloseFile ?? onClose}
-            onOpenInMain={() => {
-              // The host's main-tab open takes the file over from this dock
-              // (confirming unsaved edits), so nothing else to close here.
-              if (activeFile) openFileTab(activeFile.project, activeFile.rel, activeFile.line, activeFile.accessToken);
-            }}
-          />
-          <div className="pane-side-file-body">
-            <div className="pane-side-file-editor">{fileSurface}</div>
-            {fileProblems && (
-              <SideFileProblems
-                height={fileProblemsHeight}
-                onHeightChange={setFileProblemsHeight}
-                onClose={() => setFileProblemsOpen(false)}
-              >
-                {fileProblems}
-              </SideFileProblems>
-            )}
-          </div>
-          {sideFileHasFooter(fileChrome) && <SideFileStatusRow chrome={fileChrome} />}
-        </div>
-      )}
+      {fileSurface}
       {browserSurface && (
         <div
           className="workbench-side-surface-slot"
@@ -1480,33 +1441,7 @@ export function PaneSideDock({
               onMoveGroup={onMoveGroup}
               onMoveView={onMoveView}
               widthOverride={asideWidth}
-              onWidthDrag={(next, phase) => {
-                const kind = terminalShowing ? 'terminal' : sessionSurfaceShowing ? 'browser' : 'panel';
-                if (phase === 'preview' && !panelWidthSnapshot.current) {
-                  const pref = kind === 'terminal' ? terminalPref : kind === 'browser' ? browserPref : panelPref;
-                  panelWidthSnapshot.current = { kind, pref };
-                }
-                if (phase === 'cancel') {
-                  const snapshot = panelWidthSnapshot.current;
-                  panelWidthSnapshot.current = null;
-                  if (!snapshot) return;
-                  if (snapshot.kind === 'terminal') setTerminalPref(snapshot.pref);
-                  else if (snapshot.kind === 'browser') setBrowserPref(snapshot.pref);
-                  else setPanelPref(snapshot.pref);
-                  return;
-                }
-                if (phase === 'commit') panelWidthSnapshot.current = null;
-                if (kind === 'terminal') {
-                  setTerminalPref(next);
-                  if (phase === 'commit') commitWidthPref(PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY, next);
-                } else if (kind === 'browser') {
-                  setBrowserPref(next);
-                  if (phase === 'commit') commitWidthPref(PANE_SIDE_DOCK_BROWSER_WIDTH_KEY, next);
-                } else {
-                  setPanelPref(next);
-                  if (phase === 'commit') commitWidthPref(PANE_SIDE_DOCK_WIDTH_KEY, next);
-                }
-              }}
+              onWidthDrag={panelWidthDrag}
               widthRange={
                 sessionSurfaceShowing
                   ? {

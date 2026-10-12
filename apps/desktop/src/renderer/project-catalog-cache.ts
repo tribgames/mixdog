@@ -5,8 +5,12 @@ export const PROJECT_CATALOG_CACHE_KEY = 'mixdog.desktop-project-catalog.v1';
 
 type ProjectCatalogStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
-function normalizedPath(path: string): string {
-  return path
+/** Comparison key for a project path: separators unified, trailing slash and
+ *  surrounding whitespace dropped, case folded (Windows paths are
+ *  case-insensitive). The one identity every project lookup compares by. */
+export function projectIdentity(path: unknown): string {
+  return String(path || '')
+    .trim()
     .replace(/[\\/]+/g, '/')
     .replace(/\/$/, '')
     .toLocaleLowerCase();
@@ -20,7 +24,7 @@ function normalizeProjectCatalog(value: unknown): DesktopProjectSummary[] {
     if (!item || typeof item !== 'object') continue;
     const row = item as Partial<DesktopProjectSummary>;
     const path = typeof row.path === 'string' ? row.path.trim() : '';
-    const identity = normalizedPath(path);
+    const identity = projectIdentity(path);
     if (!path || !identity || seen.has(identity)) continue;
     seen.add(identity);
     projects.push({

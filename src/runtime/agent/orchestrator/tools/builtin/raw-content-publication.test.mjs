@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import test from 'node:test';
+import { differentFieldValue } from './file-version-test-helpers.mjs';
 
 const root = fs.mkdtempSync(join(tmpdir(), 'mixdog-raw-publication-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -29,43 +30,96 @@ function patchFor(path, from = 'BEFORE') {
   return parseV4APatch(`*** Begin Patch\n*** Update File: ${basename(path)}\n@@\n-${from}\n+EDITED\n*** End Patch\n`);
 }
 const routes = [
-  { name: 'snapshot', stat: 'statSync', run: (path) => readTextForSnapshotCheck(path),
-    observed: (out) => assert.equal(out, 'BEFORE\n') },
-  { name: 'V4A', stat: 'lstatSync', run: (path) => convertV4ASectionsToUnifiedPatch(patchFor(path), root),
-    observed: (out) => { assert.match(out, /-BEFORE\n\+EDITED/); } },
+  {
+    name: 'snapshot',
+    stat: 'statSync',
+    run: (path) => readTextForSnapshotCheck(path),
+    observed: (out) => assert.equal(out, 'BEFORE\n'),
+  },
+  {
+    name: 'V4A',
+    stat: 'lstatSync',
+    run: (path) => convertV4ASectionsToUnifiedPatch(patchFor(path), root),
+    observed: (out) => {
+      assert.match(out, /-BEFORE\n\+EDITED/);
+    },
+  },
 ];
 
 // Intercept only this temporary target's leaf IO; public readers, converter,
 // caches, parsing/encoding and the rest of the filesystem run unchanged.
+// The snapshot reader reads with readFileSync; the V4A converter reads through
+// the bounded descriptor reader (openSync/readSync/closeSync), so one fresh
+// read of the target is a descriptor opened for it, read, and closed — the
+// `read` hook runs once that read is complete, as it does after readFileSync.
 function intercept(t, path, statName, { post = (st) => st, read = (buf) => buf, pre = (st) => st } = {}) {
   const originalRead = fs.readFileSync;
+  const originalOpen = fs.openSync;
+  const originalReadSync = fs.readSync;
+  const originalClose = fs.closeSync;
   const originalStat = fs[statName];
   const calls = { reads: 0, stats: 0, posts: 0 };
+  // fd -> buffers read from it; readFileSync's own descriptor IO is not tracked.
+  const targetFds = new Map();
+  let inReadFile = false;
   const readMock = t.mock.method(fs, 'readFileSync', (target, ...args) => {
-    const buf = originalRead(target, ...args);
+    inReadFile = true;
+    let buf;
+    try {
+      buf = originalRead(target, ...args);
+    } finally {
+      inReadFile = false;
+    }
     if (target !== path) return buf;
     calls.reads++;
     return read(buf);
+  });
+  const openMock = t.mock.method(fs, 'openSync', (target, ...args) => {
+    const fd = originalOpen(target, ...args);
+    if (target === path && !inReadFile) targetFds.set(fd, []);
+    return fd;
+  });
+  const readSyncMock = t.mock.method(fs, 'readSync', (fd, buffer, offset, length, position) => {
+    const bytes = originalReadSync(fd, buffer, offset, length, position);
+    targetFds.get(fd)?.push(Buffer.from(buffer.subarray(offset, offset + bytes)));
+    return bytes;
+  });
+  const closeMock = t.mock.method(fs, 'closeSync', (fd) => {
+    const chunks = targetFds.get(fd);
+    targetFds.delete(fd);
+    const result = originalClose(fd);
+    if (chunks?.length) {
+      calls.reads++;
+      read(Buffer.concat(chunks));
+    }
+    return result;
   });
   const statMock = t.mock.method(fs, statName, (target, ...args) => {
     const st = originalStat(target, ...args);
     if (target !== path) return st;
     calls.stats++;
-    if (calls.reads) { calls.posts++; return post(st); }
+    if (calls.reads) {
+      calls.posts++;
+      return post(st);
+    }
     return pre(st);
   });
   syncBuiltinESMExports();
   const restore = () => {
-    readMock.mock.restore(); statMock.mock.restore(); syncBuiltinESMExports();
+    readMock.mock.restore();
+    openMock.mock.restore();
+    readSyncMock.mock.restore();
+    closeMock.mock.restore();
+    statMock.mock.restore();
+    syncBuiltinESMExports();
   };
   t.after(restore);
   return { calls, restore };
 }
 function changed(st, field) {
-  const value = field === 'ino' || field === 'dev' ? (st[field] === 0 ? 1 : 0)
-    : st[field] + (field.endsWith('Ms') ? 0.5 : 1);
-  assert.notEqual(value, st[field], `${field}: fixture must differ even on NTFS`);
-  return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { [field]: value });
+  return Object.assign(Object.create(Object.getPrototypeOf(st)), st, {
+    [field]: differentFieldValue(st[field], field),
+  });
 }
 
 for (const route of routes) {
@@ -86,7 +140,11 @@ for (const route of routes) {
 
   test(`${route.name}: failed post-read stat preserves the observation but publishes nothing`, async (t) => {
     const { path, st } = fixture();
-    const io = intercept(t, path, route.stat, { post() { throw Object.assign(new Error('post-read failure'), { code: 'EIO' }); } });
+    const io = intercept(t, path, route.stat, {
+      post() {
+        throw Object.assign(new Error('post-read failure'), { code: 'EIO' });
+      },
+    });
     route.observed(await route.run(path));
     assert.equal(io.calls.posts, 1);
     assert.equal(rawContentCacheGet(path, st), null);
@@ -94,7 +152,12 @@ for (const route of routes) {
 
   test(`${route.name}: incomplete post-read evidence cannot publish`, async (t) => {
     const { path, st } = fixture();
-    intercept(t, path, route.stat, { post(live) { live.ino = undefined; return live; } });
+    intercept(t, path, route.stat, {
+      post(live) {
+        live.ino = undefined;
+        return live;
+      },
+    });
     route.observed(await route.run(path));
     assert.equal(rawContentCacheGet(path, st), null);
   });
@@ -107,7 +170,11 @@ for (const route of routes) {
     assert.equal(io.calls.posts, 1);
     assert.deepEqual(rawContentCacheGet(path, st), bytes);
     io.restore();
-    const hit = intercept(t, path, route.stat, { read() { throw new Error('a hit must not reread'); } });
+    const hit = intercept(t, path, route.stat, {
+      read() {
+        throw new Error('a hit must not reread');
+      },
+    });
     route.observed(await route.run(path));
     assert.equal(hit.calls.reads, 0);
     assert.equal(hit.calls.stats, 1);
@@ -119,7 +186,10 @@ for (const route of routes) {
     const after = changed(st, 'ino');
     intercept(t, path, route.stat, {
       pre: () => st,
-      read(buf) { Object.assign(st, after); return buf; },
+      read(buf) {
+        Object.assign(st, after);
+        return buf;
+      },
       post: () => after,
     });
     route.observed(await route.run(path));
@@ -129,11 +199,13 @@ for (const route of routes) {
   test(`${route.name}: a real replacement during read cannot seed the shared cache`, async (t) => {
     const { path, st } = fixture();
     const replacement = Buffer.from('AFTER replacement has different size\n');
-    const io = intercept(t, path, route.stat, { read(buf) {
-      fs.writeFileSync(`${path}.next`, replacement);
-      fs.renameSync(`${path}.next`, path);
-      return buf;
-    } });
+    const io = intercept(t, path, route.stat, {
+      read(buf) {
+        fs.writeFileSync(`${path}.next`, replacement);
+        fs.renameSync(`${path}.next`, path);
+        return buf;
+      },
+    });
     route.observed(await route.run(path));
     assert.equal(rawContentCacheGet(path, st), null);
     assert.equal(rawContentCacheGet(path, fs.statSync(path)), null);
@@ -143,7 +215,11 @@ for (const route of routes) {
 
   test(`${route.name}: a read failure is not swallowed as a post-stat cache miss`, async (t) => {
     const { path } = fixture();
-    intercept(t, path, route.stat, { read() { throw Object.assign(new Error('read failure'), { code: 'EIO' }); } });
+    intercept(t, path, route.stat, {
+      read() {
+        throw Object.assign(new Error('read failure'), { code: 'EIO' });
+      },
+    });
     await assert.rejects(async () => route.run(path), /EIO|read failure/);
   });
 }
@@ -152,7 +228,11 @@ test('snapshot: caller-provided stale versions and failed pre-stat do not author
   const { path, st } = fixture();
   assert.equal(readTextForSnapshotCheck(path, null, changed(st, 'ino')), 'BEFORE\n');
   assert.equal(rawContentCacheGet(path, st), null);
-  const io = intercept(t, path, 'statSync', { pre() { throw new Error('pre-stat failed'); } });
+  const io = intercept(t, path, 'statSync', {
+    pre() {
+      throw new Error('pre-stat failed');
+    },
+  });
   assert.equal(readTextForSnapshotCheck(path), 'BEFORE\n');
   assert.equal(io.calls.reads, 1);
   assert.equal(rawContentCacheGet(path, st), null);
@@ -160,16 +240,34 @@ test('snapshot: caller-provided stale versions and failed pre-stat do not author
 
 test('snapshot: invocation-local content, raw seeds and delegated reads keep their existing ownership', (t) => {
   const { path, bytes, st } = fixture();
-  const io = intercept(t, path, 'statSync', { read() { throw new Error('must use invocation cache'); } });
+  const io = intercept(t, path, 'statSync', {
+    read() {
+      throw new Error('must use invocation cache');
+    },
+  });
   const scratch = { content: 'local text', rawBuf: Buffer.from('local text') };
   assert.equal(readTextForSnapshotCheck(path, scratch), 'local text');
-  assert.equal(readTextForSnapshotCheck(path, { getEntry: () => ({ content: 'entry text' }), readTextSync() { throw new Error('must use entry'); } }), 'entry text');
+  assert.equal(
+    readTextForSnapshotCheck(path, {
+      getEntry: () => ({ content: 'entry text' }),
+      readTextSync() {
+        throw new Error('must use entry');
+      },
+    }),
+    'entry text'
+  );
   rawContentCacheSet(path, st, bytes);
   let seeded;
-  assert.equal(readTextForSnapshotCheck(path, {
-    getEntry: () => null, seedBuffer: (_path, buf) => { seeded = buf; },
-    readTextSync: () => seeded.toString(),
-  }), 'BEFORE\n');
+  assert.equal(
+    readTextForSnapshotCheck(path, {
+      getEntry: () => null,
+      seedBuffer: (_path, buf) => {
+        seeded = buf;
+      },
+      readTextSync: () => seeded.toString(),
+    }),
+    'BEFORE\n'
+  );
   assert.equal(seeded, bytes);
   assert.equal(io.calls.reads, 0);
   invalidateBuiltinResultCache();
@@ -186,7 +284,13 @@ test('publication: invalid evidence, partial buffers and post-stat failure leave
     [{ ...before, dev: NaN }, bytes, () => st],
     [before, bytes.subarray(1), () => st],
     [before, bytes, () => ({ ...before, ino: Infinity })],
-    [before, bytes, () => { throw new Error('uncertain'); }],
+    [
+      before,
+      bytes,
+      () => {
+        throw new Error('uncertain');
+      },
+    ],
   ];
   for (const [version, buffer, readStat] of attempts) {
     publishRawContentAfterRead(path, version, buffer, readStat);
@@ -200,13 +304,14 @@ test('snapshot: zero-byte files remain cacheable', () => {
   assert.deepEqual(rawContentCacheGet(path, st), bytes);
 });
 
-for (const encoding of ['utf8', 'utf8bom', 'utf16le', 'utf16be']) {
+const BOMS = { utf8: [], utf8bom: [0xef, 0xbb, 0xbf], utf16le: [0xff, 0xfe], utf16be: [0xfe, 0xff] };
+
+for (const encoding of Object.keys(BOMS)) {
   test(`snapshot and V4A preserve ${encoding} decoding and the exact cached bytes`, async () => {
     const text = '한글\n';
     const body = Buffer.from(text, encoding.startsWith('utf16') ? 'utf16le' : 'utf8');
-    const bytes = encoding === 'utf16be' ? Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(body).swap16()])
-      : encoding === 'utf16le' ? Buffer.concat([Buffer.from([0xff, 0xfe]), body])
-      : encoding === 'utf8bom' ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), body]) : body;
+    if (encoding === 'utf16be') body.swap16();
+    const bytes = Buffer.concat([Buffer.from(BOMS[encoding]), body]);
     for (const reader of ['snapshot', 'V4A']) {
       const { path, st } = fixture(bytes);
       if (reader === 'snapshot') assert.equal(readTextForSnapshotCheck(path), text);
@@ -224,10 +329,12 @@ test('V4A: symlink metadata never authorizes referent-byte reuse or publication'
   const body = Buffer.from('BEFORE\n' + ' '.repeat(Math.max(0, Buffer.byteLength(target) - 7)));
   fs.writeFileSync(path, body);
   const link = join(root, `link-${sequence++}.txt`);
-  try { fs.symlinkSync(target, link, 'file'); }
-  catch (error) {
+  try {
+    fs.symlinkSync(target, link, 'file');
+  } catch (error) {
     if (process.platform !== 'win32' || error.code !== 'EPERM') throw error;
-    t.skip('Windows file-symlink privilege unavailable'); return;
+    t.skip('Windows file-symlink privilege unavailable');
+    return;
   }
   const lst = fs.lstatSync(link);
   const stale = Buffer.alloc(lst.size, 0x78);

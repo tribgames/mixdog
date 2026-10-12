@@ -2,7 +2,8 @@ import type { DesktopSettingKey } from './contract';
 
 /** Adding a Desktop setting requires a setup route or an explicit handoff.
  * Record<DesktopSettingKey, …> makes forgotten settings a typecheck failure. */
-export const DESKTOP_SETUP_SETTING_ACTIONS: Record<DesktopSettingKey, string> = {
+export const DESKTOP_SETUP_SETTING_ACTIONS: Record<DesktopSettingKey | 'notificationVolume', string> = {
+  notificationVolume: 'set_desktop_settings',
   autoClear: 'set_autoclear',
   autoCompact: 'set_compaction',
   keepAwake: 'set_desktop_settings',

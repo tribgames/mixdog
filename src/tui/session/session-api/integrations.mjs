@@ -47,7 +47,8 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       // though the session runtime implements it.
       return await requireRuntimeMethod('consumeCodexRateLimitResetCredit', 'Codex reset is unavailable')(options);
     },
-    getTurnReviewDiff: (options = {}) => turnReviewReply((reviewOptions) => runtime.getTurnReviewDiff?.(reviewOptions), options),
+    getTurnReviewDiff: (options = {}) =>
+      turnReviewReply((reviewOptions) => runtime.getTurnReviewDiff?.(reviewOptions), options),
     getSessionReviewDiff: async () => {
       return (await runtime.getSessionReviewDiff?.()) ?? { supported: false, files: [], patch: '' };
     },
@@ -106,6 +107,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       (input) => runtime.saveCustomProvider(input),
       (result) => `custom provider saved: ${result.id}`
     ),
+    updateCustomProviderModel: (id, modelId, patch) => runtime.updateCustomProviderModel(id, modelId, patch),
     removeCustomProvider: async (id) => {
       const result = await runtime.removeCustomProvider(id);
       refreshRouteStats();
@@ -173,5 +175,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       (name, enabled) => runtime.setWebhookEnabled(name, enabled),
       (_result, name, enabled) => `webhook ${enabled ? 'enabled' : 'disabled'}: ${name}`
     ),
+    // Signed test request only; nothing changes, so no announcement.
+    testWebhook: (name) => runtime.testWebhook(name),
   };
 }

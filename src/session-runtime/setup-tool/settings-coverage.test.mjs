@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { createSetupToolExecutor } from './executor.mjs';
 import { SETUP_ACTION_FIELDS, SETUP_TOOL_DEFS } from './tool-defs.mjs';
@@ -22,6 +24,7 @@ import { isAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 import { saveSchedule } from '../services/channel-admin.mjs';
+import { createStandaloneHookBus } from '../services/hook-bus.mjs';
 
 const run = async (api, args, options = {}) =>
   JSON.parse(await createSetupToolExecutor({ getApi: () => api, ...options }).execute(args));
@@ -133,6 +136,10 @@ test('Main context and model parameters reach the route API, while agent-only fl
   await assert.rejects(run(api, { action: 'set_route', route: { disabled: true } }), /only accepted/);
   await assert.rejects(run(api, { action: 'set_web_search_route', route: { contextPercent: 70 } }), /only accepted/);
   await assert.rejects(run(api, { action: 'set_route', route: { contextPercent: 7 } }), /contextPercent/);
+  const agentCalls = [];
+  const agentApi = { ...api, setAgentRoute: async (id, next) => agentCalls.push([id, next]) };
+  await run(agentApi, { action: 'set_agent_route', agent: 'worker', route: { contextPercent: 70 } });
+  assert.deepEqual(agentCalls, [['worker', { contextPercent: 70 }]]);
 });
 
 test('auto-clear resets preserve unrelated overrides; percentage budgets replace tokens in config and live session', async () => {
@@ -443,7 +450,9 @@ test('provider account changes reach the roster API and return no usage or ident
 test('developer options with a warning turn on only with explicit risk acceptance', async () => {
   const calls = [];
   const view = {
-    sections: [{ id: 'providers', options: [{ id: 'risky', label: 'Risky', warning: 'Account risk.' }, { id: 'plain' }] }],
+    sections: [
+      { id: 'providers', options: [{ id: 'risky', label: 'Risky', warning: 'Account risk.' }, { id: 'plain' }] },
+    ],
   };
   const api = {
     getDeveloperSettings: () => view,
@@ -488,7 +497,12 @@ test('skill definitions read the frontmatter-free body; built-in skills accept o
   const saved = [];
   const rows = [
     { name: 'user-skill', description: 'Mine', whenToUse: 'Probe', editable: true, toolDependencies: [] },
-    { name: 'builtin-skill', description: 'Shipped', editable: false, toolDependencies: [{ type: 'tool', value: 'setup' }] },
+    {
+      name: 'builtin-skill',
+      description: 'Shipped',
+      editable: false,
+      toolDependencies: [{ type: 'tool', value: 'setup' }],
+    },
   ];
   const api = {
     skillContent: async (name) => ({ content: `Body of ${name}.` }),
@@ -517,7 +531,11 @@ test('skill definitions read the frontmatter-free body; built-in skills accept o
     definitionKind: 'skill',
     definition: { originalName: 'builtin-skill', toolDependencies: dependencies },
   });
-  assert.deepEqual(saved.at(-1), { originalName: 'builtin-skill', dependenciesOnly: true, toolDependencies: dependencies });
+  assert.deepEqual(saved.at(-1), {
+    originalName: 'builtin-skill',
+    dependenciesOnly: true,
+    toolDependencies: dependencies,
+  });
   await assert.rejects(
     run(api, {
       action: 'save_definition',
@@ -542,6 +560,206 @@ test('plugin MCP enablement resolves the registered plugin by name', async () =>
   assert.equal(received, plugin);
   assert.equal(result.mcp.servers[0].connected, true);
   await assert.rejects(run(api, { action: 'enable_plugin_mcp', name: 'missing' }), /not found/);
+});
+
+test('Desktop schema accepts notification volume and appearance view options within their bounds', () => {
+  const { desktop, appearance } = SETUP_TOOL_DEFS[0].inputSchema.properties;
+  assert.equal(schemaValueError({ notificationVolume: 400 }, desktop, 'desktop'), null);
+  assert.match(schemaValueError({ notificationVolume: 401 }, desktop, 'desktop'), /at most 400/);
+  assert.match(schemaValueError({ notificationVolume: 1.5 }, desktop, 'desktop'), /integer/);
+  const valid = { markdownDefaultView: 'rich', linkPreview: false, toolActivityExpansion: 'commands' };
+  assert.equal(schemaValueError(valid, appearance, 'appearance'), null);
+  assert.match(schemaValueError({ markdownDefaultView: 'raw' }, appearance, 'appearance'), /must be one of/);
+  assert.match(schemaValueError({ toolActivityExpansion: 'some' }, appearance, 'appearance'), /must be one of/);
+  assert.match(schemaValueError({ linkPreview: 'yes' }, appearance, 'appearance'), /boolean/);
+});
+
+test('status features passes Auto Effort readiness and voice state through', async () => {
+  const autoEffort = { supported: false, enabled: false, installed: false, installing: true, ready: false, info: {} };
+  const voice = { enabled: true, installed: false, components: { whisper: true, model: false, ffmpeg: true } };
+  const api = {
+    getToolModuleSettings: () => ({ autoEffort, git: { enabled: true, installed: true, ready: true } }),
+    getVoiceStatus: async () => ({ ...voice, busy: true, modelId: 'standard', info: {} }),
+  };
+  const features = await run(api, { action: 'status', domain: 'features' });
+  assert.deepEqual(features.autoEffort, {
+    supported: false,
+    enabled: false,
+    installed: false,
+    installing: true,
+    ready: false,
+  });
+  assert.deepEqual(features.git, { enabled: true, installed: true });
+  assert.deepEqual(features.voice, { ...voice, installing: true });
+});
+
+test('voice toggles and installs through the runtime voice setter without a Desktop', async () => {
+  const components = { whisper: true, model: true, ffmpeg: true };
+  let state = { enabled: false, installed: false, components: { whisper: false, model: false, ffmpeg: false } };
+  let failure = null;
+  const calls = [];
+  const api = {
+    setVoiceEnabled: async (enabled) => {
+      calls.push(enabled);
+      if (failure) return { status: { ...state, busy: false }, error: failure };
+      state = enabled ? { enabled: true, installed: true, components } : { ...state, enabled: false };
+      return { status: { ...state, busy: false, info: {} }, error: null };
+    },
+  };
+  const executor = createSetupToolExecutor({ getApi: () => api, getSessionId: () => '' });
+  const exec = async (args) => JSON.parse(await executor.execute(args));
+  const installed = await exec({ action: 'install_builtin', name: 'voice' });
+  assert.deepEqual(installed.voice, { enabled: true, installed: true, components });
+  assert.equal(installed.saved, true);
+  const off = await exec({ action: 'set_builtin_enabled', name: 'voice', enabled: false });
+  assert.deepEqual(off.voice, { enabled: false, installed: true, components });
+  failure = 'Voice setup failed: offline';
+  await assert.rejects(
+    exec({ action: 'set_builtin_enabled', name: 'voice', enabled: true }),
+    /installed and enabled state: Voice setup failed: offline/
+  );
+  await assert.rejects(exec({ action: 'set_builtin_enabled', name: 'voice', enabled: 'yes' }), /boolean/);
+  assert.deepEqual(calls, [true, false, true]);
+});
+
+test('hook rules: status shape, validated add/toggle/delete reach the facade', async () => {
+  const calls = [];
+  let rules = [
+    { index: 0, enabled: true, tool: 'bash', action: 'deny', match: 'rm -rf', cwd: null, reason: null, patch: null },
+  ];
+  const api = {
+    hooksStatus: () => ({
+      enabled: true,
+      configMode: 'legacy',
+      rulesPath: '/h.json',
+      ruleCount: rules.length,
+      rules,
+      recent: [{ args: 'private' }],
+    }),
+    addHookRule: (rule) => {
+      calls.push(['add', rule]);
+      rules = [...rules, { index: rules.length, ...rule }];
+      return rules;
+    },
+    setHookRuleEnabled: (index, enabled) => {
+      calls.push(['enable', index, enabled]);
+      return rules;
+    },
+    flushHookRules: () => calls.push(['flush']),
+    deleteHookRule: (index) => {
+      calls.push(['delete', index]);
+      rules = rules.filter((row) => row.index !== index);
+      return rules;
+    },
+  };
+  const status = await run(api, { action: 'status', domain: 'hooks' });
+  assert.equal(status.ruleCount, 1);
+  assert.deepEqual(status.rules[0].tool, 'bash');
+  assert.equal(Object.hasOwn(status, 'recent'), false);
+  const rule = { tool: 'write', action: 'modify', patch: { dryRun: true } };
+  const added = await run(api, { action: 'add_hook_rule', hookRule: rule });
+  assert.equal(added.saved, true);
+  assert.equal(added.rules.length, 2);
+  await run(api, { action: 'set_hook_rule_enabled', ruleIndex: 1, enabled: false });
+  const removed = await run(api, { action: 'delete_hook_rule', ruleIndex: 0 });
+  assert.equal(removed.deleted.tool, 'bash');
+  assert.match(removed.recovery, /add_hook_rule/);
+  assert.deepEqual(calls, [['add', rule], ['enable', 1, false], ['flush'], ['delete', 0]]);
+  for (const hookRule of [
+    { tool: 'x' },
+    { action: 'explode' },
+    { action: 'deny', tool: ' ' },
+    { action: 'deny', patch: { a: 1 } },
+    { action: 'modify' },
+    { action: 'modify', patch: {}, args: {} },
+    { action: 'deny', extra: true },
+  ])
+    await assert.rejects(run(api, { action: 'add_hook_rule', hookRule }));
+  await assert.rejects(run(api, { action: 'set_hook_rule_enabled', ruleIndex: 9, enabled: true }), /not found/);
+  await assert.rejects(run(api, { action: 'delete_hook_rule', ruleIndex: -1 }), /at least 0/);
+  await assert.rejects(run(api, { action: 'delete_hook_rule', ruleIndex: 7 }), /not found/);
+  assert.equal(calls.length, 4);
+});
+
+test('hook rule argument edits never reach setup output; only their presence is reported', async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-setup-hooks-'));
+  const bus = createStandaloneHookBus({ dataDir });
+  t.after(async () => {
+    bus.flushRules();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const api = {
+    hooksStatus: bus.status,
+    addHookRule: bus.addRule,
+    setHookRuleEnabled: bus.setRuleEnabled,
+    flushHookRules: bus.flushRules,
+    deleteHookRule: bus.deleteRule,
+  };
+  const outputs = [
+    await run(api, {
+      action: 'add_hook_rule',
+      hookRule: {
+        tool: 'bash',
+        action: 'modify',
+        patch: { command: 'curl -H "Authorization: Bearer sk-patch-canary"' },
+      },
+    }),
+    await run(api, {
+      action: 'add_hook_rule',
+      hookRule: { tool: 'write', action: 'rewrite', args: { token: 'sk-args-canary' } },
+    }),
+    await run(api, { action: 'add_hook_rule', hookRule: { tool: 'read', action: 'deny' } }),
+    await run(api, { action: 'set_hook_rule_enabled', ruleIndex: 1, enabled: false }),
+  ];
+  const status = await run(api, { action: 'status', domain: 'hooks' });
+  assert.deepEqual(
+    status.rules.map(({ tool, hasArgumentEdit, enabled }) => [tool, hasArgumentEdit, enabled]),
+    [
+      ['bash', true, true],
+      ['write', true, false],
+      ['read', false, true],
+    ]
+  );
+  outputs.push(status, await run(api, { action: 'delete_hook_rule', ruleIndex: 0 }));
+  for (const output of outputs) assert.doesNotMatch(JSON.stringify(output), /canary|patch|"args"/);
+  assert.equal(typeof bus.status().rules[0].patch, 'object', 'other summarizeRule consumers keep the field');
+  assert.notEqual(bus.status().rules[0].patch, null);
+});
+
+test('media defaults: status per kind; set_media_default validates kind, lane and model against the catalog', async () => {
+  const calls = [];
+  const lanes = [
+    { id: 'gemini', label: 'Gemini', authenticated: true, image: { models: [{ id: 'nano' }] }, video: null },
+    { id: 'grok', label: 'Grok', authenticated: false, image: null, video: null },
+  ];
+  const api = {
+    getMediaDefault: async (kind) => (kind === 'image' ? { kind, lane: 'gemini', model: 'nano' } : null),
+    listMediaLanes: async () => lanes,
+    setMediaDefault: async (input) => {
+      calls.push(input);
+      return { model: '', ...input };
+    },
+  };
+  const status = await run(api, { action: 'status', domain: 'media' });
+  assert.deepEqual(status.defaults, { image: { lane: 'gemini', model: 'nano' }, video: null });
+  const saved = await run(api, { action: 'set_media_default', kind: 'image', lane: 'gemini', model: 'nano' });
+  assert.deepEqual(saved.media, { kind: 'image', lane: 'gemini', model: 'nano' });
+  await run(api, { action: 'set_media_default', kind: 'image', lane: 'gemini' });
+  assert.deepEqual(calls, [
+    { kind: 'image', lane: 'gemini', model: 'nano' },
+    { kind: 'image', lane: 'gemini' },
+  ]);
+  for (const [args, pattern] of [
+    [{ kind: 'skills', lane: 'gemini' }, /kind must be one of image, video/],
+    [{ kind: 'audio', lane: 'gemini' }, /must be one of/],
+    [{ kind: 'image', lane: 'missing' }, /Unknown media lane/],
+    [{ kind: 'image', lane: 'grok' }, /not signed in/],
+    [{ kind: 'video', lane: 'gemini' }, /no video models/],
+    [{ kind: 'image', lane: 'gemini', model: 'other' }, /not available/],
+    [{ kind: 'image', lane: ' ' }, /lane/],
+  ])
+    await assert.rejects(run(api, { action: 'set_media_default', ...args }), pattern);
+  assert.equal(calls.length, 2);
 });
 
 test('getAutoClear: provider override beats global idleMs and is flagged', () => {

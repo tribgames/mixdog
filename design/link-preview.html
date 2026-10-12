@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>링크 미리보기 시안</title>
+<style>
+  :root {
+    --deep: #101013; --sheet: #111113; --base: #222225; --l1: #2a2a2d; --l2: #323236; --l3: #3d3d41;
+    --text: #e9e9e9; --muted: #a8a8a8; --soft: color-mix(in srgb, #e9e9e9 85%, transparent);
+    --accent: #79b8ff; --border-muted: rgba(255,255,255,.09); --border: rgba(255,255,255,.125); --hover: rgba(255,255,255,.08);
+    --action: rgba(255,255,255,.08); --md-code: #79b8ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--deep); color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 26px 30px 60px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 22px; max-width: 1100px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 32px 0 4px; }
+  .desc { color: var(--soft); font-size: 13px; margin: 0 0 12px; max-width: 1100px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 18px; max-width: 1400px; }
+  .cell .cap { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .cell .cap b { color: var(--text); font-weight: 600; }
+  .stage { background: var(--sheet); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border-muted); padding: 18px 22px; }
+  .prose { font-size: 15px; line-height: 24px; color: var(--text); margin: 0 0 6px; }
+
+  /* 지금 카드 (13-tool-cards.css 그대로) */
+  .card { width: min(100%, 420px); min-height: 48px; display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; padding: 8px 8px 8px 12px;
+          border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .card .ico { flex: none; display: grid; place-items: center; color: var(--muted); }
+  .card .copy { min-width: 0; flex: 1; display: grid; gap: 1px; }
+  .card .copy b, .card .copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .card .copy b { font-size: 14px; font-weight: 500; line-height: 20px; }
+  .card .copy small { color: var(--muted); font-size: 13px; line-height: 16px; }
+  .open { flex: none; min-height: 28px; padding: 0 12px; border: 0; border-radius: 6px; color: var(--text); background: var(--action); font: inherit; font-size: 14px; }
+  svg.l { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* 사이트 아이콘 */
+  .fav { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; font: 700 11px/1 "Segoe UI", sans-serif; color: #fff; flex: none; }
+  .fav.sm { width: 14px; height: 14px; border-radius: 3px; font-size: 8px; }
+  .fav.gh { background: #24292f; } .fav.mdn { background: #1b1b1b; box-shadow: inset 0 0 0 1px #444; } .fav.loc { background: #3d3d41; color: #cfcfcf; }
+  .fav.vercel { background: #000; box-shadow: inset 0 0 0 1px #333; }
+
+  /* 섬네일 카드 A: 왼쪽 섬네일 */
+  .tcard { width: min(100%, 460px); display: flex; gap: 12px; align-items: stretch; margin: 8px 0 4px; padding: 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .thumb { width: 104px; height: 66px; flex: none; border-radius: 6px; overflow: hidden; background: #fff; box-shadow: inset 0 0 0 1px var(--border-muted); position: relative; }
+  .tcard .body { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+  .tcard .site { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); min-width: 0; }
+  .tcard .site span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tcard .title { font-size: 14px; font-weight: 500; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tcard .path { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tcard .side { display: flex; align-items: center; }
+
+  /* 섬네일 카드 B: 위쪽 큰 섬네일 */
+  .bcard { width: min(100%, 360px); margin: 8px 0 4px; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .bcard .shot { height: 168px; position: relative; background: #0d1117; overflow: hidden; box-shadow: inset 0 -1px 0 var(--border-muted); }
+  .bcard .meta { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; }
+  .bcard .meta .t { min-width: 0; flex: 1; display: grid; gap: 1px; }
+  .bcard .meta .t b { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bcard .meta .t small { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 가짜 페이지 스크린샷 */
+  .page { position: absolute; inset: 0; transform-origin: 0 0; }
+  .page .nav { height: 14%; background: #f6f8fa; border-bottom: 1px solid #e1e4e8; display: flex; align-items: center; padding: 0 6%; gap: 4%; }
+  .page .nav i { display: block; height: 28%; width: 12%; background: #d0d7de; border-radius: 2px; }
+  .page .hero { margin: 6% 6% 0; height: 16%; width: 60%; background: #1f2328; border-radius: 2px; }
+  .page .line { margin: 4% 6% 0; height: 5%; background: #d0d7de; border-radius: 2px; }
+  .page .line.s { width: 55%; } .page .line.m { width: 75%; }
+  .page .box { margin: 6% 6% 0; height: 22%; display: flex; gap: 4%; } .page .box i { flex: 1; background: #eaeef2; border-radius: 3px; }
+  .page.dark { background: #0d1117; } .page.dark .nav { background: #161b22; border-color: #30363d; } .page.dark .nav i, .page.dark .line { background: #30363d; } .page.dark .hero { background: #e6edf3; } .page.dark .box i { background: #21262d; }
+  .page.mock { background: #111113; } .page.mock .nav { background: #18181b; border-color: #2a2a2d; } .page.mock .nav i, .page.mock .line { background: #3d3d41; } .page.mock .hero { background: #79b8ff; width: 40%; } .page.mock .box i { background: #2a2a2d; }
+
+  /* 본문 링크 */
+  .md a { color: var(--md-code); text-decoration: none; }
+  .md a.withfav { display: inline-flex; align-items: center; gap: 4px; vertical-align: -2px; }
+  .md a.withfav .fav { vertical-align: -2px; }
+  .hover { position: relative; display: inline-block; }
+  .hover .pop { position: absolute; top: 26px; left: 0; width: 300px; background: var(--base); border-radius: 12px; box-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%); overflow: hidden; z-index: 2; }
+  .hover .pop .shot { height: 120px; position: relative; background: #fff; }
+  .hover .pop .m { padding: 8px 10px 10px; display: grid; gap: 2px; }
+  .hover .pop .m .site { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+  .hover .pop .m b { font-size: 13.5px; font-weight: 500; }
+
+  /* 탭 줄 */
+  .tabs { display: flex; gap: 2px; background: #18181b; border-radius: 10px; padding: 4px; box-shadow: inset 0 0 0 1px var(--border-muted); width: max-content; }
+  .tab { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 6px; color: var(--muted); font-size: 13px; max-width: 200px; }
+  .tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab.on { background: var(--hover); color: var(--text); }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--border-muted); color: var(--muted); margin-left: 6px; }
+</style>
+</head>
+<body>
+<h1>링크 미리보기 시안</h1>
+<p class="lead">사이트 아이콘·페이지 제목·스크린샷은 모두 앱 내장 브라우저가 이미 가진 정보로 그립니다(외부 아이콘 서비스로 주소를 보내지 않음). 섬네일은 그림으로 흉내 낸 것이며, 실제로는 브라우저 창의 스크린샷이 들어갑니다.</p>
+
+<h2>1. 브라우저 페이지 카드 (도구 실행 아래)</h2>
+<p class="desc">에이전트가 브라우저로 연 페이지를 대화에 남기는 카드입니다.</p>
+<div class="row">
+  <div class="cell"><div class="cap"><b>지금</b> · 지구 아이콘, 호스트, 경로</div>
+    <div class="stage">
+      <div class="card"><span class="ico"><svg class="l" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span>
+        <span class="copy"><b>github.com</b><small>/mixdog/mixdog/pull/412 · 브라우저에서 열림</small></span><button class="open">열기</button></div>
+      <div class="card"><span class="ico"><svg class="l" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span>
+        <span class="copy"><b>127.0.0.1:47823</b><small>/composer-island.html · 브라우저에서 열림</small></span><button class="open">열기</button></div>
+    </div></div>
+
+  <div class="cell"><div class="cap"><b>안 1 · 사이트 아이콘 + 페이지 제목</b><span class="tag">가장 가벼움</span></div>
+    <div class="stage">
+      <div class="card"><span class="fav gh">GH</span>
+        <span class="copy"><b>Composer island by mixdog · Pull Request #412</b><small>github.com/mixdog/mixdog/pull/412</small></span><button class="open">열기</button></div>
+      <div class="card"><span class="fav loc">⌂</span>
+        <span class="copy"><b>컴포저 아일랜드 시안</b><small>127.0.0.1:47823/composer-island.html</small></span><button class="open">열기</button></div>
+    </div>
+    <div class="note">굵은 글씨가 호스트 → 페이지 제목. 둘째 줄은 주소 전체. "브라우저에서 열림"은 카드 자체가 말해 주므로 뺍니다. 아이콘이 없는 로컬 페이지는 회색 기본 아이콘.</div></div>
+
+  <div class="cell"><div class="cap"><b>안 2 · 왼쪽 섬네일</b><span class="tag">Codex식 · 추천</span></div>
+    <div class="stage">
+      <div class="tcard"><div class="thumb"><div class="page"><div class="nav"><i></i><i></i><i></i></div><div class="hero"></div><div class="line m"></div><div class="line s"></div><div class="box"><i></i><i></i></div></div></div>
+        <div class="body"><div class="site"><span class="fav sm gh">G</span><span>github.com</span></div><div class="title">Composer island by mixdog · Pull Request #412</div><div class="path">/mixdog/mixdog/pull/412</div></div>
+        <div class="side"><button class="open">열기</button></div></div>
+      <div class="tcard"><div class="thumb"><div class="page mock"><div class="nav"><i></i><i></i></div><div class="hero"></div><div class="line m"></div><div class="box"><i></i><i></i><i></i></div></div></div>
+        <div class="body"><div class="site"><span class="fav sm loc">⌂</span><span>127.0.0.1:47823</span></div><div class="title">컴포저 아일랜드 시안</div><div class="path">/composer-island.html</div></div>
+        <div class="side"><button class="open">열기</button></div></div>
+    </div>
+    <div class="note">페이지를 연 직후 브라우저 창을 104×66으로 줄여 찍어 둡니다. 섬네일이 없으면 안 1 모양으로 그대로 보입니다.</div></div>
+
+  <div class="cell"><div class="cap"><b>안 3 · 위쪽 큰 섬네일</b><span class="tag">눈에 잘 띔 · 공간 큼</span></div>
+    <div class="stage">
+      <div class="bcard"><div class="shot"><div class="page dark"><div class="nav"><i></i><i></i><i></i></div><div class="hero"></div><div class="line m"></div><div class="line s"></div><div class="box"><i></i><i></i></div></div></div>
+        <div class="meta"><span class="fav gh">GH</span><span class="t"><b>Composer island by mixdog · PR #412</b><small>github.com/mixdog/mixdog/pull/412</small></span><button class="open">열기</button></div></div>
+    </div>
+    <div class="note">페이지 모양이 중요한 작업(UI 확인 등)에 어울립니다. 대화가 길어지면 공간을 많이 차지합니다.</div></div>
+</div>
+
+<h2>2. 본문 속 외부 링크</h2>
+<p class="desc">에이전트 답변 안의 일반 링크입니다.</p>
+<div class="row">
+  <div class="cell"><div class="cap"><b>지금</b></div>
+    <div class="stage md"><p class="prose">자세한 내용은 <a href="#">MDN의 fetch 문서</a>와 <a href="#">이 PR</a>을 참고하세요.</p></div></div>
+  <div class="cell"><div class="cap"><b>제안 · 링크 앞 작은 사이트 아이콘</b><span class="tag">lobe-chat · cherry-studio식</span></div>
+    <div class="stage md"><p class="prose">자세한 내용은 <a class="withfav" href="#"><span class="fav sm mdn">M</span>MDN의 fetch 문서</a>와 <a class="withfav" href="#"><span class="fav sm gh">G</span>이 PR</a>을 참고하세요.</p>
+      <div class="note">아이콘은 내장 브라우저가 한 번이라도 연 사이트만 보여 주고, 처음 보는 사이트는 지금처럼 글자만 둡니다(주소를 밖으로 보내지 않기 위해).</div></div></div>
+  <div class="cell"><div class="cap"><b>제안 · 마우스를 올리면 미리보기</b><span class="tag">cherry-studio식</span></div>
+    <div class="stage md" style="min-height:230px"><div class="note" style="margin:0 0 8px">내장 브라우저에 그 페이지의 섬네일이 있을 때만 뜹니다.</div><p class="prose">자세한 내용은 <span class="hover"><a class="withfav" href="#"><span class="fav sm gh">G</span>이 PR</a>
+      <span class="pop"><span class="shot" style="display:block"><span class="page"><span class="nav" style="display:flex"><i></i><i></i><i></i></span><span class="hero" style="display:block"></span><span class="line m" style="display:block"></span><span class="box" style="display:flex"><i></i><i></i></span></span></span>
+        <span class="m"><span class="site"><span class="fav sm gh">G</span>github.com</span><b>Composer island by mixdog · PR #412</b></span></span></span>을 참고하세요.</p></div></div>
+</div>
+
+<h2>3. 브라우저 탭 줄</h2>
+<div class="row">
+  <div class="cell"><div class="cap"><b>지금</b> · 모두 지구 아이콘</div>
+    <div class="stage"><div class="tabs">
+      <span class="tab on"><svg class="l" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg><span>Composer island by mixdog</span></span>
+      <span class="tab"><svg class="l" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg><span>fetch() - Web APIs | MDN</span></span>
+      <span class="tab"><svg class="l" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg><span>컴포저 아일랜드 시안</span></span></div></div></div>
+  <div class="cell"><div class="cap"><b>제안 · 사이트 아이콘</b></div>
+    <div class="stage"><div class="tabs">
+      <span class="tab on"><span class="fav sm gh">G</span><span>Composer island by mixdog</span></span>
+      <span class="tab"><span class="fav sm mdn">M</span><span>fetch() - Web APIs | MDN</span></span>
+      <span class="tab"><span class="fav sm loc">⌂</span><span>컴포저 아일랜드 시안</span></span></div></div></div>
+</div>
+</body>
+</html>

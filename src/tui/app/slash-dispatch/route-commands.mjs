@@ -180,9 +180,10 @@ export const routeCommands = {
           store.pushNotice('Fast mode switch is already running.', 'warn');
           return;
         }
+        const fastModeLabel = enabled ? 'Fast mode on' : 'Fast mode off';
+        const modeLabel = setTo === 'ultrafast' ? 'Ultrafast' : fastModeLabel;
         store.pushNotice(
-          `${setTo === 'ultrafast' ? 'Ultrafast' : `Fast mode ${enabled ? 'on' : 'off'}`} for ${state.provider}/${state.model}` +
-            (state.busy ? ' (applies from the next turn)' : ''),
+          `${modeLabel} for ${state.provider}/${state.model}` + (state.busy ? ' (applies from the next turn)' : ''),
           'info'
         );
       })

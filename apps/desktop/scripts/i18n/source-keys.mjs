@@ -207,6 +207,17 @@ export function reusableTranslation(key, catalog) {
   return candidates.size === 1 ? [...candidates][0] : undefined;
 }
 
+/**
+ * Keys a locale left as its English source. `terms` are untranslatable in every
+ * locale; `exceptions` ({ [language]: { [key]: reason } }) are genuine cognates.
+ */
+export function untranslatedProblems(language, catalog, keys, { terms, localeExceptions }) {
+  const exceptions = localeExceptions[language] ?? {};
+  return [...keys]
+    .filter((key) => hasLatinText(key) && catalog[key] === key && !(key in terms) && !(key in exceptions))
+    .map((key) => ({ key, reason: 'untranslated (identical to English source)' }));
+}
+
 export function catalogProblems(catalog, keys) {
   const problems = [];
   const required = new Set(keys);

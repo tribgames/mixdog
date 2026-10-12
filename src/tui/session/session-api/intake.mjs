@@ -2,7 +2,7 @@
  * intake.mjs — the session object's prompt intake and interruption surface:
  * state access/subscription and the reserved-session handshake here, with
  * submit / submitAsync / submitAndWait, abort (which reclaims an in-flight or
- * still-accepting submission back into the draft) and message rewind composed
+ * queued submission back into the draft) and message rewind composed
  * from ./intake/.
  */
 import { createAbortAction } from './intake/abort.mjs';
@@ -24,7 +24,7 @@ export function createSessionIntakeApi(bag) {
     restoreQueued,
     prioritizeQueued,
   } = bag;
-  const { acceptingSubmissions, submit, submitAsync, submitAndWait } = createSubmissionIntake(bag);
+  const { submit, submitAsync, submitAndWait } = createSubmissionIntake(bag);
 
   return {
     getState: () => getPublishedState(),
@@ -49,6 +49,6 @@ export function createSessionIntakeApi(bag) {
     restoreQueued,
     prioritizeQueued,
     ...createRewindAction(bag),
-    ...createAbortAction(bag, { acceptingSubmissions }),
+    ...createAbortAction(bag),
   };
 }

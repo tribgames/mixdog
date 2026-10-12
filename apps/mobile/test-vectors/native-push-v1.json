@@ -1,0 +1,14 @@
+{
+  "description": "mixdog-native-push-v1 cross-check vector (from apps/desktop/src/shared/native-push-crypto.ts NATIVE_PUSH_TEST_VECTOR). Native decryptors must turn mx into plaintext using devicePrivatePkcs8 (base64url PKCS#8) or the raw devicePrivateKey scalar.",
+  "devicePublicKey": "BA3gsNuflWc_YtOOjL4UlR6XsAjDlhnotjRhlhX8bD2uYLd8QaH-VWyEfF8_Q92IyBYFsmuaJEWaMF0OYB5m71o",
+  "devicePrivateKey": "MkQCGyPWPK3k6ZYSbLs_DKdI0CN8OO6PnSLcS0m0Dtw",
+  "devicePrivatePkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgMkQCGyPWPK3k6ZYSbLs_DKdI0CN8OO6PnSLcS0m0DtyhRANCAAQN4LDbn5VnP2LTjoy-FJUel7AIw5YZ6LY0YZYV_Gw9rmC3fEGh_lVshHxfP0PdiMgWBbJrmiRFmjBdDmAeZu9a",
+  "mx": "eyJ2IjoxLCJlcGsiOiJCSjFpcjg2WXlVUHpwdjBPaUpiRDF3VzdsR3k1eDFXNm40azk2aXIybF9Yci15TEd0QmM5ZFF4M21wOEhreFJHVTFOTGFQNlZCSU04RG5IRGE4OHE0ZTAiLCJpdiI6IkFBRUNBd1FGQmdjSUNRb0wiLCJjdCI6IlNsSVRmVERORmg3T3hMU0cxOFpGdzVSV0o0UlJLOGV2cDd5VVhoeUpLb21HQTlRS2YyWXNpSi10WldRR0E0U016QldrTWx2aVNfUjladEZ0MzdRYnFyVmlybndWMzRCd0dUQVpqdHFGdG53Qi1aVGRVLUhtWE1MbnNXWTBZbU9WZmZQRWVIVloyU0ZqWTZCT24ydnA5cjFSN1hvXy1hM0RtOE9sN3pJOUlRa0tTU1Y4Wk1UMlg1c0pycUNjZVh6MlVkYWhfcDVnVWlLQSJ9",
+  "plaintext": {
+    "title": "Mixdog",
+    "body": "Build finished: 42 tests passed",
+    "sessionId": "session-1",
+    "reason": "approval-pending",
+    "approvalId": "approval-1"
+  }
+}

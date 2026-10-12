@@ -1,8 +1,8 @@
 // V4A section coalescing: repeated plain Update sections on one file merge
 // into a single section, and a Delete-then-Add pair collapses into the
 // single end state it describes.
-import { readFileSync } from 'node:fs';
 import { normalizeOutputPath } from '../builtin.mjs';
+import { readPatchTargetBytes } from './content-guard.mjs';
 import { splitTextLinesForPatch } from './matcher.mjs';
 import { pathKey, resolveV4AEntryPath } from './paths.mjs';
 
@@ -21,7 +21,8 @@ function collapseDeleteThenAddSection(prior, section, fullPath) {
   const added = Array.isArray(section.lines) ? [...section.lines] : [];
   let raw;
   try {
-    raw = readFileSync(fullPath);
+    // Oversized: not collapsed (the conflict error stands), and never read whole.
+    raw = readPatchTargetBytes(fullPath);
   } catch (error) {
     if (error?.code !== 'ENOENT') return null;
     return { ...section, lines: added, hunks: [] };

@@ -6,7 +6,9 @@ import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
 import { t, uiFormatLocale } from './i18n';
 import { uiCurrency } from './ui-format';
+import { liveAgentRows } from './agent-activity-model';
 import { MxIcon } from './MxIcon';
+import { goalHasBackgroundWork } from './session-goal-presentation';
 import { showDesktopToast } from './notifications';
 import { inheritSessionDirectly, sessionModelSelection, shouldOfferSessionInheritance } from './session-inheritance';
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
@@ -18,6 +20,12 @@ import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../.
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
+// Clockwise r=8.5 rings around (12,12) starting at -120deg, 0deg and 120deg.
+const LIVE_ACTIVITY_ARC_PATHS = [
+  'M7.75 4.639A8.5 8.5 0 0 1 16.25 19.361A8.5 8.5 0 0 1 7.75 4.639',
+  'M20.5 12A8.5 8.5 0 0 1 3.5 12A8.5 8.5 0 0 1 20.5 12',
+  'M7.75 19.361A8.5 8.5 0 0 1 16.25 4.639A8.5 8.5 0 0 1 7.75 19.361',
+];
 const rememberedContextUsage = new Map<string, ReturnType<typeof resolveContextDisplayUsage>>();
 
 type ContextUsageMetrics = NonNullable<ReturnType<typeof resolveContextDisplayUsage>>;
@@ -350,24 +358,26 @@ export function LiveActivity({
         data-animate={animateEnter ? 'true' : undefined}
       >
         <span className="live-activity-icon" aria-hidden="true">
-          <svg className="live-activity-logo" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <svg
+            className="live-activity-logo live-activity-arcs"
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            aria-hidden="true"
+          >
             <defs>
               <linearGradient id={logoGradientId} x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0" />
                 <stop offset="1" />
               </linearGradient>
             </defs>
+            {/* Each arc is the same r=8.5 ring started 120deg apart, drawn as an
+                un-rotated path: a rotate() transform would also rotate the
+                gradient, so the arc taking over at the loop seam showed a
+                different colour and the mark flickered on every restart. */}
             <g stroke={`url(#${logoGradientId})`}>
-              {[-120, 0, 120].map((rot) => (
-                <circle
-                  key={rot}
-                  className="arc"
-                  cx="12"
-                  cy="12"
-                  r="8.5"
-                  pathLength="360"
-                  transform={`rotate(${rot} 12 12)`}
-                />
+              {LIVE_ACTIVITY_ARC_PATHS.map((d) => (
+                <path key={d} className="arc" d={d} pathLength="360" />
               ))}
             </g>
           </svg>
@@ -459,16 +469,37 @@ export function hadLiveActivity(sessionId: string, turnKey: string): boolean {
   return Boolean(key) && liveActivityTurns.has(key) && !completedActivityTurns.has(key);
 }
 
+export type BackgroundWorkCounts = { shell: number; agent: number };
+
+/** Background work still running for the session, or undefined when none.
+ *  Same facts as goalHasBackgroundWork: shell jobs plus non-queued agents. */
+export function backgroundWorkCounts(snapshot: Snapshot): BackgroundWorkCounts | undefined {
+  const agent = liveAgentRows(snapshot).filter((row) => !row.queued).length;
+  const shell = Math.max(Number(snapshot.shellJobs?.count) || 0, snapshot.shellJobs?.jobs?.length || 0);
+  return goalHasBackgroundWork(snapshot, agent > 0) ? { shell, agent } : undefined;
+}
+
+function backgroundWaitingLabel({ shell, agent }: BackgroundWorkCounts): string {
+  const parts = [t('{{count}} background tasks waiting', { count: shell + agent })];
+  if (shell > 0) parts.push(t('Shell {{shell}}', { shell }));
+  if (agent > 0) parts.push(t('Agent {{agent}}', { agent }));
+  return parts.join(' · ');
+}
+
 /** `animateComplete` is the caller's explicit decision (see hadLiveActivity);
- *  consume the turn on commit, not during a render React may discard. */
+ *  consume the turn on commit, not during a render React may discard.
+ *  `backgroundWork` is passed only to the latest completion: while it holds
+ *  work the line shows a waiting state in the same row, then settles in place. */
 export function CompletionStatus({
   item,
   animateComplete: animate = false,
   completionActivityKey: activityKey = '',
+  backgroundWork,
 }: {
   item: TranscriptItem;
   animateComplete?: boolean;
   completionActivityKey?: string;
+  backgroundWork?: BackgroundWorkCounts;
 }) {
   const [animateComplete] = useState(() => animate && !completedActivityTurns.has(activityKey));
   useLayoutEffect(() => {
@@ -528,6 +559,14 @@ export function CompletionStatus({
     }
   } else {
     completionLabel = translateStatusLabel(label) || label || t('Complete');
+  }
+  if (backgroundWork && backgroundWork.shell + backgroundWork.agent > 0) {
+    return (
+      <div className="turn-status complete waiting" role="status">
+        <span className="turn-status-icon turn-status-dot" aria-hidden="true" />
+        <span>{backgroundWaitingLabel(backgroundWork)}</span>
+      </div>
+    );
   }
   const displayDetail = translateStatusDetail(item.detail);
   return (

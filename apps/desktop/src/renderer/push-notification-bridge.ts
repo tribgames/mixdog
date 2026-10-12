@@ -8,9 +8,372 @@
 // The same channel carries the UI language outward. A worker has no
 // localStorage, and the device showing a notification — not the desktop that
 // sent it — is the one whose language it should speak.
+//
+// Web Push itself is the RELAY's: it owns the one sender key (VAPID) this
+// browser subscribes with, so every paired PC can deliver to the same
+// subscription. The subscription is registered with the relay once per paired
+// PC, each time with THAT PC's own credential, and its keys are sealed to that
+// PC's E2EE identity so only the PC can encrypt for it. A relay without the
+// capability leaves the legacy path: one PC's own key, registered over RPC.
 import type { DesktopApi } from '../shared/contract';
+import { sealRelayWebPushKeys, type RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
+import { isRemoteClientCredential, normalizeRemoteRelayOrigin, remotePairingKeys } from './remote-pairing-recovery';
+import { currentDeviceId, readSavedPcs } from './remote-saved-pcs';
 
-type PushRegistrationApi = Pick<Partial<DesktopApi>, 'registerPushSubscription'>;
+type PushRegistrationApi = Pick<Partial<DesktopApi>, 'registerPushSubscription' | 'pushPublicKey'>;
+
+/** What the relay-mode helpers read; every field defaults to this page's own. */
+export interface PushHostEnvironment {
+  fetch?: typeof fetch;
+  storage?: Pick<Storage, 'getItem' | 'setItem'>;
+  origin?: string;
+  /** The saved PC list (remote-saved-pcs.ts) plus the PC this page drives. */
+  hostIds?: readonly string[];
+  currentHostId?: string;
+}
+
+/** One paired PC this browser holds its own credential for. */
+export interface PairedPushHost {
+  deviceId: string;
+  token: string;
+  pairing: RelayE2EEPairingMaterial;
+}
+
+/** The relay key this browser last subscribed with, for a browser that does
+ *  not report `PushSubscription.options.applicationServerKey`. */
+export const PUSH_SERVER_KEY_STORAGE = 'mixdog.push-server-key';
+const RELAY_KEY = /^[A-Za-z0-9_-]{87}$/u;
+
+function hostFetch(environment: PushHostEnvironment): typeof fetch {
+  return environment.fetch ?? ((input, init) => fetch(input, init));
+}
+
+function hostStorage(environment: PushHostEnvironment): Pick<Storage, 'getItem' | 'setItem'> | null {
+  if (environment.storage) return environment.storage;
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function hostOrigin(environment: PushHostEnvironment): string {
+  return environment.origin ?? (typeof location === 'undefined' ? '' : location.origin);
+}
+
+function base64Url(value: ArrayBuffer | ArrayBufferView | string | null | undefined): string {
+  if (typeof value === 'string') return value.replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '');
+  if (!value) return '';
+  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return base64Url(btoa(binary));
+}
+
+export function bufferFromBase64Url(value: string): ArrayBuffer {
+  const normalized = String(value || '')
+    .replace(/-/gu, '+')
+    .replace(/_/gu, '/');
+  const raw = atob(normalized + '='.repeat((4 - (normalized.length % 4)) % 4));
+  const buffer = new ArrayBuffer(raw.length);
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+  return buffer;
+}
+
+/** The relay's Web Push key; null when this relay predates it (legacy path).
+ *  Throws when the relay could not be asked at all. */
+export async function relayWebPushKey(environment: PushHostEnvironment = {}): Promise<string | null> {
+  const response = await hostFetch(environment)('/webpush/key', { cache: 'no-store' });
+  if (!response.ok) {
+    // Only an answer that says "no such thing" means an older relay; a busy
+    // one is asked again on the next connection.
+    if (response.status >= 500 || response.status === 429) throw new Error(`relay ${response.status}`);
+    return null;
+  }
+  try {
+    const body = (await response.json()) as { publicKey?: unknown };
+    return typeof body.publicKey === 'string' && RELAY_KEY.test(body.publicKey) ? body.publicKey : null;
+  } catch {
+    // An older relay answers an unknown path with its app shell.
+    return null;
+  }
+}
+
+/** The key a subscription was made with, or '' when the browser does not say. */
+export function subscriptionServerKey(subscription: PushSubscription): string {
+  return base64Url(subscription.options?.applicationServerKey ?? null);
+}
+
+/**
+ * This browser's subscription, bound to the relay key. A subscription made
+ * with another key (a PC's own, from before the relay owned it) can only ever
+ * be delivered by that one PC, so it is replaced. Without a subscription one
+ * is made only when `create` (the user turning notifications on).
+ */
+export async function ensureRelaySubscription(
+  pushManager: PushManager,
+  relayKey: string,
+  create: boolean,
+  environment: PushHostEnvironment = {}
+): Promise<PushSubscription | null> {
+  return ensureKeyedSubscription(pushManager, relayKey, create, environment, true);
+}
+
+/** The key the current subscription was made with: the browser's report, else
+ *  the one recorded when this page made it; '' when neither says. */
+function knownServerKey(subscription: PushSubscription, environment: PushHostEnvironment): string {
+  return subscriptionServerKey(subscription) || hostStorage(environment)?.getItem(PUSH_SERVER_KEY_STORAGE) || '';
+}
+
+/** This browser's subscription, bound to `key`: one made with another key is
+ *  replaced (always when `replaceUnknown`, else only when its key is known to
+ *  differ). Kept as it is when already bound, so restating is idempotent. */
+async function ensureKeyedSubscription(
+  pushManager: PushManager,
+  key: string,
+  create: boolean,
+  environment: PushHostEnvironment,
+  replaceUnknown: boolean
+): Promise<PushSubscription | null> {
+  const storage = hostStorage(environment);
+  const existing = await pushManager.getSubscription();
+  if (existing) {
+    const known = knownServerKey(existing, environment);
+    if (known === key || (!known && !replaceUnknown)) return existing;
+    await existing.unsubscribe().catch(() => false);
+  } else if (!create) {
+    return null;
+  }
+  const subscription = await pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: bufferFromBase64Url(key),
+  });
+  try {
+    storage?.setItem(PUSH_SERVER_KEY_STORAGE, key);
+  } catch {
+    /* private storage: the browser's own report is used instead */
+  }
+  return subscription;
+}
+
+/** Every paired PC on this relay this browser holds a credential for: the
+ *  saved PC list plus the PC this page drives. */
+export function pairedPushHosts(environment: PushHostEnvironment = {}): PairedPushHost[] {
+  const storage = hostStorage(environment);
+  const origin = hostOrigin(environment);
+  if (!storage || !origin) return [];
+  const current = environment.currentHostId ?? currentDeviceId();
+  const ids = [current, ...(environment.hostIds ?? readSavedPcs().map((pc) => pc.deviceId))].filter(Boolean);
+  const hosts: PairedPushHost[] = [];
+  for (const deviceId of new Set(ids)) {
+    const keys = remotePairingKeys(origin, deviceId);
+    const token = storage.getItem(keys.token) || '';
+    const serverPublicKey = storage.getItem(keys.e2eePublicKey) || '';
+    const pairingSecret = storage.getItem(keys.e2eeSecret) || '';
+    const server = storage.getItem(keys.server) || '';
+    // A PC paired through another relay is that relay's to notify.
+    if (server && normalizeRemoteRelayOrigin(server) !== origin) continue;
+    if (!isRemoteClientCredential(token) || !serverPublicKey || !pairingSecret) continue;
+    hosts.push({ deviceId, token, pairing: { version: 1, serverPublicKey, pairingSecret } });
+  }
+  return hosts;
+}
+
+async function postHost(
+  environment: PushHostEnvironment,
+  path: string,
+  host: PairedPushHost,
+  body: Record<string, unknown>
+): Promise<Response> {
+  return hostFetch(environment)(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${host.token}` },
+    body: JSON.stringify(body),
+  });
+}
+
+/** The box sealed for one PC, per PC, reused while nothing it covers changed:
+ *  sealing is randomized, and the relay writes nothing for a box it already
+ *  holds, so a launch that re-states an unchanged registration costs it no
+ *  write and no republish. */
+const SEALED_CACHE_PREFIX = 'mixdog.push-sealed:';
+
+async function fingerprint(parts: readonly string[]): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(parts)));
+  return base64Url(digest);
+}
+
+async function sealedFor(
+  host: PairedPushHost,
+  endpoint: string,
+  material: { p256dh: string; auth: string },
+  environment: PushHostEnvironment
+): Promise<unknown> {
+  const storage = hostStorage(environment);
+  const key = `${SEALED_CACHE_PREFIX}${host.deviceId}`;
+  const print = await fingerprint([
+    endpoint,
+    host.pairing.serverPublicKey,
+    host.pairing.pairingSecret,
+    material.p256dh,
+    material.auth,
+  ]);
+  try {
+    const cached = JSON.parse(storage?.getItem(key) || 'null') as { fingerprint?: unknown; sealed?: unknown } | null;
+    if (cached?.fingerprint === print && cached.sealed) return cached.sealed;
+  } catch {
+    /* unreadable: sealed afresh */
+  }
+  const sealed = await sealRelayWebPushKeys(host.pairing, endpoint, material);
+  try {
+    storage?.setItem(key, JSON.stringify({ fingerprint: print, sealed }));
+  } catch {
+    /* private storage: the relay sees a new box, which it simply stores */
+  }
+  return sealed;
+}
+
+/** Register the subscription with the relay for the paired PCs in `only`
+ *  (default: every paired PC), each with its own credential. Resolves the PCs
+ *  now registered; `complete` is false when one could not be asked (retry on
+ *  the next connection). A PC that refused the credential is skipped — its
+ *  pairing is gone — as is one the relay says cannot deliver through it. */
+export async function registerRelayPushSubscription(
+  subscription: PushSubscription,
+  environment: PushHostEnvironment = {},
+  only: readonly string[] | null = null
+): Promise<{ registered: string[]; complete: boolean }> {
+  const keys = subscription.toJSON().keys ?? {};
+  const material = { p256dh: base64Url(String(keys.p256dh || '')), auth: base64Url(String(keys.auth || '')) };
+  let complete = true;
+  const hosts = pairedPushHosts(environment).filter((host) => only === null || only.includes(host.deviceId));
+  const accepted = await Promise.all(
+    hosts.map(async (host) => {
+      try {
+        const sealed = await sealedFor(host, subscription.endpoint, material, environment);
+        const response = await postHost(environment, '/webpush/register', host, {
+          endpoint: subscription.endpoint,
+          sealed,
+        });
+        if (!response.ok && (response.status >= 500 || response.status === 429)) complete = false;
+        return response.ok;
+      } catch {
+        complete = false;
+        return false;
+      }
+    })
+  );
+  return { registered: hosts.filter((_host, index) => accepted[index]).map((host) => host.deviceId), complete };
+}
+
+/** One paired PC as the relay sees it for this browser. `supported` is null
+ *  when the relay could not be asked about it. */
+export interface PushHostState {
+  deviceId: string;
+  supported: boolean | null;
+  registered: boolean;
+}
+
+/** Which paired PCs deliver through the relay (and, with an endpoint, which
+ *  already deliver to it). A PC whose credential the relay refused is left
+ *  out: its pairing is gone. */
+export async function relayPushHostStates(
+  endpoint: string | null,
+  environment: PushHostEnvironment = {}
+): Promise<PushHostState[]> {
+  const hosts = pairedPushHosts(environment);
+  const states = await Promise.all(
+    hosts.map(async (host): Promise<PushHostState | null> => {
+      try {
+        const response = await postHost(environment, '/webpush/status', host, endpoint ? { endpoint } : {});
+        if (response.status === 401 || response.status === 403) return null;
+        if (!response.ok) return { deviceId: host.deviceId, supported: null, registered: false };
+        const body = (await response.json()) as { registered?: unknown; supported?: unknown };
+        return { deviceId: host.deviceId, supported: body.supported === true, registered: body.registered === true };
+      } catch {
+        return { deviceId: host.deviceId, supported: null, registered: false };
+      }
+    })
+  );
+  return states.filter((state): state is PushHostState => state !== null);
+}
+
+/** Where this browser's subscription stands after stating it. */
+export interface PushSubscriptionState {
+  subscription: PushSubscription | null;
+  /** 'relay': one subscription with the relay key, registered with every PC
+   *  that delivers through the relay. 'legacy': no paired PC does yet (or the
+   *  relay predates it), so the PC this page drives keeps its own key. */
+  mode: 'relay' | 'legacy';
+  /** Every paired PC the relay answered for; empty on a legacy relay. */
+  hosts: PushHostState[];
+  /** False when something could not be asked: state it again later. */
+  complete: boolean;
+}
+
+/**
+ * State this browser's subscription. The browser moves to the relay's key
+ * only once at least one paired PC delivers through the relay, and registers
+ * with exactly those PCs; a PC that does not yet (an older desktop) is left
+ * out and reported, never registered where it would be silently ignored.
+ * Until any PC does, the legacy per-PC registration stays as it was. `create`
+ * makes a subscription where there is none (the user turning it on).
+ */
+export async function statePushSubscription(
+  api: PushRegistrationApi | undefined,
+  pushManager: PushManager,
+  create: boolean,
+  environment: PushHostEnvironment = {}
+): Promise<PushSubscriptionState> {
+  const relayKey = await relayWebPushKey(environment);
+  const states = relayKey ? await relayPushHostStates(null, environment) : [];
+  const capable = states.filter((state) => state.supported === true).map((state) => state.deviceId);
+  const undecided = states.some((state) => state.supported === null);
+  if (relayKey && capable.length > 0) {
+    const subscription = await ensureRelaySubscription(pushManager, relayKey, create, environment);
+    if (!subscription) return { subscription: null, mode: 'relay', hosts: states, complete: !undecided };
+    const result = await registerRelayPushSubscription(subscription, environment, capable);
+    return {
+      subscription,
+      mode: 'relay',
+      hosts: states.map((state) => ({ ...state, registered: result.registered.includes(state.deviceId) })),
+      complete: result.complete && !undecided,
+    };
+  }
+  const existing = await pushManager.getSubscription();
+  // Whether any PC can take relay delivery is not known yet: change nothing.
+  if (relayKey && undecided) return { subscription: existing, mode: 'legacy', hosts: states, complete: false };
+  // Legacy: only the PC this page drives delivers, and only to a subscription
+  // made with its own key. One bound to another key (the relay's, after the
+  // last upgraded PC was removed) is replaced — the mirror of the migration.
+  const publicKey = await api?.pushPublicKey?.().catch(() => null);
+  if (!publicKey) {
+    if (create) throw new Error('missing key');
+    // The PC's key is unknown: a subscription known to be on the relay key
+    // would be dead weight here, so leave it and state it again later.
+    if (existing && relayKey && knownServerKey(existing, environment) === relayKey) {
+      return { subscription: existing, mode: 'legacy', hosts: states, complete: false };
+    }
+    if (existing && api) await registerBrowserPushSubscription(api, existing);
+    return { subscription: existing, mode: 'legacy', hosts: states, complete: true };
+  }
+  const subscription = await ensureKeyedSubscription(pushManager, publicKey, create, environment, false);
+  if (subscription && api) await registerBrowserPushSubscription(api, subscription);
+  return { subscription, mode: 'legacy', hosts: states, complete: true };
+}
+
+/** Remove this browser's subscription from every paired PC. */
+export async function unregisterRelayPushSubscription(
+  endpoint: string,
+  environment: PushHostEnvironment = {}
+): Promise<void> {
+  await Promise.all(
+    pairedPushHosts(environment).map((host) =>
+      postHost(environment, '/webpush/unregister', host, { endpoint }).catch(() => undefined)
+    )
+  );
+}
 
 /** Mirrors public/sw.js. A worker is a standalone script that cannot import
  *  renderer modules, so both carry these names and a test asserts they agree. */
@@ -62,41 +425,111 @@ export async function registerBrowserPushSubscription(
 }
 
 /** Re-state this browser's CURRENT subscription once per launch. The browser
- *  may renew it on its own (sw.js pushsubscriptionchange) and the desktop
- *  would otherwise keep pushing to the retired endpoint. */
-export async function syncPushSubscription(api: PushRegistrationApi | undefined): Promise<void> {
-  if (!api?.registerPushSubscription) return;
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+ *  may renew it on its own (sw.js pushsubscriptionchange) and its PCs would
+ *  otherwise keep pushing to the retired endpoint. On a relay that owns the
+ *  sender key, a subscription made with a PC's own key is migrated to the
+ *  relay's, and the subscription is registered for EVERY paired PC — a PC
+ *  paired since the last launch included. */
+export async function syncPushSubscription(
+  api: PushRegistrationApi | undefined,
+  environment: PushHostEnvironment = {}
+): Promise<boolean> {
+  if (!api?.registerPushSubscription) return true;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return true;
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return true;
   try {
     const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager?.getSubscription();
-    if (subscription) await registerBrowserPushSubscription(api, subscription);
+    const pushManager = registration.pushManager;
+    if (!pushManager) return true;
+    return (await statePushSubscription(api, pushManager, false, environment)).complete;
   } catch {
-    // The next launch states it again.
+    // The desktop never heard it (the connection dropped under the call).
+    return false;
   }
 }
 
+/** State the subscription on every connection until the desktop has accepted
+ *  it once this launch. A single attempt on the first connection lost the
+ *  statement whenever that connection dropped under the call, leaving the
+ *  desktop pushing to a retired endpoint until the next launch. */
+export function installPushSubscriptionSync(
+  api: PushRegistrationApi | undefined,
+  readyEvent: string,
+  target: Pick<Window, 'addEventListener' | 'removeEventListener'> = window,
+  environment: PushHostEnvironment = {}
+): () => void {
+  let stated = false;
+  let inFlight = false;
+  const onReady = (): void => {
+    if (stated || inFlight) return;
+    inFlight = true;
+    void syncPushSubscription(api, environment).then((ok) => {
+      inFlight = false;
+      if (ok) {
+        stated = true;
+        target.removeEventListener(readyEvent, onReady);
+      }
+    });
+  };
+  target.addEventListener(readyEvent, onReady);
+  return () => target.removeEventListener(readyEvent, onReady);
+}
+
+/** A tapped notification: the session, and the PC (relay device id) that sent
+ *  it. `hostId` is empty for a notification from a PC that predates it. */
+export interface NotificationTap {
+  sessionId: string;
+  hostId: string;
+}
+
 /** Take the tap the worker parked, exactly once. */
-export async function claimNotificationClick(environment: AppStateEnvironment = {}): Promise<string> {
+export async function claimNotificationClick(environment: AppStateEnvironment = {}): Promise<NotificationTap | null> {
   const store = appStateStorage(environment);
-  if (!store) return '';
+  if (!store) return null;
   try {
     const cache = await store.open(APP_STATE_CACHE_NAME);
     const stored = await cache.match(NOTIFICATION_CLICK_ENTRY);
-    if (!stored) return '';
+    if (!stored) return null;
     // Single use: a later reload must not reopen what was already handled.
     await cache.delete(NOTIFICATION_CLICK_ENTRY);
-    const parked = (await stored.json()) as { sessionId?: unknown; createdAt?: unknown };
+    const parked = (await stored.json()) as { sessionId?: unknown; hostId?: unknown; createdAt?: unknown };
     const sessionId = typeof parked.sessionId === 'string' ? parked.sessionId : '';
+    const hostId = typeof parked.hostId === 'string' ? parked.hostId : '';
     const createdAt = Number(parked.createdAt) || 0;
     const now = environment.now ?? Date.now();
     // A tap from an hour ago is not a request to open anything now.
-    if (!sessionId || now - createdAt > NOTIFICATION_CLICK_TTL_MS) return '';
-    return sessionId;
+    if (!sessionId || now - createdAt > NOTIFICATION_CLICK_TTL_MS) return null;
+    return { sessionId, hostId };
   } catch {
-    return '';
+    return null;
   }
+}
+
+export type NotificationRoute =
+  | { action: 'open'; sessionId: string }
+  | { action: 'switch'; url: string }
+  | { action: 'ignore' };
+
+/**
+ * Where a tap goes. One browser hears from every PC it is paired with, so a
+ * session id alone is ambiguous: the tap opens on THIS page only when it came
+ * from the PC this page drives, moves to the originating PC's route when that
+ * PC is paired here, and does nothing for a PC this browser no longer knows —
+ * opening it on the active PC would show the wrong machine's session.
+ */
+export function routeNotificationTap(tap: NotificationTap, environment: PushHostEnvironment = {}): NotificationRoute {
+  if (!tap.sessionId) return { action: 'ignore' };
+  // A PC that predates host ids sent it over the legacy path, which only ever
+  // reached the browser through the PC this page was driving.
+  if (!tap.hostId) return { action: 'open', sessionId: tap.sessionId };
+  const hostId = tap.hostId.toLowerCase();
+  const current = (environment.currentHostId ?? currentDeviceId()).toLowerCase();
+  if (hostId === current) return { action: 'open', sessionId: tap.sessionId };
+  if (!pairedPushHosts(environment).some((host) => host.deviceId.toLowerCase() === hostId)) {
+    return { action: 'ignore' };
+  }
+  const query = new URLSearchParams({ session: tap.sessionId, host: hostId });
+  return { action: 'switch', url: `/d/${encodeURIComponent(hostId)}/?${query.toString()}` };
 }
 
 /** The tap reached the running app directly; retire the parked copy so a later

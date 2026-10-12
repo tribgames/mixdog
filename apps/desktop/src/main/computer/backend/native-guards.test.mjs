@@ -208,7 +208,10 @@ Add-Type @'
 using System;
 public static class MixWin32 {
   public static int Clicks;
+  public static int Scopes;
   public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static object BeginInactive(IntPtr target) { Scopes++; return new object(); }
+  public static void EndInactive(object scope) { Scopes--; }
   public static string BackgroundPointer(IntPtr target, int x, int y, string action, string modifiers) {
     Clicks++; return "hwnd:0x1";
   }
@@ -944,10 +947,12 @@ using System;
 public static class MixWin32 {
   public static int PointerEventsGenerated;
   public static int PointerEventsFailed;
+  public static bool ActivationUnprotected;
   public static Action<int,int,bool,string> PointerProgress;
 }
 '@
 function Invalidate-RefsForRequest($req) {}
+function Add-ActivationProtection($req, $res) {}
 function Handle($req) {
   if ($null -eq [MixWin32]::PointerProgress -and $req.pointer_feedback -eq $true) { throw 'progress hook missing during handling' }
   [MixWin32]::PointerEventsGenerated = 3

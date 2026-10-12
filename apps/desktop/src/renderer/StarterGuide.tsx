@@ -111,6 +111,14 @@ export function StarterGuide({
   const visit = (step: StepId) => update(markVisited(step));
 
   const remotePaired = Boolean(api && (getCachedConnectionInfo(api)?.clients?.length ?? 0) > 0);
+  // A paired device completes the step for good. The cached connection info
+  // empties while the relay reconnects or access is switched off, and a
+  // live-only check re-announced "Set up remote access · Done" every time it
+  // came back.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: visit only persists the flag.
+  useEffect(() => {
+    if (remotePaired && !state.visited.includes('remote')) visit('remote');
+  }, [remotePaired, state.visited]);
   const viewIcon = (id: WorkbenchSideViewId, fallback: LucideIcon) => descriptors.get(id)?.icon ?? fallback;
   // Guided order: a model to talk to, a folder to work in, who does the work,
   // then reaching it from anywhere and growing its toolset.
@@ -243,7 +251,7 @@ export function StarterGuide({
       tour: [
         {
           target: ['.settings-connection-card', '.mixdog-settings__body'],
-          title: t('Scan to install the web app'),
+          title: t('Phones and tablets: scan the QR code'),
           body: t('Scan with your phone, then approve it here.'),
         },
       ],

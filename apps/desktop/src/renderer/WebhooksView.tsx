@@ -32,6 +32,7 @@ import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
 import { copyTextToClipboard } from './text-format';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
+import { usePersistedListOrder } from './use-persisted-list-order';
 import { CompactSwitch } from './settings/capability-controls';
 import type { RecordValue } from './desktop-types';
 
@@ -77,19 +78,23 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
   };
 }
 
-// Sub-line: parser first, then delivery route, model, and paused state.
+// Sub-line (Schedules parity): payload format, then model and project; a
+// missing secret is flagged last.
 function webhookMeta(webhook: RecordValue) {
   const parser = String(webhook.parser || 'github');
   const route = automationRouteSummary(String(webhook.model || ''));
+  const cwd = String(webhook.cwd || '');
+  const cwdLabel = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() || cwd : '';
   return (
     <>
-      {parser} {t('· session')}
+      {parser}
       {route && (
         <>
           {' '}
           · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} />
         </>
       )}
+      {cwdLabel && <> · {cwdLabel}</>}
       {webhook.secretSet !== true && <> · {t('secret missing')}</>}
     </>
   );
@@ -113,6 +118,8 @@ function generateSigningSecret(): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
+// Value row of the connection card: title (+ optional note) with an icon-only
+// copy on the right, the value in a full-width box underneath.
 function ConnectionRow({
   label,
   note,
@@ -122,7 +129,7 @@ function ConnectionRow({
   onCopy,
 }: {
   label: string;
-  note: string;
+  note?: string;
   value: string;
   placeholder: string;
   copied: boolean;
@@ -131,19 +138,102 @@ function ConnectionRow({
   return (
     <div className="schedules-field webhook-connection-row">
       <span>{label}</span>
-      <small>{note}</small>
+      {note && <small>{note}</small>}
+      <button
+        type="button"
+        className="icon-button webhook-connection-copy"
+        disabled={!value}
+        onClick={onCopy}
+        aria-label={t('Copy {{name}}', { name: label })}
+        data-tooltip={t('Copy {{name}}', { name: label })}
+      >
+        {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+      </button>
       <div className="webhook-connection-value">
         <code>{value || placeholder}</code>
-        {/* Icon-only copy (user decision): the value itself is the label. */}
+      </div>
+    </div>
+  );
+}
+
+interface WebhookTestResult {
+  ok: boolean;
+  status: number;
+  /** Stable failure kind from the runtime: relay-unavailable | timeout | network | rejected. */
+  code?: string;
+  error?: string;
+}
+
+// Localized reason for a failed test: the runtime's stable code first, then
+// the receiver's known error strings; anything else keeps its raw detail.
+function webhookTestError(result: WebhookTestResult): string {
+  const error = result.error || '';
+  if (result.code === 'relay-unavailable')
+    return t('The endpoint URL is not available yet. Wait for the relay to connect.');
+  if (result.code === 'timeout') return t('No response within 15 seconds.');
+  if (result.code === 'network') return t('Could not reach the endpoint: {{error}}', { error });
+  if (error === 'disabled endpoint') return t('This webhook is turned off. Turn it on, then test again.');
+  if (error === 'unknown endpoint') return t('The endpoint does not know this webhook yet. Save it, then test again.');
+  if (error === 'invalid signature' || error === 'missing signature') {
+    return t('The signature did not match the saved secret.');
+  }
+  if (error === 'test requires a signing secret')
+    return t('This webhook has no signing secret. Regenerate one and save.');
+  return error;
+}
+
+function webhookTestMessage(result: WebhookTestResult): string {
+  if (result.ok) return t('Verified — the endpoint accepted the signature.');
+  const error = webhookTestError(result);
+  if (result.status) return t('Test failed (HTTP {{status}}): {{error}}', { status: result.status, error });
+  return t('Test failed: {{error}}', { error });
+}
+
+// Edit-only: signs a test request with the SAVED configuration, so unsaved
+// changes that affect signing (a regenerated secret, another payload format)
+// block it until Save — `blockedNote` says which.
+function WebhookTestRow({
+  disabled,
+  blockedNote,
+  onTest,
+}: {
+  disabled: boolean;
+  blockedNote: string;
+  onTest(): Promise<WebhookTestResult>;
+}) {
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<WebhookTestResult | null>(null);
+  const sendTest = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      setResult(await onTest());
+    } catch (reason) {
+      setResult({ ok: false, status: 0, error: reason instanceof Error ? reason.message : String(reason) });
+    } finally {
+      setTesting(false);
+    }
+  };
+  return (
+    <div className="schedules-field webhook-connection-row is-action">
+      <span>{t('Test delivery')}</span>
+      {/* The latest result takes the note's place (status line under the title). */}
+      {result && !blockedNote ? (
+        <small className="webhook-test-result" role="status" data-ok={String(result.ok)}>
+          {webhookTestMessage(result)}
+        </small>
+      ) : (
+        <small>{blockedNote || t('Sends a signed test request to the endpoint URL. No task is run.')}</small>
+      )}
+      <div className="webhook-connection-value">
         <button
           type="button"
-          className="icon-button webhook-connection-copy"
-          disabled={!value}
-          onClick={onCopy}
-          aria-label={t('Copy {{name}}', { name: label })}
-          data-tooltip={t('Copy {{name}}', { name: label })}
+          className="settings-action"
+          disabled={testing || disabled || Boolean(blockedNote)}
+          aria-busy={testing || undefined}
+          onClick={() => void sendTest()}
         >
-          {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+          {testing ? t('Sending…') : t('Send test')}
         </button>
       </div>
     </div>
@@ -164,6 +254,7 @@ function WebhookEditor({
   onSave,
   onToggle,
   onDelete,
+  onTest,
 }: {
   draft: WebhookDraft;
   editing: boolean;
@@ -178,6 +269,7 @@ function WebhookEditor({
   onSave(entry: RecordValue): void;
   onToggle?(enabled: boolean): void;
   onDelete?(): void;
+  onTest?(): Promise<WebhookTestResult>;
 }) {
   const [parser, setParser] = useState(draft.parser);
   const [cwd, setCwd] = useState(draft.cwd);
@@ -187,6 +279,12 @@ function WebhookEditor({
   // EDIT never reveals the stored secret; rotation mints a replacement that
   // only persists on Save (user decision).
   const [rotated, setRotated] = useState('');
+  // Fields that change how a test is signed must be saved before testing.
+  const unsavedSigning = () => {
+    if (rotated) return t('Save first to test the new secret.');
+    if (parser !== draft.parser) return t('Save first to test the new payload format.');
+    return '';
+  };
   // Uncontrolled name input + shadow state so the endpoint URL previews live
   // while typing (FormData still reads the input on submit).
   const [urlName, setUrlName] = useState(draft.name);
@@ -377,52 +475,58 @@ function WebhookEditor({
           {/* Connection details (user decision): the endpoint URL stays
             visible; the signing secret shows only when freshly minted —
             create pre-mints it, edit offers Regenerate instead. */}
-          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain details container for assistive tech; adding a role would change semantics */}
-          <div className="webhook-connection" aria-label={t('Connection details')}>
-            <ConnectionRow
-              label={t('Endpoint URL')}
-              note={t('Call this URL to trigger the webhook.')}
-              value={shownUrl}
-              placeholder={
-                publicBase
-                  ? t('Type a name to preview the endpoint URL')
-                  : t('URL appears once the runtime connects to the relay')
-              }
-              copied={copiedField === 'url'}
-              onCopy={() => copyField('url', shownUrl)}
-            />
-            {editing && !rotated && (
-              <div className="schedules-field webhook-connection-row">
-                <span>{t('Signing secret')}</span>
-                <small>{t('The saved secret stays hidden. Regenerate it to create a new one.')}</small>
-                <div className="webhook-connection-value">
-                  <button
-                    type="button"
-                    className="settings-action"
-                    disabled={busy}
-                    onClick={() => {
-                      try {
-                        setRotated(generateSigningSecret());
-                      } catch (reason) {
-                        setFormError(reason instanceof Error ? reason.message : String(reason));
-                      }
-                    }}
-                  >
-                    {t('Regenerate secret')}
-                  </button>
-                </div>
-              </div>
-            )}
-            {!(editing && !rotated) && (
+          <div className="schedules-field">
+            <span>{t('Connection')}</span>
+            <small>{t('Register these with the external service.')}</small>
+            {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain details container for assistive tech; adding a role would change semantics */}
+            <div className="webhook-connection" aria-label={t('Connection details')}>
               <ConnectionRow
-                label={t('Signing secret')}
-                note={t('Sign requests with this secret — copy it now.')}
-                value={editing ? rotated : secret}
-                placeholder={t('Secret unavailable')}
-                copied={copiedField === 'secret'}
-                onCopy={() => copyField('secret', editing ? rotated : secret)}
+                label={t('Endpoint URL')}
+                value={shownUrl}
+                placeholder={
+                  publicBase
+                    ? t('Type a name to preview the endpoint URL')
+                    : t('URL appears once the runtime connects to the relay')
+                }
+                copied={copiedField === 'url'}
+                onCopy={() => copyField('url', shownUrl)}
               />
-            )}
+              {editing && !rotated && (
+                <div className="schedules-field webhook-connection-row is-action">
+                  <span>{t('Signing secret')}</span>
+                  <small>{t('The saved secret stays hidden. Regenerate it to create a new one.')}</small>
+                  <div className="webhook-connection-value">
+                    <button
+                      type="button"
+                      className="settings-action"
+                      disabled={busy}
+                      onClick={() => {
+                        try {
+                          setRotated(generateSigningSecret());
+                        } catch (reason) {
+                          setFormError(reason instanceof Error ? reason.message : String(reason));
+                        }
+                      }}
+                    >
+                      {t('Regenerate secret')}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!(editing && !rotated) && (
+                <ConnectionRow
+                  label={t('Signing secret')}
+                  note={t('Sign requests with this secret — copy it now.')}
+                  value={editing ? rotated : secret}
+                  placeholder={t('Secret unavailable')}
+                  copied={copiedField === 'secret'}
+                  onCopy={() => copyField('secret', editing ? rotated : secret)}
+                />
+              )}
+              {editing && onTest && (
+                <WebhookTestRow disabled={busy || !shownUrl} blockedNote={unsavedSigning()} onTest={onTest} />
+              )}
+            </div>
           </div>
           <EditorDialogFooter
             error={formError || error}
@@ -447,7 +551,7 @@ const WEBHOOK_REFERENCE_KEYS = [
 ] as const satisfies readonly SidebarReferenceKey[];
 
 // Inbound-webhooks panel (rail -> Webhooks): the Schedules grammar — a
-// compact session-panel list with search, filters, and a popup editor.
+// compact session-panel list with search, drag reorder, and a popup editor.
 export function WebhooksPane({
   api = window.mixdogDesktop,
   active = true,
@@ -475,22 +579,26 @@ export function WebhooksPane({
     toastScope: 'webhook',
   });
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [editor, setEditor] = useState<{ name: string; draft: WebhookDraft; secret: string } | null>(null);
   // The editor portals to document.body: a hidden panel must never leave that
-  // layer interactive above the workspace (search/filter state stays).
+  // layer interactive above the workspace (search state stays).
   useSidebarPanelDismiss(active, () => {
     setEditor(null);
   });
   const busy = Boolean(pending) || loading;
 
   const webhooks = rows(setup.webhooks);
+  // Schedules parity: drag to reorder, order kept per device.
+  const webhookOrder = usePersistedListOrder(
+    'mixdog.sidebar-order.webhooks.v1',
+    webhooks.map((webhook) => String(webhook.name))
+  );
+  const orderedWebhooks = webhookOrder.orderedIds
+    .map((name) => webhooks.find((webhook) => String(webhook.name) === name))
+    .filter((webhook): webhook is RecordValue => Boolean(webhook));
   const publicBase = String(record(setup.webhook).publicUrl || '');
   const text = query.trim().toLowerCase();
-  const visible = webhooks.filter((webhook) => {
-    const enabled = webhook.enabled !== false;
-    if (filter === 'active' && !enabled) return false;
-    if (filter === 'paused' && enabled) return false;
+  const visible = orderedWebhooks.filter((webhook) => {
     if (!text) return true;
     return [webhook.name, webhook.description, webhook.parser, webhook.model, webhook.channel]
       .map((value) => String(value || '').toLowerCase())
@@ -546,26 +654,6 @@ export function WebhooksPane({
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
         </div>
-        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain filter container for assistive tech; adding a role would change semantics */}
-        <div className="schedules-filters" aria-label={t('Webhook filter')}>
-          {(
-            [
-              ['all', 'All'],
-              ['active', 'Active'],
-              ['paused', 'Paused'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={filter === value ? 'active' : ''}
-              aria-pressed={filter === value}
-              onClick={() => setFilter(value)}
-            >
-              {t(label)}
-            </button>
-          ))}
-        </div>
         {active && editor && (
           <WebhookEditor
             key={editor.name || '(new)'}
@@ -591,6 +679,17 @@ export function WebhooksPane({
                   }
                 : undefined
             }
+            onTest={
+              editor.name
+                ? async () => {
+                    const result = await api.invokeCapability?.<WebhookTestResult>({
+                      capability: 'testWebhook',
+                      args: [editor.name],
+                    });
+                    return result?.value ?? { ok: false, status: 0, error: '' };
+                  }
+                : undefined
+            }
             onSave={(entry) => void saveWebhook(entry)}
             onToggle={(enabled) => void run('setWebhookEnabled', [editor.name, enabled], 'toast')}
           />
@@ -612,6 +711,7 @@ export function WebhooksPane({
                   data-enabled={enabled ? 'true' : 'false'}
                   disabled={busy}
                   onClick={() => openEditor(name, webhookDraft(webhook))}
+                  {...webhookOrder.getReorderProps(name)}
                 >
                   <span className="sidebar-resource-icon" aria-hidden="true">
                     {running ? <ProgressSpinner size={12} className="schedules-row-spinner" /> : <Webhook size={16} />}
@@ -632,7 +732,7 @@ export function WebhooksPane({
         {!loading && visible.length === 0 && (
           <div className="schedules-empty">
             <Webhook size={40} aria-hidden="true" />
-            <p>{webhooks.length ? t('No webhooks match the current filter.') : t('No inbound webhooks yet.')}</p>
+            <p>{webhooks.length ? t('No webhooks match your search.') : t('No inbound webhooks yet.')}</p>
           </div>
         )}
       </div>

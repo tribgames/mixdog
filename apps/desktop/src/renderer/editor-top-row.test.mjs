@@ -87,14 +87,12 @@ test('main tab: breadcrumbs + Save (dirty only) + ⋯ on top; toggle/status/prob
     language: 'TypeScript',
   };
   const footer = renderToStaticMarkup(React.createElement(SideFileStatusRow, { chrome }));
-  for (const part of [
-    'side-file-view-toggle',
-    'side-file-status-problems',
-    '>3<',
-    '>2:1<',
-    'TypeScript',
-    'aria-label="Go to Line/Column"',
-  ])
+  assert.equal(
+    footer.includes('view-toggle') || footer.includes('editor-view-switch'),
+    false,
+    'one switch: in the header'
+  );
+  for (const part of ['side-file-status-problems', '>3<', '>2:1<', 'TypeScript', 'aria-label="Go to Line/Column"'])
     assert.ok(footer.includes(part), part);
   assert.equal(
     sideFileHasFooter({ editable: false, dirty: false, saving: false }),
@@ -104,6 +102,75 @@ test('main tab: breadcrumbs + Save (dirty only) + ⋯ on top; toggle/status/prob
   assert.equal(sideFileHasFooter(chrome), true);
   const cell = await read('./pane-layout.css');
   assert.match(cell, /\.pane-cell > \.pane-footer-slot:empty \{\s*display: none;/);
+});
+
+test('main tab header: Preview | Rich | Source switch, outline toggle and side preview live in the breadcrumb row', async () => {
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { EditorBreadcrumbs } = await import('./editor-breadcrumbs.tsx');
+  const base = {
+    projectPath: '/p',
+    relPath: 'docs/a.md',
+    preview: null,
+    dirty: false,
+    saving: false,
+    reverting: false,
+    cursorLine: 1,
+    outline: [],
+    load: { content: '', binary: false, tooLarge: false, readOnly: false },
+    onSave() {},
+    onRevert() {},
+    onOpenAt() {},
+    onFocusEditor() {},
+    onRevealSymbol() {},
+  };
+  const radios = (html) =>
+    [...html.matchAll(/<button[^>]*aria-checked="(true|false)"[^>]*>([^<]*)<\/button>/g)].map((m) => [m[2], m[1]]);
+  const markdown = renderToStaticMarkup(
+    React.createElement(EditorBreadcrumbs, {
+      ...base,
+      viewControls: {
+        viewToggle: { value: 'rich', renderedLabel: 'Preview', modes: ['rendered', 'rich', 'source'], onChange() {} },
+        toc: { open: true, onToggle() {} },
+      },
+    })
+  );
+  assert.deepEqual(radios(markdown), [
+    ['Preview', 'false'],
+    ['Rich', 'true'],
+    ['Source', 'false'],
+  ]);
+  assert.ok(markdown.indexOf('editor-view-switch') < markdown.indexOf('editor-breadcrumb-actions'));
+  assert.ok(markdown.includes('aria-label="Table of contents"') && markdown.includes('aria-pressed="true"'));
+  assert.equal(markdown.includes('Open Preview to the Side'), false, 'side preview is a Source-mode action');
+  const source = renderToStaticMarkup(
+    React.createElement(EditorBreadcrumbs, {
+      ...base,
+      viewControls: {
+        viewToggle: { value: 'source', renderedLabel: 'Preview', modes: ['rendered', 'rich', 'source'], onChange() {} },
+        sideBySide: { onOpen() {} },
+      },
+    })
+  );
+  assert.ok(source.includes('aria-label="Open Preview to the Side"'));
+  assert.equal(source.includes('Table of contents'), false);
+  // SVG / table keep two modes; plain code has no switch at all.
+  const table = renderToStaticMarkup(
+    React.createElement(EditorBreadcrumbs, {
+      ...base,
+      relPath: 'd.csv',
+      viewControls: {
+        viewToggle: { value: 'source', renderedLabel: 'Table', modes: ['rendered', 'source'], onChange() {} },
+      },
+    })
+  );
+  assert.deepEqual(radios(table), [
+    ['Table', 'false'],
+    ['Source', 'true'],
+  ]);
+  assert.equal(
+    renderToStaticMarkup(React.createElement(EditorBreadcrumbs, base)).includes('editor-view-switch'),
+    false
+  );
 });
 
 test('main ⋯ menu holds Reveal, Revert (dirty) and the extra actions; previews add Open in default app', async () => {

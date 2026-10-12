@@ -1,0 +1,621 @@
+/* Rich (WYSIWYG) Markdown editor. The document itself wears the preview's
+   `.markdown` prose rules (headings, lists, tables, quotes, code cards), so
+   Rich and Preview read the same; this sheet only adds editing chrome. */
+
+.rich-markdown {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
+}
+.rich-markdown-unsupported {
+  display: block;
+}
+
+/* -- Toolbar ---------------------------------------------------------------- */
+.rich-markdown-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  padding: 4px 8px;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.rich-markdown-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.rich-markdown-toolbar-group + .rich-markdown-toolbar-group {
+  padding-left: 4px;
+  box-shadow: inset var(--mx-hairline) 0 var(--mx-border-muted);
+}
+.rich-markdown-toolbar-spacer {
+  flex: 1 1 auto;
+}
+.rich-markdown-toolbar-spacer + .rich-markdown-toolbar-group {
+  box-shadow: none;
+}
+.rich-markdown-tool,
+.rich-markdown-tool-text {
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted, var(--mx-text-muted));
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.rich-markdown-tool {
+  width: 26px;
+}
+.rich-markdown-tool-text {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+.rich-markdown-tool svg.lucide {
+  stroke-width: 1.5px;
+}
+.rich-markdown-tool:hover:not(:disabled),
+.rich-markdown-tool-text:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.rich-markdown-tool[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+.rich-markdown-tool:focus-visible,
+.rich-markdown-tool-text:focus-visible,
+.rich-markdown-block-type:focus-visible,
+.rich-markdown-code-language:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.rich-markdown-tool:disabled,
+.rich-markdown-tool-text:disabled,
+.rich-markdown-block-type:disabled {
+  opacity: var(--mx-op-disabled, 0.4);
+  cursor: default;
+}
+.rich-markdown-tool-text.is-danger:hover {
+  color: var(--mx-danger);
+}
+.rich-markdown-block-type,
+.rich-markdown-code-language {
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.rich-markdown-block-type:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+.rich-markdown-block-type option,
+.rich-markdown-code-language option {
+  color: var(--mx-text);
+  background: var(--mx-popup-bg, var(--mx-bg-base));
+}
+
+/* -- Document ----------------------------------------------------------------- */
+.rich-markdown-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+.rich-markdown-canvas {
+  position: relative;
+}
+.rich-markdown-content {
+  min-height: 200px;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  caret-color: var(--mx-text);
+}
+.rich-markdown-content > :first-child {
+  margin-top: 0;
+}
+.rich-markdown-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--mx-text-faint);
+  pointer-events: none;
+}
+.rich-markdown-content a {
+  cursor: text;
+}
+.rich-markdown[data-readonly] .rich-markdown-content a {
+  cursor: pointer;
+}
+.rich-markdown-content ::selection {
+  background: color-mix(in srgb, var(--mx-focus) 28%, transparent);
+}
+.rich-markdown-content .ProseMirror-selectednode {
+  outline: 2px solid color-mix(in srgb, var(--mx-focus) 60%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--mx-radius-sm);
+}
+.rich-markdown-content .ProseMirror-gapcursor {
+  position: relative;
+  display: none;
+  pointer-events: none;
+}
+.rich-markdown-content.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
+.rich-markdown-content .ProseMirror-gapcursor::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid var(--mx-text);
+}
+
+/* Task lists: the checkbox hangs in the marker column like the preview's. */
+.rich-markdown-content ul[data-type="taskList"] {
+  padding-left: var(--mx-md-indent);
+  list-style: none;
+}
+.rich-markdown-content li[data-type="taskItem"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-left: calc(-1 * var(--mx-md-indent));
+}
+.rich-markdown-content li[data-type="taskItem"] > label {
+  flex: 0 0 16px;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 5px;
+  user-select: none;
+}
+.rich-markdown-content li[data-type="taskItem"] > label input {
+  margin: 0;
+  accent-color: var(--mx-accent-bg);
+}
+.rich-markdown-content li[data-type="taskItem"] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rich-markdown-content li[data-type="taskItem"][data-checked="true"] > div {
+  color: var(--mx-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, currentColor 60%, transparent);
+}
+.rich-markdown-content li > p {
+  margin: 0;
+}
+
+/* Tables: the preview's grid, plus a visible cell edge while editing. */
+.rich-markdown-content .tableWrapper {
+  max-width: 100%;
+  margin: 20px 0;
+  overflow-x: auto;
+}
+.rich-markdown-content table {
+  width: max-content;
+  min-width: 50%;
+  table-layout: auto;
+}
+.rich-markdown-content :is(th, td) {
+  position: relative;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.rich-markdown-content :is(th, td) > p {
+  margin: 0;
+}
+.rich-markdown-content .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--mx-focus) 16%, transparent);
+}
+.rich-markdown-content :is(th, td)[data-align="center"],
+.rich-markdown-content :is(th, td)[align="center"] {
+  text-align: center;
+}
+.rich-markdown-content :is(th, td)[data-align="right"],
+.rich-markdown-content :is(th, td)[align="right"] {
+  text-align: right;
+}
+
+/* Code: the preview's code card with an editable body. */
+.rich-markdown-code > header {
+  justify-content: space-between;
+}
+.rich-markdown-code-language {
+  height: 22px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
+.rich-markdown-code-language:hover:not(:disabled) {
+  color: var(--mx-text);
+}
+.rich-markdown-code-language:disabled {
+  cursor: default;
+  appearance: none;
+}
+.rich-markdown-code > pre {
+  margin: 0;
+  padding: 12px;
+  background: transparent;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code, 13px);
+}
+.rich-markdown-code > pre > code {
+  display: block;
+  color: var(--mx-text);
+  white-space: pre-wrap;
+}
+
+/* Images: inline like the preview's thumbnails. */
+.rich-markdown-image {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+  line-height: 0;
+}
+.rich-markdown-image img {
+  max-width: 100%;
+  max-height: 480px;
+  border-radius: var(--mx-radius-md);
+}
+.rich-markdown-image.is-selected img {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.rich-markdown-image-loading {
+  display: inline-block;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1, var(--mx-surface-plate));
+}
+.rich-markdown-image-missing {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: var(--mx-surface-plate);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-meta, 18px);
+}
+
+/* Math: KaTeX renders in place; a click edits the LaTeX. */
+.rich-markdown-content [data-type="inline-math"],
+.rich-markdown-content [data-type="block-math"] {
+  cursor: pointer;
+  border-radius: var(--mx-radius-sm);
+}
+.rich-markdown-content [data-type="inline-math"]:hover,
+.rich-markdown-content [data-type="block-math"]:hover {
+  background: var(--mx-hover);
+}
+.rich-markdown-content [data-type="block-math"] {
+  margin: 20px 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.rich-markdown-content .inline-math-error,
+.rich-markdown-content .block-math-error {
+  color: var(--mx-danger);
+  font-family: var(--mx-font-mono);
+}
+
+/* Collapsible sections. */
+.rich-markdown-content .rich-markdown-details {
+  display: flex;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 6px 10px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-surface-plate);
+}
+.rich-markdown-content .rich-markdown-details > button {
+  flex: 0 0 20px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.rich-markdown-content .rich-markdown-details > button::before {
+  content: "▸";
+  transition: transform 120ms ease;
+}
+.rich-markdown-content .rich-markdown-details.is-open > button::before {
+  transform: rotate(90deg);
+}
+.rich-markdown-content .rich-markdown-details > button:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.rich-markdown-content .rich-markdown-details > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rich-markdown-content .rich-markdown-details summary {
+  display: block;
+  list-style: none;
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-strong);
+}
+.rich-markdown-content .rich-markdown-details summary::-webkit-details-marker {
+  display: none;
+}
+.rich-markdown-content .rich-markdown-details [data-type="detailsContent"] {
+  margin-top: 6px;
+}
+.rich-markdown-content .rich-markdown-details [data-type="detailsContent"][hidden] {
+  display: none;
+}
+.rich-markdown-content .rich-markdown-details [data-type="detailsContent"] > :last-child {
+  margin-bottom: 0;
+}
+
+/* Search highlights. */
+.rich-markdown-search-match {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--mx-warning, #d7a700) 30%, transparent);
+}
+.rich-markdown-search-match.is-active {
+  background: color-mix(in srgb, var(--mx-warning, #d7a700) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mx-warning, #d7a700) 80%, transparent);
+}
+
+/* -- Held edit notice (an edit the file does not have yet) ------------------ */
+.rich-markdown-held {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+  background: color-mix(in srgb, var(--mx-danger) 14%, transparent);
+}
+.rich-markdown-held > span {
+  flex: 1 1 auto;
+}
+.rich-markdown-held > button {
+  flex: 0 0 auto;
+}
+
+/* -- Front matter banner ------------------------------------------------------- */
+.rich-markdown-frontmatter {
+  margin: 0 0 16px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-surface-plate);
+  font-size: var(--mx-font-minor);
+}
+.rich-markdown-frontmatter-toggle {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: inherit;
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rich-markdown-frontmatter-toggle:hover {
+  background: var(--mx-hover);
+}
+.rich-markdown-frontmatter-toggle:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.rich-markdown-frontmatter-label {
+  flex: 0 0 auto;
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium, 500);
+}
+.rich-markdown-frontmatter-keys {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rich-markdown-frontmatter-source {
+  margin: 0;
+  padding: 2px 10px 8px;
+  overflow-x: auto;
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-meta);
+  white-space: pre;
+}
+
+/* -- Floating panels -------------------------------------------------------------- */
+.rich-markdown-popover {
+  position: absolute;
+  z-index: 20;
+  box-sizing: border-box;
+  max-width: min(360px, calc(100% - 8px));
+  padding: var(--mx-menu-inset, 4px);
+  border: var(--mx-popup-border, 0);
+  border-radius: var(--mx-popup-radius, var(--mx-radius-lg));
+  color: var(--mx-text);
+  background: var(--mx-popup-bg, var(--mx-bg-base));
+  box-shadow: var(--mx-popup-shadow, var(--mx-raised));
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.rich-markdown-suggest {
+  width: 240px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.rich-markdown-suggest-item {
+  min-height: var(--mx-menu-row-height, 28px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: var(--mx-radius-md);
+  cursor: pointer;
+}
+.rich-markdown-suggest-item[aria-selected="true"] {
+  background: var(--mx-hover);
+}
+.rich-markdown-suggest-emoji {
+  width: 20px;
+  text-align: center;
+}
+.rich-markdown-suggest-empty {
+  padding: 4px 10px;
+  color: var(--mx-text-faint);
+}
+.rich-markdown-prompt {
+  width: 320px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+.rich-markdown-prompt label {
+  display: grid;
+  gap: 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.rich-markdown-prompt :is(input, textarea),
+.rich-markdown-search-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  font: inherit;
+  font-size: var(--mx-font-ui);
+}
+.rich-markdown-prompt textarea {
+  resize: vertical;
+  font-family: var(--mx-font-mono);
+}
+.rich-markdown-prompt :is(input, textarea):focus,
+.rich-markdown-search-input:focus {
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.rich-markdown-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.rich-markdown-button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-action-bg, transparent);
+  box-shadow: var(--mx-action-ring, inset 0 0 0 1px var(--mx-border));
+  font: inherit;
+  font-size: var(--mx-font-minor);
+  cursor: pointer;
+}
+.rich-markdown-button:hover {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg, transparent);
+}
+.rich-markdown-button.is-primary {
+  color: var(--mx-accent-fg, #fff);
+  background: var(--mx-accent-bg);
+  box-shadow: none;
+}
+.rich-markdown-button:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.rich-markdown-link-bubble {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 3px 10px;
+}
+.rich-markdown-link-href {
+  min-width: 0;
+  max-width: 220px;
+  margin-right: 4px;
+  overflow: hidden;
+  color: var(--mx-md-code, var(--mx-text-muted));
+  font-size: var(--mx-font-minor);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* -- Search bar ---------------------------------------------------------------------- */
+.rich-markdown-search {
+  position: absolute;
+  z-index: 25;
+  top: 40px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: var(--mx-popup-border, 0);
+  border-radius: var(--mx-popup-radius, var(--mx-radius-lg));
+  background: var(--mx-popup-bg, var(--mx-bg-base));
+  box-shadow: var(--mx-popup-shadow, var(--mx-raised));
+}
+.rich-markdown-search-input {
+  width: 200px;
+}
+.rich-markdown-search-count {
+  min-width: 64px;
+  padding: 0 6px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Rich items always wrap their text in <p>, which the preview's
+   `li:has(> p)` loose-list rule would space like a loose list. Keep the
+   preview's tight rhythm: 2px between items, 6px above nested lists. */
+.markdown .rich-markdown-content li,
+.markdown .rich-markdown-content li:has(> p) {
+  margin-bottom: 2px;
+}
+.markdown .rich-markdown-content li > p {
+  display: block;
+  margin: 0;
+}
+.markdown .rich-markdown-content li > ul,
+.markdown .rich-markdown-content li > ol {
+  margin: 6px 0 0;
+}
+.markdown .rich-markdown-content li > :last-child {
+  margin-bottom: 0;
+}

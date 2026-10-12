@@ -247,6 +247,105 @@ test('out-of-order desktop registrations cannot replace the current delivery fil
   }
 });
 
+test('an equal or older visibility version leaves the delivery filter unchanged', async () => {
+  const f = await viewSyncHost();
+  let service;
+  const messages = [];
+  try {
+    f.put('a', 'a answer');
+    f.put('b', 'b answer');
+    service = await createDesktopService({
+      options: f.options,
+      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      emit: (message) => messages.push(message),
+    });
+    await service.invoke('setVisibleSessions', [['a'], 5]);
+    assert.equal(await service.invoke('setVisibleSessions', [['b'], 5]), true);
+    assert.equal(await service.invoke('setVisibleSessions', [['b'], 4]), true);
+    messages.length = 0;
+    f.put('a', 'a update');
+    f.put('b', 'b update');
+    assert.deepEqual(
+      messages.filter((message) => message.kind === 'session-state').map((message) => message.sessionId),
+      ['a']
+    );
+    // A stale registration also leaves the replay set alone.
+    messages.length = 0;
+    await service.control({ kind: 'state-resync' });
+    assert.deepEqual(
+      messages.filter((message) => message.kind === 'session-state').map((message) => message.sessionId),
+      ['a']
+    );
+    await service.invoke('setVisibleSessions', [['b'], 6]);
+    messages.length = 0;
+    f.put('a', 'a hidden');
+    f.put('b', 'b visible');
+    assert.deepEqual(
+      messages.filter((message) => message.kind === 'session-state').map((message) => message.sessionId),
+      ['b']
+    );
+  } finally {
+    await service?.dispose();
+    await f.close();
+  }
+});
+
+test('disposal during an in-progress view replay delivers nothing further and settles', async () => {
+  const f = await viewSyncHost();
+  let service;
+  const messages = [];
+  let gate = null;
+  const readStarted = Promise.withResolvers();
+  const runtime = {
+    ...f.runtime,
+    loadConfig: async () => ({}),
+    async attachSessionClient(options) {
+      const client = await f.runtime.attachSessionClient(options);
+      return {
+        ...client,
+        async read(request) {
+          if (gate) {
+            readStarted.resolve();
+            await gate.promise;
+          }
+          return client.read(request);
+        },
+      };
+    },
+  };
+  try {
+    f.put('lead', 'lead initial');
+    service = await createDesktopService({
+      options: f.options,
+      runtime,
+      emit: (message) => messages.push(message),
+    });
+    await service.invoke('setVisibleSessions', [['lead']]);
+    f.put('lead', 'lead changed');
+    gate = Promise.withResolvers();
+    messages.length = 0;
+    const resync = service.control({ kind: 'state-resync' });
+    await readStarted.promise;
+    const disposing = service.dispose();
+    const emittedAtDispose = messages.length;
+    gate.resolve();
+    await Promise.allSettled([resync, disposing]);
+    await disposing;
+    assert.equal(messages.length, emittedAtDispose);
+    assert.equal(
+      messages.some((message) => message.kind === 'view-sync-complete'),
+      false
+    );
+    // A resync requested after disposal never starts another replay.
+    await service.control({ kind: 'state-resync' });
+    assert.equal(messages.length, emittedAtDispose);
+    service = null;
+  } finally {
+    await service?.dispose();
+    await f.close();
+  }
+});
+
 test('service visible-session updates still reject a malformed id after updating the delivery filter', async () => {
   const f = await viewSyncHost();
   let service;

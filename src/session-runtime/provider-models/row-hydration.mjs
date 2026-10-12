@@ -9,7 +9,10 @@ import {
   ultrafastCapableFor,
 } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import { modelSettingsFor } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
-import { effortConfigurationMode } from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
+import {
+  customAutoEffortCapable,
+  effortConfigurationMode,
+} from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
 
 const ULTRAFAST_SPEED_OPTION = Object.freeze({
@@ -29,14 +32,10 @@ export function hydrateProviderModelRow(cfg, row) {
   // route selection are untouched.
   const alias = typeof saved.alias === 'string' ? saved.alias.trim() : '';
   const fastCapable = fastCapableFor(row.provider, row);
+  const existingOptions = Array.isArray(row.modelParameterOptions) ? row.modelParameterOptions : [];
   const modelParameterOptions =
     fastCapable && ultrafastCapableFor(row.provider, row)
-      ? [
-          ...(Array.isArray(row.modelParameterOptions) ? row.modelParameterOptions : []).filter(
-            (option) => option?.id !== ULTRAFAST_SPEED_OPTION.id
-          ),
-          ULTRAFAST_SPEED_OPTION,
-        ]
+      ? [...existingOptions.filter((option) => option?.id !== ULTRAFAST_SPEED_OPTION.id), ULTRAFAST_SPEED_OPTION]
       : row.modelParameterOptions;
   return {
     ...row,
@@ -47,13 +46,15 @@ export function hydrateProviderModelRow(cfg, row) {
     fastPreferred: Object.hasOwn(saved, 'fast')
       ? saved.fast === true
       : row.defaultFast === true || fastPreferenceFor(cfg, row.provider, row.id),
-    // Auto effort only changes effort where that keeps the prompt cache.
-    autoEffortCapable: Boolean(
-      effortConfigurationMode(row.provider, row.id, {
-        ...(getProvider(row.provider)?.config || {}),
-        modelParameters: saved.modelParameters || {},
-      })
-    ),
+    // Auto effort only changes effort where that keeps the prompt cache, or
+    // per request on a custom Chat/Responses model that declares levels.
+    autoEffortCapable:
+      Boolean(
+        effortConfigurationMode(row.provider, row.id, {
+          ...(getProvider(row.provider)?.config || {}),
+          modelParameters: saved.modelParameters || {},
+        })
+      ) || customAutoEffortCapable(row.provider, cfg?.providers?.[row.provider]?.protocol, row),
     savedEffort: saved.effort || null,
     savedFast: Object.hasOwn(saved, 'fast') ? saved.fast === true : undefined,
     savedModelParameters: saved.modelParameters || {},

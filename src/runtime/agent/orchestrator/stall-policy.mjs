@@ -283,7 +283,6 @@ const WORKFLOW_AGENT_STALL_ABORT_S = {
   reviewer: 300,
   'heavy-worker': 420,
   maintainer: 300,
-  'web-researcher': 300,
 };
 
 export function resolveAgentStallThresholds(agent, env = process.env) {

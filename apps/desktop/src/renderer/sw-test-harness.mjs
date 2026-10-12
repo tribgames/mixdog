@@ -110,7 +110,18 @@ export function loadWorker({
     setTimeout,
     self: {
       addEventListener(type, listener) {
-        listeners.set(type, listener);
+        // A worker may hold several listeners per event (sw-shell.js and
+        // sw.js both take 'message'); all of them run, in registration order.
+        const earlier = listeners.get(type);
+        listeners.set(
+          type,
+          earlier
+            ? (event) => {
+                earlier(event);
+                listener(event);
+              }
+            : listener
+        );
       },
       clients: {
         claim: async () => undefined,

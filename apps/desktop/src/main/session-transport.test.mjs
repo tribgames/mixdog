@@ -60,6 +60,54 @@ test('failed desktop initialization closes its daemon attachment and preserves t
   assert.deepEqual(calls, ['desktop.init', 'desktop.unsubscribe']);
 });
 
+test('a pending daemon upgrade forces the old daemon once, keeps waiting, and emits upgrade-wait', async () => {
+  let ensureCalls = 0;
+  let forced = 0;
+  const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({
+    ensureDaemon: async ({ onUpgradeWait }) => {
+      ensureCalls += 1;
+      if (ensureCalls === 1) {
+        onUpgradeWait({ state: 'waiting', fromVersion: '1.0.0', toVersion: '1.1.0' });
+        throw Object.assign(new Error('old daemon still busy'), { daemonUpgradePending: true });
+      }
+      if (ensureCalls === 2) {
+        onUpgradeWait({ state: 'done', fromVersion: '1.0.0', toVersion: '1.1.0' });
+      }
+      return { pid: process.pid, port: 1, token: 'test' };
+    },
+    forceDaemonUpgrade: async () => {
+      forced += 1;
+      return true;
+    },
+    attachSession: async () => ({
+      async call(name) {
+        return name === 'desktop.init' ? { desktopId: 'desktop_upgrade' } : { ok: true };
+      },
+      async close() {},
+    }),
+  }));
+  const messages = [];
+  const exits = [];
+  transport.on('message', (message) => messages.push(message));
+  transport.on('exit', (...args) => exits.push(args));
+  try {
+    transport.postMessage({ kind: 'init', options });
+    await waitFor(() => messages.some((message) => message.kind === 'ready'));
+    assert.equal(ensureCalls, 2);
+    assert.deepEqual(exits, []);
+    assert.deepEqual(
+      messages.filter((message) => message.kind === 'upgrade-wait'),
+      [
+        { kind: 'upgrade-wait', state: 'waiting', fromVersion: '1.0.0', toVersion: '1.1.0' },
+        { kind: 'upgrade-wait', state: 'done', fromVersion: '1.0.0', toVersion: '1.1.0' },
+      ]
+    );
+    assert.equal(forced, 1, 'the retry loop must not force again within the same wait');
+  } finally {
+    await transport.close();
+  }
+});
+
 test('daemon startup messages remain diagnostic records, not transport errors', async () => {
   const detail = '[daemon] ready port=1 health=ok';
   const transport = new SessionTransport('file:///C:/tmp/daemon.cjs', process.cwd(), async () => ({

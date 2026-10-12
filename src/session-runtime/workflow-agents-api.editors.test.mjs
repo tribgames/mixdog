@@ -3,7 +3,7 @@
 // agent create/update/delete (including starter tombstones and fixed-role
 // overrides), and workflow pack create/save/delete with active fallback.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -11,6 +11,7 @@ import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
 import {
   AGENT_DELETED_MARKER,
   FIXED_AGENT_SLOTS,
+  clearAgentDefinitionCache,
   createWorkflowHelpers,
   createWorkflowRouteHelpers,
   workflowIdFromName,
@@ -182,6 +183,23 @@ test('deleting a shipped starter agent leaves a tombstone; a fixed role needs an
   assert.equal(api.listAgents().find((agent) => agent.id === fixed).userOverride, true);
   assert.deepEqual(await api.deleteAgentDefinition(fixed), { id: fixed, deleted: true, revertedToBuiltIn: true });
   assert.equal(api.getAgentDefinition(fixed).userOverride, false);
+});
+
+test('an editor save keeps frontmatter the editor does not show: shipped first, then the user copy', async (t) => {
+  const { dataDir, helpers, api } = fixture(t);
+  const shipped = helpers.loadAgentDefinition(dataDir, 'maintainer');
+  assert.equal(shipped.permission, 'read-write');
+  await api.saveAgentDefinition({ id: 'maintainer', name: shipped.name, body: 'Edited maintainer prompt.' });
+  assert.equal(helpers.loadAgentDefinition(dataDir, 'maintainer').permission, 'read-write');
+
+  // A value the user set by hand in their copy survives the next editor save.
+  const file = join(dataDir, 'agents', 'maintainer', 'AGENT.md');
+  writeFileSync(file, readFileSync(file, 'utf8').replace('permission: read-write', 'permission: read'));
+  clearAgentDefinitionCache('maintainer');
+  await api.saveAgentDefinition({ id: 'maintainer', name: shipped.name, body: 'Edited again.' });
+  const saved = helpers.loadAgentDefinition(dataDir, 'maintainer');
+  assert.equal(saved.permission, 'read');
+  assert.equal(saved.body, 'Edited again.');
 });
 
 test('workflow packs: create derives a free id, save/list/set round-trip, delete falls the active workflow back to Default', async (t) => {

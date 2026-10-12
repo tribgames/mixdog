@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import WebSocket from 'ws';
 import { startRelay } from '../../../relay/server.mjs';
 import { startRemoteRelay } from '../main/remote-relay.ts';
+import { remotePairingKeys } from './remote-pairing-recovery.ts';
 import { viewSyncHost } from '../main/test-support/view-sync-host.mjs';
 
 async function until(condition) {
@@ -66,12 +67,14 @@ test('a synchronized phone answers catalog reads from the synchronized roster, n
         sockets.push(this);
       }
     };
+    // Pairing is stored per relay origin + device.
+    const keys = remotePairingKeys(origin, deviceId);
     for (const [key, value] of Object.entries({
-      'mixdog.remote-token': registered.token,
-      'mixdog.remote-paired': '1',
-      'mixdog.remote-browser-id': registered.clientId,
-      'mixdog.remote-e2ee-public-key': handle.pairing.serverPublicKey,
-      'mixdog.remote-e2ee-secret': handle.pairing.pairingSecret,
+      [keys.token]: registered.token,
+      [keys.paired]: '1',
+      [keys.browserId]: registered.clientId,
+      [keys.e2eePublicKey]: handle.pairing.serverPublicKey,
+      [keys.e2eeSecret]: handle.pairing.pairingSecret,
     }))
       w.localStorage.setItem(key, value);
     const bundle = await build({

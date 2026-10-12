@@ -1,4 +1,4 @@
-// "Remote Access" window: one glanceable card for the installable web app.
+// "Remote Access" window: one glanceable card with the phone-app QR.
 // Relay-only (works from any network — user decision: no LAN fallback).
 // Until the relay link is up the window shows a connecting note instead of
 // falling back to a device-specific client.
@@ -13,6 +13,8 @@ export interface RemoteAccessDescriptor {
     token: string;
     clients?: DesktopRemoteClientInfo[];
   };
+  /** False while access is switched off; the relay fields are then empty. */
+  enabled?: boolean;
 }
 
 const qrSvg = (value: string): Promise<string> =>
@@ -25,9 +27,23 @@ export async function buildRemoteAccessInfo(descriptor: RemoteAccessDescriptor):
   // installed app then makes. Nothing secret ever reaches an HTTP log or a
   // photographed code.
   const relayBrowserUrl = relay.clientUrl;
+  if (descriptor.enabled === false) {
+    return {
+      relayBrowserUrl: '',
+      relayBrowserQrSvg: '',
+      relayAppQrSvg: '',
+      relayConnectUrl: '',
+      clients: relay.clients ?? [],
+      enabled: false,
+    };
+  }
+  const { origin } = new URL(relayBrowserUrl);
   return {
+    enabled: true,
     relayBrowserUrl,
     relayBrowserQrSvg: await qrSvg(relayBrowserUrl),
+    relayAppQrSvg: await qrSvg(`${origin}/app`),
+    relayConnectUrl: `${origin}/connect`,
     clients: relay.clients ?? [],
   };
 }
@@ -50,11 +66,11 @@ export async function showRemoteAccessWindow(
   parent?: BrowserWindow | null
 ): Promise<void> {
   const { BrowserWindow: ElectronBrowserWindow } = await import('electron');
-  const browserQr = info.relayBrowserQrSvg;
+  const browserQr = info.relayAppQrSvg;
   const paired = Boolean(browserQr);
   const body = paired
     ? `<div class="grid single">
-  <div class="card"><b>Scan to install the web app</b>${browserQr}<small>Safari: Add to Home Screen · Chrome/Edge: Install app<br/>Opening the installed app asks this PC for approval.</small></div>
+  <div class="card"><b>Scan with your phone camera to install the Mixdog app</b>${browserQr}<small>Then open the app, tap Connect with a code, and enter the 6-digit code shown in Settings → Connection.<br/>Every new device asks this PC for approval.</small></div>
 </div>`
     : `<div class="grid single">
   <div class="card"><b>Connecting…</b><small>Establishing the secure relay link. Close this window and press Ctrl+Shift+R again in a moment. If this persists, check this PC's internet connection.</small></div>
@@ -74,8 +90,8 @@ export async function showRemoteAccessWindow(
   .card svg { width: 200px; height: 200px; border-radius: 8px; }
   .card small { color: #a8a8a8; font-size: 11px; text-align: center; }
 </style>
-<h1>Web app</h1>
-<p>Works on any network. Scan to install it, then approve the connection request that appears here.</p>
+<h1>Connect a device</h1>
+<p>Works on any network. Approve the connection request that appears here.</p>
 ${body}`;
   const window = new ElectronBrowserWindow({
     width: 560,

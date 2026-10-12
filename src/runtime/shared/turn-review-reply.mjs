@@ -44,6 +44,8 @@ export async function turnReviewReply(readReview, options = {}) {
     files: [],
     patch: '',
   };
+  // Already a reply (a session runtime answers through this too): keep its tag.
+  if (typeof review.etag === 'string') return known === review.etag ? { unchanged: true, etag: review.etag } : review;
   // A collapsed bar shows files and line counts only. A Git-backed review
   // carries those per file, so its patch text (tens of KB mid-turn) is
   // left out until the bar is opened; other kinds count from the patch.

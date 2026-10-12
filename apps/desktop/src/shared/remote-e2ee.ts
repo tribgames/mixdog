@@ -38,6 +38,18 @@ export interface RelayE2EEChallenge {
   /** An older-history page travels as a prepend patch (only the revealed
    *  rows); a browser that does not echo it receives the whole list. */
   transcriptPrepend?: 1;
+  /** This host serves this release's remote methods (previews, PR calls,
+   *  updater, trash, ...). Absent on an older host. */
+  remoteParity?: 1;
+  /** This host serves the remote browser pane's tabs, history, saved-login
+   *  fill and profile import. Absent on an older host. */
+  browserParity?: 1;
+  /** This host serves the HTTP media lane as end-to-end encrypted frames
+   *  (shared/remote-media-crypto.ts) under keys derived from this session. */
+  mediaE2ee?: 1;
+  /** This host accepts `registerNativePush` (APNs/FCM through a relay that
+   *  holds the credentials). Absent on an older host or an unable relay. */
+  nativePush?: 1;
 }
 
 interface RelayE2EEHello {
@@ -239,6 +251,25 @@ function isBox(value: unknown): value is RelayE2EEBox {
   );
 }
 
+/** A second key from the same ECDH secret, separated by its HKDF info: it
+ *  protects HTTP media bytes and never touches the relay. Non-extractable, so
+ *  it can be handed to the service worker (structured clone) but not read. */
+async function deriveMediaKey(input: {
+  privateKey: CryptoKey;
+  peerPublicKey: string;
+  pairingSecret: string;
+  challenge: string;
+  serverPublicKey: string;
+  clientPublicKey: string;
+}): Promise<CryptoKey> {
+  return deriveAesGcmKey(
+    input.privateKey,
+    input.peerPublicKey,
+    base64UrlDecode(input.pairingSecret),
+    encoder.encode(`${E2EE_CONTEXT}\0media\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`)
+  );
+}
+
 export class RelayE2EEChannel {
   private sendSequence = 0;
   private receiveSequence = 0;
@@ -249,7 +280,9 @@ export class RelayE2EEChannel {
     private readonly key: CryptoKey,
     private readonly role: 'client' | 'server',
     /** Set when the handshake proved BOTH peers can deflate/inflate. */
-    private readonly compression = false
+    private readonly compression = false,
+    /** Key for the encrypted HTTP media lane of THIS session. */
+    readonly mediaKey: CryptoKey | null = null
   ) {}
 
   private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array> {
@@ -574,6 +607,109 @@ export async function openSealedRelayE2EEPairingMaterial(
   }
 }
 
+/** A browser's Web Push key material (PushSubscription.toJSON().keys), sealed
+ *  to ONE paired desktop. The relay holds the subscription endpoint and
+ *  forwards this box to that desktop; it cannot open it, and only a browser
+ *  holding the desktop's pairing secret can make one the desktop accepts. The
+ *  endpoint is authenticated as associated data, so a box cannot be replayed
+ *  under another subscription. */
+export interface SealedRelayWebPushKeys {
+  version: typeof E2EE_VERSION;
+  ephemeralPublicKey: string;
+  nonce: string;
+  ciphertext: string;
+}
+
+export interface RelayWebPushKeys {
+  p256dh: string;
+  auth: string;
+}
+
+const E2EE_WEB_PUSH_CONTEXT = `${E2EE_CONTEXT}\0webpush`;
+
+async function webPushSealKey(input: {
+  privateKey: CryptoKey;
+  peerPublicKey: string;
+  pairingSecret: string;
+  serverPublicKey: string;
+  ephemeralPublicKey: string;
+}): Promise<CryptoKey> {
+  return deriveAesGcmKey(
+    input.privateKey,
+    input.peerPublicKey,
+    base64UrlDecode(input.pairingSecret),
+    encoder.encode(`${E2EE_WEB_PUSH_CONTEXT}\0${input.serverPublicKey}\0${input.ephemeralPublicKey}`)
+  );
+}
+
+export async function sealRelayWebPushKeys(
+  pairing: RelayE2EEPairingMaterial,
+  endpoint: string,
+  keys: RelayWebPushKeys
+): Promise<SealedRelayWebPushKeys> {
+  const pair = await generateEcdhKeyPair();
+  const ephemeralPublicKey = await exportRawPublicKey(pair.publicKey);
+  const key = await webPushSealKey({
+    privateKey: pair.privateKey,
+    peerPublicKey: pairing.serverPublicKey,
+    pairingSecret: pairing.pairingSecret,
+    serverPublicKey: pairing.serverPublicKey,
+    ephemeralPublicKey,
+  });
+  const nonce = randomBytes(12);
+  const ciphertext = new Uint8Array(
+    await cryptoApi().subtle.encrypt(
+      { name: 'AES-GCM', iv: arrayBuffer(nonce), additionalData: arrayBuffer(encoder.encode(endpoint)) },
+      key,
+      arrayBuffer(encoder.encode(JSON.stringify({ p256dh: keys.p256dh, auth: keys.auth })))
+    )
+  );
+  return {
+    version: E2EE_VERSION,
+    ephemeralPublicKey,
+    nonce: base64UrlEncode(nonce),
+    ciphertext: base64UrlEncode(ciphertext),
+  };
+}
+
+/** null for anything that does not open: a box sealed for another desktop,
+ *  another endpoint, or by someone without the pairing secret. */
+export async function openRelayWebPushKeys(
+  identity: RelayE2EEServerIdentity,
+  endpoint: string,
+  sealed: unknown
+): Promise<RelayWebPushKeys | null> {
+  try {
+    const box = sealed as Partial<SealedRelayWebPushKeys> | null;
+    if (!box || box.version !== E2EE_VERSION || !/^[A-Za-z0-9_-]{87}$/u.test(String(box.ephemeralPublicKey || ''))) {
+      return null;
+    }
+    const key = await webPushSealKey({
+      privateKey: await importEcdhPrivateKey(identity.privateKeyJwk, false),
+      peerPublicKey: box.ephemeralPublicKey as string,
+      pairingSecret: identity.pairingSecret,
+      serverPublicKey: identity.serverPublicKey,
+      ephemeralPublicKey: box.ephemeralPublicKey as string,
+    });
+    const plaintext = await cryptoApi().subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: arrayBuffer(base64UrlDecode(String(box.nonce || ''))),
+        additionalData: arrayBuffer(encoder.encode(endpoint)),
+      },
+      key,
+      arrayBuffer(base64UrlDecode(String(box.ciphertext || '')))
+    );
+    const parsed = JSON.parse(decoder.decode(new Uint8Array(plaintext))) as Partial<RelayWebPushKeys>;
+    const p256dh = String(parsed.p256dh || '');
+    const auth = String(parsed.auth || '');
+    if (!/^[A-Za-z0-9_-]{87}$/u.test(p256dh) || !/^[A-Za-z0-9_-]{22}$/u.test(auth)) return null;
+    return { p256dh, auth };
+  } catch {
+    return null;
+  }
+}
+
 export async function createRelayE2EEClientHandshake(
   pairing: RelayE2EEPairingMaterial,
   challenge: RelayE2EEChallenge
@@ -597,15 +733,17 @@ export async function createRelayE2EEClientHandshake(
     ...(challenge.transcriptPaging === 1 ? { transcriptPaging: 1 as const } : {}),
     ...(challenge.transcriptPrepend === 1 ? { transcriptPrepend: 1 as const } : {}),
   };
-  const key = await deriveChannelKey({
+  const material = {
     privateKey: pair.privateKey,
     peerPublicKey: pairing.serverPublicKey,
     pairingSecret: pairing.pairingSecret,
     challenge: challenge.challenge,
     serverPublicKey: pairing.serverPublicKey,
     clientPublicKey,
-  });
-  return { hello, channel: new RelayE2EEChannel(key, 'client', hello.deflate === 1) };
+  };
+  const key = await deriveChannelKey(material);
+  const mediaKey = challenge.mediaE2ee === 1 ? await deriveMediaKey(material) : null;
+  return { hello, channel: new RelayE2EEChannel(key, 'client', hello.deflate === 1, mediaKey) };
 }
 
 export async function acceptRelayE2EEClientHello(
@@ -621,13 +759,15 @@ export async function acceptRelayE2EEClientHello(
     throw new Error('Relay encryption authentication failed.');
   }
   const privateKey = await importEcdhPrivateKey(identity.privateKeyJwk, false);
-  const key = await deriveChannelKey({
+  const material = {
     privateKey,
     peerPublicKey: hello.clientPublicKey,
     pairingSecret: identity.pairingSecret,
     challenge: hello.challenge,
     serverPublicKey: identity.serverPublicKey,
     clientPublicKey: hello.clientPublicKey,
-  });
-  return new RelayE2EEChannel(key, 'server', hello.deflate === 1 && relayE2EECompressionSupported());
+  };
+  const key = await deriveChannelKey(material);
+  const mediaKey = expectedChallenge.mediaE2ee === 1 ? await deriveMediaKey(material) : null;
+  return new RelayE2EEChannel(key, 'server', hello.deflate === 1 && relayE2EECompressionSupported(), mediaKey);
 }

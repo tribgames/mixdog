@@ -23,15 +23,23 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
    * budget, and no mutation of either session. Returns the conversation to
    * carry, or null when the route has no boundary to compact toward.
    */
-  async function compactConversationForHeir(source, target) {
+  async function compactConversationForHeir(source, target, { summarize = false } = {}) {
     const plan = inheritanceCompactionPlan(target);
     if (!plan) return null;
     // The compactor sees the whole transcript — system blocks included — so it
     // preserves the protected head and the recent tail exactly as /compact
     // does. Only the conversation half of the result travels.
     const messages = structuredClone(Array.isArray(source.messages) ? source.messages : []);
+    // The compactor writes a model summary only once the conversation passes
+    // its size threshold; below it, it trims by rules and the transcript comes
+    // back nearly whole. An explicitly chosen compacted carry must summarize
+    // whatever its size, so the compactor gets a COPY of the source whose
+    // threshold is the floor — the source session itself is left untouched.
+    const compactSource = summarize
+      ? { ...source, compaction: { ...source.compaction, conversationThresholdTokens: 1 } }
+      : source;
     const result = await compactConversation({
-      session: source,
+      session: compactSource,
       messages,
       ...plan,
       // Memory ingest belongs to the session that HELD the conversation; the
@@ -46,16 +54,25 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
   // instead of sending the user away to run /compact by hand. The compaction
   // is sized for the HEIR and runs on a copy, so the source session keeps
   // every message it has.
-  async function fitConversationForHeir(source, target, carried, fit) {
+  // `required`: the user explicitly chose a compacted carry. Then a compaction
+  // that cannot run (or yields nothing) is a refusal even when the original
+  // would fit — silently carrying the full conversation would answer a
+  // different request than the one made.
+  async function fitConversationForHeir(source, target, carried, fit, { required = false } = {}) {
     let compactionFault = null;
     let compacted = null;
     try {
-      compacted = await compactConversationForHeir(source, target);
+      compacted = await compactConversationForHeir(source, target, { summarize: required });
     } catch (reason) {
       // A compaction that cannot run is a refusal, not a half-carry: the
       // user reads the same measured sentence they would have read without
       // the attempt, and the engine fault travels along as its cause.
       compactionFault = reason;
+    }
+    if (required && !compacted) {
+      const refusal = new Error('inheritFrom: the conversation could not be compacted for the new session');
+      if (compactionFault) refusal.cause = compactionFault;
+      throw refusal;
     }
     let next = carried;
     let nextFit = fit;
@@ -138,7 +155,8 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
    * The target must still be empty: interleaving two transcripts would
    * produce a conversation neither model ever had.
    */
-  async function inheritFrom(sourceSessionId) {
+  async function inheritFrom(sourceSessionId, options = null) {
+    const compact = options?.compact === true;
     const id = clean(sourceSessionId);
     if (!id) throw new TypeError('inheritFrom: source session id is required');
     // A daemon-created heir is still only RESERVED when the desktop calls
@@ -168,7 +186,11 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
     // offered the carry and the runtime that performs it cannot disagree —
     // and a refusal no longer has to unwind a half-filled transcript.
     const fit = inheritanceFit(carried, target);
-    if (fit.known && !fit.fits) carried = await fitConversationForHeir(source, target, carried, fit);
+    // compact:true summarizes even a conversation that fits; otherwise only
+    // one that cannot fit is compacted.
+    if (compact || (fit.known && !fit.fits)) {
+      carried = await fitConversationForHeir(source, target, carried, fit, { required: compact });
+    }
     target.messages.push(
       ...stripEffortConfiguration(inheritedCompatReplayMessages(structuredClone(carried), source.provider))
     );

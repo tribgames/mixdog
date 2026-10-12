@@ -25,6 +25,7 @@ export function createPendingResume({
   now,
   tombstoneTtlMs,
   tombstoneLimit,
+  getAdmission = () => 'open',
 }) {
   let deferred = false;
   // Completion keys explicitly abandoned by Esc. Tombstones are per-feed
@@ -88,8 +89,20 @@ export function createPendingResume({
   function kick(body = '', completionKey = '') {
     const key = executionResumeKey(body, completionKey);
     if (body && isDiscarded(key)) return;
+    // Admission fence: a closed session never resumes from a completion; a
+    // closing one defers (a failed close flushes the deferred kick).
+    const admission = getAdmission();
+    if (admission === 'terminal') {
+      bodies.length = 0;
+      deferred = false;
+      return;
+    }
     if (body) bodies.push({ body, key });
     if (getDisposed()) return;
+    if (admission === 'closing') {
+      deferred = true;
+      return;
+    }
     if (getState().busy) {
       deferred = true;
       return;
@@ -104,7 +117,7 @@ export function createPendingResume({
   }
 
   function flushDeferred() {
-    if (!deferred || getDisposed() || getState().busy) return;
+    if (!deferred || getDisposed() || getState().busy || getAdmission() !== 'open') return;
     kick();
   }
 

@@ -3,6 +3,7 @@ import {
   xaiModelSupportsReasoningEffort,
   normalizeOpencodeGoReasoningEffort,
 } from './openai-compat-xai.mjs';
+import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 
 function normalizeReasoningEffort(value, allowed) {
   const effort = String(value ?? '')
@@ -15,6 +16,17 @@ function normalizeReasoningEffort(value, allowed) {
 // backend are frequently rejected by another even when the core Chat schema
 // is shared.
 export function applyCompatProviderChatOptions(params, providerName, opts = {}, config = {}, modelInfo = null) {
+  if (isCustomProviderName(providerName)) {
+    // User-defined provider: the model row's reasoning settings decide the
+    // level and its wire shape (custom-reasoning.mjs).
+    const { fields } = resolveCustomReasoning({
+      protocol: 'openai-chat',
+      model: modelInfo,
+      effort: opts.effort ?? config?.reasoningEffort,
+    });
+    Object.assign(params, fields);
+    return params;
+  }
   if (providerName === 'openrouter') {
     const effort = normalizeReasoningEffort(opts.openRouterReasoningEffort ?? opts.effort ?? config?.reasoningEffort, [
       'none',

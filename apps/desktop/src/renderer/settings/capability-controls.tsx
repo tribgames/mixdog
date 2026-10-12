@@ -16,12 +16,30 @@ import { acquireTitleBarDim } from '../titlebar-dim';
 
 import { count, type SettingsConfirmation } from './capability-data';
 
-export function Group({ title, description, children }: { title?: string; description?: string; children: ReactNode }) {
+export function Group({
+  title,
+  description,
+  actions,
+  children,
+}: {
+  title?: string;
+  description?: string;
+  /** Sits at the right end of the title line. */
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="settings-group">
       {(title || description) && (
         <header>
-          {title && <h3>{title}</h3>}
+          {actions ? (
+            <div className="settings-group-head">
+              {title && <h3>{title}</h3>}
+              {actions}
+            </div>
+          ) : (
+            title && <h3>{title}</h3>
+          )}
           {description && <p>{description}</p>}
         </header>
       )}
@@ -190,7 +208,7 @@ export function AutoSaveRow({
           disabled={disabled}
           onBlur={(event) => commit(event.currentTarget)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               event.preventDefault();
               event.currentTarget.blur();
             } else if (event.key === 'Escape') {
@@ -301,6 +319,7 @@ export function ResourceRow({
   selected = false,
   actions,
   className = '',
+  plainStatus = false,
 }: {
   title: string;
   description?: string;
@@ -309,6 +328,8 @@ export function ResourceRow({
   selected?: boolean;
   actions?: ReactNode;
   className?: string;
+  /** Status as plain muted text (green only when positive) instead of a pill. */
+  plainStatus?: boolean;
 }) {
   let state: ReturnType<typeof settingsStatus> | null = null;
   if (status) state = settingsStatus(status);
@@ -318,7 +339,10 @@ export function ResourceRow({
       <div>
         <div className="settings-resource-title">
           <b>{title}</b>
-          {state && (
+          {state && plainStatus && (
+            <span className={`settings-status-text settings-status-text--${state.tone}`}>{t(state.label)}</span>
+          )}
+          {state && !plainStatus && (
             <span className={`settings-status settings-status--${state.tone}`}>
               <i aria-hidden="true" />
               {t(state.label)}

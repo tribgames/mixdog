@@ -1,13 +1,20 @@
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
-import { StringDecoder } from 'node:string_decoder';
 import { stripAnsi } from '../../shell-exec-output.mjs';
+import { FileEncodingSniffer, ShellStreamDecoder, alignedOffset, oemTextEncoding } from '../../shell-codepage.mjs';
 
 const PAGE_BYTES = 8 * 1024;
 const COMPLETION_BYTES = 12 * 1024;
 const cursors = new WeakMap();
 
 function newCursor() {
-  return { offset: 0, preview: '', decoder: new StringDecoder('utf8'), ansi: '' };
+  return {
+    offset: 0,
+    preview: '',
+    decoder: new ShellStreamDecoder(),
+    ansi: '',
+    sniffer: new FileEncodingSniffer(),
+    committed: false,
+  };
 }
 
 // Only the introducer is retained, plus the ESC that may open a split OSC
@@ -85,20 +92,26 @@ export function readShellTaskOutput(task, result = {}, { output = 'new' } = {}) 
         cursor = newCursor();
         streams.set(key, cursor);
       }
-      const start = terminal || replay ? Math.max(cursor.offset, size - limit) : cursor.offset;
-      const skipped = start - cursor.offset;
-      if (skipped) {
-        cursor.decoder = new StringDecoder('utf8');
+      // Raw capture files carry the child's bytes. The stream's encoding is
+      // decided once, firmly (or when the task is terminal); until then only
+      // the ASCII prefix is read.
+      const label = cursor.sniffer.probe(fd, size, terminal);
+      if (label && !cursor.committed) {
+        cursor.committed = true;
+        cursor.decoder.force(label);
+      }
+      const readEnd = label ? size : cursor.sniffer.safeEnd(size);
+      let start = terminal || replay ? Math.max(cursor.offset, readEnd - limit) : cursor.offset;
+      if (start > cursor.offset) {
+        start = Math.min(readEnd, alignedOffset(fd, start, label || 'utf-8'));
+        sections.push(`[${stream}: ${start - cursor.offset} earlier bytes omitted; read ${path} for the original log]`);
+        cursor.decoder = new ShellStreamDecoder(oemTextEncoding(), label);
         cursor.ansi = '';
       }
-      const buffer = Buffer.alloc(Math.min(limit, Math.max(0, size - start)));
+      const buffer = Buffer.alloc(Math.min(limit, Math.max(0, readEnd - start)));
       const count = buffer.length ? readSync(fd, buffer, 0, buffer.length, start) : 0;
-      const prefix = skipped ? utf8Boundary(buffer, 0, count) : 0;
-      if (skipped + prefix) {
-        sections.push(`[${stream}: ${skipped + prefix} earlier bytes omitted; read ${path} for the original log]`);
-      }
       cursor.offset = start + count;
-      let decoded = cursor.decoder.write(buffer.subarray(prefix, count));
+      let decoded = cursor.decoder.write(buffer.subarray(0, count));
       if (terminal && cursor.offset === size) decoded += cursor.decoder.end();
       const text = visibleText(cursor, decoded);
       if (text) sections.push(`[${stream}]\n${text}`);

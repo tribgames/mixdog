@@ -7,7 +7,7 @@ next request or session.
 Three effects are distinct: **smaller prompts**, **less repeated work**, and
 **cheaper reuse of cached input**. A provider cache hit can reduce input cost
 without reducing the number of tokens occupying the context window. The
-nine layers below address different parts of that problem.
+ten layers below address different parts of that problem.
 
 ## 1. Lightweight system instructions
 
@@ -220,6 +220,30 @@ receives, not output omitted before it reaches this layer.
 Implementation: [tool execution and reuse](../src/runtime/agent/orchestrator/session/tool-batch.mjs),
 [body deduplication](../src/runtime/agent/orchestrator/session/context-utils.mjs),
 [output persistence and budgets](../src/runtime/agent/orchestrator/session/tool-result-offload.mjs).
+
+## 10. Auto reasoning effort
+
+The layers above reduce what the model reads; this one reduces what it
+spends thinking. A small local judge rates each message and each step after
+a tool batch as easy, normal, hard or very hard, and auto sets the effort
+for that request from `low` to `xhigh` instead of running everything at one
+fixed level. The judge runs on the CPU in about 0.1 s and sends nothing over
+the network.
+
+Effort changes only on models that accept them mid-conversation without
+invalidating the prompt cache, and each step's judgment is stored in the
+transcript so later requests rebuild the same cached history. If the judge is
+missing, slow, or fails, the request keeps the default effort.
+
+With the previous judge, against a fixed `high` effort on the same tasks, GPT-6.1 Sol produced 46%
+fewer output tokens on five hard tasks and 26% fewer on eight Terminal-Bench
+tasks; Claude Opus 5.5 was about unchanged, since it sizes its own thinking.
+This saves output and reasoning tokens, not context-window space. See
+[Auto reasoning effort](auto-reasoning-effort.md) for the decision rule, the
+judge model and its accuracy.
+
+Implementation: [decision rule](../src/runtime/agent/orchestrator/providers/auto-effort.mjs),
+[effort judge](../src/runtime/effort-judge/judge-client.mjs).
 
 ## Reading the results
 

@@ -24,6 +24,8 @@ import {
   preloadCapabilitySettings,
 } from './capability-data';
 import { CategoryPanel } from './capability-panels';
+import { friendlyCapabilityError } from './remote-capability-guard';
+import { errorMessage } from '../editor-pane-session-errors';
 export { getCachedCapabilitySettings, preloadCapabilitySettings } from './capability-data';
 export { OAuthControl } from './capability-panels';
 
@@ -175,9 +177,10 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           invalidateSidebarReferenceForMutation(capability);
           if (refresh) setRevision((value) => value + 1);
           return result.value;
-        } catch (reason) {
+        } catch (rawReason) {
+          const reason = friendlyCapabilityError(rawReason);
           if (errorMode === 'throw') throw reason;
-          if (!silent) setError(reason instanceof Error ? reason.message : String(reason));
+          if (!silent) setError(errorMessage(reason));
           return undefined;
         } finally {
           if (!silent) setPending('');
@@ -201,7 +204,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       latestUpdaterState.current = next;
       if (activeRef.current) setUpdaterState(next);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setPending('');
     }
@@ -216,7 +219,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       latestUpdaterState.current = next;
       if (activeRef.current) setUpdaterState(next);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setPending('');
     }
@@ -260,7 +263,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
         });
         setRevision((value) => value + 1);
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
       } finally {
         setPending('');
       }
@@ -277,7 +280,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
         await api.setFast(enabled);
         setRevision((value) => value + 1);
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorMessage(reason));
       } finally {
         setPending('');
       }

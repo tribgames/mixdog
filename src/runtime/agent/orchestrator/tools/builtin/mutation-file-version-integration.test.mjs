@@ -28,15 +28,38 @@ function fixture() {
   return path;
 }
 const routes = [
-  { name: 'edit adapter', run: (path) => tryExecuteExternalToolAdapter('edit', {
-    file_path: path, old_string: 'BEFORE', new_string: 'EDITED',
-  }, root, {}) },
-  { name: 'JS patch', run: (path) => dispatchJsPatchEntries({
-    rows: [{ fullPath: path, displayPath: basename(path), kind: 'modify' }],
-    parsed: [{ oldFileName: `a/${basename(path)}`, newFileName: `b/${basename(path)}`,
-      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-BEFORE', '+EDITED'] }] }],
-    basePath: root, dryRun: false, fuzzy: false, readStateScope: null,
-  }) },
+  {
+    name: 'edit adapter',
+    run: (path) =>
+      tryExecuteExternalToolAdapter(
+        'edit',
+        {
+          file_path: path,
+          old_string: 'BEFORE',
+          new_string: 'EDITED',
+        },
+        root,
+        {}
+      ),
+  },
+  {
+    name: 'JS patch',
+    run: (path) =>
+      dispatchJsPatchEntries({
+        rows: [{ fullPath: path, displayPath: basename(path), kind: 'modify' }],
+        parsed: [
+          {
+            oldFileName: `a/${basename(path)}`,
+            newFileName: `b/${basename(path)}`,
+            hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-BEFORE', '+EDITED'] }],
+          },
+        ],
+        basePath: root,
+        dryRun: false,
+        fuzzy: false,
+        readStateScope: null,
+      }),
+  },
 ];
 
 for (const route of routes) {
@@ -67,19 +90,27 @@ for (const route of routes) {
         return fh;
       });
       syncBuiltinESMExports();
-      t.after(() => { statMock.mock.restore(); openMock.mock.restore(); syncBuiltinESMExports(); });
+      t.after(() => {
+        statMock.mock.restore();
+        openMock.mock.restore();
+        syncBuiltinESMExports();
+      });
       const result = String(await route.run(path));
       assert.match(result, /^Error:.*changed on disk during (?:the edit|the patch)/);
       assert.equal(fs.readFileSync(path, 'utf8'), 'BEFORE\n');
-      assert.equal(fs.readdirSync(root).some((name) => name.startsWith(`.${basename(path)}.mixdog-tmp-`)), false);
+      assert.equal(
+        fs.readdirSync(root).some((name) => name.startsWith(`.${basename(path)}.mixdog-tmp-`)),
+        false
+      );
     });
   }
 
   test(`${route.name}: a symlink is checked against the referent version and kept intact`, async (t) => {
     const target = fixture();
     const link = join(root, `link-${sequence++}.txt`);
-    try { fs.symlinkSync(target, link, 'file'); }
-    catch (error) {
+    try {
+      fs.symlinkSync(target, link, 'file');
+    } catch (error) {
       if (process.platform !== 'win32' || error.code !== 'EPERM') throw error;
       return t.skip('Windows symlink creation is not permitted on this host');
     }
@@ -108,11 +139,18 @@ for (const code of ['EIO', 'EACCES']) {
       return buf;
     });
     syncBuiltinESMExports();
-    t.after(() => { statMock.mock.restore(); readMock.mock.restore(); syncBuiltinESMExports(); });
+    t.after(() => {
+      statMock.mock.restore();
+      readMock.mock.restore();
+      syncBuiltinESMExports();
+    });
     const result = String(await routes[0].run(path));
     assert.equal(removed, true, 'exercise successful reading followed by real removal');
     assert.match(result, /^Error:.*changed on disk during the edit/);
     assert.equal(fs.existsSync(path), false, 'unknown pre-read version must not become expected absence');
-    assert.equal(fs.readdirSync(root).some((name) => name.startsWith(`.${basename(path)}.mixdog-tmp-`)), false);
+    assert.equal(
+      fs.readdirSync(root).some((name) => name.startsWith(`.${basename(path)}.mixdog-tmp-`)),
+      false
+    );
   });
 }

@@ -11,7 +11,7 @@ import { useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useVisibleSessions } from './use-visible-sessions';
 import { t } from './i18n';
-import { isMobileRemoteSurface } from './mobile-surface';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { PaneSplitLayout } from './PaneSplitLayout';
 import {
   isConversationSelection,
@@ -145,7 +145,7 @@ export function PaneWorkspace({
   // A phone shows ONE tab at a time and pays for every mirrored session over
   // the relay, so restored background tabs stay unregistered until opened
   // (user: vps라 비용때문에). Wide surfaces keep every pane tab observable.
-  const mobileSurface = isMobileRemoteSurface();
+  const mobileSurface = useMobileRemoteSurface();
   const paneSessionIds = mobileSurface
     ? mobileVisibleSessionIds(workspace.leaves, workspace.focusedLeafId)
     : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);

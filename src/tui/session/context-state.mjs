@@ -8,7 +8,14 @@
 import { contextMeasurementStats } from '../../runtime/shared/context-measurement.mjs';
 import { goalStateSnapshot } from '../../runtime/agent/orchestrator/runtime-core/goal-state.mjs';
 
-export function createContextState({ runtime, getState, updateState, getPendingSessionReset, getVisibleGoal }) {
+export function createContextState({
+  runtime,
+  getState,
+  updateState,
+  getPendingSessionReset,
+  getVisibleGoal,
+  getQuotaResume = null,
+}) {
   const autoClearState = () =>
     runtime.getAutoClear?.() ||
     runtime.autoClear || {
@@ -46,6 +53,8 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     clientHostPid: runtime.clientHostPid || null,
     model: runtime.model,
     provider: runtime.provider,
+    sessionProvider: runtime.sessionProvider ?? null,
+    sessionModel: runtime.sessionModel ?? null,
     effort: runtime.effort,
     effortOptions: runtime.effortOptions,
     fast: runtime.fast,
@@ -69,6 +78,9 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     // 안 보이던 골이 생성되었다 바로 사라짐).
     // Clock-anchored, so an unchanged running Goal reads equal on every pulse.
     goal: goalStateSnapshot(typeof getVisibleGoal === 'function' ? getVisibleGoal() : runtime.goalStatus?.() || null),
+    // The daemon-queued quota resume of this session id (identity-stable while
+    // unchanged), so a resume or session switch republishes it with the route.
+    quotaResume: typeof getQuotaResume === 'function' ? getQuotaResume() : null,
   });
 
   const routeState = () => {

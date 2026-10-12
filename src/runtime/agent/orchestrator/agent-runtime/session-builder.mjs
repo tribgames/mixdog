@@ -76,6 +76,8 @@ export function prepareAgentSession({
   schemaAllowedTools,
   sessionId,
   mcpScopeId,
+  contextPercent,
+  selectedContextWindow,
 }) {
   const effectivePermission = resolveAgentSessionPermission(agent, permission);
   // Pass cwd through verbatim — null is the fixed agent sentinel meaning
@@ -112,6 +114,8 @@ export function prepareAgentSession({
     compaction: compaction || undefined,
     mcpScopeId: mcpScopeId || null,
   };
+  if (contextPercent) sessionOpts.contextPercent = contextPercent;
+  if (selectedContextWindow) sessionOpts.selectedContextWindow = selectedContextWindow;
   if (agentTag) sessionOpts.agentTag = agentTag;
   if (effectivePermission) sessionOpts.permission = effectivePermission;
   if (permissionMode) sessionOpts.permissionMode = permissionMode;

@@ -29,6 +29,7 @@ function makeHarness({ busy = false } = {}) {
     itemIndexById,
     clock: 1_000_000,
     disposed: false,
+    admission: 'open',
     enqueueResult: true,
     named: (name) => calls.filter((entry) => entry[0] === name),
     notify: (event) => handler(event),
@@ -62,6 +63,7 @@ function makeHarness({ busy = false } = {}) {
     itemIndexById,
     pushNotice: (text, tone, opts) => calls.push(['notice', text, tone, opts]),
     now: () => h.clock,
+    getAdmission: () => h.admission,
   });
   h.unsubscribe = h.feed.subscribeRuntimeNotifications();
   return h;
@@ -308,4 +310,49 @@ test('unsubscribe releases the runtime subscription and clears the execution ded
   h.unsubscribe();
   assert.deepEqual(h.named('unsubscribe'), [['unsubscribe']]);
   assert.equal(h.displayedExecutionNotificationKeys.size, 0);
+});
+
+test('a closing or closed owner keeps the completion card but never enqueues, acks or resumes the model', () => {
+  const h = makeHarness();
+  const { event } = completionEvent('exec-fenced', 'finished');
+  h.admission = 'closing';
+  h.notify(event);
+  assert.equal(h.named('enqueue').length, 0);
+  assert.notEqual(event.modelVisibleDelivered, true, 'not acked as model-delivered');
+  assert.equal(h.named('pushResponse').length, 1, 'the card still reaches UI/history');
+
+  // The bus flags a closed owner even if this listener has not seen the fence.
+  h.admission = 'open';
+  const flagged = completionEvent('exec-flagged', 'finished').event;
+  flagged.meta.owner_closed = true;
+  h.notify(flagged);
+  assert.equal(h.named('enqueue').length, 0);
+  assert.notEqual(flagged.modelVisibleDelivered, true);
+
+  h.admission = 'terminal';
+  h.notify(completionEvent('exec-terminal', 'finished').event);
+  assert.equal(h.named('enqueue').length, 0);
+});
+
+test('pending-resume kicks defer while closing, resume after a failed close, and are dropped once terminal', () => {
+  const h = makeHarness();
+  h.admission = 'closing';
+  h.feed.kickExecutionPendingResume('body while closing', 'exec-closing');
+  assert.deepEqual(h.pending, []);
+  assert.equal(h.named('drain').length, 0);
+
+  // Durable close failed: admission restored, the deferred kick flushes once.
+  h.admission = 'open';
+  h.feed.flushDeferredExecutionPendingResumeKick();
+  assert.equal(h.pending.length, 1);
+  assert.equal(h.pending[0].mode, 'pending-resume');
+
+  h.pending.length = 0;
+  h.admission = 'closing';
+  h.feed.kickExecutionPendingResume('body before terminal', 'exec-terminal');
+  h.admission = 'terminal';
+  h.feed.kickExecutionPendingResume('body after terminal', 'exec-terminal-2');
+  h.admission = 'open';
+  h.feed.flushDeferredExecutionPendingResumeKick();
+  assert.deepEqual(h.pending, [], 'nothing resumes a closed conversation');
 });

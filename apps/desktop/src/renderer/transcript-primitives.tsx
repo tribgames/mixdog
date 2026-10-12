@@ -66,14 +66,10 @@ export function TextShimmer({ text, active = true }: { text: string; active?: bo
       aria-label={text}
       style={{ '--text-shimmer-cells': shimmerCells(text) } as CSSProperties}
     >
-      <span
-        key={text}
-        data-slot="text-shimmer-char"
-        data-run={active ? 'true' : 'false'}
-        data-text={text}
-        aria-hidden="true"
-      >
+      <span key={text} data-slot="text-shimmer-char" data-run={active ? 'true' : 'false'} aria-hidden="true">
         {text}
+        {/* The glint's lit copy is CSS content, so the label's text is never doubled. */}
+        {active && <span data-slot="text-shimmer-glint" data-text={text} />}
       </span>
     </span>
   );

@@ -5,6 +5,7 @@
 import type { DesktopProjectSummary, SessionSnapshot } from '../shared/contract';
 import type { NavigationSelection } from './navigation';
 import type { Project, Snapshot } from './desktop-types';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { displayProject } from './text-format';
 
 interface ProjectActionDeps {
@@ -82,9 +83,10 @@ export function createProjectActions(deps: ProjectActionDeps) {
         refreshSessionsBestEffort();
       });
     },
-    openProjectInExplorer(project: Project) {
-      return invoke(() => window.mixdogDesktop.openProjectInExplorer(project));
-    },
+    /** Host-only; undefined on a remote surface so callers hide the action. */
+    openProjectInExplorer: isRemoteHostRenderer()
+      ? undefined
+      : (project: Project) => invoke(() => window.mixdogDesktop.openProjectInExplorer(project)),
     renameProject(project: Project, alias: string) {
       return invoke(async () => {
         await window.mixdogDesktop.renameProject(project, alias);

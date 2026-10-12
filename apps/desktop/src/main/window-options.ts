@@ -179,11 +179,11 @@ const webPreferences = Object.freeze({
 // Shared by the real entry and the excluded capture harness so evidence uses
 // the same immutable window/chrome/security settings as production.
 export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
-  /* First-install layout (user reference): a compact ~1040×700 window with
-     the sidebar open and the dock closed. Later launches restore the saved
+  /* First-install layout (user reference): a 1200×800 window with the
+     sidebar open and the dock closed. Later launches restore the saved
      bounds via window-state. */
   width: DESKTOP_WINDOW_DEFAULT_WIDTH,
-  height: 700,
+  height: 800,
   /* The side panels shrink from their preferred widths to their own floors;
      stop once sidebar + workspace + dock + shell spacing reach that floor. */
   minWidth: DESKTOP_WINDOW_MIN_WIDTH,

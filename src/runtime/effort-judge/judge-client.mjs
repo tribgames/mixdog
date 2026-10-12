@@ -11,9 +11,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'n
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
-import { effortJudgeInstallCurrent, effortJudgeInstallStamped, installEffortJudgeModel } from './model-install.mjs';
-
 import { onnxRuntimeSupported } from '../shared/onnx-runtime-support.mjs';
+import { effortJudgeInstallCurrent, effortJudgeInstallStamped, installEffortJudgeModel } from './model-install.mjs';
 
 export const EFFORT_JUDGE_UNSUPPORTED = 'Auto effort is unsupported on darwin-x64 (no onnxruntime-node binding)';
 const WORKER_PATH = fileURLToPath(new URL('./judge-worker.mjs', import.meta.url));
@@ -161,9 +160,12 @@ function request(target, { request: text, prev, prevRequest, step }) {
     target.postMessage({
       action: 'judge',
       id,
-      request: String(text || ''),
-      prev: String(prev || ''),
-      prevRequest: String(prevRequest || ''),
+      // The worker keeps only the request head (1500 code points), the previous
+      // reply tail (1000) and the previous request head (600); clip so a long
+      // agent brief is not copied whole across the thread boundary.
+      request: String(text || '').slice(0, 3000),
+      prev: String(prev || '').slice(-2000),
+      prevRequest: String(prevRequest || '').slice(0, 1200),
       ...(step ? { step } : {}),
     });
   });

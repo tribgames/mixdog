@@ -541,6 +541,26 @@ export class SessionHost implements DesktopService {
     return this.lifecycle.renameSession(sessionId, title);
   }
 
+  async continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean> {
+    return this.lifecycle.continueSessionInModel(sessionId, route);
+  }
+
+  async scheduleQuotaResume(sessionId: string): Promise<boolean> {
+    return this.lifecycle.scheduleQuotaResume(sessionId);
+  }
+
+  async cancelQuotaResume(sessionId: string): Promise<boolean> {
+    return this.lifecycle.cancelQuotaResume(sessionId);
+  }
+
+  async getQuotaAutoResume(): Promise<boolean> {
+    return this.lifecycle.getQuotaAutoResume();
+  }
+
+  async setQuotaAutoResume(enabled: boolean): Promise<boolean> {
+    return this.lifecycle.setQuotaAutoResume(enabled);
+  }
+
   async setSessionFavorite(sessionId: string, favorite: boolean): Promise<void> {
     return this.lifecycle.setSessionFavorite(sessionId, favorite);
   }
@@ -580,9 +600,10 @@ export class SessionHost implements DesktopService {
     projectIdOrWorkspaceId: string,
     query: string,
     limit = 50,
-    includeIgnored = false
+    includeIgnored = false,
+    includeDirectories = false
   ): Promise<string[]> {
-    return this.lifecycle.searchProjectFiles(projectIdOrWorkspaceId, query, limit, includeIgnored);
+    return this.lifecycle.searchProjectFiles(projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories);
   }
 
   async submitNewTask(
@@ -595,9 +616,10 @@ export class SessionHost implements DesktopService {
 
   async inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null
+    route?: DesktopModelSelection | null,
+    options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.lifecycle.inheritSession(sourceSessionId, route);
+    return this.lifecycle.inheritSession(sourceSessionId, route, options);
   }
 
   async submitToSession(

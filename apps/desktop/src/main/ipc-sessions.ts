@@ -18,15 +18,18 @@ import {
   sessionDisplayName,
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
+import type { RemoteHostWindows } from './remote-host-windows';
 
 interface SessionIpcOptions {
   handle: Handle;
   host: DesktopService;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   browserHost?: Pick<BrowserHost, 'releaseSession'>;
-  remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
+  remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
   rotateRemoteAccess?: () => Promise<DesktopRemoteAccessInfo | null>;
   revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
+  /** "Connect to another PC": saved hosts and their windows. */
+  remoteHosts?: RemoteHostWindows;
 }
 
 export function registerSessionIpc({
@@ -37,6 +40,7 @@ export function registerSessionIpc({
   remoteAccessInfo,
   rotateRemoteAccess,
   revokeRemoteAccessClient,
+  remoteHosts,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
   handle(DESKTOP_IPC.markSessionRead, (_event, sessionId, messageCount, consumedUnread) => {
@@ -54,14 +58,43 @@ export function registerSessionIpc({
     host.searchSessionContent(requiredSessionContentQuery(query))
   );
   // Settings → Connection: pairing card (null while the bridge is off).
-  handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
+  handle(
+    DESKTOP_IPC.remoteAccessInfo,
+    (_event, options) =>
+      remoteAccessInfo?.({ activate: (options as { activate?: unknown } | undefined)?.activate !== false }) ?? null
+  );
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
   handle(
     DESKTOP_IPC.revokeRemoteAccessClient,
     (_event, clientId) => revokeRemoteAccessClient?.(requiredString(clientId, 'clientId')) ?? null
   );
+  // The 6-digit code lives only while Settings → Connection is open.
+  handle(DESKTOP_IPC.remotePairCode, (_event, action) =>
+    invokeDesktopOperation('remoteAccessPairCode', [action === 'renew' || action === 'release' ? action : 'ensure'])
+  );
+  const requiredRemoteHosts = (): RemoteHostWindows => {
+    if (!remoteHosts) throw new Error('Connecting to another PC is unavailable.');
+    return remoteHosts;
+  };
+  handle(DESKTOP_IPC.getRemoteAccessSettings, () => invokeDesktopOperation('remoteAccessSettings', []));
+  handle(DESKTOP_IPC.setRemoteAccessEnabled, (_event, enabled) => {
+    if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
+    return invokeDesktopOperation('remoteAccessSetEnabled', [enabled]);
+  });
+  handle(DESKTOP_IPC.setRemotePcName, (_event, name) =>
+    invokeDesktopOperation('remoteAccessSetName', [typeof name === 'string' ? name : ''])
+  );
+  handle(DESKTOP_IPC.renameRemoteHost, async (_event, id, name) => {
+    await requiredRemoteHosts().rename(requiredString(id, 'id', 64), typeof name === 'string' ? name : '');
+  });
+  handle(DESKTOP_IPC.listRemoteHosts, () => remoteHosts?.list() ?? []);
+  handle(DESKTOP_IPC.connectRemoteHostByCode, (_event, code) =>
+    requiredRemoteHosts().connectByCode(requiredString(code, 'code', 16))
+  );
+  handle(DESKTOP_IPC.openRemoteHost, (_event, id) => requiredRemoteHosts().open(requiredString(id, 'id', 64)));
+  handle(DESKTOP_IPC.forgetRemoteHost, (_event, id) => requiredRemoteHosts().forget(requiredString(id, 'id', 64)));
   handle(DESKTOP_IPC.listRemoteClientClaims, () => invokeDesktopOperation('remoteAccessListClaims', []));
-  // The approval itself: this answer is what mints the asking app's credential.
+  // The approval itself: this answer is what mints the asking app's credential,
   handle(DESKTOP_IPC.resolveRemoteClientClaim, async (_event, claimId, approved) => {
     if (typeof approved !== 'boolean') throw new TypeError('approved must be a boolean.');
     const handled = await invokeDesktopOperation('remoteAccessResolveClaim', [
@@ -105,15 +138,28 @@ export function registerSessionIpc({
       requiredToolApprovalDecision(input)
     )
   );
-  handle(DESKTOP_IPC.inheritSession, (_event, sourceSessionId, selection) =>
+  handle(DESKTOP_IPC.inheritSession, (_event, sourceSessionId, selection, options) =>
     host.inheritSession(
       requiredSessionId(sourceSessionId),
-      selection === undefined || selection === null ? null : requiredModelSelection(selection)
+      selection === undefined || selection === null ? null : requiredModelSelection(selection),
+      { compact: (options as { compact?: unknown } | null | undefined)?.compact === true }
     )
   );
   handle(DESKTOP_IPC.listProviderModels, (_event, options) =>
     host.listProviderModels(requiredModelCatalogOptions(options))
   );
+  handle(DESKTOP_IPC.continueSessionInModel, (_event, sessionId, route) =>
+    host.continueSessionInModel(requiredSessionId(sessionId), requiredModelSelection(route))
+  );
+  handle(DESKTOP_IPC.scheduleQuotaResume, (_event, sessionId) =>
+    host.scheduleQuotaResume(requiredSessionId(sessionId))
+  );
+  handle(DESKTOP_IPC.cancelQuotaResume, (_event, sessionId) => host.cancelQuotaResume(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.getQuotaAutoResume, () => host.getQuotaAutoResume());
+  handle(DESKTOP_IPC.setQuotaAutoResume, (_event, enabled) => {
+    if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
+    return host.setQuotaAutoResume(enabled);
+  });
   handle(DESKTOP_IPC.setModelRoute, (_event, selection, sessionId) =>
     host.setModelRoute(requiredModelSelection(selection), optionalSessionId(sessionId))
   );

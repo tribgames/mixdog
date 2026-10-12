@@ -61,6 +61,8 @@ export function createSessionRouteApi(bag) {
 
   const setRoute = async (opts) => {
     if (getState().commandBusy && !routeWrite) return false;
+    // Any route change supersedes waiting for the old route's quota reset.
+    bag.supersedeQuotaResume?.(getState().sessionId);
     const token = ++routeSequence;
     const previousWrite = routeWrite;
     const routeOpts = opts && typeof opts === 'object' ? opts : {};

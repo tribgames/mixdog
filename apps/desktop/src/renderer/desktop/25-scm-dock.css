@@ -1472,6 +1472,13 @@
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
+.dock-scm-context-heading {
+  padding: 4px 10px 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-caption, 11px);
+  user-select: none;
+  pointer-events: none;
+}
 .dock-scm-context-menu button.danger {
   color: var(--mx-danger);
 }

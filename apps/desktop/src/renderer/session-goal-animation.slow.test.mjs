@@ -6,9 +6,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import puppeteer from 'puppeteer-core';
 import { SessionGoalIsland } from './SessionGoalIsland.tsx';
 
-// Browser-rendered behavior, not stylesheet text: a loader-shaped SVG alone
-// does not prove it rotates, and a parent opacity animation can still blink.
-test('Goal activity rotates steadily without pulsing and stops for inactive states', async (t) => {
+// Browser-rendered behavior, not stylesheet text: no animation anywhere in
+// the segment, including a parent opacity animation that would still blink.
+test('the Goal progress bar is static in every state', async (t) => {
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
@@ -39,29 +39,17 @@ test('Goal activity rotates steadily without pulsing and stops for inactive stat
       ${css}
     </style></head><body>${markup}</body></html>`);
   };
+  // The progress mark is a static bar (island-icons.html): nothing in the
+  // segment animates, whether work is running or not.
   const sample = () =>
-    page.$eval('.session-goal-glyph', (glyph) => {
-      const icon = glyph.querySelector('svg');
-      const animations = icon.getAnimations();
-      if (!animations.length) return { count: 0, parentCount: glyph.getAnimations().length };
-      const animation = animations[0];
-      animation.pause();
-      const timing = animation.effect.getTiming();
-      const samples = [0, 0.25, 0.5, 0.75].map((phase) => {
-        animation.currentTime = Number(timing.duration) * phase;
-        const iconStyle = getComputedStyle(icon);
-        const parentStyle = getComputedStyle(glyph);
-        const matrix = new DOMMatrixReadOnly(iconStyle.transform);
-        return {
-          a: matrix.a,
-          b: matrix.b,
-          c: matrix.c,
-          d: matrix.d,
-          opacity: [iconStyle.opacity, parentStyle.opacity],
-          filter: [iconStyle.filter, parentStyle.filter],
-        };
-      });
-      return { count: animations.length, parentCount: glyph.getAnimations().length, timing, samples };
+    page.$eval('.session-goal-trigger', (trigger) => {
+      const bar = trigger.querySelector('.session-goal-bar');
+      const box = bar.getBoundingClientRect();
+      return {
+        animations: trigger.getAnimations({ subtree: true }).length,
+        size: [box.width, box.height],
+        fill: bar.querySelector('i').getBoundingClientRect().width,
+      };
     });
 
   for (const [status, execution] of [
@@ -69,34 +57,13 @@ test('Goal activity rotates steadily without pulsing and stops for inactive stat
     ['active', { commandBusy: true }],
     ['active', { shellJobs: { count: 1 }, toolApproval: { id: 'other-approval' } }],
     ['paused', { busy: true }],
-    ['paused', { commandBusy: true }],
+    ['active', {}],
+    ['complete', { busy: true }],
+    ['blocked', {}],
+    ['usage_limited', {}],
+    ['duration_reached', {}],
   ]) {
     await render(status, execution);
-    const result = await sample();
-    assert.equal(result.count, 1, `${status}: running work has a rotating icon`);
-    assert.equal(result.parentCount, 0, 'the icon container must not pulse');
-    assert.equal(result.timing.easing, 'linear');
-    assert.ok(Number(result.timing.duration) > 0);
-    const expected = [
-      [1, 0, 0, 1],
-      [0, 1, -1, 0],
-      [-1, 0, 0, -1],
-      [0, -1, 1, 0],
-    ];
-    result.samples.forEach((value, index) => {
-      for (const [axis, target] of ['a', 'b', 'c', 'd'].map((axis, at) => [axis, expected[index][at]])) {
-        assert.ok(Math.abs(value[axis] - target) < 0.01, `${status}: phase ${index}, axis ${axis}`);
-      }
-      assert.deepEqual(value.opacity, ['1', '1']);
-      assert.deepEqual(value.filter, ['none', 'none']);
-    });
+    assert.deepEqual(await sample(), { animations: 0, size: [22, 3], fill: 0 }, `${status}: the bar stays still`);
   }
-
-  for (const status of ['active', 'paused', 'complete', 'blocked', 'usage_limited', 'duration_reached']) {
-    await render(status, { busy: !['active', 'paused'].includes(status) });
-    assert.deepEqual(await sample(), { count: 0, parentCount: 0 }, `${status}: inactive Goal icons stay still`);
-  }
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await render('active', { busy: true });
-  assert.deepEqual(await sample(), { count: 0, parentCount: 0 });
 });

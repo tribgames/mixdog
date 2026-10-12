@@ -314,7 +314,11 @@ test('session faults answer as call errors and non-serializable values are dropp
   });
 });
 
+// The projection no longer throws on an address mismatch (that failed every
+// later read of the entry): it keeps serving the addressed conversation's last
+// snapshot, never the other conversation's, and logs the move once.
 test('an addressed session action cannot silently move to another id', async () => {
+  const logs = [];
   const sessionFactory = async () => {
     let state = { sessionId: '', items: [], queued: [], busy: false };
     const listeners = new Set();
@@ -341,27 +345,94 @@ test('an addressed session action cannot silently move to another id', async () 
     };
   };
 
-  await withDaemon(
-    async ({ discovery }) => {
-      const client = await attachSession({ discovery, cwd: process.cwd() });
-      const created = await client.call('session.create', {
-        sessionId: 'addressed-session',
-        cwd: process.cwd(),
-      });
-      assert.equal(created.sessionId, 'addressed-session');
-      await assert.rejects(
-        () =>
-          client.call('session.configure', {
-            sessionId: created.sessionId,
-            action: 'setRoute',
-            args: [{ model: 'test-model', applyToCurrentSession: true }],
-          }),
-        /session addressed-session changed its durable address to silently-rebound-session/
-      );
-      await client.close('address invariant verified');
-    },
-    { sessionFactory }
-  );
+  const service = createSessionService({ createSessionRuntime: sessionFactory, log: (line) => logs.push(line) });
+  try {
+    const created = await service.handleCall('session.create', { sessionId: 'addressed-session', cwd: process.cwd() });
+    assert.equal(created.sessionId, 'addressed-session');
+    const configured = await service.handleCall('session.configure', {
+      sessionId: created.sessionId,
+      action: 'setRoute',
+      args: [{ model: 'test-model', applyToCurrentSession: true }],
+    });
+    assert.equal(configured.full.sessionId, 'addressed-session', 'never serves the other conversation');
+    const read = await service.handleCall('session.read', { sessionId: created.sessionId });
+    assert.notEqual(read.full?.sessionId, 'silently-rebound-session', 'a later read never serves it either');
+    const moves = logs.filter((line) =>
+      /session addressed-session changed its durable address to silently-rebound-session/.test(line)
+    );
+    assert.equal(moves.length, 1, 'the move is logged once, not silent');
+  } finally {
+    await service.stop('address invariant verified');
+  }
+});
+
+test('responses after an address mismatch keep the addressed id; new transitions report their new id', async () => {
+  const factory = async () => {
+    let state = { sessionId: '', items: [], queued: [], busy: false };
+    const listeners = new Set();
+    const publish = () => {
+      for (const listener of [...listeners]) listener();
+    };
+    return {
+      getState: () => state,
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      reserveSession(id) {
+        state = { ...state, sessionId: String(id) };
+        publish();
+        return true;
+      },
+      setRoute() {
+        state = { ...state, sessionId: 'runtime-new-id' };
+        publish();
+        return true;
+      },
+      async dispose() {},
+    };
+  };
+  const service = createSessionService({ createSessionRuntime: factory, log: () => {} });
+  try {
+    const created = await service.handleCall('session.create', { sessionId: 'addressed-a', cwd: process.cwd() });
+    // (b) legitimate create transitions report their own new id.
+    const other = await service.handleCall('session.create', { sessionId: 'addressed-b', cwd: process.cwd() });
+    assert.equal(created.sessionId, 'addressed-a');
+    assert.equal(other.sessionId, 'addressed-b');
+
+    // (a) the action response names the addressed id, matching its snapshot.
+    const configured = await service.handleCall('session.configure', {
+      sessionId: 'addressed-a',
+      action: 'setRoute',
+      args: [{ model: 'test-model', applyToCurrentSession: true }],
+    });
+    assert.equal(configured.sessionId, 'addressed-a');
+    assert.equal(configured.full.sessionId, 'addressed-a');
+    const read = await service.handleCall('session.read', { sessionId: 'addressed-a' });
+    assert.equal(read.sessionId, 'addressed-a');
+    const subscribed = await service.handleCall('session.subscribe', { sessionId: 'addressed-a' });
+    assert.equal(subscribed.sessionId, 'addressed-a');
+
+    // (c) the proxy binding stays on the addressed session.
+    const { createTransitions } = await import('../../src/standalone/session-proxy/transitions.mjs');
+    const binding = { sessionId: 'addressed-a', attachment: {}, disposed: false };
+    const moves = [];
+    const transitions = createTransitions({
+      binding,
+      projection: { applyBody: () => true, baseRevisionFor: () => null },
+      pool: { addView: (_a, id) => moves.push(id), removeView() {}, viewCount: () => 1 },
+      sendCall: async () => ({}),
+      resync() {},
+      openParams: {},
+      log() {},
+      getView: () => ({}),
+    });
+    await transitions.applyResult(configured, 'configure');
+    assert.equal(binding.sessionId, 'addressed-a');
+    assert.deepEqual(moves, []);
+  } finally {
+    await service.stop('response identity verified');
+  }
 });
 
 test('a retried call with the same id runs exactly one runtime mutation', async () => {

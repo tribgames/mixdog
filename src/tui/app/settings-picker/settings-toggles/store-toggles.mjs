@@ -2,7 +2,7 @@
 // The boolean rows of Settings: each write goes through the store, reports the
 // outcome as a notice, and refreshes Settings through the deferred refresh
 // bound to the keypress that started it.
-import { toggleVoice, isVoiceInstallBusy } from '../../../lib/voice-setup.mjs';
+import { toggleVoice, isVoiceInstallBusy } from '../../../../runtime/channels/lib/voice-setup.mjs';
 
 export function createStoreToggles({ store, view, formatDuration, deferredSettingsRefresh }) {
   const applyAutoClear = (patch = {}) => {

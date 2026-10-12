@@ -58,7 +58,7 @@ export function BrowserPagePrompts({
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') accept();
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) accept();
                 }}
                 maxLength={2000}
                 disabled={busy}

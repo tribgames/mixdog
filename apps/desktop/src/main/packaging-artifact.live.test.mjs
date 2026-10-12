@@ -146,7 +146,9 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
       entries: listPackage(archive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')),
     }))
     .find(({ entries }) =>
-      onnx ? entries.some((entry) => entry.endsWith(targetBinding)) : entries.includes('/node_modules/mixdog/package.json')
+      onnx
+        ? entries.some((entry) => entry.endsWith(targetBinding))
+        : entries.includes('/node_modules/mixdog/package.json')
     );
   assert.ok(built, `dist is missing a packaged ${process.platform}-${process.arch} runtime.asar`);
   const builtArchive = built.archive;

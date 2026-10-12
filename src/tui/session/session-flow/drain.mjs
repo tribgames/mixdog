@@ -12,7 +12,7 @@ import {
   mergePastedImages,
   mergePastedTexts,
 } from '../queue-helpers.mjs';
-import { appendTuiSteeringPersist } from '../tui-steering-persist.mjs';
+import { appendTuiSteeringPersist, dropTuiSteeringPersist } from '../tui-steering-persist.mjs';
 import { parseModelVisibleCompletionWrapper } from '../agent-envelope.mjs';
 import { rewoundFailedTurnItems } from './failed-turn-rewind.mjs';
 
@@ -55,9 +55,11 @@ function renderBatchItems(batch, pushUserOrSyntheticItem) {
     const sender = String(entry.transcriptMeta?.sender || '')
       .trim()
       .toLowerCase();
-    let itemExtras = sender ? { sender } : null;
+    const device = typeof entry.transcriptMeta?.device === 'string' ? entry.transcriptMeta.device : '';
+    const attribution = { ...(sender ? { sender } : {}), ...(device ? { device } : {}) };
+    let itemExtras = sender || device ? attribution : null;
     if (Array.isArray(entry.images) && entry.images.length) {
-      itemExtras = { images: entry.images, ...(sender ? { sender } : {}) };
+      itemExtras = { images: entry.images, ...attribution };
     }
     pushUserOrSyntheticItem(entry.text, entry.id, isQueuedEntryEditable(entry) ? 'user' : 'injected', itemExtras);
   }
@@ -160,7 +162,41 @@ export function createDrainLoop(bag, { queue, steering, submissions, flushDeferr
     return pending.some((entry) => !isSlashQueuedEntry(entry));
   }
 
+  const admission = () => flags.admission || 'open';
+
+  // Canonical close settled: nothing queued can ever run. Every accepted
+  // submission is settled explicitly (rejected), never silently dropped, and
+  // its durable steering mirror is released so a restart cannot resurrect it
+  // into the closed conversation.
+  function settleClosedQueue() {
+    const entries = pending.splice(0);
+    pendingNotificationKeys.clear();
+    clearBlockedDrainRetry();
+    if (entries.length === 0) return;
+    queue.removeQueuedEntries(entries);
+    const mirrored = entries.filter(
+      (entry) => steering.shouldMirrorSteeringEntry(entry) && !entry.steeringPersistRestored
+    );
+    if (mirrored.length > 0) {
+      void Promise.resolve(dropTuiSteeringPersist(steering.leadSessionId(), mirrored)).catch(() => {});
+    }
+    for (const entry of entries) {
+      if (entry.id) submissions.forget(entry.id);
+      try {
+        entry.onSettled?.({ status: 'rejected', reason: 'session-closed', result: null, session: null });
+      } catch {}
+    }
+  }
+
   async function drain() {
+    // Execution admission fence: a closing session starts nothing (the close
+    // path re-kicks the queue if the durable close fails); a closed one
+    // settles what was queued.
+    if (admission() === 'closing') return;
+    if (admission() === 'terminal') {
+      settleClosedQueue();
+      return;
+    }
     if (flags.draining) return;
     // Bail while any session command holds commandBusy (auto-clear implies it,
     // but so do setModel/newSession/resume/etc). Running a turn concurrently
@@ -196,6 +232,7 @@ export function createDrainLoop(bag, { queue, steering, submissions, flushDeferr
     try {
       while (pending.length > 0) {
         if (flags.drainEpoch !== drainEpoch) return;
+        if (admission() !== 'open') return;
         // Drain one priority/mode bucket at a time (unified command queue):
         // prompt steering stays editable and task notifications stay
         // non-editable but model-visible.
@@ -230,13 +267,23 @@ export function createDrainLoop(bag, { queue, steering, submissions, flushDeferr
       if (flags.drainEpoch === drainEpoch) {
         flags.draining = false;
         flushDeferredClearedSessionUi();
-        if (hasModelDrainablePending()) void drain();
+        if (admission() === 'terminal') settleClosedQueue();
+        else if (hasModelDrainablePending()) void drain();
         else flushDeferredExecutionPendingResumeKick();
       }
     }
   }
 
   function enqueue(text, options = {}) {
+    // Admission fence. While closing, only user prompts are accepted (retained
+    // so a failed close loses nothing); notification-driven/model-visible
+    // enqueues are refused. A closed session accepts nothing.
+    const state = admission();
+    const mode = options.mode || 'prompt';
+    if (state !== 'open' && (state === 'terminal' || mode !== 'prompt')) {
+      tuiDebug(`enqueue refused: session admission=${state} mode=${mode}`);
+      return false;
+    }
     const submissionId = String(options.id || '').trim();
     // Idempotent intake: a transport that re-sent this exact submission (its
     // first attempt landed but the response was lost) must not double-post.
@@ -282,5 +329,5 @@ export function createDrainLoop(bag, { queue, steering, submissions, flushDeferr
     return true;
   }
 
-  return { drain, enqueue };
+  return { drain, enqueue, settleClosedQueue };
 }

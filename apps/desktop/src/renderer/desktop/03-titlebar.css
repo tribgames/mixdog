@@ -67,15 +67,20 @@ html[data-window-material="mica"][data-mixdog-theme="light"] .workbench-side-pan
 }
 /* The overlaid composer dock's backdrop reads the sheet token, which Mica
    clears; the transcript then showed through under the input (user: 컴포저
-   아래가 보이냐). Fade into the solid workspace layer instead. */
+   아래가 보이냐). Cover with the solid workspace layer instead. */
 html[data-window-material="mica"] .conversation > .composer-region::before {
-  background: linear-gradient(to bottom, transparent, var(--mx-mica-layer) 16px);
+  background: var(--mx-mica-layer);
 }
 /* The parked conversation stays painted under a Studio/terminal/diff tab;
    with the sheet token cleared the covering layer turned see-through and the
    transcript showed behind Studio (user: 스튜디오로 넘어가면 트랜스크립트
    안 날아감). The workspace layer is solid, so cover with the same tone. */
 html[data-window-material="mica"] .pane-surface-handoff-layer {
+  background: var(--mx-mica-layer);
+}
+/* Pane loading/unavailable covers read the cleared sheet token too; the
+   empty-state mark and the spinner showed through the error card. */
+html[data-window-material="mica"] .pane-surface-cover {
   background: var(--mx-mica-layer);
 }
 /* Desktop widths use the joined sheet (pane-layout.css), whose radii belong to
@@ -119,9 +124,12 @@ html[data-mixdog-remote] .titlebar-caption-space {
 .topbar {
   position: relative;
   z-index: 20;
-  flex: 0 0 var(--titlebar-height);
-  height: var(--titlebar-height);
-  min-height: var(--titlebar-height);
+  /* The band is the top row, so it also clears the iOS status bar (the
+     inset is 0 on desktop and on Android, whose WebView sits below it).
+     Everything positioned under the band already adds the same inset. */
+  flex: 0 0 calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
+  height: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
+  min-height: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
   /* Center the 28px content row in the 35px bar so it shares the Windows
      caption buttons' optical center (y=17.5). The old flex-start + 8px top
      padding pushed content to y=24 — visibly low next to min/max/close.
@@ -130,7 +138,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
   column-gap: 6px;
   /* The draggable run expands first; the updater docks immediately before
      the Windows caption reserve on the right. */
-  padding: 0 0 0 5px;
+  padding: env(safe-area-inset-top, 0px) 0 0 5px;
   overflow: visible;
   border: 0;
   background: var(--mx-window-band);

@@ -4,6 +4,7 @@ import { useMemo, type FormEvent, type ReactNode } from 'react';
 import type { DesktopProjectSummary } from '../../shared/contract';
 import { t } from '../i18n';
 import { OpenSelect } from '../OpenSelect';
+import { contextMenuRowProps } from '../ScmContextMenu';
 import { record } from '../record-utils';
 import { SidebarDialogLayer } from '../sidebar-dialog';
 import { useSidebarReferences } from '../sidebar-reference-cache';
@@ -24,6 +25,7 @@ export function ExtensionRow({
   enabled,
   busy,
   onOpen,
+  onMenu,
   dataAttributes,
 }: {
   icon: ReactNode;
@@ -34,6 +36,8 @@ export function ExtensionRow({
   enabled: boolean;
   busy: boolean;
   onOpen(): void;
+  /** Opens the row's context menu at a viewport point. */
+  onMenu?(point: { x: number; y: number }): void;
   dataAttributes?: Record<`data-${string}`, string>;
 }) {
   return (
@@ -46,6 +50,7 @@ export function ExtensionRow({
       data-tooltip={description || undefined}
       disabled={busy}
       onClick={onOpen}
+      {...(onMenu ? contextMenuRowProps(onMenu) : undefined)}
       {...dataAttributes}
     >
       <span className="extensions-row-icon sidebar-resource-icon" aria-hidden="true">

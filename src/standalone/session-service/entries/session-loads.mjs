@@ -61,6 +61,15 @@ export function createSessionLoads({
       await destroy(entry, 'session load mismatch');
       throw new Error(`session ${sessionId} could not be resumed`);
     }
+    // The loaded conversation is this entry's durable address from now on:
+    // an evicted/unloaded/crashed-restored runtime may resume it again but
+    // never mint another id under this entry.
+    try {
+      await entry.runtime.bindSessionAddress?.(loaded);
+    } catch (err) {
+      await destroy(entry, 'session address bind failed');
+      throw err;
+    }
     // Publish/index the resumed identity before sessionLoads releases its
     // single-flight promise. A second pane arriving in the next microtask must
     // find this owner in O(1), not create a duplicate runtime.

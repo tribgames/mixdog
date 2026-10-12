@@ -71,6 +71,17 @@ test('sixteen Project roots stay indexed together', async (t) => {
   assert.deepEqual(await searchProjectDirectory(roots[0], 'index', 10), ['index.ts']);
 });
 
+test('folders are listed as path/ only when asked for', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'src', 'views'), { recursive: true });
+  await writeFile(join(root, 'src', 'views', 'list.py'), '');
+  assert.deepEqual(await searchProjectDirectory(root, 'views', 10), ['src/views/list.py']);
+  assert.deepEqual(await searchProjectDirectory(root, 'views', 10, { includeDirectories: true }), [
+    'src/views/',
+    'src/views/list.py',
+  ]);
+});
+
 test('gitignored files are found only when asked for, never inside node_modules', async (t) => {
   const root = await tempRoot(t);
   await writeFile(join(root, '.gitignore'), '/deliverables/\n');

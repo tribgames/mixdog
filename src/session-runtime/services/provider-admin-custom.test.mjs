@@ -18,19 +18,43 @@ mock.module('../../runtime/shared/provider-api-key.mjs', {
 
 const created = [];
 let behavior = {};
+const { canonicalReasoningLevel, assertCustomReasoningPatch } = await import(
+  '../../runtime/agent/orchestrator/providers/custom-provider-config.mjs'
+);
 mock.module('../../runtime/agent/orchestrator/providers/custom-provider.mjs', {
   namedExports: {
-    normalizeCustomProviderConfig: (input, { requireModels = true } = {}) => {
+    canonicalReasoningLevel,
+    assertCustomReasoningPatch,
+    // v2 output; a legacy `models` input becomes manual overrides.
+    normalizeCustomProviderConfig: (input) => {
       if (!input.name) throw new Error('name required');
-      const models = input.models || [];
-      if (requireModels && !models.length) throw new Error('model required');
-      return { name: input.name, protocol: input.protocol, baseURL: input.baseURL, models };
+      if (input.badOverride) throw new Error('invalid override');
+      const legacy = input.schemaVersion === undefined;
+      const fromModels = Object.fromEntries(
+        (input.models || []).map(({ id, ...rest }) => [id, { manual: true, hidden: false, ...rest }])
+      );
+      return {
+        type: 'custom',
+        schemaVersion: 2,
+        name: input.name,
+        protocol: input.protocol,
+        baseURL: input.baseURL,
+        enabled: true,
+        auth: input.auth === 'none' ? 'none' : 'key',
+        discovery: {
+          newModelsHidden: legacy ? (input.models || []).length > 0 : input.discovery?.newModelsHidden === true,
+        },
+        modelOverrides: structuredClone(legacy ? fromModels : input.modelOverrides || {}),
+      };
     },
     createCustomProvider: async (id, config) => {
       created.push({ id, config });
       return {
         send: async (...args) => behavior.send?.(...args),
         listModels: async () => behavior.listModels?.(),
+        get customDiscoveryError() {
+          return behavior.discoveryError ?? null;
+        },
       };
     },
   },
@@ -64,12 +88,16 @@ test('save generates id, stores key only as secret, and appears in setup without
   assert.equal(cfg.peek().providers[row.id].apiKey, undefined);
   assert.deepEqual(cfg.peek().providers[row.id], {
     type: 'custom',
+    schemaVersion: 2,
     name: 'Local',
     protocol: 'openai-chat',
     baseURL: input.baseURL,
-    models: input.models,
     enabled: true,
+    auth: 'key',
+    discovery: { newModelsHidden: true },
+    modelOverrides: { m1: { manual: true, hidden: false, contextWindow: 8000 } },
   });
+  assert.equal('models' in cfg.peek().providers[row.id], false);
   assert.equal(secrets.get(`agent.${row.id}.apiKey`), input.apiKey);
   const setup = await admin.providerSetup(cfg.peek());
   const custom = setup.api.find((r) => r.id === row.id);
@@ -88,8 +116,14 @@ test('edit with blank key preserves secret; unknown or built-in id is rejected',
   assert.equal(edited.id, id);
   assert.equal(cfg.peek().providers[id].name, 'Renamed');
   assert.equal(secrets.get(`agent.${id}.apiKey`), input.apiKey);
-  await assert.rejects(admin.saveCustomProvider(cfg, { ...input, id: 'openai' }), /unknown custom provider/);
-  await assert.rejects(admin.saveCustomProvider(cfg, { ...input, id: 'custom-nope' }), /unknown custom provider/);
+  // Malformed ids fail the transport check (IPC parity); a well-formed id
+  // that is not stored fails the lookup.
+  await assert.rejects(admin.saveCustomProvider(cfg, { ...input, id: 'openai' }), /custom provider id is invalid/);
+  await assert.rejects(admin.saveCustomProvider(cfg, { ...input, id: 'custom-nope' }), /custom provider id is invalid/);
+  await assert.rejects(
+    admin.saveCustomProvider(cfg, { ...input, id: 'custom-00000000-0000-4000-8000-000000000000' }),
+    /unknown custom provider/
+  );
   await assert.rejects(admin.saveCustomProvider(cfg, { ...input, apiKey: '' }), /API key is required/);
 });
 
@@ -107,7 +141,9 @@ test('remove deletes config and secret, and only custom providers', async () => 
 test('failed config edits restore the previous API key', async () => {
   const cfg = makeCfg();
   const { id } = await admin.saveCustomProvider(cfg, input);
-  cfg.saveConfig = () => { throw new Error('save failed'); };
+  cfg.saveConfig = () => {
+    throw new Error('save failed');
+  };
   await assert.rejects(admin.saveCustomProvider(cfg, { ...input, id, apiKey: 'replacement-secret' }), /save failed/);
   assert.equal(secrets.get(`agent.${id}.apiKey`), input.apiKey);
 });
@@ -116,11 +152,13 @@ test('registration needs no model IDs and connection tests discover a model auto
   const cfg = makeCfg();
   const automatic = { ...input, models: [] };
   const saved = await admin.saveCustomProvider(cfg, automatic);
-  assert.deepEqual(cfg.peek().providers[saved.id].models, []);
+  assert.deepEqual(cfg.peek().providers[saved.id].modelOverrides, {});
   let testedModel;
   behavior = {
     listModels: async () => [{ id: 'discovered-model' }],
-    send: async (_messages, model) => { testedModel = model; },
+    send: async (_messages, model) => {
+      testedModel = model;
+    },
   };
   assert.deepEqual(await admin.testCustomProvider(cfg, automatic), { ok: true });
   assert.equal(testedModel, 'discovered-model');
@@ -175,9 +213,11 @@ test('discovery returns normalized models and errors truthfully', async () => {
     ],
   };
   assert.deepEqual(await admin.discoverCustomProviderModels(cfg, input), {
-    models: [{ id: 'a', name: 'A', contextWindow: 1000, maxOutputTokens: 50 }, { id: 'b' }],
+    models: [
+      { id: 'a', name: 'A', contextWindow: 1000, maxOutputTokens: 50, hidden: false, manual: false },
+      { id: 'b', hidden: false, manual: false },
+    ],
   });
-  assert.deepEqual(created.at(-1).config.models, []);
   behavior = {
     listModels: async () => {
       throw Object.assign(new Error(`404 not found for ${input.apiKey}`), { status: 404 });
@@ -190,18 +230,30 @@ test('discovery returns normalized models and errors truthfully', async () => {
   assert.match(result.error.message, /404/);
   assert.equal(result.error.message.includes(input.apiKey), false);
   assert.deepEqual(await admin.testCustomProvider(cfg, { ...input, models: [] }), {
-    ok: false, phase: 'discovery', error: result.error,
+    ok: false,
+    phase: 'discovery',
+    error: result.error,
   });
 });
 
 test('discovery failure categories use HTTP status, not error text', async () => {
   const cfg = makeCfg();
-  for (const [status, kind] of [[404, 'unavailable'], [405, 'unavailable'], [401, 'authentication'], [403, 'authentication'], [429, 'request'], [500, 'request'], [undefined, 'request']]) {
+  for (const [status, kind] of [
+    [404, 'unavailable'],
+    [405, 'unavailable'],
+    [401, 'authentication'],
+    [403, 'authentication'],
+    [429, 'request'],
+    [500, 'request'],
+    [undefined, 'request'],
+  ]) {
     behavior = {
       listModels: async () => {
         throw Object.assign(new Error('404 may appear in a URL or network error'), { status });
       },
-      send: async () => { assert.fail('Discovery failure must not be reported as a successful model call'); },
+      send: async () => {
+        assert.fail('Discovery failure must not be reported as a successful model call');
+      },
     };
     const result = await admin.testCustomProvider(cfg, { ...input, models: [] });
     assert.equal(result.ok, false);
@@ -209,4 +261,192 @@ test('discovery failure categories use HTTP status, not error text', async () =>
     assert.equal(result.error.kind, kind);
     assert.equal(result.error.status, status);
   }
+});
+
+const v2Input = {
+  schemaVersion: 2,
+  name: 'Full',
+  protocol: 'openai-chat',
+  baseURL: 'http://localhost:1234/v1',
+  apiKey: 'sk-secret-123456',
+  auth: 'key',
+  discovery: { newModelsHidden: true },
+  modelOverrides: {
+    'vendor/m': {
+      manual: true,
+      hidden: false,
+      name: 'M',
+      contextWindow: 8000,
+      maxOutputTokens: 512,
+      reasoning: { levels: ['low', 'high'], wireFormat: 'deepseek', wireValues: { low: 'l' }, replay: true },
+    },
+  },
+};
+
+test('v2 save round-trips every contract field and rewrites legacy entries as v2', async () => {
+  const cfg = makeCfg();
+  const row = await admin.saveCustomProvider(cfg, v2Input);
+  const { apiKey: _k, ...expected } = v2Input;
+  assert.deepEqual(cfg.peek().providers[row.id], { ...expected, type: 'custom', enabled: true });
+  assert.deepEqual(row.modelOverrides, v2Input.modelOverrides);
+  assert.equal(row.discovery.newModelsHidden, true);
+
+  const legacyId = 'custom-11111111-2222-3333-4444-555555555555';
+  const full = cfg.loadConfig();
+  cfg.saveConfig({
+    ...full,
+    providers: {
+      ...full.providers,
+      [legacyId]: {
+        type: 'custom',
+        name: 'Old',
+        protocol: 'openai-chat',
+        baseURL: input.baseURL,
+        models: [],
+        enabled: true,
+      },
+    },
+  });
+  secrets.set(`agent.${legacyId}.apiKey`, 'legacy-key-value');
+  assert.equal(cfg.peek().providers[legacyId].schemaVersion, undefined);
+  await admin.saveCustomProvider(cfg, { ...v2Input, id: legacyId, apiKey: '' });
+  assert.equal(cfg.peek().providers[legacyId].schemaVersion, 2);
+});
+
+test('updateCustomProviderModel is tri-state per property', async () => {
+  const cfg = makeCfg();
+  const { id } = await admin.saveCustomProvider(cfg, v2Input);
+  const ov = () => cfg.peek().providers[id].modelOverrides['vendor/m'];
+  await admin.updateCustomProviderModel(cfg, id, 'vendor/m', { hidden: true, name: null });
+  assert.equal(ov().hidden, true);
+  assert.equal('name' in ov(), false);
+  assert.equal(ov().contextWindow, 8000);
+  await admin.updateCustomProviderModel(cfg, id, 'vendor/m', { reasoning: { replay: null, levels: [] } });
+  // Clearing the levels retires their wire values.
+  assert.deepEqual(ov().reasoning, { levels: [], wireFormat: 'deepseek' });
+  await admin.updateCustomProviderModel(cfg, id, 'vendor/m', { reasoning: null });
+  assert.equal('reasoning' in ov(), false);
+  await admin.updateCustomProviderModel(cfg, id, 'new-model', { hidden: false });
+  assert.deepEqual(cfg.peek().providers[id].modelOverrides['new-model'], { hidden: false });
+  await admin.updateCustomProviderModel(cfg, id, 'new-model', { hidden: null });
+  assert.equal('new-model' in cfg.peek().providers[id].modelOverrides, false);
+  await admin.updateCustomProviderModel(cfg, id, 'vendor/m', null);
+  assert.deepEqual(cfg.peek().providers[id].modelOverrides, {});
+  assert.equal(cfg.peek().providers[id].discovery.newModelsHidden, true);
+  await assert.rejects(admin.updateCustomProviderModel(cfg, id, 'm', { bogus: 1 }), /unsupported/);
+  await assert.rejects(admin.updateCustomProviderModel(cfg, 'openai', 'm', {}), /unknown custom provider/);
+});
+
+test('concurrent updateCustomProviderModel calls on different models both persist', async () => {
+  const cfg = makeCfg();
+  const { id } = await admin.saveCustomProvider(cfg, v2Input);
+  await Promise.all([
+    admin.updateCustomProviderModel(cfg, id, 'a', { hidden: true }),
+    admin.updateCustomProviderModel(cfg, id, 'b', { hidden: false }),
+  ]);
+  const overrides = cfg.peek().providers[id].modelOverrides;
+  assert.deepEqual(overrides.a, { hidden: true });
+  assert.deepEqual(overrides.b, { hidden: false });
+});
+
+test('keyless providers save, test and report authenticated without a key', async () => {
+  const cfg = makeCfg();
+  const keyless = { ...v2Input, auth: 'none', apiKey: '' };
+  const before = secrets.size;
+  const row = await admin.saveCustomProvider(cfg, keyless);
+  assert.equal(secrets.size, before);
+  assert.equal(row.authenticated, true);
+  assert.equal(cfg.peek().providers[row.id].auth, 'none');
+  const ignored = await admin.saveCustomProvider(cfg, { ...keyless, id: row.id, apiKey: 'typed-but-ignored-key' });
+  assert.equal(secrets.has(`agent.${ignored.id}.apiKey`), false);
+  behavior = { listModels: async () => [{ id: 'k' }], send: async () => ({}) };
+  assert.deepEqual(await admin.testCustomProvider(cfg, keyless), { ok: true });
+  assert.equal(created.at(-1).config.apiKey, '');
+  const setup = await admin.providerSetup(cfg.peek());
+  assert.equal(setup.api.find((r) => r.id === row.id).authenticated, true);
+});
+
+test('edits that omit auth or v2 settings keep the stored ones; stated values replace them', async () => {
+  const cfg = makeCfg();
+  const row = await admin.saveCustomProvider(cfg, { ...v2Input, auth: 'none', apiKey: '' });
+  const { auth: _a, discovery: _d, modelOverrides: _o, apiKey: _k, schemaVersion: _v, ...bare } = v2Input;
+  await admin.saveCustomProvider(cfg, { ...bare, schemaVersion: 2, id: row.id, name: 'Renamed' });
+  const stored = () => cfg.peek().providers[row.id];
+  assert.equal(stored().name, 'Renamed');
+  assert.equal(stored().auth, 'none');
+  assert.deepEqual(stored().discovery, v2Input.discovery);
+  assert.deepEqual(stored().modelOverrides, v2Input.modelOverrides);
+  // A legacy-shaped edit restates its models but still keeps the stored auth.
+  await admin.saveCustomProvider(cfg, { ...bare, id: row.id, models: [] });
+  assert.equal(stored().auth, 'none');
+  await admin.saveCustomProvider(cfg, { ...bare, schemaVersion: 2, id: row.id, auth: 'key', apiKey: 'sk-new-123456' });
+  assert.equal(stored().auth, 'key');
+  assert.equal(secrets.get(`agent.${row.id}.apiKey`), 'sk-new-123456');
+});
+
+test('the setup row is the v2 view: auth, discovery, overrides and offline effective rows', async () => {
+  const cfg = makeCfg();
+  const legacyId = 'custom-22222222-2222-3333-4444-555555555555';
+  cfg.saveConfig({
+    providers: {
+      [legacyId]: {
+        type: 'custom',
+        name: 'Old',
+        protocol: 'openai-chat',
+        baseURL: input.baseURL,
+        models: [{ id: 'm1', contextWindow: 8000 }],
+      },
+    },
+  });
+  const [row] = (await admin.providerSetup(cfg.peek(), { checkSecrets: false })).api.filter((r) => r.custom);
+  assert.equal(row.schemaVersion, 2);
+  assert.equal(row.auth, 'key');
+  assert.deepEqual(row.discovery, { newModelsHidden: true });
+  assert.deepEqual(row.modelOverrides, { m1: { manual: true, hidden: false, contextWindow: 8000 } });
+  assert.deepEqual(
+    row.models.map((m) => [m.id, m.manual, m.hidden, m.contextWindow]),
+    [['m1', true, false, 8000]]
+  );
+});
+
+test('discovery that fails but keeps manual rows reports both', async () => {
+  const cfg = makeCfg();
+  behavior = { listModels: async () => [{ id: 'man', manual: true }] };
+  assert.equal((await admin.discoverCustomProviderModels(cfg, v2Input)).error, undefined);
+  behavior = {
+    listModels: async () => [{ id: 'man', manual: true }],
+    discoveryError: Object.assign(new Error(`models 503 ${v2Input.apiKey}`), { status: 503 }),
+  };
+  const result = await admin.discoverCustomProviderModels(cfg, v2Input);
+  assert.deepEqual(
+    result.models.map((m) => m.id),
+    ['man']
+  );
+  assert.equal(result.error.kind, 'request');
+  assert.equal(result.error.status, 503);
+  assert.equal(result.error.message.includes(v2Input.apiKey), false);
+});
+
+test('discovery returns hidden rows with reasoning fields and a sanitized error on failure', async () => {
+  const cfg = makeCfg();
+  const reasoning = {
+    supportsReasoning: true,
+    reasoningOptions: ['low'],
+    reasoningLevels: ['low'],
+    customReasoning: { wireFormat: 'deepseek', wireValues: { low: 'l' }, replay: true },
+    reasoningContentField: 'reasoning_content',
+  };
+  behavior = { listModels: async () => [{ id: 'h', hidden: true, manual: true, ...reasoning }] };
+  assert.deepEqual((await admin.discoverCustomProviderModels(cfg, v2Input)).models, [
+    { id: 'h', hidden: true, manual: true, ...reasoning },
+  ]);
+  behavior = {
+    listModels: async () => {
+      throw Object.assign(new Error(`401 ${v2Input.apiKey}`), { status: 401 });
+    },
+  };
+  const failed = await admin.discoverCustomProviderModels(cfg, v2Input);
+  assert.deepEqual(failed.models, []);
+  assert.equal(failed.error.kind, 'authentication');
+  assert.equal(failed.error.message.includes(v2Input.apiKey), false);
 });

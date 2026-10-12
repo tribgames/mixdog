@@ -2,7 +2,8 @@
 // nearest-line hints, and the V4A line-sequence locator. Matching/fuzz
 // semantics mirror the native engine.
 
-import { readFileSync } from 'node:fs';
+import { detectTextCodec } from '../../../../shared/bounded-file-read.mjs';
+import { readPatchTargetBytes } from './content-guard.mjs';
 import { entryHeaderName, stripDiffPrefix } from './paths.mjs';
 import { normalizeOutputPath } from '../builtin.mjs';
 import { normalizeTypographic } from './text-lines.mjs';
@@ -214,46 +215,11 @@ export function decodeValidUtf8OrNull(buf) {
 // codec — the caller must refuse rather than rewrite them. Routing by BOM
 // alone sent BOM-less UTF-16 to the UTF-8 engine, which produced mixed
 // UTF-16/UTF-8 bytes.
-// Minimum evidence for a BOM-less UTF-16 verdict: 16 code units. Below that a
-// NUL is just as likely to be a stray byte inside UTF-8 text (`61 00`), and a
-// wrong verdict DESTROYS the file, so short input is undecidable by
-// definition. `buf` must be the WHOLE file: a bounded prefix cannot rule out a
-// parity flip further in, so a prefix-only caller passes `partial:true` and
-// gets "undecidable" instead of a guess.
-const UTF16_MIN_EVIDENCE_BYTES = 32;
-const UTF16_MIN_NUL_RATIO = 0.5;
-
+// The rule itself (evidence minimum, parity ratio, `partial`) lives in
+// detectTextCodec so the bounded snapshot reader classifies binary content
+// exactly the way this codec does.
 export function detectPatchTargetCodec(buf, { partial = false } = {}) {
-  const bytes = Buffer.isBuffer(buf) ? buf : Buffer.from(buf || []);
-  const undecidable = { encoding: null, bomLen: 0, certain: false };
-  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
-    return { encoding: 'utf16le', bomLen: 2, certain: true };
-  }
-  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
-    return { encoding: 'utf16be', bomLen: 2, certain: true };
-  }
-  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-    return { encoding: 'utf8', bomLen: 3, certain: true };
-  }
-  let nulEven = 0;
-  let nulOdd = 0;
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] !== 0) continue;
-    if (i % 2 === 0) nulEven += 1;
-    else nulOdd += 1;
-  }
-  if (partial) return undecidable;
-  if (nulEven === 0 && nulOdd === 0) return { encoding: 'utf8', bomLen: 0, certain: true };
-  if (bytes.length < UTF16_MIN_EVIDENCE_BYTES || bytes.length % 2 !== 0) return undecidable;
-  const evenSlots = Math.ceil(bytes.length / 2);
-  const oddSlots = Math.floor(bytes.length / 2);
-  if (nulEven === 0 && nulOdd / oddSlots >= UTF16_MIN_NUL_RATIO) {
-    return { encoding: 'utf16le', bomLen: 0, certain: true };
-  }
-  if (nulOdd === 0 && nulEven / evenSlots >= UTF16_MIN_NUL_RATIO) {
-    return { encoding: 'utf16be', bomLen: 0, certain: true };
-  }
-  return undecidable;
+  return detectTextCodec(Buffer.isBuffer(buf) ? buf : Buffer.from(buf || []), { partial });
 }
 
 export function decodePatchTargetBuffer(buf, displayPath = '') {
@@ -299,8 +265,10 @@ export function decodePatchTargetBuffer(buf, displayPath = '') {
 export function patchTargetEncodingError(fullPath, displayPath = fullPath) {
   let buf;
   try {
-    buf = readFileSync(fullPath);
-  } catch {
+    buf = readPatchTargetBytes(fullPath, displayPath);
+  } catch (err) {
+    // Grown past the snapshot limit since the preflight: refuse, unread.
+    if (err?.code === 'EPATCHOMITTED') return err.message;
     return null; // absent/unreadable — the engine reports it in its own words
   }
   try {
@@ -318,8 +286,9 @@ export function patchTargetEncodingError(fullPath, displayPath = fullPath) {
 export function patchTargetUsesUtf16(fullPath) {
   try {
     // WHOLE file: a prefix cannot rule out a parity flip further in, and this
-    // decides whether the byte-preserving writer is used.
-    const codec = detectPatchTargetCodec(readFileSync(fullPath));
+    // decides whether the byte-preserving writer is used. An oversized target
+    // stays native, where the encoding gate refuses it.
+    const codec = detectPatchTargetCodec(readPatchTargetBytes(fullPath));
     return codec.certain && codec.encoding !== 'utf8';
   } catch {
     return false;

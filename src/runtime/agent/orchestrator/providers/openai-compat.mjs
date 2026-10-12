@@ -99,11 +99,16 @@ export class OpenAICompatProvider {
     return new (loadOpenAI())({
       baseURL: this.baseURL,
       apiKey,
-      defaultHeaders: this.defaultHeaders,
+      // A keyless endpoint (config.keyless) gets no Authorization header: the
+      // SDK drops a header whose default is null.
+      defaultHeaders: this.config?.keyless ? { ...this.defaultHeaders, Authorization: null } : this.defaultHeaders,
       // The SDK's own retry loop (default 2) would nest underneath our
       // withRetry wrapper and multiply tail latency on a transient
       // backend. We own retry/backoff via withRetry, so disable the SDK's.
       maxRetries: 0,
+      // Opt-in SDK constructor overrides (e.g. an explicit null organization so
+      // the SDK does not inherit OPENAI_ORG_ID from the environment).
+      ...(this.config?.clientOptions || {}),
       // Force the shared long-keepalive undici dispatcher to be installed
       // globally (setGlobalDispatcher) so the SDK's global fetch rides a
       // warm socket pool instead of Node's short-keepalive default. The

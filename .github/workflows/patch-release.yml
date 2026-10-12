@@ -39,6 +39,7 @@ jobs:
   gate:
     name: gate-tag-version
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -74,6 +75,7 @@ jobs:
     name: test-native-patch
     needs: gate
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -82,7 +84,9 @@ jobs:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: stable
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -137,6 +141,7 @@ jobs:
     name: build-${{ matrix.platformKey }}
     needs: gate
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -174,8 +179,9 @@ jobs:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Cache cargo registry and target
@@ -233,6 +239,7 @@ jobs:
     name: rewrite-patch-manifest
     needs: [test, build]
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: write
     concurrency:

@@ -19,7 +19,12 @@ import {
 import { t } from './i18n';
 import { MAX_COMPOSER_ATTACHMENTS, pastedTextFields, type ComposerAttachment } from './composer-support';
 import { insertComposerToken, takeRejectedComposerSubmissionRecoveries } from './composer-draft';
-import { absolutePathTokens, projectMentionTokens, restoreAttachmentsFromRecord } from './composer-attachment-restore';
+import {
+  absolutePathTokens,
+  foldAttachmentTokens,
+  projectMentionTokens,
+  restoreAttachmentsFromRecord,
+} from './composer-attachment-restore';
 import { useComposerFileDrop } from './use-composer-file-drop';
 
 /** Insert a token at the caret, keep the draft mirror current, restore focus
@@ -310,8 +315,9 @@ export function useComposerAttachments({
         next.push(attachment);
       }
       if (firstError) setAttachmentError(firstError);
-      replaceAttachments(next);
-      return nextText;
+      const folded = foldAttachmentTokens(nextText, next);
+      replaceAttachments(folded.attachments);
+      return folded.text;
     },
     [replaceAttachments]
   );

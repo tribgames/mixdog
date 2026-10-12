@@ -22,6 +22,7 @@ const MEDIA_KILL_BUFFER_BYTES = 8 * 1024 * 1024;
 // One tab opening a screenful of tiles is normal; unbounded proxied streams
 // per desktop are not (each one holds an open response and a file read).
 const MAX_MEDIA_STREAMS = 32;
+const MEDIA_SESSION_ID = /^[A-Za-z0-9_-]{43}$/;
 
 /** Percent-decoding throws on malformed input (`/media/%`). That input arrives
  *  unauthenticated, so it has to become a response, never an exception on the
@@ -39,7 +40,9 @@ function decodePathname(pathname) {
  *
  * The files live on the desktop, so the relay proxies: it forwards one media
  * request over the desktop leg and streams the frames straight into the HTTP
- * response. Payloads pass through un-inspected, exactly like /hook.
+ * response. Payloads pass through un-inspected, exactly like /hook: the
+ * desktop seals every body with a key only the paired phone holds
+ * (shared/remote-media-crypto.ts), so what streams through here is ciphertext.
  */
 export function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, request, response) {
   const url = requestUrl(request);
@@ -73,12 +76,27 @@ export function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, req
     endText(response, 404, 'Not found.');
     return;
   }
+  // Names the E2EE session whose media key sealed the bytes. It is the
+  // session's public handshake challenge: the relay forwards it as a label
+  // and never holds anything that could open the stream.
+  const sid = url.searchParams.get('sid') || '';
+  if (sid && !MEDIA_SESSION_ID.test(sid)) {
+    endText(response, 400, 'Bad request.');
+    return;
+  }
+  // The protocol opt-in: only a client that sends it is answered with
+  // encrypted frames; the desktop treats everything else as plaintext-era.
+  const enc = url.searchParams.get('enc') || '';
+  if (!/^[A-Za-z0-9]{0,16}$/.test(enc)) {
+    endText(response, 400, 'Bad request.');
+    return;
+  }
   const refusal = mediaRefusal(entry, online);
   if (refusal) {
     endText(response, 503, refusal.text, refusal.headers);
     return;
   }
-  openMediaStream(entry, target, request, response);
+  openMediaStream(entry, { ...target, sid, enc }, request, response);
 }
 
 // Feature probe, answered for the DESKTOP that would produce the bytes.
@@ -129,6 +147,8 @@ function openMediaStream(entry, target, request, response) {
         id,
         assetId: target.assetId,
         variant: target.variant,
+        sid: target.sid,
+        enc: target.enc,
         method: request.method,
         range: String(request.headers.range || ''),
         ifNoneMatch: String(request.headers['if-none-match'] || ''),

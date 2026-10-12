@@ -10,7 +10,11 @@ import {
   normalizeAutoEffortMode,
   resolveAutoEffort,
 } from './auto-effort.mjs';
-import { prepareTurnEffortConfiguration, projectEffortConfiguration, stepEffortConfiguration } from './effort-configuration.mjs';
+import {
+  prepareTurnEffortConfiguration,
+  projectEffortConfiguration,
+  stepEffortConfiguration,
+} from './effort-configuration.mjs';
 import { markStepEffort } from '../session/loop/step-auto-effort.mjs';
 import { stepJudgeText, stepResultWindow } from '../../../effort-judge/judge-input.mjs';
 import { builtinFeatureActive, INSTALLABLE_BUILTIN_IDS } from '../runtime-core/builtin-features.mjs';
@@ -142,7 +146,12 @@ test('the step judge text keeps the request head, the round text and each call w
     ],
   });
   const lines = text.split('\n');
-  assert.deepEqual(lines.slice(0, 4), ['step 3', 'request: fix the failing test', 'plan: Running the suite again.', 'call: shell {"command":"npm test"}']);
+  assert.deepEqual(lines.slice(0, 4), [
+    'step 3',
+    'request: fix the failing test',
+    'plan: Running the suite again.',
+    'call: shell {"command":"npm test"}',
+  ]);
   assert.ok(lines[4].startsWith(`result: ${'a'.repeat(300)} … `) && lines[4].endsWith('FAIL x.test.js'));
   assert.equal(lines.length, 9, 'three calls at most');
   assert.equal(stepJudgeText({ request: '', step: 1, plan: '  ', calls: [] }), 'step 1\nrequest: ');
@@ -157,8 +166,17 @@ test('a step effort replaces the turn effort in the snapshot and projects after 
   assert.deepEqual(stepEffortConfiguration(turn, session.provider, session.model, 'low'), { ...turn, effort: 'low' });
   assert.equal(stepEffortConfiguration(turn, session.provider, session.model, 'bogus'), null);
   assert.equal(stepEffortConfiguration(null, session.provider, session.model, 'low'), null);
-  const tool = { role: 'tool', toolCallId: 'c1', content: 'ok', meta: { effortConfiguration: { ...turn, effort: 'low' } } };
-  const messages = [{ role: 'user', content: 'go', meta: { effortConfiguration: turn } }, { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read', arguments: {} }] }, tool];
+  const tool = {
+    role: 'tool',
+    toolCallId: 'c1',
+    content: 'ok',
+    meta: { effortConfiguration: { ...turn, effort: 'low' } },
+  };
+  const messages = [
+    { role: 'user', content: 'go', meta: { effortConfiguration: turn } },
+    { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read', arguments: {} }] },
+    tool,
+  ];
   const projection = projectEffortConfiguration(messages, session.provider, session.model, {});
   assert.equal(projection.updates.get(tool), 'low');
   assert.equal(projection.effort, 'low');
@@ -192,8 +210,19 @@ test('step wiring is off without a step context and leaves the step unmarked whe
   });
   process.env.MIXDOG_DATA_DIR = data;
   process.env.MIXDOG_EFFORT_JUDGE_DIR = join(data, 'no-model');
-  const turn = { version: 1, provider: 'anthropic-oauth', model: 'claude-opus-5-5', mode: 'anthropic', initialEffort: 'medium', effort: 'medium' };
-  const assistant = { role: 'assistant', content: 'Reading it.', toolCalls: [{ id: 'c1', name: 'read', arguments: { path: 'a' } }] };
+  const turn = {
+    version: 1,
+    provider: 'anthropic-oauth',
+    model: 'claude-opus-5-5',
+    mode: 'anthropic',
+    initialEffort: 'medium',
+    effort: 'medium',
+  };
+  const assistant = {
+    role: 'assistant',
+    content: 'Reading it.',
+    toolCalls: [{ id: 'c1', name: 'read', arguments: { path: 'a' } }],
+  };
   const tool = { role: 'tool', toolCallId: 'c1', content: 'text' };
   const state = (stepAutoEffort) => ({
     opts: { stepAutoEffort, effortConfiguration: turn },
@@ -212,14 +241,27 @@ test('step wiring is off without a step context and leaves the step unmarked whe
   await markStepEffort(on, assistant);
   assert.equal(on.autoEffortSteps, 2);
   assert.equal(tool.meta, undefined);
-  const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(log.map((entry) => [entry.atStep, entry.skipped]), [[1, 'model-missing'], [2, 'model-missing']]);
+  const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  assert.deepEqual(
+    log.map((entry) => [entry.atStep, entry.skipped]),
+    [
+      [1, 'model-missing'],
+      [2, 'model-missing'],
+    ]
+  );
   assert.equal('request' in log[0], false);
 });
 
 test('turn wiring skips off mode, runtime turns, agent sessions, tagged prompts, cache-unsafe models and a missing model', async (t) => {
   const data = mkdtempSync(join(tmpdir(), 'mixdog-auto-effort-'));
-  const saved = { mode: process.env.MIXDOG_AUTO_EFFORT, dir: process.env.MIXDOG_EFFORT_JUDGE_DIR, data: process.env.MIXDOG_DATA_DIR };
+  const saved = {
+    mode: process.env.MIXDOG_AUTO_EFFORT,
+    dir: process.env.MIXDOG_EFFORT_JUDGE_DIR,
+    data: process.env.MIXDOG_DATA_DIR,
+  };
   t.after(() => {
     for (const [key, value] of [
       ['MIXDOG_AUTO_EFFORT', saved.mode],
@@ -244,12 +286,25 @@ test('turn wiring skips off mode, runtime turns, agent sessions, tagged prompts,
   assert.equal(await ask({ prompt: 'done', promptSource: { source: 'task-notification' } }), null);
   assert.equal(await ask({ prompt: '<skill>\n<name>x</name>\n</skill>' }), null);
   assert.equal(await ask({ prompt: 'hi' }, { ...session, model: 'claude-opus-4-5' }), null);
-  assert.equal(await ask({ prompt: 'fix the flaky test' }, { ...session, owner: 'agent' }), null);
+  assert.equal(
+    await ask(
+      { prompt: 'fix the flaky test', promptSource: { source: 'task-notification' } },
+      { ...session, owner: 'agent' }
+    ),
+    null
+  );
   assert.equal(await ask({ prompt: 'fix the flaky test' }), null);
   assert.equal(await ask({ prompt: 'fix the flaky test' }, { ...session, model: 'claude-sonnet-5-5' }), null);
+  // An agent session's brief is judged (no model installed here: logged as skipped).
+  assert.equal(await ask({ prompt: 'investigate the failing build' }, { ...session, owner: 'agent' }), null);
 
-  const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.equal(log.length, 2);
+  const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  assert.equal(log.length, 3);
+  assert.equal(log[2].skipped, 'model-missing');
+  assert.equal(log[2].requestChars, 'investigate the failing build'.length);
   assert.equal(log[0].skipped, 'model-missing');
   assert.equal(log[0].base, 'medium');
   assert.equal(log[1].chosen, 'high');

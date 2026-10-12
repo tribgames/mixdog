@@ -61,7 +61,11 @@ export interface AppShellOverlaysProps {
   commandSurfaceLane: Snapshot | null | undefined;
   setCommandSurface: ReturnType<typeof useAppShellPanels>['setCommandSurface'];
   setCommandSurfaceSessionId: (id: string) => void;
-  replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
+  replaceWithInheritedSession: (
+    sessionId: string,
+    route: DesktopModelSelection,
+    options?: { compact: boolean }
+  ) => Promise<void>;
 
   onboardingOpen: boolean;
   setOnboardingOpen: (open: boolean) => void;
@@ -204,7 +208,7 @@ export function AppShellOverlays({
             onClose={closeSettings}
           />
         )}
-        {(['context', 'usage', 'doctor', 'inherit', 'stats'] as const).map((surface) => {
+        {(['context', 'doctor', 'inherit', 'stats'] as const).map((surface) => {
           const isMounted = commandSurface === surface || mountedCommandSurfaces.current.has(surface);
           if (!isMounted) return null;
 

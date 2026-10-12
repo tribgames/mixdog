@@ -13,6 +13,11 @@ import { relative } from 'node:path';
 
 export const FAILURE_RECORDS_ENV = 'MIXDOG_TEST_FAILURE_RECORDS';
 
+// Every child process a test process starts is logged beside its spawn's
+// failure records (scripts/lib/test-spawn-ledger.mjs), so the runner can tell
+// a process the run started from one that merely names its directories.
+export const spawnLedgerPath = (recordsPath) => (recordsPath ? `${recordsPath}.spawns` : '');
+
 // Ancestor names are tracked per file: node:test runs files concurrently, so
 // one flat stack would mix their nestings.
 export function failureRecord(event, stacks) {

@@ -1,9 +1,7 @@
 // Shared viewport writer. Web and Electron use the same 940/760 CSS bands;
 // remote only marks itself so the - ㅁ x caption reserve can stay off.
 
-export function remoteSurface(): boolean {
-  return Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
-}
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 // visualViewport scroll/resize fire on EVERY frame of an Android URL-bar
 // collapse or keyboard animation. Each root variable write invalidates style
@@ -29,7 +27,7 @@ function syncViewportVars(): void {
 
 function syncShellFlags(): void {
   const root = document.documentElement;
-  if (remoteSurface()) {
+  if (isRemoteHostRenderer()) {
     root.dataset.mixdogRemote = '1';
     return;
   }

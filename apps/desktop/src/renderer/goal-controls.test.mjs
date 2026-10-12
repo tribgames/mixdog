@@ -24,7 +24,7 @@ const click = (node) =>
     node.click();
   });
 
-test('collapsed goal controls address their own session, confirm stop, and preserve the edit draft', async () => {
+test('Goal tab controls address their own session, confirm stop, and preserve the edit draft', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -58,6 +58,10 @@ test('collapsed goal controls address their own session, confirm stop, and prese
     await render(goal);
     const trigger = host.querySelector('[aria-expanded]');
     assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+    // The controls belong to the expanded Goal tab, under its task drawer.
+    assert.ok(button(host, 'Pause').closest('[inert]'), 'closed segment keeps its controls inert');
+    await click(trigger);
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
     for (const label of ['Pause', 'Edit goal', 'Stop goal']) {
       const control = button(host, label);
       assert.ok(control);
@@ -65,7 +69,7 @@ test('collapsed goal controls address their own session, confirm stop, and prese
       assert.equal(
         control.closest('[inert], [aria-hidden="true"], button[aria-expanded]'),
         null,
-        `${label} is available without opening the drawer`
+        `${label} is available in the open Goal tab`
       );
     }
     await click(button(host, 'Pause'));
@@ -77,7 +81,7 @@ test('collapsed goal controls address their own session, confirm stop, and prese
     await render({ ...goal, status: 'paused' });
     await click(button(host, 'Resume'));
     assert.equal(calls.at(-1).args[0].action, 'resume');
-    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
     await click(button(host, 'Edit goal'));
     const dialog = document.querySelector('[role="dialog"]');
     assert.equal(dialog.querySelector('textarea').value, goal.objective);
@@ -102,14 +106,10 @@ test('collapsed goal controls address their own session, confirm stop, and prese
       timeMode: 'duration',
       revision: 3,
     });
-    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
     await click(button(host, 'Stop goal'));
     assert.notEqual(calls.at(-1).args[0].action, 'stop', 'asking for confirmation must not stop work');
-    assert.equal(
-      trigger.getAttribute('aria-expanded'),
-      'true',
-      'stop reveals its confirmation from the collapsed island'
-    );
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true', 'stop confirms inside the open Goal tab');
     assert.equal(button(host, 'Confirm stop').closest('[inert], [aria-hidden="true"]'), null);
     await click(button(host, 'Confirm stop'));
     assert.equal(calls.at(-1).args[0].action, 'stop');
@@ -118,6 +118,34 @@ test('collapsed goal controls address their own session, confirm stop, and prese
     assert.equal(button(host, 'Edit goal'), undefined);
     assert.equal(button(host, 'Stop goal'), undefined);
     assert.ok(host.textContent.includes('Current work'), 'unfinished work remains visible');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('closing the Goal edit dialog returns focus to the visible Edit control, not the hidden trigger', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  window.mixdogDesktop = { invokeCapability: async () => ({ value: { ok: true } }) };
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: {
+            sessionId: 'focus-return',
+            goal: { id: 'goal-focus', revision: 1, objective: 'Return focus', status: 'active', tasks: [] },
+          },
+        })
+      )
+    );
+    await click(host.querySelector('.session-goal-trigger'));
+    const edit = button(host, 'Edit goal');
+    await click(edit);
+    await click(button(document.querySelector('[role="dialog"]'), 'Cancel'));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, edit, 'focus lands on the Edit control in the open Goal tab');
   } finally {
     await act(async () => root.unmount());
     host.remove();

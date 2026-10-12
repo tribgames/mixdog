@@ -120,6 +120,7 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   forgetProviderAuth: PROVIDER_KEYS,
   saveCustomProvider: PROVIDER_KEYS,
   removeCustomProvider: PROVIDER_KEYS,
+  updateCustomProviderModel: PROVIDER_KEYS,
   updateProviderAccounts: PROVIDER_KEYS,
   completeOAuthProviderLogin: PROVIDER_KEYS,
   installBuiltinFeature: PROVIDER_KEYS,

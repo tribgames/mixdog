@@ -1,15 +1,17 @@
 // Auto effort for one user turn. The Auto effort built-in (Extensions →
 // Built-in) turns it `on`: the judged effort applies to this turn. The
 // MIXDOG_AUTO_EFFORT env value (off/observe/on) overrides it for diagnostics;
-// `observe` judges and logs without applying. Applies only to user-written
-// prompts on models whose effort can change mid-conversation without
-// invalidating the prompt cache.
+// `observe` judges and logs without applying. Applies to user-written prompts
+// and to agent sessions' briefs and Lead follow-ups (not runtime-injected
+// turns) on models whose effort can change mid-conversation without
+// invalidating the prompt cache, and on custom Chat/Responses routes whose
+// model declares effort levels (the effort is sent with each request).
 import { readSection } from '../../../../shared/config.mjs';
-import { effortConfigurationMode } from '../../providers/effort-configuration.mjs';
+import { autoEffortModel, turnEffortConfigurationMode } from '../../providers/effort-configuration.mjs';
 import { autoEffortBase, normalizeAutoEffortMode, resolveAutoEffort } from '../../providers/auto-effort.mjs';
 import { builtinFeatureActive } from '../../runtime-core/builtin-features.mjs';
 import { effortOptionsFor } from '../../runtime-core/effort.mjs';
-import { judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
+import { effortJudgeSupportsSteps, judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
 // Every cache-safe route judges its tool-result steps the same way. Measured
@@ -24,6 +26,17 @@ export function autoEffortStepsEnabled() {
       .trim()
       .toLowerCase() !== 'off'
   );
+}
+
+/** `{ request, base }` when each tool-result step of this turn is judged
+ *  (session/loop/step-auto-effort.mjs): auto effort is on for the turn, the
+ *  route has an effort configuration (a mid-conversation update route, or a
+ *  custom Chat/Responses route whose model declares levels), and the installed
+ *  judge was trained on steps. Otherwise null. */
+export function turnStepAutoEffort(autoEffort, effortConfiguration) {
+  return autoEffort?.mode === 'on' && effortConfiguration && autoEffortStepsEnabled() && effortJudgeSupportsSteps()
+    ? { request: autoEffort.request, base: autoEffort.base }
+    : null;
 }
 
 export function autoEffortMode() {
@@ -53,14 +66,14 @@ function lastText(messages, role) {
  */
 export async function resolveTurnAutoEffort({ sessionId, session, provider, input }) {
   const mode = autoEffortMode();
-  // promptSource marks runtime-injected turns (completion notices, queued work);
-  // agent-owned sessions (workers, maintenance) receive runtime-written briefs.
-  if (mode === 'off' || input?.promptSource || session?.owner === 'agent') return null;
+  // promptSource marks runtime-injected turns (completion notices, queued work).
+  // Agent sessions are judged like any other: their spawn brief and later Lead
+  // `send` messages arrive as plain prompts.
+  if (mode === 'off' || input?.promptSource) return null;
   const request = promptContentText(input?.prompt).trim();
   // Skill bodies and runtime blocks arrive as tagged text, not as a request.
   if (!request || request.startsWith('<')) return null;
-  const opts = { ...(provider?.config || {}), modelParameters: session.modelParameters || {} };
-  if (!effortConfigurationMode(session.provider, session.model, opts)) return null;
+  if (!turnEffortConfigurationMode(session, provider)) return null;
   const chosen = String(session.effort || '').toLowerCase();
   const base = autoEffortBase(chosen);
   // The previous user request shows the work a short follow-up continues.
@@ -85,7 +98,7 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
   }
   const resolved = resolveAutoEffort({
     base,
-    options: effortOptionsFor(session.provider, { id: session.model }),
+    options: effortOptionsFor(session.provider, autoEffortModel(session.provider, provider, session.model)),
     probs: judged.probs,
   });
   recordEffortDecision({

@@ -76,7 +76,7 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
   return tokens;
 }
 
-export async function beginOAuthLogin() {
+export async function beginOAuthLogin({ openBrowser = true } = {}) {
   const discovery = await fetchDiscovery();
   const pkce = generatePKCE();
   const state = randomBytes(16).toString('hex');
@@ -138,6 +138,7 @@ export async function beginOAuthLogin() {
       process.stderr.write(
         `\n[grok-oauth] Open this URL to log in (consent shows as "Grok Build"):\n${url.toString()}\n\n`
       );
+      if (!openBrowser) return;
       try {
         const { openInBrowser } = await import('../../../shared/open-url.mjs');
         openInBrowser(url.toString());

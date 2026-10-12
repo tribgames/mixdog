@@ -4,6 +4,15 @@ import { randomUUID } from 'node:crypto';
 
 import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from './relay-binary-frame.mjs';
 import { failMediaPending, forwardMediaFrame } from './relay-media-proxy.mjs';
+import { cleanName } from './pair-codes.mjs';
+import {
+  bindNativeToken,
+  dropNativeBindings,
+  nativePushPlatforms,
+  sendNativePush,
+  unbindNativeToken,
+} from './native-push-legs.mjs';
+import { markWebPushReady, sendWebPushFromDesktop, webPushSubscriptionsFrame } from './web-push-legs.mjs';
 import {
   MAX_FRAME_BYTES,
   MAX_INFLIGHT_BYTES,
@@ -23,6 +32,14 @@ import {
   uplinkCeilings,
 } from './relay-transport.mjs';
 
+function closeQuietly(socket, code, reason) {
+  try {
+    socket.close(code, reason);
+  } catch {
+    /* already gone */
+  }
+}
+
 function revokeDevice(leg) {
   const { store, deviceId, socket, entry, sendJson } = leg;
   const removed = store.revoke(deviceId);
@@ -33,21 +50,11 @@ function revokeDevice(leg) {
     sendJson(socket, { type: 'device-revoked', ok: false });
     return;
   }
+  dropNativeBindings(leg.nativeBindings, deviceId);
+  leg.webPush?.registry.dropClient(deviceId);
   leg.revoked = true;
-  for (const phone of entry.clients.values()) {
-    try {
-      phone.close(4003, 'pairing revoked');
-    } catch {
-      /* already gone */
-    }
-  }
-  const finish = () => {
-    try {
-      socket.close(4003, 'device revoked');
-    } catch {
-      /* already gone */
-    }
-  };
+  for (const phone of entry.clients.values()) closeQuietly(phone, 4003, 'pairing revoked');
+  const finish = () => closeQuietly(socket, 4003, 'device revoked');
   try {
     socket.send(JSON.stringify({ type: 'device-revoked', ok: true }), finish);
   } catch {
@@ -95,20 +102,19 @@ function listClients({ store, deviceId, socket, entry, sendJson }, message) {
   });
 }
 
-function revokeClient({ store, deviceId, socket, entry, sendJson }, message) {
+function revokeClient({ store, deviceId, socket, entry, sendJson, nativeBindings, webPush }, message) {
   if (typeof message.requestId !== 'string' || typeof message.clientId !== 'string') return;
   const removed = store.revokeClient(deviceId, message.clientId);
   // Only a credential that is actually gone closes its browser: a failed
   // persist leaves the pairing valid, and closing it as revoked would tell
   // the user something the store did not do.
   if (removed) {
+    dropNativeBindings(nativeBindings, deviceId, message.clientId);
+    // Only THIS PC's association with that browser goes; its other PCs keep
+    // delivering to the same subscription.
+    if (webPush?.registry.dropClient(deviceId, message.clientId)) webPush.publish(deviceId);
     for (const phone of entry.clients.values()) {
-      if (phone.browserClientId !== message.clientId) continue;
-      try {
-        phone.close(4003, 'pairing revoked');
-      } catch {
-        /* already gone */
-      }
+      if (phone.browserClientId === message.clientId) closeQuietly(phone, 4003, 'pairing revoked');
     }
   }
   sendJson(socket, {
@@ -123,6 +129,9 @@ function revokeClient({ store, deviceId, socket, entry, sendJson }, message) {
 // desktop version, it only answers "this host serves media" or not.
 function declareLanes({ socket, entry, publishCapabilities }, message) {
   entry.mediaLane = message.media === true;
+  // Pairing v2 (6-digit codes, direct browser connect). Declared per leg like
+  // every other lane: an older desktop never says it, so it stays false.
+  entry.pairV2 = message.pairV2 === 1;
   // What THIS leg's receiver accepts, and whether it can take a text
   // payload inside the binary envelope. Both are per connection and both
   // are written to the state of the socket that said them: one relay-wide
@@ -135,6 +144,37 @@ function declareLanes({ socket, entry, publishCapabilities }, message) {
   publishCapabilities();
 }
 
+// The desktop's build, reported once per leg. It only selects which renderer
+// release the relay serves this device's phones; an old desktop never sends it.
+function reportVersion({ store, deviceId }, message) {
+  store.recordDesktopVersion(deviceId, message);
+}
+
+// The main PC publishes its current 6-digit code (only while Settings →
+// Connection is open) and withdraws it when that screen closes. The code is
+// never logged; the answer says only whether the relay accepted it.
+function requestPairCode({ pairCodes, deviceId, socket, sendJson }, message) {
+  if (!pairCodes) return;
+  const result = pairCodes.issue(deviceId, message.lease, message.name);
+  const lease = typeof message.lease === 'string' ? message.lease.slice(0, 64) : '';
+  sendJson(
+    socket,
+    result.status === 'ok'
+      ? { type: 'pair-code-issued', lease, ok: true, code: result.code, expiresInMs: result.ttlMs }
+      : { type: 'pair-code-issued', lease, ok: false }
+  );
+}
+
+// The desktop's own name for itself, shown in the PC switcher of the remote
+// UI. A label only; it is never an identifier.
+function reportName({ entry }, message) {
+  entry.hostName = cleanName(message.name);
+}
+
+function clearPairCode({ pairCodes, deviceId }) {
+  pairCodes?.clear(deviceId);
+}
+
 function forwardFrame({ entry }, message) {
   if (typeof message.data !== 'string') return;
   const phone = entry.clients.get(String(message.clientId || ''));
@@ -144,12 +184,7 @@ function forwardFrame({ entry }, message) {
 function closeClient({ entry }, message) {
   const phone = entry.clients.get(String(message.clientId || ''));
   if (!phone) return;
-  const reason = String(message.reason || 'desktop rejected client').slice(0, 120);
-  try {
-    phone.close(4004, reason);
-  } catch {
-    /* already gone */
-  }
+  closeQuietly(phone, 4004, String(message.reason || 'desktop rejected client').slice(0, 120));
 }
 
 function broadcastFrame({ entry }, message) {
@@ -179,6 +214,15 @@ const DESKTOP_FRAME_HANDLERS = new Map([
   ['list-clients', listClients],
   ['revoke-client', revokeClient],
   ['desktop-lanes', declareLanes],
+  ['desktop-version', reportVersion],
+  ['pair-code-request', requestPairCode],
+  ['pair-code-clear', clearPairCode],
+  ['desktop-name', reportName],
+  ['native-push-bind', bindNativeToken],
+  ['native-push-unbind', unbindNativeToken],
+  ['native-push', sendNativePush],
+  ['webpush-send', sendWebPushFromDesktop],
+  ['webpush-ready', markWebPushReady],
   ['frame', forwardFrame],
   ['close-client', closeClient],
   ['broadcast', broadcastFrame],
@@ -200,13 +244,7 @@ function releaseDesktopLeg(liveDesktops, deviceId, entry, socket) {
   entry.offlineTimer = setTimeout(() => {
     entry.offlineTimer = null;
     if (liveDesktops.get(deviceId)?.socket !== socket) return;
-    for (const phone of entry.clients.values()) {
-      try {
-        phone.close(4002, 'desktop offline');
-      } catch {
-        /* already gone */
-      }
-    }
+    for (const phone of entry.clients.values()) closeQuietly(phone, 4002, 'desktop offline');
     liveDesktops.delete(deviceId);
   }, 45_000);
   entry.offlineTimer.unref?.();
@@ -219,9 +257,14 @@ export function runDesktopLeg(context, deviceId, socket) {
     attachDesktop,
     liveDesktops,
     claims,
+    pairCodes = null,
     maxFrameBytes = MAX_FRAME_BYTES,
     ingress,
     rawSocket = null,
+    nativePush = null,
+    nativeBindings = null,
+    nativeLimiter = null,
+    webPush = null,
   } = context;
   const entry = attachDesktop(deviceId, socket);
   socket.isAlive = true;
@@ -242,25 +285,47 @@ export function runDesktopLeg(context, deviceId, socket) {
   // leg that changes nothing is answered with nothing, exactly as before.
   const publishCapabilities = () => {
     const leg = socket.uplinkLeg;
-    const frame = relayCapabilities(leg, maxFrameBytes);
+    const frame = relayCapabilities(leg, maxFrameBytes, nativePushPlatforms({ nativePush }), Boolean(webPush));
     const encoded = JSON.stringify(frame);
     if (encoded === leg.published) return;
     leg.published = encoded;
     sendJson(socket, frame);
   };
   publishCapabilities();
-  const leg = { socket, entry, deviceId, store, sendJson, claims, publishCapabilities, revoked: false };
+  // The browser subscriptions this PC may deliver to, after the capabilities
+  // that say how. An older desktop ignores the frame.
+  if (webPush) sendJson(socket, webPushSubscriptionsFrame(webPush, store, deviceId));
+  const leg = {
+    socket,
+    entry,
+    deviceId,
+    store,
+    sendJson,
+    claims,
+    pairCodes,
+    publishCapabilities,
+    nativePush,
+    nativeBindings,
+    nativeLimiter,
+    webPush,
+    revoked: false,
+  };
   // Existing browser legs survive a transient desktop redial. Replaying
   // client-open makes the replacement desktop build fresh E2EE channels for
   // those same sockets without waiting for backgrounded tabs to reconnect.
-  for (const clientId of entry.clients.keys()) {
-    sendJson(socket, { type: 'client-open', clientId });
+  for (const [clientId, phone] of entry.clients) {
+    sendJson(socket, clientOpenEnvelope(clientId, phone.browserClientId));
   }
   socket.on(
     'message',
     guarded('desktop frame', (raw, isBinary) => handleDesktopFrame(leg, liveDesktops, maxFrameBytes, raw, isBinary))
   );
-  socket.on('close', () => releaseDesktopLeg(liveDesktops, deviceId, entry, socket));
+  socket.on('close', () => {
+    // A closed live leg's code dies with it; a superseded leg must not clear
+    // the code its replacement just requested.
+    if (liveDesktops.get(deviceId)?.socket === socket) pairCodes?.clear(deviceId);
+    releaseDesktopLeg(liveDesktops, deviceId, entry, socket);
+  });
 }
 
 // One frame from the desktop. Bookkeeping first: a message that is not acted
@@ -381,13 +446,17 @@ function handlePhoneFrame(socket, clientId, legPath, raw, isBinary) {
   sendUplink(socket, path.desktop, envelope);
 }
 
+// `browserClientId` is the per-browser credential the relay authenticated when
+// the leg upgraded. The desktop keys per-client trust on it; a phone cannot
+// choose it. Omitted when absent so older desktops see the envelope they know.
+function clientOpenEnvelope(clientId, browserClientId) {
+  return typeof browserClientId === 'string' && browserClientId
+    ? { type: 'client-open', clientId, browserClientId }
+    : { type: 'client-open', clientId };
+}
+
 export function runClientLeg(entry, sendJson, socket, browserClientId = null, options = {}) {
-  const {
-    maxFrameBytes = MAX_FRAME_BYTES,
-    inflightCeiling = MAX_INFLIGHT_BYTES,
-    ingress,
-    rawSocket = null,
-  } = options;
+  const { maxFrameBytes = MAX_FRAME_BYTES, inflightCeiling = MAX_INFLIGHT_BYTES, ingress, rawSocket = null } = options;
   const clientId = randomUUID();
   socket.browserClientId = browserClientId;
   socket.inflightCeiling = inflightCeiling;
@@ -400,7 +469,7 @@ export function runClientLeg(entry, sendJson, socket, browserClientId = null, op
   trackLegIngress(socket, rawSocket, { ...ingress, limit: maxFrameBytes });
   entry.clients.set(clientId, socket);
   const legOpenedAt = Date.now();
-  sendJson(entry.socket, { type: 'client-open', clientId });
+  sendJson(entry.socket, clientOpenEnvelope(clientId, browserClientId));
   socket.isAlive = true;
   socket.on('pong', () => {
     socket.isAlive = true;

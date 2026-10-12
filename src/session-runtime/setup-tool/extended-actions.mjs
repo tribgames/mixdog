@@ -1,4 +1,5 @@
 import { SETUP_EXTENDED_PROPERTIES, SETUP_DESKTOP_ACTIONS } from './settings-contract.mjs';
+import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 
 const own = (value, key) => Object.hasOwn(value || {}, key);
 const pick = (value, keys) => Object.fromEntries(keys.filter((key) => own(value, key)).map((key) => [key, value[key]]));
@@ -135,9 +136,10 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
   set_local_context: (rt, args) => rt.setLocalProviderContext(args.modelId, args.localContextWindow),
   async list_models(rt, args) {
     const options = args.catalog || {};
+    const refresh = options.refresh === true;
     const models = options.webSearch
-      ? await rt.listWebSearchModels({ refresh: options.refresh === true })
-      : await rt.listProviderModels({ refresh: options.refresh === true });
+      ? await rt.listWebSearchModels({ refresh })
+      : await rt.listProviderModels({ refresh });
     return { models: options.provider ? models.filter((model) => model.provider === options.provider) : models };
   },
   set_orchestration_mode: (rt, args) => rt.setOrchestrationMode(args.mode),
@@ -166,7 +168,7 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
     }
     if (kind === 'schedule' && own(input, 'parser')) throw new Error('parser is a webhook-only field');
     let previous = {};
-    if (input.overwrite === true) {
+    if (input.overwrite) {
       const status = await rt.getChannelSetup();
       previous = status[kind === 'schedule' ? 'schedules' : 'webhooks'].find((row) => row.name === input.name);
       if (!previous) throw new Error(`${kind} "${input.name}" does not exist`);
@@ -184,7 +186,11 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
     return {
       ...publicAutomation(result),
       ...(kind === 'webhook'
-        ? { secretSet: true, credentialHandoff: 'Use the Webhooks UI to copy the signing secret.' }
+        ? {
+            secretSet: true,
+            credentialHandoff:
+              'The signing secret is never returned here or shown again. Open the Webhooks panel, edit this webhook, press Regenerate secret, copy the new value, and save.',
+          }
         : {}),
     };
   },
@@ -206,7 +212,7 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
       .sections.flatMap((section) => section.options)
       .find((row) => row.id === args.name);
     if (!option) throw new Error(`Unknown developer option "${args.name}"; read status developer`);
-    if (args.enabled && option.warning && args.riskAccepted !== true) {
+    if (args.enabled && option.warning && !args.riskAccepted) {
       throw new Error(
         `Enabling ${option.label} requires riskAccepted:true after the user explicitly accepts: ${option.warning}`
       );
@@ -218,7 +224,60 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
     const status = await rt.getChannelSetup();
     return { webhook: pick(status.webhook, ['enabled', 'port', 'domain']) };
   },
+  add_hook_rule: async (rt, args) => {
+    const rule = args.hookRule;
+    const rewrites = ['modify', 'rewrite'].includes(rule.action);
+    const edits = ['patch', 'args'].filter((key) => own(rule, key));
+    if (rewrites && edits.length !== 1)
+      throw new Error(`hookRule.${rule.action} requires exactly one of patch or args`);
+    if (!rewrites && edits.length) throw new Error(`hookRule.${edits[0]} applies only to modify or rewrite rules`);
+    return { rules: publicHookRules(await rt.addHookRule(rule)) };
+  },
+  async set_hook_rule_enabled(rt, args) {
+    hookRuleAt(rt, args.ruleIndex);
+    const rules = await rt.setHookRuleEnabled(args.ruleIndex, args.enabled);
+    // Toggles are debounced; settle the write so the receipt reflects disk.
+    rt.flushHookRules();
+    return { rules: publicHookRules(rules) };
+  },
+  async delete_hook_rule(rt, args) {
+    const deleted = hookRuleAt(rt, args.ruleIndex);
+    return {
+      deleted,
+      rules: publicHookRules(await rt.deleteHookRule(args.ruleIndex)),
+      recovery: 'The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.',
+    };
+  },
+  async set_media_default(rt, args) {
+    if (!MEDIA_KINDS.includes(args.kind)) throw new Error(`kind must be one of ${MEDIA_KINDS.join(', ')}`);
+    const lane = (await rt.listMediaLanes()).find((row) => row.id === args.lane);
+    if (!lane) throw new Error(`Unknown media lane "${args.lane}"; list lanes with the media tool`);
+    if (!lane.authenticated) throw new Error(`${lane.label} is not signed in; open providers first`);
+    const spec = lane[args.kind];
+    if (!spec) throw new Error(lane.catalogError || `${lane.id} offers no ${args.kind} models`);
+    if (own(args, 'model') && !spec.models.some((model) => model.id === args.model)) {
+      throw new Error(`model "${args.model}" is not available on ${lane.id}/${args.kind}`);
+    }
+    return { media: await rt.setMediaDefault(pick(args, ['kind', 'lane', 'model'])) };
+  },
 });
+
+/** Rule metadata only. Argument edits (patch/args) may embed credentials, so
+ *  setup reports their presence, never their contents. */
+export function publicHookRule(row) {
+  return {
+    ...pick(row, ['index', 'enabled', 'tool', 'action', 'match', 'cwd', 'reason']),
+    hasArgumentEdit: row.patch != null,
+  };
+}
+
+const publicHookRules = (rules) => rules.map(publicHookRule);
+
+function hookRuleAt(rt, index) {
+  const rule = rt.hooksStatus().rules.find((row) => row.index === index);
+  if (!rule) throw new Error(`hook rule ${index} not found; read status hooks`);
+  return publicHookRule(rule);
+}
 
 export async function executeExtendedSetupAction(rt, args, requestDesktop) {
   if (SETUP_DESKTOP_ACTIONS.includes(args.action)) return requestDesktop(args);
