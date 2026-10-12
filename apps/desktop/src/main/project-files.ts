@@ -258,7 +258,7 @@ type ProjectFileReplacement = {
 };
 
 // Rename replaces the leaf itself, so resolve its parent rather than a leaf
-// symlink. Rollback must not follow a directory alias to a different target.
+// symlink. Neither a save nor recovery may follow a retargeted directory alias.
 function replacementDestination(file: string): string {
   return mutationPathKey(join(realpathSync(dirname(file)), basename(file)));
 }
@@ -270,7 +270,8 @@ async function writeProjectTextFileUnlocked(
   content: string,
   expectedContent: string,
   encoding?: ProjectTextEncoding,
-  onCommitted?: (replacement: ProjectFileReplacement) => void
+  onCommitted?: (replacement: ProjectFileReplacement) => void,
+  expectedDestination?: string
 ): Promise<{ mtimeMs: number }> {
   if (typeof content !== 'string' || content.length > 4_194_304) throw new TypeError('File content is invalid.');
   if (typeof expectedContent !== 'string' || expectedContent.length > 4_194_304) {
@@ -286,6 +287,16 @@ async function writeProjectTextFileUnlocked(
     throw new TypeError('File encoding is invalid.');
   }
   const file = projectEntryPathIn(root, relPath);
+  // Own the destination before the first asynchronous read. A batch passes
+  // its preflight identity, so earlier writes cannot retarget a later entry.
+  const destination = expectedDestination ?? replacementDestination(file);
+  const validatePath = () => {
+    projectEntryPathIn(root, relPath);
+    if (replacementDestination(file) !== destination) {
+      throw new Error('Project path changed before saving.');
+    }
+  };
+  validatePath();
   const currentBytes = await readFile(file);
   const current = decodeProjectText(currentBytes);
   requireLosslessText(current);
@@ -298,12 +309,11 @@ async function writeProjectTextFileUnlocked(
   // Ordinary saves preserve the observed BOM; an explicit encoding keeps
   // the existing conversion contract, including a BOM for UTF-16.
   const bytes = encodeProjectText(content, targetEncoding, encoding === undefined ? current.hasBom : true);
-  const destination = replacementDestination(file);
   await replaceProjectFileBytes(file, bytes, currentBytes, info.mode, () => {
     // Record the successful rename before any fallible post-commit metadata
     // lookup. A batch must roll this file back even when the stat below fails.
     onCommitted?.({ before: currentBytes, after: bytes, mode: info.mode, destination });
-  });
+  }, validatePath);
   return { mtimeMs: (await stat(file)).mtimeMs };
 }
 
@@ -415,6 +425,11 @@ export async function writeProjectTextFilesIn(
     throw new TypeError('Workspace edit contains duplicate files.');
   }
   return mutateProjectEntries(root, normalized.map((write) => write.relPath), async () => {
+    // Resolve every destination while all claimed paths are still synchronous;
+    // one preflight read must not legitimize a retargeted later batch entry.
+    const destinations = new Map(normalized.map(({ relPath }) =>
+      [relPath, replacementDestination(projectEntryPathIn(root, relPath))]
+    ));
     for (const write of normalized) {
       if (
         !write.relPath ||
@@ -441,7 +456,8 @@ export async function writeProjectTextFilesIn(
         failedPath = write.relPath;
         await writeProjectTextFileUnlocked(
           root, write.relPath, write.content, write.expectedContent, undefined,
-          (replacement) => { committed.push({ ...replacement, relPath: write.relPath }); }
+          (replacement) => { committed.push({ ...replacement, relPath: write.relPath }); },
+          destinations.get(write.relPath)
         );
       }
     } catch (error) {

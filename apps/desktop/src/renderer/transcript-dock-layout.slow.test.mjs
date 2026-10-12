@@ -114,30 +114,35 @@ async function settle(page) {
 }
 
 async function geometry(page, key) {
-  return page.evaluate((key) => {
-    const viewport = document.querySelector('.transcript');
-    const dock = document.querySelector('.composer-region');
-    const view = viewport.getBoundingClientRect();
-    const dockBox = dock.getBoundingClientRect();
-    const visible = [...document.querySelectorAll('.transcript-virtual-row')].find((row) => {
-      const box = row.getBoundingClientRect();
-      return box.top >= view.top && box.bottom < dockBox.top;
-    });
-    const row = key ? document.querySelector(`[data-timeline-key="${key}"]`) : visible;
-    const last = document.querySelector('[data-timeline-key="message-39"]');
-    return {
-      viewportHeight: view.height,
-      top: viewport.scrollTop,
-      key: row?.dataset.timelineKey,
-      rowTop: row?.getBoundingClientRect().top,
-      rowHeight: row?.getBoundingClientRect().height,
-      dockHeight: dockBox.height,
-      dockTop: dockBox.top,
-      lastBottom: last?.getBoundingClientRect().bottom,
-      jumpBottom: document.querySelector('.jump-to-latest').getBoundingClientRect().bottom,
-      bottomInset: Number.parseFloat(getComputedStyle(viewport).scrollPaddingBottom),
-    };
-  }, key);
+  // CDP can evaluate between animation advancement and ResizeObserver delivery.
+  // Read the complete geometry in one page task after rendering instead of
+  // mixing the new animated dock box with the previous measured clearance.
+  return page.evaluate((key) => new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(() => {
+      const viewport = document.querySelector('.transcript');
+      const dock = document.querySelector('.composer-region');
+      const view = viewport.getBoundingClientRect();
+      const dockBox = dock.getBoundingClientRect();
+      const visible = [...document.querySelectorAll('.transcript-virtual-row')].find((row) => {
+        const box = row.getBoundingClientRect();
+        return box.top >= view.top && box.bottom < dockBox.top;
+      });
+      const row = key ? document.querySelector(`[data-timeline-key="${key}"]`) : visible;
+      const last = document.querySelector('[data-timeline-key="message-39"]');
+      resolve({
+        viewportHeight: view.height,
+        top: viewport.scrollTop,
+        key: row?.dataset.timelineKey,
+        rowTop: row?.getBoundingClientRect().top,
+        rowHeight: row?.getBoundingClientRect().height,
+        dockHeight: dockBox.height,
+        dockTop: dockBox.top,
+        lastBottom: last?.getBoundingClientRect().bottom,
+        jumpBottom: document.querySelector('.jump-to-latest').getBoundingClientRect().bottom,
+        bottomInset: Number.parseFloat(getComputedStyle(viewport).scrollPaddingBottom),
+      });
+    }, 0));
+  }), key);
 }
 
 test('dock changes and delayed rich rows preserve real browser geometry', async (t) => {
@@ -289,7 +294,7 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       for (let frame = 0; frame < 4; frame++) {
         await settle(page);
         const now = await geometry(page);
-        assert.ok(Math.abs(now.lastBottom - (now.dockTop - 24)) <= 1, `${label}: the tail stays pinned`);
+        assert.ok(Math.abs(now.lastBottom - (now.dockTop - 24)) <= 1, `${label}: the tail stays pinned; ${JSON.stringify({ width, height, frame, now })}`);
       }
     };
     await page.evaluate(() => window.fixture.change({ goal: true, review: true }));

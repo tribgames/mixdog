@@ -77,11 +77,17 @@ function Assert-PrebakeCurrent {
     "prebake $baked ok"
 }
 
+function Get-EffortJudgeRelease {
+    $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
+    return [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "src/runtime/effort-judge/model-manifest.json") | ConvertFrom-Json).release)
+}
+
 function Assert-EffortJudgeBundle([string]$Mode) {
     # The bundle must hold exactly the release the product manifest names;
     # check it here, in seconds, instead of in every trial container.
     $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
-    $release = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "src/runtime/effort-judge/model-manifest.json") | ConvertFrom-Json).release)
+    $release = Get-EffortJudgeRelease
+    $runtime = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).dependencies.'onnxruntime-node')
     $tarPath = [string]$env:MIXDOG_TB_EFFORT_JUDGE_BUNDLE
     if ([string]::IsNullOrWhiteSpace($tarPath)) {
         $tarPath = Join-Path $benchRoot "mixdog-prebake/effort-judge-bundle.tar"
@@ -94,6 +100,9 @@ function Assert-EffortJudgeBundle([string]$Mode) {
     $stamp = Get-Content -Raw -LiteralPath $stampPath | ConvertFrom-Json
     if ([string]$stamp.release -ne $release) {
         throw "effort-judge bundle holds $($stamp.release) but the manifest names $release; $rebuildHint"
+    }
+    if ([string]::IsNullOrWhiteSpace($runtime) -or [string]$stamp.onnxruntime -ne $runtime) {
+        throw "effort-judge bundle ONNX Runtime $($stamp.onnxruntime) != pinned $runtime; $rebuildHint"
     }
     if ($Mode -eq "steps" -and $stamp.steps -ne $true) {
         throw "effort judge $release is not step-trained; -EffortJudge steps needs one"
@@ -233,7 +242,9 @@ $definition = [ordered]@{
 if ($EffortJudge -ne "off") {
     $definition.effortJudge = [ordered]@{
         mode    = $EffortJudge
-        release = Assert-EffortJudgeBundle $EffortJudge
+        # Planning needs only the committed model identity. Actual runs still
+        # verify the release, runtime, training mode and digest before setup.
+        release = if ($DryRun) { Get-EffortJudgeRelease } else { Assert-EffortJudgeBundle $EffortJudge }
     }
 }
 $definitionJson = $definition | ConvertTo-Json -Depth 20 -Compress
