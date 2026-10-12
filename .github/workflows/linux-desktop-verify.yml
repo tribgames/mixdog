@@ -1,9 +1,24 @@
 name: linux-desktop-verify
 
+# Fast lane (default push): tests + tsc + i18n, AppImage/.deb build, basic
+# headless smoke, glibc floor. Full lane (workflow_dispatch full=true, a
+# [linux-full] commit message, or the release workflow): also the N->N+1
+# update proof, the sandbox-enabled .deb smoke and the distro container
+# smokes (which exec every bundled native tool).
 on:
   push:
     branches: [release/linux]
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Also run the heavy suite (update proof, sandbox .deb smoke, container smokes)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -13,6 +28,26 @@ defaults:
     shell: bash
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.p.outputs.full }}
+    steps:
+      - id: p
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_FULL: ${{ inputs.full }}
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          full=false
+          case "$EVENT" in
+            workflow_call|workflow_dispatch) [ "$INPUT_FULL" = true ] && full=true ;;
+            push) case "$MSG" in *"[linux-full]"*) full=true ;; esac ;;
+          esac
+          case "$GITHUB_REF" in refs/tags/*) full=true ;; esac
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "full lane: $full"
+
   # Native tools built inside manylinux_2_28 (glibc 2.28) so the package floor
   # does not follow the glibc of the CI runner (graph/patch releases are built
   # on ubuntu-22.04 = 2.34; mixdog-computer on a 24.04 host would need 2.39).
@@ -28,7 +63,14 @@ jobs:
           - { runner: ubuntu-24.04-arm, arch: arm64, image: "quay.io/pypa/manylinux_2_28_aarch64" }
     steps:
       - uses: actions/checkout@v5
+      - name: Cache built tools
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: native-out
+          key: native-glibc228-${{ matrix.arch }}-${{ hashFiles('native/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
       - name: Build mixdog-computer, mixdog-graph, mixdog-patch (glibc 2.28)
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p native-out
           docker run --rm -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-native-old-glibc.sh 2>&1 | tee native-out/build.log
@@ -39,8 +81,8 @@ jobs:
           path: native-out/
           if-no-files-found: error
 
-  verify:
-    name: linux-${{ matrix.arch }}
+  tests:
+    name: tests-${{ matrix.arch }}
     needs: native-tools
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -57,10 +99,21 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
       - name: System packages
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/*/target
+          key: cargo-${{ matrix.arch }}-${{ hashFiles('native/**/Cargo.lock') }}
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
           toolchain: "1.95.0"
@@ -96,6 +149,62 @@ jobs:
         working-directory: apps/desktop
       - name: Desktop typecheck
         run: npx tsc -p tsconfig.json --noEmit
+        working-directory: apps/desktop
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-logs-${{ matrix.arch }}
+          path: |
+            root-tests.log
+            desktop-tests.log
+          if-no-files-found: warn
+
+  verify:
+    name: linux-${{ matrix.arch }}
+    needs: [plan, native-tools]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-tools-glibc228-${{ matrix.arch }}
+          path: native-out
+      - name: Select old-glibc native tools for packaging
+        run: |
+          chmod +x native-out/mixdog-*
+          echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ matrix.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
         working-directory: apps/desktop
       - name: Build Linux package
         run: npm run build:linux -- --${{ matrix.arch }} --publish never
@@ -140,7 +249,8 @@ jobs:
           chmod +x apps/desktop/dist/*.AppImage
           xvfb-run -a --server-args="-screen 0 1440x900x24" \
             node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-*.AppImage smoke
-      - name: Headless launch smoke (installed .deb, Chromium sandbox ENABLED)
+      - name: Headless launch smoke (installed .deb, Chromium sandbox ENABLED) [full lane]
+        if: needs.plan.outputs.full == 'true'
         timeout-minutes: 8
         run: |
           sudo apt-get install -y ./apps/desktop/dist/*.deb
@@ -172,8 +282,6 @@ jobs:
           path: |
             smoke/
             smoke-deb/
-            root-tests.log
-            desktop-tests.log
             pty-check.log
             glibc-floor.txt
             apparmor-profiles.txt
@@ -187,7 +295,8 @@ jobs:
   # feed in `update-path`. Packaging only; the verify job owns the test suites.
   build-next:
     name: build-next-x64
-    needs: native-tools
+    needs: [plan, native-tools]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -195,13 +304,20 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-x64-${{ hashFiles('apps/desktop/package-lock.json') }}
       - name: System packages
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
-        with:
-          toolchain: "1.95.0"
       - uses: actions/download-artifact@v5
         with:
           name: native-tools-glibc228-x64
@@ -213,7 +329,6 @@ jobs:
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
-      - uses: ./.github/actions/office-runtime
       - name: Install desktop dependencies
         run: npm ci --no-audit --no-fund
         working-directory: apps/desktop
@@ -243,7 +358,8 @@ jobs:
   # (DebUpdater), and the downloaded .deb is really installed with dpkg.
   update-path:
     name: update-path-x64
-    needs: [verify, build-next]
+    needs: [plan, verify, build-next]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -302,7 +418,8 @@ jobs:
   # headless in older/other distro containers (glibc baseline, non-Debian).
   container-smoke:
     name: container-${{ matrix.id }}-${{ matrix.arch }}
-    needs: verify
+    needs: [plan, verify]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:

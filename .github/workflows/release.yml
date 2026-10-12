@@ -379,9 +379,19 @@ jobs:
       artifact_arch: arm64
       target: linux
 
+  # Full Linux verification (update proof, sandbox .deb, distro containers,
+  # native-tool exec matrix) gates publication.
+  linux-verify-full:
+    needs: [identity]
+    uses: ./.github/workflows/linux-desktop-verify.yml
+    permissions:
+      contents: read
+    with:
+      full: true
+
   publish:
     name: publish-staged-release
-    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64]
+    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
