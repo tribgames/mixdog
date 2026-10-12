@@ -377,7 +377,7 @@ export function transcriptRowNode(
     return <TranscriptRow item={row.item} disclosureScope={disclosureScope} attachedUser={row.attachedUser} />;
   }
   if (row._tag === 'ToolActivity') {
-    return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} />;
+    return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />;
   }
   const completionRow = row.completion ?? (row.item?.kind === 'turndone' ? row.item : undefined);
   const isLatestCompletion =

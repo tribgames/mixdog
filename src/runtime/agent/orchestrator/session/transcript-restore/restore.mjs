@@ -23,6 +23,7 @@ import {
   aggregateLoadingTargets,
   aggregateRawResult,
   aggregateResultPatch,
+  assignToolMetaFromMessage,
   assignUiDiffFromMessage,
   mergeAggregateCategoryEntries,
   stringUiDiffPatch,
@@ -131,6 +132,7 @@ function attachRestoredToolResult(message, pendingByCallId) {
   const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)) || '';
   target.result = text;
   assignUiDiffFromMessage(target, message);
+  assignToolMetaFromMessage(target, message);
   // Cancel/crash control bodies are not red failures — show Cancelled tone.
   if (toolResultTerminalStatus(text) === 'cancelled') {
     target.isError = false;

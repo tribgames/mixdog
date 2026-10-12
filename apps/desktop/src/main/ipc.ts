@@ -11,6 +11,7 @@ import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
 import type { BrowserHost } from './browser/host';
 import { registerBrowserIpc } from './ipc-browser';
+import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerProjectIpc } from './ipc-projects';
 import { requestLinuxInputAccess } from './linux-input-access';
@@ -127,6 +128,8 @@ interface DesktopIpcDependencies {
     | 'browserPresentNative'
     | 'browserPageIdentity'
   >;
+  /** Extensions → Computer Use: OS readiness reads and one-press fixes. */
+  computer?: ComputerIpcHost;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -155,6 +158,7 @@ export function registerDesktopIpc(
     browserHost,
     updater,
     terminals,
+    computer,
     remoteAccessInfo,
     rotateRemoteAccess,
     revokeRemoteAccessClient,
@@ -222,6 +226,7 @@ export function registerDesktopIpc(
     remoteHosts,
   });
   registerBrowserIpc({ handle, browserHost });
+  registerComputerIpc({ handle, shell, computer });
   registerWindowSettingsIpc({
     window,
     app,

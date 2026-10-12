@@ -275,7 +275,13 @@ async function executeComputerToolInner(rawArgs, context, note) {
   // control, AT-SPI, ...) is missing, before anything is dispatched, instead of
   // failing mid-task. Actions that need none of it still run.
   const notReady = await linuxComputerPreflight({ command });
-  if (notReady) return computerErrorResult(`Error: ${notReady.message}`);
+  if (notReady) {
+    return {
+      ...computerErrorResult(`Error: ${notReady.message}`),
+      // Structured twin of the text for the transcript card (no text parsing).
+      toolMeta: { code: notReady.code, missing: [...new Set(notReady.missing.map((item) => item.capability))] },
+    };
+  }
   const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
   if (releaseError) return releaseError;
   trackComputerSession(sessionId, command);

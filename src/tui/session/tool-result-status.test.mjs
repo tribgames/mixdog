@@ -11,6 +11,7 @@ import {
   shellCommandExitCode,
   stringUiDiffPatch,
   toolCallOutcome,
+  toolMetaPatchFromMessage,
   toolResultDisplay,
   uiDiffFromMessage,
   uiDiffPatchFromMessage,
@@ -358,4 +359,15 @@ test('aggregate members preserve atomic tool identity, inputs, outputs, and orde
   );
   assert.equal(Object.hasOwn(members[0], 'uiDiff'), false);
   assert.equal(members[1].uiDiff, 'diff --git a b');
+});
+
+test('toolMeta carries only a stable code and capability names from a tool result', () => {
+  const meta = { code: 'computer_capability_unavailable', missing: ['windows', 'pointer'] };
+  assert.deepEqual(toolMetaPatchFromMessage({ toolMeta: meta }), { toolMeta: meta });
+  assert.deepEqual(toolMetaPatchFromMessage({ toolMeta: { ...meta, extra: 1, missing: ['windows', 7, ''] } }), {
+    toolMeta: { code: 'computer_capability_unavailable', missing: ['windows'] },
+  });
+  assert.deepEqual(toolMetaPatchFromMessage({ toolMeta: { missing: ['windows'] } }), {});
+  assert.deepEqual(toolMetaPatchFromMessage({ content: 'text' }), {});
+  assert.deepEqual(toolMetaPatchFromMessage(null), {});
 });

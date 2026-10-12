@@ -15,6 +15,7 @@ import { crossTurnSignature, isEditProgressTool } from '../loop/completion-guard
 import { isEagerDispatchable, isToolCallDedupEligible, parseNativeToolSearchPayload } from '../loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from '../loop/stored-tool-args.mjs';
 import { stageToolResult } from './state.mjs';
+import { toolMetaPatchFromMessage } from '../transcript-restore/tool-result-status.mjs';
 import {
   compactToolResultImage,
   resizeImageBuffer,
@@ -281,6 +282,7 @@ function completedToolResult(completed, result, postprocessStartedAt) {
     toolTiming: toolTiming(completed, postprocessStartedAt),
     ...(completed.nativeToolSearch ? { nativeToolSearch: completed.nativeToolSearch } : {}),
     ...(uiDiff !== null ? { uiDiff } : {}),
+    ...toolMetaPatchFromMessage(completed.result),
   };
 }
 

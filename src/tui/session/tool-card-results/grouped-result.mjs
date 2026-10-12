@@ -5,7 +5,12 @@
  */
 import { toolGroupedDisplayFallback } from '../tool-result-text.mjs';
 import { parseAgentJob } from '../agent-envelope.mjs';
-import { groupedToolResultText, uiDiffPatchFromMessage, withCancelledResultMarker } from '../tool-result-status.mjs';
+import {
+  groupedToolResultText,
+  toolMetaPatchFromMessage,
+  uiDiffPatchFromMessage,
+  withCancelledResultMarker,
+} from '../tool-result-status.mjs';
 import { closeCard } from './item-patch.mjs';
 
 /**
@@ -69,7 +74,11 @@ export function applyGroupedResult(ctx, card, callId, outcome, message, rawText,
   if (group.errors > 0 && !String(displayResult || '').trim()) {
     displayResult = finalizedErrorFallbackBody(displayResult, text, exitCode);
   }
-  const patch = { ...settledPatch(group, displayResult), ...uiDiffPatchFromMessage(message) };
+  const patch = {
+    ...settledPatch(group, displayResult),
+    ...uiDiffPatchFromMessage(message),
+    ...toolMetaPatchFromMessage(message),
+  };
   if (group.count <= 1) {
     applyAgentJobFields(ctx, patch, { itemId: card.itemId, group, text, rawText, isError, exitCode });
   }

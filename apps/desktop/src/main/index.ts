@@ -54,7 +54,7 @@ import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import { TerminalBridgeServer } from './terminal/bridge-server';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import type { SessionTerminalTab } from './terminal-manager';
-import { requestComputerPermissions } from './computer/host/permission-reads';
+import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
 import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
@@ -1514,6 +1514,7 @@ async function createWindow(): Promise<void> {
     onDesktopSettingsChanged: applyDesktopSettings,
     ...(process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
     browserHost,
+    computer: { readPermissions: readComputerPermissions, requestPermissions: requestComputerPermissions },
     updater: desktopUpdater,
     terminals: serviceTerminalManager,
     remoteAccessInfo,

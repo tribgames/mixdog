@@ -202,6 +202,8 @@ export const DESKTOP_IPC = {
   requestLinuxInputAccess: 'mixdog:request-linux-input-access',
   libreOfficeStatus: 'mixdog:libreoffice-status',
   installLibreOffice: 'mixdog:install-libreoffice',
+  computerReadiness: 'mixdog:computer-readiness',
+  openComputerPermissionSettings: 'mixdog:computer-open-permission-settings',
   githubCliStatus: 'mixdog:github-cli-status',
   installGithubCli: 'mixdog:install-github-cli',
   githubCliLoginStart: 'mixdog:github-cli-login-start',

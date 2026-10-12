@@ -1,8 +1,13 @@
-import type { DesktopGitCliStatus, DesktopLibreOfficeStatus } from '../../shared/contract';
+import type {
+  DesktopGitCliStatus,
+  DesktopLibreOfficeStatus,
+  DesktopLinuxComputerReadiness,
+} from '../../shared/contract';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import type { RecordValue } from './capability-data';
 import type { BuiltInFeatureDefinition, BuiltInFeatureId } from './built-in-feature-registry';
+import { linuxPlatformFacts } from './computer-readiness';
 import { ExtensionFacts, ExtensionSection } from './extension-detail';
 import { localProviderFileSize as fileSize } from './local-provider-status';
 
@@ -43,7 +48,8 @@ function localProviderFacts(status: RecordValue): Array<readonly [string, string
 
 /** Each desktop runs its own Computer Use backend: the PowerShell UIA host on
  *  Windows, the native mixdog-computer binary on macOS and Linux. */
-function computerPlatformFacts(): Array<readonly [string, string]> {
+function computerPlatformFacts(linux?: DesktopLinuxComputerReadiness): Array<readonly [string, string]> {
+  if (linux) return linuxPlatformFacts(linux);
   const agent = navigator.userAgent;
   if (agent.includes('Windows'))
     return [
@@ -76,7 +82,9 @@ export function BuiltInFeatureInfo({
   state,
   gitStatus,
   officeDependency,
+  linux,
 }: {
+  linux?: DesktopLinuxComputerReadiness;
   state: {
     feature: BuiltInFeatureDefinition;
     ready: boolean;
@@ -118,7 +126,7 @@ export function BuiltInFeatureInfo({
       ['Browser profile', t('Shared sign-ins, cookies, and site data across sessions')]
     );
   if (feature.id === 'computer')
-    facts.push(...computerPlatformFacts(), ['Input', t('Mouse, keyboard, and accessibility controls')]);
+    facts.push(...computerPlatformFacts(linux), ['Input', t('Mouse, keyboard, and accessibility controls')]);
   if (feature.id === 'office') facts.push(['Supported formats', 'Word · Excel · PowerPoint · PDF · CSV · TSV']);
   if (feature.id === 'git' || feature.id === 'office') {
     facts.push([feature.id === 'git' ? 'Git CLI' : 'LibreOffice', dependencyStateLabel(dependency)]);

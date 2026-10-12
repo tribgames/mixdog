@@ -291,6 +291,29 @@ export function assignUiDiffFromMessage(target, source) {
   return target;
 }
 
+/** Structured side channel a tool result may carry next to its text (the
+ * Computer Use capability refusal): a stable code plus the capability names.
+ * Anything else is dropped so stored history stays small and predictable. */
+export function toolMetaFromMessage(source) {
+  const meta = source?.toolMeta ?? source?.content?.toolMeta;
+  if (!meta || typeof meta !== 'object' || typeof meta.code !== 'string' || !meta.code) return undefined;
+  const missing = Array.isArray(meta.missing)
+    ? meta.missing.filter((name) => typeof name === 'string' && name)
+    : [];
+  return { code: meta.code, missing };
+}
+
+export function toolMetaPatchFromMessage(source) {
+  const value = toolMetaFromMessage(source);
+  return value === undefined ? {} : { toolMeta: value };
+}
+
+export function assignToolMetaFromMessage(target, source) {
+  const value = toolMetaFromMessage(source);
+  if (value !== undefined && target) target.toolMeta = value;
+  return target;
+}
+
 /** Stored/member records only copy a string uiDiff; other types stay omitted. */
 export function stringUiDiffPatch(value) {
   return typeof value === 'string' ? { uiDiff: value } : {};
