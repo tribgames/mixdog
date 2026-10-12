@@ -114,35 +114,30 @@ async function settle(page) {
 }
 
 async function geometry(page, key) {
-  // CDP can evaluate between animation advancement and ResizeObserver delivery.
-  // Read the complete geometry in one page task after rendering instead of
-  // mixing the new animated dock box with the previous measured clearance.
-  return page.evaluate((key) => new Promise((resolve) => {
-    requestAnimationFrame(() => setTimeout(() => {
-      const viewport = document.querySelector('.transcript');
-      const dock = document.querySelector('.composer-region');
-      const view = viewport.getBoundingClientRect();
-      const dockBox = dock.getBoundingClientRect();
-      const visible = [...document.querySelectorAll('.transcript-virtual-row')].find((row) => {
-        const box = row.getBoundingClientRect();
-        return box.top >= view.top && box.bottom < dockBox.top;
-      });
-      const row = key ? document.querySelector(`[data-timeline-key="${key}"]`) : visible;
-      const last = document.querySelector('[data-timeline-key="message-39"]');
-      resolve({
-        viewportHeight: view.height,
-        top: viewport.scrollTop,
-        key: row?.dataset.timelineKey,
-        rowTop: row?.getBoundingClientRect().top,
-        rowHeight: row?.getBoundingClientRect().height,
-        dockHeight: dockBox.height,
-        dockTop: dockBox.top,
-        lastBottom: last?.getBoundingClientRect().bottom,
-        jumpBottom: document.querySelector('.jump-to-latest').getBoundingClientRect().bottom,
-        bottomInset: Number.parseFloat(getComputedStyle(viewport).scrollPaddingBottom),
-      });
-    }, 0));
-  }), key);
+  return page.evaluate((key) => {
+    const viewport = document.querySelector('.transcript');
+    const dock = document.querySelector('.composer-region');
+    const view = viewport.getBoundingClientRect();
+    const dockBox = dock.getBoundingClientRect();
+    const visible = [...document.querySelectorAll('.transcript-virtual-row')].find((row) => {
+      const box = row.getBoundingClientRect();
+      return box.top >= view.top && box.bottom < dockBox.top;
+    });
+    const row = key ? document.querySelector(`[data-timeline-key="${key}"]`) : visible;
+    const last = document.querySelector('[data-timeline-key="message-39"]');
+    return {
+      viewportHeight: view.height,
+      top: viewport.scrollTop,
+      key: row?.dataset.timelineKey,
+      rowTop: row?.getBoundingClientRect().top,
+      rowHeight: row?.getBoundingClientRect().height,
+      dockHeight: dockBox.height,
+      dockTop: dockBox.top,
+      lastBottom: last?.getBoundingClientRect().bottom,
+      jumpBottom: document.querySelector('.jump-to-latest').getBoundingClientRect().bottom,
+      bottomInset: Number.parseFloat(getComputedStyle(viewport).scrollPaddingBottom),
+    };
+  }, key);
 }
 
 test('dock changes and delayed rich rows preserve real browser geometry', async (t) => {
@@ -294,13 +289,42 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       for (let frame = 0; frame < 4; frame++) {
         await settle(page);
         const now = await geometry(page);
-        assert.ok(Math.abs(now.lastBottom - (now.dockTop - 24)) <= 1, `${label}: the tail stays pinned; ${JSON.stringify({ width, height, frame, now })}`);
+        assert.ok(Math.abs(now.lastBottom - (now.dockTop - 24)) <= 1, `${label}: the tail stays pinned`);
       }
     };
+    // The opening animation is sampled where a user can see it: once per
+    // painted frame, after the dock's own resize observer has pinned the tail
+    // and before paint. A sample taken from a Node round trip is not that
+    // frame: Blink advances the animation clock per task, so a task between
+    // frames reads the next animation value before the frame's observers have
+    // run (up to the full last step on a slow runner).
+    await page.evaluate(() => {
+      const dock = document.querySelector('.composer-region');
+      const misses = [];
+      // Created after the dock hook's observer, so it is notified after that
+      // observer's callback and the pin microtask it schedules.
+      const observer = new ResizeObserver(() => {
+        const last = document.querySelector('[data-timeline-key="message-39"]');
+        misses.push(last.getBoundingClientRect().bottom - (dock.getBoundingClientRect().top - 24));
+      });
+      observer.observe(dock);
+      window.openingPins = { misses, stop: () => observer.disconnect() };
+    });
     await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
     await page.waitForSelector('.turn-review-segment');
-    await pinned('slot opening');
     await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    await settle(page);
+    const opening = await page.evaluate(() => {
+      window.openingPins.stop();
+      return window.openingPins.misses;
+    });
+    assert.ok(opening.length >= 3, 'the slot opening is observed frame by frame');
+    for (const miss of opening) {
+      // The clearance is the dock height rounded to a whole pixel (up to 0.5
+      // off while it animates) and the end sits on a device pixel (under 1px
+      // off fractional content). A frame behind misses by several pixels.
+      assert.ok(Math.abs(miss) <= 1.5, `slot opening: the tail stays pinned on every frame (missed by ${miss.toFixed(2)}px)`);
+    }
     await pinned('slot open');
     await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
     await page.waitForFunction(
