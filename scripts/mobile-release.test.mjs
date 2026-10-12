@@ -165,8 +165,7 @@ test('the relay links the newest release whose APK downloads, else the releases 
   }
 });
 
-const workflow = (name) =>
-  parseYaml(readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8'));
+const workflow = (name) => parseYaml(readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8'));
 
 test('Deploy ships mobile with the release and the relay waits for the Android release', () => {
   const deploy = workflow('deploy.yml');
@@ -213,7 +212,10 @@ test('Deploy ships mobile with the release and the relay waits for the Android r
   assert.match(relay.if, /needs\.android-link\.result == 'success'/);
   const deployStep = relay.steps.find((step) => step.name === 'Atomically deploy and verify production');
   assert.equal(deployStep.env.ANDROID_URL, '${{ needs.android-link.outputs.url }}');
-  assert.match(deployStep.run, /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION' '\$ANDROID_URL'/);
+  assert.match(
+    deployStep.run,
+    /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION' '\$ANDROID_URL'/
+  );
 
   // Both mobile workflows keep their tag and manual triggers.
   for (const mobile of [android, ios]) {

@@ -31,7 +31,10 @@ const needsOf = (job) => [job.needs ?? []].flat();
 
 function ancestorsOf(jobs, name, seen = new Set()) {
   for (const dep of needsOf(jobs[name])) {
-    if (!seen.has(dep)) { seen.add(dep); ancestorsOf(jobs, dep, seen); }
+    if (!seen.has(dep)) {
+      seen.add(dep);
+      ancestorsOf(jobs, dep, seen);
+    }
   }
   return seen;
 }
@@ -40,19 +43,27 @@ function ancestorsOf(jobs, name, seen = new Set()) {
 function jobRuns(jobs, name, { results, outputs, inputs, cancelled }) {
   const job = jobs[name];
   const ancestors = [...ancestorsOf(jobs, name)].map((dep) => results[dep]);
-  const needs = Object.fromEntries(needsOf(job).map((dep) => [dep, { result: results[dep], outputs: outputs[dep] ?? {} }]));
+  const needs = Object.fromEntries(
+    needsOf(job).map((dep) => [dep, { result: results[dep], outputs: outputs[dep] ?? {} }])
+  );
   const fns = {
     success: () => ancestors.every((result) => result === 'success'),
     failure: () => ancestors.includes('failure'),
     always: () => true,
     cancelled: () => cancelled,
   };
-  let expr = job.if === undefined ? 'success()' : String(job.if).trim().replace(/^\$\{\{([\s\S]*)\}\}$/, '$1');
+  let expr =
+    job.if === undefined
+      ? 'success()'
+      : String(job.if)
+          .trim()
+          .replace(/^\$\{\{([\s\S]*)\}\}$/, '$1');
   if (!STATUS_FN.test(expr)) expr = `success() && (${expr})`; // implicit success()
-  const js = expr.replace(/\b(success|failure|always|cancelled)\(\)/g, '__fns.$1()')
+  const js = expr
+    .replace(/\b(success|failure|always|cancelled)\(\)/g, '__fns.$1()')
     .replace(/\bneeds\.([\w-]+)/g, (_, dep) => `__needs[${JSON.stringify(dep)}]`)
     .replace(/\binputs\.(\w+)/g, '__inputs.$1');
-  assert.doesNotMatch(js.replace(/'[^']*'/g, "''"), /[^\w\s.\[\]"'()&|!=\-]/, `unsupported expression: ${expr}`);
+  assert.doesNotMatch(js.replace(/'[^']*'/g, "''"), /[^\w\s.[\]"'()&|!=-]/, `unsupported expression: ${expr}`);
   return Boolean(new Function('__fns', '__needs', '__inputs', `return (${js});`)(fns, needs, inputs));
 }
 
@@ -65,7 +76,9 @@ const aggregate = (results) => {
 
 /** `with:` of a call job merged over the callee's workflow_call input defaults. */
 function callInputs(callee, withMap = {}) {
-  const defaults = Object.fromEntries(Object.entries(callee.on.workflow_call?.inputs ?? {}).map(([k, v]) => [k, v.default]));
+  const defaults = Object.fromEntries(
+    Object.entries(callee.on.workflow_call?.inputs ?? {}).map(([k, v]) => [k, v.default])
+  );
   return { ...defaults, ...withMap };
 }
 
@@ -86,11 +99,17 @@ function runWorkflow(wf, { inputs = {}, outcomes = {}, cancelled = false, nested
     assert.ok(ready.length, 'needs graph has a cycle or unknown dependency');
     for (const name of ready) {
       pending.delete(name);
-      if (!jobRuns(jobs, name, { results, outputs, inputs, cancelled })) { results[name] = 'skipped'; continue; }
+      if (!jobRuns(jobs, name, { results, outputs, inputs, cancelled })) {
+        results[name] = 'skipped';
+        continue;
+      }
       const call = nested[name];
       if (call) {
         inner[name] = runWorkflow(call.wf, {
-          inputs: callInputs(call.wf, jobs[name].with), outcomes: call.outcomes, nested: call.nested, cancelled,
+          inputs: callInputs(call.wf, jobs[name].with),
+          outcomes: call.outcomes,
+          nested: call.nested,
+          cancelled,
         });
         results[name] = outcomes[name] ?? aggregate(inner[name].results);
       } else {
@@ -104,17 +123,27 @@ function runWorkflow(wf, { inputs = {}, outcomes = {}, cancelled = false, nested
 const PROOFS = ['plan', 'tests', 'verify', 'build-next', 'update-path', 'container-smoke'];
 const FULL_LANE_ONLY = ['build-next', 'update-path', 'container-smoke'];
 const standalone = (wf = verify, extra = {}) => runWorkflow(wf, { inputs: { full: true }, ...extra }).results;
-const asCalledByRelease = (wf = verify, outcomes = {}) => runWorkflow(wf, {
-  inputs: callInputs(wf, release.jobs['linux-verify-full'].with), outcomes,
-}).results;
+const asCalledByRelease = (wf = verify, outcomes = {}) =>
+  runWorkflow(wf, {
+    inputs: callInputs(wf, release.jobs['linux-verify-full'].with),
+    outcomes,
+  }).results;
 
 /** The linux-desktop-verify job conditions as they were before e4c0918d6 (update-path/container-smoke kept implicit success()). */
 const brokenVerify = {
   ...verify,
   jobs: {
     ...verify.jobs,
-    'update-path': { ...verify.jobs['update-path'], needs: ['plan', 'verify', 'build-next'], if: "needs.plan.outputs.full == 'true'" },
-    'container-smoke': { ...verify.jobs['container-smoke'], needs: ['plan', 'verify'], if: "needs.plan.outputs.full == 'true'" },
+    'update-path': {
+      ...verify.jobs['update-path'],
+      needs: ['plan', 'verify', 'build-next'],
+      if: "needs.plan.outputs.full == 'true'",
+    },
+    'container-smoke': {
+      ...verify.jobs['container-smoke'],
+      needs: ['plan', 'verify'],
+      if: "needs.plan.outputs.full == 'true'",
+    },
   },
 };
 
@@ -138,12 +167,14 @@ test('fast lane (push, not full): heavy proofs are skipped, tests and verify sti
 
 test('failed native-tools, verify or plan blocks the dependent proofs; failure() never counts skips', () => {
   const built = standalone(verify, { outcomes: { 'native-tools': 'failure' } });
-  for (const name of ['tests', 'verify', 'build-next', 'update-path', 'container-smoke']) assert.equal(built[name], 'skipped', name);
+  for (const name of ['tests', 'verify', 'build-next', 'update-path', 'container-smoke'])
+    assert.equal(built[name], 'skipped', name);
   const failedVerify = asCalledByRelease(verify, { verify: 'failure' });
   for (const name of ['update-path', 'container-smoke']) assert.equal(failedVerify[name], 'skipped', name);
   assert.equal(failedVerify['build-next'], 'success');
   const failedPlan = asCalledByRelease(verify, { plan: 'failure' });
-  for (const name of ['verify', 'build-next', 'update-path', 'container-smoke']) assert.equal(failedPlan[name], 'skipped', name);
+  for (const name of ['verify', 'build-next', 'update-path', 'container-smoke'])
+    assert.equal(failedPlan[name], 'skipped', name);
   // failure() is true only for a failed ancestor, not for a skipped one
   const jobs = { a: {}, b: { needs: 'a', if: 'failure()' } };
   assert.equal(jobRuns(jobs, 'b', { results: { a: 'skipped' }, outputs: {}, inputs: {}, cancelled: false }), false);
@@ -152,7 +183,8 @@ test('failed native-tools, verify or plan blocks the dependent proofs; failure()
 
 test('run cancellation: !cancelled() jobs and implicit-success jobs do not start', () => {
   const { results } = runWorkflow(verify, { inputs: { full: true, native_tools_prebuilt: true }, cancelled: true });
-  for (const name of ['tests', 'verify', 'build-next', 'update-path', 'container-smoke']) assert.equal(results[name], 'skipped', name);
+  for (const name of ['tests', 'verify', 'build-next', 'update-path', 'container-smoke'])
+    assert.equal(results[name], 'skipped', name);
 });
 
 test('implicit success() needs every ancestor to have succeeded (skipped propagates transitively)', () => {
@@ -175,42 +207,63 @@ test('regression fixture: before e4c0918d6 the implicit-success proofs were skip
 });
 
 test('every job downstream of native-tools/tests/verify has an explicit status condition and accepts a skipped native-tools', () => {
-  const direct = (name) => Object.entries(verify.jobs).filter(([, job]) => needsOf(job).includes(name)).map(([job]) => job);
+  const direct = (name) =>
+    Object.entries(verify.jobs)
+      .filter(([, job]) => needsOf(job).includes(name))
+      .map(([job]) => job);
   const downstream = new Set();
-  const walk = (name) => direct(name).forEach((job) => { if (!downstream.has(job)) { downstream.add(job); walk(job); } });
+  const walk = (name) =>
+    direct(name).forEach((job) => {
+      if (!downstream.has(job)) {
+        downstream.add(job);
+        walk(job);
+      }
+    });
   ['native-tools', 'tests', 'verify'].forEach(walk);
   assert.deepEqual([...downstream].sort(), ['build-next', 'container-smoke', 'tests', 'update-path', 'verify']);
   for (const name of downstream) {
     assert.match(String(verify.jobs[name].if), /!cancelled\(\)/, `${name} needs an explicit status condition`);
     if (ancestorsOf(verify.jobs, name).has('native-tools')) {
       assert.ok(needsOf(verify.jobs[name]).includes('native-tools'), `${name} must list native-tools in needs`);
-      assert.match(String(verify.jobs[name].if), /needs\.native-tools\.result == 'skipped'/, `${name} must accept a skipped native-tools`);
+      assert.match(
+        String(verify.jobs[name].if),
+        /needs\.native-tools\.result == 'skipped'/,
+        `${name} must accept a skipped native-tools`
+      );
     }
   }
 });
 
 const publishSubgraph = () => [...ancestorsOf(release.jobs, 'publish'), 'publish'];
-const releaseRun = (nestedOutcomes = {}, outcomes = {}) => runWorkflow(release, {
-  only: publishSubgraph(),
-  outcomes,
-  nested: {
-    'linux-native-tools': { wf: load('linux-native-tools.yml') },
-    'linux-verify-full': { wf: verify, outcomes: nestedOutcomes, nested: {} },
-  },
-});
+const releaseRun = (nestedOutcomes = {}, outcomes = {}) =>
+  runWorkflow(release, {
+    only: publishSubgraph(),
+    outcomes,
+    nested: {
+      'linux-native-tools': { wf: load('linux-native-tools.yml') },
+      'linux-verify-full': { wf: verify, outcomes: nestedOutcomes, nested: {} },
+    },
+  });
 
 test('release.yml: native tools built once, the full lane consumes them, and publish gates on every proof', () => {
-  const calls = Object.entries(release.jobs).filter(([, job]) => job.uses === './.github/workflows/linux-native-tools.yml');
-  assert.deepEqual(calls.map(([name]) => name), ['linux-native-tools']);
+  const calls = Object.entries(release.jobs).filter(
+    ([, job]) => job.uses === './.github/workflows/linux-native-tools.yml'
+  );
+  assert.deepEqual(
+    calls.map(([name]) => name),
+    ['linux-native-tools']
+  );
   const full = release.jobs['linux-verify-full'];
   assert.equal(full.uses, './.github/workflows/linux-desktop-verify.yml');
   assert.equal(full.with.native_tools_prebuilt, true);
   assert.equal(full.with.full, true);
   assert.ok(needsOf(full).includes('linux-native-tools'));
   assert.equal(full.if, undefined, 'a skipped verify-full would skip publish silently');
-  for (const dep of ['linux-verify-full', 'linux-verify-sha-gate']) assert.ok(needsOf(release.jobs.publish).includes(dep), `publish must need ${dep}`);
+  for (const dep of ['linux-verify-full', 'linux-verify-sha-gate'])
+    assert.ok(needsOf(release.jobs.publish).includes(dep), `publish must need ${dep}`);
   assert.equal(release.jobs.publish.if, undefined);
-  for (const job of ['desktop-linux-x64', 'desktop-linux-arm64']) assert.ok(needsOf(release.jobs[job]).includes('linux-native-tools'), job);
+  for (const job of ['desktop-linux-x64', 'desktop-linux-arm64'])
+    assert.ok(needsOf(release.jobs[job]).includes('linux-native-tools'), job);
   assert.match(read('desktop-package.yml'), /name: native-tools-glibc228-\$\{\{ inputs\.arch \}\}/);
 });
 

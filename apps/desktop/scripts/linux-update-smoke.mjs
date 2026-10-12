@@ -145,7 +145,9 @@ while (!newBoot) {
   if (newBoot) break;
   if (updaterState('error')) await fail(`updater reported an error: ${updaterState('error')}`);
   if (updaterState('up-to-date')) await fail('updater found no newer version in the feed');
-  if (/dev auto-install failed|updater install launch failed|Cannot download (?!differentially)|ERR_UPDATER/.test(output)) {
+  if (
+    /dev auto-install failed|updater install launch failed|Cannot download (?!differentially)|ERR_UPDATER/.test(output)
+  ) {
     await fail('updater install failed (see update log)');
   }
   if (exited && !updaterState('installing')) await fail(`app exited before installing ${JSON.stringify(exited)}`);
@@ -155,7 +157,8 @@ while (!newBoot) {
 if (!oldBoot) await fail('never saw the old version boot (app-ready diagnostics missing)');
 relaunchedPid = newBoot.pid;
 console.log(`old pid ${oldBoot.pid} v${oldBoot.appVersion} -> relaunched pid ${newBoot.pid} v${newBoot.appVersion}`);
-if (!updaterState('ready')?.includes(`version: '${expectedVersion}'`)) await fail(`no ready state for ${expectedVersion}`);
+if (!updaterState('ready')?.includes(`version: '${expectedVersion}'`))
+  await fail(`no ready state for ${expectedVersion}`);
 if (!updaterState('installing')) await fail('updater never reported the installing state');
 const installer = output.match(/Running as (?:root|non-root user)[^\n]*/)?.[0];
 console.log(`installer path: ${installer ?? '(AppImage replace)'}`);
@@ -166,7 +169,10 @@ const feed = await readFile(join(feedDir, feedName), 'utf8');
 const entries = [...feed.matchAll(/-\s+url:\s*(\S+)\s+sha512:\s*(\S+)/g)].map((m) => ({ url: m[1], sha512: m[2] }));
 const entry = entries.find((e) => e.url.endsWith(`.${ext}`));
 if (!entry) await fail(`${feedName} has no .${ext} entry: ${JSON.stringify(entries)}`);
-const sha512 = async (file) => createHash('sha512').update(await readFile(file)).digest('base64');
+const sha512 = async (file) =>
+  createHash('sha512')
+    .update(await readFile(file))
+    .digest('base64');
 
 let installed;
 if (ext === 'AppImage') {
@@ -181,7 +187,16 @@ if (ext === 'AppImage') {
 if ((await sha512(installed)) !== entry.sha512) await fail(`sha512 mismatch for ${installed} against ${feedName}`);
 console.log(`${installed} (${(await stat(installed)).size} bytes) sha512 matches ${feedName}`);
 await writeFile(join(outDir, `update-${ext}-installed.path`), installed);
-console.log(`relaunched process ${newBoot.pid} is alive: ${(() => { try { process.kill(newBoot.pid, 0); return true; } catch { return false; } })()}`);
+console.log(
+  `relaunched process ${newBoot.pid} is alive: ${(() => {
+    try {
+      process.kill(newBoot.pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  })()}`
+);
 await cleanup();
 console.log('UPDATE SMOKE OK');
 process.exit(0);

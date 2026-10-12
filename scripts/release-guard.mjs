@@ -22,8 +22,9 @@ export function compareSemver(a, b) {
 
 /** The newest non-draft, non-prerelease app release, or null. */
 export function selectLatestAppRelease(releases) {
-  const apps = releases.filter((release) =>
-    !release.draft && !release.prerelease && APP_TAG_RE.test(release.tag_name || ''));
+  const apps = releases.filter(
+    (release) => !release.draft && !release.prerelease && APP_TAG_RE.test(release.tag_name || '')
+  );
   apps.sort((a, b) => compareSemver(b.tag_name, a.tag_name));
   return apps[0] ?? null;
 }

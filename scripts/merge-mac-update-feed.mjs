@@ -100,7 +100,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   }
   const merged = mergeMacFeeds(
     inputs.map((path) => ({ label: path, text: readFileSync(path, 'utf8') })),
-    option('version'),
+    option('version')
   );
   writeFileSync(out, merged);
   console.log(`Wrote ${out} from ${inputs.length} feeds.`);

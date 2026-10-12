@@ -237,7 +237,8 @@ export function ownedProcesses(snapshot, anchors, { batchStart, scratchDir, plat
   // An empty scratchDir skips the sweep: batches running side by side share
   // one scratch root, so one batch's exit must not claim its peers' processes.
   const scratchPrefix = scratchDir ? fold(join(scratchDir, '/')) : null;
-  if (scratchPrefix) for (const entry of snapshot) if (entry.exe && fold(entry.exe).startsWith(scratchPrefix)) claim(entry);
+  if (scratchPrefix)
+    for (const entry of snapshot) if (entry.exe && fold(entry.exe).startsWith(scratchPrefix)) claim(entry);
   while (queue.length > 0) {
     const parent = queue.pop();
     for (const entry of childrenOf.get(parent.pid) ?? []) {

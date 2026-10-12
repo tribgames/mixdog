@@ -26,7 +26,10 @@ function builderFeed(arch, { version = '1.1.1', zipSha = `zip-${arch}==` } = {})
 const inputs = (...feeds) => feeds.map((text, index) => ({ label: `feed${index}`, text }));
 
 test('the merged feed lists both zips and dmgs with their checksums, whatever the input order', () => {
-  for (const order of [['arm64', 'x64'], ['x64', 'arm64']]) {
+  for (const order of [
+    ['arm64', 'x64'],
+    ['x64', 'arm64'],
+  ]) {
     const merged = mergeMacFeeds(inputs(...order.map((arch) => builderFeed(arch))), '1.1.1');
     const feed = parseMacFeed(merged, 'merged');
     assert.equal(feed.version, '1.1.1');
@@ -37,7 +40,7 @@ test('the merged feed lists both zips and dmgs with their checksums, whatever th
         'mixdog-desktop-mac-arm64.dmg',
         'mixdog-desktop-mac-x64.zip',
         'mixdog-desktop-mac-x64.dmg',
-      ],
+      ]
     );
     assert.ok(merged.includes('    sha512: zip-arm64==\n    size: 111\n    blockMapSize: 22\n'));
     assert.ok(merged.includes('    sha512: zip-x64==\n    size: 111\n    blockMapSize: 22\n'));
@@ -50,15 +53,15 @@ test('a feed missing an architecture, or from the wrong version, fails the merge
   assert.throws(() => mergeMacFeeds(inputs(builderFeed('x64')), '1.1.1'), /Expected one feed per arm64 \+ x64/);
   assert.throws(
     () => mergeMacFeeds(inputs(builderFeed('x64'), builderFeed('x64')), '1.1.1'),
-    /Expected one feed per arm64 \+ x64/,
+    /Expected one feed per arm64 \+ x64/
   );
   assert.throws(
     () => mergeMacFeeds(inputs(builderFeed('arm64'), builderFeed('x64', { version: '1.1.0' })), '1.1.1'),
-    /version 1\.1\.0 is not 1\.1\.1/,
+    /version 1\.1\.0 is not 1\.1\.1/
   );
   assert.throws(
     () => mergeMacFeeds(inputs(builderFeed('arm64'), builderFeed('x64', { version: '1.1.0' }))),
-    /Feed versions differ/,
+    /Feed versions differ/
   );
 });
 

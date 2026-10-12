@@ -16,7 +16,9 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseMacFeed } from './merge-mac-update-feed.mjs';
-import { currentLatestTag, gh, isHttp404 } from './release-guard.mjs';
+import { APP_TAG_RE, currentLatestTag, gh, isHttp404 } from './release-guard.mjs';
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Keep in step with the per-platform `requirements` in
 // .github/workflows/release.yml (a unit test compares both). The Linux update
@@ -79,7 +81,8 @@ export async function checkFeed({ text, label, version, assets, hashAsset, requi
   if (feed.version !== version) {
     problems.push(`${label}: version ${feed.version}, expected ${version}`);
   }
-  const field = (file, key) => file.lines.map((line) => new RegExp(`^ +(?:- )?${key}: (\\S+)$`).exec(line)?.[1]).find(Boolean);
+  const field = (file, key) =>
+    file.lines.map((line) => new RegExp(`^ +(?:- )?${key}: (\\S+)$`).exec(line)?.[1]).find(Boolean);
   const byUrl = new Map(feed.files.map((file) => [file.url, file]));
   for (const name of requiredFiles) {
     if (!byUrl.has(name)) problems.push(`${label}: files[] does not list ${name}`);
@@ -111,8 +114,13 @@ export async function checkFeed({ text, label, version, assets, hashAsset, requi
 }
 
 export async function waitForNpm({
-  name, version, fetchFn = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  budgetMs = 10 * 60 * 1000, firstDelayMs = 5000, maxDelayMs = 60_000,
+  name,
+  version,
+  fetchFn = fetch,
+  sleep = defaultSleep,
+  budgetMs = 10 * 60 * 1000,
+  firstDelayMs = 5000,
+  maxDelayMs = 60_000,
 }) {
   let waited = 0;
   let delay = firstDelayMs;
@@ -125,7 +133,8 @@ export async function waitForNpm({
     } catch (error) {
       last = error.message;
     }
-    if (waited >= budgetMs) return [`${name}@${version} not resolvable on npm after ${Math.round(waited / 1000)}s (${last})`];
+    if (waited >= budgetMs)
+      return [`${name}@${version} not resolvable on npm after ${Math.round(waited / 1000)}s (${last})`];
     const step = Math.min(delay, budgetMs - waited);
     await sleep(step);
     waited += step;
@@ -133,7 +142,8 @@ export async function waitForNpm({
   }
 }
 
-const ANDROID_LINK_RE = /https:\/\/github\.com\/[^"'\s<>]+\/releases\/(?:tag|download)\/(mobile-v\d+\.\d+\.\d+)[^"'\s<>]*/;
+const ANDROID_LINK_RE =
+  /https:\/\/github\.com\/[^"'\s<>]+\/releases\/(?:tag|download)\/(mobile-v\d+\.\d+\.\d+)[^"'\s<>]*/;
 
 /**
  * `getRelease(tag)` returns the release object or null when it does not exist.
@@ -145,12 +155,16 @@ const ANDROID_LINK_RE = /https:\/\/github\.com\/[^"'\s<>]+\/releases\/(?:tag|dow
  */
 export async function checkRelayApp({ domain, fetchFn = fetch, getRelease, mobileVersion = '' }) {
   const page = await fetchFn(`https://${domain}/app`);
-  if (page.status !== 200) return { problems: [`https://${domain}/app answered ${page.status}, expected 200`], warnings: [] };
+  if (page.status !== 200)
+    return { problems: [`https://${domain}/app answered ${page.status}, expected 200`], warnings: [] };
   const match = ANDROID_LINK_RE.exec(await page.text());
   const wanted = mobileVersion ? `mobile-v${mobileVersion}` : '';
   if (!match) {
     return wanted
-      ? { problems: [], warnings: [`/app links no mobile-v* release; ${wanted} was not shipped (previous good release kept)`] }
+      ? {
+          problems: [],
+          warnings: [`/app links no mobile-v* release; ${wanted} was not shipped (previous good release kept)`],
+        }
       : { problems: [`https://${domain}/app has no link to a mobile-v* release`], warnings: [] };
   }
   const [url, tag] = match;
@@ -159,9 +173,12 @@ export async function checkRelayApp({ domain, fetchFn = fetch, getRelease, mobil
   if (release.draft) return { problems: [`/app links ${tag}, which is still a draft`], warnings: [] };
   const resolved = await fetchFn(url, { redirect: 'follow' });
   if (!resolved.ok) return { problems: [`/app Android link ${url} answered ${resolved.status}`], warnings: [] };
-  const warnings = wanted && tag !== wanted
-    ? [`/app links ${tag} instead of ${wanted}; the Android release failed or is not yet published (previous good release kept)`]
-    : [];
+  const warnings =
+    wanted && tag !== wanted
+      ? [
+          `/app links ${tag} instead of ${wanted}; the Android release failed or is not yet published (previous good release kept)`,
+        ]
+      : [];
   return { problems: [], warnings };
 }
 
@@ -175,7 +192,8 @@ export function checkEffortJudge({ manifest, latestTag, getRelease }) {
   for (const [name, file] of Object.entries(manifest.files)) {
     const asset = (release.assets ?? []).find((candidate) => candidate.name === name);
     if (!asset) problems.push(`effort-judge release ${tag} lacks ${name}`);
-    else if (asset.size !== file.size) problems.push(`effort-judge ${name} size ${asset.size} != manifest ${file.size}`);
+    else if (asset.size !== file.size)
+      problems.push(`effort-judge ${name} size ${asset.size} != manifest ${file.size}`);
   }
   return problems;
 }
@@ -198,8 +216,10 @@ export function getReleaseByTag(repo, tag, run = gh) {
  * verification of a release that may be public.
  */
 export async function detectPublished({
-  fetchRelease, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  attempts = 5, firstDelayMs = 2000,
+  fetchRelease,
+  sleep = defaultSleep,
+  attempts = 5,
+  firstDelayMs = 2000,
 }) {
   let delay = firstDelayMs;
   for (let attempt = 1; ; attempt++) {
@@ -208,7 +228,9 @@ export async function detectPublished({
       return Boolean(release) && release.draft === false;
     } catch (error) {
       if (attempt >= attempts) {
-        throw new Error(`could not determine whether the release is published after ${attempts} attempts: ${error.message}`);
+        throw new Error(
+          `could not determine whether the release is published after ${attempts} attempts: ${error.message}`
+        );
       }
       await sleep(delay);
       delay *= 2;
@@ -228,7 +250,7 @@ async function main() {
   const repo = process.env.GITHUB_REPOSITORY;
   const tag = process.env.RELEASE_TAG;
   const domain = process.env.RELAY_DOMAIN;
-  if (!repo || !/^v\d+\.\d+\.\d+$/.test(tag ?? '') || !domain) {
+  if (!repo || !APP_TAG_RE.test(tag ?? '') || !domain) {
     throw new Error('GITHUB_REPOSITORY, RELEASE_TAG (vX.Y.Z) and RELAY_DOMAIN are required');
   }
   const version = tag.slice(1);
@@ -254,25 +276,34 @@ async function main() {
   };
 
   const sections = [
-    ['GitHub Latest', async () => (release && !release.draft ? checkLatest(tag, latestTag) : [`${tag} is not a published release`])],
+    [
+      'GitHub Latest',
+      async () => (release && !release.draft ? checkLatest(tag, latestTag) : [`${tag} is not a published release`]),
+    ],
     ['Release assets', async () => checkAssetSet(assets)],
     ['latest.yml', () => feed('latest.yml', ['mixdog-desktop-win-x64.exe'])],
     ['latest-mac.yml', () => feed('latest-mac.yml', MAC_ZIPS)],
     ['Relay /app', () => checkRelayApp({ domain, getRelease, mobileVersion: process.env.MOBILE_VERSION ?? '' })],
-    ['effort-judge release', async () => checkEffortJudge({
-      manifest: JSON.parse(readFileSync('src/runtime/effort-judge/model-manifest.json', 'utf8')),
-      latestTag,
-      getRelease,
-    })],
+    [
+      'effort-judge release',
+      async () =>
+        checkEffortJudge({
+          manifest: JSON.parse(readFileSync('src/runtime/effort-judge/model-manifest.json', 'utf8')),
+          latestTag,
+          getRelease,
+        }),
+    ],
     ['npm', () => waitForNpm({ name: 'mixdog', version })],
   ];
   const results = [];
   for (const [name, run] of sections) {
     try {
       const outcome = await run();
-      results.push(Array.isArray(outcome)
-        ? { name, problems: outcome, warnings: [] }
-        : { name, problems: outcome.problems, warnings: outcome.warnings });
+      results.push(
+        Array.isArray(outcome)
+          ? { name, problems: outcome, warnings: [] }
+          : { name, problems: outcome.problems, warnings: outcome.warnings }
+      );
     } catch (error) {
       results.push({ name, problems: [`check failed: ${error.message}`], warnings: [] });
     }
@@ -280,7 +311,10 @@ async function main() {
 
   const lines = [`## Post-release check for ${tag}`, ''];
   for (const { name, problems, warnings } of results) {
-    lines.push(problems.length ? `- FAIL ${name}` : warnings.length ? `- WARN ${name}` : `- ok ${name}`);
+    let status = 'ok';
+    if (problems.length) status = 'FAIL';
+    else if (warnings.length) status = 'WARN';
+    lines.push(`- ${status} ${name}`);
     for (const problem of problems) lines.push(`    - ${problem}`);
     for (const warning of warnings) {
       lines.push(`    - warning: ${warning}`);
@@ -298,7 +332,7 @@ async function main() {
 async function detectPublishedMain() {
   const repo = process.env.GITHUB_REPOSITORY;
   const tag = process.env.RELEASE_TAG;
-  if (!repo || !/^v\d+\.\d+\.\d+$/.test(tag ?? '')) {
+  if (!repo || !APP_TAG_RE.test(tag ?? '')) {
     throw new Error('GITHUB_REPOSITORY and RELEASE_TAG (vX.Y.Z) are required');
   }
   const published = await detectPublished({ fetchRelease: () => getReleaseByTag(repo, tag) });

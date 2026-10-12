@@ -605,7 +605,11 @@ function assertReleaseWorkflowContract(release) {
   // electron-updater on macOS reads latest-mac.yml and downloads <zip>.blockmap;
   // the release is not complete without them. The feed is merged from both
   // architectures' feeds in the publish job, before the asset set is verified.
-  for (const name of ['latest-mac.yml', 'mixdog-desktop-mac-arm64.zip.blockmap', 'mixdog-desktop-mac-x64.zip.blockmap']) {
+  for (const name of [
+    'latest-mac.yml',
+    'mixdog-desktop-mac-arm64.zip.blockmap',
+    'mixdog-desktop-mac-x64.zip.blockmap',
+  ]) {
     assert.ok(release.includes(`'${name}'`), `the release asset contract must require ${name}`);
   }
   assert.match(

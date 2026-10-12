@@ -14,11 +14,7 @@ test('compareSemver orders numerically, not lexically', () => {
 });
 
 test('the newest published app release wins, whatever the list order', () => {
-  const releases = [
-    release('v0.9.0'),
-    release('v0.10.0'),
-    release('v0.2.0'),
-  ];
+  const releases = [release('v0.9.0'), release('v0.10.0'), release('v0.2.0')];
   assert.equal(selectLatestAppRelease(releases).tag_name, 'v0.10.0');
   assert.equal(selectLatestAppRelease([...releases].reverse()).tag_name, 'v0.10.0');
 });
@@ -39,21 +35,52 @@ test('drafts, prereleases and non-app tags are never selected', () => {
 });
 
 test('currentLatestTag maps a 404 to null and rethrows other failures', () => {
-  assert.equal(currentLatestTag('o/r', () => 'v1.0.0\n'), 'v1.0.0');
-  assert.equal(currentLatestTag('o/r', () => { throw Object.assign(new Error('x'), { stderr: 'gh: Not Found (HTTP 404)' }); }), null);
-  assert.throws(() => currentLatestTag('o/r', () => { throw new Error('HTTP 500'); }), /HTTP 500/);
-  assert.throws(() => currentLatestTag('o/r', () => { throw Object.assign(new Error('x'), { stderr: 'resource not found (HTTP 500)' }); }), /x/);
+  assert.equal(
+    currentLatestTag('o/r', () => 'v1.0.0\n'),
+    'v1.0.0'
+  );
+  assert.equal(
+    currentLatestTag('o/r', () => {
+      throw Object.assign(new Error('x'), { stderr: 'gh: Not Found (HTTP 404)' });
+    }),
+    null
+  );
+  assert.throws(
+    () =>
+      currentLatestTag('o/r', () => {
+        throw new Error('HTTP 500');
+      }),
+    /HTTP 500/
+  );
+  assert.throws(
+    () =>
+      currentLatestTag('o/r', () => {
+        throw Object.assign(new Error('x'), { stderr: 'resource not found (HTTP 500)' });
+      }),
+    /x/
+  );
 });
 
 test('asset releases are always created or published with --latest=false', () => {
-  assert.deepEqual(
-    buildArgs('create', 'mobile-v1.0.0', ['--draft', 'a.apk'], 'o/r'),
-    ['release', 'create', 'mobile-v1.0.0', '--draft', 'a.apk', '--repo', 'o/r', '--latest=false'],
-  );
-  assert.deepEqual(
-    buildArgs('publish', 'spawn-v1.0.0', [], 'o/r'),
-    ['release', 'edit', 'spawn-v1.0.0', '--repo', 'o/r', '--draft=false', '--latest=false'],
-  );
+  assert.deepEqual(buildArgs('create', 'mobile-v1.0.0', ['--draft', 'a.apk'], 'o/r'), [
+    'release',
+    'create',
+    'mobile-v1.0.0',
+    '--draft',
+    'a.apk',
+    '--repo',
+    'o/r',
+    '--latest=false',
+  ]);
+  assert.deepEqual(buildArgs('publish', 'spawn-v1.0.0', [], 'o/r'), [
+    'release',
+    'edit',
+    'spawn-v1.0.0',
+    '--repo',
+    'o/r',
+    '--draft=false',
+    '--latest=false',
+  ]);
   assert.throws(() => buildArgs('create', 'v1.0.0', [], 'o/r'), /app release tag/);
   assert.throws(() => buildArgs('create', 'spawn-v1.0.0', ['--latest'], 'o/r'), /do not pass it/);
   assert.throws(() => buildArgs('create', 'spawn-v1.0.0', ['--latest=true'], 'o/r'), /do not pass it/);
@@ -77,7 +104,7 @@ test('publishing an asset release fails when Latest moved', () => {
   const moved = run('graph-v1.0.0');
   assert.throws(
     () => publishAssetRelease({ action: 'publish', tag: 'graph-v1.0.0', repo: 'o/r', run: moved.fn }),
-    /Latest moved from v1\.0\.0 to graph-v1\.0\.0/,
+    /Latest moved from v1\.0\.0 to graph-v1\.0\.0/
   );
 });
 

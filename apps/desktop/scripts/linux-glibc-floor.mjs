@@ -115,6 +115,7 @@ console.log(
   `scanned ${scanned} ${archName} ELF files (${staticElf} static, ${foreign} other-arch skipped); ${perFile.length} require GLIBC symbols`
 );
 for (const { file, max } of perFile.slice(0, 15)) console.log(`GLIBC_${max}  ${file}`);
-for (const path of required) console.log(`required ok: ${path}  GLIBC_${perFile.find((f) => f.file === path)?.max ?? 'static'}`);
+for (const path of required)
+  console.log(`required ok: ${path}  GLIBC_${perFile.find((f) => f.file === path)?.max ?? 'static'}`);
 console.log(`GLIBC FLOOR: ${floor}`);
 if (maxAllowed && cmp(floor, maxAllowed) > 0) die(`floor ${floor} exceeds allowed ${maxAllowed}`);
