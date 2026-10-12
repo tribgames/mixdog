@@ -114,8 +114,7 @@ function getControlResponsePath(instanceId) {
 function getStopFlagPath(instanceId) {
   return join(RUNTIME_ROOT, `stop-${sanitize(instanceId)}.flag`);
 }
-// Pure metadata-advert read: ownership is the OS seat lock, so a leftover
-// advert is never evicted here. A transient read during an atomic rename may
+// Pure metadata-advert read. A transient read during an atomic rename may
 // yield empty/partial content: retry once after 50 ms before reporting the
 // advert as unreadable.
 function readActiveInstance() {
@@ -141,8 +140,6 @@ function buildActiveInstanceState(instanceId, meta) {
     supervisor_started_at: Date.now(),
     server_started_at: Date.now(),
     updatedAt: Date.now(),
-    turnEndFile: getTurnEndPath(instanceId),
-    statusFile: getStatusPath(instanceId),
     ...metaFields(meta),
   };
 }
@@ -193,26 +190,14 @@ function refreshActiveInstance(instanceId, meta, options) {
     (curRaw) => {
       const prevForPreserve = curRaw;
       const prev = activeInstanceStaleReason(curRaw) ? null : curRaw;
-      // CAS guard (opt-in via options.onlyIfOwned): heartbeat/refresh ticks
-      // check ownership OUTSIDE this lock, so a newer session can claim the
-      // seat between that check and this locked update. Without this re-read,
-      // the tick would overwrite the newer owner's instanceId (TOCTOU
-      // re-steal -> ownership ping-pong / double provider connections).
-      // Returning undefined aborts the update with no write. Explicit claims
-      // (boot, claimBridgeOwnership) omit the option and stay last-wins.
-      if (options?.onlyIfOwned && (!prev?.instanceId || prev.instanceId !== instanceId)) {
-        return undefined;
-      }
-      // CAS guard (opt-in via options.onlyIfVacant): auto-start claim-if-vacant.
-      // Abort the write when a live (non-stale) owner OTHER than us already holds
-      // the seat — an auto-start must never steal from a live owner. A stale/dead
-      // prior owner leaves prev=null above, so it does NOT block the claim; an
-      // absent seat (prev=null) is claimable too.
-      if (options?.onlyIfVacant && prev?.instanceId && prev.instanceId !== instanceId) {
-        return undefined;
-      }
       // Drop stale fields (pid/startedAt) written by older server versions.
-      const { pid: _legacyPid, startedAt: _legacyStartedAt, ...prevRest } = prev ?? {};
+      const {
+        pid: _legacyPid,
+        startedAt: _legacyStartedAt,
+        turnEndFile: _turnEndFile,
+        statusFile: _statusFile,
+        ...prevRest
+      } = prev ?? {};
       const identity = buildRuntimeIdentity();
       // server_started_at tracks the CURRENT server_pid's start time so the
       // dev-sync barrier can verify the CHILD's freshness (the supervisor's

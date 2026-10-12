@@ -13,7 +13,6 @@ import {
   liveAgentRows,
 } from './AgentActivityPane.tsx';
 import { createDesktopCancellationLedger, desktopAgentActivityState } from '../shared/agent-activity.ts';
-import { SessionStatusIsland } from './SessionStatusIsland.tsx';
 import {
   formatGoalDuration,
   goalCompletedTimeLabel,
@@ -21,7 +20,7 @@ import {
   goalTimeLabel,
   SessionGoalIsland,
 } from './SessionGoalIsland.tsx';
-import { CompletionStatus } from './transcript-status.tsx';
+import { CompletionStatus, ContextUsageIndicator } from './transcript-status.tsx';
 import { PaneContextIndicator } from './app-snapshot-views.tsx';
 import { agentActivitySessionIds } from './desktop-types.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
@@ -171,62 +170,6 @@ test('shell status equality includes detail fields that arrive after the task id
   );
 });
 
-test('the status island carries the context gauge', async () => {
-  const dom = installDom();
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: {
-            sessionId: 'lead-a',
-            stats: { currentContextTokens: 50 },
-            displayContextWindow: 100,
-          },
-        })
-      );
-    });
-    const contextButton = document.querySelector('.session-context-indicator > button');
-    await act(async () => contextButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
-    assert.equal(document.querySelector('.session-context-indicator')?.dataset.open, 'true');
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
-test('the status island places the pane dock toggle last and reports its state', async () => {
-  const dom = installDom();
-  let toggles = 0;
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(SessionStatusIsland, {
-          snapshot: {
-            sessionId: 'lead-a',
-            stats: { currentContextTokens: 50 },
-            displayContextWindow: 100,
-          },
-          dockOpen: true,
-          onToggleDock: () => {
-            toggles += 1;
-          },
-        })
-      );
-    });
-    const island = document.querySelector('.session-status-island');
-    const dockToggle = document.querySelector('.session-status-dock-toggle');
-    assert.equal(island?.lastElementChild, dockToggle);
-    assert.equal(dockToggle?.getAttribute('aria-pressed'), 'true');
-    await act(async () => {
-      dockToggle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    });
-    assert.equal(toggles, 1);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
 test('the context card offers inheritance only after the selected model changes', async () => {
   const changed = {
     sessionId: 'lead-inherit',
@@ -257,7 +200,7 @@ test('the context card offers inheritance only after the selected model changes'
   try {
     await act(async () => {
       dom.root.render(
-        React.createElement(SessionStatusIsland, {
+        React.createElement(ContextUsageIndicator, {
           snapshot: changed,
           onInherit: async (sourceSessionId, route) => {
             inherited.push({ sourceSessionId, route });
@@ -308,7 +251,7 @@ test('the context card offers inheritance only after the selected model changes'
     };
     await act(async () => {
       dom.root.render(
-        React.createElement(SessionStatusIsland, {
+        React.createElement(ContextUsageIndicator, {
           snapshot: {
             ...changed,
             sessionId: 'same-claude',
@@ -342,12 +285,12 @@ test('the context card offers inheritance only after the selected model changes'
   }
 });
 
-test('the context island retains its authoritative reading across incomplete stats frames', async () => {
+test('the live context indicator retains its authoritative reading across incomplete stats frames', async () => {
   const dom = installDom();
   try {
     await act(async () => {
       dom.root.render(
-        React.createElement(SessionStatusIsland, {
+        React.createElement(ContextUsageIndicator, {
           snapshot: {
             sessionId: 'context-sticky',
             stats: { currentContextTokens: 50, currentContextSource: 'last_api_request' },
@@ -360,7 +303,7 @@ test('the context island retains its authoritative reading across incomplete sta
 
     await act(async () => {
       dom.root.render(
-        React.createElement(SessionStatusIsland, {
+        React.createElement(ContextUsageIndicator, {
           snapshot: {
             sessionId: 'context-sticky',
             stats: { costUsd: 1 },

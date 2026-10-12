@@ -6,7 +6,6 @@ export const RUNTIME = '../runtime/agent/orchestrator';
 export const WEB_SEARCH_RUNTIME = '../runtime/web-search/index.mjs';
 export const WEB_SEARCH_TOOL_DEFS = '../runtime/web-search/tool-defs.mjs';
 export const MEMORY_TOOL_DEFS = '../runtime/memory/tool-defs.mjs';
-export const CHANNEL_TOOL_DEFS = '../runtime/channels/tool-defs.mjs';
 export const CODE_GRAPH_TOOL_DEFS = '../runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
 export const CODE_GRAPH_RUNTIME = '../runtime/agent/orchestrator/tools/code-graph.mjs';
 export const STATUSLINE_SESSION_ROUTES = '../vendor/statusline/src/gateway/session-routes.mjs';

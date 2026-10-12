@@ -4,7 +4,6 @@ import { createRequire } from 'node:module';
 import { loadConfig, createProvider, DATA_DIR } from './config.mjs';
 import { resolveVoiceRuntime } from './voice-runtime-fetcher.mjs';
 import { whisperThreadCount } from './voice-transcription.mjs';
-import { TOOL_DEFS } from '../tool-defs.mjs';
 import { ensureReady, stopVoiceWhisperServer } from './whisper-server.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
 import { Scheduler } from './scheduler.mjs';
@@ -102,7 +101,6 @@ runWorkerBootstrap({
   pruneStalePluginDataLogSiblings,
   DEFAULT_STALE_LOG_SIBLING_MAX,
 });
-const INSTRUCTIONS = '';
 
 // ── Parent notification helper ───────────────────────────────────────
 // This worker has no MCP transport of its own. All notifications flow
@@ -250,19 +248,12 @@ function wireEventQueueHandlers(eventQueue) {
   // re-read at probe time so a stale-connected flag cannot mask a lost seat.
   eventQueue.setOwnerGetter(() => bridgeRuntimeConnected && currentOwnerState().owned);
 }
-// Inbound messaging, provider interaction handlers, and channel voice-message
-// transcription are DELETED with Discord/Telegram (user decision: PWA replaces
-// channels). The headless provider emits no events, so nothing wires here.
-// Tool dispatch in worker mode goes through the IPC `call` handler at the
-// bottom of this file (parent's `callWorker` → `handleToolCall`). There is no
-// orphan worker-level MCP Server: the parent (server.mjs) owns the single
-// connected transport and routes CallTool through the IPC `call` path.
 // ── Worker/HTTP tool-call dispatch ──────────────────────────────────────────
 // Runtime lifecycle dispatch only (activate_channel_bridge / reload_config):
 // threaded as a lifecycle bag of lazy getters so the module reads live
 // file-level references at call time. Used by the HTTP MCP CallTool path and
 // the worker IPC `call` handler at the bottom of this file.
-const { handleToolCall, handleToolCallWithBridgeRetry } = createToolDispatch({
+const { handleToolCall } = createToolDispatch({
   isChannelsDegraded,
   lifecycle: {
     getChannelBridgeActive: () => channelBridgeActive,
@@ -277,14 +268,6 @@ const { handleToolCall, handleToolCallWithBridgeRetry } = createToolDispatch({
     reloadRuntimeConfig,
   },
 });
-async function init(_sharedMcp) {
-  // _sharedMcp is no longer used. Notifications now flow via IPC to the parent
-  // (sendNotifyToParent above). The parameter is retained for backward
-  // compatibility with any caller that still passes a Server reference.
-  scheduler.setInjectHandler((channelId, name, content, options) => {
-    injectAndRecord(channelId, name, content, options);
-  });
-}
 function ensureConfigWatcher() {
   if (_configWatcher) return;
   try {
@@ -374,17 +357,13 @@ if (_isWorkerMode && process.send && process.env.MIXDOG_DAEMON_HOST !== '1') {
     getProvider: () => provider,
     getConfig: () => config,
     handleMemoryCallResponse,
-    handleToolCallWithBridgeRetry,
+    handleToolCall,
     bootProfile,
   });
 }
 
 export {
-  TOOL_DEFS,
   handleToolCall,
-  handleToolCallWithBridgeRetry,
-  init,
-  INSTRUCTIONS as instructions,
   isChannelBridgeActive,
   isChannelsDegraded,
   start,

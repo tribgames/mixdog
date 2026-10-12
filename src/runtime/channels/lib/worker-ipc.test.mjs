@@ -42,7 +42,7 @@ test('worker IPC preserves dependency reads, readiness, and tool result/error en
       return () => ({});
     },
     handleMemoryCallResponse: () => false,
-    handleToolCallWithBridgeRetry: async (name, args, signal) => {
+    handleToolCall: async (name, args, signal) => {
       calls.push({ name, args, aborted: signal.aborted });
       if (name === 'fail') throw new Error('fixture error');
       return { content: [{ type: 'text', text: 'fixture result' }] };

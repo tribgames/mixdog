@@ -10,7 +10,6 @@ import {
   RUNTIME,
   WEB_SEARCH_TOOL_DEFS,
   MEMORY_TOOL_DEFS,
-  CHANNEL_TOOL_DEFS,
   CODE_GRAPH_TOOL_DEFS,
   STATUSLINE_SESSION_ROUTES,
   STANDALONE_ROOT,
@@ -49,7 +48,6 @@ export async function loadRuntimeModules() {
     statusRoutes,
     webSearchToolDefs,
     memoryToolDefs,
-    channelToolDefs,
     codeGraphToolDefs,
   ] = await Promise.all([
     profiledImport('config', `${RUNTIME}/config.mjs`),
@@ -62,7 +60,6 @@ export async function loadRuntimeModules() {
     profiledImport('status-routes', STATUSLINE_SESSION_ROUTES, { optional: true }),
     profiledImport('web-search-tool-defs', WEB_SEARCH_TOOL_DEFS, { optional: true }),
     profiledImport('memory-tool-defs', MEMORY_TOOL_DEFS, { optional: true }),
-    profiledImport('channel-tool-defs', CHANNEL_TOOL_DEFS, { optional: true }),
     profiledImport('code-graph-tool-defs', CODE_GRAPH_TOOL_DEFS, { optional: true }),
   ]);
   bootProfile('imports:ready', { ms: (performance.now() - startedAt).toFixed(1) });
@@ -88,7 +85,6 @@ export async function loadRuntimeModules() {
     statusRoutes,
     webSearchToolDefs,
     memoryToolDefs,
-    channelToolDefs,
     codeGraphToolDefs,
   };
 }

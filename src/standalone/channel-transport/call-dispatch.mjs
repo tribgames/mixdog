@@ -2,7 +2,7 @@
  * call-dispatch.mjs — one /call of the channel transport: the fair lanes
  * (ordinary vs. control/binding), the callId idempotency cache, and the
  * binding-aware run that moves the UI control pointer / durable pin around a
- * manual Remote ON/OFF or transcript rebind and rolls it back on failure.
+ * manual Remote ON/OFF and rolls it back on failure.
  *
  * Shared transport state read/written here: clients, pointerToken,
  * remoteAcquired, stickyRemoteFrame, pinnedSessionId, closed.
@@ -11,7 +11,7 @@ import { createFairCallScheduler } from '../fair-call-scheduler.mjs';
 import { callSignature, callIdConflict, clientCallOwner } from '../rpc-call-identity.mjs';
 import { isPidAlive } from '../../runtime/shared/pid-liveness.mjs';
 import { positiveInt } from '../../runtime/shared/numbers.mjs';
-import { ACTIVATE_TOOL, REBIND_TOOL, BINDING_TOOLS, remoteSessionIdFromBinding } from '../channel-binding.mjs';
+import { ACTIVATE_TOOL, BINDING_TOOLS, remoteSessionIdFromBinding } from '../channel-binding.mjs';
 
 const CALL_CACHE_TTL_MS = 60_000;
 
@@ -52,10 +52,10 @@ export function createCallDispatch({
     const activationCall = name === ACTIVATE_TOOL;
     const activating = activationCall && args.active === true;
     const deactivating = activationCall && args.active === false;
-    const rebindCall = name === REBIND_TOOL;
     const bindingSessionId = remoteSessionIdFromBinding(name, args);
     // Auto/implicit activation is retired. A valid manual ON always carries
-    // its target session and explicitly overrides the old one.
+    // its target session and explicitly overrides the old one. Legacy automatic
+    // requests remain non-authoritative even when they include a session id.
     if (activating && (args.claimIfVacant === true || !bindingSessionId)) {
       return {
         content: [{ type: 'text', text: 'channel bridge claim skipped: manual ON required' }],
@@ -69,12 +69,6 @@ export function createCallDispatch({
       return {
         content: [{ type: 'text', text: 'channel bridge release skipped: session is not pinned' }],
         releaseSkipped: true,
-      };
-    }
-    if (rebindCall && !pinnedSessionMatch) {
-      return {
-        content: [{ type: 'text', text: 'transcript rebind skipped: session is not pinned' }],
-        rebindSkipped: true,
       };
     }
 

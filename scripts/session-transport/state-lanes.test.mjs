@@ -443,7 +443,18 @@ test('an in-daemon transport connection receives frames without owning daemon li
   });
 });
 
-test('a silent SSE is reconnected and a continuous reconnect storm exhausts its budget', async () => {
+test('a silent SSE is reconnected and a continuous reconnect storm exhausts its budget', async (t) => {
+  // Keep real sockets/timers, but advance the downtime clock only after the
+  // server observes recovery. Runner scheduling must not spend the 60ms budget.
+  let now = 1_000;
+  t.mock.method(Date, 'now', () => now);
+  const waitForEvent = async (predicate) => {
+    const deadline = performance.now() + 2_000;
+    while (!predicate()) {
+      assert.ok(performance.now() < deadline, 'timed out waiting for stream event');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
   const serverToken = 'server-token';
   const clientToken = 'client-token';
   const fatals = [];
@@ -499,7 +510,14 @@ test('a silent SSE is reconnected and a continuous reconnect storm exhausts its 
       streamLivenessTimeoutMs: 20,
       streamReconnectBudgetMs: 60,
     });
-    await waitForValue(() => fatals.length === 1);
+    await waitForEvent(() => eventRequests >= 2);
+    assert.equal(fatals.length, 0, 'recovery is allowed before the budget expires');
+    now += 59;
+    const requestsBeforeDeadline = eventRequests;
+    await waitForEvent(() => eventRequests > requestsBeforeDeadline);
+    assert.equal(fatals.length, 0, 'the full reconnect budget remains available');
+    now += 1;
+    await waitForEvent(() => fatals.length === 1);
     assert.match(disconnects[0]?.reason || '', /sse liveness timeout after 20ms/);
     assert.match(fatals[0], /reconnect budget exhausted/);
     assert.ok(eventRequests >= 2, 'liveness timeout must open a replacement stream');

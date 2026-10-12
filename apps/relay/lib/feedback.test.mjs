@@ -405,10 +405,15 @@ test('capacity prune waits for unlink and a failed unlink answers 503 without fo
       return (await import('node:fs/promises')).unlink(path);
     },
   };
-  const { relay, post } = await boot(dataDir, { sender: async () => {}, options: { maxRecords: 1, fs } });
+  const options = { sender: async () => {}, options: { maxRecords: 1, fs } };
+  let { relay, post } = await boot(dataDir, options);
   const a = valid();
   assert.equal((await post(a)).status, 202);
   await waitFor(() => sentAt(dataDir, a.id), 'delivery of a');
+  // The rename can be visible before its promise and send bookkeeping settle.
+  // Drain delivery through the public lifecycle, then prune the durable record.
+  await relay.close();
+  ({ relay, post } = await boot(dataDir, options));
   const res = await post(valid());
   assert.equal(res.status, 503);
   assert.deepEqual(await res.json(), { error: 'feedback_unavailable' });

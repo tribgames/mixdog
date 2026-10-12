@@ -82,12 +82,6 @@ function createToolDispatch({ isChannelsDegraded, lifecycle }) {
           };
           break;
         }
-        case 'rebind_current_transcript': {
-          // Transcript forwarding is retired with channel messaging: accept
-          // and no-op so legacy lead-side pushes never surface an error.
-          result = { content: [{ type: 'text', text: 'transcript rebind retired' }] };
-          break;
-        }
         // memory — handled by memory-service.mjs MCP
         default:
           result = {
@@ -105,13 +99,7 @@ function createToolDispatch({ isChannelsDegraded, lifecycle }) {
     return result;
   }
 
-  // IPC/HTTP wrapper: with channel messaging retired there is no transcript
-  // pre-flush or tool-log relay — plain dispatch.
-  async function handleToolCallWithBridgeRetry(toolName, args, signal) {
-    return handleToolCall(toolName, args, signal);
-  }
-
-  return { handleToolCall, handleToolCallWithBridgeRetry };
+  return { handleToolCall };
 }
 
 export { createToolDispatch };

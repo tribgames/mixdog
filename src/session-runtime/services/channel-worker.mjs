@@ -18,7 +18,7 @@ import { daemonEnv, spawnDaemonCandidate } from './channel-worker/daemon-spawn.m
 
 export { pruneStaleChannelClientHeartbeats };
 
-const CHANNEL_TOOLS = new Set(['activate_channel_bridge', 'reload_config', 'rebind_current_transcript']);
+const CHANNEL_TOOLS = new Set(['activate_channel_bridge', 'reload_config']);
 const CALL_RETRIES = 3;
 
 function logLine(path, line) {
