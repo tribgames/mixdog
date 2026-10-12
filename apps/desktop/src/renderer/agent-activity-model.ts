@@ -121,6 +121,7 @@ interface LiveAgentSummary {
   effort: string;
   fast: boolean;
   tag: string;
+  title: string;
   status: string;
   /** Lifecycle the surface must paint. `cancel-unconfirmed` rows stay live on
    *  purpose: their process is not proven gone. */
@@ -200,6 +201,7 @@ function liveAgentSummary(
     effort: String(entry.effort || '').trim(),
     fast: entry.fast === true,
     tag: tag || taskId,
+    title: String(entry.title || '').trim(),
     status: unconfirmed || desktopAgentStatus(entry),
     state,
     // An unproven cancel is not queued work, whatever stage the row still says.
@@ -223,6 +225,7 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
     effort: current.effort || next.effort,
     fast: current.fast || next.fast,
     tag: current.tag || next.tag,
+    title: current.title || next.title,
     // Keeping the earlier status is safe ONLY because a confirmed cancel
     // never reaches this merge (see agentCancelSignals) and an unconfirmed
     // one wins here: whichever twin reports it, the merge can never fall

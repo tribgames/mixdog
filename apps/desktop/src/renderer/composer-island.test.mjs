@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { ComposerDock } from './ComposerDock.tsx';
 import { BackgroundJobsPane } from './BackgroundJobsPane.tsx';
+import { requestBackgroundJobsTab } from './background-jobs-tab-store.ts';
 import { QueueList } from './composer-support.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { t as translate } from './i18n.ts';
@@ -431,4 +432,87 @@ test('the jobs dock pane lists agents with the sidebar row and shells with comma
   assert.match(shellRows[0].textContent, /npm run watch/);
   assert.ok(shellRows[0].querySelector('.agent-activity-elapsed').textContent.length > 0);
   assert.equal(shellRows[0].tagName, 'DIV', 'shell rows open nothing');
+});
+
+test('the jobs dock pane opens a titled agent with the sidebar tab title', async (t) => {
+  const { root, document } = mount(t);
+  const opened = [];
+  await publish({
+    agentWorkers: [
+      { tag: 'cart-fix', title: 'Fix the cart', agent: 'worker', sessionId: 'w1', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
+    ],
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(BackgroundJobsPane, {
+        sessionId: 'island-session',
+        active: true,
+        onOpenAgentSession: (...args) => opened.push(args),
+      })
+    )
+  );
+  await act(async () => document.querySelector('.agent-pool-row').click());
+  assert.deepEqual(opened, [['w1', 'Fix the cart · cart-fix', 'island-session']]);
+});
+
+test('the jobs dock pane is a roving-focus tree for agents and shells', async (t) => {
+  requestBackgroundJobsTab('island-session', 'agent');
+  const { root, document, window } = mount(t);
+  const opened = [];
+  await publish({
+    agentWorkers: [
+      { tag: 'a', agent: 'worker', sessionId: 'w1', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
+      { tag: 'b', agent: 'worker', sessionId: 'w2', stage: 'running', status: 'running', startedAt: Date.now() - 4_000 },
+      { tag: 'c', agent: 'worker', sessionId: 'w3', stage: 'running', status: 'running', startedAt: Date.now() - 3_000 },
+    ],
+    shellJobs: {
+      count: 2,
+      jobs: [
+        { taskId: 's1', command: 'npm run a', startedAt: Date.now() - 2_000 },
+        { taskId: 's2', command: 'npm run b', startedAt: Date.now() - 1_000 },
+      ],
+    },
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(BackgroundJobsPane, {
+        sessionId: 'island-session',
+        active: true,
+        onOpenAgentSession: (...args) => opened.push(args),
+      })
+    )
+  );
+  const press = (key) =>
+    act(async () =>
+      document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    );
+  const items = () => [...document.querySelectorAll('[role="treeitem"]')];
+  const tabStops = () => items().filter((item) => item.tabIndex === 0).length;
+  assert.equal(document.querySelector('[role="tree"]').getAttribute('aria-label'), translate('Background tasks'));
+  assert.equal(tabStops(), 1, 'exactly one row is in the tab order');
+  items()[0].focus();
+  await press('ArrowDown');
+  assert.equal(document.activeElement, items()[1]);
+  assert.equal(items()[1].tabIndex, 0);
+  await press('End');
+  assert.equal(document.activeElement, items()[2]);
+  await press('ArrowDown');
+  assert.equal(document.activeElement, items()[2], 'clamped at the end');
+  await press('Home');
+  assert.equal(document.activeElement, items()[0]);
+  await press('ArrowUp');
+  assert.equal(document.activeElement, items()[0], 'clamped at the start');
+  // Enter on a button row opens it (native click on keyboard activation).
+  await act(async () => document.activeElement.click());
+  assert.equal(opened.length, 1);
+  // Shells navigate the same way and their rows are focusable.
+  await act(async () => [...document.querySelectorAll('.composer-island-tab')][1].click());
+  assert.equal(items().length, 2);
+  assert.equal(tabStops(), 1);
+  items()[0].focus();
+  assert.equal(document.activeElement, items()[0]);
+  await press('ArrowDown');
+  assert.equal(document.activeElement, items()[1]);
+  await press('Home');
+  assert.equal(document.activeElement, items()[0]);
 });

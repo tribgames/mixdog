@@ -62,6 +62,7 @@ export function backgroundJobRows(snapshot: Snapshot): JobRow[] {
       state: agent.queued ? ('queued' as const) : agent.state,
       pool: {
         tag: agent.tag,
+        title: agent.title || null,
         sessionId: agent.sessionId,
         ownerSessionId: agent.ownerSessionId || null,
         agent: agent.roleId,

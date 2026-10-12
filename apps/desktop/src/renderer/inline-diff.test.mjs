@@ -379,3 +379,49 @@ for (const [state, sessionId, invoke, expectCount, expectRefreshDisabled] of [
     }
   });
 }
+
+test('the list-vs-diff choice latches on first data: file-count changes never flip the open view', async () => {
+  const files = (...paths) => paths.map((path) => ({ path, status: 'M', additions: 2, deletions: 1, binary: false }));
+  let current = files('src/cart.js');
+  const mountWith = (sessionId) =>
+    mount(h(SessionDiffPane, { sessionId, active: true, onClose() {} }), (win) => {
+      win.mixdogDesktop = { invokeCapability: async () => ({ value: { supported: true, files: current, patch: PATCH } }) };
+    });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  let revision = 0;
+  const bump = (sessionId) =>
+    act(async () => {
+      revision += 1;
+      defaultSessionLaneStore.apply({
+        sessionId,
+        frameSource: 'live',
+        snapshot: { sessionId, items: [{ id: `rev-${revision}` }], contentRevision: revision },
+      });
+    });
+  // 1 → 2: opened on the diff, stays on the diff.
+  let view = await mountWith('sd-latch-1');
+  try {
+    await settle();
+    assert.ok(view.container.querySelector('.session-diff-body'));
+    current = files('src/cart.js', 'src/receipt.js');
+    await bump('sd-latch-1');
+    await settle();
+    assert.ok(view.container.querySelector('.session-diff-body'));
+    assert.equal(view.container.querySelector('.session-diff-files'), null);
+  } finally {
+    await view.done();
+  }
+  // 2 → 1: opened on the list, stays on the list.
+  view = await mountWith('sd-latch-2');
+  try {
+    await settle();
+    assert.ok(view.container.querySelector('.session-diff-files'));
+    current = files('src/cart.js');
+    await bump('sd-latch-2');
+    await settle();
+    assert.ok(view.container.querySelector('.session-diff-files'));
+    assert.equal(view.container.querySelector('.session-diff-body'), null);
+  } finally {
+    await view.done();
+  }
+});

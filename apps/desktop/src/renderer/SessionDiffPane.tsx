@@ -145,6 +145,11 @@ export function SessionDiffPane({
   const [listChoice, setListChoice] = useState<boolean | null>(null);
   const listOpen = listChoice ?? rows.length > 1;
   const setListOpen = setListChoice;
+  // Latch the choice when the first files arrive: a later file-count change
+  // (1→2, 2→1) must not flip a view the user is already looking at.
+  useEffect(() => {
+    if (listChoice === null && rows.length > 0) setListChoice(rows.length > 1);
+  }, [listChoice, rows.length]);
   const [selectedPath, setSelectedPath] = useState('');
   const [revertError, setRevertError] = useState('');
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger; a session switch resets the drill-down.
