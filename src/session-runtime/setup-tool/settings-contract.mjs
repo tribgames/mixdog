@@ -158,7 +158,7 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       model: {
         ...text,
         description:
-          'Required for new schedules; no default-model fallback. Use provider/model[@effort][+fast][?parameter=value] or an existing preset name. On overwrite, omission preserves the saved model, which must be non-empty.',
+          'Required for new schedules; no default-model fallback. Use provider/model[@effort][+fast][+noauto][?parameter=value] (+noauto: Auto reasoning off; absent = on) or an existing preset name. On overwrite, omission preserves the saved model, which must be non-empty.',
       },
       cwd: text,
       workflow: text,
