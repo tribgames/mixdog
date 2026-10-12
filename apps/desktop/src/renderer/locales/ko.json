@@ -116,6 +116,7 @@
   "{{errors}} Errors, {{warnings}} Warnings": "오류 {{errors}}개, 경고 {{warnings}}개",
   "{{field}} contains a value without a key.": "{{field}}에 키가 없는 값이 있습니다.",
   "{{field}} contains duplicate key \"{{key}}\".": "{{field}}에 중복된 키 \"{{key}}\"이(가) 있습니다.",
+  "MCP server \"{{name}}\" already exists.": "MCP 서버 \"{{name}}\"이(가) 이미 있습니다.",
   "{{hours}}h": "{{hours}}시간",
   "{{hours}}h {{minutes}}m": "{{hours}}시간 {{minutes}}분",
   "{{kind}} · Just connected": "{{kind}} · 방금 연결됨",

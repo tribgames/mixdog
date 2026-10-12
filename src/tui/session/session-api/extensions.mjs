@@ -14,15 +14,19 @@ export function createSessionExtensionsApi(bag) {
     resetStatsAndSyncContext,
     routeState,
   });
-  // One locked runtime mutation, then republish and announce it.
+  // One locked runtime mutation, then republish and announce it. A refused
+  // change throws so a caller never reports a skipped write as saved.
   const lockedChange = (call, notice) =>
-    withCommandLock(async (...args) => {
-      const result = await call(...args);
-      refreshRouteStats();
-      const [text, level = 'info'] = notice(result, ...args);
-      pushNotice(text, level);
-      return result;
-    });
+    withCommandLock(
+      async (...args) => {
+        const result = await call(...args);
+        refreshRouteStats();
+        const [text, level = 'info'] = notice(result, ...args);
+        pushNotice(text, level);
+        return result;
+      },
+      { busyError: 'Another command is still running; try again when it finishes.' }
+    );
   const pluginLabel = (result, plugin) => result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin;
 
   return {

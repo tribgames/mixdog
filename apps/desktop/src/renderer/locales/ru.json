@@ -224,6 +224,7 @@
   "{{errors}} Errors, {{warnings}} Warnings": "ошибки {{errors}}, предупреждения {{warnings}}",
   "{{field}} contains a value without a key.": "{{field}} содержит значение без ключа.",
   "{{field}} contains duplicate key \"{{key}}\".": "{{field}} содержит повторяющийся ключ «{{key}}».",
+  "MCP server \"{{name}}\" already exists.": "MCP-сервер «{{name}}» уже существует.",
   "{{hours}}h": "{{hours}} ч",
   "{{hours}}h {{minutes}}m": "{{hours}} ч {{minutes}} мин",
   "{{kind}} · Just connected": "{{kind}} · Только что подключено",

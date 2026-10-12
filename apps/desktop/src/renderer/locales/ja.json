@@ -116,6 +116,7 @@
   "{{errors}} Errors, {{warnings}} Warnings": "{{errors}} エラー、{{warnings}} 警告",
   "{{field}} contains a value without a key.": "{{field}} にキーのない値が含まれています。",
   "{{field}} contains duplicate key \"{{key}}\".": "{{field}} にキー「{{key}}」が重複しています。",
+  "MCP server \"{{name}}\" already exists.": "MCP サーバー「{{name}}」はすでに存在します。",
   "{{hours}}h": "{{hours}}時間",
   "{{hours}}h {{minutes}}m": "{{hours}}時間{{minutes}}分",
   "{{kind}} · Just connected": "{{kind}} · 接続したばかり",

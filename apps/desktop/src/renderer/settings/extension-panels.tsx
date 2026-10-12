@@ -201,6 +201,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
           key="new-mcp"
           server={null}
           busy={busy}
+          takenNames={servers.map((server) => String(server.name))}
           onClose={() => closeCreate?.()}
           onSave={(payload) => {
             closeCreate?.();

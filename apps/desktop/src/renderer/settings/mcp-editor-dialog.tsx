@@ -199,6 +199,7 @@ export function McpEditorDialog({
   server,
   busy,
   scopeField,
+  takenNames = [],
   onClose,
   onSave,
   onToggle,
@@ -207,6 +208,7 @@ export function McpEditorDialog({
   server: RecordValue | null;
   busy: boolean;
   scopeField?: ReactNode;
+  takenNames?: string[];
   onClose(): void;
   onSave(payload: RecordValue): void;
   onToggle?(): void;
@@ -254,6 +256,9 @@ export function McpEditorDialog({
             name: String(data.get('mcp-name') || '').trim(),
             type: transport,
           };
+          if (!editing && takenNames.includes(String(payload.name))) {
+            throw new Error(t('MCP server "{{name}}" already exists.', { name: String(payload.name) }));
+          }
           if (transport === 'stdio') {
             payload.command = String(data.get('mcp-command') || '').trim();
             payload.args = args.map((value) => value.trim()).filter(Boolean);

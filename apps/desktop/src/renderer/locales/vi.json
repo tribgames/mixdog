@@ -116,6 +116,7 @@
   "{{errors}} Errors, {{warnings}} Warnings": "{{errors}} Lỗi, {{warnings}} Cảnh báo",
   "{{field}} contains a value without a key.": "{{field}} chứa một giá trị không có khóa.",
   "{{field}} contains duplicate key \"{{key}}\".": "{{field}} chứa khóa trùng lặp \"{{key}}\".",
+  "MCP server \"{{name}}\" already exists.": "Máy chủ MCP \"{{name}}\" đã tồn tại.",
   "{{hours}}h": "{{hours}} giờ",
   "{{hours}}h {{minutes}}m": "{{hours}} giờ {{minutes}} phút",
   "{{kind}} · Just connected": "{{kind}} · Vừa kết nối",

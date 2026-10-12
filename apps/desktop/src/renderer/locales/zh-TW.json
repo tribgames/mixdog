@@ -116,6 +116,7 @@
   "{{errors}} Errors, {{warnings}} Warnings": "{{errors}} 錯誤，{{warnings}} 警告",
   "{{field}} contains a value without a key.": "{{field}} 中包含沒有索引鍵的值。",
   "{{field}} contains duplicate key \"{{key}}\".": "{{field}} 中包含重複的索引鍵「{{key}}」。",
+  "MCP server \"{{name}}\" already exists.": "MCP 伺服器「{{name}}」已存在。",
   "{{hours}}h": "{{hours}}小時",
   "{{hours}}h {{minutes}}m": "{{hours}}小時{{minutes}}分鐘",
   "{{kind}} · Just connected": "{{kind}} · 剛剛連線",

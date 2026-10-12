@@ -188,6 +188,7 @@
   "{{errors}} Errors, {{warnings}} Warnings": "{{errors}} Errori, {{warnings}} Avvisi",
   "{{field}} contains a value without a key.": "{{field}} contiene un valore senza chiave.",
   "{{field}} contains duplicate key \"{{key}}\".": "{{field}} contiene la chiave duplicata “{{key}}”.",
+  "MCP server \"{{name}}\" already exists.": "Il server MCP “{{name}}” esiste già.",
   "{{hours}}h": "{{hours}} h",
   "{{hours}}h {{minutes}}m": "{{hours}} h {{minutes}} min",
   "{{kind}} · Just connected": "{{kind}} · Appena connesso",

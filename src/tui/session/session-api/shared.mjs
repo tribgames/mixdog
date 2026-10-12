@@ -5,15 +5,19 @@
  */
 export function createApiHelpers({ getState, set, resetStatsAndSyncContext, routeState, syncContextStats }) {
   /**
-   * Wrap a runtime call in the command lock: refused (→ `busyResult`) while
-   * another command holds commandBusy, otherwise held for the call's duration.
-   * `onRelease` runs after the lock drops (RPC replies read the published
-   * snapshot, not the mutable draft, so some callers flush there).
+   * Wrap a runtime call in the command lock: refused (→ `busyResult`, or a
+   * thrown `busyError` for callers that must not read a refusal as success)
+   * while another command holds commandBusy, otherwise held for the call's
+   * duration. `onRelease` runs after the lock drops (RPC replies read the
+   * published snapshot, not the mutable draft, so some callers flush there).
    */
   const withCommandLock =
-    (run, { busyResult = null, onRelease = null } = {}) =>
+    (run, { busyResult = null, busyError = '', onRelease = null } = {}) =>
     async (...args) => {
-      if (getState().commandBusy) return busyResult;
+      if (getState().commandBusy) {
+        if (busyError) throw new Error(busyError);
+        return busyResult;
+      }
       set({ commandBusy: true });
       try {
         return await run(...args);
