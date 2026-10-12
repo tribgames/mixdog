@@ -145,6 +145,9 @@ test('effort-judge release must exist, be published, not be Latest, and carry th
 test('getReleaseByTag maps only 404/not-found to null and rethrows everything else', () => {
   const failing = (stderr) => () => { throw Object.assign(new Error('Command failed'), { stderr }); };
   assert.equal(getReleaseByTag('o/r', 'v1.2.3', failing('gh: Not Found (HTTP 404)')), null);
+  // "not found" wording without an explicit 404 status is not absence.
+  assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('upstream resource not found (HTTP 500)')), /Command failed/);
+  assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('gh: Not Found')), /Command failed/);
   assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('gh: Bad credentials (HTTP 401)')), /Command failed/);
   assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('gh: Bad Gateway (HTTP 502)')), /Command failed/);
   assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('dial tcp: i/o timeout')), /Command failed/);

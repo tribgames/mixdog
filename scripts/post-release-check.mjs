@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseMacFeed } from './merge-mac-update-feed.mjs';
-import { currentLatestTag, gh } from './release-guard.mjs';
+import { currentLatestTag, gh, isHttp404 } from './release-guard.mjs';
 
 // Keep in step with the per-platform `requirements` in
 // .github/workflows/release.yml (a unit test compares both). The Linux update
@@ -180,12 +180,12 @@ export function checkEffortJudge({ manifest, latestTag, getRelease }) {
   return problems;
 }
 
-/** The release for `tag`, or null when GitHub answers 404/not found. Any other failure throws. */
+/** The release for `tag`, or null only on an explicit HTTP 404. Any other failure throws. */
 export function getReleaseByTag(repo, tag, run = gh) {
   try {
     return JSON.parse(run(['api', `repos/${repo}/releases/tags/${tag}`]));
   } catch (error) {
-    if (/HTTP 404|Not Found/i.test(`${error.stderr ?? ''}${error.message}`)) return null;
+    if (isHttp404(error)) return null;
     throw error;
   }
 }

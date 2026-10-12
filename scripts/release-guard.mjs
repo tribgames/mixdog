@@ -46,12 +46,17 @@ export function listReleases(repo, run = gh) {
   return ghJson(['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`], run).flat();
 }
 
+/** True only for an explicit HTTP 404 from `gh api`; "not found" wording alone (e.g. behind a 500) is not absence. */
+export function isHttp404(error) {
+  return /\bHTTP 404\b/.test(`${error.stderr ?? ''}${error.message ?? ''}`);
+}
+
 /** Tag of the repo's current "Latest" release, or null when there is none. */
 export function currentLatestTag(repo, run = gh) {
   try {
     return run(['api', `repos/${repo}/releases/latest`, '--jq', '.tag_name']).trim() || null;
   } catch (error) {
-    if (/HTTP 404|Not Found/i.test(`${error.stderr ?? ''}${error.message ?? ''}`)) return null;
+    if (isHttp404(error)) return null;
     throw error;
   }
 }

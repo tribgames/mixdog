@@ -42,6 +42,7 @@ test('currentLatestTag maps a 404 to null and rethrows other failures', () => {
   assert.equal(currentLatestTag('o/r', () => 'v1.0.0\n'), 'v1.0.0');
   assert.equal(currentLatestTag('o/r', () => { throw Object.assign(new Error('x'), { stderr: 'gh: Not Found (HTTP 404)' }); }), null);
   assert.throws(() => currentLatestTag('o/r', () => { throw new Error('HTTP 500'); }), /HTTP 500/);
+  assert.throws(() => currentLatestTag('o/r', () => { throw Object.assign(new Error('x'), { stderr: 'resource not found (HTTP 500)' }); }), /x/);
 });
 
 test('asset releases are always created or published with --latest=false', () => {
