@@ -67,3 +67,20 @@ test('Enter after composing passes through exactly once', () => {
 test('late insertText duplicate of a data commit is not re-sent', () => {
   assert.equal(run([['start'], ['end', '한'], ['input', '한'], ['xterm', '한'], ['done']]), '한');
 });
+
+test('space, Latin letter and punctuation right after a commit (same task) are not lost', () => {
+  for (const next of [' ', 'a', ',', '.', '1']) {
+    assert.equal(run([...dataEnd('글'), ['xterm', next], ['done']]), '글' + next, "data commit then " + JSON.stringify(next));
+    assert.equal(run([...inputEnd('글'), ['xterm', next], ['done']]), '글' + next, "input commit then " + JSON.stringify(next));
+  }
+});
+
+test('한글 안녕하세요 with the space arriving before the finalize task', () => {
+  const out = run([
+    ['start'], ['end', '한'], ['xterm', '한'], ['done'],
+    ['start'], ['end', '글'], ['xterm', '글'], ['xterm', ' '], ['done'],
+    ['start'], ['end', '안'], ['xterm', '안'], ['done'],
+  ]);
+  assert.equal(out, '한글 안');
+});
+

@@ -3686,5 +3686,6 @@
   "Zoom to {{value0}}%": "{{value0}}%로",
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "키링이 잠겨 있습니다 — 잠금을 해제하세요 (다시 로그인하거나 \"암호 및 키\"를 여세요).",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "시스템 키링을 사용하려면 libsecret-tools를 설치하세요 (sudo apt install libsecret-tools).",
-  "The system keyring could not be read — check that it is running and unlocked.": "시스템 키링을 읽을 수 없습니다 — 실행 중이며 잠금 해제되어 있는지 확인하세요."
+  "The system keyring could not be read — check that it is running and unlocked.": "시스템 키링을 읽을 수 없습니다 — 실행 중이며 잠금 해제되어 있는지 확인하세요.",
+  "Unlock keyring": "키링 잠금 해제"
 }

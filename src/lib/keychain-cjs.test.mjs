@@ -75,9 +75,25 @@ test('linux setSecretAsync rejects with an install hint when secret-tool is miss
 
 // Fake `secret-tool` child: `behavior(args)` returns { stdout, stderr, code } or
 // { hang: true } (a locked keyring waiting on its unlock prompt) or { enoent }.
+let probeCalls = 0;
+let secretToolCalls = 0;
 function fakeSpawn(behavior) {
   return (cmd, args) => {
+    if (cmd === 'gdbus') {
+      probeCalls++;
+      const probe = new EventEmitter();
+      probe.stdout = new PassThrough();
+      probe.stderr = new PassThrough();
+      probe.kill = () => {};
+      setImmediate(() => {
+        probe.stdout.end(behavior(['__probe']).locked ? '(<true>,)\n' : '(<false>,)\n');
+        probe.stderr.end();
+        setImmediate(() => probe.emit('close', 0));
+      });
+      return probe;
+    }
     assert.equal(cmd, 'secret-tool');
+    secretToolCalls++;
     const child = new EventEmitter();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
@@ -226,6 +242,51 @@ test('linux: prewarm is bounded as a whole (search + lookups) and a background r
       assert.equal(keychain.keychainStatus().state, 'ok');
       assert.equal(recovered, 1);
       assert.equal(keychain.getSecret('acct'), 's3cret');
+    }
+  );
+});
+
+test('linux: background retry never runs secret-tool (no unlock prompt) while the keyring is locked; unlock then recovers; interactive retry may prompt', async () => {
+  let locked = true;
+  probeCalls = 0;
+  secretToolCalls = 0;
+  await withLinuxKeychain(
+    (args) => {
+      if (args[0] === '__probe') return { locked };
+      if (args[0] === 'search') return { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n' };
+      return { stdout: 's3cret' };
+    },
+    { MIXDOG_KEYCHAIN_RETRY_MS: '40' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      await new Promise((r) => setTimeout(r, 500));
+      assert.equal(secretToolCalls, 0, 'passive probing must not call secret-tool');
+      assert.ok(probeCalls >= 3, 'background probe keeps polling');
+      locked = false;
+      await new Promise((r) => setTimeout(r, 500));
+      assert.equal(keychain.keychainStatus().state, 'ok');
+      assert.equal(keychain.getSecret('acct'), 's3cret');
+      // The keyring locking after a successful read is detected passively.
+      locked = true;
+      await keychain.refreshKeychainStatus();
+      assert.equal(keychain.keychainStatus().state, 'locked');
+    }
+  );
+  // An explicit user action (Unlock button) is allowed to reach secret-tool.
+  secretToolCalls = 0;
+  await withLinuxKeychain(
+    (args) => {
+      if (args[0] === '__probe') return { locked: true };
+      if (args[0] === 'search') return { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n' };
+      return { stdout: 's3cret' };
+    },
+    { MIXDOG_KEYCHAIN_RETRY_MS: '100000' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      assert.equal(await keychain.retryKeychain({ interactive: true }), true);
+      assert.ok(secretToolCalls > 0);
     }
   );
 });

@@ -25,6 +25,7 @@ export class TerminalImeGuard {
   private composing = false;
   private finalizing = false;
   private committed = false;
+  private commitText = '';
 
   constructor(private readonly send: (data: string) => void) {}
 
@@ -36,8 +37,10 @@ export class TerminalImeGuard {
     this.composing = false;
     this.finalizing = true;
     this.committed = false;
+    this.commitText = '';
     if (printable(data)) {
       this.committed = true;
+      this.commitText = data;
       this.send(data);
     }
   }
@@ -47,6 +50,7 @@ export class TerminalImeGuard {
   inputCommit(text: string, inputType: string): void {
     if (!this.finalizing || this.committed || inputType !== 'insertText' || !printable(text)) return;
     this.committed = true;
+    this.commitText = text;
     this.send(text);
   }
 
@@ -57,7 +61,11 @@ export class TerminalImeGuard {
 
   /** True when xterm's data event is a duplicate of the guarded commit. */
   shouldDrop(data: string): boolean {
-    return (this.composing || this.finalizing) && printable(data);
+    if (!printable(data)) return false;
+    if (this.composing) return true;
+    // Finalizing: only xterm's echo of the committed text is a duplicate; a
+    // space, Latin letter or punctuation typed right after the commit is new input.
+    return this.finalizing && data === this.commitText;
   }
 
   attach(element: HTMLElement): () => void {

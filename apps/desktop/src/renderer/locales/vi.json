@@ -3686,5 +3686,6 @@
   "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "Chuỗi khóa đang bị khóa — hãy mở khóa (đăng nhập lại hoặc mở Mật khẩu và khóa).",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Cài libsecret-tools (sudo apt install libsecret-tools) để dùng chuỗi khóa của hệ thống.",
-  "The system keyring could not be read — check that it is running and unlocked.": "Không đọc được chuỗi khóa hệ thống — hãy kiểm tra nó đang chạy và đã được mở khóa."
+  "The system keyring could not be read — check that it is running and unlocked.": "Không đọc được chuỗi khóa hệ thống — hãy kiểm tra nó đang chạy và đã được mở khóa.",
+  "Unlock keyring": "Mở khóa chuỗi khóa"
 }

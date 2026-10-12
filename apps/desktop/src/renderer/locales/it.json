@@ -3772,5 +3772,6 @@
   "Zoom to {{value0}}%": "Zoom al {{value0}}%",
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "Il portachiavi è bloccato: sbloccalo (accedi di nuovo o apri Password e chiavi).",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Installa libsecret-tools (sudo apt install libsecret-tools) per usare il portachiavi di sistema.",
-  "The system keyring could not be read — check that it is running and unlocked.": "Impossibile leggere il portachiavi di sistema: verifica che sia in esecuzione e sbloccato."
+  "The system keyring could not be read — check that it is running and unlocked.": "Impossibile leggere il portachiavi di sistema: verifica che sia in esecuzione e sbloccato.",
+  "Unlock keyring": "Sblocca portachiavi"
 }

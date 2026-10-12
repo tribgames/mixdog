@@ -1,7 +1,17 @@
 // provider-auth/setup.mjs — read-side provider surfaces: the setup snapshot
 // (quick until the keychain is ready), usage dashboard, Codex reset credit and
 // the model catalog.
-import { retryKeychain } from '../../runtime/shared/config.mjs';
+import { refreshKeychainStatus, retryKeychain } from '../../runtime/shared/config.mjs';
+import { keychainIssueFor } from '../services/provider-admin.mjs';
+
+// The keyring alert must reflect the live state (it can lock or unlock while a
+// cached setup is served), so overlay it on every ready read.
+function withLiveKeychain(setup) {
+  if (!setup || typeof setup !== 'object') return setup;
+  const { keychain: _stale, ...rest } = setup;
+  const keychain = keychainIssueFor(true);
+  return keychain ? { ...rest, keychain } : rest;
+}
 
 export function createSetupApi({
   awaitKeychainPrewarm,
@@ -32,9 +42,10 @@ export function createSetupApi({
       await awaitKeychainPrewarm();
       // A keyring the user has since unlocked: rebuild the setup that was cached
       // while every stored key read as absent.
-      const recovered = await retryKeychain();
+      const recovered = await retryKeychain({ interactive: options?.unlockKeychain === true });
       if (force || recovered) reloadFullConfig();
-      return await cachedProviderSetup({ force: force || recovered });
+      await refreshKeychainStatus();
+      return withLiveKeychain(await cachedProviderSetup({ force: force || recovered }));
     },
     async getUsageDashboard(options = {}) {
       return await getUsageDashboard(options);

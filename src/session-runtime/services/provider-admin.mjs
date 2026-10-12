@@ -241,7 +241,7 @@ const KEYCHAIN_HINTS = Object.freeze({
   error: 'The system keyring could not be read — check that it is running and unlocked.',
 });
 
-function keychainIssueFor(checkSecrets) {
+export function keychainIssueFor(checkSecrets) {
   if (!checkSecrets) return null;
   const { state } = getKeychainStatus();
   const message = KEYCHAIN_HINTS[state];

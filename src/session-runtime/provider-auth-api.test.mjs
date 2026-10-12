@@ -39,7 +39,7 @@ const admin = {
     return { selectedId: change.selectedId ?? 'a1' };
   },
 };
-mock.module('./services/provider-admin.mjs', { namedExports: admin });
+mock.module('./services/provider-admin.mjs', { namedExports: { keychainIssueFor: () => null, ...admin } });
 mock.module('../runtime/agent/orchestrator/providers/admission-scheduler.mjs', {
   namedExports: { resetProviderAdmissionCooldowns: () => calls.push(['resetCooldowns']) },
 });

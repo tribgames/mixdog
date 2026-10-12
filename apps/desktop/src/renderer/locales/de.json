@@ -3729,5 +3729,6 @@
   "Zoom to {{value0}}%": "Auf {{value0}}% zoomen",
   "Keyring is locked — unlock it (log in again or open Passwords and Keys).": "Der Schlüsselbund ist gesperrt – entsperren Sie ihn (erneut anmelden oder „Passwörter und Schlüssel“ öffnen).",
   "Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.": "Installieren Sie libsecret-tools (sudo apt install libsecret-tools), um den System-Schlüsselbund zu verwenden.",
-  "The system keyring could not be read — check that it is running and unlocked.": "Der System-Schlüsselbund konnte nicht gelesen werden – prüfen Sie, ob er läuft und entsperrt ist."
+  "The system keyring could not be read — check that it is running and unlocked.": "Der System-Schlüsselbund konnte nicht gelesen werden – prüfen Sie, ob er läuft und entsperrt ist.",
+  "Unlock keyring": "Schlüsselbund entsperren"
 }

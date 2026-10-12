@@ -482,6 +482,52 @@ function _scheduleLinuxBackgroundRetry() {
   _linuxBgTimer.unref?.();
 }
 
+// Passive probe of the Secret Service default collection's Locked property.
+// Unlike secret-tool it never triggers GNOME's unlock prompt. Resolves true
+// (locked), false (unlocked) or null (cannot tell: no gdbus / no service).
+let _interactiveUnlock = false;
+function probeKeyringLocked() {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(
+        'gdbus',
+        [
+          'call', '--session', '--dest', 'org.freedesktop.secrets',
+          '--object-path', '/org/freedesktop/secrets/aliases/default',
+          '--method', 'org.freedesktop.DBus.Properties.Get',
+          'org.freedesktop.Secret.Collection', 'Locked',
+        ],
+        { env: secretToolEnv(), stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true }
+      );
+    } catch {
+      resolve(null);
+      return;
+    }
+    let stdout = '';
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      done(null);
+    }, 2000);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', () => {});
+    child.once('error', () => done(null));
+    child.once('close', (status) => done(status === 0 ? (/true/.test(stdout) ? true : /false/.test(stdout) ? false : null) : null));
+  });
+}
+
 function _noteKeychainFailure(error) {
   const message = String(error?.message || error);
   const state = /not installed/.test(message) ? 'missing' : /locked|timed out/.test(message) ? 'locked' : 'error';
@@ -551,6 +597,13 @@ async function _prewarmLinuxOnce() {
       }
       return ms;
     };
+    // Passive reads must never raise GNOME's unlock prompt: only an explicit
+    // user action (interactive) may run secret-tool against a locked keyring.
+    if (!_interactiveUnlock && (await probeKeyringLocked()) === true) {
+      const error = new Error(LINUX_LOCKED_MESSAGE);
+      error.detail = 'keyring collection is locked (passive probe)';
+      throw error;
+    }
     const epoch = _cacheEpoch;
     const generations = new Map(_cacheGenerations);
     const r = await secretToolAsync(['search', '--all', 'service', SERVICE], undefined, remaining());
@@ -739,16 +792,30 @@ function prewarmSecrets() {
   return _prewarmPromise;
 }
 
+/** Passive liveness check for a keyring that was readable: if it has locked
+ *  since, flag it (no prompt) and start the recovery retry loop. */
+async function refreshKeychainStatus() {
+  if (platform() !== 'linux' || _keychainStatus.state !== 'ok' || KEYCHAIN_CACHE_TTL_MS === 0) return;
+  if ((await probeKeyringLocked()) !== true) return;
+  _keychainStatus = { state: 'locked', message: LINUX_LOCKED_MESSAGE };
+  _scheduleLinuxBackgroundRetry();
+}
+
 /** Re-read a Linux keyring that previously failed (locked, tool missing, bad
  *  snapshot) — e.g. after the user unlocked it. Resolves true when this call
  *  recovered it, so callers can drop caches built while it was unavailable. */
-async function retryKeychain() {
+async function retryKeychain({ interactive = false } = {}) {
   if (platform() !== 'linux' || _keychainStatus.state === 'ok' || _keychainStatus.state === 'unknown') return false;
   if (_linuxPrewarmInFlight && _prewarmPromise) {
     await _prewarmPromise;
   } else {
     _prewarmPromise = null;
-    await prewarmSecrets();
+    _interactiveUnlock = interactive === true;
+    try {
+      await prewarmSecrets();
+    } finally {
+      _interactiveUnlock = false;
+    }
   }
   return _keychainStatus.state === 'ok';
 }
@@ -897,6 +964,7 @@ module.exports = {
   invalidateSecretCache,
   prewarmSecrets,
   retryKeychain,
+  refreshKeychainStatus,
   onKeychainRecovered,
   SERVICE,
 };
