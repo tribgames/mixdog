@@ -40,10 +40,13 @@ test('generated Windows input host refuses unarmed keyboard and pointer input', 
   );
   const payload = await runComputerProbe(probe);
   const resultsByName = Object.fromEntries(payload.results.map((entry) => [entry.name, entry]));
+  const failures = payload.results.filter((entry) => !entry.ok);
   assert.deepEqual(
-    payload.results.filter((entry) => !entry.ok).map((entry) => entry.name),
+    failures.map((entry) => entry.name),
     ['key', 'click'],
-    JSON.stringify(payload.results, null, 2)
+    // Successful snapshots can fill the bounded assertion message before the
+    // failed scenario. Preserve its actual diagnostic without relaxing checks.
+    JSON.stringify(failures, null, 2)
   );
   assert.match(resultsByName.key.error, /key requires focus_window first/);
   assert.match(resultsByName.click.error, /click requires focus_window first/);
