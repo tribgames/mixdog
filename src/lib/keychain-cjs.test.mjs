@@ -86,26 +86,41 @@ function fakeSpawn(behavior) {
       probe.stderr = new PassThrough();
       probe.kill = () => {};
       const p = behavior(['__probe']) || {};
-      const property = args[args.length - 1];
+      const method = args[args.indexOf('--method') + 1];
       const objectPath = args[args.indexOf('--object-path') + 1];
-      const collections = p.collections || { login: !!p.locked };
-      setImmediate(() => {
-        if (p.missing) return probe.emit('error', Object.assign(new Error('spawn gdbus ENOENT'), { code: 'ENOENT' }));
-        if (p.unreachable || (property === 'Locked' && !(objectPath.split('/').pop() in collections))) {
-          probe.stdout.end();
-          probe.stderr.end('Error: no such object');
-          return setImmediate(() => probe.emit('close', 1));
-        }
-        probe.stdout.end(
-          property === 'Collections'
-            ? `(<[${Object.keys(collections).map((n) => `objectpath '/org/freedesktop/secrets/collection/${n}'`).join(', ')}]>,)\n`
-            : `(<${collections[objectPath.split('/').pop()]}>,)\n`
+      // Mixdog's items as the Secret Service lists them: { account, locked? }.
+      // Default: whatever the fake secret-tool search reports, locked when the
+      // probe says so (other collections never matter — only Mixdog items do).
+      const items =
+        p.items ||
+        [...String(behavior(['search', '--all', 'service', 'mixdog'])?.stderr || '').matchAll(/attribute\.account = (.+)/g)].map(
+          (m) => ({ account: m[1], locked: !!p.locked })
         );
+      const pathOf = (item) => `/org/freedesktop/secrets/collection/${item.locked ? 'login' : 'default'}/${items.indexOf(item)}`;
+      const fail = (message) => {
+        probe.stdout.end();
+        probe.stderr.end(message);
+        setImmediate(() => probe.emit('close', 1));
+      };
+      setTimeout(() => {
+        if (p.missing) return probe.emit('error', Object.assign(new Error('spawn gdbus ENOENT'), { code: 'ENOENT' }));
+        if (p.unreachable) return fail('Error: no such object');
+        if (method.endsWith('.SearchItems')) {
+          const list = (locked) =>
+            items.filter((item) => !!item.locked === locked).map((item) => `objectpath '${pathOf(item)}'`);
+          const array = (entries) => (entries.length ? `[${entries.join(', ')}]` : '@ao []');
+          probe.stdout.end(`(${array(list(false))}, ${array(list(true))})\n`);
+        } else {
+          const item = items.find((candidate) => pathOf(candidate) === objectPath);
+          if (!item || item.gone) return fail(`Error: GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: Object does not exist at path “${objectPath}”`);
+          probe.stdout.end(`(<{'account': '${item.account}', 'service': 'mixdog'}>,)\n`);
+        }
         probe.stderr.end();
         setImmediate(() => probe.emit('close', 0));
-      });
+      }, p.delay || 0);
       return probe;
-    }    assert.equal(cmd, 'secret-tool');
+    }
+    assert.equal(cmd, 'secret-tool');
     secretToolCalls++;
     const child = new EventEmitter();
     child.stdout = new PassThrough();
@@ -155,20 +170,26 @@ async function withLinuxKeychain(behavior, env, fn) {
   }
 }
 
-test('linux: locked keyring never blocks the event loop and reports an unlock message', async () => {
-  await withLinuxKeychain(() => ({ hang: true }), { MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS: '300' }, async (keychain) => {
-    const started = Date.now();
-    assert.throws(() => keychain.getSecret('acct'), /keyring/i);
-    assert.equal(keychain.hasSecret('acct'), false);
-    assert.ok(Date.now() - started < 200, 'sync read returns immediately');
-    let ticks = 0;
-    const timer = setInterval(() => ticks++, 20);
-    await keychain.prewarmSecrets();
-    clearInterval(timer);
-    assert.ok(ticks >= 5, `event loop kept running during the locked wait (${ticks} ticks)`);
-    assert.equal(keychain.keychainStatus().state, 'locked');
-    assert.match(keychain.keychainStatus().message, /Unlock your keyring/);
-  });
+test('linux: an unanswered unlock prompt never blocks the event loop and reports an unlock message', async () => {
+  await withLinuxKeychain(
+    (args) => (args[0] === '__probe' ? { locked: true, items: [{ account: 'acct', locked: true }] } : { hang: true }),
+    { MIXDOG_KEYCHAIN_INTERACTIVE_TIMEOUT_MS: '300', MIXDOG_KEYCHAIN_RETRY_MS: '100000' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      const started = Date.now();
+      assert.throws(() => keychain.getSecret('acct'), /keyring/i);
+      assert.equal(keychain.hasSecret('acct'), false);
+      assert.ok(Date.now() - started < 200, 'sync read returns immediately');
+      let ticks = 0;
+      const timer = setInterval(() => ticks++, 20);
+      assert.equal(await keychain.retryKeychain({ interactive: true }), false);
+      clearInterval(timer);
+      assert.ok(ticks >= 5, `event loop kept running during the locked wait (${ticks} ticks)`);
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      assert.match(keychain.keychainStatus().message, /Unlock your keyring/);
+    }
+  );
 });
 
 test('linux: prewarm snapshot serves sync reads; absent accounts read as null; async delete clears', async () => {
@@ -209,28 +230,42 @@ test('linux: missing secret-tool reports the libsecret-tools hint', async () => 
   });
 });
 
-test('linux: a search whose items cannot all be matched to accounts is not cached as loaded; retry after unlock recovers', async () => {
+test('linux: a locked item list is not cached as loaded; an unlock is picked up without any read', async () => {
   let unlocked = false;
   await withLinuxKeychain(
     (args) => {
-      if (args[0] === 'search') {
-        return unlocked
-          ? { stdout: '[/org/x/1]\nsecret = s3cret\n', stderr: 'attribute.account = acct\n' }
-          : { stdout: '[/org/x/1]\nsecret = s3cret\n' };
-      }
+      if (args[0] === '__probe') return { items: [{ account: 'acct', locked: !unlocked }] };
       return args[0] === 'lookup' ? { stdout: 's3cret' } : { code: 1 };
     },
     { MIXDOG_KEYCHAIN_RETRY_MS: '50' },
     async (keychain) => {
       await keychain.prewarmSecrets();
       assert.equal(keychain.keychainStatus().state, 'locked');
-      // The internal parse detail never reaches the user-facing message.
-      assert.doesNotMatch(keychain.keychainStatus().message, /attribute|snapshot|item\(s\)/);
+      // The internal detail never reaches the user-facing message.
+      assert.doesNotMatch(keychain.keychainStatus().message, /attribute|snapshot|item\(s\)|passive|collection/);
       assert.throws(() => keychain.getSecret('acct'), /unlock it/);
       unlocked = true;
       await new Promise((r) => setTimeout(r, 400));
       assert.equal(keychain.getSecret('acct'), 's3cret');
       assert.equal(keychain.keychainStatus().state, 'ok');
+    }
+  );
+});
+
+test('linux: an interactive search that only lists items without attributes is still locked, not loaded', async () => {
+  await withLinuxKeychain(
+    (args) =>
+      args[0] === '__probe'
+        ? { locked: true, items: [{ account: 'acct', locked: true }] }
+        : args[0] === 'search'
+          ? { stdout: '[/org/x/1]\nsecret = s3cret\n' }
+          : { code: 1 },
+    { MIXDOG_KEYCHAIN_RETRY_MS: '100000' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(await keychain.retryKeychain({ interactive: true }), false);
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      assert.throws(() => keychain.getSecret('acct'), /unlock it/);
     }
   );
 });
@@ -288,18 +323,27 @@ test('linux: background retry never runs secret-tool (no unlock prompt) while th
   );
   // An explicit user action (Unlock button) is allowed to reach secret-tool.
   secretToolCalls = 0;
+  let unlocked = false;
+  const searches = [];
   await withLinuxKeychain(
     (args) => {
-      if (args[0] === '__probe') return { locked: true };
-      if (args[0] === 'search') return { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n' };
+      if (args[0] === '__probe') return { items: [{ account: 'acct', locked: !unlocked }] };
+      if (args[0] === 'search') {
+        searches.push(args);
+        unlocked = true; // `--unlock` raises the prompt; answering it unlocks
+        return { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n' };
+      }
       return { stdout: 's3cret' };
     },
     { MIXDOG_KEYCHAIN_RETRY_MS: '100000' },
     async (keychain) => {
       await keychain.prewarmSecrets();
       assert.equal(keychain.keychainStatus().state, 'locked');
+      assert.equal(searches.length, 0, 'passive prewarm raised no prompt');
       assert.equal(await keychain.retryKeychain({ interactive: true }), true);
-      assert.ok(secretToolCalls > 0);
+      assert.equal(searches.length, 1);
+      assert.ok(searches[0].includes('--unlock'), 'only --unlock makes secret-tool prompt');
+      assert.equal(keychain.getSecret('acct'), 's3cret');
     }
   );
 });
@@ -329,15 +373,83 @@ async function passiveCase(probe, expectState) {
 test('linux passive probe: gdbus missing -> unreachable, secret-tool never runs', async () => {
   await passiveCase({ missing: true }, 'unreachable');
 });
-test('linux passive probe: Secret Service unreachable / alias missing -> unreachable', async () => {
+test('linux passive probe: Secret Service unreachable -> unreachable', async () => {
   await passiveCase({ unreachable: true }, 'unreachable');
-  await passiveCase({ collections: {} }, 'unreachable');
 });
-test('linux passive probe: default unlocked but another collection locked -> locked, no secret-tool', async () => {
-  await passiveCase({ collections: { login: false, work: true } }, 'locked');
+test('linux passive probe: Mixdog items in a locked collection -> locked, no secret-tool', async () => {
+  await passiveCase({ items: [{ account: 'acct', locked: true }] }, 'locked');
 });
-test('linux passive probe: all collections unlocked -> snapshot runs', async () => {
-  await passiveCase({ collections: { login: false, work: false } }, 'ok');
+test('linux passive probe: Mixdog items unlocked -> snapshot runs', async () => {
+  await passiveCase({ items: [{ account: 'acct' }] }, 'ok');
+});
+
+test('linux: a locked collection without Mixdog items does not make the unlocked Default keyring read as locked', async () => {
+  // Real VM state: Default (holds the items) unlocked, Login locked and empty.
+  // SearchItems only reports Mixdog's items, so the Login collection is moot.
+  const calls = [];
+  await withLinuxKeychain(
+    (args) => {
+      calls.push(args[0]);
+      return args[0] === '__probe' ? { items: [{ account: 'acct' }, { account: 'other' }] } : { stdout: 's3cret' };
+    },
+    {},
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'ok');
+      assert.equal(keychain.getSecret('acct'), 's3cret');
+      assert.ok(!calls.includes('search'), 'no secret-tool search: items are listed through D-Bus');
+    }
+  );
+});
+
+test('linux: unlocked items stay readable while other Mixdog items sit in a locked collection; nothing prompts', async () => {
+  const calls = [];
+  await withLinuxKeychain(
+    (args) => {
+      calls.push(args[0]);
+      return args[0] === '__probe'
+        ? { items: [{ account: 'acct' }, { account: 'hidden', locked: true }] }
+        : { stdout: args[4] === 'acct' ? 's3cret' : '' };
+    },
+    { MIXDOG_KEYCHAIN_RETRY_MS: '100000' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      assert.equal(keychain.getSecret('acct'), 's3cret', 'the readable item is not refused');
+      assert.throws(() => keychain.getSecret('hidden'), /unlock it/, 'an uncached account is locked, not absent');
+      assert.deepEqual([...new Set(calls)].filter((c) => c === 'search' || c === 'store' || c === 'clear'), []);
+      assert.equal(calls.filter((c) => c === 'lookup').length, 1, 'only the unlocked item was looked up');
+    }
+  );
+});
+
+test('linux: an item the keyring lists but no longer has is skipped, not a snapshot failure', async () => {
+  await withLinuxKeychain(
+    (args) =>
+      args[0] === '__probe'
+        ? { items: [{ account: 'gone', gone: true }, { account: 'acct' }] }
+        : { stdout: 's3cret' },
+    {},
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'ok');
+      assert.equal(keychain.getSecret('acct'), 's3cret');
+      assert.equal(keychain.getSecret('gone'), null);
+    }
+  );
+});
+
+test('linux: no Mixdog item at all still runs the secret-tool listing (proves the tool is installed)', async () => {
+  secretToolCalls = 0;
+  await withLinuxKeychain(
+    (args) => (args[0] === '__probe' ? { items: [] } : { enoent: true }),
+    {},
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'missing');
+      assert.equal(secretToolCalls, 1);
+    }
+  );
 });
 
 test('linux: explicit interactive retry from an unreachable state may run secret-tool', async () => {
@@ -409,6 +521,83 @@ test('linux: raw secret-tool stderr never reaches user-facing errors', async () 
         assert.doesNotMatch(error.message, /home\/u|DBUS_X|boom/);
         return true;
       });
+    }
+  );
+});
+test('linux: Unlock keyring raises exactly one prompt, also while a passive retry is in flight or clicked twice', async () => {
+  let searches = 0;
+  let unlocked = false;
+  await withLinuxKeychain(
+    (args) => {
+      if (args[0] === '__probe') return { delay: 120, items: [{ account: 'acct', locked: !unlocked }] };
+      if (args[0] === 'search') {
+        searches++;
+        unlocked = true; // the prompt unlocks the collection
+        return { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n', delay: 80 };
+      }
+      return { stdout: 's3cret' };
+    },
+    { MIXDOG_KEYCHAIN_RETRY_MS: '40' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'locked');
+      // The background retry is now polling passively (slow gdbus); click twice meanwhile.
+      await new Promise((r) => setTimeout(r, 60));
+      const results = await Promise.all([
+        keychain.retryKeychain({ interactive: true }),
+        keychain.retryKeychain({ interactive: true }),
+      ]);
+      assert.equal(searches, 1, 'exactly one secret-tool prompt');
+      assert.equal(keychain.keychainStatus().state, 'ok');
+      assert.ok(results.includes(true));
+      assert.equal(keychain.getSecret('acct'), 's3cret');
+    }
+  );
+});
+
+test('linux: a declined prompt is not asked again by the second click already waiting on it', async () => {
+  let searches = 0;
+  await withLinuxKeychain(
+    (args) => {
+      if (args[0] === '__probe') return { items: [{ account: 'acct', locked: true }] };
+      if (args[0] === 'search') {
+        searches++;
+        return { code: 1, stderr: 'secret-tool: prompt dismissed', delay: 60 };
+      }
+      return { code: 1 };
+    },
+    { MIXDOG_KEYCHAIN_RETRY_MS: '100000' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      await Promise.all([keychain.retryKeychain({ interactive: true }), keychain.retryKeychain({ interactive: true })]);
+      assert.equal(searches, 1);
+      assert.equal(keychain.keychainStatus().state, 'locked');
+    }
+  );
+});
+
+test('linux: a focus re-check (force) re-snapshots before the TTL, a plain refresh does not', async () => {
+  const store = { a: 'one' };
+  await withLinuxKeychain(
+    (args) =>
+      args[0] === '__probe'
+        ? { items: Object.keys(store).map((account) => ({ account })) }
+        : args[0] === 'lookup'
+          ? args[4] in store
+            ? { stdout: store[args[4]] }
+            : { code: 1 }
+          : { code: 0 },
+    { MIXDOG_KEYCHAIN_SNAPSHOT_TTL_MS: '600000', MIXDOG_KEYCHAIN_RECHECK_MIN_MS: '0' },
+    async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.getSecret('a'), 'one');
+      store.b = 'bee'; // secret-tool store
+      delete store.a; // secret-tool clear
+      assert.equal(await keychain.refreshKeychainStatus(), false, 'within the TTL nothing is re-read');
+      assert.equal(keychain.getSecret('a'), 'one');
+      assert.equal(await keychain.refreshKeychainStatus({ force: true }), true);
+      assert.equal(keychain.getSecret('a'), null);
+      assert.equal(keychain.getSecret('b'), 'bee');
     }
   );
 });

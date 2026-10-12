@@ -457,6 +457,10 @@ function linuxGetBlocking(account) {
 // already treat a throw as "no stored key") and a retry is scheduled lazily.
 const LINUX_PREWARM_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS || 4000);
 const LINUX_PREWARM_RETRY_MS = Number(process.env.MIXDOG_KEYCHAIN_RETRY_MS || 5000);
+// An explicit "Unlock keyring" waits on the user typing a password.
+const LINUX_INTERACTIVE_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_INTERACTIVE_TIMEOUT_MS || 120000);
+// A window-focus re-check skips the TTL but not this floor (focus can flap).
+const LINUX_RECHECK_MIN_MS = Number(process.env.MIXDOG_KEYCHAIN_RECHECK_MIN_MS || 2000);
 const LINUX_LOCKED_MESSAGE =
   '[keychain] the keyring is locked — unlock it (log in again or open Passwords and Keys) and retry';
 let _linuxLoadedUntil = 0;
@@ -467,6 +471,8 @@ let _linuxSnapshotChanged = false;
 const LINUX_SNAPSHOT_TTL_MS = Number(process.env.MIXDOG_KEYCHAIN_SNAPSHOT_TTL_MS || 45000);
 let _linuxBgTimer = null;
 let _linuxBgAttempt = 0;
+let _interactiveUnlock = false;
+let _linuxPrewarmInteractive = false;
 const _recoveryListeners = new Set();
 let _keychainStatus = { state: 'unknown', message: '' };
 
@@ -497,74 +503,88 @@ function _scheduleLinuxBackgroundRetry() {
   _linuxBgTimer.unref?.();
 }
 
-// Passive probe of the Secret Service over D-Bus. Unlike secret-tool (whose
-// lookup/search can raise GNOME's "Authentication required" prompt) reading
-// properties never prompts. Every collection is checked, not only the default
-// alias: a locked non-default collection can prompt a search too.
-// Resolves 'unlocked' (all collections known and unlocked), 'locked' (any is
-// locked) or 'unknown' (no gdbus / service unreachable / unparsable). Passive
-// callers must treat 'unknown' as "do not run secret-tool".
-let _interactiveUnlock = false;
+// Passive access to the Secret Service over D-Bus. Unlike secret-tool (whose
+// lookup/search raises GNOME's "Authentication required" prompt as soon as a
+// MATCHING item sits in a locked collection) SearchItems never prompts: it
+// answers with the matching item paths split into unlocked and locked ones.
+// Only Mixdog's own items matter — a locked collection that holds none of them
+// (e.g. the login keyring next to an unlocked default one) is irrelevant.
+// 'unknown' (null) means no gdbus / service unreachable / unparsable; passive
+// callers must treat it as "do not run secret-tool".
 let _gdbusMissing = false;
 const SECRETS_DEST = 'org.freedesktop.secrets';
 const SECRETS_ROOT = '/org/freedesktop/secrets';
+const SECRET_SERVICE_IFACE = 'org.freedesktop.Secret.Service';
+const SECRET_ITEM_IFACE = 'org.freedesktop.Secret.Item';
 
-function gdbusGet(objectPath, iface, property) {
+/** One bounded gdbus method call; resolves { ok, out, err } (never rejects). */
+function gdbusCall(objectPath, method, args = []) {
   return new Promise((resolve) => {
     let child;
     try {
       child = spawn(
         'gdbus',
-        [
-          'call', '--session', '--dest', SECRETS_DEST, '--object-path', objectPath,
-          '--method', 'org.freedesktop.DBus.Properties.Get', iface, property,
-        ],
+        ['call', '--session', '--dest', SECRETS_DEST, '--object-path', objectPath, '--method', method, ...args],
         { env: secretToolEnv(), stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true }
       );
     } catch {
-      resolve(null);
+      resolve({ ok: false, out: '', err: '' });
       return;
     }
     let stdout = '';
+    let stderr = '';
     let settled = false;
-    const done = (value) => {
+    const done = (ok) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(value);
+      resolve({ ok, out: stdout, err: stderr });
     };
     const timer = setTimeout(() => {
       try {
         child.kill('SIGKILL');
       } catch {}
-      done(null);
+      done(false);
     }, 2000);
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
       stdout += chunk;
     });
-    child.stderr.on('data', () => {});
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
     child.once('error', (error) => {
       if (error?.code === 'ENOENT') _gdbusMissing = true;
-      done(null);
+      done(false);
     });
-    child.once('close', (status) => done(status === 0 ? stdout : null));
+    child.once('close', (status) => done(status === 0));
   });
 }
 
-async function probeKeyring() {
-  const list = await gdbusGet(SECRETS_ROOT, 'org.freedesktop.Secret.Service', 'Collections');
-  if (list === null) return 'unknown';
-  const paths = [...list.matchAll(/'(\/org\/freedesktop\/secrets\/collection\/[^']+)'/g)].map((m) => m[1]);
-  if (paths.length === 0) return 'unknown';
-  let locked = false;
-  for (const objectPath of paths) {
-    const out = await gdbusGet(objectPath, 'org.freedesktop.Secret.Collection', 'Locked');
-    if (out === null) return 'unknown';
-    if (/true/.test(out)) locked = true;
-    else if (!/false/.test(out)) return 'unknown';
-  }
-  return locked ? 'locked' : 'unlocked';
+// gdbus prints the (ao, ao) reply as `([objectpath '/…/7'], @ao [])`.
+function parseSearchItems(out) {
+  const array = '(@ao \\[\\s*\\]|\\[[^\\]]*\\])';
+  const m = new RegExp(`^\\(\\s*${array}\\s*,\\s*${array}\\s*\\)$`).exec(String(out).trim());
+  if (!m) return null;
+  const paths = (text) => [...text.matchAll(/'(\/org\/freedesktop\/secrets\/collection\/[^']+)'/g)].map((x) => x[1]);
+  return { unlocked: paths(m[1]), locked: paths(m[2]) };
+}
+
+/** Mixdog's items by lock state, or null when the service cannot be asked. */
+async function searchMixdogItems() {
+  const r = await gdbusCall(SECRETS_ROOT, `${SECRET_SERVICE_IFACE}.SearchItems`, [`{'service': '${SERVICE}'}`]);
+  return r.ok ? parseSearchItems(r.out) : null;
+}
+
+// An item's attributes are readable without unlocking its collection.
+// Resolves the account name, '' for an item that vanished since the search
+// (a keyring can list a just-deleted item), null when the call itself failed.
+async function itemAccount(objectPath) {
+  const r = await gdbusCall(objectPath, 'org.freedesktop.DBus.Properties.Get', [SECRET_ITEM_IFACE, 'Attributes']);
+  if (!r.ok) return /does not exist|UnknownObject|No such (object|item)/i.test(r.err) ? '' : null;
+  const m = /'account':\s*'((?:[^'\\]|\\.)*)'/.exec(r.out);
+  return m ? m[1].replace(/\\(.)/g, '$1') : '';
 }
 
 const LINUX_UNREACHABLE_MESSAGE =
@@ -630,12 +650,56 @@ function parseSecretToolSearchAccounts(stdout, stderr) {
   }
   return [...accounts];
 }
+// Which accounts to read, and whether Mixdog items are stuck in a locked
+// collection. Passive reads never prompt: SearchItems says which items are
+// unlocked, and only those are read. secret-tool is used only where that cannot
+// prompt without the user asking: to list accounts when no Mixdog item exists
+// at all (this also proves the tool is installed), and — for an explicit
+// `interactive` unlock — `search --unlock`, which is what raises the prompt
+// (a plain search lists locked items without attributes and never asks).
+// Its listing is not used: attributes and secrets arrive split across stdout
+// and stderr and one stale item makes the whole command fail, so the unlocked
+// items are listed through D-Bus again afterwards.
+async function _linuxAccountsToRead(interactive, remaining) {
+  let found = await searchMixdogItems();
+  if (found === null && !interactive) {
+    const error = new Error(LINUX_UNREACHABLE_MESSAGE);
+    error.code = 'KEYRING_UNREACHABLE';
+    throw error;
+  }
+  const listAccounts = async (args) => {
+    const r = await secretToolAsync(args, undefined, remaining());
+    // Exit 1 with an empty stderr just means "no items".
+    if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('search', r);
+    return { accounts: parseSecretToolSearchAccounts(r.stdout, r.stderr), lockedLeft: false };
+  };
+  if (found !== null && found.unlocked.length === 0 && found.locked.length === 0) {
+    return listAccounts(['search', '--all', 'service', SERVICE]);
+  }
+  if (interactive && (found === null || found.locked.length > 0)) {
+    const unlock = await secretToolAsync(['search', '--all', '--unlock', 'service', SERVICE], undefined, remaining());
+    found = await searchMixdogItems();
+    if (found === null) {
+      if (unlock.status !== 0 && (unlock.stderr || '').trim()) throw secretToolFailure('search', unlock);
+      return { accounts: parseSecretToolSearchAccounts(unlock.stdout, unlock.stderr), lockedLeft: false };
+    }
+  }
+  const names = await Promise.all(found.unlocked.map((objectPath) => itemAccount(objectPath)));
+  if (names.includes(null)) {
+    const error = new Error(LINUX_UNREACHABLE_MESSAGE);
+    error.code = 'KEYRING_UNREACHABLE';
+    throw error;
+  }
+  return { accounts: [...new Set(names.filter(Boolean))], lockedLeft: found.locked.length > 0 };
+}
 async function _prewarmLinuxOnce() {
   _linuxPrewarmInFlight = true;
+  const interactive = _interactiveUnlock;
+  _linuxPrewarmInteractive = interactive;
   try {
     if (KEYCHAIN_CACHE_TTL_MS === 0) return;
     // One deadline covers the search AND every per-account lookup.
-    const deadline = Date.now() + LINUX_PREWARM_TIMEOUT_MS;
+    const deadline = Date.now() + (interactive ? LINUX_INTERACTIVE_TIMEOUT_MS : LINUX_PREWARM_TIMEOUT_MS);
     const remaining = () => {
       const ms = deadline - Date.now();
       if (ms <= 0) {
@@ -645,34 +709,15 @@ async function _prewarmLinuxOnce() {
       }
       return ms;
     };
-    // Passive reads must never raise GNOME's unlock prompt: only an explicit
-    // user action (interactive) may run secret-tool against a locked keyring.
-    if (!_interactiveUnlock) {
-      const probe = await probeKeyring();
-      if (probe === 'locked') {
-        const error = new Error(LINUX_LOCKED_MESSAGE);
-        error.detail = 'a keyring collection is locked (passive probe)';
-        throw error;
-      }
-      if (probe === 'unknown') {
-        const error = new Error(LINUX_UNREACHABLE_MESSAGE);
-        error.code = 'KEYRING_UNREACHABLE';
-        throw error;
-      }
-    }
     const epoch = _cacheEpoch;
     const generations = new Map(_cacheGenerations);
-    const r = await secretToolAsync(['search', '--all', 'service', SERVICE], undefined, remaining());
-    // Exit 1 with an empty stderr just means "no items".
-    if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('search', r);
+    const { accounts, lockedLeft } = await _linuxAccountsToRead(interactive, remaining);
     if (_cacheEpoch !== epoch) return;
-    const accounts = parseSecretToolSearchAccounts(r.stdout, r.stderr);
     const values = [];
     for (const account of accounts) {
       const value = await linuxGetAsync(account, remaining());
       if (value !== null) values.push([account, value]);
-    }
-    if (_cacheEpoch !== epoch) return;
+    }    if (_cacheEpoch !== epoch) return;
     // Replace, not merge: values the keyring now holds overwrite the cache and
     // cached accounts the keyring no longer has are dropped, so external CLI /
     // other-process add, replace and delete are picked up. A same-process
@@ -680,7 +725,9 @@ async function _prewarmLinuxOnce() {
     const fresh = new Map(values);
     const prefix = `${SERVICE}\0`;
     let changed = false;
-    for (const key of [..._secretCache.keys()]) {
+    // Mixdog items in a locked collection cannot be listed: a cached account the
+    // readable items no longer show may live there, so nothing is dropped.
+    for (const key of lockedLeft ? [] : [..._secretCache.keys()]) {
       if (!key.startsWith(prefix)) continue;
       const account = key.slice(prefix.length);
       if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
@@ -695,6 +742,14 @@ async function _prewarmLinuxOnce() {
       _cacheSet(account, value);
     }
     _linuxSnapshotChanged = changed;
+    if (lockedLeft) {
+      // The readable items are cached; the rest of the keyring still needs an
+      // unlock, so the status stays locked and uncached accounts keep throwing
+      // that error instead of reading as absent.
+      const error = new Error(LINUX_LOCKED_MESSAGE);
+      error.detail = 'Mixdog items sit in a locked collection (passive search)';
+      throw error;
+    }
     _linuxSnapshotAt = Date.now();
     _linuxLoadedUntil =
       KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
@@ -869,12 +924,13 @@ function prewarmSecrets() {
 
 /** Passive refresh, called on provider-setup reads. While readable it detects a
  *  keyring that locked meanwhile (no prompt) and, once the snapshot is older
- *  than the TTL, re-snapshots it so external changes are picked up. Resolves
- *  true when cached values changed. Never runs secret-tool unless the passive
- *  probe proved every collection unlocked. */
-async function refreshKeychainStatus() {
+ *  than the TTL (or, for a window-focus re-check, `force`, at most every
+ *  LINUX_RECHECK_MIN_MS), re-snapshots it so external changes are picked up.
+ *  Resolves true when cached values changed. Never prompts. */
+async function refreshKeychainStatus({ force = false } = {}) {
   if (platform() !== 'linux' || _keychainStatus.state !== 'ok' || KEYCHAIN_CACHE_TTL_MS === 0) return false;
-  if (Date.now() - _linuxSnapshotAt >= LINUX_SNAPSHOT_TTL_MS) {
+  const age = Date.now() - _linuxSnapshotAt;
+  if (age >= (force ? LINUX_RECHECK_MIN_MS : LINUX_SNAPSHOT_TTL_MS)) {
     if (_linuxPrewarmInFlight && _prewarmPromise) await _prewarmPromise;
     else {
       _prewarmPromise = null;
@@ -883,7 +939,8 @@ async function refreshKeychainStatus() {
     }
     return _linuxSnapshotChanged;
   }
-  if ((await probeKeyring()) === 'locked') {
+  const found = await searchMixdogItems();
+  if (found && found.locked.length > 0) {
     _keychainStatus = { state: 'locked', message: LINUX_LOCKED_MESSAGE };
     _scheduleLinuxBackgroundRetry();
   }
@@ -891,23 +948,28 @@ async function refreshKeychainStatus() {
 }
 /** Re-read a Linux keyring that previously failed (locked, tool missing, bad
  *  snapshot) — e.g. after the user unlocked it. Resolves true when this call
- *  recovered it, so callers can drop caches built while it was unavailable. */
+ *  recovered it, so callers can drop caches built while it was unavailable.
+ *  `interactive` (an explicit user action) may raise the unlock prompt: a
+ *  passive attempt already in flight cannot, so it is awaited and then
+ *  followed by one interactive attempt — unless that attempt was interactive
+ *  itself, which already showed the (possibly declined) prompt. */
 async function retryKeychain({ interactive = false } = {}) {
   if (platform() !== 'linux' || _keychainStatus.state === 'ok' || _keychainStatus.state === 'unknown') return false;
   if (_linuxPrewarmInFlight && _prewarmPromise) {
     await _prewarmPromise;
-  } else {
-    _prewarmPromise = null;
-    _interactiveUnlock = interactive === true;
-    try {
-      await prewarmSecrets();
-    } finally {
-      _interactiveUnlock = false;
+    if (_keychainStatus.state === 'ok' || interactive !== true || _linuxPrewarmInteractive) {
+      return _keychainStatus.state === 'ok';
     }
+  }
+  _prewarmPromise = null;
+  _interactiveUnlock = interactive === true;
+  try {
+    await prewarmSecrets();
+  } finally {
+    _interactiveUnlock = false;
   }
   return _keychainStatus.state === 'ok';
 }
-
 function win32Set(account, value) {
   const dir = secretsDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });

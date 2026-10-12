@@ -643,9 +643,10 @@ export async function retryKeychain(options) {
   return typeof _retryKeychain === 'function' ? await _retryKeychain(options) : false;
 }
 
-/** Passively detect a keyring that locked after it was read (no unlock prompt). */
-export async function refreshKeychainStatus() {
-  if (typeof _refreshKeychainStatus === 'function') await _refreshKeychainStatus();
+/** Passively detect a keyring that locked after it was read and re-snapshot a
+ *  stale cache (no unlock prompt). Resolves true when stored values changed. */
+export async function refreshKeychainStatus(options) {
+  return typeof _refreshKeychainStatus === 'function' ? (await _refreshKeychainStatus(options)) === true : false;
 }
 
 /** Subscribe to a locked/failed Linux keyring becoming readable again. */

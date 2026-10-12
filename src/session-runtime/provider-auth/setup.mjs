@@ -46,7 +46,8 @@ export function createSetupApi({
       if (force || recovered) reloadFullConfig();
       // Passive: detects a re-locked keyring and re-snapshots a stale cache so
       // external (CLI / other process) changes show up.
-      const changed = await refreshKeychainStatus();
+      // `recheckKeychain` (window focus) skips the snapshot TTL.
+      const changed = await refreshKeychainStatus({ force: options?.recheckKeychain === true });
       if (changed) reloadFullConfig();
       return withLiveKeychain(await cachedProviderSetup({ force: force || recovered || changed }));
     },

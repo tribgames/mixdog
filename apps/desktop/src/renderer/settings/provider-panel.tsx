@@ -117,14 +117,17 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   // every ready read, so the alert appears/disappears live, including when the
   // keyring locks or is unlocked while this page is open.
   useEffect(() => {
-    const refresh = () => void runRef.current('getProviderSetup', [{}], 'keychain-refresh', true, true);
-    const timer = window.setInterval(refresh, 7000);
-    // Returning to the window re-checks the keyring (the daemon re-snapshots
-    // when its cache is older than the TTL).
-    window.addEventListener('focus', refresh);
+    const refresh = (recheckKeychain: boolean) => () =>
+      void runRef.current('getProviderSetup', [recheckKeychain ? { recheckKeychain } : {}], 'keychain-refresh', true, true);
+    const poll = refresh(false);
+    const onFocus = refresh(true);
+    const timer = window.setInterval(poll, 7000);
+    // Returning to the window re-snapshots the keyring right away instead of
+    // waiting for the daemon's TTL (secret-tool may have changed it meanwhile).
+    window.addEventListener('focus', onFocus);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener('focus', onFocus);
     };
   }, []);
   const keychainState = String(keychainIssue.state || '');
