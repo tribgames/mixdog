@@ -394,14 +394,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       }
     }
     if (lists.length) updateCustomOrders((current) => syncCustomOrders(current, lists));
-  }, [
-    activityFavoriteRows,
-    activityProjectGroups,
-    activityRows,
-    orderPrefs,
-    sessionsReady,
-    updateCustomOrders,
-  ]);
+  }, [activityFavoriteRows, activityProjectGroups, activityRows, orderPrefs, sessionsReady, updateCustomOrders]);
   const [archivedRowLimit, setArchivedRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const [bulkAction, setBulkAction] = useState<'' | 'archive-automations' | 'archive-recent' | 'restore' | 'delete'>(
     ''

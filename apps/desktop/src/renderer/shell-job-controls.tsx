@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import {
   cwdFolderName,
   shellFinishedLabel,
@@ -37,6 +37,16 @@ export function useShellStops(sessionId: string) {
 export function ShellJobContent({ row, clock, stop }: { row: JobRow; clock: number; stop: ShellStopState }) {
   const folder = cwdFolderName(row.cwd);
   const elapsed = row.startedAt > 0 ? formatWorkElapsed(clock - row.startedAt) || '0s' : '0s';
+  let detail: ReactNode = null;
+  if (stop === 'failed') {
+    detail = (
+      <small className="composer-island-row-error" role="alert">
+        {t("Island: Couldn't stop")}
+      </small>
+    );
+  } else if (folder) {
+    detail = <small title={row.cwd}>{folder}</small>;
+  }
   return (
     <>
       <span className="sidebar-resource-icon" aria-hidden="true">
@@ -48,13 +58,7 @@ export function ShellJobContent({ row, clock, stop }: { row: JobRow; clock: numb
             {row.label}
           </b>
         </span>
-        {stop === 'failed' ? (
-          <small className="composer-island-row-error" role="alert">
-            {t("Island: Couldn't stop")}
-          </small>
-        ) : folder ? (
-          <small title={row.cwd}>{folder}</small>
-        ) : null}
+        {detail}
       </span>
       <span className="agent-activity-status">
         {row.finished ? (

@@ -125,6 +125,21 @@ function AgentJobContent({ row, elapsed }: { row: JobRow; elapsed: string }) {
   );
 }
 
+/** The jobs panel tab's leading mark: agent activity, a live pulse while a
+ *  shell runs, or an idle dot when only finished shells remain. */
+function jobsTabMark(kind: JobKind, list: JobRow[], runningShells: number): ReactNode {
+  if (kind === 'agent') {
+    return (
+      <AgentMark
+        working={list.some((row) => !row.idle && !row.needsUser)}
+        needsUser={list.some((row) => row.needsUser)}
+      />
+    );
+  }
+  if (runningShells > 0) return <JobsPulse />;
+  return <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />;
+}
+
 function JobsPanel({
   sessionId,
   rows,
@@ -177,16 +192,7 @@ function JobsPanel({
                 aria-pressed={shown === kind}
                 onClick={() => onTab(kind)}
               >
-                {kind === 'agent' ? (
-                  <AgentMark
-                    working={list.some((row) => !row.idle && !row.needsUser)}
-                    needsUser={list.some((row) => row.needsUser)}
-                  />
-                ) : runningShells > 0 ? (
-                  <JobsPulse />
-                ) : (
-                  <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />
-                )}
+                {jobsTabMark(kind, list, runningShells)}
                 {label}
               </button>
             )
@@ -222,7 +228,10 @@ function JobsPanel({
                 <button
                   type="button"
                   className="composer-island-row-open"
-                  aria-label={[t('Open {{agent}}', { agent: [row.label, row.sub].filter(Boolean).join(' · ') }), elapsed]
+                  aria-label={[
+                    t('Open {{agent}}', { agent: [row.label, row.sub].filter(Boolean).join(' · ') }),
+                    elapsed,
+                  ]
                     .filter(Boolean)
                     .join(', ')}
                   onClick={() => onOpenRow?.(row)}
@@ -410,6 +419,16 @@ export function ComposerIsland({
   const shellRows = jobRows.filter((row) => row.kind === 'shell' && !row.finished);
   const finishedShellCount = jobRows.filter((row) => row.kind === 'shell' && row.finished).length;
   const shellCount = Math.max(Number(snapshot.shellJobs?.count) || 0, shellRows.length);
+  // The shell segment counts running shells; with none left it shows the
+  // finished ones (muted) so they can still be opened and dismissed.
+  const shellLive = shellCount > 0;
+  const shellSegCount = shellLive ? shellCount : finishedShellCount;
+  const shellSegTitle = shellLive
+    ? t('Shell {{shell}}', { shell: shellCount })
+    : t('Island: {{count}} finished shells', { count: finishedShellCount });
+  const shellSegText = shellLive
+    ? t('Island: {{count}} shells', { count: shellCount })
+    : t('Island: {{count}} finished shells', { count: finishedShellCount });
   // Finished shells keep the jobs panel open-able until dismissed.
   const running = agentRows.length + shellCount + finishedShellCount;
   const agentStates = [
@@ -553,35 +572,23 @@ export function ComposerIsland({
                   )}
                 </button>
               )}
-              {shellCount > 0 || finishedShellCount > 0 ? (
+              {shellSegCount > 0 && (
                 <button
                   type="button"
                   className="composer-island-seg composer-island-seg-shell"
-                  data-finished={shellCount === 0 ? 'true' : undefined}
+                  data-finished={shellLive ? undefined : 'true'}
                   aria-expanded={expanded === 'jobs' && jobsTab === 'shell'}
-                  title={
-                    shellCount > 0
-                      ? t('Shell {{shell}}', { shell: shellCount })
-                      : t('Island: {{count}} finished shells', { count: finishedShellCount })
-                  }
+                  title={shellSegTitle}
                   onClick={() => toggleJobs('shell')}
                 >
-                  <IslandSegLabel
-                    text={
-                      shellCount > 0
-                        ? t('Island: {{count}} shells', { count: shellCount })
-                        : t('Island: {{count}} finished shells', { count: finishedShellCount })
-                    }
-                    count={shellCount > 0 ? shellCount : finishedShellCount}
-                    icon="shell-prompt"
-                  />
-                  {shellCount > 0 ? (
+                  <IslandSegLabel text={shellSegText} count={shellSegCount} icon="shell-prompt" />
+                  {shellLive ? (
                     <JobsPulse />
                   ) : (
                     <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />
                   )}
                 </button>
-              ) : null}
+              )}
               {files}
             </div>
             {quotaPanel && quotaExhausted ? <QuotaPanel quota={quotaExhausted} /> : null}
