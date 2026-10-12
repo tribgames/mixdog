@@ -18,7 +18,7 @@ test('config load moves routes off the retired Daybreak Blue model and persists 
 
     // The last fetched catalog drives the migration; nothing names a model.
     writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'openai-oauth-models.json'), JSON.stringify({
-      version: 6,
+      version: 7,
       fetchedAt: Date.now(),
       models: [
         { id: 'gpt-6-astra', priority: 2, accessPrograms: ['standard'] },

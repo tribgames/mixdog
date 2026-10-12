@@ -13,7 +13,6 @@
 import { makeModelCache } from './model-cache.mjs';
 import { CODEX_MODEL_CACHE_OPTIONS } from './openai-oauth-catalog-store.mjs';
 import { enrichModels } from './model-catalog.mjs';
-import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { modelSupportsServiceTier } from './model-service-tiers.mjs';
 import { codexClientVersionSync, warmCodexClientVersion } from './codex-client-meta.mjs';
 import { compareSemver, maxSemver } from './npm-cli-version.mjs';
@@ -131,7 +130,11 @@ async function fetchCodexCatalog(ensureAuth, label) {
   const items = Array.isArray(data?.models) ? data.models : [];
   const normalized = items.map((m) => _normalizeCodexModel(m));
   _markLatestCodex(normalized);
-  const enriched = sanitizeModelList((await enrichModels(normalized)).filter(Boolean), { provider: 'openai-oauth' });
+  // The backend curates this list per account and client version and marks
+  // each row's picker visibility itself, so every row is kept: generic list
+  // pruning (external release dates, id patterns) dropped models it still
+  // serves, along with their access programs.
+  const enriched = (await enrichModels(normalized)).filter(Boolean);
   _modelCache.save(enriched, { clientVersion });
   return enriched;
 }

@@ -64,12 +64,12 @@ test('an empty catalog refreshes once and then fails loudly instead of guessing 
 });
 
 test('a catalog past its TTL still answers capability lookups but not freshness checks', () => {
-  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 6 });
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 7 });
   assert.ok(resolve(cache.path()).startsWith(dataDir + sep));
   const models = [
     { slug: 'gpt-6-astra', priority: 3, visibility: 'list', service_tiers: [{ id: 'priority', name: 'Fast' }] },
   ].map(_normalizeCodexModel);
-  writeFileSync(cache.path(), JSON.stringify({ version: 6, fetchedAt: Date.now() - 2 * 24 * 60 * 60_000, models }));
+  writeFileSync(cache.path(), JSON.stringify({ version: 7, fetchedAt: Date.now() - 2 * 24 * 60 * 60_000, models }));
 
   assert.equal(cache.loadSync(), null, 'the TTL still marks the cache as due for refetch');
   assert.equal(codexModelSupportsServiceTier('gpt-6-astra', 'priority'), true);
@@ -86,7 +86,7 @@ test('a fresh cache serves the picker, the lookups and the default model without
     { slug: 'gpt-reserve', priority: 1, visibility: 'hide', supports_reasoning_effort_updates: false },
     { slug: 'gpt-5.6-mini', priority: 9, visibility: 'list', additional_speed_tiers: ['priority'] },
   ].map(_normalizeCodexModel);
-  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 6 });
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 7 });
   assert.ok(
     resolve(cache.path()).startsWith(dataDir + sep),
     'the catalog cache must resolve inside the test sandbox before it is written'
@@ -127,7 +127,7 @@ test('a fresh cache serves the picker, the lookups and the default model without
 });
 
 test('a catalog fetched for an older client version is refetched, and kept if that fails', async () => {
-  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 6 });
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 7 });
   assert.ok(resolve(cache.path()).startsWith(dataDir + sep));
   const models = [{ slug: 'gpt-6-astra', priority: 2, visibility: 'list' }].map(_normalizeCodexModel);
 
@@ -153,7 +153,7 @@ test('a catalog fetched for an older client version is refetched, and kept if th
 });
 
 test('a hidden highest-priority model is never the default; the visible next-best is', async () => {
-  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 6 });
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 7 });
   assert.ok(resolve(cache.path()).startsWith(dataDir + sep));
   const models = [
     { ..._normalizeCodexModel({ slug: 'gpt-daybreak-blue-latest', priority: 0, visibility: 'list' }), hidden: true },
@@ -164,4 +164,39 @@ test('a hidden highest-priority model is never the default; the visible next-bes
   await listCodexModels(rejectAuth);
   assert.equal(resolveLatestCodexModel(), 'gpt-6-astra');
   assert.equal(await ensureLatestCodexModel(rejectAuth), 'gpt-6-astra');
+});
+
+test('a fetched catalog keeps every row the backend lists; visibility alone hides one', async () => {
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 7 });
+  assert.ok(resolve(cache.path()).startsWith(dataDir + sep));
+  // Recorded for an older client, so the next listing refetches.
+  cache.save([], { clientVersion: '0.144.1' });
+  const blue = { available_access_programs: { cyber: ['standard', 'daybreak_blue'] } };
+  const served = [
+    { slug: 'gpt-6.1-sol', priority: 1, visibility: 'list', available_access_programs: { cyber: ['standard'] } },
+    { slug: 'gpt-6-sol', priority: 3, visibility: 'list', ...blue },
+    { slug: 'gpt-6-luna', priority: 4, visibility: 'list', ...blue },
+    { slug: 'gpt-5.6-sol', priority: 6, visibility: 'list', ...blue },
+    { slug: 'gpt-5.6-luna', priority: 8, visibility: 'list', ...blue },
+    { slug: 'codex-auto-review', priority: 30, visibility: 'hide', ...blue },
+  ];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) =>
+    String(url).includes('/codex/models')
+      ? { ok: true, status: 200, json: async () => ({ models: served }) }
+      : { ok: false, status: 404, json: async () => ({}) };
+  try {
+    const listed = await listCodexModels(() => ({ access_token: 'token', account_id: 'account' }));
+    assert.deepEqual(
+      listed.map((model) => model.id),
+      served.map((model) => model.slug)
+    );
+    assert.deepEqual(
+      listed.filter((model) => model.hidden === true).map((model) => model.id),
+      ['codex-auto-review']
+    );
+    assert.deepEqual(findCachedCodexModel('gpt-6-sol').accessPrograms, ['standard', 'daybreak_blue']);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });

@@ -64,7 +64,7 @@ const catalog = [
   // No access-program data at all: only the static fallback can answer.
   { slug: 'gpt-6-luna-nodata', priority: 20 },
 ];
-makeModelCache({ fileName: 'openai-oauth-models.json', version: 6, ttlMs: 60_000 }).save(
+makeModelCache({ fileName: 'openai-oauth-models.json', version: 7, ttlMs: 60_000 }).save(
   catalog.map(_normalizeCodexModel)
 );
 

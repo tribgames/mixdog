@@ -13,7 +13,7 @@ import { formatScheduleModelRef, parseScheduleModelRef } from '../../../shared/s
 export const CODEX_MODEL_CACHE_OPTIONS = Object.freeze({
   fileName: 'openai-oauth-models.json',
   ttlMs: 24 * 60 * 60_000,
-  version: 6,
+  version: 7,
 });
 
 export const CODEX_PROVIDER_ID = 'openai-oauth';
