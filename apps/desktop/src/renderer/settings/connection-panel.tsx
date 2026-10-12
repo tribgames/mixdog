@@ -140,7 +140,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     const requested = takeConnectionDialogRequest();
     return requested ? { kind: requested } : null;
   });
-  const [settings, setSettings] = useRemoteAccessSettings(api);
+  const [settings, setSettings, settingsSettled] = useRemoteAccessSettings(api);
   const { hosts, refresh: refreshHosts } = useRemoteHosts(api);
   const enabled = settings ? settings.enabled : info?.enabled !== false;
   const enabledRef = useRef(enabled);
@@ -222,7 +222,16 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     applyConnectionResult(api.revokeRemoteAccessClient(id), applyInfo, () => setRevokingClient(''));
   };
 
-  const identity = settings && (
+  // Until the host answers, the card's two 56px rows are held empty so the
+  // toolbar and lists below do not jump down when it arrives.
+  const identityPending = !settings && !settingsSettled && Boolean(api.getRemoteAccessSettings);
+  const identity = identityPending ? (
+    <div className="conn-card" aria-hidden="true">
+      <div className="conn-row" />
+      <div className="conn-row" />
+    </div>
+  ) : (
+    settings && (
     <div className="conn-card">
       <ConnRow
         icon={<Monitor size={16} aria-hidden="true" />}
@@ -261,6 +270,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
         />
       </div>
     </div>
+    )
   );
 
   const devices = ready ? (
