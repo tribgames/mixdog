@@ -24,10 +24,23 @@ import {
   type SidebarResizeStart,
   PROJECT_SESSION_PAGE_ROWS,
   groupProjectSessions,
-  persistExpandedProjects,
   projectsSection,
-  readStoredExpandedProjects,
 } from './session-sidebar-sections';
+import {
+  AUTOMATION_OPEN_KEY,
+  PROJECT_OPEN_KEY,
+  SECTION_OPEN_DEFAULTS,
+  SECTION_OPEN_KEY,
+  closedKeys,
+  isOpen,
+  readOpenMap,
+  readProjectOpenMap,
+  toggleOpen,
+  withOpen,
+  writeOpenMap,
+  type OpenMap,
+  type OpenStateStorage,
+} from './sidebar-open-state';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import {
@@ -57,6 +70,25 @@ const RECENT_SESSION_PAGE_ROWS = 32;
  *  before the next page is revealed — shared by the IntersectionObserver
  *  rootMargin and the onScroll fallback so both page at the same moment. */
 const RECENT_SENTINEL_REVEAL_MARGIN_PX = 240;
+
+/** Open/collapsed map persisted under `storageKey`; updates write through. */
+function usePersistedOpenMap(
+  storageKey: string,
+  read: (storage: OpenStateStorage, storageKey: string) => OpenMap
+): [OpenMap, (update: (current: OpenMap) => OpenMap) => void] {
+  const [map, setMap] = useState<OpenMap>(() => read(window.localStorage, storageKey));
+  const update = useCallback(
+    (change: (current: OpenMap) => OpenMap) => {
+      setMap((current) => {
+        const next = change(current);
+        if (next !== current) writeOpenMap(window.localStorage, storageKey, next);
+        return next;
+      });
+    },
+    [storageKey]
+  );
+  return [map, update];
+}
 
 function useSessionListPaging(
   scrollerRef: React.RefObject<HTMLDivElement | null>,
@@ -254,46 +286,46 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       return next;
     });
   }, []);
-  const [favoritesOpen, setFavoritesOpen] = useState(true);
+  // Open/collapsed choices persist; an absent entry falls back to its default
+  // (everything open except Archived).
+  const [sectionOpen, updateSectionOpen] = usePersistedOpenMap(SECTION_OPEN_KEY, readOpenMap);
+  const sectionIsOpen = (id: string) => isOpen(sectionOpen, id, SECTION_OPEN_DEFAULTS[id] ?? true);
+  const toggleSection = (id: string) =>
+    updateSectionOpen((current) => toggleOpen(current, id, SECTION_OPEN_DEFAULTS[id] ?? true));
+  const favoritesOpen = sectionIsOpen('favorites');
+  const recentOpen = sectionIsOpen('recent');
+  const projectsOpen = sectionIsOpen('projects');
+  const automationsOpen = sectionIsOpen('automations');
+  const archivedOpen = sectionIsOpen('archived');
   // allRows is activity-desc, which is the order the grouped runs keep.
   const automationGroups = useMemo(() => groupAutomationSessions(allRows), [allRows]);
-  // Tracks the COLLAPSED groups, so every automation group — including one that
-  // appears after a fresh fire — renders expanded by default (user decision:
-  // opening the app on a collapsed list buried the runs behind an extra click).
-  const [collapsedAutomations, setCollapsedAutomations] = useState<ReadonlySet<string>>(new Set());
-  const toggleAutomationGroup = useCallback((key: string) => {
-    setCollapsedAutomations((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // Only explicit choices are stored, so every automation group — including one
+  // that appears after a fresh fire — renders expanded by default (user
+  // decision: opening the app on a collapsed list buried the runs behind an
+  // extra click).
+  const [automationOpen, updateAutomationOpen] = usePersistedOpenMap(AUTOMATION_OPEN_KEY, readOpenMap);
+  const collapsedAutomations = useMemo(() => closedKeys(automationOpen), [automationOpen]);
+  const toggleAutomationGroup = useCallback(
+    (key: string) => updateAutomationOpen((current) => toggleOpen(current, key)),
+    [updateAutomationOpen]
+  );
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);
   const automationRows = useMemo(() => automationGroups.flatMap(({ runs }) => runs), [automationGroups]);
   const deletableArchivedRows = useMemo(
     () => archivedRows.filter((session) => session.archived === true),
     [archivedRows]
   );
-  const [recentOpen, setRecentOpen] = useState(true);
   const [recentRowLimit, setRecentRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
-  const [projectsOpen, setProjectsOpen] = useState(true);
   const sectionOrder = usePersistedListOrder('mixdog:session-sidebar-section-order', SIDEBAR_SECTIONS, {
     dropAnchor: ':scope > .sidebar-category-header',
   });
-  const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(
-    () => new Set(readStoredExpandedProjects())
-  );
+  // Explicit folder choices only; a folder without an entry is open.
+  const [projectOpen, updateProjectOpen] = usePersistedOpenMap(PROJECT_OPEN_KEY, readProjectOpenMap);
   const [projectRowLimits, setProjectRowLimits] = useState<ReadonlyMap<string, number>>(new Map());
-  const toggleProject = useCallback((key: string) => {
-    setExpandedProjects((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      persistExpandedProjects([...next]);
-      return next;
-    });
-  }, []);
+  const toggleProject = useCallback(
+    (key: string) => updateProjectOpen((current) => toggleOpen(current, key)),
+    [updateProjectOpen]
+  );
   const showMoreProjectRows = useCallback((key: string) => {
     setProjectRowLimits((current) =>
       new Map(current).set(key, (current.get(key) ?? PROJECT_SESSION_PAGE_ROWS) + RECENT_SESSION_PAGE_ROWS)
@@ -311,6 +343,24 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           ),
     [allRows, projects]
   );
+  // Selecting a session (identity change, not a list refresh) opens its
+  // collapsed project folder. The id is remembered once its folder is found, so
+  // collapsing that folder again while the session stays selected sticks.
+  const selectedSessionId = selection.kind === 'session' ? selection.id : '';
+  const revealedSelectionRef = useRef('');
+  useEffect(() => {
+    if (!selectedSessionId) {
+      revealedSelectionRef.current = '';
+      return;
+    }
+    if (revealedSelectionRef.current === selectedSessionId) return;
+    const group = activityProjectGroups.find((candidate) =>
+      candidate.rows.some((session) => session.id === selectedSessionId)
+    );
+    if (!group) return;
+    revealedSelectionRef.current = selectedSessionId;
+    updateProjectOpen((current) => withOpen(current, group.key, true));
+  }, [activityProjectGroups, selectedSessionId, updateProjectOpen]);
   const activityProjectKeys = useMemo(() => activityProjectGroups.map((group) => group.key), [activityProjectGroups]);
   const projectOrder = usePersistedListOrder('mixdog:session-sidebar-project-order', activityProjectKeys, {
     dropAnchor: ':scope > .project-folder',
@@ -352,8 +402,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     sessionsReady,
     updateCustomOrders,
   ]);
-  const [automationsOpen, setAutomationsOpen] = useState(true);
-  const [archivedOpen, setArchivedOpen] = useState(false);
   const [archivedRowLimit, setArchivedRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const [bulkAction, setBulkAction] = useState<'' | 'archive-automations' | 'archive-recent' | 'restore' | 'delete'>(
     ''
@@ -424,7 +472,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     const limit = projectRowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
     orderLists.set(`project:${group.key}`, {
       rows: group.rows,
-      visible: expandedProjects.has(group.key) ? Math.min(limit, group.rows.length) : 0,
+      visible: isOpen(projectOpen, group.key) ? Math.min(limit, group.rows.length) : 0,
     });
   }
   const visibleOrderIds = [...orderLists].flatMap(([listKey, list]) =>
@@ -549,7 +597,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     automationsOpen,
     captureRecentScrollAnchor,
     collapsedAutomations,
-    expandedProjects,
+    projectOpen,
     projectGroups,
     projectRowLimits,
     projectsOpen,
@@ -711,7 +759,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     if (alias && alias !== current.original) onRenameProject?.(group.path, alias);
   };
   const openProjectMenu = (group: ProjectSessionGroup, point: { x: number; y: number }) => {
-    const expanded = expandedProjects.has(group.key);
+    const expanded = isOpen(projectOpen, group.key);
     const items: ScmContextMenuItem[] = [
       {
         id: 'new-task',
@@ -915,7 +963,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           favoritesSection({
             rows: favoriteRows,
             open: favoritesOpen,
-            onToggleOpen: () => setFavoritesOpen((open) => !open),
+            onToggleOpen: () => toggleSection('favorites'),
             headerProps,
             renderSessionRow: (session) => renderOrderedRow(session, 'favorites'),
           })
@@ -926,8 +974,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           projectsSection({
             groups: projectGroups,
             open: projectsOpen,
-            onToggleOpen: () => setProjectsOpen((open) => !open),
-            expandedProjects,
+            onToggleOpen: () => toggleSection('projects'),
+            projectOpen,
             onToggleProject: toggleProject,
             rowLimits: projectRowLimits,
             onShowMore: showMoreProjectRows,
@@ -955,7 +1003,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           automationsSection({
             groups: automationGroups,
             open: automationsOpen,
-            onToggleOpen: () => setAutomationsOpen((open) => !open),
+            onToggleOpen: () => toggleSection('automations'),
             hasHeadingDot: automationsHaveHeadingDot,
             archiveAllDisabled: Boolean(bulkAction) || automationRows.length === 0,
             onArchiveAll: () => {
@@ -977,7 +1025,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           hasMoreRows: hasMoreRecentRows,
           sentinelRef: recentSentinelRef,
           open: recentOpen,
-          onToggleOpen: () => setRecentOpen((open) => !open),
+          onToggleOpen: () => toggleSection('recent'),
           hasHeadingDot: recentHasHeadingDot,
           archiveAllDisabled: Boolean(bulkAction) || rows.length === 0,
           onArchiveAll: () => {
@@ -996,7 +1044,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             open: archivedOpen,
             onToggleOpen: () => {
               setArchivedRowLimit(RECENT_SESSION_INITIAL_ROWS);
-              setArchivedOpen((open) => !open);
+              toggleSection('archived');
             },
             actionsDisabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
             onRestoreAll: () => {

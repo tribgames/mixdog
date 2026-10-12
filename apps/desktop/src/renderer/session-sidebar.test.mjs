@@ -525,18 +525,20 @@ test('registered projects list as folders above an unchanged Recent', async () =
       groups().map((group) => group.querySelector('.project-folder-toggle').textContent),
       ['alpha-app', 'Beta', 'Empty']
     );
-    // Folders start closed; opening one shows its sessions, an empty one says so.
-    assert.deepEqual(ids(projectsSection), []);
+    // Folders start open: their sessions show, an empty one says so.
+    assert.deepEqual(ids(groups()[0]), ['alpha-cwd', 'alpha-old']);
+    assert.match(groups()[2].textContent, /No sessions/);
+    // Collapsing stores the explicit choice.
     await act(async () => {
       groups()[0].querySelector('.project-folder-toggle').click();
       groups()[2].querySelector('.project-folder-toggle').click();
     });
-    assert.deepEqual(ids(groups()[0]), ['alpha-cwd', 'alpha-old']);
-    assert.match(groups()[2].textContent, /No sessions/);
-    assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-expanded-projects')), [
-      'c:/work/alpha',
-      'c:/work/empty',
-    ]);
+    assert.deepEqual(ids(groups()[0]), []);
+    assert.doesNotMatch(groups()[2].textContent, /No sessions/);
+    assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-project-open')), {
+      'c:/work/alpha': false,
+      'c:/work/empty': false,
+    });
     await act(async () => {
       groups()[1].querySelector('.project-folder-new').click();
     });
@@ -642,7 +644,7 @@ test('right-click menus offer per-target actions for sessions and project folder
     await act(async () => rightClick(folder));
     assert.deepEqual(menuLabels(), [
       'New task',
-      'Expand Alpha',
+      'Collapse Alpha',
       'Reveal in Explorer',
       'Copy path',
       'Rename',
@@ -667,6 +669,75 @@ test('right-click menus offer per-target actions for sessions and project folder
     });
     assert.deepEqual(calls.pop(), ['rename-project', 'C:/Work/Alpha', 'Alpha App']);
     assert.equal(folder.querySelector('.project-folder-rename'), null);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('sections and folders default open, persist choices, and a selected session reveals its folder once', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  const row = (id, fields = {}) => ({
+    id,
+    title: id,
+    preview: '',
+    updatedAt: 1,
+    activityAt: 1,
+    messageCount: 1,
+    cwd: 'C:/Work/Alpha',
+    classification: 'task',
+    projectPath: null,
+    working: false,
+    ...fields,
+  });
+  // The new map wins over a stale legacy key (migration itself is unit-tested).
+  window.localStorage.setItem('mixdog:session-sidebar-expanded-projects', JSON.stringify(['c:/work/beta']));
+  window.localStorage.setItem('mixdog:session-sidebar-project-open', JSON.stringify({ 'c:/work/alpha': false }));
+  const props = (selection) => ({
+    open: true,
+    sessions: [row('a1'), row('a2'), row('b1', { cwd: 'C:/Work/Beta' })],
+    sessionsReady: true,
+    projects: [
+      { name: 'Alpha', path: 'C:/Work/Alpha', alias: null },
+      { name: 'Beta', path: 'C:/Work/Beta', alias: null },
+    ],
+    selection,
+    onNewTask() {},
+    onNewStudio() {},
+    onResumeSession() {},
+    async onRenameSession() {},
+    async onArchiveSession() {},
+    async onDeleteSession() {},
+  });
+  const projectsSection = () => document.querySelector('section[aria-label="Projects"]');
+  const alphaIds = () =>
+    [...projectsSection().querySelectorAll('.project-group')[0].querySelectorAll('.session-row[data-session-id]')].map(
+      (node) => node.dataset.sessionId
+    );
+  const stored = () => JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-project-open'));
+  try {
+    await act(async () => root.render(React.createElement(SessionSidebar, props({ kind: 'new' }))));
+    // The new key already exists, so the legacy key is left alone and alpha stays collapsed.
+    assert.deepEqual(alphaIds(), []);
+    // Selecting a session inside the collapsed folder opens it and persists.
+    await act(async () => root.render(React.createElement(SessionSidebar, props({ kind: 'session', id: 'a2' }))));
+    assert.deepEqual(alphaIds(), ['a1', 'a2']);
+    assert.equal(stored()['c:/work/alpha'], true);
+    // Collapsing while the same session stays selected is not undone by a refresh.
+    await act(async () => {
+      projectsSection().querySelector('.project-folder-toggle').click();
+    });
+    assert.deepEqual(alphaIds(), []);
+    await act(async () => root.render(React.createElement(SessionSidebar, props({ kind: 'session', id: 'a2' }))));
+    assert.deepEqual(alphaIds(), []);
+    // Section choices persist as a map; Archived is the only default-closed section.
+    const recentToggle = document.querySelector('section[aria-label="Recent sessions"] .sidebar-heading-toggle');
+    await act(async () => recentToggle.click());
+    assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-section-open')), {
+      recent: false,
+    });
   } finally {
     await act(async () => root.unmount());
     restore();

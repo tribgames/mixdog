@@ -16,6 +16,7 @@ import { t, uiFormatLocale } from './i18n';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { sessionLabel } from './session-sidebar-rows';
 import { projectIdentity } from './project-catalog-cache';
+import { isOpen, type OpenMap } from './sidebar-open-state';
 
 const DEFAULT_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_DEFAULT_WIDTH;
 export const MIN_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
@@ -376,26 +377,8 @@ export function recentSection({
   );
 }
 
-const EXPANDED_PROJECTS_KEY = 'mixdog:session-sidebar-expanded-projects';
 /** Sessions a project folder shows when opened; More reveals the next batch. */
 export const PROJECT_SESSION_PAGE_ROWS = 5;
-
-function readStoredKeys(storageKey: string): string[] {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(storageKey) || '[]');
-    return Array.isArray(value) ? value.filter((key): key is string => typeof key === 'string' && key !== '') : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeStoredKeys(storageKey: string, keys: readonly string[]) {
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(keys));
-  } catch {
-    // The live order/collapse still applies when persistent storage is unavailable.
-  }
-}
 
 /** Drag-reorder props from usePersistedListOrder, spread on a section header
  *  or a project folder row. */
@@ -411,9 +394,6 @@ function reorderTarget(props?: ReorderProps) {
   const { draggable: _grip, onDragStart: _start, onDragEnd: _end, ...target } = props;
   return target;
 }
-
-export const readStoredExpandedProjects = () => readStoredKeys(EXPANDED_PROJECTS_KEY);
-export const persistExpandedProjects = (keys: readonly string[]) => writeStoredKeys(EXPANDED_PROJECTS_KEY, keys);
 
 export type ProjectSessionGroup = { key: string; path: string; name: string; rows: DesktopSessionSummary[] };
 
@@ -448,7 +428,7 @@ export function projectsSection({
   groups,
   open,
   onToggleOpen,
-  expandedProjects,
+  projectOpen,
   onToggleProject,
   rowLimits,
   onShowMore,
@@ -473,7 +453,8 @@ export function projectsSection({
   groups: ProjectSessionGroup[];
   open: boolean;
   onToggleOpen(): void;
-  expandedProjects: ReadonlySet<string>;
+  /** Explicit folder open choices; a folder without an entry is open. */
+  projectOpen: OpenMap;
   onToggleProject(key: string): void;
   rowLimits: ReadonlyMap<string, number>;
   onShowMore(key: string): void;
@@ -499,7 +480,7 @@ export function projectsSection({
       {open && (
         <nav className="session-list project-session-list" aria-label={t('Projects')}>
           {groups.map((group) => {
-            const expanded = expandedProjects.has(group.key);
+            const expanded = isOpen(projectOpen, group.key);
             const reorder = folderReorderProps(group.key);
             const limit = rowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
             const unread = !expanded && group.rows.some((session) => unreadSessionIds?.has(session.id) === true);
