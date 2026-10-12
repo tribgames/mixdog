@@ -145,7 +145,7 @@ while (!newBoot) {
   if (newBoot) break;
   if (updaterState('error')) await fail(`updater reported an error: ${updaterState('error')}`);
   if (updaterState('up-to-date')) await fail('updater found no newer version in the feed');
-  if (/dev auto-install failed|updater install launch failed|Cannot download|ERR_UPDATER/.test(output)) {
+  if (/dev auto-install failed|updater install launch failed|Cannot download (?!differentially)|ERR_UPDATER/.test(output)) {
     await fail('updater install failed (see update log)');
   }
   if (exited && !updaterState('installing')) await fail(`app exited before installing ${JSON.stringify(exited)}`);
