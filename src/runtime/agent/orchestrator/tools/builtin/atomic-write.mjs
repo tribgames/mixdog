@@ -95,16 +95,20 @@ function abortReasonOf(signal) {
 
 // The payload lands in a 'wx' temp file: an existing temp file (random
 // collision or a pre-existing symlink at the temp path) is rejected instead of
-// silently truncated. randomBytes(4) keeps collisions astronomically unlikely,
-// but 'wx' makes the guarantee explicit and protects against symlink-attack
-// scenarios on shared tmp dirs.
+// silently truncated. Failed creation owns nothing: cleanup must leave an
+// existing entry alone, including a symlink at the random temporary path.
 async function writeTempFile(tmp, content, { mode, fsync }) {
   let fh = null;
+  let ownsTemp = false;
   try {
     if (payloadByteLength(content) > STREAMING_THRESHOLD_BYTES) {
       // Streaming path: avoid buffering the entire payload through
       // fh.writeFile (which copies into a single Buffer).
       const ws = createWriteStream(tmp, { flags: 'wx', mode });
+      // Stream construction precedes open; only the open event proves ownership.
+      ws.once('open', () => {
+        ownsTemp = true;
+      });
       let source = content; // assume it's a Readable unless it is bytes/text
       if (Buffer.isBuffer(content)) source = Readable.from([content]);
       else if (typeof content === 'string') source = Readable.from([Buffer.from(content, 'utf-8')]);
@@ -117,6 +121,7 @@ async function writeTempFile(tmp, content, { mode, fsync }) {
       }
     } else {
       fh = await fsPromises.open(tmp, 'wx', mode);
+      ownsTemp = true;
       await fh.writeFile(content);
       if (fsync) await fh.sync();
       await fh.close();
@@ -128,7 +133,7 @@ async function writeTempFile(tmp, content, { mode, fsync }) {
     } catch {
       /* already closed */
     }
-    await unlinkQuietly(tmp);
+    if (ownsTemp) await unlinkQuietly(tmp);
     throw writeErr;
   }
 }
