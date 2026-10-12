@@ -15,6 +15,7 @@ import { sendWithRecovery } from '../send-with-recovery.mjs';
 import { stripInlineImages } from '../image-strip-recovery.mjs';
 import { runWithProviderRequestToolsScope } from '../../runtime-core/provider-request-tools.mjs';
 import { REPEAT_FAIL_LIMIT } from './loop-state.mjs';
+import { createToolCallIdResolver } from './tool-call-ids.mjs';
 
 /**
  * Open an iteration: refresh the live cwd, drain queued steering after a
@@ -104,13 +105,22 @@ export async function beginIteration(state) {
     getNextIteration: () => nextIteration,
     repeatFailLimit: REPEAT_FAIL_LIMIT,
   });
+  const resolveToolCallId = createToolCallIdResolver(messages);
   opts.onToolCall = (call) => {
+    resolveToolCallId(call);
     try {
       opts.onAssistantToolCallObserved?.(call, { eagerStarted: false });
     } catch {}
     return eager.onToolCall(call);
   };
-  return { iterT0, nextIteration, sendTools: boundary.sendTools, requestToolScope: boundary.requestToolScope, eager };
+  return {
+    iterT0,
+    nextIteration,
+    sendTools: boundary.sendTools,
+    requestToolScope: boundary.requestToolScope,
+    eager,
+    resolveToolCallId,
+  };
 }
 
 /** Project the transcript for the provider and send it with recovery. */
