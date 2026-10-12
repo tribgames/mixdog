@@ -267,6 +267,25 @@ test('the card sits beside the spotlight with its arrow on the target middle', (
   assert.equal(docked.top, 700 - 160 - 12);
 });
 
+test('the guide holds the What’s new gate while the welcome is open and releases it when answered', async (t) => {
+  const { useStarterGuideBlocking, setStarterGuideBlocking } = await import('./starter-guide-gate.ts');
+  t.after(() => setStarterGuideBlocking(false));
+  let blocked = false;
+  const Probe = () => {
+    blocked = useStarterGuideBlocking();
+    return null;
+  };
+  const host = document.createElement('div');
+  const probeRoot = createRoot(host);
+  t.after(async () => act(async () => probeRoot.unmount()));
+  await act(async () => probeRoot.render(React.createElement(Probe)));
+  await mount(t);
+  assert.ok(document.querySelector('.starter-welcome'));
+  assert.equal(blocked, true);
+  await click(button('Maybe later'));
+  assert.equal(blocked, false);
+});
+
 test('the welcome card waits for onboarding, then starts the tour on the first open step', async (t) => {
   await mount(t, { onboardingActive: true });
   assert.equal(document.querySelector('.starter-welcome'), null);

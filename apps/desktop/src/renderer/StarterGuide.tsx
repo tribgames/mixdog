@@ -6,7 +6,7 @@
 // tour over the real controls; a one-time welcome card offers the whole
 // tour in order.
 import { Check, GraduationCap, KeyRound, Smartphone, X, type LucideIcon } from 'lucide-react';
-import { type CSSProperties, useEffect, useId, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
@@ -14,6 +14,7 @@ import { record, rows } from './record-utils';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { getCachedConnectionInfo } from './settings/connection-info';
 import { useSidebarReferences } from './sidebar-reference-cache';
+import { setStarterGuideBlocking } from './starter-guide-gate';
 import { StarterTour, StarterWelcome, type TourStop } from './StarterTour';
 import type { WorkbenchSideViewDescriptor, WorkbenchSideViewId } from './workbench-side-view-layout';
 import './starter-guide.css';
@@ -459,6 +460,13 @@ export function StarterGuide({
   // A running tour outlives the pill: its last step may be what finishes it.
   const hidden = state.closed || finished || loading || !diskRead;
   const welcoming = !hidden && !state.welcomed && !onboardingActive && !tour;
+  // The welcome and the tour cover the window: the What's new notice waits for
+  // them. Layout phase, so the gate is set before any passive effect looks.
+  const coversWindow = (!state.closed && !state.welcomed) || tour !== null;
+  useLayoutEffect(() => {
+    setStarterGuideBlocking(coversWindow);
+    return () => setStarterGuideBlocking(false);
+  }, [coversWindow]);
   const answerWelcome = () => update((current) => ({ ...current, welcomed: true }));
   const pill = hidden ? null : (
     <section
