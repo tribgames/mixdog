@@ -1,7 +1,8 @@
 // worker-index/mutation-batch.mjs
 // Spawn-path writes are batched onto one immediate so a parallel fanout pays a
-// single locked rewrite instead of one per worker.
-export function createMutationBatch(write) {
+// single locked rewrite instead of one per worker. `afterFlush` runs once the
+// batch's rows are in the store.
+export function createMutationBatch(write, afterFlush = () => {}) {
   const pending = [];
   let timer = null;
 
@@ -21,6 +22,7 @@ export function createMutationBatch(write) {
         }
       }
     });
+    afterFlush();
   }
 
   function queue(mutator) {

@@ -112,9 +112,8 @@ export function applyWorkerRowUpsert(byKey, normalized) {
       merged[field] = prev[field];
     }
   }
-  // A settled turn waits on nobody: whichever writer persisted the approval
-  // wait, a terminal settlement can never carry it forward.
-  if (isTerminalWorkerStatus(normalized.status)) delete merged.awaitingUser;
+  // `awaitingUser` is not decided here: the worker row store keeps the current
+  // row's flag across every whole-row write and drops it once the row settles.
   byKey.set(key, {
     ...merged,
     createdAt: normalized.createdAt || prev.createdAt || new Date().toISOString(),

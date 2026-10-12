@@ -11,17 +11,30 @@ import { resolve } from 'node:path';
 import { WORKER_INDEX_FILE } from './tool-def.mjs';
 import { clean, positiveInt, registerExitFlush, rowMatchesContext } from './helpers.mjs';
 import { applyWorkerRowUpsert, recoverTagTombstoneOwner, workerRowKey } from './worker-rows.mjs';
-import { registerApprovalWaitWriter } from './worker-index/approval-wait.mjs';
+import {
+  applyAwaitingUser,
+  awaitingUserWouldChange,
+  clearAwaitingUser,
+  registerApprovalWaitWriter,
+} from './worker-index/approval-wait.mjs';
 import { createMutationBatch } from './worker-index/mutation-batch.mjs';
 import { createRowLiveness, isActiveWorkerRow, isStaleApprovalWait } from './worker-index/row-liveness.mjs';
 import { normalizeWorkerRows, workerRowFromSession } from './worker-index/row-shape.mjs';
-import { createWorkerRowStore } from './worker-index/row-store.mjs';
+import { acquireWorkerRowStore } from './worker-index/row-store.mjs';
 import { findTagTombstone, tagTombstoneKey, tombstoneBlocksWork } from '../../../runtime/shared/agent-reap-state.mjs';
 
 export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds }) {
   const file = dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
-  const store = createWorkerRowStore(file);
-  const batch = createMutationBatch(store.write);
+  // Shared with every other worker index of this process over the same file.
+  const { store, release: releaseStore } = acquireWorkerRowStore(file);
+  // Sessions whose deferred rows still wait in the batch; reconciled once the
+  // batch lands in the store.
+  const unreconciled = new Set();
+  const batch = createMutationBatch(store.write, () => {
+    const ids = [...unreconciled];
+    unreconciled.clear();
+    for (const id of ids) reconcileAwaitingUser(id);
+  });
   const liveness = createRowLiveness({ dataDir, cfgMod });
   // Rows this process marked active; settled to idle on exit so a crash of
   // the host never leaves them "running" forever.
@@ -63,10 +76,15 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     if (isActiveWorkerRow(normalized)) activeWorkerKeys.add(key);
     else activeWorkerKeys.delete(key);
     bindTag(normalized);
-    if (defer) return file ? batch.queue((byKey) => applyWorkerRowUpsert(byKey, normalized)) : false;
+    if (defer) {
+      if (!file) return false;
+      unreconciled.add(normalized.sessionId);
+      return batch.queue((byKey) => applyWorkerRowUpsert(byKey, normalized));
+    }
     store.write((byKey) => {
       applyWorkerRowUpsert(byKey, normalized);
     });
+    reconcileAwaitingUser(normalized.sessionId);
     return true;
   }
 
@@ -86,24 +104,29 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     });
   }
 
-  /** Persist (or clear) a worker's approval wait. Writes only when a row of
-   *  that session exists and differs, so a Lead's own approvals cost nothing. */
-  function setAwaitingUser(sessionId, awaitingUser) {
-    const id = clean(sessionId);
-    const wanted = awaitingUser === 'approval' ? 'approval' : null;
-    if (!id || !store.readAll().some((row) => row.sessionId === id && (row.awaitingUser || null) !== wanted)) {
-      return false;
-    }
-    // Ordered after any deferred spawn write for the same row.
-    batch.flush();
-    store.write((byKey) => {
-      for (const [key, row] of byKey) {
-        if (row.sessionId !== id) continue;
-        const { awaitingUser: _prior, ...rest } = row;
-        byKey.set(key, wanted ? { ...rest, awaitingUser: wanted } : rest);
-      }
-    });
+  /** Persist (or clear) a worker's approval wait as a field update fenced to
+   *  the session and its turn (`turnAt`, ms): a row whose turn started later is
+   *  left alone. Writes only when a row of that session exists and would
+   *  change, so a Lead's own approvals cost nothing; a row that is not in the
+   *  store yet takes the wait when it lands (reconcileAwaitingUser). */
+  function setAwaitingUser(sessionId, awaitingUser, { turnAt = 0 } = {}) {
+    const fence = {
+      sessionId: clean(sessionId),
+      awaitingUser: awaitingUser === 'approval' ? 'approval' : null,
+      turnAt: Number(turnAt) || 0,
+    };
+    if (!fence.sessionId || !awaitingUserWouldChange(store.readAll(), fence)) return false;
+    store.update((byKey) => applyAwaitingUser(byKey, fence));
     return true;
+  }
+
+  /** The runtime of a session this process runs is the authority on its
+   *  approval wait (the runtime-liveness counter behind `awaitingUser`): every
+   *  row it creates or refreshes takes that state, so a missed or stale
+   *  transition heals on the next write. No runtime here: not ours to judge. */
+  function reconcileAwaitingUser(sessionId) {
+    const runtime = mgr.getSessionRuntime?.(sessionId);
+    if (runtime) setAwaitingUser(sessionId, runtime.awaitingUser, { turnAt: runtime.askStartedAt });
   }
 
   function refreshTagsFromIndex(context = {}) {
@@ -130,22 +153,20 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   // left behind by a runtime that is gone (daemon restart) is cleared.
   function recoverStaleWorkerRows() {
     const now = Date.now();
-    const stale = store
-      .readAll()
-      .filter((row) => liveness.isStaleActive(row, now) || isStaleApprovalWait(row));
-    if (!stale.length) return false;
-    store.write((byKey) => {
-      for (const row of stale) {
-        const key = workerRowKey(row);
-        const current = byKey.get(key);
-        if (!current) continue;
-        if (liveness.isStaleActive(current, now)) byKey.set(key, liveness.idleRow(current, now));
-        else if (isStaleApprovalWait(current)) {
-          const { awaitingUser: _stale, ...rest } = current;
-          byKey.set(key, rest);
+    const rows = store.readAll();
+    const staleActive = rows.filter((row) => liveness.isStaleActive(row, now));
+    const staleWaits = rows.some(isStaleApprovalWait);
+    if (!staleActive.length && !staleWaits) return false;
+    if (staleActive.length) {
+      store.write((byKey) => {
+        for (const row of staleActive) {
+          const key = workerRowKey(row);
+          const current = byKey.get(key);
+          if (current && liveness.isStaleActive(current, now)) byKey.set(key, liveness.idleRow(current, now));
         }
-      }
-    });
+      });
+    }
+    if (staleWaits) store.update((byKey) => clearAwaitingUser(byKey, isStaleApprovalWait));
     return true;
   }
 
@@ -173,6 +194,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     } finally {
       unregisterExitFlush();
       unregisterApprovalWaits();
+      releaseStore();
     }
   }
 

@@ -1,11 +1,35 @@
 // worker-index/row-store.mjs
 // The on-disk worker index file: an mtime-keyed parse cache in front of it and
-// the single in-process writer queue that republishes rows + tombstones.
+// the single in-process writer queue that republishes rows + tombstones. Every
+// worker index of a process over one file shares one store (acquireWorkerRowStore),
+// so all of them serialize through the same projection and queue.
 import { readFileSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { createIndexWriteQueue } from '../index-write-queue.mjs';
 import { normalizeTagTombstones, tagTombstoneKey, workerRowKey } from '../worker-rows.mjs';
+import { settleAwaitingUser } from './approval-wait.mjs';
 import { keepWorkerRow, normalizeWorkerRows } from './row-shape.mjs';
+
+const ROWS_ARG = 0; // the rows Map's position in the rewrite mutator's arguments
+const sharedStores = new Map(); // canonical file -> { store, refs }
+
+const canonicalFile = (file) => (process.platform === 'win32' ? resolve(file).toLowerCase() : resolve(file));
+
+/** A whole-row write never decides `awaitingUser`: every row it changed keeps
+ *  the flag the row held before (never a stale copy's), dropped once settled. */
+function keepingAwaitingUser(mutator) {
+  return (byKey, ...rest) => {
+    const before = new Map(byKey);
+    mutator(byKey, ...rest);
+    for (const [key, row] of byKey) {
+      const prior = before.get(key);
+      if (row === prior) continue;
+      const settled = settleAwaitingUser(row, prior?.awaitingUser);
+      if (settled !== row) byKey.set(key, settled);
+    }
+  };
+}
 
 /** One rewrite: the current document as keyed maps, the caller's mutator over
  *  them, then the v2 document to publish. */
@@ -61,6 +85,9 @@ export function createWorkerRowStore(file) {
     onPersisted: () => {
       dirty = true;
     },
+    // The same rule against the locked document: a replayed row keeps the
+    // flag that is on disk now, not the one the projection held.
+    mergeSet: (index, prev, next) => (index === ROWS_ARG ? settleAwaitingUser(next, prev?.awaitingUser) : next),
   });
 
   function projectedView() {
@@ -115,19 +142,48 @@ export function createWorkerRowStore(file) {
   // Single writer path: the mutator runs now over keyed maps against the
   // in-process projection (see index-write-queue.mjs); its effect is
   // republished as rows + tombstones by one async locked writer.
-  const write = (mutator) => queue.write(mutator);
+  const write = (mutator) => queue.write(typeof mutator === 'function' ? keepingAwaitingUser(mutator) : mutator);
 
   return {
     readAll,
     readSnapshot,
     readTombstones,
     write,
+    /** Conditional field update: `mutator` runs now on the projection and again
+     *  on the locked document when persisted, so its condition is re-checked
+     *  against what is on disk. The one writer of `awaitingUser`. */
+    update: (mutator) => queue.write(mutator, { rerun: true }),
     /** Resolves once every write so far is on disk. */
     flush: queue.flush,
     /** Exit path: persist what is still queued, synchronously. */
     flushSync: queue.flushSync,
     invalidate: () => {
       dirty = true;
+    },
+  };
+}
+
+/** The process's one store for `file` (a fresh no-op store for null), and its
+ *  idempotent release; the store is dropped once its last holder releases. */
+export function acquireWorkerRowStore(file) {
+  if (!file) return { store: createWorkerRowStore(null), release: () => {} };
+  const key = canonicalFile(file);
+  let entry = sharedStores.get(key);
+  if (!entry) {
+    entry = { store: createWorkerRowStore(file), refs: 0 };
+    sharedStores.set(key, entry);
+  }
+  entry.refs += 1;
+  // A new holder re-reads the file, as a store of its own would.
+  entry.store.invalidate();
+  let released = false;
+  return {
+    store: entry.store,
+    release: () => {
+      if (released) return;
+      released = true;
+      entry.refs -= 1;
+      if (entry.refs === 0 && sharedStores.get(key) === entry) sharedStores.delete(key);
     },
   };
 }

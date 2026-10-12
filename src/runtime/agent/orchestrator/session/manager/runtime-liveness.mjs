@@ -298,8 +298,11 @@ export function beginSessionApprovalWait(id) {
   if (!entry) return () => {};
   entry.approvalWaits = (entry.approvalWaits || 0) + 1;
   entry.awaitingUser = 'approval';
+  // The waiting turn: the end transition carries the begin's turn even when
+  // the turn has settled (askStartedAt cleared) by the time it releases.
+  const meta = { turnAt: entry.askStartedAt || 0 };
   // Only the begin/end transitions are announced (the worker index persists them).
-  if (entry.approvalWaits === 1) emitSessionApprovalWaitChange(id, 'approval');
+  if (entry.approvalWaits === 1) emitSessionApprovalWaitChange(id, 'approval', meta);
   let released = false;
   return () => {
     if (released) return;
@@ -307,7 +310,7 @@ export function beginSessionApprovalWait(id) {
     entry.approvalWaits = Math.max(0, (entry.approvalWaits || 0) - 1);
     if (entry.approvalWaits > 0) return;
     entry.awaitingUser = null;
-    emitSessionApprovalWaitChange(id, null);
+    emitSessionApprovalWaitChange(id, null, meta);
   };
 }
 // Parent AbortSignal listeners are dropped on askSession unwind (finally /

@@ -10,6 +10,11 @@
 // the mutator: an async job replays those effects onto the fresh on-disk
 // document under the cross-process lock, so concurrent writers of other keys
 // are merged, never overwritten. Jobs run strictly one at a time in FIFO order.
+//
+// write(mutator, { rerun: true }) is the conditional-update form: the mutator
+// itself is queued and re-run against the locked fresh document, in order with
+// the recorded effects, so a field-level update re-checks its condition against
+// what is really on disk instead of replacing a whole value it once saw.
 import { updateJsonAtomic, updateJsonAtomicSync } from '../../../runtime/shared/atomic-file.mjs';
 import { registerJsonProjection } from '../../../runtime/shared/pending-json-projection.mjs';
 import { sleep } from '../../../runtime/shared/sleep.mjs';
@@ -85,21 +90,40 @@ function compactOps(batch) {
   });
 }
 
-function replayOps(ops, args) {
+function replayOps(ops, args, mergeSet) {
   args.forEach((arg, index) => {
     const op = ops[index];
     if (!op) return;
     if (arg instanceof Map) {
       for (const key of op.del) arg.delete(key);
-      for (const [key, json] of op.set) arg.set(key, JSON.parse(json));
+      for (const [key, json] of op.set) arg.set(key, mergeSet(index, arg.get(key), JSON.parse(json)));
     } else if (arg instanceof Set) {
       for (const value of op.add) arg.add(value);
     }
   });
 }
 
-function replayBatch(batch, args) {
-  replayOps(compactOps(batch), args);
+/** Entries are recorded op sets or re-run mutators; runs of op sets between
+ *  re-run mutators compact, and every entry keeps its place in the order. */
+function replayBatch(batch, args, mergeSet) {
+  let run = [];
+  const replayRun = () => {
+    if (run.length) replayOps(compactOps(run), args, mergeSet);
+    run = [];
+  };
+  for (const entry of batch) {
+    if (typeof entry !== 'function') {
+      run.push(entry);
+      continue;
+    }
+    replayRun();
+    entry(...args);
+  }
+  replayRun();
+}
+
+function reportFailure(file, what, error) {
+  process.stderr.write(`[index-write] ${file}: ${what}: ${error?.message || error}\n`);
 }
 
 /**
@@ -109,8 +133,17 @@ function replayBatch(batch, args) {
  *        builds the next document from a raw one; `mutator` receives the keyed collections
  * @param {() => any} options.readDoc      fresh raw document from disk (sync read)
  * @param {() => void} [options.onPersisted]  the file changed on disk
+ * @param {(index: number, prev: any, next: any) => any} [options.mergeSet]
+ *        value a recorded set leaves in Map argument `index`, given the locked
+ *        document's current value there; default: the recorded value
  */
-export function createIndexWriteQueue({ file, rewrite, readDoc, onPersisted = () => {} }) {
+export function createIndexWriteQueue({
+  file,
+  rewrite,
+  readDoc,
+  onPersisted = () => {},
+  mergeSet = (_index, _prev, next) => next,
+}) {
   let projection = null; // raw document including unpersisted ops, else null
   const self = { flush, flushSync: () => flushSync() };
   if (file) registerJsonProjection(file, () => projection);
@@ -134,10 +167,15 @@ export function createIndexWriteQueue({ file, rewrite, readDoc, onPersisted = ()
   async function persist(batch) {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await updateJsonAtomic(file, (cur) => rewrite(cur, (...args) => replayBatch(batch, args)), { lock: true });
+        await updateJsonAtomic(file, (cur) => rewrite(cur, (...args) => replayBatch(batch, args, mergeSet)), {
+          lock: true,
+        });
         return;
-      } catch {
-        if (attempt >= RETRY_DELAYS_MS.length) return; // dropped, like the sync writer's swallowed failure
+      } catch (error) {
+        if (attempt >= RETRY_DELAYS_MS.length) {
+          reportFailure(file, `dropped ${batch.length} unpersisted write(s)`, error);
+          return;
+        }
         await sleep(RETRY_DELAYS_MS[attempt]);
       }
     }
@@ -181,11 +219,12 @@ export function createIndexWriteQueue({ file, rewrite, readDoc, onPersisted = ()
     clearTimer();
     pending = [];
     try {
-      updateJsonAtomicSync(file, (cur) => rewrite(cur, (...args) => replayBatch(ops, args)), {
+      updateJsonAtomicSync(file, (cur) => rewrite(cur, (...args) => replayBatch(ops, args, mergeSet)), {
         lock: true,
         timeoutMs: EXIT_LOCK_TIMEOUT_MS,
       });
-    } catch {
+    } catch (error) {
+      reportFailure(file, `synchronous flush of ${ops.length} write(s) failed; kept queued`, error);
       pending = ops;
       return false;
     }
@@ -197,18 +236,20 @@ export function createIndexWriteQueue({ file, rewrite, readDoc, onPersisted = ()
   }
 
   return {
-    /** Run `mutator` now against the projection; persist its effect later.
+    /** Run `mutator` now against the projection; persist its effect later
+     *  (`rerun`: persist by re-running it on the locked document instead).
      *  Returns the projected document, or null (no file / mutator threw). */
-    write(mutator) {
+    write(mutator, { rerun = false } = {}) {
       if (!file || typeof mutator !== 'function') return null;
       try {
         let ops = null;
         const next = rewrite(projection ?? readDoc(), (...args) => {
-          ops = recordOps(args, () => mutator(...args));
+          if (rerun) mutator(...args);
+          else ops = recordOps(args, () => mutator(...args));
         });
         projection = next;
         version += 1;
-        pending.push(ops);
+        pending.push(rerun ? mutator : ops);
         unsettled.add(self);
         schedule();
         return next;
