@@ -427,8 +427,8 @@ jobs:
   # (DebUpdater), and the downloaded .deb is really installed with dpkg.
   update-path:
     name: update-path-x64
-    needs: [plan, verify, build-next]
-    if: needs.plan.outputs.full == 'true'
+    needs: [plan, native-tools, verify, build-next]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && needs.verify.result == 'success' && needs.build-next.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -510,8 +510,8 @@ jobs:
   # headless in older/other distro containers (glibc baseline, non-Debian).
   container-smoke:
     name: container-${{ matrix.id }}-${{ matrix.arch }}
-    needs: [plan, verify]
-    if: needs.plan.outputs.full == 'true'
+    needs: [plan, native-tools, verify]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && needs.verify.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
