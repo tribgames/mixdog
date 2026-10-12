@@ -127,6 +127,11 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
           `browser opened for ${providerName}; paste code/redirect here if callback does not finish`,
           'info'
         );
+      } else if (started?.userCode) {
+        flow.store.pushNotice(
+          `${providerName}: enter code ${started.userCode} in the browser to finish signing in`,
+          'info'
+        );
       } else {
         flow.store.pushNotice(`browser opened for ${providerName}; finish signing in there`, 'info');
       }

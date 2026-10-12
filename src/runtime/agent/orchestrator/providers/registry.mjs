@@ -26,6 +26,8 @@ const OAUTH_PROVIDER_NAMES = new Set([
   'anthropic-oauth',
   'openai-oauth',
   'grok-oauth',
+  'muse-code-oauth',
+  'mimo-oauth',
   'cursor-oauth',
   'antigravity-oauth',
 ]);
@@ -143,6 +145,8 @@ const PROVIDER_MODULES = {
   'openai-oauth': ['./openai-oauth.mjs', 'OpenAIOAuthProvider'],
   'anthropic-oauth': ['./anthropic-oauth.mjs', 'AnthropicOAuthProvider'],
   'grok-oauth': ['./grok-oauth.mjs', 'GrokOAuthProvider'],
+  'muse-code-oauth': ['./muse-code-oauth.mjs', 'MuseCodeOAuthProvider'],
+  'mimo-oauth': ['./mimo-oauth.mjs', 'MimoOAuthProvider'],
   'cursor-oauth': ['./cursor.mjs', 'CursorOAuthProvider'],
   'antigravity-oauth': ['./antigravity-oauth.mjs', 'AntigravityOAuthProvider'],
   'cursor-api': ['./cursor.mjs', 'CursorApiProvider'],

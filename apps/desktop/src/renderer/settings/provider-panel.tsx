@@ -206,7 +206,7 @@ export function OAuthControl({
   // A remote client signs in on its own machine, so every provider that can
   // take the final redirect (or code) back gets a paste step.
   const remote = isRemoteHostRenderer();
-  const manualCodeFlow = providerId === 'anthropic-oauth' || remote;
+  const manualCodeFlow = providerId === 'anthropic-oauth' || providerId === 'mimo-oauth' || remote;
   const openSignInPage = (url: unknown) => {
     if (typeof url === 'string' && url) void window.mixdogDesktop?.openExternal?.(url).catch(() => undefined);
   };
@@ -384,6 +384,12 @@ export function OAuthControl({
                 <span>{t('Status')}</span>
                 <b className={`tone-${status.tone}`}>{t(status.label)}</b>
               </div>
+              {Boolean(flow.userCode) && flow.state !== 'complete' && (
+                <label className="settings-oauth-url">
+                  {t('Enter this code on the sign-in page')}
+                  <input readOnly value={String(flow.userCode)} />
+                </label>
+              )}
               {/* A remote client opens the URL on its own machine: the host's browser is not in front of it. */}
               {(manualCodeFlow || remote) && Boolean(flow.manualUrl || flow.url) && (
                 <label className="settings-oauth-url">

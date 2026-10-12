@@ -21,9 +21,10 @@ export function uiCurrency(value: number, fractionDigits: number): string {
   return formatter.format(value);
 }
 
-export function uiTimeUnit(value: number, unit: 'day' | 'hour' | 'minute' | 'second'): string {
+/** `pad`: two-digit value (`05s`) for the trailing units of a running timer. */
+export function uiTimeUnit(value: number, unit: 'day' | 'hour' | 'minute' | 'second', pad = false): string {
   const locale = uiFormatLocale();
-  const key = `${locale}:${unit}`;
+  const key = `${locale}:${unit}:${pad}`;
   let formatter = timeUnits.get(key);
   if (!formatter) {
     formatter = new Intl.NumberFormat(locale, {
@@ -31,6 +32,7 @@ export function uiTimeUnit(value: number, unit: 'day' | 'hour' | 'minute' | 'sec
       unit,
       unitDisplay: 'narrow',
       useGrouping: false,
+      ...(pad ? { minimumIntegerDigits: 2 } : {}),
     });
     timeUnits.set(key, formatter);
   }

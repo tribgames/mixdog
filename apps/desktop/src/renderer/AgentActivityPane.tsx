@@ -101,6 +101,8 @@ function AgentPoolRow({
   let elapsed = t('Idle');
   if (queued) elapsed = t('Queued');
   else if (running) elapsed = workMeta;
+  // Blocked on the user: what it waits for, never a running timer.
+  else if (state === 'needs-user') elapsed = t('Waiting for approval');
   else if (state === 'cancel-unconfirmed') elapsed = t('Cancel unconfirmed');
   else if (state === 'cancelled') elapsed = t('Cancelled');
   // A finished turn reads as a plain completion (user: 태스크 없애고 컴플리트만).

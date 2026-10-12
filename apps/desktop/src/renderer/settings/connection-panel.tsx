@@ -398,7 +398,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
         )}
         <button
           type="button"
-          className="conn-btn conn-btn--primary"
+          className="conn-btn conn-btn--primary conn-connect-device"
           disabled={!enabled}
           onClick={() => setDialog({ kind: 'connect' })}
         >

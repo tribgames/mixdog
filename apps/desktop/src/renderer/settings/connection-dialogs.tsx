@@ -15,14 +15,15 @@ import { errorMessage } from '../editor-pane-session-errors';
 const FOCUSABLE = 'button:not(:disabled), input:not(:disabled)';
 
 /** The one dialog frame of the Connection page: 480 wide, 24 padding, title
- *  with a muted description, body, footer. No close button — Escape and the
- *  cancel button close it. Focus stays inside while it shows and returns to
- *  where it was afterwards. */
+ *  with a muted description, body, footer. No close button — Escape, a press
+ *  on the dimmed backdrop and the cancel button close it. Focus stays inside
+ *  while it shows and returns to where it was afterwards. */
 export function ConnDialog({
   title,
   description,
   footer,
   onEscape,
+  scrimCloses = true,
   viewKey = '',
   role = 'dialog',
   children,
@@ -31,6 +32,9 @@ export function ConnDialog({
   description?: string;
   footer: ReactNode;
   onEscape(): void;
+  /** Off where closing is an answer (a pairing request is declined), so a
+   *  stray press beside the dialog never decides it. */
+  scrimCloses?: boolean;
   /** Changes when the content is swapped for another view in place. */
   viewKey?: string;
   role?: 'dialog' | 'alertdialog';
@@ -78,7 +82,12 @@ export function ConnDialog({
     (dialog.querySelector<HTMLElement>('[data-autofocus]') ?? dialog.querySelector<HTMLElement>(FOCUSABLE))?.focus();
   }, [viewKey]);
   return (
-    <div className="settings-confirm-layer">
+    <div
+      className="settings-confirm-layer"
+      onMouseDown={(event) => {
+        if (scrimCloses && event.target === event.currentTarget) escape.current();
+      }}
+    >
       <section ref={ref} className="conn-dialog" role={role} aria-modal="true" aria-labelledby={`${id}-title`}>
         <header>
           <h3 id={`${id}-title`}>{title}</h3>
@@ -176,7 +185,7 @@ function ConnectBody({
           </button>
         ))}
       </div>
-      {content}
+      <div className="conn-view">{content}</div>
     </div>
   );
 }
@@ -272,6 +281,7 @@ export function ConnectDeviceDialog({
         role="alertdialog"
         viewKey="claim"
         onEscape={() => void answer(false)}
+        scrimCloses={false}
         footer={
           <>
             <span className="conn-grow" />

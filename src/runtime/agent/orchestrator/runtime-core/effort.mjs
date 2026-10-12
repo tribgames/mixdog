@@ -25,6 +25,8 @@ const EFFORT_OPTIONS_BY_PROVIDER = {
   // xAI Grok 4.6+: low/medium/high/xhigh. Reasoning cannot be disabled.
   xai: ['low', 'medium', 'high', 'xhigh'],
   'grok-oauth': ['low', 'medium', 'high', 'xhigh'],
+  'muse-code-oauth': ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  'mimo-oauth': ['minimal', 'low', 'medium', 'high'],
   // Antigravity carries the effort tier inside the wire model id
   // (gemini-3-pro-high / -low, claude-*-thinking), so the route exposes none.
   'antigravity-oauth': [],

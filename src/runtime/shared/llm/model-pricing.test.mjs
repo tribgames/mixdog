@@ -71,6 +71,7 @@ const modelsdev = {
       },
     },
   },
+  xiaomi: { models: { 'mimo-v2.5': { cost: { input: 0.4, output: 2, cache_read: 0.08 } } } },
   moonshotai: { models: { 'kimi-k3': { cost: { input: 3, output: 15, cache_read: 0.3 } } } },
   anthropic: {
     models: {
@@ -173,6 +174,12 @@ test('wire ids use the gateway mapping, including aliases that cannot be suffix-
       .costUsd,
     1.2
   );
+});
+
+test('MiMo OAuth models price from the models.dev xiaomi entry, not zero', () => {
+  const priced = priceUsage({ provider: 'mimo-oauth', model: 'mimo-v2.5', inputTokens: 1000000, outputTokens: 100000 });
+  assert.ok(priced.costUsd > 0);
+  assert.equal(priced.costUsd, 0.6);
 });
 
 test('list enrichment and accounting agree, and a relay-specific price beats its vendor fallback', async () => {

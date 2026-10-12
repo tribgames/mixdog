@@ -91,6 +91,8 @@ export function createSessionProgress({ mgr }) {
     return {
       workerStatus: status,
       stage: progress.worker_stage || runtime?.stage || status,
+      // Additive: present only while the worker's turn waits on a user approval.
+      ...(runtime?.awaitingUser ? { awaitingUser: runtime.awaitingUser } : {}),
       clientHostPid: session.clientHostPid || null,
       lastStreamDeltaAt: runtime?.lastStreamDeltaAt ? new Date(runtime.lastStreamDeltaAt).toISOString() : null,
       ...progress,

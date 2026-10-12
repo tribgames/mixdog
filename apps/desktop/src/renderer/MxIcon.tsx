@@ -1,7 +1,9 @@
 import { createElement, type ComponentType, type SVGProps } from 'react';
 import {
   AlertTriangle,
+  Bot,
   Check,
+  FileDiff,
   Bug,
   Circle,
   CircleDot,
@@ -42,7 +44,9 @@ import {
 // Built with createElement (no JSX) so every consumer toolchain (vite app
 // build, tsx test harness) agrees on the runtime without a React global.
 const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>> = {
+  agent: Bot,
   check: Check,
+  'file-diff': FileDiff,
   breakpoint: CircleDot,
   debug: Bug,
   'check-small': Check,

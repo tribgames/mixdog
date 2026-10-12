@@ -61,17 +61,19 @@ test('a draft keeps its context bar; a session reserves the island slot even whe
   assert.deepEqual(children, ['composer-island-slot', 'composer-queue-tray', 'composer']);
 });
 
-test('background jobs show as one segment, expand to rows, collapse on Escape and flash when done', async (t) => {
+test('background jobs show as one segment, expand to rows, collapse on Escape and end without a flash', async (t) => {
   const { root, document, window } = mount(t);
   await publish({
     shellJobs: { count: 1, jobs: [{ taskId: 'job-1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   const segment = document.querySelector('.composer-island-seg');
-  assert.equal(segment.textContent, translate('Jobs {{count}}', { count: 1 }));
+  // "Shell" + the latest command; a single job carries no "+N".
+  assert.equal(segment.textContent, `${translate('Shell')}npm test`);
   // Running work is a pulsing dot, not a spinner.
   assert.ok(segment.querySelector('.composer-island-pulse'));
-  assert.equal(segment.querySelector('svg'), null);
+  // The only glyph is the narrow-island icon, never a spinner.
+  assert.equal(segment.querySelector('svg:not(.composer-island-seg-icon)'), null);
   await act(async () => segment.click());
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'panel');
   const rows = [...document.querySelectorAll('.composer-island-row')];
@@ -82,11 +84,61 @@ test('background jobs show as one segment, expand to rows, collapse on Escape an
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
   await publish({ shellJobs: { count: 0, jobs: [] } });
-  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'flash');
-  assert.equal(
-    document.querySelector('.composer-island-flash[role="status"]').textContent,
-    translate('Background task finished')
+  // Finished work leaves quietly: no flash notice.
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
+  assert.equal(document.querySelector('.composer-island-flash'), null);
+});
+
+test('a queued agent reads Queued while a running one shows elapsed time, never Queued', async (t) => {
+  const { root, document } = mount(t);
+  await publish({
+    agentWorkers: [
+      { tag: 'run-a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
+      { tag: 'wait-b', agent: 'reviewer', stage: 'queued', status: 'queued', startedAt: Date.now() - 1_000 },
+    ],
+  });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await act(async () => document.querySelector('.composer-island-seg').click());
+  const rows = [...document.querySelectorAll('.composer-island-row')];
+  assert.equal(rows.length, 2);
+  const queued = rows.filter((row) => row.textContent.includes(translate('Queued')));
+  assert.equal(queued.length, 1);
+  assert.match(queued[0].textContent, /wait-b/);
+});
+
+test('an agent blocked on a user approval reads as needing the user, not working', async (t) => {
+  const { root, document } = mount(t);
+  await publish({
+    agentWorkers: [
+      { tag: 'run-a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
+      {
+        tag: 'ask-b',
+        agent: 'reviewer',
+        stage: 'tool_running',
+        status: 'running',
+        startedAt: Date.now() - 65_000,
+        awaitingUser: 'approval',
+      },
+    ],
+  });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  const segment = document.querySelector('.composer-island-seg-agents');
+  // Counted apart from Working, so it is never hidden in it.
+  assert.match(
+    segment.textContent,
+    new RegExp(`${translate('Needs you {{needs}}', { needs: 1 })} · ${translate('Working {{working}}', { working: 1 })}`)
   );
+  await act(async () => segment.click());
+  const rows = [...document.querySelectorAll('.composer-island-row')];
+  assert.equal(rows.length, 2);
+  // The blocked agent leads, with the attention mark instead of the working
+  // pulse and the label instead of a running timer.
+  assert.match(rows[0].textContent, /ask-b/);
+  assert.equal(rows[0].querySelector('.composer-island-pulse'), null);
+  assert.ok(rows[0].querySelector('svg'));
+  assert.equal(rows[0].querySelector('.composer-island-row-sub').textContent, translate('Waiting for approval'));
+  assert.ok(rows[1].querySelector('.composer-island-pulse'));
+  assert.match(rows[1].querySelector('.composer-island-row-sub').textContent, /\d/);
 });
 
 test('a pending approval takes over the island; a flash notice replaces any leftover card', async (t) => {

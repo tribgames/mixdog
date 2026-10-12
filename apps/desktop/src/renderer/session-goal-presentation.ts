@@ -62,6 +62,17 @@ export function goalElapsedLabel(goal: GoalSnapshot, clock: number): string {
   return formatGoalDuration(goalElapsedMs(goal, clock));
 }
 
+/** Collapsed-segment elapsed time: `12m`, or `1h 05m` from an hour; no seconds.
+ *  Empty under one minute: "0m" says nothing, and the label sits inline so
+ *  hiding it moves no layout. */
+export function goalElapsedMinutesLabel(goal: GoalSnapshot, clock: number): string {
+  const totalMinutes = Math.floor(goalElapsedMs(goal, clock) / 60_000);
+  if (totalMinutes < 1) return '';
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
+}
+
 export function goalStatusLabel(goal: GoalSnapshot): string {
   if (goal.status === 'paused') return t(goal.pauseReason === 'waiting' ? 'Waiting for your answer' : 'Paused');
   if (goal.status === 'duration_reached')

@@ -450,9 +450,9 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
     const bar = trigger.querySelector('.session-goal-bar');
     assert.equal(trigger.firstElementChild, bar, 'a progress bar leads the segment');
     assert.ok(Math.abs(Number.parseFloat(bar.querySelector('i').style.width) - 100 / 3) < 0.001, 'bar fill is 1/3');
-    // The segment reads n/m; elapsed time is only in the open Goal tab.
-    assert.equal(trigger.querySelector('.session-goal-meta')?.textContent, '1/3');
-    assert.equal(trigger.querySelector('.session-goal-time'), null);
+    // The segment reads n/m plus elapsed time, as the island mockup does.
+    assert.equal(trigger.querySelector('.session-goal-meta')?.textContent, '1/35m');
+    assert.equal(trigger.querySelector('.session-goal-trigger-time')?.textContent, '5m');
     assert.match(document.querySelector('.session-goal-panel .session-goal-time')?.textContent || '', /^\d+:\d{2}$/);
     assert.match(
       document.querySelector('.session-goal-panel .session-goal-meta')?.textContent || '',
@@ -1407,6 +1407,32 @@ test('cancellation is its own lifecycle state, never queued, running, done or id
   assert.equal(desktopAgentActivityState({ status: 'idle' }), 'idle');
 });
 
+test('a live turn blocked on a user approval needs the user, never running', () => {
+  // The row shape the runtime status producer publishes while a PreToolUse
+  // `ask` waits for the user (agent-list / job-views awaitingUser).
+  const blocked = { tag: 'review', agent: 'reviewer', status: 'running', stage: 'tool_running', awaitingUser: 'approval' };
+  assert.equal(desktopAgentActivityState(blocked), 'needs-user');
+  assert.equal(desktopAgentActivityState(blocked, { waitingForTasks: true }), 'needs-user');
+  // Only a live turn can be blocked; a cancel still outranks it.
+  assert.equal(desktopAgentActivityState({ status: 'idle', awaitingUser: 'approval' }), 'idle');
+  assert.equal(desktopAgentActivityState({ ...blocked, status: 'cancelled' }), 'cancelled');
+  assert.equal(desktopAgentActivityState({ ...blocked, awaitingUser: undefined }), 'running');
+  // The live summary carries it whichever twin row reports it.
+  assert.deepEqual(
+    liveAgentRows({ agentWorkers: [blocked] }).map((row) => [row.tag, row.state]),
+    [['review', 'needs-user']]
+  );
+  assert.deepEqual(
+    liveAgentRows({
+      agentJobs: [
+        { task_id: 'task-1', tag: 'review', status: 'running', stage: 'running' },
+        { task_id: 'task-1', tag: 'review', status: 'running', stage: 'tool_running', awaitingUser: 'approval' },
+      ],
+    }).map((row) => [row.tag, row.state]),
+    [['review', 'needs-user']]
+  );
+});
+
 test("waiting for descendants overrides completion, not the parent's own work or cancellation", () => {
   const options = { unread: true, waitingForTasks: true };
   assert.equal(desktopAgentActivityState({ status: 'idle' }, options), 'waiting');
@@ -1576,6 +1602,50 @@ test('an unconfirmed cancel stays on the live surfaces; only a confirmed one dro
   );
   // A confirmed cancel still drops, exactly like `completed`.
   assert.deepEqual(liveAgentRows({ agentWorkers: [{ tag: 'build', agent: 'builder', status: 'cancelled' }] }), []);
+});
+
+test('the Agents pane paints a pooled agent blocked on approval as waiting for it, with no timer', async () => {
+  const dom = installDom();
+  let push = () => {};
+  window.mixdogDesktop = {
+    async listAgentPool() {
+      return [];
+    },
+    subscribeAgentPool(listener) {
+      push = listener;
+      return () => {};
+    },
+  };
+  const sessions = [{ id: 'lead-a', title: 'Lead A', preview: '', updatedAt: 1, messageCount: 1 }];
+  const elapsedOf = (sessionId) =>
+    document.querySelector(`[data-agent-session-id="${sessionId}"] .agent-activity-elapsed`);
+  try {
+    await act(async () => dom.root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
+    // The pool row as the stored worker index projects it while the turn waits.
+    const row = (sessionId, extra = {}) => ({
+      tag: sessionId,
+      agent: 'reviewer',
+      stage: 'running',
+      status: 'running',
+      sessionId,
+      ownerSessionId: 'lead-a',
+      turnStartedAt: Date.now() - 65_000,
+      ...extra,
+    });
+    await act(async () => push([row('worker-asking', { awaitingUser: 'approval' }), row('worker-busy')]));
+    await expandAllAgentGroups();
+    const asking = elapsedOf('worker-asking');
+    assert.equal(asking.dataset.state, 'needs-user');
+    assert.equal(asking.textContent, i18n.t('Waiting for approval'));
+    assert.equal(elapsedOf('worker-busy').dataset.state, 'running');
+    assert.match(elapsedOf('worker-busy').textContent, /\d/);
+    // The released wait returns the row to its working timer.
+    await act(async () => push([row('worker-asking'), row('worker-busy')]));
+    assert.equal(elapsedOf('worker-asking').dataset.state, 'running');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
 });
 
 test('the Agents pane paints a cancelled agent as cancelled, never completed or idle', async () => {

@@ -14,6 +14,10 @@ const WORKER_POOL_FRESH_MS = 2 * 60 * 1000;
 export const isActiveWorkerRow = (row) =>
   ACTIVE_WORKER_STATUS.test(clean(row?.status)) || ACTIVE_WORKER_STATUS.test(clean(row?.stage));
 
+/** A persisted approval wait whose runtime is gone: the in-memory wait died
+ *  with that process (daemon restart), so the flag must not stick. */
+export const isStaleApprovalWait = (row) => Boolean(row?.awaitingUser) && !runtimeAlive(row.runtimePid);
+
 export function createRowLiveness({ dataDir, cfgMod }) {
   function heartbeatFresh(sessionId, now) {
     const id = clean(sessionId);
@@ -47,11 +51,13 @@ export function createRowLiveness({ dataDir, cfgMod }) {
   }
 
   /** The row settled to idle. `touch` restamps it as finished now (this
-   *  process is giving up its own work); otherwise existing stamps win. */
+   *  process is giving up its own work); otherwise existing stamps win. An
+   *  idle worker waits on nobody, so a persisted approval wait drops too. */
   function idleRow(row, now, touch = false) {
     const stamp = new Date(now).toISOString();
+    const { awaitingUser: _awaitingUser, ...settled } = row;
     return {
-      ...row,
+      ...settled,
       status: 'idle',
       stage: 'idle',
       turnStartedAt: null,

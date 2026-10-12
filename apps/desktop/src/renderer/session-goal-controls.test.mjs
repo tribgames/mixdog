@@ -271,7 +271,7 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
             ...island.querySelectorAll(
               '.session-goal-meta-time, .session-goal-details, .session-goal-empty, .session-goal-blocker'
             ),
-          ].map(typography),
+          ].map((element) => ({ ...typography(element), time: element.matches('.session-goal-meta-time') })),
           tasks: [...island.querySelectorAll('.session-goal-tasks li')].map((row) => {
             const copy = row.querySelector('div > span');
             const icon = row.querySelector(':scope > span');
@@ -287,13 +287,15 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
       });
       const context = `${width}px empty=${empty}`;
       assert.equal(view.fontLoaded, true, context);
-      // The segment title reads at the island's 13/18 line.
-      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['13px', '400', '18px'], context);
+      // The segment title reads at the island mockup's 14/20 medium line.
+      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['14px', '500', '20px'], context);
       for (const entry of [view.title, ...view.supporting, ...view.tasks]) {
         assert.ok(entry.family.startsWith('"Pretendard Variable"'), `${context}: shared Korean and Latin family`);
       }
       for (const entry of view.supporting) {
-        assert.deepEqual([entry.size, entry.weight, entry.line], ['13px', '400', '18px'], context);
+        // The tab's time shares the segment's 14/20 line in muted ink; details stay 13/18.
+        const expected = entry.time ? ['14px', '400', '20px'] : ['13px', '400', '18px'];
+        assert.deepEqual([entry.size, entry.weight, entry.line], expected, context);
         assert.notEqual(entry.color, view.title.color, `${context}: supporting text is visually secondary`);
       }
       for (const entry of view.tasks) {

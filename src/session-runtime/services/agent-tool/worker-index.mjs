@@ -11,8 +11,9 @@ import { resolve } from 'node:path';
 import { WORKER_INDEX_FILE } from './tool-def.mjs';
 import { clean, positiveInt, registerExitFlush, rowMatchesContext } from './helpers.mjs';
 import { applyWorkerRowUpsert, recoverTagTombstoneOwner, workerRowKey } from './worker-rows.mjs';
+import { registerApprovalWaitWriter } from './worker-index/approval-wait.mjs';
 import { createMutationBatch } from './worker-index/mutation-batch.mjs';
-import { createRowLiveness, isActiveWorkerRow } from './worker-index/row-liveness.mjs';
+import { createRowLiveness, isActiveWorkerRow, isStaleApprovalWait } from './worker-index/row-liveness.mjs';
 import { normalizeWorkerRows, workerRowFromSession } from './worker-index/row-shape.mjs';
 import { createWorkerRowStore } from './worker-index/row-store.mjs';
 import { findTagTombstone, tagTombstoneKey, tombstoneBlocksWork } from '../../../runtime/shared/agent-reap-state.mjs';
@@ -85,6 +86,26 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     });
   }
 
+  /** Persist (or clear) a worker's approval wait. Writes only when a row of
+   *  that session exists and differs, so a Lead's own approvals cost nothing. */
+  function setAwaitingUser(sessionId, awaitingUser) {
+    const id = clean(sessionId);
+    const wanted = awaitingUser === 'approval' ? 'approval' : null;
+    if (!id || !store.readAll().some((row) => row.sessionId === id && (row.awaitingUser || null) !== wanted)) {
+      return false;
+    }
+    // Ordered after any deferred spawn write for the same row.
+    batch.flush();
+    store.write((byKey) => {
+      for (const [key, row] of byKey) {
+        if (row.sessionId !== id) continue;
+        const { awaitingUser: _prior, ...rest } = row;
+        byKey.set(key, wanted ? { ...rest, awaitingUser: wanted } : rest);
+      }
+    });
+    return true;
+  }
+
   function refreshTagsFromIndex(context = {}) {
     const rows = readWorkerRows(context);
     for (const row of rows) bindTag(row);
@@ -105,16 +126,24 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     });
   }
 
+  // Startup recovery: stale active rows settle to idle, and an approval wait
+  // left behind by a runtime that is gone (daemon restart) is cleared.
   function recoverStaleWorkerRows() {
     const now = Date.now();
-    const stale = store.readAll().filter((row) => liveness.isStaleActive(row, now));
+    const stale = store
+      .readAll()
+      .filter((row) => liveness.isStaleActive(row, now) || isStaleApprovalWait(row));
     if (!stale.length) return false;
     store.write((byKey) => {
       for (const row of stale) {
         const key = workerRowKey(row);
         const current = byKey.get(key);
-        if (!current || !liveness.isStaleActive(current, now)) continue;
-        byKey.set(key, liveness.idleRow(current, now));
+        if (!current) continue;
+        if (liveness.isStaleActive(current, now)) byKey.set(key, liveness.idleRow(current, now));
+        else if (isStaleApprovalWait(current)) {
+          const { awaitingUser: _stale, ...rest } = current;
+          byKey.set(key, rest);
+        }
       }
     });
     return true;
@@ -129,6 +158,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
 
   recoverStaleWorkerRows();
   const unregisterExitFlush = registerExitFlush(flushWorkerIndexOnExit);
+  const unregisterApprovalWaits = registerApprovalWaitWriter(file, setAwaitingUser);
   let disposed = false;
 
   /** Persist queued rows, then release the exit registration. Active rows are
@@ -142,6 +172,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       store.flushSync();
     } finally {
       unregisterExitFlush();
+      unregisterApprovalWaits();
     }
   }
 
@@ -168,6 +199,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     upsertWorkerSessionDeferred: (session, fallbackTag = '', extra = {}) =>
       upsertWorkerRow(rowFromSession(session, fallbackTag, extra), { defer: true }),
     removeWorkerRow,
+    setAwaitingUser,
     refreshTagsFromIndex,
     flushActiveWorkerRows,
     flushWorkerIndexOnExit,

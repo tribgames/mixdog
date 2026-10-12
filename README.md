@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 - [**Auto reasoning effort**](docs/auto-reasoning-effort.md) — each message
   and tool step gets the effort it needs, judged in about 0.1 s by a 130 MB
   model that runs locally on the CPU. On by default.
-- Use the **Claude, ChatGPT, or Grok** subscription you already have, API
+- Use the **Claude, ChatGPT, Grok, MiMo, or Muse Code** subscription you already have, API
   keys, or local models on your own GPU.
 - Mix models by role and scale from **Solo to Swarm** — a strong model leads
   while cheaper ones search, edit, and review in parallel.
@@ -59,7 +59,7 @@ Download the desktop app:
 | macOS (Apple Silicon) | [`mixdog-desktop-mac-arm64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg) |
 | macOS (Intel) | [`mixdog-desktop-mac-x64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg) |
 
-Then sign in with a ChatGPT, Claude, or Grok account, or paste an API key. A
+Then sign in with a ChatGPT, Claude, Grok, MiMo, or Muse Code account, or paste an API key. A
 five-step tutorial walks you through the rest.
 
 > [!NOTE]
@@ -80,6 +80,8 @@ mixdog
 - OpenAI API keys and ChatGPT/Codex account OAuth
 - Google Gemini API keys
 - xAI API keys and Grok account OAuth
+- Xiaomi MiMo Token Plan account OAuth
+- Muse Code (Meta) account OAuth
 - OpenRouter, DeepSeek, and OpenCode Go
 - Built-in **Local Provider** — download and run models in the app
   (Windows x64 with an NVIDIA GPU)

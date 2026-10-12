@@ -35,6 +35,8 @@ function agentRow({ tag, session, runtime, progress, now }) {
     fast: session.fast === true,
     status,
     stage,
+    // Additive: present only while the worker's turn waits on a user approval.
+    ...(runtime?.awaitingUser ? { awaitingUser: runtime.awaitingUser } : {}),
     ...progress,
     createdAt: session.createdAt || null,
     updatedAt: session.updatedAt || null,

@@ -148,7 +148,7 @@ function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
     current: false,
     windowOpen: host.open,
   }));
-  return { main: listed, pcs: [thisPc, ...saved], name: thisPc.name };
+  return { main: listed && saved.length > 0, pcs: [thisPc, ...saved], name: thisPc.name };
 }
 
 /** Opens Settings → Connection, optionally with one of its dialogs. */
@@ -266,8 +266,8 @@ export function RemotePcCard() {
 }
 
 /** Title-bar PC button at the leading edge. A remote surface (another PC's
- *  window, tablet/browser) shows "● <PC name> ▾"; the main window always shows
- *  this PC's name the same way, connected to other PCs or not. */
+ *  window, tablet/browser) shows "● <PC name> ▾"; the main window shows this
+ *  PC's name the same way once other PCs are saved, and nothing before. */
 export function RemotePcSwitcher() {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -306,7 +306,7 @@ export function RemotePcSwitcher() {
         onClick={() => setOpen((value) => !value)}
       >
         <PcDot connected={main || connected} />
-        {main ? mainPcs.name : name}
+        <span className="remote-pc-label">{main ? mainPcs.name : name}</span>
         <ChevronDown size={13} aria-hidden="true" />
       </button>
       {open && (

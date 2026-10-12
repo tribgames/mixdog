@@ -55,7 +55,7 @@ function resolveReasoning(provider, useModel, opts) {
 
 /** The request body: lowered transcript plus the per-turn knobs (output cap,
  *  tools and tool choice, reasoning effort). */
-function buildCompatResponsesParams({ provider, useModel, input, previousResponseId, tools, opts }) {
+function buildCompatResponsesParams({ provider, useModel, input, previousResponseId, tools, opts, instructions }) {
   const params = {
     model: useModel,
     input,
@@ -73,6 +73,8 @@ function buildCompatResponsesParams({ provider, useModel, input, previousRespons
   applyCompatToolChoice(params, opts);
   const reasoning = resolveReasoning(provider, useModel, opts);
   if (reasoning) params.reasoning = reasoning;
+  // Opt-in system-as-instructions: set before the hook so the hook can override it.
+  if (instructions) params.instructions = instructions;
   // Opt-in per-provider final shaping (a provider passes the hook in its config).
   const hook = provider.config?.responsesParamsHook;
   if (typeof hook === 'function') {
@@ -163,11 +165,17 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
     // Opt-in: system prompts travel as top-level `instructions`, not input items.
     includeSystem: provider.config?.responsesSystemAsInstructions !== true,
   });
-  const params = buildCompatResponsesParams({ provider, useModel, input, previousResponseId, tools, opts });
-  if (provider.config?.responsesSystemAsInstructions === true) {
-    const instructions = xaiSystemInstructions(messages);
-    if (instructions) params.instructions = instructions;
-  }
+  const instructions =
+    provider.config?.responsesSystemAsInstructions === true ? xaiSystemInstructions(messages) : '';
+  const params = buildCompatResponsesParams({
+    provider,
+    useModel,
+    input,
+    previousResponseId,
+    tools,
+    opts,
+    instructions,
+  });
 
   try {
     opts.onStageChange?.('requesting');

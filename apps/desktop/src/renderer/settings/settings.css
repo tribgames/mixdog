@@ -1047,10 +1047,18 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
+/* Fixed to the tallest view (Phone: tabs 32 + QR 160 + code 100 + step 20 +
+ * 3 × 16 gaps) so switching tabs never resizes the dialog; shorter views sit
+ * centered under the tabs instead of leaving a gap above the footer. */
 .conn-body {
-  height: 248px;
+  height: 360px;
   display: grid;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+}
+.conn-view {
+  display: grid;
+  align-content: center;
   gap: 16px;
 }
 .conn-seg {

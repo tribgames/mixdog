@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { cursorTokenExpiry } from './cursor-auth.mjs';
+import { isValidMuseCredentialDocument } from './muse-code-oauth-tokens.mjs';
 import { developerOptionEnabled, developerOptionForProvider } from '../../../shared/developer-options.mjs';
 
 const ANTHROPIC_DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
@@ -166,6 +167,28 @@ function grokOAuthState() {
   );
 }
 
+function mimoOAuthState() {
+  const paths = [
+    boundProviderAuthPath('mimo-oauth') ||
+      process.env.MIMO_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'mimo-oauth.json'),
+  ];
+  return memoProbe('mimo-oauth', paths, () =>
+    resolveProbeState(paths, (docs) => docs.some((own) => !!own?.apiKey))
+  );
+}
+
+function museCodeOAuthState() {
+  const paths = [
+    boundProviderAuthPath('muse-code-oauth') ||
+      process.env.MUSE_CODE_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'muse-code-oauth.json'),
+  ];
+  return memoProbe('muse-code-oauth', paths, () =>
+    resolveProbeState(paths, (docs) => docs.some(isValidMuseCredentialDocument))
+  );
+}
+
 // Antigravity needs a resolved Cloud project alongside the tokens: without it
 // every request 400s, so a half-finished login must not enable the provider.
 function antigravityOAuthState() {
@@ -228,6 +251,8 @@ const OAUTH_PROBE_STATES = new Map([
   ['anthropic-oauth', anthropicOAuthState],
   ['openai-oauth', openAIOAuthState],
   ['grok-oauth', grokOAuthState],
+  ['muse-code-oauth', museCodeOAuthState],
+  ['mimo-oauth', mimoOAuthState],
   ['cursor-oauth', cursorOAuthState],
   ['antigravity-oauth', antigravityOAuthState],
 ]);

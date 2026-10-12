@@ -18,13 +18,11 @@ test('latest completion waits on background work, then returns to completed in p
   try {
     const waiting = render({ backgroundWork: { shell: 2, agent: 1 } });
     assert.ok(waiting.classList.contains('waiting'));
-    assert.ok(waiting.querySelector('.turn-status-dot'));
+    assert.equal(waiting.querySelectorAll('.turn-status-dots > span').length, 3);
     assert.ok(!waiting.querySelector('svg'));
-    assert.equal(waiting.textContent, '3 background tasks waiting · Shell 2 · Agent 1');
-    assert.equal(
-      render({ backgroundWork: { shell: 1, agent: 0 } }).textContent,
-      '1 background tasks waiting · Shell 1'
-    );
+    assert.equal(waiting.textContent, 'Waiting on 2 shell jobs · 1 agents');
+    assert.equal(render({ backgroundWork: { shell: 1, agent: 0 } }).textContent, 'Waiting on 1 shell jobs');
+    assert.equal(render({ backgroundWork: { shell: 0, agent: 1 } }).textContent, 'Waiting on 1 agents');
 
     const done = render({});
     assert.ok(!done.classList.contains('waiting'));

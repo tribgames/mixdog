@@ -236,9 +236,11 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     const empty = await geometry(page, before.key);
     await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
     await page.waitForSelector('.turn-review-segment');
+    // The slot opens over 180ms; measure the settled height.
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
     await stable();
     const collapsed = await geometry(page, before.key);
-    assert.equal(collapsed.dockHeight, empty.dockHeight, 'the island slot is reserved before anything shows');
+    assert.equal(empty.dockHeight < collapsed.dockHeight, true, 'an empty island reserves no space; content opens its slot');
     await page.click('.session-goal-trigger');
     await stable();
     assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'the Goal tab overlays the reader');
@@ -257,11 +259,68 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
 
     await page.evaluate(() => window.fixture.change({ goal: false, review: false, composer: 84 }));
     await stable();
+    // Grace period: the last item left, yet the slot stays open (so a job that
+    // starts right after does not flicker the dock) …
+    assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'the slot outlives its last item');
+    // … a new item inside the window cancels the collapse …
+    await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
+    await page.waitForSelector('.turn-review-segment');
+    await new Promise((resolve) => setTimeout(resolve, 1_800));
+    await settle(page);
+    assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'returning content keeps the slot open');
+    // … and only an empty slot past the grace period collapses.
+    await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
+    await page.waitForFunction(
+      (height) => document.querySelector('.composer-region').getBoundingClientRect().height === height,
+      { timeout: 5_000 },
+      empty.dockHeight
+    );
+    await stable();
+    assert.equal((await geometry(page)).dockHeight, empty.dockHeight, 'the empty slot collapses after the grace');
     await page.evaluate(() => window.fixture.follow());
     await settle(page);
     const tail = await geometry(page);
     assert.ok(Math.abs(tail.lastBottom - (tail.dockTop - 24)) <= 1, 'following returns above the measured dock');
     assert.ok(tail.jumpBottom <= tail.dockTop, 'the jump control stays outside the composer');
+
+    // Following the tail: the slot opening and closing must keep the last row
+    // pinned above the dock on every frame, not only once settled.
+    const pinned = async (label) => {
+      for (let frame = 0; frame < 4; frame++) {
+        await settle(page);
+        const now = await geometry(page);
+        assert.ok(Math.abs(now.lastBottom - (now.dockTop - 24)) <= 1, `${label}: the tail stays pinned`);
+      }
+    };
+    await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
+    await page.waitForSelector('.turn-review-segment');
+    await pinned('slot opening');
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    await pinned('slot open');
+    await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
+    await page.waitForFunction(
+      (height) => document.querySelector('.composer-region').getBoundingClientRect().height === height,
+      { timeout: 5_000 },
+      tail.dockHeight
+    );
+    await pinned('slot closed');
+
+    // Reduced motion: no height animation, but the grace period still holds.
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
+    await page.waitForSelector('.turn-review-segment');
+    await settle(page);
+    const reducedOpen = (await geometry(page)).dockHeight;
+    await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal((await geometry(page)).dockHeight, reducedOpen, 'reduced motion keeps the grace period');
+    await page.waitForFunction(
+      (height) => document.querySelector('.composer-region').getBoundingClientRect().height === height,
+      { timeout: 5_000 },
+      tail.dockHeight
+    );
+    await pinned('reduced motion');
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
   }
   assert.deepEqual(errors, []);
 });

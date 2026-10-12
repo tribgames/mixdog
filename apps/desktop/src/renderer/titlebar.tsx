@@ -85,7 +85,7 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
       {/* No brand mark: the bare band reads lighter (user: 로고 뺄까 뭔가
           로고 있으니까 답답하네). */}
       {/* The leading edge holds the PC menu: a remote surface names the PC it
-          drives ("● PC ▾"); the main window shows a bare monitor icon until
+          drives ("● PC ▾"); the main window shows nothing until
           PCs are saved, then "● this PC ▾". The phone has no title row; its
           brand button and drawer carry the same information. */}
       {!phoneLayout && <RemotePcSwitcher />}

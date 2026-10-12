@@ -62,6 +62,12 @@ export function isCancelUnconfirmedDesktopAgentEntry(value: unknown): boolean {
   return statusValues(value).some((status) => DESKTOP_CANCEL_UNCONFIRMED_STATUS.test(status));
 }
 
+/** The runtime stamps `awaitingUser: 'approval'` on a worker/job row while its
+ *  turn is blocked on a tool approval only the user can give. */
+export function isAwaitingApprovalDesktopAgentEntry(value: unknown): boolean {
+  return record(value).awaitingUser === 'approval';
+}
+
 /** Agent work still in flight. Background shell jobs are not agent work: a
  *  long-lived shell (dev server, watcher) never makes a row wait. */
 export function hasPendingDesktopAgentWork(value: unknown): boolean {
@@ -78,6 +84,8 @@ export function desktopAgentCancelStatus(value: unknown): string {
 export type DesktopAgentActivityState =
   | 'queued'
   | 'running'
+  /** In a turn, but blocked on the user's approval: not working. */
+  | 'needs-user'
   | 'waiting'
   | 'cancel-unconfirmed'
   | 'cancelled'
@@ -89,7 +97,8 @@ export type DesktopAgentActivityState =
  *  queued/running/done/idle buckets: an entry cancelled WHILE QUEUED still
  *  carries stage `queued`, and one cancelled WHILE RUNNING still carries stage
  *  `running`, so asking the queued/active predicates first would settle both of
- *  them as work in progress or as a completion. An inactive parent with
+ *  them as work in progress or as a completion. A live turn blocked on the
+ *  user's approval needs the user rather than running. An inactive parent with
  *  unsettled descendant agents is waiting, even if its last response is
  *  unread. */
 export function desktopAgentActivityState(
@@ -100,6 +109,7 @@ export function desktopAgentActivityState(
     return isCancelUnconfirmedDesktopAgentEntry(value) ? 'cancel-unconfirmed' : 'cancelled';
   }
   if (statusValues(value).includes('unknown')) return 'unknown';
+  if (isActiveDesktopAgentEntry(value) && isAwaitingApprovalDesktopAgentEntry(value)) return 'needs-user';
   if (isQueuedDesktopAgentEntry(value)) return 'queued';
   if (isActiveDesktopAgentEntry(value)) return 'running';
   if (options.waitingForTasks === true || hasPendingDesktopAgentWork(value)) return 'waiting';

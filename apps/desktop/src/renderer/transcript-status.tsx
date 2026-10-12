@@ -480,10 +480,9 @@ export function backgroundWorkCounts(snapshot: Snapshot): BackgroundWorkCounts |
 }
 
 function backgroundWaitingLabel({ shell, agent }: BackgroundWorkCounts): string {
-  const parts = [t('{{count}} background tasks waiting', { count: shell + agent })];
-  if (shell > 0) parts.push(t('Shell {{shell}}', { shell }));
-  if (agent > 0) parts.push(t('Agent {{agent}}', { agent }));
-  return parts.join(' · ');
+  if (shell > 0 && agent > 0) return t('Waiting on {{shell}} shell jobs · {{agent}} agents', { shell, agent });
+  if (shell > 0) return t('Waiting on {{shell}} shell jobs', { shell });
+  return t('Waiting on {{agent}} agents', { agent });
 }
 
 /** `animateComplete` is the caller's explicit decision (see hadLiveActivity);
@@ -563,7 +562,11 @@ export function CompletionStatus({
   if (backgroundWork && backgroundWork.shell + backgroundWork.agent > 0) {
     return (
       <div className="turn-status complete waiting" role="status">
-        <span className="turn-status-icon turn-status-dot" aria-hidden="true" />
+        <span className="turn-status-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
         <span>{backgroundWaitingLabel(backgroundWork)}</span>
       </div>
     );

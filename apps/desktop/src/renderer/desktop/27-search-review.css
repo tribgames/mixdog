@@ -644,40 +644,6 @@
 .session-diff-back:hover {
   color: var(--mx-text);
 }
-.session-diff-crumb {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  padding: 4px calc(var(--dock-scm-gutter) + var(--dock-scm-row-inset) + 2px);
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  white-space: nowrap;
-}
-.session-diff-crumb button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.session-diff-crumb button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.session-diff-crumb-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--mx-text);
-}
-.session-diff-crumb-nav {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 8px;
-}
 .session-diff-body {
   min-height: 0;
   flex: 1;

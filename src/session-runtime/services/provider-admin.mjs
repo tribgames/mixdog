@@ -36,6 +36,24 @@ import {
   loginOAuth as loginGrokOAuth,
 } from '../../runtime/agent/orchestrator/providers/grok-oauth-login.mjs';
 import {
+  describeMimoOAuthCredentials,
+  forgetMimoOAuthCredentials,
+  hasMimoOAuthCredentials,
+} from '../../runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs';
+import {
+  beginOAuthLogin as beginMimoOAuthLogin,
+  loginOAuth as loginMimoOAuth,
+} from '../../runtime/agent/orchestrator/providers/mimo-oauth-login.mjs';
+import {
+  describeMuseCodeOAuthCredentials,
+  forgetMuseCodeOAuthCredentials,
+  hasMuseCodeOAuthCredentials,
+} from '../../runtime/agent/orchestrator/providers/muse-code-oauth-tokens.mjs';
+import {
+  beginOAuthLogin as beginMuseCodeOAuthLogin,
+  loginOAuth as loginMuseCodeOAuth,
+} from '../../runtime/agent/orchestrator/providers/muse-code-oauth-login.mjs';
+import {
   beginCursorOAuthLogin,
   describeCursorOAuthCredentials,
   forgetCursorOAuthCredentials,
@@ -124,6 +142,26 @@ const OAUTH_PROVIDERS = Object.freeze([
     forget: forgetGrokOAuthCredentials,
     begin: beginGrokOAuthLogin,
     login: loginGrokOAuth,
+  }),
+  Object.freeze({
+    id: 'muse-code-oauth',
+    name: 'Muse Code',
+    desc: 'Sign in with your Meta account (Muse Code subscription)',
+    has: hasMuseCodeOAuthCredentials,
+    describe: describeMuseCodeOAuthCredentials,
+    forget: forgetMuseCodeOAuthCredentials,
+    begin: beginMuseCodeOAuthLogin,
+    login: loginMuseCodeOAuth,
+  }),
+  Object.freeze({
+    id: 'mimo-oauth',
+    name: 'MiMo',
+    desc: 'Sign in with your Xiaomi MiMo account',
+    has: hasMimoOAuthCredentials,
+    describe: describeMimoOAuthCredentials,
+    forget: forgetMimoOAuthCredentials,
+    begin: beginMimoOAuthLogin,
+    login: loginMimoOAuth,
   }),
   Object.freeze({
     id: 'cursor-oauth',
@@ -638,6 +676,7 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
     type: 'oauth',
     url: started.url,
     manualUrl: started.manualUrl || null,
+    userCode: started.userCode || null,
     waitForCallback: started.waitForCallback?.then(finish),
     cancel: () => {
       cancelled = true;

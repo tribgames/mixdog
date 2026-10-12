@@ -55,6 +55,9 @@ export function normalizeWorkerRows(value) {
       toolPermission: clean(row.toolPermission) || null,
       messages: positiveInt(row.messages) || 0,
       tools: positiveInt(row.tools) || 0,
+      // Additive and transient: present only while the worker's turn waits on
+      // a user approval (worker-index setAwaitingUser).
+      ...(row.awaitingUser === 'approval' ? { awaitingUser: 'approval' } : {}),
     }))
     .filter((row) => !isLeadPoolAgent(row.agent) && keepWorkerRow(row));
 }

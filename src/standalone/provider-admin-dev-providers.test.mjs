@@ -21,7 +21,7 @@ const oauthIds = async () =>
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 
 test('each provider option exposes and hides only its own dev-only OAuth provider without a reload', async () => {
-  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth']);
+  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'mimo-oauth']);
   for (const id of DEV) {
     assert.equal(isKnownProvider(id), false, id);
     assert.throws(() => listProviderAccounts(id), /Unknown OAuth provider/);
@@ -31,12 +31,12 @@ test('each provider option exposes and hides only its own dev-only OAuth provide
   assert.equal(isKnownProvider('mixdog-local'), true);
 
   setDeveloper({ cursorOAuth: true });
-  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'cursor-oauth']);
+  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'mimo-oauth', 'cursor-oauth']);
   assert.equal(isKnownProvider('cursor-oauth'), true);
   assert.equal(isKnownProvider('antigravity-oauth'), false);
 
   setDeveloper({ cursorOAuth: true, antigravityOAuth: true });
-  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', ...DEV]);
+  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'mimo-oauth', ...DEV]);
   for (const id of DEV) assert.equal(isKnownProvider(id), true, id);
   assert.deepEqual(
     providerStatus({})
@@ -47,10 +47,10 @@ test('each provider option exposes and hides only its own dev-only OAuth provide
   );
 
   setDeveloper({ cursorOAuth: false, antigravityOAuth: true });
-  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'antigravity-oauth']);
+  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'mimo-oauth', 'antigravity-oauth']);
   assert.equal(isKnownProvider('cursor-oauth'), false);
 
   setDeveloper({ cursorOAuth: false, antigravityOAuth: false });
-  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth']);
+  assert.deepEqual(await oauthIds(), ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'mimo-oauth']);
   for (const id of DEV) assert.equal(isKnownProvider(id), false, id);
 });

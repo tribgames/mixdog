@@ -522,10 +522,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   const accountOptions = subscriptions
     .filter((row) => row.provider === provider && row.accountInRoster !== false)
     .sort((a, b) => Number(b.account === account) - Number(a.account === account) || rosterRank(a) - rosterRank(b))
-    .map((row) => {
-      const name = String(row.accountLabel || row.account || '');
-      return { value: String(row.account || ''), label: row.accountEmail ? `${name} · ${row.accountEmail}` : name };
-    });
+    .map((row) => ({ value: String(row.account || ''), label: String(row.accountLabel || row.account || '') }));
   const windowLabels = subscriptions
     .filter((row) => row.provider === provider && row.account === account)
     .flatMap((row) => (Array.isArray(row.windows) ? row.windows.map(String) : []));

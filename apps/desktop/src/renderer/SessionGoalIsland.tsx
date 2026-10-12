@@ -9,6 +9,7 @@ import { useGoalAfterSubmission } from './session-goal-submission';
 import {
   goalDisplayStatus,
   goalElapsedLabel,
+  goalElapsedMinutesLabel,
   goalHasBackgroundWork,
   goalStatusLabel,
   goalTimeLabel,
@@ -162,6 +163,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     Math.max(tasks.filter((task) => task.status === 'completed').length, Number(goal.tasksCompleted) || 0)
   );
   const progressLabel = `${tasksCompleted}/${tasksTotal}`;
+  const elapsedMinutes = goalElapsedMinutesLabel(goal, clock);
   const title = String(goal.title || goal.objective || t('Goal'));
   const objective = String(goal.objective || '');
   const terminal = goal.status === 'complete' || goal.status === 'stopped';
@@ -185,12 +187,23 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
         aria-label={t('Goal: {{objective}}', { objective })}
         onClick={() => setOpen(!open)}
       >
-        <GoalBar completed={tasksCompleted} total={tasksTotal} label={activityLabel} />
+        {goal.status === 'complete' || goal.status === 'stopped' ? (
+          <span
+            className="session-goal-finished"
+            data-status={goal.status}
+            style={{ color: goal.status === 'complete' ? 'var(--mx-success)' : 'var(--mx-text-muted)' }}
+          >
+            <MxIcon name={goal.status === 'complete' ? 'check' : 'stop'} size={14} />
+          </span>
+        ) : (
+          <GoalBar completed={tasksCompleted} total={tasksTotal} label={activityLabel} />
+        )}
         <span className="session-goal-objective" title={objective}>
           {title}
         </span>
         <span className="session-goal-meta">
           <span className="session-goal-progress">{progressLabel}</span>
+          {elapsedMinutes && <span className="session-goal-trigger-time">{elapsedMinutes}</span>}
         </span>
       </button>
       {/* The Goal tab of the expanded island: the task drawer and its

@@ -4,22 +4,30 @@
  */
 import { resolvePreToolAskApproval } from '../tool-helpers.mjs';
 import { runAbortable, throwIfAborted } from '../../../../../shared/abort-race.mjs';
+import { beginSessionApprovalWait } from '../../manager/runtime-liveness.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
 async function askApproval(call, { callerSessionId, executeOpts, toolApprovalHook, decision }) {
   const askReason = String(decision?.reason || 'approval requested by hook').trim();
-  const askOutcome = await runAbortable(executeOpts.signal, () =>
-    resolvePreToolAskApproval({
-      toolName: call.name,
-      args: call.args,
-      cwd: call.cwd,
-      sessionId: callerSessionId,
-      toolCallId: executeOpts.toolCallId || null,
-      askReason,
-      toolApprovalHook,
-    })
-  );
+  // While the user decides, the session is waiting on them, not working.
+  const releaseApprovalWait = beginSessionApprovalWait(callerSessionId);
+  let askOutcome;
+  try {
+    askOutcome = await runAbortable(executeOpts.signal, () =>
+      resolvePreToolAskApproval({
+        toolName: call.name,
+        args: call.args,
+        cwd: call.cwd,
+        sessionId: callerSessionId,
+        toolCallId: executeOpts.toolCallId || null,
+        askReason,
+        toolApprovalHook,
+      })
+    );
+  } finally {
+    releaseApprovalWait();
+  }
   if (askOutcome.denial) return { denial: askOutcome.denial };
   const approval = askOutcome.approval;
   if (approval && typeof approval === 'object' && isArgsObject(approval.args)) call.args = approval.args;

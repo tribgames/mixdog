@@ -249,10 +249,13 @@ export function StarterGuide({
       done: remotePaired || state.visited.includes('remote'),
       open: () => onOpenSettings('connection'),
       tour: [
+        // Pairing starts from Connect a device (QR, browser or code), so the
+        // tour ends on that live control and hands over to its dialog.
         {
-          target: ['.settings-connection-card', '.mixdog-settings__body'],
-          title: t('Phones and tablets: scan the QR code'),
-          body: t('Scan with your phone, then approve it here.'),
+          target: ['.conn-connect-device', '.mixdog-settings__body'],
+          title: t('Connect a device'),
+          body: t('Choose the kind of device to connect.'),
+          action: true,
         },
       ],
     },

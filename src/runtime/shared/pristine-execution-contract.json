@@ -63,6 +63,14 @@
       "credentialPathEnv": "GROK_OAUTH_CREDENTIALS_PATH",
       "modelCatalogFile": "grok-oauth-models.json"
     },
+    "muse-code-oauth": {
+      "credentialFile": "muse-code-oauth.json",
+      "credentialPathEnv": "MUSE_CODE_OAUTH_CREDENTIALS_PATH"
+    },
+    "mimo-oauth": {
+      "credentialFile": "mimo-oauth.json",
+      "credentialPathEnv": "MIMO_OAUTH_CREDENTIALS_PATH"
+    },
     "cursor-oauth": {
       "credentialFile": "cursor-oauth.json",
       "credentialPathEnv": "CURSOR_OAUTH_CREDENTIALS_PATH",

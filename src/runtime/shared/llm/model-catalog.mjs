@@ -52,6 +52,7 @@ const _MODELSDEV_PROVIDER_ALIAS = {
   'anthropic-oauth': 'anthropic',
   'openai-oauth': 'openai',
   'grok-oauth': 'xai',
+  'mimo-oauth': 'xiaomi',
   gemini: 'google',
 };
 function _modelsDevProviderId(provider) {
@@ -64,7 +65,7 @@ function _modelsDevProviderId(provider) {
 // OpenAI and xAI SKUs at once. No catalog lists them under the relay's own
 // name, so a provider-keyed lookup finds nothing and the route silently prices
 // at zero — indistinguishable from a genuinely free local model.
-const _RELAY_PROVIDERS = new Set(['cursor-oauth', 'cursor-api', 'antigravity-oauth', 'opencode-go']);
+const _RELAY_PROVIDERS = new Set(['cursor-oauth', 'cursor-api', 'antigravity-oauth', 'opencode-go', 'muse-code-oauth']);
 
 // Which vendor actually served a relayed model, read off the model id. This is
 // a LAST resort: it runs only after the provider-keyed lookup has already

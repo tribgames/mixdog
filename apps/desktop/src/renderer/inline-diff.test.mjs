@@ -122,12 +122,13 @@ test('file list rows pick a file; the pane drills list → diff', async () => {
     const q = (selector) => view.container.querySelector(selector);
     assert.equal(q('.session-diff-files'), null);
     assert.ok(q('.session-diff-body'));
-    assert.match(q('.session-diff-crumb').textContent, /1 \/ 2/);
+    assert.equal(q('.session-diff-path').textContent, 'cart.js');
+    assert.equal(q('.session-diff-path').title, 'src/cart.js');
     await view.click(q('.session-diff-back'));
     assert.equal(q('.session-diff-body'), null);
     await view.click(view.container.querySelectorAll('.changes-file-main')[1]);
     assert.equal(q('.session-diff-files'), null);
-    assert.match(q('.session-diff-crumb').textContent, /2 \/ 2/);
+    assert.equal(q('.session-diff-path').textContent, 'receipt.js');
   } finally {
     await view.done();
   }

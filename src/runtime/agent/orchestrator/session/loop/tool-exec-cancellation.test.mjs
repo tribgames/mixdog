@@ -25,6 +25,10 @@ after(async () => {
   process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 });
 const { executeTool } = await import('./tool-exec.mjs');
+const { _touchRuntime, getSessionProgressSnapshot, getSessionRuntime, updateSessionStage } = await import(
+  '../manager/runtime-liveness.mjs'
+);
+const { createJobViews } = await import('../../../../../session-runtime/services/agent-tool/job-views.mjs');
 const { createStandaloneHookBus } = await import('../../../../../session-runtime/services/hook-bus.mjs');
 const { attachSessionHooks } = await import('../../../../../session-runtime/session-hooks.mjs');
 
@@ -103,6 +107,65 @@ for (const phase of ['policy', 'approval']) {
     release.resolve();
     await new Promise(setImmediate);
     await assert.rejects(readFile(join(root, fileName)), { code: 'ENOENT' });
+  });
+}
+
+for (const settle of ['answer', 'cancel']) {
+  test(`a pending approval marks the agent status rows as awaiting the user until the ${settle}`, async (t) => {
+    const session = { id: `fixture-awaiting-${settle}`, cwd: root, agent: 'reviewer', status: 'running' };
+    _touchRuntime(session.id);
+    updateSessionStage(session.id, 'tool_running');
+    // The agent tool's status producer over the live runtime liveness map.
+    const views = createJobViews({
+      mgr: {
+        getSession: (id) => (id === session.id ? session : null),
+        getSessionRuntime,
+        getSessionProgressSnapshot,
+      },
+      getLiveSession: () => null,
+      reg: { getProvider: () => null },
+      DEFAULT_SPAWN_PREP_TIMEOUT_MS: 1000,
+      refreshTagsFromSessions: () => {},
+      agentSessionEntries: () => [{ tag: 'review', session }],
+      tags: new Map(),
+      cfgMod: { loadConfig: () => ({}) },
+    });
+    const controller = new AbortController();
+    const asked = Promise.withResolvers();
+    const answer = Promise.withResolvers();
+    const result = executeTool(
+      'apply_patch',
+      { patch: `*** Begin Patch\n*** Add File: awaiting-${settle}.txt\n+must not be written\n*** End Patch\n` },
+      root,
+      session.id,
+      session,
+      {
+        signal: controller.signal,
+        beforeToolHook: async () => ({ action: 'ask' }),
+        toolApprovalHook: async () => {
+          asked.resolve();
+          return answer.promise;
+        },
+      }
+    );
+    result.catch(() => {});
+    t.after(() => answer.resolve({ approved: false }));
+    await asked.promise;
+    const [waiting] = views.list();
+    assert.equal(waiting.stage, 'tool_running');
+    assert.equal(waiting.awaitingUser, 'approval');
+    assert.equal(getSessionProgressSnapshot(session.id).awaitingUser, 'approval');
+    if (settle === 'answer') {
+      answer.resolve({ approved: false, reason: 'fixture decision' });
+      assert.match(await result, /denied by hook.*fixture decision/);
+    } else {
+      const reason = new Error('cancel while awaiting approval');
+      controller.abort(reason);
+      await assert.rejects(result, (error) => error === reason);
+    }
+    const [settled] = views.list();
+    assert.equal('awaitingUser' in settled, false);
+    assert.equal('awaitingUser' in getSessionProgressSnapshot(session.id), false);
   });
 }
 

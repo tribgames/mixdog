@@ -8,6 +8,8 @@ export const ACCOUNT_PROVIDERS = Object.freeze([
   'openai-oauth',
   'anthropic-oauth',
   'grok-oauth',
+  'muse-code-oauth',
+  'mimo-oauth',
   'cursor-oauth',
   'antigravity-oauth',
 ]);

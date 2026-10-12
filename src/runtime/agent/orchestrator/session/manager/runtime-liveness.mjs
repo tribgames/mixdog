@@ -19,6 +19,7 @@
 //   closed?: boolean,               // flipped by closeSession()
 // }
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
+import { emitSessionApprovalWaitChange } from '../../../../shared/session-approval-wait.mjs';
 import { publishHeartbeat, deleteHeartbeat } from '../store.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
 import { finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
@@ -286,6 +287,29 @@ export function markSessionToolOutputTail(id, tail) {
   entry.toolOutputTail = text ? text.slice(-4000) : null;
   entry.toolOutputTailAt = Date.now();
 }
+// A turn blocked on the user: a PreToolUse `ask` waiting for the tool
+// approval only the user can give. Published as `awaitingUser: 'approval'` so
+// status surfaces stop presenting the session as working. Counted, because one
+// tool batch can hold several approvals at once; the field clears when the
+// last one settles. Never creates an entry — a real turn always has one.
+// Returns the release, which is idempotent.
+export function beginSessionApprovalWait(id) {
+  const entry = id ? _runtimeState.get(id) : null;
+  if (!entry) return () => {};
+  entry.approvalWaits = (entry.approvalWaits || 0) + 1;
+  entry.awaitingUser = 'approval';
+  // Only the begin/end transitions are announced (the worker index persists them).
+  if (entry.approvalWaits === 1) emitSessionApprovalWaitChange(id, 'approval');
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    entry.approvalWaits = Math.max(0, (entry.approvalWaits || 0) - 1);
+    if (entry.approvalWaits > 0) return;
+    entry.awaitingUser = null;
+    emitSessionApprovalWaitChange(id, null);
+  };
+}
 // Parent AbortSignal listeners are dropped on askSession unwind (finally /
 // terminal return) and on error/cancel/close — not in markSessionDone, which
 // also runs between queued follow-up turns within one ask.
@@ -411,6 +435,7 @@ export function getSessionProgressSnapshot(sessionId) {
     ),
     waitingForTransport,
     waitingForFirstSemantic,
+    ...(entry.awaitingUser ? { awaitingUser: entry.awaitingUser } : {}),
   };
 }
 

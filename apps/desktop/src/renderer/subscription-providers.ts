@@ -4,6 +4,8 @@ export const SUBSCRIPTIONS = [
   { key: 'codex', label: 'Codex', provider: 'openai-oauth' },
   { key: 'claude', label: 'Claude', provider: 'anthropic-oauth' },
   { key: 'grok', label: 'Grok', provider: 'grok-oauth' },
+  { key: 'muse-code', label: 'Muse Code', provider: 'muse-code-oauth' },
+  { key: 'mimo', label: 'MiMo', provider: 'mimo-oauth' },
   { key: 'cursor', label: 'Cursor', provider: 'cursor-oauth' },
   { key: 'antigravity', label: 'Antigravity', provider: 'antigravity-oauth' },
   { key: 'opencode-go', label: 'OpenCode Go', provider: 'opencode-go' },

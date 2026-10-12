@@ -227,29 +227,12 @@ const settleChip = () =>
     await new Promise((done) => setTimeout(done, 0));
   });
 
-test('main window, no saved PCs: still "● this PC name ▾"', async (t) => {
+test('main window, no saved PCs: the chip renders nothing', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root', globals: ELECTRON });
   installMainWindow(window);
   await act(async () => root.render(React.createElement(RemotePcSwitcher)));
   await settleChip();
-  const button = document.querySelector('button.remote-pc-button');
-  assert.equal(button.textContent, 'Studio PC');
-  assert.ok(button.querySelector('.remote-pc-dot:not(.off)'));
-  assert.ok(button.querySelector('svg'), 'chevron');
-
-  await act(async () => button.click());
-  const items = [...document.querySelectorAll('[role="menuitem"]')];
-  assert.equal(items.length, 4);
-  assert.match(items[0].textContent, /Studio PC.*This PC · In use/);
-  assert.deepEqual(
-    items.slice(1).map((item) => item.textContent),
-    ['Open another PC', 'Connect a device', 'Connection settings']
-  );
-  assert.ok(items[0].disabled);
-  assert.ok(
-    items.slice(1).every((item) => item.querySelector('svg')),
-    'action rows carry icons'
-  );
+  assert.equal(document.querySelector('.remote-pc-switcher'), null);
 });
 
 test('main window, saved PCs: "● this PC name ▾" and a menu with online / window-open state', async (t) => {
@@ -280,6 +263,15 @@ test('main window, saved PCs: "● this PC name ▾" and a menu with online / wi
   assert.match(items[1].textContent, /Home PC.*Online · Window open/);
   assert.match(items[2].textContent, /Office PC.*Offline · /);
   assert.ok(items[2].querySelector('.remote-pc-dot.off'));
+  assert.ok(items[0].disabled);
+  assert.deepEqual(
+    items.slice(3).map((item) => item.textContent),
+    ['Open another PC', 'Connect a device', 'Connection settings']
+  );
+  assert.ok(
+    items.slice(3).every((item) => item.querySelector('svg')),
+    'action rows carry icons'
+  );
   await act(async () => items[1].click());
   assert.deepEqual(calls, [['open', 'a']], 'a click opens or focuses that PC window');
   assert.equal(document.querySelector('.remote-pc-menu'), null);
@@ -288,7 +280,9 @@ test('main window, saved PCs: "● this PC name ▾" and a menu with online / wi
 test('main window menu actions open Settings → Connection, with the C dialog, the A dialog or neither', async (t) => {
   const { takeConnectionDialogRequest } = await import('./settings/connection-intent.ts');
   const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['Event'], globals: ELECTRON });
-  installMainWindow(window);
+  installMainWindow(window, {
+    hosts: [{ id: 'a', name: 'Home PC', url: '', addedAt: 1, lastConnectedAt: 2, open: false, online: false }],
+  });
   let opened = 0;
   window.addEventListener('mixdog:open-connection-settings', () => (opened += 1));
   await act(async () => root.render(React.createElement(RemotePcSwitcher)));

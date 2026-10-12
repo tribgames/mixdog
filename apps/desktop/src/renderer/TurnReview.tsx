@@ -18,6 +18,7 @@ import { readDiffStyle, TURN_REVIEW_DIFF_STYLE_KEY, type TranscriptItem, writeDi
 import { turnReviewScope } from './renderer-logic.mjs';
 import { isMobileRemoteSurface } from './mobile-surface';
 import { useComposerIslandTab } from './composer-island-state';
+import { IslandSegLabel } from './ComposerIsland';
 import {
   leadReviewSnapshotKindCache,
   rememberAgentReviews,
@@ -805,10 +806,23 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         type="button"
         className="composer-island-seg turn-review-segment"
         aria-label={t('Files changed this turn')}
+        title={t('Files {{count}}', { count: summary.files.size })}
         aria-expanded={islandTab ? false : undefined}
         onClick={onOpenChanges ?? (() => setExpanded(true))}
       >
-        <span>{t('Files {{count}}', { count: summary.files.size })}</span>
+        <IslandSegLabel
+          text={
+            summary.files.size === 1
+              ? t('{{name}} changed', {
+                  name: String(summary.files.keys().next().value ?? '')
+                    .split(/[\\/]/)
+                    .pop(),
+                })
+              : t('{{count}} files changed', { count: summary.files.size })
+          }
+          count={summary.files.size}
+          icon="file-diff"
+        />
         {headlineStats.hasLineStats && (
           <span className="diff-stats">
             {headlineStats.additions > 0 && <i>+{headlineStats.additions}</i>}

@@ -107,6 +107,10 @@ export function buildDefaultConfig(options = {}) {
   // stored in mixdog-config.json — enabled at runtime from the presence of
   // Mixdog-owned credentials.
   providers['grok-oauth'] = oauthEntry('grok-oauth');
+  // Muse Code subscription (Meta Muse Spark), enabled from its stored key.
+  providers['muse-code-oauth'] = oauthEntry('muse-code-oauth');
+  // MiMo subscription: enabled from a stored platform API key.
+  providers['mimo-oauth'] = oauthEntry('mimo-oauth');
   // Dev-only providers (Settings → Developer → Providers, one option each):
   // omitted entirely from the default config while their option is off so
   // they never surface in settings.

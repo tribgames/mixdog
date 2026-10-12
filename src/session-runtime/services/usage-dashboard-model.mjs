@@ -234,6 +234,10 @@ function providerDescription(id, group) {
       return 'Anthropic OAuth subscription quota';
     case 'grok-oauth':
       return 'Grok Build subscription quota';
+    case 'muse-code-oauth':
+      return 'Muse Code subscription quota';
+    case 'mimo-oauth':
+      return 'MiMo Token Plan subscription quota';
     case 'antigravity-oauth':
       return 'Antigravity subscription quota';
     case 'opencode-go':
@@ -338,6 +342,8 @@ const PROVIDER_RANKS = {
   'openai-oauth': 10,
   'anthropic-oauth': 20,
   'grok-oauth': 30,
+  'muse-code-oauth': 33,
+  'mimo-oauth': 34,
   'cursor-oauth': 35,
   'antigravity-oauth': 36,
   'opencode-go': 40,

@@ -232,7 +232,12 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
       (current.queued && !next.queued)
         ? next.status
         : current.status,
-    state: next.state === 'cancel-unconfirmed' ? next.state : current.state,
+    // A twin that reports a pending user approval wins over plain work: the
+    // agent is blocked on the user whichever row saw it first.
+    state:
+      next.state === 'cancel-unconfirmed' || (next.state === 'needs-user' && current.state !== 'cancel-unconfirmed')
+        ? next.state
+        : current.state,
     queued: current.queued && next.queued,
     startedAt: current.startedAt || next.startedAt,
     turnStartedAt: current.turnStartedAt || next.turnStartedAt,

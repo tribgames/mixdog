@@ -109,17 +109,19 @@ export function formatElapsed(value: unknown): string {
   if (seconds < 60) return uiTimeUnit(seconds, 'second');
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
+  // Compact: a zero tail is dropped, and every unit after the first is
+  // zero-padded so a running timer keeps its width (`1m 05s`, `2h 03m 09s`).
   if (minutes >= 60) {
     return [
       uiTimeUnit(Math.floor(minutes / 60), 'hour'),
-      minutes % 60 ? uiTimeUnit(minutes % 60, 'minute') : '',
-      remainder ? uiTimeUnit(remainder, 'second') : '',
+      minutes % 60 || remainder ? uiTimeUnit(minutes % 60, 'minute', true) : '',
+      remainder ? uiTimeUnit(remainder, 'second', true) : '',
     ]
       .filter(Boolean)
       .join(' ');
   }
   const text = uiTimeUnit(minutes, 'minute');
-  return remainder ? `${text} ${uiTimeUnit(remainder, 'second')}` : text;
+  return remainder ? `${text} ${uiTimeUnit(remainder, 'second', true)}` : text;
 }
 
 export const TURN_LOCKED_SLASH_COMMANDS = new Set(['clear', 'resume', 'outputstyle', 'effort', 'fast', 'inherit']);

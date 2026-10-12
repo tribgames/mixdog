@@ -865,7 +865,10 @@ async function measureUsage(provider, providerObj, routeInfo) {
   if (provider === 'anthropic-oauth') return await fetchAnthropicUsage(providerObj);
   if (provider === 'grok-oauth') return await fetchGrokUsage(providerObj, routeInfo);
   if (
-    (provider === 'cursor-oauth' || provider === 'cursor-api' || provider === 'antigravity-oauth') &&
+    (provider === 'cursor-oauth' ||
+      provider === 'cursor-api' ||
+      provider === 'antigravity-oauth' ||
+      provider === 'muse-code-oauth') &&
     typeof providerObj?.getUsageSnapshot === 'function'
   ) {
     return await providerObj.getUsageSnapshot();

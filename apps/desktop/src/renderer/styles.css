@@ -634,7 +634,8 @@ button {
   align-items: center;
   gap: 7px;
   min-width: 0;
-  padding: 3px 9px;
+  height: 26px;
+  padding: 0 9px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
@@ -643,6 +644,16 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Host names are mostly capitals and digits: centering the line box left
+   the ink a pixel high. Trim to cap height so the letters center on the dot
+   and chevron; equal block padding keeps descenders unclipped. */
+.remote-pc-label {
+  min-width: 0;
+  padding-block: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-box: trim-both cap alphabetic;
 }
 .remote-pc-button {
   cursor: pointer;

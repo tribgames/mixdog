@@ -95,6 +95,39 @@ test('background shell execution stays visible without resuming a paused Goal', 
   }
 });
 
+test('collapsed trigger shows minute-format time and finished glyphs', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (goal) =>
+    act(async () => {
+      root.render(React.createElement(SessionGoalIsland, { snapshot: { sessionId: 'fin', goal } }));
+    });
+  const trigger = () => host.querySelector('.session-goal-trigger');
+  try {
+    await render({ id: 'g', status: 'paused', timeUsedMs: 59_000 });
+    assert.equal(trigger().querySelector('.session-goal-trigger-time'), null, 'no "0m" in the first minute');
+    await render({ id: 'g', status: 'paused', timeUsedMs: 12 * 60_000 + 40_000 });
+    assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '12m');
+    assert.ok(trigger().querySelector('.session-goal-bar'));
+    await render({ id: 'g', status: 'complete', timeUsedMs: 65 * 60_000 + 30_000 });
+    assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '1h 05m');
+    assert.equal(trigger().querySelector('.session-goal-bar'), null);
+    const done = trigger().querySelector('.session-goal-finished');
+    assert.equal(done.dataset.status, 'complete');
+    assert.equal(done.style.color, 'var(--mx-success)');
+    assert.ok(done.querySelector('svg'));
+    await render({ id: 'g', status: 'stopped', timeUsedMs: 5 * 60_000 });
+    const stopped = trigger().querySelector('.session-goal-finished');
+    assert.equal(stopped.dataset.status, 'stopped');
+    assert.equal(stopped.style.color, 'var(--mx-text-muted)');
+    assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '5m');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test('active child work remains visible while a separate approval is waiting', () => {
   assert.equal(goalDisplayStatus({ status: 'paused' }, { busy: false }, true), 'responding');
   assert.equal(goalDisplayStatus({ status: 'active' }, { busy: true, toolApproval: { id: 'approval' } }), 'paused');

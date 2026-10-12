@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴포저 위 아일랜드 정리 + 에이전트 표시 시안</title>
+<style>
+  :root {
+    --bg: #161618; --sheet: #161618; --text: #e9e9e9; --muted: #a8a8a8; --faint: #77777c;
+    --soft: color-mix(in srgb, #e9e9e9 85%, transparent); --accent: #79b8ff; --warn: #f2cf76; --ok: #6bd586; --danger: #f17471;
+    --line: rgba(255,255,255,.09); --island: #0d0d0f; --edge: 0 0 0 1px rgba(255,255,255,.13); --shadow: 0 8px 20px rgba(0,0,0,.3);
+    --composer: #232326;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f0f11; color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 28px 32px 60px; }
+  h1 { font-size: 19px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 40px 0 6px; }
+  .lead, .note { color: var(--muted); font-size: 13px; margin: 0 0 16px; max-width: 980px; }
+  .row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .col { flex: 1 1 440px; min-width: 380px; max-width: 600px; }
+  .label { font-size: 12px; color: var(--muted); margin: 0 0 8px; display: flex; gap: 8px; align-items: center; }
+  .badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+  .badge.pick { color: var(--ok); box-shadow: inset 0 0 0 1px rgba(107,213,134,.4); }
+
+  /* 화면 틀: 대화 끝 + 아일랜드 + 컴포저 */
+  .screen { background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 16px 20px 16px; position: relative; }
+  .msg { color: var(--soft); font-size: 13px; line-height: 20px; }
+  .msg .done { color: var(--faint); font-size: 12px; margin-top: 8px; display: flex; gap: 6px; align-items: center; }
+  .gap { height: 14px; }
+  .gap.blank { height: 48px; background: repeating-linear-gradient(45deg, rgba(241,116,113,.07) 0 6px, transparent 6px 12px); border-radius: 6px; display: grid; place-items: center; color: var(--danger); font-size: 11.5px; margin: 4px 0; }
+  .composer { height: 76px; border-radius: 18px; background: var(--composer); box-shadow: 0 0 0 1px rgba(255,255,255,.06); padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; }
+  .composer .ph { color: var(--faint); font-size: 13px; }
+  .composer .bar { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12.5px; }
+  .composer .send { margin-left: auto; width: 24px; height: 24px; border-radius: 50%; background: #3a3a3e; }
+  .composer.dim { opacity: .4; filter: saturate(.6); }
+
+  .island-wrap { display: flex; justify-content: center; margin-bottom: 10px; }
+  .island-wrap.left { justify-content: flex-start; }
+  .pill { display: inline-flex; align-items: center; height: 34px; padding: 0 4px; border-radius: 999px; background: var(--island); box-shadow: var(--edge), var(--shadow); white-space: nowrap; font-size: 12.5px; max-width: 100%; }
+  .seg { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; color: var(--soft); font-variant-numeric: tabular-nums; border-radius: 999px; }
+  .seg:hover { background: rgba(255,255,255,.06); color: var(--text); }
+  .seg + .seg { margin-left: 5px; }
+  .seg + .seg::before { content: ""; position: absolute; left: -3px; top: 50%; width: 1px; height: 14px; transform: translateY(-50%); background: rgba(255,255,255,.1); }
+  .sub { color: var(--faint); }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .plus { color: var(--ok); } .minus { color: var(--danger); }
+  .progress { width: 22px; height: 3px; border-radius: 2px; background: #3d3d41; overflow: hidden; flex: none; } .progress i { display: block; height: 100%; width: 60%; background: var(--soft); }
+  svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* 에이전트 아바타 스택 */
+  .stack { display: inline-flex; }
+  .av { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; font-weight: 600; color: #101012; box-shadow: 0 0 0 1.5px var(--island); }
+  .av + .av { margin-left: -5px; }
+  .av.w { background: #9ec5f5; } .av.r { background: #c7b2f0; } .av.e { background: #a6dcb6; }
+  .av.idle { opacity: .45; }
+  .spin { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.15); border-top-color: var(--soft); animation: spin 1s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 펼친 패널 */
+  .panel { width: 100%; max-width: 560px; border-radius: 18px; background: var(--island); box-shadow: var(--edge), var(--shadow); overflow: hidden; font-size: 12.5px; }
+  .phead { height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+  .tab { height: 26px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 999px; color: var(--muted); }
+  .tab.on { color: var(--text); background: rgba(255,255,255,.07); }
+  .close { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; color: var(--muted); border-radius: 999px; }
+  .pbody { padding: 6px 12px 8px; }
+  .arow { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 8px 2px; }
+  .arow + .arow { border-top: 1px solid var(--line); }
+  .arow .who { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+  .arow .who b { font-weight: 500; color: var(--text); }
+  .arow .who span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .arow .step { grid-column: 2 / 4; color: var(--faint); font-size: 12px; margin-top: -4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .arow .step code { font: 11.5px/16px "JetBrains Mono", Consolas, monospace; color: var(--muted); }
+  .arow .t { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .state { font-size: 11px; padding: 0 7px; border-radius: 999px; height: 18px; display: inline-flex; align-items: center; }
+  .state.wait { color: var(--warn); box-shadow: inset 0 0 0 1px rgba(242,207,118,.35); }
+  .state.q { color: var(--faint); box-shadow: inset 0 0 0 1px var(--line); }
+  .pfoot { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px 10px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12px; }
+  .btn { height: 24px; padding: 0 10px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); color: var(--text); display: inline-flex; align-items: center; font-size: 12px; }
+
+  /* 얇은 줄(C안) */
+  .strip { display: flex; flex-direction: column; gap: 2px; margin: 0 6px 8px; }
+  .srow { display: flex; align-items: center; gap: 8px; height: 24px; color: var(--muted); font-size: 12.5px; }
+  .srow b { color: var(--soft); font-weight: 500; }
+  .srow .t { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+  /* 승인 카드 */
+  .card { width: 100%; max-width: 560px; border-radius: 18px; background: var(--island); box-shadow: 0 0 0 1px rgba(242,207,118,.55), var(--shadow); padding: 12px 14px; font-size: 12.5px; }
+  .card .h { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; }
+  .card .h small { font-weight: 400; color: var(--muted); }
+  .card pre { margin: 8px 0 10px; padding: 7px 10px; border-radius: 9px; background: #19191c; font: 12px/18px "JetBrains Mono", Consolas, monospace; color: var(--soft); }
+  .card .f { display: flex; gap: 6px; justify-content: flex-end; }
+  .btn.pri { background: #2f6fc7; box-shadow: none; }
+  .flash { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 999px; background: var(--island); box-shadow: var(--edge), var(--shadow); font-size: 12.5px; color: var(--soft); }
+
+  /* 아일랜드 글자 굵기: 앱과 같은 500 */
+  .pill, .panel, .card, .flash, .strip { font-weight: 500; letter-spacing: -0.005em; }
+  .sub, .arow .who span, .arow .step, .arow .t, .srow .t { font-weight: 400; }
+
+  /* ── 조절 패널이 바꾸는 값 ── */
+  :root {
+    --k-weight: 500; --k-size: 12.5px; --k-pill-h: 34px; --k-seg-h: 26px; --k-radius: 999px; --k-panel-radius: 18px;
+    --k-edge: .13; --k-highlight: .06; --k-shadow: .3; --k-island: #0d0d0f; --k-pad: 4px; --k-avatar: 16px;
+  }
+  .pill, .panel, .card, .flash, .strip { font-weight: var(--k-weight); font-size: var(--k-size); }
+  .pill { height: var(--k-pill-h); padding: 0 var(--k-pad); border-radius: var(--k-radius); }
+  .flash { height: var(--k-pill-h); border-radius: var(--k-radius); }
+  .seg { height: var(--k-seg-h); }
+  .panel, .card { border-radius: var(--k-panel-radius); }
+  .pill, .panel, .flash {
+    background: var(--k-island);
+    box-shadow: 0 0 0 1px rgba(255,255,255,var(--k-edge)), inset 0 1px 0 rgba(255,255,255,var(--k-highlight)), 0 8px 20px rgba(0,0,0,var(--k-shadow));
+  }
+  .card { background: var(--k-island); }
+  .av { width: var(--k-avatar); height: var(--k-avatar); font-size: calc(var(--k-avatar) * .58); box-shadow: 0 0 0 1.5px var(--k-island); }
+  body.av-mono .av { background: #3a3a3f !important; color: var(--text); }
+  body.left .island-wrap { justify-content: flex-start; }
+  body.no-detail .detail { display: none; }
+
+  :root { --k-prog-w: 22px; --k-prog-h: 3px; --k-prog-fill: #79b8ff; --k-prog-track: #3d3d41; --k-pulse: #79b8ff; --k-warn: #f2cf76; }
+  .progress { width: var(--k-prog-w); height: var(--k-prog-h); border-radius: 99px; background: var(--k-prog-track); }
+  .progress i { background: var(--k-prog-fill); border-radius: 99px; }
+  .pulse { background: var(--k-pulse); }
+  .dot[style*="--warn"] { background: var(--k-warn) !important; }
+  /* 진행률 변형 비교 */
+  .pv { display: inline-flex; align-items: center; gap: 7px; }
+  .pv .progress.accent i { background: #79b8ff; }
+  .pv .progress.ok i { background: #6bd586; }
+  .pv .progress.grad i { background: linear-gradient(90deg, #5b8fd6, #9ec5f5); }
+  .pv .progress.thin { height: 2px; }
+  .pv .progress.thick { height: 4px; width: 28px; }
+  .ring { width: 14px; height: 14px; flex: none; border-radius: 50%; background: conic-gradient(var(--k-prog-fill) 0 60%, var(--k-prog-track) 0); -webkit-mask: radial-gradient(circle, transparent 4.2px, #000 4.7px); mask: radial-gradient(circle, transparent 4.2px, #000 4.7px); }
+  .ring.accent { background: conic-gradient(#79b8ff 0 60%, var(--k-prog-track) 0); }
+  .steps { display: inline-flex; gap: 2px; } .steps i { width: 5px; height: 5px; border-radius: 1.5px; background: var(--k-prog-track); } .steps i.on { background: var(--k-prog-fill); }
+  /* 이니셜 동그라미 없음: 알약에선 숨기고, 목록·카드에선 상태 점으로 */
+  .stack { display: none; }
+  .arow > .av, .card .h .av { width: 6px; height: 6px; font-size: 0; box-shadow: none; background: var(--k-pulse) !important; justify-self: center; }
+  /* 세부 내용 앞 구분선: 개수·통계와 이름을 나눔 */
+  .seg .detail { position: relative; margin-left: 3px; padding-left: 10px; }
+  .seg .detail::before { content: ""; position: absolute; left: 0; top: 50%; width: 1px; height: 12px; transform: translateY(-50%); background: rgba(255,255,255,.14); }
+  body.no-sep .seg .detail { margin-left: 0; padding-left: 0; } body.no-sep .seg .detail::before { display: none; }
+  /* +와 − 사이 구분선 */
+  .seg .plus + .minus { position: relative; margin-left: 2px; padding-left: 8px; }
+  .seg .plus + .minus::before { content: ""; position: absolute; left: 0; top: 50%; width: 1px; height: 11px; transform: translateY(-50%); background: rgba(255,255,255,.16); }
+  body.no-pm-sep .seg .plus + .minus { margin-left: 0; padding-left: 0; } body.no-pm-sep .seg .plus + .minus::before { display: none; }
+  /* 파일 칸 아이콘 상시 표시(선택) */
+  .ficon { display: none; } body.file-icon .ficon { display: inline-block; color: var(--muted); }
+  .tuner { position: fixed; top: 16px; right: 16px; width: 270px; max-height: calc(100vh - 32px); overflow-y: auto; z-index: 100;
+    background: #1c1c1f; border-radius: 14px; box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 12px 32px rgba(0,0,0,.5); padding: 12px 14px; font-size: 12px; }
+  .tuner h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; }
+  .tuner h3 button { font: inherit; font-size: 11px; color: var(--muted); background: none; border: 0; cursor: pointer; }
+  .tuner label { display: grid; grid-template-columns: 82px 1fr 44px; gap: 8px; align-items: center; margin: 6px 0; color: var(--muted); }
+  .tuner label.chk { grid-template-columns: 1fr auto; }
+  .tuner output { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  .tuner input[type=range] { width: 100%; accent-color: #79b8ff; }
+  .tuner pre { margin: 10px 0 0; padding: 8px; border-radius: 8px; background: #121214; color: var(--soft); font: 11px/16px Consolas, monospace; white-space: pre-wrap; }
+  body { padding-right: 320px; }
+
+  table.rules { border-collapse: collapse; max-width: 980px; width: 100%; font-size: 13px; }
+  table.rules td, table.rules th { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.rules th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  table.rules td:first-child { color: var(--muted); white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>컴포저 위 아일랜드 정리 + 에이전트 표시 시안</h1>
+<p class="lead">세 부분입니다. ① 빈 칸 제거(적용 완료), ② 에이전트를 아일랜드에 띄우는 방법 A·B·C 중 선택, ③ 아일랜드 전체 디자인 규칙 정리. 마음에 드는 안을 알파벳으로 골라 주시면 됩니다.</p>
+
+<!-- ① -->
+<h2>① 빈 칸 제거 <span class="badge pick">적용됨</span></h2>
+<p class="note">표시할 게 없으면 아일랜드 자리 높이를 0으로 줄입니다. 무언가 뜨면 0.18초 동안 48px로 부드럽게 늘어납니다.</p>
+<div class="row">
+  <div class="col">
+    <p class="label">지금까지</p>
+    <div class="screen">
+      <div class="msg">조회는 읽기 전용으로 했고, 데이터는 바꾸지 않았습니다.<div class="done">✓ 49초 만에 작업 완료 · 오전 9:24</div></div>
+      <div class="gap blank">아무것도 없는데 48px이 비어 있음</div>
+      <div class="composer"><span class="ph">메시지를 입력하세요</span><div class="bar">+ Claude Opus 5.5 Auto<span class="send"></span></div></div>
+    </div>
+  </div>
+  <div class="col">
+    <p class="label">바뀐 뒤</p>
+    <div class="screen">
+      <div class="msg">조회는 읽기 전용으로 했고, 데이터는 바꾸지 않았습니다.<div class="done">✓ 49초 만에 작업 완료 · 오전 9:24</div></div>
+      <div class="gap"></div>
+      <div class="composer"><span class="ph">메시지를 입력하세요</span><div class="bar">+ Claude Opus 5.5 Auto<span class="send"></span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ② -->
+<h2>② 실행 중인 에이전트 표시</h2>
+<p class="note">지금은 에이전트와 셸 명령이 <b>"작업 3"</b> 하나로 합쳐져 있어서 무엇이 돌고 있는지 보이지 않습니다. 에이전트를 별도 칸으로 나눕니다. 대기열(queued) 에이전트도 흐리게 보여 줍니다.</p>
+
+<div class="row">
+  <div class="col">
+    <p class="label"><b>A안</b> 아바타 묶음 + 개수 <span class="badge pick">추천</span></p>
+    <div class="screen">
+      <div class="island-wrap"><span class="pill">
+        <span class="seg" style="color:var(--text)"><span class="progress"><i></i></span>결제 모듈 API 이전 <span class="sub">3/5</span></span>
+        <span class="seg"><span class="stack"><span class="av w">W</span><span class="av r">R</span><span class="av e idle">E</span></span>에이전트 2<span class="sub detail">Worker — api-refactor</span></span>
+        <span class="seg"><span class="pulse"></span>셸 1<span class="sub detail">npm test</span></span>
+        <span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span>
+      </span></div>
+      <div class="composer"><span class="ph">메시지를 입력하세요</span><div class="bar">+ Claude Opus 5.5 Auto<span class="send"></span></div></div>
+    </div>
+    <p class="note" style="margin-top:8px">역할 첫 글자 동그라미(W=Worker, R=Reviewer…)를 겹쳐 보여 줍니다. 칸이 좁아도 숫자는 줄지 않고, 클릭하면 아래 패널이 열립니다.</p>
+  </div>
+
+  <div class="col">
+    <p class="label"><b>B안</b> 한 개면 이름, 여러 개면 개수</p>
+    <div class="screen">
+      <div class="island-wrap"><span class="pill">
+        <span class="seg"><span class="spin"></span>Worker · api-refactor <span class="sub">1:23</span></span>
+        <span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span>
+      </span></div>
+      <div class="island-wrap"><span class="pill">
+        <span class="seg"><span class="spin"></span>에이전트 3 <span class="sub">Worker 외 2</span></span>
+        <span class="seg"><span class="pulse"></span>셸 1</span>
+      </span></div>
+      <div class="composer"><span class="ph">메시지를 입력하세요</span><div class="bar">+ Claude Opus 5.5 Auto<span class="send"></span></div></div>
+    </div>
+    <p class="note" style="margin-top:8px">한 개일 때 무엇을 하는지 바로 보이지만, 칸 길이가 상황마다 달라집니다.</p>
+  </div>
+</div>
+
+<div class="row" style="margin-top:20px">
+  <div class="col">
+    <p class="label"><b>C안</b> 컴포저 위 얇은 목록(알약 밖)</p>
+    <div class="screen">
+      <div class="strip">
+        <div class="srow"><span class="spin"></span><b>Worker</b> api-refactor · <code style="font-size:11.5px">npm test</code> 실행 중<span class="t">1:23</span></div>
+        <div class="srow"><span class="spin"></span><b>Reviewer</b> diff 검토 중<span class="t">0:41</span></div>
+        <div class="srow" style="opacity:.55"><span class="dot" style="background:#555"></span><b>Explorer</b> 대기<span class="t"></span></div>
+      </div>
+      <div class="island-wrap"><span class="pill"><span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span></span></div>
+      <div class="composer"><span class="ph">메시지를 입력하세요</span><div class="bar">+ Claude Opus 5.5 Auto<span class="send"></span></div></div>
+    </div>
+    <p class="note" style="margin-top:8px">클릭 없이 전부 보이지만, 에이전트 수만큼 컴포저 위 공간을 차지합니다(Codex 작업 목록과 비슷한 방식).</p>
+  </div>
+
+  <div class="col">
+    <p class="label">공통: 에이전트 칸을 눌렀을 때 펼쳐지는 패널</p>
+    <div class="screen">
+      <div class="island-wrap"><div class="panel">
+        <div class="phead">
+          <span class="tab on"><span class="stack"><span class="av w">W</span><span class="av r">R</span></span>에이전트 2</span>
+          <span class="tab"><span class="pulse"></span>셸 1</span>
+          <span class="close">✕</span>
+        </div>
+        <div class="pbody">
+          <div class="arow"><span class="av w">W</span><span class="who"><b>Worker</b><span>api-refactor</span></span><span class="t">1:23</span>
+            <span class="step">↳ <code>npm test -- payment</code> 실행 중</span></div>
+          <div class="arow"><span class="av r">R</span><span class="who"><b>Reviewer</b><span>payment diff</span></span><span class="state wait">승인 대기</span>
+            <span class="step">↳ <code>src/pay/client.ts</code> 수정 승인 요청</span></div>
+          <div class="arow" style="opacity:.6"><span class="av e">E</span><span class="who"><b>Explorer</b><span>docs-scan</span></span><span class="state q">대기열</span></div>
+        </div>
+        <div class="pfoot"><span>행을 누르면 해당 에이전트 대화로 이동</span><span class="btn">모두 중지</span></div>
+      </div></div>
+      <div class="composer"><span class="ph">메시지를 입력하세요</span><div class="bar">+ Claude Opus 5.5 Auto<span class="send"></span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ②-1 -->
+<h2>②-1 모든 칸 공통: 혼자 · 함께 · 좁음 <span class="badge">수정안</span></h2>
+<p class="note">에이전트, 셸, 파일, Goal, 모델 칸이 모두 같은 규칙을 따릅니다. 혼자 있거나 넓으면 자세히, 함께 있으면 기본, 좁으면 <b>아이콘과 숫자</b>만 보여 줍니다. <b>수정: 이름·명령·파일명 같은 자세한 내용은 개수가 1개일 때만 붙입니다.</b> 여러 개 중 하나만 골라 보여 주면 오해를 주기 때문입니다.</p>
+<table class="rules">
+  <tr><th style="width:170px">상황</th><th>모습</th><th style="width:300px">규칙</th></tr>
+
+  <tr><td>에이전트 1개</td>
+    <td><span class="pill"><span class="seg"><span class="pulse"></span>에이전트 1<span class="sub detail">Advisor — advise-pr24</span></span></span></td>
+    <td class="why">하나뿐이면 무엇이 도는지 이름을 붙입니다.</td></tr>
+  <tr><td>에이전트 여러 개</td>
+    <td><span class="pill"><span class="seg"><span class="pulse"></span>에이전트 7</span></span></td>
+    <td class="why">이름은 붙이지 않습니다. 누르면 펼친 목록에서 전부 보입니다.</td></tr>
+  <tr><td>셸 1개 / 여러 개</td>
+    <td><span class="pill"><span class="seg"><span class="pulse"></span>셸<span class="sub detail">npm test -- payment</span></span></span> &nbsp; <span class="pill"><span class="seg"><span class="pulse"></span>셸<span class="sub detail">npm test -- payment <span style="color:var(--soft)">+2</span></span></span></span></td>
+    <td class="why">숫자 대신 가장 최근 명령을 보여 주고, 여러 개면 뒤에 "+2"처럼 나머지 개수를 붙입니다. 좁은 화면에서는 "&gt;_ 3"만 남습니다.</td></tr>
+  <tr><td>Goal · 시간 <span class="badge pick">추천</span></td>
+    <td>
+      <span class="pill"><span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span>결제 모듈을 새 API로 이전 <span class="sub">3/5</span><span class="sub detail">12:34</span></span></span><br><br>
+      <span class="pill"><span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span><span class="sub">3/5</span><span class="sub detail">12:34</span></span><span class="seg"><span class="pulse"></span>에이전트 7<span class="sub detail">작업 중 4 · 대기 2</span></span></span>
+    </td>
+    <td class="why">경과 시간을 칸에 항상 띄웁니다. 혼자면 제목까지, 함께 있거나 좁으면 제목만 빼고 <b>3/5 │ 12:34</b>를 남깁니다.</td></tr>
+  <tr><td>Goal · 좁음</td>
+    <td><span class="pill"><span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span><span class="sub">3/5</span><span class="sub detail">12:34</span></span></span></td>
+    <td class="why">좁아도 제목만 빠지고 시간은 그대로 남습니다. 남은 시간 같은 다른 표기는 쓰지 않습니다.</td></tr>
+  <tr><td>파일 · 지금</td>
+    <td><span class="pill"><span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span></span></td>
+    <td class="why">아이콘이나 점이 없어 다른 칸과 리듬이 다르고, 숫자만 떠 보입니다.</td></tr>
+  <tr><td>파일 · ⓐ 아이콘</td>
+    <td><span class="pill"><span class="seg"><svg viewBox="0 0 24 24" style="color:var(--muted)"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6M12 13V7M9 17h6"/></svg>파일 4<span class="sub detail"><span class="plus">+82</span> <span class="minus">−17</span></span></span></span></td>
+    <td class="why">앞에 파일 비교 아이콘을 두고, 구분선 뒤에 +/−를 놓습니다. 다른 칸처럼 "표시 · 주 정보 │ 보조 정보" 모양이 됩니다.</td></tr>
+  <tr><td>파일 · ⓑ 변경 막대</td>
+    <td><span class="pill"><span class="seg"><svg viewBox="0 0 24 24" style="color:var(--muted)"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6M12 13V7M9 17h6"/></svg>파일 4<span class="sub detail"><span class="plus">+82</span> <span class="minus">−17</span> <span style="display:inline-flex;gap:1.5px;vertical-align:middle;margin-left:4px"><i style="width:5px;height:8px;border-radius:1px;background:#6bd586"></i><i style="width:5px;height:8px;border-radius:1px;background:#6bd586"></i><i style="width:5px;height:8px;border-radius:1px;background:#6bd586"></i><i style="width:5px;height:8px;border-radius:1px;background:#6bd586"></i><i style="width:5px;height:8px;border-radius:1px;background:#f17471"></i></span></span></span></span></td>
+    <td class="why">GitHub처럼 추가·삭제 비율을 작은 칸 5개로 보여 줍니다. 한눈에 "주로 추가했구나"가 읽힙니다.</td></tr>
+  <tr><td>파일 · ⓒ 문장형 <span class="badge pick">선택</span></td>
+    <td><span class="pill"><span class="seg"><svg viewBox="0 0 24 24" style="color:var(--muted)"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6M12 13V7M9 17h6"/></svg>4개 파일 변경<span class="sub detail"><span class="plus">+82</span> <span class="minus">−17</span></span></span></span></td>
+    <td class="why">"파일 4"보다 뜻이 분명합니다. 대신 조금 더 깁니다.</td></tr>
+  <tr><td>에이전트 상태별 <span class="badge pick">추천</span></td>
+    <td>
+      <span class="pill"><span class="seg"><span class="pulse"></span>에이전트 7<span class="sub detail">작업 중 4 · 대기 2 · <span style="color:var(--warn)">승인 1</span></span></span></span><br><br>
+      <span class="pill"><span class="seg"><span class="pulse"></span>에이전트 5<span class="sub detail">작업 중 5</span></span></span> &nbsp;
+      <span class="pill"><span class="seg"><span class="dot" style="background:#77777c"></span>에이전트 2<span class="sub detail">대기 2</span></span></span>
+    </td>
+    <td class="why">상태가 있는 것만 붙입니다(0이면 생략). 승인 대기는 노란색입니다. 모두 대기 중이면 앞의 점이 회색으로 멈춥니다. 좁은 화면에서는 "🤖 7"만 남습니다.</td></tr>
+  <tr><td>상태별 · 점으로</td>
+    <td><span class="pill"><span class="seg"><span class="pulse"></span>에이전트 7<span class="sub detail"><span class="pulse" style="display:inline-block;vertical-align:middle"></span> 4 &nbsp;<span class="dot" style="display:inline-block;vertical-align:middle;background:#77777c"></span> 2 &nbsp;<span class="dot" style="display:inline-block;vertical-align:middle;background:var(--warn)"></span> 1</span></span></span></td>
+    <td class="why">글자 대신 색 점과 숫자로 표시해서 더 짧습니다. 점의 뜻은 마우스를 올리면 툴팁으로 나옵니다.</td></tr>
+  <tr><td>에이전트 보조 정보 후보</td>
+    <td>
+      <span class="pill"><span class="seg"><span class="pulse"></span>에이전트 5<span class="sub detail">대기 2</span></span></span> &nbsp;
+      <span class="pill"><span class="seg"><span class="pulse"></span>에이전트 7<span class="sub detail">1:42</span></span></span> &nbsp;
+      <span class="pill"><span class="seg"><span class="pulse"></span>에이전트 7<span class="sub detail"><span style="color:var(--warn)">승인 1</span></span></span></span>
+    </td>
+    <td class="why">ⓐ 대기열 수 ⓑ 가장 오래 돈 시간 ⓒ 승인을 기다리는 수(있을 때만, 노란색). 여러 개여도 의미가 있는 정보만 붙입니다.</td></tr>
+  <tr><td>셸 보조 정보 후보</td>
+    <td>
+      <span class="pill"><span class="seg"><span class="pulse"></span>셸<span class="sub detail">npm test <span style="color:var(--soft)">+2</span></span></span></span>
+    </td>
+    <td class="why">위 "명령 +N" 방식으로 정리했습니다. 시간은 펼친 목록에서 봅니다.</td></tr>
+  <tr><td>함께 놓았을 때</td>
+    <td><span class="pill">
+      <span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span><span class="sub">3/5</span></span>
+      <span class="seg"><span class="pulse"></span>에이전트 7<span class="sub detail">1:42</span></span>
+      <span class="seg"><span class="pulse"></span>셸 1<span class="sub detail">0:42</span></span>
+      <span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span></span></td>
+    <td class="why">세 칸 모두 "주 정보 │ 보조 정보" 모양으로 맞춰집니다.</td></tr>
+  <tr><td>파일 1개 / 여러 개</td>
+    <td><span class="pill"><span class="seg"><svg class="ficon" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6M12 13V7M9 17h6"/></svg>파일 1 <span class="plus">+12</span> <span class="minus">−3</span><span class="sub detail">client.ts</span></span></span> &nbsp; <span class="pill"><span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span></span></td>
+    <td class="why">하나일 때만 파일 이름을 보여 줍니다.</td></tr>
+  <tr><td>혼자 · Goal</td>
+    <td><span class="pill"><span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span>결제 모듈을 새 API로 이전 <span class="sub">3/5</span></span></span></td>
+    <td class="why">제목이 보입니다.</td></tr>
+
+  <tr><td>함께 · 넓음(720px 이상)</td>
+    <td><span class="pill">
+      <span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span>결제 모듈 API 이전 <span class="sub">3/5</span></span>
+      <span class="seg"><span class="pulse"></span>에이전트 1<span class="sub detail">Advisor — advise-pr24</span></span>
+      <span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span></span></td>
+    <td class="why">함께 있어도 공간이 넉넉하면 1개짜리 칸에만 이름을 붙입니다. 여러 개인 칸(파일 4)은 그대로입니다.</td></tr>
+
+  <tr><td>함께 · 보통</td>
+    <td><span class="pill">
+      <span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span><span class="sub">3/5</span></span>
+      <span class="seg"><span class="pulse"></span>에이전트 7</span>
+      <span class="seg"><span class="pulse"></span>셸 1</span>
+      <span class="seg">4개 파일 변경 <span class="plus">+82</span> <span class="minus">−17</span></span></span></td>
+    <td class="why">기본 모습입니다. Goal 제목과 세부 설명은 빠집니다.</td></tr>
+
+  <tr><td>좁음(420px 미만)</td>
+    <td><span class="pill">
+      <span class="seg" style="color:var(--text)"><span class="progress accent"><i></i></span><span class="sub">3/5</span></span>
+      <span class="seg"><svg viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>7</span>
+      <span class="seg"><svg viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>1</span>
+      <span class="seg"><svg viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6M12 13V7M9 17h6"/></svg><span class="plus">+82</span> <span class="minus">−17</span></span>
+      <span class="seg"><span class="dot" style="background:var(--warn)"></span></span></span></td>
+    <td class="why">글자는 빠집니다. 에이전트는 로봇, 셸은 터미널, 파일은 파일 비교 아이콘으로 바뀌고, 모델 칸은 노란 점만 남습니다. 전체 이름은 마우스를 올리면 툴팁으로 나옵니다.</td></tr>
+</table>
+
+<!-- ②-2 -->
+<h2>②-2 진행률 · 상태 색감</h2>
+<p class="note">Goal 진행률(3/5) 표시 후보입니다. <b>2번 파란 막대로 결정·적용</b>했습니다. 오른쪽 패널의 "진행률 채움/바탕/굵기/길이"로 기본 막대를 직접 조절할 수 있습니다.</p>
+<table class="rules">
+  <tr><th style="width:170px">후보</th><th>모습</th><th style="width:300px">느낌</th></tr>
+  <tr><td>1. 회색 막대(이전)</td><td><span class="pill"><span class="seg pv" style="color:var(--text)"><span class="progress"><i style="background:#d9d9d9"></i></span>결제 모듈 API 이전 <span class="sub">3/5</span></span></span></td><td class="why">가장 조용합니다. 대신 진행 중이라는 느낌이 약합니다.</td></tr>
+  <tr><td>2. 파란 막대 <span class="badge pick">적용됨</span></td><td><span class="pill"><span class="seg pv" style="color:var(--text)"><span class="progress accent"><i></i></span>결제 모듈 API 이전 <span class="sub">3/5</span></span></span></td><td class="why">앱 강조색과 같습니다. 셸의 파란 점과 같은 색 계열입니다.</td></tr>
+  <tr><td>3. 그라데이션 막대</td><td><span class="pill"><span class="seg pv" style="color:var(--text)"><span class="progress grad thick"><i></i></span>결제 모듈 API 이전 <span class="sub">3/5</span></span></span></td><td class="why">조금 더 두껍고 부드럽습니다. 눈에 가장 잘 띕니다.</td></tr>
+  <tr><td>4. 원형 링</td><td><span class="pill"><span class="seg pv" style="color:var(--text)"><span class="ring accent"></span>결제 모듈 API 이전 <span class="sub">3/5</span></span></span></td><td class="why">아이콘 자리에 딱 맞습니다. 좁은 화면에서 숫자 옆에 두기 좋습니다.</td></tr>
+  <tr><td>5. 단계 칸</td><td><span class="pill"><span class="seg pv" style="color:var(--text)"><span class="steps"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>결제 모듈 API 이전 <span class="sub">3/5</span></span></span></td><td class="why">단계 수가 그대로 보입니다. 단계가 10개를 넘으면 쓰기 어렵습니다.</td></tr>
+  <tr><td>6. 완료 직후</td><td><span class="pill"><span class="seg pv" style="color:var(--text)"><span class="progress ok"><i style="width:100%"></i></span>결제 모듈 API 이전 <span class="sub">5/5</span></span></span></td><td class="why">다 끝나면 잠깐 초록색으로 바뀌었다가 사라집니다.</td></tr>
+</table>
+<p class="note" style="margin-top:14px">상태 점: <span class="pill" style="vertical-align:middle"><span class="seg"><span class="pulse"></span>셸 1</span><span class="seg"><span class="dot" style="background:var(--warn)"></span>Claude Opus 5.5로 계속</span></span> — 셸 점(파랑)과 주의 점(노랑) 색도 패널에서 바꿔 볼 수 있습니다.</p>
+
+<!-- ③ -->
+<h2>③ 아일랜드 디자인 규칙 정리</h2>
+<p class="note">요소마다 크기와 모양이 조금씩 달라서 하나의 규칙으로 맞춥니다.</p>
+<table class="rules">
+  <tr><th style="width:150px">항목</th><th>이전</th><th>지금</th><th style="width:90px">상태</th></tr>
+  <tr><td>알약 크기</td><td>36px, 칸 28px</td><td>34px, 칸 26px</td><td><span class="badge pick">적용됨</span></td></tr>
+  <tr><td>글자 · 테두리</td><td>굵기 400, 얇은 선</td><td>굵기 500, 은은한 테두리 + 위쪽 하이라이트, 모서리 18px</td><td><span class="badge pick">적용됨</span></td></tr>
+  <tr><td>에이전트 · 셸</td><td>"작업 N" 한 칸</td><td>"에이전트 N", "셸 N" 두 칸(점 표시, 이니셜 없음)</td><td><span class="badge pick">적용됨</span></td></tr>
+  <tr><td>진행률</td><td>회색 막대</td><td>파란 막대</td><td><span class="badge pick">적용됨</span></td></tr>
+  <tr><td>완료 알림</td><td>작업이 끝날 때마다 "백그라운드 작업 완료"</td><td>표시하지 않음(화면이 들썩이던 문제 해결)</td><td><span class="badge pick">적용됨</span></td></tr>
+  <tr><td>경계 페이드</td><td>컴포저 위가 딱 잘림</td><td>컴포저 바로 위 24px 페이드</td><td><span class="badge pick">적용됨</span></td></tr>
+  <tr><td>펼친 패널</td><td>"작업 N" 한 목록</td><td>헤더를 "에이전트 | 셸" 탭으로 분리</td><td><span class="badge">미정</span></td></tr>
+  <tr><td>승인 카드</td><td>요청자 표시 없음</td><td>어느 에이전트가 요청했는지 헤더에 이름 표시</td><td><span class="badge">미정</span></td></tr>
+</table>
+
+<div class="row" style="margin-top:18px">
+  <div class="col">
+    <p class="label">승인 카드(정리안)</p>
+    <div class="screen">
+      <div class="island-wrap"><div class="card">
+        <div class="h"><span class="av r">R</span>Reviewer가 파일 수정을 요청합니다 <small>· payment diff</small></div>
+        <pre>edit src/pay/client.ts  (+12 −3)</pre>
+        <div class="f"><span class="btn">거절</span><span class="btn">항상 허용</span><span class="btn pri">허용</span></div>
+      </div></div>
+      <div class="composer dim"><span class="ph">메시지를 입력하세요</span><div class="bar">+ Claude Opus 5.5 Auto<span class="send"></span></div></div>
+    </div>
+  </div>
+</div>
+<aside class="tuner">
+  <h3>조절 <button type="button" id="reset">초기화</button></h3>
+  <div id="controls"></div>
+  <pre id="dump"></pre>
+</aside>
+<script>
+  const ranges = [
+    ['--k-weight', '글자 굵기', 300, 700, 100, 500, ''],
+    ['--k-size', '글자 크기', 11, 15, 0.5, 12.5, 'px'],
+    ['--k-pill-h', '알약 높이', 28, 44, 1, 34, 'px'],
+    ['--k-seg-h', '칸 높이', 22, 36, 1, 26, 'px'],
+    ['--k-pad', '알약 안여백', 0, 12, 1, 4, 'px'],
+    ['--k-radius', '알약 모서리', 6, 40, 1, 40, 'px'],
+    ['--k-panel-radius', '패널 모서리', 6, 28, 1, 18, 'px'],
+    ['--k-edge', '테두리 진하기', 0, 0.4, 0.01, 0.13, ''],
+    ['--k-highlight', '위쪽 하이라이트', 0, 0.2, 0.01, 0.06, ''],
+    ['--k-shadow', '그림자', 0, 0.8, 0.05, 0.3, ''],
+    ['--k-prog-w', '진행률 길이', 14, 48, 1, 22, 'px'],
+    ['--k-prog-h', '진행률 굵기', 2, 6, 1, 3, 'px'],
+  ];
+  const checks = [
+    ['left', '왼쪽 정렬', false],
+    ['no-detail', '자세히 숨기기(좁은 화면)', false],
+    ['no-sep', '세부 내용 구분선 끄기', true],
+    ['no-pm-sep', '+/− 사이 구분선 끄기', true],
+    ['file-icon', '파일 칸 아이콘 항상 표시', false],
+  ];
+  const colors = [
+    ['--k-island', '아일랜드 배경', '#0d0d0f'],
+    ['--k-prog-fill', '진행률 채움', '#79b8ff'],
+    ['--k-prog-track', '진행률 바탕', '#3d3d41'],
+    ['--k-pulse', '셸 점', '#79b8ff'],
+    ['--k-warn', '주의 점', '#f2cf76'],
+  ];
+  const root = document.documentElement.style;
+  const box = document.getElementById('controls');
+  const dump = document.getElementById('dump');
+  const render = () => {
+    dump.textContent = ranges.map(([v, n, , , , , u]) => `${n}: ${getComputedStyle(document.documentElement).getPropertyValue(v).trim()}`).join('\n')
+      + '\n' + checks.map(([c, n]) => `${n}: ${document.body.classList.contains(c) ? '켜짐' : '꺼짐'}`).join('\n');
+  };
+  for (const [v, name, min, max, step, def, unit] of ranges) {
+    const l = document.createElement('label');
+    l.innerHTML = `<span>${name}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${def}"><output>${def}${unit}</output>`;
+    const input = l.querySelector('input'), out = l.querySelector('output');
+    input.dataset.def = def;
+    input.oninput = () => { root.setProperty(v, input.value + unit); out.textContent = input.value + unit; render(); };
+    box.append(l);
+  }
+  for (const [v, name, def] of colors) {
+    const l = document.createElement('label');
+    l.innerHTML = `<span>${name}</span><input type="color" value="${def}"><output></output>`;
+    const input = l.querySelector('input');
+    input.dataset.def = def;
+    input.oninput = () => { root.setProperty(v, input.value); render(); };
+    box.append(l);
+  }
+  for (const [cls, name, def] of checks) {
+    const l = document.createElement('label');
+    l.className = 'chk';
+    l.innerHTML = `<span>${name}</span><input type="checkbox"${def ? ' checked' : ''}>`;
+    const input = l.querySelector('input');
+    input.dataset.def = def;
+    document.body.classList.toggle(cls, def);
+    input.onchange = () => { document.body.classList.toggle(cls, input.checked); render(); };
+    box.append(l);
+  }
+  document.getElementById('reset').onclick = () => {
+    box.querySelectorAll('input').forEach((i) => {
+      if (i.type === 'checkbox') i.checked = i.dataset.def === 'true'; else i.value = i.dataset.def;
+      i.dispatchEvent(new Event(i.type === 'checkbox' ? 'change' : 'input'));
+    });
+  };
+  box.querySelectorAll('input[type=range]').forEach((i) => i.dispatchEvent(new Event('input')));
+</script>
+</body>
+</html>

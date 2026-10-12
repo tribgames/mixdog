@@ -1320,8 +1320,22 @@ html[data-window-material="mica"] .jump-to-latest {
 .session-goal-island[data-open="true"] > .session-goal-trigger {
   display: none;
 }
-.composer-island-pill:has(> .composer-island-seg ~ .composer-island-seg) .session-goal-trigger .session-goal-objective {
+/* The Goal title is the segment's detail: it reads when the Goal is alone
+   or the column is wide, and drops when the island is shared or narrow
+   (same ladder as 15-composer's segments). */
+.composer-island-pill:has(> :not([hidden]) ~ :not([hidden])) .session-goal-trigger .session-goal-objective {
   display: none;
+}
+@container composer-island (min-width: 720px) {
+  .composer-island-pill .session-goal-trigger .session-goal-objective,
+  .composer-island-pill:has(> :not([hidden]) ~ :not([hidden])) .session-goal-trigger .session-goal-objective {
+    display: block;
+  }
+}
+@container composer-island (max-width: 419px) {
+  .composer-island-pill .session-goal-trigger .session-goal-objective {
+    display: none;
+  }
 }
 /* The approval card and flashes hide the pill even with the Goal tab open. */
 .composer-island[data-expanded="goal"] .composer-island-pill:not([hidden]) {
@@ -1332,8 +1346,8 @@ html[data-window-material="mica"] .jump-to-latest {
 .composer-island[data-expanded="goal"] .composer-island-pill > :not(.session-goal-island) {
   display: none;
 }
-/* Progress as a short static meter (island-icons.html): no colour per status
-   and no motion, so it never reads as a loading spinner. */
+/* Progress as a short static meter: no motion, so it never reads as a
+   loading spinner; the fill is the accent blue (user: 진행률은 파랑이 낫다). */
 .session-goal-bar {
   width: 22px;
   height: 3px;
@@ -1346,7 +1360,7 @@ html[data-window-material="mica"] .jump-to-latest {
 .session-goal-bar > i {
   height: 100%;
   display: block;
-  background: var(--mx-meter-fill);
+  background: var(--mx-accent);
 }
 .session-goal-objective {
   min-width: 0;
@@ -1367,8 +1381,20 @@ html[data-window-material="mica"] .jump-to-latest {
   gap: 4px;
   white-space: nowrap;
 }
-.session-goal-meta-time {
+.session-goal-meta-time,
+.session-goal-trigger-time {
   color: var(--mx-text-muted);
+  font-weight: 400;
+}
+.session-goal-trigger-time {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-goal-finished {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
 }
 .session-goal-drawer {
   display: none;
@@ -1479,6 +1505,7 @@ html[data-window-material="mica"] .jump-to-latest {
 .session-goal-blocker {
   margin: 0;
   color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-regular);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);
 }
@@ -1486,6 +1513,7 @@ html[data-window-material="mica"] .jump-to-latest {
   display: grid;
   gap: 2px;
   color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-regular);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);
 }

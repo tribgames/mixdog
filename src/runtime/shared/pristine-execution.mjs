@@ -341,7 +341,7 @@ export function createPristineExecutionBoundary({
       });
       authMode = 'in-process-host-oauth-binding';
       const sourceCatalog = join(sourceDataDir, oauth.modelCatalogFile);
-      if (existsSync(sourceCatalog)) {
+      if (oauth.modelCatalogFile && existsSync(sourceCatalog)) {
         copyFileSync(sourceCatalog, join(dataDir, oauth.modelCatalogFile));
         catalogCount = 1;
       }

@@ -1,4 +1,4 @@
-import { ArrowUpRight, ChevronLeft, RefreshCw, Undo2 } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronUp, RefreshCw, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { SESSION_DIFF_STYLE_KEY, type Snapshot } from './desktop-types';
 import { diffModeActions, useDiffViewState, type DiffViewState } from './diff-header-controls';
@@ -211,7 +211,7 @@ export function SessionDiffPane({
           {current.status}
         </span>
         <b className="session-diff-path" title={current.path}>
-          {current.path}
+          {pathName(current.path)}
         </b>
         <DiffStats additions={current.additions} deletions={current.deletions} />
       </span>
@@ -251,6 +251,20 @@ export function SessionDiffPane({
                 inline: true,
                 disabled: !canRevert,
                 onSelect: revertCurrent,
+              },
+              {
+                id: 'previous-file',
+                label: t('Previous file'),
+                icon: ChevronUp,
+                disabled: index <= 0,
+                onSelect: () => go(index - 1),
+              },
+              {
+                id: 'next-file',
+                label: t('Next file'),
+                icon: ChevronDown,
+                disabled: index >= rows.length - 1,
+                onSelect: () => go(index + 1),
               },
               ...(onOpenFile
                 ? [
@@ -316,35 +330,13 @@ export function SessionDiffPane({
       {rows.length === 0 ? (
         <p className="utility-dock-empty">{t('No changes from this session.')}</p>
       ) : inDiff && current ? (
-        <>
-          <div className="session-diff-crumb">
-            <button type="button" className="session-diff-crumb-link" onClick={() => setListOpen(true)}>
-              {t('Changed files')} {rows.length}
-            </button>
-            <span aria-hidden="true">›</span>
-            <span className="session-diff-crumb-name" title={current.path}>
-              {pathName(current.path)}
-            </span>
-            <span className="session-diff-crumb-pos">
-              · {index + 1} / {rows.length}
-            </span>
-            <span className="session-diff-crumb-nav">
-              <button type="button" disabled={index <= 0} onClick={() => go(index - 1)}>
-                ‹ {t('Previous file')}
-              </button>
-              <button type="button" disabled={index >= rows.length - 1} onClick={() => go(index + 1)}>
-                {t('Next file')} ›
-              </button>
-            </span>
-          </div>
-          <div className="session-diff-body">
-            <FileDiffBody
-              key={current.path}
-              patch={current.parts.map((part) => part.patch).join('\n')}
-              mode={viewMode}
-            />
-          </div>
-        </>
+        <div className="session-diff-body">
+          <FileDiffBody
+            key={current.path}
+            patch={current.parts.map((part) => part.patch).join('\n')}
+            mode={viewMode}
+          />
+        </div>
       ) : (
         <SessionDiffFiles
           rows={rows}

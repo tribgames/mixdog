@@ -323,6 +323,9 @@ function projectChildWorkerRow(row, { now, heartbeatMtimes }) {
     fast: row.fast === true || session?.fast === true,
     status: declaredWorking && !working ? 'unknown' : declaredStatus,
     stage: declaredWorking && !working ? 'unknown' : declaredStage,
+    // A live turn blocked on the user's approval (persisted by the agent
+    // tool's worker index); never carried by a row that is no longer working.
+    ...(working && row.awaitingUser === 'approval' ? { awaitingUser: 'approval' } : {}),
     startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
     turnStartedAt: working ? row.turnStartedAt || null : null,
     createdAt: row.createdAt || session?.createdAt || null,
