@@ -338,13 +338,27 @@ jobs:
           assets=(
             "apps/desktop/dist/mixdog-desktop-mac-${{ inputs.artifact_arch }}.dmg"
             "apps/desktop/dist/mixdog-desktop-mac-${{ inputs.artifact_arch }}.zip"
+            # The differential updater downloads <zip>.blockmap next to the zip.
+            "apps/desktop/dist/mixdog-desktop-mac-${{ inputs.artifact_arch }}.zip.blockmap"
           )
           for asset in "${assets[@]}"; do test -f "$asset"; done
+          # latest-mac.yml is not uploaded here: each architecture builds its
+          # own feed, and the publish job merges both into the one feed that
+          # electron-updater reads (scripts/merge-mac-update-feed.mjs).
+          test -f apps/desktop/dist/latest-mac.yml
           # A recovery run finds the earlier attempt's assets on the draft;
           # `gh release upload --clobber` then fails with 422 "ReleaseAsset.name
           # already exists". The script deletes the remote asset first and
           # retries once over bounded HTTP/1.1, so both architectures use it.
           bash .github/scripts/upload-release-assets.sh "${assets[@]}"
+      - name: Upload macOS update feed artifact for the publish job
+        if: inputs.platform == 'darwin'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-mac-feed-${{ inputs.arch }}
+          path: apps/desktop/dist/latest-mac.yml
+          if-no-files-found: error
+          overwrite: true
       - name: Upload verified Linux asset to hidden draft
         if: inputs.platform == 'linux'
         timeout-minutes: 7

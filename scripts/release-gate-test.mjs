@@ -602,6 +602,21 @@ function assertReleaseWorkflowContract(release) {
   );
   assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*desktop-darwin-x64[^\]]*\]/);
   assert.match(release, /'mixdog-desktop-mac-x64\.dmg'[\s\S]*'mixdog-desktop-mac-x64\.zip'/);
+  // electron-updater on macOS reads latest-mac.yml and downloads <zip>.blockmap;
+  // the release is not complete without them. The feed is merged from both
+  // architectures' feeds in the publish job, before the asset set is verified.
+  for (const name of ['latest-mac.yml', 'mixdog-desktop-mac-arm64.zip.blockmap', 'mixdog-desktop-mac-x64.zip.blockmap']) {
+    assert.ok(release.includes(`'${name}'`), `the release asset contract must require ${name}`);
+  }
+  assert.match(
+    release,
+    /pattern:\s*desktop-mac-feed-\*[\s\S]*name:\s*Merge and upload macOS update feed[\s\S]*merge-mac-update-feed\.mjs[\s\S]*upload-release-assets\.sh latest-mac\.yml/
+  );
+  assert.ok(
+    release.indexOf('name: Merge and upload macOS update feed') <
+      release.indexOf('name: Verify complete hidden release'),
+    'the merged macOS feed must be on the draft before the asset set is verified'
+  );
   for (const packageJob of ['windows', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
     assert.match(
       release,
@@ -745,6 +760,17 @@ function assertDesktopPackageContract(desktopPackage) {
     desktopPackage,
     /name:\s*Upload verified macOS assets to hidden draft[\s\S]*?upload-release-assets\.sh "\$\{assets\[@\]\}"/
   );
+  // Each macOS job stages its own feed for the publish job to merge; uploading
+  // it directly would let the second architecture overwrite the first.
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload verified macOS assets to hidden draft[\s\S]*?mac-\$\{\{ inputs\.artifact_arch \}\}\.zip\.blockmap/
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload macOS update feed artifact for the publish job[\s\S]*?actions\/upload-artifact@[0-9a-f]{40}[\s\S]*?desktop-mac-feed-\$\{\{ inputs\.arch \}\}[\s\S]*?apps\/desktop\/dist\/latest-mac\.yml/
+  );
+  assert.doesNotMatch(desktopPackage, /^\s*"apps\/desktop\/dist\/latest-mac\.yml"/m);
   assert.doesNotMatch(desktopPackage, /inputs\.arch \}\}" == x64/);
   assert.match(desktopPackage, /RELEASE_ID:\s*\$\{\{ inputs\.release_id \}\}/);
 }
