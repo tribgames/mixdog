@@ -57,7 +57,9 @@ test(
   'live-share sockets a process still serves are unlinked when it exits',
   { skip: process.platform === 'win32' ? 'unix sockets only' : false },
   () => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-exit-sock-'));
+    // Unix socket paths are capped near 104 bytes on macOS; the runner's
+    // scratch tmpdir is too deep, so the socket lives under /tmp.
+    const root = mkdtempSync('/tmp/mx-sock-');
     const socket = join(root, 'a.live.sock');
     try {
       runChild(`
