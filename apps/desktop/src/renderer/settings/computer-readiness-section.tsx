@@ -92,7 +92,10 @@ export function ComputerReadinessSection({
         await api.openComputerPermissionSettings?.(action.pane);
       } else if (action.kind === 'allow_input') {
         const result = await api.requestLinuxInputAccess?.();
-        if (!result?.ok) setError(t('Mouse and keyboard access could not be allowed.'));
+        if (!result?.ok) {
+          const base = t('Mouse and keyboard access could not be allowed.');
+          setError(result?.message ? `${base} ${result.message}` : base);
+        }
         await refresh();
       } else {
         await refresh();
