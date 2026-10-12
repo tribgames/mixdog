@@ -17,8 +17,6 @@ export const INPUT_GROUP_SECURITY_NOTE =
 export const GNOME_EXTENSION_UUID = 'mixdog-windows@mixdog.io';
 /** The oldest helper interface this app can use (2 added Screenshot and StopRequested, 3 the in-shell indicator). */
 export const MIN_WINDOW_HELPER_VERSION = 3;
-export const WINDOW_CONTROL_HINT =
-  'wayland_window_control_unavailable: this compositor offers no window control to other programs; on GNOME the Mixdog Windows extension (mixdog-windows@mixdog.io) provides it and must be enabled and loaded';
 export const WINDOW_HELPER_RELOGIN_HINT =
   'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is installed and enabled but GNOME Shell has not loaded it yet; the user must sign out and sign in again once';
 export const WINDOW_HELPER_ENABLE_HINT =

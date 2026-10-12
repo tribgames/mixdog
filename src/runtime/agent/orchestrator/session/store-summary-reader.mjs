@@ -106,11 +106,6 @@ function stampedDerivation(kind, path, derive) {
   return { state: PROBE_PRESENT, value };
 }
 
-/** Test seam: forget every stamp-keyed derivation. */
-export function clearStoredSessionDerivations() {
-  stampedDerivations.clear();
-}
-
 const SESSION_SUMMARY_INDEX_VERSION = 2;
 
 // Mirror of lifecycle-api.mjs listLeadSessions visibility: the cold catalog

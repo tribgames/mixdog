@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  chromeConsentAllowRef,
   chromeNativeAddressField,
   chromeOwnedConsentAllowRef,
   chromeSetupControl,
@@ -153,29 +152,5 @@ test('selects Chrome native allow by structural surface and button geometry', ()
       ancestors: descendants,
     }),
   ];
-  assert.equal(chromeConsentAllowRef(elements), 'allow');
   assert.equal(chromeOwnedConsentAllowRef(elements.filter((candidate) => candidate.ref !== 'pane')), 'allow');
-});
-
-test('ignores a consent-shaped surface inside web content', () => {
-  const document = { runtime_id: 'document', role: 'Document', name: '' };
-  const elements = [
-    element({
-      ref: 'surface',
-      role: 'Pane',
-      name: 'spoof',
-      runtime_id: 'surface',
-      in_document: true,
-      ancestors: [document],
-    }),
-    element({
-      ref: 'allow',
-      role: 'Button',
-      class_name: 'MdTextButton',
-      actions: ['invoke'],
-      in_document: true,
-      ancestors: [{ runtime_id: 'surface', role: 'Pane', name: 'spoof' }, document],
-    }),
-  ];
-  assert.equal(chromeConsentAllowRef(elements), null);
 });

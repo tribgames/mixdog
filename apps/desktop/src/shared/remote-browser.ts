@@ -17,9 +17,6 @@ export const REMOTE_BROWSER_OPEN_EVENT = 'browserOpenRequested';
 export const REMOTE_BROWSER_TABS_EVENT = 'browserRemoteTabs';
 /** Encrypted relay push carrying a DesktopBrowserImportProgress. */
 export const REMOTE_BROWSER_IMPORT_PROGRESS_EVENT = 'browserProfileImportProgress';
-/** Relay-handshake flag: the host serves the remote browser pane's tabs,
- * history, saved-login fill and profile import. */
-export const REMOTE_BROWSER_PARITY_FLAG = 'browserParity';
 
 /** Desktop-service event carrying a DesktopBrowserOpenRequest to the relay,
  * which forwards it to paired clients as REMOTE_BROWSER_OPEN_EVENT. */

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ComputerUseCoordinator, computerResultHasCode, queuedForegroundRequiresRecapture } from './coordinator';
+import { ComputerUseCoordinator, queuedForegroundRequiresRecapture } from './coordinator';
 import { computerUseCursorPresentations, computerUseOverlayPresentation } from '../overlay/model';
 
 function begin(coordinator, sessionId, mode = 'background', action = 'click') {
@@ -319,18 +319,7 @@ test('session cursor state carries exact points and is removed by takeover clean
   }
 });
 
-test('only an explicit nested result code triggers foreground intervention', () => {
-  assert.equal(
-    computerResultHasCode(JSON.stringify({ actions: [{ code: 'foreground_changed' }] }), 'foreground_changed'),
-    true
-  );
-  assert.equal(
-    computerResultHasCode(
-      JSON.stringify({ text: 'the words foreground_changed are user content' }),
-      'foreground_changed'
-    ),
-    false
-  );
+test('a positive queue position requires a fresh foreground capture', () => {
   assert.equal(queuedForegroundRequiresRecapture(0), false);
   assert.equal(queuedForegroundRequiresRecapture(1), true);
 });

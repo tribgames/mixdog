@@ -3,18 +3,12 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { registerMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
-import { modelDisplayName, providerDisplayName } from '../provider-display';
-import { record } from '../record-utils';
-// biome-ignore format: @ts-expect-error must precede the specifier
-// @ts-expect-error Shared presentation contract has no separate declaration file.
-import { contextMeasurementStats, measuredContextUsage, contextMeasurementLabel } from '../../../../../src/ui/context-measurement.mjs';
 // The primitives render their string props literally. Call sites localize
 // app-authored copy with t(...); custom names and content stay untouched.
 import { t } from '../i18n';
-import { ErrorNotice } from '../ErrorNotice';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
-import { count, type SettingsConfirmation } from './capability-data';
+import { type SettingsConfirmation } from './capability-data';
 
 export function Group({
   title,
@@ -354,65 +348,6 @@ export function ResourceRow({
       <div className="settings-resource-control">
         {actions && <div className="settings-resource-actions">{actions}</div>}
       </div>
-    </div>
-  );
-}
-
-function MetricGrid({ items }: { items: Array<{ label: string; value: unknown; tone?: string }> }) {
-  const visible = items.filter((item) => item.value !== undefined && item.value !== null && item.value !== '');
-  if (!visible.length) return <Empty text={t('No status data available.')} />;
-  return (
-    <div className="settings-metric-grid">
-      {visible.map((item) => (
-        <div key={item.label} className={item.tone ? `tone-${item.tone}` : ''}>
-          <span>{item.label}</span>
-          <b>{String(item.value)}</b>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function ContextStatusView({ value }: { value: unknown }) {
-  const context = record(value);
-  const messages = record(context.messages);
-  const request = record(context.request);
-  const usage = record(context.usage);
-  if (context.error) return <ErrorNotice error={context.error} role="status" />;
-  const measured = measuredContextUsage({
-    stats: contextMeasurementStats(context),
-    contextWindow: context.effectiveContextWindow || context.contextWindow,
-  });
-  const { used, limit: window, percent } = measured;
-  return (
-    <div className="settings-status-stack">
-      <ResourceRow
-        title={`${
-          context.model ? modelDisplayName(String(context.model), String(context.provider || '')) : t('No model')
-        } · ${context.provider ? providerDisplayName(String(context.provider)) : t('No provider')}`}
-        description={String(context.cwd || t('No active project'))}
-        meta={String(context.toolMode || t('default tools'))}
-      />
-      {window > 0 && (
-        // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the meter div keeps its label; the tag and role stay unchanged.
-        <div className="settings-context-meter" aria-label={t(contextMeasurementLabel(measured.source))}>
-          <span style={{ width: `${percent ?? 0}%` }} />
-          <small>
-            {t(contextMeasurementLabel(measured.source))} · {used == null ? '—' : count(used)} / {count(window)}
-            {percent == null ? '' : ` · ${percent}%`}
-          </small>
-        </div>
-      )}
-      <MetricGrid
-        items={[
-          { label: t('Free tokens'), value: used == null ? '—' : count(Math.max(0, window - used)) },
-          { label: t('Messages'), value: count(messages.total ?? messages.count) },
-          { label: t('Tool schema'), value: `${count(request.toolSchemaTokens)} ${t('tokens')}` },
-          { label: t('Request reserve'), value: `${count(request.reserveTokens)} ${t('tokens')}` },
-          { label: t('Last input'), value: `${count(usage.lastInputTokens)} ${t('tokens')}` },
-          { label: t('Last output'), value: `${count(usage.lastOutputTokens)} ${t('tokens')}` },
-        ]}
-      />
     </div>
   );
 }
