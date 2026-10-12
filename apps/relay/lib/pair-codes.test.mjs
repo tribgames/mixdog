@@ -23,7 +23,10 @@ const clock = () => {
 
 const LEASE = 'lease-0001';
 let leaseCounter = 0;
-const nextLease = () => `lease-${String((leaseCounter += 1)).padStart(6, '0')}`;
+const nextLease = () => {
+  leaseCounter += 1;
+  return `lease-${String(leaseCounter).padStart(6, '0')}`;
+};
 const issue = (codes, deviceId = randomUUID(), name = '') => {
   const issued = codes.issue(deviceId, nextLease(), name);
   assert.equal(issued.status, 'ok');
