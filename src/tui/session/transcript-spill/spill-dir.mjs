@@ -5,7 +5,7 @@
 // proves the owner is still running, and the sweep that reclaims directories
 // of dead or long-silent owners.
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -62,11 +62,27 @@ export function cleanupStaleTranscriptSpillDirs({ root = tmpdir(), now = Date.no
  *  from the live registry and cannot be mistaken for this process. Throws on
  *  write failure; callers decide whether that is fatal. */
 export function writeOwnerRegistry(root = tmpdir()) {
-  writeFileSync(
-    join(root, `mixdog-transcript-owner-${process.pid}.json`),
-    JSON.stringify({ pid: process.pid, nonce: PROCESS_NONCE }),
-    'utf8'
-  );
+  const file = join(root, `mixdog-transcript-owner-${process.pid}.json`);
+  writeFileSync(file, JSON.stringify({ pid: process.pid, nonce: PROCESS_NONCE }), 'utf8');
+  ownerRegistryFiles.add(file);
+  installOwnerRegistryCleanup();
+}
+
+// The registry only has to outlive this process's spill directories. Remove it
+// when the process exits (daemon shutdown, tray Quit) — but only a file that is
+// still this run's: a PID-reuse successor may have rewritten it meanwhile.
+const ownerRegistryFiles = new Set();
+let ownerRegistryCleanupInstalled = false;
+function installOwnerRegistryCleanup() {
+  if (ownerRegistryCleanupInstalled) return;
+  ownerRegistryCleanupInstalled = true;
+  process.once('exit', () => {
+    for (const file of ownerRegistryFiles) {
+      try {
+        if (JSON.parse(readFileSync(file, 'utf8'))?.nonce === PROCESS_NONCE) rmSync(file, { force: true });
+      } catch {}
+    }
+  });
 }
 
 export function createSpillDirectories() {
