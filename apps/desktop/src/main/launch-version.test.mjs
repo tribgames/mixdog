@@ -67,6 +67,21 @@ test('only a strictly newer version is an update; a downgrade announces nothing'
     assert.equal(await launch(file, '1.2.0-beta.1'), false, 'a prerelease of the same version is older');
   }));
 
+test('a downgrade announces nothing in main or the renderer, and keeps the newer seen mark', () =>
+  withProfile(async (file) => {
+    const storage = new Map([['mixdog.desktop.whats-new-seen-version', '1.3.0']]);
+    const local = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
+    await writeFile(file, JSON.stringify({ lastLaunched: '1.3.0' }));
+    const afterUpdate = await launch(file, '1.2.9', ['--updated']);
+    assert.equal(afterUpdate, false);
+    assert.equal(peekWhatsNew(local, '1.2.9', afterUpdate), 'downgrade');
+    assert.equal(storage.get('mixdog.desktop.whats-new-seen-version'), '1.3.0');
+    // Back on 1.3.0: it was already announced, so nothing repeats.
+    const reUpgrade = await launch(file, '1.3.0');
+    assert.equal(reUpgrade, true, 'main sees an update');
+    assert.equal(peekWhatsNew(local, '1.3.0', reUpgrade), 'current', 'the kept mark says it was shown');
+  }));
+
 test('a record that cannot be written is reported and the launch goes on', () =>
   withProfile(async (_file, dir) => {
     const blocker = join(dir, 'not-a-directory');

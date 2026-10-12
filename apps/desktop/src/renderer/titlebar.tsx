@@ -2,7 +2,7 @@
 // the panes themselves (WorkspaceTabStrip); the bar
 // keeps the draggable run, the updater badge, and the Windows caption reserve.
 import { ArrowDown } from 'lucide-react';
-import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 
 import { version as appVersion } from '../../package.json';
@@ -12,33 +12,7 @@ import { useMobileRemoteSurface } from './mobile-surface';
 import { RemotePcSwitcher } from './RemotePcSwitcher';
 import { ProgressSpinner } from './ProgressSpinner';
 
-import type { ChangelogRelease } from './settings/changelog';
-import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } from './settings/whats-new';
-
-// Main keeps an update pending (bootContext.afterUpdate) on every launch until
-// told the notice was on screen, so a launch that failed to show it retries.
-const updatePending = () => window.mixdogDesktop?.bootContext?.afterUpdate === true;
-
-function readWhatsNewStatus(): WhatsNewStatus {
-  try {
-    return peekWhatsNew(window.localStorage, appVersion, updatePending());
-  } catch {
-    return 'storage-unavailable';
-  }
-}
-
-function acknowledgeUpdate(): void {
-  if (updatePending()) window.mixdogDesktop?.acknowledgeWhatsNew?.(appVersion);
-}
-
-function markSeen(): void {
-  try {
-    markWhatsNewSeen(window.localStorage, appVersion);
-  } catch {
-    markWhatsNewSeen(undefined, appVersion);
-  }
-  acknowledgeUpdate();
-}
+import { useWhatsNewNotice } from './settings/use-whats-new-notice';
 
 interface DesktopTitlebarProps {
   updaterState?: DesktopUpdaterState;
@@ -58,19 +32,11 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   const updateVisible =
     Boolean(onOpenUpdate) && (updaterState?.status === 'ready' || updaterState?.status === 'installing');
   const updateInstalling = updaterState?.status === 'installing';
-  // The first launch after an update announces that version's notes once.
-  // The version is marked seen only once the notice is on screen (see below).
-  const [whatsNewStatus] = useState(readWhatsNewStatus);
-  const whatsNew = whatsNewStatus === 'pending';
-  const [notice, setNotice] = useState<{
-    Dialog: ComponentType<{ release: ChangelogRelease; onClose(): void; onViewAll(): void }>;
-    release: ChangelogRelease;
-  } | null>(null);
+  const { notice, closeNotice } = useWhatsNewNotice(appVersion);
   const [ChangelogDialog, setChangelogDialog] = useState<ComponentType<{ onClose(): void }> | null>(null);
   const closeChangelog = () => setChangelogDialog(null);
-  const closeNotice = useCallback(() => setNotice(null), []);
   const openChangelog = () => {
-    setNotice(null);
+    closeNotice();
     void import('./settings/changelog-dialog')
       .then(async (module) => {
         await module.prepareChangelog();
@@ -78,39 +44,6 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
       })
       .catch(() => undefined);
   };
-  useEffect(() => {
-    if (!whatsNew) {
-      // Already announced (the stored mark matches): only main's record lags.
-      if (whatsNewStatus === 'current' || whatsNewStatus === 'already-shown') acknowledgeUpdate();
-      reportWhatsNew('skipped', appVersion, { reason: whatsNewStatus });
-      return;
-    }
-    reportWhatsNew('taken', appVersion);
-    let cancelled = false;
-    void import('./settings/whats-new-dialog')
-      .then(async (module) => {
-        const release = await module.prepareWhatsNew();
-        if (cancelled) return;
-        if (release) {
-          setNotice({ Dialog: module.default, release });
-        } else {
-          // This version has no changelog section; retrying could never show one.
-          markSeen();
-          reportWhatsNew('skipped', appVersion, { reason: 'no-section' });
-        }
-      })
-      .catch((error: unknown) => reportWhatsNew('failed', appVersion, { error }));
-    return () => {
-      cancelled = true;
-    };
-  }, [whatsNew, whatsNewStatus]);
-  // Runs after the commit that put the dialog portal in the DOM.
-  const noticeShown = notice !== null;
-  useEffect(() => {
-    if (!noticeShown) return;
-    markSeen();
-    reportWhatsNew('shown', appVersion);
-  }, [noticeShown]);
   useEffect(() => {
     if (!ChangelogDialog) return;
     const onKey = (event: KeyboardEvent) => {

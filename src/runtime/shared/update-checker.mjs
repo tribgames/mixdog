@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { writeJsonAtomicSync } from './atomic-file.mjs';
 import { readJsonSafe } from './json-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
+import { compareSemver } from './semver.mjs';
 
 const PACKAGE_NAME = 'mixdog';
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
@@ -84,37 +85,7 @@ function writeCache(dataDir, payload) {
   }
 }
 
-/** Parse a semver-ish string into { parts:[maj,min,patch], prerelease }. */
-function parseSemver(value) {
-  const text = String(value || '')
-    .trim()
-    .replace(/^v/i, '');
-  const [core, ...preParts] = text.split('-');
-  const parts = core.split('.').map((n) => {
-    const num = Number.parseInt(n, 10);
-    return Number.isFinite(num) ? num : 0;
-  });
-  while (parts.length < 3) parts.push(0);
-  return { parts, prerelease: preParts.join('-') };
-}
-
-/**
- * Compare two semver strings. Returns positive if `a` > `b`, negative if
- * `a` < `b`, 0 if equal. A version with a prerelease tag is considered
- * lower than the same core version without one (standard semver rule).
- */
-export function compareSemver(a, b) {
-  const pa = parseSemver(a);
-  const pb = parseSemver(b);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa.parts[i] || 0) - (pb.parts[i] || 0);
-    if (diff !== 0) return diff;
-  }
-  if (pa.prerelease && !pb.prerelease) return -1;
-  if (!pa.prerelease && pb.prerelease) return 1;
-  if (pa.prerelease !== pb.prerelease) return pa.prerelease < pb.prerelease ? -1 : 1;
-  return 0;
-}
+export { compareSemver };
 
 export function isNewerVersion(latest, current) {
   if (!latest || !current) return false;

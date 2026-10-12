@@ -93,6 +93,7 @@ import {
   rendererRecoveryDecision,
 } from './renderer-recovery';
 import { acknowledgeAnnouncement, LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
+import { installWhatsNewAcknowledge } from './whats-new-acknowledge';
 
 const desktopProcessStartedAt = Date.now();
 // The launcher's stdio pipe can close while the app keeps running (started
@@ -1163,24 +1164,6 @@ function createMainBrowserWindow(
   });
 }
 
-/** The window's What's new notice for the running version was on screen (or
- *  this version has none): the pending announcement is retired. Accepted only
- *  from this window's main frame, after the launch record is written. */
-function whatsNewAcknowledgeListener(window: BrowserWindow): (event: Electron.IpcMainEvent, version: unknown) => void {
-  return (event, version) => {
-    if (
-      window.isDestroyed() ||
-      event.sender !== window.webContents ||
-      event.senderFrame !== window.webContents.mainFrame ||
-      version !== app.getVersion()
-    )
-      return;
-    void Promise.resolve(launchFollowsUpdate).then(() =>
-      acknowledgeAnnouncement(launchVersionPath(), version, launchRecordWriteFailure)
-    );
-  };
-}
-
 /** Renderer-reported diagnostics, accepted only from this window's main frame:
  *  transcript reads, composer actions and long tasks each have their own
  *  record, and anything else is an error report. */
@@ -1573,8 +1556,12 @@ async function createWindow(): Promise<void> {
   };
   const onRendererDiagnostic = rendererDiagnosticListener(window);
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
-  const onWhatsNewAcknowledged = whatsNewAcknowledgeListener(window);
-  ipcMain.on(DESKTOP_IPC.acknowledgeWhatsNew, onWhatsNewAcknowledged);
+  // The renderer's notice was on screen: retire the pending update announcement.
+  installWhatsNewAcknowledge(ipcMain, window, {
+    version: app.getVersion(),
+    launchRecorded: () => Promise.resolve(launchFollowsUpdate),
+    acknowledge: (version) => acknowledgeAnnouncement(launchVersionPath(), version, launchRecordWriteFailure),
+  });
   diagnostics?.write('ipc-ready', {
     totalMs: Date.now() - startupStartedAt,
   });
@@ -1618,9 +1605,7 @@ async function createWindow(): Promise<void> {
     presentation.cancelShowDeadline();
     diagnostics?.write('window-closed');
     presentation.detach();
-    ipcMain.removeListener(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
-    ipcMain.removeListener(DESKTOP_IPC.acknowledgeWhatsNew, onWhatsNewAcknowledged);
-    const state = windowState;
+    ipcMain.removeListener(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);    const state = windowState;
     windowState = null;
     windowStateFlush = state?.flush().finally(() => state.dispose()) ?? Promise.resolve();
     removeIpc?.();

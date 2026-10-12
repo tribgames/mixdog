@@ -63,6 +63,14 @@ test('1.1.0 -> 1.1.1 after localStorage was lost still announces, instead of pas
   assert.equal(peekWhatsNew(fresh, '1.2.1', false), 'fresh-install');
 });
 
+test('only a newer version is announced; a downgrade leaves the newer mark alone', () => {
+  const storage = memoryStorage('3.1.0');
+  assert.equal(peekWhatsNew(storage, '3.0.9'), 'downgrade');
+  assert.equal(storage.data.get(SEEN_VERSION_KEY), '3.1.0');
+  assert.equal(peekWhatsNew(memoryStorage('3.2.0-beta.2'), '3.2.0-beta.10'), 'pending', 'prereleases by precedence');
+  assert.equal(peekWhatsNew(memoryStorage('3.3.0'), '3.3.0-rc.1', true), 'downgrade');
+});
+
 test('a failed prepare never marks the version, so the next mount retries', () => {
   const storage = memoryStorage('2.2.0');
   assert.equal(peekWhatsNew(storage, '2.2.1'), 'pending');

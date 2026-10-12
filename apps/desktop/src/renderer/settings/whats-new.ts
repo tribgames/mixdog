@@ -1,10 +1,18 @@
 // Last app version whose first launch was announced. A fresh install has
 // nothing to announce, so it only records the current version.
+import { compareSemver } from '../../../../../src/runtime/shared/semver.mjs';
+
 export const SEEN_VERSION_KEY = 'mixdog.desktop.whats-new-seen-version';
 
 type VersionStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
-export type WhatsNewStatus = 'pending' | 'fresh-install' | 'current' | 'already-shown' | 'storage-unavailable';
+export type WhatsNewStatus =
+  | 'pending'
+  | 'fresh-install'
+  | 'current'
+  | 'already-shown'
+  | 'downgrade'
+  | 'storage-unavailable';
 
 // Versions announced during this session, so a remount never repeats one even
 // when the stored mark could not be written.
@@ -28,11 +36,14 @@ export function peekWhatsNew(
     if (shownVersions.has(version)) return 'already-shown';
     const seen = storage.getItem(SEEN_VERSION_KEY);
     if (seen === version) return 'current';
-    if (!seen && !afterUpdate) {
+    if (!seen) {
+      if (afterUpdate) return 'pending';
       storage.setItem(SEEN_VERSION_KEY, version);
       return 'fresh-install';
     }
-    return 'pending';
+    // Only a newer version is announced. A downgrade keeps the newer mark, so
+    // returning to that version later does not announce it a second time.
+    return compareSemver(version, seen) > 0 ? 'pending' : 'downgrade';
   } catch {
     // Storage unavailable: stay quiet rather than repeating every launch.
     return 'storage-unavailable';
