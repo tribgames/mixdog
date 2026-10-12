@@ -292,10 +292,39 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
         assert.ok(Math.abs(now.lastBottom - (now.dockTop - 24)) <= 1, `${label}: the tail stays pinned`);
       }
     };
+    // The opening animation is sampled where a user can see it: once per
+    // painted frame, after the dock's own resize observer has pinned the tail
+    // and before paint. A sample taken from a Node round trip is not that
+    // frame: Blink advances the animation clock per task, so a task between
+    // frames reads the next animation value before the frame's observers have
+    // run (up to the full last step on a slow runner).
+    await page.evaluate(() => {
+      const dock = document.querySelector('.composer-region');
+      const misses = [];
+      // Created after the dock hook's observer, so it is notified after that
+      // observer's callback and the pin microtask it schedules.
+      const observer = new ResizeObserver(() => {
+        const last = document.querySelector('[data-timeline-key="message-39"]');
+        misses.push(last.getBoundingClientRect().bottom - (dock.getBoundingClientRect().top - 24));
+      });
+      observer.observe(dock);
+      window.openingPins = { misses, stop: () => observer.disconnect() };
+    });
     await page.evaluate(() => window.fixture.change({ goal: true, review: true }));
     await page.waitForSelector('.turn-review-segment');
-    await pinned('slot opening');
     await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+    await settle(page);
+    const opening = await page.evaluate(() => {
+      window.openingPins.stop();
+      return window.openingPins.misses;
+    });
+    assert.ok(opening.length >= 3, 'the slot opening is observed frame by frame');
+    for (const miss of opening) {
+      // The clearance is the dock height rounded to a whole pixel (up to 0.5
+      // off while it animates) and the end sits on a device pixel (under 1px
+      // off fractional content). A frame behind misses by several pixels.
+      assert.ok(Math.abs(miss) <= 1.5, `slot opening: the tail stays pinned on every frame (missed by ${miss.toFixed(2)}px)`);
+    }
     await pinned('slot open');
     await page.evaluate(() => window.fixture.change({ goal: false, review: false }));
     await page.waitForFunction(
