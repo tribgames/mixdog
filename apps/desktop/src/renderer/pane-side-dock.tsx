@@ -1,5 +1,4 @@
-// Per-pane right dock: ONE side-tab unit per pane (user: PANE 하위 → 사이드탭
-// 헤더 → 세션 DIFF·브라우저·파일 DIFF가 그 헤더의 하위로). The horizontal
+// Per-pane right dock: ONE side-tab unit per pane. The horizontal
 // header selects every child — classic panel views, the pane's browser, and
 // file diff surfaces opened from project tools — and each child shows STANDALONE under
 // the header, without a second tab row. The whole unit folds and overlays as
@@ -91,8 +90,7 @@ export type PaneSideDockEntry = {
   activeFile?: string;
   /** The Files tree a transcript folder link opened. Absent when none. */
   folder?: PaneSideDockFolder | null;
-  /** The single open file diff — a project-tool click REPLACES it (user: 헤더
-   *  한 줄, DIFF 탭 없이 교체 방식). */
+  /** The single open file diff — a project-tool click REPLACES it. */
   diff: PaneSideDockDiff | null;
 };
 
@@ -100,8 +98,8 @@ const PANE_SIDE_DOCK_KEY = 'mixdog.desktop.pane-side-dock.v1';
 /** One shared width preference for every pane dock: resizing any pane's panel
  *  sets the width the next opened panel starts from. */
 const PANE_SIDE_DOCK_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-width.v1';
-/** Diff pair column: floors at the classic panel size but OPENS readable
- *  (user: 디프 보기에 너무 작지 않냐 — 기본 480), expanding by drag to 800;
+/** Diff pair column: floors at the classic panel size but OPENS readable,
+ *  expanding by drag to 800;
  *  its width is a preference separate from the browser's. */
 const PANE_SIDE_DOCK_DIFF_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-diff-width.v1';
 /** Every side-dock surface floors at the same width (Claude stops at ~282px);
@@ -112,8 +110,7 @@ export const PANE_SIDE_DOCK_DIFF_MAX_WIDTH = 800;
 export const PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH = 500;
 /** Standalone browser: below 580px BrowserPane renders pages at 100% so
  *  responsive sites reflow like a phone, and the floor drops to 320 — a
- *  phone-frame preview for mobile web-app work (user: 모바일 웹앱 개발이면
- *  브라우저는 더 작아져도). */
+ *  phone-frame preview for mobile web-app work. */
 const PANE_SIDE_DOCK_BROWSER_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-browser-width.v1';
 export const PANE_SIDE_DOCK_BROWSER_MIN_WIDTH = PANE_SIDE_DOCK_MIN_WIDTH;
 const PANE_SIDE_DOCK_BROWSER_MAX_WIDTH = 1160;
@@ -154,8 +151,7 @@ export function paneDiffShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface
   return entry.open && entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff !== null;
 }
 // The Goal capsule stays on the composer. It used to ride the diff column
-// while a diff showed, which read as the Goal UI leaking into Source Control
-// (user: 소스컨트롤에 GOAL UI 딸려 들어가는 버그).
+// while a diff showed, which read as the Goal UI leaking into Source Control.
 /** A closed diff column waits at least this long, and for a typing pause of
  *  the same length, before its tree is dropped: the unmount commit of a
  *  large diff is one uninterruptible task, so it must not land between two
@@ -483,7 +479,7 @@ export function withPaneDockFolderClosed(entry: PaneSideDockEntry): PaneSideDock
 }
 
 /** Open-or-replace: a Source Control click swaps the diff in place; the same
- *  file simply re-activates (user: 탭 없이 교체 방식). */
+ *  file simply re-activates. */
 export function withPaneDockDiffOpened(entry: PaneSideDockEntry, selection: PaneSideDockDiff): PaneSideDockEntry {
   const unchanged =
     entry.open &&
@@ -662,8 +658,7 @@ function usePaneSideDockCommands({
   setTemporary: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>;
 }) {
   const patch = usePaneSideDockPatch({ groupsRef, setDocks, setTemporary });
-  /** Header-tab click contract (user: 소스컨트롤·브라우저 각각 선택해서
-   *  여는): a panel view lands in the body, the browser lands as its stacked
+  /** Header-tab click contract: a panel view lands in the body, the browser lands as its stacked
    *  surface; folding stays with the dock's own toggle/close controls. */
   const select = useCallback(
     (leafId: string, id: WorkbenchSideViewId) => {
@@ -694,7 +689,7 @@ function usePaneSideDockCommands({
     },
     [patch]
   );
-  /** Fold/unfold the WHOLE unit (user: 한몸) — header, panel view, browser,
+  /** Fold/unfold the WHOLE unit — header, panel view, browser,
    *  and diff surfaces together. Children survive the fold. */
   const toggle = useCallback(
     (leafId: string) => {
@@ -957,7 +952,7 @@ function useDockWidthPrefs() {
 }
 
 /**
- * Unified width (user: 두개를 통합 넓이계산): inline, the whole unit — diff
+ * Unified width: inline, the whole unit — diff
  * pair included — always leaves the conversation its workspace floor, and when
  * the unit cannot fit, the WHOLE unit floats over the pane (한몸 오버레이).
  */
@@ -986,7 +981,7 @@ function resolveDockLayout({
 }) {
   const panelDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, PANE_SIDE_DOCK_PANEL_MAX_WIDTH));
   const diffDesired = Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(diffPref, PANE_SIDE_DOCK_DIFF_MAX_WIDTH));
-  // Narrow ladder (user: 특정 폭 이하일 때):
+  // Narrow ladder:
   //   1단계 — the diff pair can no longer stand side by side even as a
   //   sheet, so the diff STACKS over the panel with a back step (2뎁스).
   //   2단계 — even one column cannot fit beside the rail, so the unit takes
@@ -999,8 +994,7 @@ function resolveDockLayout({
   if (sessionSurfaceShowing) columnMin = sessionMin;
   else if (pairShowing) columnMin = pairMin;
   const fullTakeover = openNow && cellWidth > 0 && sheetAvail < columnMin;
-  // Overlay decision: the diff PAIR never shrinks inline (user: 두개 합산이
-  // 더 커지면 오버레이) — the moment panel+diff no longer fit beside the
+  // Overlay decision: the diff PAIR never shrinks inline — the moment panel+diff no longer fit beside the
   // conversation floor, the whole unit floats over the pane. View/browser
   // modes shrink toward their own minimum first.
   let inlineFloor = columnMin;
@@ -1095,11 +1089,9 @@ function MobileDockHeader({
         onClick={onClose}
       >
         {/* Same voice as the island buttons: lucide line work at 20px — the
-            codicon font glyph read thinner and off-size beside them (user:
-            사이드탭 X가 정렬이나 크기가 다른 것 같다). A bare two-stroke X
+            codicon font glyph read thinner and off-size beside them. A bare two-stroke X
             at the pictograms' weight reads HEAVIER than they do, so it takes
-            one step less stroke to sit at the same optical weight (user: X가
-            뭔가 달라보이는데). */}
+            one step less stroke to sit at the same optical weight. */}
         <X size={20} aria-hidden="true" />
       </button>
     </header>
@@ -1144,8 +1136,7 @@ export function PaneSideDock({
   /** Hidden-mount only the focused pane's panel shell after boot. */
   prewarm?: boolean;
   onSelect(id: WorkbenchSideViewId): void;
-  /** Folds the unit — the header X, and a re-click on the active icon
-   *  (user: 오버레이까지 되는 판에 닫히는 거나 X가 있어야). */
+  /** Folds the unit — the header X, and a re-click on the active icon. */
   onClose(): void;
   onCloseDiff(): void;
   /** The header X while a side file shows: closes the file (confirming unsaved
@@ -1241,7 +1232,7 @@ export function PaneSideDock({
   });
   // Closing the diff used to unmount its whole column — thousands of diff
   // rows — inside the click commit, and a keystroke landing in that same
-  // task waited 30–70ms for it (user: 디프창이 사라질 때 유독 덜컹). The
+  // task waited 30–70ms for it. The
   // column now only HIDES on close; the retained tree is dropped later, in
   // idle time and as a transition, so typing keeps its own frames. A reopen
   // of the same file inside that window reuses the live tree.
@@ -1300,10 +1291,9 @@ export function PaneSideDock({
       />
     </DeferredPersistentSurface>
   );
-  // Browser: standalone under the header (user: 브라우저는 단독 맞고) — a
+  // Browser: standalone under the header — a
   // persistent layer stacked over the panel body. In the narrow 2뎁스 stage
-  // the diff rides the same layer, with a back step to the list (user:
-  // 디프소스를 사이드탭 패널에 올리고 뒤로가기).
+  // the diff rides the same layer, with a back step to the list.
   const twoDepthDiff = dockBodyMounted && twoDepth && entry.diff && (
     <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
       {diffSurface(entry.diff, true)}
@@ -1361,12 +1351,11 @@ export function PaneSideDock({
       {diffSurface(columnDiff)}
     </PaneDockDiffColumn>
   );
-  // ONE header line for the whole unit (user: 헤더 한 줄), spanning
+  // ONE header line for the whole unit, spanning
   // [diff | panel] at the PANE strip's height. The child icons moved to the
   // pane strip's right end (PaneDockToggles), so the header names only the
   // showing child and carries the fold X — the Claude Desktop card grammar.
-  // The title is text-only: the strip icon already identifies the view
-  // (user: 사이드탭 타이틀 옆 아이콘 제거).
+  // The title is text-only: the strip icon already identifies the view.
   const activeRoot = paneDockActiveRoot(entry);
   // The phone sheet slides out as ONE piece, header included, so the header
   // stays mounted through the exit and names the last shown child.

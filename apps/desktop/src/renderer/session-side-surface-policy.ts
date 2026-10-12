@@ -64,6 +64,9 @@ export function withSessionDiff(
  *  leaked across sessions in the same pane. */
 export type SessionSidePanelView = 'session-diff' | 'background-jobs';
 
+export const isSessionSidePanelView = (view: unknown): view is SessionSidePanelView =>
+  view === 'session-diff' || view === 'background-jobs';
+
 export function withSessionPanelView(
   current: ReadonlyMap<string, SessionSidePanelView>,
   sessionId: string,
@@ -120,7 +123,7 @@ export function sessionSideDockEntryForSession(
   if (base.surface !== PANE_DOCK_BROWSER_SURFACE && base.surface !== PANE_DOCK_TERMINAL_SURFACE) {
     // A session-owned view never leaks across sessions: a pane showing
     // Session Diff for one session folds for a session that never opened it.
-    if (sessionId && (base.view === 'session-diff' || base.view === 'background-jobs')) {
+    if (sessionId && isSessionSidePanelView(base.view)) {
       if (!base.open && base.surface === '') return base;
       return { ...base, open: false, surface: '' };
     }

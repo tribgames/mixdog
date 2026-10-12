@@ -1,7 +1,6 @@
 // Pane strip dock toggles: ONE button per right-side dock child (session Diff,
 // Browser Use, Terminal, …) at the strip's right end. The strip is
-// the only place that names the pane's utility children now (user: 터미널 /
-// 웹 / 디프창을 스트립 아이콘 자리에), so the dock header itself no longer
+// the only place that names the pane's utility children now, so the dock header itself no longer
 // repeats them. A press opens the dock on that child; pressing the child that
 // is already showing folds the unit.
 import { t } from './i18n';
@@ -14,12 +13,7 @@ import type {
 
 /** Session-owned surfaces need a session behind the pane; a New Task draft
  *  keeps their toggles visible but inert so the strip never reflows. */
-const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = [
-  'session-diff',
-  'background-jobs',
-  'browser',
-  'terminal',
-];
+const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = ['session-diff', 'background-jobs', 'browser', 'terminal'];
 
 export function PaneDockToggles({
   groups,
@@ -81,8 +75,7 @@ export function PaneDockToggles({
               else onSelect(root);
             }}
           >
-            {/* Claude Desktop tier (user: 클로드 대비 너무 조밀하고 큰 것 같다):
-            a 16px mark in a 28px slot, slots set 6px apart. */}
+            {/* Claude Desktop tier: a 16px mark in a 28px slot, slots set 6px apart. */}
             <Icon size={15} aria-hidden="true" />
           </button>
         );
