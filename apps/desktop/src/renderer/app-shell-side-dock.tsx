@@ -208,7 +208,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
       renderView={(id, viewActive, titleDragProps) =>
         context.renderRightView(
           id,
-          id === 'session-diff' ? viewActive && entry.surface === '' : viewActive,
+          id === 'session-diff' || id === 'background-jobs' ? viewActive && entry.surface === '' : viewActive,
           titleDragProps,
           {
             leafId: leaf.id,

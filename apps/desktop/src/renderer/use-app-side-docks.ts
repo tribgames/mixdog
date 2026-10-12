@@ -42,6 +42,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       ...(desktopFeatureEnabled('sessions') ? ['sessions' as const] : []),
       ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) => desktopSidebarDestinationEnabled(panel)),
       'session-diff' as const,
+      'background-jobs' as const,
       ...(browserFeatureInstalled ? ['browser' as const] : []),
       'terminal' as const,
       ...(['agents', 'search', 'source-control', 'pull-requests'] as const).filter((panel) =>
@@ -125,9 +126,9 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       selectedPanelView === null &&
       selectedSurface === null &&
       rawEntry.surface === '' &&
-      rawEntry.view === 'session-diff'
+      (rawEntry.view === 'session-diff' || rawEntry.view === 'background-jobs')
     ) {
-      setSessionPanelView(sessionId, 'session-diff');
+      setSessionPanelView(sessionId, rawEntry.view);
       paneSideDocks.setOpen(leafId, true);
       return;
     }

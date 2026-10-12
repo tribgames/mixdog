@@ -650,6 +650,10 @@
   overflow: auto;
   padding: 0 var(--dock-scm-gutter);
 }
+.background-jobs-dock {
+  min-height: 0;
+  overflow-y: auto;
+}
 .session-diff-files::-webkit-scrollbar {
   width: var(--mx-scrollbar-size);
 }

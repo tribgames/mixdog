@@ -4,6 +4,7 @@ import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DesktopTitlebar, type NavigationSelection } from './navigation';
 import { usePaneWorkspace } from './pane-workspace-state';
+import { requestBackgroundJobsTab } from './background-jobs-tab-store';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import type { ExtensionsSection } from './extension-sections';
 import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
@@ -644,6 +645,13 @@ export function App() {
     (leafId: string) => selectWorkbenchSideView('session-diff', leafId),
     [selectWorkbenchSideView]
   );
+  const openBackgroundJobsInSideDock = useCallback(
+    (leafId: string, sessionId: string, kind: 'agent' | 'shell') => {
+      requestBackgroundJobsTab(sessionId, kind);
+      selectWorkbenchSideView('background-jobs', leafId);
+    },
+    [selectWorkbenchSideView]
+  );
   const paneConversationSurface = usePaneConversationRenderer({
     ...taskLifecycle,
     ...sessionTitle,
@@ -674,6 +682,7 @@ export function App() {
     openFileInSideDock: sideDockHostsFiles ? openFileInSideDock : undefined,
     openFolderInSideDock: sideDockHostsFiles ? paneSideDocks.openFolder : undefined,
     openSessionDiffInSideDock: sideDockHostsFiles ? openSessionDiffInSideDock : undefined,
+    openBackgroundJobsInSideDock: sideDockHostsFiles ? openBackgroundJobsInSideDock : undefined,
     openAgentSession: dockOpenAgentSession,
   });
 

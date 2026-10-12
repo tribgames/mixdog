@@ -2065,6 +2065,7 @@
   "No calls from '{{name}}'": "'{{name}}'에서 호출 없음",
   "No calls from '{{value0}}'": "'{{value0}}'에서 호출 없음",
   "No camera? Enter the code from the Web tab instead.": "카메라가 없으면 웹 탭의 코드를 입력하세요.",
+  "No background tasks.": "백그라운드 작업이 없습니다.",
   "No changed files match the filter.": "필터와 일치하는 변경 파일이 없습니다.",
   "No changes from this session.": "이 세션에서 변경된 파일이 없습니다.",
   "No changes in this project.": "이 프로젝트에는 변경 사항이 없습니다.",

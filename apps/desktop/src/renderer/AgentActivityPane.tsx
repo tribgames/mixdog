@@ -7,7 +7,11 @@ import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import { desktopAgentActivityState, hasPendingDesktopAgentWork } from '../shared/agent-activity';
+import {
+  desktopAgentActivityState,
+  hasPendingDesktopAgentWork,
+  type DesktopAgentActivityState,
+} from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { cachedAutoEffortCapable } from './auto-effort-store';
@@ -36,9 +40,10 @@ export {
   preloadAgentPool,
 } from './agent-activity-model';
 
-function AgentPoolRow({
+export function AgentPoolRow({
   agent,
   clock,
+  stateOverride,
   ownerSessionId,
   depth = 0,
   parentSessionId = '',
@@ -56,6 +61,9 @@ function AgentPoolRow({
 }: {
   agent: DesktopAgentPoolRow;
   clock: number;
+  /** A lifecycle state the caller already resolved (the composer island's
+   *  rows, which merge worker and job entries); the sidebar derives its own. */
+  stateOverride?: DesktopAgentActivityState;
   ownerSessionId: string;
   /** Generations below the group heading: 0 for the visible root row (the Lead
    *  when the pool publishes one), 1 for its direct children, and so on. */
@@ -81,7 +89,7 @@ function AgentPoolRow({
   // stopped agent can never borrow the running timer or the "Completed" notice
   // (an agent cancelled mid-turn still carries stage `running`, and one
   // cancelled while waiting still carries stage `queued`).
-  const state = desktopAgentActivityState(agent, { unread, waitingForTasks });
+  const state = stateOverride ?? desktopAgentActivityState(agent, { unread, waitingForTasks });
   const queued = state === 'queued';
   const running = state === 'running';
   const role = agentRoleLabel(agent.agent || agent.tag);

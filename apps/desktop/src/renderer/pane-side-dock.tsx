@@ -1201,7 +1201,8 @@ export function PaneSideDock({
   const sessionSurfaceShowing = browserShowing || terminalShowing || fileShowing || filesShowing;
   const diffShowing = surfaceShowing && paneDiffShowing(entry);
   // The Changes panel view draws its own DockHeaderRow (SessionDiffPane).
-  const sessionDiffPanelShowing = openNow && entry.surface === '' && entry.view === 'session-diff';
+  const sessionDiffPanelShowing =
+    openNow && entry.surface === '' && (entry.view === 'session-diff' || entry.view === 'background-jobs');
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
     useDockWidthPrefs();
@@ -1252,7 +1253,7 @@ export function PaneSideDock({
   useMobileOutsideFold(hostRef, openNow, onClose);
   useDockCloseRequest(
     browserShowing || terminalShowing || sessionDiffPanelShowing,
-    sessionDiffPanelShowing ? 'session-diff' : entry.surface,
+    sessionDiffPanelShowing ? (entry.view ?? '') : entry.surface,
     focused,
     onClose
   );

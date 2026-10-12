@@ -2155,6 +2155,7 @@
   "No calls from '{{name}}'": "Nenhuma chamada de '{{name}}'",
   "No calls from '{{value0}}'": "Nenhuma chamada de '{{value0}}'",
   "No camera? Enter the code from the Web tab instead.": "Sem câmera? Digite o código da aba Web.",
+  "No background tasks.": "Nenhuma tarefa em segundo plano.",
   "No changed files match the filter.": "Nenhum arquivo alterado corresponde ao filtro.",
   "No changes from this session.": "Nenhuma alteração desta sessão.",
   "No changes in this project.": "Nenhuma alteração neste projeto.",

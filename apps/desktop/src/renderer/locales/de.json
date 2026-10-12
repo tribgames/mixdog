@@ -2110,6 +2110,7 @@
   "No calls from '{{name}}'": "Keine Anrufe von „{{name}}“",
   "No calls from '{{value0}}'": "Keine Anrufe von „{{value0}}“",
   "No camera? Enter the code from the Web tab instead.": "Keine Kamera? Geben Sie stattdessen den Code aus dem Tab „Web“ ein.",
+  "No background tasks.": "Keine Hintergrundaufgaben.",
   "No changed files match the filter.": "Keine geänderten Dateien entsprechen dem Filter.",
   "No changes from this session.": "Keine Änderungen aus dieser Sitzung.",
   "No changes in this project.": "Keine Änderungen in diesem Projekt.",

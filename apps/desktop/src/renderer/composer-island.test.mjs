@@ -3,6 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { ComposerDock } from './ComposerDock.tsx';
+import { BackgroundJobsPane } from './BackgroundJobsPane.tsx';
 import { QueueList } from './composer-support.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { t as translate } from './i18n.ts';
@@ -362,4 +363,72 @@ test('queued follow-up rows read icon, text, then Steer now, trash and a menu wh
   await act(async () => items[0].click());
   assert.deepEqual(edits, ['q1']);
   assert.equal(document.querySelector('.row-overflow-menu'), null, 'the menu closes after Edit');
+});
+
+test('with a side dock the agent and shell segments open it on their list instead of the popover', async (t) => {
+  const { root, document } = mount(t);
+  await publish({
+    agentWorkers: [{ tag: 'a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 }],
+    shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
+  });
+  const opened = [];
+  await act(async () =>
+    root.render(React.createElement(ComposerDock, dockProps({ onOpenBackgroundJobs: (kind) => opened.push(kind) })))
+  );
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  await act(async () => document.querySelector('.composer-island-seg-shell').click());
+  assert.deepEqual(opened, ['agent', 'shell']);
+  // The popover stays the no-dock fallback: nothing expanded here.
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
+  assert.equal(document.querySelector('.composer-island-panel'), null);
+});
+
+test('the jobs dock pane lists agents with the sidebar row and shells with command and elapsed time', async (t) => {
+  const { root, document } = mount(t);
+  const opened = [];
+  await publish({
+    agentWorkers: [
+      {
+        tag: 'cart-fix',
+        agent: 'worker',
+        sessionId: 'w1',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        effort: 'high',
+        stage: 'running',
+        status: 'running',
+        startedAt: Date.now() - 65_000,
+      },
+      { tag: 'tax-fix', agent: 'worker', sessionId: 'w2', stage: 'queued', status: 'queued', startedAt: Date.now() - 1_000 },
+    ],
+    shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm run watch', startedAt: Date.now() - 12_000 }] },
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(BackgroundJobsPane, {
+        sessionId: 'island-session',
+        active: true,
+        onOpenAgentSession: (...args) => opened.push(args),
+      })
+    )
+  );
+  const tabs = [...document.querySelectorAll('.composer-island-tab')];
+  assert.deepEqual(
+    tabs.map((tab) => tab.textContent),
+    [translate('Agent {{agent}}', { agent: 2 }), translate('Shell {{shell}}', { shell: 1 })]
+  );
+  const rows = [...document.querySelectorAll('.agent-pool-row')];
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].textContent, /Worker · cart-fix/);
+  assert.ok(rows[0].querySelector('.agent-route-summary'), 'the sidebar row paints the model line');
+  assert.match(rows[0].querySelector('.agent-activity-elapsed').textContent, /1/);
+  assert.equal(rows[1].querySelector('.agent-activity-elapsed').textContent, translate('Queued'));
+  await act(async () => rows[0].click());
+  assert.deepEqual(opened, [['w1', 'cart-fix', 'island-session']]);
+  await act(async () => tabs[1].click());
+  const shellRows = [...document.querySelectorAll('.agent-pool-row')];
+  assert.equal(shellRows.length, 1);
+  assert.match(shellRows[0].textContent, /npm run watch/);
+  assert.ok(shellRows[0].querySelector('.agent-activity-elapsed').textContent.length > 0);
+  assert.equal(shellRows[0].tagName, 'DIV', 'shell rows open nothing');
 });

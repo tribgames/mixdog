@@ -63,7 +63,7 @@ export function withSessionDiff(
  *  `withSessionDiff`. The list used to live in the pane entry itself, so it
  *  leaked across sessions in the same pane (user: 다른 세션으로 넘어가면 그
  *  세션 기본값으로 — 안 열려 있었으면 닫아줘야). */
-export type SessionSidePanelView = 'session-diff';
+export type SessionSidePanelView = 'session-diff' | 'background-jobs';
 
 export function withSessionPanelView(
   current: ReadonlyMap<string, SessionSidePanelView>,
@@ -122,7 +122,7 @@ export function sessionSideDockEntryForSession(
     // A session-owned view never leaks across sessions: a pane showing
     // Session Diff for one session folds for a session that never opened it
     // (user: 거기 안 열려 있었으면 닫아줘야).
-    if (sessionId && base.view === 'session-diff') {
+    if (sessionId && (base.view === 'session-diff' || base.view === 'background-jobs')) {
       if (!base.open && base.surface === '') return base;
       return { ...base, open: false, surface: '' };
     }

@@ -2200,6 +2200,7 @@
   "No calls from '{{name}}'": "Нет звонков от «{{name}}»",
   "No calls from '{{value0}}'": "Нет звонков от «{{value0}}»",
   "No camera? Enter the code from the Web tab instead.": "Нет камеры? Введите код со вкладки «Веб».",
+  "No background tasks.": "Нет фоновых задач.",
   "No changed files match the filter.": "Никакие измененные файлы не соответствуют фильтру.",
   "No changes from this session.": "Нет изменений в этой сессии.",
   "No changes in this project.": "В этом проекте нет изменений.",

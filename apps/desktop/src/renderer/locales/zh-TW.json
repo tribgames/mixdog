@@ -2065,6 +2065,7 @@
   "No calls from '{{name}}'": "沒有來自「{{name}}」的呼叫",
   "No calls from '{{value0}}'": "沒有來自「{{value0}}」的呼叫",
   "No camera? Enter the code from the Web tab instead.": "無法使用相機？請改為輸入「網頁」分頁中的代碼。",
+  "No background tasks.": "沒有背景工作。",
   "No changed files match the filter.": "沒有更改的檔案與過濾器相符。",
   "No changes from this session.": "此工作階段沒有變更。",
   "No changes in this project.": "此項目沒有變更。",

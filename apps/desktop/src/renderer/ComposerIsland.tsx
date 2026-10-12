@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { liveAgentRows } from './agent-activity-model';
+import { backgroundJobRows, type JobKind, type JobRow } from './background-jobs-model';
 import { ComposerIslandContext, type ComposerIslandTab } from './composer-island-state';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
-import { EMPTY_SNAPSHOT, type Snapshot } from './desktop-types';
+import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { formatElapsed } from './text-format';
-import { timeMs } from './transcript-primitives';
 import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
 import { useClock } from './use-clock';
 
@@ -69,61 +68,6 @@ export function IslandSegLabel({ text, count, icon }: { text: string; count: num
 /** Running work: one slowly pulsing dot (still under reduced motion). */
 function JobsPulse() {
   return <span className="composer-island-pulse" aria-hidden="true" />;
-}
-
-type JobKind = 'shell' | 'agent';
-type JobRow = {
-  key: string;
-  kind: JobKind;
-  /** Agent role (or the shell command). */
-  label: string;
-  /** Agent tag; '' for shell jobs and untagged agents. */
-  sub: string;
-  startedAt: number;
-  /** An agent that is queued or waiting rather than working. */
-  idle: boolean;
-  /** Not started yet; an idle row that is not queued is a running agent waiting. */
-  queued?: boolean;
-  /** Blocked on the user's approval: neither working nor idle. */
-  needsUser?: boolean;
-  /** The agent's own session: '' when it has none to open. */
-  sessionId?: string;
-};
-
-/** Rows that need the user lead, then working ones, then queued/waiting. */
-function jobRowRank(row: JobRow): number {
-  if (row.needsUser) return 0;
-  return row.idle ? 2 : 1;
-}
-
-/** Shell jobs newest first, then agents that need the user, work or wait (in
- *  that order). Idle and finished agents are not background work. */
-function backgroundJobRows(snapshot: Snapshot): JobRow[] {
-  const shell = (snapshot.shellJobs?.jobs ?? [])
-    .map((job, index) => ({
-      key: `shell:${String(job.taskId || job.task_id || index)}`,
-      kind: 'shell' as const,
-      label: String(job.command || '').trim(),
-      sub: '',
-      startedAt: timeMs(job.startedAt),
-      idle: false,
-    }))
-    .sort((a, b) => b.startedAt - a.startedAt);
-  const agents = liveAgentRows(snapshot)
-    .filter((agent) => agent.queued || ['running', 'needs-user', 'waiting', 'cancel-unconfirmed'].includes(agent.state))
-    .map((agent) => ({
-      key: `agent:${agent.key}`,
-      kind: 'agent' as const,
-      label: agent.role,
-      sub: agent.tag && agent.tag !== agent.role ? agent.tag : '',
-      startedAt: agent.turnStartedAt || agent.startedAt,
-      idle: agent.queued || agent.state === 'waiting',
-      queued: agent.queued,
-      needsUser: agent.state === 'needs-user',
-      sessionId: agent.sessionId,
-    }))
-    .sort((a, b) => jobRowRank(a) - jobRowRank(b));
-  return [...shell, ...agents];
 }
 
 /** Shows `flash` once per key for FLASH_MS. */
@@ -406,9 +350,14 @@ export function ComposerIsland({
   quotaExhausted,
   quotaResume,
   onOpenAgentSession,
+  onOpenBackgroundJobs,
 }: {
   /** The pane's session ('' while hidden): background jobs read its lane. */
   sessionId: string;
+  /** Opens the pane's side dock on the background-jobs list (agents or
+   *  shells); absent where the surface has no dock, so the segments fall back
+   *  to the island's own popover. */
+  onOpenBackgroundJobs?(kind: JobKind): void;
   /** Opens an agent's session (same action as the Agents pane rows). */
   onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string): void;
   goal?: ReactNode;
@@ -443,6 +392,10 @@ export function ComposerIsland({
   const [jobsTab, setJobsTab] = useState<JobKind>('agent');
   const [expanded, setExpanded] = useState<ComposerIslandTab>('');
   const toggleJobs = (kind: JobKind) => {
+    if (onOpenBackgroundJobs) {
+      onOpenBackgroundJobs(kind);
+      return;
+    }
     const open = expanded === 'jobs' && jobsTab === kind;
     setJobsTab(kind);
     setExpanded(open ? '' : 'jobs');
@@ -541,7 +494,7 @@ export function ComposerIsland({
                 <button
                   type="button"
                   className="composer-island-seg composer-island-seg-agents"
-                  aria-expanded={expanded === 'jobs' && jobsTab === 'agent'}
+                  aria-expanded={onOpenBackgroundJobs ? undefined : expanded === 'jobs' && jobsTab === 'agent'}
                   title={`${t('Agent {{agent}}', { agent: agentRows.length })} · ${agentStates}`}
                   onClick={() => toggleJobs('agent')}
                 >
@@ -579,7 +532,7 @@ export function ComposerIsland({
                 <button
                   type="button"
                   className="composer-island-seg composer-island-seg-shell"
-                  aria-expanded={expanded === 'jobs' && jobsTab === 'shell'}
+                  aria-expanded={onOpenBackgroundJobs ? undefined : expanded === 'jobs' && jobsTab === 'shell'}
                   title={t('Shell {{shell}}', { shell: shellCount })}
                   onClick={() => toggleJobs('shell')}
                 >

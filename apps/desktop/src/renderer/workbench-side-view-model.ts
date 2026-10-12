@@ -14,6 +14,7 @@ export type WorkbenchSideViewId =
   | SidebarPanelKey
   | UtilityDockTab
   | 'session-diff'
+  | 'background-jobs'
   | 'browser'
   | 'terminal';
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
@@ -39,6 +40,7 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   'schedules',
   'webhooks',
   'session-diff',
+  'background-jobs',
   'browser',
   'terminal',
   'agents',
@@ -63,7 +65,7 @@ const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ['search'],
     ['webhooks'],
   ],
-  right: [['session-diff'], ['browser'], ['terminal'], ['pull-requests']],
+  right: [['session-diff'], ['background-jobs'], ['browser'], ['terminal'], ['pull-requests']],
 };
 
 export function isViewId(value: unknown): value is WorkbenchSideViewId {

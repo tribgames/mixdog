@@ -83,6 +83,9 @@ export interface PaneConversationRendererOptions {
   /** Opens the pane's side dock on the session diff (the composer island's
    *  files segment); absent where the surface has no dock. */
   openSessionDiffInSideDock?: (leafId: string) => void;
+  /** Opens the pane's side dock on the background-jobs list (the island's
+   *  agent/shell segments); absent where the surface has no dock. */
+  openBackgroundJobsInSideDock?: (leafId: string, sessionId: string, kind: 'agent' | 'shell') => void;
   /** Opens an agent's session (the composer island's jobs panel rows). */
   openAgentSession: (sessionId: string, title: string, ownerSessionId: string) => void;
   replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
@@ -208,6 +211,12 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
             ? () => {
                 focusPane();
                 options.openSessionDiffInSideDock?.(leafId);
+              }
+            : undefined,
+          onOpenBackgroundJobs: options.openBackgroundJobsInSideDock
+            ? (kind) => {
+                focusPane();
+                options.openBackgroundJobsInSideDock?.(leafId, paneSessionId, kind);
               }
             : undefined,
           onOpenAgentSession: (sessionId, title, ownerSessionId) => {

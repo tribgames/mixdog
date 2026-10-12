@@ -2065,6 +2065,7 @@
   "No calls from '{{name}}'": "'{{name}}' からの呼び出しはありません",
   "No calls from '{{value0}}'": "'{{value0}}' からの呼び出しはありません",
   "No camera? Enter the code from the Web tab instead.": "カメラが使えない場合は、Web タブのコードを入力してください。",
+  "No background tasks.": "バックグラウンドタスクはありません。",
   "No changed files match the filter.": "フィルターに一致する変更されたファイルはありません。",
   "No changes from this session.": "このセッションによる変更はありません。",
   "No changes in this project.": "このプロジェクトには変更はありません。",

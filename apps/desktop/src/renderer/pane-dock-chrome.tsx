@@ -70,7 +70,7 @@ export function scrollTabListByWheel(
 }
 
 export const PANE_DOCK_CLOSE_EVENT = 'mixdog:pane-dock-close';
-export type PaneDockCloseSurface = 'browser' | 'terminal' | 'session-diff';
+export type PaneDockCloseSurface = 'browser' | 'terminal' | 'session-diff' | 'background-jobs';
 export function requestPaneDockClose(surface: PaneDockCloseSurface): void {
   window.dispatchEvent(new CustomEvent(PANE_DOCK_CLOSE_EVENT, { detail: { surface } }));
 }

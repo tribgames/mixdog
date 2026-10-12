@@ -117,6 +117,7 @@ export function Conversation({
   onOpenFolder,
   onOpenSessionDiff,
   onOpenAgentSession,
+  onOpenBackgroundJobs,
   renderAssistantRow,
   goalIsland,
   contextIndicator,
@@ -174,6 +175,9 @@ export function Conversation({
   onOpenSessionDiff?: () => void;
   /** The island's jobs panel opens an agent's session. */
   onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
+  /** The island's agent/shell segments: open the pane's side dock on the
+   *  background-jobs list; absent where the surface has no dock. */
+  onOpenBackgroundJobs?: (kind: 'agent' | 'shell') => void;
   /** Selector-driven rows retain their component identity through settlement. */
   renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
   /** The Goal segment of the composer island. */
@@ -754,6 +758,7 @@ export function Conversation({
           quotaResume={quotaResume}
           onOpenSessionDiff={onOpenSessionDiff}
           onOpenAgentSession={onOpenAgentSession}
+          onOpenBackgroundJobs={onOpenBackgroundJobs}
           showProjectSelector={showProjectSelector}
           contextBar={
             <>

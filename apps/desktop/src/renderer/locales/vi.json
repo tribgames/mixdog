@@ -2065,6 +2065,7 @@
   "No calls from '{{name}}'": "Không có cuộc gọi nào từ '{{name}}'",
   "No calls from '{{value0}}'": "Không có cuộc gọi nào từ '{{value0}}'",
   "No camera? Enter the code from the Web tab instead.": "Không có camera? Hãy nhập mã ở tab Web.",
+  "No background tasks.": "Không có tác vụ nền.",
   "No changed files match the filter.": "Không có tệp thay đổi nào khớp với bộ lọc.",
   "No changes from this session.": "Không có thay đổi nào từ phiên này.",
   "No changes in this project.": "Không có thay đổi nào trong dự án này.",

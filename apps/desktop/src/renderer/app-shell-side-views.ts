@@ -45,6 +45,7 @@ export function useSideViewPrefetch(
         void prefetchTerminalPane().catch(() => {});
         return;
       }
+      if (id === 'background-jobs') return;
       if (id === 'session-diff') {
         void prefetchDiffView().catch(() => {});
         return;
@@ -104,7 +105,7 @@ export function useSideViewSelection({
           setSessionSideSurface(selection.id, null);
           // Session Diff selection belongs to this session, just like its browser
           // and terminal; another destination clears that session's selection.
-          setSessionPanelView(selection.id, id === 'session-diff' ? 'session-diff' : null);
+          setSessionPanelView(selection.id, id === 'session-diff' || id === 'background-jobs' ? id : null);
         }
         selectDock(leafId, id);
         return;

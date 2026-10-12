@@ -2065,6 +2065,7 @@
   "No calls from '{{name}}'": "没有来自“{{name}}”的调用",
   "No calls from '{{value0}}'": "没有来自“{{value0}}”的调用",
   "No camera? Enter the code from the Web tab instead.": "无法使用相机？请改为输入“网页”标签中的代码。",
+  "No background tasks.": "没有后台任务。",
   "No changed files match the filter.": "没有更改的文件与过滤器匹配。",
   "No changes from this session.": "此会话没有更改。",
   "No changes in this project.": "此项目没有变化。",
