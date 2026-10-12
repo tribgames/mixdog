@@ -6,6 +6,7 @@ import { optionalSessionId, requiredSessionId } from './desktop-state';
 import type { DesktopService } from './desktop-service-contract';
 import {
   requiredAbortOptions,
+  requiredDeviceAlias,
   requiredModelCatalogOptions,
   requiredModelSelection,
   requiredNewTaskDraft,
@@ -88,7 +89,7 @@ export function registerSessionIpc({
   handle(DESKTOP_IPC.setRemoteClientAlias, async (_event, clientId, alias) => {
     await invokeDesktopOperation('remoteAccessSetClientAlias', [
       requiredString(clientId, 'clientId'),
-      typeof alias === 'string' ? alias : '',
+      requiredDeviceAlias(alias),
     ]);
   });
   handle(DESKTOP_IPC.renameRemoteHost, async (_event, id, name) => {
