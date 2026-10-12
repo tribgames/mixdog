@@ -6,6 +6,7 @@
  */
 import { globalShortcut, screen } from 'electron';
 
+import { usesGnomeHelper, watchGnomeStopSignal } from '../host/gnome-helper';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
 import { createComputerUseCursorOverlay } from './cursor-overlay';
@@ -107,21 +108,28 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
 
   let shortcutRegistered = false;
   let shortcutWarned = false;
+  let stopWatcher: (() => void) | null = null;
+  const onStopShortcut = (): void => {
+    // The pill leaves between commands, but a turn that used the computer can
+    // still use it again: the emergency Stop reaches every such session.
+    const active =
+      latestPresentation.visible ||
+      latestPresentation.sessionIds.length > 0 ||
+      latestSnapshot.userControlActive ||
+      latestSnapshot.cleanupState !== 'ready';
+    console.log('[computer-overlay] stop_shortcut', active ? 'stopping' : 'idle');
+    if (active) stop();
+  };
   /** Another process may own the chord; retry on every render until it is ours. */
   const ensureShortcut = (): void => {
     if (shortcutRegistered || disposed) return;
-    shortcutRegistered = globalShortcut.register(STOP_SHORTCUT, () => {
-      // The pill leaves between commands, but a turn that used the computer can
-      // still use it again: the emergency Stop reaches every such session.
-      if (
-        latestPresentation.visible ||
-        latestPresentation.sessionIds.length > 0 ||
-        latestSnapshot.userControlActive ||
-        latestSnapshot.cleanupState !== 'ready'
-      ) {
-        stop();
-      }
-    });
+    // Electron cannot register global shortcuts on Wayland; on GNOME the shell
+    // extension owns the chord and reports it over D-Bus.
+    if (usesGnomeHelper()) {
+      stopWatcher ??= watchGnomeStopSignal(onStopShortcut);
+      return;
+    }
+    shortcutRegistered = globalShortcut.register(STOP_SHORTCUT, onStopShortcut);
     if (shortcutRegistered) shortcutWarned = false;
     else if (!shortcutWarned) {
       // The pill's Stop control still works, but the documented emergency exit
@@ -164,6 +172,8 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
       screen.removeListener('display-added', onDisplaysChanged);
       screen.removeListener('display-removed', onDisplaysChanged);
       if (shortcutRegistered) globalShortcut.unregister(STOP_SHORTCUT);
+      stopWatcher?.();
+      stopWatcher = null;
       windows.destroyAll();
       cursorOverlay.dispose();
     },

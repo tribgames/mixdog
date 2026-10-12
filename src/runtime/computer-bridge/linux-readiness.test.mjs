@@ -4,6 +4,7 @@ import {
   CAPABILITY_UNAVAILABLE_CODE,
   CAPTURE_FALLBACK_NOTE,
   INPUT_GROUP_SECURITY_NOTE,
+  MIN_WINDOW_HELPER_VERSION,
   checkLinuxComputerReadiness,
   detectSession,
   linuxCaptureFallback,
@@ -28,9 +29,10 @@ function probe(env, { uinput = false, windowCalls = false, helper = { installed:
     canWrite: (file) => file === '/dev/uinput' && uinput,
     hasCommand: (name) => tools.includes(name),
     hasSessionBus: () => bus,
-    windowHelperReachable: async () => {
+    windowHelperVersion: async () => {
       calls.windowCalls += 1;
-      return windowCalls;
+      // true: a current helper; a number: that loaded version; false: nothing answers.
+      return windowCalls === true ? MIN_WINDOW_HELPER_VERSION : windowCalls || null;
     },
     windowHelperStatus: async () => {
       calls.helper += 1;
@@ -64,14 +66,13 @@ test('GNOME without uinput and the window helper: only the actions that need the
   assert.deepEqual(readiness.capabilities.pointer, { state: 'needs_setup', fix: 'allow_input' });
   assert.deepEqual(readiness.capabilities.keyboard, { state: 'needs_setup', fix: 'allow_input' });
   assert.deepEqual(readiness.capabilities.semanticActions, { state: 'needs_setup', fix: 'enable_window_helper' });
-  assert.deepEqual(readiness.capabilities.capture, { state: 'unknown' });
+  // GNOME pixels come from the same helper, so they are blocked with it.
+  assert.deepEqual(readiness.capabilities.capture, { state: 'needs_setup', fix: 'enable_window_helper' });
   assert.deepEqual(readiness.capabilities.clipboard, { state: 'ready', optional: true });
   assert.deepEqual(readiness.capabilities.ocr, { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true });
 
-  // Screenshots that name no window, launch, clipboard and diagnose still run.
+  // Launch, clipboard and diagnose still run.
   for (const command of [
-    { action: 'capture', mode: 'vision', screen: 0 },
-    { action: 'zoom' },
     { action: 'launch', app: 'gedit' },
     { action: 'clipboard_write', text: 'x' },
     { action: 'clipboard_read' },
@@ -81,7 +82,10 @@ test('GNOME without uinput and the window helper: only the actions that need the
     assert.deepEqual(blocked(readiness, command), [], command.action);
   }
   assert.deepEqual(blocked(readiness, { action: 'list_windows' }), ['windows']);
-  assert.deepEqual(blocked(readiness, { action: 'capture' }), ['windows']);
+  assert.deepEqual(blocked(readiness, { action: 'capture' }), ['capture', 'windows']);
+  // GNOME takes pixels through the helper (never a portal), so any capture waits for it.
+  assert.deepEqual(blocked(readiness, { action: 'capture', mode: 'vision', screen: 0 }), ['capture']);
+  assert.match(missingCapabilities(readiness, { action: 'capture', mode: 'vision', screen: 0 })[0].message, /Mixdog Windows/);
   assert.deepEqual(blocked(readiness, act([step('click', { x: 1, y: 2 })])), ['windows', 'pointer']);
   assert.deepEqual(blocked(readiness, act([step('invoke', { ref: 'e1' })])), ['windows', 'semanticActions']);
 });
@@ -143,6 +147,14 @@ test('GNOME without gdbus cannot probe the window helper: unknown, never blockin
   assert.deepEqual(blocked(readiness, { action: 'list_windows' }), []);
 });
 
+test('a loaded helper older than the app needs is a sign-out away from ready', async () => {
+  const stale = await probe(GNOME, { windowCalls: MIN_WINDOW_HELPER_VERSION - 1, helper: { installed: true, enabled: true }, tools: ['gdbus'] });
+  assert.deepEqual(stale.capabilities.windows, { state: 'needs_setup', fix: 'relogin' });
+  assert.deepEqual(stale.capabilities.capture, { state: 'needs_setup', fix: 'relogin' });
+  const current = await probe(GNOME, { windowCalls: MIN_WINDOW_HELPER_VERSION, tools: ['gdbus'] });
+  assert.deepEqual(current.capabilities.capture, { state: 'ready' });
+});
+
 test('GNOME window helper states: ready, relogin once enabled but not loaded, enable when not enabled', async () => {
   const ready = await probe(GNOME, { windowCalls: true, helper: { installed: true, enabled: true }, tools: ['gdbus'] });
   assert.deepEqual(ready.capabilities.windows, { state: 'ready' });
@@ -167,7 +179,7 @@ test('GNOME window helper states: ready, relogin once enabled but not loaded, en
 });
 
 test('a default capture without window control becomes a full-screen capture with a note', async () => {
-  const missing = await probe(GNOME, { tools: ['gdbus'] });
+  const missing = await probe(KDE, { tools: ['gdbus'] });
   const check = async () => missing;
   resetLinuxComputerPreflightCache();
   const fallback = await linuxCaptureFallback({ command: { action: 'capture', mode: 'state', session_id: 's1' }, platform: 'linux', check });
@@ -185,6 +197,10 @@ test('a default capture without window control becomes a full-screen capture wit
     assert.equal(await linuxCaptureFallback({ command, platform: 'linux', check }), null, JSON.stringify(command));
   }
   assert.equal(await linuxCaptureFallback({ command: { action: 'capture' }, platform: 'win32', check }), null);
+  // On GNOME the screen needs the same helper, so there is nothing to fall back to.
+  resetLinuxComputerPreflightCache();
+  const gnome = await probe(GNOME, { tools: ['gdbus'] });
+  assert.equal(await linuxCaptureFallback({ command: { action: 'capture' }, platform: 'linux', check: async () => gnome }), null);
   // With window control ready there is no fallback.
   resetLinuxComputerPreflightCache();
   const ready = await probe(GNOME, { windowCalls: true, tools: ['gdbus'] });

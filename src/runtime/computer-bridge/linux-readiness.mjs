@@ -15,6 +15,8 @@ export const UINPUT_HINT =
 export const INPUT_GROUP_SECURITY_NOTE =
   'Security note: membership of the input group lets every program you run read and inject keyboard and mouse input system-wide. Grant it only on a machine and account you trust.';
 export const GNOME_EXTENSION_UUID = 'mixdog-windows@mixdog.io';
+/** The oldest helper interface this app can use (2 added Screenshot and StopRequested). */
+export const MIN_WINDOW_HELPER_VERSION = 2;
 export const WINDOW_CONTROL_HINT =
   'wayland_window_control_unavailable: this compositor offers no window control to other programs; on GNOME the Mixdog Windows extension (mixdog-windows@mixdog.io) provides it and must be enabled and loaded';
 export const WINDOW_HELPER_RELOGIN_HINT =
@@ -67,40 +69,50 @@ function onPath(name, env) {
     });
 }
 
-function gdbusSucceeds(env, args, timeoutMs = 2000) {
+// A read-only gdbus call: its stdout, or null when it fails or times out.
+function gdbusOutput(env, args, timeoutMs = 2000) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn('gdbus', ['call', '--session', ...args], { env, stdio: 'ignore', shell: false, windowsHide: true });
+      child = spawn('gdbus', ['call', '--session', ...args], { env, stdio: ['ignore', 'pipe', 'ignore'], shell: false, windowsHide: true });
     } catch {
-      resolve(false);
+      resolve(null);
       return;
     }
+    let out = '';
+    child.stdout.on('data', (chunk) => {
+      out += chunk;
+    });
     const timer = setTimeout(() => {
       try {
         child.kill('SIGKILL');
       } catch {}
-      resolve(false);
+      resolve(null);
     }, timeoutMs);
     child.once('error', () => {
       clearTimeout(timer);
-      resolve(false);
+      resolve(null);
     });
     child.once('close', (status) => {
       clearTimeout(timer);
-      resolve(status === 0);
+      resolve(status === 0 ? out : null);
     });
   });
 }
 
+const gdbusSucceeds = async (env, args, timeoutMs) => (await gdbusOutput(env, args, timeoutMs)) !== null;
+
 // Asks our own interface for its Version property: read-only, never prompts.
-function gnomeWindowHelperReachable(env) {
-  return gdbusSucceeds(env, [
+// The version the shell actually loaded, or null when nothing answers.
+async function gnomeWindowHelperVersion(env) {
+  const out = await gdbusOutput(env, [
     '--dest', 'org.gnome.Shell',
     '--object-path', '/io/mixdog/Windows',
     '--method', 'org.freedesktop.DBus.Properties.Get',
     'io.mixdog.Windows', 'Version',
   ]);
+  const version = /uint32 (\d+)/.exec(out ?? '');
+  return version ? Number(version[1]) : null;
 }
 
 function gsettingsOutput(env, args, timeoutMs = 2000) {
@@ -177,7 +189,7 @@ export function detectSession(env) {
   return wayland ? 'wayland' : 'x11';
 }
 
-function detectDesktop(env, session) {
+export function detectDesktop(env, session) {
   if (session === 'wayland') {
     if (env.SWAYSOCK !== undefined) return 'sway';
     if (env.HYPRLAND_INSTANCE_SIGNATURE !== undefined) return 'hyprland';
@@ -192,7 +204,7 @@ function detectDesktop(env, session) {
 
 const needsPackage = (name, extra = {}) => ({ state: 'needs_setup', fix: 'install_package', package: name, ...extra });
 
-async function windowsCapability({ env, session, hasCommand, windowHelperReachable, windowHelperStatus }) {
+async function windowsCapability({ env, session, hasCommand, windowHelperVersion, windowHelperStatus }) {
   if (session === 'x11') return READY;
   // Same order as native Compositor::detect().
   if (env.SWAYSOCK !== undefined) return hasCommand('swaymsg') ? READY : needsPackage('sway');
@@ -201,7 +213,9 @@ async function windowsCapability({ env, session, hasCommand, windowHelperReachab
     // Without gdbus the extension cannot be probed (the native client talks to
     // D-Bus itself), so this is unknown rather than missing.
     if (!hasCommand('gdbus')) return { state: 'unknown' };
-    if (await windowHelperReachable()) return READY;
+    const loaded = await windowHelperVersion();
+    // A shell that loaded an older copy keeps running it until the next sign-in.
+    if (loaded !== null) return loaded >= MIN_WINDOW_HELPER_VERSION ? READY : { state: 'needs_setup', fix: 'relogin' };
     // Not answering: either the shell has not loaded a freshly enabled
     // extension yet (a sign-in fixes that) or it is not enabled at all.
     const status = await windowHelperStatus();
@@ -237,7 +251,7 @@ export async function checkLinuxComputerReadiness({
   },
   hasCommand = (name) => onPath(name, env),
   hasSessionBus = () => sessionBusPresent(env),
-  windowHelperReachable = () => gnomeWindowHelperReachable(env),
+  windowHelperVersion = () => gnomeWindowHelperVersion(env),
   windowHelperStatus = () => gnomeWindowHelperStatus(env),
   accessibilityReachable = () => accessibilityBusReachable(env),
 } = {}) {
@@ -256,7 +270,7 @@ export async function checkLinuxComputerReadiness({
     };
   }
   const wayland = session === 'wayland';
-  const windows = await windowsCapability({ env, session, hasCommand, windowHelperReachable, windowHelperStatus });
+  const windows = await windowsCapability({ env, session, hasCommand, windowHelperVersion, windowHelperStatus });
   const accessibility = await accessibilityCapability({ env, hasCommand, hasSessionBus, accessibilityReachable });
   const input = !wayland || canWrite('/dev/uinput') ? READY : { state: 'needs_setup', fix: 'allow_input' };
   const clipboard = !wayland || (hasCommand('wl-copy') && hasCommand('wl-paste')) ? READY : needsPackage('wl-clipboard');
@@ -264,9 +278,11 @@ export async function checkLinuxComputerReadiness({
     session,
     desktop,
     capabilities: {
-      // Wayland pixels come through the desktop portal, which only prompts when
-      // used, so it cannot be probed.
-      capture: wayland ? { state: 'unknown' } : READY,
+      // GNOME Wayland pixels come from our shell extension (no portal, never a
+      // prompt), so they are ready exactly when the helper is. Other Wayland
+      // desktops use the desktop portal, which only prompts when used and so
+      // cannot be probed.
+      capture: wayland ? (desktop === 'gnome' ? windows : { state: 'unknown' }) : READY,
       windows,
       accessibility,
       // AT-SPI actions act on an accessible found through a window handle.
@@ -282,7 +298,8 @@ export async function checkLinuxComputerReadiness({
 function capabilityIssue(name, readiness) {
   if (readiness.capabilities.capture.state === 'unsupported') return { code: 'display_unavailable', message: DISPLAY_HINT };
   // Semantic actions fail on whichever of their two prerequisites is missing.
-  const target = name === 'semanticActions' ? (readiness.capabilities.windows.state === 'ready' ? 'accessibility' : 'windows') : name;
+  const gnomeWayland = readiness.session === 'wayland' && readiness.desktop === 'gnome';
+  const target = name === 'semanticActions' ? (readiness.capabilities.windows.state === 'ready' ? 'accessibility' : 'windows') : name === 'capture' && gnomeWayland ? 'windows' : name;
   const capability = readiness.capabilities[target];
   switch (target) {
     case 'windows':
@@ -377,8 +394,11 @@ export const CAPTURE_FALLBACK_NOTE =
  */
 export async function linuxCaptureFallback({ command, platform = process.platform, check, now } = {}) {
   if (platform !== 'linux' || !isForegroundWindowCapture(command)) return null;
-  const { state } = (await getLinuxComputerReadiness({ check, now })).capabilities.windows;
+  const { capabilities } = await getLinuxComputerReadiness({ check, now });
+  const { state } = capabilities.windows;
   if (state !== 'needs_setup' && state !== 'unsupported') return null;
+  // A screen capture the session cannot take either is a refusal, not a fallback.
+  if (capabilities.capture.state === 'needs_setup' || capabilities.capture.state === 'unsupported') return null;
   const { action, session_id, include_ocr } = command;
   return {
     command: { action, mode: 'vision', screen: 0, ...(session_id ? { session_id } : {}), ...(include_ocr ? { include_ocr } : {}) },

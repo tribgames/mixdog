@@ -32,8 +32,10 @@ export interface LinuxComputerRefusal {
   missing: LinuxComputerMissingCapability[];
   message: string;
 }
+export const MIN_WINDOW_HELPER_VERSION: number;
 export const CAPABILITY_UNAVAILABLE_CODE: 'computer_capability_unavailable';
 export function detectSession(env: Record<string, string | undefined>): 'wayland' | 'x11';
+export function detectDesktop(env: Record<string, string | undefined>, session: 'wayland' | 'x11'): LinuxComputerReadiness['desktop'];
 export function checkLinuxComputerReadiness(options?: Record<string, unknown>): Promise<LinuxComputerReadiness>;
 export function getLinuxComputerReadiness(options?: Record<string, unknown>): Promise<LinuxComputerReadiness>;
 export function missingCapabilities(

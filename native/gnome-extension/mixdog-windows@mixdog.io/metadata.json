@@ -3,6 +3,6 @@
   "name": "Mixdog Windows",
   "description": "Exposes the window list and basic window control to Mixdog Computer Use over D-Bus (io.mixdog.Windows).",
   "shell-version": ["45", "46", "47", "48"],
-  "version": 1,
+  "version": 2,
   "url": "https://github.com/mixdog-io/mixdog"
 }
