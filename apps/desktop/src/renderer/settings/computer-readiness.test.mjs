@@ -109,6 +109,8 @@ test('unsupported windows names the desktop and has no button', () => {
 test('optional packages are muted with a How to install action; required ones stay warn', () => {
   const rows = rowsOf(
     linux({
+      pointer: { state: 'needs_setup', fix: 'allow_input' },
+      keyboard: { state: 'needs_setup', fix: 'allow_input' },
       clipboard: { state: 'needs_setup', fix: 'install_package', package: 'wl-clipboard', optional: true },
       ocr: { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true },
     })
@@ -116,11 +118,12 @@ test('optional packages are muted with a How to install action; required ones st
   assert.deepEqual(
     rows.map((row) => [row.id, row.status, row.tone, row.action?.kind, row.action?.package]),
     [
+      ['input', 'Allow needed', 'warn', 'allow_input', undefined],
       ['clipboard', 'Optional add-on', 'muted', 'install_how', 'wl-clipboard'],
       ['ocr', 'Optional add-on', 'muted', 'install_how', 'tesseract-ocr'],
     ]
   );
-  assert.equal(computerReadinessBlocking(rows), false);
+  assert.equal(computerReadinessBlocking(rows), true);
   assert.equal(computerReadinessPending(rows), true);
 
   const required = byId(
@@ -129,6 +132,19 @@ test('optional packages are muted with a How to install action; required ones st
   );
   assert.equal(required.status, 'Needed');
   assert.equal(required.tone, 'warn');
+});
+
+test('only optional items left: no section rows, no rail tag, no polling', () => {
+  // A plain dpkg -i leaves wl-clipboard and tesseract out; nothing blocks work.
+  const rows = rowsOf(
+    linux({
+      clipboard: { state: 'needs_setup', fix: 'install_package', package: 'wl-clipboard', optional: true },
+      ocr: { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true },
+    })
+  );
+  assert.deepEqual(rows, []);
+  assert.equal(computerReadinessBlocking(rows), false);
+  assert.equal(computerReadinessPending(rows), false);
 });
 
 test('semantic actions and accessibility share one row; capture needs_setup has one too', () => {
@@ -206,8 +222,13 @@ test('the section lists rows, runs actions, and disappears by itself on the next
       keyboard: { state: 'needs_setup', fix: 'allow_input' },
       clipboard: { state: 'needs_setup', fix: 'install_package', package: 'wl-clipboard', optional: true },
     }),
+    linux({
+      pointer: { state: 'needs_setup', fix: 'allow_input' },
+      keyboard: { state: 'needs_setup', fix: 'allow_input' },
+      clipboard: { state: 'needs_setup', fix: 'install_package', package: 'wl-clipboard', optional: true },
+    }),
+    // The grant went through; only the optional add-on is left, so the section goes.
     linux({ clipboard: { state: 'needs_setup', fix: 'install_package', package: 'wl-clipboard', optional: true } }),
-    linux(),
   ];
   let reading = 0;
   const allowed = [];
@@ -239,17 +260,17 @@ test('the section lists rows, runs actions, and disappears by itself on the next
   assert.equal(clipboard.getAttribute('data-tone'), 'muted');
   assert.equal(clipboard.querySelector('.extensions-item-status').textContent, 'Optional add-on');
 
-  // A failed grant shows the message, then the re-read drops the row.
+  // A failed grant shows the message and the row stays.
   await act(async () => section.querySelector('[data-readiness-row="input"] button').click());
   assert.deepEqual(allowed, [true]);
   assert.match(host.textContent, /Mouse and keyboard access could not be allowed\./);
-  assert.equal(host.querySelector('[data-readiness-row="input"]'), null);
+  assert.ok(host.querySelector('[data-readiness-row="input"]'));
 
   // How to install opens a note with the package command.
   await act(async () => host.querySelector('[data-readiness-row="clipboard"] button').click());
   assert.match(host.textContent, /sudo apt install wl-clipboard/);
 
-  // Coming back to the window re-reads; once ready the whole section is gone.
+  // Coming back to the window re-reads; with only the optional add-on left the whole section is gone.
   await act(async () => {
     window.dispatchEvent(new window.Event('focus'));
   });

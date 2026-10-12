@@ -206,10 +206,14 @@ function macRows(readiness: DesktopComputerReadiness): ComputerReadinessRow[] {
   return rows;
 }
 
-/** The rows the "Readiness" section lists; empty when nothing is pending. */
+/** The rows the "Readiness" section lists; empty when nothing is pending.
+ *  Optional add-ons appear only next to a required row, never on their own. */
 export function computerReadinessRows(readiness: DesktopComputerReadiness | null): ComputerReadinessRow[] {
   if (!readiness) return [];
-  if (readiness.platform === 'linux' && readiness.linux) return linuxRows(readiness.linux);
+  if (readiness.platform === 'linux' && readiness.linux) {
+    const rows = linuxRows(readiness.linux);
+    return rows.some((row) => !row.optional) ? rows : [];
+  }
   if (readiness.platform === 'darwin') return macRows(readiness);
   return [];
 }
