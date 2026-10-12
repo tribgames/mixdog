@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRuntimePulse } from '../standalone/local-session-runtime.mjs';
+import * as localRuntime from '../standalone/local-session-runtime.mjs';
+import * as legacyRuntime from './session-local.mjs';
 import { createContextState } from './session/context-state.mjs';
 import { createSessionDraftStore } from './session/draft-store.mjs';
 
@@ -75,6 +77,11 @@ function harness() {
     },
   };
 }
+
+test('the legacy TUI path preserves the daemon runtime exports and singleton identities', () => {
+  assert.deepEqual(Object.keys(legacyRuntime), Object.keys(localRuntime));
+  for (const name of Object.keys(localRuntime)) assert.equal(legacyRuntime[name], localRuntime[name], name);
+});
 
 test('the pulse does not re-publish an unchanged session', () => {
   const { store, tick, notifications } = harness();

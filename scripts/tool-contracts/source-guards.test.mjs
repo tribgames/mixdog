@@ -175,6 +175,7 @@ function assertUpdateSessionRouteRefreshesCacheFields() {
 function assertTuiSetRouteKeepsNextSessionDefault() {
   const sessionSrc = [
     readMjsSources('src/tui/session.mjs'),
+    readMjsSources('src/tui/session-local.mjs'),
     readMjsSources('src/standalone/local-session-runtime.mjs'),
     readMjsSources('src/tui/session'),
   ].join('\n');
