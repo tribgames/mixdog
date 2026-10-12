@@ -165,16 +165,16 @@ export function viewFor(state: ScreenState, s: Strings): View {
       actions: [[act('connect', s.connect, true)], [act('cancel', s.cancel, false)]],
     };
   }
-  if (state.step === 'waiting' || state.step === 'waiting-offline') {
-    if (state.step === 'waiting-offline') {
-      return {
-        ...base,
-        extra: 'wait',
-        title: s.offlineTitle,
-        sub: s.offlineNote,
-        actions: [[act('cancel', s.cancel, false)]],
-      };
-    }
+  if (state.step === 'waiting-offline') {
+    return {
+      ...base,
+      extra: 'wait',
+      title: s.offlineTitle,
+      sub: s.offlineNote,
+      actions: [[act('cancel', s.cancel, false)]],
+    };
+  }
+  if (state.step === 'waiting') {
     return {
       ...base,
       extra: 'wait',
@@ -280,6 +280,55 @@ function actionButton(doc: Document, action: Action, disabled: boolean, hooks: H
   return button;
 }
 
+/** Six boxes over ONE real input: paste, backspace and one-time-code
+ *  autofill all act on the input; the boxes only show its digits. */
+function codeEntry(root: HTMLElement, input: RenderInput, hooks: Hooks): { otp: HTMLElement; focus: () => void } {
+  const doc = root.ownerDocument;
+  const otp = el(doc, 'div', 'mxp-otp');
+  const boxes = Array.from({ length: 6 }, () => el(doc, 'span', 'mxp-digit'));
+  const field = el(doc, 'input', 'mxp-code') as HTMLInputElement;
+  field.id = 'code';
+  field.type = 'text';
+  field.inputMode = 'numeric';
+  field.autocomplete = 'one-time-code';
+  field.setAttribute('aria-label', input.strings.codeLabel);
+  field.value = input.codeValue;
+  field.disabled = Boolean(input.state.busy);
+  const paint = (): void => {
+    const digits = field.value;
+    boxes.forEach((box, i) => {
+      box.textContent = digits[i] ?? '';
+      box.classList.toggle('on', doc.activeElement === field && i === Math.min(digits.length, 5));
+    });
+  };
+  let last = input.codeValue.length;
+  field.addEventListener('input', () => {
+    const digits = field.value.replace(/\D/gu, '').slice(0, 6);
+    field.value = digits;
+    paint();
+    hooks.onCodeInput(digits);
+    const connect = root.querySelector<HTMLButtonElement>('[data-action="connect"]');
+    if (connect) connect.disabled = digits.length !== 6;
+    const filled = digits.length === 6 && last < 6;
+    last = digits.length;
+    if (filled) hooks.onAction('connect');
+  });
+  field.addEventListener('focus', paint);
+  field.addEventListener('blur', paint);
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && field.value.length === 6) hooks.onAction('connect');
+  });
+  otp.append(...boxes, field);
+  paint();
+  return {
+    otp,
+    focus: () => {
+      field.focus();
+      paint();
+    },
+  };
+}
+
 /** Replace `root`'s content with the layout for `input`. */
 export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hooks, logoSrc = './mixdog-logo-titanium.svg'): void {
   const doc = root.ownerDocument;
@@ -308,49 +357,9 @@ export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hook
   const extra = el(doc, 'div', 'mxp-extra');
   let focusCode: (() => void) | null = null;
   if (view.extra === 'code') {
-    // Six boxes over ONE real input: paste, backspace and one-time-code
-    // autofill all act on the input; the boxes only show its digits.
-    const otp = el(doc, 'div', 'mxp-otp');
-    const boxes = Array.from({ length: 6 }, () => el(doc, 'span', 'mxp-digit'));
-    const field = el(doc, 'input', 'mxp-code') as HTMLInputElement;
-    field.id = 'code';
-    field.type = 'text';
-    field.inputMode = 'numeric';
-    field.autocomplete = 'one-time-code';
-    field.setAttribute('aria-label', input.strings.codeLabel);
-    field.value = input.codeValue;
-    field.disabled = Boolean(input.state.busy);
-    const paint = (): void => {
-      const digits = field.value;
-      boxes.forEach((box, i) => {
-        box.textContent = digits[i] ?? '';
-        box.classList.toggle('on', doc.activeElement === field && i === Math.min(digits.length, 5));
-      });
-    };
-    let last = input.codeValue.length;
-    field.addEventListener('input', () => {
-      const digits = field.value.replace(/\D/gu, '').slice(0, 6);
-      field.value = digits;
-      paint();
-      hooks.onCodeInput(digits);
-      const connect = root.querySelector<HTMLButtonElement>('[data-action="connect"]');
-      if (connect) connect.disabled = digits.length !== 6;
-      const filled = digits.length === 6 && last < 6;
-      last = digits.length;
-      if (filled) hooks.onAction('connect');
-    });
-    field.addEventListener('focus', paint);
-    field.addEventListener('blur', paint);
-    field.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && field.value.length === 6) hooks.onAction('connect');
-    });
-    otp.append(...boxes, field);
-    extra.append(otp);
-    focusCode = () => {
-      field.focus();
-      paint();
-    };
-    paint();
+    const entry = codeEntry(root, input, hooks);
+    extra.append(entry.otp);
+    focusCode = entry.focus;
   }
   if (view.error) {
     const error = el(doc, 'p', 'mxp-error', view.error);

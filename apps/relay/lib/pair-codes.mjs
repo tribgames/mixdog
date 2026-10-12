@@ -262,11 +262,15 @@ async function handleResolve({ pairCodes, liveDesktops }, request, response) {
   reply(request, response, 200, { deviceId: result.deviceId, name: result.name, ticket: result.ticket });
 }
 
+/** Answers 429 and returns true when this source is over its presence budget. */
+function presenceThrottled(presenceLimiter, request, response) {
+  if (presenceLimiter.allow(clientIp(request))) return false;
+  reply(request, response, 429, { status: 'rate-limited' }, { 'Retry-After': '60' });
+  return true;
+}
+
 function handleSupport({ liveDesktops, store, presenceLimiter }, request, response) {
-  if (!presenceLimiter.allow(clientIp(request))) {
-    reply(request, response, 429, { status: 'rate-limited' }, { 'Retry-After': '60' });
-    return;
-  }
+  if (presenceThrottled(presenceLimiter, request, response)) return;
   const url = requestUrl(request);
   const deviceId = url?.searchParams.get('deviceId') || '';
   if (!isRoutingId(deviceId) || !store.isKnown(deviceId)) {
@@ -281,10 +285,7 @@ function handleSupport({ liveDesktops, store, presenceLimiter }, request, respon
 }
 
 async function handlePresence({ liveDesktops, store, presenceLimiter }, request, response) {
-  if (!presenceLimiter.allow(clientIp(request))) {
-    reply(request, response, 429, { status: 'rate-limited' }, { 'Retry-After': '60' });
-    return;
-  }
+  if (presenceThrottled(presenceLimiter, request, response)) return;
   let body;
   try {
     body = await readBody(request);

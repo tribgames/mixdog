@@ -17,6 +17,10 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+  private static final String BACK_SCRIPT =
+      "(function(){if(history.state&&history.state.mixdogBack){history.back();return 'web'}"
+          + "return location.origin==='https://localhost'?'local':'none'})()";
+
   private MixdogNativeHost nativeHost;
 
   @Override
@@ -47,10 +51,6 @@ public class MainActivity extends BridgeActivity {
               }
             });
   }
-
-  private static final String BACK_SCRIPT =
-      "(function(){if(history.state&&history.state.mixdogBack){history.back();return 'web'}"
-          + "return location.origin==='https://localhost'?'local':'none'})()";
 
   @Override
   protected void load() {
