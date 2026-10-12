@@ -22,7 +22,7 @@ chmod +x /w/pkg/*.AppImage
 # Every bundled native tool must load and run here: a glibc newer than this
 # distro's makes the dynamic loader refuse it ("version `GLIBC_x' not found").
 echo "== native tools ($family, $(ldd --version | sed -n 1p))"
-mkdir -p /tmp/ex && cd /tmp/ex && W:pkg*.AppImage --appimage-extract >/dev/null && cd /
+mkdir -p /tmp/ex && cd /tmp/ex && /w/pkg/*.AppImage --appimage-extract >/dev/null && cd /
 tools=/tmp/ex/squashfs-root/resources/native-tools
 ls -l "$tools"
 exec_tool() {
