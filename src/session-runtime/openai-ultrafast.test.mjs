@@ -23,7 +23,7 @@ test('OAuth payload sends ultrafast only when the catalog advertises it', async 
       import('../runtime/agent/orchestrator/providers/openai-oauth.mjs'),
       import('./provider-models/row-hydration.mjs'),
     ]);
-  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', version: 6, ttlMs: 60_000 });
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', version: 7, ttlMs: 60_000 });
   const models = [
     { slug: 'ultra-model', service_tiers: [{ id: 'priority' }, { id: 'ultrafast' }] },
     { slug: 'fast-only-model', service_tiers: [{ id: 'priority' }] },

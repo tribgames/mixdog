@@ -47,7 +47,7 @@ test('OpenAI OAuth catalog Fast capability survives caching and agrees with requ
   ];
   const modelCache = makeModelCache({
     fileName: 'openai-oauth-models.json',
-    version: 6,
+    version: 7,
     ttlMs: 60_000,
   });
   modelCache.save(cases.map(_normalizeCodexModel));
