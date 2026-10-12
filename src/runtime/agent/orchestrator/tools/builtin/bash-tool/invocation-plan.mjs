@@ -2,12 +2,12 @@ import { wrapCommandWithSnapshot } from '../../shell-snapshot.mjs';
 import { buildPowerShellFilterTeePlan } from '../shell-analysis.mjs';
 import { normalizeErrorMessage } from '../path-diagnostics.mjs';
 import { planDirectExeSpawn } from '../shell-direct-exe.mjs';
+import { POWERSHELL_UTF8_PREFIX } from '../../../../../shared/shell-display.mjs';
 import { buildShellSpawnEnv } from './spawn-env.mjs';
 import { formatShellToolFailure } from './result-format.mjs';
 
 function prefixPowerShellUtf8(command) {
-  const prefix =
-    '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;';
+  const prefix = POWERSHELL_UTF8_PREFIX;
   const text = String(command || '');
   return text.trimStart().startsWith(prefix) ? text : `${prefix}\n${text}`;
 }

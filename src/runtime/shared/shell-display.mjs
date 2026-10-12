@@ -6,8 +6,10 @@
  * echoing it into job records, chips and completion envelopes buried the
  * command the user actually ran behind two encoding statements.
  */
-const POWERSHELL_UTF8_PREFIX =
-  '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;';
+// $OutputEncoding feeds native-program stdin: BOM-less, since Windows PowerShell
+// 5.1 prepends a U+FEFF preamble for [Text.Encoding]::UTF8 (breaks `python -`).
+export const POWERSHELL_UTF8_PREFIX =
+  '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;';
 
 export function displayShellCommand(value) {
   const text = String(value ?? '');

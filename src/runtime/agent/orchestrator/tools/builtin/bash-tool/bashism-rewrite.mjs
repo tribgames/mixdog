@@ -7,21 +7,16 @@
 //   <cmd> <<'EOF'\n…\nEOF   → @'\n…\n'@ | <cmd>        (python/python3/py/node only)
 //   2>/dev/null  >/dev/null  &>/dev/null  → 2>$null  >$null  *>$null
 //   </dev/null                                  → removed (the shell's stdin is already at EOF)
-//   | head -N  | head -n N  | tail -N  | tail -n N  → | Select-Object -First/-Last N
-//   | wc -l                                         → | Measure-Object | ForEach-Object Count
-// A pipeline rewrite is wrapped in a run-time check, so a `head`/`tail`/`wc`
-// that resolves in the executing session (alias, function, Git usr/bin on
-// PATH, profile) is still called exactly as written.
+// `| head`/`| tail`/`| wc` are deliberately NOT rewritten: any wrapper that
+// could fall back to a cmdlet changes the streaming semantics of an existing
+// `head`. They only get the failure hint (result-format.mjs).
 //
-// Anything not exactly one of these forms (other flags, `<<-`, `cat <<EOF >
-// file`, an expanding unquoted heredoc body, unbalanced quotes, ...) makes the
-// whole command pass through untouched.
+// Anything not exactly one of these forms (`<<-`, `cat <<EOF > file`, an
+// expanding unquoted heredoc body, unbalanced quotes, ...) makes the whole
+// command pass through untouched.
 
 const PYTHON_STAGE = /^(?:python3?|py)(?:\.exe)?(?:\s+-[uBsSEIOqbd]+)*(?:\s+-)?$/i;
 const NODE_STAGE = /^node(?:\.exe)?(?:\s+--[\w-]+(?:=[\w.-]+)?)*(?:\s+-)?$/i;
-// Redirections that may follow a heredoc opener or a rewritten pipe segment.
-const TRAILING_REDIRECTS = String.raw`(?:\s+(?:\d?>&\d|(?:\d|&)?>>?\s*(?:/dev/null|\$null)))*`;
-const SEGMENT_END = String.raw`(?=${TRAILING_REDIRECTS}\s*(?:$|[;|)}&\n]|#))`;
 
 const HEREDOC_OPENER = /^<<-?[ \t]*(?:'([A-Za-z_]\w*)'|"([A-Za-z_]\w*)"|([A-Za-z_]\w*))/;
 
@@ -208,15 +203,6 @@ function rewriteHeredocs(text, notes) {
 
 const DEVNULL_REDIRECT = /(>>?)[ \t]*\/dev\/null(?![\w/.\\-])/g;
 const DEVNULL_STDIN = /[ \t]*(?<!<)<[ \t]*\/dev\/null(?![\w/.\\-])/g;
-const PIPE_FILTER = new RegExp(
-  String.raw`(?<!\|)(?<!\$input[ \t]*)\|[ \t]*(head|tail)[ \t]+(?:-n[ \t]*(\d+)|-(\d+))${SEGMENT_END}`,
-  'g'
-);
-const PIPE_COUNT = new RegExp(String.raw`(?<!\|)(?<!\$input[ \t]*)\|[ \t]*wc[ \t]+-l${SEGMENT_END}`, 'g');
-
-function guardedPipe(name, native, replacement) {
-  return `| & { if (Get-Command ${name} -ErrorAction Ignore) { $input | ${native} } else { $input | ${replacement} } }`;
-}
 
 // All edits are computed on the code-only view and applied back to front.
 function collectEdits(text, mask, notes) {
@@ -235,19 +221,6 @@ function collectEdits(text, mask, notes) {
     edits.push({ start: m.index, end: m.index + m[0].length, text: '' });
     notes.push('[rewritten: "</dev/null" → "" (stdin is already at EOF)]');
   }
-  for (const m of code.matchAll(PIPE_FILTER)) {
-    const [whole, name, nArg, dashArg] = m;
-    const count = nArg || dashArg;
-    const native = text.slice(m.index, m.index + whole.length).replace(/^\|[ \t]*/, '');
-    const cmdlet = `Select-Object -${name === 'head' ? 'First' : 'Last'} ${count}`;
-    edits.push({ start: m.index, end: m.index + whole.length, text: guardedPipe(name, native, cmdlet) });
-    notes.push(`[rewritten: "| ${native}" → "| ${cmdlet}"]`);
-  }
-  for (const m of code.matchAll(PIPE_COUNT)) {
-    const cmdlet = 'Measure-Object | ForEach-Object Count';
-    edits.push({ start: m.index, end: m.index + m[0].length, text: guardedPipe('wc', 'wc -l', cmdlet) });
-    notes.push(`[rewritten: "| wc -l" → "| ${cmdlet}"]`);
-  }
   return edits.sort((a, b) => b.start - a.start);
 }
 
@@ -255,9 +228,7 @@ function collectEdits(text, mask, notes) {
  *  Windows + a PowerShell shell; nothing here inspects the platform. */
 export function rewritePowerShellBashisms(command) {
   const original = typeof command === 'string' ? command : '';
-  if (!original.includes('/dev/null') && !original.includes('<<') && !/\|[ \t]*(?:head|tail|wc)\b/.test(original)) {
-    return null;
-  }
+  if (!original.includes('/dev/null') && !original.includes('<<')) return null;
   const notes = [];
   const text = rewriteHeredocs(original, notes);
   if (text === null) return null;
