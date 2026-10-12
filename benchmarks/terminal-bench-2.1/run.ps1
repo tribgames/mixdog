@@ -6,6 +6,11 @@ param(
     # Not part of the fingerprint: an A/B pair must stay comparable in history,
     # so the switch under test is recorded in the manifest instead.
     [string[]]$AgentEnv = @(),
+    # Effort judge (product Auto effort) for any preset: steps (product
+    # default) = judge each turn and each tool-result step, on = each turn
+    # only, off = the route's fixed effort.
+    # Fingerprinted only when not off, so off matches the pre-switch history.
+    [ValidateSet("on", "steps", "off")][string]$EffortJudge = "steps",
     # Disable the local Docker dependency-archive cache for setup comparisons.
     [switch]$ColdSetup,
     [switch]$DryRun,
@@ -70,6 +75,33 @@ function Assert-PrebakeCurrent {
         throw "prebake artifacts newer than stamp ($($newer -join ', ')); $rebuildHint"
     }
     "prebake $baked ok"
+}
+
+function Assert-EffortJudgeBundle([string]$Mode) {
+    # The bundle must hold exactly the release the product manifest names;
+    # check it here, in seconds, instead of in every trial container.
+    $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
+    $release = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "src/runtime/effort-judge/model-manifest.json") | ConvertFrom-Json).release)
+    $tarPath = [string]$env:MIXDOG_TB_EFFORT_JUDGE_BUNDLE
+    if ([string]::IsNullOrWhiteSpace($tarPath)) {
+        $tarPath = Join-Path $benchRoot "mixdog-prebake/effort-judge-bundle.tar"
+    }
+    $stampPath = "$tarPath.json"
+    $rebuildHint = "rebuild with: pwsh -NoLogo -NoProfile -File harness/build-effort-judge-bundle.ps1 (or run with -EffortJudge off)"
+    if (-not (Test-Path -LiteralPath $tarPath -PathType Leaf) -or -not (Test-Path -LiteralPath $stampPath -PathType Leaf)) {
+        throw "effort-judge bundle or its stamp missing ($tarPath); $rebuildHint"
+    }
+    $stamp = Get-Content -Raw -LiteralPath $stampPath | ConvertFrom-Json
+    if ([string]$stamp.release -ne $release) {
+        throw "effort-judge bundle holds $($stamp.release) but the manifest names $release; $rebuildHint"
+    }
+    if ($Mode -eq "steps" -and $stamp.steps -ne $true) {
+        throw "effort judge $release is not step-trained; -EffortJudge steps needs one"
+    }
+    if ((Get-FileHash -LiteralPath $tarPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne [string]$stamp.sha256) {
+        throw "effort-judge bundle digest differs from its stamp; $rebuildHint"
+    }
+    return $release
 }
 
 function Write-JsonAtomic([object]$Value, [string]$Path) {
@@ -189,6 +221,12 @@ $definition = [ordered]@{
     attempts     = $attempts
     maxRetries   = $maxRetries
 }
+if ($EffortJudge -ne "off") {
+    $definition.effortJudge = [ordered]@{
+        mode    = $EffortJudge
+        release = Assert-EffortJudgeBundle $EffortJudge
+    }
+}
 $definitionJson = $definition | ConvertTo-Json -Depth 20 -Compress
 $sha = [Security.Cryptography.SHA256]::Create()
 try {
@@ -208,6 +246,7 @@ $resolvedJobsDir = Resolve-JobsPath $JobsDir
 $lead = $routeProperty.Value.routes.lead
 $taskLabel = if ($tasks.Count -eq 0) { "full" } else { [string]$tasks.Count }
 "preset ${Preset}: suite=$taskLabel model=$($lead.provider)/$($lead.model) effort=$($lead.effort) concurrent=$concurrent repeat=$attempts"
+"effort-judge $EffortJudge$(if ($EffortJudge -ne 'off') { " ($($definition.effortJudge.release))" })"
 "fingerprint $fingerprint"
 "jobs $resolvedJobsDir"
 if ($null -ne $comparison) {
@@ -222,7 +261,8 @@ $runnerArgs = @{
     Attempts     = $attempts
     MaxRetries   = $maxRetries
     RouteProfile = $routeProfile
-    DryRun       = [bool]$DryRun
+    EffortJudge  = $EffortJudge
+    DryRun      = [bool]$DryRun
     FastSetup    = ($tasks.Count -eq 8 -and $attempts -eq 1 -and -not $ColdSetup)
 }
 if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {

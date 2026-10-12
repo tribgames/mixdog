@@ -18,6 +18,9 @@ param(
     [string]$Effort = "",
     # Complete per-role routing table, applied to the disposable config copy.
     [string]$RouteProfile = "",
+    # Effort judge: steps (product default) = judge each turn and each
+    # tool-result step, on = each turn only, off = the route's fixed effort.
+    [ValidateSet("on", "steps", "off")][string]$EffortJudge = "steps",
     # Auto-retry count for trials that die before/around the agent run
     # (RuntimeError, NonZeroAgentExitCodeError, docker daemon death, ...).
     # Harbor's default exclude list keeps AgentTimeout/Verifier errors OUT of
@@ -272,6 +275,7 @@ if ($resumeCompletedTasks.Count -gt 0) {
 if ($hasModel) { $harborArgs += @("-m", $Model) }
 if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
 if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }
+$harborArgs += @("--ak", "effort_judge=$EffortJudge")
 foreach ($item in $AgentEnv) {
     foreach ($entry in ($item -split ",")) {
         if ($entry -notmatch "^[A-Za-z_][A-Za-z0-9_]*=.+$") {

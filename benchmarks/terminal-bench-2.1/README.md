@@ -152,10 +152,32 @@ cd benchmarks/terminal-bench-2.1
 .\run.ps1 -Preset grok46-xhigh
 .\run.ps1 -Preset opus5-solo
 
-# Full-suite equivalents used for published comparisons
-.\run.ps1 -Preset full-opus5-solo
-.\run.ps1 -Preset full-sol-xhigh
+# Full-suite equivalents used for published comparisons (fixed effort)
+.\run.ps1 -Preset full-opus5-solo -EffortJudge off
+.\run.ps1 -Preset full-sol-xhigh -EffortJudge off
 ```
+
+### Effort judge
+Every preset runs with the product's default Auto effort: a local effort
+judge picks the effort of each turn and re-judges after every tool result.
+`-EffortJudge` switches it for any preset:
+
+| `-EffortJudge` | Effect |
+|---|---|
+| `steps` (default) | the judge picks each turn's effort and re-judges after every tool result, as the product does (needs a step-trained judge) |
+| `on` | the judge picks each turn's effort only |
+| `off` | fixed effort from the route profile, as in the published runs |
+
+The judge runs from `mixdog-prebake/effort-judge-bundle.tar`, built once from
+the release that `src/runtime/effort-judge/model-manifest.json` names (files
+downloaded from the Mixdog GitHub release and sha256-checked):
+```powershell
+.\harness\build-effort-judge-bundle.ps1
+```
+Before launching, the runner checks that the bundle holds that release and
+stops otherwise. The judge mode and release are part of the preset
+fingerprint (`off` leaves it unchanged), and every trial records its
+decisions in `agent/effort-decisions.jsonl`.
 Each preset pins its task suite, complete model route, concurrency, and repeat
 count. The runner auto-retries infra errors only — agent timeouts and verifier
 failures are never retried. At completion it synchronously writes

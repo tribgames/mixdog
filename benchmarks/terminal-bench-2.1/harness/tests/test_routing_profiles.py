@@ -729,6 +729,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
         agent.model_name = None
         agent._route_profile_name = "fixture"
+        agent._effort_judge = "off"
         agent._route_profile = {"routes": {}, "leadFallback": fallback}
         agent._mode = "lead"
         calls = []
@@ -847,6 +848,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                     agent = module.MixdogAgent.__new__(module.MixdogAgent)
                     agent.model_name = None
                     agent._route_profile_name = "fixture"
+                    agent._effort_judge = "off"
                     agent._route_profile = {
                         "routes": {},
                         "leadFallback": fallback,
@@ -934,6 +936,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
         agent.model_name = None
         agent._route_profile_name = None
+        agent._effort_judge = "off"
         agent._route_profile = None
         agent._mode = "lead"
         captured = []
@@ -1032,6 +1035,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
             agent = module.MixdogAgent.__new__(module.MixdogAgent)
             agent._route_profile_name = "fable-xhigh"
+            agent._effort_judge = "off"
             agent._route_profile = load_route_profile("fable-xhigh")
             agent._workflow = "default"
             agent._mode = "lead"
@@ -1489,6 +1493,7 @@ INSTALLER
                 return None
 
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent._effort_judge = "off"
         agent._route_profile = None
         agent._provider = None
         agent._effort = None

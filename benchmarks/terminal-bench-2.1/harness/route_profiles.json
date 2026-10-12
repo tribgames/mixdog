@@ -11,17 +11,6 @@
         }
       }
     },
-    "opus55-auto": {
-      "autoEffort": true,
-      "routes": {
-        "lead": {
-          "provider": "anthropic-oauth",
-          "model": "claude-opus-5-5",
-          "effort": "high",
-          "fast": false
-        }
-      }
-    },
     "sol61-high": {
       "routes": {
         "lead": {
@@ -42,47 +31,12 @@
         }
       }
     },
-    "sol61-auto": {
-      "autoEffort": true,
-      "routes": {
-        "lead": {
-          "provider": "openai-oauth",
-          "model": "gpt-6.1-sol",
-          "effort": "high",
-          "fast": false
-        }
-      }
-    },
-    "sol61-autostep": {
-      "autoEffort": true,
-      "autoEffortSteps": true,
-      "routes": {
-        "lead": {
-          "provider": "openai-oauth",
-          "model": "gpt-6.1-sol",
-          "effort": "high",
-          "fast": false
-        }
-      }
-    },
     "opus55-xhigh": {
       "routes": {
         "lead": {
           "provider": "anthropic-oauth",
           "model": "claude-opus-5-5",
           "effort": "xhigh",
-          "fast": false
-        }
-      }
-    },
-    "opus55-autostep": {
-      "autoEffort": true,
-      "autoEffortSteps": true,
-      "routes": {
-        "lead": {
-          "provider": "anthropic-oauth",
-          "model": "claude-opus-5-5",
-          "effort": "high",
           "fast": false
         }
       }

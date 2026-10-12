@@ -82,7 +82,7 @@ PRISTINE_CONTRACT = json.loads(
 )
 PRISTINE_GUARD_ENV = PRISTINE_CONTRACT["guardEnv"]
 CONTAINER_SRC_SNAPSHOT = f"{CONTAINER_DATA_DIR}/src-snapshot.tar"
-# Auto-effort profiles (route profile "autoEffort": true): the effort judge
+# Effort judge (--ak effort_judge=on|steps): the effort judge
 # model plus its ONNX Runtime (linux-x64) as one tar, built by
 # harness/build-effort-judge-bundle.ps1. The published package the prebake
 # installs predates that dependency, so each trial gets it here.
@@ -138,6 +138,7 @@ PROVIDER_CREDENTIAL_FILES = {
 PROVIDER_MODEL_CATALOG_FILES = {
     provider: entry["modelCatalogFile"]
     for provider, entry in PRISTINE_CONTRACT["oauthProviders"].items()
+    if "modelCatalogFile" in entry
 }
 # API-key providers carry no host credential file; their secret travels as a
 # single container env var named by the pristine contract.
@@ -241,9 +242,9 @@ def _collect_provider_files(providers: set[str]) -> dict[str, Path]:
                 f"required {provider} credentials are unavailable; sign in on the host"
             )
         files[credential_name] = credential_path
-        catalog_name = PROVIDER_MODEL_CATALOG_FILES[provider]
-        catalog_path = data_dir / catalog_name
-        if catalog_path.is_file():
+        catalog_name = PROVIDER_MODEL_CATALOG_FILES.get(provider)
+        catalog_path = data_dir / catalog_name if catalog_name else None
+        if catalog_path is not None and catalog_path.is_file():
             files[catalog_name] = catalog_path
     return files
 
@@ -487,9 +488,15 @@ class MixdogAgent(BaseInstalledAgent):
         provider: str | None = None,
         effort: str | None = None,
         route_profile: str | None = None,
+        effort_judge: str | None = None,
         **kwargs,
     ):
         route_profile = (route_profile or "").strip() or None
+        # Product Auto effort: on = judge each turn, steps = also each
+        # tool-result step, off (default) = the route's fixed effort.
+        self._effort_judge = (effort_judge or "off").strip().lower()
+        if self._effort_judge not in {"on", "steps", "off"}:
+            raise ValueError(f"effort_judge must be on, steps or off, got {effort_judge!r}")
         reject_profile_conflicts(route_profile, provider=provider, effort=effort)
         # Accept mixdog_version via agents[].kwargs; default to the pinned release.
         self._mixdog_version = mixdog_version or DEFAULT_MIXDOG_VERSION
@@ -896,7 +903,7 @@ class MixdogAgent(BaseInstalledAgent):
         swap_started = time.monotonic()
         await self._inject_src_snapshot(environment, upload=False)
         timings["swap+warmup"] = time.monotonic() - swap_started
-        if self._route_profile.get("autoEffort"):
+        if self._effort_judge != "off":
             judge_started = time.monotonic()
             await self._install_effort_judge(environment)
             timings["effort-judge"] = time.monotonic() - judge_started
@@ -936,7 +943,7 @@ class MixdogAgent(BaseInstalledAgent):
         )
         if not bundle.is_file():
             raise RuntimeError(
-                f"route profile {self._route_profile_name!r} needs the effort-judge "
+                f"effort_judge={self._effort_judge} needs the effort-judge "
                 f"bundle at {bundle} (harness/build-effort-judge-bundle.ps1)"
             )
         await environment.upload_file(bundle, CONTAINER_EFFORT_JUDGE_BUNDLE)
@@ -952,7 +959,9 @@ class MixdogAgent(BaseInstalledAgent):
                 'rm -rf "$MODULES/onnxruntime-node" "$MODULES/onnxruntime-common"; '
                 f'mv {judge}/node_modules/onnxruntime-node {judge}/node_modules/onnxruntime-common "$MODULES/"; '
                 f"rm -rf {judge}/node_modules {CONTAINER_EFFORT_JUDGE_BUNDLE}; "
-                f'chmod -R a+rX {judge} "$MODULES/onnxruntime-node" "$MODULES/onnxruntime-common"'
+                f'chmod -R a+rX {judge} "$MODULES/onnxruntime-node" "$MODULES/onnxruntime-common"; '
+                # The first load caches the derived tokenizer.bin next to the model.
+                f"chmod a+w {judge}"
             ),
         )
         # A script file, not `node -e`: the judge's worker thread inherits the
@@ -1091,7 +1100,7 @@ class MixdogAgent(BaseInstalledAgent):
             **(
                 {
                     "MIXDOG_AUTO_EFFORT": "on",
-                    "MIXDOG_AUTO_EFFORT_STEPS": "on" if (self._route_profile or {}).get("autoEffortSteps") else "off",
+                    "MIXDOG_AUTO_EFFORT_STEPS": "on" if self._effort_judge == "steps" else "off",
                     "MIXDOG_EFFORT_JUDGE_DIR": CONTAINER_EFFORT_JUDGE_DIR,
                     "MIXDOG_EFFORT_DECISIONS_LOG": "/logs/agent/effort-decisions.jsonl",
                     # Each trial is one cold process sharing the host's CPUs
@@ -1099,9 +1108,9 @@ class MixdogAgent(BaseInstalledAgent):
                     "MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS": "30000",
                     "MIXDOG_EFFORT_JUDGE_TIMEOUT_MS": "5000",
                 }
-                if (self._route_profile or {}).get("autoEffort")
-                # Auto effort is on by default in the product; a fixed-effort
-                # profile keeps the effort it names.
+                if self._effort_judge != "off"
+                # Auto effort is on by default in the product; effort_judge=off
+                # keeps the effort the route names.
                 else {"MIXDOG_AUTO_EFFORT": "off"}
             ),
         }
