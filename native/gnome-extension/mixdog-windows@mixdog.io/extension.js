@@ -14,19 +14,19 @@ const INTERFACE_XML = `
   <interface name="io.mixdog.Windows">
     <property name="Version" type="u" access="read"/>
     <method name="List"><arg type="s" direction="out" name="windows"/></method>
-    <method name="Activate"><arg type="u" direction="in" name="id"/></method>
+    <method name="Activate"><arg type="t" direction="in" name="id"/></method>
     <method name="MoveResize">
-      <arg type="u" direction="in" name="id"/>
+      <arg type="t" direction="in" name="id"/>
       <arg type="i" direction="in" name="x"/>
       <arg type="i" direction="in" name="y"/>
       <arg type="u" direction="in" name="width"/>
       <arg type="u" direction="in" name="height"/>
     </method>
-    <method name="Minimize"><arg type="u" direction="in" name="id"/></method>
-    <method name="Unminimize"><arg type="u" direction="in" name="id"/></method>
-    <method name="Maximize"><arg type="u" direction="in" name="id"/></method>
-    <method name="Unmaximize"><arg type="u" direction="in" name="id"/></method>
-    <method name="Close"><arg type="u" direction="in" name="id"/></method>
+    <method name="Minimize"><arg type="t" direction="in" name="id"/></method>
+    <method name="Unminimize"><arg type="t" direction="in" name="id"/></method>
+    <method name="Maximize"><arg type="t" direction="in" name="id"/></method>
+    <method name="Unmaximize"><arg type="t" direction="in" name="id"/></method>
+    <method name="Close"><arg type="t" direction="in" name="id"/></method>
   </interface>
 </node>`;
 

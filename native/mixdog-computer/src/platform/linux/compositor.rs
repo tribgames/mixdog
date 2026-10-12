@@ -346,7 +346,7 @@ impl Compositor {
                 "hyprctl",
                 &["dispatch", "focuswindow", &format!("address:0x{handle:x}")],
             ),
-            Compositor::Gnome => gnome_call("Activate", &(handle as u32,)).map(|_| ()),
+            Compositor::Gnome => gnome_call("Activate", &(handle,)).map(|_| ()),
             Compositor::None => self.supported(),
         }
     }
@@ -406,7 +406,7 @@ impl Compositor {
             }
             Compositor::Gnome => gnome_call(
                 "MoveResize",
-                &(handle as u32, x, y, width as u32, height as u32),
+                &(handle, x, y, width as u32, height as u32),
             )
             .map(|_| ()),
             Compositor::None => self.supported(),
@@ -416,14 +416,14 @@ impl Compositor {
     pub fn set_state(&self, handle: Wid, state: WinState) -> Result<(), String> {
         match (self, state) {
             (Compositor::Gnome, WinState::Minimize) => {
-                gnome_call("Minimize", &(handle as u32,)).map(|_| ())
+                gnome_call("Minimize", &(handle,)).map(|_| ())
             }
             (Compositor::Gnome, WinState::Maximize) => {
-                gnome_call("Maximize", &(handle as u32,)).map(|_| ())
+                gnome_call("Maximize", &(handle,)).map(|_| ())
             }
             (Compositor::Gnome, WinState::Restore) => {
-                let _ = gnome_call("Unminimize", &(handle as u32,));
-                gnome_call("Unmaximize", &(handle as u32,)).map(|_| ())
+                let _ = gnome_call("Unminimize", &(handle,));
+                gnome_call("Unmaximize", &(handle,)).map(|_| ())
             }
             (Compositor::Sway, WinState::Minimize) => run(
                 "swaymsg",
@@ -476,7 +476,7 @@ impl Compositor {
                 &["dispatch", "closewindow", &format!("address:0x{handle:x}")],
             )
             .map(|_| true),
-            Compositor::Gnome => gnome_call("Close", &(handle as u32,)).map(|_| true),
+            Compositor::Gnome => gnome_call("Close", &(handle,)).map(|_| true),
             Compositor::None => self.supported().map(|_| false),
         }
     }
