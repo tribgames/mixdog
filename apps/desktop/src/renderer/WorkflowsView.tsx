@@ -31,6 +31,7 @@ type AgentRouteSummary = {
   model: string;
   effort: string;
   fast: boolean;
+  ultra: boolean;
   blue: boolean;
   effortLabel: string;
   autoEffortCapable: boolean;
@@ -54,6 +55,7 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
     model: modelLabel,
     effort: effortValue,
     fast: fastCapable && fast,
+    ultra: fastCapable && fast && record(route.modelParameters).serviceTier === 'ultrafast',
     blue: pinned && routeDaybreakBlue(record(route.modelParameters) as Record<string, string>, selected?.modelParameterOptions),
     effortLabel: rawEffortLabel,
     autoEffortCapable: selected?.autoEffortCapable === true,
@@ -83,6 +85,7 @@ function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
         model={summary.model}
         effort={summary.effort}
         fast={summary.fast}
+        ultra={summary.ultra}
         blue={summary.blue}
         effortLabel={summary.effortLabel}
         autoEffortCapable={summary.autoEffortCapable}

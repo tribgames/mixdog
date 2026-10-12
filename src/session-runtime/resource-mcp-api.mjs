@@ -113,10 +113,14 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     },
     async saveMcpServer(input = {}) {
       const servers = mcpServersOf(getConfig());
-      const originalName = clean(input.originalName) || clean(input.name);
-      if (originalName && !Object.hasOwn(servers, originalName)) {
-        throw new Error(`MCP server not configured: ${originalName}`);
+      // An explicit originalName must exist; a bare name edits a matching
+      // server and otherwise creates a new one.
+      const explicitOriginal = clean(input.originalName);
+      if (explicitOriginal && !Object.hasOwn(servers, explicitOriginal)) {
+        throw new Error(`MCP server not configured: ${explicitOriginal}`);
       }
+      const bareName = clean(input.name);
+      const originalName = explicitOriginal || (Object.hasOwn(servers, bareName) ? bareName : '');
       const existing = originalName ? servers[originalName] : {};
       const normalizedInput = normalizeMcpServerInput(mergedServerInput(input, existing, originalName));
       const name = originalName && clean(input.name) === originalName ? originalName : normalizedInput.name;

@@ -38,6 +38,9 @@
 .model-route-label-fast {
   color: var(--mx-text-accent);
 }
+.model-route-label-ultra {
+  color: color-mix(in srgb, var(--mx-danger) 50%, var(--mx-warning));
+}
 .route-editor > .model-trigger > svg {
   flex: 0 0 auto;
 }

@@ -201,10 +201,13 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
           key="new-mcp"
           server={null}
           busy={busy}
+          takenNames={servers.map((server) => String(server.name))}
           onClose={() => closeCreate?.()}
-          onSave={(payload) => {
-            closeCreate?.();
-            void run('saveMcpServer', [payload]);
+          // Creation must never overwrite: the host rejects a name that exists
+          // by now (the dialog's takenNames can be stale) and the dialog shows it.
+          onSave={async (payload) => {
+            const added = await run('addMcpServer', [payload], 'addMcpServer', true, false, 'throw');
+            if (added !== undefined) closeCreate?.();
           }}
         />
       )}

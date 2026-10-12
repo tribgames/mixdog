@@ -4,7 +4,7 @@ import type { DesktopModelOption, DesktopProjectSummary } from '../shared/contra
 import { cachedAutoEffortCapable } from './auto-effort-store';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
-import { parseModelRef } from './model-route-utils';
+import { parseModelRef, routeSpeed } from './model-route-utils';
 import { modelDisplayName, modelFastAvailable, routeDaybreakBlue } from './provider-display';
 
 /** `+fast` route suffix, emitted only when the selected model supports fast
@@ -28,7 +28,7 @@ export function splitModelRoute(route: string): { provider: string; id: string }
  *  reference, or null when the row carries no model. */
 export function automationRouteSummary(
   rawModel: string
-): { model: string; effort: string; fast: boolean; blue: boolean; autoEffortCapable: boolean } | null {
+): { model: string; effort: string; fast: boolean; ultra: boolean; blue: boolean; autoEffortCapable: boolean } | null {
   const ref = parseModelRef(rawModel);
   if (!ref.route) return null;
   const slash = ref.route.indexOf('/');
@@ -39,6 +39,7 @@ export function automationRouteSummary(
     model,
     effort: ref.effort || '',
     fast: ref.fast,
+    ultra: routeSpeed(ref.fast, ref.modelParameters) === 'ultrafast',
     blue: slash > 0 && routeDaybreakBlue(ref.modelParameters),
     autoEffortCapable,
   };

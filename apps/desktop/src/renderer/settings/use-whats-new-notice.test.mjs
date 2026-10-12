@@ -65,6 +65,42 @@ test('a notice that rendered marks the version seen and acknowledges the update'
   assert.deepEqual(steps, ['taken', 'shown']);
 });
 
+test('the notice waits behind the starter welcome and is acknowledged only once it is on top', async (t) => {
+  const { setStarterGuideBlocking } = await import('../starter-guide-gate.ts');
+  setStarterGuideBlocking(true);
+  t.after(() => setStarterGuideBlocking(false));
+  window.localStorage.clear();
+  window.localStorage.setItem(SEEN_VERSION_KEY, '4.9.0');
+  const acknowledged = [];
+  window.mixdogDesktop = {
+    bootContext: { bootId: 'b', processStartedAt: 1, afterUpdate: true },
+    acknowledgeWhatsNew: (version) => acknowledged.push(version),
+    rendererDiagnostic() {},
+  };
+  const load = async () => ({ default: Dialog, prepareWhatsNew: async () => release('5.0.0') });
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+  const settle = () =>
+    act(async () => {
+      for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  await act(async () => root.render(React.createElement(Probe, { version: '5.0.0', load })));
+  await settle();
+  assert.equal(container.querySelector('.notice'), null);
+  assert.deepEqual(acknowledged, []);
+  assert.equal(window.localStorage.getItem(SEEN_VERSION_KEY), '4.9.0', 'quitting now leaves it unseen');
+  await act(async () => setStarterGuideBlocking(false));
+  await settle();
+  assert.equal(container.querySelector('.notice')?.textContent, 'v5.0.0');
+  assert.deepEqual(acknowledged, ['5.0.0']);
+  assert.equal(window.localStorage.getItem(SEEN_VERSION_KEY), '5.0.0');
+});
+
 test('a version without notes is acknowledged, since retrying could never show any', async (t) => {
   const { acknowledged, steps } = await mount(t, { version: '4.2.0', seen: '4.1.0', prepare: async () => undefined });
   assert.deepEqual(acknowledged, ['4.2.0']);

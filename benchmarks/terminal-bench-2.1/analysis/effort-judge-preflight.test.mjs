@@ -85,7 +85,10 @@ if ($errors.Count) { throw ($errors | Out-String) }
 foreach ($fn in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false)) {
   Invoke-Expression $fn.Extent.Text
 }
-Assert-EffortJudgeBundle 'steps'
+$release = [string]((Get-Content -Raw -LiteralPath (Join-Path $benchRoot '../../src/runtime/effort-judge/model-manifest.json') | ConvertFrom-Json).release)
+$problem = Get-EffortJudgeBundleProblem 'steps' $env:MIXDOG_TB_EFFORT_JUDGE_BUNDLE $release
+if ($null -ne $problem) { throw $problem }
+$release
 `;
 
 for (const [name, change, expected] of [
@@ -115,5 +118,40 @@ for (const [name, change, expected] of [
       assert.equal(result.status, 0, result.stdout + result.stderr);
       assert.equal(result.stdout.trim(), release);
     }
+  });
+}
+
+for (const scenario of ['missing bundle', 'stale runtime', 'invalid rebuilt runtime', 'builder failure', 'current bundle']) {
+  test(`real judge auto-build: ${scenario}`, options, async (t) => {
+    const f = await fixture(t);
+    const stamp = { release, onnxruntime: runtime, steps: true, sha256: digest };
+    if (scenario !== 'missing bundle') {
+      await writeFile(f.bundle, payload);
+      await writeFile(`${f.bundle}.json`, JSON.stringify({ ...stamp, onnxruntime: scenario === 'current bundle' ? runtime : 'old-runtime' }));
+    }
+    // Substitute only the expensive bundle builder. The real preflight must
+    // decide whether to build and revalidate the produced bytes and stamp.
+    f.env.TEST_BUILD_RECEIPT = join(f.root, 'built.txt');
+    f.env.TEST_REBUILT_STAMP = JSON.stringify({ ...stamp, onnxruntime: scenario === 'invalid rebuilt runtime' ? 'still-old' : runtime });
+    f.env.TEST_BUNDLE_BYTES = payload.toString('base64');
+    f.env.TEST_BUILD_FAIL = scenario === 'builder failure' ? '1' : '0';
+    await writeFile(join(f.bench, 'harness', 'build-effort-judge-bundle.ps1'), `
+param([string]$Out)
+if (Test-Path -LiteralPath $env:TEST_BUILD_RECEIPT) { throw 'builder called more than once' }
+Set-Content -LiteralPath $env:TEST_BUILD_RECEIPT -Value 'built'
+if ($env:TEST_BUILD_FAIL -eq '1') { throw 'fixture build failed' }
+[IO.File]::WriteAllBytes($Out, [Convert]::FromBase64String($env:TEST_BUNDLE_BYTES))
+Set-Content -LiteralPath "$Out.json" -Value $env:TEST_REBUILT_STAMP
+`);
+    const driver = join(f.root, 'automatic.ps1');
+    await writeFile(driver, validationDriver.slice(0, validationDriver.indexOf('\n$release =')) + "\n$DryRun = $false\nAssert-EffortJudgeBundle 'steps'\n");
+    const result = run(f, driver);
+    const expected = scenario === 'invalid rebuilt runtime' ? /ONNX Runtime.*after the automatic build/ :
+      scenario === 'builder failure' ? /bundle build failed: fixture build failed/ : null;
+    assert.equal(result.status, expected ? 1 : 0, result.stdout + result.stderr);
+    if (expected) assert.match(result.stdout + result.stderr, expected);
+    else assert.equal(result.stdout.trim().split(/\r?\n/).at(-1), release);
+    if (scenario === 'current bundle') await assert.rejects(readFile(f.env.TEST_BUILD_RECEIPT), { code: 'ENOENT' });
+    else assert.equal((await readFile(f.env.TEST_BUILD_RECEIPT, 'utf8')).trim(), 'built');
   });
 }

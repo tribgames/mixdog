@@ -48,15 +48,15 @@ Explicit HTTP or challenge failures are not cached as successful page reads.
 
 Readability, JSDOM and puppeteer-core remain useful for article fallback, DOM
 parsing/cookie scoping and the browser pool respectively. No new dependency was
-needed. Crawlee was cloned under `C:\Project\refs\crawlee`; its documented session,
-concurrency and blocking concepts were studied. Its implementation code was not
-copied, translated or adapted into these modules.
+needed. Crawlee's documented session, concurrency and blocking concepts were
+studied; its implementation code was not copied, translated or adapted into
+these modules.
 
 ## Focused checks
 
 ```powershell
-node --test src/runtime/web-search/lib/document-content.test.mjs src/runtime/web-search/lib/http-fetch.test.mjs src/runtime/web-search/lib/fetch-pipeline.test.mjs src/runtime/web-search/lib/fetch-output.test.mjs
-node --experimental-test-module-mocks --test src/runtime/web-search/lib/browser-document.test.mjs
+node scripts/test-direct.mjs src/runtime/web-search/lib/document-content.test.mjs src/runtime/web-search/lib/http-fetch.test.mjs src/runtime/web-search/lib/fetch-pipeline.test.mjs src/runtime/web-search/lib/fetch-output.test.mjs
+node scripts/test-direct.mjs --experimental-test-module-mocks src/runtime/web-search/lib/browser-document.live.test.mjs
 ```
 
 The browser check uses an installed Chrome/Edge and deterministic HTTP fixtures

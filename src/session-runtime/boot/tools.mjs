@@ -141,12 +141,11 @@ function wireChannels(boot) {
 // Tool definitions, then the lead tool surface (workflow-gated agent tool,
 // pre-session preview, deferred replay) from tool-surface.mjs.
 function wireToolSurface(boot) {
-  const { rt, cfgMod, mgr, goalRuntime, agentTool, channels, featureDisallowedTools } = boot;
+  const { rt, cfgMod, mgr, goalRuntime, agentTool, featureDisallowedTools } = boot;
   const toolsStartedAt = performance.now();
   const { standaloneTools, internalToolDefs, agentToolNames } = collectStandaloneToolDefs({
     webSearchToolDefs: boot.webSearchToolDefs,
     memoryToolDefs: boot.memoryToolDefs,
-    channelToolDefs: boot.channelToolDefs,
     codeGraphToolDefs: boot.codeGraphToolDefs,
     browserToolDefs: BROWSER_BRIDGE_TOOL_DEFS,
     computerToolDefs: COMPUTER_BRIDGE_TOOL_DEFS,
@@ -157,7 +156,6 @@ function wireToolSurface(boot) {
     setupToolDefs: SETUP_TOOL_DEFS,
     goalTools: goalRuntime.tools,
     agentTools: agentTool.tools,
-    isChannelTool: (name) => channels.isChannelTool(name),
     skillToolEnabled: !envFlag('MIXDOG_DISABLE_SKILLS'),
   });
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });

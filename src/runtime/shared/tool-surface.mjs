@@ -1,6 +1,6 @@
 // ── Facade: tool-surface primitives + result summaries are re-exported from
-// their cohesive modules so every existing importer resolves unchanged. This
-// file keeps the display-name / arg-summary and aggregate-card clusters.
+// their cohesive modules. This file keeps the display-name / arg-summary and
+// aggregate-card clusters.
 import {
   DEFAULT_SUMMARY_MAX,
   AGENT_SURFACE_BRIEF_MAX,

@@ -170,12 +170,17 @@ judge picks the effort of each turn and re-judges after every tool result.
 
 The judge runs from `mixdog-prebake/effort-judge-bundle.tar`, built once from
 the release that `src/runtime/effort-judge/model-manifest.json` names (files
-downloaded from the Mixdog GitHub release and sha256-checked):
+downloaded from the Mixdog GitHub release and sha256-checked). The first real
+run builds it automatically (at `MIXDOG_TB_EFFORT_JUDGE_BUNDLE` when set);
+the manual command stays available:
 ```powershell
 .\harness\build-effort-judge-bundle.ps1
 ```
-Before launching, the runner checks that the bundle holds that release and
-stops otherwise. The judge mode and release are part of the preset
+Before launching, the runner checks that the bundle exists, holds that
+release (step-trained for `steps`), and matches its stamp digest. A real run
+rebuilds a missing or stale bundle with that script, re-verifies it, and stops
+with the rebuild hint if the build fails. `-DryRun` never builds: it prints a
+notice that the bundle is missing/stale and continues with the expected command. The judge mode and release are part of the preset
 fingerprint (`off` leaves it unchanged), and every trial records its
 decisions in `agent/effort-decisions.jsonl`. `run.ps1` and `run-tb21.ps1`
 pass the mode to the Harbor adapter as `--ak effort_judge=<mode>`; launching

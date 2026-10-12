@@ -331,10 +331,13 @@ export function ModelRouteLabel({
   blue = false,
   effortLabel = '',
   autoEffortCapable = false,
+  ultra = false,
 }: {
   model: string | null | undefined;
   effort?: string | null | undefined;
   fast?: boolean;
+  /** The fast route runs the Ultrafast service tier: shown as an orange "Ultrafast". */
+  ultra?: boolean;
   /** Daybreak Blue is on: shown right after the model ("GPT-6 Sol Blue XHigh"). */
   blue?: boolean;
   effortLabel?: string;
@@ -363,7 +366,11 @@ export function ModelRouteLabel({
       {parts.fast && (
         <>
           {(parts.model || blue || parts.effort) && ' '}
-          <span className="model-route-label-fast">{parts.fast}</span>
+          {ultra ? (
+            <span className="model-route-label-ultra">Ultrafast</span>
+          ) : (
+            <span className="model-route-label-fast">{parts.fast}</span>
+          )}
         </>
       )}
     </span>

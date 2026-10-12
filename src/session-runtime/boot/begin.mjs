@@ -74,7 +74,6 @@ export async function loadModules(boot) {
     statusRoutes,
     webSearchToolDefs,
     memoryToolDefs,
-    channelToolDefs,
     codeGraphToolDefs,
   } = await loadRuntimeModules();
   const {
@@ -103,7 +102,6 @@ export async function loadModules(boot) {
     statusRoutes,
     webSearchToolDefs,
     memoryToolDefs,
-    channelToolDefs,
     codeGraphToolDefs,
     recapEnabledFn,
     memoryToolsEnabledFn,

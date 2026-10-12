@@ -97,11 +97,17 @@ if ($hasRouteProfile) {
     # alone accepts missing/extra route fields and weakly compares booleans to
     # schemaVersion 1, so it is not sufficient validation.
     $validatorPath = Join-Path $PSScriptRoot "routing_profiles.py"
-    $validationCode = 'import runpy, sys; from pathlib import Path; m = runpy.run_path(sys.argv[1]); p = m["load_route_profile"](sys.argv[2], Path(sys.argv[3])); print(m["format_resolved_routes"](sys.argv[2], p))'
+    $validationCode = 'import runpy, sys; from pathlib import Path; m = runpy.run_path(sys.argv[1]); p = m[''load_route_profile''](sys.argv[2], Path(sys.argv[3])); print(m[''format_resolved_routes''](sys.argv[2], p))'
+    # Native stderr (warnings, tracebacks) must not abort the script: Windows
+    # PowerShell 5.1 turns 2>&1 stderr into terminating errors under Stop, so the
+    # exit code alone decides.
+    $ErrorActionPreference = "Continue"
     $validatedAudit = @(
-        & python -c $validationCode $validatorPath $RouteProfile $profilePath 2>&1
+        & python -c $validationCode $validatorPath $RouteProfile $profilePath 2>&1 | ForEach-Object { "$_" }
     )
-    if ($LASTEXITCODE -ne 0) {
+    $validationExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($validationExit -ne 0) {
         throw "Invalid RouteProfile '$RouteProfile': $($validatedAudit -join [Environment]::NewLine)"
     }
     $resolvedAudit = $validatedAudit -join [Environment]::NewLine
@@ -203,8 +209,11 @@ try {
             $bundleManifestPath = Join-Path $provenanceDir "runtime-manifest.json"
             $overlayArgs += @("--manifest", $bundleManifestPath)
         }
-        $overlayPreflight = & python @overlayArgs 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        $ErrorActionPreference = "Continue"
+        $overlayPreflight = @(& python @overlayArgs 2>&1 | ForEach-Object { "$_" })
+        $overlayExit = $LASTEXITCODE
+        $ErrorActionPreference = "Stop"
+        if ($overlayExit -ne 0) {
             throw "Terminal-Bench runtime bundle preflight failed: $($overlayPreflight -join [Environment]::NewLine)"
         }
         if (-not [string]::IsNullOrWhiteSpace($bundleManifestPath)) {

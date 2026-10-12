@@ -135,7 +135,7 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
       const group = document.querySelector('.tool-activity');
       assert.equal(group?.dataset.surface, 'desktop');
       assert.ok(group?.querySelector('.tool-activity-header .tool-icon svg.tool-group-icon'));
-      // No leading-icon animation and no trailing dots: the shimmering title carries the state.
+      // No leading-icon animation and no trailing dots: the title carries the state.
       assert.equal(group?.querySelector('.tool-activity-header .tool-icon')?.hasAttribute('data-running'), false);
       assert.equal(group?.querySelector('.tool-working-dots'), null);
       assert.equal(group?.querySelector('.tool-activity-item-spinner'), null);

@@ -434,6 +434,23 @@ test('the jobs dock pane lists agents with the sidebar row and shells with comma
   assert.equal(shellRows[0].tagName, 'DIV', 'shell rows open nothing');
 });
 
+test('the jobs dock pane keeps the Ultrafast label that Fast alone would lose', async (t) => {
+  const { root, document } = mount(t);
+  const route = { provider: 'openai-oauth', model: 'gpt-6-sol', effort: 'high', stage: 'running', status: 'running' };
+  await publish({
+    agentWorkers: [
+      { ...route, tag: 'swift', agent: 'worker', sessionId: 'u1', fast: true, modelParameters: { serviceTier: 'ultrafast' }, startedAt: Date.now() - 3_000 },
+      { ...route, tag: 'quick', agent: 'worker', sessionId: 'u2', fast: true, startedAt: Date.now() - 2_000 },
+    ],
+  });
+  await act(async () => root.render(React.createElement(BackgroundJobsPane, { sessionId: 'island-session', active: true })));
+  const [ultra, fast] = [...document.querySelectorAll('.agent-pool-row')];
+  assert.equal(ultra.querySelector('.model-route-label-ultra')?.textContent, 'Ultrafast');
+  assert.equal(ultra.querySelector('.model-route-label-fast'), null);
+  assert.ok(fast.querySelector('.model-route-label-fast'));
+  assert.equal(fast.querySelector('.model-route-label-ultra'), null);
+});
+
 test('the jobs dock pane opens a titled agent with the sidebar tab title', async (t) => {
   const { root, document } = mount(t);
   const opened = [];

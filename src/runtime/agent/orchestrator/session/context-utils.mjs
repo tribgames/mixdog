@@ -39,19 +39,10 @@ export {
   resolveSessionCompactPolicy,
 } from './context-compaction-policy.mjs';
 
-// ---------------------------------------------------------------------------
-// Token estimation lives in ./token-estimate.mjs — a conservative
-// Unicode-aware heuristic. It is accurate ENOUGH because context pressure is
-// anchored on the provider usage baseline (the exact prompt-token count the
-// provider reports for the previous request) and the heuristic only prices the
-// delta appended since then. Measured across 5,552 real deltas the worst
-// underestimate was 2,985 tokens (1.5% of a 200K window) with a +6.5%
-// aggregate bias toward overcounting.
-//
-// providerTokenCalibration() below reconciles that estimate with actual
-// billing at the provider-aware aggregation boundary (compaction pressure /
-// context gauge), never inside the provider-agnostic per-message memo.
-// ---------------------------------------------------------------------------
+// providerTokenCalibration() below reconciles the ./token-estimate.mjs
+// heuristic with actual billing at the provider-aware aggregation boundary
+// (compaction pressure / context gauge), never inside the provider-agnostic
+// per-message memo.
 
 // Billed-prompt / estimate ratio per provider family. Env overrides let a
 // deployment recalibrate without a code change; values are clamped to a

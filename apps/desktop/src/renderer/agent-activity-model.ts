@@ -120,6 +120,8 @@ interface LiveAgentSummary {
   provider: string;
   effort: string;
   fast: boolean;
+  /** The route's model parameters (service tier, Daybreak…); absent when it has none. */
+  modelParameters?: Record<string, string>;
   tag: string;
   title: string;
   status: string;
@@ -200,6 +202,9 @@ function liveAgentSummary(
     provider: String(entry.provider || '').trim(),
     effort: String(entry.effort || '').trim(),
     fast: entry.fast === true,
+    ...(Object.keys(record(entry.modelParameters)).length
+      ? { modelParameters: record(entry.modelParameters) as Record<string, string> }
+      : {}),
     tag: tag || taskId,
     title: String(entry.title || '').trim(),
     status: unconfirmed || desktopAgentStatus(entry),
@@ -224,6 +229,9 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
     provider: current.provider || next.provider,
     effort: current.effort || next.effort,
     fast: current.fast || next.fast,
+    ...(current.modelParameters || next.modelParameters
+      ? { modelParameters: current.modelParameters || next.modelParameters }
+      : {}),
     tag: current.tag || next.tag,
     title: current.title || next.title,
     // Keeping the earlier status is safe ONLY because a confirmed cancel

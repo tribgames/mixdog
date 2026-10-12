@@ -88,7 +88,7 @@ as an OAuth entitlement.
 
 ## Sources
 
-- Local `C:\Project\refs\lobe-chat` and `cherry-studio` model catalogs.
-- Local `C:\Project\refs\codex` image client and authentication routing.
+- Reference repository `lobe-chat` and `cherry-studio` model catalogs.
+- Reference repository `codex` image client and authentication routing.
 - https://developers.openai.com/api/docs/guides/image-generation
 - Live credential-scoped model discovery and the request ledger above.

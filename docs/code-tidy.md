@@ -6,10 +6,13 @@ agent-level cleanup that the engines do not cover.
 
 ## Skill workflow
 
-Load `code-tidy` before the first `tidy` call. The skill's default scope is
-the recent change (untracked files plus `git diff --name-only HEAD`, falling
-back to the merge-base diff), passed as `paths` on every call; whole-tree
-cleanup runs only when the user asks for it.
+Load `code-tidy` before the first `tidy` call. Get the scope from the user:
+named files, directories, a feature area resolved to confirmed paths, or an
+explicitly requested whole project. If the scope is absent or ambiguous, ask
+before scanning or editing. Never infer scope from recent changes, a diff, a
+branch, a commit, or session activity. Pass the current round's approved
+paths on every `scan`/`check`/`fix`; use `paths:["."]` only for an explicitly
+requested whole project that fits one round.
 
 1. `tidy action:'scan'` — languages and engines (used / missing /
    `installHint`). Scan does not download and does not return

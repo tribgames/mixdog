@@ -654,6 +654,66 @@ test('Skill combines skills and MCP and lets the add action choose either kind',
   }
 });
 
+async function submitNewMcp(name) {
+  globalThis.FormData = window.FormData;
+  document.querySelector('[name="mcp-name"]').value = name;
+  document.querySelector('[name="mcp-command"]').value = 'example';
+  await act(async () => {
+    document.querySelector('.extensions-mcp-dialog form').dispatchEvent(
+      new window.Event('submit', { bubbles: true, cancelable: true })
+    );
+  });
+}
+
+test('a new MCP server is created through the duplicate-rejecting add, never the overwriting save', async () => {
+  const calls = [];
+  let closed = 0;
+  const rendered = await renderPanel('mcp', {
+    createOpen: true,
+    closeCreate() {
+      closed += 1;
+    },
+    async run(capability, args) {
+      calls.push([capability, args]);
+      return { name: args[0].name };
+    },
+  });
+  try {
+    await submitNewMcp('fresh-mcp');
+    assert.deepEqual(
+      calls.map(([capability]) => capability),
+      ['addMcpServer']
+    );
+    assert.equal(calls[0][1][0].name, 'fresh-mcp');
+    assert.equal(calls[0][1][0].originalName, undefined);
+    assert.equal(closed, 1);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test('the add dialog stays open and shows the host duplicate rejection from a stale name list', async () => {
+  let closed = 0;
+  const rendered = await renderPanel('mcp', {
+    createOpen: true,
+    closeCreate() {
+      closed += 1;
+    },
+    async run(capability) {
+      assert.equal(capability, 'addMcpServer');
+      throw new Error('MCP server already exists: raced-mcp');
+    },
+  });
+  try {
+    await submitNewMcp('raced-mcp');
+    assert.equal(closed, 0);
+    assert.ok(document.querySelector('#extensions-mcp-dialog-title'), 'the dialog is still open');
+    assert.match(document.querySelector('.extensions-mcp-dialog').textContent, /MCP server already exists: raced-mcp/);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
 test('Skill and MCP rows acknowledge the card click before their detail payload resolves', async () => {
   const skillContent = deferred();
   const mcpConfig = deferred();

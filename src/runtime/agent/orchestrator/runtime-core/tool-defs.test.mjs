@@ -15,7 +15,6 @@ function collect(overrides = {}) {
       ],
     },
     memoryToolDefs: { TOOL_DEFS: [{ name: 'memory' }, { name: 'recall' }, { name: 'memory_admin' }] },
-    channelToolDefs: { TOOL_DEFS: [{ name: 'channel' }, { name: 'channel_admin' }] },
     codeGraphToolDefs: { CODE_GRAPH_TOOL_DEFS: [{ name: 'code_graph' }, { name: 'code_graph_debug' }] },
     browserToolDefs: [{ name: 'browser' }, { name: 'browser_devtools' }, { name: 'browser_internal' }],
     computerToolDefs: [{ name: 'computer' }],
@@ -24,7 +23,6 @@ function collect(overrides = {}) {
     setupToolDefs: [{ name: 'setup' }],
     goalTools: [{ name: 'get_goal' }],
     agentTools: [{ name: 'agent' }, { name: 'task' }],
-    isChannelTool: (name) => name === 'channel',
     ...overrides,
   });
 }
@@ -39,7 +37,6 @@ test('only admitted tool names from the optional modules reach the session surfa
     'web_search',
     'memory',
     'recall',
-    'channel',
     'code_graph',
     'browser',
     'browser_devtools',
@@ -70,13 +67,12 @@ test('a missing optional tool-def module contributes nothing', () => {
     collect({
       webSearchToolDefs: null,
       memoryToolDefs: null,
-      channelToolDefs: null,
       codeGraphToolDefs: null,
     })
   );
 
   assert.deepEqual(
-    names.filter((name) => ['web_search', 'memory', 'recall', 'channel', 'code_graph'].includes(name)),
+    names.filter((name) => ['web_search', 'memory', 'recall', 'code_graph'].includes(name)),
     []
   );
   assert.equal(names.includes('load_tool'), true);

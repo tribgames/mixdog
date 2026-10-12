@@ -160,6 +160,13 @@ export function routeEffortPane({
   });
 }
 
+/** The speed word's ink, shared with the model chip: Fast blue, Ultrafast orange. */
+export function routeSpeedClassName(speed: RouteSpeed): string | undefined {
+  if (speed === 'fast') return 'model-route-label-fast';
+  if (speed === 'ultrafast') return 'model-route-label-ultra';
+  return undefined;
+}
+
 export function routeSpeedPane({
   speed,
   fastAvailable,
@@ -199,7 +206,7 @@ export function routeSpeedPane({
         onKeyDown={onOptionKeyDown}
       >
         <span className="route-sheet-option-copy">
-          <span>{option.label}</span>
+          <span className={routeSpeedClassName(option.value)}>{option.label}</span>
           <small>{option.description}</small>
         </span>
         {selected && <RouteSelectionCheck />}

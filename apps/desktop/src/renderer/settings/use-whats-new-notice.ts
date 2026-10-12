@@ -1,8 +1,10 @@
 // The first launch after an update announces that version's notes once. The
 // version is marked seen, and main's pending update acknowledged, only once
-// the notice is on screen (or the version has no notes to show).
-import { type ComponentType, useCallback, useEffect, useState } from 'react';
+// the notice is on screen (or the version has no notes to show) — never while
+// the starter guide's welcome is open above it.
+import { type ComponentType, useCallback, useEffect, useRef, useState } from 'react';
 
+import { useStarterGuideBlocking } from '../starter-guide-gate';
 import type { ChangelogRelease } from './changelog';
 import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } from './whats-new';
 
@@ -44,19 +46,25 @@ export function useWhatsNewNotice(version: string, loadDialog: () => Promise<Wha
   const [status] = useState(() => readWhatsNewStatus(version));
   const [notice, setNotice] = useState<{ Dialog: NoticeDialog; release: ChangelogRelease } | null>(null);
   const closeNotice = useCallback(() => setNotice(null), []);
+  // The starter welcome covers the window; the notice would sit hidden under
+  // it and be consumed unseen, so it waits until the welcome is dismissed.
+  const covered = useStarterGuideBlocking();
+  const handled = useRef(false);
   useEffect(() => {
-    if (status !== 'pending') {
-      // Already announced (the stored mark matches): only main's record lags.
-      if (status === 'current' || status === 'already-shown') acknowledgeUpdate(version);
-      reportWhatsNew('skipped', version, { reason: status });
-      return;
-    }
+    if (status === 'pending') return;
+    // Already announced (the stored mark matches): only main's record lags.
+    if (status === 'current' || status === 'already-shown') acknowledgeUpdate(version);
+    reportWhatsNew('skipped', version, { reason: status });
+  }, [status, version]);
+  useEffect(() => {
+    if (status !== 'pending' || covered || handled.current) return;
     reportWhatsNew('taken', version);
     let cancelled = false;
     void loadDialog()
       .then(async (module) => {
         const release = await module.prepareWhatsNew();
         if (cancelled) return;
+        handled.current = true;
         if (release) {
           setNotice({ Dialog: module.default, release });
         } else {
@@ -69,7 +77,7 @@ export function useWhatsNewNotice(version: string, loadDialog: () => Promise<Wha
     return () => {
       cancelled = true;
     };
-  }, [status, version, loadDialog]);
+  }, [status, version, loadDialog, covered]);
   // Runs after the commit that put the dialog in the DOM.
   const noticeShown = notice !== null;
   useEffect(() => {
