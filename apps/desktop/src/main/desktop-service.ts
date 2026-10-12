@@ -260,6 +260,9 @@ export async function createDesktopService({
     await clientCache.remember(clients).catch(() => undefined);
     return clients.map((client) => (pending.includes(client.id) ? { ...client, pendingRemoval: true } : client));
   };
+  let deviceAliases = await accessSettings.deviceAliases();
+  const withAliases = (clients: DesktopRemoteClientInfo[]): DesktopRemoteClientInfo[] =>
+    clients.map((client) => (deviceAliases[client.id] ? { ...client, alias: deviceAliases[client.id] } : client));
   const publishAccessSettings = (settings: DesktopRemoteAccessSettings): DesktopRemoteAccessSettings => {
     publishDesktopEvent('remote-access-settings-changed', settings);
     return settings;
@@ -267,19 +270,20 @@ export async function createDesktopService({
   const remoteDescriptor = async () => {
     if (!remoteRelay) {
       return (await accessSettings.disabled())
-        ? { relay: { clientUrl: '', token: '', clients: clientCache.list() }, enabled: false }
+        ? { relay: { clientUrl: '', token: '', clients: withAliases(clientCache.list()) }, enabled: false }
         : null;
     }
     const descriptor = await remoteAccessDescriptor(remoteRelay);
     if (!descriptor) return null;
     const clients = await remembered(descriptor.relay.clients);
-    return { relay: { ...descriptor.relay, clients }, enabled: true };
+    return { relay: { ...descriptor.relay, clients: withAliases(clients) }, enabled: true };
   };
   /** Revocations asked for while access was off, applied once the relay answers. */
   const applyPendingRevokes = createPendingRevokeDrain({ cache: clientCache, relay: () => remoteRelay });
   const remoteOptions = {
     host: remoteHost,
     hostName: () => pcName,
+    deviceAlias: (credentialId: string) => deviceAliases[credentialId] ?? '',
     appVersion: options.appVersion,
     settingsStore,
     onDesktopSettingsChanged: (value: unknown) => {
@@ -434,6 +438,12 @@ export async function createDesktopService({
         return setRemoteAccessEnabled(operationArgs[0] === true);
       case 'remoteAccessSetName':
         return setRemotePcName(String(operationArgs[0] ?? ''));
+      case 'remoteAccessSetClientAlias':
+        deviceAliases = await accessSettings.setDeviceAlias(
+          String(operationArgs[0] || ''),
+          String(operationArgs[1] ?? '')
+        );
+        return null;
       case 'remoteAccessRotate':
         return rotateRemoteAccess();
       case 'remoteAccessListClaims':

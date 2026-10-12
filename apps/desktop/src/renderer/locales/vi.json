@@ -3771,5 +3771,7 @@
   "Zoom Out": "Thu nhỏ",
   "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
   "Sign out and sign in again to finish setting up window control for Mixdog.": "Hãy đăng xuất rồi đăng nhập lại để hoàn tất thiết lập điều khiển cửa sổ cho Mixdog.",
-  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Hãy bật tiện ích mở rộng Mixdog Windows để Mixdog có thể liệt kê và điều khiển cửa sổ (gnome-extensions enable mixdog-windows@mixdog.io)."
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Hãy bật tiện ích mở rộng Mixdog Windows để Mixdog có thể liệt kê và điều khiển cửa sổ (gnome-extensions enable mixdog-windows@mixdog.io).",
+  "Rename device": "Đổi tên thiết bị",
+  "Leave empty to go back to the device’s own name.": "Để trống để quay lại tên gốc của thiết bị."
 }

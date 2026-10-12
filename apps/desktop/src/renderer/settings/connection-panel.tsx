@@ -1,6 +1,6 @@
 import { ExternalLink, Monitor, Plus, Wifi } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import type { DesktopRemoteAccessInfo, DesktopRemoteHost } from '../../shared/contract';
+import type { DesktopRemoteAccessInfo, DesktopRemoteClientInfo, DesktopRemoteHost } from '../../shared/contract';
 import { nativeAppInfo } from '../../shared/native-app';
 import { remoteClientKind } from '../../shared/remote-trust';
 import { ErrorNotice } from '../ErrorNotice';
@@ -124,6 +124,7 @@ type Dialog =
   | { kind: 'open-pc' }
   | { kind: 'rename-self' }
   | { kind: 'rename-host'; host: DesktopRemoteHost }
+  | { kind: 'rename-client'; client: DesktopRemoteClientInfo }
   | { kind: 'disconnect-all' }
   | { kind: 'forget'; host: DesktopRemoteHost };
 
@@ -305,15 +306,28 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
               let status = t('Off');
               if (client.pendingRemoval) status = t('Removing…');
               else if (enabled) status = client.online ? t('Online') : t('Offline');
+              const defaultTitle = deviceTitle(client, kind);
+              const baseMeta = `${deviceKindText(client, kind)} · ${lastSeen}`;
               return (
                 <ConnRow
                   key={client.id}
                   icon={<KindIcon kind={kind} />}
-                  title={deviceTitle(client, kind)}
+                  title={client.alias || defaultTitle}
                   status={status}
                   statusTone={enabled && client.online && !client.pendingRemoval ? 'on' : 'off'}
-                  meta={`${deviceKindText(client, kind)} · ${lastSeen}`}
+                  meta={client.alias ? `${defaultTitle} · ${baseMeta}` : baseMeta}
                   actions={
+                    <>
+                    {api.setRemoteClientAlias && (
+                      <button
+                        type="button"
+                        className="conn-btn conn-btn--sm"
+                        disabled={Boolean(client.pendingRemoval)}
+                        onClick={() => setDialog({ kind: 'rename-client', client })}
+                      >
+                        {t('Rename')}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="conn-btn conn-btn--sm"
@@ -326,6 +340,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
                         ? t('Removing…')
                         : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
                     </button>
+                    </>
                   }
                 />
               );
@@ -443,6 +458,21 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
           initial={dialog.host.name}
           allowEmpty={false}
           onSave={(name) => Promise.resolve(api.renameRemoteHost?.(dialog.host.id, name)).then(refreshHosts)}
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'rename-client' && (
+        <RenameDialog
+          title={t('Rename device')}
+          description={t('Only this computer shows the new name.')}
+          helper={t('Leave empty to go back to the device’s own name.')}
+          initial={dialog.client.alias || deviceTitle(dialog.client, remoteClientKind(dialog.client.browser))}
+          allowEmpty
+          onSave={(name) =>
+            Promise.resolve(api.setRemoteClientAlias?.(dialog.client.id, name))
+              .then(() => api.getRemoteAccessInfo?.())
+              .then((value) => value !== undefined && applyInfo(value ?? null))
+          }
           onClose={closeDialog}
         />
       )}

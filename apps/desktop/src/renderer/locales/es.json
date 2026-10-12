@@ -3863,5 +3863,7 @@
   "Zoom Out": "Alejar",
   "Zoom to {{value0}}%": "Zoom al {{value0}}%",
   "Sign out and sign in again to finish setting up window control for Mixdog.": "Cierre sesión y vuelva a iniciarla para terminar de configurar el control de ventanas de Mixdog.",
-  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Active la extensión Mixdog Windows para que Mixdog pueda listar y controlar ventanas (gnome-extensions enable mixdog-windows@mixdog.io)."
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Active la extensión Mixdog Windows para que Mixdog pueda listar y controlar ventanas (gnome-extensions enable mixdog-windows@mixdog.io).",
+  "Rename device": "Renombrar dispositivo",
+  "Leave empty to go back to the device’s own name.": "Déjalo vacío para volver al nombre propio del dispositivo."
 }

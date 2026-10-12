@@ -85,6 +85,12 @@ export function registerSessionIpc({
   handle(DESKTOP_IPC.setRemotePcName, (_event, name) =>
     invokeDesktopOperation('remoteAccessSetName', [typeof name === 'string' ? name : ''])
   );
+  handle(DESKTOP_IPC.setRemoteClientAlias, async (_event, clientId, alias) => {
+    await invokeDesktopOperation('remoteAccessSetClientAlias', [
+      requiredString(clientId, 'clientId'),
+      typeof alias === 'string' ? alias : '',
+    ]);
+  });
   handle(DESKTOP_IPC.renameRemoteHost, async (_event, id, name) => {
     await requiredRemoteHosts().rename(requiredString(id, 'id', 64), typeof name === 'string' ? name : '');
   });

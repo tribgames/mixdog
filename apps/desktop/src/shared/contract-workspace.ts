@@ -15,6 +15,8 @@ export interface DesktopRemoteClientInfo {
   online: boolean;
   /** Unpair requested but not yet acknowledged by the relay; still paired there. */
   pendingRemoval?: boolean;
+  /** Local nickname set on this PC; shown instead of `name` when present. */
+  alias?: string;
 }
 
 export interface DesktopRemoteAccessInfo {

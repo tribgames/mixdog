@@ -44,6 +44,7 @@ export type CapabilityApi = Partial<
     | 'getRemoteAccessSettings'
     | 'setRemoteAccessEnabled'
     | 'setRemotePcName'
+    | 'setRemoteClientAlias'
     | 'subscribeRemoteAccessSettings'
     | 'readSettings'
     | 'updateSetting'

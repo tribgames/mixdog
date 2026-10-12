@@ -16,7 +16,11 @@ export const MAX_REMOTE_PC_NAME_LENGTH = 64;
 interface StoredSettings {
   enabled?: boolean;
   name?: string;
+  /** Local nicknames for paired devices, keyed by credential id. */
+  deviceAliases?: Record<string, string>;
 }
+
+export const MAX_DEVICE_ALIAS_LENGTH = 80;
 
 export interface RemoteAccessSettingsStore {
   read(): Promise<DesktopRemoteAccessSettings>;
@@ -27,6 +31,10 @@ export interface RemoteAccessSettingsStore {
   setEnabled(enabled: boolean): Promise<DesktopRemoteAccessSettings>;
   /** Trims to 64 characters; empty resets to the OS hostname. */
   setName(name: string): Promise<DesktopRemoteAccessSettings>;
+  /** Local nicknames of paired devices by credential id. */
+  deviceAliases(): Promise<Record<string, string>>;
+  /** Trims to 80 characters; empty clears the alias. Returns the full map. */
+  setDeviceAlias(clientId: string, alias: string): Promise<Record<string, string>>;
 }
 
 export function createRemoteAccessSettingsStore(
@@ -40,6 +48,15 @@ export function createRemoteAccessSettingsStore(
       return {
         ...(typeof parsed.enabled === 'boolean' ? { enabled: parsed.enabled } : {}),
         ...(typeof parsed.name === 'string' ? { name: parsed.name } : {}),
+        ...(parsed.deviceAliases && typeof parsed.deviceAliases === 'object'
+          ? {
+              deviceAliases: Object.fromEntries(
+                Object.entries(parsed.deviceAliases).filter(
+                  (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== ''
+                )
+              ),
+            }
+          : {}),
       };
     } catch {
       return {};
@@ -67,6 +84,24 @@ export function createRemoteAccessSettingsStore(
     read: async () => view(await load()),
     disabled: async () => (await load()).enabled === false,
     setEnabled: (enabled) => update({ enabled: enabled === true }),
+    deviceAliases: async () => ({ ...(await load()).deviceAliases }),
+    setDeviceAlias: async (clientId, alias) => {
+      let aliases: Record<string, string> = {};
+      const run = writes
+        .catch(() => undefined)
+        .then(async () => {
+          aliases = { ...(await load()).deviceAliases };
+          const next = String(alias ?? '')
+            .trim()
+            .slice(0, MAX_DEVICE_ALIAS_LENGTH);
+          if (next) aliases[clientId] = next;
+          else delete aliases[clientId];
+          await writeSecretFile(file, JSON.stringify({ ...(await load()), deviceAliases: aliases }));
+        });
+      writes = run;
+      await run;
+      return aliases;
+    },
     setName: (name) =>
       update({
         name: String(name ?? '')

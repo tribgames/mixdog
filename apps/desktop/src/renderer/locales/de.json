@@ -3817,5 +3817,7 @@
   "Zoom Out": "Herauszoomen",
   "Zoom to {{value0}}%": "Auf {{value0}}% zoomen",
   "Sign out and sign in again to finish setting up window control for Mixdog.": "Melden Sie sich ab und wieder an, um die Einrichtung der Fenstersteuerung für Mixdog abzuschließen.",
-  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Aktivieren Sie die Erweiterung Mixdog Windows, damit Mixdog Fenster auflisten und steuern kann (gnome-extensions enable mixdog-windows@mixdog.io)."
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Aktivieren Sie die Erweiterung Mixdog Windows, damit Mixdog Fenster auflisten und steuern kann (gnome-extensions enable mixdog-windows@mixdog.io).",
+  "Rename device": "Gerät umbenennen",
+  "Leave empty to go back to the device’s own name.": "Leer lassen, um zum eigenen Namen des Geräts zurückzukehren."
 }

@@ -356,6 +356,9 @@ export interface DesktopApi {
   setRemotePcName?(name: string): Promise<DesktopRemoteAccessSettings>;
   /** Fires when the switch or the PC name changes. */
   subscribeRemoteAccessSettings?(listener: (settings: DesktopRemoteAccessSettings) => void): () => void;
+  /** Local nickname for a paired device on this PC; empty clears it. Refetch
+   *  `getRemoteAccessInfo` for the updated list. */
+  setRemoteClientAlias?(clientId: string, alias: string): Promise<void>;
   /** Local alias for a saved PC; empty resets to the name it announced. */
   renameRemoteHost?(id: string, name: string): Promise<void>;
   /** "Connect to another PC": hosts saved on this machine. Native desktop only. */

@@ -3771,5 +3771,7 @@
   "Zoom Out": "축소",
   "Zoom to {{value0}}%": "{{value0}}%로",
   "Sign out and sign in again to finish setting up window control for Mixdog.": "창 제어 설정을 마치려면 로그아웃한 뒤 다시 로그인해야 합니다.",
-  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Mixdog가 창을 조회하고 제어하려면 Mixdog Windows 확장을 활성화해야 합니다 (gnome-extensions enable mixdog-windows@mixdog.io)."
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Mixdog가 창을 조회하고 제어하려면 Mixdog Windows 확장을 활성화해야 합니다 (gnome-extensions enable mixdog-windows@mixdog.io).",
+  "Rename device": "기기 이름 바꾸기",
+  "Leave empty to go back to the device’s own name.": "비워 두면 기기의 원래 이름으로 돌아가요."
 }

@@ -134,6 +134,7 @@ export const DESKTOP_IPC = {
   getRemoteAccessSettings: 'mixdog:get-remote-access-settings',
   setRemoteAccessEnabled: 'mixdog:set-remote-access-enabled',
   setRemotePcName: 'mixdog:set-remote-pc-name',
+  setRemoteClientAlias: 'mixdog:set-remote-client-alias',
   renameRemoteHost: 'mixdog:rename-remote-host',
   remoteAccessSettingsChanged: 'mixdog:remote-access-settings-changed',
   listRemoteClientClaims: 'mixdog:list-remote-client-claims',

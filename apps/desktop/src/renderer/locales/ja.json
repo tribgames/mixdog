@@ -3771,5 +3771,7 @@
   "Zoom Out": "ズームアウト",
   "Zoom to {{value0}}%": "{{value0}}%にする",
   "Sign out and sign in again to finish setting up window control for Mixdog.": "Mixdog のウィンドウ制御の設定を完了するには、いったんサインアウトして再度サインインしてください。",
-  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Mixdog がウィンドウを一覧表示して操作できるように、Mixdog Windows 拡張機能を有効にしてください (gnome-extensions enable mixdog-windows@mixdog.io)。"
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Mixdog がウィンドウを一覧表示して操作できるように、Mixdog Windows 拡張機能を有効にしてください (gnome-extensions enable mixdog-windows@mixdog.io)。",
+  "Rename device": "デバイス名の変更",
+  "Leave empty to go back to the device’s own name.": "空にするとデバイス本来の名前に戻ります。"
 }

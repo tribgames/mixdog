@@ -207,6 +207,7 @@ const api: DesktopApi = {
   setRemoteAccessEnabled: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.setRemoteAccessEnabled, enabled),
   setRemotePcName: (name) => ipcRenderer.invoke(DESKTOP_IPC.setRemotePcName, name),
   subscribeRemoteAccessSettings: (listener) => subscribeIpc(DESKTOP_IPC.remoteAccessSettingsChanged, listener),
+  setRemoteClientAlias: (clientId, alias) => ipcRenderer.invoke(DESKTOP_IPC.setRemoteClientAlias, clientId, alias),
   renameRemoteHost: (id, name) => ipcRenderer.invoke(DESKTOP_IPC.renameRemoteHost, id, name),
   listRemoteClientClaims: () => ipcRenderer.invoke(DESKTOP_IPC.listRemoteClientClaims),
   resolveRemoteClientClaim: (claimId, approved) =>

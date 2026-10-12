@@ -94,6 +94,8 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   /** This PC's name for handshakes, pair codes and the relay report; read each
    *  time so a rename applies without a restart. Defaults to the OS hostname. */
   hostName?: () => string;
+  /** Local nickname for a paired device (credential id); wins over the relay's name. */
+  deviceAlias?: (credentialId: string) => string;
 }
 
 export interface RemoteRelayHandle {
@@ -213,6 +215,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // credential it authenticated for the leg — the request never names itself.
   const deviceNames = new Map<string, string>();
   const deviceNameFor = async (credentialId: string): Promise<string> => {
+    const alias = options.deviceAlias?.(credentialId);
+    if (alias) return alias;
     const cached = deviceNames.get(credentialId);
     if (cached) return cached;
     let name = '';

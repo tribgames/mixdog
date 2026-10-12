@@ -215,6 +215,43 @@ test('a renamed PC shows the Windows name in its meta line; Rename opens the nam
   assert.equal(document.querySelector('.conn-card .conn-row b').textContent, 'DESKTOP-IBLP835');
 });
 
+test('a connected device can be given a local alias; the default label stays as secondary text and clearing restores it', async (t) => {
+  const info = readyInfo('eeeeeeee', [
+    client('c1', 'iPhone · Safari', 'Safari', true),
+    client('c2', 'iPhone · Safari', 'Safari', false),
+  ]);
+  const { api, document, calls, state } = await mount(t, { info });
+  api.setRemoteClientAlias = (id, alias) => {
+    calls.push(['alias', id, alias]);
+    state.info = {
+      ...state.info,
+      clients: state.info.clients.map((row) => (row.id === id ? { ...row, alias: alias || undefined } : row)),
+    };
+    return Promise.resolve();
+  };
+  const rows = () => [...document.querySelectorAll('.conn-list .conn-row')];
+  const renameButton = (row) => [...row.querySelectorAll('button')].find((b) => b.textContent === 'Rename');
+  assert.equal(rows().filter((row) => renameButton(row)).length, 2, 'every device has a Rename action');
+
+  await click(renameButton(rows()[0]));
+  const dialog = document.querySelector('.conn-dialog');
+  assert.equal(dialog.querySelector('h3').textContent, 'Rename device');
+  await typeInto(dialog.querySelector('input'), 'Mom’s iPhone');
+  await click(buttonNamed(document, 'Save'));
+  await settle();
+  assert.deepEqual(calls, [['alias', 'c1', 'Mom’s iPhone']]);
+  assert.equal(rows()[0].querySelector('b').textContent, 'Mom’s iPhone');
+  assert.ok(rows()[0].querySelector('.conn-row-meta').textContent.startsWith('iPhone · '), 'default label kept');
+  assert.equal(rows()[1].querySelector('b').textContent, 'iPhone');
+
+  await click(renameButton(rows()[0]));
+  await typeInto(document.querySelector('.conn-dialog input'), '');
+  await click(buttonNamed(document, 'Save'));
+  await settle();
+  assert.deepEqual(calls.at(-1), ['alias', 'c1', '']);
+  assert.equal(rows()[0].querySelector('b').textContent, 'iPhone');
+});
+
 test('the switch turns remote access off: the Connect button disables and the list dims with "Off" rows', async (t) => {
   const info = readyInfo('cccccccc', [client('c1', 'Fold · Mixdog App', 'Mixdog App', true)]);
   const { document, calls } = await mount(t, { info });

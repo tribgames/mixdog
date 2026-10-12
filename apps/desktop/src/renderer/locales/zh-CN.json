@@ -3771,5 +3771,7 @@
   "Zoom Out": "缩小",
   "Zoom to {{value0}}%": "缩放到 {{value0}}%",
   "Sign out and sign in again to finish setting up window control for Mixdog.": "请注销并重新登录，以完成 Mixdog 窗口控制的设置。",
-  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "请启用 Mixdog Windows 扩展，以便 Mixdog 列出和控制窗口 (gnome-extensions enable mixdog-windows@mixdog.io)。"
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "请启用 Mixdog Windows 扩展，以便 Mixdog 列出和控制窗口 (gnome-extensions enable mixdog-windows@mixdog.io)。",
+  "Rename device": "重命名设备",
+  "Leave empty to go back to the device’s own name.": "留空则恢复设备自己的名称。"
 }
