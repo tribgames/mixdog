@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 - [63% fewer tokens](#benchmarks) than Codex CLI on the same model, at the
   same success rate.
 - [**Auto reasoning effort**](docs/auto-reasoning-effort.md) — each message
-  and tool step gets the effort it needs, judged in about 0.1 s by a 130 MB
+  and tool step gets the effort it needs, judged in about 0.1 s by a 150 MB
   model that runs locally on the CPU. On by default.
 - Use the **Claude, ChatGPT, Grok, or Muse Code** subscription you already have, API
   keys, or local models on your own GPU.

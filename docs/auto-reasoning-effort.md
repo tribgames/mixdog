@@ -49,11 +49,11 @@ CPU).
 
 | | |
 |---|---|
-| Base | EmbeddingGemma 2 text encoder, 12 of 24 layers, with a four-level classification head |
-| Format | ONNX, 4-bit weights, about 130 MB |
+| Base | EmbeddingGemma 2 text encoder, 18 of 24 layers, with a four-level classification head |
+| Format | ONNX, 4-bit weights, about 150 MB |
 | Runtime | ONNX Runtime on the CPU (4 threads); no GPU, no network after download |
 | Input | The cleaned request (up to 1,500 characters) and the end of the previous reply (and, in some formats, the previous request), or the step text, all packed into one shared token budget (256 by default, set by the model's calibration; the layout is format-dependent, and the pack format caps the request tokens separately). Anything beyond the budget is cut from the end |
-| Speed | About 80–100 ms per judgment (median) on a desktop CPU |
+| Speed | About 115 ms per judgment (median), under 200 ms at the slowest, on a desktop CPU; the first load takes about 2.5 s |
 
 The model is downloaded once from the Mixdog GitHub release named in
 [`model-manifest.json`](../src/runtime/effort-judge/model-manifest.json) and
@@ -63,29 +63,55 @@ is sent anywhere for this judgment.
 
 ## Accuracy
 
-Measured through the app's own judge worker on 12,029 held-out items that
-were never used for training: coding-agent prompts from held-out users, chat
-prompts, SWE-bench issues, agent tool-result steps, and a final held-out set.
-Reference levels come from three independent LLM votes (Claude Sonnet) per
-item. Jev 1.13 (TypeSafe's general decision API) was given the same four
-levels and criteria.
+Compared with Jev 1.13 (TypeSafe's general decision API, given the same four
+levels and criteria) on the same 12,029 held-out items, none used in
+training: coding-agent prompts from held-out users, coding-agent sessions,
+SWE-bench issues, agent task requests, two chat sets, a final held-out set,
+and agent tool-result steps. Reference levels come from three independent
+Claude Sonnet votes per item, judged on the same text the judge sees.
+Differences are paired on the same items; intervals are 95% bootstrap
+intervals (2,000 resamples), and McNemar's test compares items only one of
+the two judged exactly right.
 
-| | Judge v2 | Judge v4 (current) | Jev 1.13 |
+| All items (n = 12,029) | Judge v6 | Jev 1.13 | v6 − Jev [95% CI] |
 |---|---:|---:|---:|
-| Exact level | 69.7% | **76.8%** | 72.7% |
-| Off by two or more levels | 2.2% | **0.7%** | 1.4% |
-| Exact level, agent steps only | 56.2% | **70.5%** | 66.1% |
-| Called lower than the reference | 12.4% | 11.5% | 22.0% |
-| Called higher than the reference | 18.0% | 11.8% | 5.3% |
-| Median latency | — | **98 ms** (local) | 382 ms (API) |
+| Exact level agreement | **78.5%** | 72.7% | **+5.8 pts** [4.8, 6.8] |
+| Quadratic weighted kappa | **0.689** | 0.626 | **+0.064** [0.047, 0.080] |
+| Mean absolute error (levels) | **0.222** | 0.288 | **−0.067** [−0.077, −0.056] |
+| Two or more levels off | **0.6%** | 1.4% | **−0.8 pts** [−1.0, −0.6] |
+| Hard-work detection (ROC AUC) | 0.954 | 0.956 | −0.002 [−0.008, 0.005] |
+| Exactly right where the other is not | **2,095** | 1,397 | McNemar p = 2.6 × 10⁻³² |
+| Median latency | **~115 ms** (local CPU) | ~380 ms (API) | |
 
-The 95% interval of v4's exact-level rate is 76.1–77.5%. Jev is a general
-model and was not tuned for this task; the comparison shows what a small
-dedicated model gains on its one job, not a general ranking of the two.
+| By kind | Judge v6 | Jev 1.13 | v6 − Jev [95% CI] |
+|---|---:|---:|---:|
+| Requests (n = 10,532): exact | **79.7%** | 73.6% | **+6.0 pts** [5.1, 7.1] |
+| Requests: weighted kappa | **0.701** | 0.635 | **+0.066** [0.049, 0.084] |
+| Requests: two or more levels off | **0.5%** | 1.4% | **−0.8 pts** [−1.1, −0.6] |
+| Agent steps (n = 1,497): exact | **70.2%** | 66.1% | **+4.1 pts** [1.2, 7.0] |
+| Agent steps: weighted kappa | **0.621** | 0.545 | **+0.076** [0.027, 0.127] |
+| Agent steps: two or more levels off | 1.2% | 1.6% | −0.4 pts [−1.1, 0.3] |
+
+How to read it:
+
+- **Ceiling.** The reference itself is not perfectly repeatable: one Sonnet
+  vote matches the rounded mean of the other two on 85.3% of items (weighted
+  kappa 0.816). That is the practical upper bound for exact agreement, so
+  most of the remaining differences are one-level calls on borderline items,
+  not mistakes.
+- **Where v6 is better.** Higher agreement and kappa, smaller average error,
+  and about half the large errors, all with intervals that exclude zero; the
+  exact-level advantage is significant on requests and on agent steps.
+- **Where they are even.** Separating hard work (high or above) from the rest
+  is statistically indistinguishable (AUC 0.954 vs 0.956). Jev calls hard work
+  less often and is more precise when it does; v6 calls it more often.
+- Jev is a general model and was not tuned for this task; the comparison
+  shows what a small dedicated model gains on its one job, not a general
+  ranking of the two.
 
 ## Effect on cost
 
-Measured with the previous judge (v1); a re-run with v4 is pending.
+Measured with an earlier judge (v1); a re-run with v6 is pending.
 Against a fixed `high` effort on the same tasks, with every run passing:
 GPT-6.1 Sol produced 46% fewer output tokens on five hard tasks and 26% fewer
 on eight Terminal-Bench tasks. Claude Opus 5.5 was about unchanged (±3%),
@@ -112,8 +138,10 @@ auto to the first request of each turn.
 
 The judge is fine-tuned from EmbeddingGemma 2 (Apache License 2.0). Its
 training data includes requests and agent steps from SWE-chat (ODC-BY 1.0),
-OpenAssistant oasst2 (Apache 2.0), DataClaw exports (MIT), DevGPT (CC BY 4.0)
-and issue texts from the SWE-bench training split (MIT). The release notes of
+OpenAssistant oasst2 (Apache 2.0), WildChat (ODC-BY 1.0), DataClaw exports
+(MIT), DevGPT (CC BY 4.0), issue texts from the SWE-bench training split
+(MIT), and agent steps from NVIDIA's SWE-Hero OpenHands trajectories
+(CC BY 4.0). The release notes of
 each `effort-judge-v*` release list the files, hashes and attributions.
 
 Implementation: [decision rule](../src/runtime/agent/orchestrator/providers/auto-effort.mjs),
