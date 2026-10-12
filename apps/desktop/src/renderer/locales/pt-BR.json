@@ -3776,7 +3776,8 @@
   "Unlock keyring": "Desbloquear chaveiro",
   "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "O chaveiro não está acessível — verifique se ele está em execução e clique em “Desbloquear chaveiro”.",
   "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Permita que o Mixdog envie entradas de teclado e mouse: conceda acesso a /dev/uinput (adicione seu usuário ao grupo input) e faça login novamente.",
-  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Instale e ative um auxiliar de janelas para o seu desktop (no GNOME, a extensão Window Calls) para que o Mixdog possa listar e controlar janelas.",
   "Install {{package}} to enable this Computer Use feature.": "Instale {{package}} para habilitar este recurso do Computer Use.",
-  "Computer Use cannot run this action because a required capability is not ready.": "O Computer Use não pode executar esta ação porque um recurso necessário não está pronto."
+  "Computer Use cannot run this action because a required capability is not ready.": "O Computer Use não pode executar esta ação porque um recurso necessário não está pronto.",
+  "Sign out and sign in again to finish setting up window control for Mixdog.": "Saia da sessão e entre novamente para concluir a configuração do controle de janelas do Mixdog.",
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Ative a extensão Mixdog Windows para que o Mixdog possa listar e controlar janelas (gnome-extensions enable mixdog-windows@mixdog.io)."
 }

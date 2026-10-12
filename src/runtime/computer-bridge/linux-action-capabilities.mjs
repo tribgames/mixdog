@@ -46,6 +46,11 @@ function addStepNeeds(need, step, delivery) {
   }
 }
 
+/** A capture that names no window or screen: it resolves the foreground window. */
+export function isForegroundWindowCapture(command) {
+  return String(command?.action) === 'capture' && !namesWindow(command) && command.screen === undefined;
+}
+
 /** The capabilities a host command (as toComputerHostCommand emits it) requires. */
 export function requiredCapabilities(command) {
   const need = new Set();

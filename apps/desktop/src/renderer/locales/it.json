@@ -3776,7 +3776,8 @@
   "Unlock keyring": "Sblocca portachiavi",
   "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Il portachiavi non è raggiungibile: verifica che sia in esecuzione, poi premi «Sblocca portachiavi».",
   "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Consenti a Mixdog di inviare input da tastiera e mouse: concedi l’accesso a /dev/uinput (aggiungi il tuo utente al gruppo input), quindi accedi di nuovo.",
-  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Installa e abilita un helper per le finestre per il tuo desktop (in GNOME, l’estensione Window Calls) così Mixdog può elencare e controllare le finestre.",
   "Install {{package}} to enable this Computer Use feature.": "Installa {{package}} per abilitare questa funzione di Computer Use.",
-  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use non può eseguire questa azione perché una funzione richiesta non è pronta."
+  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use non può eseguire questa azione perché una funzione richiesta non è pronta.",
+  "Sign out and sign in again to finish setting up window control for Mixdog.": "Esci e accedi di nuovo per completare la configurazione del controllo delle finestre di Mixdog.",
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Abilita l’estensione Mixdog Windows così Mixdog può elencare e controllare le finestre (gnome-extensions enable mixdog-windows@mixdog.io)."
 }

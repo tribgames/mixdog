@@ -9,7 +9,8 @@ use std::process::Command;
 pub enum Compositor {
     Sway,
     Hyprland,
-    /// GNOME Shell with the Window Calls extension's D-Bus interface.
+    /// GNOME Shell with Mixdog's own extension (mixdog-windows@mixdog.io) and
+    /// its io.mixdog.Windows D-Bus interface.
     Gnome,
     None,
 }
@@ -38,8 +39,8 @@ fn run(program: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
-const GNOME_PATH: &str = "/org/gnome/Shell/Extensions/Windows";
-const GNOME_INTERFACE: &str = "org.gnome.Shell.Extensions.Windows";
+const GNOME_PATH: &str = "/io/mixdog/Windows";
+const GNOME_INTERFACE: &str = "io.mixdog.Windows";
 
 fn gnome_call<B>(method: &str, body: &B) -> Result<zbus::Message, String>
 where
@@ -248,29 +249,20 @@ impl Compositor {
             }
             Compositor::Gnome => {
                 for item in gnome_json("List", &())?.as_array()? {
-                    let id = item.get("id").and_then(Value::as_u64).unwrap_or(0);
-                    let details = gnome_json("Details", &(id as u32,)).unwrap_or_default();
-                    let pick = |key: &str| {
-                        details
-                            .get(key)
-                            .or_else(|| item.get(key))
-                            .cloned()
-                            .unwrap_or_default()
-                    };
+                    let flag = |key: &str| item.get(key).and_then(Value::as_bool).unwrap_or(false);
                     windows.push(window(
-                        id,
-                        pick("title").as_str().unwrap_or_default().to_string(),
-                        pick("wm_class").as_str().unwrap_or_default().to_string(),
-                        pick("pid").as_i64().unwrap_or(0),
-                        pick("focus").as_bool().unwrap_or(false),
-                        pick("minimized").as_bool().unwrap_or(false),
-                        pick("maximized").as_i64().unwrap_or(0) != 0
-                            || pick("maximized").as_bool().unwrap_or(false),
+                        item.get("id").and_then(Value::as_u64).unwrap_or(0),
+                        text(item, "title"),
+                        text(item, "app"),
+                        item.get("pid").and_then(Value::as_i64).unwrap_or(0),
+                        flag("focus"),
+                        flag("minimized"),
+                        flag("maximized"),
                         (
-                            int(&details, "x"),
-                            int(&details, "y"),
-                            int(&details, "width"),
-                            int(&details, "height"),
+                            int(item, "x"),
+                            int(item, "y"),
+                            int(item, "width"),
+                            int(item, "height"),
                         ),
                     ));
                 }
@@ -342,7 +334,7 @@ impl Compositor {
 
     pub fn supported(&self) -> Result<(), String> {
         if *self == Compositor::None {
-            return Err("wayland_window_control_unavailable: this compositor offers no window control to other programs; on GNOME install the Window Calls extension".into());
+            return Err("wayland_window_control_unavailable: this compositor offers no window control to other programs; on GNOME the Mixdog Windows extension must be enabled and loaded (sign out and in once after it is installed)".into());
         }
         Ok(())
     }

@@ -3690,7 +3690,8 @@
   "Unlock keyring": "キーリングのロックを解除",
   "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "キーリングに接続できません。起動していることを確認してから「キーリングのロックを解除」を押してください。",
   "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Mixdog がキーボードとマウスの入力を送信できるように、/dev/uinput へのアクセスを許可してください（ユーザーを input グループに追加し、再度サインインします）。",
-  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Mixdog がウィンドウを一覧表示して操作できるように、お使いのデスクトップ用のウィンドウヘルパーをインストールして有効にしてください（GNOME では Window Calls 拡張機能）。",
   "Install {{package}} to enable this Computer Use feature.": "この Computer Use 機能を有効にするには {{package}} をインストールしてください。",
-  "Computer Use cannot run this action because a required capability is not ready.": "必要な機能の準備ができていないため、Computer Use はこの操作を実行できません。"
+  "Computer Use cannot run this action because a required capability is not ready.": "必要な機能の準備ができていないため、Computer Use はこの操作を実行できません。",
+  "Sign out and sign in again to finish setting up window control for Mixdog.": "Mixdog のウィンドウ制御の設定を完了するには、いったんサインアウトして再度サインインしてください。",
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Mixdog がウィンドウを一覧表示して操作できるように、Mixdog Windows 拡張機能を有効にしてください (gnome-extensions enable mixdog-windows@mixdog.io)。"
 }

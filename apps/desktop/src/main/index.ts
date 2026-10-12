@@ -55,6 +55,7 @@ import { TerminalBridgeServer } from './terminal/bridge-server';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import type { SessionTerminalTab } from './terminal-manager';
 import { requestComputerPermissions } from './computer/host/permission-reads';
+import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
@@ -614,6 +615,14 @@ function applyComputerControlSetting(enabled: boolean): void {
   if (enabled && !computerControlEnabled && computerControlApplied) requestComputerPermissions();
   computerControlApplied = true;
   computerControlEnabled = enabled;
+  // GNOME window control comes from Mixdog's own shell extension: keep it in
+  // place and enabled exactly while Computer Use is on (a no-op elsewhere).
+  void applyGnomeExtensionSetting(
+    enabled,
+    app.isPackaged
+      ? join(process.resourcesPath, 'gnome-extension', 'mixdog-windows@mixdog.io')
+      : join(app.getAppPath(), '..', '..', 'native', 'gnome-extension', 'mixdog-windows@mixdog.io'),
+  );
   computerHost?.setBridgeEnabled(computerControlEnabled);
 }
 // Observation only: the bridge keeps serving reads while every input action is

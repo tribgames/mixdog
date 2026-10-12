@@ -3733,7 +3733,8 @@
   "Unlock keyring": "Schlüsselbund entsperren",
   "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "Der Schlüsselbund ist nicht erreichbar – stellen Sie sicher, dass er läuft, und klicken Sie dann auf „Schlüsselbund entsperren“.",
   "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "Erlauben Sie Mixdog, Tastatur- und Mauseingaben zu senden: Gewähren Sie Zugriff auf /dev/uinput (Benutzer zur Gruppe input hinzufügen) und melden Sie sich erneut an.",
-  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "Installieren und aktivieren Sie ein Fensterhilfsprogramm für Ihre Desktop-Umgebung (unter GNOME die Erweiterung Window Calls), damit Mixdog Fenster auflisten und steuern kann.",
   "Install {{package}} to enable this Computer Use feature.": "Installieren Sie {{package}}, um diese Computer-Use-Funktion zu aktivieren.",
-  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use kann diese Aktion nicht ausführen, weil eine erforderliche Funktion nicht bereit ist."
+  "Computer Use cannot run this action because a required capability is not ready.": "Computer Use kann diese Aktion nicht ausführen, weil eine erforderliche Funktion nicht bereit ist.",
+  "Sign out and sign in again to finish setting up window control for Mixdog.": "Melden Sie sich ab und wieder an, um die Einrichtung der Fenstersteuerung für Mixdog abzuschließen.",
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "Aktivieren Sie die Erweiterung Mixdog Windows, damit Mixdog Fenster auflisten und steuern kann (gnome-extensions enable mixdog-windows@mixdog.io)."
 }

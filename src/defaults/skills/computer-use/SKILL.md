@@ -20,7 +20,7 @@ Platform notes: on macOS, `cmd` is the Command key and Mixdog needs the
 Accessibility and Screen Recording permissions. On Linux Wayland there is no
 background pixel input, pointer and keys need write access to `/dev/uinput`,
 and window control needs a compositor that exposes it (sway, Hyprland, or
-GNOME with the Window Calls extension); prefer accessibility refs there.
+GNOME with Mixdog's own shell extension, which the app sets up); prefer accessibility refs there.
 
 > Method and pointers only. The tool description and input schema are the
 > authority for every field; when this file and the schema disagree, the

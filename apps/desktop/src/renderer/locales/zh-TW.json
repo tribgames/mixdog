@@ -3690,7 +3690,8 @@
   "Unlock keyring": "解鎖金鑰圈",
   "The keyring is not reachable — make sure it is running, then press Unlock keyring.": "無法存取金鑰圈——請確認它正在執行，然後按「解鎖金鑰圈」。",
   "Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.": "請允許 Mixdog 傳送鍵盤與滑鼠輸入：授予 /dev/uinput 存取權限（將您的使用者加入 input 群組），然後重新登入。",
-  "Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.": "請為您的桌面安裝並啟用視窗輔助工具（在 GNOME 上為 Window Calls 擴充功能），以便 Mixdog 列出並控制視窗。",
   "Install {{package}} to enable this Computer Use feature.": "請安裝 {{package}} 以啟用此 Computer Use 功能。",
-  "Computer Use cannot run this action because a required capability is not ready.": "所需功能尚未就緒，Computer Use 無法執行此操作。"
+  "Computer Use cannot run this action because a required capability is not ready.": "所需功能尚未就緒，Computer Use 無法執行此操作。",
+  "Sign out and sign in again to finish setting up window control for Mixdog.": "請登出並重新登入，以完成 Mixdog 視窗控制的設定。",
+  "Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).": "請啟用 Mixdog Windows 擴充功能，以便 Mixdog 列出並控制視窗 (gnome-extensions enable mixdog-windows@mixdog.io)。"
 }

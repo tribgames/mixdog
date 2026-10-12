@@ -8,16 +8,21 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { requiredCapabilities } from './linux-action-capabilities.mjs';
+import { isForegroundWindowCapture, requiredCapabilities } from './linux-action-capabilities.mjs';
 
 export const UINPUT_HINT =
   'input_unavailable: Wayland input needs write access to /dev/uinput; add the udev rule `KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"`, add your user to the input group, then sign in again';
 export const INPUT_GROUP_SECURITY_NOTE =
   'Security note: membership of the input group lets every program you run read and inject keyboard and mouse input system-wide. Grant it only on a machine and account you trust.';
+export const GNOME_EXTENSION_UUID = 'mixdog-windows@mixdog.io';
 export const WINDOW_CONTROL_HINT =
-  'wayland_window_control_unavailable: this compositor offers no window control to other programs; on GNOME install and enable the Window Calls extension';
+  'wayland_window_control_unavailable: this compositor offers no window control to other programs; on GNOME the Mixdog Windows extension (mixdog-windows@mixdog.io) provides it and must be enabled and loaded';
+export const WINDOW_HELPER_RELOGIN_HINT =
+  'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is installed and enabled but GNOME Shell has not loaded it yet; the user must sign out and sign in again once';
+export const WINDOW_HELPER_ENABLE_HINT =
+  'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is not enabled; it could not be enabled automatically (run gnome-extensions enable mixdog-windows@mixdog.io)';
 export const WINDOW_CONTROL_UNSUPPORTED_HINT =
-  'wayland_window_control_unavailable: this desktop offers no window control to other programs (supported: GNOME with the Window Calls extension, sway, Hyprland, or an X11 session); screen, pointer, keyboard and clipboard still work';
+  'wayland_window_control_unavailable: this desktop offers no window control to other programs (supported: GNOME with the Mixdog Windows extension, sway, Hyprland, or an X11 session); screen, pointer, keyboard and clipboard still work';
 export const ACCESSIBILITY_HINT =
   'accessibility_unavailable: the AT-SPI bus is not running; install at-spi2-core';
 export const TESSERACT_HINT =
@@ -36,8 +41,9 @@ export const DISPLAY_HINT =
 export const FIX_MESSAGES = Object.freeze({
   allow_input:
     'Allow Mixdog to send keyboard and mouse input: grant access to /dev/uinput (add your user to the input group), then sign in again.',
-  install_window_helper:
-    'Install and enable a window helper for your desktop (on GNOME, the Window Calls extension) so Mixdog can list and control windows.',
+  relogin: 'Sign out and sign in again to finish setting up window control for Mixdog.',
+  enable_window_helper:
+    'Enable the Mixdog Windows extension so Mixdog can list and control windows (gnome-extensions enable mixdog-windows@mixdog.io).',
   install_package: 'Install {{package}} to enable this Computer Use feature.',
 });
 export const REFUSAL_MESSAGE = 'Computer Use cannot run this action because a required capability is not ready.';
@@ -87,12 +93,63 @@ function gdbusSucceeds(env, args, timeoutMs = 2000) {
   });
 }
 
-function gnomeWindowCallsReachable(env) {
+// Asks our own interface for its Version property: read-only, never prompts.
+function gnomeWindowHelperReachable(env) {
   return gdbusSucceeds(env, [
     '--dest', 'org.gnome.Shell',
-    '--object-path', '/org/gnome/Shell/Extensions/Windows',
-    '--method', 'org.gnome.Shell.Extensions.Windows.List',
+    '--object-path', '/io/mixdog/Windows',
+    '--method', 'org.freedesktop.DBus.Properties.Get',
+    'io.mixdog.Windows', 'Version',
   ]);
+}
+
+function gsettingsOutput(env, args, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn('gsettings', args, { env, stdio: ['ignore', 'pipe', 'ignore'], shell: false, windowsHide: true });
+    } catch {
+      resolve('');
+      return;
+    }
+    let out = '';
+    child.stdout.on('data', (chunk) => {
+      out += chunk;
+    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      resolve('');
+    }, timeoutMs);
+    child.once('error', () => {
+      clearTimeout(timer);
+      resolve('');
+    });
+    child.once('close', () => {
+      clearTimeout(timer);
+      resolve(out);
+    });
+  });
+}
+
+/** Where GNOME Shell looks for our extension: system-wide (the .deb) or per user. */
+export function gnomeExtensionDirs(env = process.env) {
+  const home = env.HOME || '';
+  const data = env.XDG_DATA_HOME || (home ? path.join(home, '.local', 'share') : '');
+  return [
+    ...(data ? [path.join(data, 'gnome-shell', 'extensions', GNOME_EXTENSION_UUID)] : []),
+    path.join('/usr/share/gnome-shell/extensions', GNOME_EXTENSION_UUID),
+  ];
+}
+
+/** Whether our extension is on disk and listed as enabled (not whether the shell loaded it). */
+async function gnomeWindowHelperStatus(env) {
+  const installed = gnomeExtensionDirs(env).some((dir) => fs.existsSync(path.join(dir, 'metadata.json')));
+  if (!installed) return { installed: false, enabled: false };
+  const list = await gsettingsOutput(env, ['get', 'org.gnome.shell', 'enabled-extensions']);
+  const disabledAll = /true/.test(await gsettingsOutput(env, ['get', 'org.gnome.shell', 'disable-user-extensions']));
+  return { installed, enabled: list.includes(`'${GNOME_EXTENSION_UUID}'`) && !disabledAll };
 }
 
 function accessibilityBusReachable(env) {
@@ -135,7 +192,7 @@ function detectDesktop(env, session) {
 
 const needsPackage = (name, extra = {}) => ({ state: 'needs_setup', fix: 'install_package', package: name, ...extra });
 
-async function windowsCapability({ env, session, hasCommand, windowCallsReachable }) {
+async function windowsCapability({ env, session, hasCommand, windowHelperReachable, windowHelperStatus }) {
   if (session === 'x11') return READY;
   // Same order as native Compositor::detect().
   if (env.SWAYSOCK !== undefined) return hasCommand('swaymsg') ? READY : needsPackage('sway');
@@ -144,7 +201,11 @@ async function windowsCapability({ env, session, hasCommand, windowCallsReachabl
     // Without gdbus the extension cannot be probed (the native client talks to
     // D-Bus itself), so this is unknown rather than missing.
     if (!hasCommand('gdbus')) return { state: 'unknown' };
-    return (await windowCallsReachable()) ? READY : { state: 'needs_setup', fix: 'install_window_helper' };
+    if (await windowHelperReachable()) return READY;
+    // Not answering: either the shell has not loaded a freshly enabled
+    // extension yet (a sign-in fixes that) or it is not enabled at all.
+    const status = await windowHelperStatus();
+    return { state: 'needs_setup', fix: status.installed && status.enabled ? 'relogin' : 'enable_window_helper' };
   }
   return { state: 'unsupported' };
 }
@@ -176,7 +237,8 @@ export async function checkLinuxComputerReadiness({
   },
   hasCommand = (name) => onPath(name, env),
   hasSessionBus = () => sessionBusPresent(env),
-  windowCallsReachable = () => gnomeWindowCallsReachable(env),
+  windowHelperReachable = () => gnomeWindowHelperReachable(env),
+  windowHelperStatus = () => gnomeWindowHelperStatus(env),
   accessibilityReachable = () => accessibilityBusReachable(env),
 } = {}) {
   const session = detectSession(env);
@@ -194,7 +256,7 @@ export async function checkLinuxComputerReadiness({
     };
   }
   const wayland = session === 'wayland';
-  const windows = await windowsCapability({ env, session, hasCommand, windowCallsReachable });
+  const windows = await windowsCapability({ env, session, hasCommand, windowHelperReachable, windowHelperStatus });
   const accessibility = await accessibilityCapability({ env, hasCommand, hasSessionBus, accessibilityReachable });
   const input = !wayland || canWrite('/dev/uinput') ? READY : { state: 'needs_setup', fix: 'allow_input' };
   const clipboard = !wayland || (hasCommand('wl-copy') && hasCommand('wl-paste')) ? READY : needsPackage('wl-clipboard');
@@ -224,7 +286,8 @@ function capabilityIssue(name, readiness) {
   const capability = readiness.capabilities[target];
   switch (target) {
     case 'windows':
-      if (capability.fix === 'install_window_helper') return { code: 'wayland_window_control_unavailable', message: WINDOW_CONTROL_HINT };
+      if (capability.fix === 'relogin') return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_RELOGIN_HINT };
+      if (capability.fix === 'enable_window_helper') return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_ENABLE_HINT };
       if (capability.fix === 'install_package') {
         return {
           code: 'wayland_window_control_unavailable',
@@ -302,6 +365,24 @@ export async function linuxComputerPreflight({ command, platform = process.platf
     code: CAPABILITY_UNAVAILABLE_CODE,
     missing,
     message: `${CAPABILITY_UNAVAILABLE_CODE}: Computer Use cannot run this action on this Linux session (${[...new Set(missing.map((item) => item.capability))].join(', ')}) — nothing was executed.\n${lines.join('\n')}`,
+  };
+}
+
+export const CAPTURE_FALLBACK_NOTE =
+  'Note: window control is not available on this Linux session, so this is a full-screen capture of screen 0 instead of the foreground window.';
+
+/**
+ * A default capture resolves the foreground window; without window control it
+ * becomes a full-screen capture instead of a refusal. Null when no fallback applies.
+ */
+export async function linuxCaptureFallback({ command, platform = process.platform, check, now } = {}) {
+  if (platform !== 'linux' || !isForegroundWindowCapture(command)) return null;
+  const { state } = (await getLinuxComputerReadiness({ check, now })).capabilities.windows;
+  if (state !== 'needs_setup' && state !== 'unsupported') return null;
+  const { action, session_id, include_ocr } = command;
+  return {
+    command: { action, mode: 'vision', screen: 0, ...(session_id ? { session_id } : {}), ...(include_ocr ? { include_ocr } : {}) },
+    note: CAPTURE_FALLBACK_NOTE,
   };
 }
 

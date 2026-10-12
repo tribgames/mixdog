@@ -1,7 +1,7 @@
 export type LinuxComputerCapabilityState = 'ready' | 'needs_setup' | 'unsupported' | 'unknown';
 export interface LinuxComputerCapability {
   state: LinuxComputerCapabilityState;
-  fix?: 'allow_input' | 'install_window_helper' | 'install_package';
+  fix?: 'allow_input' | 'relogin' | 'enable_window_helper' | 'install_package';
   package?: string;
   optional?: boolean;
 }
@@ -41,5 +41,10 @@ export function missingCapabilities(
   command: Record<string, unknown>
 ): LinuxComputerMissingCapability[];
 export function linuxComputerPreflight(options?: Record<string, unknown>): Promise<LinuxComputerRefusal | null>;
-export function resetLinuxComputerPreflightCache(): void;export const FIX_MESSAGES: Readonly<Record<'allow_input' | 'install_window_helper' | 'install_package', string>>;
+export function resetLinuxComputerPreflightCache(): void;
+export const GNOME_EXTENSION_UUID: 'mixdog-windows@mixdog.io';
+export function gnomeExtensionDirs(env?: Record<string, string | undefined>): string[];
+export const FIX_MESSAGES: Readonly<Record<'allow_input' | 'relogin' | 'enable_window_helper' | 'install_package', string>>;
 export const REFUSAL_MESSAGE: string;
+export const CAPTURE_FALLBACK_NOTE: string;
+export function linuxCaptureFallback(options?: Record<string, unknown>): Promise<{ command: Record<string, unknown>; note: string } | null>;

@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CAPABILITY_UNAVAILABLE_CODE,
+  CAPTURE_FALLBACK_NOTE,
   INPUT_GROUP_SECURITY_NOTE,
   checkLinuxComputerReadiness,
   detectSession,
+  linuxCaptureFallback,
   linuxComputerPreflight,
   missingCapabilities,
   resetLinuxComputerPreflightCache,
@@ -18,16 +20,21 @@ const HYPRLAND = { WAYLAND_DISPLAY: 'wayland-1', HYPRLAND_INSTANCE_SIGNATURE: 'a
 const X11 = { DISPLAY: ':0', XDG_SESSION_TYPE: 'x11', XDG_CURRENT_DESKTOP: 'GNOME', PATH: '' };
 
 // Every probe is injected; `tools` lists the commands found on PATH.
-function probe(env, { uinput = false, windowCalls = false, a11y = true, bus = true, tools = [] } = {}) {
-  const calls = { windowCalls: 0, a11y: 0 };
+// helper is the extension's disk/settings state: {installed, enabled}.
+function probe(env, { uinput = false, windowCalls = false, helper = { installed: false, enabled: false }, a11y = true, bus = true, tools = [] } = {}) {
+  const calls = { windowCalls: 0, a11y: 0, helper: 0 };
   const run = checkLinuxComputerReadiness({
     env,
     canWrite: (file) => file === '/dev/uinput' && uinput,
     hasCommand: (name) => tools.includes(name),
     hasSessionBus: () => bus,
-    windowCallsReachable: async () => {
+    windowHelperReachable: async () => {
       calls.windowCalls += 1;
       return windowCalls;
+    },
+    windowHelperStatus: async () => {
+      calls.helper += 1;
+      return helper;
     },
     accessibilityReachable: async () => {
       calls.a11y += 1;
@@ -49,14 +56,14 @@ test('session detection matches native wayland_session()', () => {
   assert.equal(detectSession({ DISPLAY: ':0' }), 'x11');
 });
 
-test('GNOME without uinput and Window Calls: only the actions that need them are blocked', async () => {
+test('GNOME without uinput and the window helper: only the actions that need them are blocked', async () => {
   const readiness = await probe(GNOME, { tools: ['gdbus', 'wl-copy', 'wl-paste'] });
   assert.equal(readiness.session, 'wayland');
   assert.equal(readiness.desktop, 'gnome');
-  assert.deepEqual(readiness.capabilities.windows, { state: 'needs_setup', fix: 'install_window_helper' });
+  assert.deepEqual(readiness.capabilities.windows, { state: 'needs_setup', fix: 'enable_window_helper' });
   assert.deepEqual(readiness.capabilities.pointer, { state: 'needs_setup', fix: 'allow_input' });
   assert.deepEqual(readiness.capabilities.keyboard, { state: 'needs_setup', fix: 'allow_input' });
-  assert.deepEqual(readiness.capabilities.semanticActions, { state: 'needs_setup', fix: 'install_window_helper' });
+  assert.deepEqual(readiness.capabilities.semanticActions, { state: 'needs_setup', fix: 'enable_window_helper' });
   assert.deepEqual(readiness.capabilities.capture, { state: 'unknown' });
   assert.deepEqual(readiness.capabilities.clipboard, { state: 'ready', optional: true });
   assert.deepEqual(readiness.capabilities.ocr, { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true });
@@ -79,7 +86,7 @@ test('GNOME without uinput and Window Calls: only the actions that need them are
   assert.deepEqual(blocked(readiness, act([step('invoke', { ref: 'e1' })])), ['windows', 'semanticActions']);
 });
 
-test('GNOME with Window Calls but no uinput: window control, AT-SPI actions, menu, launch and clipboard run', async () => {
+test('GNOME with the window helper answering but no uinput: window control, AT-SPI actions, menu, launch and clipboard run', async () => {
   const readiness = await probe(GNOME, { windowCalls: true, tools: ['gdbus', 'wl-copy', 'wl-paste', 'tesseract'] });
   assert.deepEqual(readiness.capabilities.windows, { state: 'ready' });
   assert.deepEqual(readiness.capabilities.accessibility, { state: 'ready' });
@@ -126,7 +133,7 @@ test('GNOME with everything installed is ready for every action', async () => {
   assert.deepEqual(blocked(readiness, act([step('click', { x: 1, y: 2 }), step('type', { text: 'a' })])), []);
 });
 
-test('GNOME without gdbus cannot probe Window Calls: unknown, never blocking', async () => {
+test('GNOME without gdbus cannot probe the window helper: unknown, never blocking', async () => {
   const run = probe(GNOME, { uinput: true, tools: [] });
   const readiness = await run;
   assert.deepEqual(readiness.capabilities.windows, { state: 'unknown' });
@@ -134,6 +141,55 @@ test('GNOME without gdbus cannot probe Window Calls: unknown, never blocking', a
   assert.equal(run.calls.windowCalls, 0);
   assert.equal(run.calls.a11y, 0);
   assert.deepEqual(blocked(readiness, { action: 'list_windows' }), []);
+});
+
+test('GNOME window helper states: ready, relogin once enabled but not loaded, enable when not enabled', async () => {
+  const ready = await probe(GNOME, { windowCalls: true, helper: { installed: true, enabled: true }, tools: ['gdbus'] });
+  assert.deepEqual(ready.capabilities.windows, { state: 'ready' });
+
+  const notLoaded = await probe(GNOME, { helper: { installed: true, enabled: true }, tools: ['gdbus'] });
+  assert.deepEqual(notLoaded.capabilities.windows, { state: 'needs_setup', fix: 'relogin' });
+  assert.deepEqual(notLoaded.capabilities.semanticActions, { state: 'needs_setup', fix: 'relogin' });
+  const [refusal] = missingCapabilities(notLoaded, { action: 'list_windows' });
+  assert.equal(refusal.code, 'wayland_window_control_unavailable');
+  assert.match(refusal.message, /sign out and sign in again/);
+
+  for (const helper of [{ installed: true, enabled: false }, { installed: false, enabled: false }]) {
+    const off = await probe(GNOME, { helper, tools: ['gdbus'] });
+    assert.deepEqual(off.capabilities.windows, { state: 'needs_setup', fix: 'enable_window_helper' });
+    assert.match(missingCapabilities(off, { action: 'list_windows' })[0].message, /gnome-extensions enable mixdog-windows@mixdog\.io/);
+  }
+  // An answering interface never consults the disk state.
+  assert.equal(ready.capabilities.windows.fix, undefined);
+  const answering = probe(GNOME, { windowCalls: true, tools: ['gdbus'] });
+  await answering;
+  assert.equal(answering.calls.helper, 0);
+});
+
+test('a default capture without window control becomes a full-screen capture with a note', async () => {
+  const missing = await probe(GNOME, { tools: ['gdbus'] });
+  const check = async () => missing;
+  resetLinuxComputerPreflightCache();
+  const fallback = await linuxCaptureFallback({ command: { action: 'capture', mode: 'state', session_id: 's1' }, platform: 'linux', check });
+  assert.deepEqual(fallback.command, { action: 'capture', mode: 'vision', screen: 0, session_id: 's1' });
+  assert.equal(fallback.note, CAPTURE_FALLBACK_NOTE);
+  // The rewritten command passes the preflight (nothing it needs is missing).
+  assert.deepEqual(blocked(missing, fallback.command), []);
+  // Named windows, explicit screens, other actions and other platforms are untouched.
+  for (const command of [
+    { action: 'capture', mode: 'state', window_id: 'hwnd:0x1' },
+    { action: 'capture', mode: 'state', app: 'gedit' },
+    { action: 'capture', mode: 'vision', screen: 1 },
+    { action: 'list_windows' },
+  ]) {
+    assert.equal(await linuxCaptureFallback({ command, platform: 'linux', check }), null, JSON.stringify(command));
+  }
+  assert.equal(await linuxCaptureFallback({ command: { action: 'capture' }, platform: 'win32', check }), null);
+  // With window control ready there is no fallback.
+  resetLinuxComputerPreflightCache();
+  const ready = await probe(GNOME, { windowCalls: true, tools: ['gdbus'] });
+  assert.equal(await linuxCaptureFallback({ command: { action: 'capture' }, platform: 'linux', check: async () => ready }), null);
+  resetLinuxComputerPreflightCache();
 });
 
 test('KDE Wayland: no window backend; capture, pointer, keyboard, clipboard and OCR stay available', async () => {
@@ -182,7 +238,7 @@ test('sway and Hyprland need their control tool on PATH', async () => {
   assert.equal(both.capabilities.windows.state, 'ready');
 });
 
-test('X11 needs neither uinput nor Window Calls', async () => {
+test('X11 needs neither uinput nor the window helper', async () => {
   const run = probe(X11, { tools: ['gdbus'] });
   const readiness = await run;
   assert.equal(readiness.session, 'x11');
@@ -241,7 +297,7 @@ test('preflight: other platforms and ready sessions are never blocked', async ()
   assert.equal(refusal.code, CAPABILITY_UNAVAILABLE_CODE);
   assert.deepEqual(refusal.missing.map((item) => item.capability), ['windows', 'pointer']);
   assert.match(refusal.message, /nothing was executed/);
-  assert.match(refusal.message, /Window Calls/);
+  assert.match(refusal.message, /Mixdog Windows/);
   assert.match(refusal.message, /\/dev\/uinput/);
   resetLinuxComputerPreflightCache();
 });
