@@ -4,6 +4,22 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Thông báo "Có gì mới" giờ xuất hiện sau khi cập nhật ngay cả khi bộ nhớ cục bộ của ứng dụng bị mất, chờ đến khi màn hình chào mừng hoặc phần giới thiệu ban đầu được đóng, và không xuất hiện lại sau khi hạ cấp.
+
+Hướng dẫn khởi đầu không còn xuất hiện lại với người dùng hiện có sau khi mất bộ nhớ cục bộ hoặc cập nhật ứng dụng.
+
+Mức dùng của Muse Code và MiMo giờ hiển thị ở hàng riêng trên thanh bên thay vì hiển thị như Grok.
+
+Tốc độ Ultrafast được hiển thị màu cam trên nhãn mô hình, kể cả các hàng agent ở thanh dock bên.
+
+Trong đảo trình soạn, nhấp vào phần tệp sẽ mở danh sách tệp đã thay đổi ở dock bên phải khi có nhiều tệp thay đổi (nếu chỉ một tệp thay đổi thì vẫn mở diff của tệp đó). Các phần agent và shell cũng mở danh sách của chúng ở dock bên, có định dạng giống thanh bên Agent và điều hướng được bằng bàn phím.
+
+Các hàng công cụ không còn hiệu ứng ánh sáng quét qua khi đang chạy.
+
+Thêm máy chủ MCP từ hộp thoại thêm giờ sẽ thực sự tạo máy chủ đó, và tên đã tồn tại sẽ bị từ chối thay vì ghi đè máy chủ hiện có.
+
+Trên Linux, "Cho phép" cho quyền truy cập đầu vào của Computer Use giờ kiểm tra quyền truy cập thực tế vào `/dev/uinput`, sửa khi cần và giải thích cách xử lý nếu vẫn lỗi: đăng xuất rồi đăng nhập lại, thêm người dùng vào nhóm `input`, hoặc bật mô-đun uinput còn thiếu (#32).
+
 ## v1.1.1 - 2026-10-12
 
 Tiếp tục phiên sau khi đổi mô hình ("Tiếp tục ở <mô hình>") và thử lại lượt bị lỗi ("Thử lại") không còn thất bại với lỗi "submit options contains an unsupported field."

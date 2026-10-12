@@ -4,6 +4,22 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+L'avviso «Novità» ora compare dopo un aggiornamento anche se l'archiviazione locale dell'app è andata persa, attende la chiusura del benvenuto o del tour iniziale e non ricompare più dopo un downgrade.
+
+La guida iniziale non ricompare più per gli utenti esistenti dopo la perdita dell'archiviazione locale o un aggiornamento dell'app.
+
+L'utilizzo di Muse Code e MiMo ora appare in una riga dedicata nella barra laterale invece di essere mostrato come Grok.
+
+La velocità Ultrafast è mostrata in arancione sulle etichette dei modelli, comprese le righe degli agenti nel pannello laterale.
+
+Nell'isola del compositore, un clic sul segmento dei file apre l'elenco dei file modificati nel pannello laterale destro quando sono cambiati più file (con un solo file modificato si apre ancora il suo diff). Anche i segmenti degli agenti e della shell aprono i loro elenchi nel pannello laterale, nel formato della barra laterale Agenti e navigabili con la tastiera.
+
+Le righe degli strumenti non mostrano più il riflesso luminoso durante l'esecuzione.
+
+Aggiungere un server MCP dalla finestra di aggiunta ora lo crea, e un nome già esistente viene rifiutato invece di sovrascrivere il server esistente.
+
+Su Linux, «Consenti» per l'accesso di input di Computer Use ora verifica l'accesso reale a `/dev/uinput`, lo ripara quando serve e spiega cosa fare se continua a fallire: uscire e rientrare, aggiungere il proprio utente al gruppo `input` o abilitare il modulo uinput mancante (#32).
+
 ## v1.1.1 - 2026-10-12
 
 Continuare una sessione dopo aver cambiato il suo modello ("Continua in <modello>") e riprovare un turno non riuscito ("Riprova") non falliscono più con "submit options contains an unsupported field."

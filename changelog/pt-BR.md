@@ -4,6 +4,22 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+O aviso "Novidades" agora aparece após uma atualização mesmo que o armazenamento local do app tenha sido perdido, espera até que a boas-vindas ou o tour inicial seja fechado e não reaparece após um downgrade.
+
+O guia inicial não reaparece mais para usuários existentes após a perda do armazenamento local ou uma atualização do app.
+
+O uso do Muse Code e do MiMo agora aparece em uma linha própria na barra lateral, em vez de ser exibido como Grok.
+
+A velocidade Ultrafast é mostrada em laranja nos rótulos de modelo, incluindo as linhas de agentes no painel lateral.
+
+Na ilha do compositor, clicar no segmento de arquivos abre a lista de arquivos alterados no painel lateral direito quando vários arquivos mudaram (com um único arquivo alterado, o diff dele continua sendo aberto). Os segmentos de agentes e shell também abrem suas listas no painel lateral, no formato da barra lateral Agentes e navegáveis pelo teclado.
+
+As linhas de ferramentas não mostram mais o brilho em movimento durante a execução.
+
+Adicionar um servidor MCP pela caixa de diálogo de adição agora o cria, e um nome que já existe é rejeitado em vez de sobrescrever o servidor existente.
+
+No Linux, "Permitir" para o acesso de entrada do Computer Use agora verifica o acesso real a `/dev/uinput`, repara quando necessário e explica o que fazer se ainda falhar: sair e entrar novamente, adicionar seu usuário ao grupo `input` ou ativar o módulo uinput ausente (#32).
+
 ## v1.1.1 - 2026-10-12
 
 Continuar uma sessão depois de trocar o modelo ("Continuar em <modelo>") e tentar novamente um turno com falha ("Tentar novamente") não falham mais com "submit options contains an unsupported field."

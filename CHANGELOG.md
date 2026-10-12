@@ -5,6 +5,22 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+The "What's new" notice now appears after an update even if the app's local storage was lost, waits until the starter welcome or tour is closed, and no longer reappears after a downgrade.
+
+The starter guide no longer reappears for existing users after local storage is lost or the app updates.
+
+Muse Code and MiMo usage now appears under its own row in the sidebar instead of being shown as Grok.
+
+The Ultrafast speed is shown in orange on model labels, including the agent rows in the side dock.
+
+In the composer island, clicking the files segment opens the changed-file list in the right side dock when several files changed (a single changed file still opens its diff). The agent and shell segments open their lists in the side dock too, formatted like the Agents sidebar and navigable with the keyboard.
+
+Tool rows no longer show the light sweep while running.
+
+Adding an MCP server from the add dialog now creates it, and a name that already exists is rejected instead of overwriting the existing server.
+
+On Linux, "Allow" for Computer Use input access now verifies real access to `/dev/uinput`, repairs it when needed, and explains what to do if it still fails: sign out and back in, add your user to the `input` group, or enable the missing uinput module (#32).
+
 ## v1.1.1 - 2026-10-12
 
 Continuing a session after switching its model ("Continue in <model>"), and retrying a failed turn ("Retry"), no longer fail with "submit options contains an unsupported field."

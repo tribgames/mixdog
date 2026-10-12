@@ -5,6 +5,22 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+El aviso «Novedades» ahora aparece tras una actualización aunque se haya perdido el almacenamiento local de la aplicación, espera a que se cierre la bienvenida o el recorrido inicial y ya no reaparece después de volver a una versión anterior.
+
+La guía de inicio ya no reaparece para los usuarios existentes tras perder el almacenamiento local o actualizar la aplicación.
+
+El uso de Muse Code y MiMo ahora aparece en su propia fila de la barra lateral en lugar de mostrarse como Grok.
+
+La velocidad Ultrafast se muestra en naranja en las etiquetas de modelo, incluidas las filas de agentes del panel lateral.
+
+En la isla del compositor, al hacer clic en el segmento de archivos se abre la lista de archivos modificados en el panel lateral derecho cuando cambiaron varios archivos (con un solo archivo modificado se sigue abriendo su diff). Los segmentos de agentes y shell también abren sus listas en el panel lateral, con el formato de la barra lateral Agentes y navegables con el teclado.
+
+Las filas de herramientas ya no muestran el destello de luz mientras se ejecutan.
+
+Añadir un servidor MCP desde el cuadro de diálogo de añadir ahora lo crea, y un nombre que ya existe se rechaza en lugar de sobrescribir el servidor existente.
+
+En Linux, «Permitir» para el acceso de entrada de Computer Use ahora comprueba el acceso real a `/dev/uinput`, lo repara cuando hace falta y explica qué hacer si sigue fallando: cerrar sesión y volver a iniciarla, añadir tu usuario al grupo `input` o habilitar el módulo uinput que falta (#32).
+
 ## v1.1.1 - 2026-10-12
 
 Continuar una sesión tras cambiar su modelo ("Continuar en <modelo>") y reintentar un turno fallido ("Reintentar") ya no fallan con "submit options contains an unsupported field."

@@ -5,6 +5,22 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+L'avis « Nouveautés » s'affiche désormais après une mise à jour même si le stockage local de l'application a été perdu, attend la fermeture de l'accueil ou de la visite de démarrage, et ne réapparaît plus après un retour à une version antérieure.
+
+Le guide de démarrage ne réapparaît plus pour les utilisateurs existants après une perte du stockage local ou une mise à jour de l'application.
+
+L'utilisation de Muse Code et de MiMo apparaît désormais sur sa propre ligne dans la barre latérale au lieu d'être affichée comme Grok.
+
+La vitesse Ultrafast est affichée en orange sur les libellés de modèle, y compris les lignes d'agents du panneau latéral.
+
+Dans l'îlot du compositeur, un clic sur le segment des fichiers ouvre la liste des fichiers modifiés dans le panneau latéral droit lorsque plusieurs fichiers ont changé (un fichier modifié unique ouvre toujours son diff). Les segments des agents et des shells ouvrent aussi leurs listes dans le panneau latéral, présentées comme la barre latérale Agents et navigables au clavier.
+
+Les lignes d'outils n'affichent plus de balayage lumineux pendant l'exécution.
+
+Ajouter un serveur MCP depuis la boîte de dialogue d'ajout le crée désormais, et un nom déjà existant est refusé au lieu d'écraser le serveur existant.
+
+Sous Linux, « Autoriser » pour l'accès de saisie de Computer Use vérifie désormais l'accès réel à `/dev/uinput`, le répare si nécessaire et explique quoi faire si cela échoue encore : se déconnecter puis se reconnecter, ajouter votre utilisateur au groupe `input` ou activer le module uinput manquant (#32).
+
 ## v1.1.1 - 2026-10-12
 
 Poursuivre une session après avoir changé son modèle (« Poursuivre dans <modèle> ») et relancer un tour en échec (« Réessayer ») n'échouent plus avec « submit options contains an unsupported field. »

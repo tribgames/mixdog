@@ -4,6 +4,22 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Der Hinweis „Neuigkeiten“ erscheint nach einem Update jetzt auch dann, wenn der lokale Speicher der App verloren gegangen ist, wartet, bis die Willkommensseite bzw. Tour des Starter-Guides geschlossen wurde, und erscheint nach einem Downgrade nicht mehr erneut.
+
+Der Starter-Guide erscheint für bestehende Nutzer nicht mehr erneut, nachdem der lokale Speicher verloren ging oder die App aktualisiert wurde.
+
+Die Nutzung von Muse Code und MiMo wird in der Seitenleiste jetzt in einer eigenen Zeile angezeigt statt als Grok.
+
+Die Geschwindigkeit Ultrafast wird auf Modellbezeichnungen orange dargestellt, auch in den Agentenzeilen im seitlichen Dock.
+
+In der Composer-Insel öffnet ein Klick auf das Dateisegment die Liste der geänderten Dateien im rechten seitlichen Dock, wenn mehrere Dateien geändert wurden (bei einer einzelnen geänderten Datei wird weiterhin deren Diff geöffnet). Auch die Segmente „Agent“ und „Shell“ öffnen ihre Listen im seitlichen Dock, im Format der Seitenleiste „Agenten“ und per Tastatur bedienbar.
+
+Tool-Zeilen zeigen während der Ausführung keinen Lichtlauf mehr.
+
+Wird im Dialog „MCP-Server hinzufügen“ ein Server hinzugefügt, wird er jetzt tatsächlich angelegt; ein bereits vorhandener Name wird abgelehnt, statt den bestehenden Server zu überschreiben.
+
+Unter Linux prüft „Zulassen“ für den Eingabezugriff von Computer Use jetzt den tatsächlichen Zugriff auf `/dev/uinput`, repariert ihn bei Bedarf und erklärt, was zu tun ist, falls es weiterhin fehlschlägt: abmelden und wieder anmelden, den Benutzer zur Gruppe `input` hinzufügen oder das fehlende uinput-Modul aktivieren (#32).
+
 ## v1.1.1 - 2026-10-12
 
 Das Weiterführen einer Sitzung nach dem Wechsel des Modells („In <Modell> weiterführen“) und das erneute Versuchen eines fehlgeschlagenen Durchgangs („Erneut versuchen“) schlagen nicht mehr mit „submit options contains an unsupported field.“ fehl.
