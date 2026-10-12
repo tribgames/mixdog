@@ -10,7 +10,14 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { ARG_BUDGET, chunkFileArgs, ownedProcesses, testConcurrencyArg } from './lib/run-node-tests.mjs';
+import {
+  ARG_BUDGET,
+  chunkFileArgs,
+  ownedProcesses,
+  testConcurrencyArg,
+  testTimeoutArg,
+} from './lib/run-node-tests.mjs';
+import { defaultRerunFailed } from './test.mjs';
 import { parseArgs } from './test.mjs';
 
 const runnerPath = fileURLToPath(new URL('./test.mjs', import.meta.url));
@@ -40,15 +47,29 @@ function runNode(cwd, args, timeout = 60_000) {
 
 test('test concurrency: share of cores under a shell cap, explicit choices win, standalone untouched', () => {
   const capped = { MIXDOG_SHELL_CONCURRENCY_CAP: '8' };
-  assert.equal(testConcurrencyArg([], capped, 20), '--test-concurrency=2');
-  assert.equal(testConcurrencyArg([], { MIXDOG_SHELL_CONCURRENCY_CAP: '4' }, 20), '--test-concurrency=5');
-  assert.equal(testConcurrencyArg([], capped, 4), '--test-concurrency=2', 'never below 2');
+  assert.equal(testConcurrencyArg([], capped, 20), '--test-concurrency=12');
+  assert.equal(testConcurrencyArg([], { MIXDOG_SHELL_CONCURRENCY_CAP: '4' }, 20), '--test-concurrency=16');
+  assert.equal(testConcurrencyArg([], capped, 8), '--test-concurrency=4', 'never below 4');
   assert.equal(testConcurrencyArg([], {}, 20), null, 'no cap: Node default');
   assert.equal(testConcurrencyArg([], { MIXDOG_SHELL_CONCURRENCY_CAP: 'x' }, 20), null);
   assert.equal(testConcurrencyArg([], { ...capped, MIXDOG_TEST_CONCURRENCY: '6' }, 20), '--test-concurrency=6');
   assert.equal(testConcurrencyArg([], { MIXDOG_TEST_CONCURRENCY: '3' }, 20), '--test-concurrency=3');
   assert.equal(testConcurrencyArg(['--test-concurrency=9'], { ...capped, MIXDOG_TEST_CONCURRENCY: '6' }, 20), null);
   assert.equal(testConcurrencyArg(['--test-concurrency', '9'], capped, 20), null);
+});
+
+test('per-file timeout: flag wins, env overrides the lane default, 0 disables', () => {
+  assert.equal(testTimeoutArg([], {}, 120_000), '--test-timeout=120000');
+  assert.equal(testTimeoutArg([], { MIXDOG_TEST_TIMEOUT_MS: '5000' }, 120_000), '--test-timeout=5000');
+  assert.equal(testTimeoutArg([], { MIXDOG_TEST_TIMEOUT_MS: '0' }, 120_000), null);
+  assert.equal(testTimeoutArg(['--test-timeout=9'], { MIXDOG_TEST_TIMEOUT_MS: '5000' }, 120_000), null);
+});
+
+test('local runs re-run failures once; CI stays strict unless it opts in', () => {
+  assert.equal(defaultRerunFailed({}), 1);
+  assert.equal(defaultRerunFailed({ CI: 'true' }), 0);
+  assert.equal(defaultRerunFailed({ CI: 'true', MIXDOG_TEST_RERUN_FAILED: '2' }), 2);
+  assert.equal(defaultRerunFailed({ MIXDOG_TEST_RERUN_FAILED: '0' }), 0);
 });
 
 test('a full-suite file list is batched under the command-line cap, in order', () => {

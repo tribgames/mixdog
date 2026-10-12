@@ -70,18 +70,52 @@ const positiveInt = (value) => {
 // `node --test` defaults to availableParallelism()-1 file processes. When the
 // run is one of several concurrent shell commands (the Mixdog shell tool
 // exports the admission cap as MIXDOG_SHELL_CONCURRENCY_CAP), that multiplies
-// across peers, so each run takes its share of the cores. Precedence: an
+// across peers, so a capped run leaves `cap` cores to them: cores - cap, never
+// below 4. Dividing the cores by the cap left a 20-core machine with 2 file
+// processes and tripled the wall time (desktop 289 s vs 63.5 s). Precedence: an
 // explicit --test-concurrency flag, then MIXDOG_TEST_CONCURRENCY, then the
-// share; with none of them Node's default stands and standalone runs are
-// unchanged. Returns the flag to add, or null.
+// capped share; with none of them Node's default (cores-1) stands.
+// Returns the flag to add, or null.
 export function testConcurrencyArg(nodeArgs, env = process.env, parallelism = availableParallelism()) {
   if (nodeArgs.some((arg) => arg === '--test-concurrency' || arg.startsWith('--test-concurrency='))) return null;
   const explicit = positiveInt(env.MIXDOG_TEST_CONCURRENCY);
   if (explicit) return `--test-concurrency=${explicit}`;
   const cap = positiveInt(env.MIXDOG_SHELL_CONCURRENCY_CAP);
   if (!cap) return null;
-  return `--test-concurrency=${Math.max(2, Math.floor(parallelism / cap))}`;
+  return `--test-concurrency=${Math.max(4, parallelism - cap)}`;
 }
+
+// Every test file process is bounded: node:test fails a file (and records it
+// like any other failure) that is still running after --test-timeout, so a hang
+// costs minutes instead of waiting for the batch watchdog. A --test-timeout
+// flag wins, then MIXDOG_TEST_TIMEOUT_MS (0 turns the bound off), then the
+// caller's default. Returns the flag to add, or null.
+export function testTimeoutArg(nodeArgs, env = process.env, defaultMs = DEFAULT_TEST_TIMEOUT_MS) {
+  if (nodeArgs.some((arg) => arg === '--test-timeout' || arg.startsWith('--test-timeout='))) return null;
+  const raw = env.MIXDOG_TEST_TIMEOUT_MS;
+  if (raw !== undefined && String(raw).trim() === '0') return null;
+  const ms = positiveInt(raw) ?? defaultMs;
+  return ms ? `--test-timeout=${ms}` : null;
+}
+
+const concurrencyFlag = (arg) => arg === '--test-concurrency' || arg.startsWith('--test-concurrency=');
+
+// The file-process count a run was given (flag or env), else Node's default.
+function concurrencyOf(runArgs, fileArgs) {
+  const args = [...runArgs, ...fileArgs];
+  const index = args.findIndex(concurrencyFlag);
+  const value = index < 0 ? null : positiveInt(args[index].includes('=') ? args[index].split('=')[1] : args[index + 1]);
+  return value ?? Math.max(1, availableParallelism() - 1);
+}
+
+function withoutConcurrency(args) {
+  return args.flatMap((arg, i) =>
+    concurrencyFlag(arg) ? [] : i > 0 && args[i - 1] === '--test-concurrency' ? [] : [arg]
+  );
+}
+
+export const DEFAULT_TEST_TIMEOUT_MS = 120_000;
+export const LONG_TEST_TIMEOUT_MS = 600_000;
 
 // A batch that has not exited by then is killed with its process tree and
 // fails the run; MIXDOG_TEST_BATCH_TIMEOUT_MS overrides the default.
@@ -185,8 +219,10 @@ export function ownedProcesses(snapshot, anchors, { batchStart, scratchDir, plat
     }
   }
   const fold = (path) => (platform === 'win32' ? path.toLowerCase() : path);
-  const scratchPrefix = fold(join(scratchDir, '/'));
-  for (const entry of snapshot) if (entry.exe && fold(entry.exe).startsWith(scratchPrefix)) claim(entry);
+  // An empty scratchDir skips the sweep: batches running side by side share
+  // one scratch root, so one batch's exit must not claim its peers' processes.
+  const scratchPrefix = scratchDir ? fold(join(scratchDir, '/')) : null;
+  if (scratchPrefix) for (const entry of snapshot) if (entry.exe && fold(entry.exe).startsWith(scratchPrefix)) claim(entry);
   while (queue.length > 0) {
     const parent = queue.pop();
     for (const entry of childrenOf.get(parent.pid) ?? []) {
@@ -219,6 +255,10 @@ async function reapLeftovers(child, { batchStart, ledger, scratchDir }) {
     }
   }
   const anchors = [...(child.pid ? [{ pid: child.pid, since: batchStart }] : []), ...(await readSpawnLedger(ledger))];
+  await killOwned(anchors, { batchStart, scratchDir });
+}
+
+async function killOwned(anchors, { batchStart, scratchDir }) {
   const leftovers = ownedProcesses(await processSnapshot(), anchors, { batchStart, scratchDir });
   if (leftovers.length === 0) return;
   const pids = leftovers.map((entry) => entry.pid);
@@ -237,6 +277,7 @@ async function reapLeftovers(child, { batchStart, ledger, scratchDir }) {
 }
 
 // Resolves { code, hung } once the batch exited and its leftovers are gone.
+// `scratchDir` '' = leave the scratch-root sweep to the caller (side-by-side batches).
 function spawnBatch(args, env, { files, ledger, scratchDir, timeoutMs }) {
   return new Promise((resolve) => {
     const batchStart = Date.now();
@@ -313,10 +354,12 @@ async function readFailureRecords(path) {
 // flag was passed, does not fail the run; a test that fails every re-run
 // still exits 1. Every run ends with the failure summary block, so a filtered
 // log can still name what failed.
+//
+// `testTimeoutMs` is the per-file --test-timeout default (see testTimeoutArg).
 export async function runNodeTests(
   nodeArgs,
   fileArgs,
-  { argBudget = ARG_BUDGET, coverage = false, rerunFailed = 0 } = {}
+  { argBudget = ARG_BUDGET, coverage = false, rerunFailed = 0, testTimeoutMs = DEFAULT_TEST_TIMEOUT_MS } = {}
 ) {
   await pruneStaleTestLogs(tmpdir());
   const logPath = join(await mkdtemp(join(tmpdir(), TEST_LOG_PREFIX)), 'full.log');
@@ -330,9 +373,11 @@ export async function runNodeTests(
   const scratchDir = await mkdtemp(join(tmpdir(), 'mixdog-test-scratch-'));
   // The explicit entry also accepts Node options alongside its file paths.
   const concurrencyArg = testConcurrencyArg([...nodeArgs, ...fileArgs]);
+  const timeoutArg = testTimeoutArg([...nodeArgs, ...fileArgs], process.env, testTimeoutMs);
   const runArgs = [
     ...nodeArgs,
     ...(concurrencyArg ? [concurrencyArg] : []),
+    ...(timeoutArg ? [timeoutArg] : []),
     // Node's test runner passes --import on to every test file process.
     `--import=${SPAWN_LEDGER}`,
     `--test-reporter=${SUMMARY_REPORTER}`,
@@ -343,8 +388,19 @@ export async function runNodeTests(
     argCost(process.execPath) +
     runArgs.reduce((total, arg) => total + argCost(arg), 0) +
     argCost(`--test-reporter-destination=${logPath}`) +
-    argCost('.999'); // the per-batch log suffix
+    argCost('.999') + // the per-batch log suffix
+    argCost('--test-concurrency=999'); // the per-batch share when batches overlap
   const batches = chunkFileArgs(fileArgs, Math.max(argBudget - fixedCost, 1));
+  // Batches run side by side (a sequential second batch idled the machine
+  // behind the first one's slowest file), so the run's concurrency is split
+  // across them instead of multiplied.
+  const overlapped = batches.length > 1;
+  const totalConcurrency = overlapped ? concurrencyOf(runArgs, fileArgs) : 0;
+  const batchRunArgs = (index) => {
+    if (!overlapped) return runArgs;
+    const share = Math.max(1, Math.ceil(totalConcurrency / batches.length));
+    return [...withoutConcurrency(runArgs), `--test-concurrency=${share}`];
+  };
   const coverageDir = coverage ? await mkdtemp(join(tmpdir(), 'mixdog-v8-coverage-')) : '';
   // Node 24's test runner rebuilds each test process's execArgv from its option
   // table and drops V8 flags on the way, so a heap cap passed to the runner no
@@ -370,23 +426,33 @@ export async function runNodeTests(
     ...(coverageDir ? { NODE_V8_COVERAGE: coverageDir } : {}),
     ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}),
   });
-  const batchOptions = (files, recordsPath) => ({
+  const batchOptions = (files, recordsPath, sweepScratch = true) => ({
     files,
     ledger: spawnLedgerPath(recordsPath),
-    scratchDir,
+    scratchDir: sweepScratch ? scratchDir : '',
     timeoutMs: positiveInt(process.env.MIXDOG_TEST_BATCH_TIMEOUT_MS) ?? DEFAULT_BATCH_TIMEOUT_MS,
   });
   let status = 0;
   const failures = [];
   const hung = [];
-  for (const [index, batch] of batches.entries()) {
-    const batchLog = batches.length === 1 ? logPath : `${logPath}.${index + 1}`;
-    const batchFailures = join(failureDir, `batch-${index + 1}.jsonl`);
-    const outcome = await spawnBatch(
-      [...runArgs, `--test-reporter-destination=${batchLog}`, ...batch],
-      childEnv(batchFailures),
-      batchOptions(batch, batchFailures)
-    );
+  const batchLogOf = (index) => (batches.length === 1 ? logPath : `${logPath}.${index + 1}`);
+  const batchFailuresOf = (index) => join(failureDir, `batch-${index + 1}.jsonl`);
+  const outcomes = await Promise.all(
+    batches.map((batch, index) =>
+      spawnBatch(
+        [...batchRunArgs(index), `--test-reporter-destination=${batchLogOf(index)}`, ...batch],
+        childEnv(batchFailuresOf(index)),
+        batchOptions(batch, batchFailuresOf(index), !overlapped)
+      )
+    )
+  );
+  // Peers were still running while each batch exited, so the scratch root's
+  // own processes (e.g. a postgres a test started) are swept once, here.
+  if (overlapped) await killOwned([], { batchStart: Date.now(), scratchDir });
+  // Logs and records merge in batch order, whatever order the batches finished.
+  for (const [index, outcome] of outcomes.entries()) {
+    const batchLog = batchLogOf(index);
+    const batchFailures = batchFailuresOf(index);
     const { code } = outcome;
     if (outcome.hung) hung.push(outcome.hung);
     if (batchLog !== logPath) {

@@ -5,7 +5,7 @@ import { gateTestBudget, runGateLegs } from './lib/gate-scheduler.mjs';
 test('a local gate shares the shell or explicit budget instead of multiplying it per lane', () => {
   assert.equal(gateTestBudget({}, 20), 6);
   assert.equal(gateTestBudget({}, 1), 1);
-  assert.equal(gateTestBudget({ MIXDOG_SHELL_CONCURRENCY_CAP: '8' }, 20), 2);
+  assert.equal(gateTestBudget({ MIXDOG_SHELL_CONCURRENCY_CAP: '8' }, 20), 12);
   assert.equal(gateTestBudget({ MIXDOG_TEST_CONCURRENCY: '3', MIXDOG_SHELL_CONCURRENCY_CAP: '8' }, 20), 3);
 });
 

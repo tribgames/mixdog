@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
-import { test, after } from 'node:test';
+import { test, after, mock } from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// Every account-store write on Windows spawns icacls/PowerShell to lock the
+// file to its owner (~0.2-0.5 s each, hundreds of writes here). The roster
+// logic under test does not depend on file ACLs, which have their own suite
+// (shared/file-permissions.test.mjs, atomic-file.test.mjs).
+mock.module(new URL('../../../shared/file-permissions.mjs', import.meta.url).href, {
+  namedExports: { enforceOwnerOnlyAclWin32() {}, async enforceOwnerOnlyAclWin32Async() {} },
+});
 
 const dir = mkdtempSync(join(tmpdir(), 'mixdog-account-pool-quota-'));
 process.env.MIXDOG_DATA_DIR = dir;

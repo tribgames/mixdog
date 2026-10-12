@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
+
+// Each credential write on Windows spawns icacls/PowerShell to lock the file to
+// its owner (0.1-0.4 s). ACL enforcement has its own suites
+// (shared/file-permissions.test.mjs, atomic-file.test.mjs).
+mock.module(new URL('../../../shared/file-permissions.mjs', import.meta.url).href, {
+  namedExports: { enforceOwnerOnlyAclWin32() {}, async enforceOwnerOnlyAclWin32Async() {} },
+});
 
 const dir = mkdtempSync(join(tmpdir(), 'mixdog-muse-code-provider-'));
 process.env.MIXDOG_DATA_DIR = dir;
@@ -327,7 +334,22 @@ test('surfaced errors redact the known api key and account token values', async 
   await assert.rejects(provider.send([], 'muse-spark-1.3', [], {}), (err) => !err.message.includes('sk-secret-key'));
 });
 
-test('retry logging on the real Responses path never writes the api key to stderr', async () => {
+// The Responses path retries a transient failure with the real backoff
+// schedule (250 ms .. 8 s, ~15 s per send). These tests assert what the retries
+// log and surface, not how long they wait, so backoff-sized timers (0.2-20 s;
+// the 60 s first-byte timeout stays real) fire immediately.
+async function withFastBackoff(run) {
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) =>
+    realSetTimeout(fn, ms >= 200 && ms < 20_000 ? 1 : ms, ...rest);
+  try {
+    return await run();
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+}
+
+test('retry logging on the real Responses path never writes the api key to stderr', () => withFastBackoff(async () => {
   const provider = new MuseCodeOAuthProvider({ preconnect: false });
   const inner = provider._ensureInner('sk-retry-secret');
   tokens.saveTokens({ accessToken: 'a', apiKey: 'sk-retry-secret', accountId: 'u', email: '' });
@@ -354,9 +376,9 @@ test('retry logging on the real Responses path never writes the api key to stder
   assert.ok(calls > 1, 'the retry path ran');
   assert.ok(written.some((line) => line.includes('retry attempt')));
   assert.equal(written.join('').includes('sk-retry-secret'), false);
-});
+}));
 
-test('response.failed stream events from a real SSE server never leak the key via retry logging', async () => {
+test('response.failed stream events from a real SSE server never leak the key via retry logging', () => withFastBackoff(async () => {
   const { createServer } = await import('node:http');
   const { default: OpenAI } = await import('openai');
   const key = 'sk-sse-secret-key';
@@ -404,7 +426,7 @@ test('response.failed stream events from a real SSE server never leak the key vi
   } finally {
     await new Promise((r) => server.close(r));
   }
-});
+}));
 
 async function leakCheck(key, handler) {
   const { createServer } = await import('node:http');
@@ -448,7 +470,7 @@ async function leakCheck(key, handler) {
   }
 }
 
-test('response.done failed events never leak the key via retry logging', async () => {
+test('response.done failed events never leak the key via retry logging', () => withFastBackoff(async () => {
   const key = 'sk-done-secret-key';
   await leakCheck(key, (res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -458,7 +480,7 @@ test('response.done failed events never leak the key via retry logging', async (
     };
     res.end(`event: response.done\ndata: ${JSON.stringify(event)}\n\n`);
   });
-});
+}));
 
 test('normal stream output and tool arguments pass through unchanged over a real SSE server', async () => {
   const { createServer } = await import('node:http');

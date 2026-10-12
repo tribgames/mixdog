@@ -21,7 +21,7 @@
 import { glob } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runNodeTests } from './lib/run-node-tests.mjs';
+import { DEFAULT_TEST_TIMEOUT_MS, LONG_TEST_TIMEOUT_MS, runNodeTests } from './lib/run-node-tests.mjs';
 
 const FILE_LANES = ['fast', 'slow', 'live', 'electron'];
 const LANES = [...FILE_LANES, 'all'];
@@ -40,11 +40,14 @@ export const USAGE = `Usage: node scripts/test.mjs [--lane ${LANES.join('|')}] [
   --exclude-lane  drop one lane from the selection, repeatable. Electron and
                   window-capture tests cannot run twice at once, so a second
                   concurrent run uses --exclude-lane electron.
-  --rerun-failed <n>  re-run the failed files up to n times (default 0 = off).
-                  A test that passes on a re-run is reported as flaky and,
-                  because the flag was passed, does NOT fail the run; a test
-                  that fails every re-run still exits 1. Without the flag every
-                  failure fails the run, as before.
+  --rerun-failed <n>  re-run the failed files up to n times. Default: 1 for a
+                  local run, 0 (off) when CI is set; MIXDOG_TEST_RERUN_FAILED
+                  overrides the default. A test that passes on a re-run is
+                  reported as flaky and does NOT fail the run; a test that
+                  fails every re-run still exits 1. With 0 every failure fails
+                  the run.
+  Per-file timeout: --test-timeout (default 120000 ms for the fast lane, 600000
+                  ms otherwise); MIXDOG_TEST_TIMEOUT_MS overrides, 0 disables.
   --import        forwarded to node (desktop passes its test-env and tsx loaders).
   --test-*        forwarded to node --test (e.g. --test-name-pattern, --test-only).
   --coverage      collect V8 coverage (NODE_V8_COVERAGE, no dependency) and fold
@@ -78,6 +81,17 @@ function rerunCount(value) {
     throw new Error(`--rerun-failed requires a non-negative integer (got "${value}")`);
   }
   return Number(value);
+}
+
+// Files run in parallel on every core, which exposes timing-sensitive tests
+// that pass alone. A local run therefore re-runs failed files once and reports
+// a pass on the re-run as flaky (named in the failure summary). CI keeps the
+// strict policy unless it opts in with --rerun-failed or MIXDOG_TEST_RERUN_FAILED;
+// MIXDOG_TEST_RERUN_FAILED=0 turns the local default off.
+export function defaultRerunFailed(env = process.env) {
+  if (/^\d+$/.test(String(env.MIXDOG_TEST_RERUN_FAILED ?? ''))) return Number(env.MIXDOG_TEST_RERUN_FAILED);
+  const ci = String(env.CI ?? '').toLowerCase();
+  return ci && ci !== '0' && ci !== 'false' ? 0 : 1;
 }
 
 export function parseArgs(argv) {
@@ -198,7 +212,11 @@ async function main() {
       '--test-force-exit',
     ],
     files,
-    { coverage: options.coverage === true, rerunFailed: options.rerunFailed ?? 0 }
+    {
+      coverage: options.coverage === true,
+      rerunFailed: options.rerunFailed ?? defaultRerunFailed(),
+      testTimeoutMs: options.lane === 'fast' ? DEFAULT_TEST_TIMEOUT_MS : LONG_TEST_TIMEOUT_MS,
+    }
   );
 }
 

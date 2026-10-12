@@ -34,6 +34,8 @@ function runNode(cwd, args) {
   // --test-concurrency flag; these tests pin the runner's own argv.
   delete env.MIXDOG_SHELL_CONCURRENCY_CAP;
   delete env.MIXDOG_TEST_CONCURRENCY;
+  // The local default re-runs failed files; these tests pin the strict policy.
+  env.MIXDOG_TEST_RERUN_FAILED = '0';
   const result = spawnSync(process.execPath, args, { cwd, env, encoding: 'utf8', timeout: 10_000 });
   assert.ifError(result.error);
   assert.equal(result.signal, null);
@@ -472,6 +474,7 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
         '--experimental-test-module-mocks',
         '--test',
         '--test-force-exit',
+        '--test-timeout=600000',
         `--import=${spawnLedgerUrl}`,
         `--test-reporter=${summaryReporterUrl}`,
         '--test-reporter-destination=stdout',
