@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.1.1 - 2026-10-12
+
 Muse Code (Meta) está disponible como proveedor por suscripción: inicia sesión con un código de dispositivo en tu navegador y consulta tu uso continuo y semanal directamente en Mixdog.
 
 El inicio de sesión de MiMo (Xiaomi) está disponible en Ajustes → Opciones de desarrollador, junto con Cursor y Antigravity (desactivado de forma predeterminada).

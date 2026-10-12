@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.1.1 - 2026-10-12
+
 Muse Code (Meta) est disponible comme fournisseur par abonnement : connectez-vous avec un code d'appareil dans votre navigateur et consultez directement dans Mixdog votre utilisation glissante et hebdomadaire.
 
 La connexion à MiMo (Xiaomi) est disponible dans Paramètres → Options pour les développeurs, aux côtés de Cursor et d'Antigravity (désactivée par défaut).

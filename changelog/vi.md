@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.1.1 - 2026-10-12
+
 Muse Code (Meta) hiện có sẵn dưới dạng nhà cung cấp theo gói đăng ký: đăng nhập bằng mã thiết bị trong trình duyệt và xem mức sử dụng theo chu kỳ và theo tuần ngay trong Mixdog.
 
 Đăng nhập MiMo (Xiaomi) có sẵn tại Cài đặt → Tùy chọn nhà phát triển, cùng với Cursor và Antigravity (tắt theo mặc định).

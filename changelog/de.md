@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.1.1 - 2026-10-12
+
 Muse Code (Meta) ist als Abo-Anbieter verfügbar: Melden Sie sich im Browser mit einem Gerätecode an und sehen Sie Ihre rollierende und wöchentliche Nutzung direkt in Mixdog.
 
 Die Anmeldung bei MiMo (Xiaomi) ist unter Einstellungen → Entwickleroptionen verfügbar, neben Cursor und Antigravity (standardmäßig deaktiviert).

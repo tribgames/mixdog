@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.1.1 - 2026-10-12
+
 Muse Code (Meta) è disponibile come provider in abbonamento: accedi con un codice dispositivo nel browser e consulta direttamente in Mixdog l'utilizzo continuo e settimanale.
 
 L'accesso a MiMo (Xiaomi) è disponibile in Impostazioni → Opzioni sviluppatore, insieme a Cursor e Antigravity (disattivato per impostazione predefinita).

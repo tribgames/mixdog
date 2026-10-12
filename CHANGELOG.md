@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.1.1 - 2026-10-12
+
 Muse Code (Meta) is available as a subscription provider: sign in with a device code in your browser, and see your rolling and weekly usage directly in Mixdog.
 
 MiMo (Xiaomi) sign-in is available under Settings → Developer options, alongside Cursor and Antigravity (off by default).
