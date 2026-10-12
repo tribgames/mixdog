@@ -9,6 +9,7 @@
 // Usage: node analysis/final-context.mjs   (from benchmarks/terminal-bench-2.1)
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { requireLocalRunDir } from './run-dir.mjs';
 
 const published = JSON.parse(readFileSync('presets.json', 'utf8')).published;
 const stat = (a) => {
@@ -82,5 +83,5 @@ const RUNS = [
     ['codex cli', codexRun, 'jobs-full-codex'],
 ];
 for (const [name, fn, dir] of RUNS) {
-    console.log(name.padEnd(18), JSON.stringify(stat(fn(dir))));
+    console.log(name.padEnd(18), JSON.stringify(stat(fn(requireLocalRunDir(dir)))));
 }

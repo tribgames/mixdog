@@ -82,7 +82,7 @@ PRISTINE_CONTRACT = json.loads(
 )
 PRISTINE_GUARD_ENV = PRISTINE_CONTRACT["guardEnv"]
 CONTAINER_SRC_SNAPSHOT = f"{CONTAINER_DATA_DIR}/src-snapshot.tar"
-# Effort judge (--ak effort_judge=on|steps): the effort judge
+# Effort judge (--ak effort_judge=steps|on|off, default steps): the effort judge
 # model plus its ONNX Runtime (linux-x64) as one tar, built by
 # harness/build-effort-judge-bundle.ps1. The published package the prebake
 # installs predates that dependency, so each trial gets it here.
@@ -492,9 +492,10 @@ class MixdogAgent(BaseInstalledAgent):
         **kwargs,
     ):
         route_profile = (route_profile or "").strip() or None
-        # Product Auto effort: on = judge each turn, steps = also each
-        # tool-result step, off (default) = the route's fixed effort.
-        self._effort_judge = (effort_judge or "off").strip().lower()
+        # Product Auto effort: steps (default, as the launchers) = judge each
+        # turn and each tool-result step, on = each turn only, off = the
+        # route's fixed effort.
+        self._effort_judge = (effort_judge or "steps").strip().lower()
         if self._effort_judge not in {"on", "steps", "off"}:
             raise ValueError(f"effort_judge must be on, steps or off, got {effort_judge!r}")
         reject_profile_conflicts(route_profile, provider=provider, effort=effort)
@@ -1074,6 +1075,22 @@ class MixdogAgent(BaseInstalledAgent):
                 ),
             )
 
+    def _auto_effort_env(self) -> dict[str, str]:
+        # Auto effort is on by default in the product; effort_judge=off keeps
+        # the effort the route names.
+        if self._effort_judge == "off":
+            return {"MIXDOG_AUTO_EFFORT": "off"}
+        return {
+            "MIXDOG_AUTO_EFFORT": "on",
+            "MIXDOG_AUTO_EFFORT_STEPS": "on" if self._effort_judge == "steps" else "off",
+            "MIXDOG_EFFORT_JUDGE_DIR": CONTAINER_EFFORT_JUDGE_DIR,
+            "MIXDOG_EFFORT_DECISIONS_LOG": "/logs/agent/effort-decisions.jsonl",
+            # Each trial is one cold process sharing the host's CPUs
+            # with seven others; let the first turn wait for the load.
+            "MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS": "30000",
+            "MIXDOG_EFFORT_JUDGE_TIMEOUT_MS": "5000",
+        }
+
     @with_prompt_template
     async def run(
         self,
@@ -1097,22 +1114,7 @@ class MixdogAgent(BaseInstalledAgent):
             "MIXDOG_USAGE_LOG": "/logs/agent/usage.json",
             "MIXDOG_SESSION_TRANSCRIPT_LOG": "/logs/agent/session-transcript.json",
             "MIXDOG_AGENT_TRACE_PATH": "/logs/agent/agent-trace.jsonl",
-            **(
-                {
-                    "MIXDOG_AUTO_EFFORT": "on",
-                    "MIXDOG_AUTO_EFFORT_STEPS": "on" if self._effort_judge == "steps" else "off",
-                    "MIXDOG_EFFORT_JUDGE_DIR": CONTAINER_EFFORT_JUDGE_DIR,
-                    "MIXDOG_EFFORT_DECISIONS_LOG": "/logs/agent/effort-decisions.jsonl",
-                    # Each trial is one cold process sharing the host's CPUs
-                    # with seven others; let the first turn wait for the load.
-                    "MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS": "30000",
-                    "MIXDOG_EFFORT_JUDGE_TIMEOUT_MS": "5000",
-                }
-                if self._effort_judge != "off"
-                # Auto effort is on by default in the product; effort_judge=off
-                # keeps the effort the route names.
-                else {"MIXDOG_AUTO_EFFORT": "off"}
-            ),
+            **self._auto_effort_env(),
         }
         try:
             if self._mode == "worker":

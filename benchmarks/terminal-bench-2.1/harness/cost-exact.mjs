@@ -23,9 +23,13 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pricedCost, pricedSplitCost, rateFor, uncachedTokens } from '../analysis/model-rates.mjs';
+import { resolveRunDir } from '../analysis/run-dir.mjs';
 
-const [runDir, ccPath] = process.argv.slice(2);
-if (!runDir) { console.error('usage: node cost-exact.mjs <runDir> [ccBaseline.json]'); process.exit(1); }
+const [runArg, ccPath] = process.argv.slice(2);
+if (!runArg) { console.error('usage: node cost-exact.mjs <runDir> [ccBaseline.json]'); process.exit(1); }
+// Falls back to the committed raw-runs/ export, whose usage.json snapshots
+// carry the priced totals (rows then read [usage-only]).
+const runDir = resolveRunDir(runArg);
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const cc = ccPath && existsSync(ccPath) ? readJson(ccPath) : null;
 

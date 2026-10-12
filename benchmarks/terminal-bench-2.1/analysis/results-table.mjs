@@ -2,6 +2,7 @@
 // Usage: node analysis/results-table.mjs   (from benchmarks/terminal-bench-2.1)
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { resolveRunDir } from './run-dir.mjs';
 
 // Single source of truth for "which runs are published": presets.json.
 const published = JSON.parse(readFileSync('presets.json', 'utf8')).published;
@@ -11,7 +12,7 @@ const RUNS = {
 };
 const runDate = (dir) => {
     try {
-        const report = JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8'));
+        const report = JSON.parse(readFileSync(join(resolveRunDir(dir), 'report.json'), 'utf8'));
         return String(report?.timing?.startedAt ?? '').slice(0, 10);
     } catch { return null; }
 };
@@ -44,14 +45,14 @@ function collect(root) {
 
 const byRun = {};
 for (const [name, dir] of Object.entries(RUNS)) {
-    statSync(dir);
-    byRun[name] = collect(dir);
+    statSync(resolveRunDir(dir));
+    byRun[name] = collect(resolveRunDir(dir));
 }
 const tasks = [...new Set(Object.values(byRun).flatMap((r) => Object.keys(r)))].sort();
 // The headline score comes from the run report, so it matches every other
 // published figure: trials passed out of trials run.
 const scores = Object.fromEntries(Object.entries(RUNS).map(([name, dir]) => {
-    const report = JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8'));
+    const report = JSON.parse(readFileSync(join(resolveRunDir(dir), 'report.json'), 'utf8'));
     return [name, { passed: report.result.passed, total: report.result.total }];
 }));
 const kOf = (name) => Math.max(1, Math.round(scores[name].total / tasks.length));
@@ -64,7 +65,7 @@ const cell = (name, task) => {
 
 // Per-task comparison against the paired baseline, straight from the Sol run
 // report: every paired trial of a task summed on both sides.
-const solReport = JSON.parse(readFileSync(join(RUNS['sol-xhigh'], 'report.json'), 'utf8'));
+const solReport = JSON.parse(readFileSync(join(resolveRunDir(RUNS['sol-xhigh']), 'report.json'), 'utf8'));
 const pairByTask = {};
 for (const row of solReport.pair?.tasks ?? []) {
     const e = (pairByTask[row.task] ??= { trials: 0, ours: { pass: 0, tokens: 0, requests: 0 }, baseline: { pass: 0, tokens: 0, requests: 0 } });

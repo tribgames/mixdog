@@ -178,13 +178,22 @@ if (-not [string]::IsNullOrWhiteSpace([string]$presetConfig.compareTo)) {
     if ($null -eq $baselineProperty) {
         throw "Preset '$Preset' references unknown baseline '$($presetConfig.compareTo)'."
     }
-    $baselineJobsDir = Resolve-JobsPath ([string]$baselineProperty.Value.jobsDir)
+    # The full local jobs directory when present, else the committed raw-runs/
+    # export (the report then reads the pinned figures for what it omits).
+    $baselineConfig = $baselineProperty.Value
+    $baselineJobsDir = Resolve-JobsPath ([string]$baselineConfig.jobsDir)
     if (-not (Test-Path -LiteralPath $baselineJobsDir -PathType Container)) {
-        throw "Pinned baseline jobs directory not found: $baselineJobsDir"
+        $archivedJobsDir = "raw-runs/$($baselineConfig.jobsDir)"
+        $baselineJobsDir = Resolve-JobsPath $archivedJobsDir
+        if (-not (Test-Path -LiteralPath $baselineJobsDir -PathType Container)) {
+            throw "Pinned baseline jobs directory not found locally or in raw-runs: $($baselineConfig.jobsDir)"
+        }
+        $baselineConfig = $baselineConfig | Select-Object *
+        $baselineConfig.jobsDir = $archivedJobsDir
     }
     $comparison = [ordered]@{
         name     = [string]$presetConfig.compareTo
-        baseline = $baselineProperty.Value
+        baseline = $baselineConfig
     }
 }
 

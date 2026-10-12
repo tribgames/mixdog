@@ -663,6 +663,23 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
 
+    def test_effort_judge_defaults_to_steps_and_maps_to_auto_effort_env(self) -> None:
+        module = self.load_adapter_module()
+
+        self.assertEqual(module.MixdogAgent()._effort_judge, "steps")
+        with self.assertRaises(ValueError):
+            module.MixdogAgent(effort_judge="sometimes")
+        expected = {
+            "off": ("off", None),
+            "on": ("on", "off"),
+            "steps": ("on", "on"),
+        }
+        for mode, (auto_effort, steps) in expected.items():
+            with self.subTest(mode=mode):
+                env = module.MixdogAgent(effort_judge=mode)._auto_effort_env()
+                self.assertEqual(env["MIXDOG_AUTO_EFFORT"], auto_effort)
+                self.assertEqual(env.get("MIXDOG_AUTO_EFFORT_STEPS"), steps)
+
     def test_headless_exec_uses_product_usage_contract(self) -> None:
         module = self.load_adapter_module()
         child_env = asyncio.run(

@@ -17,6 +17,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pricedCost, pricedSplitCost } from './model-rates.mjs';
+import { requireLocalRunDir } from './run-dir.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const finite = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
@@ -79,7 +80,7 @@ if (!jobsArg) {
     console.error('usage: node analysis/trace-cost.mjs <jobs-dir> [--write]');
     process.exit(2);
 }
-const jobsDir = resolve(here, '..', jobsArg);
+const jobsDir = requireLocalRunDir(jobsArg, resolve(here, '..'));
 const runDir = findRunDir(jobsDir);
 const report = existsSync(join(jobsDir, 'report.json'))
     ? JSON.parse(readFileSync(join(jobsDir, 'report.json'), 'utf8'))
