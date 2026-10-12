@@ -427,11 +427,22 @@ async function prepareDesktopNativeTools() {
   // baseline (see linux-build-native-old-glibc.sh); a tool present in that
   // directory replaces the pinned release download for this build.
   const overrideDir = String(process.env.MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR ?? '').trim();
+  // Kinds that must come from the override directory: a missing file is an
+  // error instead of a silent fall back to the pinned (newer-glibc) download.
+  const requiredOverrides = new Set(
+    String(process.env.MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE ?? '')
+      .split(',')
+      .map((kind) => kind.trim())
+      .filter(Boolean)
+  );
   const sources = await Promise.all(
     NATIVE_TOOL_KINDS.map(async (kind) => {
       if (overrideDir && embeddingTarget.platform === 'linux') {
         const override = join(resolve(overrideDir), nativeToolInstalledName(kind, embeddingTarget));
         if (await access(override).then(() => true, () => false)) return override;
+        if (requiredOverrides.has(kind)) {
+          throw new Error(`Native tool ${kind} is required from ${overrideDir} but ${override} does not exist.`);
+        }
       }
       return downloadNativeTool(kind, embeddingTarget, downloadDataDir);
     })

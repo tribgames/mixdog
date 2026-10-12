@@ -91,7 +91,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.runtime
-          key: desktop-prepared-runtime-v4-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs', 'native/mixdog-computer/Cargo.toml', 'native/mixdog-computer/Cargo.lock', 'native/mixdog-computer/src/**') }}
+          key: desktop-prepared-runtime-v4-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs', 'native/mixdog-computer/Cargo.toml', 'native/mixdog-computer/Cargo.lock', 'native/mixdog-computer/src/**') }}${{ inputs.platform == 'linux' && format('-glibc228-{0}', hashFiles('native/mixdog-graph/**', 'native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh')) || '' }}
       - name: Restore Electron downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -141,6 +141,23 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: apps/desktop
+      # Linux ships mixdog-computer/-graph/-patch built in manylinux_2_28
+      # (glibc 2.28); graph and patch must come from there, never from the
+      # pinned release download, which is built against a newer glibc.
+      - name: Download glibc 2.28 Linux native tools
+        if: inputs.platform == 'linux'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-tools-glibc228-${{ inputs.arch }}
+          path: native-out
+      - name: Select glibc 2.28 native tools for packaging
+        if: inputs.platform == 'linux'
+        shell: bash
+        run: |
+          chmod +x native-out/mixdog-*
+          echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
       - name: Prepare platform runtime
         if: steps.prepared-runtime.outputs.cache-hit != 'true'
         shell: bash
@@ -282,6 +299,10 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=4 "$app"
+      - name: Verify Linux package payloads (native-tool hashes, glibc floor <= 2.31)
+        if: inputs.platform == 'linux'
+        shell: bash
+        run: bash apps/desktop/scripts/linux-verify-package.sh apps/desktop/dist native-out ${{ inputs.arch }} 2.31 extract
       - name: Verify packaged updater metadata
         run: npm run verify:update-metadata
         working-directory: apps/desktop

@@ -349,8 +349,18 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
+  # mixdog-computer/-graph/-patch built in manylinux_2_28 (glibc 2.28) so the
+  # shipped Linux package floor is 2.28, not the package runner's glibc.
+  linux-native-tools:
+    needs: [identity]
+    uses: ./.github/workflows/linux-native-tools.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ inputs.ref }}
+
   desktop-linux-x64:
-    needs: [desktop-build, prepare-github-release]
+    needs: [desktop-build, prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -365,7 +375,7 @@ jobs:
       target: linux
 
   desktop-linux-arm64:
-    needs: [desktop-build, prepare-github-release]
+    needs: [desktop-build, prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -388,10 +398,27 @@ jobs:
       contents: read
     with:
       full: true
+      # Every checkout inside the called workflow uses this exact commit
+      # (and asserts HEAD == ref), not the caller's default-branch sha.
+      ref: ${{ inputs.ref }}
+
+  # The commit the Linux verification actually checked out must be the release commit.
+  linux-verify-sha-gate:
+    needs: [linux-verify-full]
+    runs-on: ubuntu-22.04
+    steps:
+      - env:
+          VERIFIED: ${{ needs.linux-verify-full.outputs.verified_sha }}
+          RELEASE_SHA: ${{ inputs.ref }}
+        run: |
+          echo "verified: $VERIFIED"
+          echo "release:  $RELEASE_SHA"
+          test -n "$VERIFIED"
+          test "$VERIFIED" = "$RELEASE_SHA"
 
   publish:
     name: publish-staged-release
-    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full]
+    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

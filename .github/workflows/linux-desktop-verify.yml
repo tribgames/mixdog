@@ -19,6 +19,14 @@ on:
       full:
         type: boolean
         default: true
+      ref:
+        description: "Exact commit SHA to verify (the release SHA); defaults to the caller's github.sha"
+        type: string
+        default: ""
+    outputs:
+      verified_sha:
+        description: "The commit SHA every job of this run checked out and verified"
+        value: ${{ jobs.plan.outputs.sha }}
 
 permissions:
   contents: read
@@ -32,7 +40,14 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       full: ${{ steps.p.outputs.full }}
+      sha: ${{ steps.p.outputs.sha }}
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
       - id: p
         env:
           EVENT: ${{ github.event_name }}
@@ -46,40 +61,15 @@ jobs:
           esac
           case "$GITHUB_REF" in refs/tags/*) full=true ;; esac
           echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "full lane: $full"
 
   # Native tools built inside manylinux_2_28 (glibc 2.28) so the package floor
-  # does not follow the glibc of the CI runner (graph/patch releases are built
-  # on ubuntu-22.04 = 2.34; mixdog-computer on a 24.04 host would need 2.39).
+  # does not follow the glibc of the CI runner. Shared with the release workflow.
   native-tools:
-    name: native-tools-${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { runner: ubuntu-24.04, arch: x64, image: "quay.io/pypa/manylinux_2_28_x86_64" }
-          - { runner: ubuntu-24.04-arm, arch: arm64, image: "quay.io/pypa/manylinux_2_28_aarch64" }
-    steps:
-      - uses: actions/checkout@v5
-      - name: Cache built tools
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: native-out
-          key: native-glibc228-${{ matrix.arch }}-${{ hashFiles('native/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
-      - name: Build mixdog-computer, mixdog-graph, mixdog-patch (glibc 2.28)
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p native-out
-          docker run --rm -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-native-old-glibc.sh 2>&1 | tee native-out/build.log
-          test "${PIPESTATUS[0]}" -eq 0
-      - uses: actions/upload-artifact@v5
-        with:
-          name: native-tools-glibc228-${{ matrix.arch }}
-          path: native-out/
-          if-no-files-found: error
+    uses: ./.github/workflows/linux-native-tools.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
 
   tests:
     name: tests-${{ matrix.arch }}
@@ -96,6 +86,11 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -126,6 +121,8 @@ jobs:
           chmod +x native-out/mixdog-*
           echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+          # graph/patch must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
       - uses: ./.github/actions/office-runtime
@@ -175,6 +172,11 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -195,6 +197,8 @@ jobs:
           chmod +x native-out/mixdog-*
           echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+          # graph/patch must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
       - uses: actions/cache@v4
         with:
           path: |
@@ -213,14 +217,15 @@ jobs:
         run: |
           ls -l apps/desktop/dist/*.AppImage apps/desktop/dist/*.deb
           du -sh apps/desktop/dist/linux-*unpacked || true
-      - name: Record glibc floor of bundled binaries (objdump -T)
+      - name: glibc floor check self-test (must fail closed)
+        run: bash apps/desktop/scripts/linux-glibc-floor-selftest.sh
+      - name: Verify the built packages (extracted .deb + AppImage payloads, native-tool hashes, glibc floor <= 2.31)
+        run: bash apps/desktop/scripts/linux-verify-package.sh apps/desktop/dist native-out ${{ matrix.arch }} 2.31 extract | tee package-verify.txt
+      - name: Verify packaged node-pty (Electron ABI, real PTY spawn) in both payloads
         run: |
-          unpacked=$(ls -d apps/desktop/dist/linux-*unpacked | head -n1)
-          node apps/desktop/scripts/linux-glibc-floor.mjs "$unpacked" 2.31 | tee glibc-floor.txt
-      - name: Verify packaged node-pty (Electron ABI, real PTY spawn)
-        run: |
-          unpacked=$(ls -d apps/desktop/dist/linux-*unpacked | head -n1)
-          ELECTRON_RUN_AS_NODE=1 "$unpacked/mixdog-desktop" apps/desktop/scripts/linux-pty-check.cjs "$PWD/$unpacked/resources" | tee pty-check.log
+          for root in "$DEB_ROOT" "$AI_ROOT"; do
+            ELECTRON_RUN_AS_NODE=1 "$root/mixdog-desktop" apps/desktop/scripts/linux-pty-check.cjs "$root/resources" | tee -a pty-check.log
+          done
       - name: Verify auto-update feed and .deb metadata
         run: |
           feed=apps/desktop/dist/latest-linux.yml
@@ -283,7 +288,7 @@ jobs:
             smoke/
             smoke-deb/
             pty-check.log
-            glibc-floor.txt
+            package-verify.txt
             apparmor-profiles.txt
             sandbox-perms.txt
             deb-info.txt
@@ -301,6 +306,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -327,6 +337,8 @@ jobs:
           chmod +x native-out/mixdog-*
           echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+          # graph/patch must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
       - name: Install desktop dependencies
@@ -364,6 +376,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
@@ -385,27 +402,45 @@ jobs:
         run: |
           echo "NEXT_VERSION=$(sed -n 's/^version: //p' next/latest-linux.yml | head -n1)" >> "$GITHUB_ENV"
           echo "N_VERSION=$(sed -n 's/^version: //p' n/latest-linux.yml | head -n1)" >> "$GITHUB_ENV"
-      - name: AppImage N updates to N+1 (AppImageUpdater, local feed)
-        timeout-minutes: 8
+      # The app's own updater does everything: download, sha512 check,
+      # quitAndInstall (replace the AppImage file) and relaunch. The smoke
+      # waits for a different process to report app-ready with N+1 in the
+      # app's diagnostics log (MIXDOG_UPDATER_DEV_AUTO_INSTALL=1 stands in for
+      # the Settings "Install" button).
+      - name: AppImage N -> N+1 (AppImageUpdater replaces the file and relaunches)
+        timeout-minutes: 10
         run: |
           test "$NEXT_VERSION" != "$N_VERSION"
-          chmod +x n/*.AppImage
-          mkdir -p update-out
+          mkdir -p app update-out
+          # No version in the file name: AppImageUpdater overwrites it in place.
+          cp n/mixdog-desktop-linux-*.AppImage app/Mixdog.AppImage
+          chmod +x app/Mixdog.AppImage
           xvfb-run -a --server-args="-screen 0 1440x900x24" \
-            node apps/desktop/scripts/linux-update-smoke.mjs n/mixdog-desktop-linux-*.AppImage next "$NEXT_VERSION" AppImage update-out | tee update-out/appimage-update.log
-      - name: Install N .deb and update it to N+1 (DebUpdater, sandbox enabled)
-        timeout-minutes: 8
+            node apps/desktop/scripts/linux-update-smoke.mjs app/Mixdog.AppImage next "$NEXT_VERSION" AppImage update-out | tee update-out/appimage-update.log
+          # The file on disk is now byte-for-byte the N+1 build.
+          cmp app/Mixdog.AppImage next/mixdog-desktop-linux-*.AppImage
+          sha256sum app/Mixdog.AppImage next/mixdog-desktop-linux-*.AppImage
+          pkill -f Mixdog.AppImage || true
+      # DebUpdater installs with dpkg through pkexec when it exists (a polkit
+      # rule lets it run without an interactive agent in CI) or else sudo
+      # (passwordless on runners), then app.relaunch()es the installed binary.
+      - name: Installed .deb N -> N+1 (DebUpdater dpkg install and relaunch, sandbox enabled)
+        timeout-minutes: 10
         run: |
           sudo apt-get install -y ./n/*.deb
+          sudo apt-get install -y polkitd pkexec || true
           test "$(dpkg-query -W -f='${Version}' mixdog-desktop)" = "$N_VERSION"
           grep -qx deb /opt/Mixdog/resources/package-type
+          echo "pkexec: $(command -v pkexec || echo none)"
+          if command -v pkexec >/dev/null; then
+            sudo mkdir -p /etc/polkit-1/rules.d
+            printf 'polkit.addRule(function(action, subject) {\n  if (action.id == "org.freedesktop.policykit.exec") return polkit.Result.YES;\n});\n' | sudo tee /etc/polkit-1/rules.d/49-mixdog-ci.rules
+          fi
           SMOKE_SANDBOX=1 xvfb-run -a --server-args="-screen 0 1440x900x24" \
             node apps/desktop/scripts/linux-update-smoke.mjs /opt/Mixdog/mixdog-desktop next "$NEXT_VERSION" deb update-out | tee update-out/deb-update.log
-          downloaded=$(cat update-out/update-deb-downloaded.path)
-          # What DebUpdater.doInstall runs (dpkg -i), with the downloaded package.
-          sudo dpkg -i "$downloaded"
           test "$(dpkg-query -W -f='${Version}' mixdog-desktop)" = "$NEXT_VERSION"
-          echo "dpkg upgraded mixdog-desktop $N_VERSION -> $NEXT_VERSION"
+          echo "DebUpdater upgraded mixdog-desktop $N_VERSION -> $NEXT_VERSION"
+          pkill -f /opt/Mixdog || true
       - name: Upload update-path logs
         if: always()
         uses: actions/upload-artifact@v5
@@ -434,6 +469,11 @@ jobs:
           - { id: fedora, family: fedora, image: "fedora:latest", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
       - uses: actions/download-artifact@v5
         with:
           name: mixdog-linux-packages-${{ matrix.arch }}
