@@ -6,7 +6,7 @@ const APP_PAGE_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'";
 
 const TESTFLIGHT_URL = 'https://testflight.apple.com/join/UNPBM2hU';
-const ANDROID_URL = 'https://github.com/tribgames/mixdog/releases/tag/mobile-v0.1.11';
+const ANDROID_URL = 'https://github.com/tribgames/mixdog/releases/tag/mobile-v0.1.12';
 
 const PAGE = `<!doctype html>
 <html lang="en">
