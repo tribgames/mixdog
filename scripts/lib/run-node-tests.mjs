@@ -112,6 +112,23 @@ function withoutConcurrency(args) {
   return args.filter((arg, i) => !concurrencyFlag(arg) && !(i > 0 && args[i - 1] === '--test-concurrency'));
 }
 
+// What keeps a test process off the signed-in user's machine state.
+export function testIsolationEnv(scratchDir) {
+  return {
+    TEMP: scratchDir,
+    TMP: scratchDir,
+    TMPDIR: scratchDir,
+    // A fixture must never write into the signed-in app's data (~/.mixdog):
+    // schedule/webhook logs, design-library bindings and the like resolve the
+    // default data dir. The desktop preload already does this per process.
+    MIXDOG_DATA_DIR: join(scratchDir, 'data'),
+    // Any session a test composes would otherwise read the real home's
+    // AGENTS.md / CLAUDE.md whenever the stored setting is on; tests that
+    // exercise the feature clear this and pass their own home.
+    MIXDOG_BOOT_INSTRUCTION_FILES: '0',
+  };
+}
+
 export const DEFAULT_TEST_TIMEOUT_MS = 120_000;
 export const LONG_TEST_TIMEOUT_MS = 600_000;
 
@@ -410,13 +427,7 @@ export async function runNodeTests(
   // already budgeted, and a third reporter would warn about listeners.
   const childEnv = (recordsPath) => ({
     ...process.env,
-    TEMP: scratchDir,
-    TMP: scratchDir,
-    TMPDIR: scratchDir,
-    // A fixture must never write into the signed-in app's data (~/.mixdog):
-    // schedule/webhook logs, design-library bindings and the like resolve the
-    // default data dir. The desktop preload already does this per process.
-    MIXDOG_DATA_DIR: join(scratchDir, 'data'),
+    ...testIsolationEnv(scratchDir),
     // Only the immutable validator binary is shared; fixture data stays private.
     // A gate supplies one directory across lanes; a standalone run owns its own.
     MIXDOG_TEST_OOXML_CACHE_DIR: process.env.MIXDOG_TEST_OOXML_CACHE_DIR || join(scratchDir, 'ooxml-cache'),

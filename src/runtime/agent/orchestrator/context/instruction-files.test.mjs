@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -118,6 +119,140 @@ test('a file over the 32 KiB budget is cut on a UTF-8 boundary with a truncation
     assert.ok(Buffer.byteLength(body, 'utf8') <= 32 * 1024);
     assert.ok(!body.includes('\uFFFD'));
     assert.ok(body.startsWith('가나다 가나다'));
+  } finally {
+    fx.dispose();
+  }
+});
+
+const budgetBytes = 32 * 1024;
+
+function load(fx, mode, extra = {}) {
+  return withEnv(undefined, () => loadInstructionFilesContext({ mode, cwd: fx.cwd, homeDir: fx.homeDir, ...extra }));
+}
+
+// File symlinks need a privilege on Windows; the test is skipped there when it is missing.
+function trySymlink(t, target, path, type) {
+  try {
+    symlinkSync(target, path, type);
+    return true;
+  } catch (error) {
+    if (error?.code !== 'EPERM') throw error;
+    t.skip('symlink creation not permitted');
+    return false;
+  }
+}
+
+test('a project file symlinked outside the project root is rejected; one inside is followed', (t) => {
+  const fx = fixture({});
+  const outside = join(fx.root, 'outside.md');
+  writeFileSync(outside, 'secret outside rules');
+  writeFileSync(join(fx.cwd, 'real.md'), 'inside rules');
+  try {
+    if (!trySymlink(t, outside, fx.paths.projectAgents, 'file')) return;
+    assert.equal(load(fx, 'agents'), '');
+    rmSync(fx.paths.projectAgents);
+    symlinkSync(join(fx.cwd, 'real.md'), fx.paths.projectAgents, 'file');
+    const block = load(fx, 'agents');
+    assert.ok(block.includes('inside rules') && !block.includes('secret'));
+  } finally {
+    fx.dispose();
+  }
+});
+
+test('a global directory junction/symlink leaving the home directory is rejected', () => {
+  const fx = fixture({});
+  const elsewhere = join(fx.root, 'elsewhere');
+  mkdirSync(elsewhere, { recursive: true });
+  writeFileSync(join(elsewhere, 'AGENTS.md'), 'escaped global rules');
+  mkdirSync(fx.homeDir, { recursive: true });
+  try {
+    symlinkSync(elsewhere, join(fx.homeDir, '.codex'), 'junction');
+    assert.equal(load(fx, 'agents'), '');
+    assert.equal(load(fx, 'all'), '');
+  } finally {
+    fx.dispose();
+  }
+});
+
+test('a project directory reached through a symlinked root keeps its own files', (t) => {
+  const fx = fixture({ projectAgents: 'linked root rules' });
+  const alias = join(fx.root, 'alias');
+  try {
+    if (!trySymlink(t, fx.cwd, alias, 'junction')) return;
+    assert.ok(load(fx, 'agents', { cwd: alias }).includes('linked root rules'));
+  } finally {
+    fx.dispose();
+  }
+});
+
+test('only regular files load: a directory or FIFO named like an instruction file is skipped', (t) => {
+  const fx = fixture({});
+  try {
+    mkdirSync(fx.paths.projectAgents);
+    assert.equal(load(fx, 'agents'), '');
+    if (process.platform !== 'win32') {
+      rmSync(fx.paths.projectAgents, { recursive: true });
+      if (spawnSync('mkfifo', [fx.paths.projectAgents]).status !== 0) return t.skip('mkfifo unavailable');
+      assert.equal(load(fx, 'agents'), '');
+    }
+  } finally {
+    fx.dispose();
+  }
+});
+
+test('an unreadable file is skipped without throwing', (t) => {
+  const fx = fixture({ projectAgents: 'private rules' });
+  try {
+    if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('mode bits not enforced');
+    chmodSync(fx.paths.projectAgents, 0o000);
+    assert.equal(load(fx, 'agents'), '');
+  } finally {
+    chmodSync(fx.paths.projectAgents, 0o644);
+    fx.dispose();
+  }
+});
+
+test('an oversized file is read only up to the budget and truncated', () => {
+  const fx = fixture({ projectAgents: 'word '.repeat(2_000_000) }); // ~10 MB
+  try {
+    const block = load(fx, 'agents');
+    const body = block.slice(block.indexOf(`## ${fx.paths.projectAgents}\n\n`) + `## ${fx.paths.projectAgents}\n\n`.length);
+    assert.ok(body.endsWith('\n\n[... truncated]'));
+    assert.ok(Buffer.byteLength(body, 'utf8') <= budgetBytes);
+    assert.ok(Buffer.byteLength(body, 'utf8') > budgetBytes - 64);
+  } finally {
+    fx.dispose();
+  }
+});
+
+test('a cut inside a multi-byte character never leaves a replacement character', () => {
+  // The budget cut falls one byte into the first 3-byte character.
+  const cutAt = budgetBytes - Buffer.byteLength('\n\n[... truncated]', 'utf8');
+  const fx = fixture({ projectAgents: `${'ab '.repeat(Math.floor((cutAt - 1) / 3))}${'x'.repeat((cutAt - 1) % 3)}${'가'.repeat(500)}` });
+  try {
+    const block = load(fx, 'agents');
+    assert.ok(block.endsWith('[... truncated]'));
+    assert.ok(!block.includes('\uFFFD'));
+  } finally {
+    fx.dispose();
+  }
+});
+
+test('a UTF-8 BOM is stripped', () => {
+  const fx = fixture({});
+  writeFileSync(fx.paths.projectAgents, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('bom rules')]));
+  try {
+    assert.ok(load(fx, 'agents').endsWith(`${fx.paths.projectAgents}\n\nbom rules`));
+  } finally {
+    fx.dispose();
+  }
+});
+
+test('oversized copies dedupe on their bounded content', () => {
+  const big = 'shared '.repeat(20_000);
+  const fx = fixture({ globalAgents: big, projectAgents: `${big}tail that is past the budget` });
+  try {
+    assert.equal((load(fx, 'agents').match(/^## /gm) || []).length, 1);
   } finally {
     fx.dispose();
   }

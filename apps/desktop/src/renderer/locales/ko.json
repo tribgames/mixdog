@@ -1271,7 +1271,7 @@
   "Expose web search and fetch tools to new sessions.": "새 세션에서 웹 검색 및 본문 읽기(fetch) 도구를 활성화합니다.",
   "Expose web search and web fetch tools to new sessions.": "새 세션에서 웹 검색 및 본문 읽기(fetch) 도구를 활성화합니다.",
   "Instruction files": "지침 파일",
-  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "홈 폴더와 프로젝트 폴더의 AGENTS.md / CLAUDE.md 규칙을 새 세션에 자동으로 포함합니다.",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "홈 폴더와 프로젝트 폴더의 AGENTS.md / CLAUDE.md 규칙을 새 세션에 자동으로 포함합니다. 활성화된 파일은 지침으로 신뢰되므로 신뢰하는 저장소에서만 사용하세요.",
   "Extension type": "익스텐션 종류",
   "extensionless": "확장자 없는",
   "Extensions": "익스텐션",

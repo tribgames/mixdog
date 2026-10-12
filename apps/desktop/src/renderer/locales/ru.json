@@ -1394,7 +1394,7 @@
   "Expose web search and fetch tools to new sessions.": "Предоставлять инструменты веб-поиска и загрузки новым сессиям.",
   "Expose web search and web fetch tools to new sessions.": "Предоставлять инструменты веб-поиска и веб-загрузки новым сессиям.",
   "Instruction files": "Файлы инструкций",
-  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "Автоматически включать правила из AGENTS.md / CLAUDE.md в домашней папке и папке проекта в новые сессии.",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "Автоматически включать правила из AGENTS.md / CLAUDE.md в домашней папке и папке проекта в новые сессии. Включённые файлы считаются доверенными инструкциями, поэтому включайте это только для репозиториев, которым вы доверяете.",
   "Extension type": "Тип расширения",
   "extensionless": "без расширения",
   "Extensions": "Расширения",

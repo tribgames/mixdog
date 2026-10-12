@@ -1271,7 +1271,7 @@
   "Expose web search and fetch tools to new sessions.": "Hiển thị các công cụ tìm kiếm và tìm nạp trên web cho các phiên mới.",
   "Expose web search and web fetch tools to new sessions.": "Cung cấp công cụ tìm kiếm web và tìm nạp web cho các phiên mới.",
   "Instruction files": "Tệp hướng dẫn",
-  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "Tự động đưa các quy tắc AGENTS.md / CLAUDE.md từ thư mục chính và thư mục dự án vào các phiên mới.",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "Tự động đưa các quy tắc AGENTS.md / CLAUDE.md từ thư mục chính và thư mục dự án vào các phiên mới. Các tệp được bật sẽ được tin cậy như hướng dẫn, vì vậy chỉ bật cho kho lưu trữ mà bạn tin tưởng.",
   "Extension type": "Loại tiện ích mở rộng",
   "extensionless": "không có phần mở rộng",
   "Extensions": "Tiện ích mở rộng",

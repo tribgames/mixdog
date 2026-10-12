@@ -1353,7 +1353,7 @@
   "Expose web search and fetch tools to new sessions.": "Exposez les outils de recherche et de récupération Web à de nouvelles sessions.",
   "Expose web search and web fetch tools to new sessions.": "Exposer les outils de recherche web et d'extraction web aux nouvelles sessions.",
   "Instruction files": "Fichiers d'instructions",
-  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "Inclure automatiquement les règles AGENTS.md / CLAUDE.md du dossier personnel et du dossier du projet dans les nouvelles sessions.",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "Inclure automatiquement les règles AGENTS.md / CLAUDE.md du dossier personnel et du dossier du projet dans les nouvelles sessions. Les fichiers activés sont traités comme des instructions de confiance ; n'activez donc cette option que pour des dépôts de confiance.",
   "Extension type": "Type d'extension",
   "extensionless": "sans extension",
   "Extensions": "Extensions",

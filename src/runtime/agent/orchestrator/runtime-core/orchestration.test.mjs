@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { invalidateConfigReadCache } from '../../../shared/config.mjs';
 import { createWorkflowHelpers } from './workflow.mjs';
 import { createWorkflowAgentsApi } from '../../../../session-runtime/workflow-agents-api.mjs';
 import { createToolSurface } from '../../../../session-runtime/tool-surface.mjs';
@@ -207,6 +208,51 @@ test('mode changes refresh an empty session, remove stale tools, and survive ses
   assert.equal(session.orchestrationMode, 'none');
   assert.equal(sessionOrchestrationMode({ workflow: { id: 'solo', delegatesAgents: false } }), 'none');
   assert.equal(sessionOrchestrationMode({ workflow: { id: 'default', delegatesAgents: true } }), 'swarm');
+});
+
+test('session composition reads instruction files only from the redirected home and stays off when forced', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-instruction-isolation-'));
+  const home = join(root, 'home');
+  const project = join(root, 'project');
+  const dataDir = join(root, 'data');
+  for (const dir of [join(home, '.codex'), project, dataDir]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(home, '.codex', 'AGENTS.md'), 'sentinel home rules');
+  writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { instructionFiles: 'all' } }));
+  const saved = Object.fromEntries(
+    ['HOME', 'USERPROFILE', 'MIXDOG_DATA_DIR', 'MIXDOG_BOOT_INSTRUCTION_FILES'].map((key) => [key, process.env[key]])
+  );
+  t.after(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    invalidateConfigReadCache();
+    rmSync(root, { recursive: true, force: true });
+  });
+  Object.assign(process.env, { HOME: home, USERPROFILE: home, MIXDOG_DATA_DIR: dataDir });
+  invalidateConfigReadCache();
+  const compose = () =>
+    composeSessionSystem(
+      { cwd: project, systemPrompt: '' },
+      {
+        profile: null,
+        providerName: 'test',
+        modelName: 'm',
+        surface: {
+          ownerIsAgent: false,
+          resolvedAgent: null,
+          skills: [],
+          ruleOmitTools: [],
+          schemaAllowedTools: null,
+          agentRulesProfile: undefined,
+          toolsForRouting: [],
+        },
+      }
+    ).sessionMarkerCore;
+  delete process.env.MIXDOG_BOOT_INSTRUCTION_FILES;
+  assert.match(compose(), /sentinel home rules/);
+  process.env.MIXDOG_BOOT_INSTRUCTION_FILES = '0';
+  assert.doesNotMatch(compose(), /sentinel home rules|# Instruction Files/);
 });
 
 test('agent-owned sessions keep Active Workflow but never get Lead orchestration or the agent catalog', (t) => {

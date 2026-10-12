@@ -233,7 +233,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
         />
         <SelectRow
           title={t('Instruction files')}
-          description={t('Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.')}
+          description={t('Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.')}
           value={instructionFilesMode}
           disabled={busy}
           options={[
