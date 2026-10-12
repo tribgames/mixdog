@@ -63,10 +63,10 @@ export async function executeBashTool(args, workDir, options = {}) {
   const bashWorkDir = workDir;
   const prepared = prepareShellCommand(args);
   if (prepared.failure) return prepared.failure;
-  const { resolvedSpec, wmicRewrite } = prepared;
+  const { resolvedSpec, wmicRewrite, bashismRewrite } = prepared;
   // Effects are analyzed on the command as the caller meant it, before the
   // hoist turns it into a file run.
-  const analysisCommand = prepared.command;
+  const analysisCommand = prepared.analysisCommand;
   const hoisted = hoistInlineScript(prepared.command, resolvedSpec.shellType);
   const command = hoisted.command;
 
@@ -138,7 +138,7 @@ export async function executeBashTool(args, workDir, options = {}) {
       ...rendering,
       analysisCommand,
       timeout: deadlines.timeout,
-      rewriteNote: wmicRewrite?.note || '',
+      rewriteNote: [wmicRewrite?.note, bashismRewrite?.note].filter(Boolean).join('\n'),
     });
   } finally {
     combinedAbort?.cleanup?.();

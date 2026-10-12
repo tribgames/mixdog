@@ -2,6 +2,7 @@ import { maybeRewriteWmicProcessCommand } from '../../shell-policy.mjs';
 import { checkExecPolicyMessage } from '../../bash-policy-scan.mjs';
 import { preflightPowerShellHygiene } from '../shell-analysis.mjs';
 import { resolveShellFor } from '../shell-runtime.mjs';
+import { rewritePowerShellBashisms } from './bashism-rewrite.mjs';
 import { formatShellToolFailure } from './result-format.mjs';
 
 // Policy + shell-specific rewrites before any shell dispatch. Returns either
@@ -40,7 +41,18 @@ export function prepareShellCommand(args) {
   if (psHygiene.block) return { failure: formatShellToolFailure(psHygiene.block) };
   command = psHygiene.command;
 
+  // Bash-isms that always fail in Windows PowerShell (heredoc to a script
+  // interpreter, /dev/null redirections, `| head/tail -N`, `| wc -l`) are
+  // rewritten before the first run; same shell gate and reporting as wmic.
+  // Effects and result analysis keep reading the command as the caller wrote it.
+  const analysisCommand = command;
+  const bashismRewrite =
+    process.platform === 'win32' && resolvedSpec.shellType === 'powershell' && !wmicRewrite?.command
+      ? rewritePowerShellBashisms(command)
+      : null;
+  if (bashismRewrite) command = bashismRewrite.command;
+
   const execPolicyBlock = checkExecPolicyMessage(command);
   if (execPolicyBlock) return { failure: formatShellToolFailure(execPolicyBlock) };
-  return { command, resolvedSpec, wmicRewrite };
+  return { command, analysisCommand, resolvedSpec, wmicRewrite, bashismRewrite };
 }
