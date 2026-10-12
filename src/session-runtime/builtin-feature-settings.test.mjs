@@ -99,6 +99,19 @@ test('built-in Git and Office settings persist and refresh empty-session tools',
   assert.equal(state.refreshes(), 1);
 });
 
+test('instruction files mode defaults to all, validates, persists and refreshes empty-session tools', async () => {
+  const state = fixture();
+  assert.equal(state.api.getToolModuleSettings().instructionFiles, 'all');
+  for (const mode of ['agents', 'claude', 'off', 'all']) {
+    const result = await state.api.setInstructionFiles(mode);
+    assert.equal(result.instructionFiles, mode);
+    assert.equal(state.config().instructionFiles, mode);
+  }
+  assert.equal(state.refreshes(), 4);
+  await assert.rejects(state.api.setInstructionFiles('everything'), /all, agents, claude, off/);
+  assert.equal(state.refreshes(), 4);
+});
+
 test('enabling a built-in tool marks it installed; install runs the adapter', async () => {
   const state = fixture();
   const enabled = await state.api.setBuiltinToolEnabled('office', true);

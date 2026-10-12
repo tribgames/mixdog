@@ -268,12 +268,16 @@ export function composeSystemPrompt(opts) {
   // Keep the active workflow first within BP3 so it leads the role and
   // environment material that varies with the session.
   const coreMemory = skip.memory ? '' : trimmedPromptSlice(opts.coreMemoryContext);
+  // User AGENTS.md / CLAUDE.md block (context/instruction-files.mjs), already
+  // headed `# Instruction Files`; rides right after core memory.
+  const instructionFiles = skip.claudemd ? '' : trimmedPromptSlice(opts.instructionFilesContext);
   const sessionMarkerCore = joinPromptSlices([
     trimmedPromptSlice(opts.workflowContext),
     opts.roleRules || '',
     opts.userPrompt || '',
     roleInstructionContext,
     coreMemory ? `# Core Memory\n${coreMemory}` : '',
+    instructionFiles,
   ]);
   // Response language is the LAST system text before the conversation. It
   // rides the environment block (not the tier3 core) because the `# Session`

@@ -5,6 +5,10 @@ import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
 import {
+  DEFAULT_INSTRUCTION_FILES_MODE,
+  normalizeInstructionFilesMode,
+} from '../../shared/instruction-files-mode.mjs';
+import {
   DEFAULT_DISABLED_AGENT_ROSTER,
   canonicalizeAgentRouteStorage,
   disabledAgentDelta,
@@ -191,6 +195,13 @@ function normalizeRecapConfig(rawRecap) {
   return recap;
 }
 
+// `instructionFiles` (instruction-files-mode.mjs): only a valid non-default
+// mode is kept; absent means the default.
+function storedInstructionFiles(agent) {
+  const mode = normalizeInstructionFilesMode(agent?.instructionFiles);
+  return mode === DEFAULT_INSTRUCTION_FILES_MODE ? {} : { instructionFiles: mode };
+}
+
 export function loadConfig(options = {}) {
   const includeSecrets = options.secrets !== false;
   try {
@@ -249,6 +260,7 @@ export function loadConfig(options = {}) {
         // canonicalizeAgentRouteStorage drops it when empty.
         disabledAgents: legacyDisabledAgents ? disabledAgentIds(raw) : effectiveDisabledAgents(raw),
         ...(raw.memoryTools && typeof raw.memoryTools === 'object' ? { memoryTools: { ...raw.memoryTools } } : {}),
+        ...storedInstructionFiles(raw),
         ...normalizeWorkflowSelection(raw),
         profile: normalizeProfileConfig(raw.profile),
         skills: normalizeSkillsConfig(raw.skills),
@@ -424,6 +436,8 @@ function buildAgentSaveBuilder(config) {
     } else Object.assign(next, disabledAgentDelta(canonicalRoutes.disabledAgents));
     if (config.memoryTools && typeof config.memoryTools === 'object') next.memoryTools = { ...config.memoryTools };
     else delete next.memoryTools;
+    delete next.instructionFiles;
+    Object.assign(next, storedInstructionFiles(config));
     delete next.workflowRoutes;
     // Defaults live in code: values equal to the current default are not stored.
     return storedAgentForm(removeRetiredAgentFields(next));

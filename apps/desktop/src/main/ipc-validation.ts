@@ -98,6 +98,7 @@ const CAPABILITY_ARITY = {
   setRecapEnabled: [1, 1],
   getToolModuleSettings: [0, 0],
   setWebSearchEnabled: [1, 1],
+  setInstructionFiles: [1, 1],
   setMemoryToolsEnabled: [1, 1],
   getDeveloperSettings: [0, 0],
   setDeveloperOption: [2, 2],
@@ -758,6 +759,9 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   }
   if (BOOLEAN_FIRST_CAPABILITIES.has(capability) && typeof args[0] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
+  }
+  if (capability === 'setInstructionFiles' && !['all', 'agents', 'claude', 'off'].includes(args[0] as string)) {
+    throw new TypeError('setInstructionFiles requires all, agents, claude, or off.');
   }
   if (BOOLEAN_SECOND_CAPABILITIES.has(capability) && typeof args[1] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);

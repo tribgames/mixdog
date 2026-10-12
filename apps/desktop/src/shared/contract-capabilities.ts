@@ -26,6 +26,7 @@ export const DESKTOP_CAPABILITIES = [
   'setRecapEnabled',
   'getToolModuleSettings',
   'setWebSearchEnabled',
+  'setInstructionFiles',
   'setMemoryToolsEnabled',
   'getDeveloperSettings',
   'setDeveloperOption',

@@ -184,6 +184,10 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const remoteSurface = isRemoteHostRenderer();
   const profile = record(data.profile);
   const webSearchModule = record(record(data.toolModules).webSearch);
+  const rawInstructionFiles = record(data.toolModules).instructionFiles;
+  const instructionFilesMode = ['all', 'agents', 'claude', 'off'].includes(String(rawInstructionFiles))
+    ? String(rawInstructionFiles)
+    : 'all';
   const languageOptions = rows(profile.languages).map((entry) => ({
     value: String(entry.id || entry.value || 'system'),
     label: t(label(entry)),
@@ -226,6 +230,19 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           checked={webSearchModule.enabled !== false}
           disabled={busy}
           onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
+        />
+        <SelectRow
+          title={t('Instruction files')}
+          description={t('Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.')}
+          value={instructionFilesMode}
+          disabled={busy}
+          options={[
+            { value: 'all', label: t('All') },
+            { value: 'agents', label: 'AGENTS.md' },
+            { value: 'claude', label: 'CLAUDE.md' },
+            { value: 'off', label: t('Off') },
+          ]}
+          onChange={(mode) => void run('setInstructionFiles', [mode])}
         />
         {!remoteSurface && <LinkPreviewToggle pending={pending} />}
       </Group>

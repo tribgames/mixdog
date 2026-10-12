@@ -8,6 +8,10 @@ import {
   setBuiltinInstalledInConfig,
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
+import {
+  INSTRUCTION_FILES_MODES,
+  normalizeInstructionFilesMode,
+} from '../runtime/shared/instruction-files-mode.mjs';
 import { getEmbeddingInfo } from '../runtime/memory/lib/embedding-provider.mjs';
 import { onnxRuntimeSupported } from '../runtime/shared/onnx-runtime-support.mjs';
 import {
@@ -79,6 +83,7 @@ export function createBuiltinToolSettings(
       const localProvider = getLocalProviderStatus?.() || {};
       const localProviderRuntimeInstalled = localProvider?.runtime?.installed === true;
       return {
+        instructionFiles: normalizeInstructionFilesMode(config?.instructionFiles),
         webSearch: { enabled: webSearchEnabled() },
         memory: {
           enabled: memoryToolsEnabledFn(),
@@ -115,6 +120,16 @@ export function createBuiltinToolSettings(
       saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'webSearch', enabled !== false));
       // Empty/reserved sessions rebuild now so session entry does not still
       // advertise web_search. A conversation keeps its frozen schema.
+      await refreshEmptySessionToolPolicy?.();
+      return this.getToolModuleSettings();
+    },
+    /** Which user instruction files (AGENTS.md / CLAUDE.md) new sessions load:
+     *  'all' | 'agents' | 'claude' | 'off'. The empty session rebuilds now. */
+    async setInstructionFiles(mode) {
+      if (!INSTRUCTION_FILES_MODES.includes(mode)) {
+        throw new TypeError(`Instruction files must be one of ${INSTRUCTION_FILES_MODES.join(', ')}.`);
+      }
+      saveConfigAndAdopt({ ...getConfig(), instructionFiles: mode });
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },

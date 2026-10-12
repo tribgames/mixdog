@@ -1271,6 +1271,8 @@
   "Expose the repository locator tool to new sessions.": "向新工作階段公開儲存庫定位工具。",
   "Expose web search and fetch tools to new sessions.": "向新工作階段公開 Web 搜尋與擷取工具。",
   "Expose web search and web fetch tools to new sessions.": "向新工作階段提供網路搜尋與網路擷取工具。",
+  "Instruction files": "指示檔案",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "在新工作階段中自動包含主目錄與專案資料夾中的 AGENTS.md / CLAUDE.md 規則。",
   "Extension type": "擴充功能類型",
   "extensionless": "無副檔名",
   "Extensions": "擴充功能",

@@ -54,6 +54,7 @@ import { createResourceApi } from '../resource-api.mjs';
 import { createModelRouteApi } from '../model-route-api.mjs';
 import { createWorkflowAgentsApi } from '../workflow-agents-api.mjs';
 import { createToolPolicyRefresh } from '../tool-policy-refresh.mjs';
+import { loadInstructionFilesContext } from '../../runtime/agent/orchestrator/context/instruction-files.mjs';
 import { createSessionTurnApi } from '../session-turn-api.mjs';
 import { createGoalFacadeApi } from '../goal-facade-api.mjs';
 import { createRuntimeReviewApi } from '../runtime-review-api.mjs';
@@ -123,6 +124,10 @@ function wireToolPolicyRefresh(boot) {
     modelStandaloneTools: boot.modelStandaloneTools,
     featureDisallowedTools: boot.featureDisallowedTools,
     loadCoreMemoryContext: boot.loadCoreMemoryContext,
+    loadInstructionFilesContext: (session) =>
+      session.skipInstructionFiles
+        ? ''
+        : loadInstructionFilesContext({ mode: rt.config?.instructionFiles, cwd: session.cwd }),
     activeWorkflowContext: workflowHelpers.activeWorkflowContext,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
   });

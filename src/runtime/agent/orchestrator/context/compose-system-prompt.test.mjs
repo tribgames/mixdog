@@ -36,6 +36,27 @@ test('composeSystemPrompt omits empty optional slices without rewriting present 
   assert.equal(sessionMarkerCore, '# Active Workflow: Solo');
 });
 
+test('instruction files ride the BP3 core right after core memory; skip.claudemd drops them', () => {
+  const opts = {
+    workflowContext: '# Active Workflow: Solo',
+    roleRules: '# General',
+    coreMemoryContext: '- memo',
+    instructionFilesContext: '# Instruction Files\n\n## /home/u/.codex/AGENTS.md\n\nrule',
+    environmentContext: '- Shell: Bash.',
+    skipRoleCatalog: true,
+  };
+  const { sessionMarkerCore, sessionEnvironment } = composeSystemPrompt(opts);
+  assert.equal(
+    sessionMarkerCore,
+    '# Active Workflow: Solo\n\n---\n\n# General\n\n---\n\n# Core Memory\n- memo\n\n---\n\n# Instruction Files\n\n## /home/u/.codex/AGENTS.md\n\nrule'
+  );
+  assert.doesNotMatch(sessionEnvironment, /Instruction Files/);
+  const skipped = composeSystemPrompt({ ...opts, profile: { skip: { claudemd: true } } });
+  assert.doesNotMatch(skipped.sessionMarkerCore, /Instruction Files/);
+  const noMemory = composeSystemPrompt({ ...opts, coreMemoryContext: '' });
+  assert.match(noMemory.sessionMarkerCore, /# General\n\n---\n\n# Instruction Files/);
+});
+
 test('public worker prompt includes that role catalog heading and omits other roles', () => {
   const { sessionMarkerCore } = composeSystemPrompt({
     agent: 'worker',

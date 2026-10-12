@@ -51,6 +51,28 @@ test('feature and summary status omit details retained by dedicated domains', as
   assert.deepEqual(details.info, memory.info);
 });
 
+test('set_instruction_files validates the mode and features status reports it', async () => {
+  const calls = [];
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      getToolModuleSettings: () => ({ instructionFiles: 'claude', git: { enabled: true, installed: true } }),
+      setInstructionFiles: async (mode) => {
+        calls.push(mode);
+        return { instructionFiles: mode };
+      },
+    }),
+  });
+  const result = await run(executor, { action: 'set_instruction_files', instructionFiles: 'agents' });
+  assert.deepEqual(calls, ['agents']);
+  assert.equal(result.instructionFiles, 'agents');
+  await assert.rejects(
+    run(executor, { action: 'set_instruction_files', instructionFiles: 'some' }),
+    /instructionFiles must be one of:? all, agents, claude, off/
+  );
+  const features = await run(executor, { action: 'status', domain: 'features' });
+  assert.equal(features.instructionFiles, 'claude');
+});
+
 test('tool definition: schema enums mirror the exported action/domain/target lists', () => {
   assert.equal(SETUP_TOOL_DEFS.length, 1);
   const [def] = SETUP_TOOL_DEFS;

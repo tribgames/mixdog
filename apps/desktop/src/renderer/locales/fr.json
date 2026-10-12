@@ -1353,6 +1353,8 @@
   "Expose the repository locator tool to new sessions.": "Exposez l'outil de localisation de référentiel à de nouvelles sessions.",
   "Expose web search and fetch tools to new sessions.": "Exposez les outils de recherche et de récupération Web à de nouvelles sessions.",
   "Expose web search and web fetch tools to new sessions.": "Exposer les outils de recherche web et d'extraction web aux nouvelles sessions.",
+  "Instruction files": "Fichiers d'instructions",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "Inclure automatiquement les règles AGENTS.md / CLAUDE.md du dossier personnel et du dossier du projet dans les nouvelles sessions.",
   "Extension type": "Type d'extension",
   "extensionless": "sans extension",
   "Extensions": "Extensions",

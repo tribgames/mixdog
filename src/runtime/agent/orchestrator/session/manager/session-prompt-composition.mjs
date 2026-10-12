@@ -3,6 +3,7 @@
 // the volatile environment block that closes them, and the seed messages that
 // carry all four to the provider with their cache tiers.
 import { buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
+import { configuredInstructionFilesMode, loadInstructionFilesContext } from '../../context/instruction-files.mjs';
 import {
   _buildBaseRules,
   _buildAgentRules,
@@ -97,6 +98,12 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   // as [session, bp3EnvironmentContext], so the language block must
   // already sit at the end of this string to stay last after a refresh.
   const environmentTailContext = [shellEnvironmentContext, languageContext].filter(Boolean).join('\n\n---\n\n');
+  // User instruction files (AGENTS.md / CLAUDE.md, global then the project
+  // root's); a tool-free role and a profile skipping `claudemd` get none.
+  const instructionFilesContext =
+    toolFreeRole || profile?.skip?.claudemd
+      ? ''
+      : loadInstructionFilesContext({ mode: configuredInstructionFilesMode(), cwd: opts.cwd });
   const composed = composeSystemPrompt({
     userPrompt: opts.systemPrompt,
     agentRules: injectedRules || undefined,
@@ -108,6 +115,7 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     agent: resolvedAgent,
     workflowContext: opts.workflowContext || null,
     coreMemoryContext: opts.coreMemoryContext || null,
+    instructionFilesContext: instructionFilesContext || null,
     skillManifest: buildSkillManifest(skills),
     environmentContext: shellEnvironmentContext,
     provider: providerName || null,

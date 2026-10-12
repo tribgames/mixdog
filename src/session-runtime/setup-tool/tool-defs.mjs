@@ -5,6 +5,7 @@ import {
   SETUP_MCP_SCHEMA,
 } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
+import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
@@ -78,6 +79,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_memory_enabled: 'enabled',
   set_recap_enabled: 'enabled',
   set_web_search_enabled: 'enabled',
+  set_instruction_files: 'instructionFiles',
   set_builtin_enabled: 'name enabled',
   install_builtin: 'name',
   install_local_model: 'modelId',
@@ -211,6 +213,12 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'boolean',
           description:
             'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_mcp_enabled, set_plugin_enabled).',
+        },
+        instructionFiles: {
+          type: 'string',
+          enum: [...INSTRUCTION_FILES_MODES],
+          description:
+            'set_instruction_files: which user instruction files new sessions load (global ~/.codex/AGENTS.md, ~/.claude/CLAUDE.md, then the Project root\'s AGENTS.md/CLAUDE.md).',
         },
         name: {
           type: 'string',

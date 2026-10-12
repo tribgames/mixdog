@@ -130,6 +130,7 @@ export function createSessionSettingsApi(bag) {
     getDeveloperSettings: () => runtime.getDeveloperSettings?.(),
     setDeveloperOption: lockedRuntimeCall((id, enabled) => runtime.setDeveloperOption?.(id, enabled)),
     setWebSearchEnabled: lockedRuntimeCall((enabled) => runtime.setWebSearchEnabled?.(enabled)),
+    setInstructionFiles: lockedRuntimeCall((mode) => runtime.setInstructionFiles?.(mode)),
     setMemoryToolsEnabled: lockedRuntimeCall((enabled) => runtime.setMemoryToolsEnabled?.(enabled)),
     setBuiltinToolEnabled: lockedRuntimeCall((name, enabled) => runtime.setBuiltinToolEnabled?.(name, enabled)),
     installBuiltinFeature: lockedRuntimeCall((name) => runtime.installBuiltinFeature?.(name)),

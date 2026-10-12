@@ -1271,6 +1271,8 @@
   "Expose the repository locator tool to new sessions.": "リポジトリ ロケーター ツールを新しいセッションに公開します。",
   "Expose web search and fetch tools to new sessions.": "Web 検索およびフェッチ ツールを新しいセッションに公開します。",
   "Expose web search and web fetch tools to new sessions.": "新しいセッションで Web 検索および Web 取得ツールを使用できるようにします。",
+  "Instruction files": "指示ファイル",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "ホームフォルダとプロジェクトフォルダにある AGENTS.md / CLAUDE.md のルールを新しいセッションに自動的に含めます。",
   "Extension type": "拡張機能の種類",
   "extensionless": "拡張子なし",
   "Extensions": "拡張機能",

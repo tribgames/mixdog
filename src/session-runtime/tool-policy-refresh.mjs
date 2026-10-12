@@ -72,6 +72,7 @@ export function createToolPolicyRefresh({
   modelStandaloneTools,
   featureDisallowedTools,
   loadCoreMemoryContext,
+  loadInstructionFilesContext,
   activeWorkflowContext,
   invalidatePreSessionToolSurface,
 }) {
@@ -139,6 +140,8 @@ export function createToolPolicyRefresh({
       skipRoleCatalog: true,
       workflowContext,
       coreMemoryContext,
+      // The rebuilt core keeps (or newly applies) the instruction-files setting.
+      instructionFilesContext: loadInstructionFilesContext?.(session) || null,
       // BP3 rebuild must keep the trailing language block, or a workflow
       // switch would silently drop the response-language directive.
       languageContext: _buildLeadLanguageContext(),

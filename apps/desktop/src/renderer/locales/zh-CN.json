@@ -1271,6 +1271,8 @@
   "Expose the repository locator tool to new sessions.": "向新会话公开存储库定位器工具。",
   "Expose web search and fetch tools to new sessions.": "向新会话公开 Web 搜索和获取工具。",
   "Expose web search and web fetch tools to new sessions.": "向新会话提供网络搜索和网络获取工具。",
+  "Instruction files": "指令文件",
+  "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions.": "在新会话中自动包含主目录和项目文件夹中的 AGENTS.md / CLAUDE.md 规则。",
   "Extension type": "扩展类型",
   "extensionless": "无扩展名",
   "Extensions": "扩展",

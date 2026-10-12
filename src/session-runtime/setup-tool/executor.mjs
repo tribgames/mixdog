@@ -5,6 +5,7 @@
  *  registers the tool executor before it finishes assembling the API object. */
 import { builtinFeatureActive } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
+import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
 import { executeExtendedSetupAction, publicAutomation, publicHookRule, validateMcpInput } from './extended-actions.mjs';
@@ -205,6 +206,8 @@ async function featureStatus(rt, getConfig) {
   return {
     ...Object.fromEntries(
       Object.entries(rt.getToolModuleSettings?.() || {}).map(([name, settings]) => {
+        // Scalar settings (instructionFiles mode) pass through as-is.
+        if (!settings || typeof settings !== 'object') return [name, settings];
         const keys = [...FEATURE_STATUS_KEYS, ...(FEATURE_EXTRA_STATUS_KEYS[name] || [])];
         return [name, Object.fromEntries(Object.entries(settings).filter(([key]) => keys.includes(key)))];
       })
@@ -448,6 +451,8 @@ const SETUP_ACTION_HANDLERS = {
   set_memory_enabled: (rt, args) => rt.setMemoryToolsEnabled(requireBoolean(args.enabled)),
   set_recap_enabled: (rt, args) => rt.setRecapEnabled(requireBoolean(args.enabled)),
   set_web_search_enabled: (rt, args) => rt.setWebSearchEnabled(requireBoolean(args.enabled)),
+  set_instruction_files: (rt, args) =>
+    rt.setInstructionFiles(requireEnum(args.instructionFiles, INSTRUCTION_FILES_MODES, 'instructionFiles')),
   set_builtin_enabled: (rt, args, { requestDesktop }) => {
     const name = requireEnum(args.name, SETUP_BUILTIN_TOGGLE_FEATURES, 'name');
     if (DESKTOP_HOSTED_FEATURES.includes(name)) return requestDesktop(args);

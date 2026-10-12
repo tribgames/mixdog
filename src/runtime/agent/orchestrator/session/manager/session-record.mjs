@@ -78,6 +78,9 @@ export function sessionOriginFields(opts, { profile, presetObj, providerCacheOpt
     // Agent Runtime metadata — optional. Applied on every ask() to merge
     // profile-driven cache settings into provider sendOpts.
     profileId: profile?.id || null,
+    // A profile skipping `claudemd` keeps instruction files out of later
+    // empty-session prompt rebuilds too (tool-policy-refresh.mjs).
+    skipInstructionFiles: profile?.skip?.claudemd === true,
     permissionMode: opts.permissionMode ?? null,
     providerCacheOpts: providerCacheOpts || null,
     parentSessionId: opts.parentSessionId || null,

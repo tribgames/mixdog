@@ -27,6 +27,7 @@ Read this when choosing a `setup` mutation.
 | Memory capability | `set_memory_enabled` |
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
+| Which user instruction files (AGENTS.md / CLAUDE.md) new sessions load: all, agents, claude, or off | `set_instruction_files` |
 | Git, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice enabled state | `set_builtin_enabled` |
 | Git, Memory, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice preparation | `install_builtin` |
 | Managed local model installation | `install_local_model` |
