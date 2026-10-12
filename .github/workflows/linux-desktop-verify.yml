@@ -273,7 +273,7 @@ jobs:
           grep -q 'apparmor_parser' deb-postinst.txt   # electron-builder AppArmor handling preserved
           dpkg-deb -I "$deb" postrm | tee deb-postrm.txt
           grep -q 'apparmor_parser --remove' deb-postrm.txt
-          sudo apt-get install -y "$deb"
+          sudo apt-get install -y "./$deb"
           rule=/usr/lib/udev/rules.d/70-mixdog-uinput.rules
           conf=/usr/lib/modules-load.d/mixdog-uinput.conf
           test -f "$rule"; test -f "$conf"
