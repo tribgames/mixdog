@@ -199,6 +199,7 @@ export const DESKTOP_IPC = {
   gitReviewDiff: 'mixdog:git-review-diff',
   gitCliStatus: 'mixdog:git-cli-status',
   installGitCli: 'mixdog:install-git-cli',
+  requestLinuxInputAccess: 'mixdog:request-linux-input-access',
   libreOfficeStatus: 'mixdog:libreoffice-status',
   installLibreOffice: 'mixdog:install-libreoffice',
   githubCliStatus: 'mixdog:github-cli-status',

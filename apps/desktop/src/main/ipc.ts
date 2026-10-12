@@ -13,6 +13,7 @@ import type { BrowserHost } from './browser/host';
 import { registerBrowserIpc } from './ipc-browser';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerProjectIpc } from './ipc-projects';
+import { requestLinuxInputAccess } from './linux-input-access';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
 import type { RemoteHostWindows } from './remote-host-windows';
@@ -201,6 +202,7 @@ export function registerDesktopIpc(
     describeLocalPaths: (value) => selectedFiles.describe(value),
   });
   registerProjectIpc({ handle, host, shell, invokeDesktopOperation, operations: serviceOperations });
+  handle(DESKTOP_IPC.requestLinuxInputAccess, () => requestLinuxInputAccess());
   registerProjectFileIpc({
     app,
     handle,

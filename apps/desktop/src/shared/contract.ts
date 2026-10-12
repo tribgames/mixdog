@@ -168,6 +168,8 @@ export interface DesktopApi {
    *  login/logout. Desktop-only; the remote shim omits the whole family. */
   gitCliStatus?(): Promise<DesktopGitCliStatus>;
   installGitCli?(): Promise<DesktopGitCliStatus>;
+  /** Linux, non-.deb installs: one polkit prompt installs the /dev/uinput access rule. */
+  requestLinuxInputAccess?(): Promise<{ ok: true } | { ok: false; reason: 'cancelled' | 'pkexec_missing' | 'failed' }>;
   /** Extensions → Office: LibreOffice dependency probe + guided install. */
   libreOfficeStatus?(): Promise<DesktopLibreOfficeStatus>;
   installLibreOffice?(): Promise<DesktopLibreOfficeStatus>;

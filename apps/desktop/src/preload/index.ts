@@ -84,6 +84,7 @@ const api: DesktopApi = {
   starGithub: () => ipcRenderer.invoke(DESKTOP_IPC.starGithub),
   gitCliStatus: () => ipcRenderer.invoke(DESKTOP_IPC.gitCliStatus),
   installGitCli: () => ipcRenderer.invoke(DESKTOP_IPC.installGitCli),
+  requestLinuxInputAccess: () => ipcRenderer.invoke(DESKTOP_IPC.requestLinuxInputAccess),
   libreOfficeStatus: () => ipcRenderer.invoke(DESKTOP_IPC.libreOfficeStatus),
   installLibreOffice: () => ipcRenderer.invoke(DESKTOP_IPC.installLibreOffice),
   githubCliStatus: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliStatus),
