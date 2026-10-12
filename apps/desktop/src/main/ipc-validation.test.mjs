@@ -22,6 +22,27 @@ test('an editor save without an encoding change passes the IPC and remote bounda
   }
 });
 
+test('saveStarterGuideState passes only a well-formed guide state', () => {
+  const save = (state) => requiredDesktopCapabilityRequest({ capability: 'saveStarterGuideState', args: [state] });
+  assert.deepEqual(save({ closed: true, welcomed: true, visited: ['provider', 'remote'] }).args, [
+    { closed: true, welcomed: true, visited: ['provider', 'remote'] },
+  ]);
+  for (const bad of [
+    'junk',
+    null,
+    [],
+    {},
+    { closed: 1, welcomed: true, visited: [] },
+    { closed: false, welcomed: false },
+    { closed: false, welcomed: false, visited: ['nope'] },
+    { closed: false, welcomed: false, visited: [7] },
+    { closed: false, welcomed: false, visited: [], extra: true },
+  ]) {
+    assert.throws(() => save(bad), TypeError, JSON.stringify(bad));
+  }
+  assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'saveStarterGuideState', args: [] }), TypeError);
+});
+
 test('the turn review bar reaches its diff with only a boolean refresh option', () => {
   for (const args of [
     [],

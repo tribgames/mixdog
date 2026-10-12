@@ -1,6 +1,13 @@
 // Onboarding, the user profile (/profile) and the disabled-skill list. Methods
 // reference `this.*` so cross-member calls resolve against the facade object
 // these are spread into.
+import {
+  mergeStarterGuide,
+  requiredStarterGuideState,
+  storedStarterGuide,
+  withStarterGuideOnCompletion,
+} from './starter-guide-state.mjs';
+
 export function createProfileSettings({
   getConfig,
   adoptConfig,
@@ -19,7 +26,22 @@ export function createProfileSettings({
         version: nextConfig?.onboarding?.version || 0,
         default: nextConfig?.default || null,
         workflowRoutes: summarizeWorkflowRoutes(nextConfig),
+        starterGuide: storedStarterGuide(nextConfig?.onboarding?.starterGuide),
       };
+    },
+    // Persist the desktop "Getting started" guide state beside the onboarding
+    // flags so it survives a lost renderer localStorage. Malformed input is
+    // rejected; a valid save merges forward, so a stale one cannot reopen a
+    // closed guide or forget a visited step.
+    saveStarterGuideState(state) {
+      const next = requiredStarterGuideState(state);
+      const config = getConfig();
+      const onboarding = config.onboarding || {};
+      saveConfigAndAdopt({
+        ...config,
+        onboarding: { ...onboarding, starterGuide: mergeStarterGuide(storedStarterGuide(onboarding.starterGuide), next) },
+      });
+      return this.getOnboardingStatus();
     },
     // Mark onboarding as done WITHOUT touching routes/agents/provider. Used by
     // the TUI "skip" (Esc) path so the wizard doesn't reappear next launch,
@@ -27,13 +49,13 @@ export function createProfileSettings({
     skipOnboarding() {
       const config = getConfig();
       const nextConfig = { ...config };
-      nextConfig.onboarding = {
+      nextConfig.onboarding = withStarterGuideOnCompletion(config.onboarding, {
         ...(nextConfig.onboarding || {}),
         completed: true,
         version: ONBOARDING_VERSION,
         completedAt: new Date().toISOString(),
         skipped: true,
-      };
+      });
       saveConfigAndAdopt(nextConfig);
       return this.getOnboardingStatus();
     },

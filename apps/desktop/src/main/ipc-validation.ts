@@ -197,6 +197,7 @@ const CAPABILITY_ARITY = {
   getOnboardingStatus: [0, 0],
   skipOnboarding: [0, 0],
   completeOnboarding: [0, 1],
+  saveStarterGuideState: [1, 1],
   loginOAuthProvider: [1, 1],
   beginOAuthProviderLogin: [1, 2],
   getOAuthProviderLoginStatus: [1, 1],
@@ -729,6 +730,27 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
   };
 }
 
+// Mirrors the runtime schema (src/session-runtime/starter-guide-state.mjs).
+const STARTER_GUIDE_STEPS = new Set(['provider', 'project', 'workflow', 'extensions', 'remote']);
+
+function requiredStarterGuideState(value: unknown): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('starter guide state must be an object.');
+  }
+  const state = value as Record<string, unknown>;
+  requireAllowedKeys(state, new Set(['closed', 'welcomed', 'visited']), 'starter guide state');
+  if (typeof state.closed !== 'boolean' || typeof state.welcomed !== 'boolean') {
+    throw new TypeError('starter guide closed and welcomed must be booleans.');
+  }
+  if (
+    !Array.isArray(state.visited) ||
+    state.visited.length > STARTER_GUIDE_STEPS.size * 2 ||
+    state.visited.some((step) => typeof step !== 'string' || !STARTER_GUIDE_STEPS.has(step))
+  ) {
+    throw new TypeError('starter guide visited must list known steps.');
+  }
+}
+
 export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabilityRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('capability request is invalid.');
@@ -823,6 +845,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   ) {
     requiredCustomProviderInput(args[0], capability === 'discoverCustomProviderModels');
   }
+  if (capability === 'saveStarterGuideState') requiredStarterGuideState(args[0]);
   if (capability === 'updateCustomProviderModel') requiredCustomModelPatch(args[0], args[1], args[2]);
   if (capability === 'removeCustomProvider') requiredString(args[0], 'custom provider id', 128);
   if (capability === 'saveOpenAIUsageSessionKey') {

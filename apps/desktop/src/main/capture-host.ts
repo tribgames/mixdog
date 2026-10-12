@@ -574,7 +574,8 @@ export class CaptureService implements DesktopService {
     if (
       capability === 'getOnboardingStatus' ||
       capability === 'skipOnboarding' ||
-      capability === 'completeOnboarding'
+      capability === 'completeOnboarding' ||
+      capability === 'saveStarterGuideState'
     ) {
       return { value: { completed: true } as T, snapshot: this.getSnapshot() };
     }

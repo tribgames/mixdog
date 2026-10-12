@@ -13,6 +13,7 @@ interface DesktopOnboardingStatus {
   version: number;
   default: unknown;
   workflowRoutes: unknown[];
+  starterGuide: unknown;
 }
 
 /** Same resolution the runtime uses for its shared config file. */
@@ -36,6 +37,7 @@ export async function readOnboardingStatusFromDisk(): Promise<DesktopOnboardingS
       // Route summaries need the live registry; the boot probe only reads
       // `completed`, and the wizard re-reads through the engine once it opens.
       workflowRoutes: [],
+      starterGuide: onboarding?.starterGuide ?? null,
     };
   } catch (reason) {
     if ((reason as NodeJS.ErrnoException)?.code === 'ENOENT') {
@@ -44,6 +46,7 @@ export async function readOnboardingStatusFromDisk(): Promise<DesktopOnboardingS
         version: 0,
         default: null,
         workflowRoutes: [],
+        starterGuide: null,
       };
     }
     return null;

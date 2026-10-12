@@ -32,32 +32,97 @@ interface GuideState {
   visited: StepId[];
 }
 
+const STEP_IDS: readonly StepId[] = ['provider', 'project', 'workflow', 'extensions', 'remote'];
+
+function normalizeGuideState(value: unknown): GuideState {
+  const parsed = record(value);
+  const visited = Array.isArray(parsed.visited) ? parsed.visited : [];
+  return {
+    closed: parsed.closed === true,
+    welcomed: parsed.welcomed === true,
+    visited: STEP_IDS.filter((step) => visited.includes(step)),
+  };
+}
+
 function readGuideState(): GuideState {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}') as Partial<GuideState>;
-    return {
-      closed: parsed.closed === true,
-      welcomed: parsed.welcomed === true,
-      visited: Array.isArray(parsed.visited) ? parsed.visited : [],
-    };
+    return normalizeGuideState(JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}'));
   } catch {
-    return { closed: false, welcomed: false, visited: [] };
+    return normalizeGuideState(null);
   }
 }
 
-function writeGuideState(state: GuideState): void {
+function hasLocalGuideState(): boolean {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** The config copy, or null when the config has none. */
+function storedGuideState(value: unknown): GuideState | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? normalizeGuideState(value) : null;
+}
+
+/** closed/welcomed: either; visited: union. Nothing ever moves backward. */
+function mergeGuideState(a: GuideState, b: GuideState): GuideState {
+  return {
+    closed: a.closed || b.closed,
+    welcomed: a.welcomed || b.welcomed,
+    visited: STEP_IDS.filter((step) => a.visited.includes(step) || b.visited.includes(step)),
+  };
+}
+
+const FRESH_GUIDE: GuideState = { closed: false, welcomed: false, visited: [] };
+/** A first onboarding completion stores a fresh guide state in the config
+ *  (src/session-runtime/starter-guide-state.mjs). Onboarding done with no copy
+ *  in the config nor in localStorage is therefore a profile onboarded before
+ *  the guide was persisted whose localStorage was since lost (Chromium
+ *  recreates a missing Local Storage database empty) — not a new user. */
+const RETIRED_GUIDE: GuideState = { closed: true, welcomed: true, visited: [] };
+
+function sameGuideState(a: GuideState, b: GuideState): boolean {
+  return (
+    a.closed === b.closed &&
+    a.welcomed === b.welcomed &&
+    a.visited.length === b.visited.length &&
+    a.visited.every((step) => b.visited.includes(step))
+  );
+}
+
+/** The config file is the durable copy (the renderer's localStorage can be
+ *  lost); localStorage stays as the fast local one. */
+type GuideApi = Window['mixdogDesktop'] | undefined;
+
+function writeLocalGuideState(state: GuideState): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
-    /* the guide simply reappears next launch */
+    /* the config copy still keeps it */
+  }
+}
+
+function writeGuideState(api: GuideApi, state: GuideState): void {
+  writeLocalGuideState(state);
+  saveGuideStateToDisk(api, state);
+}
+
+function saveGuideStateToDisk(api: GuideApi, state: GuideState): void {
+  try {
+    void Promise.resolve(api?.invokeCapability?.({ capability: 'saveStarterGuideState', args: [state] })).catch(
+      () => undefined
+    );
+  } catch {
+    /* the local copy still holds it */
   }
 }
 
 /** State updater that also persists a real change. */
-function persisted(change: (current: GuideState) => GuideState) {
+function persisted(api: GuideApi, change: (current: GuideState) => GuideState) {
   return (current: GuideState) => {
     const next = change(current);
-    if (next !== current) writeGuideState(next);
+    if (next !== current) writeGuideState(api, next);
     return next;
   };
 }
@@ -98,6 +163,10 @@ export function StarterGuide({
 }) {
   const api = window.mixdogDesktop;
   const [state, setState] = useState(readGuideState);
+  // Until the config copy has been read, the guide stays hidden: a lost
+  // localStorage must not flash a guide the user already closed.
+  const [diskRead, setDiskRead] = useState(false);
+  const [hadLocalState] = useState(hasLocalGuideState);
   const [expanded, setExpanded] = useState(false);
   // Closing retires the guide for good, so X asks once before it does.
   const [confirmClose, setConfirmClose] = useState(false);
@@ -107,8 +176,38 @@ export function StarterGuide({
   const pillRef = useRef<HTMLElement>(null);
   const listId = useId();
   const { values, loading } = useSidebarReferences(api, REFERENCE_KEYS, !state.closed);
-  const update = (change: (current: GuideState) => GuideState) => setState(persisted(change));
+  const update = (change: (current: GuideState) => GuideState) => setState(persisted(api, change));
   const visit = (step: StepId) => update(markVisited(step));
+
+  // Merge the config copy with localStorage and write the merge back once
+  // when the config copy lacks any of it.
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api?.invokeCapability?.({ capability: 'getOnboardingStatus' }))
+      .then((result) => {
+        if (!live) return;
+        const status = record(result?.value);
+        const stored = storedGuideState(status.starterGuide);
+        const disk = stored ?? (!hadLocalState && status.completed === true ? RETIRED_GUIDE : FRESH_GUIDE);
+        setState((current) => {
+          const merged = mergeGuideState(current, disk);
+          if (!sameGuideState(merged, stored ?? FRESH_GUIDE)) saveGuideStateToDisk(api, merged);
+          if (sameGuideState(merged, current)) return current;
+          writeLocalGuideState(merged);
+          return merged;
+        });
+        setDiskRead(true);
+      })
+      .catch(() => {
+        // Unread config: a local copy still decides; with none, a returning
+        // user cannot be told from a new one, so the guide waits for a launch
+        // that can read it.
+        if (live && hadLocalState) setDiskRead(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, hadLocalState]);
 
   const remotePaired = Boolean(api && (getCachedConnectionInfo(api)?.clients?.length ?? 0) > 0);
   // A paired device completes the step for good. The cached connection info
@@ -117,8 +216,8 @@ export function StarterGuide({
   // came back.
   // biome-ignore lint/correctness/useExhaustiveDependencies: visit only persists the flag.
   useEffect(() => {
-    if (remotePaired && !state.visited.includes('remote')) visit('remote');
-  }, [remotePaired, state.visited]);
+    if (diskRead && remotePaired && !state.visited.includes('remote')) visit('remote');
+  }, [diskRead, remotePaired, state.visited]);
   const viewIcon = (id: WorkbenchSideViewId, fallback: LucideIcon) => descriptors.get(id)?.icon ?? fallback;
   // Guided order: a model to talk to, a folder to work in, who does the work,
   // then reaching it from anywhere and growing its toolset.
@@ -323,7 +422,7 @@ export function StarterGuide({
   // Completing a step says so right away, whichever way it happened (a tour
   // finished, a provider connected, a project added).
   useEffect(() => {
-    if (loading) return undefined;
+    if (loading || !diskRead) return undefined;
     const before = previousDone.current;
     previousDone.current = doneKey;
     if (before === null) return undefined;
@@ -333,16 +432,16 @@ export function StarterGuide({
     setJustDone(added[added.length - 1] as StepId);
     const timer = window.setTimeout(() => setJustDone(null), 3200);
     return () => window.clearTimeout(timer);
-  }, [doneKey, loading]);
+  }, [doneKey, loading, diskRead]);
   const justDoneLabel = justDone ? steps.find((step) => step.id === justDone)?.label : undefined;
 
   useEffect(() => {
     // Finishing retires the guide for good: a provider disconnected later
     // must not resurrect a checklist the user already completed.
-    if (finished && !loading) {
-      setState(persisted((current) => (current.closed ? current : { ...current, closed: true })));
+    if (finished && !loading && diskRead) {
+      setState(persisted(api, (current) => (current.closed ? current : { ...current, closed: true })));
     }
-  }, [finished, loading]);
+  }, [api, finished, loading, diskRead]);
 
   // An open checklist folds away when anything outside the guide is pressed
   // (user: 시작 가이드 버튼 다른 영역 누르면 닫히는 형태로).
@@ -358,7 +457,7 @@ export function StarterGuide({
 
   // No pill until the real state is known, so it never paints 0 and jumps.
   // A running tour outlives the pill: its last step may be what finishes it.
-  const hidden = state.closed || finished || loading;
+  const hidden = state.closed || finished || loading || !diskRead;
   const welcoming = !hidden && !state.welcomed && !onboardingActive && !tour;
   const answerWelcome = () => update((current) => ({ ...current, welcomed: true }));
   const pill = hidden ? null : (

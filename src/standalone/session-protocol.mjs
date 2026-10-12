@@ -189,6 +189,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'setWebhookEnabled',
   'setWorkflow',
   'setOrchestrationMode',
+  'saveStarterGuideState',
   'skipOnboarding',
   'startMediaJob',
   'switchContext',

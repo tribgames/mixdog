@@ -12,6 +12,7 @@ import {
 } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { ONBOARDING_VERSION } from '../quick-web-search-models.mjs';
 import { canonicalizeAgentRouteStorage } from '../../runtime/shared/agent-route-config.mjs';
+import { withStarterGuideOnCompletion } from '../starter-guide-state.mjs';
 import { resolveDataDir } from './shared.mjs';
 
 // Onboarding slot picks: lead → default preset, agent → worker route,
@@ -91,12 +92,12 @@ export function createOnboardingApi(deps) {
         ]);
         nextConfig.agents = applyAgentRouteInput(agentInput, draft.agentRoutes, configurableIds);
       }
-      nextConfig.onboarding = {
+      nextConfig.onboarding = withStarterGuideOnCompletion(config.onboarding, {
         ...(nextConfig.onboarding || {}),
         completed: true,
         version: ONBOARDING_VERSION,
         completedAt: new Date().toISOString(),
-      };
+      });
       if (payload.webSearchRoute) {
         const webSearchToSave = webSearchRouteToSave(payload.webSearchRoute);
         if (webSearchToSave) nextConfig.webSearchRoute = webSearchToSave;

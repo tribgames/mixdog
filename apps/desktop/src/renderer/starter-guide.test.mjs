@@ -26,16 +26,42 @@ async function settle() {
   });
 }
 
-async function mount(t, { connected = false, projects = [], clearStorage = true, onboardingActive = false } = {}) {
+const FRESH = { closed: false, welcomed: false, visited: [] };
+
+async function mount(
+  t,
+  {
+    connected = false,
+    projects = [],
+    clearStorage = true,
+    onboardingActive = false,
+    disk = FRESH,
+    completed = true,
+    statusError = false,
+    saveError = false,
+  } = {}
+) {
   if (clearStorage) window.localStorage.clear();
   resetSidebarReferenceCache();
+  const saved = [];
   window.mixdogDesktop = {
-    invokeCapability: async ({ capability }) => ({
-      value: capability === 'getProviderSetup' ? { api: [], oauth: [{ id: 'openai', authenticated: connected }] } : {},
-    }),
+    invokeCapability: async ({ capability, args }) => {
+      if (capability === 'saveStarterGuideState') {
+        saved.push(args[0]);
+        if (saveError) throw new Error('save rejected');
+      }
+      if (capability === 'getOnboardingStatus') {
+        if (statusError) throw new Error('status rejected');
+        return { value: { completed, starterGuide: disk } };
+      }
+      return {
+        value:
+          capability === 'getProviderSetup' ? { api: [], oauth: [{ id: 'openai', authenticated: connected }] } : {},
+      };
+    },
     listProjects: async () => projects,
   };
-  const opened = { views: [], settings: [], settingsClosed: 0 };
+  const opened = { views: [], settings: [], settingsClosed: 0, saved };
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -59,7 +85,7 @@ async function mount(t, { connected = false, projects = [], clearStorage = true,
   });
   await render();
   await settle();
-  return { opened, render };
+  return { opened, render, saved };
 }
 
 const pill = () => document.querySelector('.starter-guide-toggle');
@@ -309,4 +335,124 @@ test('finishing every step retires the guide even if a provider is disconnected 
   assert.equal(document.querySelector('.starter-guide'), null);
   await mount(t, { connected: false, clearStorage: false });
   assert.equal(document.querySelector('.starter-guide'), null);
+});
+
+test('the guide stays closed when only the config file says closed', async (t) => {
+  const { saved } = await mount(t, { disk: { closed: true, welcomed: true, visited: ['workflow'] } });
+  assert.equal(document.querySelector('.starter-guide'), null);
+  assert.equal(document.querySelector('.starter-welcome'), null);
+  // The merge is mirrored into the fast local copy; the disk already has it.
+  assert.equal(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).closed, true);
+  assert.deepEqual(saved, []);
+});
+
+test('nothing shows until the config copy has been read', async (t) => {
+  window.localStorage.clear();
+  resetSidebarReferenceCache();
+  let release;
+  window.mixdogDesktop = {
+    invokeCapability: ({ capability }) =>
+      capability === 'getOnboardingStatus'
+        ? new Promise((resolve) => {
+            release = () => resolve({ value: { starterGuide: { closed: true, welcomed: true, visited: [] } } });
+          })
+        : Promise.resolve({ value: capability === 'getProviderSetup' ? { api: [], oauth: [] } : {} }),
+    listProjects: async () => [],
+  };
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+  const props = {
+    descriptors: new Map(),
+    onboardingActive: false,
+    onOpenView() {},
+    onOpenSettings() {},
+    onCloseSettings() {},
+  };
+  await act(async () => root.render(React.createElement(StarterGuide, props)));
+  await settle();
+  assert.equal(document.querySelector('.starter-guide'), null);
+  assert.equal(document.querySelector('.starter-welcome'), null);
+  await act(async () => release());
+  await settle();
+  assert.equal(document.querySelector('.starter-guide'), null);
+  assert.equal(document.querySelector('.starter-welcome'), null);
+});
+
+test('localStorage-only state is merged with the config copy and written to it once', async (t) => {
+  window.localStorage.clear();
+  window.localStorage.setItem(
+    'mixdog.desktop.starter-guide.v1',
+    JSON.stringify({ closed: false, welcomed: true, visited: ['extensions'] })
+  );
+  const { saved } = await mount(t, {
+    clearStorage: false,
+    disk: { closed: false, welcomed: false, visited: ['workflow'] },
+  });
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].welcomed, true);
+  assert.deepEqual([...saved[0].visited].sort(), ['extensions', 'workflow']);
+  assert.match(pill().textContent, /2\/5/);
+});
+
+test('a profile onboarded before the guide was persisted, whose localStorage was lost, keeps it closed', async (t) => {
+  // Installed-app evidence: onboarding completed 2026-10-01 with no
+  // starterGuide in mixdog-config.json, and the Local Storage database was
+  // recreated empty during the 1.1.0 session.
+  const { saved } = await mount(t, { disk: null, completed: true });
+  assert.equal(document.querySelector('.starter-guide'), null);
+  assert.equal(document.querySelector('.starter-welcome'), null);
+  assert.deepEqual(saved, [{ closed: true, welcomed: true, visited: [] }], 'the recovery is written to the config');
+  assert.equal(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).closed, true);
+});
+
+test('before onboarding completes, an empty profile is a new user and gets the guide', async (t) => {
+  const { saved } = await mount(t, { disk: null, completed: false });
+  assert.ok(document.querySelector('.starter-welcome'));
+  assert.deepEqual(saved, []);
+});
+
+test('an older profile with its local copy intact keeps its progress and backfills the config', async (t) => {
+  window.localStorage.clear();
+  window.localStorage.setItem(
+    'mixdog.desktop.starter-guide.v1',
+    JSON.stringify({ closed: false, welcomed: true, visited: ['workflow'] })
+  );
+  const { saved } = await mount(t, { disk: null, completed: true, clearStorage: false });
+  assert.match(pill().textContent, /1\/5/);
+  assert.deepEqual(saved, [{ closed: false, welcomed: true, visited: ['workflow'] }]);
+});
+
+test('a rejected status read keeps the guide hidden unless a local copy decides', async (t) => {
+  const { saved } = await mount(t, { statusError: true });
+  assert.equal(document.querySelector('.starter-guide'), null);
+  assert.equal(document.querySelector('.starter-welcome'), null);
+  assert.deepEqual(saved, []);
+  window.localStorage.setItem(
+    'mixdog.desktop.starter-guide.v1',
+    JSON.stringify({ closed: false, welcomed: true, visited: [] })
+  );
+  await mount(t, { statusError: true, clearStorage: false });
+  assert.match(pill().textContent, /0\/5/);
+});
+
+test('a rejected save still keeps the change locally', async (t) => {
+  const { saved } = await mount(t, { saveError: true });
+  await click(button('Maybe later'));
+  await settle();
+  assert.deepEqual(saved, [{ closed: false, welcomed: true, visited: [] }]);
+  assert.equal(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).welcomed, true);
+  assert.ok(pill());
+});
+
+test('every persisted change is written to localStorage and the config file', async (t) => {
+  const { saved } = await mount(t);
+  assert.deepEqual(saved, []);
+  await click(button('Maybe later'));
+  assert.deepEqual(saved, [{ closed: false, welcomed: true, visited: [] }]);
+  assert.equal(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).welcomed, true);
 });

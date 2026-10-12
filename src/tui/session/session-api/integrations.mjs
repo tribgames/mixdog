@@ -68,6 +68,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       // Completed-marking only; no route/agent/provider writes.
       return runtime.skipOnboarding?.() || null;
     },
+    saveStarterGuideState: (state) => runtime.saveStarterGuideState?.(state) || null,
     completeOnboarding: withCommandLock(async (payload = {}) => {
       const result = await runtime.completeOnboarding?.(payload);
       refreshRouteStats();

@@ -128,6 +128,7 @@ export const DESKTOP_CAPABILITIES = [
   'getOAuthProviderLoginStatus',
   'skipOnboarding',
   'completeOnboarding',
+  'saveStarterGuideState',
   'loginOAuthProvider',
   'beginOAuthProviderLogin',
   'completeOAuthProviderLogin',
