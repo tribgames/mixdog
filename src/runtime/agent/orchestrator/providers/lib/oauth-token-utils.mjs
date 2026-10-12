@@ -1,3 +1,14 @@
+import { statSync } from 'node:fs';
+
+/** The file's modification time in ms; 0 when it cannot be stat-ed. */
+export function fileMtimeMs(path) {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 export function decodeJwtPayload(token) {
   try {
     const parts = String(token || '').split('.');

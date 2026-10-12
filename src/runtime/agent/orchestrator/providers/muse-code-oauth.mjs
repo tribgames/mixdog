@@ -8,13 +8,13 @@
  */
 import { createHash } from 'node:crypto';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
+import { fileMtimeMs } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
 import {
   API_VERSION,
   MODEL_API_BASE_URL,
   getOwnTokenPath,
   loadTokens,
-  mtimeMs,
   requestMuseCodeKey,
   scrubMuseSecrets,
 } from './muse-code-oauth-tokens.mjs';
@@ -157,7 +157,8 @@ function shapeResponsesParams(params, { opts, modelInfo }, config = {}) {
     .trim()
     .toLowerCase();
   const allowed = modelInfo?.reasoningOptions?.find((o) => o?.type === 'effort')?.values || FIVE_LEVELS;
-  if (opts.forceReasoningOff === true || requested === 'none' || requested === 'off') {
+  const forcedOff = opts.forceReasoningOff === true || requested === 'none' || requested === 'off';
+  if (forcedOff) {
     // Explicit off: the only disable level the wire defines, with no encrypted replay.
     params.reasoning = { effort: 'none' };
   } else {
@@ -179,7 +180,6 @@ function shapeResponsesParams(params, { opts, modelInfo }, config = {}) {
   // Caller includes survive (copied, deduped); encrypted reasoning is added
   // only when reasoning is not forced off and the model and caller allow it.
   const include = Array.isArray(opts.include) ? opts.include.filter((v) => typeof v === 'string' && v) : [];
-  const forcedOff = opts.forceReasoningOff === true || requested === 'none' || requested === 'off';
   if (!forcedOff && modelInfo?.supportsReasoning !== false && opts.includeEncryptedReasoning !== false) {
     include.push('reasoning.encrypted_content');
   }
@@ -383,7 +383,7 @@ export class MuseCodeOAuthProvider {
   // The stored key is the whole credential; pick up a newer login from disk
   // but never mint or refresh anything here.
   async ensureAuth() {
-    const modified = mtimeMs(getOwnTokenPath());
+    const modified = fileMtimeMs(getOwnTokenPath());
     if (modified === 0) {
       // A missing credential file is signed out, whatever was cached.
       if (this.tokens) this._clearUsageState();

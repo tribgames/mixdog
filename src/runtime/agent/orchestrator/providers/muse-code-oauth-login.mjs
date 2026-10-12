@@ -1,6 +1,7 @@
 // Muse Code login: OAuth 2.0 device authorization grant against Meta, then a
 // one-time exchange of the account token for the subscription Model API key.
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { openLoginUrl } from './lib/open-login-url.mjs';
 import {
   CLIENT_ID,
   DEVICE_AUTH_URL,
@@ -97,10 +98,10 @@ export async function requestDeviceAuthorization({ fetchFn = fetch, signal } = {
       status: res.status,
     });
   }
-  const text_ = (v) => (typeof v === 'string' && v.length > 0 ? v : '');
-  const deviceCode = text_(json?.device_code);
-  const userCode = text_(json?.user_code);
-  const verificationUri = text_(json?.verification_uri);
+  const stringOrEmpty = (v) => (typeof v === 'string' && v.length > 0 ? v : '');
+  const deviceCode = stringOrEmpty(json?.device_code);
+  const userCode = stringOrEmpty(json?.user_code);
+  const verificationUri = stringOrEmpty(json?.verification_uri);
   if (!deviceCode || !userCode || !verificationUri) {
     throw museError('[muse-code-oauth] device authorization response is missing required fields', {
       kind: 'validation',
@@ -114,7 +115,7 @@ export async function requestDeviceAuthorization({ fetchFn = fetch, signal } = {
     deviceCode,
     userCode,
     verificationUri,
-    verificationUriComplete: text_(json.verification_uri_complete),
+    verificationUriComplete: stringOrEmpty(json.verification_uri_complete),
     intervalS: Math.max(MIN_INTERVAL_S, interval ?? DEFAULT_INTERVAL_S),
     // Null means the server gave no expiry: the flow then runs until approval,
     // denial, or cancellation.
@@ -167,7 +168,8 @@ export async function pollDeviceToken(device, { fetchFn = fetch, signal, sleep =
     const error = typeof json?.error === 'string' ? json.error : '';
     if (res.ok && !error && typeof json?.access_token === 'string' && json.access_token) return json.access_token;
     const knownOutcome = ['authorization_pending', 'slow_down', 'expired_token', 'access_denied'].includes(error);
-    if (!knownOutcome && TRANSIENT_STATUSES.has(res.status)) {
+    const transient = !knownOutcome && TRANSIENT_STATUSES.has(res.status);
+    if (transient) {
       if (++failures > MAX_TRANSIENT_FAILURES) {
         throw museError(
           `[muse-code-oauth] device token ${res.status}: ${scrubMuseSecrets(text, [device.deviceCode]).slice(0, 300)}`,
@@ -179,7 +181,7 @@ export async function pollDeviceToken(device, { fetchFn = fetch, signal, sleep =
     } else {
       failures = 0;
     }
-    if (!knownOutcome && TRANSIENT_STATUSES.has(res.status)) {
+    if (transient) {
       /* retry after waitMs */
     } else if (error === 'authorization_pending') {
       /* keep polling */
@@ -223,14 +225,7 @@ export async function beginOAuthLogin({ openBrowser = true, fetchFn = fetch, sle
   const device = await requestDeviceAuthorization({ fetchFn, signal: controller.signal });
   const url = device.verificationUriComplete || device.verificationUri;
   process.stderr.write(`\n[muse-code-oauth] Enter code: ${device.userCode}\n[muse-code-oauth] Open: ${url}\n\n`);
-  if (openBrowser) {
-    try {
-      const { openInBrowser } = await import('../../../shared/open-url.mjs');
-      openInBrowser(url);
-    } catch (err) {
-      process.stderr.write(`[muse-code-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
-    }
-  }
+  if (openBrowser) await openLoginUrl('muse-code-oauth', url);
   const waitForCallback = pollDeviceToken(device, { fetchFn, signal: controller.signal, sleep, now }).then(
     (accessToken) => completeLogin(accessToken, { fetchFn, signal: controller.signal })
   );

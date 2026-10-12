@@ -7,12 +7,11 @@
  * the user must sign in again.
  */
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
-import { scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import { fileMtimeMs, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
 import { fetchCompatModelItems, listCompatModels } from './openai-compat-models.mjs';
 import {
   SOURCE_HEADER,
-  _mtimeMs,
   ensureTokenPlanBaseUrl,
   getOwnTokenPath,
   loadTokens,
@@ -117,7 +116,7 @@ export class MimoOAuthProvider {
 
   ensureAuth() {
     // Re-read when the token file changed (sign-in from another process).
-    const mtime = _mtimeMs(getOwnTokenPath());
+    const mtime = fileMtimeMs(getOwnTokenPath());
     if (!mtime) {
       // File gone (signed out / forgotten): drop every cached credential.
       this.tokens = null;
@@ -165,16 +164,11 @@ export class MimoOAuthProvider {
     return items;
   }
 
-  // A rejected key needs a fresh sign-in; the gateway's own detail stays attached.
-  _reauthError(err, apiKey) {
-    const detail = mimoErrorDetail(err, [apiKey]);
-    return mimoReauthError(detail);
-  }
-
   // Shared send/list error shaping, also applied to credential setup failures.
+  // A rejected key needs a fresh sign-in; the gateway's own detail stays attached.
   _shapeError(err, apiKey) {
     noteErrorUsage(err);
-    if (isUnauthorized(err) && !err?.reauthRequired) return this._reauthError(err, apiKey);
+    if (isUnauthorized(err) && !err?.reauthRequired) return mimoReauthError(mimoErrorDetail(err, [apiKey]));
     return err;
   }
 

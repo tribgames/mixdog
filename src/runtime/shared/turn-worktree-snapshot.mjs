@@ -14,9 +14,8 @@ const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
 // Largest tool-supplied baseline kept for `hash-object`: the apply_patch edit
 // limit. (2–64 MiB explicit untracked edits keep their exact revert.)
 const MAX_TOOL_BASELINE_BYTES = PATCH_EDIT_MAX_BYTES;
-// Baselines used to live in the OS temp directory, where a reboot or a disk
-// cleaner could remove the only copy of a turn's revert source. Keep them with
-// the rest of the runtime data.
+// Baselines live with the runtime data, not the OS temp directory, where a
+// reboot or a disk cleaner could remove the only copy of a turn's revert source.
 // Resolved per call: the pristine-execution boundary retargets MIXDOG_DATA_DIR.
 function snapshotRoot() {
   return join(resolvePluginData(), 'turn-worktree-snapshots-v1');
@@ -278,7 +277,7 @@ async function ensureState(state) {
   ]);
   state.lineEndingArgs = lineEndingArgs;
   // Seed once per process, then keep this index synchronized with the live
-  // worktree. The temp repository survives process restarts, so re-seeding
+  // worktree. The shadow repository survives process restarts, so re-seeding
   // here also removes stale untracked entries left by a prior process without
   // paying the copy/rescan cost on every review poll.
   await refreshSourceTracked(state, { force: true });
@@ -418,12 +417,12 @@ function withOmittedBaselines(snapshot, review) {
   const files = (review.files || []).filter((file) => !keys.has(pathKey(file.path)));
   let patch = review.patch || '';
   for (const entry of omitted) {
-    const exists = existsSync(resolve(snapshot.root, entry.path));
+    const present = existsSync(resolve(snapshot.root, entry.path));
     const size = Number(entry.size) || 0;
     files.push({
       path: entry.path,
       oldPath: null,
-      status: exists ? 'M' : 'D',
+      status: present ? 'M' : 'D',
       additions: null,
       deletions: null,
       binary: true,
@@ -431,11 +430,11 @@ function withOmittedBaselines(snapshot, review) {
       size,
     });
     if (review.patchOmitted) continue;
-    const newHeader = exists ? `b/${entry.path}` : '/dev/null';
+    const newHeader = present ? `b/${entry.path}` : '/dev/null';
     patch +=
       `diff --git a/${entry.path} b/${entry.path}\n` +
-      (exists ? '' : 'deleted file mode 100644\n') +
-      `binary/large file ${exists ? 'changed' : 'deleted'} (${size} bytes; content not captured)\n` +
+      (present ? '' : 'deleted file mode 100644\n') +
+      `binary/large file ${present ? 'changed' : 'deleted'} (${size} bytes; content not captured)\n` +
       `Binary files a/${entry.path} and ${newHeader} differ\n`;
   }
   files.sort((left, right) => left.path.localeCompare(right.path));

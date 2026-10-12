@@ -4,6 +4,7 @@
 import { createServer } from 'node:http';
 import { lookup } from 'node:dns/promises';
 import { createDecipheriv, createHash, createPublicKey, diffieHellman, generateKeyPairSync } from 'node:crypto';
+import { openLoginUrl } from './lib/open-login-url.mjs';
 import {
   authorizeEndpoint,
   manualRedirectUri,
@@ -232,14 +233,7 @@ export async function beginOAuthLogin({
       `\n[mimo-oauth] Open this URL to log in:\n${url}\n\nOr, if the browser is on another machine:\n${manualUrl}\n\n`
     );
   }
-  if (openBrowser) {
-    try {
-      const { openInBrowser } = await import('../../../shared/open-url.mjs');
-      openInBrowser(url);
-    } catch (err) {
-      process.stderr.write(`[mimo-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
-    }
-  }
+  if (openBrowser) await openLoginUrl('mimo-oauth', url);
 
   return {
     provider: 'mimo-oauth',

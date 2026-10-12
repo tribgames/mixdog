@@ -2,12 +2,12 @@
 // platform authorize flow. There is no refresh grant — a 401 means the user
 // has to sign in again. Stored in Mixdog's own token file (mimo-oauth.json).
 import { randomBytes } from 'node:crypto';
-import { readFileSync, existsSync, mkdirSync, unlinkSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
-import { accountIdentityFields, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import { accountIdentityFields, fileMtimeMs, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 
 const DEFAULT_PLATFORM_ORIGIN = 'https://platform.xiaomimimo.com';
 const DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1';
@@ -82,14 +82,6 @@ export function getOwnTokenPath() {
   return join(dataDir(), 'mimo-oauth.json');
 }
 
-export function _mtimeMs(path) {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return 0;
-  }
-}
-
 // Key name shown on the MiMo platform. Generated once, then reused so repeated
 // sign-ins replace one key instead of piling up new ones.
 export function getKeyName() {
@@ -116,7 +108,7 @@ export function loadTokens() {
       uid: raw.uid ? String(raw.uid) : '',
       baseUrl: raw.baseUrl || DEFAULT_BASE_URL,
       source: 'own',
-      mtimeMs: _mtimeMs(path),
+      mtimeMs: fileMtimeMs(path),
     };
   } catch {
     return null;

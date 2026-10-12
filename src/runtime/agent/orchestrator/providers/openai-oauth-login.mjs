@@ -12,6 +12,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE, oauthSuccessHtml } from './lib/oauth-page.mjs';
+import { openLoginUrl } from './lib/open-login-url.mjs';
 
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
@@ -141,13 +142,7 @@ export function createOpenAIOAuthLogin(deps) {
         process.stderr.write(
           `\n[openai-oauth] Open this URL to log in to ChatGPT (OpenAI OAuth):\n${url.toString()}\n\n`
         );
-        if (!openBrowser) return;
-        try {
-          const { openInBrowser } = await import('../../../shared/open-url.mjs');
-          openInBrowser(url.toString());
-        } catch (err) {
-          process.stderr.write(`[openai-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
-        }
+        if (openBrowser) await openLoginUrl('openai-oauth', url.toString());
       });
       server.on('error', (err) =>
         finish(

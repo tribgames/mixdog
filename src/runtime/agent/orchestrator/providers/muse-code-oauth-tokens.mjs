@@ -3,7 +3,7 @@
 // Model API key, and inference then runs on the key. Meta issues no expiry
 // and rejects refresh grants, so there is no refresh path: a 401 means the
 // user signs in again. Credentials live in Mixdog's own muse-code-oauth.json.
-import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
@@ -36,14 +36,6 @@ export function getOwnTokenPath() {
   const dir = getPluginData();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return join(dir, 'muse-code-oauth.json');
-}
-
-export function mtimeMs(path) {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return 0;
-  }
 }
 
 const nonEmptyString = (value) => typeof value === 'string' && value.trim() !== '';

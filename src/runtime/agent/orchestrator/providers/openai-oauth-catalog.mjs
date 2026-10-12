@@ -8,8 +8,7 @@
  * levels, visibility), so the catalog is normalized and enriched once here and
  * every consumer reads the same records.
  *
- * openai-oauth.mjs re-exports the lookups it used to own so existing importers
- * resolve unchanged.
+ * openai-oauth.mjs re-exports these lookups as its facade.
  */
 import { makeModelCache } from './model-cache.mjs';
 import { CODEX_MODEL_CACHE_OPTIONS } from './openai-oauth-catalog-store.mjs';
