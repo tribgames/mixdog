@@ -1,3 +1,4 @@
+import './test-linux-display.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { makeTempEnvDir, writeBridgeDiscovery } from './bridge-env.test-support.mjs';
