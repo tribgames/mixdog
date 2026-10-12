@@ -14,15 +14,21 @@ const shownVersions = new Set<string>();
  * Whether `version` should be announced. Only a fresh install writes (it has
  * nothing to announce, so it records the version); an update leaves the stored
  * value alone until `markWhatsNewSeen`, so a notice that failed to render is
- * retried on the next launch.
+ * retried on the next launch. An empty mark is a fresh install only when the
+ * main process does not report this launch as following an update
+ * (`afterUpdate`): localStorage can be lost while the install lives on.
  */
-export function peekWhatsNew(storage: VersionStorage | undefined, version: string): WhatsNewStatus {
+export function peekWhatsNew(
+  storage: VersionStorage | undefined,
+  version: string,
+  afterUpdate = false
+): WhatsNewStatus {
   try {
     if (!storage) return 'storage-unavailable';
     if (shownVersions.has(version)) return 'already-shown';
     const seen = storage.getItem(SEEN_VERSION_KEY);
     if (seen === version) return 'current';
-    if (!seen) {
+    if (!seen && !afterUpdate) {
       storage.setItem(SEEN_VERSION_KEY, version);
       return 'fresh-install';
     }

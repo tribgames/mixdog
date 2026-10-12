@@ -25,10 +25,16 @@ function additionalArgument(name: string): string {
 const bootId = additionalArgument('mixdog-boot-id');
 const processStartedAt = Number(additionalArgument('mixdog-process-started-at'));
 const bootScenario = additionalArgument('mixdog-boot-scenario');
+const afterUpdate = additionalArgument('mixdog-after-update') === '1';
 
 function bootContextValue(): DesktopBootContext | undefined {
   if (!bootId || !Number.isFinite(processStartedAt)) return undefined;
-  return Object.freeze({ bootId, processStartedAt, ...(bootScenario ? { scenario: bootScenario } : {}) });
+  return Object.freeze({
+    bootId,
+    processStartedAt,
+    ...(bootScenario ? { scenario: bootScenario } : {}),
+    ...(afterUpdate ? { afterUpdate: true as const } : {}),
+  });
 }
 const bootContext = bootContextValue();
 

@@ -401,6 +401,8 @@ export interface DesktopBootContext {
   bootId: string;
   processStartedAt: number;
   scenario?: string;
+  /** This launch follows an app update (main-process record, not localStorage). */
+  afterUpdate?: true;
 }
 
 export interface DesktopWorkspaceTextSearchOptions {

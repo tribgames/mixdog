@@ -17,7 +17,7 @@ import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } f
 
 function readWhatsNewStatus(): WhatsNewStatus {
   try {
-    return peekWhatsNew(window.localStorage, appVersion);
+    return peekWhatsNew(window.localStorage, appVersion, window.mixdogDesktop?.bootContext?.afterUpdate === true);
   } catch {
     return 'storage-unavailable';
   }

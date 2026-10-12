@@ -92,6 +92,7 @@ import {
   normalizeRendererWhatsNewDiagnostic,
   rendererRecoveryDecision,
 } from './renderer-recovery';
+import { LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
 
 const desktopProcessStartedAt = Date.now();
 // The launcher's stdio pipe can close while the app keeps running (started
@@ -117,6 +118,7 @@ const desktopBootScenario = String(process.env.MIXDOG_BOOT_SCENARIO || '')
   .replace(/[^A-Za-z0-9_.:-]/g, '')
   .slice(0, 80);
 const DESKTOP_WINDOW_SHOW_DEADLINE_MS = 3_000;
+let launchFollowsUpdate: Promise<boolean> | null = null;
 
 // Profile identity. Unpackaged shells (electron-vite dev/preview, source-mode
 // E2E) derive userData from this package's name (@mixdog/desktop), so every
@@ -1131,7 +1133,8 @@ function resolveRendererTarget(): {
  *  measures its startup against. */
 function createMainBrowserWindow(
   savedState: Awaited<ReturnType<typeof readWindowState>>,
-  brandIconPath: string | null
+  brandIconPath: string | null,
+  afterUpdate: boolean
 ): BrowserWindow {
   return new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
@@ -1148,6 +1151,7 @@ function createMainBrowserWindow(
         `--mixdog-boot-id=${desktopBootId}`,
         `--mixdog-process-started-at=${desktopProcessStartedAt}`,
         ...(desktopBootScenario ? [`--mixdog-boot-scenario=${desktopBootScenario}`] : []),
+        ...(afterUpdate ? ['--mixdog-after-update=1'] : []),
       ],
     },
   });
@@ -1398,7 +1402,13 @@ async function createWindow(): Promise<void> {
     totalMs: Date.now() - startupStartedAt,
   });
   configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
-  const window = createMainBrowserWindow(savedState, brandIconPath);
+  // Once per process: a later window must still know this launch was an update.
+  launchFollowsUpdate ??= recordLaunchVersion(
+    join(app.getPath('userData'), LAUNCH_VERSION_FILE),
+    app.getVersion(),
+    process.argv
+  );
+  const window = createMainBrowserWindow(savedState, brandIconPath, await launchFollowsUpdate);
   installDesktopWindowMaterial(window);
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);

@@ -106,8 +106,9 @@ export function normalizeRendererWhatsNewDiagnostic(input: unknown): Record<stri
   const reason = text(record.reason, 80);
   const errorName = text(record.errorName, 80);
   const message = text(record.message, 300);
+  // `step`, not `event`: the diagnostics line's own `event` names the record.
   return {
-    event,
+    step: event,
     version: text(record.version, 40),
     ...(reason ? { reason } : {}),
     ...(errorName ? { errorName } : {}),
