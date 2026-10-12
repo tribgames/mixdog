@@ -352,9 +352,15 @@ html[data-mixdog-mobile-tabs] .sidebar-usage-credit-switch::before {
   position: absolute;
   inset: -12px -6px;
 }
+/* The reset "Use" button keeps its compact 22px face; the 40dp hit frame
+   hangs off ::before like the credit switch above. */
 html[data-mixdog-mobile-tabs] .sidebar-usage-reset-use {
-  min-height: var(--mx-touch-min);
-  margin-block: -9px;
+  position: relative;
+}
+html[data-mixdog-mobile-tabs] .sidebar-usage-reset-use::before {
+  content: "";
+  position: absolute;
+  inset: calc((22px - var(--mx-touch-min)) / 2) -4px;
 }
 html[data-mixdog-mobile-tabs] .sidebar-usage-reset-info {
   min-width: var(--mx-touch-min);
