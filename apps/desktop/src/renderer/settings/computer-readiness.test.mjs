@@ -20,7 +20,7 @@ const { createRoot } = await import('react-dom/client');
 const { computerReadinessBlocking, computerReadinessPending, computerReadinessRows, linuxPlatformFacts } =
   await import('./computer-readiness.ts');
 const { featureStatus } = await import('./built-in-features-panel.tsx');
-const { ComputerReadinessSection, useComputerReadiness } = await import('./computer-readiness-section.tsx');
+const { ComputerReadinessSection, inputAccessError, useComputerReadiness } = await import('./computer-readiness-section.tsx');
 
 const ready = { state: 'ready' };
 const linux = (capabilities = {}, extra = {}) => ({
@@ -275,4 +275,32 @@ test('the section lists rows, runs actions, and disappears by itself on the next
     window.dispatchEvent(new window.Event('focus'));
   });
   assert.equal(host.querySelector('[data-computer-readiness]'), null);
+});
+
+test('a failed Allow picks a guidance line from the structured result, not the English diagnostic', () => {
+  const base = 'Mouse and keyboard access could not be allowed.';
+  const line = (result) => inputAccessError({ ok: false, message: 'ENGLISH DIAGNOSTIC', ...result });
+  assert.equal(line({ reason: 'access_unavailable', detail: 'relogin' }), `${base} Sign out and back in, or add your user to the input group, then try again.`);
+  assert.equal(line({ reason: 'access_unavailable', detail: 'no-module' }), `${base} The uinput kernel module is not available on this system.`);
+  assert.equal(line({ reason: 'failed', exitCode: 3 }), `${base} The repair script failed (exit 3).`);
+  assert.equal(line({ reason: 'cancelled' }), `${base} Authorization was cancelled.`);
+  assert.equal(line({ reason: 'pkexec_missing' }), `${base} pkexec is not installed, so access cannot be set up from here.`);
+  assert.equal(line({ reason: 'failed' }), base);
+  assert.equal(inputAccessError(undefined), base);
+});
+
+test('every locale carries the input-access guidance keys with literals and placeholders intact', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const dir = new URL('../locales/', import.meta.url);
+  const files = readdirSync(dir).filter((name) => name.endsWith('.json'));
+  assert.ok(files.length >= 11);
+  for (const name of files) {
+    const catalog = JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
+    const get = (key) => catalog[key];
+    assert.match(get('Sign out and back in, or add your user to the input group, then try again.'), /input/, name);
+    assert.match(get('The uinput kernel module is not available on this system.'), /uinput/, name);
+    assert.match(get('The repair script failed (exit {{code}}).'), /\{\{code\}\}/, name);
+    assert.ok(get('Authorization was cancelled.'), name);
+    assert.match(get('pkexec is not installed, so access cannot be set up from here.'), /pkexec/, name);
+  }
 });

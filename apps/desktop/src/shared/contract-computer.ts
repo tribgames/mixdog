@@ -39,7 +39,14 @@ export interface DesktopComputerReadiness {
 /** Linux, non-.deb installs: one polkit prompt installs the /dev/uinput access rule. */
 export type DesktopComputerInputAccess =
   | { ok: true }
-  // `message` is an actionable English explanation; `access_unavailable` = repair ran but /dev/uinput is still not writable.
-  | { ok: false; reason: 'cancelled' | 'pkexec_missing' | 'failed' | 'access_unavailable'; message?: string };
+  // `access_unavailable` = repair ran but /dev/uinput is still not writable; `detail` and `exitCode` let the UI pick a translated line.
+  // `message` is English, for logs/diagnostics only.
+  | {
+      ok: false;
+      reason: 'cancelled' | 'pkexec_missing' | 'failed' | 'access_unavailable';
+      detail?: 'relogin' | 'no-module';
+      exitCode?: number;
+      message?: string;
+    };
 
 export type DesktopComputerPermissionPane = 'screen' | 'accessibility';

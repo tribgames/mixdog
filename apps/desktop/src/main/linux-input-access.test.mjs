@@ -52,6 +52,7 @@ test('repair exit 0 but access still missing is an actionable failure after a bo
   const result = await requestLinuxInputAccess(d);
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'access_unavailable');
+  assert.equal(result.detail, 'relogin');
   assert.match(result.message, /sign out and sign in again/i);
   assert.equal(state.runs.length, 1);
   assert.ok(state.waits > 0 && state.waits <= 20);
@@ -60,6 +61,7 @@ test('repair exit 0 but access still missing is an actionable failure after a bo
 test('repair exit 0 with /dev/uinput absent points at the uinput module', async () => {
   const result = await requestLinuxInputAccess(deps({ after: false, device: false }).deps);
   assert.equal(result.reason, 'access_unavailable');
+  assert.equal(result.detail, 'no-module');
   assert.match(result.message, /uinput kernel module/);
 });
 
@@ -78,6 +80,7 @@ test('results map pkexec outcomes to a reason', async () => {
   assert.equal(await reason({ status: 1 }), 'failed');
   assert.equal(await reason({ status: 'missing' }), 'pkexec_missing');
   const failed = await requestLinuxInputAccess(deps({ status: 1 }).deps);
+  assert.equal(failed.exitCode, 1);
   assert.match(failed.message, /exit 1/);
   assert.deepEqual(await requestLinuxInputAccess(deps({ platform: 'win32' }).deps), { ok: false, reason: 'failed' });
 });

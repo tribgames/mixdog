@@ -79,7 +79,7 @@ async function repair(deps: LinuxInputAccessDeps): Promise<LinuxInputAccessResul
   // pkexec exits 126 when the user dismisses the dialog or is not authorized.
   if (status === 126) return { ok: false, reason: 'cancelled', message: 'Authorization was cancelled or denied.' };
   if (status !== 0) {
-    return { ok: false, reason: 'failed', message: `The repair script failed (exit ${status}); the /dev/uinput access rule was not applied.` };
+    return { ok: false, reason: 'failed', exitCode: status, message: `The repair script failed (exit ${status}); the /dev/uinput access rule was not applied.` };
   }
   // A clean exit is not proof: confirm the signed-in user can really open the device.
   for (let attempt = 0; attempt < RECHECK_ATTEMPTS; attempt += 1) {
@@ -87,10 +87,11 @@ async function repair(deps: LinuxInputAccessDeps): Promise<LinuxInputAccessResul
     await deps.wait(RECHECK_INTERVAL_MS);
   }
   if (deps.canAccess()) return { ok: true };
-  const message = deps.deviceExists()
+  const present = deps.deviceExists();
+  const message = present
     ? 'The access rule is installed but /dev/uinput is still not writable for this session. Sign out and sign in again (or restart), and make sure you are on a local desktop seat; if it persists, add your user to the input group.'
     : '/dev/uinput does not exist: the uinput kernel module is not loaded or is unavailable on this kernel. Run `sudo modprobe uinput` or restart, then try again.';
-  return { ok: false, reason: 'access_unavailable', message };
+  return { ok: false, reason: 'access_unavailable', detail: present ? 'relogin' : 'no-module', message };
 }
 
 export function requestLinuxInputAccess(deps: LinuxInputAccessDeps = realDeps): Promise<LinuxInputAccessResult> {

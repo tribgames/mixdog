@@ -2,6 +2,7 @@ import { Accessibility, AppWindow, ClipboardList, MousePointer2, Monitor, ScanTe
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { DesktopApi, DesktopComputerReadiness } from '../../shared/contract';
+import type { DesktopComputerInputAccess } from '../../shared/contract-computer';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import {
@@ -68,6 +69,26 @@ const ICONS: Record<ComputerReadinessIcon, ReactNode> = {
   accessibility: <Accessibility size={16} />,
 };
 
+/** The translated line for a failed Allow, chosen from the structured result (never the English diagnostic). */
+export function inputAccessError(result: DesktopComputerInputAccess | undefined): string {
+  const base = t('Mouse and keyboard access could not be allowed.');
+  if (!result || result.ok) return base;
+  let detail = '';
+  if (result.reason === 'access_unavailable') {
+    detail =
+      result.detail === 'no-module'
+        ? t('The uinput kernel module is not available on this system.')
+        : t('Sign out and back in, or add your user to the input group, then try again.');
+  } else if (result.reason === 'failed' && result.exitCode !== undefined) {
+    detail = t('The repair script failed (exit {{code}}).', { code: result.exitCode });
+  } else if (result.reason === 'cancelled') {
+    detail = t('Authorization was cancelled.');
+  } else if (result.reason === 'pkexec_missing') {
+    detail = t('pkexec is not installed, so access cannot be set up from here.');
+  }
+  return detail ? `${base} ${detail}` : base;
+}
+
 /** Hidden entirely when nothing is pending. */
 export function ComputerReadinessSection({
   rows,
@@ -92,10 +113,7 @@ export function ComputerReadinessSection({
         await api.openComputerPermissionSettings?.(action.pane);
       } else if (action.kind === 'allow_input') {
         const result = await api.requestLinuxInputAccess?.();
-        if (!result?.ok) {
-          const base = t('Mouse and keyboard access could not be allowed.');
-          setError(result?.message ? `${base} ${result.message}` : base);
-        }
+        if (!result?.ok) setError(inputAccessError(result));
         await refresh();
       } else {
         await refresh();
