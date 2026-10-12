@@ -17,16 +17,21 @@ function hook(t, name, run) {
   t.after(() => { mock.mock.restore(); syncBuiltinESMExports(); });
 }
 
-async function fixture(t, outside = false) {
+async function fixture(t, outside = false, distinctCase = false) {
   const base = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'mixdog-forward-destination-')));
   t.after(() => fs.rm(base, { recursive: true, force: true }));
   const root = join(base, 'project');
-  const original = join(root, 'original');
-  const other = outside ? join(base, 'outside') : join(root, 'other');
+  const original = join(root, distinctCase ? 'A' : 'original');
+  const other = outside ? join(base, 'outside') : join(root, distinctCase ? 'a' : 'other');
   const alias = join(root, 'alias');
   const kind = process.platform === 'win32' ? 'junction' : 'dir';
+  await fs.mkdir(original, { recursive: true });
+  await fs.mkdir(other, { recursive: true });
+  if (distinctCase && await fs.realpath(original) === await fs.realpath(other)) {
+    t.skip('fixture filesystem does not support distinct case-variant directories');
+    return null;
+  }
   for (const dir of [original, other]) {
-    await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, 'b.txt'), 'B0');
   }
   await fs.writeFile(join(root, 'a.txt'), 'A0');
@@ -57,10 +62,12 @@ const batch = [
   { relPath: 'alias/b.txt', content: 'B1', expectedContent: 'B0' },
 ];
 
-for (const multiple of [false, true]) for (const outside of [false, true]) {
+const destinations = [['inside', false, false], ['outside', true, false], ['case-distinct', false, true]];
+for (const multiple of [false, true]) for (const [label, outside, distinctCase] of destinations) {
   for (const phase of ['read', 'temp', 'recheck']) {
-    test(`${multiple ? 'batch' : 'single'} save refuses ${outside ? 'outside' : 'inside'} alias retarget during ${phase}`, async (t) => {
-      const f = await fixture(t, outside);
+    test(`${multiple ? 'batch' : 'single'} save refuses ${label} alias retarget during ${phase}`, async (t) => {
+      const f = await fixture(t, outside, distinctCase);
+      if (!f) return;
       const file = join(f.alias, 'b.txt');
       const swaps = [];
       hook(t, 'rename', async (rename, from, to) => {
@@ -106,9 +113,10 @@ for (const multiple of [false, true]) for (const outside of [false, true]) {
   }
 }
 
-for (const phase of ['preflight', 'earlier commit']) for (const outside of [false, true]) {
-  test(`batch preflight identity survives retarget ${outside ? 'outside' : 'inside'} during ${phase}`, async (t) => {
-    const f = await fixture(t, outside);
+for (const phase of ['preflight', 'earlier commit']) for (const [label, outside, distinctCase] of destinations) {
+  test(`batch preflight identity survives retarget ${label} during ${phase}`, async (t) => {
+    const f = await fixture(t, outside, distinctCase);
+    if (!f) return;
     if (phase === 'preflight') {
       // Change a later entry while the FIRST entry is being read. All batch
       // identities must already be owned, not collected after each await.

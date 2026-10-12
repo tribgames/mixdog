@@ -9,7 +9,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { toUSVString } from 'node:util';
 
 import { codeGraphModuleUrl } from './desktop-support';
-import { mutationPathKey, withProjectMutationPaths } from './project-mutation-queue';
+import { withProjectMutationPaths } from './project-mutation-queue';
 
 export type ProjectTextEncoding = 'utf8' | 'utf8bom' | 'utf16le' | 'utf16be';
 
@@ -138,9 +138,8 @@ function mutateProjectEntries<T>(root: string, relPaths: string[], run: () => Pr
     return [path, canonicalPathThroughExistingAncestor(path)];
   });
   const claimed = paths();
-  const keys = claimed.map(mutationPathKey);
   return withProjectMutationPaths(claimed, async () => {
-    if (paths().some((path, index) => mutationPathKey(path) !== keys[index])) {
+    if (paths().some((path, index) => path !== claimed[index])) {
       throw new Error('Project path changed while waiting. Retry the operation.');
     }
     return run();
@@ -260,7 +259,9 @@ type ProjectFileReplacement = {
 // Rename replaces the leaf itself, so resolve its parent rather than a leaf
 // symlink. Neither a save nor recovery may follow a retargeted directory alias.
 function replacementDestination(file: string): string {
-  return mutationPathKey(join(realpathSync(dirname(file)), basename(file)));
+  // Queue keys deliberately over-serialize case variants. Destination identity
+  // must retain case: A/file and a/file can be different replacement targets.
+  return join(realpathSync(dirname(file)), basename(file));
 }
 
 // Caller owns the complete mutation claim, including a batch's rollback.

@@ -182,13 +182,21 @@ test('external change during rollback temporary IO is not overwritten', async (t
   await clean(root);
 });
 
-for (const changeDuringTemp of [false, true]) {
-  test(`rollback rejects a retargeted directory alias (${changeDuringTemp ? 'during' : 'before'} temporary IO)`, async (t) => {
-    const root = await fixture(t, { 'one/a.txt': 'A0', 'two/a.txt': 'A1', 'b.txt': 'B0' });
+for (const distinctCase of [false, true]) for (const changeDuringTemp of [false, true]) {
+  test(`rollback rejects a retargeted ${distinctCase ? 'case-distinct ' : ''}directory alias (${changeDuringTemp ? 'during' : 'before'} temporary IO)`, async (t) => {
+    const original = distinctCase ? 'A' : 'one';
+    const other = distinctCase ? 'a' : 'two';
+    const root = await fixture(t, { [`${original}/a.txt`]: 'A0', 'b.txt': 'B0' });
+    await fs.mkdir(join(root, other), { recursive: true });
+    if (distinctCase && await fs.realpath(join(root, original)) === await fs.realpath(join(root, other))) {
+      t.skip('fixture filesystem does not support distinct case-variant directories');
+      return;
+    }
+    await fs.writeFile(join(root, other, 'a.txt'), 'A1');
     const alias = join(root, 'alias');
     const kind = process.platform === 'win32' ? 'junction' : 'dir';
-    await fs.symlink(join(root, 'one'), alias, kind);
-    const retarget = async () => { await fs.unlink(alias); await fs.symlink(join(root, 'two'), alias, kind); };
+    await fs.symlink(join(root, original), alias, kind);
+    const retarget = async () => { await fs.unlink(alias); await fs.symlink(join(root, other), alias, kind); };
     const cause = fault('second swap failed');
     let recovering = false;
     replaceBuiltin(t, fs, 'rename', async (rename, from, to) => {
@@ -210,10 +218,10 @@ for (const changeDuringTemp of [false, true]) {
     const error = await rejection(saveMany(root, [{ relPath: 'alias/a.txt', content: 'A1', expectedContent: 'A0' }, ...writes('b')]));
     outcome(error, cause, 'b.txt', ['alias/a.txt'], [], ['alias/a.txt']);
     assert.match(error.rollbackFailures[0].cause.message, /path changed before rollback/);
-    assert.equal(await fs.readFile(join(root, 'one/a.txt'), 'utf8'), 'A1');
-    assert.equal(await fs.readFile(join(root, 'two/a.txt'), 'utf8'), 'A1');
-    await clean(join(root, 'one'));
-    await clean(join(root, 'two'));
+    assert.equal(await fs.readFile(join(root, original, 'a.txt'), 'utf8'), 'A1');
+    assert.equal(await fs.readFile(join(root, other, 'a.txt'), 'utf8'), 'A1');
+    await clean(join(root, original));
+    await clean(join(root, other));
   });
 }
 
