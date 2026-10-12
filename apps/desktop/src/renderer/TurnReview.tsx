@@ -40,6 +40,7 @@ import {
   type TurnReviewFileEntry,
   type TurnReviewSummary,
   type TurnReviewCapabilityValue,
+  mergeSessionReviewSummaries,
   summarizeSessionDiffRows,
   summarizeSessionTranscriptReview,
 } from './turn-review-model';
@@ -785,12 +786,13 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   });
   const sessionSummary = useMemo(() => {
     if (!sessionScoped) return summary;
+    const transcript = summarizeSessionTranscriptReview(items, cwd);
     const result = sessionDiff.result;
     if (result?.supported !== false && result?.authoritative === true) {
-      return summarizeSessionDiffRows(buildSessionDiffRows(result));
+      return mergeSessionReviewSummaries(transcript, summarizeSessionDiffRows(buildSessionDiffRows(result)));
     }
-    return summarizeSessionTranscriptReview(items);
-  }, [sessionScoped, sessionDiff.result, items, summary]);
+    return transcript;
+  }, [sessionScoped, sessionDiff.result, items, summary, cwd]);
   const shownSummary = sessionScoped ? sessionSummary : summary;
   const headlineStats = sessionScoped ? sessionSummary : turnHeadlineStats;
   const sources = useMemo(() => {

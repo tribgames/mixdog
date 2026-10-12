@@ -268,20 +268,97 @@ export function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart
 /** Every successful patch-publishing tool call of the whole transcript (not
  *  just the current turn): the file set from their patches, the line totals
  *  from the same workload count the activity cards use. */
-export function summarizeSessionTranscriptReview(items: TranscriptItem[]): TurnReviewSummary {
+export function summarizeSessionTranscriptReview(items: TranscriptItem[], cwd = ''): TurnReviewSummary {
   const patches: string[] = [];
   for (const item of items) {
-    if (item?.kind !== 'tool' || !toolPublishesPatch(item)) continue;
+    if (item?.kind !== 'tool') continue;
+    // Grouped cards (`__aggregate__`) key their categories as
+    // `Patch|Editing|Edited|file|files`, never a bare `Patch`.
+    const patchCard =
+      toolPublishesPatch(item) ||
+      (item.aggregate === true && Object.keys(item.categories || {}).some((key) => key.startsWith('Patch|')));
+    const written = !patchCard && !item.aggregate && String(item.name || '').toLowerCase() === 'write';
+    if (!patchCard && !written) continue;
     const count = Math.max(1, Number(item.count || 1));
     if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
     if (parseToolArgs(item.args)?.dry_run === true) continue;
-    const patch = findPatch(item);
+    if (written) {
+      // `write` publishes no diff: synthesize the added lines from its content
+      // the way the card counts them (a new file is all additions).
+      const args = parseToolArgs(item.args) || {};
+      const target = String(args.file_path ?? args.filePath ?? args.path ?? '').replace(/\\/g, '/');
+      const content = typeof args.content === 'string' ? args.content : '';
+      if (!target || !content) continue;
+      const lines = content.replace(/\n$/, '').split('\n');
+      const created = /^\s*Created\b/.test(String(item.result ?? ''));
+      patches.push(
+        `diff --git a/${target} b/${target}\n${created ? 'new file mode 100644\n--- /dev/null\n' : `--- a/${target}\n`}+++ b/${target}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line: string) => `+${line}`).join('\n')}\n`
+      );
+      continue;
+    }
+    // `edit`-dialect calls carry no patch in their arguments; the runtime's
+    // per-call `uiDiff` is the change they made. An explicit empty uiDiff means
+    // the call changed nothing.
+    const uiDiff = typeof item.uiDiff === 'string' ? item.uiDiff : null;
+    const patch = uiDiff !== null ? uiDiff : findPatch(item);
     if (patch) patches.push(patch);
   }
   const summary = summarizeTurnReviewPatch(patches.join('\n'));
-  const operations = summarizeTurnReviewOperations(items, -1);
-  if (summary.files.size === 0 || !operations.hasLineStats) return summary;
-  return { ...summary, additions: operations.additions, deletions: operations.deletions, hasLineStats: true };
+  // Tool patches sometimes carry ABSOLUTE paths; the session diff's rows are
+  // project-relative, and the two sources must meet on the same key.
+  const root = String(cwd || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  if (!root) return summary;
+  const files: TurnReviewSummary['files'] = new Map();
+  for (const [name, entry] of summary.files) {
+    const normalized = name.replace(/\\/g, '/');
+    const relative = normalized.toLowerCase().startsWith(`${root}/`) ? normalized.slice(root.length + 1) : name;
+    const merged = files.get(relative);
+    if (!merged) {
+      files.set(relative, entry);
+      continue;
+    }
+    merged.additions += entry.additions;
+    merged.deletions += entry.deletions;
+    merged.lineStats ||= entry.lineStats;
+    merged.status ||= entry.status;
+    merged.binary ||= entry.binary;
+    merged.parts.push(...entry.parts);
+  }
+  return turnReviewSummaryOf(files);
+}
+
+/** The session's files: everything the loaded transcript's successful edits
+ *  touched, plus whatever the runtime's session diff knows beyond it (turns the
+ *  paged transcript no longer holds). Where both name a file the larger line
+ *  count wins, so the diff can only add lines. The runtime diff alone is not cumulative everywhere — a
+ *  non-Git folder only tracks the running turn and answers an authoritative
+ *  empty set when a new turn starts — so it can add files but never remove the
+ *  transcript's. */
+export function mergeSessionReviewSummaries(transcript: TurnReviewSummary, diff: TurnReviewSummary): TurnReviewSummary {
+  const files: TurnReviewSummary['files'] = new Map(transcript.files);
+  for (const [name, entry] of diff.files) {
+    const known = files.get(name);
+    if (!known) {
+      files.set(name, entry);
+      continue;
+    }
+    // The diff may only cover the running turn (non-Git), so it never lowers
+    // what the transcript's successful calls already add up to.
+    const additions = Math.max(known.additions, entry.additions);
+    const deletions = Math.max(known.deletions, entry.deletions);
+    files.set(name, {
+      ...known,
+      additions,
+      deletions,
+      lineStats: additions + deletions > 0,
+      status: known.status || entry.status,
+      binary: known.binary || entry.binary,
+    });
+  }
+  return turnReviewSummaryOf(files);
 }
 
 /** The session diff pane's rows (the runtime's session-wide, session-owned

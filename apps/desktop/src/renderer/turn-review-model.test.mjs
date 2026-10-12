@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { summarizeSessionDiffRows, summarizeSessionTranscriptReview } from './turn-review-model.ts';
+import {
+  mergeSessionReviewSummaries,
+  summarizeSessionDiffRows,
+  summarizeSessionTranscriptReview,
+} from './turn-review-model.ts';
 
 const patchFor = (file, added, removed) =>
   `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n${'-x\n'.repeat(removed)}${'+y\n'.repeat(added)}`;
@@ -38,6 +42,117 @@ test('session transcript summary is empty without successful patch tools', () =>
   ]);
   assert.equal(summary.files.size, 0);
   assert.equal(summary.hasLineStats, false);
+});
+
+test('edit-dialect calls count through their per-call uiDiff, with absolute paths made project-relative', () => {
+  const edit = (id, file, uiDiff, extra = {}) => ({
+    kind: 'tool',
+    id,
+    name: 'edit',
+    args: { file_path: file, old_string: 'a', new_string: 'b' },
+    result: 'ok',
+    uiDiff,
+    ...extra,
+  });
+  const summary = summarizeSessionTranscriptReview(
+    [
+      { kind: 'user', id: 'u1', text: 'one' },
+      edit('e1', 'C:\\demo\\cart-service\\a.txt', patchFor('C:/demo/cart-service/a.txt', 1, 0)),
+      { kind: 'user', id: 'u2', text: 'two' },
+      edit('e2', 'README.md', patchFor('README.md', 1, 0)),
+      edit('e3', 'a.txt', patchFor('a.txt', 1, 0)),
+      edit('e4', 'gone.txt', patchFor('gone.txt', 5, 0), { isError: true }),
+      edit('e5', 'empty.txt', ''),
+    ],
+    'C:\\demo\\cart-service'
+  );
+  assert.deepEqual([...summary.files.keys()].sort(), ['README.md', 'a.txt']);
+  assert.equal(summary.additions, 3);
+});
+
+test('grouped cards and write calls count across two turns', () => {
+  const aggregate = (id, file, cat) => ({
+    kind: 'tool',
+    id,
+    name: '__aggregate__',
+    aggregate: true,
+    args: { categoryOrder: [cat] },
+    categories: { [cat]: { category: 'Patch', count: 1 } },
+    result: '+1 line',
+    uiDiff: patchFor(file, 1, 0),
+    count: 1,
+    errorCount: 0,
+  });
+  const summary = summarizeSessionTranscriptReview(
+    [
+      { kind: 'user', id: 'u1', text: 'create' },
+      {
+        kind: 'tool',
+        id: 'w1',
+        name: 'write',
+        args: { file_path: 'C:\\demo\\cart-service\\new.txt', content: 'one\n' },
+        result: 'Created C:\\demo\\cart-service\\new.txt (4 bytes)',
+      },
+      { kind: 'turndone', id: 'd1' },
+      { kind: 'user', id: 'u2', text: 'edit' },
+      aggregate('a1', 'README.md', 'Patch|Editing|Edited|file|files'),
+      { kind: 'tool', id: 'w2', name: 'write', args: { file_path: 'bad.txt', content: 'x' }, result: 'Error', isError: true },
+    ],
+    'C:\\demo\\cart-service'
+  );
+  assert.deepEqual([...summary.files.keys()].sort(), ['README.md', 'new.txt']);
+  assert.equal(summary.files.get('new.txt').status, 'A');
+  assert.equal(summary.additions, 2);
+});
+
+test('an authoritative session diff adds files but never removes the transcript ones', () => {
+  const transcript = summarizeSessionTranscriptReview([tool('t1', 'a.txt'), tool('t2', 'b.txt')]);
+  const empty = summarizeSessionDiffRows([]);
+  assert.deepEqual([...mergeSessionReviewSummaries(transcript, empty).files.keys()].sort(), ['a.txt', 'b.txt']);
+  const beyond = summarizeSessionDiffRows([
+    { path: 'b.txt', oldPath: '', status: 'M', additions: 9, deletions: 0, binary: false, parts: [] },
+    { path: 'old.txt', oldPath: '', status: 'A', additions: 1, deletions: 0, binary: false, parts: [] },
+  ]);
+  const merged = mergeSessionReviewSummaries(transcript, beyond);
+  assert.deepEqual([...merged.files.keys()].sort(), ['a.txt', 'b.txt', 'old.txt']);
+  assert.equal(merged.additions, 2 + 9 + 1);
+});
+
+test('three turns accumulate per file and a current-turn-only runtime diff never lowers them', () => {
+  const aggregate = (id, file, verb) => ({
+    kind: 'tool',
+    id,
+    name: '__aggregate__',
+    aggregate: true,
+    args: {},
+    categories: { [`Patch|${verb}|${verb}|file|files`]: { count: 1 } },
+    result: '+1 line',
+    uiDiff: patchFor(file, 1, 0),
+    count: 1,
+    errorCount: 0,
+  });
+  const items = [
+    { kind: 'user', id: 'u1', text: 'create' },
+    aggregate('a1', 'mx-island-check.txt', 'Creating'),
+    { kind: 'turndone', id: 'd1' },
+    { kind: 'user', id: 'u2', text: 'readme' },
+    aggregate('a2', 'README.md', 'Editing'),
+    { kind: 'turndone', id: 'd2' },
+    { kind: 'user', id: 'u3', text: 'append' },
+    aggregate('a3', 'mx-island-check.txt', 'Editing'),
+  ];
+  const transcript = summarizeSessionTranscriptReview(items, 'C:\\demo\\cart-service');
+  assert.equal(transcript.files.get('mx-island-check.txt').additions, 2);
+  // Non-Git: the runtime diff only knows the running turn's file.
+  const merged = mergeSessionReviewSummaries(
+    transcript,
+    summarizeSessionDiffRows([
+      { path: 'mx-island-check.txt', oldPath: '', status: 'M', additions: 1, deletions: 0, binary: false, parts: [] },
+    ])
+  );
+  assert.deepEqual([...merged.files.keys()].sort(), ['README.md', 'mx-island-check.txt']);
+  assert.equal(merged.files.get('mx-island-check.txt').additions, 2);
+  assert.equal(merged.additions, 3);
 });
 
 test('session diff rows become a session summary', () => {
