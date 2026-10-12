@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { localizeReleases, parseChangelog, selectWhatsNew } from './changelog.ts';
-import { SEEN_VERSION_KEY, takeWhatsNew } from './whats-new.ts';
+import { markWhatsNewSeen, peekWhatsNew, SEEN_VERSION_KEY } from './whats-new.ts';
 
 const release = (version, body) => ({ version, date: '2026-10-01', body });
 
@@ -23,22 +23,54 @@ test('selectWhatsNew finds the running version only', () => {
   assert.equal(selectWhatsNew(releases, '1.0.3'), undefined);
 });
 
-test('takeWhatsNew announces a version once after an update, never on a fresh install', () => {
-  const data = new Map();
-  const storage = { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
-  assert.equal(takeWhatsNew(storage, '1.0.1'), false, 'fresh install');
-  assert.equal(data.get(SEEN_VERSION_KEY), '1.0.1');
-  assert.equal(takeWhatsNew(storage, '1.0.1'), false, 'same version');
-  assert.equal(takeWhatsNew(storage, '1.0.2'), true, 'first launch after update');
-  assert.equal(takeWhatsNew(storage, '1.0.2'), false, 'only once');
-  assert.equal(takeWhatsNew(undefined, '1.0.2'), false);
+const memoryStorage = (initial) => {
+  const data = new Map(initial === undefined ? [] : [[SEEN_VERSION_KEY, initial]]);
+  return { data, getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
+};
+
+test('a fresh install records the version silently and announces nothing', () => {
+  const storage = memoryStorage();
+  assert.equal(peekWhatsNew(storage, '2.0.1'), 'fresh-install');
+  assert.equal(storage.data.get(SEEN_VERSION_KEY), '2.0.1');
+  assert.equal(peekWhatsNew(storage, '2.0.1'), 'current');
+});
+
+test('an update is pending until marked seen, and then shows once', () => {
+  const storage = memoryStorage('2.1.0');
+  assert.equal(peekWhatsNew(storage, '2.1.1'), 'pending');
+  assert.equal(storage.data.get(SEEN_VERSION_KEY), '2.1.0', 'peeking leaves the stored version alone');
+  markWhatsNewSeen(storage, '2.1.1');
+  assert.equal(storage.data.get(SEEN_VERSION_KEY), '2.1.1');
+  assert.equal(peekWhatsNew(storage, '2.1.1'), 'already-shown');
+});
+
+test('a failed prepare never marks the version, so the next mount retries', () => {
+  const storage = memoryStorage('2.2.0');
+  assert.equal(peekWhatsNew(storage, '2.2.1'), 'pending');
+  // import/prepare fails here: markWhatsNewSeen is never called.
+  assert.equal(peekWhatsNew(storage, '2.2.1'), 'pending', 'remount retries');
+  assert.equal(storage.data.get(SEEN_VERSION_KEY), '2.2.0');
+});
+
+test('a remount in the same session does not show the notice twice, even if the mark cannot be stored', () => {
+  const storage = memoryStorage('2.3.0');
+  storage.setItem = () => {
+    throw new Error('quota');
+  };
+  assert.equal(peekWhatsNew(storage, '2.3.1'), 'pending');
+  markWhatsNewSeen(storage, '2.3.1');
+  assert.equal(peekWhatsNew(storage, '2.3.1'), 'already-shown');
+});
+
+test('unavailable storage stays quiet', () => {
+  assert.equal(peekWhatsNew(undefined, '2.4.0'), 'storage-unavailable');
   const broken = {
     getItem: () => {
       throw new Error('denied');
     },
     setItem: () => undefined,
   };
-  assert.equal(takeWhatsNew(broken, '1.0.2'), false);
+  assert.equal(peekWhatsNew(broken, '2.4.0'), 'storage-unavailable');
 });
 
 test('parseChangelog returns released sections with their dates and skips Unreleased', () => {

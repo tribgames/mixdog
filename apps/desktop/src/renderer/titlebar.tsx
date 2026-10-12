@@ -13,13 +13,21 @@ import { RemotePcSwitcher } from './RemotePcSwitcher';
 import { ProgressSpinner } from './ProgressSpinner';
 
 import type { ChangelogRelease } from './settings/changelog';
-import { takeWhatsNew } from './settings/whats-new';
+import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } from './settings/whats-new';
 
-function readWhatsNewPending(): boolean {
+function readWhatsNewStatus(): WhatsNewStatus {
   try {
-    return takeWhatsNew(window.localStorage, appVersion);
+    return peekWhatsNew(window.localStorage, appVersion);
   } catch {
-    return false;
+    return 'storage-unavailable';
+  }
+}
+
+function markSeen(): void {
+  try {
+    markWhatsNewSeen(window.localStorage, appVersion);
+  } catch {
+    markWhatsNewSeen(undefined, appVersion);
   }
 }
 
@@ -41,7 +49,9 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
     Boolean(onOpenUpdate) && (updaterState?.status === 'ready' || updaterState?.status === 'installing');
   const updateInstalling = updaterState?.status === 'installing';
   // The first launch after an update announces that version's notes once.
-  const [whatsNew] = useState(readWhatsNewPending);
+  // The version is marked seen only once the notice is on screen (see below).
+  const [whatsNewStatus] = useState(readWhatsNewStatus);
+  const whatsNew = whatsNewStatus === 'pending';
   const [notice, setNotice] = useState<{
     Dialog: ComponentType<{ release: ChangelogRelease; onClose(): void; onViewAll(): void }>;
     release: ChangelogRelease;
@@ -59,18 +69,36 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
       .catch(() => undefined);
   };
   useEffect(() => {
-    if (!whatsNew) return;
+    if (!whatsNew) {
+      reportWhatsNew('skipped', appVersion, { reason: whatsNewStatus });
+      return;
+    }
+    reportWhatsNew('taken', appVersion);
     let cancelled = false;
     void import('./settings/whats-new-dialog')
       .then(async (module) => {
         const release = await module.prepareWhatsNew();
-        if (release && !cancelled) setNotice({ Dialog: module.default, release });
+        if (cancelled) return;
+        if (release) {
+          setNotice({ Dialog: module.default, release });
+        } else {
+          // This version has no changelog section; retrying could never show one.
+          markSeen();
+          reportWhatsNew('skipped', appVersion, { reason: 'no-section' });
+        }
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => reportWhatsNew('failed', appVersion, { error }));
     return () => {
       cancelled = true;
     };
-  }, [whatsNew]);
+  }, [whatsNew, whatsNewStatus]);
+  // Runs after the commit that put the dialog portal in the DOM.
+  const noticeShown = notice !== null;
+  useEffect(() => {
+    if (!noticeShown) return;
+    markSeen();
+    reportWhatsNew('shown', appVersion);
+  }, [noticeShown]);
   useEffect(() => {
     if (!ChangelogDialog) return;
     const onKey = (event: KeyboardEvent) => {

@@ -88,6 +88,7 @@ import {
   normalizeRendererComposerActionDiagnostic,
   normalizeRendererDiagnostic,
   normalizeRendererLongTaskDiagnostic,
+  normalizeRendererWhatsNewDiagnostic,
   rendererRecoveryDecision,
 } from './renderer-recovery';
 
@@ -1154,6 +1155,11 @@ function rendererDiagnosticListener(window: BrowserWindow): (event: Electron.Ipc
     const transcriptRead = normalizeTranscriptReadDiagnostic(payload);
     if (transcriptRead) {
       diagnostics?.write('renderer-transcript-read', { ...transcriptRead });
+      return;
+    }
+    const whatsNew = normalizeRendererWhatsNewDiagnostic(payload);
+    if (whatsNew) {
+      diagnostics?.write('renderer-whats-new', whatsNew);
       return;
     }
     const composerAction = normalizeRendererComposerActionDiagnostic(payload);

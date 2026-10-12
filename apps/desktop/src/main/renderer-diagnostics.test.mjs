@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { normalizeRendererDiagnostic } from './renderer-recovery.ts';
+import { normalizeRendererDiagnostic, normalizeRendererWhatsNewDiagnostic } from './renderer-recovery.ts';
+
+test("what's-new diagnostics keep a bounded event record and reject unknown events", () => {
+  assert.deepEqual(
+    normalizeRendererWhatsNewDiagnostic({
+      kind: 'whats-new',
+      event: 'failed',
+      version: '1.1.1',
+      errorName: 'TypeError',
+      message: 'a\nb',
+    }),
+    { event: 'failed', version: '1.1.1', errorName: 'TypeError', message: 'a b' }
+  );
+  assert.equal(normalizeRendererWhatsNewDiagnostic({ kind: 'whats-new', event: 'bogus', version: '1' }), null);
+  assert.equal(normalizeRendererWhatsNewDiagnostic({ kind: 'long-task' }), null);
+});
 
 test('a notice keeps the sentence the user saw', () => {
   const details = normalizeRendererDiagnostic({

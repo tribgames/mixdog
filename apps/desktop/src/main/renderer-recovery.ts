@@ -97,6 +97,24 @@ export function normalizeRendererLongTaskDiagnostic(input: unknown): Record<stri
   };
 }
 
+export function normalizeRendererWhatsNewDiagnostic(input: unknown): Record<string, unknown> | null {
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  if (record.kind !== 'whats-new') return null;
+  const event = String(record.event || '');
+  if (!['taken', 'shown', 'skipped', 'failed'].includes(event)) return null;
+  const text = (value: unknown, max: number) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const reason = text(record.reason, 80);
+  const errorName = text(record.errorName, 80);
+  const message = text(record.message, 300);
+  return {
+    event,
+    version: text(record.version, 40),
+    ...(reason ? { reason } : {}),
+    ...(errorName ? { errorName } : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
 export function normalizeRendererComposerActionDiagnostic(input: unknown): Record<string, unknown> | null {
   const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   if (record.kind !== 'composer-action') return null;

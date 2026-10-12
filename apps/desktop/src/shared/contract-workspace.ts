@@ -381,8 +381,18 @@ export interface DesktopRendererComposerActionDiagnostic {
   targeted?: boolean;
 }
 
+export interface DesktopRendererWhatsNewDiagnostic {
+  kind: 'whats-new';
+  event: 'taken' | 'shown' | 'skipped' | 'failed';
+  version: string;
+  reason?: string;
+  errorName?: string;
+  message?: string;
+}
+
 export type DesktopRendererDiagnostic =
   | DesktopRendererFailureDiagnostic
+  | DesktopRendererWhatsNewDiagnostic
   | DesktopRendererLongTaskDiagnostic
   | DesktopRendererComposerActionDiagnostic
   | import('./transcript-read-diagnostics').TranscriptReadDiagnostic;
