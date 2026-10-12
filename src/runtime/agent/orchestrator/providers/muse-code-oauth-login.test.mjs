@@ -194,7 +194,138 @@ test('429 widens the interval and Retry-After is honoured; network errors are re
   };
   const token = await pollDeviceToken(device, { fetchFn, sleep: async (ms) => sleeps.push(ms), now: () => 0 });
   assert.equal(token, 't');
-  assert.deepEqual(sleeps, [5000, 30000, 15000]);
+  // The network error doubles the 5s interval to 10s; each 429 then adds 5s on top.
+  assert.deepEqual(sleeps, [10000, 30000, 20000]);
+});
+
+// Make every postForm timeout signal fire at once so the request fails as a timeout.
+async function withInstantTimeouts(run) {
+  const realTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = () => {
+    const c = new AbortController();
+    c.abort(new Error('t'));
+    return c.signal;
+  };
+  try {
+    return await run();
+  } finally {
+    AbortSignal.timeout = realTimeout;
+  }
+}
+
+test('connection timeouts double the persistent poll interval (RFC 8628 §3.5)', async () => {
+  const sleeps = [];
+  let n = 0;
+  const fetchFn = async () => {
+    if (n++ < 3) throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    return reply(200, { access_token: 't' });
+  };
+  const token = await withInstantTimeouts(() =>
+    pollDeviceToken({ ...device, expiresInS: null }, { fetchFn, sleep: async (ms) => sleeps.push(ms), now: () => 0 })
+  );
+  assert.equal(token, 't');
+  // 5s → 10s → 20s → 40s: every failure sleeps the grown interval.
+  assert.deepEqual(sleeps, [10000, 20000, 40000]);
+});
+
+test('the grown interval is kept after the endpoint recovers and is capped at 60s', async () => {
+  const sleeps = [];
+  const script = ['net', 'net', 'pending', 'pending', 'done'];
+  let n = 0;
+  const fetchFn = async () => {
+    const step = script[n++];
+    if (step === 'net') throw new TypeError('fetch failed');
+    if (step === 'pending') return reply(400, { error: 'authorization_pending' });
+    return reply(200, { access_token: 't' });
+  };
+  const token = await pollDeviceToken(
+    { ...device, intervalS: 20, expiresInS: null },
+    { fetchFn, sleep: async (ms) => sleeps.push(ms), now: () => 0 }
+  );
+  assert.equal(token, 't');
+  // 20s → 40s → 60s (capped); pending polls keep waiting at the 60s interval.
+  assert.deepEqual(sleeps, [40000, 60000, 60000, 60000]);
+});
+
+test('a transient failure after the interval reached the 60s cap fails instead of polling at the same rate', async () => {
+  const sleeps = [];
+  let calls = 0;
+  await assert.rejects(
+    pollDeviceToken(
+      { ...device, intervalS: 20, expiresInS: null },
+      {
+        fetchFn: async () => {
+          calls++;
+          throw new TypeError('fetch failed');
+        },
+        sleep: async (ms) => sleeps.push(ms),
+        now: () => 0,
+      }
+    ),
+    (err) => err.kind === 'device-token' && /fetch failed/.test(err.message)
+  );
+  // 20s → 40s → 60s (cap reached); the next failure cannot back off further.
+  assert.deepEqual(sleeps, [40000, 60000]);
+  assert.equal(calls, 3);
+});
+
+for (const intervalS of [60, 90]) {
+  test(`a server interval of ${intervalS}s fails on the first transient error without a retry`, async () => {
+    const sleeps = [];
+    let calls = 0;
+    await assert.rejects(
+      pollDeviceToken(
+        { ...device, intervalS, expiresInS: null },
+        {
+          fetchFn: async () => {
+            calls++;
+            throw new TypeError('fetch failed');
+          },
+          sleep: async (ms) => sleeps.push(ms),
+          now: () => 0,
+        }
+      ),
+      (err) => err.kind === 'device-token'
+    );
+    assert.equal(calls, 1);
+    assert.deepEqual(sleeps, []);
+  });
+}
+
+test('a timeout backs the interval off and the retry stays bounded at three consecutive failures', async () => {
+  const sleeps = [];
+  const calls = [];
+  await withInstantTimeouts(() =>
+    assert.rejects(
+      pollDeviceToken(
+        { ...device, expiresInS: null },
+        {
+          fetchFn: async () => {
+            calls.push(1);
+            throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+          },
+          sleep: async (ms) => sleeps.push(ms),
+          now: () => 0,
+        }
+      ),
+      (err) => err.kind === 'timeout'
+    )
+  );
+  assert.equal(calls.length, 4);
+  assert.deepEqual(sleeps, [10000, 20000, 40000]);
+});
+
+test('slow_down and Retry-After still add to a backed-off interval', async () => {
+  const sleeps = [];
+  let n = 0;
+  const fetchFn = async () => {
+    n++;
+    if (n === 1) throw new TypeError('fetch failed');
+    if (n === 2) return reply(400, { error: 'slow_down' });
+    return reply(200, { access_token: 't' });
+  };
+  await pollDeviceToken(device, { fetchFn, sleep: async (ms) => sleeps.push(ms), now: () => 0 });
+  assert.deepEqual(sleeps, [10000, 15000]);
 });
 
 test('OAuth 4xx errors, access_denied and expired_token are never retried', async () => {

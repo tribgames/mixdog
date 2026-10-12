@@ -21,6 +21,40 @@ export const TOKEN_PLAN_BASE_URLS = Object.freeze(
 );
 const TOKEN_PLAN_PROBE_TIMEOUT_MS = 15_000;
 const TOKEN_PLAN_PROBE_MODEL = 'mimo-v2.5';
+// The only hosts an API key may be sent to: the default gateway and the Token
+// Plan regional gateways. Derived from the constants above so they cannot drift.
+const MIMO_API_HOSTS = new Set([DEFAULT_BASE_URL, ...TOKEN_PLAN_BASE_URLS].map((url) => new URL(url).hostname));
+const MAX_BASE_URL_LENGTH = 2048;
+const SAFE_BASE_PATH = /^(?:\/[A-Za-z0-9._~-]+)*\/?$/;
+
+/**
+ * A gateway URL from the authorization payload, validated against the Xiaomi
+ * MiMo API host allowlist: HTTPS, no credentials, default port, no query or
+ * fragment. Returns it without a trailing slash; throws otherwise.
+ */
+export function normalizeMimoBaseUrl(value) {
+  const reject = () => new Error('[mimo-oauth] authorization payload carried a gateway URL outside the Xiaomi MiMo API hosts');
+  if (typeof value !== 'string' || value.length > MAX_BASE_URL_LENGTH) throw reject();
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw reject();
+  }
+  if (
+    url.protocol !== 'https:' ||
+    !MIMO_API_HOSTS.has(url.hostname) ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.search ||
+    url.hash ||
+    !SAFE_BASE_PATH.test(url.pathname)
+  ) {
+    throw reject();
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
 
 // Read per call so MIMO_PLATFORM_URL can point every login URL at another host.
 function platformOrigin() {

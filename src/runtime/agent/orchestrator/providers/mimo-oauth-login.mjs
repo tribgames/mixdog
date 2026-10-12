@@ -17,6 +17,7 @@ import {
   LOGIN_TIMEOUT_MS,
   ensureTokenPlanBaseUrl,
   getKeyName,
+  normalizeMimoBaseUrl,
   saveTokens,
 } from './mimo-oauth-tokens.mjs';
 
@@ -25,6 +26,8 @@ const X25519_SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
 const EPHEMERAL_LEN = 32;
 const NONCE_LEN = 12;
 const TAG_LEN = 16;
+const MAX_API_KEY_LEN = 512;
+const MAX_UID_LEN = 128;
 
 export function generateLoginKeyPair() {
   const { publicKey, privateKey } = generateKeyPairSync('x25519');
@@ -53,9 +56,24 @@ export function decryptMimoPayload(u, privateKey) {
   } catch {
     throw new Error('[mimo-oauth] could not decrypt the authorization payload');
   }
-  const apiKey = typeof doc?.sk === 'string' ? doc.sk.trim() : '';
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    throw new Error('[mimo-oauth] authorization payload is not an object');
+  }
+  const apiKey = typeof doc.sk === 'string' ? doc.sk.trim() : '';
   if (!apiKey) throw new Error('[mimo-oauth] authorization payload carried no API key');
-  return { apiKey, uid: doc.uid ? String(doc.uid) : '', baseUrl: typeof doc.url === 'string' ? doc.url : '' };
+  if (apiKey.length > MAX_API_KEY_LEN || !/^[\x21-\x7e]+$/.test(apiKey)) {
+    throw new Error('[mimo-oauth] authorization payload carried a malformed API key');
+  }
+  const uidPresent = doc.uid !== undefined && doc.uid !== null && doc.uid !== '';
+  if (uidPresent && typeof doc.uid !== 'string' && !Number.isFinite(doc.uid)) {
+    throw new Error('[mimo-oauth] authorization payload carried a malformed account id');
+  }
+  const uid = uidPresent ? String(doc.uid) : '';
+  if (uid.length > MAX_UID_LEN || /[\x00-\x1f\x7f]/.test(uid)) {
+    throw new Error('[mimo-oauth] authorization payload carried a malformed account id');
+  }
+  const baseUrl = doc.url === undefined || doc.url === null || doc.url === '' ? '' : normalizeMimoBaseUrl(doc.url);
+  return { apiKey, uid, baseUrl };
 }
 
 // A pasted value may be the bare code or the full callback URL containing it.
@@ -114,6 +132,7 @@ export async function beginOAuthLogin({
   timeoutMs = LOGIN_TIMEOUT_MS,
   fetchImpl = undefined,
   addresses = null,
+  printUrl = false,
 } = {}) {
   const { privateKey, publicKeyB64 } = generateLoginKeyPair();
   const keyName = getKeyName();
@@ -213,9 +232,14 @@ export async function beginOAuthLogin({
   }
   url = authorizeUrl(publicKeyB64, `http://localhost:${port}/`, keyName);
   const manualUrl = authorizeUrl(publicKeyB64, manualRedirectUri(), keyName);
-  process.stderr.write(
-    `\n[mimo-oauth] Open this URL to log in:\n${url}\n\nOr, if the browser is on another machine:\n${manualUrl}\n\n`
-  );
+  // The URL carries the one-shot login public key. The interactive surfaces
+  // (TUI, desktop) receive it in the returned handle and show it to the user
+  // only; it is printed to the terminal solely for the headless loginOAuth().
+  if (printUrl) {
+    process.stderr.write(
+      `\n[mimo-oauth] Open this URL to log in:\n${url}\n\nOr, if the browser is on another machine:\n${manualUrl}\n\n`
+    );
+  }
   if (openBrowser) {
     try {
       const { openInBrowser } = await import('../../../shared/open-url.mjs');
@@ -239,6 +263,6 @@ export async function beginOAuthLogin({
 }
 
 export async function loginOAuth() {
-  const login = await beginOAuthLogin();
+  const login = await beginOAuthLogin({ printUrl: true });
   return await login.waitForCallback;
 }

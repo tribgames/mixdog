@@ -109,11 +109,11 @@ export function buildDefaultConfig(options = {}) {
   providers['grok-oauth'] = oauthEntry('grok-oauth');
   // Muse Code subscription (Meta Muse Spark), enabled from its stored key.
   providers['muse-code-oauth'] = oauthEntry('muse-code-oauth');
-  // MiMo subscription: enabled from a stored platform API key.
-  providers['mimo-oauth'] = oauthEntry('mimo-oauth');
   // Dev-only providers (Settings → Developer → Providers, one option each):
   // omitted entirely from the default config while their option is off so
   // they never surface in settings.
+  // Experimental MiMo subscription: enabled from a stored platform API key.
+  if (isOAuthProviderAvailable('mimo-oauth')) providers['mimo-oauth'] = oauthEntry('mimo-oauth');
   // Experimental direct Cursor wire provider. It remains disabled unless a
   // Mixdog-owned login or CURSOR_ACCESS_TOKEN is present.
   if (isOAuthProviderAvailable('cursor-oauth')) providers['cursor-oauth'] = oauthEntry('cursor-oauth');

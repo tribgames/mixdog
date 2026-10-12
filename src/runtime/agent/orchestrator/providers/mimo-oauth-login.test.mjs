@@ -39,12 +39,67 @@ function seal(pkB64, doc) {
 
 test('decryptMimoPayload round-trips a sealed payload', () => {
   const { privateKey, publicKeyB64 } = generateLoginKeyPair();
-  const u = seal(publicKeyB64, { sk: 'sk-test', uid: 42, url: 'https://example.test/v1' });
+  const u = seal(publicKeyB64, { sk: 'sk-test', uid: 42, url: 'https://token-plan-cn.xiaomimimo.com/v1' });
   assert.deepEqual(decryptMimoPayload(u, privateKey), {
     apiKey: 'sk-test',
     uid: '42',
-    baseUrl: 'https://example.test/v1',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
   });
+});
+
+test('decryptMimoPayload accepts only allowlisted HTTPS Xiaomi MiMo gateway URLs', () => {
+  const { privateKey, publicKeyB64 } = generateLoginKeyPair();
+  const decode = (url) => decryptMimoPayload(seal(publicKeyB64, { sk: 'sk-test', url }), privateKey);
+  for (const ok of [
+    'https://api.xiaomimimo.com/v1',
+    'https://api.xiaomimimo.com/v1/',
+    'https://TOKEN-PLAN-SGP.xiaomimimo.com/v1',
+    'https://token-plan-ams.xiaomimimo.com/v1',
+  ]) {
+    assert.match(decode(ok).baseUrl, /^https:\/\/[a-z-]+\.xiaomimimo\.com\/v1$/, ok);
+  }
+  assert.equal(decode(undefined).baseUrl, '');
+  assert.equal(decode('').baseUrl, '');
+  for (const bad of [
+    'http://api.xiaomimimo.com/v1',
+    'https://example.test/v1',
+    'https://evil.com/v1',
+    'https://xiaomimimo.com/v1',
+    'https://api.xiaomimimo.com.evil.com/v1',
+    'https://evil.com/.xiaomimimo.com/v1',
+    'https://api.xiaomimimo.com@evil.com/v1',
+    'https://user:pw@api.xiaomimimo.com/v1',
+    'https://api.xiaomimimo.com:8443/v1',
+    'https://api.xiaomimimo.com/v1?next=evil',
+    'https://api.xiaomimimo.com/v1#x',
+    'https://api.xiaomimimo.com/v1/a b%00',
+    'https://token-plan-eu.xiaomimimo.com/v1',
+    'ftp://api.xiaomimimo.com/v1',
+    'not a url',
+    `https://api.xiaomimimo.com/${'a'.repeat(3000)}`,
+    42,
+    { href: 'https://api.xiaomimimo.com/v1' },
+    ['https://api.xiaomimimo.com/v1'],
+  ]) {
+    assert.throws(() => decode(bad), /outside the Xiaomi MiMo API hosts/, String(bad).slice(0, 60));
+  }
+});
+
+test('decryptMimoPayload validates field types and lengths before anything is stored', () => {
+  const { privateKey, publicKeyB64 } = generateLoginKeyPair();
+  const decode = (doc) => decryptMimoPayload(seal(publicKeyB64, doc), privateKey);
+  assert.throws(() => decode(['sk-test']), /not an object/);
+  assert.throws(() => decode(null), /not an object/);
+  assert.throws(() => decode({ sk: 123 }), /no API key/);
+  assert.throws(() => decode({ sk: 'a'.repeat(513) }), /malformed API key/);
+  assert.throws(() => decode({ sk: 'sk with space' }), /malformed API key/);
+  assert.throws(() => decode({ sk: 'sk-\nnewline' }), /malformed API key/);
+  assert.throws(() => decode({ sk: 'sk-test', uid: { id: 1 } }), /malformed account id/);
+  assert.throws(() => decode({ sk: 'sk-test', uid: ['1'] }), /malformed account id/);
+  assert.throws(() => decode({ sk: 'sk-test', uid: 'u'.repeat(129) }), /malformed account id/);
+  assert.throws(() => decode({ sk: 'sk-test', uid: 'u\n1' }), /malformed account id/);
+  assert.equal(decode({ sk: 'a'.repeat(512), uid: 'u'.repeat(128) }).uid.length, 128);
+  assert.equal(decode({ sk: 'sk-test' }).uid, '');
 });
 
 test('decryptMimoPayload rejects tampered, foreign-key and key-less payloads', () => {
@@ -125,14 +180,61 @@ test('a payload sealed to a different login key is rejected without ending the l
   }
 });
 
+test('a payload with a foreign gateway URL is rejected without settling or storing the login', async () => {
+  forgetMimoOAuthCredentials();
+  const login = await beginOAuthLogin({ openBrowser: false });
+  try {
+    const pk = new URL(login.url).searchParams.get('pk');
+    const evil = seal(pk, { sk: 'sk-evil', uid: 'e', url: 'https://evil.example/v1' });
+    const res = await fetch(`http://localhost:${login.port}/?u=${evil}`, { redirect: 'manual' });
+    assert.equal(res.status, 400);
+    await assert.rejects(login.completeCode(evil), /outside the Xiaomi MiMo API hosts/);
+    assert.equal(loadTokens(), null);
+    const state = await Promise.race([login.waitForCallback, new Promise((r) => setTimeout(() => r('pending'), 50))]);
+    assert.equal(state, 'pending');
+
+    const good = seal(pk, { sk: 'sk-good', uid: 'g', url: 'https://api.xiaomimimo.com/v1' });
+    const ok = await fetch(`http://localhost:${login.port}/?u=${good}`, { redirect: 'manual' });
+    assert.equal(ok.status, 302);
+    assert.equal((await login.waitForCallback).apiKey, 'sk-good');
+  } finally {
+    login.cancel();
+  }
+});
+
+test('the authorization URL is shown only to a headless login, never by an interactive begin', async () => {
+  const lines = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => {
+    lines.push(String(chunk));
+    return typeof rest.at(-1) === 'function' ? rest.at(-1)() : true;
+  };
+  let interactive;
+  let headless;
+  try {
+    interactive = await beginOAuthLogin({ openBrowser: false });
+    const quiet = lines.join('');
+    interactive.cancel();
+    headless = await beginOAuthLogin({ openBrowser: false, printUrl: true });
+    headless.cancel();
+    const loud = lines.join('');
+    const pk = new URL(interactive.url).searchParams.get('pk');
+    assert.equal(quiet.includes(pk), false);
+    assert.equal(quiet.includes('/authorize'), false);
+    assert.equal(loud.includes(new URL(headless.url).searchParams.get('pk')), true);
+  } finally {
+    process.stderr.write = original;
+  }
+});
+
 test('pasted code (bare or inside a URL) completes the login and cancel resolves null', async () => {
   const login = await beginOAuthLogin({ openBrowser: false });
   const pk = new URL(login.manualUrl).searchParams.get('pk');
-  const u = seal(pk, { sk: 'sk-paste', uid: 'u2', url: 'https://example.test/v1' });
+  const u = seal(pk, { sk: 'sk-paste', uid: 'u2', url: 'https://token-plan-sgp.xiaomimimo.com/v1/' });
   const tokens = await login.completeCode(`https://platform.xiaomimimo.com/authorize/code/callback?u=${u}`);
   assert.equal(tokens.apiKey, 'sk-paste');
   assert.equal(await login.waitForCallback, tokens);
-  assert.equal(loadTokens().baseUrl, 'https://example.test/v1');
+  assert.equal(loadTokens().baseUrl, 'https://token-plan-sgp.xiaomimimo.com/v1');
   await assert.rejects(login.completeCode(''), /code is required/);
 
   const second = await beginOAuthLogin({ openBrowser: false });

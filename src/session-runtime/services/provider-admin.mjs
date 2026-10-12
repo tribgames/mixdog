@@ -190,7 +190,7 @@ const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
 const API_PROVIDER_IDS = new Set(API_PROVIDERS.map((p) => p.id));
 const OAUTH_BY_ID = new Map(OAUTH_PROVIDERS.map((p) => [p.id, p]));
 
-// Dev-only entries (cursor-oauth, antigravity-oauth) are unknown to
+// Dev-only entries (cursor-oauth, antigravity-oauth, mimo-oauth) are unknown to
 // settings/login while the Developer → Providers option is off. Filtered per
 // call, so toggling the option takes effect without a restart.
 function availableOAuthProviders() {

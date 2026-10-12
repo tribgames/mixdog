@@ -32,7 +32,7 @@ test.afterEach(() => {
   });
 });
 
-test('registry: Gemini (Antigravity) and Cursor are separate provider options with the OAuth risk warning', () => {
+test('registry: Gemini (Antigravity), Cursor and MiMo are separate provider options with the OAuth risk warning', () => {
   assert.deepEqual(
     DEVELOPER_SECTIONS.map((section) => [
       section.id,
@@ -44,6 +44,7 @@ test('registry: Gemini (Antigravity) and Cursor are separate provider options wi
         [
           ['antigravityOAuth', 'Gemini (Antigravity)', 'antigravity-oauth'],
           ['cursorOAuth', 'Cursor', 'cursor-oauth'],
+          ['mimoOAuth', 'MiMo', 'mimo-oauth'],
         ],
       ],
     ]
@@ -53,6 +54,8 @@ test('registry: Gemini (Antigravity) and Cursor are separate provider options wi
   }
   assert.equal(developerOptionForProvider('antigravity-oauth').id, 'antigravityOAuth');
   assert.equal(developerOptionForProvider('cursor-oauth').id, 'cursorOAuth');
+  assert.equal(developerOptionForProvider('mimo-oauth').id, 'mimoOAuth');
+  assert.equal(developerOptionForProvider('muse-code-oauth'), null);
   assert.equal(developerOptionForProvider('openai-oauth'), null);
   assert.ok(Object.isFrozen(DEVELOPER_SECTIONS));
 });
@@ -60,6 +63,7 @@ test('registry: Gemini (Antigravity) and Cursor are separate provider options wi
 test('default off: no stored value', () => {
   assert.equal(developerOptionEnabled('antigravityOAuth'), false);
   assert.equal(developerOptionEnabled('cursorOAuth'), false);
+  assert.equal(developerOptionEnabled('mimoOAuth'), false);
   assert.equal(developerOptionEnabled('unknown'), false);
   const warning = 'Using this provider through OAuth carries a high risk of penalties such as account restrictions.';
   assert.deepEqual(developerSettingsView(), {
@@ -85,6 +89,14 @@ test('default off: no stored value', () => {
             provider: 'cursor-oauth',
             enabled: false,
           },
+          {
+            id: 'mimoOAuth',
+            label: 'MiMo',
+            description: 'Show Xiaomi MiMo OAuth in Providers and the model picker.',
+            warning,
+            provider: 'mimo-oauth',
+            enabled: false,
+          },
         ],
       },
     ],
@@ -100,6 +112,7 @@ test('each stored value turns only its own option on', () => {
     [
       ['antigravityOAuth', false],
       ['cursorOAuth', true],
+      ['mimoOAuth', false],
     ]
   );
   storeDeveloper({ cursorOAuth: false, antigravityOAuth: true });

@@ -30,6 +30,13 @@ export const DEVELOPER_SECTIONS = Object.freeze([
         warning: OAUTH_RISK_WARNING,
         provider: 'cursor-oauth',
       }),
+      Object.freeze({
+        id: 'mimoOAuth',
+        label: 'MiMo',
+        description: 'Show Xiaomi MiMo OAuth in Providers and the model picker.',
+        warning: OAUTH_RISK_WARNING,
+        provider: 'mimo-oauth',
+      }),
     ]),
   }),
 ]);

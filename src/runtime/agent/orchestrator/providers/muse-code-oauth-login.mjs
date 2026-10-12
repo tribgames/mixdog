@@ -17,6 +17,7 @@ const DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
 const DEFAULT_INTERVAL_S = 5;
 const MIN_INTERVAL_S = 1;
 const SLOW_DOWN_STEP_S = 5;
+const MAX_BACKOFF_INTERVAL_MS = 60_000;
 export const DEVICE_REQUEST_TIMEOUT_MS = 30_000;
 const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
 const MAX_TRANSIENT_FAILURES = 3;
@@ -154,6 +155,12 @@ export async function pollDeviceToken(
       if (now() >= deadline || (pollSignal?.aborted && pollSignal !== signal)) break;
       // Only timeouts and network failures are transient.
       if ((err.kind !== 'timeout' && err.kind !== 'device-token') || ++failures > MAX_TRANSIENT_FAILURES) throw err;
+      // RFC 8628 §3.5: after a connection timeout the client backs off by
+      // increasing the polling interval; the increase persists for the rest of the flow.
+      // Already at (or past) the cap: backing off further is impossible, and polling
+      // again at the same frequency would defeat the backoff, so fail instead.
+      if (intervalMs >= MAX_BACKOFF_INTERVAL_MS) throw err;
+      intervalMs = Math.min(intervalMs * 2, MAX_BACKOFF_INTERVAL_MS);
       await sleep(Math.min(intervalMs, deadline - now()), signal);
       continue;
     }

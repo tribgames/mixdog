@@ -501,11 +501,11 @@ test('provider setup refresh waits for keychain readiness and bypasses stale set
 
 test('provider setup lists every OAuth row in order and leads the API rows with OpenCode Go, without a separate Cursor API row', async () => {
   const setup = await providerSetup({}, { detectLocal: false, checkSecrets: false });
-  // cursor-oauth / antigravity-oauth are dev-only rows, each listed only while
+  // mimo-oauth / cursor-oauth / antigravity-oauth are dev-only rows, each listed only while
   // its Settings → Developer option is on; this scratch data dir turns none on.
   assert.deepEqual(
     setup.oauth.map((provider) => provider.id),
-    ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'mimo-oauth']
+    ['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth']
   );
   assert.equal(setup.api[0].id, 'opencode-go');
   assert.equal(setup.api[1].id, 'openrouter');
