@@ -19,6 +19,7 @@ npmRebuild: false
 nodeGypRebuild: false
 extraMetadata:
   name: mixdog-desktop
+  homepage: https://github.com/tribgames/mixdog#readme
 protocols:
   name: Mixdog
   schemes:
@@ -100,8 +101,52 @@ mac:
     NSAppleEventsUsageDescription: Mixdog uses AppleScript to show native folder pickers and read clipboard attachments.
 linux:
   category: Development
+  # hicolor sizes (16-256) generated from build/mixdog.png; the icon name is the
+  # executable name, which matches the desktop entry's Icon= key.
+  icon: build/icons
+  # GNOME Shell extension, copied for per-user install by the app (the .deb also
+  # installs it system-wide, see deb.fpm).
+  extraResources:
+    - from: ../../native/gnome-extension/mixdog-windows@mixdog.io
+      to: gnome-extension/mixdog-windows@mixdog.io
+  synopsis: Mixdog desktop host
+  maintainer: Mixdog <dev@tribgames.com>
+  desktop:
+    entry:
+      # Electron reports the package name (mixdog-desktop) as WM_CLASS and the
+      # Wayland app_id; the entry must name the same class or docks and
+      # alt-tab fall back to a generic icon.
+      StartupWMClass: mixdog-desktop
   target:
-    - AppImage
+    - target: AppImage
+    - target: deb
+deb:
+  # AppArmor profile + alternatives (electron-builder defaults) plus Mixdog's
+  # uinput udev/modprobe setup for Computer Use; see build/linux/*.tpl.
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
+  fpm:
+    - build/linux/70-mixdog-uinput.rules=/usr/lib/udev/rules.d/70-mixdog-uinput.rules
+    - build/linux/mixdog-uinput.conf=/usr/lib/modules-load.d/mixdog-uinput.conf
+    - ../../native/gnome-extension/mixdog-windows@mixdog.io/=/usr/share/gnome-shell/extensions/mixdog-windows@mixdog.io
+  recommends:
+    - wl-clipboard
+    - tesseract-ocr
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libsecret-tools
+    - libasound2t64 | libasound2
+# Static AppImage runtime: starts without libfuse2 (absent on stock Ubuntu 24.04).
+toolsets:
+  appimage: 1.0.3
 publish:
   provider: github
   owner: tribgames

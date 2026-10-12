@@ -65,7 +65,7 @@ export function createCaptureSources(
         const hidden = HIDDEN_WINDOW_ADVICE[code];
         // Without Screen Recording macOS hands back no foreign window at all;
         // no later backend can recover that, and the grant is the user's.
-        if (entry.backend === 'composited' && screenCaptureBlocked(host.readPermissions())) {
+        if (entry.backend === 'composited' && screenCaptureBlocked(await host.readPermissions())) {
           return {
             unavailable: pixelUnavailable('capture_source_unavailable', `composited: ${SCREEN_RECORDING_GUIDANCE}`),
             terminal: true,

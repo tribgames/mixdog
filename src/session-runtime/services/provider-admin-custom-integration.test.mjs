@@ -8,7 +8,8 @@ mock.module('../../runtime/shared/config.mjs', {
   namedExports: {
     ...original,
     saveSecret: (account, value) => secrets.set(account, value),
-    deleteSecret: (account) => secrets.delete(account),
+    saveSecretAsync: async (account, value) => secrets.set(account, value),
+    deleteSecretAsync: async (account) => secrets.delete(account),
     hasStoredSecret: (account) => secrets.has(account),
     getAgentApiKey: (id) => secrets.get(`agent.${id}.apiKey`) || null,
   },
@@ -209,7 +210,7 @@ for (const protocol of Object.keys(markers)) {
     assert.equal(requests[0].headers['x-api-key'], undefined);
     assert.equal(JSON.stringify(requests[0].headers).includes(KEY), false);
 
-    admin.removeCustomProvider(cfg, saved.id);
+    await admin.removeCustomProvider(cfg, saved.id);
     assert.equal(cfg.peek().providers[saved.id], undefined);
     assert.equal(secrets.has(`agent.${saved.id}.apiKey`), false);
     assert.deepEqual(rowsFor(cfg.peek()), []);

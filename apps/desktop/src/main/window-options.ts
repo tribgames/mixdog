@@ -15,6 +15,9 @@ export const DESKTOP_TITLEBAR_HEIGHT = 35;
 /* Windows 11 22H2+ (build 22621) draws the Mica system backdrop behind a
    clear window; older builds and other platforms keep the opaque band. */
 export const DESKTOP_WINDOW_MICA = process.platform === 'win32' && Number(release().split('.')[2]) >= 22621;
+/* Windows and Linux draw min/max/close through Electron's titleBarOverlay
+   (Window Controls Overlay); macOS keeps its native traffic lights. */
+const HAS_TITLEBAR_OVERLAY = process.platform === 'win32' || process.platform === 'linux';
 const CLEAR_BACKGROUND_COLOR = '#00000000';
 const micaWindows = new WeakSet<object>();
 
@@ -40,15 +43,20 @@ function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
 }
 
 function titleBarOverlay(light = false, zoom = 1) {
+  const opaqueBand =
+    process.platform === 'linux' ? (light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR) : null;
   return {
     // TRANSPARENT caption band: the native overlay paints
     // no pixels of its own, so the DOM titlebar — and any fullscreen scrim —
     // shows through and the band can never sit off-theme for even a frame
     // (user: - ㅁ x 저기만 짜증나게 계속 튀네). Maximize/restore exposure is
     // covered by the window backgroundColor, which tracks the theme band.
+    // Linux paints the overlay band itself and ignores alpha (it rendered solid
+    // white under the dark theme), so it gets the opaque theme band instead.
     color: '#00000000',
     symbolColor: light ? 'black' : 'white',
     height: Math.max(DESKTOP_TITLEBAR_HEIGHT, Math.round(DESKTOP_TITLEBAR_HEIGHT * zoom)),
+    ...(opaqueBand ? { color: opaqueBand } : {}),
   };
 }
 
@@ -62,7 +70,10 @@ function currentTitleBarOverlay(window: DesktopTitleBarWindow) {
   const dim = titleBarDims.get(window as object);
   // The band pixels are the DOM's own (transparent overlay), so a scrim dims
   // them natively — only the SYMBOL ink still needs the composited push.
-  return dim ? { ...base, symbolColor: dim.symbolColor } : base;
+  if (!dim) return base;
+  return process.platform === 'linux'
+    ? { ...base, color: dim.color, symbolColor: dim.symbolColor }
+    : { ...base, symbolColor: dim.symbolColor };
 }
 
 function themeId(value: unknown): string {
@@ -91,7 +102,7 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
       /* best effort */
     });
   }
-  if (process.platform !== 'win32') return;
+  if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
 
@@ -102,7 +113,7 @@ export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: un
 export function setDesktopTitleBarDim(window: DesktopTitleBarWindow, dim: DesktopTitleBarDim | null): void {
   if (dim) titleBarDims.set(window as object, dim);
   else titleBarDims.delete(window as object);
-  if (process.platform !== 'win32') return;
+  if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
 
@@ -134,7 +145,7 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
   if (!light) return material;
   return {
     backgroundColor: DESKTOP_LIGHT_BACKGROUND_COLOR,
-    ...(process.platform === 'win32' ? { titleBarOverlay: titleBarOverlay(true) } : {}),
+    ...(HAS_TITLEBAR_OVERLAY ? { titleBarOverlay: titleBarOverlay(true) } : {}),
     ...material,
   };
 }
@@ -144,6 +155,15 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
  *  gets html[data-window-material="mica"] so the renderer opens the
  *  titlebar and rail to the material (03-titlebar.css). */
 export function installDesktopWindowMaterial(window: BrowserWindow): void {
+  if (process.platform === 'linux') {
+    // GTK restyles the native controls on focus changes and drops back to its
+    // own (light, dim when unfocused) palette; re-assert ours on every change.
+    const reapply = () => {
+      if (!window.isDestroyed()) window.setTitleBarOverlay(currentTitleBarOverlay(window));
+    };
+    window.on('focus', reapply);
+    window.on('blur', reapply);
+  }
   if (!DESKTOP_WINDOW_MICA) return;
   micaWindows.add(window);
   installMicaActiveAppearance(window);
@@ -159,7 +179,7 @@ function nativeThemePrefersDark(): boolean {
 export function setDesktopTitleBarZoom(window: DesktopTitleBarWindow, zoom: number): void {
   const normalized = Number.isFinite(zoom) ? Math.min(10, Math.max(0.2, zoom)) : 1;
   titleBarZoomFactors.set(window as object, normalized);
-  if (process.platform !== 'win32') return;
+  if (!HAS_TITLEBAR_OVERLAY) return;
   window.setTitleBarOverlay(currentTitleBarOverlay(window));
 }
 
@@ -191,10 +211,11 @@ export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
   show: false,
   autoHideMenuBar: true,
   titleBarStyle: 'hidden',
-  ...(process.platform === 'win32'
+  ...(HAS_TITLEBAR_OVERLAY
     ? // `hidden` + Window Controls Overlay already provides the custom chrome.
       // Retaining the native frame keeps Windows' DWM maximize/restore path and
-      // avoids the white edge exposed by fully frameless BrowserWindows.
+      // avoids the white edge exposed by fully frameless BrowserWindows; on
+      // Linux it supplies the min/max/close buttons the hidden title bar lacks.
       { frame: true, titleBarOverlay: defaultTitleBarOverlay }
     : { titleBarOverlay: false }),
   backgroundColor: DESKTOP_BACKGROUND_COLOR,

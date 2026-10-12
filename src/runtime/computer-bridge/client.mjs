@@ -23,6 +23,7 @@ import { computerErrorCode } from './error-code.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery } from '../bridge-discovery.mjs';
 import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
 import { computerActionHas } from './actions.mjs';
+import { linuxCaptureFallback, linuxComputerPreflight } from './linux-readiness.mjs';
 import { continuePendingComputerWork, isPendingComputerWork } from './pending-continuation.mjs';
 
 export { canonicalComputerResultText };
@@ -245,6 +246,13 @@ function computerToolResult(value, args) {
 /** Execute one `computer` tool call. Returns MCP-shaped content so the
  *  internal-tools normalizer forwards text and screenshot images as-is. */
 export async function executeComputerTool(rawArgs, context = {}) {
+  const note = { text: '' };
+  const result = await executeComputerToolInner(rawArgs, context, note);
+  // The fallback note rides as its own block so the JSON result text stays intact.
+  return note.text && !result.isError ? { ...result, content: [...result.content, { type: 'text', text: note.text }] } : result;
+}
+
+async function executeComputerToolInner(rawArgs, context, note) {
   const discovery = readBridgeDiscovery(DISCOVERY_FILE);
   if (!discovery) return computerErrorResult(`Error: ${BRIDGE_UNAVAILABLE_MESSAGE}`);
   // Resolve the argument shape once so validation, host translation, and the
@@ -252,11 +260,27 @@ export async function executeComputerTool(rawArgs, context = {}) {
   const args = normalizeComputerToolArgs(rawArgs);
   const validationError = validateComputerToolArgs(args);
   if (validationError) return computerErrorResult(`Error: ${validationError}`);
-  const command = toComputerHostCommand(args);
+  let command = toComputerHostCommand(args);
   const sessionId = context?.sessionId ? String(context.sessionId) : '';
+  const fallback = await linuxCaptureFallback({ command });
+  if (fallback) {
+    command = fallback.command;
+    note.text = fallback.note;
+  }
   const encoded = JSON.stringify({ ...command, ...(sessionId ? { session_id: sessionId } : {}) });
   if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
     return computerErrorResult('Error: computer request exceeds byte limit; no input was dispatched');
+  }
+  // Linux: refuse an action whose own capability (input device, window
+  // control, AT-SPI, ...) is missing, before anything is dispatched, instead of
+  // failing mid-task. Actions that need none of it still run.
+  const notReady = await linuxComputerPreflight({ command });
+  if (notReady) {
+    return {
+      ...computerErrorResult(`Error: ${notReady.message}`),
+      // Structured twin of the text for the transcript card (no text parsing).
+      toolMeta: { code: notReady.code, missing: [...new Set(notReady.missing.map((item) => item.capability))] },
+    };
   }
   const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
   if (releaseError) return releaseError;

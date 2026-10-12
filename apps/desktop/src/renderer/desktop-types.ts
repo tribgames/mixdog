@@ -17,6 +17,8 @@ export type TranscriptItem = RecordValue & {
   args?: unknown;
   result?: unknown;
   rawResult?: unknown;
+  /** Structured twin of a tool result's text (e.g. the Computer Use capability refusal). */
+  toolMeta?: { code: string; missing: string[] };
   isError?: boolean;
   streaming?: boolean;
   expanded?: boolean;

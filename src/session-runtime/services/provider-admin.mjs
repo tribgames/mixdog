@@ -4,10 +4,11 @@ import { sameAccountIdentity } from '../../runtime/agent/orchestrator/providers/
 import {
   AGENT_PROVIDER_ENV,
   SECRET_ACCOUNTS,
-  deleteSecret,
+  deleteSecretAsync,
   getAgentApiKey,
+  getKeychainStatus,
   hasStoredSecret,
-  saveSecret,
+  saveSecretAsync,
 } from '../../runtime/shared/config.mjs';
 import {
   beginOAuthLogin as beginAnthropicOAuthLogin,
@@ -268,6 +269,24 @@ function describeOAuthProvider(p, { detail = false } = {}) {
   return { authenticated, status: authenticated ? 'Set' : 'Not Set', ...(detail ? { detail: p.desc } : {}) };
 }
 
+// When the OS keyring is locked/missing a stored key reads as absent; say so
+// (the UI shows the unlock / install hint) instead of a bare "No Key".
+// Fixed, translatable hints keyed by keyring state; internal error text never
+// reaches the UI.
+const KEYCHAIN_HINTS = Object.freeze({
+  unreachable: 'The keyring is not reachable — make sure it is running, then press Unlock keyring.',
+  locked: 'Keyring is locked — unlock it (log in again or open Passwords and Keys).',
+  missing: 'Install libsecret-tools (sudo apt install libsecret-tools) to use the system keyring.',
+  error: 'The system keyring could not be read — check that it is running and unlocked.',
+});
+
+export function keychainIssueFor(checkSecrets) {
+  if (!checkSecrets) return null;
+  const { state } = getKeychainStatus();
+  const message = KEYCHAIN_HINTS[state];
+  return message ? { state, message } : null;
+}
+
 function apiProviderSetup(p, providers, checkSecrets) {
   const configured = providers[p.id] || {};
   const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
@@ -283,8 +302,11 @@ function apiProviderSetup(p, providers, checkSecrets) {
   if (stored) detail = 'stored in keychain';
   else if (env) detail = envName;
   else if (authenticated) detail = 'runtime credential';
+  const keychainIssue = authenticated ? null : keychainIssueFor(checkSecrets);
+  if (keychainIssue) detail = keychainIssue.message;
   return {
     ...p,
+    ...(keychainIssue ? { keychainIssue } : {}),
     group: 'api',
     type: 'api-key',
     enabled: configuredEnabled || authenticated,
@@ -444,7 +466,9 @@ function customProviderRows(providers, checkSecrets) {
 export async function providerSetup(config = {}, options = {}) {
   const providers = config.providers || {};
   const checkSecrets = options?.checkSecrets !== false;
+  const keychain = checkSecrets ? keychainIssueFor(true) : null;
   return {
+    ...(keychain ? { keychain } : {}),
     api: [
       ...API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets)),
       ...customProviderRows(providers, checkSecrets),
@@ -538,7 +562,7 @@ export async function authenticateProvider(provider, secret) {
   }
   const value = String(secret || '').trim();
   if (!value) throw new Error(`API key is required for ${id}`);
-  saveSecret(SECRET_ACCOUNTS.agentApiKey(id), value);
+  await saveSecretAsync(SECRET_ACCOUNTS.agentApiKey(id), value);
   return { provider: id, type: 'api-key', authenticated: true };
 }
 
@@ -743,12 +767,12 @@ export function updateProviderAccounts(provider, change) {
   return listProviderAccounts(provider);
 }
 
-export function saveProviderApiKey(cfgMod, provider, secret) {
+export async function saveProviderApiKey(cfgMod, provider, secret) {
   const id = String(provider || '').trim();
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);
   const value = String(secret || '').trim();
   if (!value) throw new Error(`API key is required for ${id}`);
-  saveSecret(SECRET_ACCOUNTS.agentApiKey(id), value);
+  await saveSecretAsync(SECRET_ACCOUNTS.agentApiKey(id), value);
   updateConfigProvider(cfgMod, id, { enabled: true });
   return { provider: id, type: 'api-key', authenticated: true };
 }
@@ -852,7 +876,7 @@ export async function saveCustomProvider(cfgMod, rawInput) {
   const entry = { ...config, type: 'custom', enabled: config.enabled !== false };
   const account = SECRET_ACCOUNTS.agentApiKey(id);
   const previousKey = typed && existingId ? getAgentApiKey(id) : null;
-  if (typed) saveSecret(account, typed);
+  if (typed) await saveSecretAsync(account, typed);
   try {
     const current = cfgMod.loadConfig();
     cfgMod.saveConfig(
@@ -861,8 +885,8 @@ export async function saveCustomProvider(cfgMod, rawInput) {
     );
   } catch (error) {
     if (typed) {
-      if (previousKey) saveSecret(account, previousKey);
-      else deleteSecret(account);
+      if (previousKey) await saveSecretAsync(account, previousKey);
+      else await deleteSecretAsync(account);
     }
     throw error;
   }
@@ -951,13 +975,13 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
   return customProviderRow(id, saved);
 }
 
-export function removeCustomProvider(cfgMod, rawId) {
+export async function removeCustomProvider(cfgMod, rawId) {
   const id = String(rawId || '').trim();
   existingCustomEntry(cfgMod, id);
   const current = cfgMod.loadConfig();
   const { [id]: _removed, ...providers } = current.providers || {};
   cfgMod.saveConfig({ ...current, providers }, { baseConfig: current });
-  deleteSecret(SECRET_ACCOUNTS.agentApiKey(id));
+  await deleteSecretAsync(SECRET_ACCOUNTS.agentApiKey(id));
   return { provider: id, type: 'custom', removed: true };
 }
 
@@ -1016,15 +1040,15 @@ function discoveryErrorView(error, apiKey) {
   };
 }
 
-export function saveOpenAIUsageSessionKey(cfgMod, secret) {
+export async function saveOpenAIUsageSessionKey(cfgMod, secret) {
   const value = String(secret || '').trim();
   if (!value) throw new Error('OpenAI usage session key is required for credit lookup');
-  saveSecret(SECRET_ACCOUNTS.openaiUsageSessionKey, value);
+  await saveSecretAsync(SECRET_ACCOUNTS.openaiUsageSessionKey, value);
   updateConfigProvider(cfgMod, 'openai', { enabled: true });
   return { provider: 'openai', type: 'usage-auth', authenticated: true };
 }
 
-export function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
+export async function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
   const secret = String(apiKey || '').trim();
   if (!secret) throw new Error('OpenCode console API key is required for usage lookup');
   // Subscription meters are read with a console service-account key holding the
@@ -1032,7 +1056,7 @@ export function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
   // rejecting anything else here keeps unusable auth out of the keychain.
   if (!/^(?:oc_sk_|sk-)/.test(secret))
     throw new Error('OpenCode usage auth must be a console API key (oc_sk_… or sk-…) with all permissions');
-  saveSecret(SECRET_ACCOUNTS.opencodeGoConsoleKey, secret);
+  await saveSecretAsync(SECRET_ACCOUNTS.opencodeGoConsoleKey, secret);
   // Usage auth may be a different key from the inference key. Only flip the
   // model provider on when a model key actually exists; otherwise usage-only
   // setups get routed to the provider with apiKey 'no-key' and fail with 401s.
@@ -1040,7 +1064,7 @@ export function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
   return { provider: 'opencode-go', type: 'usage-auth', authenticated: true };
 }
 
-export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {
+export async function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {
   const cfgMod = maybeProvider === undefined ? null : cfgModOrProvider;
   const id = String(maybeProvider === undefined ? cfgModOrProvider : maybeProvider || '').trim();
   const oauth = availableOAuthProvider(id);
@@ -1061,7 +1085,7 @@ export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAcc
   if (!API_PROVIDER_IDS.has(id)) {
     throw new Error(`unknown provider "${id}"`);
   }
-  deleteSecret(SECRET_ACCOUNTS.agentApiKey(id));
+  await deleteSecretAsync(SECRET_ACCOUNTS.agentApiKey(id));
   if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: false });
   return { provider: id, type: 'api-key', forgotten: true };
 }

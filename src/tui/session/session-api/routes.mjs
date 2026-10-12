@@ -148,8 +148,8 @@ export function createSessionRouteApi(bag) {
     listProviders: () => {
       return runtime.listProviders();
     },
-    getProviderSetup: () => {
-      return runtime.getProviderSetup();
+    getProviderSetup: (options = {}) => {
+      return runtime.getProviderSetup(options);
     },
     setRoute,
     setAgentRoute: async (agentId, opts) => {

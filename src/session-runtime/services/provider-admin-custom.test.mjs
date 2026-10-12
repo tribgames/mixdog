@@ -7,7 +7,8 @@ mock.module('../../runtime/shared/config.mjs', {
   namedExports: {
     ...original,
     saveSecret: (account, value) => secrets.set(account, value),
-    deleteSecret: (account) => secrets.delete(account),
+    saveSecretAsync: async (account, value) => secrets.set(account, value),
+    deleteSecretAsync: async (account) => secrets.delete(account),
     hasStoredSecret: (account) => secrets.has(account),
     getAgentApiKey: (id) => secrets.get(`agent.${id}.apiKey`) || null,
   },
@@ -130,12 +131,12 @@ test('edit with blank key preserves secret; unknown or built-in id is rejected',
 test('remove deletes config and secret, and only custom providers', async () => {
   const cfg = makeCfg();
   const { id } = await admin.saveCustomProvider(cfg, input);
-  admin.removeCustomProvider(cfg, id);
+  await admin.removeCustomProvider(cfg, id);
   assert.equal(cfg.peek().providers[id], undefined);
   assert.equal(secrets.has(`agent.${id}.apiKey`), false);
   assert.equal(cfg.peek().providers.openai.enabled, true);
-  assert.throws(() => admin.removeCustomProvider(cfg, 'openai'), /unknown custom provider/);
-  assert.throws(() => admin.removeCustomProvider(cfg, id), /unknown custom provider/);
+  await assert.rejects(() => admin.removeCustomProvider(cfg, 'openai'), /unknown custom provider/);
+  await assert.rejects(() => admin.removeCustomProvider(cfg, id), /unknown custom provider/);
 });
 
 test('failed config edits restore the previous API key', async () => {

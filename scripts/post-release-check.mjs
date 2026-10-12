@@ -18,13 +18,17 @@ import { pathToFileURL } from 'node:url';
 import { parseMacFeed } from './merge-mac-update-feed.mjs';
 import { currentLatestTag, gh } from './release-guard.mjs';
 
-// Keep in step with `const expected` in .github/workflows/release.yml (a unit
-// test compares both). No Linux update feed (latest-linux.yml) is in the
-// contract, so none is required here.
+// Keep in step with the per-platform `requirements` in
+// .github/workflows/release.yml (a unit test compares both). The Linux update
+// feeds (latest-linux*.yml) are not parsed here, only required to exist.
 export const ASSET_CONTRACT = Object.freeze([
+  'latest-linux-arm64.yml',
+  'latest-linux.yml',
   'latest-mac.yml',
   'latest.yml',
+  'mixdog-desktop-linux-amd64.deb',
   'mixdog-desktop-linux-arm64.AppImage',
+  'mixdog-desktop-linux-arm64.deb',
   'mixdog-desktop-linux-x86_64.AppImage',
   'mixdog-desktop-mac-arm64.dmg',
   'mixdog-desktop-mac-arm64.zip',

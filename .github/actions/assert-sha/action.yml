@@ -1,0 +1,18 @@
+name: Assert checked-out SHA
+description: >-
+  Fails unless HEAD is exactly the commit this run is meant to verify, and logs
+  it, so a reusable-workflow call can never silently verify the default branch.
+inputs:
+  expected:
+    description: Full commit SHA the checkout must be at
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        EXPECTED: ${{ inputs.expected }}
+      run: |
+        actual=$(git rev-parse HEAD)
+        echo "verified commit: $actual (expected $EXPECTED)"
+        test "$actual" = "$EXPECTED"

@@ -1,0 +1,58 @@
+# Builds mixdog-computer, mixdog-graph and mixdog-patch inside manylinux_2_28
+# (glibc 2.28) so the packaged Linux app's floor does not follow the glibc of
+# the CI runner. Called by linux-desktop-verify and by the release workflow;
+# consumers download the native-tools-glibc228-<arch> artifact and point
+# MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR / MIXDOG_COMPUTER_NATIVE_BIN at it.
+name: linux-native-tools
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit SHA to build (defaults to the caller's github.sha)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: native-tools-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: x64, image: "quay.io/pypa/manylinux_2_28_x86_64" }
+          - { runner: ubuntu-24.04-arm, arch: arm64, image: "quay.io/pypa/manylinux_2_28_aarch64" }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - name: Cache built tools
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: native-out
+          key: native-glibc228-${{ matrix.arch }}-${{ hashFiles('native/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+      - name: Build mixdog-computer, mixdog-graph, mixdog-patch (glibc 2.28)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p native-out
+          docker run --rm -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-native-old-glibc.sh 2>&1 | tee native-out/build.log
+          test "${PIPESTATUS[0]}" -eq 0
+      - uses: actions/upload-artifact@v5
+        with:
+          name: native-tools-glibc228-${{ matrix.arch }}
+          path: native-out/
+          if-no-files-found: error

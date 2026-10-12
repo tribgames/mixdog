@@ -194,6 +194,33 @@ test('diagnose reports the macOS grants it runs under and names the missing one'
   assert.match(result.issues[0], /Accessibility is not granted/);
 });
 
+test('diagnose reports the structured Linux readiness from an asynchronous permission read', async () => {
+  const ready = { state: 'ready' };
+  const linux = {
+    session: 'wayland',
+    desktop: 'kde',
+    capabilities: {
+      capture: { state: 'unknown' }, windows: { state: 'unsupported' }, accessibility: ready,
+      semanticActions: { state: 'unsupported' }, pointer: ready, keyboard: ready,
+      clipboard: { ...ready, optional: true }, ocr: { state: 'needs_setup', fix: 'install_package', package: 'tesseract-ocr', optional: true },
+    },
+  };
+  const permissions = { screen_capture: 'unknown', accessibility: 'ready', input: 'ready', linux };
+  const reader = createInspection({
+    callPowerShell: async () => ({ ok: true, result: { available: true, observer_ready: true, ready: true, held: false } }),
+    sessionIdFor: () => 'diagnose-linux',
+    assertExecutionNotAborted() {},
+    readComputerWindows: async () => [],
+    readDisplays: () => [],
+    readPermissions: async () => permissions,
+    isObserveOnly: () => false,
+    readInputState: () => ({ userControlActive: false, cleanupState: 'ready' }),
+  });
+  const result = JSON.parse((await reader.diagnoseComputer({ action: 'diagnose' })).text);
+  assert.deepEqual(result.permissions, permissions);
+  assert.equal(result.permissions.linux.capabilities.ocr.package, 'tesseract-ocr');
+});
+
 test('diagnose probes native input readiness instead of inferring it from usable accessibility', async () => {
   for (const native of [
     { observer_ready: true, ready: true, held: false },

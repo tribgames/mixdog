@@ -6,8 +6,12 @@ import type { CaptureAttempt, CaptureBackend } from '../shared/capture-attempts'
 import type { ComputerCommand } from '../shared/types';
 import { nativeWindowSurface, type NativeSurfaceHost } from './capture-native-surface';
 import { CaptureSourceError, type Bounds, type Surface } from './capture-source-attempt';
+import { gnomeShellSourceId, gnomeWindowHandle, usesGnomeHelper, type GnomeShellSource } from '../host/gnome-helper';
+import { captureGnomeShellSource } from './gnome-shell-capture';
 import { electronWindowForNativeId } from './window-handles';
 import { computerCaptureSize } from '../../../../../../src/runtime/computer-bridge/capture-size.mjs';
+
+const GNOME_SHELL_CAPTURE_TIMEOUT_MS = 12_000;
 
 export interface CaptureSourceRequest {
   command: ComputerCommand;
@@ -38,7 +42,27 @@ export function fitCaptureImage(image: NativeImage, maxWidth: number): NativeIma
     : image.resize({ ...fitted, quality: 'best' });
 }
 
+/** GNOME Wayland: the shell extension's pixels, never a portal prompt. */
+async function gnomeShellSurface(request: CaptureSourceRequest): Promise<Surface> {
+  const { sourceType, windowId, displayId, width, height, maxWidth, sourceTitle, preserveResolution = false } = request;
+  let source: GnomeShellSource;
+  if (sourceType === 'screen') source = { kind: 'screen', displayId };
+  else {
+    const handle = gnomeWindowHandle(windowId);
+    if (handle === null) throw new CaptureSourceError('capture_source_unavailable: exact window source is unavailable');
+    source = { kind: 'window', handle };
+  }
+  const size = preserveResolution ? { width, height } : computerCaptureSize(width, height, maxWidth);
+  try {
+    const image = await withTimeout(captureGnomeShellSource(source, size), GNOME_SHELL_CAPTURE_TIMEOUT_MS, 'capture_timeout: GNOME shell capture');
+    return { image, sourceId: gnomeShellSourceId(source), sourceName: sourceTitle || sourceType, route: 'composited' };
+  } catch (error) {
+    throw error instanceof CaptureSourceError ? error : new CaptureSourceError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 async function compositedSurface(request: CaptureSourceRequest): Promise<Surface> {
+  if (usesGnomeHelper()) return gnomeShellSurface(request);
   const { sourceType, windowId, displayId, width, height, maxWidth, preserveResolution = false } = request;
   const sources = await withTimeout(
     desktopCapturer.getSources({

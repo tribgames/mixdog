@@ -141,16 +141,21 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="m10 7.25 5 3-2.15.6-.95 2.15Z" {...SOLID} />
         </>
       );
-    // Microsoft's four tiles in brand colours: the Office capability is the
-    // Word / Excel / PowerPoint / PDF family behind one switch.
+    // A document page carrying the Word / Excel / PowerPoint brand bars: the
+    // Office capability is that format family behind one switch. (The old
+    // four-tile mark read as the Windows logo on Linux and macOS.)
     case 'office':
       return (
-        <g stroke="none">
-          <path d="M3.5 3.5h7.75v7.75H3.5Z" fill="#f25022" />
-          <path d="M12.75 3.5h7.75v7.75h-7.75Z" fill="#7fba00" />
-          <path d="M3.5 12.75h7.75v7.75H3.5Z" fill="#00a4ef" />
-          <path d="M12.75 12.75h7.75v7.75h-7.75Z" fill="#ffb900" />
-        </g>
+        <>
+          <path d={PAGE} {...PLATE} />
+          <path d={PAGE} />
+          <path d="M14.5 3.5v5h5" />
+          <g strokeWidth="2" strokeLinecap="round">
+            <path d="M9.75 12.5h6.5" stroke="#2b579a" />
+            <path d="M9.75 15.25h6.5" stroke="#217346" />
+            <path d="M9.75 18h4" stroke="#d24726" />
+          </g>
+        </>
       );
     case 'local':
       return (

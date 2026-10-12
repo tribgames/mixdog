@@ -31,7 +31,15 @@ const {
   setSecret: _setSecret,
   deleteSecret: _deleteSecret,
   hasSecret: _hasSecret,
+  setSecretAsync: _setSecretAsyncImpl,
+  deleteSecretAsync: _deleteSecretAsyncImpl,
+  keychainStatus: _keychainStatus,
+  retryKeychain: _retryKeychain,
+  refreshKeychainStatus: _refreshKeychainStatus,
+  onKeychainRecovered: _onKeychainRecovered,
 } = _require('../../lib/keychain-cjs.cjs');
+const _setSecretAsync = _setSecretAsyncImpl ?? (async (account, value) => _setSecret(account, value));
+const _deleteSecretAsync = _deleteSecretAsyncImpl ?? (async (account) => _deleteSecret(account));
 
 // Resolved per call: the pristine-execution boundary retargets
 // MIXDOG_resolvePluginData() at runtime, so an import-time capture would write into the
@@ -588,6 +596,21 @@ export function saveSecret(account, value) {
   try {
     _setSecret(account, value);
   } catch (err) {
+    throw saveSecretError(account, err);
+  }
+}
+
+/** Non-blocking saveSecret: Linux secret-tool runs off the event loop. */
+export async function saveSecretAsync(account, value) {
+  try {
+    await _setSecretAsync(account, value);
+  } catch (err) {
+    throw saveSecretError(account, err);
+  }
+}
+
+function saveSecretError(account, err) {
+  {
     // On WSL/headless Linux (and any host missing a usable keychain provider,
     // e.g. secret-tool/libsecret not installed or no running Secret Service) the OS
     // write throws a cryptic provider error. Surface an actionable message that
@@ -599,16 +622,41 @@ export function saveSecret(account, value) {
     const envHint = stdEnv ? `${stdEnv} (or ${envKey})` : envKey;
     const e = new Error(
       `[config] could not save secret to the OS keychain: ${err?.message ? err.message : err}\n` +
-        `  No usable keychain provider on this host (common on WSL / headless Linux without libsecret).\n` +
         `  Set the ${envHint} environment variable instead — the runtime reads it directly.`
     );
     e.cause = err;
-    throw e;
+    return e;
   }
 }
 
 export function deleteSecret(account) {
   _deleteSecret(account);
+}
+
+/** Non-blocking deleteSecret: Linux secret-tool runs off the event loop. */
+export async function deleteSecretAsync(account) {
+  await _deleteSecretAsync(account);
+}
+
+/** Retry a failed Linux keyring read; true when it just recovered. */
+export async function retryKeychain(options) {
+  return typeof _retryKeychain === 'function' ? await _retryKeychain(options) : false;
+}
+
+/** Passively detect a keyring that locked after it was read and re-snapshot a
+ *  stale cache (no unlock prompt). Resolves true when stored values changed. */
+export async function refreshKeychainStatus(options) {
+  return typeof _refreshKeychainStatus === 'function' ? (await _refreshKeychainStatus(options)) === true : false;
+}
+
+/** Subscribe to a locked/failed Linux keyring becoming readable again. */
+export function onKeychainRecovered(listener) {
+  return typeof _onKeychainRecovered === 'function' ? _onKeychainRecovered(listener) : () => {};
+}
+
+/** Keyring health for the UI: { state: ok|locked|missing|error|unknown, message }. */
+export function getKeychainStatus() {
+  return typeof _keychainStatus === 'function' ? _keychainStatus() : { state: 'unknown', message: '' };
 }
 
 /**

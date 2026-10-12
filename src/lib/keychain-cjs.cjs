@@ -60,6 +60,12 @@ function _cacheInvalidate(account) {
 }
 
 function invalidateSecretCache(account) {
+  // Linux reads are cache-only after one snapshot: an external invalidation
+  // means the snapshot may be stale, so the next read reloads it.
+  if (process.platform === 'linux') {
+    _linuxLoadedUntil = 0;
+    _prewarmPromise = null;
+  }
   if (account == null) {
     _secretCache.clear();
     _cacheGenerations.clear();
@@ -300,7 +306,7 @@ function secretToolHint() {
 // environment, which would otherwise be visible via /proc/<pid>/environ for the
 // lifetime of this child. Only PATH resolution, locale, and the libsecret
 // D-Bus session bridge are passed through.
-function secretTool(args, input) {
+function secretToolEnv() {
   const passthroughKeys = [
     'PATH',
     'HOME',
@@ -321,35 +327,455 @@ function secretTool(args, input) {
   for (const key of passthroughKeys) {
     if (process.env[key] !== undefined) env[key] = process.env[key];
   }
-  const r = spawnSync('secret-tool', args, {
-    env,
-    input: input ?? '',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: KEYCHAIN_TIMEOUT_MS,
-    encoding: 'utf8',
-    windowsHide: true,
-  });
-  if (r.error?.code === 'ENOENT') throw new Error(`[keychain] secret-tool is not installed — ${secretToolHint()}`);
-  if (r.error?.code === 'ETIMEDOUT') {
-    throw new Error(`[keychain] secret-tool timed out after ${KEYCHAIN_TIMEOUT_MS}ms (is the Secret Service locked?)`);
+  return env;
+}
+
+// Raw tool output (stderr) may carry paths or service internals; keep it out of
+// user-facing errors and print it only when explicitly debugging. Secrets are
+// never part of it: they travel on stdin only.
+function keychainDebug(what, detail) {
+  if (process.env.MIXDOG_KEYCHAIN_DEBUG) console.error(`[keychain:debug] ${what}: ${String(detail).slice(0, 500)}`);
+}
+
+function secretToolCheck(r) {
+  if (r.error?.code === 'ENOENT') {
+    throw new Error(
+      '[keychain] secret-tool is not installed — install libsecret-tools (sudo apt install libsecret-tools), ' +
+        'or set the relevant MIXDOG_*/PROVIDER_API_KEY environment variable instead'
+    );
   }
-  if (r.error) throw new Error(`[keychain] secret-tool failed to start: ${r.error.message}`);
+  if (r.error?.code === 'ETIMEDOUT') {
+    throw new Error(
+      `[keychain] secret-tool timed out after ${r.error.timeoutMs || KEYCHAIN_TIMEOUT_MS}ms — the keyring is locked or its unlock prompt ` +
+        'was not answered. Unlock your keyring (e.g. log in again or open Passwords and Keys) and retry.'
+    );
+  }
+  if (r.error) {
+    keychainDebug('secret-tool failed to start', r.error.message);
+    throw new Error('[keychain] secret-tool could not be started — check that libsecret-tools is installed and a Secret Service is running');
+  }
   return r;
+}
+
+function secretTool(args, input) {
+  return secretToolCheck(
+    spawnSync('secret-tool', args, {
+      env: secretToolEnv(),
+      input: input ?? '',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: KEYCHAIN_TIMEOUT_MS,
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+  );
+}
+
+// Non-blocking variant: the daemon event loop keeps running while a locked
+// keyring waits on its unlock prompt; the child is killed at the same bound.
+function secretToolAsync(args, input, timeoutMs = KEYCHAIN_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn('secret-tool', args, {
+        env: secretToolEnv(),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: false,
+        windowsHide: true,
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const done = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        resolve(secretToolCheck(r));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    const timer = setTimeout(() => {
+      done({
+        status: null,
+        stdout,
+        stderr,
+        error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT', timeoutMs }),
+      });
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+    }, timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.once('error', (error) => done({ status: null, stdout, stderr, error }));
+    child.once('close', (status) => done({ status, stdout, stderr, error: null }));
+    child.stdin.on('error', () => {
+      /* child exited early — close reports it */
+    });
+    child.stdin.end(input ?? '');
+  });
 }
 
 // A missing item exits non-zero with nothing on stderr; anything on stderr is
 // the Secret Service itself failing (no D-Bus session, locked collection).
 function secretToolFailure(action, r) {
-  return new Error(
-    `[keychain] secret-tool ${action} failed: ${(r.stderr || '').trim() || `exit ${r.status}`} — ${secretToolHint()}`
-  );
+  const detail = (r.stderr || '').trim() || `exit ${r.status}`;
+  // User-facing text is fixed; the raw tool output only goes to the debug log.
+  keychainDebug(`secret-tool ${action} failed`, detail);
+  if (/locked|denied|dismissed|cancel|not authori[sz]ed|IsLocked/i.test(detail)) {
+    return new Error(
+      `[keychain] secret-tool ${action} failed: the keyring is locked or the unlock prompt was declined. ` +
+        'Unlock your keyring and retry.'
+    );
+  }
+  return new Error(`[keychain] secret-tool ${action} failed — ${secretToolHint()}`);
 }
 
-function linuxGet(account) {
+function linuxGetBlocking(account) {
   const r = secretTool(['lookup', 'service', SERVICE, 'account', account]);
   if (r.status === 0) return r.stdout;
   if ((r.stderr || '').trim()) throw secretToolFailure('lookup', r);
   return null;
+}
+
+// Daemon-safe state. The synchronous read path NEVER spawns secret-tool on
+// Linux: a locked keyring would freeze the event loop for the whole timeout.
+// One bounded async `secret-tool search --all` snapshot (prewarmSecrets) fills
+// the read cache; afterwards an uncached account is simply absent. Until that
+// snapshot succeeds the sync read throws the actionable keyring error (callers
+// already treat a throw as "no stored key") and a retry is scheduled lazily.
+const LINUX_PREWARM_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS || 4000);
+const LINUX_PREWARM_RETRY_MS = Number(process.env.MIXDOG_KEYCHAIN_RETRY_MS || 5000);
+// An explicit "Unlock keyring" waits on the user typing a password.
+const LINUX_INTERACTIVE_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_INTERACTIVE_TIMEOUT_MS || 120000);
+// A window-focus re-check skips the TTL but not this floor (focus can flap).
+const LINUX_RECHECK_MIN_MS = Number(process.env.MIXDOG_KEYCHAIN_RECHECK_MIN_MS || 2000);
+const LINUX_LOCKED_MESSAGE =
+  '[keychain] the keyring is locked — unlock it (log in again or open Passwords and Keys) and retry';
+let _linuxLoadedUntil = 0;
+let _linuxLastFailureAt = 0;
+let _linuxPrewarmInFlight = false;
+let _linuxSnapshotAt = 0;
+let _linuxSnapshotChanged = false;
+const LINUX_SNAPSHOT_TTL_MS = Number(process.env.MIXDOG_KEYCHAIN_SNAPSHOT_TTL_MS || 45000);
+let _linuxBgTimer = null;
+let _linuxBgAttempt = 0;
+let _interactiveUnlock = false;
+let _linuxPrewarmInteractive = false;
+const _recoveryListeners = new Set();
+let _keychainStatus = { state: 'unknown', message: '' };
+
+function _noteKeychainOk() {
+  _keychainStatus = { state: 'ok', message: '' };
+  _linuxBgAttempt = 0;
+  clearTimeout(_linuxBgTimer);
+  _linuxBgTimer = null;
+}
+
+/** Subscribe to a failed Linux keyring becoming readable (e.g. user unlocked it). */
+function onKeychainRecovered(listener) {
+  _recoveryListeners.add(listener);
+  return () => _recoveryListeners.delete(listener);
+}
+
+// While the keyring is locked/failing nothing may depend on a read to retry, so
+// retry in the background with a bounded backoff (5s → 10s). A missing
+// secret-tool cannot fix itself and is not retried.
+function _scheduleLinuxBackgroundRetry() {
+  if (_linuxBgTimer || _keychainStatus.state === 'missing' || _gdbusMissing) return;
+  const delay = Math.min(LINUX_PREWARM_RETRY_MS * 2, LINUX_PREWARM_RETRY_MS + _linuxBgAttempt * (LINUX_PREWARM_RETRY_MS / 2));
+  _linuxBgAttempt++;
+  _linuxBgTimer = setTimeout(async () => {
+    _linuxBgTimer = null;
+    await retryKeychain();
+  }, delay);
+  _linuxBgTimer.unref?.();
+}
+
+// Passive access to the Secret Service over D-Bus. Unlike secret-tool (whose
+// lookup/search raises GNOME's "Authentication required" prompt as soon as a
+// MATCHING item sits in a locked collection) SearchItems never prompts: it
+// answers with the matching item paths split into unlocked and locked ones.
+// Only Mixdog's own items matter — a locked collection that holds none of them
+// (e.g. the login keyring next to an unlocked default one) is irrelevant.
+// 'unknown' (null) means no gdbus / service unreachable / unparsable; passive
+// callers must treat it as "do not run secret-tool".
+let _gdbusMissing = false;
+const SECRETS_DEST = 'org.freedesktop.secrets';
+const SECRETS_ROOT = '/org/freedesktop/secrets';
+const SECRET_SERVICE_IFACE = 'org.freedesktop.Secret.Service';
+const SECRET_ITEM_IFACE = 'org.freedesktop.Secret.Item';
+
+/** One bounded gdbus method call; resolves { ok, out, err } (never rejects). */
+function gdbusCall(objectPath, method, args = []) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(
+        'gdbus',
+        ['call', '--session', '--dest', SECRETS_DEST, '--object-path', objectPath, '--method', method, ...args],
+        { env: secretToolEnv(), stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true }
+      );
+    } catch {
+      resolve({ ok: false, out: '', err: '' });
+      return;
+    }
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok, out: stdout, err: stderr });
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      done(false);
+    }, 2000);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.once('error', (error) => {
+      if (error?.code === 'ENOENT') _gdbusMissing = true;
+      done(false);
+    });
+    child.once('close', (status) => done(status === 0));
+  });
+}
+
+// gdbus prints the (ao, ao) reply as `([objectpath '/…/7'], @ao [])`.
+function parseSearchItems(out) {
+  const array = '(@ao \\[\\s*\\]|\\[[^\\]]*\\])';
+  const m = new RegExp(`^\\(\\s*${array}\\s*,\\s*${array}\\s*\\)$`).exec(String(out).trim());
+  if (!m) return null;
+  const paths = (text) => [...text.matchAll(/'(\/org\/freedesktop\/secrets\/collection\/[^']+)'/g)].map((x) => x[1]);
+  return { unlocked: paths(m[1]), locked: paths(m[2]) };
+}
+
+/** Mixdog's items by lock state, or null when the service cannot be asked. */
+async function searchMixdogItems() {
+  const r = await gdbusCall(SECRETS_ROOT, `${SECRET_SERVICE_IFACE}.SearchItems`, [`{'service': '${SERVICE}'}`]);
+  return r.ok ? parseSearchItems(r.out) : null;
+}
+
+// An item's attributes are readable without unlocking its collection.
+// Resolves the account name, '' for an item that vanished since the search
+// (a keyring can list a just-deleted item), null when the call itself failed.
+async function itemAccount(objectPath) {
+  const r = await gdbusCall(objectPath, 'org.freedesktop.DBus.Properties.Get', [SECRET_ITEM_IFACE, 'Attributes']);
+  if (!r.ok) return /does not exist|UnknownObject|No such (object|item)/i.test(r.err) ? '' : null;
+  const m = /'account':\s*'((?:[^'\\]|\\.)*)'/.exec(r.out);
+  return m ? m[1].replace(/\\(.)/g, '$1') : '';
+}
+
+const LINUX_UNREACHABLE_MESSAGE =
+  '[keychain] the keyring is not reachable — make sure it is running, then use Unlock keyring / Retry';
+function _noteKeychainFailure(error) {
+  const message = String(error?.message || error);
+  const state =
+    error?.code === 'KEYRING_UNREACHABLE'
+      ? 'unreachable'
+      : /not installed/.test(message)
+        ? 'missing'
+        : /locked|timed out/.test(message)
+          ? 'locked'
+          : 'error';
+  _keychainStatus = { state, message };
+}
+
+/** Linux keyring health for the UI: ok | locked | missing | error | unknown. */
+function keychainStatus() {
+  return { ..._keychainStatus };
+}
+
+function _linuxLoaded() {
+  return _linuxLoadedUntil > Date.now();
+}
+
+function linuxGet(account) {
+  if (KEYCHAIN_CACHE_TTL_MS === 0) return linuxGetBlocking(account);
+  if (_linuxLoaded()) return null;
+  if (Date.now() - _linuxLastFailureAt > LINUX_PREWARM_RETRY_MS) void prewarmSecrets();
+  throw new Error(
+    _keychainStatus.message ||
+      '[keychain] the Linux keyring has not been read yet — unlock your keyring (log in again or open Passwords and Keys)'
+  );
+}
+
+// `secret-tool search --all` splits its report across streams: header, label,
+// secret, created/modified and schema go to stdout while the attribute.* lines
+// go to stderr (observed on GNOME). Pairing items across the split is
+// unreliable, so the search is only used to DISCOVER account names (the
+// attribute.account lines of either stream); values come from per-account
+// `lookup`. The discovered count must match the item count, otherwise the
+// snapshot could be silently incomplete and is rejected.
+function parseSecretToolSearchAccounts(stdout, stderr) {
+  const text = `${String(stdout || '')}\n${String(stderr || '')}`;
+  const accounts = new Set();
+  let attributeLines = 0;
+  let items = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\[\/.*\]$/.test(line)) items++;
+    const m = line.match(/^attribute\.account = (.+)$/);
+    if (m) {
+      attributeLines++;
+      accounts.add(m[1]);
+    }
+  }
+  if (attributeLines !== items) {
+    // A locked keyring answers the search with items but no attributes. Keep
+    // the parse detail out of the UI-facing message.
+    const error = new Error(LINUX_LOCKED_MESSAGE);
+    error.detail = `secret-tool search returned ${items} item(s) but ${attributeLines} account attribute(s)`;
+    throw error;
+  }
+  return [...accounts];
+}
+// Which accounts to read, and whether Mixdog items are stuck in a locked
+// collection. Passive reads never prompt: SearchItems says which items are
+// unlocked, and only those are read. secret-tool is used only where that cannot
+// prompt without the user asking: to list accounts when no Mixdog item exists
+// at all (this also proves the tool is installed), and — for an explicit
+// `interactive` unlock — `search --unlock`, which is what raises the prompt
+// (a plain search lists locked items without attributes and never asks).
+// Its listing is not used: attributes and secrets arrive split across stdout
+// and stderr and one stale item makes the whole command fail, so the unlocked
+// items are listed through D-Bus again afterwards.
+async function _linuxAccountsToRead(interactive, remaining) {
+  let found = await searchMixdogItems();
+  if (found === null && !interactive) {
+    const error = new Error(LINUX_UNREACHABLE_MESSAGE);
+    error.code = 'KEYRING_UNREACHABLE';
+    throw error;
+  }
+  const listAccounts = async (args) => {
+    const r = await secretToolAsync(args, undefined, remaining());
+    // Exit 1 with an empty stderr just means "no items".
+    if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('search', r);
+    return { accounts: parseSecretToolSearchAccounts(r.stdout, r.stderr), lockedLeft: false };
+  };
+  if (found !== null && found.unlocked.length === 0 && found.locked.length === 0) {
+    return listAccounts(['search', '--all', 'service', SERVICE]);
+  }
+  if (interactive && (found === null || found.locked.length > 0)) {
+    const unlock = await secretToolAsync(['search', '--all', '--unlock', 'service', SERVICE], undefined, remaining());
+    found = await searchMixdogItems();
+    if (found === null) {
+      if (unlock.status !== 0 && (unlock.stderr || '').trim()) throw secretToolFailure('search', unlock);
+      return { accounts: parseSecretToolSearchAccounts(unlock.stdout, unlock.stderr), lockedLeft: false };
+    }
+  }
+  const names = await Promise.all(found.unlocked.map((objectPath) => itemAccount(objectPath)));
+  if (names.includes(null)) {
+    const error = new Error(LINUX_UNREACHABLE_MESSAGE);
+    error.code = 'KEYRING_UNREACHABLE';
+    throw error;
+  }
+  return { accounts: [...new Set(names.filter(Boolean))], lockedLeft: found.locked.length > 0 };
+}
+async function _prewarmLinuxOnce() {
+  _linuxPrewarmInFlight = true;
+  const interactive = _interactiveUnlock;
+  _linuxPrewarmInteractive = interactive;
+  try {
+    if (KEYCHAIN_CACHE_TTL_MS === 0) return;
+    // One deadline covers the search AND every per-account lookup.
+    const deadline = Date.now() + (interactive ? LINUX_INTERACTIVE_TIMEOUT_MS : LINUX_PREWARM_TIMEOUT_MS);
+    const remaining = () => {
+      const ms = deadline - Date.now();
+      if (ms <= 0) {
+        const error = new Error(LINUX_LOCKED_MESSAGE);
+        error.detail = 'prewarm deadline exceeded';
+        throw error;
+      }
+      return ms;
+    };
+    const epoch = _cacheEpoch;
+    const generations = new Map(_cacheGenerations);
+    const { accounts, lockedLeft } = await _linuxAccountsToRead(interactive, remaining);
+    if (_cacheEpoch !== epoch) return;
+    const values = [];
+    for (const account of accounts) {
+      const value = await linuxGetAsync(account, remaining());
+      if (value !== null) values.push([account, value]);
+    }    if (_cacheEpoch !== epoch) return;
+    // Replace, not merge: values the keyring now holds overwrite the cache and
+    // cached accounts the keyring no longer has are dropped, so external CLI /
+    // other-process add, replace and delete are picked up. A same-process
+    // set/delete that ran meanwhile bumped the account's generation and wins.
+    const fresh = new Map(values);
+    const prefix = `${SERVICE}\0`;
+    let changed = false;
+    // Mixdog items in a locked collection cannot be listed: a cached account the
+    // readable items no longer show may live there, so nothing is dropped.
+    for (const key of lockedLeft ? [] : [..._secretCache.keys()]) {
+      if (!key.startsWith(prefix)) continue;
+      const account = key.slice(prefix.length);
+      if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
+      if (!fresh.has(account)) {
+        _secretCache.delete(key);
+        changed = true;
+      }
+    }
+    for (const [account, value] of fresh) {
+      if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
+      if (_cacheGet(account) !== value) changed = true;
+      _cacheSet(account, value);
+    }
+    _linuxSnapshotChanged = changed;
+    if (lockedLeft) {
+      // The readable items are cached; the rest of the keyring still needs an
+      // unlock, so the status stays locked and uncached accounts keep throwing
+      // that error instead of reading as absent.
+      const error = new Error(LINUX_LOCKED_MESSAGE);
+      error.detail = 'Mixdog items sit in a locked collection (passive search)';
+      throw error;
+    }
+    _linuxSnapshotAt = Date.now();
+    _linuxLoadedUntil =
+      KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : Date.now() + KEYCHAIN_CACHE_TTL_MS;
+    _linuxLastFailureAt = 0;
+    const recovered = _keychainStatus.state !== 'ok' && _keychainStatus.state !== 'unknown';
+    _noteKeychainOk();
+    if (recovered) {
+      for (const listener of [..._recoveryListeners]) {
+        try {
+          listener();
+        } catch {
+          /* listener failures must not break keyring recovery */
+        }
+      }
+    }
+  } catch (error) {
+    _linuxLastFailureAt = Date.now();
+    _noteKeychainFailure(error);
+    // Allow a later lazy retry once the cool-down passes.
+    _prewarmPromise = null;
+    _scheduleLinuxBackgroundRetry();
+  } finally {
+    _linuxPrewarmInFlight = false;
+  }
 }
 
 function linuxSet(account, value) {
@@ -359,6 +785,26 @@ function linuxSet(account, value) {
 
 function linuxDelete(account) {
   const r = secretTool(['clear', 'service', SERVICE, 'account', account]);
+  if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('clear', r);
+}
+
+async function linuxGetAsync(account, timeoutMs) {
+  const r = await secretToolAsync(['lookup', 'service', SERVICE, 'account', account], undefined, timeoutMs);
+  if (r.status === 0) return r.stdout;
+  if ((r.stderr || '').trim()) throw secretToolFailure('lookup', r);
+  return null;
+}
+
+async function linuxSetAsync(account, value) {
+  const r = await secretToolAsync(
+    ['store', `--label=${SERVICE} ${account}`, 'service', SERVICE, 'account', account],
+    value
+  );
+  if (r.status !== 0) throw secretToolFailure('store', r);
+}
+
+async function linuxDeleteAsync(account) {
+  const r = await secretToolAsync(['clear', 'service', SERVICE, 'account', account]);
   if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('clear', r);
 }
 
@@ -426,6 +872,7 @@ const PS_UNPROTECT_BATCH = [
 
 async function _prewarmSecretsOnce() {
   try {
+    if (platform() === 'linux') return await _prewarmLinuxOnce();
     if (platform() !== 'win32' || KEYCHAIN_CACHE_TTL_MS === 0) return;
     const dir = secretsDir();
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -475,6 +922,54 @@ function prewarmSecrets() {
   return _prewarmPromise;
 }
 
+/** Passive refresh, called on provider-setup reads. While readable it detects a
+ *  keyring that locked meanwhile (no prompt) and, once the snapshot is older
+ *  than the TTL (or, for a window-focus re-check, `force`, at most every
+ *  LINUX_RECHECK_MIN_MS), re-snapshots it so external changes are picked up.
+ *  Resolves true when cached values changed. Never prompts. */
+async function refreshKeychainStatus({ force = false } = {}) {
+  if (platform() !== 'linux' || _keychainStatus.state !== 'ok' || KEYCHAIN_CACHE_TTL_MS === 0) return false;
+  const age = Date.now() - _linuxSnapshotAt;
+  if (age >= (force ? LINUX_RECHECK_MIN_MS : LINUX_SNAPSHOT_TTL_MS)) {
+    if (_linuxPrewarmInFlight && _prewarmPromise) await _prewarmPromise;
+    else {
+      _prewarmPromise = null;
+      _linuxSnapshotChanged = false;
+      await prewarmSecrets();
+    }
+    return _linuxSnapshotChanged;
+  }
+  const found = await searchMixdogItems();
+  if (found && found.locked.length > 0) {
+    _keychainStatus = { state: 'locked', message: LINUX_LOCKED_MESSAGE };
+    _scheduleLinuxBackgroundRetry();
+  }
+  return false;
+}
+/** Re-read a Linux keyring that previously failed (locked, tool missing, bad
+ *  snapshot) — e.g. after the user unlocked it. Resolves true when this call
+ *  recovered it, so callers can drop caches built while it was unavailable.
+ *  `interactive` (an explicit user action) may raise the unlock prompt: a
+ *  passive attempt already in flight cannot, so it is awaited and then
+ *  followed by one interactive attempt — unless that attempt was interactive
+ *  itself, which already showed the (possibly declined) prompt. */
+async function retryKeychain({ interactive = false } = {}) {
+  if (platform() !== 'linux' || _keychainStatus.state === 'ok' || _keychainStatus.state === 'unknown') return false;
+  if (_linuxPrewarmInFlight && _prewarmPromise) {
+    await _prewarmPromise;
+    if (_keychainStatus.state === 'ok' || interactive !== true || _linuxPrewarmInteractive) {
+      return _keychainStatus.state === 'ok';
+    }
+  }
+  _prewarmPromise = null;
+  _interactiveUnlock = interactive === true;
+  try {
+    await prewarmSecrets();
+  } finally {
+    _interactiveUnlock = false;
+  }
+  return _keychainStatus.state === 'ok';
+}
 function win32Set(account, value) {
   const dir = secretsDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -499,7 +994,14 @@ function win32Delete(account) {
 
 const BACKENDS = {
   darwin: { get: darwinGet, set: darwinSet, delete: darwinDelete },
-  linux: { get: linuxGet, set: linuxSet, delete: linuxDelete },
+  linux: {
+    get: linuxGet,
+    set: linuxSet,
+    delete: linuxDelete,
+    getAsync: linuxGetAsync,
+    setAsync: linuxSetAsync,
+    deleteAsync: linuxDeleteAsync,
+  },
   win32: { get: win32Get, set: win32Set, delete: win32Delete },
 };
 
@@ -529,10 +1031,14 @@ function hasSecret(account) {
 }
 
 function setSecret(account, value) {
+  let stored = false;
   try {
     backend().set(account, value);
+    stored = true;
   } finally {
     _cacheInvalidate(account);
+    // Linux reads are cache-only, so a fresh write must stay readable.
+    if (stored && platform() === 'linux') _cacheSet(account, value);
   }
 }
 
@@ -544,12 +1050,71 @@ function deleteSecret(account) {
   }
 }
 
+// Async entry points: on Linux the secret-tool child runs without blocking the
+// event loop; other platforms keep their existing (sync) providers.
+async function getSecretAsync(account) {
+  const cached = _cacheGet(account);
+  if (cached !== undefined) return cached;
+  const b = backend();
+  if (!b.getAsync) return getSecret(account);
+  if (_linuxLoaded()) return null;
+  const generation = _cacheGenerations.get(account) || 0;
+  let value;
+  try {
+    value = await b.getAsync(account);
+  } catch (error) {
+    _noteKeychainFailure(error);
+    throw error;
+  }
+  _noteKeychainOk();
+  if ((_cacheGenerations.get(account) || 0) === generation) _cacheSet(account, value);
+  return value;
+}
+
+async function setSecretAsync(account, value) {
+  const b = backend();
+  if (!b.setAsync) return setSecret(account, value);
+  let stored = false;
+  try {
+    await b.setAsync(account, value);
+    stored = true;
+    _noteKeychainOk();
+  } catch (error) {
+    _noteKeychainFailure(error);
+    throw error;
+  } finally {
+    _cacheInvalidate(account);
+    if (stored) _cacheSet(account, value);
+  }
+}
+
+async function deleteSecretAsync(account) {
+  const b = backend();
+  if (!b.deleteAsync) return deleteSecret(account);
+  try {
+    await b.deleteAsync(account);
+    _noteKeychainOk();
+  } catch (error) {
+    _noteKeychainFailure(error);
+    throw error;
+  } finally {
+    _cacheInvalidate(account);
+  }
+}
+
 module.exports = {
   getSecret,
   setSecret,
   deleteSecret,
+  getSecretAsync,
+  setSecretAsync,
+  deleteSecretAsync,
   hasSecret,
+  keychainStatus,
   invalidateSecretCache,
   prewarmSecrets,
+  retryKeychain,
+  refreshKeychainStatus,
+  onKeychainRecovered,
   SERVICE,
 };

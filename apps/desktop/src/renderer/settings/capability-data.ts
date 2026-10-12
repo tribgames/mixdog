@@ -51,6 +51,9 @@ export type CapabilityApi = Partial<
     | 'installGitCli'
     | 'libreOfficeStatus'
     | 'installLibreOffice'
+    | 'computerReadiness'
+    | 'requestLinuxInputAccess'
+    | 'openComputerPermissionSettings'
   >
 >;
 

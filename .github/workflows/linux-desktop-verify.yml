@@ -1,0 +1,547 @@
+name: linux-desktop-verify
+
+# Fast lane (default push): tests + tsc + i18n, AppImage/.deb build, basic
+# headless smoke, glibc floor. Full lane (workflow_dispatch full=true, a
+# [linux-full] commit message, or the release workflow): also the N->N+1
+# update proof, the sandbox-enabled .deb smoke and the distro container
+# smokes (which exec every bundled native tool).
+on:
+  push:
+    branches: [release/linux]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Also run the heavy suite (update proof, sandbox .deb smoke, container smokes)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: true
+      ref:
+        description: "Exact commit SHA to verify (the release SHA); defaults to the caller's github.sha"
+        type: string
+        default: ""
+    outputs:
+      verified_sha:
+        description: "The commit SHA every job of this run checked out and verified"
+        value: ${{ jobs.plan.outputs.sha }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.p.outputs.full }}
+      sha: ${{ steps.p.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - id: p
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_FULL: ${{ inputs.full }}
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          full=false
+          case "$EVENT" in
+            workflow_call|workflow_dispatch) [ "$INPUT_FULL" = true ] && full=true ;;
+            push) case "$MSG" in *"[linux-full]"*) full=true ;; esac ;;
+          esac
+          case "$GITHUB_REF" in refs/tags/*) full=true ;; esac
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "full lane: $full"
+
+  # Native tools built inside manylinux_2_28 (glibc 2.28) so the package floor
+  # does not follow the glibc of the CI runner. Shared with the release workflow.
+  native-tools:
+    uses: ./.github/workflows/linux-native-tools.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+
+  tests:
+    name: tests-${{ matrix.arch }}
+    needs: native-tools
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/*/target
+          key: cargo-${{ matrix.arch }}-${{ hashFiles('native/**/Cargo.lock') }}
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.95.0"
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-tools-glibc228-${{ matrix.arch }}
+          path: native-out
+      - name: Select old-glibc native tools for packaging
+        run: |
+          chmod +x native-out/mixdog-*
+          echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+          # graph/patch must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+      - uses: ./.github/actions/office-runtime
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: apps/desktop
+      - name: Build native spawn test binary
+        run: npm run build:spawn:test
+      - name: Root tests
+        run: npm test 2>&1 | tee root-tests.log
+      - name: Chromium for browser-geometry tests (no Chrome on arm64 runners)
+        if: matrix.arch == 'arm64'
+        run: |
+          npx --yes playwright@1.55.0 install --with-deps chromium
+          bin=$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | head -n1)
+          printf '#!/bin/sh\nexec "%s" --no-sandbox "$@"\n' "$bin" > "$HOME/chrome-wrapper"
+          chmod +x "$HOME/chrome-wrapper"
+          echo "CHROME_PATH=$HOME/chrome-wrapper" >> "$GITHUB_ENV"
+      - name: Desktop tests
+        run: npm test 2>&1 | tee ../../desktop-tests.log
+        working-directory: apps/desktop
+      - name: Desktop typecheck
+        run: npx tsc -p tsconfig.json --noEmit
+        working-directory: apps/desktop
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-logs-${{ matrix.arch }}
+          path: |
+            root-tests.log
+            desktop-tests.log
+          if-no-files-found: warn
+
+  verify:
+    name: linux-${{ matrix.arch }}
+    needs: [plan, native-tools]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-tools-glibc228-${{ matrix.arch }}
+          path: native-out
+      - name: Select old-glibc native tools for packaging
+        run: |
+          chmod +x native-out/mixdog-*
+          echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+          # graph/patch must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ matrix.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: apps/desktop
+      - name: GNOME extension source present (uuid == dir name, modes 0755/0644)
+        run: bash apps/desktop/scripts/linux-gnome-extension-check.sh source .
+      - name: Build Linux package
+        run: npm run build:linux -- --${{ matrix.arch }} --publish never
+        working-directory: apps/desktop
+      - name: Package size
+        run: |
+          ls -l apps/desktop/dist/*.AppImage apps/desktop/dist/*.deb
+          du -sh apps/desktop/dist/linux-*unpacked || true
+      - name: glibc floor check self-test (must fail closed)
+        run: bash apps/desktop/scripts/linux-glibc-floor-selftest.sh
+      - name: Verify the built packages (extracted .deb + AppImage payloads, native-tool hashes, glibc floor <= 2.31)
+        run: bash apps/desktop/scripts/linux-verify-package.sh apps/desktop/dist native-out ${{ matrix.arch }} 2.31 extract | tee package-verify.txt
+      - name: GNOME extension packaged (system-wide + resources in .deb, resources in AppImage)
+        run: bash apps/desktop/scripts/linux-gnome-extension-check.sh payload "${DEB_ROOT%/opt/Mixdog}" "$AI_ROOT"
+      - name: Verify packaged node-pty (Electron ABI, real PTY spawn) in both payloads
+        run: |
+          for root in "$DEB_ROOT" "$AI_ROOT"; do
+            ELECTRON_RUN_AS_NODE=1 "$root/mixdog-desktop" apps/desktop/scripts/linux-pty-check.cjs "$root/resources" | tee -a pty-check.log
+          done
+      - name: Verify auto-update feed and .deb metadata
+        run: |
+          feed=apps/desktop/dist/latest-linux.yml
+          [ "${{ matrix.arch }}" = arm64 ] && feed=apps/desktop/dist/latest-linux-arm64.yml
+          test -f "$feed"
+          cat "$feed"
+          grep -q 'AppImage' "$feed"
+          # DebUpdater (selected by resources/package-type=deb) downloads the .deb named here.
+          grep -Eq 'url: .*\.deb' "$feed"
+          deb=$(ls apps/desktop/dist/*.deb)
+          dpkg-deb -I "$deb" | tee deb-info.txt
+          for dep in libsecret-tools libnotify4 libgtk-3-0 libnss3 'libasound2t64 | libasound2'; do grep -qF "$dep" deb-info.txt; done
+          dpkg-deb -c "$deb" > deb-contents.txt
+          grep -q 'usr/share/icons/hicolor/256x256/apps/mixdog-desktop.png' deb-contents.txt
+          grep -q 'usr/share/icons/hicolor/16x16/apps/mixdog-desktop.png' deb-contents.txt
+          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/share/applications/mixdog-desktop.desktop | tee desktop-entry.txt
+          grep -qx 'StartupWMClass=mixdog-desktop' desktop-entry.txt
+      - name: Remove libfuse2 (stock Ubuntu 24.04 has none)
+        run: |
+          sudo apt-get remove -y 'libfuse2*' || true
+          if ldconfig -p | grep -q 'libfuse.so.2'; then echo "libfuse.so.2 still present"; exit 1; fi
+      - name: Headless launch smoke (AppImage, mounted, no libfuse2, --no-sandbox)
+        timeout-minutes: 8
+        run: |
+          mkdir -p smoke
+          chmod +x apps/desktop/dist/*.AppImage
+          xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-*.AppImage smoke
+      - name: .deb Computer Use input setup (udev rule, modules-load, Recommends, install/purge)
+        timeout-minutes: 8
+        run: |
+          deb=$(ls apps/desktop/dist/*.deb)
+          pkg=$(dpkg-deb -f "$deb" Package)
+          # Recommends (not Depends) for the Computer Use helpers.
+          dpkg-deb -f "$deb" Recommends | tee deb-recommends.txt
+          grep -q 'wl-clipboard' deb-recommends.txt
+          grep -q 'tesseract-ocr' deb-recommends.txt
+          if dpkg-deb -f "$deb" Depends | grep -Eq 'wl-clipboard|tesseract-ocr'; then echo "must be Recommends, not Depends"; exit 1; fi
+          dpkg-deb -c "$deb" | tee deb-contents-uinput.txt | grep -E 'udev|modules-load'
+          grep -q 'usr/lib/udev/rules.d/70-mixdog-uinput.rules' deb-contents-uinput.txt
+          grep -q 'usr/lib/modules-load.d/mixdog-uinput.conf' deb-contents-uinput.txt
+          dpkg-deb -I "$deb" postinst | tee deb-postinst.txt
+          grep -q 'modprobe uinput' deb-postinst.txt
+          grep -q 'udevadm trigger --action=add --subsystem-match=misc --sysname-match=uinput' deb-postinst.txt
+          grep -q 'apparmor_parser' deb-postinst.txt   # electron-builder AppArmor handling preserved
+          dpkg-deb -I "$deb" postrm | tee deb-postrm.txt
+          grep -q 'apparmor_parser --remove' deb-postrm.txt
+          sudo apt-get install -y "./$deb"
+          rule=/usr/lib/udev/rules.d/70-mixdog-uinput.rules
+          conf=/usr/lib/modules-load.d/mixdog-uinput.conf
+          test -f "$rule"; test -f "$conf"
+          cat "$rule" "$conf"
+          grep -qxF 'KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"' "$rule"
+          grep -qx uinput "$conf"
+          # The rule must parse (udevadm verify exists since systemd 250).
+          if udevadm verify --help >/dev/null 2>&1; then udevadm verify "$rule"; else echo "udevadm verify unavailable"; fi
+          # Does the rule apply to the uinput device? Only when the device exists on this runner.
+          if [ -e /sys/devices/virtual/misc/uinput ]; then
+            sudo udevadm test --action=add /sys/devices/virtual/misc/uinput 2>&1 | tee udevadm-test.txt | grep -Ei 'mixdog-uinput|uaccess|static_node' || true
+            grep -q 'mixdog-uinput.rules' udevadm-test.txt
+          else
+            echo "uinput device absent on this runner: udevadm test skipped"
+          fi
+          # The runner has no logind seat session, so the uaccess ACL itself cannot be asserted here.
+          if [ -e /dev/uinput ]; then ls -l /dev/uinput; getfacl /dev/uinput || true; fi
+          # Purge removes the files (and does not break on a udev-less environment).
+          sudo apt-get purge -y "$pkg"
+          test ! -e "$rule"; test ! -e "$conf"
+          test ! -e /etc/apparmor.d/mixdog-desktop
+          test ! -e /opt/Mixdog
+      - name: Headless launch smoke (installed .deb, Chromium sandbox ENABLED) [full lane]
+        if: needs.plan.outputs.full == 'true'
+        timeout-minutes: 8
+        run: |
+          sudo apt-get install -y ./apps/desktop/dist/*.deb
+          # The .deb postinst installs and loads the AppArmor profile (Ubuntu 24+).
+          apparmor_status --enabled
+          test -f /etc/apparmor.d/mixdog-desktop
+          sudo cat /sys/kernel/security/apparmor/profiles | tee apparmor-profiles.txt | grep -i 'mixdog-desktop\|/opt/Mixdog'
+          ls -l /opt/Mixdog/chrome-sandbox | tee sandbox-perms.txt
+          grep -qx deb /opt/Mixdog/resources/package-type
+          mkdir -p smoke-deb
+          SMOKE_SANDBOX=1 xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-launch-smoke.mjs /opt/Mixdog/mixdog-desktop smoke-deb | tee smoke-deb/smoke.log
+          grep -q 'sandbox: enabled' smoke-deb/smoke.log
+      - name: Upload AppImage, .deb and update feed
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mixdog-linux-packages-${{ matrix.arch }}
+          path: |
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/latest-linux*.yml
+          if-no-files-found: warn
+      - name: Upload smoke screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: smoke-${{ matrix.arch }}
+          path: |
+            smoke/
+            smoke-deb/
+            pty-check.log
+            package-verify.txt
+            apparmor-profiles.txt
+            sandbox-perms.txt
+            deb-info.txt
+            deb-contents.txt
+            desktop-entry.txt
+          if-no-files-found: warn
+
+  # N+1: the same tree packaged with a bumped version, served as the update
+  # feed in `update-path`. Packaging only; the verify job owns the test suites.
+  build-next:
+    name: build-next-x64
+    needs: [plan, native-tools]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-x64-${{ hashFiles('apps/desktop/package-lock.json') }}
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-tools-glibc228-x64
+          path: native-out
+      - name: Select old-glibc native tools for packaging
+        run: |
+          chmod +x native-out/mixdog-*
+          echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
+          # graph/patch must come from native-out: no silent fallback to the pinned download.
+          echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: apps/desktop
+      - name: Build N+1 Linux package (patch version bumped)
+        working-directory: apps/desktop
+        run: |
+          next=$(node -p "const [a,b,c]=require('./package.json').version.split('.');[a,b,Number(c)+1].join('.')")
+          echo "N+1 version: $next"
+          npm run build:linux -- --x64 --publish never "-c.extraMetadata.version=$next"
+          grep -q "^version: $next\$" dist/latest-linux.yml
+          deb=$(ls dist/*.deb)
+          dpkg-deb -f "$deb" Package Version | tee ../../next-deb-fields.txt
+          grep -qx "Package: mixdog-desktop" ../../next-deb-fields.txt
+          grep -qx "Version: $next" ../../next-deb-fields.txt
+      - name: Upload N+1 packages and feed
+        uses: actions/upload-artifact@v5
+        with:
+          name: next-linux-packages-x64
+          path: |
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/latest-linux*.yml
+          if-no-files-found: error
+
+  # Update paths against a local HTTP feed (nothing is published): N detects,
+  # downloads and sha512-verifies N+1 as an AppImage and as an installed .deb
+  # (DebUpdater), and the downloaded .deb is really installed with dpkg.
+  update-path:
+    name: update-path-x64
+    needs: [plan, verify, build-next]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v5
+        with:
+          name: mixdog-linux-packages-x64
+          path: n
+      - uses: actions/download-artifact@v5
+        with:
+          name: next-linux-packages-x64
+          path: next
+      - name: System packages (no libfuse2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1
+          sudo apt-get remove -y 'libfuse2*' || true
+          ! ldconfig -p | grep -q 'libfuse.so.2'
+      - name: Resolve versions
+        run: |
+          echo "NEXT_VERSION=$(sed -n 's/^version: //p' next/latest-linux.yml | head -n1)" >> "$GITHUB_ENV"
+          echo "N_VERSION=$(sed -n 's/^version: //p' n/latest-linux.yml | head -n1)" >> "$GITHUB_ENV"
+      # The app's own updater does everything: download, sha512 check,
+      # quitAndInstall (replace the AppImage file) and relaunch. The smoke
+      # waits for a different process to report app-ready with N+1 in the
+      # app's diagnostics log (MIXDOG_UPDATER_DEV_AUTO_INSTALL=1 stands in for
+      # the Settings "Install" button).
+      - name: AppImage N -> N+1 (AppImageUpdater replaces the file and relaunches)
+        timeout-minutes: 10
+        run: |
+          test "$NEXT_VERSION" != "$N_VERSION"
+          mkdir -p app update-out
+          # No version in the file name: AppImageUpdater overwrites it in place.
+          cp n/mixdog-desktop-linux-*.AppImage app/Mixdog.AppImage
+          chmod +x app/Mixdog.AppImage
+          xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-update-smoke.mjs app/Mixdog.AppImage next "$NEXT_VERSION" AppImage update-out | tee update-out/appimage-update.log
+          # The file on disk is now byte-for-byte the N+1 build.
+          cmp app/Mixdog.AppImage next/mixdog-desktop-linux-*.AppImage
+          sha256sum app/Mixdog.AppImage next/mixdog-desktop-linux-*.AppImage
+          pkill -f Mixdog.AppImage || true
+      # DebUpdater installs with dpkg through pkexec when it exists (a polkit
+      # rule lets it run without an interactive agent in CI) or else sudo
+      # (passwordless on runners), then app.relaunch()es the installed binary.
+      - name: Installed .deb N -> N+1 (DebUpdater dpkg install and relaunch, sandbox enabled)
+        timeout-minutes: 10
+        run: |
+          sudo apt-get install -y ./n/*.deb
+          sudo apt-get install -y polkitd pkexec || true
+          test "$(dpkg-query -W -f='${Version}' mixdog-desktop)" = "$N_VERSION"
+          grep -qx deb /opt/Mixdog/resources/package-type
+          echo "pkexec: $(command -v pkexec || echo none)"
+          if command -v pkexec >/dev/null; then
+            sudo mkdir -p /etc/polkit-1/rules.d
+            printf 'polkit.addRule(function(action, subject) {\n  if (action.id == "org.freedesktop.policykit.exec") return polkit.Result.YES;\n});\n' | sudo tee /etc/polkit-1/rules.d/49-mixdog-ci.rules
+          fi
+          SMOKE_SANDBOX=1 xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-update-smoke.mjs /opt/Mixdog/mixdog-desktop next "$NEXT_VERSION" deb update-out | tee update-out/deb-update.log
+          test "$(dpkg-query -W -f='${Version}' mixdog-desktop)" = "$NEXT_VERSION"
+          echo "DebUpdater upgraded mixdog-desktop $N_VERSION -> $NEXT_VERSION"
+          pkill -f /opt/Mixdog || true
+      - name: Upload update-path logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: update-path-x64
+          path: update-out/
+          if-no-files-found: warn
+
+  # Distro coverage: the packages built on the Ubuntu runner, launched
+  # headless in older/other distro containers (glibc baseline, non-Debian).
+  container-smoke:
+    name: container-${{ matrix.id }}-${{ matrix.arch }}
+    needs: [plan, verify]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: debian12, family: debian, image: "debian:12", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { id: debian12, family: debian, image: "debian:12", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+          - { id: ubuntu2204, family: debian, image: "ubuntu:22.04", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { id: ubuntu2204, family: debian, image: "ubuntu:22.04", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+          - { id: fedora, family: fedora, image: "fedora:latest", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { id: fedora, family: fedora, image: "fedora:latest", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: mixdog-linux-packages-${{ matrix.arch }}
+          path: pkg
+      - name: Stage Node and the smoke script's ws dependency
+        run: |
+          curl -fsSL "https://nodejs.org/dist/v22.19.0/node-v22.19.0-linux-${{ matrix.node }}.tar.xz" | tar -xJ
+          mv node-v22.19.0-linux-${{ matrix.node }} node
+          mkdir ctr
+          cp apps/desktop/scripts/linux-launch-smoke.mjs ctr/
+          (cd ctr && npm init -y >/dev/null && npm install --no-audit --no-fund ws@8)
+          mkdir -p out
+      - name: Headless smoke in ${{ matrix.image }}
+        timeout-minutes: 20
+        run: |
+          docker run --rm --shm-size=1g -v "$PWD:/w" ${{ matrix.image }} \
+            bash /w/apps/desktop/scripts/linux-container-smoke.sh ${{ matrix.family }} 2>&1 | tee out/container-smoke.log
+          test "${PIPESTATUS[0]}" -eq 0
+      - name: Upload container smoke output
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: container-${{ matrix.id }}-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: warn

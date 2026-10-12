@@ -11,6 +11,8 @@ import { DESKTOP_CAPTURE_TIMEOUT_MS, OWNED_CAPTURE_TIMEOUT_MS, withTimeout } fro
 import type { CaptureFrame, ComputerCommand } from '../shared/types';
 import type { createCaptureSources } from './capture-sources';
 import type { Rect } from './screenshot-target';
+import { parseGnomeShellSourceId } from '../host/gnome-helper';
+import { captureGnomeShellSource } from './gnome-shell-capture';
 import { electronWindowForNativeId } from './window-handles';
 
 export interface ZoomShot {
@@ -44,6 +46,15 @@ export async function acquireZoomShot(
       throw new Error('stale_frame: native capture geometry changed; capture fresh state');
     }
     return { shot: surface.image, sourceId: frame.sourceId };
+  }
+  const gnomeSource = parseGnomeShellSourceId(frame.sourceId);
+  if (gnomeSource) {
+    try {
+      const shot = await captureGnomeShellSource(gnomeSource, { width: Math.round(base.width), height: Math.round(base.height) });
+      return { shot, sourceId: frame.sourceId };
+    } catch (error) {
+      throw new Error(`stale_frame: exact capture source is unavailable (${frame.id}): ${error instanceof Error ? error.message : error}`);
+    }
   }
   // Native coordinates are physical pixels on Windows and Linux but points on
   // macOS, where a Retina display holds scaleFactor pixels per point; a zoom

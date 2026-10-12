@@ -40,8 +40,8 @@ const checkMac = (text, overrides = {}) => checkFeed({
 
 test('the asset contract matches the exact set release.yml verifies', () => {
   const release = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
-  const block = /const expected = \[([\s\S]*?)\]\.sort\(\)/.exec(release)[1];
-  const names = [...block.matchAll(/'([^']+)'/g)].map((match) => match[1]);
+  const block = /const requirements = \{([\s\S]*?)\s*\};\s*const expected/.exec(release)[1];
+  const names = [...block.replace(/\/\/.*/g, '').matchAll(/'([^']+)'/g)].map((match) => match[1]);
   assert.deepEqual([...ASSET_CONTRACT].sort(), names.sort());
 });
 

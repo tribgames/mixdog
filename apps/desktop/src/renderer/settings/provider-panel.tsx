@@ -110,8 +110,43 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       }
     />
   );
+  const keychainIssue = record(setup.keychain);
+  const keychainBlocked = typeof keychainIssue.message === 'string' && keychainIssue.message !== '';
+  const runRef = useRef(run);
+  runRef.current = run;
+  // Poll while mounted: the daemon re-checks the keyring (without prompting) on
+  // every ready read, so the alert appears/disappears live, including when the
+  // keyring locks or is unlocked while this page is open.
+  useEffect(() => {
+    const refresh = (recheckKeychain: boolean) => () =>
+      void runRef.current('getProviderSetup', [recheckKeychain ? { recheckKeychain } : {}], 'keychain-refresh', true, true);
+    const poll = refresh(false);
+    const onFocus = refresh(true);
+    const timer = window.setInterval(poll, 7000);
+    // Returning to the window re-snapshots the keyring right away instead of
+    // waiting for the daemon's TTL (secret-tool may have changed it meanwhile).
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+  const keychainState = String(keychainIssue.state || '');
   return (
     <>
+      {keychainBlocked && (
+        <p className="settings-error" role="alert" data-keychain-state={String(keychainIssue.state || '')}>
+          {t(String(keychainIssue.message))}
+          {(keychainState === 'locked' || keychainState === 'error' || keychainState === 'unreachable') && (
+            <ActionButton
+              disabled={busy}
+              onClick={() => void run('getProviderSetup', [{ force: true, unlockKeychain: true }])}
+            >
+              {t('Unlock keyring')}
+            </ActionButton>
+          )}
+        </p>
+      )}
       <QuotaAutoResumeToggle />
       {/* One card PER provider: sharing a single card ran "OpenAI's accounts →
         Anthropic header" as one continuous list (user: 프로바이더별 분리된

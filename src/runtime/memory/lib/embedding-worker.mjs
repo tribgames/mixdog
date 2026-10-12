@@ -395,9 +395,15 @@ async function loadExtractor() {
             try {
               os.setPriority(0, os.constants.priority.PRIORITY_NORMAL);
             } catch (e) {
-              __mixdogMemoryLog(
-                `[embed-worker] WARN: process priority stuck below normal (restore failed: ${e?.message || e})\n`
-              );
+              // Unprivileged processes cannot raise priority back (EACCES/EPERM);
+              // on Linux that is expected, not a stuck state worth warning about.
+              const expectedOnLinux =
+                process.platform === 'linux' && /EACCES|EPERM/.test(`${e?.code} ${e?.message}`);
+              if (!expectedOnLinux) {
+                __mixdogMemoryLog(
+                  `[embed-worker] WARN: process priority stuck below normal (restore failed: ${e?.message || e})\n`
+                );
+              }
             }
           }
         }

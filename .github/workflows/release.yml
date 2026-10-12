@@ -373,8 +373,18 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
+  # mixdog-computer/-graph/-patch built in manylinux_2_28 (glibc 2.28) so the
+  # shipped Linux package floor is 2.28, not the package runner's glibc.
+  linux-native-tools:
+    needs: [identity]
+    uses: ./.github/workflows/linux-native-tools.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ inputs.ref }}
+
   desktop-linux-x64:
-    needs: [desktop-build, prepare-github-release]
+    needs: [desktop-build, prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -389,7 +399,7 @@ jobs:
       target: linux
 
   desktop-linux-arm64:
-    needs: [desktop-build, prepare-github-release]
+    needs: [desktop-build, prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -403,9 +413,36 @@ jobs:
       artifact_arch: arm64
       target: linux
 
+  # Full Linux verification (update proof, sandbox .deb, distro containers,
+  # native-tool exec matrix) gates publication.
+  linux-verify-full:
+    needs: [identity]
+    uses: ./.github/workflows/linux-desktop-verify.yml
+    permissions:
+      contents: read
+    with:
+      full: true
+      # Every checkout inside the called workflow uses this exact commit
+      # (and asserts HEAD == ref), not the caller's default-branch sha.
+      ref: ${{ inputs.ref }}
+
+  # The commit the Linux verification actually checked out must be the release commit.
+  linux-verify-sha-gate:
+    needs: [linux-verify-full]
+    runs-on: ubuntu-22.04
+    steps:
+      - env:
+          VERIFIED: ${{ needs.linux-verify-full.outputs.verified_sha }}
+          RELEASE_SHA: ${{ inputs.ref }}
+        run: |
+          echo "verified: $VERIFIED"
+          echo "release:  $RELEASE_SHA"
+          test -n "$VERIFIED"
+          test "$VERIFIED" = "$RELEASE_SHA"
+
   publish:
     name: publish-staged-release
-    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64]
+    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
@@ -483,25 +520,75 @@ jobs:
             throw new Error('Hidden GitHub release identity no longer matches this immutable build');
           }
 
-          const expected = [
-            'latest-mac.yml',
-            'latest.yml',
-            'mixdog-desktop-linux-arm64.AppImage',
-            'mixdog-desktop-linux-x86_64.AppImage',
-            'mixdog-desktop-mac-arm64.dmg',
-            'mixdog-desktop-mac-arm64.zip',
-            'mixdog-desktop-mac-arm64.zip.blockmap',
-            'mixdog-desktop-mac-x64.dmg',
-            'mixdog-desktop-mac-x64.zip',
-            'mixdog-desktop-mac-x64.zip.blockmap',
-            'mixdog-desktop-win-x64.exe',
-            'mixdog-desktop-win-x64.exe.blockmap',
-          ].sort();
+          // Per-platform requirements. The publish job already needs every
+          // desktop package job, so each group is an explicit part of the
+          // release contract rather than a side effect of another platform.
+          const requirements = {
+            windows: [
+              'latest.yml',
+              'mixdog-desktop-win-x64.exe',
+              'mixdog-desktop-win-x64.exe.blockmap',
+            ],
+            // latest-mac.yml is merged from both architectures' feeds by the
+            // publish job; the zip blockmaps serve the differential updater.
+            macos: [
+              'latest-mac.yml',
+              'mixdog-desktop-mac-arm64.dmg',
+              'mixdog-desktop-mac-arm64.zip',
+              'mixdog-desktop-mac-arm64.zip.blockmap',
+              'mixdog-desktop-mac-x64.dmg',
+              'mixdog-desktop-mac-x64.zip',
+              'mixdog-desktop-mac-x64.zip.blockmap',
+            ],
+            // electron-updater reads latest-linux*.yml; a .deb install uses
+            // DebUpdater, which downloads the .deb named in that feed.
+            linux: [
+              'latest-linux.yml',
+              'latest-linux-arm64.yml',
+              'mixdog-desktop-linux-arm64.AppImage',
+              'mixdog-desktop-linux-arm64.deb',
+              'mixdog-desktop-linux-x86_64.AppImage',
+              'mixdog-desktop-linux-amd64.deb',
+            ],
+          };
+          const expected = Object.values(requirements).flat().sort();
           const assets = JSON.parse(readFileSync('/tmp/assets.json', 'utf8')).flat();
           const actual = assets.map(asset => asset.name).sort();
+          for (const [platform, names] of Object.entries(requirements)) {
+            const missing = names.filter(name => !actual.includes(name));
+            if (missing.length) {
+              throw new Error(`Hidden release is missing ${platform} assets: ${missing.join(', ')}`);
+            }
+          }
           if (new Set(actual).size !== actual.length
               || JSON.stringify(actual) !== JSON.stringify(expected)) {
             throw new Error(`Hidden release asset set is not exact: ${JSON.stringify(actual)}`);
+          }
+          // Every file a Linux update feed points at must be a draft asset,
+          // and each feed must offer both the AppImage and the .deb.
+          for (const feedName of ['latest-linux.yml', 'latest-linux-arm64.yml']) {
+            const feedAsset = assets.find(asset => asset.name === feedName);
+            const response = await fetch(feedAsset.url, {
+              headers: {
+                Authorization: `Bearer ${process.env.GH_TOKEN}`,
+                Accept: 'application/octet-stream',
+              },
+            });
+            if (!response.ok) throw new Error(`Cannot read ${feedName}: HTTP ${response.status}`);
+            const feed = await response.text();
+            const referenced = new Set(
+              [...feed.matchAll(/^\s*(?:-\s+)?(?:url|path):\s*['"]?([^'"\s]+)['"]?\s*$/gm)].map(m => m[1])
+            );
+            for (const ext of ['.AppImage', '.deb']) {
+              if (![...referenced].some(name => name.endsWith(ext))) {
+                throw new Error(`${feedName} does not reference a ${ext} file`);
+              }
+            }
+            for (const name of referenced) {
+              if (!actual.includes(name)) {
+                throw new Error(`${feedName} references ${name}, which is not a hidden release asset`);
+              }
+            }
           }
           for (const asset of assets) {
             if (asset.state !== 'uploaded' || !(asset.size > 0)

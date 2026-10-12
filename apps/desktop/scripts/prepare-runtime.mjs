@@ -304,6 +304,22 @@ async function assertTreeTargetArchitecture(root, label) {
   }
 }
 
+// The package's Linux prebuilds are named node.abi<N>.node, but its loader looks
+// for electron.abi<N>.node when running under Electron and then falls back to
+// build/Release/pty.node, which the npm tarball does not ship. The addon is
+// N-API (ABI-stable across Node and Electron), so expose the newest glibc
+// prebuild at that fallback path instead of rebuilding per Electron release.
+async function installLinuxPtyBinding(packageDir) {
+  const prebuildDir = join(packageDir, 'prebuilds', `${embeddingTarget.platform}-${embeddingTarget.arch}`);
+  const candidates = (await readdir(prebuildDir))
+    .map((name) => /^node\.abi(\d+)\.node$/.exec(name))
+    .filter(Boolean)
+    .sort((left, right) => Number(right[1]) - Number(left[1]));
+  if (candidates.length === 0) throw new Error(`Desktop node-pty has no glibc prebuild under ${prebuildDir}`);
+  const releaseDir = join(packageDir, 'build', 'Release');
+  await mkdir(releaseDir, { recursive: true });
+  await cp(join(prebuildDir, candidates[0][0]), join(releaseDir, 'pty.node'));
+}
 async function desktopPtyNativeRoot() {
   // Linux loads the ABI-specific prebuild directly. Windows and macOS install
   // their active binding under build/Release instead. Validate only the root
@@ -407,8 +423,29 @@ async function canReusePreparedRuntime(fingerprint) {
  */
 async function prepareDesktopNativeTools() {
   const downloadDataDir = join(runtimeDir, 'native-downloads');
+  // Linux packaging may supply graph/patch built against an older glibc
+  // baseline (see linux-build-native-old-glibc.sh); a tool present in that
+  // directory replaces the pinned release download for this build.
+  const overrideDir = String(process.env.MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR ?? '').trim();
+  // Kinds that must come from the override directory: a missing file is an
+  // error instead of a silent fall back to the pinned (newer-glibc) download.
+  const requiredOverrides = new Set(
+    String(process.env.MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE ?? '')
+      .split(',')
+      .map((kind) => kind.trim())
+      .filter(Boolean)
+  );
   const sources = await Promise.all(
-    NATIVE_TOOL_KINDS.map((kind) => downloadNativeTool(kind, embeddingTarget, downloadDataDir))
+    NATIVE_TOOL_KINDS.map(async (kind) => {
+      if (overrideDir && embeddingTarget.platform === 'linux') {
+        const override = join(resolve(overrideDir), nativeToolInstalledName(kind, embeddingTarget));
+        if (await access(override).then(() => true, () => false)) return override;
+        if (requiredOverrides.has(kind)) {
+          throw new Error(`Native tool ${kind} is required from ${overrideDir} but ${override} does not exist.`);
+        }
+      }
+      return downloadNativeTool(kind, embeddingTarget, downloadDataDir);
+    })
   );
   await rm(desktopNativeToolsDir, { recursive: true, force: true });
   await mkdir(desktopNativeToolsDir, { recursive: true });
@@ -515,6 +552,7 @@ async function prepareRuntime(manifest, fingerprint) {
       await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
       await patchDesktopPtyHelperPath(builderDesktopPtyDir);
       const ptyPrune = await pruneDesktopPtyPackage(builderDesktopPtyDir, embeddingTarget);
+      if (embeddingTarget.platform === 'linux') await installLinuxPtyBinding(builderDesktopPtyDir);
       console.log(
         `Pruned desktop node-pty from ${(ptyPrune.beforeBytes / 1024 / 1024).toFixed(1)} MiB ` +
           `to ${(ptyPrune.afterBytes / 1024 / 1024).toFixed(1)} MiB.`

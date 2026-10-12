@@ -59,16 +59,13 @@ function cleanupRetiredChannelSecrets(dataDir) {
   const marker = join(dataDir, '.retired-channel-secrets-cleaned');
   if (existsSync(marker)) return;
   void import('../../runtime/shared/config.mjs')
-    .then(({ deleteSecret }) => {
-      try {
-        deleteSecret('discord.token');
-      } catch {
-        /* best-effort */
-      }
-      try {
-        deleteSecret('telegram.token');
-      } catch {
-        /* best-effort */
+    .then(async ({ deleteSecretAsync }) => {
+      for (const account of ['discord.token', 'telegram.token']) {
+        try {
+          await deleteSecretAsync(account);
+        } catch {
+          /* best-effort */
+        }
       }
       try {
         writeFileSync(marker, `${new Date().toISOString()}\n`);

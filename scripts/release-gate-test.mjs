@@ -621,10 +621,21 @@ function assertReleaseWorkflowContract(release) {
     assert.match(
       release,
       new RegExp(
-        `desktop-${packageJob}:[\\s\\S]*?needs:\\s*\\[desktop-build, prepare-github-release\\][\\s\\S]*?uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml`
+        `desktop-${packageJob}:[\\s\\S]*?needs:\\s*\\[desktop-build, prepare-github-release(?:, linux-native-tools)?\\][\\s\\S]*?uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml`
       )
     );
   }
+  // Linux ships native tools built in manylinux_2_28 and is gated on the full
+  // Linux verification of the exact release commit.
+  for (const packageJob of ['linux-x64', 'linux-arm64']) {
+    assert.match(release, new RegExp(`desktop-${packageJob}:\\s*needs:\\s*\\[[^\\]]*linux-native-tools[^\\]]*\\]`));
+  }
+  assert.match(release, /linux-native-tools:[\s\S]*?uses:\s*\.\/\.github\/workflows\/linux-native-tools\.yml/);
+  assert.match(
+    release,
+    /linux-verify-full:[\s\S]*?uses:\s*\.\/\.github\/workflows\/linux-desktop-verify\.yml[\s\S]*?full:\s*true[\s\S]*?ref:\s*\$\{\{\s*inputs\.ref\s*\}\}/
+  );
+  assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*linux-verify-full[^\]]*linux-verify-sha-gate[^\]]*\]/);
   assert.match(release, /prepare-github-release:[\s\S]*needs:\s*\[identity\][\s\S]*draft:\s*true/);
   assert.equal((release.match(/npm run build --prefix apps\/desktop/g) || []).length, 1);
   assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);

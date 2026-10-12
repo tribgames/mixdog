@@ -43,6 +43,8 @@ import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from '.
 import { useTidyEngineStatus } from './tidy-status';
 import { useAutoEffortStatus } from './auto-effort-status';
 import { TidyEngines } from './tidy-engines';
+import { computerReadinessBlocking } from './computer-readiness';
+import { ComputerReadinessSection, useComputerReadiness } from './computer-readiness-section';
 
 type FeatureAction = {
   id: BuiltInFeatureId;
@@ -128,10 +130,12 @@ type FeatureState = {
   progressPercent: number | null;
   localProvider: RecordValue;
   info: RecordValue;
+  /** Computer Use only: the OS still lacks something that blocks work. */
+  readinessBlocking: boolean;
 };
 
 /** Short list tag for noteworthy states (not installed, installing, failed, disabled). */
-function featureStatus({
+export function featureStatus({
   ready,
   installed,
   supported,
@@ -139,6 +143,7 @@ function featureStatus({
   action,
   progressPercent,
   enabled,
+  readinessBlocking,
 }: FeatureState): SidebarResourceTag | null {
   if (!ready) return null;
   if (!available) return supported ? null : { label: t('Unavailable'), tone: 'muted' };
@@ -149,6 +154,7 @@ function featureStatus({
   if (action?.status === 'failed') return { label: t('Failed'), tone: 'danger' };
   if (!installed) return { label: t('Not installed'), tone: 'muted' };
   if (!enabled) return { label: t('Disabled'), tone: 'muted' };
+  if (readinessBlocking) return { label: t('Setup needed'), tone: 'warn' };
   return null;
 }
 
@@ -209,9 +215,11 @@ function FeatureDetailDialog({
   officeDependency,
   tidyStatus,
   tidyInstallStatus,
+  computerReadiness,
 }: {
   api: PanelContext['api'];
   state: FeatureState;
+  computerReadiness: ReturnType<typeof useComputerReadiness>;
   gitStatus: DesktopGitCliStatus | null;
   officeDependency: DesktopLibreOfficeStatus | null;
   tidyStatus: DesktopTidyEngineStatus | null;
@@ -233,6 +241,9 @@ function FeatureDetailDialog({
       dataAttributes={{ 'data-feature-id': feature.id }}
       headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}
     >
+      {ready && installed && feature.id === 'computer' ? (
+        <ComputerReadinessSection rows={computerReadiness.rows} api={api} refresh={computerReadiness.refresh} />
+      ) : null}
       {ready && feature.id === 'autoEffort' && !state.supported ? (
         <ExtensionNote>{t('Auto effort is not supported on Intel Macs.')}</ExtensionNote>
       ) : null}
@@ -274,7 +285,12 @@ function FeatureDetailDialog({
           </ExtensionItemList>
         </ExtensionSection>
       )}
-      <BuiltInFeatureInfo state={state} gitStatus={gitStatus} officeDependency={officeDependency} />
+      <BuiltInFeatureInfo
+        state={state}
+        gitStatus={gitStatus}
+        officeDependency={officeDependency}
+        linux={computerReadiness.readiness?.linux}
+      />
     </ExtensionDetailDialog>
   );
 }
@@ -310,6 +326,7 @@ export function BuiltInFeaturesPanel({
     action?.id === 'tidy' && action?.status === 'installing'
   );
   const autoEffort = useAutoEffortStatus(api, toolModules.autoEffort);
+  const computerReadiness = useComputerReadiness(api, openId === 'computer');
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
   // Built-in skills ride their feature's Install and toggle, so the card names
@@ -500,6 +517,7 @@ export function BuiltInFeaturesPanel({
       progressPercent,
       localProvider,
       info: record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
+      readinessBlocking: feature.id === 'computer' && computerReadinessBlocking(computerReadiness.rows),
     };
   };
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
@@ -531,6 +549,7 @@ export function BuiltInFeaturesPanel({
           officeDependency={officeDependency}
           tidyStatus={tidy.status}
           tidyInstallStatus={tidy.installStatus}
+          computerReadiness={computerReadiness}
           onInstall={() => install(open.id)}
           onToggle={(next) => toggle(open.id, next)}
           onClose={() => setOpenId(null)}

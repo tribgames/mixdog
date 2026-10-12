@@ -7,11 +7,24 @@ use crate::observer::now_ms;
 use crate::platform::{parse_window_id, window_id};
 use crate::protocol::{Obj, Req};
 
+/// How long after process start the observer may still be warming up, and how
+/// long one idle read waits for it.
+const FRESH_HOST_MS: u64 = 5_000;
+const OBSERVER_WARMUP_MS: u64 = 300;
+
 impl Host {
     // --- recovery -------------------------------------------------------------
 
     pub(in crate::host) fn input_idle_state(&self) -> Obj {
-        let state = self.observer.read();
+        let mut state = self.observer.read();
+        // A freshly started host has not taken its observer's first sample yet
+        // (a few tens of ms); reporting not-ready then would make the first
+        // capture of every session refuse foreground input.
+        let started = now_ms();
+        while !state.ready && started < FRESH_HOST_MS && now_ms() - started < OBSERVER_WARMUP_MS {
+            sleep_ms(25);
+            state = self.observer.read();
+        }
         let idle = now_ms().saturating_sub(state.tick);
         obj! {
             "ready" => state.ready && self.desktop.desktop_ready(),

@@ -1,8 +1,9 @@
 /** The operating-system grants as this process holds them right now. */
 import { desktopCapturer, systemPreferences } from 'electron';
-import type { ComputerPermissions } from '../shared/permissions';
+import { getLinuxComputerReadiness } from '../../../../../../src/runtime/computer-bridge/linux-readiness.mjs';
+import { linuxComputerPermissions, type ComputerPermissions } from '../shared/permissions';
 
-export function readComputerPermissions(): ComputerPermissions {
+export function readComputerPermissions(): ComputerPermissions | Promise<ComputerPermissions> {
   if (process.platform === 'win32') {
     return {
       screen_capture: 'not_required_on_windows',
@@ -17,11 +18,8 @@ export function readComputerPermissions(): ComputerPermissions {
       input: 'accessibility_dependent',
     };
   }
-  return {
-    screen_capture: 'compositor_dependent',
-    accessibility: 'at_spi_dependent',
-    input: 'uinput_or_x11_dependent',
-  };
+  // Linux has no OS grant to read: capabilities are probed, never prompting.
+  return getLinuxComputerReadiness().then(linuxComputerPermissions);
 }
 
 /** macOS shows its own Accessibility and Screen Recording prompts the first

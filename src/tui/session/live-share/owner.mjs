@@ -27,6 +27,21 @@ function unlinkQuietly(path) {
   }
 }
 
+// Sockets this process still serves. A process that exits without closing its
+// sessions (daemon shutdown, tray Quit) must not leave them behind in /tmp.
+const servedSocketPaths = new Set();
+let exitCleanupInstalled = false;
+function serveSocketPath(path) {
+  if (process.platform === 'win32' || !path) return;
+  servedSocketPaths.add(path);
+  if (exitCleanupInstalled) return;
+  exitCleanupInstalled = true;
+  process.once('exit', () => {
+    for (const served of servedSocketPaths) unlinkQuietly(served);
+    servedSocketPaths.clear();
+  });
+}
+
 export function createOwnerLeg({
   ownerSessionId,
   socketPathFor,
@@ -181,6 +196,7 @@ export function createOwnerLeg({
       /* already closed */
     }
     unlinkQuietly(serverPath);
+    servedSocketPaths.delete(serverPath);
     serverId = '';
     serverPath = '';
   };
@@ -216,6 +232,7 @@ export function createOwnerLeg({
     server = next;
     serverId = id;
     serverPath = path;
+    serveSocketPath(path);
     try {
       next.listen(path);
     } catch {

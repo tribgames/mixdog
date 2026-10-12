@@ -30,7 +30,7 @@ export interface InspectHost {
   assertExecutionNotAborted(): void;
   readComputerWindows(command: ComputerCommand, includeApp?: boolean): Promise<ComputerWindowRecord[] | null>;
   readDisplays(): Array<Record<string, unknown>>;
-  readPermissions(): ComputerPermissions;
+  readPermissions(): ComputerPermissions | Promise<ComputerPermissions>;
   isObserveOnly(): boolean;
   readInputState?(): { userControlActive: boolean; cleanupState?: string; takeoverReason?: string };
 }
@@ -145,7 +145,7 @@ export function createInspection(host: InspectHost) {
     const ocr = await probeOcr(host, command);
     const inputObservation = await probeInputObservation(host, command);
     const displays = readDisplays();
-    const permissions = readPermissions();
+    const permissions = await readPermissions();
     const inputState = host.readInputState?.();
     const inputBlocked = Boolean(
       inputState?.userControlActive || (inputState?.cleanupState && inputState.cleanupState !== 'ready')

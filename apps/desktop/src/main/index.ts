@@ -54,7 +54,8 @@ import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import { TerminalBridgeServer } from './terminal/bridge-server';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import type { SessionTerminalTab } from './terminal-manager';
-import { requestComputerPermissions } from './computer/host/permission-reads';
+import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
+import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
@@ -79,7 +80,7 @@ import {
   type DesktopSettings,
 } from '../shared/contract';
 import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMethod } from './remote-browser-methods';
-import { persistWindowState, readWindowState } from './window-state';
+import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
 import {
   normalizeTranscriptReadDiagnostic,
   setTranscriptReadDiagnosticSink,
@@ -615,6 +616,14 @@ function applyComputerControlSetting(enabled: boolean): void {
   if (enabled && !computerControlEnabled && computerControlApplied) requestComputerPermissions();
   computerControlApplied = true;
   computerControlEnabled = enabled;
+  // GNOME window control comes from Mixdog's own shell extension: keep it in
+  // place and enabled exactly while Computer Use is on (a no-op elsewhere).
+  void applyGnomeExtensionSetting(
+    enabled,
+    app.isPackaged
+      ? join(process.resourcesPath, 'gnome-extension', 'mixdog-windows@mixdog.io')
+      : join(app.getAppPath(), '..', '..', 'native', 'gnome-extension', 'mixdog-windows@mixdog.io'),
+  );
   computerHost?.setBridgeEnabled(computerControlEnabled);
 }
 // Observation only: the bridge keeps serving reads while every input action is
@@ -1127,7 +1136,10 @@ function createMainBrowserWindow(
   return new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
     ...initialTitleBarWindowOverrides(),
-    ...(savedState?.bounds ?? {}),
+    ...clampBoundsToWorkArea(
+      savedState?.bounds ?? { width: DESKTOP_WINDOW_OPTIONS.width, height: DESKTOP_WINDOW_OPTIONS.height },
+      (savedState ? screen.getDisplayMatching(savedState.bounds) : screen.getPrimaryDisplay()).workArea
+    ),
     ...(brandIconPath ? { icon: brandIconPath } : {}),
     webPreferences: {
       ...DESKTOP_WINDOW_OPTIONS.webPreferences,
@@ -1508,6 +1520,7 @@ async function createWindow(): Promise<void> {
     onDesktopSettingsChanged: applyDesktopSettings,
     ...(process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
     browserHost,
+    computer: { readPermissions: readComputerPermissions, requestPermissions: requestComputerPermissions },
     updater: desktopUpdater,
     terminals: serviceTerminalManager,
     remoteAccessInfo,
