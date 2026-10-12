@@ -146,7 +146,8 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: apps/desktop
       # Linux ships mixdog-computer/-graph/-patch built in manylinux_2_28
-      # (glibc 2.28); graph and patch must come from there, never from the
+      # (native tools glibc 2.28; the package floor is 2.31 because of the
+      # runtime); graph and patch must come from there, never from the
       # pinned release download, which is built against a newer glibc.
       - name: Download glibc 2.28 Linux native tools
         if: inputs.platform == 'linux'

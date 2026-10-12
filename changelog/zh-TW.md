@@ -34,7 +34,7 @@ macOS 自動更新現已可用。先前的版本缺少 macOS 更新來源,因此
 
 暫存檔的清理更加安全,並且僅自動標題儲存失敗時,新工作不再被回報為失敗。
 
-Mixdog Desktop 現已支援 Linux,提供 AppImage 與 .deb 兩種安裝套件,涵蓋 x86_64 與 arm64(需要 glibc 2.28 或更新版本),並會自動更新。在使用 Wayland 的 GNOME 上,Computer Use 會透過隨附的 Mixdog GNOME Shell 擴充功能擷取螢幕畫面,在 Shell 中顯示「使用中」提示且不會奪走受控視窗的焦點,並可按 Ctrl+Alt+Esc 停止;首次安裝擴充功能後,請登出並重新登入一次。
+Mixdog Desktop 現已支援 Linux,提供 AppImage 與 .deb 兩種安裝套件,涵蓋 x86_64 與 arm64(需要 glibc 2.31 或更新版本,即 Ubuntu 20.04、Debian 11 及之後),並會自動更新。在使用 Wayland 的 GNOME 上,Computer Use 會透過隨附的 Mixdog GNOME Shell 擴充功能擷取螢幕畫面,在 Shell 中顯示「使用中」提示且不會奪走受控視窗的焦點,並可按 Ctrl+Alt+Esc 停止;首次安裝擴充功能後,請登出並重新登入一次。
 
 Mixdog Android 版 0.1.12 帶來全新配對方式:在電腦上開啟 設定 > 連線 > 手機,掃描 QR 碼安裝應用程式,然後在應用程式中輸入那裡顯示的 6 位數代碼,並在電腦上允許。同時修正了 Android 15 上訊息輸入框被鍵盤遮住的問題。
 

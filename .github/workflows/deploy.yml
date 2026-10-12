@@ -641,34 +641,24 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare-app.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+
+      # 404 (release absent) skips the checks with a notice; auth, transport
+      # and 5xx errors are retried with backoff and then fail the job.
       - name: Detect whether the app release was published
         id: published
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.plan.outputs.app_tag }}
           RELEASE_RESULT: ${{ needs.release.result }}
-        shell: bash
-        run: |
-          set -uo pipefail
-          draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.draft' 2>/dev/null)"
-          if [[ "$draft" == "false" ]]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "${RELEASE_TAG} is published (release job: ${RELEASE_RESULT}); running the post-release checks."
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Post-release checks skipped::${RELEASE_TAG} was not published (release job: ${RELEASE_RESULT})."
-          fi
-
-      - if: ${{ steps.published.outputs.published == 'true' }}
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ needs.prepare-app.outputs.sha }}
-          persist-credentials: false
-
-      - if: ${{ steps.published.outputs.published == 'true' }}
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "22"
+        run: node scripts/post-release-check.mjs detect-published
 
       - name: Verify the published release end to end
         if: ${{ steps.published.outputs.published == 'true' }}

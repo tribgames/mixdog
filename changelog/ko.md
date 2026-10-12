@@ -35,7 +35,7 @@ macOS 자동 업데이트가 이제 작동합니다. 이전 릴리스에는 macO
 
 임시 파일이 더 안전하게 정리되며, 자동 제목 저장만 실패했을 때 새 작업이 실패로 보고되지 않습니다.
 
-Mixdog Desktop을 이제 Linux에서 AppImage 또는 .deb 패키지로 사용할 수 있으며, x86_64와 arm64(glibc 2.28 이상)를 지원하고 자동으로 업데이트됩니다. Wayland 기반 GNOME에서는 Computer Use가 함께 제공되는 Mixdog GNOME Shell 확장으로 스크린샷을 캡처하고, 제어 중인 창의 포커스를 빼앗지 않고 셸에 "사용 중" 표시를 보여 주며, Ctrl+Alt+Esc로 중지할 수 있습니다. 확장을 처음 설치한 뒤에는 한 번 로그아웃했다가 다시 로그인하세요.
+Mixdog Desktop을 이제 Linux에서 AppImage 또는 .deb 패키지로 사용할 수 있으며, x86_64와 arm64(glibc 2.31 이상. Ubuntu 20.04, Debian 11 이후)를 지원하고 자동으로 업데이트됩니다. Wayland 기반 GNOME에서는 Computer Use가 함께 제공되는 Mixdog GNOME Shell 확장으로 스크린샷을 캡처하고, 제어 중인 창의 포커스를 빼앗지 않고 셸에 "사용 중" 표시를 보여 주며, Ctrl+Alt+Esc로 중지할 수 있습니다. 확장을 처음 설치한 뒤에는 한 번 로그아웃했다가 다시 로그인하세요.
 
 Android용 Mixdog 0.1.12에 새로운 연결 방식이 추가되었습니다. PC에서 설정 > 연결 > 휴대폰을 열어 QR 코드를 스캔해 앱을 설치한 뒤, 그곳에 표시된 6자리 코드를 앱에 입력하고 PC에서 허용하세요. 또한 Android 15에서 메시지 입력창이 키보드에 가려지던 문제를 수정했습니다.
 

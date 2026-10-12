@@ -180,6 +180,42 @@ export function checkEffortJudge({ manifest, latestTag, getRelease }) {
   return problems;
 }
 
+/** The release for `tag`, or null when GitHub answers 404/not found. Any other failure throws. */
+export function getReleaseByTag(repo, tag, run = gh) {
+  try {
+    return JSON.parse(run(['api', `repos/${repo}/releases/tags/${tag}`]));
+  } catch (error) {
+    if (/HTTP 404|Not Found/i.test(`${error.stderr ?? ''}${error.message}`)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Was the app release published? A missing release (`fetchRelease` returns
+ * null) or a draft means "not published" and the checks are skipped. Any
+ * other failure (auth, transport, 5xx) is retried with backoff and then
+ * rethrown, so an API outage fails the job instead of silently skipping
+ * verification of a release that may be public.
+ */
+export async function detectPublished({
+  fetchRelease, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  attempts = 5, firstDelayMs = 2000,
+}) {
+  let delay = firstDelayMs;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const release = fetchRelease();
+      return Boolean(release) && release.draft === false;
+    } catch (error) {
+      if (attempt >= attempts) {
+        throw new Error(`could not determine whether the release is published after ${attempts} attempts: ${error.message}`);
+      }
+      await sleep(delay);
+      delay *= 2;
+    }
+  }
+}
+
 async function sha512Base64(url) {
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`download ${url} answered ${response.status}`);
@@ -196,14 +232,7 @@ async function main() {
     throw new Error('GITHUB_REPOSITORY, RELEASE_TAG (vX.Y.Z) and RELAY_DOMAIN are required');
   }
   const version = tag.slice(1);
-  const getRelease = (releaseTag) => {
-    try {
-      return JSON.parse(gh(['api', `repos/${repo}/releases/tags/${releaseTag}`]));
-    } catch (error) {
-      if (/HTTP 404|Not Found/i.test(`${error.stderr ?? ''}${error.message}`)) return null;
-      throw error;
-    }
-  };
+  const getRelease = (releaseTag) => getReleaseByTag(repo, releaseTag);
   const release = getRelease(tag);
   const assets = release?.assets ?? [];
   const latestTag = currentLatestTag(repo);
@@ -264,6 +293,27 @@ async function main() {
   return results.some(({ problems }) => problems.length) ? 1 : 0;
 }
 
+// `detect-published`: write published=true|false to GITHUB_OUTPUT. Exits 1
+// (job fails) when the GitHub API cannot give a definite answer.
+async function detectPublishedMain() {
+  const repo = process.env.GITHUB_REPOSITORY;
+  const tag = process.env.RELEASE_TAG;
+  if (!repo || !/^v\d+\.\d+\.\d+$/.test(tag ?? '')) {
+    throw new Error('GITHUB_REPOSITORY and RELEASE_TAG (vX.Y.Z) are required');
+  }
+  const published = await detectPublished({ fetchRelease: () => getReleaseByTag(repo, tag) });
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `published=${published}\n`);
+  const result = process.env.RELEASE_RESULT ?? 'unknown';
+  if (published) console.log(`${tag} is published (release job: ${result}); running the post-release checks.`);
+  else console.log(`::notice title=Post-release checks skipped::${tag} was not published (release job: ${result}).`);
+  return 0;
+}
+
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  process.exit(await main());
+  try {
+    process.exit(process.argv[2] === 'detect-published' ? await detectPublishedMain() : await main());
+  } catch (error) {
+    console.log(`::error title=Post-release check::${error.message}`);
+    process.exit(1);
+  }
 }

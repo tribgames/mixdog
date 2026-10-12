@@ -1,7 +1,9 @@
 # Builds mixdog-computer, mixdog-graph and mixdog-patch inside manylinux_2_28
-# (glibc 2.28) so the packaged Linux app's floor does not follow the glibc of
-# the CI runner. Called by linux-desktop-verify and by the release workflow;
-# consumers download the native-tools-glibc228-<arch> artifact and point
+# (glibc 2.28) so the native tools' floor does not follow the glibc of the CI
+# runner. (The packaged Linux app's overall floor is glibc 2.31, set by the
+# runtime built on ubuntu:20.04.) Called by the release workflow (once per
+# run) and by standalone linux-desktop-verify runs; the artifact name is
+# unique per run, so never call this twice in one run. Consumers download the native-tools-glibc228-<arch> artifact and point
 # MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR / MIXDOG_COMPUTER_NATIVE_BIN at it.
 name: linux-native-tools
 

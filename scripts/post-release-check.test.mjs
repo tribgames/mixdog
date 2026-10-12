@@ -10,6 +10,8 @@ import {
   checkFeed,
   checkLatest,
   checkRelayApp,
+  detectPublished,
+  getReleaseByTag,
   waitForNpm,
 } from './post-release-check.mjs';
 
@@ -138,4 +140,43 @@ test('effort-judge release must exist, be published, not be Latest, and carry th
   assert.match(checkEffortJudge({ manifest, latestTag: 'effort-judge-v6', getRelease: () => good })[0], /is GitHub Latest/);
   assert.match(checkEffortJudge({ manifest, latestTag: 'v1', getRelease: () => ({ ...good, draft: true }) })[0], /is a draft/);
   assert.match(checkEffortJudge({ manifest, latestTag: 'v1', getRelease: () => ({ draft: false, assets: [] }) })[0], /lacks model\.onnx/);
+});
+
+test('getReleaseByTag maps only 404/not-found to null and rethrows everything else', () => {
+  const failing = (stderr) => () => { throw Object.assign(new Error('Command failed'), { stderr }); };
+  assert.equal(getReleaseByTag('o/r', 'v1.2.3', failing('gh: Not Found (HTTP 404)')), null);
+  assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('gh: Bad credentials (HTTP 401)')), /Command failed/);
+  assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('gh: Bad Gateway (HTTP 502)')), /Command failed/);
+  assert.throws(() => getReleaseByTag('o/r', 'v1.2.3', failing('dial tcp: i/o timeout')), /Command failed/);
+  assert.deepEqual(getReleaseByTag('o/r', 'v1.2.3', () => '{"draft":false}'), { draft: false });
+});
+
+test('detectPublished: published, draft and absent are definite answers without retries', async () => {
+  const sleeps = [];
+  const sleep = async (ms) => { sleeps.push(ms); };
+  assert.equal(await detectPublished({ fetchRelease: () => ({ draft: false }), sleep }), true);
+  assert.equal(await detectPublished({ fetchRelease: () => ({ draft: true }), sleep }), false);
+  assert.equal(await detectPublished({ fetchRelease: () => null, sleep }), false);
+  assert.deepEqual(sleeps, []);
+});
+
+test('detectPublished retries API errors with backoff, recovers, and otherwise fails', async () => {
+  const sleeps = [];
+  const sleep = async (ms) => { sleeps.push(ms); };
+  let calls = 0;
+  const flaky = () => {
+    if (++calls < 3) throw new Error('HTTP 502');
+    return { draft: false };
+  };
+  assert.equal(await detectPublished({ fetchRelease: flaky, sleep, firstDelayMs: 10 }), true);
+  assert.deepEqual(sleeps, [10, 20]);
+
+  sleeps.length = 0;
+  let attempts = 0;
+  await assert.rejects(
+    detectPublished({ fetchRelease: () => { attempts++; throw new Error('HTTP 401'); }, sleep, attempts: 4, firstDelayMs: 10 }),
+    /after 4 attempts: HTTP 401/,
+  );
+  assert.equal(attempts, 4);
+  assert.deepEqual(sleeps, [10, 20, 40]);
 });

@@ -373,8 +373,12 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
-  # mixdog-computer/-graph/-patch built in manylinux_2_28 (glibc 2.28) so the
-  # shipped Linux package floor is 2.28, not the package runner's glibc.
+  # mixdog-computer/-graph/-patch built in manylinux_2_28 (glibc 2.28), so the
+  # native tools do not follow the package runner's glibc. The shipped Linux
+  # package floor is glibc 2.31 (runtime built on ubuntu:20.04), enforced by
+  # the payload checks. This is the single producer of the
+  # native-tools-glibc228-<arch> artifacts in this run: linux-verify-full
+  # consumes them (native_tools_prebuilt) instead of building again.
   linux-native-tools:
     needs: [identity]
     uses: ./.github/workflows/linux-native-tools.yml
@@ -416,12 +420,13 @@ jobs:
   # Full Linux verification (update proof, sandbox .deb, distro containers,
   # native-tool exec matrix) gates publication.
   linux-verify-full:
-    needs: [identity]
+    needs: [identity, linux-native-tools]
     uses: ./.github/workflows/linux-desktop-verify.yml
     permissions:
       contents: read
     with:
       full: true
+      native_tools_prebuilt: true
       # Every checkout inside the called workflow uses this exact commit
       # (and asserts HEAD == ref), not the caller's default-branch sha.
       ref: ${{ inputs.ref }}

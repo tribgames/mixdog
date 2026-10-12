@@ -34,7 +34,7 @@ I comandi shell in background di lunga durata, come i server di sviluppo, non bl
 
 I file temporanei vengono ripuliti in modo più sicuro e le nuove attività non vengono più segnalate come fallite quando a non essere salvato è solo il titolo automatico.
 
-Mixdog Desktop ora è disponibile su Linux come AppImage o pacchetto .deb, per x86_64 e arm64 (glibc 2.28 o successiva), e si aggiorna automaticamente. Su GNOME con Wayland, Computer Use cattura gli screenshot tramite l’estensione GNOME Shell di Mixdog inclusa, mostra il suo indicatore «in uso» nella shell senza togliere il focus alla finestra controllata e si interrompe con Ctrl+Alt+Esc; dopo la prima installazione dell’estensione, esci e rientra una volta.
+Mixdog Desktop ora è disponibile su Linux come AppImage o pacchetto .deb, per x86_64 e arm64 (glibc 2.31 o successiva: Ubuntu 20.04, Debian 11 e versioni più recenti), e si aggiorna automaticamente. Su GNOME con Wayland, Computer Use cattura gli screenshot tramite l’estensione GNOME Shell di Mixdog inclusa, mostra il suo indicatore «in uso» nella shell senza togliere il focus alla finestra controllata e si interrompe con Ctrl+Alt+Esc; dopo la prima installazione dell’estensione, esci e rientra una volta.
 
 Mixdog per Android 0.1.12 offre un nuovo abbinamento: sul PC apri Impostazioni > Connessione > Telefono, scansiona il codice QR per installare l’app, poi inserisci nell’app il codice di 6 cifre mostrato lì e consentilo sul PC. Corregge inoltre la casella del messaggio nascosta dalla tastiera su Android 15.
 

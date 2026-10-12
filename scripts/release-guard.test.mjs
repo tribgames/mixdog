@@ -96,9 +96,13 @@ test('workflow contracts: strict gate, Latest guard triggers, post-release job, 
   assert.match(condition, /needs\.release\.result != 'cancelled'/);
   assert.doesNotMatch(condition, /needs\.release\.result == 'success'/);
   const steps = jobs['post-release-check'].steps;
-  assert.equal(steps[0].id, 'published');
-  assert.match(steps[0].run, /releases\/tags\/.*--jq '\.draft'/);
-  for (const step of steps.slice(1)) assert.match(step.if, /steps\.published\.outputs\.published == 'true'/);
+  // The probe lives in scripts/post-release-check.mjs (404 skips; other API
+  // errors retry, then fail the job) and needs the checkout + node before it.
+  const probe = steps.findIndex((step) => step.id === 'published');
+  assert.ok(probe > 0);
+  assert.equal(steps[probe].run, 'node scripts/post-release-check.mjs detect-published');
+  for (const step of steps.slice(0, probe)) assert.equal(step.if, undefined);
+  for (const step of steps.slice(probe + 1)) assert.match(step.if, /steps\.published\.outputs\.published == 'true'/);
   assert.equal(steps.at(-1).env.MOBILE_VERSION, '${{ needs.plan.outputs.mobile_version }}');
   const guard = parse(await read('latest-guard.yml'));
   assert.deepEqual(guard.on.release.types, ['published', 'edited', 'released']);

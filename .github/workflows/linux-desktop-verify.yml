@@ -23,6 +23,10 @@ on:
         description: "Exact commit SHA to verify (the release SHA); defaults to the caller's github.sha"
         type: string
         default: ""
+      native_tools_prebuilt:
+        description: "The caller already ran linux-native-tools.yml in this run (its native-tools-glibc228-<arch> artifacts exist); skip the build here. Artifact names are unique per run, so a second build would fail the upload."
+        type: boolean
+        default: false
     outputs:
       verified_sha:
         description: "The commit SHA every job of this run checked out and verified"
@@ -64,9 +68,14 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "full lane: $full"
 
-  # Native tools built inside manylinux_2_28 (glibc 2.28) so the package floor
-  # does not follow the glibc of the CI runner. Shared with the release workflow.
+  # Native tools built inside manylinux_2_28 (glibc 2.28) so the native tools'
+  # floor does not follow the glibc of the CI runner (the package floor is
+  # glibc 2.31, set by the runtime built on ubuntu:20.04). The release workflow
+  # builds them once itself and sets native_tools_prebuilt; standalone runs
+  # (push/dispatch) build their own. Consumers below accept this job being
+  # skipped, but never failed or cancelled.
   native-tools:
+    if: ${{ !inputs.native_tools_prebuilt }}
     uses: ./.github/workflows/linux-native-tools.yml
     with:
       ref: ${{ inputs.ref || github.sha }}
@@ -74,6 +83,7 @@ jobs:
   tests:
     name: tests-${{ matrix.arch }}
     needs: native-tools
+    if: ${{ !cancelled() && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -160,6 +170,7 @@ jobs:
   verify:
     name: linux-${{ matrix.arch }}
     needs: [plan, native-tools]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -347,7 +358,7 @@ jobs:
   build-next:
     name: build-next-x64
     needs: [plan, native-tools]
-    if: needs.plan.outputs.full == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
