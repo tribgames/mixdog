@@ -15,9 +15,21 @@ function countingWatch() {
   return { impl, opened };
 }
 
-const waitFor = async (predicate, ms = 5000) => {
+// The OS watcher reports a change after an unbounded delay, and macOS FSEvents
+// can drop a write made right after the stream opens (a loaded runner hit the
+// old single 5 s wait). The wait is therefore bounded at 30 s and re-touches
+// the file every 250 ms: delivery to every subscriber is still what is
+// asserted, only the one-shot dependence on the first event is gone.
+const waitFor = async (predicate, touch, ms = 30_000) => {
   const deadline = Date.now() + ms;
-  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  let nextTouch = Date.now() + 250;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    if (Date.now() >= nextTouch) {
+      touch();
+      nextTouch = Date.now() + 250;
+    }
+  }
   return predicate();
 };
 
@@ -30,14 +42,16 @@ test('one real fs.watch serves every subscriber of a directory until the last re
   const releases = seen.map((events) => registry.subscribe(dir, (_event, filename) => events.push(String(filename))));
   assert.equal(opened.length, 1);
 
-  writeFileSync(join(dir, 'spool.json'), '{}');
-  assert.equal(await waitFor(() => seen.every((events) => events.includes('spool.json'))), true);
+  let writes = 0;
+  const touch = () => writeFileSync(join(dir, 'spool.json'), JSON.stringify({ writes: (writes += 1) }));
+  touch();
+  assert.equal(await waitFor(() => seen.every((events) => events.includes('spool.json')), touch), true);
 
   releases[0]();
   releases[0](); // idempotent: must not drop another subscriber's reference
   for (const events of seen) events.length = 0;
-  writeFileSync(join(dir, 'spool.json'), '{"a":1}');
-  assert.equal(await waitFor(() => seen.slice(1).every((events) => events.includes('spool.json'))), true);
+  touch();
+  assert.equal(await waitFor(() => seen.slice(1).every((events) => events.includes('spool.json')), touch), true);
   assert.deepEqual(seen[0], []);
   assert.equal(registry.watchedCount(), 1);
 

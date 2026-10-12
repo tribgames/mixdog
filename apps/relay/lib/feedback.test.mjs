@@ -634,8 +634,12 @@ test('legacy records without attachments still load and send; corrupt attachment
 
 test('pending attachment storage is bounded and freed after delivery', async () => {
   let fail = true;
+  let delivered = 0;
   const { relay, post, clock } = await boot(tempData(), {
-    sender: async () => { if (fail) throw new Error('down'); },
+    sender: async () => {
+      if (fail) throw new Error('down');
+      delivered += 1;
+    },
     options: { maxPendingAttachmentBytes: 10_000 },
   });
   const big = () => valid({ attachments: [attach('a.png', 'png', 6000, Math.floor(Math.random() * 200))] });
@@ -645,9 +649,22 @@ test('pending attachment storage is bounded and freed after delivery', async () 
   assert.deepEqual(await res.json(), { error: 'feedback_busy' });
   assert.equal((await post(valid())).status, 202, 'attachment-free feedback is unaffected');
   fail = false;
-  await clock.advance(30_000);
-  let status;
-  await waitFor(async () => (status = (await post(big())).status) === 202, 'delivered attachments release queue capacity');
+  // A failed attempt arms its retry timer only after the record is persisted
+  // (real file I/O), and the manual clock fires nothing by itself. One
+  // advance right after the posts could land before that, and the retry then
+  // sat unfired until a 5 s wait timed out. Advancing on every poll fires the
+  // retry as soon as it is armed. The polled condition is the mail count, not
+  // a POST: the per-IP rate limit (10 requests) must not be spent on polling.
+  await waitFor(
+    async () => {
+      await clock.advance(30_000);
+      return delivered === 2;
+    },
+    'both queued mails delivered',
+    15_000
+  );
+  await settle();
+  assert.equal((await post(big())).status, 202, 'delivered attachments release queue capacity');
   await relay.close();
 });
 
