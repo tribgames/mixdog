@@ -8,7 +8,7 @@ Muse Code (Meta) è disponibile come provider in abbonamento: accedi con un codi
 
 L'accesso a MiMo (Xiaomi) è disponibile in Impostazioni → Opzioni sviluppatore, insieme a Cursor e Antigravity (disattivato per impostazione predefinita).
 
-La nuova impostazione "File di istruzioni" in Impostazioni → Generali può includere automaticamente nelle nuove sessioni le regole di AGENTS.md / CLAUDE.md delle cartelle personali (~/.codex e ~/.claude) e della cartella del progetto. Puoi scegliere AGENTS.md, CLAUDE.md, Tutti o Disattivato. È disattivata per impostazione predefinita; poiché questi file sono considerati attendibili come istruzioni, attivala solo per i repository di cui ti fidi.
+La nuova impostazione "File di istruzioni" in Impostazioni → Generali può includere automaticamente nelle nuove sessioni le regole di AGENTS.md / CLAUDE.md delle cartelle personali (~/.codex e ~/.claude) e della cartella del progetto. Puoi scegliere AGENTS.md, CLAUDE.md, Tutti o Disattivo. È disattivata per impostazione predefinita; poiché questi file sono considerati attendibili come istruzioni, attivala solo per i repository di cui ti fidi.
 
 Daybreak Blue è ora un interruttore per percorso sotto "Ragionamento automatico" sui modelli che lo supportano, in base all'elenco dei modelli del provider. Il modello Blue separato è stato ritirato e i percorsi esistenti passano a un modello supportato con Blue attivato.
 
@@ -26,7 +26,7 @@ L'aggiornamento automatico di macOS ora funziona. Le versioni precedenti non inc
 
 L'avviso delle novità dopo l'aggiornamento non va più perso se non riesce a comparire; viene segnato come visto solo dopo essere stato effettivamente mostrato.
 
-La pagina delle impostazioni di Connessione non salta più all'apertura e il pulsante "Usa" del credito di reimpostazione sul telefono è più compatto.
+La pagina delle impostazioni di Connessione non salta più all'apertura e il pulsante "Usa" di "Crediti di reset" sul telefono è più compatto.
 
 I percorsi degli strumenti come /C:/… sono ora accettati, edit accetta old_str / new_str come alias, più percorsi uniti in un'unica stringa vengono compresi (all'interno del progetto) e i messaggi di errore sono più chiari.
 

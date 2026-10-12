@@ -14,7 +14,7 @@ Daybreak Blue nay là công tắc theo từng tuyến trong "Suy luận tự đ�
 
 - Bộ đánh giá suy luận tự động v6 được cài đặt tự động sau khi cập nhật. Đây là EmbeddingGemma 2 được tinh chỉnh riêng để đánh giá mức nỗ lực suy luận, và đánh giá cả yêu cầu lẫn các bước công cụ của tác nhân. Trên cùng 12,029 mục giữ lại, nó chính xác hơn Jev 1.13 (đúng chính xác mức 78,5% so với 72,7%; lệch từ hai mức trở lên 0,6% so với 1,4%) và đưa ra quyết định trong khoảng 115 ms trên PC của bạn. Chi tiết: `docs/auto-reasoning-effort.md`
 
-Suy luận tự động nay hiển thị là "Tự động" ở mọi nơi có hiển thị mô hình và mức nỗ lực, gồm thanh bên tác nhân, quy trình làm việc, lịch trình và webhook. Dòng trạng thái đang làm việc hiển thị mức nỗ lực mà Tự động thực sự đã chọn, được dịch sang ngôn ngữ của bạn (ví dụ "Đang suy nghĩ (medium)").
+Suy luận tự động nay hiển thị là "Auto" ở mọi nơi có hiển thị mô hình và mức nỗ lực, gồm thanh bên tác nhân, quy trình làm việc, lịch trình và webhook. Dòng trạng thái đang làm việc hiển thị mức nỗ lực mà Auto thực sự đã chọn, được dịch sang ngôn ngữ của bạn (ví dụ "Đang suy nghĩ (medium)").
 
 Đảo trình soạn thảo phía trên ô nhập tin nhắn đã được thiết kế lại. Mục tiêu hiển thị biểu tượng trạng thái, chấm tiến độ theo từng tác vụ và "Đang xử lý"; tác nhân, shell và tệp đã thay đổi được đếm riêng với biểu tượng riêng; và các tác nhân đang chờ bạn phê duyệt hiển thị "Đang chờ phê duyệt" cùng số "Cần bạn xử lý" thay vì trông như đang bận. Nhấp vào một tác nhân sẽ mở phiên của nó, thời gian chạy của tác nhân nay tính từ lượt hiện tại thay vì từ lúc tạo, và đảo vẫn hiện thêm một lúc sau khi hoàn tất công việc thay vì chớp tắt. Ngăn Tác nhân cũng đánh dấu các tác nhân đang chờ phê duyệt.
 
@@ -26,7 +26,7 @@ Tự động cập nhật trên macOS nay đã hoạt động. Các bản phát 
 
 Thông báo "có gì mới" sau khi cập nhật không còn bị mất nếu không hiển thị được; nó chỉ được đánh dấu là đã xem sau khi thực sự được hiển thị.
 
-Trang cài đặt Kết nối không còn bị giật khi mở, và nút "Dùng" cho tín dụng đặt lại trên điện thoại gọn hơn.
+Trang cài đặt Kết nối không còn bị giật khi mở, và nút "Dùng" của "Tín dụng reset" trên điện thoại gọn hơn.
 
 Đường dẫn công cụ dạng /C:/… nay được chấp nhận, edit chấp nhận old_str / new_str làm bí danh, nhiều đường dẫn nối trong một chuỗi được hiểu (trong dự án), và thông báo lỗi rõ ràng hơn.
 

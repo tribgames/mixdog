@@ -26,7 +26,7 @@ A atualização automática do macOS agora funciona. As versões anteriores não
 
 O aviso de novidades após a atualização não se perde mais caso não consiga aparecer; ele só é marcado como visto depois de realmente ter sido exibido.
 
-A página de configurações de Conexão não "pula" mais ao abrir, e o botão "Usar" do crédito de redefinição no celular ficou mais compacto.
+A página de configurações de Conexão não "pula" mais ao abrir, e o botão "Usar" de "Créditos de reset" no celular ficou mais compacto.
 
 Caminhos de ferramentas como /C:/… agora são aceitos, o edit aceita old_str / new_str como apelidos, vários caminhos unidos em uma única string são compreendidos (dentro do projeto) e as mensagens de erro ficaram mais claras.
 

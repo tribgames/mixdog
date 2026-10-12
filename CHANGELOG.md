@@ -27,7 +27,7 @@ macOS auto-update now works. Earlier releases were missing the macOS update feed
 
 The "what's new" notice after updating is no longer lost if it fails to appear; it is marked as seen only once it has actually been shown.
 
-The Connection settings page no longer jumps when it opens, and the phone's reset-credit "Use" button is more compact.
+The Connection settings page no longer jumps when it opens, and the "Use" button on the phone's "Reset credits" is more compact.
 
 Tool paths like /C:/… are now accepted, edit accepts old_str / new_str as aliases, several paths joined in one string are understood (inside the project), and error messages are clearer.
 

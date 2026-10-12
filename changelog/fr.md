@@ -27,7 +27,7 @@ La mise à jour automatique de macOS fonctionne désormais. Les versions précé
 
 La notification « Nouveautés » affichée après une mise à jour n'est plus perdue si elle ne parvient pas à s'afficher ; elle n'est marquée comme vue qu'une fois réellement affichée.
 
-La page des paramètres de connexion ne saute plus à l'ouverture, et le bouton « Utiliser » du crédit de réinitialisation sur téléphone est plus compact.
+La page des paramètres de connexion ne saute plus à l'ouverture, et le bouton « Utiliser » de « Crédits de réinitialisation » sur téléphone est plus compact.
 
 Les chemins d'outils comme /C:/… sont désormais acceptés, edit accepte old_str / new_str comme alias, plusieurs chemins joints dans une seule chaîne sont compris (dans le projet) et les messages d'erreur sont plus clairs.
 

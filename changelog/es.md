@@ -27,7 +27,7 @@ La actualización automática de macOS ya funciona. Las versiones anteriores no 
 
 El aviso de novedades tras actualizar ya no se pierde si no llega a mostrarse; solo se marca como visto cuando realmente se ha mostrado.
 
-La página de ajustes de Conexión ya no salta al abrirse, y el botón "Usar" del crédito de restablecimiento en el teléfono es más compacto.
+La página de ajustes de Conexión ya no salta al abrirse, y el botón "Usar" de "Créditos de reinicio" en el teléfono es más compacto.
 
 Las rutas de herramientas como /C:/… ahora se aceptan, edit admite old_str / new_str como alias, se entienden varias rutas unidas en una sola cadena (dentro del proyecto) y los mensajes de error son más claros.
 
