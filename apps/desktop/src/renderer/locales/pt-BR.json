@@ -1425,6 +1425,7 @@
   "Files": "Arquivos",
   "Files {{count}}": "Arquivos {{count}}",
   "Files changed": "Arquivos alterados",
+  "Files changed this session": "Arquivos alterados nesta sessão",
   "Files changed this turn": "Arquivos alterados neste turno",
   "Fill with stored credentials": "Preencher com credenciais salvas",
   "Filled stored credentials": "Credenciais salvas preenchidas",

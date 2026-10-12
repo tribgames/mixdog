@@ -1343,6 +1343,7 @@
   "Files": "文件",
   "Files {{count}}": "文件 {{count}}",
   "Files changed": "文件已更改",
+  "Files changed this session": "本会话更改的文件",
   "Files changed this turn": "本轮更改的文件",
   "Fill with stored credentials": "使用保存的凭据填充",
   "Filled stored credentials": "已填充保存的凭据",

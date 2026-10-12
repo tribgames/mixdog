@@ -1343,6 +1343,7 @@
   "Files": "檔案",
   "Files {{count}}": "檔案 {{count}}",
   "Files changed": "檔案已更改",
+  "Files changed this session": "本工作階段變更的檔案",
   "Files changed this turn": "本輪變更的檔案",
   "Fill with stored credentials": "使用已儲存的憑證填入",
   "Filled stored credentials": "已填入儲存的憑證",

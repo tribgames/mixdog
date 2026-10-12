@@ -1343,6 +1343,7 @@
   "Files": "파일",
   "Files {{count}}": "파일 {{count}}",
   "Files changed": "변경된 파일",
+  "Files changed this session": "이번 세션에 변경된 파일",
   "Files changed this turn": "이번 턴에 변경된 파일",
   "Fill with stored credentials": "저장된 계정으로 채우기",
   "Filled stored credentials": "저장된 계정을 채웠습니다",

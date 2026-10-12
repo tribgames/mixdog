@@ -1466,6 +1466,7 @@
   "Files": "Файлы",
   "Files {{count}}": "Файлы {{count}}",
   "Files changed": "Файлы изменены",
+  "Files changed this session": "Файлы, изменённые за этот сеанс",
   "Files changed this turn": "Файлы, изменённые за этот ход",
   "Fill with stored credentials": "Заполнить сохраненными данными",
   "Filled stored credentials": "Сохраненные учетные данные подставлены",

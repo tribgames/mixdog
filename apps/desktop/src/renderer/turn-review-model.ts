@@ -2,6 +2,7 @@ import { t } from './i18n';
 import { findPatch, PATCH_CACHE_LIMIT } from './transcript-diff';
 import type { TranscriptItem } from './desktop-types';
 import { parseUnifiedDiff } from './renderer-logic.mjs';
+import type { SessionDiffRow } from './session-diff-model';
 import { RendererLruCache } from './renderer-lru-cache';
 import { registerIdleReclaim } from './idle-reclaim';
 import {
@@ -262,6 +263,42 @@ export function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart
     deletions,
     hasLineStats: additions + deletions > 0,
   };
+}
+
+/** Every successful patch-publishing tool call of the whole transcript (not
+ *  just the current turn): the file set from their patches, the line totals
+ *  from the same workload count the activity cards use. */
+export function summarizeSessionTranscriptReview(items: TranscriptItem[]): TurnReviewSummary {
+  const patches: string[] = [];
+  for (const item of items) {
+    if (item?.kind !== 'tool' || !toolPublishesPatch(item)) continue;
+    const count = Math.max(1, Number(item.count || 1));
+    if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
+    if (parseToolArgs(item.args)?.dry_run === true) continue;
+    const patch = findPatch(item);
+    if (patch) patches.push(patch);
+  }
+  const summary = summarizeTurnReviewPatch(patches.join('\n'));
+  const operations = summarizeTurnReviewOperations(items, -1);
+  if (summary.files.size === 0 || !operations.hasLineStats) return summary;
+  return { ...summary, additions: operations.additions, deletions: operations.deletions, hasLineStats: true };
+}
+
+/** The session diff pane's rows (the runtime's session-wide, session-owned
+ *  paths) as a review summary. */
+export function summarizeSessionDiffRows(rows: readonly SessionDiffRow[]): TurnReviewSummary {
+  const files: TurnReviewSummary['files'] = new Map();
+  for (const row of rows) {
+    files.set(row.path, {
+      additions: row.additions,
+      deletions: row.deletions,
+      lineStats: row.additions + row.deletions > 0,
+      status: row.status,
+      binary: row.binary,
+      parts: row.parts,
+    });
+  }
+  return turnReviewSummaryOf(files);
 }
 
 export type TurnReviewCapabilityValue = {

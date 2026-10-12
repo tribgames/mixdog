@@ -1384,6 +1384,7 @@
   "Files": "Dateien",
   "Files {{count}}": "Dateien {{count}}",
   "Files changed": "Dateien geändert",
+  "Files changed this session": "In dieser Sitzung geänderte Dateien",
   "Files changed this turn": "In diesem Zug geänderte Dateien",
   "Fill with stored credentials": "Mit gespeicherten Anmeldedaten ausfüllen",
   "Filled stored credentials": "Gespeicherte Anmeldedaten ausgefüllt",

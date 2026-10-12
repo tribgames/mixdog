@@ -40,7 +40,11 @@ import {
   type TurnReviewFileEntry,
   type TurnReviewSummary,
   type TurnReviewCapabilityValue,
+  summarizeSessionDiffRows,
+  summarizeSessionTranscriptReview,
 } from './turn-review-model';
+import { buildSessionDiffRows } from './session-diff-model';
+import { useSessionDiffRefresh } from './use-session-diff-refresh';
 
 /** Collapsed headline (file count, line stats, attribution) plus the diff
  *  style toggle the expanded bar owns. */
@@ -767,16 +771,40 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // replaced/deleted intermediate lines do not disappear into a net +N count.
   // A truncated transcript holds only part of the turn's edits, so its
   // workload count is partial; the review's own totals stand in.
-  const headlineStats = operationSummary.hasLineStats && !reviewScope.truncated ? operationSummary : summary;
+  const turnHeadlineStats = operationSummary.hasLineStats && !reviewScope.truncated ? operationSummary : summary;
+  // The island segment is session-wide. The renderer's transcript is paged
+  // (older turns may not be loaded), so the runtime's session diff — the
+  // session-owned paths since the session's earliest retained baseline — is
+  // the authoritative source; the transcript fold covers only until it answers.
+  const sessionScoped = variant === 'segment';
+  const sessionDiff = useSessionDiffRefresh({
+    sessionId: sessionScoped ? String(sessionId || '') : '',
+    active,
+    revision: turnBoundaryKey,
+    busy,
+  });
+  const sessionSummary = useMemo(() => {
+    if (!sessionScoped) return summary;
+    const result = sessionDiff.result;
+    if (result?.supported !== false && result?.authoritative === true) {
+      return summarizeSessionDiffRows(buildSessionDiffRows(result));
+    }
+    return summarizeSessionTranscriptReview(items);
+  }, [sessionScoped, sessionDiff.result, items, summary]);
+  const shownSummary = sessionScoped ? sessionSummary : summary;
+  const headlineStats = sessionScoped ? sessionSummary : turnHeadlineStats;
   const sources = useMemo(() => {
+    if (sessionScoped) {
+      return sessionSummary.files.size > 0 ? [{ key: 'session', label: 'Session', summary: sessionSummary }] : [];
+    }
     const transcriptSource = {
       key: authoritativeWorktreeSnapshot ? 'turn' : 'lead',
       label: authoritativeWorktreeSnapshot ? 'Turn' : 'Lead',
       summary: transcriptSummary,
     };
     return [...(transcriptSummary.files.size > 0 ? [transcriptSource] : []), ...agentSources];
-  }, [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
-  const reviewVisible = !entryPending && summary.files.size > 0;
+  }, [sessionScoped, sessionSummary, transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
+  const reviewVisible = !entryPending && shownSummary.files.size > 0;
   // An island tab whose files went away closes with them.
   const closeEmptyTab = islandTab && expanded && !reviewVisible;
   // biome-ignore lint/correctness/useExhaustiveDependencies: closeEmptyTab is the trigger; setExpanded is rebuilt each render
@@ -805,14 +833,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       <button
         type="button"
         className="composer-island-seg turn-review-segment"
-        aria-label={t('Files changed this turn')}
-        title={t('Files {{count}}', { count: summary.files.size })}
+        aria-label={t('Files changed this session')}
+        title={t('Files {{count}}', { count: shownSummary.files.size })}
         aria-expanded={islandTab ? false : undefined}
         onClick={onOpenChanges ?? (() => setExpanded(true))}
       >
         <IslandSegLabel
-          text={t('Island: {{count}} files', { count: summary.files.size })}
-          count={summary.files.size}
+          text={t('Island: {{count}} files', { count: shownSummary.files.size })}
+          count={shownSummary.files.size}
           icon="file-diff"
         />
         {headlineStats.hasLineStats && (
@@ -829,7 +857,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     <section
       ref={barElement}
       className="turn-review-bar"
-      aria-label={t('Files changed this turn')}
+      aria-label={sessionScoped ? t('Files changed this session') : t('Files changed this turn')}
       data-expanded={expanded ? 'true' : 'false'}
     >
       {turnReviewHead({
@@ -838,11 +866,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         setOpenFile,
         setConfirmFile,
         setRevertError,
-        summary,
+        summary: shownSummary,
         headlineStats,
         transcriptSummary,
         agentSummary,
-        agentSources,
+        agentSources: sessionScoped ? [] : agentSources,
         authoritativeWorktreeSnapshot,
         diffStyle,
         setDiffStyle,
@@ -858,7 +886,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
                 <li key={`${source.key}:source`} className="turn-review-source">
                   {/* Turn/Lead are catalog keys; agent tags are user data, never keys. */}
                   <strong>
-                    {source.key === 'turn' || source.key === 'lead' ? t(source.label) : source.label || t('Agent')}
+                    {source.key === 'turn' || source.key === 'lead' || source.key === 'session'
+                      ? t(source.label)
+                      : source.label || t('Agent')}
                   </strong>
                   <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
                     <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ''}</i>

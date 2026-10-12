@@ -1343,6 +1343,7 @@
   "Files": "Tệp",
   "Files {{count}}": "Tệp {{count}}",
   "Files changed": "Tệp đã thay đổi",
+  "Files changed this session": "Tệp thay đổi trong phiên này",
   "Files changed this turn": "Tệp thay đổi trong lượt này",
   "Fill with stored credentials": "Điền thông tin đăng nhập đã lưu",
   "Filled stored credentials": "Đã điền thông tin đăng nhập đã lưu",

@@ -1343,6 +1343,7 @@
   "Files": "ファイル",
   "Files {{count}}": "ファイル {{count}}",
   "Files changed": "ファイルが変更されました",
+  "Files changed this session": "このセッションで変更されたファイル",
   "Files changed this turn": "このターンで変更されたファイル",
   "Fill with stored credentials": "保存された認証情報を入力",
   "Filled stored credentials": "保存された認証情報を入力しました",
