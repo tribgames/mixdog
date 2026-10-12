@@ -80,10 +80,9 @@ export function ContextUsageIndicator({
   snapshot: Snapshot;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /** Runs the handover itself (user: 팝업 안 뜨고 바로 진행되게). Inheritance is
-   *  a mechanical carry into a fresh session — so the
-   *  button IS the decision; the old dialog only restated readings this card
-   *  already shows. The host still owns opening the heir's tab. */
+  /** Runs the handover itself, with no confirmation dialog. Inheritance is a
+   *  mechanical carry into a fresh session, so the button is the decision. The
+   *  host still owns opening the heir's tab. */
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onViewDetails?: () => void;
 }) {
@@ -249,7 +248,7 @@ function activityVerbPool(): string[] {
  *  status — paints nothing (LiveActivity returns null for it), so the thread
  *  must not reserve the band's 24px for it either: first entry into a stored
  *  session flashed an empty band under the settled tail and bounced the whole
- *  transcript 36px up and back (user: 세션 처음 들어갈 때 위아래로 떨린다). */
+ *  transcript 36px up and back. */
 export function commandShowsActivity(snapshot: Snapshot): boolean {
   if (snapshot.spinner && snapshot.spinner.active !== false) return true;
   const command = snapshot.commandStatus && snapshot.commandStatus.active !== false ? snapshot.commandStatus : null;

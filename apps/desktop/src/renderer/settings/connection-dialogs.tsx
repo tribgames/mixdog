@@ -41,8 +41,8 @@ export function ConnDialog({
   children?: ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
-  const escape = useRef(onEscape);
-  escape.current = onEscape;
+  const escapeRef = useRef(onEscape);
+  escapeRef.current = onEscape;
   const id = useId();
   // The scrim cannot cover the native caption controls: hold the dim claim.
   useEffect(() => acquireTitleBarDim(), []);
@@ -67,7 +67,7 @@ export function ConnDialog({
       }
       if (event.key !== 'Escape') return;
       event.preventDefault();
-      escape.current();
+      escapeRef.current();
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => {
@@ -85,7 +85,7 @@ export function ConnDialog({
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
-        if (scrimCloses && event.target === event.currentTarget) escape.current();
+        if (scrimCloses && event.target === event.currentTarget) escapeRef.current();
       }}
     >
       <section ref={ref} className="conn-dialog" role={role} aria-modal="true" aria-labelledby={`${id}-title`}>
@@ -192,7 +192,9 @@ function ConnectBody({
 
 function ClaimBody({ claim, error }: { claim: ReturnType<typeof useClaimQueue>[number]; error: string }) {
   const shown = claimDisplay(claim);
-  const method = claim.method === 'code' ? t('Code') : claim.method === 'retry' ? t('Retry request') : t('QR code');
+  let method = t('QR code');
+  if (claim.method === 'code') method = t('Code');
+  else if (claim.method === 'retry') method = t('Retry request');
   const time = new Date(claim.requestedAt ?? Date.now()).toLocaleTimeString(uiFormatLocale(), {
     hour: '2-digit',
     minute: '2-digit',

@@ -51,6 +51,7 @@ export function reportWhatsNew(
 ): void {
   try {
     const error = detail?.error;
+    const errorName = error instanceof Error ? error.name : 'Error';
     window.mixdogDesktop?.rendererDiagnostic?.({
       kind: 'whats-new',
       event,
@@ -59,7 +60,7 @@ export function reportWhatsNew(
       ...(error === undefined
         ? {}
         : {
-            errorName: error instanceof Error ? error.name : 'Error',
+            errorName,
             message: String((error as Error)?.message ?? error),
           }),
     });

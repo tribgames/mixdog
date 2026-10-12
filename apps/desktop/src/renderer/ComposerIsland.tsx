@@ -177,7 +177,8 @@ function JobsPanel({
   const shells = rows.filter((row) => row.kind === 'shell');
   // The requested tab may have emptied while open: show the one that has rows.
   const other: JobKind = tab === 'agent' ? 'shell' : 'agent';
-  const shown: JobKind = (tab === 'agent' ? agents : shells).length > 0 ? tab : other;
+  const requestedRows = tab === 'agent' ? agents : shells;
+  const shown: JobKind = requestedRows.length > 0 ? tab : other;
   const tabs: Array<[JobKind, JobRow[], string]> = [
     ['agent', agents, t('Agent {{agent}}', { agent: agents.length })],
     ['shell', shells, t('Shell {{shell}}', { shell: shells.length })],
@@ -185,27 +186,28 @@ function JobsPanel({
   return (
     <section className="composer-island-panel" aria-label={t('Background tasks')}>
       <div className="composer-island-phead">
-        {tabs.map(([kind, list, label]) =>
-          list.length > 0 ? (
-            <button
-              key={kind}
-              type="button"
-              className="composer-island-tab"
-              data-active={shown === kind ? 'true' : 'false'}
-              aria-pressed={shown === kind}
-              onClick={() => onTab(kind)}
-            >
-              {kind === 'agent' ? (
-                <AgentMark
-                  working={list.some((row) => !row.idle && !row.needsUser)}
-                  needsUser={list.some((row) => row.needsUser)}
-                />
-              ) : (
-                <JobsPulse />
-              )}
-              {label}
-            </button>
-          ) : null
+        {tabs.map(
+          ([kind, list, label]) =>
+            list.length > 0 && (
+              <button
+                key={kind}
+                type="button"
+                className="composer-island-tab"
+                data-active={shown === kind ? 'true' : 'false'}
+                aria-pressed={shown === kind}
+                onClick={() => onTab(kind)}
+              >
+                {kind === 'agent' ? (
+                  <AgentMark
+                    working={list.some((row) => !row.idle && !row.needsUser)}
+                    needsUser={list.some((row) => row.needsUser)}
+                  />
+                ) : (
+                  <JobsPulse />
+                )}
+                {label}
+              </button>
+            )
         )}
         <button
           type="button"
@@ -234,7 +236,7 @@ function JobsPanel({
                 ) : (
                   <>
                     {row.label}
-                    {row.sub ? <span className="composer-island-row-tag">{row.sub}</span> : null}
+                    {row.sub !== '' && <span className="composer-island-row-tag">{row.sub}</span>}
                   </>
                 )}
               </span>
@@ -501,7 +503,7 @@ export function ComposerIsland({
               </div>
             ) : null}
             <div className="composer-island-pill" hidden={mode === 'approval' || mode === 'flash' || ownPanel}>
-              {quotaResume ? (
+              {quotaResume && (
                 <button
                   type="button"
                   className="composer-island-seg composer-island-seg-warning"
@@ -519,8 +521,8 @@ export function ComposerIsland({
                     <ResumeRemaining resetAt={quotaResume.resetAt} />
                   </span>
                 </button>
-              ) : null}
-              {modelMismatch ? (
+              )}
+              {modelMismatch && (
                 <button
                   type="button"
                   className="composer-island-seg composer-island-seg-model"
@@ -533,9 +535,9 @@ export function ComposerIsland({
                     {t('Continuing in {{model}}', { model: modelMismatch.sessionModel })}
                   </span>
                 </button>
-              ) : null}
+              )}
               {goal}
-              {agentRows.length > 0 ? (
+              {agentRows.length > 0 && (
                 <button
                   type="button"
                   className="composer-island-seg composer-island-seg-agents"
@@ -549,7 +551,7 @@ export function ComposerIsland({
                     icon="agent"
                   />
                   {agentNeedsUser === 0 ? <AgentMark working={agentWorking > 0} /> : null}
-                  {agentNeedsUser > 0 || agentWaiting > 0 ? (
+                  {(agentNeedsUser > 0 || agentWaiting > 0) && (
                     <span className="composer-island-seg-states">
                       {agentNeedsUser > 0 ? (
                         <span className="composer-island-seg-state">
@@ -570,9 +572,9 @@ export function ComposerIsland({
                         </span>
                       ) : null}
                     </span>
-                  ) : null}
+                  )}
                 </button>
-              ) : null}
+              )}
               {shellCount > 0 ? (
                 <button
                   type="button"
@@ -593,7 +595,7 @@ export function ComposerIsland({
             </div>
             {quotaPanel && quotaExhausted ? <QuotaPanel quota={quotaExhausted} /> : null}
             {resumePanel && quotaResume ? <ResumePanel resume={quotaResume} /> : null}
-            {ownPanel && !quotaPanel && expanded === 'jobs' ? (
+            {ownPanel && !quotaPanel && expanded === 'jobs' && (
               <JobsPanel
                 rows={jobRows}
                 tab={jobsTab}
@@ -609,7 +611,7 @@ export function ComposerIsland({
                     : undefined
                 }
               />
-            ) : null}
+            )}
             {ownPanel && !quotaPanel && expanded === 'model' && modelMismatch ? (
               <ModelPanel mismatch={modelMismatch} />
             ) : null}

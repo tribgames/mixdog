@@ -1,5 +1,5 @@
 import { ExternalLink, Monitor, Plus, Wifi } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { DesktopRemoteAccessInfo, DesktopRemoteHost } from '../../shared/contract';
 import { nativeAppInfo } from '../../shared/native-app';
 import { remoteClientKind } from '../../shared/remote-trust';
@@ -225,13 +225,16 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
   // Until the host answers, the card's two 56px rows are held empty so the
   // toolbar and lists below do not jump down when it arrives.
   const identityPending = !settings && !settingsSettled && Boolean(api.getRemoteAccessSettings);
-  const identity = identityPending ? (
-    <div className="conn-card" aria-hidden="true">
-      <div className="conn-row" />
-      <div className="conn-row" />
-    </div>
-  ) : (
-    settings && (
+  let identity: ReactNode = null;
+  if (identityPending) {
+    identity = (
+      <div className="conn-card" aria-hidden="true">
+        <div className="conn-row" />
+        <div className="conn-row" />
+      </div>
+    );
+  } else if (settings) {
+    identity = (
       <div className="conn-card">
         <ConnRow
           icon={<Monitor size={16} aria-hidden="true" />}
@@ -270,72 +273,70 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
           />
         </div>
       </div>
-    )
-  );
+    );
+  }
 
-  const devices = ready ? (
-    <section className={`conn-group${enabled ? '' : ' is-dimmed'}`}>
-      <div className="conn-group-head">
-        <h4>
-          {t('Devices connected to this PC')}
-          <span>{clients.length}</span>
-        </h4>
-        {clients.length > 1 && (
-          <button
-            type="button"
-            className="conn-link conn-link--danger"
-            disabled={rotating}
-            onClick={() => setDialog({ kind: 'disconnect-all' })}
-          >
-            {t('Disconnect all')}
-          </button>
-        )}
-      </div>
-      {clients.length === 0 ? (
-        <p className="conn-empty">{t('No connected devices.')}</p>
-      ) : (
-        <div className="conn-list">
-          {clients.map((client) => {
-            const kind = remoteClientKind(client.browser);
-            const lastSeen = client.lastSeenAt ? relativeWhen(client.lastSeenAt) : t('Not used yet');
-            const status = client.pendingRemoval
-              ? t('Removing…')
-              : enabled
-                ? client.online
-                  ? t('Online')
-                  : t('Offline')
-                : t('Off');
-            return (
-              <ConnRow
-                key={client.id}
-                icon={<KindIcon kind={kind} />}
-                title={deviceTitle(client, kind)}
-                status={status}
-                statusTone={enabled && client.online && !client.pendingRemoval ? 'on' : 'off'}
-                meta={`${deviceKindText(client, kind)} · ${lastSeen}`}
-                actions={
-                  <button
-                    type="button"
-                    className="conn-btn conn-btn--sm"
-                    disabled={Boolean(revokingClient) || Boolean(client.pendingRemoval)}
-                    onClick={() =>
-                      confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id)
-                    }
-                  >
-                    {client.pendingRemoval
-                      ? t('Removing…')
-                      : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
-                  </button>
-                }
-              />
-            );
-          })}
+  let devices: ReactNode = null;
+  if (ready) {
+    devices = (
+      <section className={`conn-group${enabled ? '' : ' is-dimmed'}`}>
+        <div className="conn-group-head">
+          <h4>
+            {t('Devices connected to this PC')}
+            <span>{clients.length}</span>
+          </h4>
+          {clients.length > 1 && (
+            <button
+              type="button"
+              className="conn-link conn-link--danger"
+              disabled={rotating}
+              onClick={() => setDialog({ kind: 'disconnect-all' })}
+            >
+              {t('Disconnect all')}
+            </button>
+          )}
         </div>
-      )}
-    </section>
-  ) : enabled && stalledAttempts >= CONNECTION_STALLED_ATTEMPTS ? (
-    renderConnectionNote(t(RELAY_CONNECTING_MESSAGE))
-  ) : null;
+        {clients.length === 0 && <p className="conn-empty">{t('No connected devices.')}</p>}
+        {clients.length > 0 && (
+          <div className="conn-list">
+            {clients.map((client) => {
+              const kind = remoteClientKind(client.browser);
+              const lastSeen = client.lastSeenAt ? relativeWhen(client.lastSeenAt) : t('Not used yet');
+              let status = t('Off');
+              if (client.pendingRemoval) status = t('Removing…');
+              else if (enabled) status = client.online ? t('Online') : t('Offline');
+              return (
+                <ConnRow
+                  key={client.id}
+                  icon={<KindIcon kind={kind} />}
+                  title={deviceTitle(client, kind)}
+                  status={status}
+                  statusTone={enabled && client.online && !client.pendingRemoval ? 'on' : 'off'}
+                  meta={`${deviceKindText(client, kind)} · ${lastSeen}`}
+                  actions={
+                    <button
+                      type="button"
+                      className="conn-btn conn-btn--sm"
+                      disabled={Boolean(revokingClient) || Boolean(client.pendingRemoval)}
+                      onClick={() =>
+                        confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id)
+                      }
+                    >
+                      {client.pendingRemoval
+                        ? t('Removing…')
+                        : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
+                    </button>
+                  }
+                />
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  } else if (enabled && stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) {
+    devices = renderConnectionNote(t(RELAY_CONNECTING_MESSAGE));
+  }
 
   const savedHosts = hosts.length > 0 && (
     <section className="conn-group">
@@ -348,12 +349,14 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
       <div className="conn-list">
         {hosts.map((host) => {
           const online = savedHostOnline(host);
+          let status: string | undefined;
+          if (online !== undefined) status = online ? t('Online') : t('Offline');
           return (
             <ConnRow
               key={host.id}
               icon={<Monitor size={16} aria-hidden="true" />}
               title={host.name}
-              status={online === undefined ? undefined : online ? t('Online') : t('Offline')}
+              status={status}
               statusTone={online ? 'on' : 'off'}
               meta={
                 host.lastConnectedAt

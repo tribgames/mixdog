@@ -89,7 +89,8 @@ const GOAL_TASK_GLYPHS = {
   awaiting_approval: 'paused',
 } as const;
 
-function GoalTaskGlyph({ status }: { status?: GoalTask['status'] }) {
+function GoalTaskGlyph({ status, stalled = false }: { status?: GoalTask['status']; stalled?: boolean }) {
+  if (stalled) return <MxIcon name="goal-blocked" size={14} />;
   const name = (status && GOAL_TASK_GLYPHS[status as keyof typeof GOAL_TASK_GLYPHS]) || 'pending';
   return <MxIcon name={name} size={14} />;
 }
@@ -277,7 +278,8 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                 </span>
               </div>
               <div className="session-goal-tasks">
-                {tasks.length > 0 ? (
+                {tasks.length === 0 && <p className="session-goal-empty">{t('No tasks yet.')}</p>}
+                {tasks.length > 0 && (
                   <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
                     {tasks.map((task, index) => {
                       const taskStatus = task.status || 'pending';
@@ -291,7 +293,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                           data-stalled={stalled ? 'true' : undefined}
                         >
                           <span>
-                            {stalled ? <MxIcon name="goal-blocked" size={14} /> : <GoalTaskGlyph status={taskStatus} />}
+                            <GoalTaskGlyph status={taskStatus} stalled={stalled} />
                           </span>
                           <div>
                             <span>{String(task.text || '')}</span>
@@ -310,8 +312,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                       );
                     })}
                   </ul>
-                ) : (
-                  <p className="session-goal-empty">{t('No tasks yet.')}</p>
                 )}
               </div>
               {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
@@ -403,12 +403,10 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             // tab is closed (the trigger is what shows).
             const root = rootRef.current;
             if (!root) return;
-            const target =
-              root.dataset.open === 'true'
-                ? editRef.current && !editRef.current.disabled
-                  ? editRef.current
-                  : root.querySelector<HTMLButtonElement>('.session-goal-panel .composer-island-close')
-                : root.querySelector<HTMLButtonElement>('.session-goal-trigger');
+            let target: HTMLButtonElement | null;
+            if (root.dataset.open !== 'true') target = root.querySelector<HTMLButtonElement>('.session-goal-trigger');
+            else if (editRef.current && !editRef.current.disabled) target = editRef.current;
+            else target = root.querySelector<HTMLButtonElement>('.session-goal-panel .composer-island-close');
             target?.focus();
           }}
         />
