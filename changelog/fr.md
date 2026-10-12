@@ -5,6 +5,18 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+- Muse Code (Meta) est disponible en tant que nouveau fournisseur d'abonnement : connectez-vous avec un code d'appareil dans votre navigateur et suivez votre quota d'abonnement glissant et hebdomadaire directement dans Mixdog.
+
+- La connexion à MiMo (Xiaomi) est disponible sous Réglages → Options pour les développeurs, aux côtés de Cursor et Antigravity (désactivée par défaut).
+
+- L'îlot du compositeur au-dessus de la zone de saisie a été repensé : les agents en attente de votre approbation affichent « En attente d'approbation » et un compteur « Action requise » au lieu de paraître occupés ; cliquer sur la ligne d'un agent ouvre sa session ; les temps écoulés s'affichent proprement sous la forme « 1m 05s » ; et l'îlot reste brièvement visible une fois le travail terminé au lieu de disparaître instantanément en clignotant.
+
+- Le panneau des agents indique également les agents en attente d'approbation.
+
+- Vos propres messages n'affichent plus « depuis ce PC » ; les noms d'appareils n'apparaissent que sur les messages envoyés depuis d'autres appareils.
+
+- La fenêtre d'utilisation s'ouvre immédiatement avec les chiffres mis en cache et les actualise en arrière-plan.
+
 ## v1.1.0 - 2026-10-11
 
 - Une nouvelle option Téléphone dans Réglages > Connexion affiche un code QR pour installer l'application mobile Mixdog (disponible sur iPhone via la bêta TestFlight et sur Android sous forme d'APK). Une fois installée, l'association s'effectue en saisissant un code à 6 chiffres dans l'application et en l'approuvant sur votre PC de bureau.

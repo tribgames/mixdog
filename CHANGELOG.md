@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Muse Code (Meta) is available as a subscription provider: sign in with a device code in your browser, and track your rolling and weekly subscription quota directly in Mixdog.
+
+- MiMo (Xiaomi) sign-in is available under Settings → Developer options, alongside Cursor and Antigravity (turned off by default).
+
+- The composer island above the message input is redesigned: agents waiting for your approval show "Waiting for approval" and a "Needs you" count instead of appearing busy, clicking an agent row opens its session, elapsed times format cleanly as "1m 05s", and the island stays briefly after work finishes instead of flickering away immediately.
+
+- The Agents pane also marks agents that are waiting for approval.
+
+- Your own messages no longer show "from <this PC>"; device attribution appears only on messages sent from other devices.
+
+- The Usage window opens immediately with your cached figures while refreshing the latest numbers in the background.
+
 ## v1.1.0 - 2026-10-11
 
 - A new Phone option in Settings > Connection displays a QR code to install the Mixdog mobile app (available on iPhone via TestFlight beta and on Android as an APK). Once installed, pairing completes by entering a 6-digit code in the mobile app and approving it on your desktop PC.

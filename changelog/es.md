@@ -5,6 +5,18 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+- Muse Code (Meta) está disponible como nuevo proveedor de suscripción: inicia sesión con un código de dispositivo en el navegador y consulta tu cuota de suscripción periódica y semanal directamente en Mixdog.
+
+- El inicio de sesión en MiMo (Xiaomi) está disponible en Configuración → Opciones de desarrollador, junto a Cursor y Antigravity (desactivado de forma predeterminada).
+
+- Se ha rediseñado la isla del compositor sobre el campo de entrada: los agentes que esperan tu aprobación muestran "Esperando aprobación" y un recuento de "Requiere tu atención" en lugar de parecer ocupados; al hacer clic en una fila de agente se abre su sesión; los tiempos transcurridos se muestran claramente como "1m 05s"; y la isla permanece brevemente visible tras finalizar el trabajo en vez de parpadear y desaparecer al instante.
+
+- El panel de agentes también muestra los agentes que están esperando aprobación.
+
+- Tus propios mensajes ya no muestran "desde este PC"; los nombres de dispositivo solo aparecen en los mensajes enviados desde otros dispositivos.
+
+- La ventana de Uso se abre de inmediato con las cifras en caché y se actualiza en segundo plano.
+
 ## v1.1.0 - 2026-10-11
 
 - Una nueva opción Teléfono en Ajustes > Conexión muestra un código QR para instalar la app móvil de Mixdog (disponible en iPhone mediante la beta de TestFlight y en Android como APK). Una vez instalada, la vinculación se completa introduciendo un código de 6 dígitos en la app y aprobándolo en tu PC de escritorio.

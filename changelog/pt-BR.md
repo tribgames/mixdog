@@ -4,6 +4,18 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+- O Muse Code (Meta) está disponível como um novo provedor de assinatura: entre com um código de dispositivo no navegador e acompanhe sua cota de assinatura contínua e semanal diretamente no Mixdog.
+
+- O login no MiMo (Xiaomi) está disponível em Configurações → Opções do desenvolvedor, ao lado do Cursor e do Antigravity (desativado por padrão).
+
+- A ilha do compositor acima da entrada de mensagens foi reformulada: agentes aguardando sua aprovação exibem "Aguardando aprovação" e uma contagem de "Precisa de você" em vez de parecerem ocupados; clicar na linha de um agente abre sua sessão; o tempo decorrido é formatado de forma limpa como "1m 05s"; e a ilha permanece brevemente visível após o término do trabalho em vez de piscar e sumir imediatamente.
+
+- O painel de agentes também indica os agentes que estão aguardando aprovação.
+
+- Suas próprias mensagens não exibem mais "deste PC"; os nomes dos dispositivos aparecem apenas em mensagens enviadas de outros dispositivos.
+
+- A janela de Uso abre imediatamente com os números em cache e os atualiza em segundo plano.
+
 ## v1.1.0 - 2026-10-11
 
 - Uma nova opção Celular em Configurações > Conexão exibe um código QR para instalar o app móvel do Mixdog (disponível no iPhone pelo beta do TestFlight e no Android como APK). Após a instalação, o emparelhamento é concluído inserindo um código de 6 dígitos no app e aprovando-o no seu PC desktop.

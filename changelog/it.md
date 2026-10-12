@@ -4,6 +4,18 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+- Muse Code (Meta) è disponibile come nuovo provider in abbonamento: accedi con un codice dispositivo nel browser e monitora la quota di abbonamento periodica e settimanale direttamente in Mixdog.
+
+- L'accesso a MiMo (Xiaomi) è disponibile in Impostazioni → Opzioni sviluppatore, insieme a Cursor e Antigravity (disattivato per impostazione predefinita).
+
+- L'isola del composer sopra la casella di input è stata riprogettata: gli agenti in attesa di approvazione mostrano "In attesa di approvazione" e il conteggio "Azione richiesta" invece di sembrare occupati; facendo clic sulla riga di un agente si apre la relativa sessione; i tempi trascorsi sono formattati chiaramente come "1m 05s"; e l'isola rimane brevemente visibile al termine del lavoro invece di svanire all'istante lampeggiando.
+
+- Il pannello degli agenti segnala anche gli agenti in attesa di approvazione.
+
+- I tuoi messaggi non mostrano più "da questo PC"; i nomi dei dispositivi compaiono solo per i messaggi inviati da altri dispositivi.
+
+- La finestra di utilizzo si apre immediatamente con i dati memorizzati nella cache e li aggiorna in background.
+
 ## v1.1.0 - 2026-10-11
 
 - Una nuova opzione Telefono in Impostazioni > Connessione mostra un codice QR per installare l'app mobile Mixdog (disponibile su iPhone tramite la beta di TestFlight e su Android come APK). Dopo l'installazione, l'abbinamento si completa inserendo un codice a 6 cifre nell'app e approvandolo sul PC desktop.

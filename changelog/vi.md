@@ -4,6 +4,18 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+- Muse Code (Meta) đã có mặt dưới dạng nhà cung cấp gói đăng ký: đăng nhập bằng mã thiết bị trong trình duyệt và theo dõi hạn mức đăng ký theo chu kỳ và theo tuần ngay trong Mixdog.
+
+- Đăng nhập MiMo (Xiaomi) hiện có trong Cài đặt → Tùy chọn nhà phát triển, cùng với Cursor và Antigravity (mặc định tắt).
+
+- Ô trạng thái phía trên khung nhập tin nhắn đã được thiết kế lại: các tác tử đang chờ bạn phê duyệt hiển thị "Đang chờ phê duyệt" và số lượng "Cần bạn xử lý" thay vì trông như đang bận, nhấp vào một dòng tác tử sẽ mở phiên của tác tử đó, thời gian đã trôi qua hiển thị gọn như "1m 05s", và ô trạng thái được giữ lại một lúc sau khi công việc kết thúc thay vì nhấp nháy rồi biến mất ngay.
+
+- Ngăn Tác tử cũng đánh dấu các tác tử đang chờ phê duyệt.
+
+- Tin nhắn của chính bạn không còn hiển thị "từ <PC này>"; tên thiết bị chỉ xuất hiện trên tin nhắn được gửi từ thiết bị khác.
+
+- Cửa sổ Mức sử dụng mở ra ngay với số liệu đã lưu gần nhất và làm mới số liệu mới nhất ở chế độ nền.
+
 ## v1.1.0 - 2026-10-11
 
 - Tùy chọn Điện thoại mới trong Cài đặt > Kết nối hiển thị mã QR để cài đặt ứng dụng di động Mixdog (có sẵn cho iPhone qua bản beta TestFlight và cho Android dưới dạng tệp APK). Sau khi cài đặt, quá trình ghép nối hoàn tất bằng cách nhập mã gồm 6 chữ số vào ứng dụng và phê duyệt trên máy tính để bàn của bạn.

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="232" height="48" viewBox="0 0 232 48" role="img" aria-label="Download for Linux" font-family="Segoe UI Variable Display,Segoe UI,Inter,-apple-system,Helvetica,Arial,sans-serif">
+  <rect x="0.5" y="0.5" width="231" height="47" rx="10" fill="#1F2328" stroke="#3D444D"/>
+  <g transform="translate(22.6 13.4) scale(1.16)" fill="#FFFFFF">
+    <ellipse cx="5.4" cy="17" rx="3" ry="1.1"/><ellipse cx="12.6" cy="17" rx="3" ry="1.1"/>
+    <ellipse cx="9" cy="9.5" rx="6.2" ry="8"/>
+    <ellipse cx="9" cy="12.6" rx="3.6" ry="4.4" fill="#1F2328"/>
+    <circle cx="7.2" cy="5" r="1" fill="#1F2328"/><circle cx="10.8" cy="5" r="1" fill="#1F2328"/>
+    <path d="M7.6 6.6h2.8L9 8.2z" fill="#1F2328"/>
+  </g>
+  <text x="54" y="29.5" font-size="15" font-weight="600" fill="#FFFFFF">Download for Linux</text>
+</svg>

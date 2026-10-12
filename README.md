@@ -12,8 +12,10 @@
   <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-windows.svg" alt="Download for Windows" height="48"></a>
   &nbsp;
   <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-macos.svg" alt="Download for macOS" height="48"></a>
+  &nbsp;
+  <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-linux.svg" alt="Download for Linux" height="48"></a>
   <br>
-  <sub>macOS button is for Apple Silicon (M1 and later). Intel Mac? <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg">Download for Intel Mac</a></sub>
+  <sub>macOS button is for Apple Silicon (M1 and later). Intel Mac? <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg">Download for Intel Mac</a>. Linux button is the x64 AppImage; .deb and ARM64 builds are listed below.</sub>
 </p>
 
 <p align="center">
@@ -47,7 +49,7 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
   continues from your phone, end-to-end encrypted.
 - Goes beyond code with **browser and desktop control**, Office and PDF
   documents, and image and video generation.
-- Runs on Windows and macOS. No config files.
+- Runs on Windows, macOS, and Linux. No config files.
 
 ## Installation
 
@@ -58,6 +60,10 @@ Download the desktop app:
 | Windows (x64) | [`mixdog-desktop-win-x64.exe`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe) |
 | macOS (Apple Silicon) | [`mixdog-desktop-mac-arm64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg) |
 | macOS (Intel) | [`mixdog-desktop-mac-x64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg) |
+| Linux (x64, AppImage) | [`mixdog-desktop-linux-x86_64.AppImage`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage) |
+| Linux (x64, .deb) | [`mixdog-desktop-linux-amd64.deb`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-amd64.deb) |
+| Linux (ARM64, AppImage) | [`mixdog-desktop-linux-arm64.AppImage`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.AppImage) |
+| Linux (ARM64, .deb) | [`mixdog-desktop-linux-arm64.deb`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.deb) |
 
 Then sign in with a ChatGPT, Claude, Grok, or Muse Code account, or paste an API key. A
 five-step tutorial walks you through the rest.
