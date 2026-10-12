@@ -63,6 +63,7 @@ const SUBMIT_OPTION_KEYS = new Set([
   'submittedAt',
   'displayText',
   'goalCommand',
+  'retryFailedTurn',
   'priority',
   'pastedImages',
   'pastedTexts',
@@ -665,6 +666,9 @@ export function requiredSubmitOptions(value: unknown): DesktopSubmitOptions {
     (!Number.isSafeInteger(input.submittedAt) || (input.submittedAt as number) <= 0)
   ) {
     throw new TypeError('submit timestamp is invalid.');
+  }
+  if (input.retryFailedTurn !== undefined && typeof input.retryFailedTurn !== 'boolean') {
+    throw new TypeError('submit retryFailedTurn is invalid.');
   }
   const priority = input.priority;
   if (priority !== undefined && priority !== 'now' && priority !== 'next' && priority !== 'later') {

@@ -6,6 +6,7 @@ import {
   requiredDesktopCapabilityRequest,
   requiredGitBranchName,
   requiredNewTaskDraft,
+  requiredSubmitOptions,
   requiredTextFileEncoding,
 } from './ipc-validation.ts';
 
@@ -217,4 +218,20 @@ test('save-as sources accept only http(s) and data URLs', async () => {
     assert.throws(() => requiredAttachmentFile(`data:${mime};base64,aGk=`, file), TypeError, `${mime} ${file}`);
   }
   assert.throws(() => requiredAttachmentFile('http://x/', 'a.txt'), TypeError);
+});
+
+test('submit options accept the renderer retryFailedTurn field at the IPC boundary', () => {
+  // Conversation.tsx resubmits failed turns (and model-switch continuation)
+  // with `retryFailedTurn: true`; the allowlist must pass it through.
+  assert.doesNotThrow(() => requiredSubmitOptions({ retryFailedTurn: true }));
+  assert.doesNotThrow(() => requiredSubmitOptions({ retryFailedTurn: false }));
+  assert.deepEqual(requiredSubmitOptions({ id: 'abc', retryFailedTurn: true }), {
+    id: 'abc',
+    retryFailedTurn: true,
+  });
+  assert.throws(() => requiredSubmitOptions({ retryFailedTurn: 'yes' }), /submit retryFailedTurn is invalid/);
+  assert.throws(() => requiredSubmitOptions({ retryFailedTurn: 1 }), /submit retryFailedTurn is invalid/);
+  // Unknown fields are still rejected.
+  assert.throws(() => requiredSubmitOptions({ retryFailedTurns: true }), TypeError);
+  assert.throws(() => requiredSubmitOptions({ device: 'studio' }), TypeError);
 });
