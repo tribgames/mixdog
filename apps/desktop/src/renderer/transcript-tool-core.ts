@@ -476,6 +476,79 @@ export function desktopToolActivityBrowserPage(items: readonly TranscriptItem[])
   return page;
 }
 
+const COMPUTER_REFUSAL_CODE = 'computer_capability_unavailable';
+/** Computer actions that read or drive a window (the host's window-bound set). */
+const COMPUTER_WINDOW_ACTIONS = new Set([
+  'list_windows',
+  'window_snapshot',
+  'related_windows',
+  'window_bounds',
+  'window_capture',
+  'window_predicates',
+  'window_integrity',
+  'list_apps',
+  'verify',
+  'focus_window',
+  'move_window',
+  'window_state',
+  'close_window',
+]);
+
+export interface ComputerReadinessNotice {
+  /** The refused call the notice belongs to. */
+  refusalId: string;
+  /** A later call in the group that needed a window has since succeeded. */
+  ready: boolean;
+}
+
+/** True when a Computer Use result is Linux's refusal for a missing window
+ *  helper: the stable code, with `windows` among the capabilities it names. */
+function refusedForWindowHelper(item: TranscriptItem): boolean {
+  const text = toolResultText(item);
+  const refusal = text.indexOf(COMPUTER_REFUSAL_CODE);
+  if (refusal < 0) return false;
+  const named = /\(([a-zA-Z, ]+)\) — nothing was executed/.exec(text.slice(refusal));
+  return Boolean(named?.[1].split(',').some((name) => name.trim() === 'windows'));
+}
+
+function computerCallNeedsWindow(item: TranscriptItem): boolean {
+  const surface = desktopToolActivitySurface(item.name, item.args);
+  let root = asRecord(item.args);
+  if (!root && typeof item.args === 'string') {
+    try {
+      root = asRecord(JSON.parse(item.args));
+    } catch {
+      root = null;
+    }
+  }
+  const named = (source: Record<string, unknown> | null | undefined) =>
+    Boolean(source && (source.window_id || source.app || source.window));
+  return (
+    COMPUTER_WINDOW_ACTIONS.has(String(root?.action ?? surface.args.action ?? '')) ||
+    named(root) ||
+    named(asRecord(root?.input)) ||
+    named(surface.args)
+  );
+}
+
+/** The window-helper notice for a group of tool calls: set by the first
+ *  Computer Use call refused for a missing window helper, and ready once a
+ *  later call that needed a window succeeded. */
+export function desktopToolComputerReadinessNotice(items: readonly TranscriptItem[]): ComputerReadinessNotice | null {
+  let notice: ComputerReadinessNotice | null = null;
+  for (const [index, item] of flattenedToolActivityItems(items).entries()) {
+    if (desktopToolActivitySurface(item.name, item.args).normalizedName !== 'computer') continue;
+    if (!notice) {
+      if (refusedForWindowHelper(item)) notice = { refusalId: String(item.id ?? `computer:${index}`), ready: false };
+      continue;
+    }
+    if (toolItemDone(item) && !item.isError && !toolResultText(item).includes(COMPUTER_REFUSAL_CODE)) {
+      if (computerCallNeedsWindow(item)) notice.ready = true;
+    }
+  }
+  return notice;
+}
+
 function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, count: number): string {
   switch (unit.unitKey) {
     case 'Read|Read|file':

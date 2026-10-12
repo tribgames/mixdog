@@ -37,6 +37,7 @@ import {
   pointerMenuPoint,
   type ScmContextMenuState,
 } from './ScmContextMenu';
+import { ToolComputerReadinessCard } from './transcript-computer-card';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
 import { CodeDiff } from './transcript-diff';
@@ -164,12 +165,15 @@ function useToolActivityDisclosure(panelOpen: boolean): { rendered: boolean; exp
 interface ToolActivityGroupProps {
   items: readonly TranscriptItem[];
   disclosureScope?: string;
+  /** The turn the group belongs to; scopes what is asked once per task. */
+  turnKey?: string;
 }
 
 /** The live projection rebuilds a group's items array on every tick from the
  *  same item objects; element identity is what decides a re-render. */
 function sameToolActivityGroupProps(previous: ToolActivityGroupProps, next: ToolActivityGroupProps): boolean {
   if ((previous.disclosureScope ?? '') !== (next.disclosureScope ?? '')) return false;
+  if ((previous.turnKey ?? '') !== (next.turnKey ?? '')) return false;
   if (previous.items === next.items) return true;
   return (
     previous.items.length === next.items.length && previous.items.every((item, index) => item === next.items[index])
@@ -251,6 +255,7 @@ function ToolGroupIcon() {
 export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   items,
   disclosureScope = '',
+  turnKey = '',
 }: ToolActivityGroupProps) {
   const { mode, key: viewKey } = useToolActivityView();
   const disclosureKey = toolActivityDisclosureKey(items, disclosureScope, viewKey);
@@ -311,6 +316,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         </div>
       )}
       {browserPage && <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />}
+      <ToolComputerReadinessCard items={items} taskKey={`${disclosureScope}|${turnKey}`} />
       <TranscriptArtifacts items={items} />
     </article>
   );

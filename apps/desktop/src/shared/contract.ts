@@ -2,6 +2,11 @@ import type { GithubRequest, GithubResult } from '../../../../src/runtime/github
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
 import type {
+  DesktopComputerInputAccess,
+  DesktopComputerPermissionPane,
+  DesktopComputerReadiness,
+} from './contract-computer';
+import type {
   DesktopAbortOptions,
   DesktopAgentPoolRow,
   DesktopSessionContentMatch,
@@ -110,6 +115,7 @@ export * from './provider-models';
 export * from './settings-changed';
 export * from './contract-browser';
 export * from './contract-git';
+export * from './contract-computer';
 export * from './contract-workspace';
 
 export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
@@ -171,6 +177,11 @@ export interface DesktopApi {
   /** Extensions → Office: LibreOffice dependency probe + guided install. */
   libreOfficeStatus?(): Promise<DesktopLibreOfficeStatus>;
   installLibreOffice?(): Promise<DesktopLibreOfficeStatus>;
+  /** Extensions → Computer Use: what this OS still needs before the tool runs
+   *  fully (Linux capabilities, macOS grants). Desktop-only. */
+  computerReadiness?(): Promise<DesktopComputerReadiness>;
+  requestLinuxInputAccess?(): Promise<DesktopComputerInputAccess>;
+  openComputerPermissionSettings?(pane: DesktopComputerPermissionPane): Promise<void>;
   githubCliStatus?(): Promise<DesktopGithubCliStatus>;
   installGithubCli?(): Promise<DesktopGithubCliStatus>;
   githubCliLoginStart?(): Promise<DesktopGithubCliLoginFlow>;

@@ -657,6 +657,11 @@
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
+/* Computer Use's one-time notice under a tool group: the Extensions dialog's
+   item card, so the setup prompt reads the same in chat and in Settings. */
+.transcript-computer-readiness {
+  margin: 8px 0 4px;
+}
 .tool-card {
   width: 100%;
   padding: 4px 0;
