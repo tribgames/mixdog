@@ -130,7 +130,7 @@ Distribution certificates last one year) from a machine with the App Store
 Connect API key and `gh` logged in with access to the repository secrets:
 
 ```
-pip install pyjwt cryptography
+pip install --upgrade pyjwt "cryptography>=42"
 ASC_KEY_PATH=/path/to/AuthKey_<KEY_ID>.p8 APPLE_API_KEY_ID=<KEY_ID> APPLE_API_ISSUER=<ISSUER_ID> \
   python3 apps/mobile/scripts/ios-ci-signing.py issue
 ```

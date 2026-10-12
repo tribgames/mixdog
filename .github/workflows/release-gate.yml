@@ -681,18 +681,19 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install the script dependencies
-        run: python3 -m pip install --quiet --upgrade pyjwt cryptography
+        run: python3 -m pip install --quiet --upgrade pyjwt "cryptography>=42"
       - name: Run the mobile script unit tests
         run: python3 -m unittest discover -s apps/mobile/scripts -p "test_*.py" -v
 
   complete:
     if: always()
-    needs: [runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, shipped-history, mobile-scripts]
+    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, shipped-history, mobile-scripts]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
       - name: Require every selected gate
         env:
+          CHANGES: ${{ needs.changes.result }}
           RUNTIME: ${{ needs.runtime.result }}
           RUNTIME_SLOW: ${{ needs.runtime-slow.result }}
           RUNTIME_MACOS: ${{ needs.runtime-macos.result }}
@@ -705,6 +706,7 @@ jobs:
           SHIPPED_HISTORY: ${{ needs.shipped-history.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
         run: |
+          [[ "$CHANGES" == success ]]
           [[ "$RUNTIME" == success || "$RUNTIME" == skipped ]]
           [[ "$RUNTIME_SLOW" == success || "$RUNTIME_SLOW" == skipped ]]
           [[ "$RUNTIME_MACOS" == success || "$RUNTIME_MACOS" == skipped ]]

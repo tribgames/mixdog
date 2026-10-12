@@ -71,11 +71,38 @@ def set_whats_new(build_id):
         print(f"What to Test set for {locale}")
 
 
-def add_to_group(build_id, group_id):
-    # The API offers no GET on a build's betaGroups relationship; adding a
-    # build that is already in the group is accepted, so add it directly.
-    asc_api.call("POST", f"/betaGroups/{group_id}/relationships/builds",
-                 {"data": [{"type": "builds", "id": build_id}]}, tolerate=(409,))
+GROUP_CHECKS = 12
+GROUP_POLL = 10
+
+
+def group_has_build(build_id, group_id):
+    path = f"/betaGroups/{group_id}/relationships/builds?limit=200"
+    while path:
+        page = asc_api.call("GET", path)
+        if any(item.get("id") == build_id for item in page.get("data", [])):
+            return True
+        next_url = (page.get("links") or {}).get("next")
+        path = next_url[len(asc_api.API):] if next_url else None
+    return False
+
+
+def add_to_group(build_id, group_id, sleep=None):
+    sleep = sleep or time.sleep
+    try:
+        asc_api.call("POST", f"/betaGroups/{group_id}/relationships/builds",
+                     {"data": [{"type": "builds", "id": build_id}]})
+    except asc_api.AscError as err:
+        if err.status != 409:
+            raise
+        # A 409 may mean "already a member" or a rejected assignment: succeed
+        # only if the exact build is listed in the group, else report the body.
+        for check in range(GROUP_CHECKS):
+            if group_has_build(build_id, group_id):
+                break
+            if check < GROUP_CHECKS - 1:
+                sleep(GROUP_POLL)
+        else:
+            sys.exit(f"{err}\nBuild {build_id} is not in group {group_id}")
     print(f"Build is in group {group_id}")
 
 

@@ -32,8 +32,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-24.04, arch: x64, image: "quay.io/pypa/manylinux_2_28_x86_64" }
-          - { runner: ubuntu-24.04-arm, arch: arm64, image: "quay.io/pypa/manylinux_2_28_aarch64" }
+          - { runner: ubuntu-24.04, arch: x64, image: "quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae" }
+          - { runner: ubuntu-24.04-arm, arch: arm64, image: "quay.io/pypa/manylinux_2_28_aarch64@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6" }
     steps:
       - uses: actions/checkout@v5
         with:
@@ -42,27 +42,27 @@ jobs:
         with:
           expected: ${{ inputs.ref || github.sha }}
       # One exact-key cache per tool (no restore-keys: a prefix hit would ship a
-      # binary built from other sources). A tool's key follows only its own
-      # crate and the build script, so a change to one tool rebuilds just that
-      # tool. Release cargo target dirs are deliberately not cached.
+      # binary built from other sources). A tool's key follows its own crate,
+      # the build script and the digest-pinned build image, so a change to one
+      # tool rebuilds just that tool and a new image rebuilds all. Release cargo target dirs are deliberately not cached.
       - name: Cache built mixdog-computer
         id: cache-computer
         uses: actions/cache@v4
         with:
           path: native-out/mixdog-computer
-          key: native-glibc228-${{ matrix.arch }}-computer-${{ hashFiles('native/mixdog-computer/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+          key: native-glibc228-${{ matrix.arch }}-computer-${{ matrix.image }}-${{ hashFiles('native/mixdog-computer/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
       - name: Cache built mixdog-graph
         id: cache-graph
         uses: actions/cache@v4
         with:
           path: native-out/mixdog-graph
-          key: native-glibc228-${{ matrix.arch }}-graph-${{ hashFiles('native/mixdog-graph/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+          key: native-glibc228-${{ matrix.arch }}-graph-${{ matrix.image }}-${{ hashFiles('native/mixdog-graph/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
       - name: Cache built mixdog-patch
         id: cache-patch
         uses: actions/cache@v4
         with:
           path: native-out/mixdog-patch
-          key: native-glibc228-${{ matrix.arch }}-patch-${{ hashFiles('native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+          key: native-glibc228-${{ matrix.arch }}-patch-${{ matrix.image }}-${{ hashFiles('native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
       - name: Select the tools that missed their cache
         id: missing
         env:

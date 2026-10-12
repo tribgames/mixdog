@@ -598,7 +598,7 @@ test('the gate shards its long lanes, installs in parallel, and adds history and
   const mobile = jobs['mobile-scripts'];
   assert.equal(mobile.if, "needs.changes.outputs.mobile == 'true'");
   assert.equal(mobile.steps.length, 3);
-  assert.match(mobile.steps[1].run, /pip install .*pyjwt cryptography/);
+  assert.match(mobile.steps[1].run, /pip install .*--upgrade pyjwt "cryptography>=42"/);
   assert.match(mobile.steps[2].run, /python3 -m unittest discover -s apps\/mobile\/scripts -p "test_\*\.py"/);
   for (const trigger of [on.pull_request.paths, on.push.paths]) {
     const exclusion = trigger.indexOf('!.github/workflows/mobile-*.yml');
@@ -608,8 +608,12 @@ test('the gate shards its long lanes, installs in parallel, and adds history and
 
   // `complete` waits on, and judges, every gate job.
   const gates = Object.keys(jobs).filter((name) => name !== 'changes' && name !== 'complete');
-  assert.deepEqual([...jobs.complete.needs].sort(), [...gates].sort());
+  assert.deepEqual([...jobs.complete.needs].sort(), ['changes', ...gates].sort());
   const verdict = jobs.complete.steps[0];
+  // A failed selection must fail the gate rather than skip every job into a pass.
+  assert.equal(verdict.env.CHANGES, '${{ needs.changes.result }}');
+  assert.ok(verdict.run.includes('[[ "$CHANGES" == success ]]'));
+  assert.ok(!verdict.run.includes('"$CHANGES" == skipped'));
   for (const name of gates) {
     const variable = name.toUpperCase().replaceAll('-', '_');
     assert.equal(verdict.env[variable], `\${{ needs.${name}.result }}`, name);
@@ -626,7 +630,7 @@ test('Linux native tools build per-tool caches and compile the missing tools con
     assert.match(
       cache.with.key,
       new RegExp(
-        `^native-glibc228-\\$\\{\\{ matrix\\.arch \\}\\}-${tool}-\\$\\{\\{ hashFiles\\('native/mixdog-${tool}/\\*\\*', 'apps/desktop/scripts/linux-build-native-old-glibc\\.sh'\\) \\}\\}$`
+        `^native-glibc228-\\$\\{\\{ matrix\\.arch \\}\\}-${tool}-\\$\\{\\{ matrix\\.image \\}\\}-\\$\\{\\{ hashFiles\\('native/mixdog-${tool}/\\*\\*', 'apps/desktop/scripts/linux-build-native-old-glibc\\.sh'\\) \\}\\}$`
       )
     );
     assert.equal(cache.with['restore-keys'], undefined, 'a prefix hit would ship a binary from other sources');
