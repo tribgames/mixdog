@@ -7,6 +7,38 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { shellJobsStatus } from './statusline-segments.mjs';
 
+test('foreground commands stay out of the shell job list', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-foreground-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const dir = join(root, 'shell-jobs');
+    mkdirSync(dir, { recursive: true });
+    const write = (jobId, record) => {
+      writeFileSync(join(dir, `${jobId}.json`), JSON.stringify({ pid: process.pid, ownerSessionId: 'sess-fg', ...record }));
+      writeFileSync(join(dir, `${jobId}.owner-${process.pid}`), '');
+    };
+    write(`job_${Date.now()}_bg`, { command: 'npm run dev' });
+    write(`job_${Date.now()}_fg`, { command: 'git status', foreground: true });
+    // Another owner pid than the other test so its cache entry starts cold.
+    const ownerPid = process.pid + 200_000;
+    let status = shellJobsStatus({ clientHostPid: ownerPid, sessionId: 'sess-fg' });
+    for (let attempt = 0; attempt < 40 && status.count === 0; attempt += 1) {
+      await delay(25);
+      status = shellJobsStatus({ clientHostPid: ownerPid, sessionId: 'sess-fg' });
+    }
+    assert.equal(status.count, 1);
+    assert.deepEqual(
+      status.jobs.map((job) => job.command),
+      ['npm run dev']
+    );
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a session keeps its shell jobs while the polling owner pid alternates', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-owners-'));
   const previous = process.env.MIXDOG_DATA_DIR;

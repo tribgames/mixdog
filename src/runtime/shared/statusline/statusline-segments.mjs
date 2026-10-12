@@ -155,6 +155,10 @@ async function refreshShellJobsStatus(ownerPid) {
         continue;
       }
       if (!(await isShellJobAlive(detail, p, dir, id))) continue;
+      // A foreground command is awaited in its own tool card; listing it here
+      // made every short command flash in and out of the shell list. Only
+      // backgrounded jobs (including promoted ones) are background work.
+      if (detail?.foreground === true) continue;
       // Owner-wide totals stay this process's own; session buckets take every
       // live job regardless of which host published it.
       const ownedByThisHost = ownerByJob.get(id) === ownerPid;
