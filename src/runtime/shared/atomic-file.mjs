@@ -240,6 +240,12 @@ export function writeJsonAtomicSync(filePath, value, opts = {}) {
   return writeFileAtomicSync(filePath, `${JSON.stringify(value, null, opts.compact ? 0 : 2)}\n`, opts);
 }
 
+// Windows editors and PowerShell 5 save UTF-8 with a leading byte order mark,
+// which JSON.parse rejects; a hand-edited state file must still load.
+export function parseJsonText(text) {
+  return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+}
+
 function recoverJsonMutationRead(error) {
   // Missing/malformed JSON retains the existing initializer contract. An I/O
   // or permission failure is not an empty document and must never authorize
@@ -255,7 +261,7 @@ export function updateJsonAtomicSync(filePath, mutator, opts = {}) {
     () => {
       let cur = null;
       try {
-        cur = JSON.parse(readFileSync(filePath, 'utf8'));
+        cur = parseJsonText(readFileSync(filePath, 'utf8'));
       } catch (error) {
         cur = recoverJsonMutationRead(error);
       }
@@ -336,7 +342,7 @@ export async function updateJsonAtomic(filePath, mutator, opts = {}) {
     async () => {
       let cur = null;
       try {
-        cur = JSON.parse(await readFileAsync(filePath, 'utf8'));
+        cur = parseJsonText(await readFileAsync(filePath, 'utf8'));
       } catch (error) {
         cur = recoverJsonMutationRead(error);
       }

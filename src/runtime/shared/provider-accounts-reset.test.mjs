@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { providerAccountsResetAt } from './provider-accounts.mjs';
+import { providerAccountsResetAt, readProviderAccountPool } from './provider-accounts.mjs';
+
+test('a BOM-prefixed provider-accounts.json still loads', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-provider-accounts-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const roster = {
+    version: 1,
+    providers: { 'openai-oauth': { accounts: [{ id: 'default', label: 'Work' }], selectedId: 'default', auto: true } },
+  };
+  writeFileSync(join(dir, 'provider-accounts.json'), `\uFEFF${JSON.stringify(roster, null, 2)}`);
+  const pool = readProviderAccountPool('openai-oauth', dir);
+  assert.deepEqual(
+    pool.accounts.map((row) => row.label),
+    ['Work']
+  );
+});
 
 const now = 1_000_000;
 const account = (windows, extra = {}) => ({ usage: { windows, checkedAt: now }, ...extra });
