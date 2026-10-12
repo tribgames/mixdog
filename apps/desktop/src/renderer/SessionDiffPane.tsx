@@ -29,7 +29,7 @@ function sessionDiffSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
 
 /** Every state renders inside the same flex-column frame, so an empty, loading
  *  or failed pane centres its message on both axes exactly like the other
- *  dock panes (user: 비어있을때 문구는 상하정렬). */
+ *  dock panes. */
 function SessionDiffFrame({
   children,
   onKeyDown,

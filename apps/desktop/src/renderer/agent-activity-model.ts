@@ -519,15 +519,14 @@ function poolRowSeedAt(agent: DesktopAgentPoolRow): number {
   if (idle) return idle;
   // A working row has NO idle stamp, and its updatedAt is the live heartbeat:
   // ranking on it made every running session climb on each tick, so cards
-  // leapfrogged mid-turn (user: 위아래로 튄다). Creation is frozen for the
+  // leapfrogged mid-turn. Creation is frozen for the
   // whole lifetime, so a live row holds its place until it stops.
   return timeMs(agent.createdAt) || timeMs(agent.startedAt) || timeMs(agent.turnStartedAt);
 }
 
 /** Sticky ordering stamp for one owner group. The pool decides `working` from
  *  a 2-minute heartbeat freshness window, so `idleSince` can vanish and come
- *  back mid-turn and a raw ranking swapped rows on every flip (user: 하트비트
- *  때문에 뒤죽박죽). A group's stamp therefore only ever ADVANCES, and only
+ *  back mid-turn and a raw ranking swapped rows on every flip. A group's stamp therefore only ever ADVANCES, and only
  *  when a genuinely newer turn start or completion lands. */
 export function stickyGroupOrder(
   previous: ReadonlyMap<string, number>,

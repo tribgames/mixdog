@@ -102,7 +102,7 @@ function usedPercent(window: UsageRecord): number | null {
   return value === null ? null : Math.max(0, Math.min(100, value));
 }
 
-/** Rail pin mode (user: 핀모드): one entry per brand that has quota data —
+/** Rail pin mode: one entry per brand that has quota data —
  *  its icon plus the final quota window's usage, picked by longest period:
  *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
  *  the provider's final entry. */
@@ -152,7 +152,7 @@ export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   });
 }
 
-// Tidied schedule copy (user: 리셋시간 문구 정리): lowercase duration units
+// Tidied schedule copy: lowercase duration units
 // read as time, not as quota-window labels (5H/W/M stay uppercase).
 function resetSchedule(value: unknown): { state: 'due' | 'soon' | 'in' | ''; time: string } {
   const resetAt = timestamp(value);
@@ -177,8 +177,7 @@ function resetExpiryText(value: unknown): string {
   return schedule.state === 'soon' ? t('Expires soon') : '';
 }
 
-/** Every quota window carries its OWN schedule (user: 각각 항목마다 초기화시간
- *  개별로 하나씩): a compact duration that closes the meter row after the
+/** Every quota window carries its OWN schedule: a compact duration that closes the meter row after the
  *  percentage, with the full sentence kept in the row tooltip.
  *  The duration units are notation, not prose, so they stay untranslated like
  *  the 5d/13h reading itself. */
@@ -326,7 +325,7 @@ export function SidebarUsage({
   api?: UsageApi;
   sidebarOpen?: boolean;
   /** Rail pin mode: the header toggle swaps the rail's pie glyph for the
-   *  per-brand icon + % stack (user: 핀모드). */
+   *  per-brand icon + % stack. */
   pinned?: boolean;
   onTogglePin?(): void;
   /** Opens the usage surface: this panel answers what is LEFT, that one how

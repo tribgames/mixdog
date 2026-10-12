@@ -264,7 +264,7 @@ test('failed sends retry with bounded backoff and survive restart', async () => 
   await app.relay.close();
 });
 
-test('never overlaps sends for one record and close waits for in-flight work', async (t) => {
+test('never overlaps sends for one record and close waits for in-flight work', async () => {
   const clock = fakeClock();
   let active = 0;
   let peak = 0;
@@ -282,7 +282,9 @@ test('never overlaps sends for one record and close waits for in-flight work', a
     const { relay, post } = await boot(tempData(), { sender, clock });
     assert.equal((await post(valid())).status, 202);
     await waitFor(() => active === 1, 'send in flight');
-    clock.timers.forEach((timer) => timer.fn());
+    clock.timers.forEach((timer) => {
+      timer.fn();
+    });
     await settle();
     assert.equal(peak, 1);
     closing = relay.close().then(() => (closed = true));
@@ -743,14 +745,16 @@ test('feedback body reads are capped; extra requests get 503 without being read'
   });
   const json = { 'Content-Type': 'application/json' };
   const held = [stalled(url, json), stalled(url, json), stalled(url, json)];
-  t.after(() => held.forEach(({ req }) => req.destroy()));
+  t.after(() => {
+    for (const { req } of held) req.destroy();
+  });
   let busy;
   await waitFor(async () => {
     busy = await post('bad'); // 400 until all three slots are occupied
     return busy.status === 503;
   }, 'read cap reached');
   assert.deepEqual(await busy.json(), { error: 'feedback_busy' });
-  held.forEach(({ req }) => req.destroy());
+  for (const { req } of held) req.destroy();
   await waitFor(async () => (await post(valid())).status === 202, 'slots released');
 });
 

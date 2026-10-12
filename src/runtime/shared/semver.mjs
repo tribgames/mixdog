@@ -49,8 +49,7 @@ export function compareSemver(a, b) {
   const aPre = pa.prerelease.length;
   const bPre = pb.prerelease.length;
   if (!aPre || !bPre) return aPre === bPre ? 0 : aPre ? -1 : 1;
-  const shared = Math.min(pa.prerelease.length, pb.prerelease.length);
-  for (let i = 0; i < shared; i++) {
+  for (let i = 0; i < Math.min(aPre, bPre); i++) {
     const diff = compareIdentifiers(pa.prerelease[i], pb.prerelease[i]);
     if (diff !== 0) return diff;
   }
