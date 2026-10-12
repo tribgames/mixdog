@@ -131,19 +131,34 @@ export async function waitForNpm({
 
 const ANDROID_LINK_RE = /https:\/\/github\.com\/[^"'\s<>]+\/releases\/(?:tag|download)\/(mobile-v\d+\.\d+\.\d+)[^"'\s<>]*/;
 
-/** `getRelease(tag)` returns the release object or null when it does not exist. */
-export async function checkRelayApp({ domain, fetchFn = fetch, getRelease }) {
+/**
+ * `getRelease(tag)` returns the release object or null when it does not exist.
+ * `mobileVersion` is the Android version this deploy tried to ship (empty for
+ * none). When that release failed, /app keeps linking the previous good
+ * mobile-v* release (or the releases list); that is a warning, not an error.
+ * A link to a missing or draft release stays an error.
+ * Returns { problems, warnings }.
+ */
+export async function checkRelayApp({ domain, fetchFn = fetch, getRelease, mobileVersion = '' }) {
   const page = await fetchFn(`https://${domain}/app`);
-  if (page.status !== 200) return [`https://${domain}/app answered ${page.status}, expected 200`];
+  if (page.status !== 200) return { problems: [`https://${domain}/app answered ${page.status}, expected 200`], warnings: [] };
   const match = ANDROID_LINK_RE.exec(await page.text());
-  if (!match) return [`https://${domain}/app has no link to a mobile-v* release`];
+  const wanted = mobileVersion ? `mobile-v${mobileVersion}` : '';
+  if (!match) {
+    return wanted
+      ? { problems: [], warnings: [`/app links no mobile-v* release; ${wanted} was not shipped (previous good release kept)`] }
+      : { problems: [`https://${domain}/app has no link to a mobile-v* release`], warnings: [] };
+  }
   const [url, tag] = match;
   const release = getRelease(tag);
-  if (!release) return [`/app links ${tag}, which is not an existing release`];
-  if (release.draft) return [`/app links ${tag}, which is still a draft`];
+  if (!release) return { problems: [`/app links ${tag}, which is not an existing release`], warnings: [] };
+  if (release.draft) return { problems: [`/app links ${tag}, which is still a draft`], warnings: [] };
   const resolved = await fetchFn(url, { redirect: 'follow' });
-  if (!resolved.ok) return [`/app Android link ${url} answered ${resolved.status}`];
-  return [];
+  if (!resolved.ok) return { problems: [`/app Android link ${url} answered ${resolved.status}`], warnings: [] };
+  const warnings = wanted && tag !== wanted
+    ? [`/app links ${tag} instead of ${wanted}; the Android release failed or is not yet published (previous good release kept)`]
+    : [];
+  return { problems: [], warnings };
 }
 
 export function checkEffortJudge({ manifest, latestTag, getRelease }) {
@@ -210,7 +225,7 @@ async function main() {
     ['Release assets', async () => checkAssetSet(assets)],
     ['latest.yml', () => feed('latest.yml', ['mixdog-desktop-win-x64.exe'])],
     ['latest-mac.yml', () => feed('latest-mac.yml', MAC_ZIPS)],
-    ['Relay /app', () => checkRelayApp({ domain, getRelease })],
+    ['Relay /app', () => checkRelayApp({ domain, getRelease, mobileVersion: process.env.MOBILE_VERSION ?? '' })],
     ['effort-judge release', async () => checkEffortJudge({
       manifest: JSON.parse(readFileSync('src/runtime/effort-judge/model-manifest.json', 'utf8')),
       latestTag,
@@ -221,16 +236,23 @@ async function main() {
   const results = [];
   for (const [name, run] of sections) {
     try {
-      results.push({ name, problems: await run() });
+      const outcome = await run();
+      results.push(Array.isArray(outcome)
+        ? { name, problems: outcome, warnings: [] }
+        : { name, problems: outcome.problems, warnings: outcome.warnings });
     } catch (error) {
-      results.push({ name, problems: [`check failed: ${error.message}`] });
+      results.push({ name, problems: [`check failed: ${error.message}`], warnings: [] });
     }
   }
 
   const lines = [`## Post-release check for ${tag}`, ''];
-  for (const { name, problems } of results) {
-    lines.push(problems.length ? `- FAIL ${name}` : `- ok ${name}`);
+  for (const { name, problems, warnings } of results) {
+    lines.push(problems.length ? `- FAIL ${name}` : warnings.length ? `- WARN ${name}` : `- ok ${name}`);
     for (const problem of problems) lines.push(`    - ${problem}`);
+    for (const warning of warnings) {
+      lines.push(`    - warning: ${warning}`);
+      console.log(`::warning title=Post-release ${name}::${warning}`);
+    }
   }
   const text = `${lines.join('\n')}\n`;
   console.log(text);

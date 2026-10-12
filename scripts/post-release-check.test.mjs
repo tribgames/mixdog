@@ -107,11 +107,27 @@ test('relay /app must be 200 and link an existing published mobile release', asy
   const body = '<a href="https://github.com/o/r/releases/tag/mobile-v0.1.12">Android</a>';
   const releases = { 'mobile-v0.1.12': { draft: false } };
   const getRelease = (tag) => releases[tag] ?? null;
-  assert.deepEqual(await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease }), []);
-  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page(body, 502), getRelease }))[0], /answered 502/);
-  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page('<p>none</p>'), getRelease }))[0], /no link/);
-  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease: () => null }))[0], /not an existing release/);
-  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease: () => ({ draft: true }) }))[0], /still a draft/);
+  assert.deepEqual(await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease }), { problems: [], warnings: [] });
+  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page(body, 502), getRelease })).problems[0], /answered 502/);
+  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page('<p>none</p>'), getRelease })).problems[0], /no link/);
+  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease: () => null })).problems[0], /not an existing release/);
+  assert.match((await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease: () => ({ draft: true }) })).problems[0], /still a draft/);
+});
+
+test('relay /app keeping the previous good mobile release is a warning, not an error', async () => {
+  const body = '<a href="https://github.com/o/r/releases/tag/mobile-v0.1.12">Android</a>';
+  const getRelease = (tag) => (tag === 'mobile-v0.1.12' ? { draft: false } : null);
+  const kept = await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease, mobileVersion: '0.1.13' });
+  assert.deepEqual(kept.problems, []);
+  assert.match(kept.warnings[0], /links mobile-v0\.1\.12 instead of mobile-v0\.1\.13.*previous good release kept/);
+  const same = await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease, mobileVersion: '0.1.12' });
+  assert.deepEqual(same, { problems: [], warnings: [] });
+  const list = await checkRelayApp({ domain: 'd', fetchFn: page('<a href="https://github.com/o/r/releases">x</a>'), getRelease, mobileVersion: '0.1.13' });
+  assert.deepEqual(list.problems, []);
+  assert.match(list.warnings[0], /mobile-v0\.1\.13 was not shipped/);
+  // A previous release that vanished is still a hard error.
+  const gone = await checkRelayApp({ domain: 'd', fetchFn: page(body), getRelease: () => null, mobileVersion: '0.1.13' });
+  assert.match(gone.problems[0], /not an existing release/);
 });
 
 test('effort-judge release must exist, be published, not be Latest, and carry the manifest files', () => {

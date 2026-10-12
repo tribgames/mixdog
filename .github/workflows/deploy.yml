@@ -627,27 +627,54 @@ jobs:
 
   # Last job: confirm what users will actually see once publish and the relay
   # deploy are done (Latest pointer, update feeds, npm, relay /app link).
+  # It runs whenever the release call was not cancelled, even if it failed: the
+  # Android release (or the relay deploy) can turn `release` red after the
+  # desktop release is already public, and that state is exactly what needs
+  # checking. The first step skips the checks when no app release was
+  # published (the desktop publish never happened).
   post-release-check:
     name: post-release-check
     needs: [plan, prepare-app, release]
-    if: ${{ always() && needs.release.result == 'success' }}
+    if: ${{ always() && needs.plan.result == 'success' && needs.prepare-app.result == 'success' && needs.release.result != 'cancelled' && needs.release.result != 'skipped' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Detect whether the app release was published
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.app_tag }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.draft' 2>/dev/null)"
+          if [[ "$draft" == "false" ]]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "${RELEASE_TAG} is published (release job: ${RELEASE_RESULT}); running the post-release checks."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Post-release checks skipped::${RELEASE_TAG} was not published (release job: ${RELEASE_RESULT})."
+          fi
+
+      - if: ${{ steps.published.outputs.published == 'true' }}
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.prepare-app.outputs.sha }}
           persist-credentials: false
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - if: ${{ steps.published.outputs.published == 'true' }}
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
 
       - name: Verify the published release end to end
+        if: ${{ steps.published.outputs.published == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.plan.outputs.app_tag }}
           RELAY_DOMAIN: ${{ vars.RELAY_DOMAIN }}
+          MOBILE_VERSION: ${{ needs.plan.outputs.mobile_version }}
         run: node scripts/post-release-check.mjs

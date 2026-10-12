@@ -89,6 +89,17 @@ test('workflow contracts: strict gate, Latest guard triggers, post-release job, 
   assert.match(deploy, /refusing to release an ungated commit/);
   const jobs = parse(deploy).jobs;
   assert.deepEqual(jobs['post-release-check'].needs, ['plan', 'prepare-app', 'release']);
+  // Runs even when mobile/relay turn `release` red after the desktop publish,
+  // but not when the release call was cancelled or never ran.
+  const condition = jobs['post-release-check'].if;
+  assert.match(condition, /always\(\)/);
+  assert.match(condition, /needs\.release\.result != 'cancelled'/);
+  assert.doesNotMatch(condition, /needs\.release\.result == 'success'/);
+  const steps = jobs['post-release-check'].steps;
+  assert.equal(steps[0].id, 'published');
+  assert.match(steps[0].run, /releases\/tags\/.*--jq '\.draft'/);
+  for (const step of steps.slice(1)) assert.match(step.if, /steps\.published\.outputs\.published == 'true'/);
+  assert.equal(steps.at(-1).env.MOBILE_VERSION, '${{ needs.plan.outputs.mobile_version }}');
   const guard = parse(await read('latest-guard.yml'));
   assert.deepEqual(guard.on.release.types, ['published', 'edited', 'released']);
   assert.ok('workflow_dispatch' in guard.on && guard.on.schedule.length === 1);
