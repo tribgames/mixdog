@@ -210,6 +210,8 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci --no-audit --no-fund
         working-directory: apps/desktop
+      - name: GNOME extension source present (uuid == dir name, modes 0755/0644)
+        run: bash apps/desktop/scripts/linux-gnome-extension-check.sh source .
       - name: Build Linux package
         run: npm run build:linux -- --${{ matrix.arch }} --publish never
         working-directory: apps/desktop
@@ -221,6 +223,8 @@ jobs:
         run: bash apps/desktop/scripts/linux-glibc-floor-selftest.sh
       - name: Verify the built packages (extracted .deb + AppImage payloads, native-tool hashes, glibc floor <= 2.31)
         run: bash apps/desktop/scripts/linux-verify-package.sh apps/desktop/dist native-out ${{ matrix.arch }} 2.31 extract | tee package-verify.txt
+      - name: GNOME extension packaged (system-wide + resources in .deb, resources in AppImage)
+        run: bash apps/desktop/scripts/linux-gnome-extension-check.sh payload "${DEB_ROOT%/opt/Mixdog}" "$AI_ROOT"
       - name: Verify packaged node-pty (Electron ABI, real PTY spawn) in both payloads
         run: |
           for root in "$DEB_ROOT" "$AI_ROOT"; do

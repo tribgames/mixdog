@@ -104,6 +104,11 @@ linux:
   # hicolor sizes (16-256) generated from build/mixdog.png; the icon name is the
   # executable name, which matches the desktop entry's Icon= key.
   icon: build/icons
+  # GNOME Shell extension, copied for per-user install by the app (the .deb also
+  # installs it system-wide, see deb.fpm).
+  extraResources:
+    - from: ../../native/gnome-extension/mixdog-windows@mixdog.io
+      to: gnome-extension/mixdog-windows@mixdog.io
   synopsis: Mixdog desktop host
   maintainer: Mixdog <dev@tribgames.com>
   desktop:
@@ -123,6 +128,7 @@ deb:
   fpm:
     - build/linux/70-mixdog-uinput.rules=/usr/lib/udev/rules.d/70-mixdog-uinput.rules
     - build/linux/mixdog-uinput.conf=/usr/lib/modules-load.d/mixdog-uinput.conf
+    - ../../native/gnome-extension/mixdog-windows@mixdog.io/=/usr/share/gnome-shell/extensions/mixdog-windows@mixdog.io
   recommends:
     - wl-clipboard
     - tesseract-ocr
