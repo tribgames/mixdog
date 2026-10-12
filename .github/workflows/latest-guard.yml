@@ -1,0 +1,41 @@
+# GitHub's "Latest" release drives the desktop auto-updater (latest.yml,
+# latest-mac.yml), so it must stay on the newest published app release (vX.Y.Z).
+# Non-app releases (effort-judge, voice, graph, spawn, mobile, ...) must never
+# take it. This workflow repairs any drift and files an issue describing it.
+#
+# Note: releases published with the workflow GITHUB_TOKEN do not trigger the
+# `release` events below; the daily schedule and Deploy's post-release check
+# cover those.
+
+name: Latest Guard
+
+on:
+  release:
+    types: [published, edited, released]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * *"
+
+permissions:
+  contents: write # gh release edit --latest
+  issues: write # open/update the drift issue
+
+concurrency:
+  group: latest-guard
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: guard-latest-release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Set Latest back to the newest app release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/latest-guard.mjs

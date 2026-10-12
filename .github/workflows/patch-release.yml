@@ -290,6 +290,8 @@ jobs:
           files: assets/*
           fail_on_unmatched_files: true
           overwrite_files: true
+          # Asset release: Latest belongs to the newest app release.
+          make_latest: false
 
       - name: Rewrite and commit bundled patch manifest
         env:

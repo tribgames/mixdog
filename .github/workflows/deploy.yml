@@ -71,10 +71,13 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           node --test scripts/release-gate-test.mjs
 
-      # A release ships only a commit the gate did not reject. The gate starts
-      # on the same push this dispatch usually follows, so wait for its verdict
-      # instead of racing it. A push that touched no gated path starts no gate
-      # run; the release then validates that commit itself (run_critical).
+      # A release ships only a commit the gate passed. The gate starts on the
+      # same push this dispatch usually follows, so wait for its verdict instead
+      # of racing it. Strict: a commit with no Release Gate run (a push that
+      # touched no gated path, or an infra failure that never started it) is
+      # NOT released. Start the gate for it with
+      #   gh workflow run release-gate.yml --ref main
+      # and re-run Deploy once it is green. A manual gate run counts.
       - name: Require a green Release Gate for the release commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,14 +87,14 @@ jobs:
           sha=$(git rev-parse HEAD)
           run_id=""
           for attempt in $(seq 1 12); do
-            run_id=$(gh run list --workflow release-gate.yml --commit "$sha" --event push --limit 1 \
-              --json databaseId --jq '.[0].databaseId // empty')
+            run_id=$(gh run list --workflow release-gate.yml --commit "$sha" --limit 20 \
+              --json databaseId,event --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0].databaseId // empty')
             if [[ -n "$run_id" ]]; then break; fi
             sleep 5
           done
           if [[ -z "$run_id" ]]; then
-            echo "No Release Gate run for ${sha}; the release validates this commit itself."
-            exit 0
+            echo "::error::No Release Gate run exists for ${sha}; refusing to release an ungated commit. Run 'gh workflow run release-gate.yml --ref ${GITHUB_REF_NAME}' and re-run Deploy once it passes."
+            exit 1
           fi
           echo "Waiting for Release Gate run ${run_id} on ${sha}"
           if ! gh run watch "$run_id" --exit-status --interval 15 > /dev/null; then
@@ -575,3 +578,30 @@ jobs:
       ref: ${{ needs.prepare-app.outputs.sha }}
       run_critical: ${{ needs.plan.outputs.run_critical == 'true' }}
     secrets: inherit
+
+  # Last job: confirm what users will actually see once publish and the relay
+  # deploy are done (Latest pointer, update feeds, npm, relay /app link).
+  post-release-check:
+    name: post-release-check
+    needs: [plan, prepare-app, release]
+    if: ${{ always() && needs.release.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare-app.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+
+      - name: Verify the published release end to end
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.app_tag }}
+          RELAY_DOMAIN: ${{ vars.RELAY_DOMAIN }}
+        run: node scripts/post-release-check.mjs

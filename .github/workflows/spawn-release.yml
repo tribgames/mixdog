@@ -261,4 +261,4 @@ jobs:
             git pull --rebase origin main
             git push origin HEAD:main
           fi
-          gh release edit "$SPAWN_TAG" --draft=false --latest=false
+          node scripts/publish-asset-release.mjs publish "$SPAWN_TAG"
