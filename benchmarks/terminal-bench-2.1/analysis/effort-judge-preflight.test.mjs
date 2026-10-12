@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -15,7 +15,7 @@ const payload = Buffer.from('small deterministic bundle fixture; never loaded as
 const digest = createHash('sha256').update(payload).digest('hex');
 
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-judge-preflight-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-judge-preflight-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bench = join(root, 'benchmarks', 'terminal-bench-2.1');
   const model = join(root, 'src', 'runtime', 'effort-judge');
