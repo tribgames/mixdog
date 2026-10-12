@@ -29,7 +29,7 @@ import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
-import { loginShellOverrides, readLoginShellEnvironment } from './login-shell-environment';
+import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
 import { desktopIdentity } from './desktop-identity';
@@ -386,10 +386,17 @@ function adoptLoginShellEnvironment(): Promise<void> {
     const overrides = environment ? loginShellOverrides(process.env, environment) : {};
     Object.assign(process.env, overrides);
     if (process.platform === 'win32') return;
+    let homebrewPathAdded: string[] = [];
+    if (process.platform === 'darwin') {
+      const homebrew = withHomebrewPath(process.env.PATH);
+      if (homebrew.added.length) process.env.PATH = homebrew.path;
+      homebrewPathAdded = homebrew.added;
+    }
     writeBootDiagnostic('login-shell-environment', {
       durationMs: Date.now() - startedAt,
       adopted: Boolean(environment),
       changedCount: Object.keys(overrides).length,
+      homebrewPathAdded,
       failures,
     });
   });

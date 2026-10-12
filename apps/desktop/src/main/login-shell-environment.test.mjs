@@ -5,6 +5,7 @@ import {
   extractLoginShellEnvironment,
   loginShellOverrides,
   readLoginShellEnvironment,
+  withHomebrewPath,
 } from './login-shell-environment.ts';
 
 const MARK = '__MIXDOG_LOGIN_ENV__';
@@ -45,6 +46,15 @@ test('the shell wins except for probe, Electron, and launcher-set MIXDOG values'
     OPENAI_API_KEY: 'sk-test',
     MIXDOG_HOME: '/Users/me/.mixdog-alt',
   });
+});
+
+test('missing Homebrew directories that exist are appended after the shell order', () => {
+  const installed = new Set(['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']);
+  assert.deepEqual(withHomebrewPath('/usr/local/bin:/usr/bin:/bin', (dir) => installed.has(dir)), {
+    path: '/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/opt/homebrew/sbin',
+    added: ['/opt/homebrew/bin', '/opt/homebrew/sbin'],
+  });
+  assert.deepEqual(withHomebrewPath(undefined, () => false), { path: '', added: [] });
 });
 
 test('Windows launches keep the inherited environment without spawning a shell', async () => {
