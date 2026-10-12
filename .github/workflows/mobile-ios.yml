@@ -28,6 +28,11 @@ on:
         description: "App version X.Y.Z (defaults to apps/mobile/package.json)"
         required: false
         type: string
+      submit_review:
+        description: "Submit the build to the external TestFlight group for beta review (tag runs always do)"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -40,7 +45,7 @@ concurrency:
 jobs:
   testflight:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: apps/mobile
@@ -187,6 +192,16 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_ISSUER"
+
+      - name: Submit to external TestFlight (beta app review)
+        if: github.event_name != 'workflow_dispatch' || inputs.submit_review
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.TESTFLIGHT_EXTERNAL_GROUP_ID || secrets.TESTFLIGHT_EXTERNAL_GROUP_ID }}
+        run: |
+          set -euo pipefail
+          python3 scripts/testflight-submit.py "${{ steps.version.outputs.version }}" "${{ github.run_number }}"
 
       - name: Remove local signing material (revocation is deferred to the next run)
         id: signing-cleanup

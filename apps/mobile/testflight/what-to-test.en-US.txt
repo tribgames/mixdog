@@ -1,0 +1,9 @@
+Mixdog Mobile (beta) lets you continue your Mixdog desktop sessions from your phone.
+
+How to test
+1. On your PC, open Mixdog → Settings → Connection → Phone.
+2. In the app, tap "Connect with a code" and enter the 6-digit code shown on your PC.
+3. Approve the request on your PC.
+
+Please check: the session list, reading and sending messages, and task-completion notifications.
+Feedback: support@tribgames.com

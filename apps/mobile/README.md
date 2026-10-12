@@ -82,6 +82,13 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
   TestFlight. Build number = workflow run number. Release builds use production
   APNs (`aps-environment` = `production`); Debug builds use `development` and the
   app then registers the token with `sandbox: true`.
+  After the upload, `scripts/testflight-submit.py` waits (up to 45 min) for the
+  build to be `VALID`, sets "What to Test" for `en-US`/`ko` from
+  `testflight/what-to-test.*.txt`, adds the build to the external group
+  (`TESTFLIGHT_EXTERNAL_GROUP_ID` variable/secret, default
+  `ef50f70b-0be0-484c-80f0-a5c178e63bef`) and submits it for beta app review.
+  Tag runs always do this; manual runs can skip it with `submit_review: false`
+  (upload only).
 
 ## Repository secrets
 

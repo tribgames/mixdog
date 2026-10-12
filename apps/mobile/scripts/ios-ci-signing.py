@@ -23,52 +23,21 @@ import json
 import os
 import pathlib
 import sys
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
 
-import jwt
+from asc_api import call
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
-API = "https://api.appstoreconnect.apple.com/v1"
 PROFILES = {
     "io.mixdog.app": "Mixdog CI App Store",
     "io.mixdog.app.NotificationService": "Mixdog CI NotificationService App Store",
 }
 TEMP = pathlib.Path(os.environ["RUNNER_TEMP"])
 STATE = TEMP / "ios-signing-state.json"
-
-
-def token():
-    key = pathlib.Path(os.environ["ASC_KEY_PATH"]).read_text()
-    now = int(time.time())
-    return jwt.encode(
-        {"iss": os.environ["APPLE_API_ISSUER"], "iat": now, "exp": now + 900, "aud": "appstoreconnect-v1"},
-        key,
-        algorithm="ES256",
-        headers={"kid": os.environ["APPLE_API_KEY_ID"], "typ": "JWT"},
-    )
-
-
-def call(method, path, body=None, tolerate=()):
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(API + path, data=data, method=method)
-    req.add_header("Authorization", "Bearer " + token())
-    if data is not None:
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req) as res:
-            raw = res.read()
-    except urllib.error.HTTPError as err:
-        if err.code in tolerate:
-            return {}
-        sys.exit(f"{method} {path} failed: {err.code} {err.read().decode(errors='replace')}")
-    return json.loads(raw) if raw else {}
 
 
 def bundle_id(identifier):
