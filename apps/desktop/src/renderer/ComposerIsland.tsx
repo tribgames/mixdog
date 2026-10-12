@@ -86,6 +86,8 @@ type JobRow = {
   queued?: boolean;
   /** Blocked on the user's approval: neither working nor idle. */
   needsUser?: boolean;
+  /** The agent's own session: '' when it has none to open. */
+  sessionId?: string;
 };
 
 /** Rows that need the user lead, then working ones, then queued/waiting. */
@@ -120,6 +122,7 @@ function backgroundJobRows(snapshot: Snapshot): JobRow[] {
       idle: agent.queued || agent.state === 'waiting',
       queued: agent.queued,
       needsUser: agent.state === 'needs-user',
+      sessionId: agent.sessionId,
     }))
     .sort((a, b) => jobRowRank(a) - jobRowRank(b));
   return [...shell, ...agents];
@@ -164,11 +167,14 @@ function JobsPanel({
   tab,
   onTab,
   onClose,
+  onOpenRow,
 }: {
   rows: JobRow[];
   tab: JobKind;
   onTab(tab: JobKind): void;
   onClose(): void;
+  /** Present only where agent sessions can be opened. */
+  onOpenRow?(row: JobRow): void;
 }) {
   const clock = useClock(true);
   const agents = rows.filter((row) => row.kind === 'agent');
@@ -216,27 +222,49 @@ function JobsPanel({
         </button>
       </div>
       <ul className="composer-island-pbody composer-island-jobs">
-        {(shown === 'agent' ? agents : shells).map((row) => (
-          <li key={row.key} className="composer-island-row">
-            {row.kind === 'agent' ? (
-              <AgentMark working={!row.idle && !row.needsUser} needsUser={row.needsUser} />
-            ) : (
-              <JobsPulse />
-            )}
-            <span className="composer-island-row-main">
-              {row.kind === 'shell' ? (
-                <code>{row.label}</code>
+        {(shown === 'agent' ? agents : shells).map((row) => {
+          const openable = Boolean(onOpenRow) && row.kind === 'agent' && Boolean(row.sessionId);
+          const sub = rowSubLabel(row, clock);
+          const content = (
+            <>
+              {row.kind === 'agent' ? (
+                <AgentMark working={!row.idle && !row.needsUser} needsUser={row.needsUser} />
               ) : (
-                <>
-                  {row.label}
-                  {row.sub ? <span className="composer-island-row-tag">{row.sub}</span> : null}
-                </>
+                <JobsPulse />
               )}
-            </span>
-            {/* Time spent waiting on the user is not work: no running timer. */}
-            {rowSubLabel(row, clock) ? <span className="composer-island-row-sub">{rowSubLabel(row, clock)}</span> : null}
-          </li>
-        ))}
+              <span className="composer-island-row-main">
+                {row.kind === 'shell' ? (
+                  <code>{row.label}</code>
+                ) : (
+                  <>
+                    {row.label}
+                    {row.sub ? <span className="composer-island-row-tag">{row.sub}</span> : null}
+                  </>
+                )}
+              </span>
+              {/* Time spent waiting on the user is not work: no running timer. */}
+              {sub ? <span className="composer-island-row-sub">{sub}</span> : null}
+            </>
+          );
+          return (
+            <li key={row.key} className="composer-island-row" data-openable={openable ? 'true' : undefined}>
+              {openable ? (
+                <button
+                  type="button"
+                  className="composer-island-row-open"
+                  aria-label={[t('Open {{agent}}', { agent: [row.label, row.sub].filter(Boolean).join(' · ') }), sub]
+                    .filter(Boolean)
+                    .join(', ')}
+                  onClick={() => onOpenRow?.(row)}
+                >
+                  {content}
+                </button>
+              ) : (
+                content
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -379,9 +407,12 @@ export function ComposerIsland({
   modelMismatch,
   quotaExhausted,
   quotaResume,
+  onOpenAgentSession,
 }: {
   /** The pane's session ('' while hidden): background jobs read its lane. */
   sessionId: string;
+  /** Opens an agent's session (same action as the Agents pane rows). */
+  onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string): void;
   goal?: ReactNode;
   /** The changed-files segment: opens the side dock, or where the surface has
    *  none, expands into the turn's file list like the Goal tab. */
@@ -549,7 +580,21 @@ export function ComposerIsland({
             {quotaPanel && quotaExhausted ? <QuotaPanel quota={quotaExhausted} /> : null}
             {resumePanel && quotaResume ? <ResumePanel resume={quotaResume} /> : null}
             {ownPanel && !quotaPanel && expanded === 'jobs' ? (
-              <JobsPanel rows={jobRows} tab={jobsTab} onTab={setJobsTab} onClose={() => setExpanded('')} />
+              <JobsPanel
+                rows={jobRows}
+                tab={jobsTab}
+                onTab={setJobsTab}
+                onClose={() => setExpanded('')}
+                onOpenRow={
+                  onOpenAgentSession
+                    ? (row) => {
+                        if (!row.sessionId) return;
+                        onOpenAgentSession(row.sessionId, [row.label, row.sub].filter(Boolean).join(' · '), sessionId);
+                        setExpanded('');
+                      }
+                    : undefined
+                }
+              />
             ) : null}
             {ownPanel && !quotaPanel && expanded === 'model' && modelMismatch ? (
               <ModelPanel mismatch={modelMismatch} />

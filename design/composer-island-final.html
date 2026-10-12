@@ -40,7 +40,7 @@
   .msg { color: var(--soft); font-size: 13px; }
   .fade { height: 24px; margin-top: -24px; background: linear-gradient(transparent, var(--bg)); position: relative; }
   .wrap { display: flex; justify-content: center; margin: 14px 0 8px; }
-  .composer { height: 76px; border-radius: 18px; background: var(--composer); box-shadow: 0 0 0 1px rgba(255,255,255,.06); padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; color: var(--faint); font-size: 13px; }
+  .composer { height: 76px; border-radius: 18px; background: var(--composer); box-shadow: 0 2px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 -.5px 0 rgba(255,255,255,.06), 0 12px 24px -4px rgba(0,0,0,.22); padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; color: var(--faint); font-size: 13px; }
   .composer .b { display: flex; gap: 10px; color: var(--muted); font-size: 12.5px; }
   .composer.dim { opacity: .4; filter: saturate(.6); }
 
@@ -232,4 +232,8 @@
   <li><b>클릭</b>: 에이전트 칸을 누르면 에이전트 탭이, 셸 칸을 누르면 셸 탭이, Goal 칸을 누르면 Goal 작업 목록이 열립니다</li>
   <li><b>승인 개수</b>: 승인 카드와 같은 데이터를 봅니다. 승인 대기를 정확히 구분할 수 없으면 "대기"로 합칩니다</li>
   <li><b>테마 · 기기</b>: 라이트 테마와 휴대폰 화면도 같은 규칙으로 맞춥니다</li>
-  <li><b>빈 상태</b>: 표시할 게 없으면 아일랜드 자리가 0으로 접힙니다. 나타날 때는 0.18초 동안 부드럽
+  <li><b>빈 상태</b>: 표시할 게 없으면 아일랜드 자리가 0으로 접힙니다. 나타날 때는 0.18초 동안 부드럽게 펼쳐집니다</li>
+</ul>
+</main>
+</body>
+</html>

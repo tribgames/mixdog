@@ -480,6 +480,29 @@ button.composer-island-tab {
   color: var(--mx-text-muted);
   font-variant-numeric: tabular-nums;
 }
+.composer-island-row-open {
+  width: 100%;
+  min-height: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.composer-island-row-open:hover .composer-island-row-main,
+.composer-island-row-open:focus-visible .composer-island-row-main {
+  color: var(--mx-text);
+  text-decoration: underline;
+}
+.composer-island-row-open:focus-visible {
+  outline: 1px solid var(--mx-accent);
+  outline-offset: 2px;
+}
 .composer-island-model .composer-island-pbody,
 .composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;

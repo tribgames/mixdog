@@ -250,6 +250,45 @@ test('a failed statistics warmup keeps a stale fallback and can be retried on en
   assert.equal(hasStatsDataCache(api), true);
 });
 
+test('opening the usage dialog on stale statistics paints the last figures at once and refreshes behind them', async (context) => {
+  let update;
+  const resolvers = [];
+  const api = {
+    invokeCapability: () => new Promise((resolve) => resolvers.push(resolve)),
+    subscribeState(listener) {
+      update = listener;
+      return () => {};
+    },
+  };
+  const release = holdStatsDataCache(api);
+  context.after(release);
+  const warm = refreshStatsDataCache(api);
+  resolvers[0]({ value: { totals: { tokens: 1000 } } });
+  await warm;
+  // A turn lands while the dialog is closed: no re-read, the cache goes stale.
+  update({ sessionId: 'one', stats: { inputTokens: 100 } });
+  assert.equal(hasStatsDataCache(api), false);
+  assert.equal(resolvers.length, 1);
+
+  let latest = null;
+  function Probe({ api: hostApi }) {
+    latest = useCommandSurfaceLifecycle({ surface: 'stats', open: true, api: hostApi });
+    return null;
+  }
+  const render = setupDomHarness(context, Probe);
+  await render({ api });
+  assert.equal(latest.loading, false, 'the opening frame is not a placeholder');
+  assert.equal(latest.data.getUsageStats.totals.tokens, 1000, 'the last figures paint while the read runs');
+  assert.equal(latest.refreshing, true);
+  assert.equal(resolvers.length, 2, 'opening still reads fresh figures');
+
+  await act(async () => {
+    resolvers[1]({ value: { totals: { tokens: 2000 } } });
+  });
+  assert.equal(latest.data.getUsageStats.totals.tokens, 2000);
+  assert.equal(latest.refreshing, false);
+});
+
 test('a hidden desktop window defers statistics re-reads until it is shown', async (context) => {
   const reads = [];
   let update;

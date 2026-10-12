@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sessionUsesMultipleDevices } from '../shared/session-devices.ts';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices.ts';
+import { TranscriptDevicesContext, TranscriptRow, TranscriptViewerDeviceContext } from './transcript-row.tsx';
 import { retiredApprovalFor } from './use-retired-approval.ts';
 import { applyPromptRestore } from './use-composer-prompt-restore.ts';
 import { nextComposerSubmissionId, draftWithRestoredPrompt } from './composer-draft.ts';
@@ -13,6 +17,35 @@ test('a device is named only when more than one device sent prompts', () => {
   assert.equal(sessionUsesMultipleDevices([user('1', 'Main PC'), user('2', 'Pixel')]), true);
   assert.equal(sessionUsesMultipleDevices([user('1', 'Main PC')], ['Pixel']), true);
   assert.equal(sessionUsesMultipleDevices([{ id: 'a', kind: 'assistant', device: 'x' }, user('1', 'Main PC')]), false);
+});
+
+const rowMarkup = (device, viewer) =>
+  renderToStaticMarkup(
+    React.createElement(
+      TranscriptDevicesContext.Provider,
+      { value: true },
+      React.createElement(
+        TranscriptViewerDeviceContext.Provider,
+        { value: viewer },
+        React.createElement(TranscriptRow, { item: { kind: 'user', id: 'u1', text: 'hi', device } })
+      )
+    )
+  );
+
+test('a message from the viewing device carries no "from" label; another device does', () => {
+  assert.ok(!rowMarkup('DESKTOP-IBLP835', 'DESKTOP-IBLP835').includes('message-device'), 'own message');
+  assert.ok(rowMarkup('Pixel 9', 'DESKTOP-IBLP835').includes('Pixel 9'), 'phone message seen on the PC');
+  // A remote viewer sees the host-typed message labelled, and its own unlabelled.
+  assert.ok(rowMarkup('DESKTOP-IBLP835', 'Pixel 9').includes('DESKTOP-IBLP835'), 'host message seen on the phone');
+  assert.ok(!rowMarkup('Pixel 9', 'Pixel 9').includes('message-device'), "the phone's own message");
+});
+
+test('nothing is attributed until the viewing device is known; an unnamed viewer names every device', () => {
+  assert.ok(!rowMarkup('Pixel 9', null).includes('message-device'));
+  assert.ok(rowMarkup('Pixel 9', '').includes('message-device'));
+  assert.equal(isOtherDevice('Pixel 9', 'Pixel 9'), false);
+  assert.equal(isOtherDevice('', 'Pixel 9'), false);
+  assert.equal(isOtherDevice('Main PC', 'Pixel 9'), true);
 });
 
 test('an approval answered elsewhere leaves a settled card only in a multi-device conversation', () => {

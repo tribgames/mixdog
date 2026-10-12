@@ -39,8 +39,9 @@ import { useConversationOptimisticPromptRelease } from './use-conversation-optim
 import { useConversationTranscriptIdentity } from './use-conversation-transcript-identity';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 
-import { sessionUsesMultipleDevices } from '../shared/session-devices';
-import { TranscriptDevicesContext } from './transcript-row';
+import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
+import { TranscriptDevicesContext, TranscriptViewerDeviceContext } from './transcript-row';
+import { useViewerDevice } from './use-viewer-device';
 import { useRetiredApproval } from './use-retired-approval';
 import { ApprovalCard } from './ApprovalCard';
 import { Composer, WorkflowSelect, OrchestrationModeSelect } from './Composer';
@@ -115,6 +116,7 @@ export function Conversation({
   onOpenFile,
   onOpenFolder,
   onOpenSessionDiff,
+  onOpenAgentSession,
   renderAssistantRow,
   goalIsland,
   contextIndicator,
@@ -170,6 +172,8 @@ export function Conversation({
   /** The island's changed-files segment: opens the pane's side dock on the
    *  session diff; absent where the surface has no dock. */
   onOpenSessionDiff?: () => void;
+  /** The island's jobs panel opens an agent's session. */
+  onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
   /** Selector-driven rows retain their component identity through settlement. */
   renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
   /** The Goal segment of the composer island. */
@@ -258,6 +262,7 @@ export function Conversation({
   // The approval this device tried to answer after another device already had.
   const [answeredElsewhere, setAnsweredElsewhere] = useState<{ id: string; device: string } | null>(null);
   const multiDevice = useMemo(() => sessionUsesMultipleDevices(snapshot.items), [snapshot.items]);
+  const viewerDevice = useViewerDevice();
   const { suppressDraftSubmitPaintHandoff, visibleWarmPaintHandoff } = useConversationPaintHandoff(
     draftMode,
     warmPaintHandoff
@@ -477,7 +482,10 @@ export function Conversation({
             const result = snapshot.toolApprovalResult;
             setAnsweredElsewhere({
               id: approvalId,
-              device: multiDevice && result?.id === approvalId ? result.device : '',
+              device:
+                multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice)
+                  ? result.device
+                  : '',
             });
           }
           return accepted;
@@ -486,7 +494,7 @@ export function Conversation({
     );
   }
   let islandFlash: ComposerIslandFlash | null = null;
-  if (retiredApproval) {
+  if (retiredApproval && isOtherDevice(retiredApproval.outcome.device, viewerDevice)) {
     const { approval, outcome } = retiredApproval;
     islandFlash = {
       key: `retired:${approvalInstanceKey(approval.id)}`,
@@ -703,23 +711,25 @@ export function Conversation({
                 <MarkdownOpenFileContext.Provider value={openFile ?? null}>
                   <MarkdownOpenFolderContext.Provider value={openFolder ?? null}>
                     <TranscriptDevicesContext.Provider value={multiDevice}>
-                      {showTranscriptTimeline && (
-                        <TranscriptList
-                          key={transcriptIdentity.current}
-                          sessionKey={transcriptSessionKey}
-                          rows={transcriptRows}
-                          viewport={viewport}
-                          content={content}
-                          bottomInset={composerDockHeight}
-                          shouldAnchorBottom={shouldAnchorTranscriptBottom}
-                          markProgrammaticScroll={markTranscriptProgrammaticScroll}
-                          hasScrollGesture={hasTranscriptScrollGesture}
-                          onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
-                          setAnchorBottomRef={setTranscriptAnchorBottomRef}
-                          scrollToEndRef={scrollToEndRef}
-                          renderRow={renderTranscriptRow}
-                        />
-                      )}
+                      <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
+                        {showTranscriptTimeline && (
+                          <TranscriptList
+                            key={transcriptIdentity.current}
+                            sessionKey={transcriptSessionKey}
+                            rows={transcriptRows}
+                            viewport={viewport}
+                            content={content}
+                            bottomInset={composerDockHeight}
+                            shouldAnchorBottom={shouldAnchorTranscriptBottom}
+                            markProgrammaticScroll={markTranscriptProgrammaticScroll}
+                            hasScrollGesture={hasTranscriptScrollGesture}
+                            onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
+                            setAnchorBottomRef={setTranscriptAnchorBottomRef}
+                            scrollToEndRef={scrollToEndRef}
+                            renderRow={renderTranscriptRow}
+                          />
+                        )}
+                      </TranscriptViewerDeviceContext.Provider>
                     </TranscriptDevicesContext.Provider>
                   </MarkdownOpenFolderContext.Provider>
                 </MarkdownOpenFileContext.Provider>
@@ -743,6 +753,7 @@ export function Conversation({
           quotaExhausted={quotaExhausted}
           quotaResume={quotaResume}
           onOpenSessionDiff={onOpenSessionDiff}
+          onOpenAgentSession={onOpenAgentSession}
           showProjectSelector={showProjectSelector}
           contextBar={
             <>

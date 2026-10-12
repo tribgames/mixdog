@@ -34,6 +34,12 @@ test("submit, abort and approval carry the connection's device name", async () =
   assert.equal(calls[2][3].device, 'Pixel 9');
 });
 
+test('a remote client can ask which name its own actions are stamped with', async () => {
+  const { host } = recordingHost();
+  assert.equal(await createRemoteMethods({ host }, client()).viewerDevice([]), 'Pixel 9');
+  assert.equal(await createRemoteMethods({ host }, {}).viewerDevice([]), 'Web app');
+});
+
 test('a client cannot name its own device', () => {
   assert.throws(() => requiredSubmitOptions({ device: 'Main PC' }), /unsupported field/);
   assert.throws(() => requiredAbortOptions({ device: 'Main PC' }), /unsupported field/);

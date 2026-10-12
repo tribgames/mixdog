@@ -5,7 +5,6 @@ import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 import { commandSurfaceCacheKey, commandSurfaceSessionId } from './command-surface-state';
 import {
   getStatsDataCache,
-  hasStatsDataCache,
   isSurfaceCacheable,
   LOADERS,
   readSurfaceDataCache,
@@ -21,7 +20,10 @@ function cachedSurfaceData(
   cacheable: boolean,
   cacheKey: string
 ): Record<string, unknown> | undefined {
-  if (surface === 'stats') return getStatsDataCache(api);
+  // Usage is re-read only while the dialog is open, so a turn since the last
+  // read leaves the figures stale. Opening still paints them at once — a
+  // moment-old number beats a placeholder — and the opening read replaces them.
+  if (surface === 'stats') return getStatsDataCache(api, true);
   return cacheable ? readSurfaceDataCache(cacheKey) : undefined;
 }
 
@@ -183,7 +185,7 @@ export function useCommandSurfaceLifecycle({
   useEffect(() => {
     if (open && !deferLoad) void load();
     else if (surface === 'stats') {
-      setLoading(!hasStatsDataCache(api));
+      setLoading(!getStatsDataCache(api, true));
       setRefreshing(false);
       setError('');
     }

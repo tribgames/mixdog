@@ -674,6 +674,7 @@ export function App() {
     openFileInSideDock: sideDockHostsFiles ? openFileInSideDock : undefined,
     openFolderInSideDock: sideDockHostsFiles ? paneSideDocks.openFolder : undefined,
     openSessionDiffInSideDock: sideDockHostsFiles ? openSessionDiffInSideDock : undefined,
+    openAgentSession: dockOpenAgentSession,
   });
 
   const { paneFileEditors, paneUtilitySurfacePortals, paneUtilityTabs } = useAppPersistentPaneSurfaces({

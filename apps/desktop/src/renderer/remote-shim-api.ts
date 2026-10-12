@@ -163,6 +163,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     scheduleQuotaResume: (sessionId) => call('scheduleQuotaResume', [sessionId]),
     cancelQuotaResume: (sessionId) => call('cancelQuotaResume', [sessionId]),
     getQuotaAutoResume: () => call('getQuotaAutoResume', []),
+    viewerDevice: () => call('viewerDevice', []),
     setQuotaAutoResume: (enabled) => call('setQuotaAutoResume', [enabled]),
     setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),
     setSessionFavorite: (sessionId: string, favorite: boolean) => call('setSessionFavorite', [sessionId, favorite]),

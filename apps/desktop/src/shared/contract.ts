@@ -310,6 +310,9 @@ export interface DesktopApi {
   cancelQuotaResume(sessionId: string): Promise<boolean>;
   /** Whether quota-stopped sessions resume by themselves at reset (default true). */
   getQuotaAutoResume(): Promise<boolean>;
+  /** The device name this window's own actions are stamped with (the host's
+   *  name locally, the paired client's name on a remote surface). */
+  viewerDevice?(): Promise<string>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;

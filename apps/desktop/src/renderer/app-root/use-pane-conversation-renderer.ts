@@ -51,6 +51,7 @@ export function usePaneConversationRenderer(options: RendererOptions) {
       options.openFileInSideDock,
       options.openFolderInSideDock,
       options.openSessionDiffInSideDock,
+      options.openAgentSession,
       options.replaceWithInheritedSession,
     ]
   );

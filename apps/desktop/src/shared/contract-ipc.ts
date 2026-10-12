@@ -57,6 +57,7 @@ export const DESKTOP_IPC = {
   scheduleQuotaResume: 'mixdog:schedule-quota-resume',
   cancelQuotaResume: 'mixdog:cancel-quota-resume',
   getQuotaAutoResume: 'mixdog:get-quota-auto-resume',
+  viewerDevice: 'mixdog:viewer-device',
   setQuotaAutoResume: 'mixdog:set-quota-auto-resume',
   setSessionArchived: 'mixdog:set-session-archived',
   setSessionFavorite: 'mixdog:set-session-favorite',

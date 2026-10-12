@@ -19,6 +19,14 @@ export function transcriptDevices(
   return devices;
 }
 
+/** Whether `device` named a device other than the one viewing the transcript.
+ *  `viewer` is null until the viewing device's own name is known: nothing is
+ *  attributed meanwhile, so the viewer never sees itself named. A viewer that
+ *  could not learn its name ('') names every device. */
+export function isOtherDevice(device: unknown, viewer: string | null): boolean {
+  return typeof device === 'string' && device !== '' && viewer !== null && device !== viewer;
+}
+
 export function sessionUsesMultipleDevices(
   items: readonly unknown[] | null | undefined,
   extra: readonly string[] = []

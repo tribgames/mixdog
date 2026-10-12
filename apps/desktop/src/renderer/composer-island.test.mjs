@@ -141,6 +141,62 @@ test('an agent blocked on a user approval reads as needing the user, not working
   assert.match(rows[1].querySelector('.composer-island-row-sub').textContent, /\d/);
 });
 
+test('an agent row with a session is a button that opens it and closes the panel; others stay inert', async (t) => {
+  const { root, document } = mount(t);
+  await publish({
+    shellJobs: { count: 1, jobs: [{ taskId: 'job-1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
+    agentWorkers: [
+      {
+        tag: 'ask-b',
+        agent: 'reviewer',
+        sessionId: 'child-1',
+        stage: 'tool_running',
+        status: 'running',
+        startedAt: Date.now() - 65_000,
+        awaitingUser: 'approval',
+      },
+      { tag: 'run-a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
+    ],
+  });
+  const opened = [];
+  await act(async () =>
+    root.render(
+      React.createElement(ComposerDock, dockProps({ onOpenAgentSession: (...args) => opened.push(args) }))
+    )
+  );
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  const rows = [...document.querySelectorAll('.composer-island-row')];
+  assert.equal(rows.length, 2);
+  // Needs-user agent with a session: a button named after the agent.
+  const button = rows[0].querySelector('button.composer-island-row-open');
+  assert.ok(button);
+  assert.equal(button.type, 'button');
+  assert.match(button.getAttribute('aria-label'), /Reviewer · ask-b/);
+  assert.match(button.getAttribute('aria-label'), new RegExp(translate('Waiting for approval')));
+  // No session id: inert.
+  assert.equal(rows[1].querySelector('button'), null);
+  await act(async () => button.click());
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0][0], 'child-1');
+  assert.equal(opened[0][2], 'island-session');
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill', 'panel closed');
+  // Shell rows are never buttons.
+  await act(async () => document.querySelector('.composer-island-seg-shell').click());
+  assert.equal(document.querySelector('.composer-island-row button'), null);
+});
+
+test('without an open action agent rows stay non-interactive', async (t) => {
+  const { root, document } = mount(t);
+  await publish({
+    agentWorkers: [
+      { tag: 'run-a', agent: 'worker', sessionId: 'child-2', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
+    ],
+  });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  assert.equal(document.querySelector('.composer-island-row button'), null);
+});
+
 test('a pending approval takes over the island; a flash notice replaces any leftover card', async (t) => {
   const { root, document } = mount(t);
   await act(async () =>

@@ -26,6 +26,9 @@ export function sessionRemoteMethods(
 ): Record<string, RemoteMethod> {
   const connectionDevice = async (): Promise<string> => (await client?.deviceName?.()) || 'Web app';
   return {
+    // The name this connection's own actions are stamped with, so the client
+    // can tell which transcript rows it sent itself.
+    viewerDevice: () => connectionDevice(),
     markSessionRead: ([sessionId, messageCount, consumedUnread]) => {
       if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
         throw new TypeError('consumedUnread must be a boolean.');

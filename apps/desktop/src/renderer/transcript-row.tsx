@@ -4,6 +4,7 @@ import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource 
 import { useAttachmentContextMenu } from './attachment-context-menu';
 import { MarkdownOpenFileContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
+import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
 import MarkdownBody from './MarkdownBody';
 import {
@@ -240,6 +241,10 @@ export function transcriptSourceLabel(item: TranscriptItem): string {
  *  a prompt row say which device sent it. */
 export const TranscriptDevicesContext = createContext(false);
 
+/** The name of the device viewing the transcript (null while unknown). A prompt
+ *  sent from this device is never labelled "from <this device>". */
+export const TranscriptViewerDeviceContext = createContext<string | null>('');
+
 export const TranscriptRow = memo(
   function TranscriptRow({
     item,
@@ -259,6 +264,7 @@ export const TranscriptRow = memo(
     disclosureScope?: string;
   }) {
     const multiDevice = useContext(TranscriptDevicesContext);
+    const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const previousStreaming = useRef(Boolean(item.streaming));
     const announceSettled = previousStreaming.current && !item.streaming;
     useEffect(() => {
@@ -395,7 +401,7 @@ export const TranscriptRow = memo(
               {user ? <p>{webhookFold.text}</p> : <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
             </div>
           )}
-          {user && multiDevice && typeof item.device === 'string' && item.device && (
+          {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
           )}
           {!user && !item.streaming && completion && (

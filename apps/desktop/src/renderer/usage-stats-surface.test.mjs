@@ -195,7 +195,7 @@ test('statistics show warmed figures in the first committed frame, including aft
   assert.ok(document.querySelector('.stats-trend').textContent.includes('2.4K'));
 });
 
-test('entry during usage warmup waits for one complete result instead of flashing old figures', async (context) => {
+test('entry during usage warmup paints the last figures at once and swaps in the one complete result', async (context) => {
   const render = harness(context, CommandSurface);
   let update;
   const resolvers = [];
@@ -216,12 +216,9 @@ test('entry during usage warmup waits for one complete result instead of flashin
   update({ sessionId: 'one', stats: { inputTokens: 2200, outputTokens: 200, turns: 2 } });
   await render({ ...props, open: true });
   assert.equal(resolvers.length, 2, 'entry shares the background read');
-  assert.equal(document.querySelector('.stats-surface').dataset.loading, 'true');
-  assert.deepEqual(
-    [...document.querySelectorAll('.stats-card > b')].map((node) => node.textContent),
-    ['', '', '', '']
-  );
-  assert.equal(document.querySelector('.stats-provider-row'), null);
+  assert.equal(document.querySelector('.stats-surface').dataset.loading, undefined);
+  assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K', 'no placeholder on entry');
+  assert.ok(document.querySelector('.stats-provider-row').textContent.includes('1.2K'));
   await act(async () => resolvers[1]({ value: snapshot('hour', 2400) }));
   assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '2.4K');
   assert.ok(document.querySelector('.stats-provider-row').textContent.includes('2.4K'));
@@ -280,6 +277,32 @@ test('a reopen refresh failure retains the cached figures beside the error', asy
   await render(props);
   assert.equal(document.querySelector('[role="alert"]').textContent, 'refresh offline');
   assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K');
+});
+
+test('a failed refresh behind stale figures shows the error and keeps the stale figures', async (context) => {
+  const render = harness(context, CommandSurface);
+  let fail = false;
+  let update;
+  const api = {
+    async invokeCapability() {
+      if (fail) throw new Error('refresh offline');
+      return { value: snapshot() };
+    },
+    subscribeState(listener) {
+      update = listener;
+      return () => {};
+    },
+  };
+  const release = holdStatsDataCache(api);
+  context.after(release);
+  await refreshStatsDataCache(api);
+  // A turn lands while the dialog is closed: the warm figures are now stale.
+  update({ sessionId: 'one', stats: { inputTokens: 100 } });
+  fail = true;
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  assert.equal(document.querySelector('[role="alert"]').textContent, 'refresh offline');
+  assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K', 'stale figures stay visible');
+  assert.equal(document.querySelector('.stats-refresh-status'), null, 'the finished refresh no longer reads as in progress');
 });
 
 test('unmeasured Cursor usage is not displayed as zero cache, zero hit rate or a confirmed cost', async (context) => {
