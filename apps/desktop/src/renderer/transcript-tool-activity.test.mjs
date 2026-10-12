@@ -1291,3 +1291,57 @@ test('a finished background task with nothing to read cannot open and shows its 
     dom.close();
   }
 });
+
+test('the thinking spinner shows the runtime-resolved turn effort, falling back to the saved level', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const thinkingText = async (snapshot) => {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(LiveActivity, {
+          snapshot: { thinking: true, spinner: { active: true, startedAt: Date.now(), mode: 'thinking' }, ...snapshot },
+        })
+      );
+    });
+    return document.querySelector('.live-activity-meta')?.textContent || '';
+  };
+  try {
+    assert.match(await thinkingText({ effort: 'high', turnEffort: 'medium' }), /Thinking \(medium\)/);
+    assert.match(await thinkingText({ effort: 'high', turnEffort: 'low' }), /Thinking \(low\)/, 're-judged step');
+    assert.match(await thinkingText({ effort: 'high', turnEffort: null }), /Thinking \(high\)/);
+    assert.match(await thinkingText({ effort: 'high' }), /Thinking \(high\)/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('the spinner byline is translated on the desktop', async () => {
+  const { initUiLanguage, setUiLanguagePreference } = await import('./i18n.ts');
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  setUiLanguagePreference('ko');
+  await initUiLanguage();
+  const bylineFor = async (snapshot) => {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(LiveActivity, {
+          snapshot: { spinner: { active: true, startedAt: Date.now(), mode: 'thinking', outputTokens: 340 }, ...snapshot },
+        })
+      );
+    });
+    return document.querySelector('.live-activity-meta')?.textContent || '';
+  };
+  try {
+    const live = await bylineFor({ thinking: true, effort: 'high', turnEffort: 'medium' });
+    assert.match(live, /토큰 340개/);
+    assert.match(live, /생각 중 \(medium\)/);
+    assert.doesNotMatch(live, /tokens|thinking/);
+    assert.match(await bylineFor({ thinking: true }), /생각 중$/);
+    assert.match(await bylineFor({ thinking: false, spinner: { active: true, startedAt: Date.now(), thinkingAccumulatedMs: 5000 } }), /5초 동안 생각함/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+    setUiLanguagePreference('en');
+    await initUiLanguage();
+  }
+});
+

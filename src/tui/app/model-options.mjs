@@ -8,6 +8,7 @@
 import { theme } from '../theme.mjs';
 import { displayModelName } from '../../runtime/shared/model-display.mjs';
 import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
+import { DAYBREAK_PROVIDER, daybreakBlueOn } from '../../runtime/shared/llm/openai-daybreak.mjs';
 
 export const parsedModelVersion = (id) => {
   const text = String(id || '').toLowerCase();
@@ -237,7 +238,14 @@ export const modelDescription = (m) =>
 
 const modelRecordDisplayName = (model) => displayModelName(model?.id, model?.provider, model?.display || model?.name);
 
-const routeModelDisplayName = (route) => displayModelName(route?.model, route?.provider, route?.modelDisplay || '');
+// Daybreak Blue reads as part of the model ("GPT-6 Sol Blue"), ahead of effort.
+const routeModelDisplayName = (route) =>
+  [
+    displayModelName(route?.model, route?.provider, route?.modelDisplay || ''),
+    route?.provider === DAYBREAK_PROVIDER && daybreakBlueOn(route?.modelParameters) ? 'Blue' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
 const groupModelsByProvider = (models) => {
   const providers = new Map();

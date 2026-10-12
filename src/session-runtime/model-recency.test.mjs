@@ -63,5 +63,8 @@ test('a custom cache row carries the effective-row fields, explicit [] and false
 
 test('a first-party cache row is unchanged by the custom fields', () => {
   const row = providerModelCacheRow('openai', { id: 'm', name: 'M', hidden: true, manual: true }, () => false);
-  for (const key of ['name', 'hidden', 'manual', 'customReasoning']) assert.equal(Object.hasOwn(row, key), false);
+  for (const key of ['name', 'manual', 'customReasoning']) assert.equal(Object.hasOwn(row, key), false);
+  // A provider catalog's own hidden mark (visibility) does carry over.
+  assert.equal(row.hidden, true);
+  assert.equal(Object.hasOwn(providerModelCacheRow('openai', { id: 'm' }, () => false), 'hidden'), false);
 });

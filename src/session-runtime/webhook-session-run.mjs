@@ -9,6 +9,7 @@ import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
 import { createSession } from '../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../runtime/agent/orchestrator/session/manager/ask-session.mjs';
 import { modelRouteFields, parseScheduleModelRef } from '../runtime/shared/schedule-model-ref.mjs';
+import { migrateCodexRoute } from '../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
 import { runAutomationTurns } from './automation-agents.mjs';
 import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
@@ -17,7 +18,8 @@ import { automationPromptContent } from '../runtime/shared/automation-attachment
 function webhookRoute(modelRef) {
   if (modelRef) {
     const ref = parseScheduleModelRef(modelRef);
-    if (ref && typeof ref === 'object') return ref;
+    // A model the provider catalog superseded runs on its successor.
+    if (ref && typeof ref === 'object') return migrateCodexRoute(ref);
   }
   const cfg = loadConfig({ secrets: false });
   const maintenance = cfg?.maintenance?.webhook;

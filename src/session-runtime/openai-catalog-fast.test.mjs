@@ -40,7 +40,6 @@ test('OpenAI OAuth catalog Fast capability survives caching and agrees with requ
     { slug: 'future-nano', ...advertised, expected: true },
     { slug: 'gpt-5.4-mini', service_tiers: [], additional_speed_tiers: [], expected: false },
     { slug: 'gpt-5.5', expected: false },
-    { slug: 'gpt-daybreak-blue-latest', service_tiers: [], expected: false },
     { slug: 'future-speed-tier', additional_speed_tiers: ['priority'], expected: true },
     { slug: 'future-default-tier', default_service_tier: 'priority', expected: true },
     { slug: 'future-speed-label', additional_speed_tiers: ['fast'], expected: false },

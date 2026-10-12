@@ -11,16 +11,17 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopModelOption } from '../shared/contract';
+import { displayEffortLabel } from './auto-effort-store';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { BOOT_WARMUP, scheduleBootWarmup } from './boot-warmup';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ModelCatalog } from './model-catalog';
 import { type RouteSpeed, routeSpeed } from './model-route-utils';
-import { formatContextWindow, ModelRouteLabel } from './provider-display';
+import { DAYBREAK_PARAMETER_ID, formatContextWindow, ModelRouteLabel, routeDaybreakBlue } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
 import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
-import { RouteAutoEffortToggle } from './route-editor-auto-effort';
+import { RouteAutoEffortToggle, RouteDaybreakToggle } from './route-editor-auto-effort';
 import { useContextDraft } from './route-editor-context';
 import { useRouteDismissal, useRouteFontWarmup } from './route-editor-effects';
 import { useRouteLayout } from './route-editor-layout';
@@ -174,7 +175,8 @@ export function RouteEditor({
     });
   }, [modelCatalogReady, models.length, sheetId]);
   const selectedEffort = effortOptions.find((option) => option.value === effort);
-  const autoEffortOn = autoEffort?.enabled === true;
+  // `autoEffort` is only passed for a capable model; a saved max/ultra stays shown.
+  const autoEffortOn = displayEffortLabel(effort, { autoOn: autoEffort?.enabled === true, capable: true }) !== null;
   // "Auto" is the effort's name (like "Fast"), shown untranslated on the model
   // chip and the Reasoning effort row.
   const effortLabel = autoEffortOn ? 'Auto' : selectedEffort?.label || '';
@@ -187,9 +189,16 @@ export function RouteEditor({
   // The slider row IS the context control (TUI parity): a provider's own
   // context-window parameter (Cursor 272K/1M) must never duplicate it.
   // `serviceTier` is the Speed row's Ultrafast tier, never a generic row.
+  // Daybreak Blue is the switch under Auto reasoning, never a generic row.
   const parameterRows = modelParameterOptions.filter(
-    (parameter) => parameter.id !== 'serviceTier' && !(contextVisible && parameter.id === 'context')
+    (parameter) =>
+      parameter.id !== 'serviceTier' &&
+      parameter.id !== DAYBREAK_PARAMETER_ID &&
+      !(contextVisible && parameter.id === 'context')
   );
+  const daybreakRow =
+    Boolean(provider && model) && modelParameterOptions.some((parameter) => parameter.id === DAYBREAK_PARAMETER_ID);
+  const daybreakOn = routeDaybreakBlue(modelParameters, modelParameterOptions);
   const rows = routeSheetRows({
     hasModel: Boolean(provider && model),
     effortCount: effortOptions.length,
@@ -198,7 +207,8 @@ export function RouteEditor({
     parameterIds: parameterRows.map((parameter) => parameter.id),
   });
   const autoEffortRow = Boolean(autoEffort) && rows.includes('effort');
-  const sheetHeight = (rows.length + (autoEffortRow ? 1 : 0)) * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
+  const sheetHeight =
+    (rows.length + (autoEffortRow ? 1 : 0) + (daybreakRow ? 1 : 0)) * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
   const { setContextDraft, shownContextPercent, shownContextTokens, defaultContextTokens, commitContextDraft } =
@@ -605,6 +615,7 @@ export function RouteEditor({
             model={triggerModel}
             effort={autoEffortOn ? '' : effort}
             fast={fast}
+            blue={daybreakOn}
             effortLabel={effortLabel}
           />
         </span>
@@ -669,6 +680,13 @@ export function RouteEditor({
                     enabled={autoEffort.enabled}
                     disabled={tuningDisabled || autoEffort.pending}
                     onChange={onChangeAutoEffort}
+                  />
+                )}
+                {daybreakRow && (
+                  <RouteDaybreakToggle
+                    enabled={daybreakOn}
+                    disabled={tuningDisabled || !onChangeModelParameter}
+                    onChange={(enabled) => onChangeModelParameter?.(DAYBREAK_PARAMETER_ID, enabled ? 'on' : 'off')}
                   />
                 )}
               </div>

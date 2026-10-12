@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { RecordValue } from './desktop-types';
+import { readCachedModelCatalog } from './model-catalog-cache';
 
 // The app-wide Auto reasoning switch, shared by every route sheet. It is read
 // once on demand (only a model that supports it asks), re-read when a sheet
@@ -70,6 +71,31 @@ export function useAutoEffortRoute(capable: boolean) {
       if (capable) void refreshAutoEffort();
     },
   };
+}
+
+/** The single rule for an effort label: "Auto" when the switch is on, the model
+ *  supports it, and the saved level is not a user-respected max/ultra (runtime
+ *  `autoEffortBase`); otherwise null, meaning "show the saved level". */
+export function displayEffortLabel(savedEffort: string, opts: { autoOn: boolean; capable: boolean }): 'Auto' | null {
+  const level = String(savedEffort || '')
+    .trim()
+    .toLowerCase();
+  return opts.autoOn && opts.capable && level !== 'max' && level !== 'ultra' ? 'Auto' : null;
+}
+
+/** Whether the catalog (localStorage cache the composer fills) marks this
+ *  provider/model as supporting Auto reasoning. */
+export function cachedAutoEffortCapable(provider: string, model: string): boolean {
+  return readCachedModelCatalog().models.some(
+    (entry) => entry.provider === provider && entry.model === model && entry.autoEffortCapable === true
+  );
+}
+
+/** Live `displayEffortLabel` for a route: subscribes to the Auto switch. */
+export function useAutoEffortShown(capable: boolean, savedEffort: string): boolean {
+  const autoEffort = useAutoEffort(capable);
+  const autoOn = autoEffort?.installed === true && autoEffort.supported && autoEffort.enabled;
+  return displayEffortLabel(savedEffort, { autoOn, capable }) !== null;
 }
 
 /** The switch state; `wanted` (the model supports it) triggers the first read. */

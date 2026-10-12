@@ -151,6 +151,9 @@ export function providerModelCacheRow(name, m, webSearchCapableFor) {
     serviceTiers: Array.isArray(m.serviceTiers) ? m.serviceTiers : [],
     additionalSpeedTiers: Array.isArray(m.additionalSpeedTiers) ? m.additionalSpeedTiers : [],
     defaultServiceTier: m.defaultServiceTier || null,
+    ...(Array.isArray(m.accessPrograms) ? { accessPrograms: m.accessPrograms } : {}),
+    // A catalog-hidden model leaves the pickers; its metadata still resolves.
+    ...(m.hidden === true ? { hidden: true } : {}),
     fastCapable: m.fastCapable === true,
     fastEfforts: Array.isArray(m.fastEfforts) ? m.fastEfforts : undefined,
     modelParameterOptions: Array.isArray(m.modelParameterOptions) ? m.modelParameterOptions : [],

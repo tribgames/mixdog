@@ -56,6 +56,8 @@ export function createContextState({
     sessionProvider: runtime.sessionProvider ?? null,
     sessionModel: runtime.sessionModel ?? null,
     effort: runtime.effort,
+    // Resolved per-turn/per-step effort (Auto judge); null when none recorded.
+    turnEffort: runtime.turnEffort ?? null,
     effortOptions: runtime.effortOptions,
     fast: runtime.fast,
     fastCapable: runtime.fastCapable,

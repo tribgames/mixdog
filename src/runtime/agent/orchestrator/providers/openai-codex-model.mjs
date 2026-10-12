@@ -6,6 +6,7 @@
  * per-family "latest" pass. No module state; openai-oauth.mjs re-exports
  * _displayCodexModel for existing importers.
  */
+import { accessProgramOnly, catalogAccessPrograms } from '../../../shared/llm/openai-daybreak.mjs';
 
 // OAuth catalog returns dated ids (gpt-5.4-mini-2026-03-17). Strip the trailing
 // -YYYY-MM-DD to get the version alias (gpt-5.4-mini). Unknown shapes pass
@@ -59,6 +60,9 @@ export function _normalizeCodexModel(m) {
     ? m.additional_speed_tiers.map((t) => String(t || '').trim()).filter(Boolean)
     : [];
   const reasoningLevels = (m?.supported_reasoning_levels || []).map((r) => r.effort);
+  // Explicit access programs this caller may select (Daybreak Blue); absent
+  // when the catalog does not say, which is not the same as an empty list.
+  const accessPrograms = catalogAccessPrograms(m?.available_access_programs);
   // Catalog ids are version aliases without separate display dating.
   return {
     id,
@@ -97,6 +101,15 @@ export function _normalizeCodexModel(m) {
     serviceTiers,
     defaultServiceTier: m?.default_service_tier || null,
     additionalSpeedTiers,
+    ...(accessPrograms ? { accessPrograms } : {}),
+    // The catalog's own replacement for a model being retired.
+    ...(m?.upgrade?.model
+      ? { upgrade: { model: String(m.upgrade.model), retirementAt: m.upgrade.retirement_at || null } }
+      : {}),
+    // Out of the pickers: the catalog hides it, or it is a standalone
+    // access-program variant that a route toggle on a regular model replaces.
+    // Saved routes on it keep resolving.
+    ...(m?.visibility === 'hide' || accessProgramOnly({ accessPrograms }) ? { hidden: true } : {}),
   };
 }
 

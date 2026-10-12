@@ -83,6 +83,27 @@ test('list projects agent sessions and keeps only rows that can still do work un
   );
 });
 
+test('list publishes the worker index turnStartedAt for a continued working row, and omits it when idle', () => {
+  const turnStartedAt = new Date(Date.now() - 5000).toISOString();
+  const createdAt = new Date(Date.now() - 7.5 * 3_600_000).toISOString();
+  const running = session('s-cont', { createdAt, status: 'streaming', runtime: { stage: 'streaming' } });
+  const idle = session('s-cont-idle', { createdAt, status: 'idle' });
+  const { api } = views({
+    sessions: new Map([
+      ['s-cont', running],
+      ['s-cont-idle', idle],
+    ]),
+    entries: [
+      { tag: 'a', session: running, indexRow: { sessionId: 's-cont', generation: 2, createdAt, turnStartedAt } },
+      { tag: 'b', session: idle, indexRow: { sessionId: 's-cont-idle', turnStartedAt } },
+    ],
+  });
+  const rows = api.list({ includeTerminal: true });
+  assert.equal(rows[0].turnStartedAt, turnStartedAt);
+  assert.equal(rows[0].createdAt, createdAt);
+  assert.equal('turnStartedAt' in rows[1], false);
+});
+
 test('job rows read live progress for running tasks and freeze terminal ones; lookup accepts task id, tag or session', () => {
   const live = session('jv-s-run', { status: 'streaming', runtime: { stage: 'streaming' }, clientHostPid: 777 });
   const { api } = views({ sessions: new Map([['jv-s-run', live]]) });

@@ -296,6 +296,13 @@
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
   border-radius: 0 0 var(--mx-radius-md) var(--mx-radius-md);
 }
+/* Stacked switches (Auto reasoning, then Daybreak Blue) share one hairline. */
+.route-sheet-row.route-sheet-toggle:has(+ .route-sheet-toggle) {
+  border-radius: 0;
+}
+.route-sheet-row.route-sheet-toggle + .route-sheet-toggle {
+  border-top: 0;
+}
 /* Codex-style submenu header + two-line speed options. */
 .route-sheet-flyout-title {
   flex: 0 0 auto;

@@ -170,7 +170,13 @@ function scheduleMeta(schedule: RecordValue) {
       {route && (
         <>
           {' '}
-          · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} />
+          · <ModelRouteLabel
+            model={route.model}
+            effort={route.effort}
+            fast={route.fast}
+            blue={route.blue}
+            autoEffortCapable={route.autoEffortCapable}
+          />
         </>
       )}
       {cwdLabel && <> · {cwdLabel}</>}

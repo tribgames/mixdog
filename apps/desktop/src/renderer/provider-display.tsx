@@ -2,6 +2,7 @@ import type { SVGProps } from 'react';
 
 import type { DesktopModelOption } from '../shared/contract';
 
+import { useAutoEffortShown } from './auto-effort-store';
 import { t } from './i18n';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
 import { canonicalModelDisplay } from '../../../../src/ui/model-display.mjs';
@@ -310,30 +311,58 @@ function modelRouteDisplayParts(
   };
 }
 
+/** The route's Daybreak Blue model parameter id; the runtime offers it only on models that accept Blue. */
+export const DAYBREAK_PARAMETER_ID = 'daybreak';
+
+/** Blue is on for this route: the toggle is set and, when the model's
+ *  parameter options are known, the model actually offers it. */
+export function routeDaybreakBlue(
+  modelParameters: Record<string, string> | null | undefined,
+  options?: DesktopModelOption['modelParameterOptions']
+): boolean {
+  if (String(modelParameters?.[DAYBREAK_PARAMETER_ID] || '').toLowerCase() !== 'on') return false;
+  return !options || options.some((parameter) => parameter.id === DAYBREAK_PARAMETER_ID);
+}
+
 export function ModelRouteLabel({
   model,
   effort = '',
   fast = false,
+  blue = false,
   effortLabel = '',
+  autoEffortCapable = false,
 }: {
   model: string | null | undefined;
   effort?: string | null | undefined;
   fast?: boolean;
+  /** Daybreak Blue is on: shown right after the model ("GPT-6 Sol Blue XHigh"). */
+  blue?: boolean;
   effortLabel?: string;
+  /** The model supports Auto reasoning: the global switch then replaces the saved level. */
+  autoEffortCapable?: boolean;
 }) {
-  const parts = modelRouteDisplayParts(model, effort, fast, effortLabel);
+  const autoShown = useAutoEffortShown(autoEffortCapable, String(effort || ''));
+  const parts = autoShown
+    ? modelRouteDisplayParts(model, '', fast, 'Auto')
+    : modelRouteDisplayParts(model, effort, fast, effortLabel);
   return (
     <span className="model-route-label">
       {parts.model && <span className="model-route-label-model">{parts.model}</span>}
-      {parts.effort && (
+      {blue && (
         <>
           {parts.model && ' '}
+          <span className="model-route-label-blue">Blue</span>
+        </>
+      )}
+      {parts.effort && (
+        <>
+          {(parts.model || blue) && ' '}
           <span className="model-route-label-effort">{parts.effort}</span>
         </>
       )}
       {parts.fast && (
         <>
-          {(parts.model || parts.effort) && ' '}
+          {(parts.model || blue || parts.effort) && ' '}
           <span className="model-route-label-fast">{parts.fast}</span>
         </>
       )}

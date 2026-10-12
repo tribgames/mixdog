@@ -58,6 +58,8 @@
     "Fast On": "speed-tier name",
     "Fast Off": "speed-tier name",
     "Ultrafast": "speed-tier name",
+    "Blue": "Daybreak Blue access-program name",
+    "Daybreak Blue": "product name",
     "Lead": "agent role name",
     "Doctor": "command name (/doctor)",
     "Local Provider": "skill name",

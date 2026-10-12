@@ -197,6 +197,7 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
     left.sessionProvider === right.sessionProvider &&
     left.sessionModel === right.sessionModel &&
     left.effort === right.effort &&
+    left.turnEffort === right.turnEffort &&
     left.fast === right.fast &&
     left.fastCapable === right.fastCapable &&
     left.workflow === right.workflow &&

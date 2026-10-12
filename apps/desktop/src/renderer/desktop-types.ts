@@ -117,6 +117,8 @@ export type Snapshot = RecordValue & {
   sessionProvider?: string | null;
   sessionModel?: string | null;
   effort?: string;
+  /** Effort the runtime resolved for the turn in flight (Auto judge); null/absent when none. */
+  turnEffort?: string | null;
   fast?: boolean;
   fastCapable?: boolean;
   modelParameters?: Record<string, string>;

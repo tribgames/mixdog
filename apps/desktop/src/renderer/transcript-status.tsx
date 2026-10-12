@@ -344,9 +344,19 @@ export function LiveActivity({
     thinking: Boolean(activityRecord.thinking || snapshot.thinking),
     thinkingSince: Number(activityRecord.thinkingSegmentStartedAt || 0),
     thinkingMs: Number(activityRecord.thinkingAccumulatedMs || 0),
-    effort: String(snapshot.effort || ''),
+    // What the runtime actually resolved this turn/step (Auto judge); the saved
+    // level when nothing was recorded (Auto off, or a model without it).
+    effort: String(snapshot.turnEffort || snapshot.effort || ''),
   });
-  const activityMeta = [elapsed, meta.showTokens ? meta.tokensText : '', meta.thinkingText].filter(Boolean).join(' · ');
+  // The TUI formats these parts as lowercase English; the desktop translates them.
+  const thinkingLabel = (() => {
+    const parts = meta.thinkingParts as { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null;
+    if (!parts) return '';
+    if (parts.kind === 'thought') return t('Thought for {{seconds}}s', { seconds: parts.seconds });
+    return parts.effort ? t('Thinking ({{effort}})', { effort: parts.effort }) : t('Thinking (spinner)', { defaultValue: 'Thinking' });
+  })();
+  const tokensLabel = meta.showTokens ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
+  const activityMeta = [elapsed, tokensLabel, thinkingLabel].filter(Boolean).join(' · ');
   const reasoning = publicThinkingSummary(snapshot.thinking);
   const animateEnter = startedAt > 0 && startedAt >= mountedAt.current;
   return (
@@ -615,3 +625,4 @@ export function CompletionStatus({
     </div>
   );
 }
+

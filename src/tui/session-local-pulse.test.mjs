@@ -142,3 +142,15 @@ test('a live-share viewer pulse publishes only a changed route', () => {
   assert.equal(store.getPublishedState().effort, 'high');
   assert.equal(store.getPublishedState().stats.currentContextTokens, 1000);
 });
+
+test('the pulse publishes the resolved turn effort as it changes', () => {
+  const { runtime, store, tick } = harness();
+  tick();
+  assert.equal(store.getPublishedState().turnEffort, null);
+  runtime.turnEffort = 'medium';
+  tick();
+  assert.equal(store.getPublishedState().turnEffort, 'medium');
+  runtime.turnEffort = 'low';
+  tick();
+  assert.equal(store.getPublishedState().turnEffort, 'low', 'a step re-judge republishes');
+});

@@ -14,6 +14,11 @@ import {
   effortConfigurationMode,
 } from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
+import {
+  DAYBREAK_PARAMETER_OPTION,
+  DAYBREAK_PROVIDER,
+  daybreakBlueSupported,
+} from '../../runtime/shared/llm/openai-daybreak.mjs';
 
 const ULTRAFAST_SPEED_OPTION = Object.freeze({
   id: 'serviceTier',
@@ -33,10 +38,13 @@ export function hydrateProviderModelRow(cfg, row) {
   const alias = typeof saved.alias === 'string' ? saved.alias.trim() : '';
   const fastCapable = fastCapableFor(row.provider, row);
   const existingOptions = Array.isArray(row.modelParameterOptions) ? row.modelParameterOptions : [];
-  const modelParameterOptions =
-    fastCapable && ultrafastCapableFor(row.provider, row)
-      ? [...existingOptions.filter((option) => option?.id !== ULTRAFAST_SPEED_OPTION.id), ULTRAFAST_SPEED_OPTION]
-      : row.modelParameterOptions;
+  const addedOptions = [
+    ...(row.provider === DAYBREAK_PROVIDER && daybreakBlueSupported(row) ? [DAYBREAK_PARAMETER_OPTION] : []),
+    ...(fastCapable && ultrafastCapableFor(row.provider, row) ? [ULTRAFAST_SPEED_OPTION] : []),
+  ];
+  const modelParameterOptions = addedOptions.length
+    ? [...existingOptions.filter((option) => !addedOptions.some((added) => added.id === option?.id)), ...addedOptions]
+    : row.modelParameterOptions;
   return {
     ...row,
     ...(alias ? { display: alias, displayAlias: alias } : {}),

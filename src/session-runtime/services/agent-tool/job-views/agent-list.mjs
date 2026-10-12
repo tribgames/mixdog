@@ -19,12 +19,15 @@ export function isActiveWorkerRow(row = {}) {
   return !isTerminalWorkerStatus(effective);
 }
 
-function agentRow({ tag, session, runtime, progress, now }) {
+function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
   const status = session.closed === true ? 'closed' : session.status || 'idle';
   const stage =
     session.stage ||
     (status === 'idle' || status === 'error' || status === 'closed' ? status : runtime?.stage || status);
-  return {
+  // Additive: the current turn's start (worker index, stamped at dispatch) so
+  // surfaces time a continued worker from its turn, not from createdAt.
+  const turnStartedAt = indexRow?.turnStartedAt || session.turnStartedAt || null;
+  const row = {
     tag,
     sessionId: session.id,
     agent: session.agent || null,
@@ -33,6 +36,10 @@ function agentRow({ tag, session, runtime, progress, now }) {
     preset: session.presetName || null,
     effort: session.effort || null,
     fast: session.fast === true,
+    // Additive: route model parameters (e.g. Daybreak Blue) when the route has any.
+    ...(session.modelParameters && Object.keys(session.modelParameters).length
+      ? { modelParameters: { ...session.modelParameters } }
+      : {}),
     status,
     stage,
     // Additive: present only while the worker's turn waits on a user approval.
@@ -53,16 +60,19 @@ function agentRow({ tag, session, runtime, progress, now }) {
       : Math.max(0, Number(session.messageCount || 0)),
     tools: Array.isArray(session.tools) ? session.tools.length : Math.max(0, Number(session.toolCount || 0)),
   };
+  if (turnStartedAt && isActiveWorkerRow(row)) row.turnStartedAt = turnStartedAt;
+  return row;
 }
 
 export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntries, progress }) {
   return function list({ scanSessions = false, context = {}, includeTerminal = false } = {}) {
     refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
-    const rows = agentSessionEntries({ scanSessions, context }).map(({ tag, session }) =>
+    const rows = agentSessionEntries({ scanSessions, context }).map(({ tag, session, indexRow }) =>
       agentRow({
         tag,
         session,
+        indexRow,
         runtime: mgr.getSessionRuntime?.(session.id),
         progress: progress.sessionProgressExtras(session.id, session.agent || null, now),
         now,

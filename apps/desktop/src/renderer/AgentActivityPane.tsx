@@ -10,7 +10,8 @@ import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contr
 import { desktopAgentActivityState, hasPendingDesktopAgentWork } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
-import { modelDisplayName, ModelRouteLabel, ProviderIcon } from './provider-display';
+import { cachedAutoEffortCapable } from './auto-effort-store';
+import { modelDisplayName, ModelRouteLabel, ProviderIcon, routeDaybreakBlue } from './provider-display';
 import { formatWorkElapsed, timeMs } from './transcript-primitives';
 import { TextShimmer } from './transcript-primitives';
 import {
@@ -111,6 +112,7 @@ function AgentPoolRow({
   else if (state === 'unknown') elapsed = t('Unknown');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();
+  const autoEffortCapable = cachedAutoEffortCapable(String(agent.provider || ''), String(agent.model || ''));
   const prefetch = () => {
     if (sessionId) onPrefetchSession?.(lead ? ownerSessionId : sessionId);
   };
@@ -194,7 +196,13 @@ function AgentPoolRow({
           {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
         </span>
         <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
-          <ModelRouteLabel model={modelLabel} effort={effortValue} fast={agent.fast === true} />
+          <ModelRouteLabel
+            model={modelLabel}
+            effort={effortValue}
+            fast={agent.fast === true}
+            blue={routeDaybreakBlue(agent.modelParameters as Record<string, string> | undefined)}
+            autoEffortCapable={autoEffortCapable}
+          />
         </small>
       </span>
       <span className="agent-activity-status">

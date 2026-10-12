@@ -7,7 +7,13 @@ import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { preferredModelEffort, routeOption } from './model-route-utils';
 import { showDesktopToast } from './notifications';
-import { ModelRouteLabel, ProviderIcon, modelDisplayName, normalizeModelOptions } from './provider-display';
+import {
+  ModelRouteLabel,
+  ProviderIcon,
+  modelDisplayName,
+  normalizeModelOptions,
+  routeDaybreakBlue,
+} from './provider-display';
 import { record } from './record-utils';
 import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { SidebarLoadingDialog } from './sidebar-dialog';
@@ -25,7 +31,9 @@ type AgentRouteSummary = {
   model: string;
   effort: string;
   fast: boolean;
+  blue: boolean;
   effortLabel: string;
+  autoEffortCapable: boolean;
 };
 
 function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): AgentRouteSummary {
@@ -46,7 +54,9 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
     model: modelLabel,
     effort: effortValue,
     fast: fastCapable && fast,
+    blue: pinned && routeDaybreakBlue(record(route.modelParameters) as Record<string, string>, selected?.modelParameterOptions),
     effortLabel: rawEffortLabel,
+    autoEffortCapable: selected?.autoEffortCapable === true,
   };
 }
 
@@ -73,7 +83,9 @@ function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
         model={summary.model}
         effort={summary.effort}
         fast={summary.fast}
+        blue={summary.blue}
         effortLabel={summary.effortLabel}
+        autoEffortCapable={summary.autoEffortCapable}
       />
     </small>
   );

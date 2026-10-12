@@ -1,3 +1,4 @@
+import { currentTurnEffort } from '../runtime/agent/orchestrator/session/turn-effort.mjs';
 import { SESSION_ID_PATTERN } from '../runtime/agent/orchestrator/runtime-core/session-id.mjs';
 import { SessionAddressError, bindSessionAddress } from './session-address.mjs';
 
@@ -78,6 +79,10 @@ export function createRuntimeFacade({
     },
     get modelParameters() {
       return state.route.modelParameters || {};
+    },
+    // The effort the runtime resolved for the turn in flight (Auto judge), or null.
+    get turnEffort() {
+      return currentTurnEffort(state.session);
     },
     get effortOptions() {
       return state.route.effortOptions || [];

@@ -23,6 +23,7 @@ import {
   setEndpointEnabled as dbSetEndpointEnabled,
 } from '../../runtime/channels/lib/webhooks-db.mjs';
 import { normalizeAutomationAttachments } from '../../runtime/shared/automation-attachments.mjs';
+import { migrateCodexModelRef } from '../../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs';
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/shared/schedule-time.mjs';
 import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tunnel.mjs';
@@ -192,7 +193,8 @@ function scheduleToDisplay(s) {
     whenAt: s.whenAt || undefined,
     whenCron: s.whenCron || undefined,
     timezone: s.timezone || undefined,
-    model: s.model || undefined,
+    // Shown (and re-saved by the editor) on the catalog successor of a superseded model.
+    model: s.model ? migrateCodexModelRef(s.model) : undefined,
     cwd: s.cwd || undefined,
     workflow: s.workflow || undefined,
     attachments: s.attachments || undefined,
@@ -287,7 +289,7 @@ async function listWebhooks() {
     name: ep.name,
     description: ep.description || '',
     parser: ep.parser || 'github',
-    ...(ep.model ? { model: ep.model } : {}),
+    ...(ep.model ? { model: migrateCodexModelRef(ep.model) } : {}),
     ...(ep.cwd ? { cwd: ep.cwd } : {}),
     ...(ep.workflow ? { workflow: ep.workflow } : {}),
     ...(ep.attachments ? { attachments: ep.attachments } : {}),

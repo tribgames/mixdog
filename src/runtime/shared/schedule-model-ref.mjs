@@ -17,6 +17,17 @@ export function modelRouteFields(slot = {}) {
   };
 }
 
+/** The inverse of parseScheduleModelRef for a direct route object. */
+export function formatScheduleModelRef(route) {
+  const parameters = Object.entries(route?.modelParameters || {}).filter(([key, value]) => key && value);
+  return (
+    `${route.provider}/${route.model}` +
+    (route.effort ? `@${route.effort}` : '') +
+    (route.fast === true ? '+fast' : '') +
+    (parameters.length ? `?${new URLSearchParams(parameters).toString()}` : '')
+  );
+}
+
 export function parseScheduleModelRef(ref) {
   const raw = String(ref || '');
   const queryAt = raw.indexOf('?');

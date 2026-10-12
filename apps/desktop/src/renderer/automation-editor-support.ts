@@ -1,10 +1,11 @@
 // Pieces the Schedules and Webhooks panels share: they edit the same
 // automation shape (model route, project, workflow) in the same dialog grammar.
 import type { DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
+import { cachedAutoEffortCapable } from './auto-effort-store';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
 import { parseModelRef } from './model-route-utils';
-import { modelDisplayName, modelFastAvailable } from './provider-display';
+import { modelDisplayName, modelFastAvailable, routeDaybreakBlue } from './provider-display';
 
 /** `+fast` route suffix, emitted only when the selected model supports fast
  *  mode for the current effort/parameters (shared by Schedules and Webhooks). */
@@ -25,12 +26,22 @@ export function splitModelRoute(route: string): { provider: string; id: string }
 
 /** The list-row model label parts for a stored `provider/model@effort+fast`
  *  reference, or null when the row carries no model. */
-export function automationRouteSummary(rawModel: string): { model: string; effort: string; fast: boolean } | null {
+export function automationRouteSummary(
+  rawModel: string
+): { model: string; effort: string; fast: boolean; blue: boolean; autoEffortCapable: boolean } | null {
   const ref = parseModelRef(rawModel);
   if (!ref.route) return null;
   const slash = ref.route.indexOf('/');
   const model = slash > 0 ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash)) : ref.route;
-  return { model, effort: ref.effort || '', fast: ref.fast };
+  const autoEffortCapable =
+    slash > 0 && cachedAutoEffortCapable(ref.route.slice(0, slash), ref.route.slice(slash + 1));
+  return {
+    model,
+    effort: ref.effort || '',
+    fast: ref.fast,
+    blue: slash > 0 && routeDaybreakBlue(ref.modelParameters),
+    autoEffortCapable,
+  };
 }
 
 /** Project picker options; a stored cwd outside the project list stays selectable. */

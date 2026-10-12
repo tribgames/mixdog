@@ -4,6 +4,9 @@
 // selected parameters (and the selected effort), and cycling `thinking` can
 // invalidate a Fast selection that the new parameter combination rules out.
 import { modelKey } from './model-key.mjs';
+import { DAYBREAK_PARAMETER_ID } from '../../../../runtime/shared/llm/openai-daybreak.mjs';
+
+const TOGGLE_PARAMETER_IDS = new Set(['thinking', DAYBREAK_PARAMETER_ID]);
 
 export function createFastParameterSelection({ state, currentRoute, isCurrentRoute, isStateRoute, getSelectedEffort }) {
   const selectedFast = new Map();
@@ -82,12 +85,15 @@ export function createFastParameterSelection({ state, currentRoute, isCurrentRou
     return true;
   };
 
-  /** Cycles the 'thinking' parameter to its next option; false when the model
-   *  has none. Fast is dropped when the new parameters rule it out. */
+  /** Cycles the model's toggle parameter ('thinking', or Daybreak Blue's
+   *  on/off) to its next option; false when the model has none. Fast is
+   *  dropped when the new parameters rule it out. */
   const cycleThinking = (model) => {
-    const wanted = 'thinking';
-    const definition = (model.modelParameterOptions || []).find((parameter) => parameter.id === wanted);
+    const definition = (model.modelParameterOptions || []).find((parameter) =>
+      TOGGLE_PARAMETER_IDS.has(parameter.id)
+    );
     if (!definition?.options?.length) return false;
+    const wanted = definition.id;
     const parameters = modelParametersFor(model);
     const current = Math.max(
       0,

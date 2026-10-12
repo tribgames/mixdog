@@ -12,6 +12,7 @@
  * resolve unchanged.
  */
 import { makeModelCache } from './model-cache.mjs';
+import { CODEX_MODEL_CACHE_OPTIONS } from './openai-oauth-catalog-store.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { modelSupportsServiceTier } from './model-service-tiers.mjs';
@@ -21,8 +22,6 @@ import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { CODEX_OAUTH_ORIGINATOR, codexModelsUrl } from './openai-codex-endpoints.mjs';
 import { _normalizeCodexModel, _markLatestCodex } from './openai-codex-model.mjs';
 
-const CODEX_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
-const CODEX_MODEL_CACHE_SCHEMA_VERSION = 6;
 const CATALOG_FETCH_TIMEOUT_MS = 10_000;
 
 // In-memory mirror of the on-disk catalog, same pattern as anthropic-oauth.
@@ -31,9 +30,7 @@ let _mirror = null;
 let _refreshInFlight = null;
 
 const _modelCache = makeModelCache({
-  fileName: 'openai-oauth-models.json',
-  ttlMs: CODEX_MODEL_CACHE_TTL_MS,
-  version: CODEX_MODEL_CACHE_SCHEMA_VERSION,
+  ...CODEX_MODEL_CACHE_OPTIONS,
   onSave: (models) => {
     _mirror = Array.isArray(models) ? models.slice() : null;
   },

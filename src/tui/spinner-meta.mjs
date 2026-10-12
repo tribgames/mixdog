@@ -21,26 +21,38 @@ export function formatSpinnerTokens(value) {
   return String(Math.round(tokens));
 }
 
-// `auto` is the absence of a choice, so it never becomes a visible suffix —
+// `auto` is the absence of a choice, so it never becomes a visible level —
 // only an explicitly picked level earns "thinking (high)".
-function effortSuffix(effort) {
+function effortLevel(effort) {
   const level = String(effort || '')
     .trim()
     .toLowerCase();
   if (!level || level === 'auto' || level === 'default' || level === 'off' || level === 'none') return '';
-  return ` (${level})`;
+  return level;
+}
+
+/**
+ * Structured thinking label: `{ kind: 'thinking', effort }` while live,
+ * `{ kind: 'thought', seconds }` for a finished span (sub-second spans are
+ * noise and stay hidden), or null. Each surface formats it: the TUI through
+ * spinnerThinkingLabel (lowercase English), the desktop through its i18n.
+ */
+export function spinnerThinkingParts({ thinking = false, thinkingSince = 0, thinkingMs = 0, effort = '' } = {}) {
+  if (thinking || Number(thinkingSince) > 0) return { kind: 'thinking', effort: effortLevel(effort) };
+  const ms = Math.max(0, Number(thinkingMs) || 0);
+  if (ms >= 1000) return { kind: 'thought', seconds: Math.max(1, Math.round(ms / 1000)) };
+  return null;
 }
 
 /**
  * Live thinking reads as `thinking`; a finished thinking span reads as
- * `thought for Ns` until the next one starts. Sub-second
- * spans are noise and stay hidden.
+ * `thought for Ns` until the next one starts.
  */
-export function spinnerThinkingLabel({ thinking = false, thinkingSince = 0, thinkingMs = 0, effort = '' } = {}) {
-  if (thinking || Number(thinkingSince) > 0) return `thinking${effortSuffix(effort)}`;
-  const ms = Math.max(0, Number(thinkingMs) || 0);
-  if (ms >= 1000) return `thought for ${Math.max(1, Math.round(ms / 1000))}s`;
-  return '';
+export function spinnerThinkingLabel(options = {}) {
+  const parts = spinnerThinkingParts(options);
+  if (!parts) return '';
+  if (parts.kind === 'thinking') return `thinking${parts.effort ? ` (${parts.effort})` : ''}`;
+  return `thought for ${parts.seconds}s`;
 }
 
 /**
@@ -58,8 +70,12 @@ export function buildSpinnerMeta({
   verbose: _verbose = false,
 } = {}) {
   const tokens = Math.max(0, Number(outputTokens) || 0);
+  const thinkingParts = spinnerThinkingParts({ thinking, thinkingSince, thinkingMs, effort });
   const thinkingText = spinnerThinkingLabel({ thinking, thinkingSince, thinkingMs, effort });
   return {
+    // Structured twins of tokensText / thinkingText for surfaces that translate them.
+    tokensCount: tokens > 0 ? formatSpinnerTokens(tokens) : '',
+    thinkingParts,
     tokensText: tokens > 0 ? `${formatSpinnerTokens(tokens)} tokens` : '',
     // The count appears with the FIRST token (user: 30초가 아니라 바로).
     // Elapsed was never gated, so the byline used to grow a second field

@@ -2,6 +2,11 @@ import { hasExtensionScopes, normalizeExtensionScopes } from '../../shared/exten
 import { agentRouteStorageNeedsMigration, canonicalizeAgentRouteStorage } from '../../shared/agent-route-config.mjs';
 import profileConfig from '../../shared/profile-config.cjs';
 import { normalizeAgentProviderId, normalizePreset } from './config-presets.mjs';
+import {
+  loadSavedCodexCatalog,
+  migrateCodexRoute,
+  supersededCodexSettingsKey,
+} from './providers/openai-oauth-catalog-store.mjs';
 
 const { normalizeProfileConfig } = profileConfig;
 const RETIRED_LOCAL_PROVIDER_IDS = new Set(['ollama', 'lmstudio']);
@@ -205,7 +210,20 @@ function retiredLocalProviderStoragePresent(value = {}) {
   );
 }
 
+// Saved routes on a model the provider catalog has superseded (see
+// openai-oauth-catalog-store.mjs) — read from the last fetched catalog.
+function supersededRouteStoragePresent(value = {}, catalog = loadSavedCodexCatalog()) {
+  const superseded = (route) => migrateCodexRoute(route, catalog) !== route;
+  return (
+    (Array.isArray(value?.presets) && value.presets.some(superseded)) ||
+    Object.values(configObject(value?.agents)).some(superseded) ||
+    Object.values(configObject(value?.maintenance)).some(superseded) ||
+    Object.keys(configObject(value?.modelSettings)).some((key) => supersededCodexSettingsKey(key, catalog))
+  );
+}
+
 export function canonicalizeAgentStorage(value = {}) {
+  const catalog = loadSavedCodexCatalog();
   const next = canonicalizeAgentRouteStorage(value);
   const removedPresetIds = new Set(
     (Array.isArray(next.presets) ? next.presets : [])
@@ -216,17 +234,26 @@ export function canonicalizeAgentStorage(value = {}) {
   next.providers = configObject(next.providers);
   for (const id of RETIRED_LOCAL_PROVIDER_IDS) delete next.providers[id];
   next.presets = Array.isArray(next.presets)
-    ? next.presets.map((preset) => normalizePreset(preset)).filter((preset) => preset && !isRetiredLocalRoute(preset))
+    ? next.presets
+        .map((preset) => normalizePreset(migrateCodexRoute(preset, catalog)))
+        .filter((preset) => preset && !isRetiredLocalRoute(preset))
     : [];
   if (removedPresetIds.has(String(next.default || '').trim())) next.default = null;
   next.agents = Object.fromEntries(
-    Object.entries(configObject(next.agents)).filter(([, route]) => !isRetiredLocalRoute(route))
+    Object.entries(configObject(next.agents))
+      .filter(([, route]) => !isRetiredLocalRoute(route))
+      .map(([id, route]) => [id, migrateCodexRoute(route, catalog)])
   );
   next.maintenance = Object.fromEntries(
-    Object.entries(configObject(next.maintenance)).filter(([, route]) => !isRetiredLocalRoute(route))
+    Object.entries(configObject(next.maintenance))
+      .filter(([, route]) => !isRetiredLocalRoute(route))
+      .map(([slot, route]) => [slot, migrateCodexRoute(route, catalog)])
   );
+  // A superseded model's own settings have no model left to apply to.
   next.modelSettings = Object.fromEntries(
-    Object.entries(normalizedModelSettings(value)).filter(([key]) => !isRetiredLocalModelKey(key))
+    Object.entries(normalizedModelSettings(value)).filter(
+      ([key]) => !isRetiredLocalModelKey(key) && !supersededCodexSettingsKey(key, catalog)
+    )
   );
   setOrDelete(next, 'autoClear', canonicalizeAutoClearStorage(next.autoClear));
   setOrDelete(next, 'compaction', canonicalizeCompactionStorage(next.compaction));
@@ -266,6 +293,7 @@ export function agentConfigStorageNeedsMigration(value = {}) {
   return (
     agentRouteStorageNeedsMigration(value) ||
     retiredLocalProviderStoragePresent(value) ||
+    supersededRouteStoragePresent(value) ||
     RETIRED_AGENT_FIELDS.some((key) => key !== 'guide' && Object.hasOwn(value || {}, key)) ||
     presets.some((preset) => !normalizePreset(preset)) ||
     (modules && typeof modules === 'object' && Object.hasOwn(modules, 'memory')) ||

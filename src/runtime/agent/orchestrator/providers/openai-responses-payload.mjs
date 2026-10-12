@@ -7,6 +7,7 @@ import { isResponsesFreeformTool, toResponsesCustomTool } from './custom-tool-wi
 import { _envFlag } from './openai-oauth-http-sse.mjs';
 import { findCachedCodexModel } from './openai-oauth-catalog.mjs';
 import { resolveOpenAiServiceTier } from './openai-service-tier.mjs';
+import { daybreakAccessPrograms } from '../../../shared/llm/openai-daybreak.mjs';
 
 export function toOpenAIResponsesTool(t) {
   if (t?.name === 'load_tool' || t?.name === 'tool_search') {
@@ -219,6 +220,12 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     toolChoice,
   });
   const verbosity = requestedVerbosity(opts);
+  // Daybreak Blue rides on the ChatGPT route only, and only for a model that
+  // accepts it; the server still decides entitlement.
+  const accessPrograms =
+    promptCacheProvider === 'openai-oauth'
+      ? daybreakAccessPrograms(findCachedCodexModel(model) || model, opts.modelParameters)
+      : null;
   // Match the request body shape the OAuth backend expects so the
   // server-side auto-cache routes correctly: text.verbosity / include /
   // tool_choice / parallel_tool_calls are inert for most callers but their
@@ -246,6 +253,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     ...(serviceTier ? { service_tier: serviceTier } : {}),
     prompt_cache_key: promptCacheKey,
     text: { verbosity },
+    ...(accessPrograms ? { access_programs: accessPrograms } : {}),
     ...(maxOutputTokens ? { max_output_tokens: maxOutputTokens } : {}),
   };
 }

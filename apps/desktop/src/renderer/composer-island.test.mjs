@@ -106,6 +106,27 @@ test('a queued agent reads Queued while a running one shows elapsed time, never 
   assert.match(queued[0].textContent, /wait-b/);
 });
 
+test('a continued agent times its current turn, not its session creation', async (t) => {
+  const { root, document } = mount(t);
+  await publish({
+    agentWorkers: [
+      {
+        tag: 'run-a',
+        agent: 'worker',
+        stage: 'running',
+        status: 'running',
+        createdAt: new Date(Date.now() - 7.5 * 3_600_000).toISOString(),
+        turnStartedAt: new Date(Date.now() - 5_000).toISOString(),
+      },
+    ],
+  });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await act(async () => document.querySelector('.composer-island-seg').click());
+  const row = document.querySelector('.composer-island-row');
+  assert.match(row.textContent, /[0-9]s$/);
+  assert.doesNotMatch(row.textContent, /7h/);
+});
+
 test('an agent blocked on a user approval reads as needing the user, not working', async (t) => {
   const { root, document } = mount(t);
   await publish({

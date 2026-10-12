@@ -10,6 +10,7 @@ import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
 import { createSession } from '../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../runtime/agent/orchestrator/session/manager/ask-session.mjs';
 import { modelRouteFields, parseScheduleModelRef } from '../runtime/shared/schedule-model-ref.mjs';
+import { migrateCodexRoute } from '../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
 import { runAutomationTurns } from './automation-agents.mjs';
 import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
@@ -17,7 +18,8 @@ import { automationPromptContent } from '../runtime/shared/automation-attachment
 /** Resolve schedule.model into a {provider,model,effort?,fast?} route. */
 function scheduleRouteFromModelRef(modelRef, config = null) {
   const ref = parseScheduleModelRef(modelRef);
-  if (ref && typeof ref === 'object') return ref;
+  // A model the provider catalog superseded runs on its successor.
+  if (ref && typeof ref === 'object') return migrateCodexRoute(ref);
   const cfg = config || loadConfig({ secrets: false });
   const preset = cfg.presets?.find((p) => p.id === ref || p.name === ref);
   if (!preset) {
