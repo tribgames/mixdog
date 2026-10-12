@@ -32,7 +32,7 @@ function retryAfterMs(res, now) {
   return Number.isFinite(at) ? Math.max(0, at - now()) : 0;
 }
 
-export const defaultSleep =(ms, signal) =>
+export const defaultSleep = (ms, signal) =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(cancelled(signal));
     const onAbort = () => {
@@ -73,9 +73,12 @@ async function postForm(url, params, { fetchFn, signal, kind = 'device-auth' }) 
     if (timeout.aborted) {
       throw museError(`[muse-code-oauth] request to ${new URL(url).host} timed out`, { kind: 'timeout' });
     }
-    throw museError(`[muse-code-oauth] ${kind} request failed: ${scrubMuseSecrets(String(cause?.message || cause)).slice(0, 300)}`, {
-      kind,
-    });
+    throw museError(
+      `[muse-code-oauth] ${kind} request failed: ${scrubMuseSecrets(String(cause?.message || cause)).slice(0, 300)}`,
+      {
+        kind,
+      }
+    );
   }
   let json = null;
   try {
@@ -120,17 +123,13 @@ export async function requestDeviceAuthorization({ fetchFn = fetch, signal } = {
 }
 
 /** Poll the token endpoint until approval, denial, or expiry; resolves the account access token. */
-export async function pollDeviceToken(
-  device,
-  { fetchFn = fetch, signal, sleep = defaultSleep, now = Date.now } = {}
-) {
+export async function pollDeviceToken(device, { fetchFn = fetch, signal, sleep = defaultSleep, now = Date.now } = {}) {
   const expired = () =>
     museError('[muse-code-oauth] device code expired — start the login again', {
       kind: 'device-token',
       code: 'expired_token',
     });
-  const deadline =
-    typeof device.expiresInS === 'number' ? now() + device.expiresInS * 1000 : Number.POSITIVE_INFINITY;
+  const deadline = typeof device.expiresInS === 'number' ? now() + device.expiresInS * 1000 : Number.POSITIVE_INFINITY;
   let intervalMs = Math.round(Math.max(MIN_INTERVAL_S, device.intervalS) * 1000);
   let failures = 0;
   while (now() < deadline) {

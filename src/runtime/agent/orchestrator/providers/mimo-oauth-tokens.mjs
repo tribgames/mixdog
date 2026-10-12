@@ -33,7 +33,8 @@ const SAFE_BASE_PATH = /^(?:\/[A-Za-z0-9._~-]+)*\/?$/;
  * fragment. Returns it without a trailing slash; throws otherwise.
  */
 export function normalizeMimoBaseUrl(value) {
-  const reject = () => new Error('[mimo-oauth] authorization payload carried a gateway URL outside the Xiaomi MiMo API hosts');
+  const reject = () =>
+    new Error('[mimo-oauth] authorization payload carried a gateway URL outside the Xiaomi MiMo API hosts');
   if (typeof value !== 'string' || value.length > MAX_BASE_URL_LENGTH) throw reject();
   let url;
   try {
@@ -151,7 +152,9 @@ export async function probeTokenPlanBaseUrl(apiKey, { fetchImpl = fetch, signal 
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
       if (res.ok) return baseUrl;
-      const detail = scrubOAuthSecrets(await res.text().catch(() => ''), [apiKey]).trim().slice(0, 300);
+      const detail = scrubOAuthSecrets(await res.text().catch(() => ''), [apiKey])
+        .trim()
+        .slice(0, 300);
       lastError = Object.assign(
         new Error(`[mimo-oauth] Token Plan check failed (${res.status})${detail ? `: ${detail}` : ''}`),
         { status: res.status, httpStatus: res.status, detail }
@@ -170,7 +173,9 @@ export async function probeTokenPlanBaseUrl(apiKey, { fetchImpl = fetch, signal 
 // A rejected key needs a fresh sign-in; shared by the probe and the send path.
 export function mimoReauthError(detail = '') {
   return Object.assign(
-    new Error(`[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again${detail ? `: ${detail}` : ''}`),
+    new Error(
+      `[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again${detail ? `: ${detail}` : ''}`
+    ),
     { httpStatus: 401, status: 401, reauthRequired: true }
   );
 }

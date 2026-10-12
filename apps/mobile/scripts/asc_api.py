@@ -6,7 +6,6 @@ Env: ASC_KEY_PATH, APPLE_API_KEY_ID, APPLE_API_ISSUER.
 import json
 import os
 import pathlib
-import sys
 import time
 import urllib.error
 import urllib.request

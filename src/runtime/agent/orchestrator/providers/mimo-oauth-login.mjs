@@ -3,13 +3,7 @@
 // or a pasted code) carries `u` = ephemeralPub(32) | nonce(12) | ciphertext | tag(16).
 import { createServer } from 'node:http';
 import { lookup } from 'node:dns/promises';
-import {
-  createDecipheriv,
-  createHash,
-  createPublicKey,
-  diffieHellman,
-  generateKeyPairSync,
-} from 'node:crypto';
+import { createDecipheriv, createHash, createPublicKey, diffieHellman, generateKeyPairSync } from 'node:crypto';
 import {
   authorizeEndpoint,
   manualRedirectUri,
@@ -219,9 +213,7 @@ export async function beginOAuthLogin({
       continue;
     }
     // Once bound, a runtime fault on this listener ends the login.
-    server.on('error', (err) =>
-      finish(null, new Error(`[mimo-oauth] callback server failed: ${err?.message || err}`))
-    );
+    server.on('error', (err) => finish(null, new Error(`[mimo-oauth] callback server failed: ${err?.message || err}`)));
     servers.push(server);
     port = server.address().port;
   }

@@ -110,9 +110,7 @@ function backgroundJobRows(snapshot: Snapshot): JobRow[] {
     }))
     .sort((a, b) => b.startedAt - a.startedAt);
   const agents = liveAgentRows(snapshot)
-    .filter(
-      (agent) => agent.queued || ['running', 'needs-user', 'waiting', 'cancel-unconfirmed'].includes(agent.state)
-    )
+    .filter((agent) => agent.queued || ['running', 'needs-user', 'waiting', 'cancel-unconfirmed'].includes(agent.state))
     .map((agent) => ({
       key: `agent:${agent.key}`,
       kind: 'agent' as const,
@@ -149,11 +147,7 @@ function useIslandFlash(flash: ComposerIslandFlash | null): ComposerIslandFlash 
  *  running agents pulse; a set that is only queued or waiting rests grey. */
 function AgentMark({ working, needsUser = false }: { working: boolean; needsUser?: boolean }) {
   if (needsUser) return <MxIcon name="warning" size={14} className="composer-island-attention" aria-hidden="true" />;
-  return working ? (
-    <JobsPulse />
-  ) : (
-    <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />
-  );
+  return working ? <JobsPulse /> : <span className="composer-island-dot composer-island-dot-idle" aria-hidden="true" />;
 }
 
 function rowSubLabel(row: JobRow, clock: number): string {
