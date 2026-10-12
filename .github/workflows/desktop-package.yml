@@ -355,9 +355,23 @@ jobs:
           # electron-updater on Linux reads latest-linux.yml (x64) or latest-linux-arm64.yml (arm64).
           feed=apps/desktop/dist/latest-linux.yml
           [ "${{ inputs.artifact_arch }}" = arm64 ] && feed=apps/desktop/dist/latest-linux-arm64.yml
+          # A .deb install updates through DebUpdater, which downloads the .deb
+          # named in the feed, so the .deb is a release asset too.
+          deb_arch=amd64
+          [ "${{ inputs.arch }}" = arm64 ] && deb_arch=arm64
+          deb="apps/desktop/dist/mixdog-desktop-linux-${deb_arch}.deb"
           test -f "$asset"
+          test -f "$deb"
           test -f "$feed"
+          # Every file the feed references must be among the uploaded assets.
+          for ref in $(grep -E '^\s*(-\s+)?(url|path):' "$feed" | sed -E "s/^\s*(-\s+)?(url|path):\s*//; s/['\"]//g"); do
+            case "$ref" in
+              "$(basename "$asset")"|"$(basename "$deb")") ;;
+              *) echo "::error::$feed references $ref, which is not uploaded"; exit 1 ;;
+            esac
+          done
+          grep -q "$(basename "$deb")" "$feed"
           # Same bounded uploader as macOS and Windows: `gh release upload
           # --clobber` stalled past the step timeout twice on arm64 (v0.9.170)
           # once the draft already held the earlier attempt's asset.
-          bash .github/scripts/upload-release-assets.sh "$asset" "$feed"
+          bash .github/scripts/upload-release-assets.sh "$asset" "$deb" "$feed"

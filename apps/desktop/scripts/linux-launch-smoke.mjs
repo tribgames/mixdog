@@ -16,6 +16,9 @@ const outDir = resolve(outDirArg);
 const port = 9333;
 // Extra launcher flags, e.g. SMOKE_LAUNCH_ARGS=--appimage-extract-and-run. Empty by default so an AppImage is mounted through its own (FUSE) runtime.
 const launchArgs = (process.env.SMOKE_LAUNCH_ARGS ?? '').split(' ').filter(Boolean);
+// SMOKE_SANDBOX=1 launches with the Chromium sandbox enabled (installed .deb); otherwise --no-sandbox is passed (AppImage on CI runners, root containers).
+const sandbox = process.env.SMOKE_SANDBOX === '1';
+console.log(`sandbox: ${sandbox ? 'enabled' : 'disabled (--no-sandbox)'}`);
 const BOOT_TIMEOUT_MS = 180_000;
 await mkdir(outDir, { recursive: true });
 const profile = await mkdtemp(join(tmpdir(), 'mixdog-smoke-'));
@@ -23,12 +26,13 @@ const log = createWriteStream(join(outDir, 'app-stderr.log'));
 
 const child = spawn(
   appImage,
-  [...launchArgs, '--no-sandbox', `--remote-debugging-port=${port}`],
+  [...launchArgs, ...(sandbox ? [] : ['--no-sandbox']), `--remote-debugging-port=${port}`],
   {
     env: {
       ...process.env,
       MIXDOG_DESKTOP_USER_DATA: join(profile, 'user-data'),
       HOME: join(profile, 'home'),
+      XDG_CACHE_HOME: join(profile, 'home', '.cache'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,

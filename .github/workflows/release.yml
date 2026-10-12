@@ -436,24 +436,70 @@ jobs:
             throw new Error('Hidden GitHub release identity no longer matches this immutable build');
           }
 
-          const expected = [
-            'latest.yml',
-            'latest-linux.yml',
-            'latest-linux-arm64.yml',
-            'mixdog-desktop-linux-arm64.AppImage',
-            'mixdog-desktop-linux-x86_64.AppImage',
-            'mixdog-desktop-mac-arm64.dmg',
-            'mixdog-desktop-mac-arm64.zip',
-            'mixdog-desktop-mac-x64.dmg',
-            'mixdog-desktop-mac-x64.zip',
-            'mixdog-desktop-win-x64.exe',
-            'mixdog-desktop-win-x64.exe.blockmap',
-          ].sort();
+          // Per-platform requirements. The publish job already needs every
+          // desktop package job, so each group is an explicit part of the
+          // release contract rather than a side effect of another platform.
+          const requirements = {
+            windows: [
+              'latest.yml',
+              'mixdog-desktop-win-x64.exe',
+              'mixdog-desktop-win-x64.exe.blockmap',
+            ],
+            macos: [
+              'mixdog-desktop-mac-arm64.dmg',
+              'mixdog-desktop-mac-arm64.zip',
+              'mixdog-desktop-mac-x64.dmg',
+              'mixdog-desktop-mac-x64.zip',
+            ],
+            // electron-updater reads latest-linux*.yml; a .deb install uses
+            // DebUpdater, which downloads the .deb named in that feed.
+            linux: [
+              'latest-linux.yml',
+              'latest-linux-arm64.yml',
+              'mixdog-desktop-linux-arm64.AppImage',
+              'mixdog-desktop-linux-arm64.deb',
+              'mixdog-desktop-linux-x86_64.AppImage',
+              'mixdog-desktop-linux-amd64.deb',
+            ],
+          };
+          const expected = Object.values(requirements).flat().sort();
           const assets = JSON.parse(readFileSync('/tmp/assets.json', 'utf8')).flat();
           const actual = assets.map(asset => asset.name).sort();
+          for (const [platform, names] of Object.entries(requirements)) {
+            const missing = names.filter(name => !actual.includes(name));
+            if (missing.length) {
+              throw new Error(`Hidden release is missing ${platform} assets: ${missing.join(', ')}`);
+            }
+          }
           if (new Set(actual).size !== actual.length
               || JSON.stringify(actual) !== JSON.stringify(expected)) {
             throw new Error(`Hidden release asset set is not exact: ${JSON.stringify(actual)}`);
+          }
+          // Every file a Linux update feed points at must be a draft asset,
+          // and each feed must offer both the AppImage and the .deb.
+          for (const feedName of ['latest-linux.yml', 'latest-linux-arm64.yml']) {
+            const feedAsset = assets.find(asset => asset.name === feedName);
+            const response = await fetch(feedAsset.url, {
+              headers: {
+                Authorization: `Bearer ${process.env.GH_TOKEN}`,
+                Accept: 'application/octet-stream',
+              },
+            });
+            if (!response.ok) throw new Error(`Cannot read ${feedName}: HTTP ${response.status}`);
+            const feed = await response.text();
+            const referenced = new Set(
+              [...feed.matchAll(/^\s*(?:-\s+)?(?:url|path):\s*['"]?([^'"\s]+)['"]?\s*$/gm)].map(m => m[1])
+            );
+            for (const ext of ['.AppImage', '.deb']) {
+              if (![...referenced].some(name => name.endsWith(ext))) {
+                throw new Error(`${feedName} does not reference a ${ext} file`);
+              }
+            }
+            for (const name of referenced) {
+              if (!actual.includes(name)) {
+                throw new Error(`${feedName} references ${name}, which is not a hidden release asset`);
+              }
+            }
           }
           for (const asset of assets) {
             if (asset.state !== 'uploaded' || !(asset.size > 0)

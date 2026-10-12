@@ -68,6 +68,10 @@ jobs:
         run: |
           ls -l apps/desktop/dist/*.AppImage apps/desktop/dist/*.deb
           du -sh apps/desktop/dist/linux-*unpacked || true
+      - name: Record glibc floor of bundled binaries (objdump -T)
+        run: |
+          unpacked=$(ls -d apps/desktop/dist/linux-*unpacked | head -n1)
+          node apps/desktop/scripts/linux-glibc-floor.mjs "$unpacked" | tee glibc-floor.txt
       - name: Verify packaged node-pty (Electron ABI, real PTY spawn)
         run: |
           unpacked=$(ls -d apps/desktop/dist/linux-*unpacked | head -n1)
@@ -79,6 +83,8 @@ jobs:
           test -f "$feed"
           cat "$feed"
           grep -q 'AppImage' "$feed"
+          # DebUpdater (selected by resources/package-type=deb) downloads the .deb named here.
+          grep -Eq 'url: .*\.deb' "$feed"
           deb=$(ls apps/desktop/dist/*.deb)
           dpkg-deb -I "$deb" | tee deb-info.txt
           for dep in libsecret-tools libnotify4 libgtk-3-0 libnss3 'libasound2t64 | libasound2'; do grep -qF "$dep" deb-info.txt; done
@@ -91,20 +97,27 @@ jobs:
         run: |
           sudo apt-get remove -y 'libfuse2*' || true
           if ldconfig -p | grep -q 'libfuse.so.2'; then echo "libfuse.so.2 still present"; exit 1; fi
-      - name: Headless launch smoke (AppImage, mounted, no libfuse2)
+      - name: Headless launch smoke (AppImage, mounted, no libfuse2, --no-sandbox)
         timeout-minutes: 8
         run: |
           mkdir -p smoke
           chmod +x apps/desktop/dist/*.AppImage
           xvfb-run -a --server-args="-screen 0 1440x900x24" \
             node apps/desktop/scripts/linux-launch-smoke.mjs apps/desktop/dist/mixdog-desktop-linux-*.AppImage smoke
-      - name: Headless launch smoke (installed .deb)
+      - name: Headless launch smoke (installed .deb, Chromium sandbox ENABLED)
         timeout-minutes: 8
         run: |
           sudo apt-get install -y ./apps/desktop/dist/*.deb
+          # The .deb postinst installs and loads the AppArmor profile (Ubuntu 24+).
+          apparmor_status --enabled
+          test -f /etc/apparmor.d/mixdog-desktop
+          sudo cat /sys/kernel/security/apparmor/profiles | tee apparmor-profiles.txt | grep -i 'mixdog-desktop\|/opt/Mixdog'
+          ls -l /opt/Mixdog/chrome-sandbox | tee sandbox-perms.txt
+          grep -qx deb /opt/Mixdog/resources/package-type
           mkdir -p smoke-deb
-          xvfb-run -a --server-args="-screen 0 1440x900x24" \
-            node apps/desktop/scripts/linux-launch-smoke.mjs /opt/Mixdog/mixdog-desktop smoke-deb
+          SMOKE_SANDBOX=1 xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-launch-smoke.mjs /opt/Mixdog/mixdog-desktop smoke-deb | tee smoke-deb/smoke.log
+          grep -q 'sandbox: enabled' smoke-deb/smoke.log
       - name: Upload AppImage, .deb and update feed
         if: always()
         uses: actions/upload-artifact@v5
@@ -126,7 +139,158 @@ jobs:
             root-tests.log
             desktop-tests.log
             pty-check.log
+            glibc-floor.txt
+            apparmor-profiles.txt
+            sandbox-perms.txt
             deb-info.txt
             deb-contents.txt
             desktop-entry.txt
+          if-no-files-found: warn
+
+  # N+1: the same tree packaged with a bumped version, served as the update
+  # feed in `update-path`. Packaging only; the verify job owns the test suites.
+  build-next:
+    name: build-next-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1 libsecret-1-dev libx11-dev libxi-dev libxtst-dev libxcb1-dev libxkbcommon-dev libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.95.0"
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+      - uses: ./.github/actions/office-runtime
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: apps/desktop
+      - name: Build N+1 Linux package (patch version bumped)
+        working-directory: apps/desktop
+        run: |
+          next=$(node -p "const [a,b,c]=require('./package.json').version.split('.');[a,b,Number(c)+1].join('.')")
+          echo "N+1 version: $next"
+          npm run build:linux -- --x64 --publish never "-c.extraMetadata.version=$next"
+          grep -q "^version: $next\$" dist/latest-linux.yml
+          deb=$(ls dist/*.deb)
+          dpkg-deb -f "$deb" Package Version | tee ../../next-deb-fields.txt
+          grep -qx "Package: mixdog-desktop" ../../next-deb-fields.txt
+          grep -qx "Version: $next" ../../next-deb-fields.txt
+      - name: Upload N+1 packages and feed
+        uses: actions/upload-artifact@v5
+        with:
+          name: next-linux-packages-x64
+          path: |
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/latest-linux*.yml
+          if-no-files-found: error
+
+  # Update paths against a local HTTP feed (nothing is published): N detects,
+  # downloads and sha512-verifies N+1 as an AppImage and as an installed .deb
+  # (DebUpdater), and the downloaded .deb is really installed with dpkg.
+  update-path:
+    name: update-path-x64
+    needs: [verify, build-next]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v5
+        with:
+          name: mixdog-linux-packages-x64
+          path: n
+      - uses: actions/download-artifact@v5
+        with:
+          name: next-linux-packages-x64
+          path: next
+      - name: System packages (no libfuse2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libxtst6 libgbm1
+          sudo apt-get remove -y 'libfuse2*' || true
+          ! ldconfig -p | grep -q 'libfuse.so.2'
+      - name: Resolve versions
+        run: |
+          echo "NEXT_VERSION=$(sed -n 's/^version: //p' next/latest-linux.yml | head -n1)" >> "$GITHUB_ENV"
+          echo "N_VERSION=$(sed -n 's/^version: //p' n/latest-linux.yml | head -n1)" >> "$GITHUB_ENV"
+      - name: AppImage N updates to N+1 (AppImageUpdater, local feed)
+        timeout-minutes: 8
+        run: |
+          test "$NEXT_VERSION" != "$N_VERSION"
+          chmod +x n/*.AppImage
+          mkdir -p update-out
+          xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-update-smoke.mjs n/mixdog-desktop-linux-*.AppImage next "$NEXT_VERSION" AppImage update-out | tee update-out/appimage-update.log
+      - name: Install N .deb and update it to N+1 (DebUpdater, sandbox enabled)
+        timeout-minutes: 8
+        run: |
+          sudo apt-get install -y ./n/*.deb
+          test "$(dpkg-query -W -f='${Version}' mixdog-desktop)" = "$N_VERSION"
+          grep -qx deb /opt/Mixdog/resources/package-type
+          SMOKE_SANDBOX=1 xvfb-run -a --server-args="-screen 0 1440x900x24" \
+            node apps/desktop/scripts/linux-update-smoke.mjs /opt/Mixdog/mixdog-desktop next "$NEXT_VERSION" deb update-out | tee update-out/deb-update.log
+          downloaded=$(cat update-out/update-deb-downloaded.path)
+          # What DebUpdater.doInstall runs (dpkg -i), with the downloaded package.
+          sudo dpkg -i "$downloaded"
+          test "$(dpkg-query -W -f='${Version}' mixdog-desktop)" = "$NEXT_VERSION"
+          echo "dpkg upgraded mixdog-desktop $N_VERSION -> $NEXT_VERSION"
+      - name: Upload update-path logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: update-path-x64
+          path: update-out/
+          if-no-files-found: warn
+
+  # Distro coverage: the packages built on the Ubuntu runner, launched
+  # headless in older/other distro containers (glibc baseline, non-Debian).
+  container-smoke:
+    name: container-${{ matrix.family }}-${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { family: debian, image: "debian:12", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { family: debian, image: "debian:12", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+          - { family: fedora, image: "fedora:latest", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { family: fedora, image: "fedora:latest", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: mixdog-linux-packages-${{ matrix.arch }}
+          path: pkg
+      - name: Stage Node and the smoke script's ws dependency
+        run: |
+          curl -fsSL "https://nodejs.org/dist/v22.19.0/node-v22.19.0-linux-${{ matrix.node }}.tar.xz" | tar -xJ
+          mv node-v22.19.0-linux-${{ matrix.node }} node
+          mkdir ctr
+          cp apps/desktop/scripts/linux-launch-smoke.mjs ctr/
+          (cd ctr && npm init -y >/dev/null && npm install --no-audit --no-fund ws@8)
+          mkdir -p out
+      - name: Headless smoke in ${{ matrix.image }}
+        timeout-minutes: 20
+        run: |
+          docker run --rm --shm-size=1g -v "$PWD:/w" ${{ matrix.image }} \
+            bash /w/apps/desktop/scripts/linux-container-smoke.sh ${{ matrix.family }} 2>&1 | tee out/container-smoke.log
+          test "${PIPESTATUS[0]}" -eq 0
+      - name: Upload container smoke output
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: container-${{ matrix.family }}-${{ matrix.arch }}
+          path: out/
           if-no-files-found: warn
