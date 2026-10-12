@@ -423,8 +423,18 @@ async function canReusePreparedRuntime(fingerprint) {
  */
 async function prepareDesktopNativeTools() {
   const downloadDataDir = join(runtimeDir, 'native-downloads');
+  // Linux packaging may supply graph/patch built against an older glibc
+  // baseline (see linux-build-native-old-glibc.sh); a tool present in that
+  // directory replaces the pinned release download for this build.
+  const overrideDir = String(process.env.MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR ?? '').trim();
   const sources = await Promise.all(
-    NATIVE_TOOL_KINDS.map((kind) => downloadNativeTool(kind, embeddingTarget, downloadDataDir))
+    NATIVE_TOOL_KINDS.map(async (kind) => {
+      if (overrideDir && embeddingTarget.platform === 'linux') {
+        const override = join(resolve(overrideDir), nativeToolInstalledName(kind, embeddingTarget));
+        if (await access(override).then(() => true, () => false)) return override;
+      }
+      return downloadNativeTool(kind, embeddingTarget, downloadDataDir);
+    })
   );
   await rm(desktopNativeToolsDir, { recursive: true, force: true });
   await mkdir(desktopNativeToolsDir, { recursive: true });

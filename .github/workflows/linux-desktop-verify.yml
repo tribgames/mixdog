@@ -13,8 +13,35 @@ defaults:
     shell: bash
 
 jobs:
+  # Native tools built inside manylinux_2_28 (glibc 2.28) so the package floor
+  # does not follow the glibc of the CI runner (graph/patch releases are built
+  # on ubuntu-22.04 = 2.34; mixdog-computer on a 24.04 host would need 2.39).
+  native-tools:
+    name: native-tools-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: x64, image: "quay.io/pypa/manylinux_2_28_x86_64" }
+          - { runner: ubuntu-24.04-arm, arch: arm64, image: "quay.io/pypa/manylinux_2_28_aarch64" }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build mixdog-computer, mixdog-graph, mixdog-patch (glibc 2.28)
+        run: |
+          mkdir -p native-out
+          docker run --rm -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-native-old-glibc.sh 2>&1 | tee native-out/build.log
+          test "${PIPESTATUS[0]}" -eq 0
+      - uses: actions/upload-artifact@v5
+        with:
+          name: native-tools-glibc228-${{ matrix.arch }}
+          path: native-out/
+          if-no-files-found: error
+
   verify:
     name: linux-${{ matrix.arch }}
+    needs: native-tools
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -37,6 +64,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
           toolchain: "1.95.0"
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-tools-glibc228-${{ matrix.arch }}
+          path: native-out
+      - name: Select old-glibc native tools for packaging
+        run: |
+          chmod +x native-out/mixdog-*
+          echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
       - uses: ./.github/actions/office-runtime
@@ -71,7 +107,7 @@ jobs:
       - name: Record glibc floor of bundled binaries (objdump -T)
         run: |
           unpacked=$(ls -d apps/desktop/dist/linux-*unpacked | head -n1)
-          node apps/desktop/scripts/linux-glibc-floor.mjs "$unpacked" | tee glibc-floor.txt
+          node apps/desktop/scripts/linux-glibc-floor.mjs "$unpacked" 2.31 | tee glibc-floor.txt
       - name: Verify packaged node-pty (Electron ABI, real PTY spawn)
         run: |
           unpacked=$(ls -d apps/desktop/dist/linux-*unpacked | head -n1)
@@ -151,6 +187,7 @@ jobs:
   # feed in `update-path`. Packaging only; the verify job owns the test suites.
   build-next:
     name: build-next-x64
+    needs: native-tools
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -165,6 +202,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
           toolchain: "1.95.0"
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-tools-glibc228-x64
+          path: native-out
+      - name: Select old-glibc native tools for packaging
+        run: |
+          chmod +x native-out/mixdog-*
+          echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
+          echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
       - uses: ./.github/actions/office-runtime
@@ -255,7 +301,7 @@ jobs:
   # Distro coverage: the packages built on the Ubuntu runner, launched
   # headless in older/other distro containers (glibc baseline, non-Debian).
   container-smoke:
-    name: container-${{ matrix.family }}-${{ matrix.arch }}
+    name: container-${{ matrix.id }}-${{ matrix.arch }}
     needs: verify
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -263,10 +309,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { family: debian, image: "debian:12", runner: ubuntu-24.04, arch: x64, node: x64 }
-          - { family: debian, image: "debian:12", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
-          - { family: fedora, image: "fedora:latest", runner: ubuntu-24.04, arch: x64, node: x64 }
-          - { family: fedora, image: "fedora:latest", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+          - { id: debian12, family: debian, image: "debian:12", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { id: debian12, family: debian, image: "debian:12", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+          - { id: ubuntu2204, family: debian, image: "ubuntu:22.04", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { id: ubuntu2204, family: debian, image: "ubuntu:22.04", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
+          - { id: fedora, family: fedora, image: "fedora:latest", runner: ubuntu-24.04, arch: x64, node: x64 }
+          - { id: fedora, family: fedora, image: "fedora:latest", runner: ubuntu-24.04-arm, arch: arm64, node: arm64 }
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
@@ -291,6 +339,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: container-${{ matrix.family }}-${{ matrix.arch }}
+          name: container-${{ matrix.id }}-${{ matrix.arch }}
           path: out/
           if-no-files-found: warn
