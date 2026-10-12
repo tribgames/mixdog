@@ -811,15 +811,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         onClick={onOpenChanges ?? (() => setExpanded(true))}
       >
         <IslandSegLabel
-          text={
-            summary.files.size === 1
-              ? t('{{name}} changed', {
-                  name: String(summary.files.keys().next().value ?? '')
-                    .split(/[\\/]/)
-                    .pop(),
-                })
-              : t('{{count}} files changed', { count: summary.files.size })
-          }
+          text={t('Island: {{count}} files', { count: summary.files.size })}
           count={summary.files.size}
           icon="file-diff"
         />

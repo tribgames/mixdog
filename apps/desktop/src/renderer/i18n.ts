@@ -114,6 +114,20 @@ void i18next.init({
   // the object is pinned to the options overload explicitly.
 } as Parameters<typeof i18next.init>[0]);
 
+// Disambiguated keys ("Island: …", "Goal state: …") keep a label distinct per
+// surface in translation; English shows the plain wording, not the key.
+i18next.addResourceBundle('en', 'translation', {
+  'Goal state: In progress': 'In progress',
+  'Island: {{waiting}} waiting': '{{waiting}} waiting',
+  'Island: Running · {{elapsed}}': 'Running · {{elapsed}}',
+  'Island: {{count}} agents': '{{count}} agents',
+  'Island: {{count}} agents_other': '{{count}} agents',
+  'Island: {{count}} shells': '{{count}} shells',
+  'Island: {{count}} shells_other': '{{count}} shells',
+  'Island: {{count}} files': '{{count}} files',
+  'Island: {{count}} files_other': '{{count}} files',
+});
+
 /** Fetch the resolved language and switch onto it. The renderer entry awaits
  *  this BEFORE importing any app module, because module-level strings pass
  *  through t() at import time. Changing the language reloads the window

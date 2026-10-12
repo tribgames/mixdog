@@ -123,6 +123,9 @@ test('the island files segment appears only once the review read finds changes, 
     assert.equal(pending.length, 0);
     if (hasDiff) {
       assert.match(segment().textContent, /\+1 −1$/, 'a space separates the line counts');
+      assert.match(segment().textContent, /^1 file\+1/, 'the count in words, singular for one file');
+      assert.ok(segment().firstElementChild.classList.contains('composer-island-seg-icon'), 'the file glyph leads');
+      assert.equal(segment().querySelector('.composer-island-seg-num').dataset.count, '1');
       // No side dock here (no onOpenSessionDiff): the segment expands the
       // island to the turn's file list in place, and Escape collapses it.
       await act(async () => segment().click());

@@ -40,5 +40,8 @@
   "Discard {{count}} selected working tree changes? This cannot be undone.": "Discard {{count}} selected working tree change? This cannot be undone.",
   "Discard all {{count}} working tree changes? This cannot be undone.": "Discard {{count}} working tree change? This cannot be undone.",
   "Limited to {{count}} projects.": "Limited to {{count}} project.",
-  "the following {{count}} items": "the following {{count}} item"
+  "the following {{count}} items": "the following {{count}} item",
+  "Island: {{count}} agents": "{{count}} agent",
+  "Island: {{count}} shells": "{{count}} shell",
+  "Island: {{count}} files": "{{count}} file"
 }

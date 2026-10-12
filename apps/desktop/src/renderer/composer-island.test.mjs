@@ -68,8 +68,10 @@ test('background jobs show as one segment, expand to rows, collapse on Escape an
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   const segment = document.querySelector('.composer-island-seg');
-  // "Shell" + the latest command; a single job carries no "+N".
-  assert.equal(segment.textContent, `${translate('Shell')}npm test`);
+  // The count in words with the terminal glyph leading; the command lives in the panel.
+  assert.equal(segment.textContent, translate('Island: {{count}} shells', { count: 1 }));
+  assert.equal(segment.textContent, '1 shell');
+  assert.ok(segment.firstElementChild.classList.contains('composer-island-seg-icon'));
   // Running work is a pulsing dot, not a spinner.
   assert.ok(segment.querySelector('.composer-island-pulse'));
   // The only glyph is the narrow-island icon, never a spinner.
@@ -87,6 +89,43 @@ test('background jobs show as one segment, expand to rows, collapse on Escape an
   // Finished work leaves quietly: no flash notice.
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
   assert.equal(document.querySelector('.composer-island-flash'), null);
+});
+
+test('agents and shells are counted in separate icon segments that both survive a narrow island', async (t) => {
+  const { root, document } = mount(t);
+  const agent = (tag) => ({ tag, agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 });
+  const shells = (n) => ({
+    count: n,
+    jobs: Array.from({ length: n }, (_, i) => ({ taskId: `j${i}`, command: 'npm test', startedAt: Date.now() - 5_000 })),
+  });
+  const segments = () => ({
+    agents: document.querySelector('.composer-island-seg-agents'),
+    shell: document.querySelector('.composer-island-seg-shell'),
+  });
+  await publish({ agentWorkers: [agent('a'), agent('b')] });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  assert.equal(segments().agents.textContent, '2 agents');
+  assert.equal(segments().shell, null);
+  await publish({ agentWorkers: [agent('a')] });
+  assert.equal(segments().agents.textContent, '1 agent');
+  await publish({ agentWorkers: [], shellJobs: shells(2) });
+  assert.equal(segments().shell.textContent, '2 shells');
+  assert.equal(segments().agents, null);
+  await publish({ agentWorkers: [agent('a'), agent('b')], shellJobs: shells(1) });
+  const { agents, shell } = segments();
+  assert.equal(agents.textContent, '2 agents');
+  assert.equal(shell.textContent, '1 shell');
+  // Narrow keeps both: each carries its glyph and the bare count; the container
+  // query only drops the words.
+  for (const [seg, count] of [
+    [agents, '2'],
+    [shell, '1'],
+  ]) {
+    assert.ok(seg.querySelector('svg.composer-island-seg-icon'));
+    assert.equal(seg.querySelector('.composer-island-seg-num').dataset.count, count);
+    assert.ok(seg.querySelector('.composer-island-seg-word'));
+    assert.ok(seg.querySelector('.composer-island-pulse'), 'the pulsing dot still says running');
+  }
 });
 
 test('a queued agent reads Queued while a running one shows elapsed time, never Queued', async (t) => {
@@ -144,11 +183,9 @@ test('an agent blocked on a user approval reads as needing the user, not working
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   const segment = document.querySelector('.composer-island-seg-agents');
-  // Counted apart from Running, so it is never hidden in it.
-  assert.match(
-    segment.textContent,
-    new RegExp(`${translate('Needs you {{needs}}', { needs: 1 })} · ${translate('Jobs: Running {{running}}', { running: 1 })}`)
-  );
+  // Counted apart from the running total, so it is never hidden in it.
+  assert.match(segment.textContent, new RegExp(`^2 agents.*${translate('Needs you {{needs}}', { needs: 1 })}`));
+  assert.ok(segment.querySelector('.composer-island-attention'));
   await act(async () => segment.click());
   const rows = [...document.querySelectorAll('.composer-island-row')];
   assert.equal(rows.length, 2);

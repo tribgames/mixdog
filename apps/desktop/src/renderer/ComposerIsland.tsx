@@ -153,7 +153,9 @@ function AgentMark({ working, needsUser = false }: { working: boolean; needsUser
 function rowSubLabel(row: JobRow, clock: number): string {
   if (row.needsUser) return t('Waiting for approval');
   if (row.idle) return t(row.queued ? 'Queued' : 'Waiting for tasks');
-  return row.startedAt > 0 ? formatElapsed(clock - row.startedAt) : '';
+  if (row.startedAt <= 0) return '';
+  const elapsed = formatElapsed(clock - row.startedAt);
+  return row.kind === 'shell' ? t('Island: Running · {{elapsed}}', { elapsed }) : elapsed;
 }
 
 function JobsPanel({
@@ -432,8 +434,7 @@ export function ComposerIsland({
   const running = agentRows.length + shellCount;
   const agentStates = [
     agentNeedsUser > 0 ? t('Needs you {{needs}}', { needs: agentNeedsUser }) : '',
-    agentWorking > 0 ? t('Jobs: Running {{running}}', { running: agentWorking }) : '',
-    agentWaiting > 0 ? t('Waiting {{waiting}}', { waiting: agentWaiting }) : '',
+    agentWaiting > 0 ? t('Island: {{waiting}} waiting', { waiting: agentWaiting }) : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -542,13 +543,13 @@ export function ComposerIsland({
                   title={`${t('Agent {{agent}}', { agent: agentRows.length })} · ${agentStates}`}
                   onClick={() => toggleJobs('agent')}
                 >
-                  <AgentMark working={agentWorking > 0} needsUser={agentNeedsUser > 0} />
                   <IslandSegLabel
-                    text={t('Agent {{agent}}', { agent: agentRows.length })}
+                    text={t('Island: {{count}} agents', { count: agentRows.length })}
                     count={agentRows.length}
                     icon="agent"
                   />
-                  <span className="composer-island-seg-meta">{agentStates}</span>
+                  <AgentMark working={agentWorking > 0} needsUser={agentNeedsUser > 0} />
+                  {agentStates ? <span className="composer-island-seg-meta">{agentStates}</span> : null}
                 </button>
               ) : null}
               {shellCount > 0 ? (
@@ -559,14 +560,12 @@ export function ComposerIsland({
                   title={t('Shell {{shell}}', { shell: shellCount })}
                   onClick={() => toggleJobs('shell')}
                 >
+                  <IslandSegLabel
+                    text={t('Island: {{count}} shells', { count: shellCount })}
+                    count={shellCount}
+                    icon="terminal"
+                  />
                   <JobsPulse />
-                  <IslandSegLabel text={t('Shell')} count={shellCount} icon="terminal" />
-                  {shellRows[0]?.label ? (
-                    <span className="composer-island-seg-meta">
-                      <span className="composer-island-seg-cmd">{shellRows[0].label}</span>
-                      {shellCount > 1 ? ` +${shellCount - 1}` : ''}
-                    </span>
-                  ) : null}
                 </button>
               ) : null}
               {files}
