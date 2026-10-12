@@ -46,7 +46,8 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
     $resumeRoot = (Resolve-Path -LiteralPath $ResumeFrom -ErrorAction Stop).Path
     $resumeResultPath = if ((Get-Item -LiteralPath $resumeRoot).PSIsContainer) {
         Join-Path $resumeRoot "result.json"
-    } else {
+    }
+    else {
         $resumeRoot
     }
     if (-not (Test-Path -LiteralPath $resumeResultPath -PathType Leaf)) {
@@ -143,7 +144,8 @@ function Get-RuntimeProvenance {
     try {
         $commit = [string](& git -C $repoRoot rev-parse HEAD 2>$null)
         if ($LASTEXITCODE -ne 0) { $commit = "" }
-    } catch {
+    }
+    catch {
         $commit = ""
     }
     if (-not [string]::IsNullOrWhiteSpace($commit)) {
@@ -165,22 +167,22 @@ function Get-RuntimeProvenance {
     $harnessStatus = @(& git -C $repoRoot status --porcelain --untracked-files=all -- benchmarks/terminal-bench-2.1/harness benchmarks/terminal-bench-2.1/analysis benchmarks/terminal-bench-2.1/run.ps1 benchmarks/terminal-bench-2.1/presets.json 2>$null)
     if ($LASTEXITCODE -ne 0) { throw "Harness Git provenance capture failed." }
     return [ordered]@{
-        schemaVersion = 1
-        capturedAt = (Get-Date).ToUniversalTime().ToString("o")
-        mixdogVersion = $mixdogVersion
-        sourceCommit = $commit
-        sourceDirty = $dirty
-        sourceDirtyPaths = @($dirtyPaths | Select-Object -First 50)
-        bundleSha256 = [string]$bundle.bundleSha256
-        bundleFileCount = [int]$bundle.fileCount
-        bundleBytes = [int64]$bundle.totalBytes
-        spawnSha256 = [string]$bundle.spawnSha256
-        bundleManifest = [IO.Path]::GetFileName($ManifestPath)
-        harnessSha256 = [string]$harnessHash
-        harnessManifest = [IO.Path]::GetFileName($harnessManifestPath)
+        schemaVersion       = 1
+        capturedAt          = (Get-Date).ToUniversalTime().ToString("o")
+        mixdogVersion       = $mixdogVersion
+        sourceCommit        = $commit
+        sourceDirty         = $dirty
+        sourceDirtyPaths    = @($dirtyPaths | Select-Object -First 50)
+        bundleSha256        = [string]$bundle.bundleSha256
+        bundleFileCount     = [int]$bundle.fileCount
+        bundleBytes         = [int64]$bundle.totalBytes
+        spawnSha256         = [string]$bundle.spawnSha256
+        bundleManifest      = [IO.Path]::GetFileName($ManifestPath)
+        harnessSha256       = [string]$harnessHash
+        harnessManifest     = [IO.Path]::GetFileName($harnessManifestPath)
         harnessSourceCommit = $commit
-        harnessSourceDirty = ($harnessStatus.Count -gt 0)
-        harnessDirtyPaths = @($harnessStatus)
+        harnessSourceDirty  = ($harnessStatus.Count -gt 0)
+        harnessDirtyPaths   = @($harnessStatus)
     }
 }
 
@@ -245,75 +247,76 @@ try {
         }
     }
 
-$harborArgs = @(
-    "run",
-    "-d", "terminal-bench/terminal-bench-2-1",
-    "--agent-import-path", "harness.mixdog_agent:MixdogAgent",
-    "-o", $JobsDir,
-    "-n", $Concurrent,
-    "-k", $Attempts,
-    "-r", $MaxRetries,
-    "--retry-exclude", "AgentTimeoutError",
-    "--retry-exclude", "VerifierOutputParseError",
-    "--retry-exclude", "RewardFileEmptyError",
-    "-y"
-)
-# Accept both array and comma-joined string; task names need the
-# "terminal-bench/" prefix to match the dataset registry names.
-function Expand-Tasks([string[]]$names) {
-    $names | ForEach-Object { $_ -split "," } | Where-Object { $_ } | ForEach-Object {
-        if ($_ -like "terminal-bench/*") { $_ } else { "terminal-bench/$_" }
-    }
-}
-foreach ($t in (Expand-Tasks $Include)) { $harborArgs += @("-i", $t) }
-if ($prebakeComposePath) { $harborArgs += @("--extra-docker-compose", $prebakeComposePath) }
-foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
-foreach ($t in $resumeCompletedTasks) { $harborArgs += @("-x", $t) }
-if ($resumeCompletedTasks.Count -gt 0) {
-    "resume: excluding $($resumeCompletedTasks.Count) completed task(s) from $resumeResultPath"
-}
-if ($hasModel) { $harborArgs += @("-m", $Model) }
-if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
-if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }
-$harborArgs += @("--ak", "effort_judge=$EffortJudge")
-foreach ($item in $AgentEnv) {
-    foreach ($entry in ($item -split ",")) {
-        if ($entry -notmatch "^[A-Za-z_][A-Za-z0-9_]*=.+$") {
-            $equalsIndex = $entry.IndexOf("=")
-            $displayEntry = if ($equalsIndex -ge 0) {
-                ($entry.Substring(0, $equalsIndex) -replace "[\x00-\x1F\x7F]", "?") + "=***"
-            } else {
-                "<missing '='>"
-            }
-            throw "AgentEnv entry must be KEY=VALUE with a valid environment variable name and non-empty value: '$displayEntry'"
+    $harborArgs = @(
+        "run",
+        "-d", "terminal-bench/terminal-bench-2-1",
+        "--agent-import-path", "harness.mixdog_agent:MixdogAgent",
+        "-o", $JobsDir,
+        "-n", $Concurrent,
+        "-k", $Attempts,
+        "-r", $MaxRetries,
+        "--retry-exclude", "AgentTimeoutError",
+        "--retry-exclude", "VerifierOutputParseError",
+        "--retry-exclude", "RewardFileEmptyError",
+        "-y"
+    )
+    # Accept both array and comma-joined string; task names need the
+    # "terminal-bench/" prefix to match the dataset registry names.
+    function Expand-Tasks([string[]]$names) {
+        $names | ForEach-Object { $_ -split "," } | Where-Object { $_ } | ForEach-Object {
+            if ($_ -like "terminal-bench/*") { $_ } else { "terminal-bench/$_" }
         }
-        $harborArgs += @("--ae", $entry)
     }
-}
-if ($hasRouteProfile) {
-    $harborArgs += @("--ak", "route_profile=$RouteProfile")
-    $resolvedAudit
-}
+    foreach ($t in (Expand-Tasks $Include)) { $harborArgs += @("-i", $t) }
+    if ($prebakeComposePath) { $harborArgs += @("--extra-docker-compose", $prebakeComposePath) }
+    foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
+    foreach ($t in $resumeCompletedTasks) { $harborArgs += @("-x", $t) }
+    if ($resumeCompletedTasks.Count -gt 0) {
+        "resume: excluding $($resumeCompletedTasks.Count) completed task(s) from $resumeResultPath"
+    }
+    if ($hasModel) { $harborArgs += @("-m", $Model) }
+    if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
+    if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }
+    $harborArgs += @("--ak", "effort_judge=$EffortJudge")
+    foreach ($item in $AgentEnv) {
+        foreach ($entry in ($item -split ",")) {
+            if ($entry -notmatch "^[A-Za-z_][A-Za-z0-9_]*=.+$") {
+                $equalsIndex = $entry.IndexOf("=")
+                $displayEntry = if ($equalsIndex -ge 0) {
+                    ($entry.Substring(0, $equalsIndex) -replace "[\x00-\x1F\x7F]", "?") + "=***"
+                }
+                else {
+                    "<missing '='>"
+                }
+                throw "AgentEnv entry must be KEY=VALUE with a valid environment variable name and non-empty value: '$displayEntry'"
+            }
+            $harborArgs += @("--ae", $entry)
+        }
+    }
+    if ($hasRouteProfile) {
+        $harborArgs += @("--ak", "route_profile=$RouteProfile")
+        $resolvedAudit
+    }
 
-$displayArgs = @($harborArgs)
-for ($i = 0; $i -lt ($displayArgs.Count - 1); $i++) {
-    if ($displayArgs[$i] -eq "--ae") {
-        $key = $displayArgs[$i + 1].Split("=", 2)[0]
-        $displayArgs[$i + 1] = "$key=***"
-        $i++
+    $displayArgs = @($harborArgs)
+    for ($i = 0; $i -lt ($displayArgs.Count - 1); $i++) {
+        if ($displayArgs[$i] -eq "--ae") {
+            $key = $displayArgs[$i + 1].Split("=", 2)[0]
+            $displayArgs[$i + 1] = "$key=***"
+            $i++
+        }
     }
-}
-"harbor $($displayArgs -join ' ')"
-if (-not $DryRun) {
-    # Progress heartbeat: harbor's rich progress bar is invisible through a
-    # non-TTY pipe, so a long run looks hung. A detached pwsh inherits this
-    # console/pipe (-NoNewWindow) and prints trial counts + last file activity
-    # from the run's result.json every 30s. Task-neutral: counts only, no
-    # task names or hints reach the agent (separate process, stdout only).
-    $heartbeat = $null
-    try {
-        $hbJobs = $JobsDir.Replace("'", "''")
-        $hbCommand = "`$jobs = '$hbJobs'; while (`$true) { Start-Sleep -Seconds 30; try { " +
+    "harbor $($displayArgs -join ' ')"
+    if (-not $DryRun) {
+        # Progress heartbeat: harbor's rich progress bar is invisible through a
+        # non-TTY pipe, so a long run looks hung. A detached pwsh inherits this
+        # console/pipe (-NoNewWindow) and prints trial counts + last file activity
+        # from the run's result.json every 30s. Task-neutral: counts only, no
+        # task names or hints reach the agent (separate process, stdout only).
+        $heartbeat = $null
+        try {
+            $hbJobs = $JobsDir.Replace("'", "''")
+            $hbCommand = "`$jobs = '$hbJobs'; while (`$true) { Start-Sleep -Seconds 30; try { " +
             "`$run = Get-ChildItem -LiteralPath `$jobs -Directory -ErrorAction Stop | Sort-Object Name | Select-Object -Last 1; " +
             "if (`$null -eq `$run) { continue }; " +
             "`$rp = Join-Path `$run.FullName 'result.json'; " +
@@ -323,22 +326,24 @@ if (-not $DryRun) {
             "`$age = if (`$last) { [int]([DateTime]::Now - `$last.LastWriteTime).TotalSeconds } else { -1 }; " +
             "Write-Host ('[progress {0:HH:mm:ss}] completed={1} running={2} pending={3} errors={4} last-activity={5}s ago' -f (Get-Date), `$s.n_completed_trials, `$s.n_running_trials, `$s.n_pending_trials, `$s.n_errored_trials, `$age) " +
             "} catch { } }"
-        $hbEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($hbCommand))
-        $heartbeat = Start-Process (Get-Command pwsh.exe).Source `
-            -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $hbEncoded) `
-            -NoNewWindow -PassThru
-    } catch {
-        Write-Warning "progress heartbeat unavailable: $($_.Exception.Message)"
-    }
-    try {
-        harbor @harborArgs
-        $harborExitCode = $LASTEXITCODE
-    } finally {
-        if ($heartbeat -and -not $heartbeat.HasExited) {
-            Stop-Process -Id $heartbeat.Id -Force -ErrorAction SilentlyContinue
+            $hbEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($hbCommand))
+            $heartbeat = Start-Process (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $hbEncoded) `
+                -NoNewWindow -PassThru
+        }
+        catch {
+            Write-Warning "progress heartbeat unavailable: $($_.Exception.Message)"
+        }
+        try {
+            harbor @harborArgs
+            $harborExitCode = $LASTEXITCODE
+        }
+        finally {
+            if ($heartbeat -and -not $heartbeat.HasExited) {
+                Stop-Process -Id $heartbeat.Id -Force -ErrorAction SilentlyContinue
+            }
         }
     }
-}
 }
 finally {
     Remove-Item Env:MIXDOG_TB_SRC_SNAPSHOT -ErrorAction SilentlyContinue

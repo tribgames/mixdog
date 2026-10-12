@@ -271,7 +271,7 @@ $runnerArgs = @{
     MaxRetries   = $maxRetries
     RouteProfile = $routeProfile
     EffortJudge  = $EffortJudge
-    DryRun      = [bool]$DryRun
+    DryRun       = [bool]$DryRun
     FastSetup    = ($tasks.Count -eq 8 -and $attempts -eq 1 -and -not $ColdSetup)
 }
 if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
