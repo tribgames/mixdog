@@ -681,7 +681,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install the script dependencies
-        run: python3 -m pip install --quiet pyjwt cryptography
+        run: python3 -m pip install --quiet --upgrade pyjwt cryptography
       - name: Run the mobile script unit tests
         run: python3 -m unittest discover -s apps/mobile/scripts -p "test_*.py" -v
 
