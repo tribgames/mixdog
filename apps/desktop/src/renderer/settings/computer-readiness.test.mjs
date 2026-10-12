@@ -17,10 +17,13 @@ window.HTMLElement.prototype.detachEvent = () => {};
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 
 const { createRoot } = await import('react-dom/client');
-const { computerReadinessBlocking, computerReadinessPending, computerReadinessRows, linuxPlatformFacts } =
-  await import('./computer-readiness.ts');
+const { computerReadinessBlocking, computerReadinessPending, computerReadinessRows, linuxPlatformFacts } = await import(
+  './computer-readiness.ts'
+);
 const { featureStatus } = await import('./built-in-features-panel.tsx');
-const { ComputerReadinessSection, inputAccessError, useComputerReadiness } = await import('./computer-readiness-section.tsx');
+const { ComputerReadinessSection, inputAccessError, useComputerReadiness } = await import(
+  './computer-readiness-section.tsx'
+);
 
 const ready = { state: 'ready' };
 const linux = (capabilities = {}, extra = {}) => ({
@@ -148,9 +151,7 @@ test('only optional items left: no section rows, no rail tag, no polling', () =>
 });
 
 test('semantic actions and accessibility share one row; capture needs_setup has one too', () => {
-  const rows = rowsOf(
-    linux({ semanticActions: { state: 'needs_setup' }, capture: { state: 'needs_setup' } })
-  );
+  const rows = rowsOf(linux({ semanticActions: { state: 'needs_setup' }, capture: { state: 'needs_setup' } }));
   assert.deepEqual(rows.map((row) => row.id).sort(), ['accessibility', 'capture']);
 });
 
@@ -280,11 +281,20 @@ test('the section lists rows, runs actions, and disappears by itself on the next
 test('a failed Allow picks a guidance line from the structured result, not the English diagnostic', () => {
   const base = 'Mouse and keyboard access could not be allowed.';
   const line = (result) => inputAccessError({ ok: false, message: 'ENGLISH DIAGNOSTIC', ...result });
-  assert.equal(line({ reason: 'access_unavailable', detail: 'relogin' }), `${base} Sign out and back in, or add your user to the input group, then try again.`);
-  assert.equal(line({ reason: 'access_unavailable', detail: 'no-module' }), `${base} The uinput kernel module is not available on this system.`);
+  assert.equal(
+    line({ reason: 'access_unavailable', detail: 'relogin' }),
+    `${base} Sign out and back in, or add your user to the input group, then try again.`
+  );
+  assert.equal(
+    line({ reason: 'access_unavailable', detail: 'no-module' }),
+    `${base} The uinput kernel module is not available on this system.`
+  );
   assert.equal(line({ reason: 'failed', exitCode: 3 }), `${base} The repair script failed (exit 3).`);
   assert.equal(line({ reason: 'cancelled' }), `${base} Authorization was cancelled.`);
-  assert.equal(line({ reason: 'pkexec_missing' }), `${base} pkexec is not installed, so access cannot be set up from here.`);
+  assert.equal(
+    line({ reason: 'pkexec_missing' }),
+    `${base} pkexec is not installed, so access cannot be set up from here.`
+  );
   assert.equal(line({ reason: 'failed' }), base);
   assert.equal(inputAccessError(undefined), base);
 });

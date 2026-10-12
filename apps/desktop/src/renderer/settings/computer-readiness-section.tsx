@@ -139,7 +139,9 @@ export function ComputerReadinessSection({
             tone={row.tone}
             dataAttributes={{ 'data-readiness-row': row.id }}
             control={
-              row.action ? <ExtensionAction onClick={() => void run(row)}>{row.action.label}</ExtensionAction> : undefined
+              row.action ? (
+                <ExtensionAction onClick={() => void run(row)}>{row.action.label}</ExtensionAction>
+              ) : undefined
             }
           />
         ))}

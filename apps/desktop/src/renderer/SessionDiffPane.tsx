@@ -353,11 +353,7 @@ export function SessionDiffPane({
         <p className="utility-dock-empty">{t('No changes from this session.')}</p>
       ) : inDiff && current ? (
         <div className="session-diff-body">
-          <FileDiffBody
-            key={current.path}
-            patch={current.parts.map((part) => part.patch).join('\n')}
-            mode={viewMode}
-          />
+          <FileDiffBody key={current.path} patch={current.parts.map((part) => part.patch).join('\n')} mode={viewMode} />
         </div>
       ) : (
         <SessionDiffFiles

@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto';
 import { estimateTokens } from './token-estimate.mjs';
-import { beginIdentity, endIdentity, putJsonElement, putJsonString, putRaw, putShapeText } from './context-identity-writer.mjs';
+import {
+  beginIdentity,
+  endIdentity,
+  putJsonElement,
+  putJsonString,
+  putRaw,
+  putShapeText,
+} from './context-identity-writer.mjs';
 import { positiveInt } from '../../../shared/numbers.mjs';
 import { hasPlainPrototype } from '../../../shared/object.mjs';
 import { createContextFingerprinter } from './context-fingerprint.mjs';

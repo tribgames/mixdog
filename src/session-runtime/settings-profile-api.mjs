@@ -39,7 +39,10 @@ export function createProfileSettings({
       const onboarding = config.onboarding || {};
       saveConfigAndAdopt({
         ...config,
-        onboarding: { ...onboarding, starterGuide: mergeStarterGuide(storedStarterGuide(onboarding.starterGuide), next) },
+        onboarding: {
+          ...onboarding,
+          starterGuide: mergeStarterGuide(storedStarterGuide(onboarding.starterGuide), next),
+        },
       });
       return this.getOnboardingStatus();
     },

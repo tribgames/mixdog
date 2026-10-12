@@ -33,8 +33,7 @@ export function automationRouteSummary(
   if (!ref.route) return null;
   const slash = ref.route.indexOf('/');
   const model = slash > 0 ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash)) : ref.route;
-  const autoEffortCapable =
-    slash > 0 && cachedAutoEffortCapable(ref.route.slice(0, slash), ref.route.slice(slash + 1));
+  const autoEffortCapable = slash > 0 && cachedAutoEffortCapable(ref.route.slice(0, slash), ref.route.slice(slash + 1));
   return {
     model,
     effort: ref.effort || '',

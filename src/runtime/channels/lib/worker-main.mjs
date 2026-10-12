@@ -127,10 +127,7 @@ let _reloadDebounce = null;
 const STATUS_FILE = getStatusPath(INSTANCE_ID);
 const statusState = new JsonStateFile(STATUS_FILE, {});
 statusState.ensure();
-const scheduler = new Scheduler(
-  config.nonInteractive ?? [],
-  config.interactive ?? []
-);
+const scheduler = new Scheduler(config.nonInteractive ?? [], config.interactive ?? []);
 // Schedules fire as visible sessions; the session runner belongs to the
 // session-runtime layer, so this worker entry injects it (lazy, like webhooks).
 scheduler.setScheduleRunner(async (schedule, opts) => {
@@ -362,10 +359,4 @@ if (_isWorkerMode && process.send && process.env.MIXDOG_DAEMON_HOST !== '1') {
   });
 }
 
-export {
-  handleToolCall,
-  isChannelBridgeActive,
-  isChannelsDegraded,
-  start,
-  stop,
-};
+export { handleToolCall, isChannelBridgeActive, isChannelsDegraded, start, stop };

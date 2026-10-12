@@ -1353,7 +1353,13 @@ test('cancellation is its own lifecycle state, never queued, running, done or id
 test('a live turn blocked on a user approval needs the user, never running', () => {
   // The row shape the runtime status producer publishes while a PreToolUse
   // `ask` waits for the user (agent-list / job-views awaitingUser).
-  const blocked = { tag: 'review', agent: 'reviewer', status: 'running', stage: 'tool_running', awaitingUser: 'approval' };
+  const blocked = {
+    tag: 'review',
+    agent: 'reviewer',
+    status: 'running',
+    stage: 'tool_running',
+    awaitingUser: 'approval',
+  };
   assert.equal(desktopAgentActivityState(blocked), 'needs-user');
   assert.equal(desktopAgentActivityState(blocked, { waitingForTasks: true }), 'needs-user');
   // Only a live turn can be blocked; a cancel still outranks it.

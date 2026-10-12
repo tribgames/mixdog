@@ -42,7 +42,10 @@ function markSeen(version: string): void {
   acknowledgeUpdate(version);
 }
 
-export function useWhatsNewNotice(version: string, loadDialog: () => Promise<WhatsNewDialogModule> = loadWhatsNewDialog) {
+export function useWhatsNewNotice(
+  version: string,
+  loadDialog: () => Promise<WhatsNewDialogModule> = loadWhatsNewDialog
+) {
   const [status] = useState(() => readWhatsNewStatus(version));
   const [notice, setNotice] = useState<{ Dialog: NoticeDialog; release: ChangelogRelease } | null>(null);
   const closeNotice = useCallback(() => setNotice(null), []);

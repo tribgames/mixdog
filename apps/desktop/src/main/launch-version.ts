@@ -69,9 +69,7 @@ export async function recordLaunchVersion(
   onWriteFailure: WriteFailure
 ): Promise<boolean> {
   const previous = await readLaunchRecord(filePath);
-  const updated = previous
-    ? compareSemver(version, previous.lastLaunched) > 0
-    : argv.includes('--updated');
+  const updated = previous ? compareSemver(version, previous.lastLaunched) > 0 : argv.includes('--updated');
   const pending = updated || previous?.pendingAnnouncement === version ? version : undefined;
   const next: LaunchRecord = { lastLaunched: version, ...(pending ? { pendingAnnouncement: pending } : {}) };
   if (previous?.lastLaunched !== next.lastLaunched || previous?.pendingAnnouncement !== next.pendingAnnouncement) {

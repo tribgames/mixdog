@@ -95,7 +95,9 @@ export function BackgroundJobsPane({
     const items = [...(treeRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]:not(:disabled)') ?? [])];
     if (items.length === 0) return;
     event.preventDefault();
-    const current = items.indexOf((event.target as HTMLElement).closest<HTMLElement>('[role="treeitem"]') as HTMLElement);
+    const current = items.indexOf(
+      (event.target as HTMLElement).closest<HTMLElement>('[role="treeitem"]') as HTMLElement
+    );
     let next = Math.max(current, 0);
     if (event.key === 'ArrowDown') next = Math.min(current + 1, items.length - 1);
     else if (event.key === 'ArrowUp') next = Math.max(current - 1, 0);

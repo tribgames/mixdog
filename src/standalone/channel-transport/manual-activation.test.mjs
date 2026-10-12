@@ -7,7 +7,10 @@ function fixture(t, occupied = false) {
   const caller = { leadPid: process.pid, cwd: '/fixture', remoteSessionId: null };
   const old = { leadPid: process.pid, cwd: '/old', remoteSessionId: 'old_session' };
   const state = {
-    clients: new Map([['caller', caller], ['old', old]]),
+    clients: new Map([
+      ['caller', caller],
+      ['old', old],
+    ]),
     pointerToken: occupied ? 'old' : null,
     remoteAcquired: occupied,
     stickyRemoteFrame: occupied ? { sessionId: 'old_session' } : null,
@@ -22,13 +25,28 @@ function fixture(t, occupied = false) {
     },
     log() {},
     runExclusiveBinding: (run) => run(),
-    movePointer: (token) => { events.push(['pointer', token]); state.pointerToken = token; },
-    writeRemoteStateTo: () => { events.push(['displaced']); return true; },
-    clearRemoteIntent: () => { events.push(['clear']); state.pinnedSessionId = null; },
-    writeRemoteIntent: (_args, id) => { events.push(['pin', id]); state.pinnedSessionId = id; },
+    movePointer: (token) => {
+      events.push(['pointer', token]);
+      state.pointerToken = token;
+    },
+    writeRemoteStateTo: () => {
+      events.push(['displaced']);
+      return true;
+    },
+    clearRemoteIntent: () => {
+      events.push(['clear']);
+      state.pinnedSessionId = null;
+    },
+    writeRemoteIntent: (_args, id) => {
+      events.push(['pin', id]);
+      state.pinnedSessionId = id;
+    },
     publishRemoteState: () => events.push(['publish']),
   });
-  t.after(() => { state.closed = true; dispatch.close('fixture complete'); });
+  t.after(() => {
+    state.closed = true;
+    dispatch.close('fixture complete');
+  });
   const snapshot = () => ({
     pointerToken: state.pointerToken,
     remoteAcquired: state.remoteAcquired,
@@ -37,9 +55,16 @@ function fixture(t, occupied = false) {
     callerSessionId: caller.remoteSessionId,
     oldSessionId: old.remoteSessionId,
   });
-  const call = (args, callId = 'request') => dispatch.dispatchCall({
-    name: 'activate_channel_bridge', args, callId,
-  }, caller, 'caller');
+  const call = (args, callId = 'request') =>
+    dispatch.dispatchCall(
+      {
+        name: 'activate_channel_bridge',
+        args,
+        callId,
+      },
+      caller,
+      'caller'
+    );
   return { state, events, snapshot, call };
 }
 

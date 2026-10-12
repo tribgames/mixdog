@@ -27,7 +27,10 @@ import { createRoutedAgentTool } from '../agent-tool-routing.mjs';
 import { createGoalRuntime } from '../../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
 import { collectStandaloneToolDefs } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { createToolSurface } from '../tool-surface.mjs';
-import { contextStatusForSession, createContextStatus } from '../../runtime/agent/orchestrator/runtime-core/context-status.mjs';
+import {
+  contextStatusForSession,
+  createContextStatus,
+} from '../../runtime/agent/orchestrator/runtime-core/context-status.mjs';
 import { createInternalToolExecutor } from '../internal-tool-executor.mjs';
 import { STANDALONE_ROOT, STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
 import { dataDirOf, workflowHelpers } from './shared.mjs';

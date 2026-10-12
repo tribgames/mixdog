@@ -72,7 +72,10 @@ test('saveStarterGuideState rejects malformed payloads and leaves the stored sta
 });
 
 test('a stale save never reopens a closed guide or forgets a visited step', () => {
-  const { profile, config } = harness({ completed: true, starterGuide: { closed: false, welcomed: false, visited: [] } });
+  const { profile, config } = harness({
+    completed: true,
+    starterGuide: { closed: false, welcomed: false, visited: [] },
+  });
   // Two renderer writes race: the close lands first, the older visit second.
   profile.saveStarterGuideState({ closed: true, welcomed: true, visited: ['provider'] });
   profile.saveStarterGuideState({ closed: false, welcomed: false, visited: ['workflow'] });
