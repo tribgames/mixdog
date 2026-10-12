@@ -1360,7 +1360,6 @@ html[data-window-material="mica"] .jump-to-latest {
 .session-goal-bar > i {
   height: 100%;
   display: block;
-  background: var(--mx-accent);
 }
 .session-goal-objective {
   min-width: 0;
@@ -1368,6 +1367,63 @@ html[data-window-material="mica"] .jump-to-latest {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* State tint: the leading icon, the pips' fill and the status label share one
+   hue per state. Static: the Goal segment never animates. */
+.session-goal-island {
+  --goal-tint: var(--mx-accent);
+  --goal-fill: var(--mx-accent);
+}
+.session-goal-island[data-state="paused"],
+.session-goal-island[data-state="stopped"] {
+  --goal-tint: var(--mx-text-muted);
+  --goal-fill: var(--mx-text-muted);
+}
+.session-goal-island[data-state="blocked"] {
+  --goal-tint: var(--mx-danger);
+}
+.session-goal-island[data-state="waiting"] {
+  --goal-tint: var(--mx-warning);
+}
+.session-goal-island[data-state="complete"] {
+  --goal-tint: var(--mx-success);
+  --goal-fill: var(--mx-success);
+}
+.session-goal-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--goal-tint);
+}
+.session-goal-objective[data-label="status"] {
+  color: var(--goal-tint);
+}
+/* One pip per counted task in a fixed 56px, so the segment keeps its width
+   whatever the task count. */
+.session-goal-pips {
+  width: 56px;
+  height: 4px;
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.session-goal-pips > i {
+  min-width: 0;
+  flex: 1 1 0;
+  border-radius: 2px;
+  background: var(--mx-meter-track);
+}
+.session-goal-pips > i[data-status="completed"] {
+  background: var(--goal-fill);
+}
+.session-goal-pips > i[data-status="in_progress"] {
+  background: linear-gradient(90deg, var(--goal-tint) 50%, var(--mx-meter-track) 50%);
+}
+.session-goal-pips > i[data-status="awaiting_approval"] {
+  background: var(--mx-warning);
+}
+.session-goal-bar > i {
+  background: var(--goal-fill);
 }
 .session-goal-progress,
 .session-goal-time {
@@ -1437,6 +1493,7 @@ html[data-window-material="mica"] .jump-to-latest {
   min-height: 0;
   max-height: min(320px, 40dvh);
   display: grid;
+  align-content: start;
   gap: 0;
   margin: 0;
   padding: 0;
@@ -1449,16 +1506,62 @@ html[data-window-material="mica"] .jump-to-latest {
   display: grid;
   /* Mirrors .session-goal-title-region: icon column + 6px gap, no extra
      inline padding, so rows align with the collapsed header. */
-  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr);
+  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr) auto;
   align-items: start;
-  column-gap: 6px;
-  padding: 7px 0;
-  border-radius: 0;
+  column-gap: 10px;
+  padding: 7px 8px;
+  border-radius: 9px;
   background: transparent;
 }
-/* Hairline between rows: multi-line tasks otherwise merge into one block. */
 .session-goal-tasks li + li {
-  border-top: var(--mx-hairline) solid color-mix(in srgb, var(--mx-border) 70%, transparent);
+  margin-top: 1px;
+}
+/* The running row carries a soft fill; rows that need the user or are
+   stalled tint with their state. Text names the state too, not colour alone. */
+.session-goal-tasks li[data-status="in_progress"] {
+  background: var(--composer-island-wash);
+}
+.session-goal-tasks li[data-status="in_progress"] > div > span {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-label);
+}
+.session-goal-tasks li[data-status="awaiting_approval"] {
+  background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
+}
+.session-goal-tasks li[data-stalled="true"] {
+  background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
+}
+.session-goal-tasks li[data-stalled="true"][data-status] > span {
+  color: var(--mx-danger);
+}
+.session-goal-badge {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: var(--mx-radius-pill);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: var(--mx-weight-regular);
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--mx-warning);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-warning) 40%, transparent);
+}
+.session-goal-badge[data-tone="blocked"] {
+  color: var(--mx-danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 40%, transparent);
+}
+.session-goal-statusline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.session-goal-statusline-state {
+  color: var(--goal-tint);
+  font-weight: var(--mx-weight-label);
 }
 .session-goal-tasks li > span {
   width: var(--mx-icon-md);
@@ -1568,7 +1671,7 @@ html[data-mixdog-mobile-tabs] .session-goal-body {
     calc(12px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
-  grid-template-columns: calc(16px * var(--mx-device-scale, 2.5)) minmax(0, 1fr);
+  grid-template-columns: calc(16px * var(--mx-device-scale, 2.5)) minmax(0, 1fr) auto;
   column-gap: calc(6px * var(--mx-device-scale, 2.5));
   padding: calc(8px * var(--mx-device-scale, 2.5)) 0;
 }

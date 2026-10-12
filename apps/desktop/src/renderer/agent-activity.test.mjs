@@ -447,9 +447,9 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
     });
     assert.equal(document.querySelector('.session-goal-objective')?.textContent, 'Short Goal Title');
     const trigger = document.querySelector('.session-goal-trigger');
-    const bar = trigger.querySelector('.session-goal-bar');
-    assert.equal(trigger.firstElementChild, bar, 'a progress bar leads the segment');
-    assert.ok(Math.abs(Number.parseFloat(bar.querySelector('i').style.width) - 100 / 3) < 0.001, 'bar fill is 1/3');
+    assert.equal(trigger.firstElementChild?.dataset.state, 'active', 'the state icon leads the segment');
+    const pips = [...trigger.querySelectorAll('.session-goal-pips > i')].map((pip) => pip.dataset.status);
+    assert.deepEqual(pips, ['completed', 'in_progress', 'pending'], 'one pip per task');
     // The segment reads n/m plus elapsed time, as the island mockup does.
     assert.equal(trigger.querySelector('.session-goal-meta')?.textContent, '1/35m');
     assert.equal(trigger.querySelector('.session-goal-trigger-time')?.textContent, '5m');

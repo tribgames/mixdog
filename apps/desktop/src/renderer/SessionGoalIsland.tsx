@@ -11,8 +11,13 @@ import {
   goalElapsedLabel,
   goalElapsedMinutesLabel,
   goalHasBackgroundWork,
+  goalStateKind,
+  goalStateLabel,
   goalStatusLabel,
+  goalTaskProgress,
   goalTimeLabel,
+  type GoalStateKind,
+  type GoalTaskProgress,
 } from './session-goal-presentation';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { useClock } from './use-clock';
@@ -38,6 +43,36 @@ function GoalBar({ completed, total, label }: { completed: number; total: number
       title={label}
     >
       <i style={{ width: `${progress * 100}%` }} />
+    </span>
+  );
+}
+
+/** The segment's leading mark: one glyph whose shape names the state. */
+function GoalStateIcon({ kind, label }: { kind: GoalStateKind; label?: string }) {
+  const name = kind === 'complete' ? 'check' : kind === 'stopped' ? 'stop' : `goal-${kind}`;
+  return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role="img" is set whenever label (the aria-label) is defined
+    <span
+      className="session-goal-state"
+      data-state={kind}
+      role={label ? 'img' : undefined}
+      aria-label={label}
+      title={label}
+    >
+      <MxIcon name={name} size={14} />
+    </span>
+  );
+}
+
+/** Task progress: one pip per counted task, or the thin bar for a long list. */
+function GoalProgress({ progress, label }: { progress: GoalTaskProgress; label?: string }) {
+  if (!progress.pips) return <GoalBar completed={progress.completed} total={progress.total} label={label} />;
+  return (
+    <span className="session-goal-pips" aria-hidden="true">
+      {progress.pips.map((status, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: pips are positional and carry no identity
+        <i key={index} data-status={status} />
+      ))}
     </span>
   );
 }
@@ -77,10 +112,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     displayStatus === 'responding' ||
     (displayStatus === 'active' &&
       (backgroundWorking || Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval)));
-  let activityLabel: string | undefined;
-  if (displayStatus === 'responding') activityLabel = t('Responding');
-  else if (displayStatus === 'paused') activityLabel = t('Paused');
-  else if (displayStatus === 'active') activityLabel = t('Working');
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId and goal id are triggers that reset the local UI state, not values read in the effect
   useEffect(() => {
@@ -157,12 +188,13 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   };
   if (!goal) return null;
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
-  const tasksTotal = Math.max(tasks.length, Number(goal.tasksTotal) || 0);
-  const tasksCompleted = Math.min(
-    tasksTotal,
-    Math.max(tasks.filter((task) => task.status === 'completed').length, Number(goal.tasksCompleted) || 0)
-  );
-  const progressLabel = `${tasksCompleted}/${tasksTotal}`;
+  const progress = goalTaskProgress(goal);
+  const progressLabel = `${progress.completed}/${progress.total}`;
+  const kind = goalStateKind(goal, displayStatus);
+  const stateLabel = goalStateLabel(goal, kind, displayStatus);
+  // Attention outranks identity: where the title would sit, a state that
+  // needs the user (or has ended) names itself instead.
+  const showStateLabel = kind !== 'active' && kind !== 'paused';
   const elapsedMinutes = goalElapsedMinutesLabel(goal, clock);
   const title = String(goal.title || goal.objective || t('Goal'));
   const objective = String(goal.objective || '');
@@ -174,32 +206,33 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       ref={rootRef}
       className="session-goal-island"
       data-status={displayStatus}
+      data-state={kind}
       data-waiting={waiting ? 'true' : 'false'}
       data-open={open ? 'true' : 'false'}
     >
-      {/* The island segment: progress bar, title (dropped when the island
-          is crowded), n/m and elapsed minutes. */}
+      {/* The island segment: state icon, task pips, title or status label
+          (dropped when the island is crowded), n/m and elapsed minutes. */}
       <button
         type="button"
         className="session-goal-trigger"
         aria-expanded={open}
         aria-controls={drawerId}
-        aria-label={t('Goal: {{objective}}', { objective })}
+        aria-label={t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
+          objective,
+          status: stateLabel,
+          completed: progress.completed,
+          total: progress.total,
+        })}
         onClick={() => setOpen(!open)}
       >
-        {terminal ? (
-          <span
-            className="session-goal-finished"
-            data-status={goal.status}
-            style={{ color: goal.status === 'complete' ? 'var(--mx-success)' : 'var(--mx-text-muted)' }}
-          >
-            <MxIcon name={goal.status === 'complete' ? 'check' : 'stop'} size={14} />
-          </span>
-        ) : (
-          <GoalBar completed={tasksCompleted} total={tasksTotal} label={activityLabel} />
-        )}
-        <span className="session-goal-objective" title={objective}>
-          {title}
+        <GoalStateIcon kind={kind} label={stateLabel} />
+        <GoalProgress progress={progress} />
+        <span
+          className="session-goal-objective"
+          data-label={showStateLabel ? 'status' : 'title'}
+          title={objective}
+        >
+          {showStateLabel ? stateLabel : title}
         </span>
         <span className="session-goal-meta">
           <span className="session-goal-progress">{progressLabel}</span>
@@ -213,7 +246,8 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
         <section id={drawerId} className="session-goal-panel" role="region" aria-label={t('Goal tasks')}>
           <div className="composer-island-phead">
             <span className="composer-island-tab" data-active="true">
-              <GoalBar completed={tasksCompleted} total={tasksTotal} />
+              <GoalStateIcon kind={kind} />
+              <GoalProgress progress={progress} />
               <span className="session-goal-meta">
                 <span className="session-goal-progress">{progressLabel}</span>
                 <span className="session-goal-meta-time">
@@ -238,22 +272,34 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                 {/* The header shows the objective on one ellipsized line; the
                     open drawer is where the full text reads, wrapped. */}
                 {objective && <p className="session-goal-objective-full">{objective}</p>}
-                <span>{goalStatusLabel(goal)}</span>
-                <span>{goalTimeLabel(goal, clock)}</span>
+                <span className="session-goal-statusline">
+                  <span className="session-goal-statusline-state">{goalStatusLabel(goal)}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{goalTimeLabel(goal, clock)}</span>
+                </span>
               </div>
               <div className="session-goal-tasks">
                 {tasks.length > 0 ? (
                   <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
                     {tasks.map((task, index) => {
                       const taskStatus = task.status || 'pending';
+                      // The running row carries the Goal's blocker; the one
+                      // parked on the user asks for the answer.
+                      const stalled = taskStatus === 'in_progress' && kind === 'blocked';
                       return (
-                        <li key={String(task.id || index)} data-status={taskStatus}>
-                          <span>
-                            <GoalTaskGlyph status={taskStatus} />
-                          </span>
+                        <li
+                          key={String(task.id || index)}
+                          data-status={taskStatus}
+                          data-stalled={stalled ? 'true' : undefined}
+                        >
+                          <span>{stalled ? <MxIcon name="goal-blocked" size={14} /> : <GoalTaskGlyph status={taskStatus} />}</span>
                           <div>
                             <span>{String(task.text || '')}</span>
                           </div>
+                          {stalled && <em className="session-goal-badge" data-tone="blocked">{t('Blocked')}</em>}
+                          {taskStatus === 'awaiting_approval' && (
+                            <em className="session-goal-badge" data-tone="waiting">{t('Needs your answer')}</em>
+                          )}
                         </li>
                       );
                     })}

@@ -6,7 +6,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { SessionGoalIsland } from './SessionGoalIsland.tsx';
 import { PaneGoalIsland } from './app-snapshot-views.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
-import { goalDisplayStatus, goalElapsedLabel } from './session-goal-presentation.ts';
+import { goalDisplayStatus, goalElapsedLabel, goalStateKind, goalTaskProgress } from './session-goal-presentation.ts';
 import { t } from './i18n.ts';
 
 installTestDom(null, {
@@ -109,19 +109,65 @@ test('collapsed trigger shows minute-format time and finished glyphs', async () 
     assert.equal(trigger().querySelector('.session-goal-trigger-time'), null, 'no "0m" in the first minute');
     await render({ id: 'g', status: 'paused', timeUsedMs: 12 * 60_000 + 40_000 });
     assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '12m');
-    assert.ok(trigger().querySelector('.session-goal-bar'));
+    const paused = trigger().querySelector('.session-goal-state');
+    assert.equal(paused.dataset.state, 'paused');
+    assert.ok(paused.querySelector('svg'));
+    assert.equal(trigger().firstElementChild, paused, 'the state icon leads the segment');
     await render({ id: 'g', status: 'complete', timeUsedMs: 65 * 60_000 + 30_000 });
     assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '1h 05m');
-    assert.equal(trigger().querySelector('.session-goal-bar'), null);
-    const done = trigger().querySelector('.session-goal-finished');
-    assert.equal(done.dataset.status, 'complete');
-    assert.equal(done.style.color, 'var(--mx-success)');
+    const done = trigger().querySelector('.session-goal-state');
+    assert.equal(done.dataset.state, 'complete');
     assert.ok(done.querySelector('svg'));
+    assert.equal(trigger().querySelector('.session-goal-objective').textContent, 'Complete');
     await render({ id: 'g', status: 'stopped', timeUsedMs: 5 * 60_000 });
-    const stopped = trigger().querySelector('.session-goal-finished');
-    assert.equal(stopped.dataset.status, 'stopped');
-    assert.equal(stopped.style.color, 'var(--mx-text-muted)');
+    const stopped = trigger().querySelector('.session-goal-state');
+    assert.equal(stopped.dataset.state, 'stopped');
     assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '5m');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('task pips count every task but dropped ones, and long lists fall back to the bar', async () => {
+  const task = (status, index) => ({ id: `t${index}`, text: `Task ${index}`, status });
+  const few = [task('completed', 1), task('in_progress', 2), task('dropped', 3), task('awaiting_approval', 4)];
+  assert.deepEqual(goalTaskProgress({ tasks: few, tasksTotal: 4 }), {
+    completed: 1,
+    total: 3,
+    pips: ['completed', 'in_progress', 'awaiting_approval'],
+  });
+  const many = Array.from({ length: 9 }, (_, index) => task('pending', index));
+  assert.equal(goalTaskProgress({ tasks: many, tasksTotal: 9 }).pips, null);
+  assert.equal(goalTaskProgress({ tasks: [], tasksTotal: 4, tasksCompleted: 2 }).total, 4);
+  assert.equal(goalStateKind({ status: 'paused', pauseReason: 'waiting' }, 'paused'), 'waiting');
+  assert.equal(goalStateKind({ status: 'usage_limited' }, 'usage_limited'), 'blocked');
+
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: {
+            sessionId: 'pips',
+            goal: { id: 'g', status: 'blocked', objective: 'Ship it', tasks: few, tasksTotal: 4, blocker: 'No token' },
+          },
+        })
+      );
+    });
+    const trigger = host.querySelector('.session-goal-trigger');
+    assert.equal(trigger.getAttribute('aria-label'), t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
+      objective: 'Ship it',
+      status: t('Blocked'),
+      completed: 1,
+      total: 3,
+    }));
+    assert.equal(trigger.querySelector('.session-goal-objective').textContent, t('Blocked'));
+    assert.equal(trigger.querySelectorAll('.session-goal-pips > i').length, 3);
+    assert.equal(host.querySelector('.session-goal-badge[data-tone="blocked"]').textContent, t('Blocked'));
+    assert.equal(host.querySelector('.session-goal-badge[data-tone="waiting"]').textContent, t('Needs your answer'));
   } finally {
     await act(async () => root.unmount());
     host.remove();

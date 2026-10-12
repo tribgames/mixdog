@@ -1,4 +1,4 @@
-import type { GoalSnapshot, Snapshot } from './desktop-types';
+import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 
 export type GoalDisplayStatus = NonNullable<GoalSnapshot['status']> | 'responding';
@@ -82,6 +82,58 @@ export function goalStatusLabel(goal: GoalSnapshot): string {
   if (goal.status === 'stopped') return t('Stopped');
   if (goal.status === 'complete') return t('Complete');
   return t('Working');
+}
+
+export type GoalStateKind = 'active' | 'paused' | 'blocked' | 'waiting' | 'complete' | 'stopped';
+
+/** The one state the island shows: it picks the leading icon, the tint and
+ *  whether a status label takes the title's place. */
+export function goalStateKind(goal: GoalSnapshot, displayStatus: GoalDisplayStatus): GoalStateKind {
+  if (displayStatus === 'complete') return 'complete';
+  if (displayStatus === 'stopped') return 'stopped';
+  if (displayStatus === 'paused') {
+    return goal.status === 'paused' && goal.pauseReason === 'waiting' ? 'waiting' : 'paused';
+  }
+  if (displayStatus === 'active' || displayStatus === 'responding') return 'active';
+  return 'blocked';
+}
+
+export function goalStateLabel(goal: GoalSnapshot, kind: GoalStateKind, displayStatus?: GoalDisplayStatus): string {
+  if (displayStatus === 'responding') return t('Responding');
+  if (kind === 'active') return t('Working');
+  if (kind === 'paused') return t('Paused');
+  if (kind === 'waiting') return t('Waiting for your answer');
+  return goalStatusLabel(goal);
+}
+
+export type GoalTaskProgress = {
+  completed: number;
+  total: number;
+  /** One status per counted task (dropped excluded); null when there are too
+   *  many tasks, or only a summary count, for per-task pips. */
+  pips: NonNullable<GoalTask['status']>[] | null;
+};
+
+export const GOAL_MAX_PIPS = 8;
+
+export function goalTaskProgress(goal: GoalSnapshot): GoalTaskProgress {
+  const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
+  const summaryTotal = Number(goal.tasksTotal) || 0;
+  if (tasks.length > 0 && tasks.length >= summaryTotal) {
+    const counted = tasks.filter((task) => task.status !== 'dropped');
+    const statuses = counted.map((task) => task.status || 'pending');
+    return {
+      completed: statuses.filter((status) => status === 'completed').length,
+      total: counted.length,
+      pips: counted.length > 0 && counted.length <= GOAL_MAX_PIPS ? statuses : null,
+    };
+  }
+  const total = Math.max(tasks.length, summaryTotal);
+  const completed = Math.min(
+    total,
+    Math.max(tasks.filter((task) => task.status === 'completed').length, Number(goal.tasksCompleted) || 0)
+  );
+  return { completed, total, pips: null };
 }
 
 export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {

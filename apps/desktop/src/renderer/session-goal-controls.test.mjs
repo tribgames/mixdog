@@ -277,6 +277,7 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
             const icon = row.querySelector(':scope > span');
             return {
               ...typography(copy),
+              current: row.dataset.status === 'in_progress',
               fits: copy.scrollWidth <= copy.clientWidth,
               iconLine: icon.getBoundingClientRect().height,
               topDifference: Math.abs(copy.getBoundingClientRect().top - icon.getBoundingClientRect().top),
@@ -299,7 +300,8 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
         assert.notEqual(entry.color, view.title.color, `${context}: supporting text is visually secondary`);
       }
       for (const entry of view.tasks) {
-        assert.deepEqual([entry.size, entry.weight, entry.line], ['14px', '400', '20px'], context);
+        // The running row reads at the label weight, as the mockup's current row does.
+        assert.deepEqual([entry.size, entry.weight, entry.line], ['14px', entry.current ? '500' : '400', '20px'], context);
         assert.equal(entry.fits, true, `${context}: long text wraps without horizontal clipping`);
         assert.equal(entry.iconLine, 20, `${context}: task glyph follows the first text line`);
         assert.ok(entry.topDifference < 1, `${context}: icon and first line align`);

@@ -3,6 +3,10 @@ import {
   AlertTriangle,
   Bot,
   Check,
+  CircleAlert,
+  MessageSquare,
+  Pause,
+  Target,
   FileDiff,
   Bug,
   Circle,
@@ -45,6 +49,11 @@ import {
 // build, tsx test harness) agrees on the runtime without a React global.
 const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>> = {
   agent: Bot,
+  // Goal segment state glyphs: the shape, not only the tint, names the state.
+  'goal-active': Target,
+  'goal-paused': Pause,
+  'goal-blocked': CircleAlert,
+  'goal-waiting': MessageSquare,
   check: Check,
   'file-diff': FileDiff,
   breakpoint: CircleDot,

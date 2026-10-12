@@ -45,7 +45,6 @@ test('the Goal progress bar is static in every state', async (t) => {
     page.$eval('.session-goal-trigger', (trigger) => {
       const bar = trigger.querySelector('.session-goal-bar');
       const animations = trigger.getAnimations({ subtree: true }).length;
-      // A completed Goal swaps the bar for a check mark (island mockup).
       if (!bar) return { animations, size: null, fill: null };
       const box = bar.getBoundingClientRect();
       return {
@@ -67,8 +66,6 @@ test('the Goal progress bar is static in every state', async (t) => {
     ['duration_reached', {}],
   ]) {
     await render(status, execution);
-    const expected =
-      status === 'complete' ? { animations: 0, size: null, fill: null } : { animations: 0, size: [22, 3], fill: 0 };
-    assert.deepEqual(await sample(), expected, `${status}: the mark stays still`);
+    assert.deepEqual(await sample(), { animations: 0, size: [22, 3], fill: 0 }, `${status}: the mark stays still`);
   }
 });
