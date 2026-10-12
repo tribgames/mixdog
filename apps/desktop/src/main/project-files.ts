@@ -339,6 +339,9 @@ async function replaceProjectFileBytes(
     handle = await open(temp, 'wx', mode);
     ownsTemp = true;
     await handle.writeFile(bytes);
+    // open's mode is filtered by umask. Apply the observed permissions after
+    // writing so atomic replacement preserves them rather than narrowing them.
+    if (process.platform !== 'win32') await handle.chmod(mode);
     await handle.close();
     handle = undefined;
     // Compare the bytes we actually observed/wrote, not a potentially lossy
@@ -476,8 +479,12 @@ export async function writeProjectTextFilesIn(
               throw new Error('Project path changed before rollback.');
             }
           };
+          // Restore content, not a newer external chmod. Metadata failure
+          // must not prevent byte recovery; retain the saved mode as fallback.
+          let mode = replacement.mode;
+          try { mode = (await stat(file)).mode; } catch { /* Metadata is advisory during recovery. */ }
           await replaceProjectFileBytes(
-            file, replacement.before, replacement.after, replacement.mode,
+            file, replacement.before, replacement.after, mode,
             () => { restored.add(replacement.relPath); }, validatePath
           );
         } catch (cause) {

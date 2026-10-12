@@ -68,7 +68,7 @@ test('failure before the first commit preserves the original error and every fil
 });
 
 for (const at of ['a', 'b', 'c']) for (const code of ['EIO', 'EACCES']) {
-  test(`post-rename ${code} at ${at} is recorded and recovered without a rollback stat`, async (t) => {
+  test(`post-rename ${code} at ${at} is recorded and recovered despite unavailable metadata`, async (t) => {
     const root = await fixture(t);
     const path = join(root, `${at}.txt`);
     const cause = fault('committed file metadata unavailable', code);
@@ -93,6 +93,61 @@ for (const at of ['a', 'b', 'c']) for (const code of ['EIO', 'EACCES']) {
     await clean(root);
   });
 }
+
+for (const [before, external] of [[0o644, 0o600], [0o600, 0o666]]) {
+  test(`rollback preserves newer POSIX permissions ${before.toString(8)} to ${external.toString(8)}`, {
+    skip: process.platform === 'win32' ? 'POSIX mode bits are not supported on Windows' : false,
+  }, async (t) => {
+    const previousMask = process.umask(0o077);
+    t.after(() => process.umask(previousMask));
+    const root = await fixture(t);
+    const file = join(root, 'a.txt');
+    await fs.chmod(file, before);
+    const cause = fault('second write failed after external chmod');
+    replaceBuiltin(t, fs, 'rename', async (rename, from, to) => {
+      if (to === join(root, 'b.txt')) {
+        assert.equal(await fs.readFile(file, 'utf8'), 'A1', 'first write already committed');
+        await fs.chmod(file, external);
+        throw cause;
+      }
+      return rename(from, to);
+    });
+    const error = await rejection(saveMany(root, writes('a', 'b')));
+    outcome(error, cause, 'b.txt', ['a.txt'], ['a.txt'], []);
+    assert.equal(await fs.readFile(file, 'utf8'), 'A0');
+    assert.equal((await fs.stat(file)).mode & 0o777, external);
+    assert.equal(await fs.readFile(join(root, 'b.txt'), 'utf8'), 'B0');
+    await clean(root);
+  });
+}
+
+test('rollback falls back to the saved mode when current metadata is unavailable', async (t) => {
+  const root = await fixture(t);
+  const file = join(root, 'a.txt');
+  await fs.chmod(file, 0o600);
+  const inspect = fs.stat;
+  const before = (await inspect(file)).mode & 0o777;
+  const cause = fault('second write failed before metadata fallback');
+  let recovering = false;
+  let metadataAttempts = 0;
+  replaceBuiltin(t, fs, 'rename', (rename, from, to) => {
+    if (to === join(root, 'b.txt')) { recovering = true; throw cause; }
+    return rename(from, to);
+  });
+  replaceBuiltin(t, fs, 'stat', (stat, path, ...args) => {
+    if (recovering && path === file) {
+      metadataAttempts++;
+      throw fault('rollback metadata unavailable', 'EACCES');
+    }
+    return stat(path, ...args);
+  });
+  const error = await rejection(saveMany(root, writes('a', 'b')));
+  outcome(error, cause, 'b.txt', ['a.txt'], ['a.txt'], []);
+  assert.equal(metadataAttempts, 1);
+  assert.equal(await fs.readFile(file, 'utf8'), 'A0');
+  assert.equal((await inspect(file)).mode & 0o777, before);
+  await clean(root);
+});
 
 test('partial rollback reports original and recovery failures and continues recovering earlier files', async (t) => {
   const root = await fixture(t);
