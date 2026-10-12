@@ -4,17 +4,35 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-- Muse Code (Meta) đã có mặt dưới dạng nhà cung cấp gói đăng ký: đăng nhập bằng mã thiết bị trong trình duyệt và theo dõi hạn mức đăng ký theo chu kỳ và theo tuần ngay trong Mixdog.
+Muse Code (Meta) hiện có sẵn dưới dạng nhà cung cấp theo gói đăng ký: đăng nhập bằng mã thiết bị trong trình duyệt và xem mức sử dụng theo chu kỳ và theo tuần ngay trong Mixdog.
 
-- Đăng nhập MiMo (Xiaomi) hiện có trong Cài đặt → Tùy chọn nhà phát triển, cùng với Cursor và Antigravity (mặc định tắt).
+Đăng nhập MiMo (Xiaomi) có sẵn tại Cài đặt → Tùy chọn nhà phát triển, cùng với Cursor và Antigravity (tắt theo mặc định).
 
-- Ô trạng thái phía trên khung nhập tin nhắn đã được thiết kế lại: các tác tử đang chờ bạn phê duyệt hiển thị "Đang chờ phê duyệt" và số lượng "Cần bạn xử lý" thay vì trông như đang bận, nhấp vào một dòng tác tử sẽ mở phiên của tác tử đó, thời gian đã trôi qua hiển thị gọn như "1m 05s", và ô trạng thái được giữ lại một lúc sau khi công việc kết thúc thay vì nhấp nháy rồi biến mất ngay.
+Mục "Tệp hướng dẫn" mới trong Cài đặt → Chung có thể tự động đưa các quy tắc trong AGENTS.md / CLAUDE.md từ thư mục chính của bạn (~/.codex và ~/.claude) và thư mục dự án vào các phiên mới. Bạn có thể chọn AGENTS.md, CLAUDE.md, Tất cả hoặc Tắt. Mặc định là tắt; vì các tệp này được tin cậy như hướng dẫn, chỉ bật cho các kho lưu trữ mà bạn tin tưởng.
 
-- Ngăn Tác tử cũng đánh dấu các tác tử đang chờ phê duyệt.
+Daybreak Blue nay là công tắc theo từng tuyến trong "Suy luận tự động" trên các mô hình hỗ trợ, dựa trên danh sách mô hình của nhà cung cấp. Mô hình Blue riêng đã bị loại bỏ, và các tuyến hiện có chuyển sang một mô hình được hỗ trợ với Blue được bật.
 
-- Tin nhắn của chính bạn không còn hiển thị "từ <PC này>"; tên thiết bị chỉ xuất hiện trên tin nhắn được gửi từ thiết bị khác.
+- Bộ đánh giá suy luận tự động v6 được cài đặt tự động sau khi cập nhật. Đây là EmbeddingGemma 2 được tinh chỉnh riêng để đánh giá mức nỗ lực suy luận, và đánh giá cả yêu cầu lẫn các bước công cụ của tác nhân. Trên cùng 12,029 mục giữ lại, nó chính xác hơn Jev 1.13 (đúng chính xác mức 78,5% so với 72,7%; lệch từ hai mức trở lên 0,6% so với 1,4%) và đưa ra quyết định trong khoảng 115 ms trên PC của bạn. Chi tiết: `docs/auto-reasoning-effort.md`
 
-- Cửa sổ Mức sử dụng mở ra ngay với số liệu đã lưu gần nhất và làm mới số liệu mới nhất ở chế độ nền.
+Suy luận tự động nay hiển thị là "Tự động" ở mọi nơi có hiển thị mô hình và mức nỗ lực, gồm thanh bên tác nhân, quy trình làm việc, lịch trình và webhook. Dòng trạng thái đang làm việc hiển thị mức nỗ lực mà Tự động thực sự đã chọn, được dịch sang ngôn ngữ của bạn (ví dụ "Đang suy nghĩ (medium)").
+
+Đảo trình soạn thảo phía trên ô nhập tin nhắn đã được thiết kế lại. Mục tiêu hiển thị biểu tượng trạng thái, chấm tiến độ theo từng tác vụ và "Đang xử lý"; tác nhân, shell và tệp đã thay đổi được đếm riêng với biểu tượng riêng; và các tác nhân đang chờ bạn phê duyệt hiển thị "Đang chờ phê duyệt" cùng số "Cần bạn xử lý" thay vì trông như đang bận. Nhấp vào một tác nhân sẽ mở phiên của nó, thời gian chạy của tác nhân nay tính từ lượt hiện tại thay vì từ lúc tạo, và đảo vẫn hiện thêm một lúc sau khi hoàn tất công việc thay vì chớp tắt. Ngăn Tác nhân cũng đánh dấu các tác nhân đang chờ phê duyệt.
+
+Tin nhắn của chính bạn không còn hiển thị "từ PC này"; thông tin thiết bị chỉ xuất hiện trên tin nhắn gửi từ thiết bị khác.
+
+Cửa sổ Mức sử dụng mở ngay với các số liệu gần nhất trong khi số liệu mới nhất được làm mới ở chế độ nền.
+
+Tự động cập nhật trên macOS nay đã hoạt động. Các bản phát hành trước thiếu nguồn cấp cập nhật cho macOS nên bản cài trên Mac không thể tự cập nhật.
+
+Thông báo "có gì mới" sau khi cập nhật không còn bị mất nếu không hiển thị được; nó chỉ được đánh dấu là đã xem sau khi thực sự được hiển thị.
+
+Trang cài đặt Kết nối không còn bị giật khi mở, và nút "Dùng" cho tín dụng đặt lại trên điện thoại gọn hơn.
+
+Đường dẫn công cụ dạng /C:/… nay được chấp nhận, edit chấp nhận old_str / new_str làm bí danh, nhiều đường dẫn nối trong một chuỗi được hiểu (trong dự án), và thông báo lỗi rõ ràng hơn.
+
+Các lệnh shell chạy nền trong thời gian dài, chẳng hạn máy chủ phát triển, không còn chặn các lệnh shell mới.
+
+Tệp tạm được dọn dẹp an toàn hơn, và tác vụ mới không còn bị báo là thất bại khi chỉ việc lưu tiêu đề tự động bị lỗi.
 
 ## v1.1.0 - 2026-10-11
 

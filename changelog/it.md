@@ -4,17 +4,35 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
-- Muse Code (Meta) è disponibile come nuovo provider in abbonamento: accedi con un codice dispositivo nel browser e monitora la quota di abbonamento periodica e settimanale direttamente in Mixdog.
+Muse Code (Meta) è disponibile come provider in abbonamento: accedi con un codice dispositivo nel browser e consulta direttamente in Mixdog l'utilizzo continuo e settimanale.
 
-- L'accesso a MiMo (Xiaomi) è disponibile in Impostazioni → Opzioni sviluppatore, insieme a Cursor e Antigravity (disattivato per impostazione predefinita).
+L'accesso a MiMo (Xiaomi) è disponibile in Impostazioni → Opzioni sviluppatore, insieme a Cursor e Antigravity (disattivato per impostazione predefinita).
 
-- L'isola del composer sopra la casella di input è stata riprogettata: gli agenti in attesa di approvazione mostrano "In attesa di approvazione" e il conteggio "Azione richiesta" invece di sembrare occupati; facendo clic sulla riga di un agente si apre la relativa sessione; i tempi trascorsi sono formattati chiaramente come "1m 05s"; e l'isola rimane brevemente visibile al termine del lavoro invece di svanire all'istante lampeggiando.
+La nuova impostazione "File di istruzioni" in Impostazioni → Generali può includere automaticamente nelle nuove sessioni le regole di AGENTS.md / CLAUDE.md delle cartelle personali (~/.codex e ~/.claude) e della cartella del progetto. Puoi scegliere AGENTS.md, CLAUDE.md, Tutti o Disattivato. È disattivata per impostazione predefinita; poiché questi file sono considerati attendibili come istruzioni, attivala solo per i repository di cui ti fidi.
 
-- Il pannello degli agenti segnala anche gli agenti in attesa di approvazione.
+Daybreak Blue è ora un interruttore per percorso sotto "Ragionamento automatico" sui modelli che lo supportano, in base all'elenco dei modelli del provider. Il modello Blue separato è stato ritirato e i percorsi esistenti passano a un modello supportato con Blue attivato.
 
-- I tuoi messaggi non mostrano più "da questo PC"; i nomi dei dispositivi compaiono solo per i messaggi inviati da altri dispositivi.
+- Il valutatore del ragionamento automatico v6 si installa automaticamente dopo l'aggiornamento. È EmbeddingGemma 2 messo a punto esclusivamente per valutare lo sforzo di ragionamento e valuta sia le richieste sia i passaggi degli strumenti degli agenti. Sugli stessi 12,029 elementi di test riservati è più accurato di Jev 1.13 (livello esatto 78,5% contro 72,7%; scarto di due o più livelli 0,6% contro 1,4%) e decide in circa 115 ms sul tuo PC. Dettagli: `docs/auto-reasoning-effort.md`
 
-- La finestra di utilizzo si apre immediatamente con i dati memorizzati nella cache e li aggiorna in background.
+Il ragionamento automatico ora appare come "Auto" ovunque vengano mostrati modello e sforzo, inclusi la barra laterale degli agenti, i workflow, le pianificazioni e i webhook. La riga di stato del lavoro mostra lo sforzo effettivamente scelto da Auto, tradotto nella tua lingua (ad esempio "Sta pensando (medium)").
+
+L'isola del compositore sopra il campo del messaggio è stata ridisegnata. Gli obiettivi mostrano un'icona di stato, indicatori di avanzamento per attività e "In corso"; agenti, shell e file modificati vengono conteggiati separatamente con icone proprie; e gli agenti in attesa della tua approvazione mostrano "In attesa di approvazione" e un conteggio "Azione richiesta" invece di sembrare occupati. Facendo clic su un agente si apre la sua sessione, il tempo trascorso dell'agente viene ora calcolato dal turno corrente anziché dalla creazione e l'isola resta visibile brevemente al termine del lavoro invece di sfarfallare. Anche il pannello Agenti segnala gli agenti in attesa di approvazione.
+
+I tuoi messaggi non mostrano più "da questo PC"; l'attribuzione del dispositivo compare solo sui messaggi inviati da altri dispositivi.
+
+La finestra Utilizzo si apre subito con le ultime cifre mentre i dati più recenti si aggiornano in background.
+
+L'aggiornamento automatico di macOS ora funziona. Le versioni precedenti non includevano il feed di aggiornamento per macOS, quindi le installazioni su Mac non potevano aggiornarsi da sole.
+
+L'avviso delle novità dopo l'aggiornamento non va più perso se non riesce a comparire; viene segnato come visto solo dopo essere stato effettivamente mostrato.
+
+La pagina delle impostazioni di Connessione non salta più all'apertura e il pulsante "Usa" del credito di reimpostazione sul telefono è più compatto.
+
+I percorsi degli strumenti come /C:/… sono ora accettati, edit accetta old_str / new_str come alias, più percorsi uniti in un'unica stringa vengono compresi (all'interno del progetto) e i messaggi di errore sono più chiari.
+
+I comandi shell in background di lunga durata, come i server di sviluppo, non bloccano più i nuovi comandi shell.
+
+I file temporanei vengono ripuliti in modo più sicuro e le nuove attività non vengono più segnalate come fallite quando a non essere salvato è solo il titolo automatico.
 
 ## v1.1.0 - 2026-10-11
 

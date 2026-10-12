@@ -4,17 +4,35 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-- Muse Code (Meta) ist als neuer Abonnement-Anbieter verfügbar: Melden Sie sich mit einem Gerätecode im Browser an und verfolgen Sie Ihr rollierendes und wöchentliches Abonnementkontingent direkt in Mixdog.
+Muse Code (Meta) ist als Abo-Anbieter verfügbar: Melden Sie sich im Browser mit einem Gerätecode an und sehen Sie Ihre rollierende und wöchentliche Nutzung direkt in Mixdog.
 
-- Die Anmeldung bei MiMo (Xiaomi) steht unter Einstellungen → Entwickleroptionen neben Cursor und Antigravity zur Verfügung (standardmäßig deaktiviert).
+Die Anmeldung bei MiMo (Xiaomi) ist unter Einstellungen → Entwickleroptionen verfügbar, neben Cursor und Antigravity (standardmäßig deaktiviert).
 
-- Die Composer-Insel über dem Eingabefeld wurde überarbeitet: Agenten, die auf Ihre Genehmigung warten, zeigen „Warten auf Genehmigung“ und einen Zähler „Wartet auf Sie“, anstatt beschäftigt zu wirken; ein Klick auf eine Agentenzeile öffnet dessen Sitzung; verstrichene Zeiten werden übersichtlich wie „1m 05s“ formatiert; und die Insel bleibt nach Abschluss der Arbeit kurz sichtbar, anstatt sofort zu flackern.
+Die neue Einstellung „Anweisungsdateien“ unter Einstellungen → Allgemein kann AGENTS.md- / CLAUDE.md-Regeln aus Ihren Home-Ordnern (~/.codex und ~/.claude) und dem Projektordner automatisch in neue Sitzungen einbinden. Zur Auswahl stehen AGENTS.md, CLAUDE.md, Alle oder Aus. Standardmäßig ist sie ausgeschaltet; da diese Dateien als Anweisungen vertraut werden, aktivieren Sie sie nur für Repositories, denen Sie vertrauen.
 
-- Der Agenten-Bereich zeigt ebenfalls Agenten an, die auf eine Genehmigung warten.
+Daybreak Blue ist jetzt ein Schalter pro Route unter „Automatisches Reasoning“ bei den unterstützten Modellen, abhängig von der Modellliste des Anbieters. Das separate Blue-Modell entfällt, und bestehende Routen wechseln zu einem unterstützten Modell mit aktiviertem Blue.
 
-- Eigene Nachrichten zeigen nicht mehr „von diesem PC“; Gerätenamen erscheinen nur noch bei Nachrichten von anderen Geräten.
+- Der Auto-Reasoning-Bewerter v6 wird nach dem Update automatisch installiert. Es handelt sich um EmbeddingGemma 2, ausschließlich für die Bewertung des Reasoning-Aufwands feinabgestimmt; er bewertet sowohl Anfragen als auch Werkzeugschritte von Agenten. Auf denselben 12,029 zurückgehaltenen Elementen ist er genauer als Jev 1.13 (exakte Stufe 78,5 % vs. 72,7 %; zwei oder mehr Stufen daneben 0,6 % vs. 1,4 %) und entscheidet auf Ihrem PC in etwa 115 ms. Details: `docs/auto-reasoning-effort.md`
 
-- Das Nutzungsfenster öffnet sich sofort mit den zwischengespeicherten Werten und aktualisiert die Zahlen im Hintergrund.
+Automatisches Reasoning erscheint jetzt überall, wo Modell und Aufwand angezeigt werden, als „Auto“ – etwa in der Agenten-Seitenleiste, in Workflows, Zeitplänen und Webhooks. Die Arbeitsstatuszeile zeigt den Aufwand, den Auto tatsächlich gewählt hat, in Ihrer Sprache (z. B. „Denkt nach (medium)“).
+
+Die Composer-Insel über dem Nachrichtenfeld wurde überarbeitet. Ziele zeigen ein Statussymbol, Fortschrittspunkte pro Aufgabe und „In Bearbeitung“; Agenten, Shells und geänderte Dateien werden getrennt mit eigenen Symbolen gezählt; und Agenten, die auf Ihre Genehmigung warten, zeigen „Warten auf Genehmigung“ und eine „Wartet auf Sie“-Anzahl, statt beschäftigt zu wirken. Ein Klick auf einen Agenten öffnet seine Sitzung, die Laufzeit eines Agenten zählt jetzt ab dem aktuellen Zug statt ab der Erstellung, und die Insel bleibt nach Abschluss kurz sichtbar, statt zu flackern. Auch im Agenten-Bereich werden Agenten markiert, die auf Genehmigung warten.
+
+Ihre eigenen Nachrichten zeigen nicht mehr „von <diesem PC>“; die Geräteangabe erscheint nur bei Nachrichten von anderen Geräten.
+
+Das Nutzungsfenster öffnet sich sofort mit den zuletzt bekannten Werten, während die aktuellen Zahlen im Hintergrund aktualisiert werden.
+
+Das automatische Update unter macOS funktioniert jetzt. In früheren Versionen fehlte der macOS-Update-Feed, sodass sich Mac-Installationen nicht selbst aktualisieren konnten.
+
+Der Hinweis „Neuigkeiten“ nach einem Update geht nicht mehr verloren, wenn er nicht angezeigt werden konnte; er gilt erst als gesehen, wenn er tatsächlich angezeigt wurde.
+
+Die Seite mit den Verbindungseinstellungen springt beim Öffnen nicht mehr, und die Schaltfläche „Verwenden“ für Reset-Guthaben ist auf dem Smartphone kompakter.
+
+Werkzeugpfade wie /C:/… werden jetzt akzeptiert, edit akzeptiert old_str / new_str als Aliase, mehrere in einer Zeichenfolge verbundene Pfade werden verstanden (innerhalb des Projekts), und Fehlermeldungen sind klarer.
+
+Lang laufende Shell-Befehle im Hintergrund, etwa Dev-Server, blockieren neue Shell-Befehle nicht mehr.
+
+Temporäre Dateien werden sicherer aufgeräumt, und neue Aufgaben werden nicht mehr als fehlgeschlagen gemeldet, wenn nur das Speichern des automatischen Titels scheitert.
 
 ## v1.1.0 - 2026-10-11
 

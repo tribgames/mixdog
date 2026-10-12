@@ -4,17 +4,35 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
-- O Muse Code (Meta) está disponível como um novo provedor de assinatura: entre com um código de dispositivo no navegador e acompanhe sua cota de assinatura contínua e semanal diretamente no Mixdog.
+O Muse Code (Meta) está disponível como provedor por assinatura: entre com um código de dispositivo no navegador e veja seu uso contínuo e semanal diretamente no Mixdog.
 
-- O login no MiMo (Xiaomi) está disponível em Configurações → Opções do desenvolvedor, ao lado do Cursor e do Antigravity (desativado por padrão).
+O login do MiMo (Xiaomi) está disponível em Configurações → Opções do desenvolvedor, junto com Cursor e Antigravity (desativado por padrão).
 
-- A ilha do compositor acima da entrada de mensagens foi reformulada: agentes aguardando sua aprovação exibem "Aguardando aprovação" e uma contagem de "Precisa de você" em vez de parecerem ocupados; clicar na linha de um agente abre sua sessão; o tempo decorrido é formatado de forma limpa como "1m 05s"; e a ilha permanece brevemente visível após o término do trabalho em vez de piscar e sumir imediatamente.
+A nova configuração "Arquivos de instruções" em Configurações → Geral pode incluir automaticamente nas novas sessões as regras de AGENTS.md / CLAUDE.md das suas pastas pessoais (~/.codex e ~/.claude) e da pasta do projeto. Escolha AGENTS.md, CLAUDE.md, Todos ou Desativado. Ela vem desativada por padrão; como esses arquivos são tratados como instruções confiáveis, ative-a apenas em repositórios em que você confia.
 
-- O painel de agentes também indica os agentes que estão aguardando aprovação.
+O Daybreak Blue agora é uma chave por rota em "Raciocínio automático" nos modelos compatíveis, de acordo com a lista de modelos do provedor. O modelo Blue separado foi aposentado, e as rotas existentes passam para um modelo compatível com o Blue ativado.
 
-- Suas próprias mensagens não exibem mais "deste PC"; os nomes dos dispositivos aparecem apenas em mensagens enviadas de outros dispositivos.
+- O avaliador de raciocínio automático v6 é instalado automaticamente após a atualização. Ele é o EmbeddingGemma 2 ajustado exclusivamente para avaliar o esforço de raciocínio e avalia tanto solicitações quanto etapas de ferramenta dos agentes. Nos mesmos 12,029 itens reservados, é mais preciso que o Jev 1.13 (nível exato 78,5% contra 72,7%; dois ou mais níveis de diferença 0,6% contra 1,4%) e decide em cerca de 115 ms no seu PC. Detalhes: `docs/auto-reasoning-effort.md`
 
-- A janela de Uso abre imediatamente com os números em cache e os atualiza em segundo plano.
+O raciocínio automático agora aparece como "Auto" em todo lugar onde modelo e esforço são exibidos, incluindo a barra lateral de agentes, os fluxos de trabalho, os agendamentos e os webhooks. A linha de status de trabalho mostra o esforço que o Auto realmente escolheu, traduzido para o seu idioma (por exemplo, "Pensando (medium)").
+
+A ilha do compositor acima do campo de mensagem foi redesenhada. Os objetivos mostram um ícone de estado, indicadores de progresso por tarefa e "Em andamento"; agentes, shells e arquivos alterados são contados separadamente com ícones próprios; e os agentes aguardando sua aprovação exibem "Aguardando aprovação" e uma contagem "Precisa de você" em vez de parecerem ocupados. Clicar em um agente abre a sessão dele, o tempo decorrido do agente agora conta a partir do turno atual e não da criação, e a ilha permanece por um instante após o fim do trabalho em vez de piscar e sumir. O painel Agentes também marca os agentes que aguardam aprovação.
+
+Suas próprias mensagens não mostram mais "deste PC"; a identificação do dispositivo aparece apenas em mensagens enviadas de outros dispositivos.
+
+A janela de uso abre imediatamente com os últimos valores enquanto os números mais recentes são atualizados em segundo plano.
+
+A atualização automática do macOS agora funciona. As versões anteriores não tinham o feed de atualização do macOS, então as instalações no Mac não conseguiam se atualizar sozinhas.
+
+O aviso de novidades após a atualização não se perde mais caso não consiga aparecer; ele só é marcado como visto depois de realmente ter sido exibido.
+
+A página de configurações de Conexão não "pula" mais ao abrir, e o botão "Usar" do crédito de redefinição no celular ficou mais compacto.
+
+Caminhos de ferramentas como /C:/… agora são aceitos, o edit aceita old_str / new_str como apelidos, vários caminhos unidos em uma única string são compreendidos (dentro do projeto) e as mensagens de erro ficaram mais claras.
+
+Comandos de shell em segundo plano de longa duração, como servidores de desenvolvimento, não bloqueiam mais novos comandos de shell.
+
+Arquivos temporários agora são limpos com mais segurança, e novas tarefas não são mais reportadas como falhas quando apenas o salvamento do título automático falha.
 
 ## v1.1.0 - 2026-10-11
 

@@ -5,17 +5,35 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-- Muse Code (Meta) is available as a subscription provider: sign in with a device code in your browser, and track your rolling and weekly subscription quota directly in Mixdog.
+Muse Code (Meta) is available as a subscription provider: sign in with a device code in your browser, and see your rolling and weekly usage directly in Mixdog.
 
-- MiMo (Xiaomi) sign-in is available under Settings → Developer options, alongside Cursor and Antigravity (turned off by default).
+MiMo (Xiaomi) sign-in is available under Settings → Developer options, alongside Cursor and Antigravity (off by default).
 
-- The composer island above the message input is redesigned: agents waiting for your approval show "Waiting for approval" and a "Needs you" count instead of appearing busy, clicking an agent row opens its session, elapsed times format cleanly as "1m 05s", and the island stays briefly after work finishes instead of flickering away immediately.
+A new "Instruction files" setting under Settings → General can automatically include AGENTS.md / CLAUDE.md rules in new sessions, from your home folders (~/.codex and ~/.claude) and the project folder. Choose AGENTS.md, CLAUDE.md, All, or Off. It is off by default; because these files are trusted as instructions, only enable it for repositories you trust.
 
-- The Agents pane also marks agents that are waiting for approval.
+Daybreak Blue is now a per-route switch under "Auto reasoning" on the models that support it, based on the provider's model list. The separate Blue model is retired, and existing routes move to a supported model with Blue turned on.
 
-- Your own messages no longer show "from <this PC>"; device attribution appears only on messages sent from other devices.
+- The Auto reasoning judge v6 installs automatically after updating. It is EmbeddingGemma 2 fine-tuned solely for judging reasoning effort, and it judges both requests and agent tool steps. On the same 12,029 held-out items it is more accurate than Jev 1.13 (exact level 78.5% vs 72.7%; two or more levels off 0.6% vs 1.4%), and it decides in about 115 ms on your PC. Details: `docs/auto-reasoning-effort.md`
 
-- The Usage window opens immediately with your cached figures while refreshing the latest numbers in the background.
+Auto reasoning now appears as "Auto" wherever a model and effort are shown, including the agents sidebar, Workflows, schedules, and webhooks. The working status line shows the effort that Auto actually chose, translated into your language (for example "Thinking (medium)").
+
+The composer island above the message input is redesigned. Goals show a state icon, per-task progress pips, and "In progress"; agents, shells, and changed files are counted separately with their own icons; and agents waiting for your approval show "Waiting for approval" and a "Needs you" count instead of appearing busy. Clicking an agent opens its session, agent elapsed time now counts from the current turn instead of from creation, and the island stays briefly after work finishes instead of flickering away. The Agents pane also marks agents waiting for approval.
+
+Your own messages no longer show "from <this PC>"; device attribution appears only on messages sent from other devices.
+
+The Usage window opens immediately with your last figures while the latest numbers refresh in the background.
+
+macOS auto-update now works. Earlier releases were missing the macOS update feed, so Mac installs could not update themselves.
+
+The "what's new" notice after updating is no longer lost if it fails to appear; it is marked as seen only once it has actually been shown.
+
+The Connection settings page no longer jumps when it opens, and the phone's reset-credit "Use" button is more compact.
+
+Tool paths like /C:/… are now accepted, edit accepts old_str / new_str as aliases, several paths joined in one string are understood (inside the project), and error messages are clearer.
+
+Long-running background shell commands, such as dev servers, no longer block new shell commands.
+
+Temporary files are now cleaned up more safely, and new tasks are no longer reported as failed when only the automatic title fails to save.
 
 ## v1.1.0 - 2026-10-11
 
