@@ -1,6 +1,12 @@
 import { createIoTrace } from './io-trace.mjs';
 import { classifyResultKind } from '../session/result-classification.mjs';
-import { coerceShapeFlex, normalizeInputPath, normalizeOutputPath, resolveAgainstCwd } from './builtin/path-utils.mjs';
+import {
+  coerceShapeFlex,
+  normalizeInputPath,
+  normalizeOutputPath,
+  resolveAgainstCwd,
+  splitJoinedPathScopes,
+} from './builtin/path-utils.mjs';
 import {
   SMART_BASH_HEAD_LINES,
   SMART_BASH_MAX_BYTES,
@@ -387,7 +393,8 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
       readOffsetBase: args && Object.hasOwn(args, 'file_path') ? 1 : (options.readOffsetBase ?? 0),
     };
   }
-  let argError;
+  let argError = splitJoinedPathScopes(toolName, args, cwd);
+  if (argError) return argError;
   if (toolName === 'grep') {
     const prepared = prepareGrepArgs(args);
     argError = prepared.error;

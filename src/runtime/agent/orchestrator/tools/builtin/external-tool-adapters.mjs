@@ -16,7 +16,13 @@ import { dirname } from 'node:path';
 import { atomicWrite, symlinkWriteTarget } from './atomic-write.mjs';
 import { fileVersion } from './file-version.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
-import { normalizeInputPath, resolveAgainstCwd, normalizeOutputPath, toDisplayPath } from './path-utils.mjs';
+import {
+  normalizeInputPath,
+  resolveAgainstCwd,
+  normalizeOutputPath,
+  toDisplayPath,
+  urlAsPathMessage,
+} from './path-utils.mjs';
 import {
   isUncPath,
   isWindowsDevicePath,
@@ -123,6 +129,8 @@ function guardRealTarget(fullPath) {
 async function resolveTargetPath(args, workDir) {
   const raw = args?.path ?? args?.file_path;
   if (typeof raw !== 'string' || raw.length === 0) return null;
+  const urlMessage = urlAsPathMessage(raw);
+  if (urlMessage) return { error: `Error: ${urlMessage}` };
   const norm = normalizeInputPath(raw);
   const guardErr = guardWritePath(norm);
   if (guardErr) return { error: guardErr };
@@ -709,10 +717,35 @@ async function requiresInProcessEdit(edit, editPlan) {
   );
 }
 
+// Models trained on other CLIs send `old_str`/`new_str`. An alias is honoured
+// only when the canonical key is absent; both present with different values is
+// ambiguous and rejected.
+const STR_REPLACE_ALIASES = [
+  ['old_string', 'old_str'],
+  ['new_string', 'new_str'],
+];
+
+function resolveStrReplaceArgs(args) {
+  const out = {};
+  for (const [canonical, alias] of STR_REPLACE_ALIASES) {
+    const hasCanonical = args?.[canonical] !== undefined;
+    const hasAlias = args?.[alias] !== undefined;
+    if (hasCanonical && hasAlias && args[canonical] !== args[alias]) {
+      return { error: `Error: edit received both ${canonical} and ${alias} with different values; pass only ${canonical}` };
+    }
+    out[canonical] = hasCanonical ? args[canonical] : args?.[alias];
+  }
+  return out;
+}
+
 async function adaptStrReplace(args, workDir, options) {
-  let oldStr = args?.old_string;
-  let newStr = args?.new_string;
-  if (typeof oldStr !== 'string' || typeof newStr !== 'string') return null;
+  const resolved = resolveStrReplaceArgs(args);
+  if (resolved.error) return resolved.error;
+  let oldStr = resolved.old_string;
+  let newStr = resolved.new_string;
+  if (typeof oldStr !== 'string' || typeof newStr !== 'string') {
+    return `Error: edit requires string old_string and new_string (got keys: ${Object.keys(args).join(', ')})`;
+  }
   if (oldStr === newStr) return SAME_STRINGS_ERROR;
   const replaceAll = args?.replace_all === true || String(args?.replace_all || '').toLowerCase() === 'true';
   const target = await resolveTargetPath(args, workDir);

@@ -8,7 +8,7 @@
  */
 import { executeSingleReadTool } from './read-single-tool.mjs';
 import { readPathStringGuardError } from './read-open.mjs';
-import { coerceReadFamilyPathArg } from './path-utils.mjs';
+import { coerceReadFamilyPathArg, urlAsPathMessage } from './path-utils.mjs';
 import { readIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
 import { currentToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 import { readReachPreflight } from './read-tool/reach-preflight.mjs';
@@ -113,6 +113,8 @@ async function executeReadToolBody(
   const { normalizeInputPath, normaliseReadLineWindowArgs } = helpers;
   applyFilePathAlias(args);
   args.path = coerceReadFamilyPathArg(args.path);
+  const urlMessage = urlAsPathMessage(args.path);
+  if (urlMessage) return `Error: ${urlMessage}`;
   // Reachability preflight up front (all shapes) — before
   // readPathStringGuardError / image stat.
   // options._skipReachPreflight: set only by the batch dispatcher on its

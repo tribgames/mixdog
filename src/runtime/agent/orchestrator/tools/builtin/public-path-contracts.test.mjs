@@ -59,11 +59,18 @@ test('public read batches apply shared defaults and per-target windows without h
 
 test('literal read strings are not split or repaired into different operands', async (t) => {
   const root = fixture(t);
-  for (const file_path of ['a.txt b.txt', '["a.txt", "b.txt"]', '["a.txt', '[""]a.txt[""]']) {
+  for (const file_path of ['["a.txt", "b.txt"]', '["a.txt', '[""]a.txt[""]']) {
     const out = String(await executeBuiltinTool('read', { file_path, limit: 2 }, root));
     assert.match(out, /^(?:Error:|\[path absent\])/);
     assert.doesNotMatch(out, /\[lines |^alpha1$|^beta1$/m);
   }
+  // Space-joined strings split only when every piece is an existing path.
+  const joined = String(await executeBuiltinTool('read', { file_path: 'a.txt b.txt', limit: 2 }, root));
+  assert.match(joined, /alpha1/);
+  assert.match(joined, /beta1/);
+  const partial = String(await executeBuiltinTool('read', { file_path: 'a.txt nope.txt', limit: 2 }, root));
+  assert.match(partial, /^(?:Error:|\[path absent\])/);
+  assert.doesNotMatch(partial, /alpha1/);
 });
 
 test('explicit missing paths never redirect by basename or broaden search scope', async (t) => {

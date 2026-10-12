@@ -152,10 +152,10 @@ function nearestExistingParentRel(workDir, missingPath) {
 function spaceJoinedPathHint(requestedPath) {
   if (typeof requestedPath !== 'string') return '';
   const trimmed = requestedPath.trim();
-  if (!/\s/.test(trimmed)) return '';
-  const segments = trimmed.split(/\s+/).filter(Boolean);
+  if (!/[\s,]/.test(trimmed)) return '';
+  const segments = trimmed.split(/[\s,]+/).filter(Boolean);
   if (segments.length < 2) return '';
-  return ' Pass multiple scopes as path[] array (not a space-joined string).';
+  return ' To pass several paths, send an array (path[]), not a comma- or space-joined string.';
 }
 
 function appendEnoentFindNudge(text = '') {
@@ -167,7 +167,10 @@ function appendEnoentFindNudge(text = '') {
 
 export function finalizeReadFamilyEnoentTail(hint, requestedPath, errCode = 'ENOENT') {
   if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return String(hint || '');
-  return appendEnoentFindNudge(String(hint || '') + spaceJoinedPathHint(requestedPath));
+  const multiPathHint = spaceJoinedPathHint(requestedPath);
+  // A multi-path-looking input is not a basename to locate; the array hint wins.
+  if (multiPathHint) return String(hint || '') + multiPathHint;
+  return appendEnoentFindNudge(String(hint || ''));
 }
 
 export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {

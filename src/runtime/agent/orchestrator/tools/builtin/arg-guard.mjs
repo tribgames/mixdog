@@ -448,7 +448,7 @@ function guardGrep(a) {
     }
     if (hasOwn(a, k) && Array.isArray(a[k])) {
       if (a[k].length === 0 || a[k].length > PUBLIC_PATH_BATCH_LIMIT || !a[k].every(isNonEmptyString)) {
-        return `Error: grep arg "${k}" must contain 1-${PUBLIC_PATH_BATCH_LIMIT} non-empty path strings`;
+        return `Error: grep arg "${k}" must contain 1-${PUBLIC_PATH_BATCH_LIMIT} non-empty path strings (${a[k].length} given, max ${PUBLIC_PATH_BATCH_LIMIT})`;
       }
       continue;
     }
