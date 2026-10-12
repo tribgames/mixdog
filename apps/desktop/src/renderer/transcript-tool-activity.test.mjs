@@ -1305,10 +1305,40 @@ test('the thinking spinner shows the runtime-resolved turn effort, falling back 
     return document.querySelector('.live-activity-meta')?.textContent || '';
   };
   try {
-    assert.match(await thinkingText({ effort: 'high', turnEffort: 'medium' }), /Thinking \(medium\)/);
-    assert.match(await thinkingText({ effort: 'high', turnEffort: 'low' }), /Thinking \(low\)/, 're-judged step');
-    assert.match(await thinkingText({ effort: 'high', turnEffort: null }), /Thinking \(high\)/);
-    assert.match(await thinkingText({ effort: 'high' }), /Thinking \(high\)/);
+    const { writeCachedModelCatalog } = await import('./model-catalog-cache.ts');
+    const { publishAutoEffort } = await import('./auto-effort-store.ts');
+    const effortOptions = ['low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({ value, label: value }));
+    const option = (model, autoEffortCapable) => ({
+      provider: 'alpha',
+      model,
+      display: model,
+      effortOptions,
+      fastCapable: false,
+      ...(autoEffortCapable ? { autoEffortCapable: true } : {}),
+    });
+    writeCachedModelCatalog([option('capable', true), option('plain', false)]);
+    const setAuto = (enabled) =>
+      act(async () => publishAutoEffort({ autoEffort: { installed: true, enabled, supported: true } }));
+    const capable = { provider: 'alpha', model: 'capable' };
+    const plain = { provider: 'alpha', model: 'plain' };
+
+    // Auto off: the resolved effort, else the saved level — spelled like the model chip.
+    await setAuto(false);
+    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'medium' }), /Thinking \(Medium\)/);
+    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'low' }), /Thinking \(Low\)/, 're-judged step');
+    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: null }), /Thinking \(High\)/);
+    assert.match(await thinkingText({ effort: 'xhigh' }), /Thinking \(XHigh\)/);
+
+    // Auto on + capable: no saved-level stand-in before the turn effort resolves.
+    await setAuto(true);
+    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'medium' }), /Thinking \(Medium\)/);
+    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: null }), /Thinking$/);
+    assert.match(await thinkingText({ ...capable, effort: 'high' }), /Thinking$/);
+    // A saved max/ultra is respected by the runtime, so it stays shown.
+    assert.match(await thinkingText({ ...capable, effort: 'max' }), /Thinking \(Max\)/);
+    // Auto on but the model is not capable: the saved level stands.
+    assert.match(await thinkingText({ ...plain, effort: 'high' }), /Thinking \(High\)/);
+    await setAuto(false);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -1333,7 +1363,7 @@ test('the spinner byline is translated on the desktop', async () => {
   try {
     const live = await bylineFor({ thinking: true, effort: 'high', turnEffort: 'medium' });
     assert.match(live, /토큰 340개/);
-    assert.match(live, /생각 중 \(medium\)/);
+    assert.match(live, /생각 중 \(Medium\)/);
     assert.doesNotMatch(live, /tokens|thinking/);
     assert.match(await bylineFor({ thinking: true }), /생각 중$/);
     assert.match(await bylineFor({ thinking: false, spinner: { active: true, startedAt: Date.now(), thinkingAccumulatedMs: 5000 } }), /5초 동안 생각함/);

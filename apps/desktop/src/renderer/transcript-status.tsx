@@ -4,7 +4,9 @@ import type { DesktopModelSelection } from '../shared/contract';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
+import { cachedAutoEffortCapable, useAutoEffortShown } from './auto-effort-store';
 import { t, uiFormatLocale } from './i18n';
+import { modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
 import { liveAgentRows } from './agent-activity-model';
 import { MxIcon } from './MxIcon';
@@ -288,6 +290,12 @@ export function LiveActivity({
     liveActivityTurns.add(liveTurnKey(liveSessionId, turnKey));
   }, [liveSessionId, turnKey]);
   const logoGradientId = `live-logo-${useId().replace(/:/g, '')}`;
+  // Auto replaces the saved level: until the runtime resolves this turn's
+  // effort, the saved level must not stand in for it.
+  const autoShown = useAutoEffortShown(
+    cachedAutoEffortCapable(String(snapshot.provider || ''), String(snapshot.model || '')),
+    String(snapshot.effort || '')
+  );
   const pauseTurnRef = useRef(0);
   const pausedTotalRef = useRef(0);
   const pauseStartRef = useRef(0);
@@ -346,14 +354,16 @@ export function LiveActivity({
     thinkingMs: Number(activityRecord.thinkingAccumulatedMs || 0),
     // What the runtime actually resolved this turn/step (Auto judge); the saved
     // level when nothing was recorded (Auto off, or a model without it).
-    effort: String(snapshot.turnEffort || snapshot.effort || ''),
+    effort: String(snapshot.turnEffort || (autoShown ? '' : snapshot.effort) || ''),
   });
   // The TUI formats these parts as lowercase English; the desktop translates them.
   const thinkingLabel = (() => {
     const parts = meta.thinkingParts as { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null;
     if (!parts) return '';
     if (parts.kind === 'thought') return t('Thought for {{seconds}}s', { seconds: parts.seconds });
-    return parts.effort ? t('Thinking ({{effort}})', { effort: parts.effort }) : t('Thinking (spinner)', { defaultValue: 'Thinking' });
+    // The effort word is an untranslated name, spelled like the model chip's.
+    const effortWord = modelRouteDisplayParts('', parts.effort).effort;
+    return effortWord ? t('Thinking ({{effort}})', { effort: effortWord }) : t('Thinking (spinner)', { defaultValue: 'Thinking' });
   })();
   const tokensLabel = meta.showTokens ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
   const activityMeta = [elapsed, tokensLabel, thinkingLabel].filter(Boolean).join(' · ');

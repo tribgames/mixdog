@@ -290,7 +290,7 @@ export function modelDisplayName(model: string | null | undefined, provider = ''
   return id ? canonicalModelDisplay(id) || id : '';
 }
 
-function modelRouteDisplayParts(
+export function modelRouteDisplayParts(
   model: string | null | undefined,
   effort: string | null | undefined = '',
   fast = false,
