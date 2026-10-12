@@ -451,10 +451,13 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
     assert.equal(result.status, expectedStatus, result.stderr);
     // The run ends with the failure summary block, so the probe line is first.
     const invocation = JSON.parse(result.stdout.split('\n')[0]);
-    assert.equal(
-      result.stdout.trimEnd().split('\n').at(-1),
-      `${SUMMARY_TAG} 0 failed, 0 flaky (every failed test is named below)`
-    );
+    const summaryLine = result.stdout.trimEnd().split('\n').at(-1);
+    if (expectedStatus === 0) {
+      assert.equal(summaryLine, `${SUMMARY_TAG} 0 failed, 0 flaky (every failed test is named below)`);
+    } else {
+      // A non-zero exit with no recorded failure is reported, never summarized as clean.
+      assert.ok(summaryLine.startsWith(`${SUMMARY_TAG} RUN FAILED: exit code `), summaryLine);
+    }
     const logPath = /^Full test log: (.+)$/m.exec(result.stderr)?.[1];
     assert.ok(logPath?.startsWith(join(tmpdir(), 'mixdog-test-output-')));
     assert.ok(logPath.endsWith('full.log'));
