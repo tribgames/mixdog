@@ -23,7 +23,8 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   active,
   working,
   unread,
-  editingSessionId,
+  rowKey,
+  editingRowKey,
   sessionTitleDraft,
   sessionTitleInvalid,
   confirmingSessionId,
@@ -48,14 +49,16 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   working?: boolean;
   unread?: boolean;
   /** Right-click / Menu key: the sidebar owns the menu and its items. */
-  onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }): void;
-  editingSessionId: string;
+  onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }, rowKey: string): void;
+  /** This row's list-scoped key; the inline editor opens on one row only. */
+  rowKey: string;
+  editingRowKey: string;
   sessionTitleDraft: string;
   sessionTitleInvalid: boolean;
   confirmingSessionId: string;
   deletingSessionId: string;
   onTitleDraftChange(value: string): void;
-  onStartRename(session: DesktopSessionSummary): void;
+  onStartRename(session: DesktopSessionSummary, rowKey: string): void;
   onCancelRename(): void;
   onCommitRename(session: DesktopSessionSummary, fromBlur?: boolean): void;
   onPrefetchSession(sessionId: string): void;
@@ -74,14 +77,14 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       active={active}
       working={working}
       unread={unread}
-      editing={editingSessionId === session.id}
+      editing={editingRowKey === rowKey}
       titleDraft={sessionTitleDraft}
       titleInvalid={sessionTitleInvalid}
       onArchiveSession={onArchiveSession}
       onFavoriteSession={onFavoriteSession}
-      onOpenMenu={onOpenMenu}
+      onOpenMenu={onOpenMenu && ((target, point) => onOpenMenu(target, point, rowKey))}
       onTitleDraftChange={onTitleDraftChange}
-      onStartRename={onStartRename}
+      onStartRename={(target) => onStartRename(target, rowKey)}
       onCancelRename={onCancelRename}
       onCommitRename={onCommitRename}
       onPrefetchSession={onPrefetchSession}

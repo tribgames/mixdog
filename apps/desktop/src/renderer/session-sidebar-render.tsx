@@ -25,7 +25,7 @@ type ProjectsSectionProps = Parameters<typeof projectsSection>[0];
 
 /** The inline rename and delete-confirmation state every row shares. */
 interface SessionRowEditor {
-  editingSessionId: string;
+  editingRowKey: string;
   sessionTitleDraft: string;
   setSessionTitleDraft(draft: string): void;
   sessionTitleInvalid: boolean;
@@ -33,7 +33,7 @@ interface SessionRowEditor {
   setConfirmingSessionId: React.Dispatch<React.SetStateAction<string>>;
   deletingSessionId: string;
   setDeletingSessionId: React.Dispatch<React.SetStateAction<string>>;
-  openSessionEditor(session: DesktopSessionSummary): void;
+  openSessionEditor(session: DesktopSessionSummary, rowKey: string): void;
   closeSessionEditor(): void;
   commitSessionEditor(session: DesktopSessionSummary, fromBlur?: boolean): void;
 }
@@ -49,15 +49,21 @@ export interface SessionRowContext {
   onDeleteSession(sessionId: string): Promise<void>;
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
   onFavoriteSession(sessionId: string, favorite: boolean): Promise<void>;
-  openSessionMenu(session: DesktopSessionSummary, point: { x: number; y: number }): void;
+  openSessionMenu(session: DesktopSessionSummary, point: { x: number; y: number }, rowKey: string): void;
   setDraggedSessionId(sessionId: string): void;
   setSessionDropKey(key: string): void;
 }
 
 /** Recent, Automations, Archived, Favorites and the project folders all render
  *  the same row with the same rename/confirm wiring; only the session and its
- *  reorder list (none for unordered lists) differ. */
-export function renderSessionRow(session: DesktopSessionSummary, listKey: string | undefined, ctx: SessionRowContext) {
+ *  reorder list (none for unordered lists) differ. The row key (list + session)
+ *  tells apart the copies of a session shown in more than one list. */
+export function renderSessionRow(
+  session: DesktopSessionSummary,
+  listKey: string | undefined,
+  ctx: SessionRowContext,
+  rowScope = listKey ?? ''
+) {
   const { editor, selection } = ctx;
   // The row's own reorder drag also tells the folders which session travels.
   const withSessionDrag = (sessionId: string, base: SessionRowReorder): SessionRowReorder => ({
@@ -84,7 +90,8 @@ export function renderSessionRow(session: DesktopSessionSummary, listKey: string
       active={selection.kind === 'session' && selection.id === session.id}
       working={ctx.workingSessionIds?.has(session.id) === true}
       unread={ctx.unreadSessionIds?.has(session.id) === true}
-      editingSessionId={editor.editingSessionId}
+      rowKey={`${rowScope}:${session.id}`}
+      editingRowKey={editor.editingRowKey}
       sessionTitleDraft={editor.sessionTitleDraft}
       sessionTitleInvalid={editor.sessionTitleInvalid}
       confirmingSessionId={editor.confirmingSessionId}
@@ -253,7 +260,7 @@ export interface SidebarSectionContext {
   deleteAllArchived(): Promise<void>;
   openProjectMenu: ProjectsSectionProps['onFolderMenu'];
   projectRenameEditor: ProjectsSectionProps['rename'];
-  renderOrderedRow(session: DesktopSessionSummary, listKey?: string): React.ReactNode;
+  renderOrderedRow(session: DesktopSessionSummary, listKey?: string, rowScope?: string): React.ReactNode;
   sessionsReady: boolean;
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
@@ -268,7 +275,7 @@ export function renderSidebarSection(section: string, ctx: SidebarSectionContext
   const { openState, folders, rows, automationRows, archivedRows, bulkAction, renderOrderedRow } = ctx;
   const { onAddProject, onNewProjectTask, onNewTask, unreadSessionIds } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
-  const renderUnorderedRow = (session: DesktopSessionSummary) => renderOrderedRow(session);
+  const renderUnorderedRow = (session: DesktopSessionSummary) => renderOrderedRow(session, undefined, section);
   switch (section) {
     case 'favorites':
       return (

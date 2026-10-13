@@ -131,19 +131,21 @@ function useSessionEditor(
   sessions: readonly DesktopSessionSummary[],
   onRenameSession: (sessionId: string, title: string) => Promise<void>
 ) {
-  const [editingSessionId, setEditingSessionId] = useState('');
+  // One session can render in several lists (a project folder and Recent);
+  // the editor belongs to the one row the user started it from.
+  const [editingRowKey, setEditingRowKey] = useState('');
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
   const [sessionTitleInvalid, setSessionTitleInvalid] = useState(false);
   const [confirmingSessionId, setConfirmingSessionId] = useState('');
   const [deletingSessionId, setDeletingSessionId] = useState('');
-  const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
+  const openSessionEditor = useCallback((session: DesktopSessionSummary, rowKey: string) => {
     setConfirmingSessionId('');
-    setEditingSessionId(session.id);
+    setEditingRowKey(rowKey);
     setSessionTitleDraft(sessionLabel(session));
     setSessionTitleInvalid(false);
   }, []);
   const closeSessionEditor = useCallback(() => {
-    setEditingSessionId('');
+    setEditingRowKey('');
     setSessionTitleDraft('');
     setSessionTitleInvalid(false);
   }, []);
@@ -167,7 +169,7 @@ function useSessionEditor(
     }
   }, [confirmingSessionId, sessions]);
   return {
-    editingSessionId,
+    editingRowKey,
     sessionTitleDraft,
     setSessionTitleDraft,
     sessionTitleInvalid,
@@ -657,8 +659,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     setDraggedSessionId,
     setSessionDropKey,
   };
-  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string) =>
-    renderSessionRow(session, listKey, rowContext);
+  const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string) =>
+    renderSessionRow(session, listKey, rowContext, rowScope);
   const sectionContext: SidebarSectionContext = {
     sectionOrder,
     openState,
