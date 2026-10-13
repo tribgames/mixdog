@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { registerMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
@@ -242,7 +243,18 @@ export function ActionButton({
   );
 }
 
-export function SettingsConfirmDialog({ options, onClose }: { options: SettingsConfirmation; onClose(): void }) {
+export function SettingsConfirmDialog({
+  options,
+  onClose,
+  portal = false,
+}: {
+  options: SettingsConfirmation;
+  onClose(): void;
+  /** Render into document.body. A sidebar host must: the sidebar scroll's
+   *  fade mask and isolation clip a fixed layer to the sidebar, which left
+   *  only a dimmed sidebar with the dialog itself invisible. */
+  portal?: boolean;
+}) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -257,12 +269,18 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
     onClose();
     void options.onConfirm();
   };
-  return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's Escape handling.
+  const layer = (
+    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; Escape closes it here unless the settings dialog's capture handler already did.
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
       }}
     >
       <section
@@ -291,6 +309,7 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
       </section>
     </div>
   );
+  return portal ? createPortal(layer, document.body) : layer;
 }
 
 type SettingsStatusTone = 'positive' | 'warning' | 'danger' | 'neutral';

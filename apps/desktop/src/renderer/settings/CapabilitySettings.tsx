@@ -44,6 +44,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
   onOpenCategory,
   createOpen = false,
   onCreateOpenChange,
+  portalConfirm = false,
 }: CapabilitySettingsProps) {
   const initialCache = getCachedCapabilitySettings(api);
   const [data, setData] = useState<Record<string, unknown>>(() => initialCache?.data || {});
@@ -364,7 +365,13 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       <div className="capability-settings-content">
         {loadError && <ErrorNotice error={loadError} role="status" onRetry={() => void load(true)} />}
         <CategoryPanel category={category} context={context} />
-        {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
+        {confirmation && (
+          <SettingsConfirmDialog
+            options={confirmation}
+            portal={portalConfirm}
+            onClose={() => setConfirmation(null)}
+          />
+        )}
       </div>
     </PaneSurfaceGate>
   );

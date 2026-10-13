@@ -76,6 +76,7 @@ export const ExtensionsPane = memo(function ExtensionsPane({
           active={active}
           createOpen={createOpen}
           onCreateOpenChange={setCreateOpen}
+          portalConfirm
         />
       </div>
     </div>

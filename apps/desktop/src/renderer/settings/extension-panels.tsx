@@ -1,5 +1,5 @@
 import { Blocks, ChevronRight, Plug, Sparkles } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { t } from '../i18n';
 import { CapabilityIcon } from '../CapabilityIcon';
 import { skillDisplayDescription } from '../skill-presentation';
@@ -129,10 +129,39 @@ function SkillExtensionCreateDialog({
   );
 }
 
+const REMOVAL_IN_FLIGHT = Symbol('mcp-removal-in-flight');
+
 export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
   const status = record(data.mcp);
-  const servers = rows(status, 'servers').filter((server) => server.source !== 'plugin');
+  // A confirmed removal hides its row while the call is in flight. Once it
+  // resolves, the first MCP snapshot that arrives after that point is
+  // authoritative and drops the tombstone; a failed removal drops it at once.
+  // Each entry holds REMOVAL_IN_FLIGHT or the snapshot current at resolve.
+  const [removed, setRemoved] = useState<ReadonlyMap<string, unknown>>(() => new Map());
+  const latestMcp = useRef<unknown>(data.mcp);
+  const listed = rows(status, 'servers').filter((server) => server.source !== 'plugin');
+  const servers = listed.filter((server) => !removed.has(String(server.name)));
   const busy = Boolean(pending);
+  const forgetRemoved = (name: string) =>
+    setRemoved((current) => {
+      if (!current.has(name)) return current;
+      const next = new Map(current);
+      next.delete(name);
+      return next;
+    });
+  const settleRemoved = (name: string) =>
+    setRemoved((current) =>
+      current.get(name) === REMOVAL_IN_FLIGHT ? new Map(current).set(name, latestMcp.current) : current
+    );
+  useEffect(() => {
+    latestMcp.current = data.mcp;
+    setRemoved((current) => {
+      const next = new Map(
+        [...current].filter(([, seen]) => seen === REMOVAL_IN_FLIGHT || seen === data.mcp)
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [data.mcp]);
   const [editor, setEditor] = useState<{ name: string; server: RecordValue | null } | null>(null);
   const openName = editor?.name || '';
   const openServer = editor?.server || null;
@@ -155,9 +184,12 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
       description: t('{{name}} will be removed from Mixdog.', { name }),
       confirmLabel: t('Remove'),
       danger: true,
-      onConfirm: () => {
+      onConfirm: async () => {
         setEditor((current) => (current?.name === name ? null : current));
-        void run('removeMcpServer', [name]);
+        setRemoved((current) => new Map(current).set(name, REMOVAL_IN_FLIGHT));
+        const result = await run('removeMcpServer', [name]);
+        if (result === undefined) forgetRemoved(name);
+        else settleRemoved(name);
       },
     });
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
@@ -207,7 +239,9 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
           // by now (the dialog's takenNames can be stale) and the dialog shows it.
           onSave={async (payload) => {
             const added = await run('addMcpServer', [payload], 'addMcpServer', true, false, 'throw');
-            if (added !== undefined) closeCreate?.();
+            if (added === undefined) return;
+            forgetRemoved(String(payload.name || ''));
+            closeCreate?.();
           }}
         />
       )}

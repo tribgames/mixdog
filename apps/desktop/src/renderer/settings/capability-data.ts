@@ -90,6 +90,9 @@ export interface CapabilitySettingsProps {
    *  it. Hosts that never pass these keep the list-only rendering. */
   createOpen?: boolean;
   onCreateOpenChange?: (open: boolean) => void;
+  /** Sidebar hosts: confirmations render into document.body, because the
+   *  sidebar clips fixed layers to itself. */
+  portalConfirm?: boolean;
 }
 
 export interface PanelContext {
