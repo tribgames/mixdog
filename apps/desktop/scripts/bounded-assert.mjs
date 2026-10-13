@@ -242,13 +242,3 @@ export function installBoundedAssertions(target = strictAssert) {
   Object.defineProperty(target, INSTALLED, { value: true, configurable: true });
   return target;
 }
-
-/** An isolated bounded façade: inherits everything else (ok, throws, rejects,
- *  AssertionError, …) from `base` without mutating it. */
-export function createBoundedAssert(base = strictAssert) {
-  const facade = Object.create(base);
-  for (const [name, implementation] of Object.entries(createComparisons(base))) {
-    if (typeof implementation === 'function') define(facade, name, implementation);
-  }
-  return facade;
-}

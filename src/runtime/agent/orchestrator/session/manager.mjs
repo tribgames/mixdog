@@ -72,7 +72,6 @@ export {
 // attach-on-resume guard) — resolved through the manager facade so the
 // session-runtime turn API reaches it as mgr.publishSessionPresence.
 export { publishSessionPresence, deleteSessionPresence } from './store.mjs';
-export { isInternalRuntimeNotificationText as _isInternalRuntimeNotificationText } from './manager/prompt-utils.mjs';
 
 // ── Usage-metrics surface — re-exported unchanged so loop.mjs / smoke scripts
 //    keep resolving these through the facade. ────────────────────────────────

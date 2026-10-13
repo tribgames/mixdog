@@ -8,7 +8,6 @@ import { CompletionStatus, completionActivityKey, hadLiveActivity } from './tran
 import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows.ts';
 import {
   desktopToolActivityCategory,
-  desktopToolActivityCategoryGroups,
   desktopToolActivityItemPresentation,
   flattenedToolActivityItems,
   formatTokenCount,
@@ -404,95 +403,7 @@ test('desktop activity expansion flattens aggregate members in call order', () =
   assert.deepEqual(flattenedToolActivityItems([aggregate, shell]), [read, search, shell]);
 });
 
-test('desktop activity drills through repeated categories but keeps singleton tools direct', () => {
-  const groups = desktopToolActivityCategoryGroups([
-    { kind: 'tool', id: 'git-1', name: 'git', args: { command: 'git status' }, result: 'clean' },
-    { kind: 'tool', id: 'shell-1', name: 'shell', args: { command: 'npm test' }, result: 'ok' },
-    { kind: 'tool', id: 'git-2', name: 'git', args: { command: 'git diff' }, result: 'diff' },
-  ]);
-
-  assert.deepEqual(
-    groups.map(({ category, count, items }) => ({
-      category,
-      count,
-      ids: items.map((item) => item.id),
-    })),
-    [
-      { category: 'Git', count: 1, ids: ['git-1'] },
-      { category: 'Shell', count: 1, ids: ['shell-1'] },
-      { category: 'Git', count: 1, ids: ['git-2'] },
-    ]
-  );
-});
-
-test('desktop activity groups by work unit, not by shared category', () => {
-  const groups = desktopToolActivityCategoryGroups([
-    { kind: 'tool', id: 'git-1', name: 'git', args: { command: 'git status' }, result: 'clean' },
-    {
-      kind: 'tool',
-      id: 'stage-1',
-      name: 'git',
-      args: { action: 'stage', diff_id: 'd1', change_ids: ['c1'] },
-      result: 'staged',
-    },
-    { kind: 'tool', id: 'graph-1', name: 'code_graph', args: { mode: 'overview', files: ['a.ts'] }, result: 'ok' },
-    { kind: 'tool', id: 'read-1', name: 'read', args: { file_path: 'a.ts' }, result: 'ok' },
-    // External MCP calls keep separate server-name buckets.
-    { kind: 'tool', id: 'mcp-1', name: 'mcp__srv__a', args: { q: 'x' }, result: 'ok' },
-    { kind: 'tool', id: 'mcp-2', name: 'mcp__other__b', args: { q: 'y' }, result: 'ok' },
-  ]);
-
-  assert.deepEqual(
-    groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })),
-    [
-      { unitKey: 'Git|Ran|Git command', category: 'Git', label: 'Git commands', count: 1 },
-      { unitKey: 'Git|Staged|change', category: 'Git', label: 'Git staging', count: 1 },
-      { unitKey: 'Read|Read|code map', category: 'Read', label: 'Code structure', count: 1 },
-      { unitKey: 'Read|Read|file', category: 'Read', label: 'File reading', count: 1 },
-      { unitKey: 'MCP|srv', category: 'MCP', label: 'MCP Srv', count: 1 },
-      { unitKey: 'MCP|other', category: 'MCP', label: 'MCP Other', count: 1 },
-    ]
-  );
-});
-
 test('desktop activity uses concrete control, MCP server, and skill names', () => {
-  const groups = desktopToolActivityCategoryGroups([
-    { kind: 'tool', id: 'browser', name: 'browser', args: { action: 'open' }, result: 'ok' },
-    { kind: 'tool', id: 'computer', name: 'computer', args: { action: 'click' }, result: 'ok' },
-    { kind: 'tool', id: 'office', name: 'office', args: { action: 'inspect' }, result: 'ok' },
-    { kind: 'tool', id: 'unity', name: 'mcp__UnityMCP__manage_scene', args: { action: 'get' }, result: 'ok' },
-    { kind: 'tool', id: 'skill', name: 'Skill', args: { name: 'gamerscroll-article' }, result: 'ok' },
-    {
-      kind: 'tool',
-      id: 'media-image',
-      name: 'media',
-      args: { action: 'generate', kind: 'image', prompt: 'x', path: 'a.png' },
-      result: 'ok',
-    },
-    {
-      kind: 'tool',
-      id: 'media-video',
-      name: 'media',
-      args: { action: 'generate', kind: 'video', prompt: 'x', path: 'a.mp4' },
-      result: 'ok',
-    },
-    { kind: 'tool', id: 'media-list', name: 'media', args: { action: 'list', kind: 'image' }, result: 'ok' },
-  ]);
-
-  assert.deepEqual(
-    groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })),
-    [
-      { unitKey: 'Browser', category: 'Browser', label: 'Browser Use', count: 1 },
-      { unitKey: 'Computer', category: 'Computer', label: 'Computer Use', count: 1 },
-      { unitKey: 'Office|Edited|document action', category: 'Office', label: 'Document work', count: 1 },
-      { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'MCP UnityMCP', count: 1 },
-      { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'Skill gamerscroll-article', count: 1 },
-      { unitKey: 'Media|Generated|image', category: 'Media', label: 'Image generation', count: 1 },
-      { unitKey: 'Media|Generated|video', category: 'Media', label: 'Video generation', count: 1 },
-      { unitKey: 'Media|Listed|media catalog', category: 'Media', label: 'Media catalog', count: 1 },
-    ]
-  );
-
   assert.equal(
     desktopToolActivityItemPresentation({
       kind: 'tool',

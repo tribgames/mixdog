@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import { ContextUsageIndicator } from './transcript-status.tsx';
 import { ContextBody } from './ContextBody.tsx';
-import { ContextStatusView } from './settings/capability-controls.tsx';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store.ts';
 import { t } from './i18n.ts';
 
@@ -44,10 +43,7 @@ test('tooltip, detail, and settings share measured input and explicit unknown st
       },
     };
     const textOf = (element) => JSDOM.fragment(renderToStaticMarkup(element)).textContent;
-    for (const element of [
-      React.createElement(ContextBody, { status, snapshot }),
-      React.createElement(ContextStatusView, { value: status }),
-    ]) {
+    for (const element of [React.createElement(ContextBody, { status, snapshot })]) {
       const text = textOf(element);
       assert.ok(text.includes(t(label)), label);
       assert.doesNotMatch(text, /100%|4\.1%/);

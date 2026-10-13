@@ -171,45 +171,11 @@ function trustedNative(element: ChromeUiaElement): boolean {
   return element.source === 'uia' && element.in_document !== true && element.role !== 'Document';
 }
 
-function promptSurfaces(elements: ChromeUiaElement[]): ChromeUiaElement[] {
-  return elements.filter((root) => {
-    if (!trustedNative(root) || !root.runtime_id || !normalized(root.name)) return false;
-    const descendants = elements.filter(
-      (element) => trustedNative(element) && isDescendantOf(element, root.runtime_id || '')
-    );
-    if (root.role === 'Window') {
-      const matchingPaneAncestor = (root.ancestors || []).some(
-        (ancestor) => ancestor.role === 'Pane' && normalized(ancestor.name) === normalized(root.name)
-      );
-      return (
-        matchingPaneAncestor &&
-        descendants.some((element) => element.role === 'Text' && normalized(element.name) === normalized(root.name))
-      );
-    }
-    if (root.role !== 'Pane') return false;
-    const directTitle = descendants.some(
-      (element) =>
-        element.parent_runtime_id === root.runtime_id &&
-        element.role === 'Text' &&
-        normalized(element.name) === normalized(root.name)
-    );
-    const nestedTitle = descendants.some(
-      (element) =>
-        element.parent_runtime_id !== root.runtime_id &&
-        element.role === 'Text' &&
-        normalized(element.name) === normalized(root.name)
-    );
-    const nestedWindow = descendants.some((element) => element.role === 'Window');
-    return directTitle && nestedTitle && !nestedWindow;
-  });
-}
-
-function consentButtons(elements: ChromeUiaElement[], withinRuntimeId?: string): ConsentButton[] {
+function consentButtons(elements: ChromeUiaElement[]): ConsentButton[] {
   return elements
     .filter(
       (element) =>
         trustedNative(element) &&
-        (!withinRuntimeId || isDescendantOf(element, withinRuntimeId)) &&
         element.role === 'Button' &&
         element.enabled &&
         element.actions.includes('invoke') &&
@@ -240,19 +206,4 @@ export function chromeOwnedConsentAllowRef(elements: ChromeUiaElement[]): string
   const candidates = consentButtons(elements);
   if (candidates.length === 0) return null;
   return selectConsentActions(candidates).allow.element.ref;
-}
-
-export function chromeConsentAllowRef(elements: ChromeUiaElement[]): string | null {
-  const surfaces = promptSurfaces(elements);
-  if (surfaces.length === 0) return null;
-  const matches: string[] = [];
-  for (const surface of surfaces) {
-    const candidates = consentButtons(elements, surface.runtime_id);
-    matches.push(selectConsentActions(candidates).allow.element.ref);
-  }
-  const unique = [...new Set(matches)];
-  if (unique.length !== 1) {
-    throw new Error('Chrome exposed multiple bound native consent prompts.');
-  }
-  return unique[0];
 }
