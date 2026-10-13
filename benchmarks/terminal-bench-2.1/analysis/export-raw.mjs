@@ -61,16 +61,29 @@ const TRANSCRIPTS = new Set(['agent/codex.txt', 'agent/claude-code.txt']);
 let files = 0;
 let bytes = 0;
 
-// A run without an index entry is filed from its own data: model and harness
-// from the first trial config, date from the jobs directory's run id.
+// A run without an index entry is filed from its own data: harness and model
+// from the first trial config, date from the jobs directory's run id. An
+// imported agent names no harness there, so its module path does; a Mixdog run
+// names no model either, so its model is the lead route in preset-run.json.
+const IMPORTED_HARNESS = [
+  [/mixdog_agent/, 'mixdog'],
+  [/claude_code/, 'claude-code'],
+];
 function newEntry(run, src) {
   const day = readdirSync(src).find((d) => statSync(join(src, d)).isDirectory());
   const trial = readdirSync(join(src, day)).find((t) => existsSync(join(src, day, t, 'config.json')));
   const agent = readJson(join(src, day, trial, 'config.json')).agent;
   const stamp = run.match(/(\d{4})(\d{2})(\d{2})-\d{6}/);
-  const date = stamp ? `--` : day.slice(0, 10);
-  const harness = String(agent.name);
-  return { jobsDir: run, path: '', model: agent.model_name, date, harness, k: 1, score: '', source: 'mixdog' };
+  const date = stamp ? `${stamp[1]}-${stamp[2]}-${stamp[3]}` : day.slice(0, 10);
+  const imported = IMPORTED_HARNESS.find(([pattern]) => pattern.test(String(agent.import_path || '')));
+  const harness = agent.name || imported?.[1];
+  const presetRun = join(src, 'preset-run.json');
+  const lead = existsSync(presetRun) ? readJson(presetRun).definition?.routes?.lead : null;
+  const model = agent.model_name || lead?.model;
+  if (!harness || !model) {
+    throw new Error(`${run}: harness or model is not recorded; add its index.json entry by hand`);
+  }
+  return { jobsDir: run, path: '', model, date, harness, k: 1, score: '', source: 'mixdog' };
 }
 
 // Score and attempt count from the verdicts that were exported.
@@ -91,7 +104,7 @@ function tally(src) {
       perTask.set(task, (perTask.get(task) ?? 0) + 1);
     }
   }
-  return { score: `/`, k: Math.max(1, ...perTask.values()) };
+  return { score: `${passed}/${total}`, k: Math.max(1, ...perTask.values()) };
 }
 
 const copy = (from, to) => {

@@ -286,7 +286,7 @@ Tools resolve a `jobsDir` (optionally followed by a sub-run such as
 
 To add a result, put it under `<harness>/<model>/<date>[-k5]/` and add an
 `index.json` entry with the fields above, keeping `jobsDir` stable. For a local
-Mixdog run, `node analysis/export-raw.mjs` (from the repo root, with the jobs
+Mixdog run, `node benchmarks/terminal-bench-2.1/analysis/export-raw.mjs` (from the repo root, with the jobs
 directory listed in its `RUNS`) exports it and adds or updates the entry.
 External submissions keep their internal layout (see
 `mixdog/deepseek-v4.1-flash/2026-10-12/`) and use `"source": "external PR #N"`.
