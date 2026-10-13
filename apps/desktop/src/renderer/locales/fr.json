@@ -2674,6 +2674,7 @@
   "Read output": "Lire la sortie",
   "Read-only": "Lecture seule",
   "Read-only files open in Preview.": "Les fichiers en lecture seule s'ouvrent dans l'aperçu.",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "Lecture seule : ce fichier présente un encodage de texte invalide. Convertissez-le ou réparez-le dans un éditeur externe pour éviter toute perte de données.",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "Lecture seule : ce fichier dépasse 1 Mo, il peut être consulté mais pas modifié.",
   "Read, create, and edit PDF documents.": "Lisez, créez et modifiez des documents PDF.",
   "Readiness": "Préparation",

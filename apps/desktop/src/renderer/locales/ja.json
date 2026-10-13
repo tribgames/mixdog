@@ -2584,6 +2584,7 @@
   "Read output": "出力を読む",
   "Read-only": "読み取り専用",
   "Read-only files open in Preview.": "読み取り専用ファイルはプレビューで開きます。",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "読み取り専用：このファイルのテキストエンコーディングは不正です。データの損失を避けるため、外部エディターで変換または修復してください。",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "読み取り専用: 1 MB を超えるファイルのため、表示のみで編集はできません。",
   "Read, create, and edit PDF documents.": "PDF文書を閲覧・作成・編集します。",
   "Readiness": "準備状況",
