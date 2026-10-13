@@ -14,22 +14,24 @@ const { readSourceWindows } = await import('./read-source-windows.mjs');
 const { READ_STREAM_TIMEOUT_MS } = await import('./read-constants.mjs');
 const { hashText } = await import('./hash-utils.mjs');
 const { getReadRangeIndex, publishReadRangeIndex, maybeRecordReadRangeAnchor, flushReadRangeIndexesSync } = indexes;
-const rows = Array.from({ length: 12000 }, (_, i) => `line-${i}-${'x'.repeat(30)}`);
+const rows = Array.from({ length: 12000 }, (_, i) => `r${i.toString(36).padStart(3, '0')}`);
 const body = rows.join('\n') + '\n';
+const largeBody = Array.from({ length: 12000 }, (_, i) => `line-${i}-${'x'.repeat(30)}`).join('\n') + '\n';
 let sequence = 0;
 test.after(async () => {
   flushReadRangeIndexesSync();
   await fs.rm(root, { recursive: true, force: true });
 });
 const diskPath = (path) => join(root, 'data', 'read-range-index', `${hashText(indexes.canonicalCachePath(path))}.json`);
-async function fixture(seed) {
+async function fixture(seed, large = false) {
   const path = join(root, `${sequence++}.txt`);
-  await fs.writeFile(path, body);
+  await fs.writeFile(path, large ? largeBody : body);
   const st = await fs.stat(path);
   if (seed) await streamReadRange(path, 4500, 1, st);
   flushReadRangeIndexesSync();
   const before = existsSync(diskPath(path)) ? await fs.readFile(diskPath(path), 'utf8') : null;
   const draft = await getReadRangeIndex(path, st);
+  assert.equal(draft.anchors.has(4096), !!seed && !large, 'only successful small scans reuse anchors');
   return { path, st, before, anchors: [...draft.anchors] };
 }
 async function assertUnpublished(f) {
@@ -49,18 +51,20 @@ function mockFs(t, name, impl) {
   };
 }
 const routes = [
-  { name: 'source', run: (f) => readSourceWindows(f.path, [{ start: 9001, end: 9001 }]), finalStat: 4 },
-  { name: 'range', run: (f) => streamReadRange(f.path, 9000, 1, f.st), finalStat: 3 },
-  { name: 'count', run: (f) => countLogicalLinesBytesSync(f.path, f.st.size, f.st), finalStat: 3 },
+  { name: 'source', run: (f) => readSourceWindows(f.path, [{ start: 9001, end: 9001 }]), finalStat: 4, finalPathStat: 2 },
+  { name: 'range', run: (f) => streamReadRange(f.path, 9000, 1, f.st), finalStat: 3, finalPathStat: 1 },
+  { name: 'count', run: (f) => countLogicalLinesBytesSync(f.path, f.st.size, f.st), finalStat: 3, finalPathStat: 1 },
 ];
 
 for (const route of routes)
   for (const seed of [false, true])
-    for (const stage of ['descriptor', 'path']) {
-      test(`${route.name}: expiry during final ${stage} validation cannot publish (${seed ? 'prior anchors' : 'fresh'})`, async (t) => {
-        const f = await fixture(seed);
+    for (const large of [false, true])
+      for (const stage of ['descriptor', 'path']) {
+      test(`${route.name}: expiry during final ${stage} validation cannot publish (${large ? 'large private' : 'small cached'}, ${seed ? 'prior read' : 'fresh'})`, async (t) => {
+        const f = await fixture(seed, large);
         let now = 1000;
         let expired = false;
+        let pathStats = 0;
         t.mock.method(Date, 'now', () => now);
         const expire = () => {
           expired = true;
@@ -70,7 +74,7 @@ for (const route of routes)
           stage === 'path'
             ? mockFs(t, 'stat', (original) => async (path, ...args) => {
                 const st = await original(path, ...args);
-                if (path === f.path) expire();
+                if (path === f.path && ++pathStats === route.finalPathStat) expire();
                 return st;
               })
             : mockFs(t, 'open', (original) => async (path, ...args) => {
@@ -80,7 +84,7 @@ for (const route of routes)
                   let calls = 0;
                   handle.stat = async (...options) => {
                     const st = await stat(...options);
-                    if (++calls === route.finalStat) expire();
+                    if (++calls === route.finalStat - Number(large)) expire();
                     return st;
                   };
                 }
@@ -98,9 +102,10 @@ for (const route of routes) {
   test(`${route.name}: expired validation IO failure still checks the unpublished return path`, async (t) => {
     const f = await fixture(true);
     let now = 1000;
+    let pathStats = 0;
     t.mock.method(Date, 'now', () => now);
     const restore = mockFs(t, 'stat', (original) => async (path, ...args) => {
-      if (path !== f.path) return original(path, ...args);
+      if (path !== f.path || ++pathStats < route.finalPathStat) return original(path, ...args);
       now += READ_STREAM_TIMEOUT_MS + 1;
       throw Object.assign(new Error('final stat unavailable'), { code: 'EIO' });
     });

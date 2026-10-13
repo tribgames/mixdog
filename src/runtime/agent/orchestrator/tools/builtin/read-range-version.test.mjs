@@ -28,8 +28,10 @@ test.after(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 let sequence = 0;
-const rows = Array.from({ length: 12000 }, (_, i) => `row-${String(i).padStart(5, '0')}-${'x'.repeat(30)}`);
+const rows = Array.from({ length: 12000 }, (_, i) => `r${i.toString(36).padStart(3, '0')}`);
 const text = `${rows.join('\n')}\n`;
+const largeRows = Array.from({ length: 12000 }, (_, i) => `row-${String(i).padStart(5, '0')}-${'x'.repeat(30)}`);
+const largeText = `${largeRows.join('\n')}\n`;
 const time = new Date('2020-01-01T00:00:00Z');
 const first = (result) => result.text.split('\n')[0];
 const rowFile = (path) => join(root, 'data', 'read-range-index', `${hashText(indexes.canonicalCachePath(path))}.json`);
@@ -61,17 +63,14 @@ function mockFs(t, name, fn) {
 }
 async function rewriteSuffix(path, st) {
   // Fixed initial mtime allows an exact restoration, rather than Date rounding.
-  // Let real ctime advance even on coarser platform clocks; no race is timed.
-  await delay(20);
-  const newline = text.indexOf('\n', 70000);
-  const replacement = `${text.slice(0, newline)} ${text.slice(newline + 1)}`;
+  const newline = largeText.indexOf('\n', 70000);
+  const replacement = `${largeText.slice(0, newline)} ${largeText.slice(newline + 1)}`;
   await fs.writeFile(path, replacement);
   await fs.utimes(path, time, time);
   const after = await fs.stat(path);
   assert.equal(after.mtimeMs, st.mtimeMs);
   assert.equal(after.size, st.size);
-  assert.notEqual(after.ctimeMs, st.ctimeMs);
-  assert.equal(hashText(Buffer.from(text).subarray(0, 65536)), hashText(Buffer.from(replacement).subarray(0, 65536)));
+  assert.equal(hashText(Buffer.from(largeText).subarray(0, 65536)), hashText(Buffer.from(replacement).subarray(0, 65536)));
   return after;
 }
 async function noPublishedAnchors(path) {
@@ -83,31 +82,34 @@ async function noPublishedAnchors(path) {
 }
 
 for (const route of ['range', 'source']) {
-  test(`${route}: a same-size suffix newline rewrite invalidates anchors even with a restored mtime`, async () => {
-    const { path, st } = await fixture();
+  test(`${route}: a large suffix newline rewrite starts fresh even with a restored mtime`, async () => {
+    const { path, st } = await fixture(largeText);
     if (route === 'range') await streamReadRange(path, 9000, 1, st);
     else await readSourceWindows(path, [{ start: 9001, end: 9001 }]);
     await rewriteSuffix(path, st);
     if (route === 'range') {
       // Deliberately supply both the old stat and the old inspection prefix.
-      const result = await streamReadRange(path, 9000, 1, st, { prefixBuffer: Buffer.from(text).subarray(0, 65536) });
-      assert.equal(first(result), renderReadLine(9001, rows[9001]));
+      const result = await streamReadRange(path, 9000, 1, st, { prefixBuffer: Buffer.from(largeText).subarray(0, 65536) });
+      assert.equal(first(result), renderReadLine(9001, largeRows[9001]));
     } else {
-      assert.equal((await readSourceWindows(path, [{ start: 9001, end: 9001 }])).get(9001), rows[9001]);
+      assert.equal((await readSourceWindows(path, [{ start: 9001, end: 9001 }])).get(9001), largeRows[9001]);
     }
   });
 }
 
-test('disk reload rejects a suffix rewrite outside the prefix hash', async (t) => {
+test('small-file disk reload rejects a same-version newline rewrite by its whole-file hash', async (t) => {
   const { path, st } = await fixture();
   await streamReadRange(path, 9000, 1, st);
   flushReadRangeIndexesSync();
   const stored = JSON.parse(await fs.readFile(rowFile(path), 'utf8'));
   assert.equal(stored.version, 2);
   assert.deepEqual(stored.fileVersion, fileVersion(st));
-  await rewriteSuffix(path, st);
+  const newline = text.indexOf('\n', 20000);
+  await fs.writeFile(path, `${text.slice(0, newline)} ${text.slice(newline + 1)}`);
   const fresh = await import(`./read-range-index.mjs?disk-suffix-${sequence++}`);
-  const index = await fresh.getReadRangeIndex(path, st, await borrowed(t, path));
+  const handle = await borrowed(t, path);
+  t.mock.method(handle, 'stat', async () => st);
+  const index = await fresh.getReadRangeIndex(path, st, handle);
   assert.deepEqual([...index.anchors], [[0, 0]]);
 });
 
@@ -189,8 +191,11 @@ for (const route of ['range', 'count', 'source']) {
       }
       return handle;
     });
-    if (route === 'range')
-      assert.equal(first(await streamReadRange(path, 9000, 1, st)), renderReadLine(9001, rows[9000]));
+    if (route === 'range') {
+      const result = await streamReadRange(path, 9000, 1, st);
+      assert.equal(first(result), renderReadLine(9001, rows[9000]));
+      assert.equal(result.readSnapshotStat, null, 'changed terminal evidence cannot relabel returned bytes');
+    }
     if (route === 'count') assert.equal(await countLogicalLinesBytesSync(path, st.size, st), rows.length);
     if (route === 'source')
       assert.equal((await readSourceWindows(path, [{ start: 9001, end: 9001 }])).get(9001), rows[9000]);
@@ -224,10 +229,9 @@ for (const boundary of ['handle', 'path']) {
         file === path && readBody ? Promise.reject(failure) : pathStat(file, ...args)
       );
     }
-    assert.equal(
-      first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })),
-      renderReadLine(9001, rows[9000])
-    );
+    const result = await streamReadRange(path, 9000, 1, st, { fileHandle: handle });
+    assert.equal(first(result), renderReadLine(9001, rows[9000]));
+    assert.equal(result.readSnapshotStat, null);
     restore();
     await noPublishedAnchors(path);
   });
@@ -243,7 +247,7 @@ test('a replacement path cannot certify offsets from the old borrowed handle', a
   await fs.mkdir(original, { recursive: true });
   await fs.mkdir(replacement);
   await fs.writeFile(join(original, 'file.txt'), text);
-  await fs.writeFile(join(replacement, 'file.txt'), text.replace('row-00000', 'new-00000'));
+  await fs.writeFile(join(replacement, 'file.txt'), text.replace('r000', 'NEW0'));
   const linkType = process.platform === 'win32' ? 'junction' : 'dir';
   await fs.symlink(original, alias, linkType);
   const path = join(alias, 'file.txt');
@@ -262,10 +266,9 @@ test('a replacement path cannot certify offsets from the old borrowed handle', a
   });
   // Hold the descriptor evidence stable to isolate the required path check.
   t.mock.method(handle, 'stat', async () => st);
-  assert.equal(
-    first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })),
-    renderReadLine(9001, rows[9000])
-  );
+  const result = await streamReadRange(path, 9000, 1, st, { fileHandle: handle });
+  assert.equal(first(result), renderReadLine(9001, rows[9000]));
+  assert.equal(result.readSnapshotStat, null);
   await noPublishedAnchors(path);
 });
 
@@ -276,6 +279,34 @@ function deferred() {
   });
   return { promise, resolve };
 }
+
+test('a large size hint cannot renew publication after invalidation during a small-file stat', async (t) => {
+  const { path, st } = await fixture();
+  assert.ok(st.size <= 65536);
+  const hint = { ...st, size: 70000 };
+  const handle = await borrowed(t, path);
+  const entered = deferred();
+  const release = deferred();
+  const originalStat = handle.stat.bind(handle);
+  let firstStat = true;
+  t.mock.method(handle, 'stat', async () => {
+    if (firstStat) {
+      firstStat = false;
+      entered.resolve();
+      await release.promise;
+    }
+    return originalStat();
+  });
+  const reading = streamReadRange(path, 9000, 1, hint, { fileHandle: handle });
+  try {
+    await entered.promise;
+    deleteReadRangeIndexForPath(path);
+  } finally {
+    release.resolve();
+  }
+  assert.equal(first(await reading), renderReadLine(9001, rows[9000]));
+  await noPublishedAnchors(path);
+});
 
 test('partial anchors stay private while a scan waits, then a failed read publishes nothing', {
   timeout: 5000,
@@ -294,7 +325,7 @@ test('partial anchors stay private while a scan waits, then a failed read publis
       await release.promise;
       throw failure;
     }
-    return read(...args);
+    return read(args[0], args[1], Math.min(args[2], 16 * 1024), args[3]);
   });
   const reading = streamReadRange(path, 9000, 1, st, { fileHandle: handle });
   const rejection = assert.rejects(reading, (error) => error === failure);
@@ -578,14 +609,17 @@ test('an unverified extension cannot mutate an already published same-version in
   assert.equal(current.anchors.has(8192), false, 'the rejected scan must not extend shared anchors');
 });
 
-test('a stale inspection prefix is not read as the current first lines', async () => {
+test('a stale inspection prefix is not read as the current first lines', async (t) => {
   const { path, st } = await fixture();
-  await delay(20);
-  await fs.writeFile(path, text.replace('row-00000', 'NEW-00000'));
+  await fs.writeFile(path, text.replace('r000', 'NEW0'));
   await fs.utimes(path, time, time);
-  assert.notEqual((await fs.stat(path)).ctimeMs, st.ctimeMs);
-  const result = await streamReadRange(path, 0, 1, st, { prefixBuffer: Buffer.from(text).subarray(0, 65536) });
-  assert.equal(first(result), renderReadLine(1, rows[0].replace('row-', 'NEW-')));
+  const handle = await borrowed(t, path);
+  t.mock.method(handle, 'stat', async () => changed(st, 'ctimeMs'));
+  const result = await streamReadRange(path, 0, 1, st, {
+    fileHandle: handle,
+    prefixBuffer: Buffer.from(text).subarray(0, 65536),
+  });
+  assert.equal(first(result), renderReadLine(1, 'NEW0'));
 });
 
 test('failed pre-stat leaves the current read usable but disables index reuse/publication', async (t) => {
@@ -594,11 +628,22 @@ test('failed pre-stat leaves the current read usable but disables index reuse/pu
   t.mock.method(handle, 'stat', async () => {
     throw Object.assign(new Error('pre-stat error'), { code: 'EIO' });
   });
-  assert.equal(
-    first(await streamReadRange(path, 9000, 1, st, { fileHandle: handle })),
-    renderReadLine(9001, rows[9000])
-  );
+  const result = await streamReadRange(path, 9000, 1, st, { fileHandle: handle });
+  assert.equal(first(result), renderReadLine(9001, rows[9000]));
+  assert.equal(result.readSnapshotStat, null);
   await noPublishedAnchors(path);
+});
+
+test('a stable range returns its owned producer version rather than the stat hint', async (t) => {
+  const { path, st } = await fixture();
+  const handle = await borrowed(t, path);
+  t.mock.method(handle, 'stat', async () => st);
+  const expected = fileVersion(st);
+  const result = await streamReadRange(path, 9000, 1, changed(st, 'ctimeMs'), { fileHandle: handle });
+  assert.deepEqual(result.readSnapshotStat, expected);
+  assert.notEqual(result.readSnapshotStat, st);
+  st.ctimeMs += 1;
+  assert.deepEqual(result.readSnapshotStat, expected, 'returned identity does not retain mutable Stats');
 });
 
 test('post-read checks use an owned version, not a mutable Stats instance', async (t) => {

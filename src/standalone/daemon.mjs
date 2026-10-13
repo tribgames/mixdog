@@ -20,6 +20,8 @@ process.env.MIXDOG_DAEMON_HOST = '1';
 // Size the libuv threadpool before any async fs work spins it up (see
 // uv-threadpool-boot.mjs) — imports below already touch fs.
 await import('../runtime/shared/uv-threadpool-boot.mjs');
+// Before anything can import sharp: Electron on Linux must use its wasm build.
+await import('../runtime/shared/sharp-electron-linux.mjs');
 
 // No V8 compile cache here, on purpose. Measured on this runtime: a cache hit
 // saves nothing (spawn→ready 316-347ms with the cache vs 318-323ms without,

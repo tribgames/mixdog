@@ -156,6 +156,7 @@
     "@formulajs/formulajs": "^4.6.1",
     "@google/generative-ai": "^0.24.1",
     "@huggingface/transformers": "^4.2.0",
+    "@img/sharp-wasm32": "0.35.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
     "@napi-rs/canvas": "^1.0.8",

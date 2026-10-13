@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -12,14 +14,18 @@ process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
 const {
   cacheGet,
+  cacheGetEntry,
   cacheSet,
   invalidateBuiltinResultCache,
   rawContentCacheGet,
   rawContentCacheSet,
   runRawContentInFlight,
+  registerCacheInvalidationListener,
 } = await import('./cache-layers.mjs');
 const { detectReadEncodingFromBuffer } = await import('./snapshot-helpers.mjs');
 const { bufferedReadResult } = await import('./read-single-render.mjs');
+const { readCachedResult } = await import('./read-single-fast-paths.mjs');
+const { getReadSnapshot } = await import('./read-snapshot-runtime.mjs');
 const { executeBuiltinTool } = await import('../builtin.mjs');
 process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 test.afterEach(() => invalidateBuiltinResultCache());
@@ -268,5 +274,171 @@ for (const field of ['mtimeMs', 'ctimeMs', 'ino', 'dev']) {
     assert.match(out, /AFTER_/);
     assert.doesNotMatch(out, /BEFORE/);
     assert.deepEqual(rawContentCacheGet(path, statSync(path)), readFileSync(path));
+  });
+}
+
+test('a rejected small-file hash cannot fall back to same-version raw bytes', async (t) => {
+  const path = file();
+  writeFileSync(path, body);
+  const time = new Date('2025-01-01T00:00:00.000Z');
+  utimesSync(path, time, time);
+  const before = statSync(path);
+  const originalStat = fsPromises.stat;
+  const mock = t.mock.method(fsPromises, 'stat', async (target, ...options) => {
+    const st = await originalStat(target, ...options);
+    if (target === path) st.ctimeMs = before.ctimeMs;
+    return st;
+  });
+  syncBuiltinESMExports();
+  try {
+    const args = { file_path: path };
+    const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
+    const first = String(await executeBuiltinTool('read', args, root, options));
+    assert.match(first, /BEFORE/);
+    const cachedRaw = rawContentCacheGet(path, before);
+    assert.deepEqual(cachedRaw, body);
+    assert.equal(String(await executeBuiltinTool('read', args, root, options)), first);
+    assert.equal(rawContentCacheGet(path, before), cachedRaw, 'a valid hit retains raw reuse');
+    const sibling = file();
+    rawContentCacheSet(sibling, version(), body);
+
+    writeFileSync(path, 'AFTER_\n');
+    utimesSync(path, time, time);
+    const observed = await fsPromises.stat(path);
+    for (const field of ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev']) {
+      assert.equal(observed[field], before[field], `${field} must collide`);
+    }
+    const reread = String(await executeBuiltinTool('read', args, root, options));
+    assert.equal(reread, first.replace('BEFORE', 'AFTER_'));
+    assert.deepEqual(rawContentCacheGet(path, observed), Buffer.from('AFTER_\n'));
+    assert.equal(rawContentCacheGet(sibling, version()), body, 'unrelated raw entries survive');
+  } finally {
+    mock.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+test('hash rejection detaches an old same-version raw flight without cancelling its readers', async () => {
+  const path = file();
+  writeFileSync(path, 'AFTER_\n');
+  const st = statSync(path);
+  const key = randomUUID();
+  const hash = (text) => createHash('sha256').update(text).digest('hex');
+  cacheSet(key, 'BEFORE', { paths: [path], contentPrefixHash: hash(body) });
+  const oldDone = Promise.withResolvers();
+  const oldStarted = Promise.withResolvers();
+  const newDone = Promise.withResolvers();
+  let loads = 0;
+  const old = runRawContentInFlight(path, () => {
+    oldStarted.resolve();
+    return oldDone.promise;
+  }, st);
+  await oldStarted.promise;
+  let fresh;
+  try {
+    assert.deepEqual(await readCachedResult({ cacheKey: key, fullPath: path, st }, {
+      _cacheGetEntry: cacheGetEntry,
+      _hashText: hash,
+    }), { rejected: true });
+    assert.equal(cacheGet(key), null, 'the rejected result is evicted');
+    fresh = runRawContentInFlight(path, () => {
+      loads++;
+      return newDone.promise;
+    }, st);
+    oldDone.resolve(body);
+    assert.equal(await old, body, 'existing readers keep their observation');
+    const joined = runRawContentInFlight(path, () => {
+      throw new Error('must share the replacement flight');
+    }, st);
+    const newBody = Buffer.from('AFTER_\n');
+    newDone.resolve(newBody);
+    assert.deepEqual(await Promise.all([fresh, joined]), [newBody, newBody]);
+    assert.equal(loads, 1);
+  } finally {
+    oldDone.resolve(body);
+    newDone.resolve(Buffer.from('AFTER_\n'));
+    await Promise.allSettled([old, fresh]);
+  }
+});
+
+for (const releaseAfterFresh of [false, true]) {
+  test(`rejected bytes cannot be republished (old completion after fresh=${releaseAfterFresh})`, async (t) => {
+    const path = file();
+    writeFileSync(path, 'BEFORE\nTAIL_A\n');
+    const time = new Date('2025-01-01T00:00:00.000Z');
+    utimesSync(path, time, time);
+    const before = statSync(path);
+    const originalStat = fsPromises.stat;
+    const postStarted = Promise.withResolvers();
+    const postDone = Promise.withResolvers();
+    let armed = false;
+    let calls = 0;
+    const mock = t.mock.method(fsPromises, 'stat', async (target, ...options) => {
+      const st = await originalStat(target, ...options);
+      if (target === path) {
+        st.ctimeMs = before.ctimeMs;
+        if (armed && ++calls === 2) {
+          armed = false;
+          postStarted.resolve();
+          await postDone.promise;
+        }
+      }
+      return st;
+    });
+    syncBuiltinESMExports();
+    let oldRead;
+    let unsubscribe;
+    try {
+      const args = { file_path: path };
+      const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
+      const first = String(await executeBuiltinTool('read', args, root, options));
+      assert.match(first, /BEFORE/);
+      assert.equal(rawContentCacheGet(path, {
+        ...before,
+        ctimeMs: differentFieldValue(before.ctimeMs, 'ctimeMs'),
+      }), null, 'evict only raw bytes, retaining the full-read result');
+
+      // A different window misses the rendered cache and holds old bytes at
+      // post-stat, before bufferedReadResult is allowed to publish them.
+      armed = true;
+      oldRead = executeBuiltinTool('read', { file_path: path, offset: 1, limit: 1 }, root, options);
+      await Promise.race([
+        postStarted.promise,
+        oldRead.then(() => assert.fail('the old read must pause at post-stat')),
+      ]);
+      writeFileSync(path, 'AFTER_\nTAIL_B\n');
+      utimesSync(path, time, time);
+      const observed = await fsPromises.stat(path);
+      for (const field of ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev']) {
+        assert.equal(observed[field], before[field], `${field} must collide`);
+      }
+      let rejections = 0;
+      unsubscribe = registerCacheInvalidationListener((paths) => {
+        if (paths?.length) {
+          rejections++;
+          if (!releaseAfterFresh) postDone.resolve();
+        }
+      });
+      const reread = String(await executeBuiltinTool('read', args, root, options));
+      assert.equal(rejections, 1, 'the new read rejects the cached hash');
+      const freshSnapshot = structuredClone(getReadSnapshot(path, options.sessionId));
+      postDone.resolve();
+      assert.match(String(await oldRead), /BEFORE/, 'the older reader keeps its original observation');
+      assert.equal(reread, first.replace('BEFORE', 'AFTER_').replace('TAIL_A', 'TAIL_B'));
+      assert.deepEqual(rawContentCacheGet(path, observed), Buffer.from('AFTER_\nTAIL_B\n'));
+      assert.deepEqual(getReadSnapshot(path, options.sessionId), freshSnapshot, 'old evidence cannot replace the fresh snapshot');
+      const later = String(await executeBuiltinTool('read', { file_path: path, offset: 2, limit: 1 }, root, options));
+      assert.match(later, /TAIL_B/);
+      assert.doesNotMatch(later, /TAIL_A/);
+      const oldWindow = String(await executeBuiltinTool('read', { file_path: path, offset: 1, limit: 1 }, root, options));
+      assert.match(oldWindow, /AFTER_/);
+      assert.doesNotMatch(oldWindow, /BEFORE/);
+    } finally {
+      postDone.resolve();
+      await Promise.allSettled([oldRead]);
+      unsubscribe?.();
+      mock.mock.restore();
+      syncBuiltinESMExports();
+    }
   });
 }

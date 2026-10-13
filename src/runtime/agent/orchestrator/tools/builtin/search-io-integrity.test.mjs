@@ -90,11 +90,13 @@ test('raw source windows preserve cross-chunk UTF-8, CRLF and final unterminated
   );
 });
 
-test('deep raw windows reuse anchors and still detect equal-size equal-mtime changes', async (t) => {
+test('deep raw windows rescan large files and detect same-version suffix newline changes', async (t) => {
   const file = join(root, 'deep.txt');
   const rows = Array.from({ length: 30000 }, (_, i) => `row${i} ${'x'.repeat(240)}`);
   const original = `${rows.join('\n')}\n`;
   await fs.writeFile(file, original);
+  const time = new Date('2025-01-01T00:00:00.000Z');
+  await fs.utimes(file, time, time);
   const st = await fs.stat(file);
   await readSourceWindows(file, [{ start: 29980, end: 29981 }]);
   const open = fs.open;
@@ -102,6 +104,12 @@ test('deep raw windows reuse anchors and still detect equal-size equal-mtime cha
   mockFs(t, 'open', async (...args) => {
     const handle = await open(...args);
     if (args[0] === file) {
+      const stat = handle.stat.bind(handle);
+      handle.stat = async (...args) => {
+        const observed = await stat(...args);
+        observed.ctimeMs = st.ctimeMs;
+        return observed;
+      };
       const read = handle.read.bind(handle);
       handle.read = async (...a) => {
         const result = await read(...a);
@@ -111,13 +119,28 @@ test('deep raw windows reuse anchors and still detect equal-size equal-mtime cha
     }
     return handle;
   });
+  const stat = fs.stat;
+  mockFs(t, 'stat', async (path, ...args) => {
+    const observed = await stat(path, ...args);
+    if (path === file) observed.ctimeMs = st.ctimeMs;
+    return observed;
+  });
   const repeated = await readSourceWindows(file, [{ start: 29980, end: 29981 }]);
   assert.equal(repeated.get(29980), rows[29979]);
-  assert.ok(bytes < st.size / 4, `re-read ${bytes} of ${st.size} bytes`);
-  await fs.writeFile(file, original.replace('\n', ' '));
-  await fs.utimes(file, st.atime, st.mtime);
+  // This near-EOF window needs the final 64KiB chunk: fresh coordinate
+  // validation scans the file once rather than trusting a cached deep anchor.
+  assert.equal(bytes, st.size);
+  const newline = original.indexOf('\n', 65536);
+  const replacement = `${original.slice(0, newline)} ${original.slice(newline + 1)}`;
+  assert.equal(Buffer.byteLength(replacement), st.size);
+  assert.deepEqual(Buffer.from(replacement).subarray(0, 65536), Buffer.from(original).subarray(0, 65536));
+  await fs.writeFile(file, replacement);
+  await fs.utimes(file, time, time);
+  const observed = await fs.stat(file);
+  for (const key of ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev']) assert.equal(observed[key], st[key]);
   const changed = await readSourceWindows(file, [{ start: 29980, end: 29981 }]);
   assert.equal(changed.get(29980), rows[29980]);
+  assert.equal(changed.get(29981), rows[29981]);
 });
 
 test('combined pattern context reads each selected file once', async (t) => {

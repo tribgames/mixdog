@@ -7,10 +7,11 @@
  */
 import * as fsPromises from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
+import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getReadSnapshot } from './read-snapshot-runtime.mjs';
 import { snapshotCoversFullFile, statMatchesSnapshot } from './snapshot-helpers.mjs';
-
-export const READ_PREFIX_HASH_BYTES = 65536;
+import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
+export { READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
 
 // A mutation snapshot claims the full file because it knows the bytes it
 // wrote; it proves the session holds the body only when bodyDelivered says so.
@@ -25,14 +26,12 @@ function unchangedStub(filePath, helpers) {
 }
 
 /**
- * Race-guard prefix hash. Coarse filesystem timestamps can collide across a
- * same-size rewrite even with ctime in the cache key, so every cache write
- * records the hash of the first 64KiB (the whole body when it fits) and the
- * next hit recomputes it before trusting the entry. '' on any failure.
+ * Bounded raw-byte hash. Content caches only admit files that fit this
+ * budget, so validation covers their entire body. '' on any failure.
  */
 export async function readPrefixHash(fullPath, st, hashText) {
   try {
-    if (st.size <= READ_PREFIX_HASH_BYTES) return hashText(await readFile(fullPath, 'utf-8'));
+    if (st.size <= READ_PREFIX_HASH_BYTES) return hashText(await readFile(fullPath));
     const fh = await fsPromises.open(fullPath, 'r');
     try {
       const buf = Buffer.allocUnsafe(READ_PREFIX_HASH_BYTES);
@@ -49,15 +48,15 @@ export async function readPrefixHash(fullPath, st, hashText) {
 /**
  * A successful edit/apply_patch leaves a session-scoped full-file snapshot.
  * The model already knows the resulting body from the prior body plus its
- * mutation, so a follow-up Read needs only the stat tuple to prove that no
- * external write landed afterward — the file body is never reopened/hashed
- * merely to return the unchanged stub. `bodyDelivered` guards that the
+ * mutation. Keep the existing small-file stat fast path; a large file's
+ * matching tuple cannot exclude a deep external rewrite, so read it again.
+ * `bodyDelivered` guards that the
  * session actually received this file's body before the mutation: an
  * edit/patch on a file that was never read otherwise answered
  * "[file unchanged]" forever, with the body never delivered to the model.
  */
 export function mutationUnchangedStub({ fullPath, filePath, st, readStateScope, options }, helpers) {
-  if (options?.suppressReadUnchangedStub === true) return null;
+  if (options?.suppressReadUnchangedStub === true || !canCacheReadFile(st)) return null;
   const snapshot = readStateScope ? getReadSnapshot(fullPath, readStateScope) : null;
   const source = String(snapshot?.source || '');
   if (
@@ -71,43 +70,41 @@ export function mutationUnchangedStub({ fullPath, filePath, st, readStateScope, 
   return null;
 }
 
-// Single-pass cache-hit guard. The cache key already pins mtimeMs+ctimeMs+
-// size, so a hit can differ only when all metadata collides across a rewrite
-// — caught by re-hashing the on-disk body. ≤64KiB: one full-body read
-// validates whichever hash the entry carries (prefix == full at this size;
-// the exact contentHash is preferred). >64KiB: contentHash may still be
-// stored, but validating it would sha a multi-megabyte body on every check,
-// so only the 64KiB head prefix is checked — it catches same-mtime/same-size
-// rewrites within the first 64KiB (the common case); writes through
-// edit/apply_patch/write invalidate by path and shell mutationMode='global'
-// wipes the caches, bounding stale risk past the head.
+// Only whole-body bounded validation can admit a result-cache hit.
+// The decoded snapshot hash remains a separate contract, never a fallback
+// after a raw-byte hash mismatch.
 async function cachedEntryStillValid(cachedEntry, fullPath, st, hashText) {
   const prefixHash = cachedEntry.contentPrefixHash;
   const snapHash = cachedEntry.readSnapshotMeta?.contentHash;
-  if (!prefixHash && !snapHash) return true;
-  if (st.size <= READ_PREFIX_HASH_BYTES) {
-    try {
-      const freshHash = hashText(await readFile(fullPath, 'utf-8'));
-      return !!freshHash && freshHash === (snapHash || prefixHash);
-    } catch {
-      return false;
-    }
+  if (prefixHash) {
+    const curHash = await readPrefixHash(fullPath, st, hashText);
+    return !!curHash && curHash === prefixHash;
   }
-  if (!prefixHash) return true;
-  const curHash = await readPrefixHash(fullPath, st, hashText);
-  return !!curHash && curHash === prefixHash;
+  if (!snapHash) return true;
+  try {
+    const freshHash = hashText(await readFile(fullPath, 'utf-8'));
+    return !!freshHash && freshHash === snapHash;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Validated result-cache hit.
- * @returns {Promise<{ result: unknown } | null>} null when there is no entry
- *   or the entry lost the race guard (fresh read follows).
+ * @returns {Promise<{ result: unknown } | { rejected: true } | null>}
+ *   A rejected entry requires fresh IO even if an older reader republishes.
  */
 export async function readCachedResult({ cacheKey, fullPath, filePath, st, readStateScope, options }, helpers) {
+  if (!canCacheReadFile(st)) return null;
   const { _cacheGetEntry, _hashText, _recordReadSnapshot, classifyResultKind } = helpers;
   const cachedEntry = _cacheGetEntry(cacheKey);
   if (cachedEntry === null) return null;
-  if (!(await cachedEntryStillValid(cachedEntry, fullPath, st, _hashText))) return null;
+  if (!(await cachedEntryStillValid(cachedEntry, fullPath, st, _hashText))) {
+    // The metadata no longer proves byte identity. Detach raw/in-flight
+    // reuse too, or the fresh-read fallback can return the rejected body.
+    invalidateBuiltinResultCache([fullPath]);
+    return { rejected: true };
+  }
   // Cross-session stub guard: RESULT_CACHE is process-global, so a cache hit
   // can be an entry SET BY ANOTHER SESSION whose body this conversation never
   // received. The stub assumes the full body is already in a prior
