@@ -78,9 +78,17 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
         });
       }
       const store = await desktopRuntime.loadSessionStore();
-      return store.listStoredSessionSummaries({
-        refreshFromStorage: options.refreshFromStorage === true,
-      });
+      const refreshFromStorage = options.refreshFromStorage === true;
+      // Paged ordinary catalog ({ sessions, nextCursor }) only on the explicit
+      // `page: { limit, cursor }` option (`limit` alone keeps its old meaning:
+      // ignored, full array). An authoritative refresh is never paged.
+      const page = options.page && typeof options.page === 'object' ? options.page : null;
+      if (page && !refreshFromStorage && store.listStoredSessionSummaryPage) {
+        return store.listStoredSessionSummaryPage({ limit: page.limit, cursor: page.cursor });
+      }
+      // The async listing may answer from the session catalog DB.
+      if (store.listStoredSessionSummariesAsync) return store.listStoredSessionSummariesAsync({ refreshFromStorage });
+      return store.listStoredSessionSummaries({ refreshFromStorage });
     },
   };
 }

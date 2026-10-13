@@ -11,6 +11,9 @@ import {
   _removeSessionSummary,
   _pruneSummaryIndexIds,
 } from '../store-summary-index.mjs';
+// In the daemon, ids whose file a write just changed are hinted to the
+// session catalog DB (a no-op in any other process).
+import { hintSessionCatalogStorage } from '../catalog-db/index.mjs';
 
 // Listing is much hotter than writing, especially while the desktop session
 // browser is open. Keep the compact sidecar in memory after the first read;
@@ -142,16 +145,19 @@ export function _queueSessionSummaryUpsertRow(row, version = null) {
     _invalidateSummaryRowsView();
   }
   _upsertSessionSummaryRow(durableRow);
+  hintSessionCatalogStorage([row.id]);
 }
 
 export function _queueSessionSummaryRemoval(id) {
   _uncacheSessionSummary(id);
   _removeSessionSummary(id);
+  hintSessionCatalogStorage([id]);
 }
 
 export function _queueSummaryIndexPrune(ids) {
   for (const id of ids) _uncacheSessionSummary(id);
   _pruneSummaryIndexIds(ids);
+  hintSessionCatalogStorage(ids);
 }
 
 // ── Incremental storage scan ────────────────────────────────────────────────

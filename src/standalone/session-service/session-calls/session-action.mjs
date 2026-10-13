@@ -101,15 +101,19 @@ export function createSessionActionCalls(ctx) {
     if (typeof listSessions !== 'function') {
       throw new Error('session catalog is unavailable');
     }
-    const sessions = await listSessions({
+    const listed = await listSessions({
       ...(options || {}),
       // Agent-only records are an internal ancestry/reuse source, never part
       // of the ordinary session catalog returned over the public transport.
       includeAgentOnly: false,
     });
+    // A `page: { limit, cursor }` request answers one page: { sessions, nextCursor }.
+    const page = listed && !Array.isArray(listed) && Array.isArray(listed.sessions) ? listed : null;
+    const sessions = page ? page.sessions : listed;
     const remoteSession = typeof getRemoteSessionState === 'function' ? await getRemoteSessionState() : null;
     return {
       sessions: sanitizeForWire(Array.isArray(sessions) ? sessions : []),
+      ...(page ? { nextCursor: typeof page.nextCursor === 'string' ? page.nextCursor : null } : {}),
       remoteSession: sanitizeForWire(remoteSession) ?? null,
     };
   }
