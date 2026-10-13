@@ -218,18 +218,22 @@ for (const outcome of ['success', 'throw', 'abort']) {
 for (const mode of ['head', 'tail']) {
   test(`coalesced batch preserves inherited publication fencing for ${mode}`, async () => {
     const { executeReadTool } = await import('./read-tool.mjs');
-    const path = join(root, `glance-${mode}.txt`);
-    writeFileSync(path, 'BEFORE\n');
-    const entry = { path, mode, n: 1 };
+    // A lone string path[] is intentionally normalized to a scalar. Keep
+    // two real operands so this fixture reaches the batch publication fence.
+    const paths = [0, 1].map((index) => join(root, `glance-${mode}-${index}.txt`));
+    for (const path of paths) writeFileSync(path, 'BEFORE\n');
+    const entries = paths.map((path) => ({ path, mode, n: 1 }));
     const fx = fixture();
-    let called = false;
+    const called = new Set();
     const result = await executeReadTool({
-      path: [path],
-      _readsEntries: [entry],
-      _readsOrigEntries: [entry],
-      _readsEntryToDeduped: [0],
+      path: paths,
+      _readsEntries: entries,
+      _readsOrigEntries: entries,
+      _readsEntryToDeduped: [0, 1],
     }, root, scope, async (name, args) => {
-      called = true;
+      const path = args.path;
+      assert.equal(paths.includes(path), true);
+      called.add(path);
       assert.equal(name, 'read');
       assert.equal(args.mode, mode);
       assert.equal(canPublishReadCache(path), true);
@@ -246,10 +250,10 @@ for (const mode of ['head', 'tail']) {
       _isFullModeReadEntry: () => false,
       _mergeReadRanges: (ranges) => ranges,
     });
-    assert.equal(called, true);
+    assert.equal(called.size, paths.length);
     assert.match(result, /BEFORE/);
     assert.equal(fx.saved.size, 0);
-    assert.equal(canPublishReadCache(path), true, 'the batch lease is released');
+    for (const path of paths) assert.equal(canPublishReadCache(path), true, 'the batch lease is released');
   });
 }
 
