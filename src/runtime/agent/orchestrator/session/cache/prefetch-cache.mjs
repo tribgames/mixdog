@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
+import { canCacheReadFile } from '../../tools/builtin/read-cache-policy.mjs';
 
 // Entry cap: MIXDOG_PREFETCH_CACHE_MAX env var, default 200.
 const _envCap = Number(process.env.MIXDOG_PREFETCH_CACHE_MAX);
@@ -110,12 +111,14 @@ function rememberPrefetch(absPath, entry) {
 }
 
 export function capturePrefetchCacheState(absPath) {
-  return _statTuple(_normalizeCacheKey(absPath));
+  const stat = _statTuple(_normalizeCacheKey(absPath));
+  return canCacheReadFile(stat) ? stat : null;
 }
 
 /**
  * Look up a cached prefetch result for `absPath`. Stat-validates the file on
- * every hit. Returns null on miss, TTL expiry, or stat mismatch. Returns
+ * every hit. Returns null on miss, TTL expiry, stat mismatch, or a file
+ * outside the prefix budget, including a persisted legacy row. Returns
  * `{ content, ts }` on a fresh hit.
  */
 export function tryPrefetchCached(absPath) {
@@ -135,7 +138,7 @@ export function tryPrefetchCached(absPath) {
     return null;
   }
   const fresh = _statTuple(absPath);
-  if (!_statEqual(entry.stat, fresh)) {
+  if (!_statEqual(entry.stat, fresh) || !canCacheReadFile(fresh)) {
     _prefetchCache.delete(absPath);
     _deleteDiskEntry(absPath);
     return null;
@@ -152,7 +155,8 @@ export function tryPrefetchCached(absPath) {
 
 /**
  * Store a per-file prefetch result. Silently skips empty or error-prefixed
- * content so only clean read output enters the cache.
+ * content, and files outside the prefix budget, so only clean bounded read
+ * output enters the cache.
  * Async callers must pass the state captured before reading; null disables
  * insertion. Omission is reserved for synchronous current-body insertion.
  */
@@ -162,7 +166,7 @@ export function setPrefetchCached(absPath, content, readState) {
   if (classifyResultKind(content) === 'error') return;
   absPath = _normalizeCacheKey(absPath);
   const stat = _statTuple(absPath);
-  if (!stat) return;
+  if (!stat || !canCacheReadFile(stat)) return;
   // Async readers supply the version observed before execution. Never label
   // an older body with the version that happens to exist at insertion time.
   if (readState !== undefined && !_statEqual(readState, stat)) return;

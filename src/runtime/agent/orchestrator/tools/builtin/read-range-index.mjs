@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { fileVersion, sameFileVersion } from './file-version.mjs';
+import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
 import { hashText as sha256Hex } from './hash-utils.mjs';
 import { join, normalize, resolve } from 'node:path';
 import { getPluginData } from '../../config.mjs';
@@ -83,7 +84,7 @@ function readRangeIndexMatches(row, fullPath, version) {
 // `prefixHash` they persist into the anchor index.
 async function computePrefixHashForIndex(fullPath, st, handle = null, prefixBuffer = null) {
   try {
-    const cap = Math.min(Number(st?.size) || 0, 65536);
+    const cap = Math.min(Number(st?.size) || 0, READ_PREFIX_HASH_BYTES);
     if (cap <= 0) return '';
     if (Buffer.isBuffer(prefixBuffer) && prefixBuffer.length === cap) {
       return sha256Hex(prefixBuffer);
@@ -269,6 +270,8 @@ function freshReadRangeIndex(fullPath, version = null) {
 export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffer = null) {
   const key = canonicalCachePath(fullPath);
   let slot = READ_RANGE_INDEX_CACHE.get(key);
+  // Reserve ownership before awaiting the real stat even when the hint is
+  // large: a now-small file must not renew a lookup invalidated during IO.
   if (!slot) slot = refreshReadRangeIndexSlot(key, freshReadRangeIndex(fullPath));
   const hint = fileVersion(st);
   const readStat = () => (handle ? handle.stat() : stat(fullPath));
@@ -280,8 +283,18 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
   } catch {
     return null;
   }
-  if (!version || READ_RANGE_INDEX_CACHE.get(key) !== slot) return null;
+  if (!version) return null;
   version = Object.freeze(version);
+  // Metadata and a bounded prefix cannot certify suffix line positions.
+  // Large scans own only this call's handle identity and byte-zero draft:
+  // never load, hash-validate, or publish cross-read anchors/counts.
+  if (!canCacheReadFile(version)) {
+    if (slot && READ_RANGE_INDEX_CACHE.get(key) === slot) dropReadRangeIndexSlot(key);
+    const draft = freshReadRangeIndex(fullPath, version);
+    READ_RANGE_INDEX_DRAFTS.set(draft, { slot: null, version, fullPath });
+    return draft;
+  }
+  if (READ_RANGE_INDEX_CACHE.get(key) !== slot) return null;
   if (!slot.fileVersion) slot.fileVersion = version;
   if (!sameFileVersion(slot.fileVersion, version)) {
     dropReadRangeIndexSlot(key);
@@ -314,27 +327,33 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
     anchors: new Map(source.anchors),
     ...(Number.isFinite(source.totalLines) ? { totalLines: source.totalLines } : {}),
   };
-  READ_RANGE_INDEX_DRAFTS.set(draft, { slot, version });
+  READ_RANGE_INDEX_DRAFTS.set(draft, { slot, version, fullPath });
   return draft;
 }
 
-// Successful readers publish once, before closing their handle. A failed,
-// cancelled or detached scan keeps its observation private. Post-stat failures
-// are cache misses, not reasons to retry the operation or relabel its anchors.
-export async function publishReadRangeIndex(index, handle, signal = null, beforePublish = null) {
+// Successful small-file readers publish once, before closing their handle.
+// Large or detached scans remain private, but terminal validation can still
+// certify their producer identity via onValidated. Post-stat failures never
+// authorize relabelling bytes with a later version.
+export async function publishReadRangeIndex(index, handle, signal = null, beforePublish = null, onValidated = null) {
   const owned = READ_RANGE_INDEX_DRAFTS.get(index);
   if (!owned) return false;
   READ_RANGE_INDEX_DRAFTS.delete(index);
-  const { slot, version } = owned;
-  const key = canonicalCachePath(slot.fullPath);
-  if (signal?.aborted || READ_RANGE_INDEX_CACHE.get(key) !== slot) return false;
+  const { slot, version, fullPath } = owned;
+  const key = canonicalCachePath(fullPath);
+  if (signal?.aborted) return false;
+  // Detached cache-only publishers must not wait on validation IO. A streamed
+  // result requesting producer certification still owes its terminal stats.
+  if (slot && READ_RANGE_INDEX_CACHE.get(key) !== slot && !onValidated) return false;
   try {
-    if (!sameFileVersion(version, await handle.stat()) || !sameFileVersion(version, await stat(slot.fullPath)))
+    if (!sameFileVersion(version, await handle.stat()) || !sameFileVersion(version, await stat(fullPath)))
       return false;
   } catch {
     return false;
   }
-  if (signal?.aborted || READ_RANGE_INDEX_CACHE.get(key) !== slot) return false;
+  if (signal?.aborted) return false;
+  onValidated?.(fileVersion(version));
+  if (!slot || READ_RANGE_INDEX_CACHE.get(key) !== slot) return false;
   if (slot.prefixHash && index.prefixHash && slot.prefixHash !== index.prefixHash) return false;
   // The reader's synchronous deadline/cancellation decision belongs after all
   // awaited validation and outside its best-effort stat catch. Once committed,

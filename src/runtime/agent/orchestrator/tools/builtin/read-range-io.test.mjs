@@ -70,7 +70,7 @@ test('first range read does not wait for pending cache maintenance', async (t) =
   }
 });
 
-test('small repeated windows bound read bytes and close their handles', async (t) => {
+test('early repeated windows of a large file bound read bytes and close their handles', async (t) => {
   const { file, st } = await fixture('small-window.txt', 'hello world\n'.repeat(200000));
   await streamReadRange(file, 0, 5, st);
   const open = fs.open;
@@ -99,7 +99,7 @@ test('small repeated windows bound read bytes and close their handles', async (t
   assert.match(result.text, /^1→hello world\n2→hello world/);
   assert.equal(opens, 1);
   assert.equal(closes, opens);
-  assert.ok(bytes <= 128 * 1024, `read ${bytes} bytes for five short lines`);
+  assert.equal(bytes, 64 * 1024, 'large early windows need no cache-validation prefix read');
 });
 
 test('adaptive reads preserve deep windows and concurrent offsets', async () => {
@@ -130,7 +130,7 @@ test('UTF-8 and CRLF split across a small chunk retain exact content and prefix 
 });
 
 test('same-size same-mtime rewrites invalidate cached byte anchors', async () => {
-  const rows = Array.from({ length: 6000 }, (_, i) => `row-${i}-${'x'.repeat(30)}`);
+  const rows = Array.from({ length: 6000 }, (_, i) => i.toString(36).padStart(3, '0'));
   const original = `${rows.join('\n')}\n`;
   const { file, st } = await fixture('rewrite.txt', original);
   await streamReadRange(file, 5000, 1, st);

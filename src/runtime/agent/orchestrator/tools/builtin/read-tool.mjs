@@ -18,6 +18,8 @@ import { normalizeObjectBatchArgs, batchEntriesFromArgs, primaryReadIndexes } fr
 import { dispatchBatchReads } from './read-tool/batch-dispatch.mjs';
 import { restoreCallerSlots, recordSlicedBatchSnapshots } from './read-tool/batch-snapshot.mjs';
 import { renderBatchResults } from './read-tool/batch-render.mjs';
+import { runBatchReadSnapshotPublication } from './read-tool/batch-publication.mjs';
+import { runReadCachePublication } from './cache-layers.mjs';
 
 function hasLineCoordinate(path) {
   return typeof path === 'string' && /(?:#L\d+|:\d+(?:-\d+)?(?::|$))/i.test(path);
@@ -54,17 +56,25 @@ async function executeBatchRead(args, workDir, readStateScope, executeChildBuilt
   const origEntries = Array.isArray(args._readsOrigEntries) ? args._readsOrigEntries : null;
   const entryMap = Array.isArray(args._readsEntryToDeduped) ? args._readsEntryToDeduped : null;
   const readIndexFor = primaryReadIndexes(entries, overrides, (p) => helpers.resolveAgainstCwd(p, workDir));
-  const results = await dispatchBatchReads({
-    entries,
-    readIndexFor,
-    workDir,
-    options,
-    helpers,
-    executeChildBuiltinTool,
-  });
-  const orderedResults = origEntries ? restoreCallerSlots(results, origEntries, entryMap, options, helpers) : results;
-  if (origEntries) await recordSlicedBatchSnapshots(orderedResults, workDir, readStateScope, helpers);
-  return renderBatchResults(orderedResults, args, helpers);
+  const run = async (executeChild = executeChildBuiltinTool, snapshotHelpers = helpers) => {
+    const results = await dispatchBatchReads({
+      entries,
+      readIndexFor,
+      workDir,
+      options,
+      helpers,
+      executeChildBuiltinTool: executeChild,
+    });
+    const orderedResults = origEntries ? restoreCallerSlots(results, origEntries, entryMap, options, helpers) : results;
+    if (origEntries) await recordSlicedBatchSnapshots(orderedResults, workDir, readStateScope, snapshotHelpers);
+    return renderBatchResults(orderedResults, args, helpers);
+  };
+  if (!origEntries) return run();
+  // Keep the original batch lease for glance/media paths outside the scalar
+  // pipeline. Sliced evidence uses the producing child's retained lease, so
+  // a hash rejection never requires renewing this potentially stale parent.
+  const paths = entries.filter((entry) => entry?.path).map((entry) => helpers.resolveAgainstCwd(entry.path, workDir));
+  return runReadCachePublication(paths, () => runBatchReadSnapshotPublication(executeChildBuiltinTool, helpers, run));
 }
 
 // Glance modes served by their own child tool: the tool name and the args it

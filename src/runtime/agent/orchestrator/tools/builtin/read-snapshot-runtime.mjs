@@ -8,8 +8,9 @@ import {
   statMatchesSnapshot,
   decodeRawBufferForSnapshotCheck,
 } from './snapshot-helpers.mjs';
-import { rawContentCacheGet } from './cache-layers.mjs';
+import { canPublishReadCache, rawContentCacheGet } from './cache-layers.mjs';
 import { fileVersion } from './file-version.mjs';
+import { canCacheReadFile } from './read-cache-policy.mjs';
 import { publishRawContentAfterRead } from './raw-content-publication.mjs';
 import { rememberReadSnapshot, readFilesForScope, readScopeKey, scheduleScopePersist } from './snapshot-store.mjs';
 import {
@@ -118,11 +119,15 @@ function collectRangeHashRows(existing, sameFile, meta) {
 }
 
 export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
+  if (!canPublishReadCache(fullPath)) return;
   const readFiles = readFilesForScope(scope);
   const identity = snapshotStatIdentity(fullPath, st);
   const { mtimeMs, ctimeMs, size, ino, dev } = identity || {};
   const incomingRanges = Array.isArray(meta.ranges) ? meta.ranges : [{ startLine: 1, endLine: Infinity }];
-  const replaceExisting = meta.replaceExisting === true;
+  // Equal metadata cannot carry a large file's old ranges or full-body proof
+  // into a new observation. Batched windows arrive together as one snapshot.
+  const freshLargeRead = !canCacheReadFile(identity) && !isMutationSource(meta.source);
+  const replaceExisting = meta.replaceExisting === true || freshLargeRead;
   const existing = replaceExisting ? null : readFiles.get(fullPath);
   const sameFile = existing && statMatchesSnapshot(identity, existing) && Array.isArray(existing.ranges);
   // A mutation snapshot claims the full range because it knows the bytes it
@@ -161,7 +166,7 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
   const bodyDelivered = resolveBodyDelivered({
     next,
     meta,
-    priorSnapshot: readFiles.get(fullPath),
+    priorSnapshot: freshLargeRead ? null : readFiles.get(fullPath),
     identity,
     incomingIsGrep,
   });

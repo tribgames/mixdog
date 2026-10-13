@@ -6,6 +6,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { rangeTextOf } from '../snapshot-helpers.mjs';
+import { renderedBatchReadRanges } from './batch-publication.mjs';
 
 // Coalesced batch reads fetch the union window from disk; every caller slot
 // must be sliced back to its original request window (_orig*), not the
@@ -32,22 +33,22 @@ export function restoreCallerSlots(results, origEntries, entryMap, options, { sl
 function deliveredRangesByPath(
   orderedResults,
   workDir,
-  { classifyResultKind, resolveAgainstCwd, _rangeHashesFromRenderedReadText }
+  readStateScope,
+  { classifyResultKind, resolveAgainstCwd, _rangeHashesFromRenderedReadText, _filterReadSnapshotRanges }
 ) {
   const exactRangesByPath = new Map();
   const rangeHashesByPath = new Map();
   for (const r of orderedResults) {
     if (r?.mode !== 'full' || classifyResultKind(String(r.body || '')) === 'error') continue;
-    const m = String(r.body || '').match(/\[lines\s+(\d+)-(\d+)\s+of\s+(\d+)/);
-    if (!m) continue;
-    const startLine = Number(m[1]);
-    const endLine = Number(m[2]);
-    if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) continue;
     const fullPath = resolveAgainstCwd(r.path, workDir);
+    const renderedRanges = renderedBatchReadRanges(r.body);
+    const ranges = _filterReadSnapshotRanges
+      ? _filterReadSnapshotRanges(r.readEntry, fullPath, readStateScope, renderedRanges)
+      : renderedRanges;
+    if (ranges.length === 0) continue;
     if (!exactRangesByPath.has(fullPath)) exactRangesByPath.set(fullPath, []);
-    const range = { startLine, endLine };
-    exactRangesByPath.get(fullPath).push(range);
-    const renderedHashes = _rangeHashesFromRenderedReadText(r.body, [range]);
+    exactRangesByPath.get(fullPath).push(...ranges);
+    const renderedHashes = _rangeHashesFromRenderedReadText(r.body, ranges);
     if (renderedHashes.length > 0) {
       if (!rangeHashesByPath.has(fullPath)) rangeHashesByPath.set(fullPath, []);
       rangeHashesByPath.get(fullPath).push(...renderedHashes);
@@ -68,7 +69,7 @@ async function rawRangeHashes(fullPath, mergedRanges, { _hashText }) {
 
 export async function recordSlicedBatchSnapshots(orderedResults, workDir, readStateScope, helpers) {
   const { _mergeReadRanges, _recordReadSnapshot } = helpers;
-  const { exactRangesByPath, rangeHashesByPath } = deliveredRangesByPath(orderedResults, workDir, helpers);
+  const { exactRangesByPath, rangeHashesByPath } = deliveredRangesByPath(orderedResults, workDir, readStateScope, helpers);
   for (const [fullPath, ranges] of exactRangesByPath) {
     const mergedRanges = _mergeReadRanges(ranges);
     let rangeHashes = rangeHashesByPath.get(fullPath) || [];

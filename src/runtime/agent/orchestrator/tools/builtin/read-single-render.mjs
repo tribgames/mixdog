@@ -7,7 +7,7 @@
 import * as fsPromises from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { sameFileVersion } from './file-version.mjs';
-import { READ_PREFIX_HASH_BYTES } from './read-single-fast-paths.mjs';
+import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
 import { decodeUtf16Body, isUtf16Encoding } from './snapshot-helpers.mjs';
 
 /**
@@ -133,13 +133,12 @@ function renderReadWindow(content, ctx, helpers) {
 
 /**
  * Describe exactly which lines the model saw. A full-file view pins the
- * whole body with one contentHash (also reused as the ≤64KiB race-guard
- * prefix hash — the same SHA-256 over the identical `content`); anything
+ * whole decoded body with one contentHash; anything
  * narrower records rangeHashes over the visible window so
  * snapshotCoversFullFile never green-lights an overwrite against bytes the
  * read never returned.
  */
-function bufferedReadSnapshotMeta(content, render, ctx, helpers) {
+function bufferedReadSnapshotMeta(content, rawBuf, render, ctx, helpers) {
   const { offset, limit } = ctx;
   const { _hashText, _rangeHashesForReadRanges } = helpers;
   const { lineCount, renderedLineCount, smartTruncated, smartVisibleRanges, byteCapTruncated } = render;
@@ -158,11 +157,9 @@ function bufferedReadSnapshotMeta(content, render, ctx, helpers) {
     ...(isFullFileView ? { contentHash: fullContentHash } : {}),
     ...(rangeHashes.length > 0 ? { rangeHashes } : {}),
   };
-  // For files ≤64KiB the prefix hash equals the full-content hash; otherwise
-  // hash the 64KiB head (enough to detect a same-mtime / same-size rewrite of
-  // any bytes within the first 64KiB — the common case).
-  const head = content.length <= READ_PREFIX_HASH_BYTES ? content : content.slice(0, READ_PREFIX_HASH_BYTES);
-  const contentPrefixHash = head === content && fullContentHash ? fullContentHash : _hashText(head);
+  // Cache validation hashes on-disk bytes, unlike the decoded snapshot.
+  // Use a byte boundary for every encoding, matching the streaming path.
+  const contentPrefixHash = canCacheReadFile(ctx.st) ? _hashText(rawBuf.subarray(0, READ_PREFIX_HASH_BYTES)) : '';
   return { snapshotMeta, contentPrefixHash };
 }
 
@@ -189,9 +186,11 @@ export async function bufferedReadResult(ctx, { prefetched, readEnc }, helpers) 
   }
   const render = renderReadWindow(content, ctx, helpers);
   if (readStable) {
-    const { snapshotMeta, contentPrefixHash } = bufferedReadSnapshotMeta(content, render, ctx, helpers);
-    _cacheSet(cacheKey, render.out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
-    _rawContentCacheSet(fullPath, st, rawBuf);
+    const { snapshotMeta, contentPrefixHash } = bufferedReadSnapshotMeta(content, rawBuf, render, ctx, helpers);
+    if (canCacheReadFile(st)) {
+      _cacheSet(cacheKey, render.out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
+      _rawContentCacheSet(fullPath, st, rawBuf);
+    }
     _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
   }
   return render.out;

@@ -5,6 +5,7 @@ import { clearScopedToolsForSession } from './scoped-cache.mjs';
 import { registerSessionPurgeHook } from '../store.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
+import { canCacheReadFile } from '../../tools/builtin/read-cache-policy.mjs';
 
 const MAX_PER_SESSION = 100;
 
@@ -114,6 +115,12 @@ function _arrayStatsValid(statsByAbs) {
   return true;
 }
 
+// Equal stat tuples do not prove bytes past the hashed prefix. Files outside
+// that budget must not be captured, reused, or inserted.
+function _cacheableStats(statsByAbs) {
+  return !!statsByAbs && Object.values(statsByAbs).every((stat) => canCacheReadFile(stat));
+}
+
 function _getOrCreate(sessionId) {
   let m = _bySession.get(sessionId);
   if (!m) {
@@ -157,20 +164,22 @@ export function captureReadCacheState({ args, cwd }) {
   const key = _keyFor(args, cwd);
   if (key === null && Array.isArray(args?.path ?? args?.file_path)) {
     const parsed = _arrayKeyAndStats(args, cwd);
-    if (!parsed || Object.values(parsed.statsByAbs).some((stat) => !stat)) return null;
+    if (!parsed || !_cacheableStats(parsed.statsByAbs)) return null;
     return { ...parsed, kind: 'array' };
   }
   if (!key) return null;
   const abs = _absFromKey(key);
   const stat = _statTuple(abs);
-  return stat ? { key, statsByAbs: { [abs]: stat }, kind: 'scalar' } : null;
+  if (!canCacheReadFile(stat)) return null;
+  return { key, statsByAbs: { [abs]: stat }, kind: 'scalar' };
 }
 
 /**
  * Look up a cached read result for this session+args. Stats the file at
  * lookup time and only returns when the stat tuple still matches. Returns
- * null on miss, on path-form mismatch, or on stat failure. On hit returns
- * the full entry { content, firstToolUseId, ts }.
+ * null on miss, on path-form mismatch, on stat failure, or when any file
+ * exceeds the prefix budget. On hit returns the full entry
+ * { content, firstToolUseId, ts }.
  */
 export function tryReadCached({ sessionId, args, cwd }) {
   if (!sessionId) return null;
@@ -182,7 +191,7 @@ export function tryReadCached({ sessionId, args, cwd }) {
     if (!map) return null;
     const entry = map.get(parsed.key);
     if (entry?.kind !== 'array') return null;
-    if (!_arrayStatsValid(entry.statsByAbs)) {
+    if (!_arrayStatsValid(entry.statsByAbs) || !_cacheableStats(entry.statsByAbs)) {
       map.delete(parsed.key);
       _ridxPruneKey(sessionId, parsed.key);
       return null;
@@ -197,7 +206,7 @@ export function tryReadCached({ sessionId, args, cwd }) {
   const entry = map.get(key);
   if (!entry) return null;
   const fresh = _statTuple(_absFromKey(key));
-  if (!_statEqual(entry.stat, fresh)) {
+  if (!_statEqual(entry.stat, fresh) || !canCacheReadFile(fresh)) {
     map.delete(key);
     _ridxPruneKey(sessionId, key);
     return null;
@@ -208,7 +217,8 @@ export function tryReadCached({ sessionId, args, cwd }) {
 }
 
 /**
- * Cache a successful read result. Skip caching if the file no longer exists.
+ * Cache a successful read result. Skip caching if a file is missing or
+ * outside the prefix budget.
  * `toolUseId` is the tool_use id of the FIRST call that populated the entry.
  * Async executors pass their pre-execution `readState`; null disables caching
  * when the source version could not be established. Omission retains direct
@@ -218,7 +228,7 @@ export function setReadCached({ sessionId, args, cwd, content, toolUseId, readSt
   if (!sessionId) return;
   if (typeof content !== 'string' || content.length === 0) return;
   const parsed = captureReadCacheState({ args, cwd });
-  if (!parsed) return;
+  if (!parsed || !_cacheableStats(parsed.statsByAbs)) return;
   if (
     readState !== undefined &&
     (!readState ||

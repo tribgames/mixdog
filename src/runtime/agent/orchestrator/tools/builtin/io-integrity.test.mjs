@@ -1,8 +1,11 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, statSync, utimesSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { differentFieldValue } from './file-version-test-helpers.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-io-integrity-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -233,7 +236,7 @@ test('builtin execution preserves nested caller arguments and repeated execution
 });
 
 for (const forceReadRangeStream of [false, true]) {
-  test(`cached deep ranges cannot hide same-size same-mtime external rewrites (streamed=${forceReadRangeStream})`, async () => {
+  test(`cached deep ranges invalidate on a controlled ctime change (streamed=${forceReadRangeStream})`, async (t) => {
     const lines = Array.from({ length: 2000 }, (_, i) => `ROW_${i + 1}_${'x'.repeat(80)}`);
     const fx = fixture(`${lines.join('\n')}\n`);
     const time = new Date('2025-01-01T00:00:00.000Z');
@@ -249,9 +252,22 @@ for (const forceReadRangeStream of [false, true]) {
     const after = statSync(fx.file);
     assert.equal(after.size, before.size);
     assert.equal(after.mtimeMs, before.mtimeMs);
-    assert.notEqual(after.ctimeMs, before.ctimeMs);
-    const reread = String(await executeBuiltinTool('read', args, fx.dir, options));
-    assert.deepEqual(rows(reread), [[1800, lines[1799]]]);
+    const ctimeMs = differentFieldValue(before.ctimeMs, 'ctimeMs');
+    const originalStat = fsPromises.stat;
+    const mock = t.mock.method(fsPromises, 'stat', async (path, ...options) => {
+      const st = await originalStat(path, ...options);
+      if (path === fx.file) st.ctimeMs = ctimeMs;
+      return st;
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.notEqual((await fsPromises.stat(fx.file)).ctimeMs, before.ctimeMs);
+      const reread = String(await executeBuiltinTool('read', args, fx.dir, options));
+      assert.deepEqual(rows(reread), [[1800, lines[1799]]]);
+    } finally {
+      mock.mock.restore();
+      syncBuiltinESMExports();
+    }
   });
 }
 

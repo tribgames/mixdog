@@ -228,6 +228,12 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
   assert.equal(api.fireQuotaResume({ generation: goalEntry.generation }), 'fired');
   assert.equal(store.quotaResumeEntry(G), null);
   await until(() => sends.length > goalSendsBefore, 'the Goal continuation request');
+  // Provider dispatch reads the synchronous draft; getState exposes the
+  // frame-batched snapshot, which can still show the suspended Goal here.
+  await until(
+    () => api.getState().goal?.id === lexerGoalId && api.getState().goal.status === 'active',
+    'the revived Goal snapshot'
+  );
   assert.equal(api.getState().goal.id, lexerGoalId);
   assert.notEqual(api.getState().goal.status, 'usage_limited');
   assert.equal(
