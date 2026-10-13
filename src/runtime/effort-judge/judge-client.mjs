@@ -20,12 +20,19 @@ const MODEL_FILES = ['model.onnx', 'tokenizer.json'];
 // The worker runs one judgment at a time, so requests are sent one by one:
 // each answer's deadline starts when it is sent, and the wait for earlier
 // requests is bounded separately so a burst of turns queues instead of
-// timing out behind each other.
+// timing out behind each other. The next request is sent only once the worker
+// has answered the previous one: an answer that missed its deadline still
+// occupies the worker, and sending into it would start the next deadline
+// while the worker is busy, failing it too.
+// 500 ms covers the 18-layer judge's tail while parallel agents share the CPU.
 // MIXDOG_EFFORT_JUDGE_TIMEOUT_MS raises it on a host whose CPUs are shared
 // with heavy work (parallel benchmark containers).
 const WARM_TIMEOUT_MS =
-  Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) > 0 ? Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) : 400;
+  Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) > 0 ? Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) : 500;
 const QUEUE_WAIT_MS = 1000;
+// A worker that has not answered for this long is stuck; it is replaced so
+// the queue does not stay blocked behind it.
+const STUCK_MS = 10_000;
 let queueTail = Promise.resolve();
 // A turn that arrives while the judge is still loading (its first use, or the
 // first turn after a model update) waits at most this long; loading takes about 2 s on a desktop CPU.
@@ -107,7 +114,7 @@ function settle(id, fn) {
   const entry = pending.get(id);
   if (!entry) return;
   pending.delete(id);
-  clearTimeout(entry.timer);
+  entry.done();
   fn(entry);
 }
 
@@ -151,11 +158,27 @@ function ensureWorker(dir) {
   return created;
 }
 
+// `answer` settles with the probabilities or fails at the deadline; `done`
+// resolves once the worker has answered (or exited), when it can take the next request.
 function request(target, { request: text, prev, prevRequest, step }) {
   const id = ++msgId;
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => settle(id, (entry) => entry.reject(new Error('timeout'))), WARM_TIMEOUT_MS);
-    pending.set(id, { resolve, reject, timer });
+  let finish;
+  const done = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const answer = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), WARM_TIMEOUT_MS);
+    const stuck = setTimeout(() => void target.terminate().catch(() => {}), STUCK_MS);
+    stuck.unref();
+    pending.set(id, {
+      resolve,
+      reject,
+      done: () => {
+        clearTimeout(timer);
+        clearTimeout(stuck);
+        finish();
+      },
+    });
     // The worker formats the text the way its model was trained.
     target.postMessage({
       action: 'judge',
@@ -169,6 +192,9 @@ function request(target, { request: text, prev, prevRequest, step }) {
       ...(step ? { step } : {}),
     });
   });
+  // A caller that gave up while queued never reads its answer.
+  answer.catch(() => {});
+  return { answer, done };
 }
 
 // One install at a time (the settings install and the boot refresh can overlap).
@@ -257,19 +283,31 @@ export async function judgeTurn(input) {
   if (!ready && !(await waitReady(COLD_WAIT_MS))) {
     return { skipped: lastLoadError ? `load-error: ${lastLoadError}` : 'warming' };
   }
-  const queuedAt = Date.now();
-  const run = queueTail.then(async () => {
-    if (worker !== target || !ready) return { skipped: 'effort judge exited' };
-    if (Date.now() - queuedAt > QUEUE_WAIT_MS) return { skipped: 'busy' };
-    const startedAt = Date.now();
-    try {
-      return { probs: await request(target, input), ms: Date.now() - startedAt };
-    } catch (error) {
-      return { skipped: String(error?.message || error) };
-    }
+  let abandoned = false;
+  const turn = queueTail.then(() => {
+    if (abandoned) return null;
+    if (worker !== target || !ready) return { exited: true };
+    return { startedAt: Date.now(), ...request(target, input) };
   });
-  queueTail = run;
-  return run;
+  queueTail = turn.then((sent) => sent?.done);
+  let timer;
+  const sent = await Promise.race([
+    turn,
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, QUEUE_WAIT_MS, null);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (!sent) {
+    abandoned = true;
+    return { skipped: 'busy' };
+  }
+  if (sent.exited) return { skipped: 'effort judge exited' };
+  try {
+    return { probs: await sent.answer, ms: Date.now() - sent.startedAt };
+  } catch (error) {
+    return { skipped: String(error?.message || error) };
+  }
 }
 
 // MIXDOG_EFFORT_DECISIONS_LOG redirects the log, e.g. for benchmark runs whose
