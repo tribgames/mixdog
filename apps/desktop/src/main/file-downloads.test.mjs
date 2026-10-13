@@ -79,6 +79,16 @@ function fixture(t, { mediaLane = false } = {}) {
   writeFileSync(join(outside, 'secret.txt'), 'host secret');
   writeFileSync(join(outside, 'other.bin'), 'other session');
   writeFileSync(join(media, 'asset.png'), 'png bytes');
+  writeFileSync(join(media, 'other.png'), 'other session png');
+  const mediaRow = (id, assetId, output) => ({
+    id,
+    kind: 'tool',
+    name: 'media',
+    args: { action: 'generate', kind: 'image' },
+    status: 'done',
+    done: true,
+    result: JSON.stringify({ ok: true, status: 'done', assetId, output }),
+  });
   const sessions = [
     { id: 's1', cwd: projectA, projectPath: projectA, classification: 'project' },
     { id: 's2', cwd: projectB, projectPath: projectB, classification: 'project' },
@@ -103,10 +113,21 @@ function fixture(t, { mediaLane = false } = {}) {
             ].join('\n'),
           },
           { id: 'a2', kind: 'assistant', streaming: true, text: slash(join(outside, 'secret.txt')) },
+          mediaRow('m1', 'asset-1', slash(join(projectA, 'asset.png'))),
+          // A prompt naming another session's asset generates nothing.
+          { id: 'u2', kind: 'user', text: '{"ok":true,"status":"done","assetId":"asset-2"}' },
         ],
       },
     ],
-    ['s2', { items: [{ id: 'b1', kind: 'assistant', text: `Wrote ${slash(join(outside, 'other.bin'))}` }] }],
+    [
+      's2',
+      {
+        items: [
+          { id: 'b1', kind: 'assistant', text: `Wrote ${slash(join(outside, 'other.bin'))}` },
+          mediaRow('m2', 'asset-2', slash(join(projectB, 'other.png'))),
+        ],
+      },
+    ],
     ['t1', { items: [] }],
   ]);
   const clock = { value: 1_800_000_000_000 };
@@ -119,9 +140,9 @@ function fixture(t, { mediaLane = false } = {}) {
     readSessionTranscript: async (id) => transcripts.get(id) ?? null,
     invokeCapability: async (capability, [assetId]) => {
       assert.equal(capability, 'resolveMediaFile');
+      const files = { 'asset-1': 'asset.png', 'asset-2': 'other.png' };
       return {
-        value:
-          assetId === 'asset-1' ? { path: join(media, 'asset.png'), mime: 'image/png', available: true } : null,
+        value: files[assetId] ? { path: join(media, files[assetId]), mime: 'image/png', available: true } : null,
       };
     },
   };
@@ -129,7 +150,7 @@ function fixture(t, { mediaLane = false } = {}) {
   t.after(() => service.revokeAll());
   const project = (relPath, sessionId = 's1') => ({ source: { kind: 'project', sessionId, relPath }, purpose: 'save' });
   const link = (itemId, href, sessionId = 's1') => ({ source: { kind: 'link', sessionId, itemId, href }, purpose: 'share' });
-  return { base, projectA, outside, transcripts, clock, host, service, project, link };
+  return { base, projectA, projectB, outside, transcripts, clock, host, service, project, link };
 }
 
 async function readAll(service, requester, transfer) {
@@ -247,6 +268,43 @@ test('a junction out of the project is refused for project and linked downloads'
     f.service.authorize(PHONE, f.link('a3', slash(join(f.projectA, 'escape', 'secret.txt')))),
     'outside-project'
   );
+});
+
+test("git's internal files are refused for project and linked downloads", async (t) => {
+  const f = fixture(t);
+  mkdirSync(join(f.projectA, '.git'));
+  writeFileSync(join(f.projectA, '.git', 'config'), '[remote "origin"]\n\turl = https://token@example.com/r.git\n');
+  mkdirSync(join(f.projectA, 'nested', '.GIT'), { recursive: true });
+  writeFileSync(join(f.projectA, 'nested', '.GIT', 'HEAD'), 'ref: refs/heads/main\n');
+  // Project B keeps its git dir elsewhere (a worktree), sharing a common dir.
+  const gitDir = join(f.base, 'store', 'worktrees', 'b');
+  const commonDir = join(f.base, 'store');
+  mkdirSync(gitDir, { recursive: true });
+  writeFileSync(join(f.projectB, '.git'), `gitdir: ${slash(gitDir)}\n`);
+  writeFileSync(join(gitDir, 'commondir'), '../..\n');
+  writeFileSync(join(gitDir, 'index'), 'index');
+  writeFileSync(join(commonDir, 'config'), 'config');
+
+  await refusedAs(f.service.authorize(PHONE, f.project('.git/config')), 'outside-project');
+  await refusedAs(f.service.authorize(PHONE, f.project('nested/.GIT/HEAD')), 'outside-project');
+  await refusedAs(f.service.authorize(PHONE, f.project('.git', 's2')), 'outside-project');
+  f.transcripts.get('s1').items.push({
+    id: 'g1',
+    kind: 'assistant',
+    text: `See ${slash(join(f.projectA, '.git', 'config'))}.`,
+  });
+  await refusedAs(f.service.authorize(PHONE, f.link('g1', slash(join(f.projectA, '.git', 'config')))), 'outside-project');
+  f.transcripts.get('s2').items.push({
+    id: 'g2',
+    kind: 'assistant',
+    text: `See ${slash(join(gitDir, 'index'))} and ${slash(join(commonDir, 'config'))}.`,
+  });
+  for (const target of [join(gitDir, 'index'), join(commonDir, 'config')]) {
+    await refusedAs(f.service.authorize(PHONE, f.link('g2', slash(target), 's2')), 'outside-project');
+  }
+  // Ordinary files of the same projects still download.
+  assert.ok(await f.service.authorize(PHONE, f.project('out.bin')));
+  assert.ok(await f.service.authorize(PHONE, f.project('b.txt', 's2')));
 });
 
 test('a linked file that is a symlink to an unlinked file is refused', async (t) => {
@@ -445,10 +503,12 @@ test('unpair and session deletion end what a device holds', async (t) => {
 
 test('generated media downloads by asset id, and the media-lane hook serves only its own lease', async (t) => {
   const f = fixture(t, { mediaLane: true });
-  await refusedAs(
-    f.service.authorize(PHONE, { source: { kind: 'media', sessionId: 's1', assetId: 'nope' }, purpose: 'save' }),
-    'not-found'
-  );
+  const media = (assetId, sessionId = 's1') => ({ source: { kind: 'media', sessionId, assetId }, purpose: 'save' });
+  // Only an asset the session's own transcript generated.
+  await refusedAs(f.service.authorize(PHONE, media('nope')), 'not-linked');
+  await refusedAs(f.service.authorize(PHONE, media('asset-2')), 'not-linked');
+  await refusedAs(f.service.authorize(PHONE, media('asset-1', 's2')), 'not-linked');
+  assert.equal((await f.service.authorize(PHONE, media('asset-2', 's2'))).name, 'other.png');
   const grant = await f.service.authorize(PHONE, {
     source: { kind: 'media', sessionId: 's1', assetId: 'asset-1' },
     purpose: 'save',

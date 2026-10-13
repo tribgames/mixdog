@@ -21,8 +21,8 @@
 // revocation that ran meanwhile leaves no grant or lease behind.
 import { createHash, randomUUID } from 'node:crypto';
 import { type BigIntStats, constants } from 'node:fs';
-import { type FileHandle, lstat, open, realpath, stat } from 'node:fs/promises';
-import { basename, isAbsolute, resolve, sep } from 'node:path';
+import { type FileHandle, lstat, open, readFile, realpath, stat } from 'node:fs/promises';
+import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import {
@@ -50,7 +50,7 @@ import { requiredSessionId } from './desktop-state';
 import { requiredString, sanitizedFileName } from './ipc-validation';
 import { openedFilePath } from './opened-file-path';
 import { projectEntryPathIn } from './project-files';
-import { assistantItemLink, settledAssistantItem } from './transcript-file-links';
+import { assistantItemLink, sessionGeneratedAssetIds, settledAssistantItem } from './transcript-file-links';
 
 /** Unredeemed grants one device may hold; the oldest is dropped first. */
 const MAX_GRANTS_PER_DEVICE = 8;
@@ -312,8 +312,9 @@ async function authorizeProjectFile(
     throw outside();
   }
   const { canonical, file } = await openRegularFile(lexical);
-  return guarded(file, () => {
+  return guarded(file, async () => {
     if (!inside(root, canonical)) throw outside();
+    await refuseGitInternals(canonical, [root, row.cwd]);
     const name = basename(lexical);
     return { file, name, mime: localFileMimeTypeForPath(name) };
   });
@@ -339,6 +340,7 @@ async function authorizeLinkedFile(
     if (lexicalInProject && !canonicalInProject) {
       throw new FileDownloadError('outside-project', "The link resolves outside the conversation's project.");
     }
+    await refuseGitInternals(canonical, root ? [root, row.cwd] : [row.cwd]);
     if (!canonicalInProject) {
       // Outside the project the linked name itself must be the file: a
       // symlink there would hand out a target nothing linked.
@@ -353,10 +355,42 @@ async function authorizeLinkedFile(
   });
 }
 
+/** Git's own store is never a download: a `.git` directory (or pointer file)
+ *  anywhere on the path, or a git dir a `.git` file in one of the session's
+ *  folders points to — a separate git dir, a worktree's gitdir and the common
+ *  dir it shares. */
+async function refuseGitInternals(canonical: string, folders: readonly string[]): Promise<void> {
+  const refused = (): FileDownloadError =>
+    new FileDownloadError('outside-project', "Git's internal files cannot be downloaded.");
+  if (canonical.split(/[\\/]/).some((segment) => segment.toLowerCase() === '.git')) throw refused();
+  for (const folder of folders) {
+    for (const gitDir of await pointedGitDirs(folder)) if (inside(gitDir, canonical)) throw refused();
+  }
+}
+
+/** The git dirs a `.git` FILE in `folder` points to; none for a `.git`
+ *  directory (the path rule covers it) or no `.git` at all. */
+async function pointedGitDirs(folder: string): Promise<string[]> {
+  const pointer = await readFile(join(folder, '.git'), 'utf8').catch(() => '');
+  const target = /^gitdir:\s*(.+?)\s*$/m.exec(pointer)?.[1];
+  const gitDir = target ? await realpath(resolve(folder, target)).catch(() => null) : null;
+  if (!gitDir) return [];
+  const common = (await readFile(join(gitDir, 'commondir'), 'utf8').catch(() => '')).trim();
+  const commonDir = common ? await realpath(resolve(gitDir, common)).catch(() => null) : null;
+  return commonDir ? [gitDir, commonDir] : [gitDir];
+}
+
+/** Only an asset this session's own media tool calls generated — never one
+ *  named by another session, a prompt or prose. */
 async function authorizeMediaAsset(
   host: FileDownloadHost,
+  row: DesktopSessionSummary,
   assetId: string
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
+  const snapshot = host.readSessionTranscript ? await host.readSessionTranscript(row.id) : null;
+  if (!sessionGeneratedAssetIds(snapshot).has(assetId)) {
+    throw new FileDownloadError('not-linked', 'This conversation did not generate that media.');
+  }
   const result = await host.invokeCapability('resolveMediaFile', [assetId, { variant: 'original', generate: false }]);
   const media = (result as { value?: unknown } | null)?.value as {
     path?: unknown;
@@ -379,7 +413,7 @@ function authorizeSource(
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
   if (source.kind === 'project') return authorizeProjectFile(host, row, source.relPath);
   if (source.kind === 'link') return authorizeLinkedFile(host, row, source.itemId, source.href);
-  return authorizeMediaAsset(host, source.assetId);
+  return authorizeMediaAsset(host, row, source.assetId);
 }
 
 export function createFileDownloadService({

@@ -3,10 +3,13 @@
 // reads only once the handle is shown to be the file at that path: an
 // ancestor directory swapped for a junction or symlink between resolving and
 // opening redirects the open without changing the path string the check saw,
-// and a stat of that path afterwards follows the same swapped ancestor.
+// and a stat of that path afterwards follows the same swapped ancestor. Any
+// sequence of path lookups can be raced the same way, so only an answer tied
+// to the open descriptor counts; a platform without one locates nothing, and
+// nothing is authorized there.
 import type { FileHandle } from 'node:fs/promises';
-import { lstat, readlink, realpath } from 'node:fs/promises';
-import { dirname, toNamespacedPath } from 'node:path';
+import { readlink } from 'node:fs/promises';
+import { toNamespacedPath } from 'node:path';
 
 /** The open file's dev/ino as its own fstat reports them. */
 export interface OpenedFileIdentity {
@@ -14,15 +17,37 @@ export interface OpenedFileIdentity {
   ino: bigint;
 }
 
+/** A koffi function. A variadic one is called synchronously only. */
+type NativeFunction = { (...args: unknown[]): unknown; async: (...args: unknown[]) => void };
+
+/** The slice of koffi the locators load native functions through. */
+export interface ForeignFunctions {
+  load(library: string): { func(definition: string): NativeFunction };
+}
+
 /** The canonical absolute path of the file `handle` has open, now. `openedBy`
  *  is the path it was opened by and `identity` its fstat dev/ino. Rejects when
  *  the location cannot be established. */
-export function openedFilePath(handle: FileHandle, openedBy: string, identity: OpenedFileIdentity): Promise<string> {
+export type OpenedFileLocator = (
+  handle: Pick<FileHandle, 'fd'>,
+  openedBy: string,
+  identity: OpenedFileIdentity
+) => Promise<string>;
+
+/** The descriptor-based locator for `platform`, its native functions loaded
+ *  through `foreign` on first use. */
+export function openedFileLocator(platform: NodeJS.Platform, foreign: () => Promise<ForeignFunctions>): OpenedFileLocator {
   // The kernel's own name for the open file description.
-  if (process.platform === 'linux') return readlink(`/proc/self/fd/${handle.fd}`);
-  if (process.platform === 'win32') return windowsFilePath(openedBy, identity);
-  return walkedFilePath(openedBy, identity);
+  if (platform === 'linux') return (handle) => readlink(`/proc/self/fd/${handle.fd}`);
+  if (platform === 'win32') return windowsLocator(foreign);
+  if (platform === 'darwin') return darwinLocator(foreign);
+  // FreeBSD and the rest: no descriptor-based locator, so fail closed.
+  return () => Promise.reject(new Error(`An open file cannot be located on ${platform}.`));
 }
+
+export const openedFilePath: OpenedFileLocator = openedFileLocator(process.platform, () =>
+  import('koffi').then(({ default: koffi }) => koffi)
+);
 
 // ── Windows: GetFinalPathNameByHandleW ───────────────────────────────────────
 // A Node fd is a private CRT descriptor whose HANDLE native code cannot reach,
@@ -40,8 +65,6 @@ const FILE_INDEX_HIGH_OFFSET = 44;
 const FILE_INDEX_LOW_OFFSET = 48;
 const MAX_PATH_CHARS = 32_768;
 
-type NativeFunction = { (...args: unknown[]): unknown; async: (...args: unknown[]) => void };
-
 interface Kernel32 {
   createFile: NativeFunction;
   fileInformation: NativeFunction;
@@ -49,12 +72,9 @@ interface Kernel32 {
   closeHandle: NativeFunction;
 }
 
-let kernel32: Promise<Kernel32> | null = null;
-
-function loadKernel32(): Promise<Kernel32> {
-  // Loaded on a Windows host only; servers are POSIX.
-  kernel32 ??= import('koffi').then(({ default: koffi }) => {
-    const library = koffi.load('kernel32.dll');
+function loadKernel32(foreign: () => Promise<ForeignFunctions>): Promise<Kernel32> {
+  return foreign().then((ffi) => {
+    const library = ffi.load('kernel32.dll');
     return {
       createFile: library.func(
         'intptr_t __stdcall CreateFileW(const char16_t *name, uint32_t access, uint32_t share, void *security, uint32_t disposition, uint32_t flags, void *template)'
@@ -66,7 +86,6 @@ function loadKernel32(): Promise<Kernel32> {
       closeHandle: library.func('int __stdcall CloseHandle(intptr_t file)'),
     };
   });
-  return kernel32;
 }
 
 /** Off the event loop: a junction can lead to a slow volume. */
@@ -76,8 +95,15 @@ function callAsync(native: NativeFunction, ...args: unknown[]): Promise<unknown>
   });
 }
 
-async function windowsFilePath(openedBy: string, identity: OpenedFileIdentity): Promise<string> {
-  const api = await loadKernel32();
+function windowsLocator(foreign: () => Promise<ForeignFunctions>): OpenedFileLocator {
+  let kernel32: Promise<Kernel32> | null = null;
+  return async (_handle, openedBy, identity) => {
+    kernel32 ??= loadKernel32(foreign);
+    return windowsFilePath(await kernel32, openedBy, identity);
+  };
+}
+
+async function windowsFilePath(api: Kernel32, openedBy: string, identity: OpenedFileIdentity): Promise<string> {
   const file = Number(
     await callAsync(api.createFile, toNamespacedPath(openedBy), FILE_READ_ATTRIBUTES, FILE_SHARE_ALL, null, OPEN_EXISTING, 0, null)
   );
@@ -103,20 +129,26 @@ async function windowsFilePath(openedBy: string, identity: OpenedFileIdentity): 
   }
 }
 
-// ── Elsewhere (macOS, BSD): no way to ask an open file its path ──────────────
+// ── macOS: fcntl(F_GETPATH) ──────────────────────────────────────────────────
+// A Node fd is the real descriptor here, so the kernel names its file directly.
 
-/** A fresh resolution of `openedBy`, every directory on it re-checked to be
- *  a real directory, and the file there proven to be the open one. Exported
- *  so every host can test the fallback. */
-export async function walkedFilePath(openedBy: string, identity: OpenedFileIdentity): Promise<string> {
-  const at = await realpath(openedBy);
-  for (let directory = dirname(at); ; directory = dirname(directory)) {
-    if ((await lstat(directory)).isSymbolicLink()) throw new Error('The path to the open file changed.');
-    if (dirname(directory) === directory) break;
-  }
-  const leaf = await lstat(at, { bigint: true });
-  if (leaf.isSymbolicLink() || leaf.dev !== identity.dev || leaf.ino !== identity.ino) {
-    throw new Error('The path no longer names the open file.');
-  }
-  return at;
+const F_GETPATH = 50;
+const MAXPATHLEN = 1024;
+const LIBSYSTEM = '/usr/lib/libSystem.B.dylib';
+
+function darwinLocator(foreign: () => Promise<ForeignFunctions>): OpenedFileLocator {
+  let fcntl: Promise<NativeFunction> | null = null;
+  return async (handle) => {
+    fcntl ??= foreign().then((ffi) => ffi.load(LIBSYSTEM).func('int fcntl(int fd, int cmd, ...)'));
+    const getPath = await fcntl;
+    const path = Buffer.alloc(MAXPATHLEN);
+    // Variadic, so koffi calls it synchronously; the kernel answers from its
+    // own records of the descriptor. The buffer is written in place.
+    if (Number(getPath(handle.fd, F_GETPATH, 'uint8_t *', path)) === -1) {
+      throw new Error('The open file cannot be located.');
+    }
+    const end = path.indexOf(0);
+    if (end <= 0) throw new Error('The open file cannot be located.');
+    return path.toString('utf8', 0, end);
+  };
 }

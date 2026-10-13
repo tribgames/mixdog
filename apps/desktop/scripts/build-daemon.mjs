@@ -11,10 +11,10 @@ const outfile = join(desktopDir, 'out', 'main', 'daemon.cjs');
 // Loaded at runtime from node_modules, never bundled; a server install gets
 // them from its generated lockfile.
 const DAEMON_EXTERNALS = ['@homebridge/node-pty-prebuilt-multiarch'];
-// Loaded only on a Windows desktop host (servers are POSIX), so never part of
-// a server install: the Win32 FFI that file downloads read an open file's
-// real path with (opened-file-path.ts). The app keeps it unpacked beside
-// daemon.cjs (electron-builder asarUnpack).
+// Desktop-host only, never part of a server install: the FFI that file
+// downloads ask the OS where an open file lives with on Windows and macOS
+// (opened-file-path.ts). The app keeps it unpacked beside daemon.cjs
+// (electron-builder asarUnpack); a host without it refuses downloads.
 const DESKTOP_HOST_EXTERNALS = ['koffi'];
 
 await build({

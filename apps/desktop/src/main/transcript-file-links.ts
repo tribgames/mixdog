@@ -151,6 +151,54 @@ export function sessionLinkedPaths(snapshot: SessionSnapshot, cwd: string): stri
   return [...paths];
 }
 
+const MEDIA_TOOL = /^(?:mcp__[^_]+(?:_[^_]+)*__)?media$/i;
+
+/** The structured records a tool result carries (renderer
+ *  transcript-artifacts.ts reads the same shapes); prose yields none. */
+function toolResultRecords(value: unknown, depth = 0): Record<string, unknown>[] {
+  if (depth > 3 || value == null) return [];
+  if (typeof value === 'string') {
+    try {
+      return toolResultRecords(JSON.parse(value), depth + 1);
+    } catch {
+      return [];
+    }
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  if (record.isError === true || record.ok === false) return [];
+  if (record.structuredContent) return toolResultRecords(record.structuredContent, depth + 1);
+  if (Array.isArray(record.content)) {
+    return record.content.flatMap((part) =>
+      part && typeof part === 'object' && (part as { type?: unknown }).type === 'text'
+        ? toolResultRecords((part as { text?: unknown }).text, depth + 1)
+        : []
+    );
+  }
+  return [record];
+}
+
+/** Gallery assets the session's own successful `media` tool calls generated
+ *  — what its transcript shows as generated output. Prompts, replies and
+ *  other tools' output name none. */
+export function sessionGeneratedAssetIds(snapshot: SessionSnapshot): Set<string> {
+  const ids = new Set<string>();
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  const tools = items.flatMap((item) =>
+    item?.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as DesktopTranscriptItem[]) : [item]
+  );
+  for (const item of tools) {
+    if (!item || item.kind === 'user' || item.kind === 'assistant' || item.isError === true) continue;
+    if (!MEDIA_TOOL.test(String(item.name ?? ''))) continue;
+    for (const record of toolResultRecords(item.result ?? item.rawResult)) {
+      if (record.ok === true && typeof record.assetId === 'string' && record.assetId && record.status !== 'failed') {
+        ids.add(record.assetId);
+      }
+    }
+  }
+  return ids;
+}
+
 export interface TranscriptHost {
   listSessions(): Promise<DesktopSessionSummary[]>;
   readSessionTranscript?(sessionId: string): Promise<SessionSnapshot>;

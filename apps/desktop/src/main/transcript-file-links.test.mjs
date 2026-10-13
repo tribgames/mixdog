@@ -8,9 +8,27 @@ import {
   assistantItemLink,
   assistantLinkTargets,
   resolveLinkedPath,
+  sessionGeneratedAssetIds,
   sessionLinkedPaths,
   settledAssistantItem,
 } from './transcript-file-links.ts';
+
+test('generated assets are read from successful media tool results only', () => {
+  const result = (assetId, extra = {}) => JSON.stringify({ ok: true, status: 'done', assetId, ...extra });
+  const ids = sessionGeneratedAssetIds({
+    items: [
+      { id: 1, kind: 'tool', name: 'media', result: result('own') },
+      { id: 2, kind: 'tool', name: 'mcp__mixdog__media', result: { structuredContent: { ok: true, assetId: 'mcp' } } },
+      { id: 3, kind: 'tool', aggregate: true, toolMembers: [{ name: 'media', result: result('member') }] },
+      { id: 4, kind: 'user', name: 'media', text: result('prompt'), result: result('prompt') },
+      { id: 5, kind: 'assistant', text: result('prose') },
+      { id: 6, kind: 'tool', name: 'shell', result: result('shell') },
+      { id: 7, kind: 'tool', name: 'media', isError: true, result: result('errored') },
+      { id: 8, kind: 'tool', name: 'media', result: result('failed', { ok: false }) },
+    ],
+  });
+  assert.deepEqual([...ids].sort(), ['mcp', 'member', 'own']);
+});
 
 test('link targets are read the way MarkdownLink decodes them, outside fenced code', () => {
   const text = [
