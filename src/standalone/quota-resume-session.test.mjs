@@ -14,8 +14,10 @@ import test from 'node:test';
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 const RESET_AT = Date.now() + 3_600_000;
 
+// Up to 15 s: a whole Goal turn settles inside one wait, and a loaded arm64
+// runner has needed more than 3 s for it.
 async function until(predicate, label) {
-  for (let i = 0; i < 300; i += 1) {
+  for (let i = 0; i < 1500; i += 1) {
     if (predicate()) return;
     await tick(10);
   }
