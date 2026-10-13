@@ -133,7 +133,7 @@ function binaryBytes(value: unknown): Uint8Array | null {
   return null;
 }
 
-function encodeBinaryBox(sequence: number, nonce: Uint8Array, ciphertext: Uint8Array): Uint8Array {
+function encodeBinaryBox(sequence: number, nonce: Uint8Array, ciphertext: Uint8Array): Uint8Array<ArrayBuffer> {
   const output = new Uint8Array(E2EE_BINARY_HEADER_BYTES + ciphertext.byteLength);
   output.set(E2EE_BINARY_MAGIC, 0);
   new DataView(output.buffer).setBigUint64(4, BigInt(sequence), false);
@@ -303,10 +303,10 @@ export class RelayE2EEChannel {
     readonly mediaKey: CryptoKey | null = null
   ) {}
 
-  private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array> {
-    let resolveResult!: (value: string | Uint8Array) => void;
+  private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array<ArrayBuffer>> {
+    let resolveResult!: (value: string | Uint8Array<ArrayBuffer>) => void;
     let rejectResult!: (reason: unknown) => void;
-    const result = new Promise<string | Uint8Array>((resolve, reject) => {
+    const result = new Promise<string | Uint8Array<ArrayBuffer>>((resolve, reject) => {
       resolveResult = resolve;
       rejectResult = reject;
     });
@@ -345,8 +345,8 @@ export class RelayE2EEChannel {
     return this.encrypt(value, false) as Promise<string>;
   }
 
-  encryptBinary(value: unknown): Promise<Uint8Array> {
-    return this.encrypt(value, true) as Promise<Uint8Array>;
+  encryptBinary(value: unknown): Promise<Uint8Array<ArrayBuffer>> {
+    return this.encrypt(value, true) as Promise<Uint8Array<ArrayBuffer>>;
   }
 
   decryptJson(raw: unknown): Promise<unknown> {
