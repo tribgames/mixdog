@@ -84,10 +84,14 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   while (!stop) {
     checkDeadline();
     if (buf.length < chunkBytes) buf = Buffer.allocUnsafe(chunkBytes);
+    // Process all bytes inside the absolute cap before rejecting a deeper
+    // window. At the cap, a one-byte probe distinguishes EOF from a partial
+    // final line; any returned byte is rejected before reaching the collector.
+    const readBytes = Math.min(chunkBytes, Math.max(1, READ_MAX_SCAN_BYTES - position));
     const prefix = position === 0 && Buffer.isBuffer(prefixBuffer) ? prefixBuffer : null;
     const bytesRead = prefix?.length
-      ? prefix.copy(buf, 0, 0, Math.min(prefix.length, chunkBytes))
-      : (await fh.read(buf, 0, chunkBytes, position)).bytesRead;
+      ? prefix.copy(buf, 0, 0, Math.min(prefix.length, readBytes))
+      : (await fh.read(buf, 0, readBytes, position)).bytesRead;
     if (bytesRead === 0) break;
     const chunkStart = position;
     position += bytesRead;
