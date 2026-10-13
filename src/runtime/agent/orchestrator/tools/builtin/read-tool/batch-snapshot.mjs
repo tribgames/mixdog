@@ -33,15 +33,19 @@ export function restoreCallerSlots(results, origEntries, entryMap, options, { sl
 function deliveredRangesByPath(
   orderedResults,
   workDir,
-  { classifyResultKind, resolveAgainstCwd, _rangeHashesFromRenderedReadText }
+  readStateScope,
+  { classifyResultKind, resolveAgainstCwd, _rangeHashesFromRenderedReadText, _filterReadSnapshotRanges }
 ) {
   const exactRangesByPath = new Map();
   const rangeHashesByPath = new Map();
   for (const r of orderedResults) {
     if (r?.mode !== 'full' || classifyResultKind(String(r.body || '')) === 'error') continue;
-    const ranges = renderedBatchReadRanges(r.body);
-    if (ranges.length === 0) continue;
     const fullPath = resolveAgainstCwd(r.path, workDir);
+    const renderedRanges = renderedBatchReadRanges(r.body);
+    const ranges = _filterReadSnapshotRanges
+      ? _filterReadSnapshotRanges(r.readEntry, fullPath, readStateScope, renderedRanges)
+      : renderedRanges;
+    if (ranges.length === 0) continue;
     if (!exactRangesByPath.has(fullPath)) exactRangesByPath.set(fullPath, []);
     exactRangesByPath.get(fullPath).push(...ranges);
     const renderedHashes = _rangeHashesFromRenderedReadText(r.body, ranges);
@@ -65,7 +69,7 @@ async function rawRangeHashes(fullPath, mergedRanges, { _hashText }) {
 
 export async function recordSlicedBatchSnapshots(orderedResults, workDir, readStateScope, helpers) {
   const { _mergeReadRanges, _recordReadSnapshot } = helpers;
-  const { exactRangesByPath, rangeHashesByPath } = deliveredRangesByPath(orderedResults, workDir, helpers);
+  const { exactRangesByPath, rangeHashesByPath } = deliveredRangesByPath(orderedResults, workDir, readStateScope, helpers);
   for (const [fullPath, ranges] of exactRangesByPath) {
     const mergedRanges = _mergeReadRanges(ranges);
     let rangeHashes = rangeHashesByPath.get(fullPath) || [];

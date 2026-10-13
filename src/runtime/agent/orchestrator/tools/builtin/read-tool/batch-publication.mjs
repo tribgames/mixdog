@@ -38,6 +38,7 @@ export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, h
       fullPath,
       scope: scope ?? null,
       identity,
+      ranges: mergeReadRanges(meta?.ranges),
       isCurrent: () => false,
       publish: () => {},
       release: () => {},
@@ -62,6 +63,7 @@ export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, h
       return executeChildBuiltinTool(name, args, workDir, options);
     }
     const task = {
+      entry: args,
       fullPath: helpers.resolveAgainstCwd(args.path, workDir),
       records: [],
       body: null,
@@ -75,6 +77,19 @@ export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, h
   };
   const snapshotHelpers = {
     ...helpers,
+    _filterReadSnapshotRanges: (entry, fullPath, scope, ranges) => {
+      const task = tasks.find((task) => task.entry === entry);
+      const observation = task?.records.findLast(
+        (record) => record.fullPath === fullPath && record.scope === (scope ?? null)
+      );
+      // A numbered row may end halfway through its content at the byte cap.
+      // Only this slot's producer can certify complete lines; another read of
+      // the same path must not authorize hashing this slot's partial text.
+      return mergeReadRanges(ranges.flatMap((range) => (observation?.ranges ?? []).map((complete) => ({
+        startLine: Math.max(range.startLine, complete.startLine),
+        endLine: Math.min(range.endLine, complete.endLine),
+      }))));
+    },
     _recordReadSnapshot: (fullPath, _st, scope, meta) => {
       corrections.set(fullPath, { scope: scope ?? null, meta });
     },
