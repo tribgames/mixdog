@@ -40,6 +40,12 @@ async function prefetchRawBody(fullPath, st, helpers, forceFresh = false) {
 }
 
 export async function executeSingleReadTool(args, workDir, readStateScope, options = {}, helpers = {}) {
+  // A coalesced batch must not publish its union window as delivered evidence.
+  // Its internal recorder holds the producer's lease until the caller slots
+  // are sliced; ordinary reads retain their existing snapshot path.
+  if (typeof options._readSnapshotRecorder === 'function') {
+    helpers = { ...helpers, _recordReadSnapshot: options._readSnapshotRecorder };
+  }
   const {
     parseLineLimitArg,
     parseOffsetArg,
