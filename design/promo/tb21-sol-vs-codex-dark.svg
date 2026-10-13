@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="t d" font-family="Segoe UI Variable Display,Segoe UI,Inter,-apple-system,Helvetica Neue,Arial,sans-serif">
+  <title id="t">Terminal-Bench 2.1: Mixdog vs Codex CLI on GPT-5.6 Sol xhigh</title>
+  <desc id="d">Same model and reasoning level, 445 trials each. Mixdog used 63 percent fewer tokens, matched the success rate (86.5 versus 86.1 percent), cost 39 percent less, sent a 67 percent smaller first request, ended with a 46 percent smaller context, and made 33 percent fewer model requests.</desc>
+  <defs>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="1199" height="699" rx="24" fill="#111114" stroke="#2A2A31"/>
+
+  <text x="64" y="64" font-size="12" letter-spacing="2" font-weight="600" fill="#8A8779">TERMINAL-BENCH 2.1 · 89 TASKS × 5 TRIALS · GPT-5.6 SOL XHIGH</text>
+  <text x="64" y="108" font-size="34" font-weight="700" letter-spacing="-0.5" fill="#F5F3EE">Same score. <tspan fill="url(#bar)">63% fewer tokens.</tspan></text>
+  <rect x="64" y="132" width="14" height="14" rx="3" fill="url(#bar)"/>
+  <text x="86" y="144" font-size="14" font-weight="600" fill="#F5F3EE">Mixdog</text>
+  <rect x="160" y="132" width="14" height="14" rx="3" fill="#34343C"/>
+  <text x="182" y="144" font-size="14" fill="#A8A39A">Codex CLI</text>
+  <text x="1136" y="144" text-anchor="end" font-size="12" fill="#8A8779">bar length relative to Codex CLI</text>
+  <line x1="64" y1="168" x2="1136" y2="168" stroke="#2A2A31"/>
+
+  <!-- Total tokens -->
+  <text x="64" y="208" font-size="16" font-weight="650" fill="#F5F3EE">Total tokens</text>
+  <text x="64" y="230" font-size="12" fill="#8A8779">incl. cached input</text>
+  <rect x="330" y="192" width="237.7" height="22" rx="5" fill="url(#bar)"/>
+  <text x="577.7" y="208" font-size="14" font-weight="650" fill="#F5F3EE">156.5M</text>
+  <rect x="330" y="220" width="640" height="22" rx="5" fill="#34343C"/>
+  <text x="980" y="236" font-size="14" fill="#A8A39A">421.4M</text>
+  <text x="1136" y="224" text-anchor="end" font-size="22" font-weight="700" fill="#FBBF24">−63%</text>
+
+  <!-- Success rate -->
+  <text x="64" y="290" font-size="16" font-weight="650" fill="#F5F3EE">Success rate</text>
+  <text x="64" y="312" font-size="12" fill="#8A8779">385 vs 383 of 445 trials</text>
+  <rect x="330" y="274" width="553.6" height="22" rx="5" fill="url(#bar)"/>
+  <text x="893.6" y="290" font-size="14" font-weight="650" fill="#F5F3EE">86.5%</text>
+  <rect x="330" y="302" width="551" height="22" rx="5" fill="#34343C"/>
+  <text x="891" y="318" font-size="14" fill="#A8A39A">86.1%</text>
+  <text x="1136" y="306" text-anchor="end" font-size="22" font-weight="700" fill="#86EFAC">matched</text>
+
+  <!-- Cost -->
+  <text x="64" y="372" font-size="16" font-weight="650" fill="#F5F3EE">Cost per trial</text>
+  <text x="64" y="394" font-size="12" fill="#8A8779">same API list rates</text>
+  <rect x="330" y="356" width="389.6" height="22" rx="5" fill="url(#bar)"/>
+  <text x="729.6" y="372" font-size="14" font-weight="650" fill="#F5F3EE">$0.476</text>
+  <rect x="330" y="384" width="640" height="22" rx="5" fill="#34343C"/>
+  <text x="980" y="400" font-size="14" fill="#A8A39A">$0.782</text>
+  <text x="1136" y="388" text-anchor="end" font-size="22" font-weight="700" fill="#FBBF24">−39%</text>
+
+  <!-- First request -->
+  <text x="64" y="454" font-size="16" font-weight="650" fill="#F5F3EE">First request</text>
+  <text x="64" y="476" font-size="12" fill="#8A8779">median tokens</text>
+  <rect x="330" y="438" width="208.9" height="22" rx="5" fill="url(#bar)"/>
+  <text x="548.9" y="454" font-size="14" font-weight="650" fill="#F5F3EE">4.7K</text>
+  <rect x="330" y="466" width="640" height="22" rx="5" fill="#34343C"/>
+  <text x="980" y="482" font-size="14" fill="#A8A39A">14.4K</text>
+  <text x="1136" y="470" text-anchor="end" font-size="22" font-weight="700" fill="#FBBF24">−67%</text>
+
+  <!-- Final context -->
+  <text x="64" y="536" font-size="16" font-weight="650" fill="#F5F3EE">Final context</text>
+  <text x="64" y="558" font-size="12" fill="#8A8779">median tokens at task end</text>
+  <rect x="330" y="520" width="345.2" height="22" rx="5" fill="url(#bar)"/>
+  <text x="685.2" y="536" font-size="14" font-weight="650" fill="#F5F3EE">18.5K</text>
+  <rect x="330" y="548" width="640" height="22" rx="5" fill="#34343C"/>
+  <text x="980" y="564" font-size="14" fill="#A8A39A">34.3K</text>
+  <text x="1136" y="552" text-anchor="end" font-size="22" font-weight="700" fill="#FBBF24">−46%</text>
+
+  <!-- Model requests -->
+  <text x="64" y="618" font-size="16" font-weight="650" fill="#F5F3EE">Model requests</text>
+  <text x="64" y="640" font-size="12" fill="#8A8779">total across 445 trials</text>
+  <rect x="330" y="602" width="431.9" height="22" rx="5" fill="url(#bar)"/>
+  <text x="771.9" y="618" font-size="14" font-weight="650" fill="#F5F3EE">6,266</text>
+  <rect x="330" y="630" width="640" height="22" rx="5" fill="#34343C"/>
+  <text x="980" y="646" font-size="14" fill="#A8A39A">9,284</text>
+  <text x="1136" y="634" text-anchor="end" font-size="22" font-weight="700" fill="#FBBF24">−33%</text>
+</svg>
