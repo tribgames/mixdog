@@ -57,9 +57,6 @@ export interface DockAction {
  *  their own roots and pass their own props instead. */
 export const PaneDockExpandContext = createContext<{ expanded: boolean; toggle(): void } | null>(null);
 
-/** The right-end controls are fixed: ⋯, Expand, Close (+ an inline Save). */
-export const DOCK_HEADER_BUTTON_WIDTH = 28;
-
 /** Splits header actions: `inline` ones are buttons, everything else is a ⋯
  *  menu item at every width. */
 export function splitDockActions(actions: readonly DockAction[]): { inline: DockAction[]; menu: DockAction[] } {

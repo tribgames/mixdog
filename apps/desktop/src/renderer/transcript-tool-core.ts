@@ -677,38 +677,3 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[]): st
 export function desktopToolActivityUnitLabel(name: unknown, args: unknown): string {
   return desktopToolActivityUnit(name, args).label;
 }
-
-interface ToolActivityCategoryGroup {
-  unitKey: string;
-  category: string;
-  label: string;
-  count: number;
-  items: TranscriptItem[];
-}
-
-export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem[]) {
-  const groups = new Map<string, ToolActivityCategoryGroup>();
-  let previous: ToolActivityCategoryGroup | null = null;
-  let previousUnitKey = '';
-  for (const item of flattenedToolActivityItems(items)) {
-    const unit = desktopToolActivityUnit(item.name, item.args);
-    const count = Math.max(1, Math.round(Number(item.count || 1))) * unit.count;
-    if (previous && previousUnitKey === unit.unitKey) {
-      previous.count += count;
-      previous.items.push(item);
-      continue;
-    }
-    const unitKey = groups.has(unit.unitKey) ? `${unit.unitKey}:${groups.size}` : unit.unitKey;
-    const group: ToolActivityCategoryGroup = {
-      unitKey,
-      category: unit.category,
-      label: unit.label,
-      count,
-      items: [item],
-    };
-    groups.set(unitKey, group);
-    previous = group;
-    previousUnitKey = unit.unitKey;
-  }
-  return [...groups.values()];
-}

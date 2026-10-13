@@ -8,7 +8,6 @@ import {
 import {
   computeComputerWindowTransition,
   launchTransitionConfirmsTarget,
-  relatedWindowIdsForFrame,
 } from '../shared/window-transition.ts';
 
 function windowRecord(id, overrides = {}) {
@@ -193,9 +192,6 @@ test('computer window transition selects one deterministic successor', () => {
 test('computer frame admits only captured owned-window descendants', () => {
   const main = windowRecord('hwnd:0x1');
   const menu = windowRecord('hwnd:0x2', { ownerId: main.id });
-  const nested = windowRecord('hwnd:0x3', { ownerId: menu.id });
-  const unrelated = windowRecord('hwnd:0x4');
-  assert.deepEqual(relatedWindowIdsForFrame([main, menu, nested, unrelated], main.id), [main.id, menu.id, nested.id]);
   const inactiveTransition = computeComputerWindowTransition([main], [main, menu], main.id);
   assert.equal(inactiveTransition.next_target, undefined);
   const transition = computeComputerWindowTransition(

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  chromeConsentAllowRef,
   chromeNativeAddressField,
   chromeOwnedConsentAllowRef,
   chromeSetupControl,
@@ -153,29 +152,33 @@ test('selects Chrome native allow by structural surface and button geometry', ()
       ancestors: descendants,
     }),
   ];
-  assert.equal(chromeConsentAllowRef(elements), 'allow');
   assert.equal(chromeOwnedConsentAllowRef(elements.filter((candidate) => candidate.ref !== 'pane')), 'allow');
 });
 
-test('ignores a consent-shaped surface inside web content', () => {
-  const document = { runtime_id: 'document', role: 'Document', name: '' };
-  const elements = [
+test('owned Chrome consent ignores web-content buttons even when they duplicate native geometry', () => {
+  const native = [
+    { ref: 'extra', x: 0 },
+    { ref: 'allow', x: 180 },
+    { ref: 'cancel', x: 270, has_keyboard_focus: true },
+  ].map((button) =>
     element({
-      ref: 'surface',
-      role: 'Pane',
-      name: 'spoof',
-      runtime_id: 'surface',
-      in_document: true,
-      ancestors: [document],
-    }),
-    element({
-      ref: 'allow',
       role: 'Button',
       class_name: 'MdTextButton',
       actions: ['invoke'],
-      in_document: true,
-      ancestors: [{ runtime_id: 'surface', role: 'Pane', name: 'spoof' }, document],
-    }),
-  ];
-  assert.equal(chromeConsentAllowRef(elements), null);
+      y: 100,
+      width: 80,
+      height: 30,
+      ...button,
+    })
+  );
+  const webContent = native.map((button) => ({
+    ...button,
+    ref: `web-${button.ref}`,
+    in_document: true,
+    ancestors: [{ runtime_id: 'document', role: 'Document', name: '' }],
+  }));
+
+  assert.equal(chromeOwnedConsentAllowRef(webContent), null);
+  assert.equal(chromeOwnedConsentAllowRef([...webContent, ...native]), 'allow');
+  assert.equal(chromeOwnedConsentAllowRef([...native, ...webContent]), 'allow');
 });

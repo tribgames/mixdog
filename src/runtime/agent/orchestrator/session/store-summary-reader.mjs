@@ -42,8 +42,6 @@ import {
   sameSessionStamp,
   isSettledSessionStamp,
 } from './store/canonical-reader.mjs';
-// The catalog engine's stamp-keyed derivation cache is shared with metadata reads.
-export { clearStoredSessionDerivations } from './store-summary-catalog.mjs';
 // Worker-pool row projection (child + Lead indexes, heartbeat lease, cancel
 // ranking) lives in store-agent-worker-rows.mjs; re-exported so prior
 // importers of this module stay unchanged.

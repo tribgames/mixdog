@@ -311,14 +311,3 @@ export function computeComputerWindowTransition(
   }
   return transition;
 }
-
-export function relatedWindowIdsForFrame(windows: ComputerWindowRecord[], targetWindowId: string): string[] {
-  if (!targetWindowId) return [];
-  const windowsById = new Map(windows.map((window) => [window.id, window]));
-  return [
-    targetWindowId,
-    ...windows
-      .filter((window) => window.id !== targetWindowId && ownerChainContains(window.id, targetWindowId, windowsById))
-      .map((window) => window.id),
-  ];
-}

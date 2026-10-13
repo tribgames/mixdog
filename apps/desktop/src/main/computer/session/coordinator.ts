@@ -150,21 +150,6 @@ export function computerResultLastNumber(text: string, key: string): number | nu
   return found;
 }
 
-export function computerResultHasCode(text: string, expectedCode: string): boolean {
-  const visit = (value: unknown): boolean => {
-    if (Array.isArray(value)) return value.some(visit);
-    if (!value || typeof value !== 'object') return false;
-    const record = value as Record<string, unknown>;
-    if (record.code === expectedCode) return true;
-    return Object.values(record).some(visit);
-  };
-  try {
-    return visit(JSON.parse(String(text || '')));
-  } catch {
-    return false;
-  }
-}
-
 export class ComputerUseCoordinator {
   private readonly cleanup = new ComputerCleanupBarrier();
   private readonly now: () => number;

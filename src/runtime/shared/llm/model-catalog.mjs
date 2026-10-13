@@ -904,7 +904,6 @@ export function pricingCatalogRevisionSync() {
 }
 
 let lastAuditedRevision = null;
-let lastAudit = null;
 function auditCachedModelPricing() {
   const revision = pricingCatalogRevisionSync();
   const rows = Object.entries(cachedProviderModelListsSync()).flatMap(([provider, models]) =>
@@ -919,17 +918,6 @@ function auditCachedModelPricing() {
     );
   }
   lastAuditedRevision = revision;
-  lastAudit = { revision, rows, unpriced };
-  return lastAudit;
-}
-
-/** Catalog routes without a complete list price, from the latest audit (run on demand when none is cached). */
-export function unpricedModelsSync() {
-  return (lastAudit ?? auditCachedModelPricing()).unpriced.map(({ provider, model, missingRates }) => ({
-    provider,
-    model,
-    missingRates: [...missingRates],
-  }));
 }
 
 /**
