@@ -147,6 +147,58 @@ test('removal releases handles on the folder, then drops its caches, then remove
   }
 });
 
+test("removing a worktree leaves its turns' change records listed but without Undo/Reapply", async () => {
+  const { WORKTREE_CACHE_CLEANUPS } = await import('./cache-cleanups.mjs');
+  const { storedChangeFile } = await import('../turn-changes.mjs');
+  const { updateTurnChangeRecord, upsertTurnChangeRecord } = await import('../turn-snapshot-store.mjs');
+  const { getTurnChanges, reapplyTurnChanges, revertTurnChanges } = await import('../turn-snapshot.mjs');
+  const repo = makeRepo();
+  const { entry, sessionId } = await create(repo);
+  const off = registerRootCleanup(`changes-${counter}`, WORKTREE_CACHE_CLEANUPS['turn-snapshot-store']);
+  try {
+    const file = (path, state) => ({
+      ...storedChangeFile({
+        path,
+        status: 'A',
+        additions: 1,
+        deletions: 0,
+        revertable: true,
+        patch: Buffer.from(
+          `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1 @@\n+x\n`
+        ),
+      }),
+      state,
+    });
+    await upsertTurnChangeRecord(sessionId, { checkpointId: 'cp', kind: 'git', root: entry.path, files: [file('a.txt')] });
+    await updateTurnChangeRecord(sessionId, 'cp', (record) => [...record.files, file('b.txt', 'reverted')]);
+    const before = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+    assert.equal(before.canUndo, true);
+    assert.equal(before.canReapply, true);
+
+    assert.equal((await removeManagedWorktree({ entryId: entry.id, force: true })).removed, true);
+    assert.equal(existsSync(entry.path), false);
+
+    const removed = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+    assert.equal(removed.status, 'ready');
+    assert.equal(removed.revision, before.revision + 1);
+    assert.deepEqual(
+      removed.files.map((row) => [row.path, row.state, row.revertable, row.reason]),
+      [
+        ['a.txt', 'applied', false, 'its worktree was removed'],
+        ['b.txt', 'reverted', false, 'its worktree was removed'],
+      ]
+    );
+    assert.equal(removed.canUndo, false);
+    assert.equal(removed.canReapply, false);
+    assert.equal((await getTurnChanges(sessionId, { checkpointId: 'cp', patch: true })).patch, '');
+    await assert.rejects(revertTurnChanges(sessionId, 'cp', null, removed.revision), /its worktree was removed/);
+    await assert.rejects(reapplyTurnChanges(sessionId, 'cp', 'b.txt', removed.revision), /its worktree was removed/);
+    assert.equal(existsSync(entry.path), false, 'a refused Undo/Reapply never recreates the folder');
+  } finally {
+    off();
+  }
+});
+
 test('git runs with command-scoped long paths, read-only status probes and a stopped fsmonitor', async () => {
   const repo = makeRepo();
   // Trace2 `start` events record each git process's full argv, global options included.

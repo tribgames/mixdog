@@ -281,9 +281,11 @@ function matchKey(value) {
  * Remove one worktree root from every session record: its turns and its
  * session scope. Other roots' scopes, turns and the rest of the session history
  * stay; a record left with nothing is deleted. Serialized with saves through
- * the per-session chain. Returns `{ removed, kept }`: removed are
- * `<recordFile>#<root>` scopes (or the record file itself once emptied); kept
- * are record files that matched but could not be rewritten.
+ * the per-session chain. The per-turn change records rooted there are marked
+ * unavailable (see forgetChangeRecordsRoot). Returns `{ removed, kept }`:
+ * removed are `<recordFile>#<root>` scopes (or the record file itself once
+ * emptied) and `<changesFile>#<checkpointId>` change records; kept are files
+ * that matched but could not be rewritten.
  */
 export async function forgetTurnSnapshotRoot(root) {
   const removed = [];
@@ -321,7 +323,69 @@ export async function forgetTurnSnapshotRoot(root) {
       }
     });
   }
+  await forgetChangeRecordsRoot(target, removed, kept);
   return { removed, kept };
+}
+
+/** Why a change-record file of a removed worktree can no longer be undone or
+ *  reapplied. */
+export const REMOVED_WORKTREE_CHANGE_REASON = 'its worktree was removed';
+
+const unavailableChangeFile = (file) => {
+  const { patch, patchEncoding, patchOmitted, ...rest } = file;
+  return { ...rest, revertable: false, reason: REMOVED_WORKTREE_CHANGE_REASON, patch: null };
+};
+
+const changeFileUnavailable = (file) =>
+  file.revertable === false && file.reason === REMOVED_WORKTREE_CHANGE_REASON && file.patch === null;
+
+/**
+ * Mark every per-turn change record rooted at `target` (a matchKey) as
+ * unavailable: the record and its file list stay, so the turn's history card
+ * still says what changed, but each file drops its patch (the removed
+ * worktree's contents) and becomes non-revertable, so no Undo or Reapply is
+ * offered. Records of other roots are untouched. Serialized with every other
+ * change-record write of the session.
+ */
+async function forgetChangeRecordsRoot(target, removed, kept) {
+  let names = [];
+  try {
+    names = await readdir(changesRoot());
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const path = join(changesRoot(), name);
+    let sessionId = '';
+    try {
+      sessionId = clean(JSON.parse(await readFile(path, 'utf8'))?.sessionId);
+    } catch {}
+    if (!sessionId || changesPath(sessionId) !== path) continue;
+    await chain(`changes:${sessionId}`, async () => {
+      const records = (await readChangesFile(sessionId))?.records;
+      if (!records) return;
+      const marked = [];
+      const next = records.map((record) => {
+        const files = Array.isArray(record?.files) ? record.files : [];
+        if (matchKey(record?.root) !== target || files.every(changeFileUnavailable)) return record;
+        marked.push(record.checkpointId);
+        return {
+          ...record,
+          files: files.map(unavailableChangeFile),
+          revision: (Number(record.revision) || 0) + 1,
+          updatedAt: Date.now(),
+        };
+      });
+      if (marked.length === 0) return;
+      try {
+        await writeChangeRecords(sessionId, next);
+        removed.push(...marked.map((checkpointId) => `${path}#${checkpointId}`));
+      } catch {
+        kept.push(path);
+      }
+    });
+  }
 }
 
 // ── Per-turn change records ─────────────────────────────────────────────────
