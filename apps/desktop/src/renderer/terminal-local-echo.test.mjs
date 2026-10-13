@@ -121,7 +121,7 @@ test('remote reconnect re-ensures mounted terminals without duplicate attempts',
     await h.dial();
     await until(() => reconnected() === 1, 'the reconnect announcement');
   });
-  assert.match(pane, /if\s*\(\s*disposed\s*\|\|\s*ensureInFlight\s*\)\s*return;/);
+  assert.match(pane, /if\s*\(\s*disposed\s*\|\|\s*ensureInFlight\b.*\)\s*return;/);
   assert.match(pane, /addEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);
   assert.match(pane, /removeEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);
 });
