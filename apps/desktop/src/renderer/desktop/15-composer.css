@@ -65,12 +65,12 @@
    One island above a session's composer carries every status (Goal, jobs,
    changed files, model mismatch), expands upward in place, grows into the
    tool approval card and flashes short notices. Its slot reserves the
-   pill's 36px + 12px gap while something shows and collapses to 0 when empty;
+   pill's 34px + 12px gap while something shows and collapses to 0 when empty;
    everything taller overlays upward. */
 .composer-island-slot {
   position: relative;
   z-index: 9;
-  height: 42px;
+  height: 46px;
   pointer-events: none;
   transition: height 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -103,9 +103,9 @@
 .composer-island-stage {
   position: absolute;
   inset-inline: 0;
-  /* 8px above the input: close enough to read as the composer's own chrome
-. */
-  bottom: 8px;
+  /* 12px above the input: close enough to read as the composer's own chrome
+     while leaving it room to breathe (the mobile dock uses the same gap). */
+  bottom: 12px;
   display: flex;
   justify-content: center;
   pointer-events: none;
