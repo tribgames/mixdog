@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: lets the WebView reach a local test relay
+     (apps/relay/server.mjs on http://127.0.0.1:9800 via adb reverse), which
+     OriginPolicy already accepts as a loopback origin. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>
