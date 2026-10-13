@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseJsonText, updateJsonAtomicSync } from './atomic-file.mjs';
+import { parseJsonText, updateJsonAtomic } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 export const ACCOUNT_PROVIDERS = Object.freeze([
@@ -79,11 +79,11 @@ export function readProviderAccountPool(provider, dataDir = resolvePluginData())
   return normalizeLabels(read(dataDir).providers[provider]) || { accounts: [], selectedId: null, auto: true };
 }
 
-function update(provider, mutate) {
+async function update(provider, mutate) {
   requireAccountProvider(provider);
   // Read failures must not be interpreted as an empty account roster.
   read();
-  const result = updateJsonAtomicSync(
+  const result = await updateJsonAtomic(
     file(),
     (raw) => {
       const state = validate(raw);
@@ -117,7 +117,7 @@ export function newProviderAccountId() {
   return randomUUID();
 }
 
-export function registerProviderAccount(provider, id, { label = '', includeDefault = false } = {}) {
+export async function registerProviderAccount(provider, id, { label = '', includeDefault = false } = {}) {
   requireAccountId(id);
   return update(provider, (pool) => {
     if (includeDefault && !pool.accounts.some((row) => row.id === 'default')) {
@@ -131,7 +131,7 @@ export function registerProviderAccount(provider, id, { label = '', includeDefau
   });
 }
 
-export function changeProviderAccounts(provider, change) {
+export async function changeProviderAccounts(provider, change) {
   if (
     !change ||
     typeof change !== 'object' ||
@@ -184,7 +184,21 @@ export function changeProviderAccounts(provider, change) {
   });
 }
 
-export function removeProviderAccount(provider, id) {
+// Selects `id` only while the selection is still `expectedSelectedId`, checked
+// under the write's own lock, so a newer selection (a manual switch) wins.
+// Returns the pool when the selection moved, otherwise null.
+export async function selectProviderAccountIf(provider, expectedSelectedId, id) {
+  requireAccountId(id);
+  let moved = false;
+  const pool = await update(provider, (pool) => {
+    if (pool.selectedId !== expectedSelectedId || !pool.accounts.some((row) => row.id === id)) return;
+    pool.selectedId = id;
+    moved = true;
+  });
+  return moved ? pool : null;
+}
+
+export async function removeProviderAccount(provider, id) {
   requireAccountId(id);
   return update(provider, (pool) => {
     pool.accounts = pool.accounts.filter((row) => row.id !== id);
@@ -192,7 +206,7 @@ export function removeProviderAccount(provider, id) {
   });
 }
 
-export function recordProviderAccountUsage(provider, id, snapshot) {
+export async function recordProviderAccountUsage(provider, id, snapshot) {
   if (!snapshot || !Array.isArray(snapshot.quotaWindows)) return;
   const windows = snapshot.quotaWindows.slice(0, 12).map((row) => ({
     label: String(row.label || '').slice(0, 40),
@@ -200,7 +214,7 @@ export function recordProviderAccountUsage(provider, id, snapshot) {
     resetAt: typeof row.resetAt === 'number' && Number.isFinite(row.resetAt) ? row.resetAt : null,
   }));
   if (!readProviderAccountPool(provider).accounts.some((row) => row.id === id)) return;
-  update(provider, (pool) => {
+  await update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
     row.usage = { windows, checkedAt: Date.now() };
@@ -225,7 +239,7 @@ const MAX_BLOCK_MS = 6 * 60 * 60_000;
 // early can tell us anything.
 // `options.quota` records that the block came from a typed quota refusal or an
 // exhausted usage window, so later sends still count it as quota evidence.
-export function blockProviderAccount(provider, id, until, model = '', source = 'inferred', options = {}) {
+export async function blockProviderAccount(provider, id, until, model = '', source = 'inferred', options = {}) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
@@ -245,7 +259,7 @@ export function blockProviderAccount(provider, id, until, model = '', source = '
 // the refusal window and the meter recorded against the OLD subscription would
 // otherwise outlive it and refuse a request the provider would have served.
 // Both are dropped; the next usage reading refills them.
-export function clearProviderAccountQuotaState(provider, id) {
+export async function clearProviderAccountQuotaState(provider, id) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;

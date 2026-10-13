@@ -70,7 +70,7 @@ export function createAccountApi(
     },
     async updateProviderAccounts(providerId, change) {
       await awaitKeychainPrewarm();
-      const result = updateProviderAccounts(providerId, change);
+      const result = await updateProviderAccounts(providerId, change);
       reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();

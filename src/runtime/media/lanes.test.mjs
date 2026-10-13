@@ -163,7 +163,7 @@ test('signed-out lanes never discover models; one provider outage does not hide 
 test('Studio recognizes selected-account login and logout immediately without recreating the catalog', async (t) => {
   const auth = openAIAuthFixture(t);
   const id = newProviderAccountId();
-  registerProviderAccount('openai-oauth', id);
+  await registerProviderAccount('openai-oauth', id);
   const path = providerAccountPath('openai-oauth', id);
 
   await assert.rejects(auth.resolve(), { code: 'MEDIA_LANE_UNAUTHENTICATED' });
@@ -179,27 +179,27 @@ test('Studio follows account switches and scoped accounts without borrowing defa
   const auth = openAIAuthFixture(t);
   const ready = newProviderAccountId();
   const missing = newProviderAccountId();
-  registerProviderAccount('openai-oauth', ready);
-  registerProviderAccount('openai-oauth', missing);
+  await registerProviderAccount('openai-oauth', ready);
+  await registerProviderAccount('openai-oauth', missing);
   auth.writeTokens(providerAccountPath('openai-oauth', ready));
   auth.writeTokens(join(auth.dir, 'openai-oauth.json'));
   auth.writeTokens(process.env.OPENAI_OAUTH_CREDENTIALS_PATH);
 
   assert.equal((await auth.resolve()).lane.authenticated, true);
-  changeProviderAccounts('openai-oauth', { selectedId: missing });
+  await changeProviderAccounts('openai-oauth', { selectedId: missing });
   await assert.rejects(auth.resolve(), { code: 'MEDIA_LANE_UNAUTHENTICATED' });
   await withProviderAccount('openai-oauth', ready, async () => {
     assert.equal((await auth.resolve()).lane.authenticated, true);
   });
   await assert.rejects(auth.resolve(), { code: 'MEDIA_LANE_UNAUTHENTICATED' });
-  changeProviderAccounts('openai-oauth', { selectedId: ready });
+  await changeProviderAccounts('openai-oauth', { selectedId: ready });
   assert.equal((await auth.resolve()).lane.authenticated, true);
 });
 
 test('Studio honors an explicit host binding ahead of the selected account and environment', async (t) => {
   const auth = openAIAuthFixture(t);
   const selected = newProviderAccountId();
-  registerProviderAccount('openai-oauth', selected);
+  await registerProviderAccount('openai-oauth', selected);
   auth.writeTokens(providerAccountPath('openai-oauth', selected));
   auth.writeTokens(process.env.OPENAI_OAUTH_CREDENTIALS_PATH);
   auth.writeTokens(join(auth.dir, 'openai-oauth.json'));
@@ -239,7 +239,7 @@ test('Studio retains default-account login while respecting an explicit credenti
 test('Studio fails closed on incomplete or unreadable selected credentials and recovers after repair', async (t) => {
   const auth = openAIAuthFixture(t);
   const id = newProviderAccountId();
-  registerProviderAccount('openai-oauth', id);
+  await registerProviderAccount('openai-oauth', id);
   const path = providerAccountPath('openai-oauth', id);
   auth.writeTokens(join(auth.dir, 'openai-oauth.json'));
   auth.writeTokens(process.env.OPENAI_OAUTH_CREDENTIALS_PATH);

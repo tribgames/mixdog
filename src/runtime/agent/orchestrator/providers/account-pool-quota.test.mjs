@@ -29,12 +29,12 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 
 const provider = 'cursor-oauth';
 
-function setup(options = {}) {
-  for (const row of readProviderAccountPool(provider).accounts) removeProviderAccount(provider, row.id);
+async function setup(options = {}) {
+  for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
   resetAccountProbePacing();
   const ids = [newProviderAccountId(), newProviderAccountId(), newProviderAccountId()];
-  for (const [i, id] of ids.entries()) registerProviderAccount(provider, id, { label: `Account ${i + 1}` });
-  changeProviderAccounts(provider, { selectedId: ids[0], auto: true, useCredits: false, ...options });
+  for (const [i, id] of ids.entries()) await registerProviderAccount(provider, id, { label: `Account ${i + 1}` });
+  await changeProviderAccounts(provider, { selectedId: ids[0], auto: true, useCredits: false, ...options });
   return ids;
 }
 function quotaError(retryAfterMs) {
@@ -53,7 +53,7 @@ const failing = (makeError, onSend) =>
   }));
 
 test('every account refused with retry-after marks the error with the earliest reset', async () => {
-  setup();
+  await setup();
   const delays = [3_600_000, 7_200_000, 1_800_000];
   let i = 0;
   const gateway = failing(() => quotaError(delays[i++]));
@@ -68,7 +68,7 @@ test('every account refused with retry-after marks the error with the earliest r
 });
 
 test('inferred blocks leave the reset unknown but still mark exhaustion', async () => {
-  setup();
+  await setup();
   const gateway = failing(() => quotaError());
   await assert.rejects(gateway.send([], 'model-x', [], {}), (error) => {
     assert.deepEqual(error.quotaExhausted, { provider, model: 'model-x', resetAt: null });
@@ -77,10 +77,10 @@ test('inferred blocks leave the reset unknown but still mark exhaustion', async 
 });
 
 test('a pre-exhausted roster throws the structured error: 5H cleared, 7D Opus full', async () => {
-  const ids = setup();
+  const ids = await setup();
   const resetAt = Date.now() + 5_000_000;
   for (const id of ids) {
-    recordProviderAccountUsage(provider, id, {
+    await recordProviderAccountUsage(provider, id, {
       quotaWindows: [
         { label: '5H', usedPct: 10, resetAt: Date.now() + 60_000 },
         { label: '7D Opus', usedPct: 100, resetAt },
@@ -101,11 +101,11 @@ test('a pre-exhausted roster throws the structured error: 5H cleared, 7D Opus fu
 });
 
 test('a retry-after block marks exhaustion with its time', async () => {
-  const ids = setup();
+  const ids = await setup();
   const until = Date.now() + 900_000;
   for (const id of ids) {
-    blockProviderAccount(provider, id, until, 'm', 'retry-after');
-    recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct: 100, resetAt: until }] });
+    await blockProviderAccount(provider, id, until, 'm', 'retry-after');
+    await recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct: 100, resetAt: until }] });
   }
   const gateway = failing(() => new Error('unreachable'));
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
@@ -115,7 +115,7 @@ test('a retry-after block marks exhaustion with its time', async () => {
 });
 
 test('auto switching off: the selected account refusing with quota is the whole eligible set', async () => {
-  setup({ auto: false });
+  await setup({ auto: false });
   const gateway = failing(() => quotaError(600_000));
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
     assert.equal(error.quotaExhausted.provider, provider);
@@ -125,7 +125,7 @@ test('auto switching off: the selected account refusing with quota is the whole 
 });
 
 test('auto switching off: a non-quota failure is not marked', async () => {
-  setup({ auto: false });
+  await setup({ auto: false });
   const gateway = failing(() => Object.assign(new Error('boom'), { status: 500 }));
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
     assert.equal(error.quotaExhausted, undefined);
@@ -134,7 +134,7 @@ test('auto switching off: a non-quota failure is not marked', async () => {
 });
 
 test('a generic 429 with a long Retry-After rotates accounts but carries no marker', async () => {
-  setup();
+  await setup();
   let calls = 0;
   const gateway = failing(() => {
     calls += 1;
@@ -148,11 +148,11 @@ test('a generic 429 with a long Retry-After rotates accounts but carries no mark
 });
 
 test('the 20-attempt cap with every account exhausted still carries the marker', async () => {
-  for (const row of readProviderAccountPool(provider).accounts) removeProviderAccount(provider, row.id);
+  for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
   resetAccountProbePacing();
   const ids = Array.from({ length: 20 }, () => newProviderAccountId());
-  for (const [i, id] of ids.entries()) registerProviderAccount(provider, id, { label: `A${i}` });
-  changeProviderAccounts(provider, { selectedId: ids[0], auto: true, useCredits: false });
+  for (const [i, id] of ids.entries()) await registerProviderAccount(provider, id, { label: `A${i}` });
+  await changeProviderAccounts(provider, { selectedId: ids[0], auto: true, useCredits: false });
   let calls = 0;
   const gateway = failing(() => {
     calls += 1;
@@ -166,7 +166,7 @@ test('the 20-attempt cap with every account exhausted still carries the marker',
 });
 
 test('no marker when output was already emitted', async () => {
-  setup();
+  await setup();
   const gateway = failing(
     () => quotaError(600_000),
     (opts) => opts.onTextDelta('partial')
@@ -178,7 +178,7 @@ test('no marker when output was already emitted', async () => {
 });
 
 test('no marker for a generic 429 without a quota signal', async () => {
-  setup();
+  await setup();
   const gateway = failing(() => Object.assign(new Error('Too many requests'), { status: 429 }));
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
     assert.equal(error.quotaExhausted, undefined);
@@ -187,7 +187,7 @@ test('no marker for a generic 429 without a quota signal', async () => {
 });
 
 test('no roster: an exhausted cached snapshot marks the error with its reset', async () => {
-  for (const row of readProviderAccountPool(provider).accounts) removeProviderAccount(provider, row.id);
+  for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
   const resetAt = Date.now() + 4_000_000;
   await fetchOAuthUsageSnapshot(
     { provider },
@@ -216,7 +216,7 @@ test('no roster: an exhausted cached snapshot marks the error with its reset', a
 });
 
 test('a retry before the block expires still carries the marker', async () => {
-  setup();
+  await setup();
   const gateway = failing(() => quotaError(600_000));
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => error.quotaExhausted?.provider === provider);
   const fresh = createAccountPoolProvider(provider, () => ({
@@ -233,8 +233,8 @@ test('a retry before the block expires still carries the marker', async () => {
 });
 
 test('blocks without quota evidence stay unmarked on later sends', async () => {
-  const ids = setup();
-  for (const id of ids) blockProviderAccount(provider, id, Date.now() + 600_000, 'm', 'retry-after');
+  const ids = await setup();
+  for (const id of ids) await blockProviderAccount(provider, id, Date.now() + 600_000, 'm', 'retry-after');
   const gateway = failing(() => new Error('unreachable'));
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
     assert.equal(error.quotaExhausted, undefined);
@@ -243,9 +243,9 @@ test('blocks without quota evidence stay unmarked on later sends', async () => {
 });
 
 test('auto switching off: a full window on the selected account marks even with another account free', async () => {
-  const ids = setup({ auto: false });
+  const ids = await setup({ auto: false });
   const resetAt = Date.now() + 2_000_000;
-  recordProviderAccountUsage(provider, ids[0], { quotaWindows: [{ label: '5H', usedPct: 100, resetAt }] });
+  await recordProviderAccountUsage(provider, ids[0], { quotaWindows: [{ label: '5H', usedPct: 100, resetAt }] });
   const gateway = failing(() => new Error('unreachable'));
   await assert.rejects(gateway.send([], 'm', [], {}), (error) => {
     assert.deepEqual(error.quotaExhausted, { provider, model: 'm', resetAt });

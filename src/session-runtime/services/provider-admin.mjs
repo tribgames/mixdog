@@ -584,7 +584,7 @@ export async function loginOAuthProvider(cfgMod, provider) {
     updateConfigProvider(cfgMod, id, { enabled: true });
     // Same reason as the interactive add-account flow: a fresh credential says
     // nothing about the quota the previous one exhausted.
-    if (ACCOUNT_PROVIDERS.includes(id)) clearProviderAccountQuotaState(id, currentProviderAccountId(id));
+    if (ACCOUNT_PROVIDERS.includes(id)) await clearProviderAccountQuotaState(id, currentProviderAccountId(id));
   }
   return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null };
 }
@@ -621,7 +621,7 @@ function rosterAccountForIdentity(id, oauth, newAccountId, auth) {
   return match?.id || null;
 }
 
-function settleOAuthLogin(
+async function settleOAuthLogin(
   { cfgMod, id, accountId: signedInId, addAccount, includeDefault, label, inAccount, oauth },
   result
 ) {
@@ -635,11 +635,11 @@ function settleOAuthLogin(
       renameSync(providerAccountPath(id, signedInId), providerAccountPath(id, existingId));
       accountId = existingId;
     }
-    registerProviderAccount(id, accountId, { includeDefault, label });
+    await registerProviderAccount(id, accountId, { includeDefault, label });
     // A re-connect can follow a re-created subscription under the same
     // account id: start it from no recorded quota rather than from the
     // exhausted window the previous credential earned.
-    clearProviderAccountQuotaState(id, accountId);
+    await clearProviderAccountQuotaState(id, accountId);
     updateConfigProvider(cfgMod, id, { enabled: true });
   }
   return {
@@ -688,12 +688,20 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   // The callback and a pasted code can both deliver the same sign-in; it must
   // settle once, because settling may move the credential to an existing id.
   let settled = null;
+  let settling = null;
   const finish = async (result) => {
     if (!result || cancelled) return null;
     if (settled) return settled;
-    const outcome = settleOAuthLogin(login, result);
-    if (outcome.authenticated) settled = outcome;
-    return outcome;
+    // Settling is async now: a second delivery arriving mid-write shares it.
+    if (settling) return settling;
+    settling = settleOAuthLogin(login, result);
+    try {
+      const outcome = await settling;
+      if (outcome.authenticated) settled = outcome;
+      return outcome;
+    } finally {
+      settling = null;
+    }
   };
   return {
     provider: id,
@@ -753,17 +761,17 @@ function defaultAccountRows(provider, oauth) {
   return authenticated ? [{ id: 'default', label: 'Account 1' }] : [];
 }
 
-export function updateProviderAccounts(provider, change) {
+export async function updateProviderAccounts(provider, change) {
   const current = listProviderAccounts(provider);
   if (!readProviderAccountPool(provider).accounts.length && current.accounts.length) {
-    registerProviderAccount(provider, 'default', { label: 'Account 1' });
+    await registerProviderAccount(provider, 'default', { label: 'Account 1' });
   }
-  changeProviderAccounts(provider, change);
+  await changeProviderAccounts(provider, change);
   // Picking an account by hand is a decision to use it NOW, so the refusal
   // window and meter stored against it — both describing the state the user
   // just changed — are dropped here. Never in the pool's own fallback commit,
   // where clearing them would send the request back to a spent account.
-  if (change?.selectedId !== undefined) clearProviderAccountQuotaState(provider, change.selectedId);
+  if (change?.selectedId !== undefined) await clearProviderAccountQuotaState(provider, change.selectedId);
   return listProviderAccounts(provider);
 }
 
@@ -1078,7 +1086,7 @@ export async function forgetProviderAuth(cfgModOrProvider, maybeProvider, reques
       throw new TypeError('Account is no longer connected.');
     }
     const result = withProviderAccount(id, accountId, () => oauth.forget());
-    const pool = removeProviderAccount(id, accountId);
+    const pool = await removeProviderAccount(id, accountId);
     if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: pool.accounts.length > 0 });
     return { provider: id, type: 'oauth', forgotten: true, removed: Boolean(result?.removed) };
   }

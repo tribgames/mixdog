@@ -3,7 +3,7 @@ import {
   accountScopedSessionId,
   readProviderAccountPool,
   chooseProviderAccount,
-  changeProviderAccounts,
+  selectProviderAccountIf,
   blockProviderAccount,
   providerAccountExhausted,
   providerAccountsResetAt,
@@ -116,13 +116,11 @@ function boundAccountSend(providerName, row, messages, options) {
   return { opts, history, emitted: () => emitted };
 }
 
-// Commit only a successful fallback, without overwriting a newer selection.
-function commitFallbackAccount(providerName, pool, row) {
-  if (row.id === pool.selectedId) return;
-  const current = readProviderAccountPool(providerName);
-  if (current.selectedId === pool.selectedId && current.accounts.some((entry) => entry.id === row.id)) {
-    return changeProviderAccounts(providerName, { selectedId: row.id });
-  }
+// Commit only a successful fallback, without overwriting a newer selection:
+// the selection is compared under the write's lock, not before it.
+async function commitFallbackAccount(providerName, pool, row) {
+  if (row.id === pool.selectedId) return null;
+  return selectProviderAccountIf(providerName, pool.selectedId, row.id);
 }
 
 // Whether the failed account's quota window is exhausted, plus the server's
@@ -211,7 +209,7 @@ function poolSend(providerName, account) {
         const result = await account(row.id).send(bound.history, model, tools, bound.opts);
         if (result?.providerReplay) result.providerReplay = { ...result.providerReplay, accountId: row.id };
         if (result?.providerState) result.providerState = { ...result.providerState, providerAccountId: row.id };
-        if (commitFallbackAccount(providerName, pool, row)) {
+        if (await commitFallbackAccount(providerName, pool, row)) {
           // Publish only a committed selection, never a speculative retry or
           // one superseded by a manual switch. The existing progress channel
           // carries this across runtime shards to the attached UI.
@@ -244,7 +242,7 @@ function poolSend(providerName, account) {
         const { exhausted, delay, evidence } = await accountQuotaExhausted(providerName, row, model, error, account);
         if (options.signal?.aborted || !exhausted) throw error;
         if (evidence) evidenced.add(row.id);
-        blockProviderAccount(
+        await blockProviderAccount(
           providerName,
           row.id,
           Date.now() + (delay > 0 ? delay : 5 * 60_000),
