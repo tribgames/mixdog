@@ -149,15 +149,30 @@ export function hasMeaningfulSessionTitleText(value) {
  * preview remains untouched because the TUI uses it as a recent-message
  * preview; desktop titles deliberately strip runtime envelopes and payloads.
  */
-export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 100) {
-  let text = String(value ?? '');
-  text = stripSessionReference(stripInjectedDisplayText(stripSessionEnvelope(text), { dropUnterminated: true }))
+// Bounded exact-input memo for the (pure) cleaning stage: the catalog build
+// titles the same preview several times per row.
+const CLEANED_MEMO_LIMIT = 256;
+const cleanedMemo = new Map();
+export const sessionTitleNormalizationStats = { cleaned: 0 };
+
+function cleanSessionTitleText(source) {
+  const hit = cleanedMemo.get(source);
+  if (hit !== undefined) return hit;
+  sessionTitleNormalizationStats.cleaned += 1;
+  const text = stripSessionReference(stripInjectedDisplayText(stripSessionEnvelope(source), { dropUnterminated: true }))
     .replace(/<file\b[^>]*>[\s\S]*?<\/file>/gi, ' ')
     .replace(/\[Pasted text\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
     .replace(MEDIA_DISPLAY_BLOCK, ' ')
     .replace(/^Reference files:\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
+  if (cleanedMemo.size >= CLEANED_MEMO_LIMIT) cleanedMemo.delete(cleanedMemo.keys().next().value);
+  cleanedMemo.set(source, text);
+  return text;
+}
+
+export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 100) {
+  const text = cleanSessionTitleText(String(value ?? ''));
 
   if (!text) return String(fallback);
   const limit = Math.max(16, Number(maxLength) || 100);
