@@ -161,7 +161,9 @@ jobs:
             if [ -z "${!name}" ]; then echo "Missing secret $name" >&2; exit 1; fi
           done
           (umask 077; printf '%s' "$IOS_DIST_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12")
-          python3 -m pip install --quiet --break-system-packages --upgrade pyjwt "cryptography>=42"
+          # No --upgrade: the runner's Homebrew cryptography already satisfies
+          # the floor, and pip cannot uninstall a package Homebrew installed.
+          python3 -m pip install --quiet --break-system-packages pyjwt "cryptography>=42"
 
       - name: Check distribution certificate expiry
         env:
