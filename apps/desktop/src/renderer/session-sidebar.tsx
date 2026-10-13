@@ -350,10 +350,8 @@ function useProjectGroups({
     // A session already on screen (e.g. clicked in Recent) needs no reveal;
     // opening a folder above it would shift the row out from under the pointer.
     const shown = [
-      ...document.querySelectorAll<HTMLElement>(
-        `.session-sidebar-sessions .session-row[data-session-id="${CSS.escape(selectedSessionId)}"]`
-      ),
-    ].some((row) => row.getClientRects().length > 0);
+      ...document.querySelectorAll<HTMLElement>('.session-sidebar-sessions .session-row[data-session-id]'),
+    ].some((row) => row.dataset.sessionId === selectedSessionId && row.getClientRects().length > 0);
     if (shown) return;
     updateProjectOpen((current) => withOpen(current, group.key, true));
   }, [activityProjectGroups, selectedSessionId, updateProjectOpen]);
