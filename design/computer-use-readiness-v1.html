@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>화면 조작 준비 v1 · 번거롭지 않은 권한 안내</title>
+<style>
+  /* App tokens (same as remote-connection-settings-v8). */
+  :root {
+    --band: #18181b; --base: #222225; --layer: #2a2a2d;
+    --text: #e9e9e9; --muted: #a8a8a8; --faint: #77777c;
+    --border: rgba(255,255,255,.125); --border-muted: rgba(255,255,255,.09); --hover: rgba(255,255,255,.08);
+    --accent: #79b8ff; --danger: #f17471; --ok: #6fcf8e; --warn: #e8c46a;
+    --r-md: 6px; --r-lg: 10px; --r-xl: 12px;
+    --f-meta: 13px; --f-ui: 14px; --f-body: 15px;
+    --shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 48px 32px 96px; background: #0f0f11; color: var(--text);
+    font: var(--f-ui)/20px "Pretendard", "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* ---------- gallery chrome ---------- */
+  .doc { max-width: 1520px; margin: 0 auto; }
+  .doc h1 { font-size: 22px; line-height: 28px; margin: 0 0 8px; }
+  .doc > p { color: var(--muted); margin: 0 0 24px; max-width: 900px; }
+  .spec { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border-muted); border: 1px solid var(--border-muted); border-radius: var(--r-lg); overflow: hidden; margin: 0 0 56px; }
+  .spec div { background: #151517; padding: 16px; font-size: var(--f-meta); color: var(--muted); line-height: 20px; }
+  .spec b { display: block; color: var(--text); font-weight: 600; margin-bottom: 4px; }
+  .spec code, .doc code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .doc h2 { font-size: 16px; line-height: 24px; margin: 0 0 4px; }
+  .doc h2 + p { color: var(--muted); margin: 0 0 16px; max-width: 900px; }
+  .section { margin: 0 0 56px; }
+  .frames { display: grid; grid-template-columns: repeat(auto-fill, 496px); gap: 16px; }
+  .frames.wide { grid-template-columns: repeat(auto-fill, 736px); }
+  .frame { display: grid; grid-template-rows: 24px 1fr; gap: 8px; }
+  .frame > span { font-size: 12px; color: var(--faint); font-family: var(--mono); }
+  .frame > span b { color: var(--muted); font-weight: 500; margin-left: 8px; font-family: "Pretendard", "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  .stage { background: #0a0a0b; border-radius: var(--r-xl); padding: 8px; display: grid; align-items: start; justify-items: center; }
+  .note { margin: 8px 4px 0; font-size: 12px; line-height: 18px; color: var(--faint); }
+
+  /* ---------- components ---------- */
+  .btn { height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-md); background: var(--hover); color: var(--text);
+    font: 600 var(--f-meta)/32px inherit; font-family: inherit; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .btn.primary { background: var(--text); color: #18181b; }
+  .btn.ghost { background: transparent; color: var(--muted); }
+  .btn.sm { height: 28px; line-height: 28px; padding: 0 10px; }
+  .link { color: var(--accent); font-size: var(--f-meta); font-weight: 500; }
+  .muted { color: var(--muted); }
+
+  .dlg { width: 480px; background: var(--base); border-radius: var(--r-xl); box-shadow: var(--shadow), inset 0 0 0 1px var(--border-muted); padding: 24px; display: grid; gap: 20px; }
+  .dlg header h3 { margin: 0; font-size: var(--f-body); line-height: 24px; font-weight: 600; }
+  .dlg header p { margin: 4px 0 0; color: var(--muted); font-size: var(--f-meta); line-height: 20px; }
+  .dlg footer { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .dlg footer .grow { flex: 1; }
+
+  /* Capability checklist: one row per thing the agent can do, not per OS permission. */
+  .caps { display: grid; border-radius: var(--r-lg); box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .cap { display: grid; grid-template-columns: 20px 1fr auto; gap: 12px; align-items: center; min-height: 52px; padding: 8px 12px 8px 14px; }
+  .cap + .cap { box-shadow: inset 0 1px 0 var(--border-muted); }
+  .cap b { display: block; font-size: var(--f-ui); font-weight: 600; line-height: 20px; }
+  .cap small { display: block; font-size: 12px; color: var(--muted); line-height: 18px; }
+  .st { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
+  .st svg { width: 12px; height: 12px; stroke-width: 2.2; }
+  .st.ok { background: rgba(111,207,142,.16); color: var(--ok); }
+  .st.need { background: rgba(232,196,106,.16); color: var(--warn); }
+  .st.na { background: var(--hover); color: var(--faint); }
+  .st.spin { border: 1.5px solid var(--hover); border-top-color: var(--text); animation: rot .9s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .opt { font-size: 11px; color: var(--faint); font-weight: 500; margin-left: 6px; }
+
+  details.more { font-size: 12px; color: var(--muted); line-height: 18px; }
+  details.more summary { cursor: default; color: var(--muted); list-style: none; font-size: var(--f-meta); }
+  details.more summary::before { content: "›"; display: inline-block; width: 12px; transform: rotate(90deg); color: var(--faint); }
+  details.more div { margin-top: 8px; padding: 10px 12px; border-radius: var(--r-md); background: var(--band); box-shadow: inset 0 0 0 1px var(--border-muted); }
+  details.more code { font-size: 11px; }
+  .sec { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 18px; color: var(--muted); }
+  .sec svg { width: 14px; height: 14px; margin-top: 2px; color: var(--faint); }
+
+  /* Settings page */
+  .win { width: 960px; display: grid; grid-template-columns: 240px 1fr; border-radius: var(--r-xl); overflow: hidden; background: var(--base); box-shadow: var(--shadow), inset 0 0 0 1px var(--border-muted); position: relative; }
+  .rail { background: var(--band); border-right: 1px solid var(--border-muted); padding: 16px; display: grid; align-content: start; gap: 4px; }
+  .rail span { height: 32px; display: flex; align-items: center; padding: 0 10px; border-radius: var(--r-md); color: var(--muted); }
+  .rail span.on { background: var(--hover); color: var(--text); font-weight: 600; }
+  .main { display: grid; grid-template-rows: 64px 1fr; min-width: 0; }
+  .hdr { display: flex; align-items: center; justify-content: space-between; padding: 0 20px 0 40px; }
+  .hdr b { font-size: 20px; line-height: 28px; }
+  .content { padding: 8px 40px 32px; display: grid; align-content: start; gap: 12px; }
+  .list { border-radius: var(--r-xl); box-shadow: inset 0 0 0 1px var(--border-muted); }
+  .row { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; align-items: center; min-height: 64px; padding: 10px 12px 10px 16px; }
+  .row + .row { box-shadow: inset 0 1px 0 var(--border-muted); }
+  .row b { font-size: var(--f-ui); font-weight: 600; line-height: 20px; }
+  .row .m { color: var(--muted); font-size: var(--f-meta); line-height: 20px; }
+  .row .acts { display: flex; gap: 8px; align-items: center; }
+  .tile { width: 32px; height: 32px; border-radius: var(--r-md); background: var(--layer); box-shadow: inset 0 0 0 1px var(--border-muted); display: grid; place-items: center; color: var(--muted); }
+  .pill { font-size: 12px; font-weight: 500; margin-left: 8px; }
+  .pill.ok { color: var(--ok); } .pill.need { color: var(--warn); } .pill.na { color: var(--faint); }
+  .sw { width: 36px; height: 20px; border-radius: 10px; background: var(--hover); box-shadow: inset 0 0 0 1px var(--border); position: relative; display: inline-block; }
+  .sw i { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+  .sw.on { background: #4f7cdf; box-shadow: none; } .sw.on i { left: 19px; background: #fff; }
+
+  /* Chat transcript card */
+  .chat { width: 720px; background: var(--base); border-radius: var(--r-xl); box-shadow: inset 0 0 0 1px var(--border-muted); padding: 20px 24px; display: grid; gap: 14px; }
+  .msg-u { justify-self: end; max-width: 70%; background: var(--layer); padding: 8px 12px; border-radius: 12px; }
+  .msg-a { color: var(--text); }
+  .tool { display: flex; align-items: center; gap: 8px; font-size: var(--f-meta); color: var(--muted); }
+  .tool .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+  .card { border-radius: var(--r-lg); background: var(--band); box-shadow: inset 0 0 0 1px var(--border-muted); padding: 16px; display: grid; gap: 12px; }
+  .card h4 { margin: 0; font-size: var(--f-ui); font-weight: 600; line-height: 20px; display: flex; align-items: center; gap: 10px; }
+  .card p { margin: 0; color: var(--muted); font-size: var(--f-meta); line-height: 20px; }
+  .card .acts { display: flex; gap: 8px; align-items: center; }
+  .card .acts .grow { flex: 1; }
+  .card.ok { box-shadow: inset 0 0 0 1px rgba(111,207,142,.35); }
+  .can { display: flex; flex-wrap: wrap; gap: 6px; }
+  .can span { height: 24px; padding: 0 8px; border-radius: 12px; background: var(--hover); font-size: 12px; line-height: 24px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .can span svg { width: 12px; height: 12px; color: var(--ok); stroke-width: 2.2; }
+
+  /* GNOME system dialogs (drawn approximately, Adwaita dark) */
+  .gn { width: 420px; background: #303030; border-radius: 14px; box-shadow: 0 16px 40px rgb(0 0 0 / 45%), inset 0 0 0 1px rgba(255,255,255,.08); padding: 24px 24px 20px; display: grid; gap: 14px; color: #fff; font-family: "Cantarell", "Pretendard", system-ui, sans-serif; }
+  .gn h5 { margin: 0; font-size: 17px; text-align: center; font-weight: 700; }
+  .gn p { margin: 0; font-size: 13px; line-height: 19px; color: #d6d6d6; text-align: center; }
+  .gn .opt-row { display: flex; align-items: center; justify-content: space-between; background: #3a3a3a; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  .gn .in { height: 36px; border-radius: 8px; background: #252525; box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); display: flex; align-items: center; padding: 0 12px; color: #bbb; letter-spacing: .2em; }
+  .gn .bt { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .gn .bt span { height: 36px; border-radius: 8px; background: #464646; display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+  .gn .bt span.blue { background: #3584e4; }
+  .gn .who { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: #d6d6d6; }
+
+  .flow { display: flex; align-items: center; gap: 12px; }
+  .flow .arr { color: var(--faint); font-size: 20px; }
+  table.cmp { border-collapse: collapse; width: 100%; max-width: 1200px; font-size: var(--f-meta); }
+  table.cmp th, table.cmp td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border-muted); vertical-align: top; line-height: 20px; }
+  table.cmp th { color: var(--muted); font-weight: 600; }
+  table.cmp td b { font-weight: 600; }
+  .ref { font-size: 12px; color: var(--faint); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="dot" viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.01"/></symbol>
+  <symbol id="minus" viewBox="0 0 24 24"><path d="M7 12h10"/></symbol>
+  <symbol id="cursor" viewBox="0 0 24 24"><path d="M5 3l14 7-6 2-2 6z"/></symbol>
+  <symbol id="eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></symbol>
+  <symbol id="win" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="puzzle" viewBox="0 0 24 24"><path d="M9 4h4v3a2 2 0 1 0 4 0V4h3v6h-3a2 2 0 1 0 0 4h3v6h-6v-3a2 2 0 1 0-4 0v3H4v-6h3a2 2 0 1 0 0-4H4V4z"/></symbol>
+</svg>
+
+<div class="doc">
+<h1>화면 조작 준비 v1 · 번거롭지 않은 권한 안내</h1>
+<p>원칙은 "필요할 때만, 한 번만, 버튼 하나로"입니다. 준비가 다 돼 있으면 아무것도 보이지 않고, 처음 실제로 필요한 순간에 대화 안에서 카드 하나로 묻습니다. 앱이 대신 고칠 수 있는 건 버튼 하나로 끝내고, 돌아오면 저절로 다시 확인해 하던 작업을 이어 갑니다. 아래 화면은 Ubuntu 24.04 GNOME(Wayland)을 기준으로 그렸고, 같은 틀을 맥·윈도우에도 씁니다.</p>
+
+<div class="spec">
+  <div><b>언제 묻나</b>앱 시작·설정 열 때 묻지 않음. 에이전트가 <b style="display:inline">처음 실제로 필요한 동작</b>을 할 때 한 번.<br><span class="ref">Claude Code · oh-my-pi · Cherry Studio</span></div>
+  <div><b>무엇을 보여 주나</b>운영체제 권한 이름이 아니라 <b style="display:inline">할 수 있는 일</b> 단위(보기·읽기·창 전환·마우스/키보드). 초록 배지 하나로 뭉뚱그리지 않음.<br><span class="ref">cua · Hermes</span></div>
+  <div><b>어떻게 고치나</b>항상 다음 행동 <b style="display:inline">한 개</b>. 명령어는 "자세히" 안에만. 확인만 할 때는 절대 시스템 창을 띄우지 않음.<br><span class="ref">cua(읽기 전용 상태) · Hermes</span></div>
+  <div><b>그다음</b>돌아오면 1.5초 간격으로 저절로 재확인(설정 진행 중일 때만). 준비되면 카드가 바뀌고 작업을 이어 감. "나중에"는 이번 작업 동안 기억.<br><span class="ref">Hermes(1.5초 폴링) · Claude Code(다시 시도)</span></div>
+</div>
+
+<!-- ================= 1. CHAT FIRST USE ================= -->
+<div class="section">
+<h2>1. 처음 필요할 때 · 대화 안 카드</h2>
+<p>에이전트가 클릭을 하려는데 마우스·키보드 권한이 없을 때입니다. 작업을 막지 않고, <b>지금 할 수 있는 일은 먼저 계속</b>하면서 빠진 것 하나만 묻습니다. 기술 용어(<code>/dev/uinput</code> 등)는 "자세히" 안에만 둡니다.</p>
+<div class="frames wide">
+  <div class="frame"><span>C1<b>마우스·키보드가 필요할 때</b></span><div class="stage"><div class="chat">
+    <div class="msg-u">설정 앱에서 다크 모드 켜 줘</div>
+    <div class="tool"><span class="dot"></span>화면 보기 · 설정 창 찾음</div>
+    <div class="card">
+      <h4><span class="st need"><svg class="i"><use href="#cursor"/></svg></span>마우스와 키보드를 쓰려면 한 번 허용이 필요해요</h4>
+      <p>버튼을 대신 누르려면 이 PC에서 Mixdog의 입력을 허용해야 해요. 한 번만 하면 다음부터는 묻지 않아요.</p>
+      <div class="can"><span><svg class="i"><use href="#check"/></svg>화면 보기</span><span><svg class="i"><use href="#check"/></svg>창 내용 읽기</span><span><svg class="i"><use href="#check"/></svg>버튼 누르기(지원하는 앱)</span></div>
+      <div class="acts"><span class="btn primary">허용</span><span class="btn ghost">나중에</span><span class="grow"></span>
+        <details class="more"><summary>자세히</summary></details></div>
+    </div>
+    <div class="msg-a muted" style="font-size:13px">그동안 설정 창의 "다크" 버튼을 접근성 기능으로 눌러 볼게요…</div>
+  </div></div>
+  <p class="note">창 도우미가 이미 설치된 PC 기준입니다. "나중에"를 누르면 이번 작업 동안 다시 묻지 않고, 에이전트는 할 수 있는 방법(창 내용 읽기·버튼 누르기)으로만 진행합니다. 막 설치한 Ubuntu처럼 둘 다 없으면 카드 하나에 "준비하기" 버튼 하나만 두고, 누르면 도우미 설치 → 입력 허용을 차례로 진행합니다.</p></div>
+
+  <div class="frame"><span>C2<b>허용 후 · 저절로 재확인</b></span><div class="stage"><div class="chat">
+    <div class="card ok">
+      <h4><span class="st ok"><svg class="i"><use href="#check"/></svg></span>준비됐어요. 이어서 진행할게요</h4>
+      <p>마우스와 키보드를 쓸 수 있어요. 다시 묻지 않아요.</p>
+    </div>
+    <div class="tool"><span class="dot"></span>클릭 · 설정 → 모양 → 다크</div>
+    <div class="msg-a">다크 모드를 켰어요.</div>
+  </div></div>
+  <p class="note">"다시 확인" 버튼은 없습니다. 허용 창을 닫고 돌아오면 앱이 스스로 확인해서 카드가 바뀌고, 멈췄던 동작부터 이어 갑니다(확인 실패가 계속되면 그때만 "다시 확인" 링크가 나타남).</p></div>
+</div>
+</div>
+
+<!-- ================= 2. LINUX ALLOW FLOW ================= -->
+<div class="section">
+<h2>2. "허용"을 누르면 · 리눅스 두 가지 방법</h2>
+<p>어느 쪽이든 사용자가 하는 일은 시스템 창에서 한 번 누르거나 암호 한 번 넣는 것뿐입니다. <b>A안이 더 쉽지만 새로 만들어야 하고</b>, B안은 지금 구조에 바로 붙일 수 있습니다.</p>
+<div class="frames">
+  <div class="frame"><span>L-A<b>A안 · GNOME 원격 제어 허용 (암호 없음, 추천)</b></span><div class="stage" style="padding:24px 8px">
+    <div class="gn">
+      <h5>원격 데스크톱</h5>
+      <p><b>Mixdog</b>이(가) 이 컴퓨터를 제어하려고 합니다.</p>
+      <div class="opt-row"><span>포인터와 키보드</span><span class="sw on"><i></i></span></div>
+      <div class="opt-row"><span>다음에도 묻지 않기</span><span class="sw on"><i></i></span></div>
+      <div class="bt"><span>거부</span><span class="blue">공유</span></div>
+    </div></div>
+    <p class="note">GNOME·KDE 기본 허용 창(xdg-desktop-portal RemoteDesktop)입니다. 관리자 권한·그룹 추가·재로그인이 필요 없고, 허용 기억(restore token)으로 다음부터 묻지 않습니다. 대신 화면 조작 프로그램에 이 방식을 새로 넣어야 합니다(현재는 미사용).</p></div>
+
+  <div class="frame"><span>L-B<b>B안 · 관리자 암호 한 번</b></span><div class="stage" style="padding:24px 8px">
+    <div class="gn">
+      <div class="who"><svg class="i"><use href="#lock"/></svg>인증이 필요합니다</div>
+      <p><b>Mixdog</b>이 이 PC에서 마우스·키보드를 대신 쓰도록 허용하려면 암호를 입력하세요.</p>
+      <div class="in">••••••••</div>
+      <div class="bt"><span>취소</span><span class="blue">인증</span></div>
+    </div></div>
+    <p class="note">Mixdog 전용 그룹으로 입력 장치만 열고(키 입력을 엿볼 수 있는 <code>input</code> 그룹은 쓰지 않음), 이번 로그인에서도 바로 쓰이게 합니다. 지금 화면 조작 프로그램 그대로 쓸 수 있습니다.</p></div>
+</div>
+</div>
+
+<!-- ================= 3. WINDOW HELPER ================= -->
+<div class="section">
+<h2>3. 창 전환 도우미가 필요할 때 (GNOME만)</h2>
+<p>GNOME은 다른 앱의 창 목록·전환을 기본으로 열어 주지 않아서 작은 확장이 필요합니다. Mixdog 안에 넣어 두고 버튼 하나로 설치합니다. 설치는 GNOME이 직접 확인을 받습니다.</p>
+<div class="frames">
+  <div class="frame"><span>W1<b>대화 안 카드</b></span><div class="stage"><div class="chat" style="width:480px">
+    <div class="card">
+      <h4><span class="st need"><svg class="i"><use href="#win"/></svg></span>다른 앱의 창을 다루려면 도우미가 필요해요</h4>
+      <p>GNOME에서 창을 찾고, 내용을 읽고, 바꾸는 작은 확장을 설치해요. 설치 후 한 번 로그아웃하면 적용돼요.</p>
+      <div class="acts"><span class="btn primary">설치</span><span class="btn ghost">나중에</span></div>
+    </div>
+  </div></div></div>
+
+  <div class="frame"><span>W2<b>설치 후 · 다음 로그인부터</b></span><div class="stage"><div class="chat" style="width:480px">
+    <div class="card">
+      <h4><span class="st need"><svg class="i"><use href="#win"/></svg></span>설치했어요. 다음 로그인부터 쓸 수 있어요</h4>
+      <p>그때까지는 화면을 보면서 할 수 있는 일만 할게요. 나중에 로그아웃했다가 다시 로그인하면 저절로 켜져요.</p>
+      <div class="acts"><span class="btn">지금 로그아웃</span><span class="btn ghost">나중에</span></div>
+    </div>
+  </div></div>
+  <p class="note">GNOME은 새 확장을 다음 로그인 때 읽습니다. "지금 로그아웃"은 저장 안 한 작업이 있을 수 있어 기본 버튼으로 두지 않습니다.</p></div>
+</div>
+</div>
+
+<!-- ================= 4. SETTINGS ================= -->
+<div class="section">
+<h2>4. 설정 → 기본 기능 · 평소에는 한 줄</h2>
+<p>준비가 다 되면 "준비됨" 한 줄뿐입니다. 빠진 게 있을 때만 몇 개인지 보여 주고, 누르면 할 수 있는 일 목록이 열립니다.</p>
+<div class="win">
+  <nav class="rail"><span>일반</span><span>컨텍스트</span><span>프로바이더</span><span class="on">기본 기능</span><span>시스템</span><span>연결</span><span>정보</span></nav>
+  <div class="main"><div class="hdr"><b>기본 기능</b><span class="muted">✕</span></div>
+    <div class="content">
+      <div class="list">
+        <div class="row"><span class="tile"><svg class="i"><use href="#cursor"/></svg></span><div><b>화면 조작</b><span class="pill ok">준비됨</span><div class="m">에이전트가 화면을 보고 클릭·입력해요</div></div><div class="acts"><span class="sw on"><i></i></span></div></div>
+        <div class="row"><span class="tile"><svg class="i"><use href="#cursor"/></svg></span><div><b>화면 조작</b><span class="pill need">허용 1개 남음</span><div class="m">보기·읽기는 돼요 · 마우스와 키보드는 허용이 필요해요</div></div><div class="acts"><span class="btn sm">허용</span><span class="sw on"><i></i></span></div></div>
+        <div class="row"><span class="tile"><svg class="i"><use href="#cursor"/></svg></span><div><b>화면 조작</b><span class="pill na">일부만 지원</span><div class="m">이 데스크톱(KDE)에서는 화면 보기와 마우스·키보드만 돼요</div></div><div class="acts"><span class="link">자세히</span><span class="sw on"><i></i></span></div></div>
+      </div>
+      <p class="note">세 줄은 같은 항목의 세 가지 상태입니다(실제로는 하나만 보임).</p>
+    </div></div>
+</div>
+</div>
+
+<!-- ================= 5. DETAIL ================= -->
+<div class="section">
+<h2>5. 자세히 · 할 수 있는 일 목록</h2>
+<p>설정 줄이나 대화 카드의 "자세히"를 누르면 열립니다. 운영체제 권한 이름 대신 에이전트가 할 수 있는 일 단위로 보여 주고, 줄마다 다음 행동은 하나뿐입니다. 선택 기능은 "선택"으로 표시해서 빠져도 경고처럼 보이지 않게 합니다.</p>
+<div class="frames">
+  <div class="frame"><span>D1<b>Ubuntu GNOME · 준비 중</b></span><div class="stage"><div class="dlg">
+    <header><h3>화면 조작</h3><p>에이전트가 이 PC에서 할 수 있는 일이에요.</p></header>
+    <div class="caps">
+      <div class="cap"><span class="st ok"><svg class="i"><use href="#check"/></svg></span><div><b>화면 보기</b><small>스크린샷으로 화면을 확인해요</small></div><span></span></div>
+      <div class="cap"><span class="st need"><svg class="i"><use href="#dot"/></svg></span><div><b>창 찾기·내용 읽기·버튼 누르기</b><small>GNOME 도우미 설치 후 다음 로그인부터</small></div><span class="btn sm">설치</span></div>
+      <div class="cap"><span class="st need"><svg class="i"><use href="#dot"/></svg></span><div><b>마우스와 키보드</b><small>한 번 허용하면 돼요</small></div><span class="btn sm">허용</span></div>
+      <div class="cap"><span class="st na"><svg class="i"><use href="#minus"/></svg></span><div><b>복사·붙여넣기, 글자 인식<span class="opt">선택</span></b><small>없어도 대부분의 작업은 돼요</small></div><span class="btn sm">설치</span></div>
+    </div>
+    <div class="sec"><svg class="i"><use href="#shield"/></svg><span>허용하면 Mixdog이 실제 마우스와 키보드를 움직일 수 있어요. 작업 중에는 화면 가장자리에 표시가 나오고, <b>Ctrl+Alt+Esc</b>로 언제든 멈출 수 있어요.</span></div>
+    <details class="more"><summary>문제 해결 정보</summary></details>
+    <footer><span class="grow"></span><span class="btn">닫기</span></footer>
+  </div></div></div>
+
+  <div class="frame"><span>D2<b>문제 해결 정보를 펼쳤을 때</b></span><div class="stage"><div class="dlg">
+    <header><h3>화면 조작</h3><p>에이전트가 이 PC에서 할 수 있는 일이에요.</p></header>
+    <div class="caps">
+      <div class="cap"><span class="st spin"></span><div><b>마우스와 키보드</b><small>확인 중…</small></div><span></span></div>
+    </div>
+    <details class="more" open><summary>문제 해결 정보</summary><div>
+      세션 <code>Wayland · GNOME 46</code><br>
+      입력 장치 <code>/dev/uinput</code> 쓰기 불가 (root:root 0600)<br>
+      창 제어 도우미 <code>미설치</code> · 접근성 <code>사용 가능</code><br>
+      클립보드 <code>wl-clipboard 없음</code> · 글자 인식 <code>tesseract 없음</code><br>
+      <span class="link">정보 복사</span> · <span class="link">직접 설정하는 방법</span>
+    </div></details>
+    <footer><span class="grow"></span><span class="btn">닫기</span></footer>
+  </div></div>
+  <p class="note">개발자나 지원 요청용입니다. 일반 사용자는 펼칠 일이 없게, 기본은 접혀 있습니다.</p></div>
+
+  <div class="frame"><span>D3<b>macOS · 같은 틀</b></span><div class="stage"><div class="dlg">
+    <header><h3>화면 조작</h3><p>에이전트가 이 Mac에서 할 수 있는 일이에요.</p></header>
+    <div class="caps">
+      <div class="cap"><span class="st need"><svg class="i"><use href="#dot"/></svg></span><div><b>화면 보기</b><small>시스템 설정 → 화면 기록에서 Mixdog을 켜 주세요</small></div><span class="btn sm">설정 열기</span></div>
+      <div class="cap"><span class="st ok"><svg class="i"><use href="#check"/></svg></span><div><b>창 내용 읽기·마우스와 키보드</b><small>손쉬운 사용 허용됨</small></div><span></span></div>
+    </div>
+    <div class="sec"><svg class="i"><use href="#eye"/></svg><span>화면 기록을 켠 뒤에는 macOS가 Mixdog을 다시 시작하라고 할 수 있어요. 작업은 다시 시작 후 이어서 할게요.</span></div>
+    <footer><span class="grow"></span><span class="btn">닫기</span></footer>
+  </div></div></div>
+
+  <div class="frame"><span>D4<b>KDE · 아직 일부만</b></span><div class="stage"><div class="dlg">
+    <header><h3>화면 조작</h3><p>에이전트가 이 PC에서 할 수 있는 일이에요.</p></header>
+    <div class="caps">
+      <div class="cap"><span class="st ok"><svg class="i"><use href="#check"/></svg></span><div><b>화면 보기</b><small>스크린샷으로 화면을 확인해요</small></div><span></span></div>
+      <div class="cap"><span class="st need"><svg class="i"><use href="#dot"/></svg></span><div><b>마우스와 키보드</b><small>한 번 허용하면 돼요</small></div><span class="btn sm">허용</span></div>
+      <div class="cap"><span class="st na"><svg class="i"><use href="#minus"/></svg></span><div><b>창 내용 읽기·창 전환</b><small>KDE에서는 아직 지원하지 않아요</small></div><span></span></div>
+    </div>
+    <footer><span class="grow"></span><span class="btn">닫기</span></footer>
+  </div></div>
+  <p class="note">못 하는 건 못 한다고 그대로 알립니다. "리눅스는 권한이 필요 없어요" 같은 일반화는 쓰지 않습니다.</p></div>
+</div>
+</div>
+
+<!-- ================= 6. DECISIONS ================= -->
+<div class="section">
+<h2>6. 정해 주실 것</h2>
+<p>시안을 실제로 붙이려면 아래 두 가지를 정해야 합니다.</p>
+<table class="cmp">
+  <tr><th style="width:180px">항목</th><th>A</th><th>B</th><th style="width:220px">추천</th></tr>
+  <tr><td><b>리눅스 마우스·키보드 허용</b></td><td><b>GNOME 원격 제어 허용 창</b><br>암호·재로그인 없음, "공유" 한 번. 다음부터 안 물음. GNOME·KDE 공통. 화면 조작 프로그램에 새 입력 방식 추가 필요(가장 큰 작업).</td><td><b>관리자 암호 한 번</b><br>지금 구조 그대로. 전용 그룹으로 입력 장치만 열어 안전. 암호를 모르는 사용자에겐 막힘.</td><td>A를 기본, A가 안 되는 데스크톱만 B</td></tr>
+  <tr><td><b>창 전환 도우미</b></td><td><b>Mixdog에 넣어 두고 버튼으로 설치</b><br>오프라인에서도 됨. GNOME 버전마다 새 도우미를 같이 배포해야 함.</td><td><b>GNOME 확장 사이트에서 설치</b><br>GNOME이 확인 창을 띄움. 인터넷 필요, 배포 부담 없음.</td><td>B (유지 부담이 적음)</td></tr>
+</table>
+<p class="note" style="max-width:1200px">함께 고칠 것(시안과 별개): 지금 준비 확인은 마우스·키보드가 없으면 창 읽기·버튼 누르기처럼 권한이 필요 없는 동작까지 막고, KDE에서는 스크린샷까지 막습니다. 할 수 있는 일 단위로 따로 판단하도록 바꿔야 1번 화면처럼 "되는 건 먼저" 할 수 있습니다.</p>
+</div>
+
+</div>
+</body>
+</html>

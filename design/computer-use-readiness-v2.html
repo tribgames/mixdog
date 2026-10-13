@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컴퓨터 유즈 준비 상태 v2 · 실제 화면 기준</title>
+<style>
+  body { margin: 0; padding: 48px 32px 96px; background: #0f0f11; color: #e9e9e9;
+    font: 14px/20px "Pretendard", "Segoe UI", "Malgun Gothic", system-ui, sans-serif; }
+  .doc { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 22px; line-height: 28px; margin: 0 0 8px; }
+  .doc > p { color: #a8a8a8; margin: 0 0 24px; max-width: 920px; }
+  .spec { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.09); border-radius: 10px; overflow: hidden; margin: 0 0 48px; }
+  .spec div { background: #151517; padding: 16px; font-size: 13px; color: #a8a8a8; }
+  .spec b { display: block; color: #e9e9e9; font-weight: 600; margin-bottom: 4px; }
+  h2 { font-size: 16px; line-height: 24px; margin: 0 0 4px; }
+  h2 + p { color: #a8a8a8; margin: 0 0 16px; max-width: 920px; }
+  .section { margin: 0 0 56px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, 656px); gap: 24px; }
+  figure { margin: 0; display: grid; gap: 8px; }
+  figure img { display: block; border-radius: 12px; box-shadow: 0 0 0 1px rgba(255,255,255,.08); background: #18181b; padding: 8px; }
+  figcaption { font-size: 13px; color: #a8a8a8; max-width: 640px; }
+  figcaption b { color: #e9e9e9; font-weight: 600; margin-right: 6px; }
+  code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; color: #e9e9e9; }
+  table { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.09); vertical-align: top; }
+  th { color: #a8a8a8; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="doc">
+<h1>컴퓨터 유즈 준비 상태 v2 · 실제 화면 기준</h1>
+<p>개발용 앱의 실제 화면(익스텐션 → 빌트인 → 컴퓨터 유즈)에 새 부분만 끼워 넣고 찍었습니다. 모양·간격·글자는 모두 앱의 실제 부품(<code>ExtensionSection</code>, <code>ExtensionItemRow</code>, <code>extensions-action</code>, <code>sidebar-resource-tag</code>)과 같습니다. 문구는 합니다체입니다.</p>
+
+<div class="spec">
+  <div><b>설치할 때</b><code>.deb</code>는 마우스·키보드 입력 허용과 복사·붙여넣기·글자 인식 도구를 설치 단계에서 끝냅니다. 사용자가 할 일 없음.</div>
+  <div><b>평소</b>준비가 끝나면 "준비 상태" 부분이 없습니다. 지금 화면 그대로입니다.</div>
+  <div><b>남은 게 있을 때</b>상세 창 맨 위에 "준비 상태"가 생기고, 줄마다 버튼 하나. 목록에는 "준비 필요" 태그.</div>
+  <div><b>처음 쓸 때</b>대화 안 카드 하나로 한 번만 묻고, 준비되면 저절로 이어서 진행합니다.</div>
+</div>
+
+<div class="section">
+<h2>1. 상세 창 · Ubuntu (.deb)</h2>
+<p>설치 단계에서 입력 허용이 끝나 있으므로, 남는 건 GNOME 창 도우미 하나뿐입니다.</p>
+<div class="grid">
+  <figure><img src="computer-use-readiness-v2-screens/d0-linux-ready.png" width="640"><figcaption><b>D0 준비 완료</b>지금 화면과 같습니다. "준비 상태"가 보이지 않습니다.</figcaption></figure>
+  <figure><img src="computer-use-readiness-v2-screens/d1-deb-helper.png" width="640"><figcaption><b>D1 창 도우미만 남음</b>[설치]를 누르면 GNOME이 확장 설치 확인 창을 띄웁니다.</figcaption></figure>
+  <figure><img src="computer-use-readiness-v2-screens/d2-deb-relogin.png" width="640"><figcaption><b>D2 설치 후</b>GNOME은 새 확장을 다음 로그인 때 읽습니다. 강제로 로그아웃시키지 않고 안내만 합니다.</figcaption></figure>
+</div>
+</div>
+
+<div class="section">
+<h2>2. 상세 창 · 다른 경우</h2>
+<p>같은 틀에서 줄만 달라집니다. 못 하는 건 못 한다고 그대로 씁니다.</p>
+<div class="grid">
+  <figure><img src="computer-use-readiness-v2-screens/d3-appimage.png" width="640"><figcaption><b>D3 AppImage</b>설치 단계가 없어 입력 허용(관리자 암호 한 번)과 창 도우미가 남습니다. 복사·붙여넣기는 "선택"이라 경고 색이 아닙니다.</figcaption></figure>
+  <figure><img src="computer-use-readiness-v2-screens/d4-kde.png" width="640"><figcaption><b>D4 KDE</b>창 읽기·전환은 아직 지원하지 않는다고 알립니다. 버튼 없음.</figcaption></figure>
+  <figure><img src="computer-use-readiness-v2-screens/d5-mac.png" width="640"><figcaption><b>D5 macOS</b>같은 틀로 화면 기록 허용만 안내하고, [설정 열기]로 바로 이동합니다.</figcaption></figure>
+</div>
+</div>
+
+<div class="section">
+<h2>3. 목록 · 대화</h2>
+<p>목록 태그는 지금 "설치되지 않음"이 붙는 자리와 같은 부품입니다. 대화 카드는 처음 실제로 필요할 때 한 번만 나옵니다.</p>
+<div class="grid">
+  <figure><img src="computer-use-readiness-v2-screens/r1-rail-tag.png" width="234"><figcaption><b>R1 빌트인 목록</b>준비가 남아 있을 때만 "준비 필요" 태그가 붙습니다.</figcaption></figure>
+  <figure><img src="computer-use-readiness-v2-screens/c1-chat-helper.png" width="640"><figcaption><b>C1 처음 필요할 때</b>작업을 막지 않고 할 수 있는 방법으로 계속하면서 [설치] / [나중에]만 묻습니다. "나중에"는 이번 작업 동안 기억합니다.</figcaption></figure>
+  <figure><img src="computer-use-readiness-v2-screens/c2-chat-ready.png" width="640"><figcaption><b>C2 준비된 뒤</b>앱이 저절로 다시 확인해 카드가 바뀌고, 멈췄던 동작부터 이어 갑니다. "다시 확인" 버튼은 없습니다.</figcaption></figure>
+</div>
+</div>
+
+<div class="section">
+<h2>4. 문구</h2>
+<table>
+  <tr><th style="width:200px">자리</th><th>문구</th></tr>
+  <tr><td>준비 상태 설명</td><td>아직 준비되지 않은 항목입니다. 준비가 끝나면 이 부분은 사라집니다.</td></tr>
+  <tr><td>창 도우미</td><td>다른 앱의 창을 찾고, 내용을 읽고, 전환합니다. 설치 후 다시 로그인하면 켜집니다.</td></tr>
+  <tr><td>창 도우미 · 설치 후</td><td>설치했습니다. 로그아웃 후 다시 로그인하면 켜집니다. 그때까지는 화면 보기와 마우스·키보드만 사용합니다.</td></tr>
+  <tr><td>마우스와 키보드 (AppImage)</td><td>에이전트가 마우스와 키보드를 대신 사용합니다. 관리자 암호를 한 번 입력하면 다음부터 묻지 않습니다.</td></tr>
+  <tr><td>복사·붙여넣기 (선택)</td><td>긴 글을 붙여넣기로 빠르게 입력합니다. 없어도 대부분의 작업은 됩니다.</td></tr>
+  <tr><td>KDE</td><td>KDE에서는 아직 지원하지 않습니다. 화면 보기와 마우스·키보드는 사용할 수 있습니다.</td></tr>
+  <tr><td>macOS 화면 기록</td><td>시스템 설정 → 개인정보 보호 및 보안 → 화면 기록에서 Mixdog을 켜세요. 켠 뒤 Mixdog을 다시 시작해야 할 수 있습니다.</td></tr>
+  <tr><td>대화 카드</td><td>창 도우미가 필요합니다 · 다른 앱의 창을 다루려면 GNOME 확장을 한 번 설치해야 합니다. 그동안은 화면을 보면서 진행합니다.</td></tr>
+  <tr><td>대화 카드 · 준비됨</td><td>준비되었습니다. 이어서 진행합니다 · 창 도우미가 켜졌습니다. 다시 묻지 않습니다.</td></tr>
+</table>
+</div>
+</div>
+</body>
+</html>

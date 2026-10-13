@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>대화 안 턴별 변경 카드 v2 (Codex 방식)</title>
+<style>
+  /* Tokens: composer-island-goal-v3.html */
+  :root, [data-theme="dark"] {
+    --page: #0f0f11; --bg: #161618; --text: #e9e9e9; --soft: #d6d6d6; --muted: #a8a8a8; --faint: #7a7a80;
+    --accent: #79b8ff; --ok: #6bd586; --danger: #f17471; --warn: #f2cf76;
+    --line: rgba(255,255,255,.08); --island: #232326; --hover: rgba(255,255,255,.06); --code: #19191c; --row: rgba(255,255,255,.025);
+    --btn-line: rgba(255,255,255,.12); --user: #26262a;
+    --add-bg: rgba(107,213,134,.10); --del-bg: rgba(241,116,113,.10);
+    --pill-shadow: 0 2px 4px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 12px 24px -4px rgba(0,0,0,.22);
+  }
+  [data-theme="light"] {
+    --page: #e8e8e8; --bg: #fcfcfc; --text: #222; --soft: rgba(34,34,34,.85); --muted: #606060; --faint: #7a7a7a;
+    --accent: #185abc; --ok: #137333; --danger: #b82d35; --warn: #855900;
+    --line: rgba(0,0,0,.09); --island: #fff; --hover: rgba(119,119,119,.10); --code: #f3f3f3; --row: rgba(0,0,0,.02);
+    --btn-line: rgba(0,0,0,.16); --user: #ececec;
+    --add-bg: rgba(19,115,51,.09); --del-bg: rgba(184,45,53,.08);
+    --pill-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.18), 0 8px 18px -6px rgba(0,0,0,.16);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 32px 40px 80px; }
+  main { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 44px 0 6px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 1000px; }
+  .tools { position: absolute; right: 40px; top: 28px; display: flex; gap: 6px; }
+  .tools button { font: inherit; font-size: 12px; color: var(--muted); background: transparent; border: 0; border-radius: 7px; box-shadow: inset 0 0 0 1px var(--btn-line); padding: 3px 10px; cursor: pointer; }
+  .tools button[aria-pressed="true"] { color: var(--text); background: var(--hover); }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(540px, 1fr)); gap: 24px; }
+  .cap { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+  .cap b { color: var(--accent); margin-right: 6px; font-weight: 600; }
+  svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  .frame { background: var(--bg); border-radius: 10px; box-shadow: 0 0 0 1px var(--line); padding: 20px 22px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .user { align-self: flex-end; max-width: 78%; background: var(--user); border-radius: 14px; padding: 8px 12px; }
+  .say { color: var(--soft); }
+  .meta { color: var(--faint); font-size: 12px; }
+
+  /* ── 턴 변경 카드 ── */
+  .tc { position: relative; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--btn-line); }
+  .tc-head { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px 6px 12px; border-radius: 10px; cursor: pointer; }
+  .tc-head:hover { background: var(--hover); }
+  .tc-icon { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: var(--hover); color: var(--muted); flex: none; }
+  .tc-title { display: flex; flex-direction: column; min-width: 0; line-height: 18px; }
+  .tc-title strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tc-title .sub-hover { display: none; color: var(--muted); font-size: 12px; align-items: center; gap: 4px; }
+  .tc-head:hover .sub-default { display: none; }
+  .tc-head:hover .sub-hover { display: inline-flex; }
+  .tc-trail { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .btn { font-size: 12px; color: var(--soft); padding: 3px 10px; border-radius: 7px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .btn.ghost:hover { background: var(--hover); color: var(--text); }
+  .btn.outline { box-shadow: inset 0 0 0 1px var(--btn-line); }
+  .btn.outline:hover { background: var(--hover); }
+  .stats { font: 12px/18px ui-monospace, Consolas, monospace; display: inline-flex; gap: 6px; }
+  .stats i { color: var(--ok); font-style: normal; }
+  .stats em { color: var(--danger); font-style: normal; }
+  .files { border-top: 1px solid var(--line); }
+  .f { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; background: var(--row); cursor: pointer; font-size: 13px; }
+  .f:hover { background: var(--hover); }
+  .f .p { display: flex; min-width: 0; flex: 1; }
+  .f .dir { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .f .base { flex: none; color: var(--text); }
+  .f .large { color: var(--faint); font-size: 12px; }
+  .more { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; font-size: 13px; color: var(--soft); cursor: pointer; border-radius: 0 0 10px 10px; }
+  .more:hover { background: var(--hover); }
+  .files .f:last-child { border-radius: 0 0 10px 10px; }
+
+  /* 마우스를 올리면 뜨는 diff 미리보기 */
+  .tip { position: absolute; z-index: 5; width: 420px; border-radius: 9px; background: var(--island); box-shadow: var(--pill-shadow); overflow: hidden; }
+  .tip .th { display: flex; gap: 8px; align-items: center; padding: 6px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .tip .th .stats { margin-left: auto; }
+  .diff { font: 12px/18px ui-monospace, Consolas, monospace; background: var(--code); }
+  .diff div { padding: 0 10px; white-space: pre; }
+  .diff .h { color: var(--faint); }
+  .diff .a { background: var(--add-bg); color: var(--ok); }
+  .diff .d { background: var(--del-bg); color: var(--danger); }
+  .cursor { position: absolute; width: 12px; height: 18px; pointer-events: none; }
+  .cursor svg { width: 12px; height: 18px; fill: var(--text); stroke: var(--bg); stroke-width: 1; }
+
+  .dock { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
+  .pill { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--island); box-shadow: var(--pill-shadow); font-size: 13px; font-weight: 500; }
+  .composer { height: 46px; border-radius: 14px; background: var(--island); box-shadow: var(--pill-shadow); color: var(--faint); display: flex; align-items: center; padding: 0 14px; font-size: 13px; }
+  .note { font-size: 12px; color: var(--accent); }
+  table { border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  td, th { text-align: left; padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="tools"><button data-t="dark" aria-pressed="true">Dark</button><button data-t="light" aria-pressed="false">Light</button></div>
+<main>
+<h1>대화 안 턴별 변경 카드 — v2 (Codex 방식)</h1>
+<p class="lead">Codex 데스크톱 앱(OpenAI.Codex 26.1007)의 턴 종료 카드 동작을 그대로 따른 안입니다. v1과 달리 카드를 접어 두지 않습니다. 파일이 2개 이상이면 처음부터 목록이 펼쳐져 있고, 3개까지만 보인 뒤 나머지는 "N개 더 보기"로 숨깁니다. 파일 행은 그 자리에서 diff를 펼치지 않습니다. 마우스를 올리면 미리보기가 뜨고, 누르면 옆 패널의 변경 탭으로 이동합니다. 파일 목록은 예시 데이터입니다.</p>
+
+<h2>1. 파일 수에 따른 모양</h2>
+<div class="row">
+  <div>
+    <p class="cap"><b>A. 파일 1개</b>제목이 "TurnReview.tsx 수정함"이 되고, 아래 목록 없이 카드 한 줄로 끝납니다. 카드에 마우스를 올리면 diff 미리보기가 뜹니다.</p>
+    <div class="frame">
+      <div class="user">헤더 색 바꿔줘</div>
+      <div class="say">헤더 배경을 토큰 색으로 바꿨습니다.</div>
+      <div class="tc">
+        <div class="tc-head">
+          <span class="tc-icon"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg></span>
+          <span class="tc-title"><strong>TurnReview.tsx 수정함</strong><span class="sub-default stats"><i>+2</i><em>-2</em></span><span class="sub-hover">변경 보기 <svg viewBox="0 0 16 16" style="width:10px;height:10px"><path d="M6 4l4 4-4 4"/></svg></span></span>
+          <span class="tc-trail"><span class="btn ghost">실행 취소 <svg viewBox="0 0 16 16" style="width:11px;height:11px"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span><span class="btn outline">검토</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="cap"><b>B. 파일 3개 이하</b>제목은 "파일 3개 편집함", 모든 파일 행이 처음부터 보입니다. 경로는 폴더를 흐리게, 파일명을 진하게 표시합니다.</p>
+    <div class="frame">
+      <div class="say">턴 종료 카드를 대화 기록에 추가했습니다. 테스트 42개가 모두 통과했습니다.</div>
+      <div class="tc">
+        <div class="tc-head">
+          <span class="tc-icon"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg></span>
+          <span class="tc-title"><strong>파일 3개 편집함</strong><span class="sub-default stats"><i>+86</i><em>-12</em></span><span class="sub-hover">변경 보기 <svg viewBox="0 0 16 16" style="width:10px;height:10px"><path d="M6 4l4 4-4 4"/></svg></span></span>
+          <span class="tc-trail"><span class="btn ghost">실행 취소 <svg viewBox="0 0 16 16" style="width:11px;height:11px"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span><span class="btn outline">검토</span></span>
+        </div>
+        <div class="files">
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">TurnReview.tsx</span></span><span class="stats"><i>+31</i><em>-9</em></span></div>
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">Transcript.tsx</span></span><span class="stats"><i>+14</i><em>-3</em></span></div>
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">turn-changes-card.test.mjs</span></span><span class="stats"><i>+41</i><em></em></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row" style="margin-top:24px">
+  <div>
+    <p class="cap"><b>C. 파일 4개 이상</b>처음 3개만 보이고 "파일 5개 더 보기"가 붙습니다.</p>
+    <div class="frame">
+      <div class="say">작업자 2명이 나눠 구현했고, 검토까지 끝났습니다.</div>
+      <div class="tc" id="many">
+        <div class="tc-head">
+          <span class="tc-icon"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg></span>
+          <span class="tc-title"><strong>파일 8개 편집함</strong><span class="sub-default stats"><i>+214</i><em>-40</em></span><span class="sub-hover">변경 보기 <svg viewBox="0 0 16 16" style="width:10px;height:10px"><path d="M6 4l4 4-4 4"/></svg></span></span>
+          <span class="tc-trail"><span class="btn ghost">실행 취소 <svg viewBox="0 0 16 16" style="width:11px;height:11px"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span><span class="btn outline">검토</span></span>
+        </div>
+        <div class="files">
+          <div class="f"><span class="p"><span class="dir">src/runtime/shared/</span><span class="base">turn-snapshot.mjs</span></span><span class="stats"><i>+18</i><em>-6</em></span></div>
+          <div class="f"><span class="p"><span class="dir">src/standalone/</span><span class="base">session-protocol.mjs</span></span><span class="stats"><i>+40</i><em>-11</em></span></div>
+          <div class="f"><span class="p"><span class="dir">src/standalone/</span><span class="base">turn-changes.test.mjs</span></span><span class="stats"><i>+62</i><em></em></span></div>
+          <div class="f" data-extra hidden><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">TurnReview.tsx</span></span><span class="stats"><i>+31</i><em>-9</em></span></div>
+          <div class="f" data-extra hidden><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">Transcript.tsx</span></span><span class="stats"><i>+14</i><em>-3</em></span></div>
+          <div class="f" data-extra hidden><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">turn-review-model.ts</span></span><span class="stats"><i>+20</i><em>-8</em></span></div>
+          <div class="f" data-extra hidden><span class="p"><span class="dir">apps/desktop/src/renderer/desktop/</span><span class="base">27-search-review.css</span></span><span class="stats"><i>+29</i><em>-3</em></span></div>
+          <div class="f" data-extra hidden><span class="p"><span class="dir">package-lock.json</span><span class="base"></span></span><span class="large">너무 커서 미리보기 없음</span><span class="stats"><i></i><em></em></span></div>
+          <div class="more" data-more><span data-label>파일 5개 더 보기</span><svg viewBox="0 0 16 16" data-chev style="width:11px;height:11px"><path d="M4 6l4 4 4-4"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="cap"><b>D. 마우스를 올렸을 때</b>파일 행에 올리면 그 파일의 diff 미리보기가 뜹니다. 누르면 옆 패널 변경 탭이 그 파일 위치로 열리고, Ctrl+클릭하면 파일 자체가 열립니다. 너무 큰 파일은 미리보기 대신 "너무 커서 미리보기 없음"을 표시합니다.</p>
+    <div class="frame" style="position:relative;min-height:340px">
+      <div class="tc">
+        <div class="tc-head">
+          <span class="tc-icon"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg></span>
+          <span class="tc-title"><strong>파일 3개 편집함</strong><span class="sub-default stats"><i>+86</i><em>-12</em></span></span>
+          <span class="tc-trail"><span class="btn ghost">실행 취소 <svg viewBox="0 0 16 16" style="width:11px;height:11px"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span><span class="btn outline">검토</span></span>
+        </div>
+        <div class="files">
+          <div class="f" style="background:var(--hover)"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">TurnReview.tsx</span></span><span class="stats"><i>+31</i><em>-9</em></span></div>
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">Transcript.tsx</span></span><span class="stats"><i>+14</i><em>-3</em></span></div>
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">turn-changes-card.test.mjs</span></span><span class="stats"><i>+41</i><em></em></span></div>
+        </div>
+      </div>
+      <span class="cursor" style="left:210px;top:92px"><svg viewBox="0 0 12 18"><path d="M1 1v14l4-4 3 6 2-1-3-6h5z"/></svg></span>
+      <div class="tip" style="left:120px;top:118px">
+        <div class="th">TurnReview.tsx<span class="stats"><i>+31</i><em>-9</em></span></div>
+        <div class="diff">
+          <div class="h">@@ -312,7 +312,8 @@</div>
+          <div>   onOpenFile,</div>
+          <div class="d">-  variant = 'bar',</div>
+          <div class="a">+  variant = 'bar',</div>
+          <div class="a">+  turnId,</div>
+          <div>   onOpenChanges,</div>
+          <div class="h">@@ -829,6 +830,14 @@</div>
+          <div class="a">+  if (variant === 'turn') {</div>
+          <div class="a">+    return &lt;TurnChangesCard … /&gt;;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>2. 실행 취소와 헤더 동작</h2>
+<div class="row">
+  <div>
+    <p class="cap"><b>A. 실행 취소 후</b>턴 전체를 한 번에 되돌리고, 버튼이 "다시 적용"으로 바뀝니다. 되돌린 뒤 다른 변경이 겹쳐 실패하면 실패 이유를 대화상자로 보여 줍니다.</p>
+    <div class="frame">
+      <div class="tc">
+        <div class="tc-head">
+          <span class="tc-icon"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg></span>
+          <span class="tc-title"><strong>파일 3개 편집함</strong><span class="sub-default stats"><i>+86</i><em>-12</em></span></span>
+          <span class="tc-trail"><span class="btn ghost">다시 적용 <svg viewBox="0 0 16 16" style="width:11px;height:11px"><path d="M12 7H6a3 3 0 000 6h2"/><path d="M10 4l3 3-3 3"/></svg></span><span class="btn outline">검토</span></span>
+        </div>
+        <div class="files">
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">TurnReview.tsx</span></span><span class="stats"><i>+31</i><em>-9</em></span></div>
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">Transcript.tsx</span></span><span class="stats"><i>+14</i><em>-3</em></span></div>
+          <div class="f"><span class="p"><span class="dir">apps/desktop/src/renderer/</span><span class="base">turn-changes-card.test.mjs</span></span><span class="stats"><i>+41</i><em></em></span></div>
+        </div>
+      </div>
+      <div class="meta" style="align-self:center">토스트: "변경 사항을 되돌렸습니다"</div>
+    </div>
+  </div>
+  <div>
+    <p class="cap"><b>B. 세션 전체 합계와의 관계</b>여러 턴에 카드가 하나씩 붙고, 입력창 위의 세션 전체 합계는 지금처럼 따로 남습니다. 파일을 바꾸지 않은 턴에는 카드가 없습니다.</p>
+    <div class="frame">
+      <div class="user">헤더 색 바꿔줘</div>
+      <div class="tc"><div class="tc-head"><span class="tc-icon"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg></span><span class="tc-title"><strong>tokens.css 수정함</strong><span class="sub-default stats"><i>+2</i><em>-2</em></span></span><span class="tc-trail"><span class="btn outline">검토</span></span></div></div>
+      <div class="user">이거 왜 그런거야?</div>
+      <div class="say">라이트 테마에서 덮어써지기 때문입니다. <span class="meta">(바뀐 파일 없음 → 카드 없음)</span></div>
+      <div class="dock">
+        <span class="pill"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg>파일 7개 <span class="stats"><i>+214</i><em>-40</em></span><span class="note">← 세션 전체(기존 유지)</span></span>
+        <div class="composer">메시지 입력…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>3. v1과 달라진 점</h2>
+<table>
+  <tr><th></th><th>v1</th><th>v2 (Codex 방식)</th></tr>
+  <tr><td>파일 1개</td><td>"파일 1개 변경" 접힌 카드</td><td>제목에 파일명, 목록 없음</td></tr>
+  <tr><td>파일 2~3개</td><td>접혀 있다가 눌러서 펼침</td><td>처음부터 모두 보임</td></tr>
+  <tr><td>파일 4개 이상</td><td>접혀 있다가 눌러서 펼침</td><td>3개만 보이고 "N개 더 보기" / "파일 접기"</td></tr>
+  <tr><td>파일 행 누르기</td><td>그 자리에서 diff 펼침</td><td>마우스 올리면 미리보기, 누르면 옆 패널 변경 탭</td></tr>
+  <tr><td>되돌리기</td><td>파일마다 되돌리기 버튼</td><td>카드 헤더의 "실행 취소"로 턴 전체, 이후 "다시 적용"</td></tr>
+  <tr><td>헤더 마우스 오버</td><td>배경만 바뀜</td><td>+/− 숫자가 "변경 보기 ›"로 바뀌고, 누르면 변경 탭 열림</td></tr>
+</table>
+</main>
+<script>
+  document.querySelectorAll('.tools button').forEach((b) => b.addEventListener('click', () => {
+    document.documentElement.dataset.theme = b.dataset.t;
+    document.querySelectorAll('.tools button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  const many = document.getElementById('many');
+  const more = many.querySelector('[data-more]');
+  more.addEventListener('click', () => {
+    const extras = many.querySelectorAll('[data-extra]');
+    const open = !extras[0].hidden;
+    extras.forEach((e) => { e.hidden = open; });
+    more.querySelector('[data-label]').textContent = open ? '파일 5개 더 보기' : '파일 접기';
+    more.querySelector('[data-chev]').style.transform = open ? '' : 'rotate(180deg)';
+  });
+</script>
+</body>
+</html>

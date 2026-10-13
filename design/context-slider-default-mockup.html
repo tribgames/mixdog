@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컨텍스트 슬라이더 기본값 시안</title>
+<style>
+  :root {
+    --bg: #1b1d21; --panel: #26282d; --border: #34373d; --hover: #33363c;
+    --text: #e8e9eb; --muted: #9a9ea6; --accent: #e8e9eb; --default: #6aa7ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px; background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 28px; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 36px; }
+  .col { width: 300px; }
+  .col h2 { font-size: 13px; margin: 0 0 4px; }
+  .col .note { color: var(--muted); font-size: 12px; margin: 0 0 12px; min-height: 36px; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 99px; margin-left: 6px; }
+  .tag.now { background: #3a3d44; color: var(--muted); }
+  .tag.new { background: #1f3555; color: var(--default); }
+
+  /* Popover shell, matches the existing route sheet */
+  .pane {
+    width: 196px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 8px 0 6px; box-shadow: 0 8px 24px #0006;
+  }
+  .pane-title { color: var(--muted); font-size: 12px; padding: 0 10px 4px; }
+  .head { display: flex; align-items: baseline; gap: 6px; padding: 2px 10px 0; }
+  .head strong { font-size: 14px; font-weight: 600; }
+  .head small { color: var(--muted); font-size: 12px; }
+  .reset {
+    margin-left: auto; border: 0; padding: 1px 7px; border-radius: 99px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .reset:hover { color: var(--text); background: var(--hover); }
+  /* New: the reset reads as a chip and names its target */
+  .new .reset {
+    border: 1px solid var(--border); color: var(--text); display: inline-flex; align-items: center; gap: 3px;
+  }
+  .new .reset::before { content: "↺"; font-size: 11px; color: var(--default); }
+  .new .reset:hover { border-color: var(--default); }
+  .new .head small.is-default { color: var(--default); }
+
+  /* Slider */
+  .slider { position: relative; padding: 10px 10px 6px; }
+  .slider input {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px; margin: 0;
+    background: transparent; position: relative; z-index: 2; cursor: pointer;
+  }
+  .slider input::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: transparent; }
+  .slider input::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+    background: var(--accent); border: 0;
+  }
+  .track, .fill {
+    position: absolute; left: 17px; right: 17px; top: 10px; height: 4px; border-radius: 2px; z-index: 1;
+  }
+  .track { background: #4a4d55; }
+  .fill { right: auto; background: var(--accent); }
+  /* New: default stop marker below the track, named once */
+  .tick {
+    display: none; position: absolute; top: 4px; width: 2px; height: 16px; margin-left: -1px;
+    background: var(--default); border-radius: 1px; z-index: 1;
+  }
+  .tick-label {
+    display: none; position: absolute; top: 22px; transform: translateX(-50%);
+    color: var(--default); font-size: 10px; white-space: nowrap;
+  }
+  .new .tick, .new .tick-label { display: block; }
+  .new .slider { padding-bottom: 20px; }
+  .scale { display: flex; justify-content: space-between; color: #6b6f77; font-size: 10px; padding: 0 10px; }
+  .new .scale { display: none; }
+
+  .legend { color: var(--muted); font-size: 12px; max-width: 920px; }
+  .legend li { margin: 4px 0; }
+  .legend b { color: var(--text); }
+</style>
+</head>
+<body>
+  <h1>컨텍스트 슬라이더 · 기본값 맞추기 시안</h1>
+  <p class="lead">슬라이더를 직접 움직여 보세요. 기본값 칸(파란 눈금)에 놓으면 퍼센트 계산이 아니라 서버 기본값(500K)이 정확히 적용됩니다.</p>
+
+  <div class="row" id="rows"></div>
+
+  <ul class="legend">
+    <li><b>파란 눈금 + "기본" 라벨</b>: 기본값 칸 위치를 슬라이더 위에 표시합니다. 끌다가 여기 놓으면 정확히 500K입니다.</li>
+    <li><b>↺ 500k · 기본 칩</b>: 지금도 있는 "기본값으로 되돌리기" 버튼입니다. 테두리와 아이콘을 넣어 눌리는 버튼처럼 보이게만 바꿉니다. 누르면 저장된 퍼센트가 지워지고, 이후 서버 기본값이 바뀌면 자동으로 따라갑니다.</li>
+    <li><b>기본값 칸에 있을 때</b>: 칩 대신 상단 숫자 옆에 파란색 "· 기본"이 표시됩니다.</li>
+    <li>팝업이나 숫자 직접 입력은 넣지 않습니다.</li>
+  </ul>
+
+<script>
+  const models = [
+    { name: 'GPT-6.1 Sol', max: 872000, def: 500000, start: 30, note: '최대 872K · 기본 500K → 기본 칸 60% (저장값 30% 상태)' },
+    { name: 'Claude Opus 5.5', max: 1000000, def: 500000, start: 100, note: '최대 1M · 기본 500K → 기본 칸 50% (스크린샷 상태)' },
+  ];
+  const fmt = (n) => n >= 1000000 ? (n / 1000000).toFixed(n % 1000000 ? 2 : 0).replace(/\.?0+$/, '') + 'M' : Math.round(n / 1000) + 'k';
+  const defPercent = (m) => Math.min(100, Math.max(10, Math.round(m.def / m.max * 10) * 10));
+  const tokens = (m, p) => p === defPercent(m) ? m.def : Math.floor(m.max * p / 100);
+  const pos = (p) => `calc(17px + (100% - 34px) * ${(p - 10) / 90})`;
+
+  function pane(m, variant) {
+    const dp = defPercent(m);
+    const root = document.createElement('div');
+    root.className = 'pane ' + variant;
+    root.innerHTML = `
+      <div class="pane-title">컨텍스트</div>
+      <div class="head"><strong></strong><small></small><button class="reset" type="button"></button></div>
+      <div class="slider">
+        <div class="track"></div><div class="fill"></div>
+        <div class="tick" style="left:${pos(dp)}"></div>
+        <div class="tick-label" style="left:${pos(dp)}">기본 ${fmt(m.def)}</div>
+        <input type="range" min="10" max="100" step="10" value="${m.start}">
+      </div>
+      <div class="scale"><span>10%</span><span>100%</span></div>`;
+    const input = root.querySelector('input');
+    const render = () => {
+      const p = Number(input.value), isDef = p === dp;
+      root.querySelector('strong').textContent = p + '%';
+      const small = root.querySelector('small');
+      small.textContent = fmt(tokens(m, p)) + (isDef ? ' · 기본' : '');
+      small.classList.toggle('is-default', isDef);
+      const reset = root.querySelector('.reset');
+      reset.style.display = isDef ? 'none' : '';
+      reset.textContent = `${fmt(m.def)} · 기본`;
+      root.querySelector('.fill').style.width = `calc((100% - 34px) * ${(p - 10) / 90})`;
+    };
+    input.addEventListener('input', render);
+    root.querySelector('.reset').addEventListener('click', () => { input.value = dp; render(); });
+    render();
+    return root;
+  }
+
+  const rows = document.getElementById('rows');
+  for (const m of models) {
+    for (const [variant, label, tag] of [['now', '현재', 'now'], ['new', '시안', 'new']]) {
+      const col = document.createElement('div');
+      col.className = 'col';
+      col.innerHTML = `<h2>${m.name}<span class="tag ${tag}">${label}</span></h2><p class="note">${m.note}</p>`;
+      col.appendChild(pane(m, variant));
+      rows.appendChild(col);
+    }
+  }
+</script>
+</body>
+</html>

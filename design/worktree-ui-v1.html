@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>시안 · Worktree UI v1</title>
+<style>
+  :root {
+    --deep:#101013; --base:#222225; --l1:#2a2a2d; --l2:#323236; --l3:#3d3d41;
+    --text:#e9e9e9; --muted:#a8a8a8; --faint:#7d7d82; --accent:#79b8ff; --accent-bg:#1967d2;
+    --border:rgba(255,255,255,.125); --border-muted:rgba(255,255,255,.09); --hover:rgba(255,255,255,.06);
+    --warn:#e2b340; --warn-bg:rgba(226,179,64,.10); --warn-line:rgba(226,179,64,.32);
+    --danger:#f07178; --danger-bg:rgba(240,113,120,.10); --danger-line:rgba(240,113,120,.32);
+    --ok:#7fd18b; --ok-bg:rgba(127,209,139,.10);
+    --r-sm:6px; --r-md:8px; --r-lg:12px;
+    --font:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif;
+    --mono:"JetBrains Mono",Consolas,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--deep); color:var(--text); font:14px/1.5 var(--font); padding:36px 40px 80px; }
+  h1 { font-size:20px; margin:0 0 6px; }
+  .lead { color:var(--muted); margin:0 0 32px; font-size:13px; }
+  section { margin-bottom:44px; }
+  section > h2 { font-size:15px; margin:0 0 2px; }
+  section > .desc { color:var(--muted); font-size:13px; margin:0 0 4px; }
+  section > .ref { color:var(--faint); font-size:12px; margin:0 0 14px; }
+  .ref b { color:var(--muted); font-weight:500; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  .canvas { background:var(--base); border:1px solid var(--border-muted); border-radius:var(--r-lg); padding:20px; }
+  .cap { font-size:11px; color:var(--faint); margin:0 0 10px; letter-spacing:.02em; }
+  svg.i { width:14px; height:14px; flex:none; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* composer */
+  .composer { width:620px; }
+  .ctx { display:flex; align-items:center; gap:2px; margin-bottom:6px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 8px; border-radius:var(--r-md); color:var(--muted); font-size:13px; }
+  .pill:hover, .pill.open { background:var(--hover); color:var(--text); }
+  .pill .chev { opacity:.6; }
+  .pill.on { color:var(--accent); }
+  .pill.disabled { opacity:.45; }
+  .box { background:var(--l1); border:1px solid var(--border); border-radius:var(--r-lg); padding:12px 14px 10px; }
+  .box .ph { color:var(--faint); min-height:44px; }
+  .box .foot { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; }
+  .box .foot .grow { flex:1; }
+  .send { width:28px; height:28px; border-radius:50%; background:var(--text); color:#111; display:grid; place-items:center; }
+  .sub { display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); padding:8px 10px; margin:0 0 6px; border:1px dashed var(--border); border-radius:var(--r-md); }
+  .sub .k { color:var(--faint); }
+  .sub .v { color:var(--text); display:inline-flex; align-items:center; gap:4px; }
+  .sub code { font-family:var(--mono); font-size:12px; color:var(--text); }
+  .edit { color:var(--accent); cursor:pointer; }
+
+  .menu { width:300px; background:var(--l2); border:1px solid var(--border); border-radius:var(--r-md); padding:4px; box-shadow:0 14px 40px rgba(0,0,0,.45); }
+  .mi { display:flex; gap:10px; padding:8px 10px; border-radius:var(--r-sm); }
+  .mi.sel { background:var(--hover); }
+  .mi .t { font-size:13px; }
+  .mi .d { font-size:12px; color:var(--muted); }
+  .mi .check { margin-left:auto; color:var(--accent); }
+  .mi.dis .t, .mi.dis .d { color:var(--faint); }
+  .sep { height:1px; background:var(--border-muted); margin:4px 2px; }
+  .menu-foot { font-size:12px; color:var(--faint); padding:6px 10px 4px; }
+
+  .notice { display:flex; gap:10px; border-radius:var(--r-md); padding:10px 12px; font-size:12.5px; margin-bottom:6px; }
+  .notice.warn { background:var(--warn-bg); border:1px solid var(--warn-line); }
+  .notice.danger { background:var(--danger-bg); border:1px solid var(--danger-line); }
+  .notice .ic { color:var(--warn); margin-top:2px; }
+  .notice.danger .ic { color:var(--danger); }
+  .notice p { margin:0; color:var(--muted); }
+  .notice strong { color:var(--text); font-weight:600; }
+  .notice .acts { display:flex; gap:6px; margin-top:8px; }
+
+  .btn { font:inherit; font-size:12.5px; border-radius:var(--r-sm); padding:5px 11px; border:1px solid var(--border); background:var(--l2); color:var(--text); }
+  .btn.primary { background:var(--accent-bg); border-color:transparent; color:#fff; }
+  .btn.danger { background:transparent; border-color:var(--danger-line); color:var(--danger); }
+  .btn.ghost { background:transparent; border-color:transparent; color:var(--muted); }
+  .btn[disabled] { opacity:.4; }
+
+  /* sidebar */
+  .sidebar { width:300px; background:var(--base); border:1px solid var(--border-muted); border-radius:var(--r-lg); padding:10px 8px; }
+  .group { font-size:12px; color:var(--muted); padding:6px 8px; display:flex; align-items:center; gap:6px; }
+  .srow { padding:7px 10px; border-radius:var(--r-md); }
+  .srow.active { background:var(--l2); }
+  .srow .title { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .srow .meta { display:flex; align-items:center; gap:6px; margin-top:3px; font-size:11.5px; color:var(--muted); }
+  .wt { display:inline-flex; align-items:center; gap:4px; color:var(--accent); font-family:var(--mono); font-size:11.5px; }
+  .tag { font-size:11px; padding:0 6px; border-radius:99px; line-height:18px; border:1px solid var(--border); color:var(--muted); }
+  .tag.ok { color:var(--ok); border-color:rgba(127,209,139,.35); }
+  .tag.warn { color:var(--warn); border-color:var(--warn-line); }
+  .tag.danger { color:var(--danger); border-color:var(--danger-line); }
+
+  /* header chip */
+  .header { width:620px; display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--base); border:1px solid var(--border-muted); border-radius:var(--r-lg); }
+  .header .ttl { font-size:13px; flex:1; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border-radius:var(--r-md); background:var(--l1); border:1px solid var(--border-muted); font-size:12px; color:var(--muted); }
+  .chip .wt { font-size:12px; }
+
+  /* dialog */
+  .dialog { width:440px; background:var(--l1); border:1px solid var(--border); border-radius:var(--r-lg); padding:18px 18px 14px; box-shadow:0 22px 60px rgba(0,0,0,.55); }
+  .dialog h3 { margin:0 0 6px; font-size:15px; }
+  .dialog .p { color:var(--muted); font-size:12.5px; margin:0 0 12px; }
+  .field { margin-bottom:10px; }
+  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .input { display:flex; align-items:center; gap:6px; height:30px; padding:0 10px; border:1px solid var(--border); border-radius:var(--r-sm); background:var(--base); font-size:13px; }
+  .input code { font-family:var(--mono); font-size:12.5px; }
+  .input .hint { margin-left:auto; color:var(--faint); font-size:11.5px; }
+  .chk { display:flex; gap:8px; font-size:12.5px; margin:8px 0; }
+  .box-c { width:15px; height:15px; border-radius:4px; border:1px solid var(--border); flex:none; margin-top:2px; display:grid; place-items:center; }
+  .box-c.on { background:var(--accent-bg); border-color:transparent; color:#fff; font-size:11px; }
+  .chk .d { color:var(--muted); font-size:12px; }
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; }
+  .seg span { padding:4px 10px; font-size:12px; color:var(--muted); }
+  .seg span.on { background:var(--l3); color:var(--text); }
+  .risk { list-style:none; margin:0 0 12px; padding:10px 12px; border-radius:var(--r-md); background:var(--danger-bg); border:1px solid var(--danger-line); font-size:12.5px; }
+  .risk li { display:flex; gap:8px; padding:2px 0; color:var(--text); }
+  .risk li span { color:var(--muted); }
+  .check-ok { display:flex; gap:8px; align-items:center; font-size:12.5px; padding:8px 10px; border-radius:var(--r-md); background:var(--ok-bg); color:var(--ok); margin-bottom:12px; }
+  .acts-r { display:flex; justify-content:flex-end; gap:8px; margin-top:6px; }
+
+  /* manager */
+  .mgr { width:820px; }
+  .mgr-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .mgr-head h3 { margin:0; font-size:15px; flex:1; }
+  .disk { font-size:12px; color:var(--muted); }
+  .bar { width:140px; height:6px; border-radius:99px; background:var(--l3); overflow:hidden; display:inline-block; vertical-align:middle; margin:0 6px; }
+  .bar i { display:block; height:100%; width:38%; background:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { text-align:left; color:var(--faint); font-weight:500; font-size:11.5px; padding:6px 8px; border-bottom:1px solid var(--border-muted); }
+  td { padding:9px 8px; border-bottom:1px solid var(--border-muted); vertical-align:middle; }
+  td .s { color:var(--muted); font-size:11.5px; }
+  td.r { text-align:right; white-space:nowrap; }
+  .mgr-foot { display:flex; align-items:center; gap:10px; margin-top:12px; font-size:12px; color:var(--muted); }
+  .mgr-foot .grow { flex:1; }
+  .toggle { width:30px; height:17px; border-radius:99px; background:var(--accent-bg); position:relative; display:inline-block; vertical-align:middle; }
+  .toggle::after { content:""; position:absolute; right:2px; top:2px; width:13px; height:13px; border-radius:50%; background:#fff; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-12 7"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="flow" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h6a4 4 0 0 1 4 4v6"/></symbol>
+  <symbol id="warn" viewBox="0 0 24 24"><path d="M12 3 2 20h20zM12 10v4M12 17h.01"/></symbol>
+  <symbol id="ok" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+</svg>
+
+<h1>Worktree UI 시안 v1</h1>
+<p class="lead">기존 입력창 위 컨텍스트 바(프로젝트 · 워크플로 칩)에 worktree 칩을 하나 더 붙이는 구성입니다. 각 화면 아래 회색 줄은 참고한 레퍼런스입니다.</p>
+
+<!-- 1 -->
+<section>
+  <h2>① 새 세션: 시작 위치 선택</h2>
+  <p class="desc">프로젝트 칩 옆에 "로컬 / 새 worktree" 칩. 기본은 로컬, 마지막 선택과 프로젝트 기본값을 기억합니다. worktree를 고르면 아래에 시작 브랜치와 브랜치 이름 줄이 나타납니다.</p>
+  <p class="ref">참고: <b>VS Code</b> "New Worktree" 칩(입력창 줄, git 없으면 비활성) · <b>Paseo</b> Local / New worktree 드롭다운 + "Start from" · <b>Cline</b> 마지막 선택 기억 · <b>Orca·Crystal</b> 브랜치 이름 자동 생성, 수정은 접어둠</p>
+  <div class="row">
+    <div class="canvas">
+      <p class="cap">닫힌 상태 (로컬)</p>
+      <div class="composer">
+        <div class="ctx">
+          <span class="pill"><svg class="i"><use href="#folder"/></svg>mixdog<svg class="i chev"><use href="#chev"/></svg></span>
+          <span class="pill"><svg class="i"><use href="#branch"/></svg>로컬<svg class="i chev"><use href="#chev"/></svg></span>
+          <span class="pill"><svg class="i"><use href="#flow"/></svg>Default<svg class="i chev"><use href="#chev"/></svg></span>
+        </div>
+        <div class="box"><div class="ph">무엇을 할까요?</div><div class="foot"><span>Claude Opus · High</span><span class="grow"></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div></div>
+      </div>
+    </div>
+    <div class="canvas">
+      <p class="cap">칩을 열었을 때</p>
+      <div class="menu">
+        <div class="mi"><svg class="i" style="margin-top:3px"><use href="#folder"/></svg><div><div class="t">로컬</div><div class="d">지금 프로젝트 폴더에서 작업</div></div></div>
+        <div class="mi sel"><svg class="i" style="margin-top:3px"><use href="#branch"/></svg><div><div class="t">새 worktree</div><div class="d">별도 폴더와 브랜치에서 작업. 합치기 전까지 원래 폴더는 그대로</div></div><span class="check"><svg class="i"><use href="#ok"/></svg></span></div>
+        <div class="sep"></div>
+        <div class="menu-foot">이 프로젝트 기본값: 로컬 · <span class="edit">변경</span></div>
+      </div>
+      <p class="cap" style="margin-top:14px">git 저장소가 아닐 때</p>
+      <div class="menu">
+        <div class="mi dis"><svg class="i" style="margin-top:3px"><use href="#branch"/></svg><div><div class="t">새 worktree</div><div class="d">git 저장소에서만 사용할 수 있어요</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:20px">
+    <div class="canvas">
+      <p class="cap">worktree 선택 시</p>
+      <div class="composer">
+        <div class="ctx">
+          <span class="pill"><svg class="i"><use href="#folder"/></svg>mixdog<svg class="i chev"><use href="#chev"/></svg></span>
+          <span class="pill on"><svg class="i"><use href="#branch"/></svg>새 worktree<svg class="i chev"><use href="#chev"/></svg></span>
+          <span class="pill"><svg class="i"><use href="#flow"/></svg>Default<svg class="i chev"><use href="#chev"/></svg></span>
+        </div>
+        <div class="sub">
+          <span><span class="k">시작 브랜치</span> <span class="v">main<svg class="i"><use href="#chev"/></svg></span></span>
+          <span><span class="k">브랜치</span> <span class="v"><code>mixdog/첫 메시지로 자동</code></span> <span class="edit">직접 입력</span></span>
+          <span><span class="k">예상 크기</span> <span class="v">약 201MB</span></span>
+        </div>
+        <div class="box"><div class="ph">무엇을 할까요?</div><div class="foot"><span>Claude Opus · High</span><span class="grow"></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div></div>
+      </div>
+    </div>
+    <div class="canvas">
+      <p class="cap">대형 저장소 (ProjectAA)</p>
+      <div class="composer" style="width:520px">
+        <div class="ctx">
+          <span class="pill"><svg class="i"><use href="#folder"/></svg>ProjectAA<svg class="i chev"><use href="#chev"/></svg></span>
+          <span class="pill on"><svg class="i"><use href="#branch"/></svg>새 worktree<svg class="i chev"><use href="#chev"/></svg></span>
+        </div>
+        <div class="notice warn">
+          <svg class="i ic"><use href="#warn"/></svg>
+          <div>
+            <p><strong>worktree 하나에 약 8.1GB가 필요해요.</strong> 여유 공간은 12GB예요. Unity <code>Library</code>는 복사하지 않아서, 이 worktree에서는 Unity로 열거나 빌드할 수 없어요.</p>
+            <div class="acts"><button class="btn">로컬에서 시작</button><button class="btn ghost">그래도 만들기</button></div>
+          </div>
+        </div>
+        <div class="notice danger">
+          <svg class="i ic"><use href="#warn"/></svg>
+          <div><p><strong>디스크 공간이 부족해서 만들 수 없어요.</strong> 필요 8.1GB · 여유 5.2GB</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section>
+  <h2>② 진행 중인 세션 표시</h2>
+  <p class="desc">사이드바에서는 원래 프로젝트 아래에 그대로 묶이고, 브랜치 배지와 상태 태그가 붙습니다. 세션 상단에는 worktree 칩이 있고, 누르면 이동·합치기·지우기 메뉴가 열립니다.</p>
+  <p class="ref">참고: <b>VS Code</b> 세션 목록 <code>$(worktree) 이름</code> 배지 · <b>Zed</b> 스레드 행 worktree 아이콘 · <b>Crystal</b> "Ready to Merge / Uncommitted / Conflicts" 상태 배지</p>
+  <div class="row">
+    <div class="sidebar">
+      <div class="group"><svg class="i"><use href="#folder"/></svg>mixdog</div>
+      <div class="srow active"><div class="title">OpenAI OAuth JSON 오류</div><div class="meta"><span class="wt"><svg class="i"><use href="#branch"/></svg>mixdog/fix-bom</span><span class="tag ok">합칠 준비됨</span></div></div>
+      <div class="srow"><div class="title">SSH 원격 모델 프록시</div><div class="meta"><span class="wt"><svg class="i"><use href="#branch"/></svg>feat/ssh-remote</span><span class="tag warn">변경 35</span></div></div>
+      <div class="srow"><div class="title">에이전트 3개 병렬: 테스트 정리</div><div class="meta"><span class="wt"><svg class="i"><use href="#branch"/></svg>worktree 3개</span><span class="tag danger">충돌 1</span></div></div>
+      <div class="srow"><div class="title">문서 오타 수정</div><div class="meta">로컬 · main</div></div>
+    </div>
+    <div>
+      <div class="header">
+        <span class="ttl">OpenAI OAuth JSON 오류</span>
+        <span class="chip"><span class="wt"><svg class="i"><use href="#branch"/></svg>mixdog/fix-bom</span><span>· 커밋 1 앞섬</span><svg class="i"><use href="#chev"/></svg></span>
+      </div>
+      <div class="menu" style="margin:6px 0 0 auto; width:280px">
+        <div class="mi"><div><div class="t">main에 합치기…</div><div class="d">충돌 미리 검사 후 합치기</div></div></div>
+        <div class="mi"><div><div class="t">원래 폴더로 돌아가기</div><div class="d">worktree는 그대로 남겨둠</div></div></div>
+        <div class="mi"><div><div class="t">폴더 열기 / 경로 복사</div></div></div>
+        <div class="sep"></div>
+        <div class="mi"><div><div class="t" style="color:var(--danger)">worktree 지우기…</div></div></div>
+      </div>
+      <p class="cap" style="margin-top:16px">로컬 세션일 때 상단 칩</p>
+      <div class="header"><span class="ttl">문서 오타 수정</span><span class="chip"><svg class="i"><use href="#folder"/></svg>로컬 · main<svg class="i"><use href="#chev"/></svg></span></div>
+      <div class="menu" style="margin:6px 0 0 auto; width:280px">
+        <div class="mi"><div><div class="t">worktree로 옮기기…</div><div class="d">지금 대화를 이어서 별도 폴더에서 작업</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section>
+  <h2>③ 세션 도중 worktree로 옮기기</h2>
+  <p class="desc">대화는 그대로 이어집니다. 커밋 안 한 변경은 같이 옮기는 게 기본이고, 원래 폴더의 변경은 지우지 않고 보관합니다. 실행 중인 작업이 있으면 먼저 멈춰야 합니다.</p>
+  <p class="ref">참고: <b>Codex</b> "Where should the new conversation run?" + 실행 중 작업·터미널 있으면 거부 · <b>opencode</b> 변경 같이 옮기기(moveChanges) · <b>Hermes</b> "Terminal and file tools now operate in the worktree"</p>
+  <div class="row">
+    <div class="dialog">
+      <h3>worktree로 옮길까요?</h3>
+      <p class="p">새 폴더와 브랜치를 만들고 이 세션을 그쪽으로 옮겨요. 대화와 기록은 그대로예요.</p>
+      <div class="field"><label>브랜치</label><div class="input"><code>mixdog/ssh-remote</code><span class="hint">시작: feat/ssh-remote</span></div></div>
+      <div class="chk"><span class="box-c on">✓</span><div>커밋 안 한 변경 35개 같이 옮기기<div class="d">원래 폴더의 변경은 보관해 두고 되돌릴 수 있어요</div></div></div>
+      <div class="chk"><span class="box-c on">✓</span><div><code>.env</code>, <code>node_modules</code> 연결<div class="d">.worktreeinclude 설정대로 복사·링크</div></div></div>
+      <div class="notice warn" style="margin-top:10px"><svg class="i ic"><use href="#warn"/></svg><div><p>백그라운드 작업 1개와 하위 에이전트 2개가 실행 중이에요. 멈춰야 옮길 수 있어요.</p><div class="acts"><button class="btn">멈추고 옮기기</button></div></div></div>
+      <div class="acts-r"><button class="btn ghost">취소</button><button class="btn primary" disabled>옮기기</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section>
+  <h2>④ 합치기 / 지우기</h2>
+  <p class="desc">합치기 전에 충돌을 미리 검사해서, 충돌이 있으면 원래 폴더를 건드리지 않습니다. 지우기는 남은 변경을 구체적으로 보여주고, 있으면 강제로 지우기만 가능합니다.</p>
+  <p class="ref">참고: <b>Paseo</b> "Merge locally" + 보관 경고 목록("Uncommitted changes", 안 푸시한 커밋) · <b>Crystal</b> "Merge to main" · <b>Orca·Zed·Roo</b> "Force Delete"</p>
+  <div class="row">
+    <div class="dialog">
+      <h3>main에 합칠까요?</h3>
+      <p class="p"><code>mixdog/fix-bom</code>의 커밋 1개를 <code>C:\Project\mixdog</code>의 main에 합쳐요.</p>
+      <div class="check-ok"><svg class="i"><use href="#ok"/></svg>충돌 없음 · 원래 폴더 깨끗함</div>
+      <div class="field"><label>방식</label><span class="seg"><span class="on">커밋 기록 유지 (--no-ff)</span><span>하나로 합치기 (squash)</span></span></div>
+      <div class="chk"><span class="box-c on">✓</span><div>합친 뒤 worktree와 브랜치 지우기</div></div>
+      <div class="acts-r"><button class="btn ghost">취소</button><button class="btn primary">합치기</button></div>
+    </div>
+    <div class="dialog">
+      <h3>worktree를 지울까요?</h3>
+      <p class="p"><code>mixdog/ssh-remote</code> 폴더와 브랜치를 지워요. 아래 내용은 사라져요.</p>
+      <ul class="risk">
+        <li>• 커밋 안 한 변경 <span>파일 35개 · +812 −96</span></li>
+        <li>• 합치지 않은 커밋 <span>2개</span></li>
+      </ul>
+      <div class="acts-r"><button class="btn ghost">취소</button><button class="btn">먼저 합치기</button><button class="btn danger">강제로 지우기</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section>
+  <h2>⑤ worktree 관리 (설정 › Worktree)</h2>
+  <p class="desc">전체 worktree를 한눈에 보고 정리합니다. 주인 세션이 없고 이미 합쳐진 것은 "정리 가능"으로 묶여 한 번에 지웁니다. 변경이 남은 것은 자동으로 지우지 않습니다.</p>
+  <p class="ref">참고: <b>Codex</b> "Managed worktrees" 목록(주인 스레드 상태) · <b>Roo</b> Settings › Worktrees · <b>Hermes</b> 시작 시 자동 정리 · 디스크 표시는 레퍼런스에 없어 추가</p>
+  <div class="canvas mgr">
+    <div class="mgr-head"><h3>Worktree</h3><span class="disk">사용 중 2.4GB<span class="bar"><i></i></span>여유 12GB</span></div>
+    <table>
+      <thead><tr><th>브랜치</th><th>프로젝트</th><th>사용 중인 세션</th><th>상태</th><th>크기</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><span class="wt"><svg class="i"><use href="#branch"/></svg>mixdog/fix-bom</span></td><td>mixdog</td><td>OpenAI OAuth JSON 오류</td><td><span class="tag ok">합칠 준비됨</span></td><td>201MB</td><td class="r"><button class="btn">합치기</button> <button class="btn ghost"><svg class="i"><use href="#more"/></svg></button></td></tr>
+        <tr><td><span class="wt"><svg class="i"><use href="#branch"/></svg>mixdog/ssh-remote</span></td><td>mixdog</td><td>SSH 원격 모델 프록시</td><td><span class="tag warn">변경 35 · 커밋 2</span></td><td>214MB</td><td class="r"><button class="btn ghost"><svg class="i"><use href="#more"/></svg></button></td></tr>
+        <tr><td><span class="wt"><svg class="i"><use href="#branch"/></svg>mixdog/agent-tests-2</span></td><td>mixdog</td><td><span class="s">하위 에이전트 · 테스트 정리</span></td><td><span class="tag danger">충돌 위험</span></td><td>203MB</td><td class="r"><button class="btn ghost"><svg class="i"><use href="#more"/></svg></button></td></tr>
+        <tr><td><span class="wt"><svg class="i"><use href="#branch"/></svg>mixdog/old-ui</span></td><td>mixdog</td><td><span class="s">없음</span></td><td><span class="tag">합쳐짐 · 정리 가능</span></td><td>199MB</td><td class="r"><button class="btn ghost">지우기</button></td></tr>
+        <tr><td><span class="wt"><svg class="i"><use href="#branch"/></svg>mixdog/api-retry</span></td><td>ProjectAA_Server</td><td><span class="s">없음</span></td><td><span class="tag">합쳐짐 · 정리 가능</span></td><td>3MB</td><td class="r"><button class="btn ghost">지우기</button></td></tr>
+      </tbody>
+    </table>
+    <div class="mgr-foot"><span>시작할 때 자동 정리 <span class="toggle"></span></span><span class="grow"></span><span>정리 가능 2개 · 202MB</span><button class="btn">한 번에 정리</button></div>
+  </div>
+</section>
+</body>
+</html>
