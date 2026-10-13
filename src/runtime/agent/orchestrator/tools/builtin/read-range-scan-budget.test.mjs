@@ -8,6 +8,7 @@ import test from 'node:test';
 const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-range-scan-budget-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 const { streamReadRange } = await import('./read-streaming.mjs');
+const { expandGrepAnchorContextOutput } = await import('./lib/grep-context-expander.mjs');
 const { READ_MAX_SCAN_BYTES } = await import('./read-constants.mjs');
 let sequence = 0;
 test.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -98,5 +99,29 @@ test('a requested line starting beyond the scan cap remains inaccessible', async
     message: `read scan exceeds ${READ_MAX_SCAN_BYTES} bytes`,
   });
   assert.deepEqual(f.reads.at(-1), { position: READ_MAX_SCAN_BYTES, length: 1, bytesRead: 1 });
+  assert.equal(f.closes(), 1);
+});
+
+test('a deep grep context budget failure preserves the match without claiming complete source', async (t) => {
+  const f = await fixture(t, READ_MAX_SCAN_BYTES + 65536, READ_MAX_SCAN_BYTES + 1, '\nBEFORE\nTARGET\nAFTER\n');
+  const result = await expandGrepAnchorContextOutput({
+    allLines: ['3:TARGET'],
+    workDir: root,
+    rgSpawnCwd: root,
+    grepResolvedPath: f.path,
+    searchPath: f.path,
+    outputMode: 'content',
+    filenameOmitted: true,
+    headLimit: 10,
+    offset: 0,
+    requestedContext: 1,
+    maxContext: 1,
+  });
+  assert.ok(f.reads.some(({ position, bytesRead }) => position + bytesRead > READ_MAX_SCAN_BYTES),
+    'the real source scanner must reach its byte budget');
+  assert.equal(result.sourceComplete, false);
+  assert.equal(result.shown, 1);
+  assert.match(result.text, /\[lines 3-3\]\nTARGET/);
+  assert.doesNotMatch(result.text, /BEFORE|AFTER/);
   assert.equal(f.closes(), 1);
 });
