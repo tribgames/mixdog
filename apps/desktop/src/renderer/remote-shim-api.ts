@@ -1,6 +1,15 @@
 // The DesktopApi surface of a browser: each method forwards over the relay
 // socket (or degrades to a browser equivalent).
 import type { DesktopApi, DesktopCapabilityRequest, DesktopCapabilityResult } from '../shared/contract';
+import {
+  FILE_DOWNLOAD_REMOTE_METHODS,
+  FileDownloadError,
+  type FileDownloadApi,
+  type FileDownloadChunk,
+  type FileDownloadFinished,
+  type FileDownloadGrant,
+  type FileDownloadTransfer,
+} from '../shared/file-downloads';
 import { browserProfile, newBrowserId } from './remote-browser-identity';
 import { LEGACY_HOST_FALLBACKS, REMOTE_BROWSER_FALLBACKS } from './remote-browser-fallbacks';
 import { recoverableCreation } from './recoverable-creation';
@@ -86,6 +95,22 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       variant,
     });
   };
+  // Host file downloads: thin RPC stubs (the UI and sinks build on them). A
+  // host that did not advertise `fileDownloads` refuses as `host-too-old`
+  // instead of answering `unknown method`.
+  const downloadCall = <T>(method: string, params: unknown[]): Promise<T> =>
+    ctx.peerFileDownloads === true
+      ? call<T>(method, params)
+      : Promise.reject(new FileDownloadError('host-too-old', 'Update Mixdog on the PC to download its files.'));
+  const fileDownloads: FileDownloadApi = {
+    available: () => ctx.peerFileDownloads === true,
+    authorize: (request) => downloadCall<FileDownloadGrant>(FILE_DOWNLOAD_REMOTE_METHODS.authorize, [request]),
+    begin: (grantId) => downloadCall<FileDownloadTransfer>(FILE_DOWNLOAD_REMOTE_METHODS.begin, [grantId]),
+    readRange: (transferId, offset, length, version) =>
+      downloadCall<FileDownloadChunk>(FILE_DOWNLOAD_REMOTE_METHODS.range, [transferId, offset, length, version]),
+    finish: (transferId) => downloadCall<FileDownloadFinished>(FILE_DOWNLOAD_REMOTE_METHODS.finish, [transferId]),
+    abort: (id) => downloadCall<boolean>(FILE_DOWNLOAD_REMOTE_METHODS.abort, [id]),
+  };
   const api: Omit<DesktopApi, GatedKey> = {
     // Desktop-only OS integrations become inert or degrade to browser
     // equivalents (remote-browser-fallbacks.ts); everything below forwards over
@@ -161,8 +186,9 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     subscribeFolderChanges: (listener) => laneSubscription('files', folderChangeListeners, listener),
     // Previews ride the encrypted RPC lane as ranged reads (the HTTP media
     // lane is disabled): blob: URLs for media, a srcdoc document for pages.
-    resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
+    resolveLocalPaths: (paths, sessionId) => call('resolveLocalPaths', sessionId ? [paths, sessionId] : [paths]),
     readLocalFile: (path) => call('readLocalFile', [path]),
+    fileDownloads,
     listSessions: () => readCatalog(sessionsCatalog, 'listSessions'),
     markSessionRead: (sessionId, messageCount, consumedUnread) =>
       call<boolean>('markSessionRead', [sessionId, messageCount, consumedUnread]),

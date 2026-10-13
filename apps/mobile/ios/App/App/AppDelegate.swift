@@ -9,6 +9,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Own the notification centre before any tapped notification is delivered.
         MixdogNativeBridge.shared.configureNotifications()
+        // Downloads staged for sharing by a previous run are never reused.
+        MixdogFileSave.shared.cleanStale()
         return true
     }
 

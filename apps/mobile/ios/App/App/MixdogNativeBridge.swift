@@ -92,6 +92,12 @@ final class MixdogNavigationDelegate: NSObject, WKNavigationDelegate {
         inner.responds(to: aSelector) ? inner : super.forwardingTarget(for: aSelector)
     }
 
+    /// A new page replaced the old one: its pending native downloads go with it.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        MixdogFileSave.shared.abortAll(for: webView)
+        inner.webView?(webView, didCommit: navigation)
+    }
+
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -258,6 +264,23 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
         case "openHostPicker":
             openHostPicker()
             replyHandler(true, nil)
+        case "getNativeCapabilities":
+            replyHandler(["fileSave": 1], nil)
+        case "fileSaveBegin":
+            let args = body?["args"] as? [String: Any]
+            MixdogFileSave.shared.begin(owner: message.webView, args: args) { replyHandler($0, nil) }
+        case "fileSaveWrite":
+            let args = body?["args"] as? [String: Any]
+            MixdogFileSave.shared.write(owner: message.webView, args: args) { replyHandler($0, nil) }
+        case "fileSaveFinish":
+            let args = body?["args"] as? [String: Any]
+            MixdogFileSave.shared.finish(owner: message.webView, args: args) { replyHandler($0, nil) }
+        case "fileSaveAbort":
+            let args = body?["args"] as? [String: Any]
+            MixdogFileSave.shared.abort(owner: message.webView, args: args) { replyHandler($0, nil) }
+        case "fileSaveShare":
+            let args = body?["args"] as? [String: Any]
+            MixdogFileSave.shared.share(owner: message.webView, args: args) { replyHandler($0, nil) }
         default:
             replyHandler(NSNull(), nil)
         }

@@ -1146,9 +1146,10 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     await act(async () =>
       f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
     );
-    // A remote browser has no OS bridge, so only the in-app actions appear.
+    // A remote browser has no OS bridge, so only the in-app actions appear,
+    // plus downloading the host file to this device.
     assert.equal((await contextMenu(0)).defaultPrevented, true);
-    assert.deepEqual(labelsOf(), ['Open', 'Copy path']);
+    assert.deepEqual(labelsOf(), ['Open', 'Download / Share', 'Copy path']);
     await act(async () =>
       f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
     );

@@ -168,6 +168,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
       nativePush = false,
       routeAutoEffort = false,
       visualize = false,
+      fileDownloads = false,
       ready = {},
     } = {}) => {
       const known = FakeSocket.instances.length;
@@ -196,6 +197,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
         ...(nativePush ? { nativePush: 1 } : {}),
         ...(routeAutoEffort ? { routeAutoEffort: 1 } : {}),
         ...(visualize ? { visualize: 1 } : {}),
+        ...(fileDownloads ? { fileDownloads: 1 } : {}),
       };
       ws.onmessage({ data: JSON.stringify(challenge) });
       await until(() => ws.sent.length === 1, 'the client hello');

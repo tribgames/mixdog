@@ -4,6 +4,7 @@
 // shares transport-neutral validators so the remote surface cannot accept a shape
 // the in-process IPC surface would reject.
 import { randomUUID } from 'node:crypto';
+import { lstat, realpath } from 'node:fs/promises';
 import {
   basename as pathBasename,
   dirname as pathDirname,
@@ -60,6 +61,10 @@ import {
   requiredWorkspaceTextWrites,
 } from './ipc-validation';
 import { absoluteLocalPath } from './local-files';
+import { LocalAccessDeniedError } from './local-access-denied';
+import { FileDownloadError } from '../shared/file-downloads';
+import { fileDownloadRemoteMethods, type FileDownloadRequester, type FileDownloadService } from './file-downloads';
+import { createLinkProvenance } from './transcript-file-links';
 import { createRemoteFilePreviewMethods } from './remote-file-preview';
 import { createRemoteVisualizeMethods, type RemoteVisualizeMirror } from './remote-visualize';
 import { projectEntryPathIn } from './project-files';
@@ -99,6 +104,9 @@ export interface RemoteMethodClient {
   /** Whether this connection has not yet been shown another device's prompt
    *  in the session. A stale view is re-sent as a side effect. */
   staleView?(sessionId: string, device: string): boolean;
+  /** Sessions this connection currently views (the host's own record of its
+   *  visible set): where a file link it opens can have come from. */
+  viewedSessionIds?(): readonly string[];
 }
 
 export { STALE_SESSION_VIEW_MESSAGE } from './remote-session-methods';
@@ -155,6 +163,9 @@ export interface RemoteMethodDependencies {
   hostRequest?: (method: RemoteHostRequestMethod, args: unknown[]) => Promise<unknown>;
   /** The daemon's mirror of the window's agent `visualize` tabs. */
   visualize?: RemoteVisualizeMirror;
+  /** Host file downloads (file-downloads.ts), shared by every connection of
+   *  this relay so unpair and session deletion reach every grant. */
+  fileDownloads?: FileDownloadService;
 }
 
 export type RemoteHostRequestMethod =
@@ -171,25 +182,40 @@ type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown
 
 /** Permissions this bridge issued for paths outside every registered project. */
 interface SelectedFileGrants {
-  rememberFileGrant(absolutePath: string): string;
+  rememberFileGrant(absolutePath: string, sessionId: string): string;
   grantedFile(
     accessToken: unknown,
     projectPath: unknown,
     relPath: unknown
   ): { root: string; rel: string; absolute: string };
   grantedIf(accessToken: unknown): boolean;
+  /** Whether a live grant names exactly this file. */
+  holdsGrantFor(absolutePath: string): boolean;
 }
 
-/** Selected-file permissions for paths OUTSIDE any registered project. The
- *  desktop persists them under userData; a paired browser holds them for the
- *  life of this bridge, so a daemon restart simply asks the surface to
- *  resolve the path again. A token names one exact path and nothing else. */
-function createSelectedFileGrants(): SelectedFileGrants {
-  const fileGrants = new Map<string, string>();
+/** A bridge grant's lifetime; the connection ending (a new relay leg gets a
+ *  new method table) drops it sooner. */
+const BRIDGE_GRANT_TTL_MS = 60 * 60 * 1000;
+const NOT_LINKED = 'This file is outside every project and is not linked in this conversation.';
+
+/** One-file permissions for paths OUTSIDE any registered project, minted only
+ *  for a file an assistant reply in a conversation links (see
+ *  resolveLocalPathEntries). Held by this connection's method table, so they
+ *  bind to this paired device and connection; each records the conversation
+ *  it came from and ends with it, or after BRIDGE_GRANT_TTL_MS. A token names
+ *  one exact path and nothing else. */
+function createSelectedFileGrants(sessionRemoved: (sessionId: string) => boolean): SelectedFileGrants {
+  const fileGrants = new Map<string, { path: string; sessionId: string; expiresAt: number }>();
+  const live = (grant: { sessionId: string; expiresAt: number }): boolean =>
+    grant.expiresAt > Date.now() && !sessionRemoved(grant.sessionId);
   return {
-    rememberFileGrant: (absolutePath: string): string => {
+    rememberFileGrant: (absolutePath: string, sessionId: string): string => {
       const token = randomUUID();
-      fileGrants.set(selectedFileGrantKey(token), absolutePath);
+      fileGrants.set(selectedFileGrantKey(token), {
+        path: absolutePath,
+        sessionId,
+        expiresAt: Date.now() + BRIDGE_GRANT_TTL_MS,
+      });
       while (fileGrants.size > MAX_SELECTED_FILE_GRANTS) {
         const oldest = fileGrants.keys().next().value;
         if (!oldest) break;
@@ -199,15 +225,52 @@ function createSelectedFileGrants(): SelectedFileGrants {
     },
     grantedFile: (accessToken: unknown, projectPath: unknown, relPath: unknown) => {
       const token = requiredString(accessToken, 'file access token', 128);
-      const granted = fileGrants.get(selectedFileGrantKey(token));
-      if (!granted) throw new Error('The selected-file permission is unavailable.');
+      const key = selectedFileGrantKey(token);
+      const granted = fileGrants.get(key);
+      if (!granted || !live(granted)) {
+        fileGrants.delete(key);
+        throw new Error('The selected-file permission is unavailable.');
+      }
       const requested = resolvePath(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
-      if (!sameGrantedPath(granted, requested))
+      if (!sameGrantedPath(granted.path, requested))
         throw new Error('The selected-file permission does not match this path.');
-      return { root: pathDirname(granted), rel: pathBasename(granted), absolute: granted };
+      return { root: pathDirname(granted.path), rel: pathBasename(granted.path), absolute: granted.path };
     },
     grantedIf: (accessToken: unknown): boolean => typeof accessToken === 'string' && accessToken.length > 0,
+    holdsGrantFor: (absolutePath: string): boolean =>
+      [...fileGrants.values()].some((grant) => live(grant) && sameGrantedPath(grant.path, absolutePath)),
   };
+}
+
+/** Whether a lexically in-project path also stays inside the project once
+ *  symlinks and junctions are resolved. */
+function staysInProject(root: string, absolutePath: string): boolean {
+  try {
+    projectEntryPathIn(root, pathRelative(root, absolutePath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A host file a paired device may read as an attachment: inside a registered
+ *  project (symlink-guarded), or one this connection already holds a linked
+ *  grant for. Anything else is refused before the filesystem is touched. */
+async function readableLocalFile(
+  raw: unknown,
+  host: DesktopService,
+  grants: SelectedFileGrants
+): Promise<string> {
+  const absolute = absoluteLocalPath(raw);
+  // Like the editor lanes: a granted name later swapped for a symlink out of
+  // its folder is refused.
+  if (grants.holdsGrantFor(absolute)) return projectEntryPathIn(pathDirname(absolute), pathBasename(absolute));
+  const owner = owningProject(await host.listProjects().catch(() => []), absolute);
+  if (!owner) throw new LocalAccessDeniedError(NOT_LINKED);
+  if (!staysInProject(owner.root, absolute)) {
+    throw new LocalAccessDeniedError('The file resolves outside the project.');
+  }
+  return absolute;
 }
 
 // Remote access is a transport client, not another service. Keep its
@@ -454,19 +517,43 @@ function developerToolingRemoteMethods(invokeDesktopOperation: InvokeDesktopOper
 }
 
 /** Absolute paths as the file surface describes them: owned by the deepest
- *  registered project that contains them, otherwise named by a one-off grant
- *  this bridge can resolve on the calls that follow. */
+ *  registered project that contains them (symlinks resolved), otherwise only
+ *  when an assistant reply links them — in `sessionId`'s transcript when the
+ *  caller names it, else in a conversation this connection views — and then
+ *  named by a one-file grant the calls that follow can redeem. Any other path
+ *  is refused before it is even statted. */
 async function resolveLocalPathEntries(
   paths: unknown,
-  deps: { host: DesktopService; invokeDesktopOperation: InvokeDesktopOperation; grants: SelectedFileGrants }
+  sessionId: unknown,
+  deps: {
+    host: DesktopService;
+    invokeDesktopOperation: InvokeDesktopOperation;
+    grants: SelectedFileGrants;
+    viewedSessionIds: () => readonly string[];
+  }
 ): Promise<DesktopLocalPathEntry[]> {
   if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
     throw new TypeError('paths are invalid.');
   }
+  const named = optionalSessionId(sessionId);
+  const provenance = createLinkProvenance(deps.host, named ? [named] : [...deps.viewedSessionIds()]);
   const projects = await deps.host.listProjects().catch(() => []);
   const rows: DesktopLocalPathEntry[] = [];
   for (const raw of paths) {
-    const entry = (await deps.invokeDesktopOperation('statLocalEntryAbs', [absoluteLocalPath(raw)])) as {
+    const absolute = absoluteLocalPath(raw);
+    const owner = owningProject(projects, absolute);
+    const inProject = owner !== null && staysInProject(owner.root, absolute);
+    const linkedSession = inProject ? '' : ((await provenance.sessionFor(absolute)) ?? '');
+    if (!inProject && !linkedSession) throw new LocalAccessDeniedError(NOT_LINKED);
+    if (linkedSession && (await lstat(absolute)).isSymbolicLink()) {
+      // The link names the symlink, not whatever it points at.
+      const target = await realpath(absolute);
+      const targetOwner = owningProject(projects, target);
+      if (!(targetOwner && staysInProject(targetOwner.root, target)) && !(await provenance.sessionFor(target))) {
+        throw new LocalAccessDeniedError('The linked file is a symbolic link to a file that is not linked.');
+      }
+    }
+    const entry = (await deps.invokeDesktopOperation('statLocalEntryAbs', [absolute])) as {
       absolutePath: string;
       name: string;
       dir: boolean;
@@ -479,14 +566,13 @@ async function resolveLocalPathEntries(
       size: entry.size,
     };
     if (!row.dir) {
-      const owner = owningProject(projects, entry.absolutePath);
-      if (owner) {
+      if (owner && inProject) {
         row.projectPath = owner.project.path;
         row.relPath = pathRelative(owner.root, entry.absolutePath).replace(/\\/g, '/');
       } else {
         row.projectPath = pathDirname(entry.absolutePath);
         row.relPath = pathBasename(entry.absolutePath);
-        row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath);
+        row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath, linkedSession);
       }
     }
     rows.push(row);
@@ -676,6 +762,7 @@ export function createRemoteMethods(
     browserRemote,
     hostRequest,
     visualize,
+    fileDownloads,
   }: RemoteMethodDependencies,
   client?: RemoteMethodClient
 ): Record<string, RemoteMethod> {
@@ -689,8 +776,16 @@ export function createRemoteMethods(
     if (!hostRequest) throw new TypeError('The desktop app is unavailable on this connection.');
     return hostRequest;
   };
-  const grants = createSelectedFileGrants();
+  const grants = createSelectedFileGrants((sessionId) => fileDownloads?.sessionRemoved(sessionId) === true);
   const { grantedFile, grantedIf } = grants;
+  const viewedSessionIds = (): readonly string[] => client?.viewedSessionIds?.() ?? [];
+  // The paired device behind this connection, as the relay authenticated it.
+  const downloadRequester = (): FileDownloadRequester => {
+    const connection = client?.connectionId?.() ?? '';
+    const deviceId = client?.credentialId?.() || (connection ? `connection:${connection}` : '');
+    if (!deviceId) throw new FileDownloadError('unavailable', 'This connection has no paired device identity.');
+    return { deviceId };
+  };
   const methods: Record<string, RemoteMethod> = {
     submitFeedback: ([input]) => submitFeedback(input),
     readActivityRailPins: () => invokeDesktopOperation('readActivityRailPins', []),
@@ -796,10 +891,13 @@ export function createRemoteMethods(
       invokeDesktopOperation('folderWatch', [absoluteLocalPath(dir), recursive === true]),
     folderUnwatch: ([dir, recursive]) =>
       invokeDesktopOperation('folderUnwatch', [absoluteLocalPath(dir), recursive === true]),
-    // File tabs and attachments for paths outside any project: the same
-    // describe-then-grant grammar the desktop uses for a chosen file.
-    resolveLocalPaths: ([paths]) => resolveLocalPathEntries(paths, { host, invokeDesktopOperation, grants }),
-    readLocalFile: ([path]) => invokeDesktopOperation('readLocalFileAbs', [absoluteLocalPath(path)]),
+    // File tabs and attachments: project files, or files an assistant reply
+    // links (one-file grants). Nothing else on this machine.
+    resolveLocalPaths: ([paths, sessionId]) =>
+      resolveLocalPathEntries(paths, sessionId, { host, invokeDesktopOperation, grants, viewedSessionIds }),
+    readLocalFile: async ([path]) =>
+      invokeDesktopOperation('readLocalFileAbs', [await readableLocalFile(path, host, grants)]),
+    ...(fileDownloads ? fileDownloadRemoteMethods(fileDownloads, downloadRequester) : {}),
     // ── Project entries and the editor ─────────────────────────────────────
     ...projectEntryRemoteMethods(host, (method, args) => requiredHostRequest()(method, args)),
     // Host updater: the window process owns it; these mirror the desktop

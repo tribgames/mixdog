@@ -31,7 +31,7 @@ import { mixdogDataDirectory } from './computer/shared/common';
 import { SessionHostCatalog, catalogRelevantStoreEntry } from './session-host-catalog';
 import { SessionHostPublication } from './session-host-publication';
 import { SessionHostLifecycle } from './session-host-lifecycle';
-import { SessionHostTransport } from './session-host-transport';
+import { SessionHostTransport, sessionIdOf } from './session-host-transport';
 import { SessionTranscriptWindows } from './session-transcript-windows';
 import type { SessionCallOptions, SessionClient } from './session-host-transport';
 export type { SessionClient } from './session-host-transport';
@@ -382,6 +382,12 @@ export class SessionHost implements DesktopService {
   async readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {
     // Read this session without selecting it or publishing a pane snapshot.
     return sessionFinalAnswer(await this.readSession(sessionId, false, false), startedAt);
+  }
+
+  async readSessionTranscript(sessionId: string): Promise<SessionSnapshot> {
+    const id = sessionIdOf(sessionId);
+    // The held projection is exactly what this host published to its views.
+    return this.publication.projections.get(id)?.snapshot ?? (await this.readSession(id, false, false));
   }
 
   async startProject(projectPath: string): Promise<SessionSnapshot> {

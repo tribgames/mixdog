@@ -3,7 +3,7 @@ import { Suspense, createContext, memo, useContext, useEffect, useRef } from 're
 import { AttachmentCard, composerCardMeta } from './attachment-card';
 import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource } from './attachment-menu';
 import { useAttachmentContextMenu } from './attachment-context-menu';
-import { MarkdownOpenFileContext } from './MarkdownLink';
+import { MarkdownOpenFileContext, MarkdownTranscriptItemContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
 import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
@@ -423,7 +423,12 @@ export const TranscriptRow = memo(
                   <SlidersHorizontal size={12} aria-hidden="true" /> {line}
                 </p>
               ))}
-              {user ? null : <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
+              {user ? null : (
+                // Only a settled reply's links can be downloaded by its row id.
+                <MarkdownTranscriptItemContext.Provider value={item.streaming ? '' : String(item.id ?? '')}>
+                  <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
+                </MarkdownTranscriptItemContext.Provider>
+              )}
             </div>
           )}
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (

@@ -76,7 +76,9 @@ export function createRemoteFilePreviewMethods(deps: {
   ): Promise<{ root: string; absolute: string }> => {
     if (grants.grantedIf(accessToken)) {
       const granted = grants.grantedFile(accessToken, projectPath, relPath);
-      return { root: granted.root, absolute: granted.absolute };
+      // Re-resolved per read: a granted name later swapped for a symlink out
+      // of its folder is refused, exactly as the editor lanes refuse it.
+      return { root: granted.root, absolute: projectEntryPathIn(granted.root, granted.rel) };
     }
     const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     return { root, absolute: projectEntryPathIn(root, requiredString(relPath, 'relPath', 4_096)) };

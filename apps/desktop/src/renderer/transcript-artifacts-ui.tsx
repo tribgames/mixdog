@@ -1,4 +1,4 @@
-import { FileText, FolderOpen, Play, X } from 'lucide-react';
+import { Download, FileText, FolderOpen, Play, X } from 'lucide-react';
 import { useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ImageLightbox, lightboxItemsFor, useLightboxRegistration, type LightboxItem } from './image-lightbox';
 import { openProjectFileInDefaultApp, useLocalImagePreview } from './local-image-preview';
@@ -9,7 +9,10 @@ import { errorMessageText } from './ErrorNotice';
 import { DocSheet, FileTypeWord, TableThumbnail, delimitedSummary, fileTone } from './file-thumbnail-art';
 import { t } from './i18n';
 import { verifyLocalLink } from './local-link-resolver';
-import { MarkdownLink, MarkdownProjectContext } from './MarkdownLink';
+import { MarkdownLink, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
+import { fileDownloadBlockedReason, startFileDownload, useFileDownloadSupport } from './file-download-panel';
+import { fileDownloadReasonMessage } from './file-download-transfer';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { MxIcon } from './MxIcon';
 import { parseLocalFileLocation } from '../shared/local-files';
 import { mediaUrl } from './studio-support';
@@ -176,9 +179,35 @@ function MediaFigure({
   );
 }
 
+/** A paired device's action on generated media: download the original to
+ *  this device (and share it), or the reason it cannot. */
+function MediaDownloadButton({ artifact }: { artifact: TranscriptArtifact }) {
+  const sessionId = useContext(MarkdownSessionContext);
+  const blocked =
+    fileDownloadBlockedReason(useFileDownloadSupport(true)) ||
+    (sessionId ? undefined : fileDownloadReasonMessage('unavailable'));
+  const label = blocked || t('Download / Share');
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={t('Download / Share')}
+      data-tooltip={label}
+      aria-disabled={blocked ? 'true' : undefined}
+      onClick={() => {
+        if (blocked) showDesktopToast(blocked, 'error');
+        else startFileDownload({ kind: 'media', sessionId, assetId: artifact.assetId! }, artifact.name);
+      }}
+    >
+      <Download size={14} aria-hidden="true" />
+    </button>
+  );
+}
+
 function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; square: boolean }) {
   const api = window.mixdogDesktop;
   const id = artifact.assetId!;
+  const remote = isRemoteHostRenderer();
   const openLabel = isSshConnectionWindow() ? t('Download to this PC and open') : t('Open file');
   const folderLabel = isSshConnectionWindow() ? t('Reveal in Files') : t('Open Folder');
   const open = async (folder = false) => {
@@ -197,20 +226,25 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
       original={mediaUrl(api, id, 'original')}
       preview={mediaUrl(api, id, artifact.kind === 'video' ? 'thumb' : 'display')}
       square={square}
-      openDefault={() => void open()}
+      openDefault={remote ? undefined : () => void open()}
       actions={
         <>
           {/* Same icon-only action grammar as the response copy control: transparent
-            icon-button + tooltip, never a native grey text button. */}
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={openLabel}
-            data-tooltip={openLabel}
-            onClick={() => void open()}
-          >
-            <MxIcon name="open-file" size={14} />
-          </button>
+            icon-button + tooltip, never a native grey text button. The host's
+            OS cannot open anything for a paired device: it downloads instead. */}
+          {remote ? (
+            <MediaDownloadButton artifact={artifact} />
+          ) : (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={openLabel}
+              data-tooltip={openLabel}
+              onClick={() => void open()}
+            >
+              <MxIcon name="open-file" size={14} />
+            </button>
+          )}
           {api?.openMediaFolder && (
             <button
               type="button"

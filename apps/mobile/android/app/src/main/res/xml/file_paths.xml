@@ -3,4 +3,6 @@
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
     <external-files-path name="updates" path="updates/" />
+    <!-- Native file-save sink below Android 10 (MixdogFileSave): share only. -->
+    <external-files-path name="downloads" path="Download/" />
 </paths>

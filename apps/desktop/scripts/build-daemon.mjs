@@ -11,6 +11,11 @@ const outfile = join(desktopDir, 'out', 'main', 'daemon.cjs');
 // Loaded at runtime from node_modules, never bundled; a server install gets
 // them from its generated lockfile.
 const DAEMON_EXTERNALS = ['@homebridge/node-pty-prebuilt-multiarch'];
+// Loaded only on a Windows desktop host (servers are POSIX), so never part of
+// a server install: the Win32 FFI that file downloads read an open file's
+// real path with (opened-file-path.ts). The app keeps it unpacked beside
+// daemon.cjs (electron-builder asarUnpack).
+const DESKTOP_HOST_EXTERNALS = ['koffi'];
 
 await build({
   entryPoints: [join(desktopDir, 'src', 'main', 'desktop-service.ts')],
@@ -21,7 +26,7 @@ await build({
   target: 'node22',
   treeShaking: true,
   sourcemap: false,
-  external: DAEMON_EXTERNALS,
+  external: [...DAEMON_EXTERNALS, ...DESKTOP_HOST_EXTERNALS],
   // The package's UMD main resolves its modules through a runtime require the
   // bundler cannot follow; its ESM build bundles statically.
   alias: { 'jsonc-parser': 'jsonc-parser/lib/esm/main.js' },

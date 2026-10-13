@@ -68,6 +68,11 @@ export interface RelayE2EEChallenge {
    *  `visualizeCommand`, pane reads, the visualize push lane). Absent on an
    *  older host. */
   visualize?: 1;
+  /** This host serves host file downloads (shared/file-downloads.ts:
+   *  `fileDownloadAuthorize`/`Begin`/`Range`/`Finish`/`Abort`) and confines
+   *  `resolveLocalPaths`/`readLocalFile` to project and assistant-linked
+   *  files. Absent on an older host: downloads report `host-too-old`. */
+  fileDownloads?: 1;
 }
 
 interface RelayE2EEHello {

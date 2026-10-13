@@ -68,6 +68,7 @@ public class MixdogWebViewClient extends BridgeWebViewClient {
       view.stopLoading();
       return;
     }
+    MixdogNativeHost.pageStarted();
     super.onPageStarted(view, url, favicon);
   }
 }

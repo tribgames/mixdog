@@ -8,7 +8,8 @@
 // starts playing from the first range instead of after a full download.
 
 const MEDIA_ROUTE = /^\/media\/([0-9a-fA-F-]{8,64})$/;
-const ALLOWED_VARIANTS = new Set(['original', 'thumb', 'display']);
+// `download` streams a per-lease file download (one lease id, never cached).
+const ALLOWED_VARIANTS = new Set(['original', 'thumb', 'display', 'download']);
 // Renditions are content-addressed by asset id: an asset never changes bytes
 // under a stable id, so the client may keep them for a year.
 const CACHE_CONTROL = 'private, max-age=31536000, immutable';

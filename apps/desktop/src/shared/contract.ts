@@ -1,4 +1,5 @@
 import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
+import type { FileDownloadApi } from './file-downloads';
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
 import type {
@@ -350,8 +351,14 @@ export interface DesktopApi {
   copyProjectEntry?(projectPath: string, relPath: string, targetDirRel: string): Promise<{ name: string }>;
   /** Absolute path of an OS-native dropped File (webUtils.getPathForFile). */
   folderPathForFile?(file: File): string;
-  /** Resolve trusted local paths for file-tab opening and internal drag/drop. */
-  resolveLocalPaths?(paths: string[]): Promise<DesktopLocalPathEntry[]>;
+  /** Resolve trusted local paths for file-tab opening and internal drag/drop.
+   *  On a remote surface a path outside every registered project resolves
+   *  only when an assistant reply links it: in `sessionId`'s transcript when
+   *  given, otherwise in a conversation this device currently views. */
+  resolveLocalPaths?(paths: string[], sessionId?: string): Promise<DesktopLocalPathEntry[]>;
+  /** Remote surfaces only: downloads of host files to this device
+   *  (shared/file-downloads.ts). Absent on the desktop app. */
+  fileDownloads?: FileDownloadApi;
   /** Read one local file for an existing attachment flow; capped in main. */
   readLocalFile?(path: string): Promise<DesktopLocalFileData>;
   /** Live refresh: watch a directory (refcounted) and stream change pings. */

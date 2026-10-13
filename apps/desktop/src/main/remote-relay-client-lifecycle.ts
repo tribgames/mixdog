@@ -69,6 +69,7 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       mediaE2ee: 1 as const,
       routeAutoEffort: 1 as const,
       visualize: 1 as const,
+      fileDownloads: 1 as const,
       // Only when the relay can deliver: a renderer calls registerNativePush
       // on hosts that advertise it.
       ...(deps.nativePushSupported?.() ? { nativePush: 1 as const } : {}),

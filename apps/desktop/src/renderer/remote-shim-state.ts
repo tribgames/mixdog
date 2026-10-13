@@ -121,6 +121,9 @@ export interface RemoteShimState {
   /** The current host advertised `visualize`: it serves the agent visualize
    *  panel's state, tab commands and pane reads. Absent means an older host. */
   peerVisualize: boolean;
+  /** The current host advertised `fileDownloads`: it serves the host file
+   *  download lane (shared/file-downloads.ts). Absent means an older host. */
+  peerFileDownloads: boolean;
   /** The current host serves the encrypted HTTP media lane (`mediaE2ee` in
    *  its challenge). Absent means an older host: media stays on RPC. */
   peerMediaE2ee: boolean;
@@ -374,6 +377,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerHostDirectories: false,
     peerRouteAutoEffort: false,
     peerVisualize: false,
+    peerFileDownloads: false,
     peerMediaE2ee: false,
     mediaSid: null,
     legacyVisibleSessionsQueue: Promise.resolve(),

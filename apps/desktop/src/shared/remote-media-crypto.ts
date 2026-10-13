@@ -41,6 +41,9 @@ export interface MediaWindowMeta {
   mime: string;
   start: number;
   end: number;
+  /** Download leases only: the leased file version (shared/file-downloads.ts),
+   *  authenticated here so a resumed range proves it continues the same file. */
+  version?: string;
 }
 
 /** A standalone copy: a Node Buffer's own `slice` is a view over a shared pool,
@@ -115,6 +118,7 @@ export async function decryptMediaMeta(
     !Number.isSafeInteger(meta.start) ||
     !Number.isSafeInteger(meta.end) ||
     typeof meta.mime !== 'string' ||
+    (meta.version !== undefined && typeof meta.version !== 'string') ||
     meta.start !== expectedStart ||
     (meta.end as number) < (meta.start as number) - 1 ||
     (meta.end as number) >= (meta.size as number)

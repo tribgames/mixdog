@@ -1,0 +1,75 @@
+/* Host-file downloads of a remote surface: compact cards at the top, clear of
+   the phone composer and the system bars. */
+.file-downloads {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(360px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.file-download {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 8px;
+  background: var(--surface-raised, var(--bg, #1f1f1f));
+  color: var(--text, inherit);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  pointer-events: auto;
+}
+
+.file-download-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-download-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.file-download-button {
+  display: inline-flex;
+  min-width: 28px;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.file-download-button:hover,
+.file-download-button:focus-visible {
+  background: var(--hover, rgba(127, 127, 127, 0.18));
+}
+
+.file-download-status {
+  grid-column: 2 / -1;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.file-download[data-status='failed'] .file-download-status {
+  color: var(--danger, #e5484d);
+  opacity: 1;
+}
+
+.file-download progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 4px;
+}

@@ -255,6 +255,7 @@ const openSocketAttempt = (
     ctx.peerHostDirectories = false;
     ctx.peerRouteAutoEffort = false;
     ctx.peerVisualize = false;
+    ctx.peerFileDownloads = false;
     dropMediaSession(ctx);
     ctx.limits.resetLearnedCaps();
     if (!ctx.e2eePairing) {
@@ -324,6 +325,7 @@ const openSocketAttempt = (
         ctx.peerHostDirectories = clear.hostDirectories === 1;
         ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;
         ctx.peerVisualize = clear.visualize === 1;
+        ctx.peerFileDownloads = clear.fileDownloads === 1;
         // The previous leg's media session ended with it.
         dropMediaSession(ctx);
         ctx.peerMediaE2ee = clear.mediaE2ee === 1;
@@ -341,7 +343,10 @@ const openSocketAttempt = (
         // this browser. Only a host that advertised the lane derived one.
         if (ctx.peerMediaE2ee && handshake.channel.mediaKey) {
           ctx.mediaSid = clear.challenge;
-          publishMediaKey(clear.challenge, handshake.channel.mediaKey);
+          publishMediaKey(clear.challenge, handshake.channel.mediaKey, {
+            base: ctx.serverBase || location.origin,
+            token: () => ctx.currentToken(),
+          });
           notifyMediaSessionChanged();
         }
         // promptHistoryPatch: this build's snapshot decoder applies head

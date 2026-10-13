@@ -3,7 +3,14 @@
 // injects the host object on every page it loads (a WKUserScript on iOS, a
 // JavaScript interface on Android), and also tags the user agent so the
 // surface is recognised before any script runs. It is a label plus a small
-// push bridge; it grants the page nothing beyond this app's own push token.
+// push bridge; it grants the page nothing beyond this app's own push token
+// and the save sink for files the page downloaded (shared/native-file-save.ts).
+
+import {
+  NATIVE_FILE_SAVE_INTERACTIVE_CALLS,
+  NATIVE_FILE_SAVE_INTERACTIVE_TIMEOUT_MS,
+  type NativeFileSaveCalls,
+} from './native-file-save';
 
 export const NATIVE_APP_USER_AGENT_TOKEN = 'MixdogApp/';
 export const NATIVE_PUSH_EVENT = 'mixdognativepush';
@@ -56,7 +63,7 @@ export interface NativeAppUpdateState {
   error?: 'network' | 'verify' | 'storage' | 'install';
 }
 
-export interface MixdogNativeCalls {
+export interface MixdogNativeCalls extends NativeFileSaveCalls {
   /** Android only. Older shells answer `null` (or never answer): no update feature. */
   getAppUpdate: [{ check?: boolean }, NativeAppUpdateState | null];
   startAppUpdate: [undefined, NativeAppUpdateState | null];
@@ -115,10 +122,14 @@ function androidInfo(host: AndroidMessageHost, version: string): MixdogNativeInf
     call: ((method: string, args?: unknown) =>
       new Promise<unknown>((resolve, reject) => {
         const id = nextId++;
+        // A save location or share sheet waits on the user, not the bridge.
+        const timeoutMs = NATIVE_FILE_SAVE_INTERACTIVE_CALLS.has(method as keyof NativeFileSaveCalls)
+          ? NATIVE_FILE_SAVE_INTERACTIVE_TIMEOUT_MS
+          : ANDROID_CALL_TIMEOUT_MS;
         const timer = setTimeout(() => {
           pending.delete(id);
           reject(new Error('Native bridge did not answer.'));
-        }, ANDROID_CALL_TIMEOUT_MS);
+        }, timeoutMs);
         pending.set(id, (result) => {
           clearTimeout(timer);
           pending.delete(id);
