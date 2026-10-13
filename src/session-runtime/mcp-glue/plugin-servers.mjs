@@ -170,7 +170,7 @@ function copyKey(name, copy, plugin, declared) {
  * Pure and idempotent: an already-adopted config yields an empty plan.
  */
 function planCopyAdoption(userServers, intents, declared) {
-  const byRoot = new Map(declared.filter((d) => !d.missing).map((d) => [comparablePath(d.plugin.root), d]));
+  const byRoot = new Map(declared.map((d) => [comparablePath(d.plugin.root), d]));
   const next = structuredClone(intents);
   const removed = [];
   const warnings = [];
@@ -185,6 +185,13 @@ function planCopyAdoption(userServers, intents, declared) {
       warnings.push({ name, message: `"${name}" looks like a plugin MCP copy but was left as configured: ${reason}` });
     if (!owner) {
       leave(`no registered plugin has root ${marker}`);
+      continue;
+    }
+    // A registered plugin whose directory is gone still owns its copies, so
+    // its disablement and project scopes keep applying; nothing is adopted.
+    if (owner.missing) {
+      owned.set(name, { d: owner, key: name });
+      leave(`plugin root ${marker} is missing`);
       continue;
     }
     const { key, reason } = copyKey(name, copy, owner.plugin, owner);

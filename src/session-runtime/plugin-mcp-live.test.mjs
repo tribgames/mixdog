@@ -561,6 +561,12 @@ test('an unadoptable plugin copy keeps its transport and the plugin lifecycle (d
   const off = resolveMcpServerCatalog({ config, plugins: [{ ...registered, enabled: false }] });
   assert.equal(off.servers['plugin-own'].enabled, false);
   assert.equal(off.entries['plugin-own'].pluginEnabled, false);
+  // The plugin directory disappearing must not turn its copy into an ownerless server.
+  const gone = resolveMcpServerCatalog({ config, plugins: [{ ...registered, enabled: false, exists: false }] });
+  assert.equal(gone.servers['plugin-own'].enabled, false, 'a disabled missing plugin keeps its copy off');
+  assert.equal(gone.servers['plugin-own']._mixdogPlugin.id, registered.id, 'scoping still sees the plugin id');
+  assert.equal(gone.entries['plugin-own'].owner.id, registered.id);
+  assert.equal(gone.sources['plugin-own'], 'config', 'the copy is not adopted');
 });
 
 test('user server CRUD reconciles plugin servers that move names; a collision name sticks', async (t) => {
