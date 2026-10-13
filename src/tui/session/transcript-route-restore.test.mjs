@@ -97,6 +97,7 @@ test('restored user rows carry imageRefs keyed by the line that draws each image
   );
   assert.deepEqual(withRef.imageRefs, [
     { line: meta, ref },
+    { line: '[Image: image]' },
     { line: '[Image: image/png]', ref: other },
   ]);
   // Consecutive images without a metadata line each get a line of their own.

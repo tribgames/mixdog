@@ -151,10 +151,13 @@ export function restoredUserText(content) {
 }
 
 /** The stored original of each image the restored bubble draws, by the
- *  `[Image: …]` line that draws it (images without a stored original left out). */
+ *  `[Image: …]` line that draws it. Every image keeps its slot (one without a
+ *  stored original has no `ref`) so later images do not shift onto it; empty
+ *  when no image has a stored original. */
 export function restoredUserImageRefs(content) {
   if (!Array.isArray(content)) return [];
-  return restoredUserParts(content)
-    .images.filter(({ part }) => isAttachmentReference(part))
-    .map(({ part, line }) => ({ line, ref: part.attachmentRef }));
+  const slots = restoredUserParts(content).images.map(({ part, line }) =>
+    isAttachmentReference(part) ? { line, ref: part.attachmentRef } : { line },
+  );
+  return slots.some((slot) => slot.ref) ? slots : [];
 }

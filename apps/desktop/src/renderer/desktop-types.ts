@@ -45,7 +45,7 @@ export type TranscriptItem = RecordValue & {
   exitErrorCount?: number;
   images?: Array<{ id?: number | null; name?: string; mimeType?: string; bytes?: number; attachmentRef?: string }>;
   /** Restored rows: each image's stored original, by the `[Image: …]` line that draws it. */
-  imageRefs?: Array<{ line: string; ref: string }>;
+  imageRefs?: Array<{ line: string; ref?: string }>;
 };
 
 export type Approval = RecordValue & {

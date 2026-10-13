@@ -108,6 +108,16 @@ test('a restored row finds each chip’s original by the line that draws it', as
   assert.ok(markup.indexOf(url('B')) > markup.indexOf('Image'));
 });
 
+test('an image without a stored original keeps an empty slot before one that has it', async () => {
+  await persistentImagePreviews.put(previewKey('chat-s', 'attachment:ref-2'), 'chat-s', url('TWO'));
+  const text = 'look\n[Image: image/png]\n[Image: image/png]';
+  const imageRefs = [{ line: '[Image: image/png]' }, { line: '[Image: image/png]', ref: 'ref-2' }];
+  const markup = renderRow('chat-s', { kind: 'user', id: 's1', text, imageRefs });
+  const sources = [...markup.matchAll(/<img[^>]+src="([^"]+)"/g)].map((match) => match[1]);
+  // The first chip claims the empty slot, so the picture belongs to the second card.
+  assert.deepEqual(sources, [url('TWO')]);
+});
+
 test('a store hit makes no host call', async () => {
   const calls = stubHost(async () => url('H'));
   await persistentImagePreviews.put(previewKey('chat-h', 'attachment:ref-h'), 'chat-h', url('S'));
