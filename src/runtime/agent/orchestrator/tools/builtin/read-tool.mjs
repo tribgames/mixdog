@@ -18,6 +18,7 @@ import { normalizeObjectBatchArgs, batchEntriesFromArgs, primaryReadIndexes } fr
 import { dispatchBatchReads } from './read-tool/batch-dispatch.mjs';
 import { restoreCallerSlots, recordSlicedBatchSnapshots } from './read-tool/batch-snapshot.mjs';
 import { renderBatchResults } from './read-tool/batch-render.mjs';
+import { runReadCachePublication } from './cache-layers.mjs';
 
 function hasLineCoordinate(path) {
   return typeof path === 'string' && /(?:#L\d+|:\d+(?:-\d+)?(?::|$))/i.test(path);
@@ -54,17 +55,24 @@ async function executeBatchRead(args, workDir, readStateScope, executeChildBuilt
   const origEntries = Array.isArray(args._readsOrigEntries) ? args._readsOrigEntries : null;
   const entryMap = Array.isArray(args._readsEntryToDeduped) ? args._readsEntryToDeduped : null;
   const readIndexFor = primaryReadIndexes(entries, overrides, (p) => helpers.resolveAgainstCwd(p, workDir));
-  const results = await dispatchBatchReads({
-    entries,
-    readIndexFor,
-    workDir,
-    options,
-    helpers,
-    executeChildBuiltinTool,
-  });
-  const orderedResults = origEntries ? restoreCallerSlots(results, origEntries, entryMap, options, helpers) : results;
-  if (origEntries) await recordSlicedBatchSnapshots(orderedResults, workDir, readStateScope, helpers);
-  return renderBatchResults(orderedResults, args, helpers);
+  const run = async () => {
+    const results = await dispatchBatchReads({
+      entries,
+      readIndexFor,
+      workDir,
+      options,
+      helpers,
+      executeChildBuiltinTool,
+    });
+    const orderedResults = origEntries ? restoreCallerSlots(results, origEntries, entryMap, options, helpers) : results;
+    if (origEntries) await recordSlicedBatchSnapshots(orderedResults, workDir, readStateScope, helpers);
+    return renderBatchResults(orderedResults, args, helpers);
+  };
+  if (!origEntries) return run();
+  // Child leases end before coalesced snapshots are recorded. Retain each
+  // path's original generation through that final, potentially async step.
+  const paths = entries.filter((entry) => entry?.path).map((entry) => helpers.resolveAgainstCwd(entry.path, workDir));
+  return runReadCachePublication(paths, run);
 }
 
 // Glance modes served by their own child tool: the tool name and the args it

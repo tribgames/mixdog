@@ -25,6 +25,7 @@ const {
 const { detectReadEncodingFromBuffer } = await import('./snapshot-helpers.mjs');
 const { bufferedReadResult } = await import('./read-single-render.mjs');
 const { readCachedResult } = await import('./read-single-fast-paths.mjs');
+const { getReadSnapshot } = await import('./read-snapshot-runtime.mjs');
 const { executeBuiltinTool } = await import('../builtin.mjs');
 process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 test.afterEach(() => invalidateBuiltinResultCache());
@@ -360,76 +361,84 @@ test('hash rejection detaches an old same-version raw flight without cancelling 
   }
 });
 
-test('a rejected hash forces fresh IO even when an older reader republishes raw bytes', async (t) => {
-  const path = file();
-  writeFileSync(path, body);
-  const time = new Date('2025-01-01T00:00:00.000Z');
-  utimesSync(path, time, time);
-  const before = statSync(path);
-  const originalStat = fsPromises.stat;
-  const postStarted = Promise.withResolvers();
-  const postDone = Promise.withResolvers();
-  let armed = false;
-  let calls = 0;
-  const mock = t.mock.method(fsPromises, 'stat', async (target, ...options) => {
-    const st = await originalStat(target, ...options);
-    if (target === path) {
-      st.ctimeMs = before.ctimeMs;
-      if (armed && ++calls === 2) {
-        armed = false;
-        postStarted.resolve();
-        await postDone.promise;
-      }
-    }
-    return st;
-  });
-  syncBuiltinESMExports();
-  let oldRead;
-  let unsubscribe;
-  try {
-    const args = { file_path: path };
-    const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
-    const first = String(await executeBuiltinTool('read', args, root, options));
-    assert.match(first, /BEFORE/);
-    assert.equal(rawContentCacheGet(path, {
-      ...before,
-      ctimeMs: differentFieldValue(before.ctimeMs, 'ctimeMs'),
-    }), null, 'evict only raw bytes, retaining the full-read result');
-
-    // A different window misses the rendered cache and holds old bytes at
-    // post-stat, before bufferedReadResult is allowed to publish them.
-    armed = true;
-    oldRead = executeBuiltinTool('read', { file_path: path, offset: 1, limit: 1 }, root, {
-      sessionId: randomUUID(),
-      suppressReadUnchangedStub: true,
-    });
-    await Promise.race([
-      postStarted.promise,
-      oldRead.then(() => assert.fail('the old read must pause at post-stat')),
-    ]);
-    writeFileSync(path, 'AFTER_\n');
+for (const releaseAfterFresh of [false, true]) {
+  test(`rejected bytes cannot be republished (old completion after fresh=${releaseAfterFresh})`, async (t) => {
+    const path = file();
+    writeFileSync(path, 'BEFORE\nTAIL_A\n');
+    const time = new Date('2025-01-01T00:00:00.000Z');
     utimesSync(path, time, time);
-    const observed = await fsPromises.stat(path);
-    for (const field of ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev']) {
-      assert.equal(observed[field], before[field], `${field} must collide`);
-    }
-    let rejections = 0;
-    unsubscribe = registerCacheInvalidationListener((paths) => {
-      if (paths?.length) {
-        rejections++;
-        postDone.resolve();
+    const before = statSync(path);
+    const originalStat = fsPromises.stat;
+    const postStarted = Promise.withResolvers();
+    const postDone = Promise.withResolvers();
+    let armed = false;
+    let calls = 0;
+    const mock = t.mock.method(fsPromises, 'stat', async (target, ...options) => {
+      const st = await originalStat(target, ...options);
+      if (target === path) {
+        st.ctimeMs = before.ctimeMs;
+        if (armed && ++calls === 2) {
+          armed = false;
+          postStarted.resolve();
+          await postDone.promise;
+        }
       }
+      return st;
     });
-    const reread = String(await executeBuiltinTool('read', args, root, options));
-    assert.equal(rejections, 1, 'hash rejection releases the old publication');
-    assert.match(String(await oldRead), /BEFORE/, 'the older reader keeps its original observation');
-    assert.equal(reread, first.replace('BEFORE', 'AFTER_'));
-    assert.deepEqual(rawContentCacheGet(path, observed), Buffer.from('AFTER_\n'));
-  } finally {
-    postDone.resolve();
-    await Promise.allSettled([oldRead]);
-    unsubscribe?.();
-    mock.mock.restore();
     syncBuiltinESMExports();
-  }
-});
+    let oldRead;
+    let unsubscribe;
+    try {
+      const args = { file_path: path };
+      const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
+      const first = String(await executeBuiltinTool('read', args, root, options));
+      assert.match(first, /BEFORE/);
+      assert.equal(rawContentCacheGet(path, {
+        ...before,
+        ctimeMs: differentFieldValue(before.ctimeMs, 'ctimeMs'),
+      }), null, 'evict only raw bytes, retaining the full-read result');
+
+      // A different window misses the rendered cache and holds old bytes at
+      // post-stat, before bufferedReadResult is allowed to publish them.
+      armed = true;
+      oldRead = executeBuiltinTool('read', { file_path: path, offset: 1, limit: 1 }, root, options);
+      await Promise.race([
+        postStarted.promise,
+        oldRead.then(() => assert.fail('the old read must pause at post-stat')),
+      ]);
+      writeFileSync(path, 'AFTER_\nTAIL_B\n');
+      utimesSync(path, time, time);
+      const observed = await fsPromises.stat(path);
+      for (const field of ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev']) {
+        assert.equal(observed[field], before[field], `${field} must collide`);
+      }
+      let rejections = 0;
+      unsubscribe = registerCacheInvalidationListener((paths) => {
+        if (paths?.length) {
+          rejections++;
+          if (!releaseAfterFresh) postDone.resolve();
+        }
+      });
+      const reread = String(await executeBuiltinTool('read', args, root, options));
+      assert.equal(rejections, 1, 'the new read rejects the cached hash');
+      const freshSnapshot = structuredClone(getReadSnapshot(path, options.sessionId));
+      postDone.resolve();
+      assert.match(String(await oldRead), /BEFORE/, 'the older reader keeps its original observation');
+      assert.equal(reread, first.replace('BEFORE', 'AFTER_').replace('TAIL_A', 'TAIL_B'));
+      assert.deepEqual(rawContentCacheGet(path, observed), Buffer.from('AFTER_\nTAIL_B\n'));
+      assert.deepEqual(getReadSnapshot(path, options.sessionId), freshSnapshot, 'old evidence cannot replace the fresh snapshot');
+      const later = String(await executeBuiltinTool('read', { file_path: path, offset: 2, limit: 1 }, root, options));
+      assert.match(later, /TAIL_B/);
+      assert.doesNotMatch(later, /TAIL_A/);
+      const oldWindow = String(await executeBuiltinTool('read', { file_path: path, offset: 1, limit: 1 }, root, options));
+      assert.match(oldWindow, /AFTER_/);
+      assert.doesNotMatch(oldWindow, /BEFORE/);
+    } finally {
+      postDone.resolve();
+      await Promise.allSettled([oldRead]);
+      unsubscribe?.();
+      mock.mock.restore();
+      syncBuiltinESMExports();
+    }
+  });
+}

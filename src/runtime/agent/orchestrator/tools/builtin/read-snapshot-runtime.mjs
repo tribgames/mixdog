@@ -8,7 +8,7 @@ import {
   statMatchesSnapshot,
   decodeRawBufferForSnapshotCheck,
 } from './snapshot-helpers.mjs';
-import { rawContentCacheGet } from './cache-layers.mjs';
+import { canPublishReadCache, rawContentCacheGet } from './cache-layers.mjs';
 import { fileVersion } from './file-version.mjs';
 import { publishRawContentAfterRead } from './raw-content-publication.mjs';
 import { rememberReadSnapshot, readFilesForScope, readScopeKey, scheduleScopePersist } from './snapshot-store.mjs';
@@ -118,6 +118,7 @@ function collectRangeHashRows(existing, sameFile, meta) {
 }
 
 export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
+  if (!canPublishReadCache(fullPath)) return;
   const readFiles = readFilesForScope(scope);
   const identity = snapshotStatIdentity(fullPath, st);
   const { mtimeMs, ctimeMs, size, ino, dev } = identity || {};

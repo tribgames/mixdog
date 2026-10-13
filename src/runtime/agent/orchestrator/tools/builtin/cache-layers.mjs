@@ -9,6 +9,10 @@ import { fileVersion, sameFileVersion } from './file-version.mjs';
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
 const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subscribers, settled }
 const RESULT_CACHE_COMPUTE = new AsyncLocalStorage();
+const READ_CACHE_PUBLICATION = new AsyncLocalStorage();
+// Only active reads retain a slot. Invalidating an inactive path creates
+// no history, and the final reader releases its path in a finally block.
+const ACTIVE_READ_CACHE_PATHS = new Map();
 const RESULT_CACHE_TTL_MS = 30_000;
 const RESULT_CACHE_MAX_ENTRIES = 200;
 // A byte budget from the bytes env var, else the megabytes one, else the
@@ -72,6 +76,37 @@ function cachePathsOverlap(a, b) {
   return a.startsWith(b.endsWith(sep) ? b : `${b}${sep}`) || b.startsWith(a.endsWith(sep) ? a : `${a}${sep}`);
 }
 
+export async function runReadCachePublication(fullPaths, read) {
+  const paths = normalizeCacheMetaPaths(Array.isArray(fullPaths) ? fullPaths : [fullPaths]);
+  const leases = paths.map((path) => {
+    let slot = ACTIVE_READ_CACHE_PATHS.get(path);
+    if (!slot) {
+      slot = { generation: 0, references: 0 };
+      ACTIVE_READ_CACHE_PATHS.set(path, slot);
+    }
+    slot.references++;
+    return { path, slot, generation: slot.generation, released: false };
+  });
+  try {
+    return await READ_CACHE_PUBLICATION.run(leases, read);
+  } finally {
+    for (const lease of leases) {
+      lease.released = true;
+      if (--lease.slot.references === 0) ACTIVE_READ_CACHE_PATHS.delete(lease.path);
+    }
+  }
+}
+
+export function canPublishReadCache(targets = null) {
+  const leases = READ_CACHE_PUBLICATION.getStore();
+  if (!leases) return true;
+  const paths = normalizeCacheMetaPaths(Array.isArray(targets) ? targets : [targets]);
+  return leases.every((lease) => {
+    if (paths.length && !paths.some((path) => cachePathsOverlap(path, lease.path))) return true;
+    return !lease.released && lease.generation === lease.slot.generation;
+  });
+}
+
 function cacheEntryOverlapsPaths(entry, affectedPaths) {
   const entryPaths = Array.isArray(entry?.paths) ? entry.paths : [];
   const entryScopes = Array.isArray(entry?.scopes) ? entry.scopes : [];
@@ -107,6 +142,11 @@ export function cacheSet(key, value, meta = {}) {
   // A detached/aborted computation must never repopulate a newer cache.
   const computation = RESULT_CACHE_COMPUTE.getStore();
   if (computation?.invalidated || computation?.controller?.signal?.aborted) return;
+  const publicationPaths = [
+    ...(Array.isArray(meta.paths) ? meta.paths : []),
+    ...(Array.isArray(meta.scopes) ? meta.scopes : []),
+  ];
+  if (!canPublishReadCache(publicationPaths)) return;
   // Replace-in-place: clear old entry's byte accounting before write.
   if (RESULT_CACHE.has(key)) resultCacheDelete(key);
   const bytes = estimateResultBytes(value);
@@ -276,6 +316,7 @@ export function rawContentCacheGet(fullPath, stat, now = Date.now()) {
 }
 
 export function rawContentCacheSet(fullPath, stat, rawBuf, now = Date.now()) {
+  if (!canPublishReadCache(fullPath)) return;
   if (!fullPath || !Buffer.isBuffer(rawBuf)) return;
   const version = fileVersion(stat);
   if (!version || rawBuf.length !== version.size || rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES) return;
@@ -450,6 +491,7 @@ function runExtraInvalidationListeners(affectedPaths = null) {
 }
 
 function cacheInvalidateAll() {
+  for (const slot of ACTIVE_READ_CACHE_PATHS.values()) slot.generation++;
   for (const entry of RESULT_CACHE_INFLIGHT.values()) {
     entry.invalidated = true;
   }
@@ -469,6 +511,9 @@ function cacheInvalidatePaths(paths) {
   if (affectedPaths.length === 0) {
     cacheInvalidateAll();
     return;
+  }
+  for (const [path, slot] of ACTIVE_READ_CACHE_PATHS) {
+    if (affectedPaths.some((affected) => cachePathsOverlap(path, affected))) slot.generation++;
   }
   for (const inFlight of [RAW_CONTENT_INFLIGHT, READ_ONLY_STAT_INFLIGHT]) {
     for (const [key, entry] of inFlight) {
