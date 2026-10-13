@@ -93,6 +93,7 @@ function routeInput(source) {
   if (typeof source.fast === 'boolean') next.fast = source.fast;
   if (Object.hasOwn(source, 'modelParameters')) next.modelParameters = { ...source.modelParameters };
   if (Object.hasOwn(source, 'contextPercent')) next.contextPercent = source.contextPercent;
+  if (Object.hasOwn(source, 'contextTokens')) next.contextTokens = source.contextTokens;
   if (Object.hasOwn(source, 'disabled')) next.disabled = source.disabled;
   return next;
 }
@@ -178,6 +179,7 @@ const mainRoute = (rt) => ({
   fastCapable: rt.fastCapable === true,
   modelParameters: rt.modelParameters || {},
   contextPercent: rt.contextPercent ?? null,
+  contextTokens: rt.contextTokens ?? null,
 });
 
 async function automationStatus(rt, { domain }) {
@@ -328,8 +330,10 @@ function validateSetupInput(args) {
     if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
       throw new Error('route.disabled is only accepted by set_agent_route');
     }
-    if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, 'contextPercent')) {
-      throw new Error('route.contextPercent is only accepted by set_route and set_agent_route');
+    for (const field of ['contextPercent', 'contextTokens']) {
+      if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, field)) {
+        throw new Error(`route.${field} is only accepted by set_route and set_agent_route`);
+      }
     }
   }
   for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount']) {
@@ -541,7 +545,7 @@ const SETUP_ACTION_HANDLERS = {
   set_mcp_enabled: async (rt, args) => ({
     mcp: mcpRows(await rt.setMcpServerEnabled(requireText(args.name, 'name'), requireBoolean(args.enabled))),
   }),
-  reconnect_mcp: async (rt) => ({ mcp: mcpRows(await rt.reconnectMcp()) }),
+  reconnect_mcp: async (rt, args) => ({ mcp: mcpRows(await rt.reconnectMcp(clean(args.name) || undefined)) }),
   set_disabled_skills: (rt, args) => {
     if (!Array.isArray(args.skills)) throw new Error('skills (array of names) is required');
     return rt.setDisabledSkills(args.skills.map(clean).filter(Boolean));

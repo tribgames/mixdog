@@ -28,17 +28,27 @@ export function createExtensionSync({
     }
   }
 
-  async function refreshState(kind) {
+  // Apply per-server MCP changes in order; every other server stays untouched.
+  async function applyMcpChanges(changes) {
+    let status;
+    for (const { name, enabled } of changes) status = await connectConfiguredMcp({ only: name, enabled });
+    return status;
+  }
+
+  async function refreshState(kind, detail = null) {
     reloadFullConfig?.();
     if (kind === 'skills' || kind === 'plugins') invalidateSkills?.();
-    if (kind === 'mcp' || kind === 'plugins') {
+    const mcpChanges = kind === 'mcp' ? detail?.mcpChanges : null;
+    if (Array.isArray(mcpChanges)) {
+      await applyMcpChanges(mcpChanges);
+    } else if (kind === 'mcp' || kind === 'plugins') {
       await connectConfiguredMcp({ reset: true });
     }
     await refreshSurface(kind);
   }
 
   const subscription = subscribeGlobalExtensionChanges(refreshState);
-  const publish = (kind) => publishGlobalExtensionChange(kind, subscription.id);
+  const publish = (kind, detail = null) => publishGlobalExtensionChange(kind, subscription.id, detail);
 
   function scheduleMcpToggle(serverName, enabled) {
     const chain = mcpToggleChains.get(serverName) || { desired: enabled, running: null };
@@ -65,14 +75,27 @@ export function createExtensionSync({
 
   /** Skills/plugins invalidate the skill cache; every kind rebuilds the
    *  pre-session surface and notifies the other runtimes. */
-  async function announce(kind, { invalidate = kind !== 'mcp' } = {}) {
+  async function announce(kind, { invalidate = kind !== 'mcp', detail = null } = {}) {
     if (invalidate) invalidateSkills?.();
     await refreshSurface(kind);
-    await publish(kind);
+    await publish(kind, detail);
   }
 
-  /** Reconnect every configured MCP server after a config write, then announce. */
-  async function reconnectMcpAndAnnounce() {
+  /** Reconnect MCP after a config write, then announce. With `only`, just that
+   *  server is (re)connected (or disconnected when `enabled` is false) and
+   *  `drop` names (e.g. a renamed/removed server) are disconnected; every other
+   *  server stays untouched. Without `only`, every configured server reconnects. */
+  async function reconnectMcpAndAnnounce({ only = null, enabled = true, drop = [] } = {}) {
+    if (only || drop.length > 0) {
+      // Other runtimes receive the same scoped change list, not a full reset.
+      const mcpChanges = [
+        ...drop.map((name) => ({ name, enabled: false })),
+        ...(only ? [{ name: only, enabled }] : []),
+      ];
+      const status = await applyMcpChanges(mcpChanges);
+      await announce('mcp', { detail: { mcpChanges } });
+      return status;
+    }
     const status = await connectConfiguredMcp({ reset: true });
     await announce('mcp');
     return status;

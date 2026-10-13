@@ -2,6 +2,39 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { publishGlobalExtensionChange, subscribeGlobalExtensionChanges } from './global-extensions.mjs';
+import { createExtensionSync } from './resource-extension-sync.mjs';
+
+function syncRuntime(calls) {
+  return createExtensionSync({
+    connectConfiguredMcp: async (options) => {
+      calls.push(options);
+      return { servers: [] };
+    },
+    invalidatePreSessionToolSurface() {},
+  });
+}
+
+test('a named MCP reconnect reaches peer runtimes as a scoped change, not a full reset', async () => {
+  const writerCalls = [];
+  const peerCalls = [];
+  const writer = syncRuntime(writerCalls);
+  const peer = syncRuntime(peerCalls);
+  try {
+    await writer.reconnectMcpAndAnnounce({ only: 'rea', enabled: true, drop: ['old'] });
+    const expected = [
+      { only: 'old', enabled: false },
+      { only: 'rea', enabled: true },
+    ];
+    assert.deepEqual(writerCalls, expected);
+    assert.deepEqual(peerCalls, expected);
+    peerCalls.length = 0;
+    await writer.reconnectMcpAndAnnounce();
+    assert.deepEqual(peerCalls, [{ reset: true }]);
+  } finally {
+    writer.dispose();
+    peer.dispose();
+  }
+});
 
 test('global extension changes fan out to every runtime except the writer', async () => {
   const events = [];

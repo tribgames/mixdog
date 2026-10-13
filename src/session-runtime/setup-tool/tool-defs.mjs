@@ -100,7 +100,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   save_mcp_server: 'server',
   remove_mcp_server: 'name',
   set_mcp_enabled: 'name enabled',
-  reconnect_mcp: '',
+  reconnect_mcp: 'name?',
   set_disabled_skills: 'skills',
   set_extension_scope: 'kind name projects',
   add_plugin: 'source',
@@ -122,6 +122,7 @@ export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze([
   'browser',
   'computer',
   'voice',
+  'visualize',
 ]);
 
 const ROUTE_SCHEMA = {
@@ -136,6 +137,11 @@ const ROUTE_SCHEMA = {
     // A typed enum is unrepresentable on Gemini; the bounds project everywhere
     // and the executor rejects values that are not a multiple of 10.
     contextPercent: { type: 'integer', minimum: 10, maximum: 100, description: 'A multiple of 10.' },
+    contextTokens: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Exact context window in tokens; overrides contextPercent, clamped to 10%-100% of the model window.',
+    },
     disabled: {
       type: 'boolean',
       description: 'Agent routes only: true disables without losing the route; false re-enables.',
@@ -176,7 +182,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         route: {
           ...ROUTE_SCHEMA,
           description:
-            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent applies to Main and agent routes only.',
+            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent and contextTokens apply to Main and agent routes only.',
         },
         agent: { type: 'string', description: 'set_agent_route: agent id.' },
         workflow: { type: 'string', description: 'set_workflow: pack id.' },
@@ -222,7 +228,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         },
         name: {
           type: 'string',
-          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; else MCP/plugin/provider id.`,
+          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; reconnect_mcp: optional MCP server name (omit for all); else MCP/plugin/provider id.`,
         },
         accountId: {
           type: 'string',

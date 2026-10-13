@@ -22,9 +22,9 @@ import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
 import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
 import { positiveInt } from '../../../shared/numbers.mjs';
-import { resolveMcpCallTimeoutMs, resolveMcpTransportKind, scrubMcpConnectionMessage } from './client-config.mjs';
-import { createMcpTransport } from './client-transport.mjs';
-import { runBoundedHandshake } from './client-handshake.mjs';
+import { resolveMcpRequestTimeouts, resolveMcpTransportKind, scrubMcpConnectionMessage } from './client-config.mjs';
+import { appendMcpStderrTail, createMcpTransport } from './client-transport.mjs';
+import { listAllMcpTools, runBoundedHandshake } from './client-handshake.mjs';
 
 // Config interpretation (transport kind, URL policy, env expansion, headers,
 // timeouts, log scrubbing) lives in client-config.mjs; re-exported so every
@@ -37,6 +37,9 @@ export {
   resolveMcpHttpHeaders,
   resolveMcpTransportKind,
   resolveMcpStartupTimeoutMs,
+  resolveMcpCallTimeoutMs,
+  resolveMcpMaxTotalTimeoutMs,
+  resolveMcpRequestTimeouts,
 } from './client-config.mjs';
 const servers = new Map();
 const reconnects = createKeyedSingleflight();
@@ -226,7 +229,15 @@ function mcpFeatureTools(serverName, capabilities, protocolTools) {
 export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
   return scopedServerEntries(scopeId).map(([, server]) => ({
     name: server.name,
-    connected: true,
+    connected: server.liveness?.alive !== false,
+    ...(server.liveness?.alive === false
+      ? {
+          error: appendMcpStderrTail(
+            server.liveness.lastError || `MCP server "${server.name}" closed`,
+            server.stderrTail?.()
+          ),
+        }
+      : {}),
     toolCount: Array.isArray(server.tools) ? server.tools.length : 0,
     tools: (server.tools || []).map((tool) => ({
       name: tool.name,
@@ -296,28 +307,98 @@ export function getMcpServerInstructionsMap(scopeId = DEFAULT_MCP_SCOPE_ID) {
   return out;
 }
 
+// Close `current` (when registered) and connect `name` afresh with `cfg`.
+// Callers run it inside the per-server reconnect lane. `genAtStart` is the
+// shutdown generation captured BEFORE the caller queued/closed anything: a
+// disconnectAll() landing during the close (or the connect) bumps it, and the
+// replacement must then never register (no resurrection after shutdown).
+async function replaceServerConnection(scopeId, name, current, cfg, genAtStart) {
+  const registryKey = mcpServerRegistryKey(scopeId, name);
+  if (current) {
+    await _closeServer(current);
+    if (servers.get(registryKey) === current) servers.delete(registryKey);
+    _invalidateMcpToolFieldMemo();
+  }
+  if (genAtStart !== currentConnectAbortGeneration(scopeId)) {
+    throw new Error(`MCP server "${name}" connect aborted by shutdown`);
+  }
+  try {
+    // connectServer re-checks the same generation after loading the SDK and
+    // again right before registering, so a shutdown mid-handshake also aborts.
+    await connectServer(name, cfg, scopeId, genAtStart);
+  } catch (reason) {
+    const rawMessage = reason instanceof Error ? reason.message : String(reason);
+    throw new Error(scrubMcpConnectionMessage(rawMessage, cfg));
+  }
+}
+
+// Explicit single-server operations (connect/reconnect/disconnect) never join
+// a failure-driven reconnect that is already in flight — its config may be
+// stale — they queue behind it on the same lane instead, so at most one
+// connect per server is ever running (no doubly registered transports).
+async function runExclusiveServerOp(registryKey, task) {
+  for (let pending = reconnects.wait(registryKey); pending; pending = reconnects.wait(registryKey)) {
+    await pending.catch(() => {});
+  }
+  return reconnects.run(registryKey, task);
+}
+
 async function reconnectMcpServer(scopeId, serverName, failedServer) {
   const registryKey = mcpServerRegistryKey(scopeId, serverName);
-  return reconnects.run(registryKey, async () => {
+  // The generation the failed server was registered under, NOT the current
+  // one: when disconnectAll() itself caused the failure it has already bumped
+  // the generation (and still holds the entry while awaiting the close), so a
+  // freshly captured value would bless a post-shutdown reconnect.
+  const genAtStart = failedServer.generation ?? currentConnectAbortGeneration(scopeId);
+  await reconnects.run(registryKey, async () => {
     const current = servers.get(registryKey);
     // A peer already completed the replacement while this failed call was
     // unwinding. Reuse it immediately instead of closing a fresh transport.
-    if (current && current !== failedServer) return current;
-    if (current) {
-      await _closeServer(current);
-      if (servers.get(registryKey) === current) servers.delete(registryKey);
+    if (current && current !== failedServer) return;
+    // Unregistered meanwhile (explicit disconnect / shutdown), shut down since
+    // it was registered, or being deliberately closed right now: a failed call
+    // must not resurrect a server someone deliberately removed.
+    if (!current || genAtStart !== currentConnectAbortGeneration(scopeId) || current.liveness?.closing) {
+      throw new Error(`MCP server "${serverName}" was disconnected`);
     }
-    try {
-      await connectServer(serverName, failedServer.cfg, scopeId);
-    } catch (reason) {
-      const rawMessage = reason instanceof Error ? reason.message : String(reason);
-      throw new Error(scrubMcpConnectionMessage(rawMessage, failedServer.cfg));
+    await replaceServerConnection(scopeId, serverName, current, failedServer.cfg, genAtStart);
+  });
+  const replacement = servers.get(registryKey);
+  if (!replacement) {
+    throw new Error(`reconnect succeeded but server "${serverName}" entry is missing from registry`);
+  }
+  return replacement;
+}
+
+/**
+ * Connect, or reconnect, ONE named MCP server in `scopeId` without touching
+ * any other server. A registered instance is closed first; `cfg` defaults to
+ * the registered config. `cfg.enabled === false` only disconnects. Resolves
+ * true when the server is connected afterwards, false when it was disabled;
+ * rejects (credential-scrubbed message) when the connect fails, leaving the
+ * server unregistered.
+ */
+export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
+  const normalized = normalizeMcpScopeId(scopeId);
+  _knownMcpScopes.add(normalized);
+  const registryKey = mcpServerRegistryKey(normalized, name);
+  // Captured before queuing: a shutdown while this op waits or closes wins.
+  const genAtStart = currentConnectAbortGeneration(normalized);
+  return runExclusiveServerOp(registryKey, async () => {
+    const current = servers.get(registryKey);
+    const nextCfg = cfg ?? current?.cfg;
+    if (!nextCfg) throw new Error(`MCP server "${name}" has no config to connect with`);
+    if (nextCfg.enabled === false) {
+      if (current) {
+        await _closeServer(current);
+        if (servers.get(registryKey) === current) servers.delete(registryKey);
+        _invalidateMcpToolFieldMemo();
+      }
+      closeCallAdmission(normalized, name, `MCP ${name} disabled`);
+      return false;
     }
-    const replacement = servers.get(registryKey);
-    if (!replacement) {
-      throw new Error(`reconnect succeeded but server "${serverName}" entry is missing from registry`);
-    }
-    return replacement;
+    await replaceServerConnection(normalized, name, current, nextCfg, genAtStart);
+    return true;
   });
 }
 
@@ -366,6 +447,16 @@ export async function executeMcpTool(name, args, options = {}) {
           mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
           throw firstErr;
         }
+        const serverDead = server.liveness?.alive === false;
+        if (!serverDead && isMcpServerResponseError(firstErr)) {
+          // The server answered (JSON-RPC error): it is alive — nothing to
+          // reconnect, and the call already ran its course.
+          throw firstErr;
+        }
+        // Only a failure that proves the request never left this process
+        // may be replayed; anything else may already have run server-side.
+        const undelivered = isMcpUndeliveredError(firstErr);
+        const deadTail = serverDead ? server.stderrTail?.() : '';
         mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
         let retryServer;
         try {
@@ -382,7 +473,17 @@ export async function executeMcpTool(name, args, options = {}) {
         } catch (reconnectErr) {
           if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
           const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
-          throw new Error(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`);
+          throw new Error(
+            appendMcpStderrTail(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`, deadTail)
+          );
+        }
+        if (!undelivered) {
+          throw new Error(
+            appendMcpStderrTail(
+              `Tool call failed: ${firstMsg}; MCP server "${serverName}" was reconnected for the next call, but this call was not replayed because the request may already have reached the server`,
+              deadTail
+            )
+          );
         }
         // A reconnect that outlived the caller's abort must not dispatch the
         // retry: that would run the side effect after cancellation.
@@ -410,69 +511,118 @@ export async function executeMcpTool(name, args, options = {}) {
   );
 }
 
-async function _callMcpFeatureWithTimeout(server, operation, args, signal = null) {
-  const requestOptions = signal ? { signal } : undefined;
-  const cursor = typeof args?.cursor === 'string' && args.cursor ? { cursor: args.cursor } : {};
-  let request;
-  if (operation === 'list-resources') {
-    request = server.client.listResources(cursor, requestOptions);
-  } else if (operation === 'list-resource-templates') {
-    request = server.client.listResourceTemplates(cursor, requestOptions);
-  } else if (operation === 'read-resource') {
-    request = server.client.readResource({ uri: String(args?.uri || '') }, requestOptions);
-  } else if (operation === 'list-prompts') {
-    request = server.client.listPrompts(cursor, requestOptions);
-  } else if (operation === 'get-prompt') {
-    request = server.client.getPrompt(
+const MCP_FEATURE_REQUESTS = {
+  'list-resources': (client, args, options) => client.listResources(mcpCursorParams(args), options),
+  'list-resource-templates': (client, args, options) => client.listResourceTemplates(mcpCursorParams(args), options),
+  'read-resource': (client, args, options) => client.readResource({ uri: String(args?.uri || '') }, options),
+  'list-prompts': (client, args, options) => client.listPrompts(mcpCursorParams(args), options),
+  'get-prompt': (client, args, options) =>
+    client.getPrompt(
       {
         name: String(args?.name || ''),
         arguments:
           args?.arguments && typeof args.arguments === 'object' && !Array.isArray(args.arguments) ? args.arguments : {},
       },
-      requestOptions
-    );
-  } else {
-    throw new Error(`Unsupported MCP feature operation: ${operation}`);
-  }
-  const timeoutMs = resolveMcpCallTimeoutMs(server?.cfg);
-  const abortMessage = `MCP feature call aborted (server="${server?.name}", operation="${operation}")`;
-  const timeout =
-    timeoutMs > 0
-      ? mcpCallTimeout(
-          server,
-          timeoutMs,
-          `MCP feature call timed out after ${timeoutMs}ms (server="${server.name}", operation="${operation}")`
-        )
-      : null;
-  try {
-    const result = await raceMcpAbort(
-      timeout ? Promise.race([request, timeout.promise]) : request,
-      signal,
-      abortMessage
-    );
-    return {
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-      isError: false,
-    };
-  } finally {
-    timeout?.clear();
-  }
+      options
+    ),
+};
+
+function mcpCursorParams(args) {
+  return typeof args?.cursor === 'string' && args.cursor ? { cursor: args.cursor } : {};
 }
 
-// Server-side per-call deadline. On expiry the server goes through the full
-// tree-shutdown path so a timed-out stdio server never orphans grandchildren
-// (fire-and-forget), and the call rejects with EMCPTOOLTIMEOUT. The caller
-// clears the timer once its own (abort-aware) race settles.
-function mcpCallTimeout(server, timeoutMs, message, errorFields = {}) {
-  let timer;
-  const promise = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      _closeServer(server).catch(() => {});
-      reject(Object.assign(new Error(message), { code: 'EMCPTOOLTIMEOUT', ...errorFields }));
-    }, timeoutMs);
-    if (timer.unref) timer.unref();
+async function _callMcpFeatureWithTimeout(server, operation, args, signal = null) {
+  const issue = MCP_FEATURE_REQUESTS[operation];
+  if (!issue) throw new Error(`Unsupported MCP feature operation: ${operation}`);
+  const result = await runMcpRequest(server, signal, (options) => issue(server.client, args, options), {
+    abortMessage: `MCP feature call aborted (server="${server?.name}", operation="${operation}")`,
+    timeoutMessage: (ms) =>
+      `MCP feature call timed out after ${ms}ms without progress (server="${server.name}", operation="${operation}")`,
+    errorFields: { serverName: server.name, operation },
   });
-  return { promise, clear: () => clearTimeout(timer) };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+    isError: false,
+  };
+}
+
+// Our per-call deadline. It is reset by every progress notification, but never
+// beyond maxTotalTimeoutMs from the start. On expiry the call rejects with
+// EMCPTOOLTIMEOUT and `cancelRequest` cancels ONLY this request (the SDK then
+// sends notifications/cancelled); the server and its other in-flight calls
+// are untouched. The caller clears the timer once its own race settles.
+function mcpCallTimeout({ callTimeoutMs, maxTotalTimeoutMs }, message, errorFields, cancelRequest) {
+  const startedAt = Date.now();
+  let timer = null;
+  let rejectTimeout;
+  const promise = new Promise((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const fire = () => {
+    timer = null;
+    const error = Object.assign(new Error(message), { code: 'EMCPTOOLTIMEOUT', ...errorFields });
+    rejectTimeout(error);
+    cancelRequest(error);
+  };
+  const arm = (ms) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(fire, ms);
+    if (timer.unref) timer.unref();
+  };
+  arm(callTimeoutMs);
+  return {
+    promise,
+    clear: () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+    progress: () => {
+      if (!timer) return;
+      const remainingTotal = maxTotalTimeoutMs ? maxTotalTimeoutMs - (Date.now() - startedAt) : Infinity;
+      if (remainingTotal > 0) arm(Math.min(callTimeoutMs, remainingTotal));
+    },
+  };
+}
+
+/**
+ * Issue one SDK request under the per-call limits. The request gets its OWN
+ * abort signal (linked to the caller's), our timeout as the SDK `timeout`
+ * (or the largest timer when disabled, so the SDK's 60s default never
+ * applies), and progress handling: each progress report resets both the SDK
+ * timeout and ours, capped by `maxTotalTimeout`.
+ */
+async function runMcpRequest(server, signal, issue, { abortMessage, timeoutMessage, errorFields }) {
+  const timeouts = resolveMcpRequestTimeouts(server?.cfg);
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(signal.reason);
+  if (signal) {
+    allowConcurrentAbortListeners(signal);
+    if (signal.aborted) forwardAbort();
+    else signal.addEventListener('abort', forwardAbort, { once: true });
+  }
+  const timeout =
+    timeouts.callTimeoutMs > 0
+      ? mcpCallTimeout(
+          timeouts,
+          timeoutMessage(timeouts.callTimeoutMs),
+          { ...errorFields, timeoutMs: timeouts.callTimeoutMs },
+          (error) => controller.abort(error)
+        )
+      : null;
+  const requestOptions = {
+    signal: controller.signal,
+    timeout: timeouts.sdkTimeoutMs,
+    resetTimeoutOnProgress: true,
+    onprogress: () => timeout?.progress(),
+    ...(timeouts.maxTotalTimeoutMs ? { maxTotalTimeout: timeouts.maxTotalTimeoutMs } : {}),
+  };
+  try {
+    const request = issue(requestOptions);
+    return await raceMcpAbort(timeout ? Promise.race([request, timeout.promise]) : request, signal, abortMessage);
+  } finally {
+    timeout?.clear();
+    signal?.removeEventListener?.('abort', forwardAbort);
+  }
 }
 
 function mcpResourceFilename(uri) {
@@ -506,14 +656,21 @@ function mcpCanonicalBase64(data, maxBytes) {
 const mcpMiB = (bytes) => `${bytes / 1024 / 1024} MiB`;
 
 function mcpImagePart(data, rawMime) {
-  const mimeType = String(rawMime || 'image/png').split(';')[0].trim().toLowerCase() || 'image/png';
+  const mimeType =
+    String(rawMime || 'image/png')
+      .split(';')[0]
+      .trim()
+      .toLowerCase() || 'image/png';
   if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType)) {
     return { type: 'text', text: `[MCP image omitted: ${mimeType} is not a supported image type]` };
   }
   const canon = mcpCanonicalBase64(data, MAX_IMAGE_BYTES);
   if (!canon) return { type: 'text', text: '[MCP image omitted: empty image data]' };
   if (canon.tooLarge) {
-    return { type: 'text', text: `[MCP image omitted: ${mimeType} image exceeds the ${mcpMiB(MAX_IMAGE_BYTES)} limit]` };
+    return {
+      type: 'text',
+      text: `[MCP image omitted: ${mimeType} image exceeds the ${mcpMiB(MAX_IMAGE_BYTES)} limit]`,
+    };
   }
   return { type: 'image', data: canon.data, mimeType };
 }
@@ -584,10 +741,19 @@ function mcpAudioPart(data, rawMime) {
   const canon = typeof data === 'string' && data ? mcpCanonicalBase64(data, MAX_ATTACHMENT_BLOB_BYTES) : null;
   if (!canon) return { type: 'text', text: `[MCP audio content: ${mimeType}]` };
   if (canon.tooLarge) {
-    return { type: 'text', text: `[MCP audio omitted: ${mimeType} exceeds the ${mcpMiB(MAX_ATTACHMENT_BLOB_BYTES)} limit]` };
+    return {
+      type: 'text',
+      text: `[MCP audio omitted: ${mimeType} exceeds the ${mcpMiB(MAX_ATTACHMENT_BLOB_BYTES)} limit]`,
+    };
   }
   const subtype = mimeType.split(';')[0].split('/')[1] || '';
-  const path = spillMcpBinary(canon.buffer, subtype.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase() || 'bin');
+  const path = spillMcpBinary(
+    canon.buffer,
+    subtype
+      .replace(/[^a-z0-9]/gi, '')
+      .slice(0, 8)
+      .toLowerCase() || 'bin'
+  );
   return {
     type: 'text',
     text: path
@@ -648,8 +814,32 @@ export async function normalizeMcpToolResult(result) {
   return parts ? { content: parts } : text;
 }
 
+// JSON-RPC codes the SDK uses for client-side failures (McpError).
+const MCP_CONNECTION_CLOSED_CODE = -32000;
+const MCP_REQUEST_TIMEOUT_CODE = -32001;
+
+// Our own deadline, or the SDK's (McpError RequestTimeout, incl. the
+// progress maxTotalTimeout).
 function isMcpToolCallTimeoutError(err) {
-  return err?.code === 'EMCPTOOLTIMEOUT';
+  return err?.code === 'EMCPTOOLTIMEOUT' || err?.code === MCP_REQUEST_TIMEOUT_CODE;
+}
+
+// The server answered with a JSON-RPC error: proof it is alive.
+function isMcpServerResponseError(err) {
+  return (
+    typeof err?.code === 'number' && err.code !== MCP_CONNECTION_CLOSED_CODE && err.code !== MCP_REQUEST_TIMEOUT_CODE
+  );
+}
+
+// Connection-level failures that prove the request was never delivered: the
+// SDK/transport had no live connection to send on, or the socket was refused
+// before anything was written. ECONNRESET etc. are excluded — the request may
+// have been read before the reset.
+const MCP_UNDELIVERED_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH']);
+function isMcpUndeliveredError(err) {
+  if (!err) return false;
+  if (/^Not connected$/i.test(String(err.message || '').trim())) return true;
+  return MCP_UNDELIVERED_CODES.has(String(err.code || err.cause?.code || ''));
 }
 
 // Caller-driven cancellation (hook timeout, aborted turn, closed pane).
@@ -714,38 +904,22 @@ export function raceMcpAbort(promise, signal, message) {
 }
 
 async function _callToolWithTimeout(server, toolName, args, signal = null) {
-  const timeoutMs = resolveMcpCallTimeoutMs(server?.cfg);
-  // The signal goes INTO the SDK request: an aborted caller cancels the live
-  // JSON-RPC request (notifications/cancelled) instead of merely walking away
-  // from it. The race below additionally frees the admission slot at once.
-  const requestOptions = signal ? { signal } : undefined;
-  const abortMessage = `MCP tool call aborted (server="${server?.name}", tool="${toolName}")`;
-  if (!(timeoutMs > 0)) {
-    // Server timeout disabled: the caller's signal is then the ONLY bound.
-    return raceMcpAbort(
-      server.client.callTool({ name: toolName, arguments: args }, undefined, requestOptions),
-      signal,
-      abortMessage
-    );
-  }
-  const timeout = mcpCallTimeout(
+  // The request's signal goes INTO the SDK: an aborted caller (or our own
+  // timeout) cancels the live JSON-RPC request (notifications/cancelled)
+  // instead of merely walking away from it. The abort race additionally frees
+  // the admission slot at once. With the timeout disabled the caller's signal
+  // is the ONLY bound.
+  return runMcpRequest(
     server,
-    timeoutMs,
-    `MCP tool call timed out after ${timeoutMs}ms (server="${server.name}", tool="${toolName}")`,
-    { serverName: server.name, toolName, timeoutMs }
+    signal,
+    (options) => server.client.callTool({ name: toolName, arguments: args }, undefined, options),
+    {
+      abortMessage: `MCP tool call aborted (server="${server?.name}", tool="${toolName}")`,
+      timeoutMessage: (ms) =>
+        `MCP tool call timed out after ${ms}ms without progress (server="${server.name}", tool="${toolName}")`,
+      errorFields: { serverName: server.name, toolName },
+    }
   );
-  try {
-    return await raceMcpAbort(
-      Promise.race([
-        server.client.callTool({ name: toolName, arguments: args }, undefined, requestOptions),
-        timeout.promise,
-      ]),
-      signal,
-      abortMessage
-    );
-  } finally {
-    timeout.clear();
-  }
 }
 
 function countTextLines(text) {
@@ -932,17 +1106,19 @@ export async function disconnectAll(options = undefined) {
 export async function disconnectMcpServer(name, options = {}) {
   const scopeId = normalizeMcpScopeId(options);
   const registryKey = mcpServerRegistryKey(scopeId, name);
-  const server = servers.get(registryKey);
-  if (!server) return false;
-  try {
-    await _closeServer(server);
-  } catch {
-    /* ignore */
-  }
-  servers.delete(registryKey);
-  closeCallAdmission(scopeId, name, `MCP ${name} disconnected`);
-  _invalidateMcpToolFieldMemo();
-  return true;
+  return runExclusiveServerOp(registryKey, async () => {
+    const server = servers.get(registryKey);
+    if (!server) return false;
+    try {
+      await _closeServer(server);
+    } catch {
+      /* ignore */
+    }
+    if (servers.get(registryKey) === server) servers.delete(registryKey);
+    closeCallAdmission(scopeId, name, `MCP ${name} disconnected`);
+    _invalidateMcpToolFieldMemo();
+    return true;
+  });
 }
 /**
  * Close a single server: for stdio transports first shut down the full child
@@ -952,6 +1128,8 @@ export async function disconnectMcpServer(name, options = {}) {
  * only kills the direct child and discards the pid we need to walk the tree.
  */
 async function _closeServer(server) {
+  // A deliberate close is not a crash: suppress the unexpected-close report.
+  if (server?.liveness) server.liveness.closing = true;
   const transport = server?.transport;
   // Live stdio transports expose the spawned ChildProcess on _process.
   if (transport?._process) {
@@ -986,7 +1164,8 @@ async function connectServer(
     throw new Error(`MCP server "${name}" connect aborted by shutdown`);
   }
   const client = createMcpClient(sdk, name, cfg);
-  const { transport, autoDetectAdvert } = createMcpTransport({ name, cfg, sdk, log: mcpLog });
+  const { transport, autoDetectAdvert, stderrTail } = createMcpTransport({ name, cfg, sdk, log: mcpLog });
+  const liveness = trackMcpLiveness(client, name, cfg, stderrTail);
   const pending = { scopeId, name, client, transport };
   _pendingConnects.add(pending);
   try {
@@ -996,11 +1175,12 @@ async function connectServer(
       client,
       transport,
       autoDetectAdvert,
-      closeServer: _closeServer,
+      closeServer: (target) => _closeServer({ ...target, liveness }),
+      stderrTail,
     });
     if (!toolsResult || !Array.isArray(toolsResult.tools)) {
       try {
-        await _closeServer({ client, transport });
+        await _closeServer({ client, transport, liveness });
       } catch {
         /* ignore */
       }
@@ -1009,7 +1189,7 @@ async function connectServer(
     if (genAtStart !== currentConnectAbortGeneration(scopeId)) {
       // disconnectAll() ran mid-handshake: never register — tear down.
       try {
-        await _closeServer({ client, transport });
+        await _closeServer({ client, transport, liveness });
       } catch {
         /* ignore */
       }
@@ -1027,6 +1207,8 @@ async function connectServer(
       cfg,
       instructions,
       capabilities,
+      liveness,
+      stderrTail,
       generation: genAtStart,
     });
     if (capabilities?.tools?.listChanged && sdk.ToolListChangedNotificationSchema) {
@@ -1039,6 +1221,33 @@ async function connectServer(
   } finally {
     _pendingConnects.delete(pending);
   }
+}
+
+/**
+ * Liveness of one server connection. The SDK calls client.onclose whenever
+ * the transport closes (child exit, socket drop, our own close) — the server
+ * is then dead and getMcpServerStatus reports it disconnected. onerror only
+ * records the last error (parse/send hiccups do not mean the server died).
+ * Handlers already installed on the client are chained, not replaced.
+ */
+function trackMcpLiveness(client, name, cfg, stderrTail) {
+  const liveness = { alive: true, closing: false, closedAt: 0, lastError: '' };
+  const priorClose = client.onclose;
+  const priorError = client.onerror;
+  client.onclose = (...args) => {
+    const unexpected = liveness.alive && !liveness.closing;
+    liveness.alive = false;
+    liveness.closedAt = Date.now();
+    if (unexpected) {
+      mcpLog(`${appendMcpStderrTail(`[mcp-client] MCP server "${name}" closed unexpectedly`, stderrTail())}\n`);
+    }
+    if (typeof priorClose === 'function') priorClose.apply(client, args);
+  };
+  client.onerror = (error, ...rest) => {
+    liveness.lastError = scrubMcpConnectionMessage(error instanceof Error ? error.message : String(error), cfg);
+    if (typeof priorError === 'function') priorError.call(client, error, ...rest);
+  };
+  return liveness;
 }
 
 /** The SDK client for one server, advertising the project root when known. */
@@ -1075,11 +1284,26 @@ function mcpServerTools(name, capabilities, rawTools) {
   return [...protocolTools, ...mcpFeatureTools(name, capabilities, protocolTools)];
 }
 
-async function refreshServerTools(registryKey, client, name, cfg, capabilities) {
+// tools/list_changed refreshes run one at a time per server connection, so an
+// older listing can never land after a newer one.
+function refreshServerTools(registryKey, client, name, cfg, capabilities) {
   const live = servers.get(registryKey);
-  if (!live || live.client !== client) return;
+  if (!live || live.client !== client) return Promise.resolve();
+  live.refreshTail = (live.refreshTail || Promise.resolve()).then(() =>
+    runToolRefresh(registryKey, live, name, cfg, capabilities)
+  );
+  return live.refreshTail;
+}
+
+async function runToolRefresh(registryKey, live, name, cfg, capabilities) {
+  if (servers.get(registryKey) !== live) return;
   try {
-    const refreshed = await client.listTools();
+    const { sdkTimeoutMs } = resolveMcpRequestTimeouts(cfg);
+    const refreshed = await listAllMcpTools(live.client, { timeout: sdkTimeoutMs });
+    if (!refreshed || !Array.isArray(refreshed.tools)) {
+      throw new Error('ListTools returned invalid shape: missing or non-array tools field');
+    }
+    if (servers.get(registryKey) !== live) return;
     live.tools = mcpServerTools(name, capabilities, refreshed.tools);
     _invalidateMcpToolFieldMemo();
   } catch (error) {
@@ -1109,6 +1333,8 @@ export function _registerMcpServerForTest(scopeId, name, rawTools = [], options 
     cfg: options.cfg || {},
     instructions: options.instructions || '',
     capabilities,
+    liveness: { alive: true, closing: false, closedAt: 0, lastError: '' },
+    stderrTail: typeof options.stderrTail === 'function' ? options.stderrTail : () => '',
     transport: null,
     client: {
       callTool:

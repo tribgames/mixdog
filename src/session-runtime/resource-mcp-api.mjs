@@ -11,6 +11,7 @@ import {
   pluginServerMatcher,
   resolveContainedPluginPath,
   mergeMcpServerConfig,
+  MCP_TIMEOUT_FIELD_GROUPS,
 } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 
 /** The `mcpServers` map of a config as a fresh object (never the live one). */
@@ -63,8 +64,13 @@ function mergedServerInput(input, existing, originalName) {
       if (Object.hasOwn(input, key)) maps[key] = { ...(existing[key] || {}), ...input[key] };
     }
   }
+  // Existing timeouts are kept by mergeMcpServerConfig; the normalizer must only
+  // see (and validate) newly supplied ones, so a stored 0/'off' never blocks
+  // an unrelated save.
+  const { ...base } = transportChanged ? {} : existing;
+  for (const field of MCP_TIMEOUT_FIELD_GROUPS.flat()) delete base[field];
   return {
-    ...(transportChanged ? {} : existing),
+    ...base,
     ...input,
     ...maps,
     name: clean(input.name) || originalName,
@@ -98,17 +104,20 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     getMcpServerConfig(name) {
       return getMcpServerConfig(name);
     },
-    async reconnectMcp() {
+    async reconnectMcp(name) {
       await awaitKeychainPrewarm();
       reloadFullConfig();
-      return sync.reconnectMcpAndAnnounce();
+      const serverName = clean(name);
+      if (!serverName) return sync.reconnectMcpAndAnnounce();
+      const { enabled } = getMcpServerConfig(serverName);
+      return sync.reconnectMcpAndAnnounce({ only: serverName, enabled });
     },
     async addMcpServer(input = {}) {
       const { name, config: serverConfig } = normalizeMcpServerInput(input);
       const servers = mcpServersOf(getConfig());
       if (Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
       saveServers({ ...servers, [name]: serverConfig });
-      const status = await sync.reconnectMcpAndAnnounce();
+      const status = await sync.reconnectMcpAndAnnounce({ only: name, enabled: serverConfig.enabled !== false });
       return { name, status };
     },
     async saveMcpServer(input = {}) {
@@ -130,7 +139,11 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       if (originalName && originalName !== name) delete servers[originalName];
       servers[name] = mergeMcpServerConfig(existing, normalizedInput.config);
       saveServers(servers);
-      const status = await sync.reconnectMcpAndAnnounce();
+      const status = await sync.reconnectMcpAndAnnounce({
+        only: name,
+        enabled: servers[name].enabled !== false,
+        drop: originalName && originalName !== name ? [originalName] : [],
+      });
       return { name, source: 'config', status };
     },
     async removeMcpServer(name) {
@@ -142,7 +155,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       }
       delete servers[serverName];
       saveServers(servers);
-      return sync.reconnectMcpAndAnnounce();
+      return sync.reconnectMcpAndAnnounce({ drop: [serverName] });
     },
     async setMcpServerEnabled(name, enabled) {
       const serverName = clean(name);
@@ -158,7 +171,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       servers[serverName] = { ...current, enabled: want };
       saveServers(servers);
       const status = await sync.scheduleMcpToggle(serverName, want);
-      await sync.publish('mcp');
+      await sync.publish('mcp', { mcpChanges: [{ name: serverName, enabled: want }] });
       return status;
     },
     async enablePluginMcp(plugin = {}) {

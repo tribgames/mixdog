@@ -32,19 +32,35 @@ function resolveAutoDetectUrl(name, cfg) {
   return { url: `http://127.0.0.1:${port}${spec.endpoint}`, advert: { service: spec.discovery, port } };
 }
 
+// Bounded tail of a stdio server's stderr, kept for failure messages (a server
+// that dies at startup or mid-session usually says why on stderr).
+const MCP_STDERR_TAIL_CHARS = 4096;
+const noStderrTail = () => '';
+
+/** Append a server's stderr tail to a failure message (unchanged when empty). */
+export function appendMcpStderrTail(message, tail) {
+  const text = String(tail || '').trim();
+  return text ? `${message}\n--- server stderr (tail) ---\n${text}` : String(message);
+}
+
 function requestInitFor(cfg) {
   const headers = resolveMcpHttpHeaders(cfg);
   return headers && Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
 }
 
-/** Returns { transport, autoDetectAdvert }. */
+/** Returns { transport, autoDetectAdvert, stderrTail } — stderrTail() is the
+ *  last ~4 KB of a stdio server's (scrubbed) stderr, '' for remote transports. */
 export function createMcpTransport({ name, cfg, sdk, log }) {
   const { StdioClientTransport, StreamableHTTPClientTransport, SSEClientTransport, WebSocketClientTransport } = sdk;
   const kind = resolveMcpTransportKind(cfg);
   if (kind === 'autoDetect') {
     const { url, advert } = resolveAutoDetectUrl(name, cfg);
     log(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
-    return { transport: new StreamableHTTPClientTransport(new URL(url)), autoDetectAdvert: advert };
+    return {
+      transport: new StreamableHTTPClientTransport(new URL(url)),
+      autoDetectAdvert: advert,
+      stderrTail: noStderrTail,
+    };
   }
   if (kind === 'http' || kind === 'sse') {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
@@ -54,13 +70,14 @@ export function createMcpTransport({ name, cfg, sdk, log }) {
     return {
       transport: opts ? new Transport(new URL(url), opts) : new Transport(new URL(url)),
       autoDetectAdvert: null,
+      stderrTail: noStderrTail,
     };
   }
   if (kind === 'ws') {
     // WebSocketClientTransport ctor takes only a URL; headers are ignored.
     const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'ws');
     log(`[mcp-client] Connecting "${name}" via WebSocket: ${mcpUrlForLog(url)}\n`);
-    return { transport: new WebSocketClientTransport(new URL(url)), autoDetectAdvert: null };
+    return { transport: new WebSocketClientTransport(new URL(url)), autoDetectAdvert: null, stderrTail: noStderrTail };
   }
   if (kind === 'stdio') {
     const transport = new StdioClientTransport({
@@ -70,10 +87,13 @@ export function createMcpTransport({ name, cfg, sdk, log }) {
       env: resolveMcpStdioEnvironment(cfg),
       stderr: cfg.stderr ?? 'pipe',
     });
+    let tail = '';
     transport.stderr?.on?.('data', (chunk) => {
-      log(`[mcp:${name}:stderr] ${scrubMcpConnectionMessage(chunk, cfg)}`);
+      const text = scrubMcpConnectionMessage(chunk, cfg);
+      tail = (tail + text).slice(-MCP_STDERR_TAIL_CHARS);
+      log(`[mcp:${name}:stderr] ${text}`);
     });
-    return { transport, autoDetectAdvert: null };
+    return { transport, autoDetectAdvert: null, stderrTail: () => tail.trim() };
   }
   throw new Error(
     `Invalid config for "${name}": need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`

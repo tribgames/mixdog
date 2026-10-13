@@ -33,9 +33,20 @@ const MCP_TRANSPORT_FIELDS = new Set([
   'autoDetect',
 ]);
 
+// Every spelling resolveMcpStartupTimeoutMs / resolveMcpCallTimeoutMs reads.
+// A newly supplied value must replace the whole group, or a stale alias that
+// the resolver prefers would keep winning.
+export const MCP_TIMEOUT_FIELD_GROUPS = [
+  ['startupTimeoutMs', 'startup_timeout_ms', 'startupTimeoutSec', 'startup_timeout_sec'],
+  ['timeoutMs', 'timeout_ms', 'callTimeoutMs', 'call_timeout_ms'],
+];
+
 export function mergeMcpServerConfig(existing, next) {
   const merged = isPlainObject(existing) ? { ...existing } : {};
   for (const field of MCP_TRANSPORT_FIELDS) delete merged[field];
+  for (const group of MCP_TIMEOUT_FIELD_GROUPS) {
+    if (group.some((field) => Object.hasOwn(next, field))) for (const field of group) delete merged[field];
+  }
   return { ...merged, ...next };
 }
 

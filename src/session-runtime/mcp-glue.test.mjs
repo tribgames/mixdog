@@ -3,6 +3,44 @@ import test from 'node:test';
 
 import { createMcpGlue } from './mcp-glue.mjs';
 
+test('mcpStatus surfaces a live server that reports not alive as failed', () => {
+  const glue = createMcpGlue({
+    mcpClient: {
+      resolveMcpTransportKind: () => 'stdio',
+      getMcpServerStatus: () => [{ name: 'mine', connected: false, error: 'process exited' }],
+    },
+    getConfig: () => ({ mcpServers: { mine: { command: 'node' } } }),
+    getCurrentCwd: () => process.cwd(),
+    state: { mcpFailures: [] },
+  });
+  const row = glue.mcpStatus().servers[0];
+  assert.equal(row.connected, false);
+  assert.equal(row.status, 'failed');
+  assert.equal(row.error, 'process exited');
+});
+
+test('awaitInitialMcpConnect waits for the largest per-server startup budget', async () => {
+  const seen = [];
+  const state = { mcpFailures: [], mcpConnectGeneration: 0, mcpConnectInFlight: new Promise((r) => setTimeout(r, 60)) };
+  const glue = createMcpGlue({
+    mcpClient: {
+      resolveMcpTransportKind: () => 'stdio',
+      getMcpServerStatus: () => [],
+      resolveMcpStartupTimeoutMs: (cfg) => {
+        seen.push(cfg.startupTimeoutSec);
+        return (cfg.startupTimeoutSec || 0.01) * 1000;
+      },
+    },
+    getConfig: () => ({ mcpServers: { a: { command: 'x' }, b: { command: 'x', startupTimeoutSec: 5 } } }),
+    getCurrentCwd: () => process.cwd(),
+    state,
+  });
+  const started = Date.now();
+  await glue.awaitInitialMcpConnect();
+  assert.ok(Date.now() - started >= 50, 'waited past the short budget for the long one');
+  assert.deepEqual(seen.sort(), [5, undefined]);
+});
+
 test('mcpStatus marks plugin-owned servers so they list under the plugin, not as loose MCP entries', () => {
   const glue = createMcpGlue({
     mcpClient: {

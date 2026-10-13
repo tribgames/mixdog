@@ -4,14 +4,40 @@
  * and a discovery advert that refused the connection is distrusted.
  */
 import { markServiceUnreachable, isConnRefuseError } from '../../../shared/service-discovery.mjs';
-import { resolveMcpStartupTimeoutMs } from './client-config.mjs';
+import { MCP_MAX_TIMER_MS, resolveMcpStartupTimeoutMs } from './client-config.mjs';
+import { appendMcpStderrTail } from './client-transport.mjs';
 
-async function performHandshake(client, transport) {
-  await client.connect(transport);
+// tools/list pagination bounds: a server that never stops handing out cursors
+// (or repeats one) cannot loop the client forever.
+const MAX_MCP_TOOL_PAGES = 100;
+
+/**
+ * Every tool of a server: follows `nextCursor` until it is exhausted, repeats,
+ * or MAX_MCP_TOOL_PAGES is reached. A page with an invalid shape is returned
+ * as-is so the caller's shape validation reports it.
+ */
+export async function listAllMcpTools(client, requestOptions = undefined) {
+  const tools = [];
+  const seen = new Set();
+  let cursor = null;
+  for (let page = 0; page < MAX_MCP_TOOL_PAGES; page += 1) {
+    const result = await client.listTools(cursor ? { cursor } : undefined, requestOptions);
+    if (!result || !Array.isArray(result.tools)) return result;
+    tools.push(...result.tools);
+    const next = typeof result.nextCursor === 'string' && result.nextCursor ? result.nextCursor : null;
+    if (!next || seen.has(next)) break;
+    seen.add(next);
+    cursor = next;
+  }
+  return { tools };
+}
+
+async function performHandshake(client, transport, requestOptions) {
+  await client.connect(transport, requestOptions);
   const instructionsRaw = typeof client.getInstructions === 'function' ? client.getInstructions() : undefined;
   const instructions = typeof instructionsRaw === 'string' ? instructionsRaw.trim() : '';
   const capabilities = client.getServerCapabilities?.() || {};
-  const toolsResult = capabilities.tools ? await client.listTools() : { tools: [] };
+  const toolsResult = capabilities.tools ? await listAllMcpTools(client, requestOptions) : { tools: [] };
   return { instructions, toolsResult, capabilities };
 }
 
@@ -28,12 +54,24 @@ function startupTimeoutError(name, startupTimeoutMs) {
  * boot or the first turn. On expiry the pending transport/child is torn down
  * (nothing leaks) and this server fails like any other connect failure — the
  * parallel Promise.allSettled means other servers are unaffected.
- * Returns { instructions, toolsResult, capabilities }.
+ * The SDK's per-request timeout follows the same budget (its own 60s default
+ * would otherwise cut a longer or disabled budget short). Failures carry the
+ * server's stderr tail. Returns { instructions, toolsResult, capabilities }.
  */
-export async function runBoundedHandshake({ name, cfg, client, transport, autoDetectAdvert, closeServer }) {
+export async function runBoundedHandshake({
+  name,
+  cfg,
+  client,
+  transport,
+  autoDetectAdvert,
+  closeServer,
+  stderrTail = () => '',
+}) {
   const startupTimeoutMs = resolveMcpStartupTimeoutMs(cfg);
   const guard = { timer: null, timedOut: false };
-  const handshake = performHandshake(client, transport);
+  const handshake = performHandshake(client, transport, {
+    timeout: startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
+  });
   try {
     if (startupTimeoutMs <= 0) return await handshake;
     const deadline = new Promise((_, rej) => {
@@ -63,7 +101,12 @@ export async function runBoundedHandshake({ name, cfg, client, transport, autoDe
       // Never let the late handshake settle into an unhandled rejection.
       handshake.catch(() => {});
     }
-    throw err;
+    const tail = stderrTail();
+    if (tail && err instanceof Error) {
+      err.message = appendMcpStderrTail(err.message, tail);
+      throw err;
+    }
+    throw tail ? new Error(appendMcpStderrTail(String(err), tail)) : err;
   } finally {
     if (guard.timer) clearTimeout(guard.timer);
   }

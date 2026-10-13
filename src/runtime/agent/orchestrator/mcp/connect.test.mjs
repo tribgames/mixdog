@@ -47,7 +47,15 @@ class FakeClient {
     this.notificationHandlers = new Map();
     this.closed = false;
     this.behavior = behavior;
+    this.sdkOncloseCalls = 0;
+    // A handler the SDK side installed before connectServer: must be chained.
+    this.onclose = () => {
+      this.sdkOncloseCalls += 1;
+    };
     clients.push(this);
+  }
+  async callTool(params, schema, options) {
+    return this.behavior.callTool(this, params, options);
   }
   setRequestHandler(schema, handler) {
     this.requestHandlers.set(schema, handler);
@@ -65,13 +73,14 @@ class FakeClient {
   getServerCapabilities() {
     return this.behavior.capabilities ?? { tools: { listChanged: true } };
   }
-  async listTools() {
-    if (this.behavior.listTools) return this.behavior.listTools(this);
+  async listTools(params) {
+    if (this.behavior.listTools) return this.behavior.listTools(this, params);
     return {
       tools: [{ name: 'echo', description: 'Echo text', inputSchema: { type: 'object', properties: { text: {} } } }],
     };
   }
   async close() {
+    if (this.behavior.close) await this.behavior.close(this);
     this.closed = true;
   }
 }
@@ -92,9 +101,16 @@ mock.module('@modelcontextprotocol/sdk/types.js', {
 });
 process.env.MIXDOG_QUIET_MCP_LOG = '1';
 
-const { connectMcpServers, disconnectAll, getMcpServerInstructionsMap, getMcpServerStatus, getMcpTools } = await import(
-  './client.mjs'
-);
+const {
+  connectMcpServers,
+  disconnectAll,
+  disconnectMcpServer,
+  executeMcpTool,
+  getMcpServerInstructionsMap,
+  getMcpServerStatus,
+  getMcpTools,
+  reconnectSingleMcpServer,
+} = await import('./client.mjs');
 
 let scopeSeq = 0;
 function freshScope() {
@@ -234,6 +250,252 @@ test('a hung handshake fails on the startup budget and tears the pending transpo
   });
   await waitUntil(() => clients[0].closed, { message: 'timed-out client closed' });
   assert.equal(clients[0].closed, true);
+  assert.deepEqual(getMcpTools(scopeId), []);
+});
+
+test('handshake and refresh follow nextCursor until exhausted and stop on a repeated cursor', async () => {
+  const scopeId = freshScope();
+  const pages = {
+    '': { tools: [{ name: 'a' }], nextCursor: 'p2' },
+    p2: { tools: [{ name: 'b' }], nextCursor: 'p3' },
+    p3: { tools: [{ name: 'c' }] },
+  };
+  const cursors = [];
+  behavior = {
+    listTools: async (_client, params) => {
+      cursors.push(params?.cursor ?? '');
+      return pages[params?.cursor ?? ''];
+    },
+  };
+  await connectMcpServers({ paged: { command: 'node' } }, { scopeId });
+  try {
+    assert.deepEqual(cursors, ['', 'p2', 'p3']);
+    assert.deepEqual(
+      getMcpTools(scopeId).map((tool) => tool.name),
+      ['mcp__paged__a', 'mcp__paged__b', 'mcp__paged__c']
+    );
+    // Refresh: a server that keeps returning the same cursor cannot loop us.
+    const [client] = clients;
+    cursors.length = 0;
+    client.behavior = {
+      listTools: async (_client, params) => {
+        cursors.push(params?.cursor ?? '');
+        return { tools: [{ name: `x${cursors.length}` }], nextCursor: 'same' };
+      },
+    };
+    await client.notificationHandlers.get('ToolListChanged')();
+    assert.deepEqual(cursors, ['', 'same']);
+    assert.deepEqual(
+      getMcpTools(scopeId).map((tool) => tool.name),
+      ['mcp__paged__x1', 'mcp__paged__x2']
+    );
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('overlapping tool refreshes apply in order', async () => {
+  const scopeId = freshScope();
+  await connectMcpServers({ srv: { command: 'node' } }, { scopeId });
+  try {
+    const [client] = clients;
+    const slow = Promise.withResolvers();
+    let n = 0;
+    client.behavior = {
+      listTools: async () => {
+        n += 1;
+        if (n === 1) {
+          await slow.promise;
+          return { tools: [{ name: 'old' }] };
+        }
+        return { tools: [{ name: 'new' }] };
+      },
+    };
+    const first = client.notificationHandlers.get('ToolListChanged')();
+    const second = client.notificationHandlers.get('ToolListChanged')();
+    slow.resolve();
+    await Promise.all([first, second]);
+    assert.deepEqual(
+      getMcpTools(scopeId).map((tool) => tool.name),
+      ['mcp__srv__new']
+    );
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('onclose marks the server not connected (chaining the existing handler)', async () => {
+  const scopeId = freshScope();
+  await connectMcpServers({ crashy: { command: 'node' } }, { scopeId });
+  try {
+    assert.equal(getMcpServerStatus(scopeId)[0].connected, true);
+    clients[0].transport.stderr.emit('data', 'fatal: out of cheese\n');
+    clients[0].onclose();
+    assert.equal(getMcpServerStatus(scopeId)[0].connected, false);
+    assert.equal(clients[0].sdkOncloseCalls, 1);
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('a failed or timed-out handshake carries the stdio stderr tail', async () => {
+  const scopeId = freshScope();
+  behavior = {
+    connect: async (client) => {
+      client.transport.stderr.emit('data', `${'x'.repeat(6000)}\nModuleNotFoundError: no module named foo\n`);
+      throw new Error('Connection closed');
+    },
+  };
+  await assert.rejects(connectMcpServers({ broken: { command: 'node' } }, { scopeId }), (error) => {
+    const msg = error.failures[0].msg;
+    assert.match(msg, /Connection closed\n--- server stderr \(tail\) ---\n/);
+    assert.match(msg, /ModuleNotFoundError: no module named foo$/);
+    assert.ok(msg.length < 4096 + 200, 'the tail is bounded');
+    return true;
+  });
+  const scope2 = freshScope();
+  behavior = {
+    connect: (client) => {
+      client.transport.stderr.emit('data', 'still installing deps...\n');
+      return new Promise(() => {});
+    },
+  };
+  await assert.rejects(
+    connectMcpServers({ slow: { command: 'node', startupTimeoutMs: 20 } }, { scopeId: scope2 }),
+    (error) => {
+      assert.match(error.failures[0].msg, /startup exceeded 20ms budget[\s\S]*still installing deps/);
+      return true;
+    }
+  );
+});
+
+test('a failure after send reconnects for the next call but is not replayed; "Not connected" is', async () => {
+  const scopeId = freshScope();
+  const calls = [];
+  behavior = {
+    callTool: async (client, params) => {
+      calls.push(clients.indexOf(client));
+      if (calls.length === 1) throw Object.assign(new Error('Connection closed'), { code: -32000 });
+      if (calls.length === 2) throw new Error('Not connected');
+      return { content: [{ type: 'text', text: `ran on client ${clients.indexOf(client)}` }] };
+    },
+  };
+  await connectMcpServers({ srv: { command: 'node' } }, { scopeId });
+  try {
+    await assert.rejects(executeMcpTool('mcp__srv__echo', {}, { scopeId }), /was not replayed/);
+    assert.deepEqual(calls, [0], 'the delivered call ran once');
+    assert.equal(clients.length, 2, 'the dead server was reconnected for the next call');
+    assert.equal(clients[0].closed, true);
+    // Undelivered (no live connection to send on): safe to replay once.
+    assert.equal(await executeMcpTool('mcp__srv__echo', {}, { scopeId }), 'ran on client 2');
+    assert.deepEqual(calls, [0, 1, 2]);
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('a JSON-RPC error answer from a live server is not reconnected', async () => {
+  const scopeId = freshScope();
+  behavior = {
+    callTool: async () => {
+      throw Object.assign(new Error('Invalid params'), { code: -32602 });
+    },
+  };
+  await connectMcpServers({ srv: { command: 'node' } }, { scopeId });
+  try {
+    await assert.rejects(executeMcpTool('mcp__srv__echo', {}, { scopeId }), /Invalid params/);
+    assert.equal(clients.length, 1);
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('reconnectSingleMcpServer / disconnectMcpServer touch only the named server', async () => {
+  const scopeId = freshScope();
+  await connectMcpServers({ one: { command: 'node' }, two: { command: 'node' } }, { scopeId });
+  try {
+    const [one, two] = clients;
+    assert.equal(await reconnectSingleMcpServer(scopeId, 'one'), true);
+    assert.equal(one.closed, true);
+    assert.equal(two.closed, false);
+    assert.equal(clients.length, 3);
+    assert.deepEqual(
+      getMcpServerStatus(scopeId)
+        .map((s) => [s.name, s.connected])
+        .sort(),
+      [
+        ['one', true],
+        ['two', true],
+      ]
+    );
+    // A new server with an explicit config, then a disable.
+    assert.equal(await reconnectSingleMcpServer(scopeId, 'three', { command: 'node' }), true);
+    assert.equal(await reconnectSingleMcpServer(scopeId, 'three', { command: 'node', enabled: false }), false);
+    assert.equal(await disconnectMcpServer('two', { scopeId }), true);
+    assert.equal(two.closed, true);
+    assert.deepEqual(
+      getMcpServerStatus(scopeId).map((s) => s.name),
+      ['one']
+    );
+    await assert.rejects(reconnectSingleMcpServer(scopeId, 'ghost'), /no config/);
+  } finally {
+    await disconnectAll({ scopeId });
+  }
+});
+
+test('a shutdown during a single-server reconnect close never registers the replacement', async () => {
+  const scopeId = freshScope();
+  const closeGate = Promise.withResolvers();
+  const closeEntered = Promise.withResolvers();
+  behavior = {
+    close: () => {
+      closeEntered.resolve();
+      return closeGate.promise;
+    },
+  };
+  await connectMcpServers({ srv: { command: 'node' } }, { scopeId });
+  const reconnect = reconnectSingleMcpServer(scopeId, 'srv');
+  reconnect.catch(() => {});
+  await closeEntered.promise;
+  // Shutdown lands while the reconnect is blocked inside _closeServer.
+  const shutdown = disconnectAll({ scopeId });
+  closeGate.resolve();
+  await shutdown;
+  await assert.rejects(reconnect, /"srv" connect aborted by shutdown/);
+  assert.equal(clients.length, 1, 'no replacement client was ever created');
+  assert.deepEqual(getMcpTools(scopeId), []);
+  assert.deepEqual(getMcpServerStatus(scopeId), []);
+});
+
+test('an in-flight call failed by disconnectAll does not reconnect the server after shutdown', async () => {
+  const scopeId = freshScope();
+  const closeGate = Promise.withResolvers();
+  const callEntered = Promise.withResolvers();
+  let rejectCall;
+  behavior = {
+    callTool: () => {
+      callEntered.resolve();
+      return new Promise((_resolve, reject) => {
+        rejectCall = reject;
+      });
+    },
+    // Shutdown's close fails the pending request (as the SDK does on
+    // transport close) and then stays blocked, keeping the entry registered.
+    close: () => {
+      rejectCall(Object.assign(new Error('Connection closed'), { code: -32000 }));
+      return closeGate.promise;
+    },
+  };
+  await connectMcpServers({ srv: { command: 'node' } }, { scopeId });
+  const call = executeMcpTool('mcp__srv__echo', {}, { scopeId });
+  call.catch(() => {});
+  await callEntered.promise;
+  const shutdown = disconnectAll({ scopeId });
+  await assert.rejects(call);
+  closeGate.resolve();
+  await shutdown;
+  assert.equal(clients.length, 1, 'no replacement client was ever constructed');
+  assert.deepEqual(getMcpServerStatus(scopeId), []);
   assert.deepEqual(getMcpTools(scopeId), []);
 });
 

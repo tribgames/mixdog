@@ -19,6 +19,10 @@ import {
   autoClearProviderDefaults,
 } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
+import {
+  resolveMcpStartupTimeoutMs,
+  resolveMcpCallTimeoutMs,
+} from '../../runtime/agent/orchestrator/mcp/client-config.mjs';
 import { createResourceApi } from '../resource-api.mjs';
 import { isAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
@@ -234,6 +238,77 @@ test('MCP edits use documented names, retain omitted credentials and arguments, 
     run(api, { action: 'add_mcp_server', server: { name: 'renamed', command: 'node' } }),
     /already exists/
   );
+});
+
+function mcpScopedFixture(t, initial = {}) {
+  let config = { mcpServers: initial };
+  const calls = [];
+  const glue = createMcpGlue({ getConfig: () => config, getCurrentCwd: () => process.cwd(), mcpClient: {}, state: {} });
+  const api = createResourceApi({
+    getConfig: () => config,
+    getCurrentCwd: () => process.cwd(),
+    normalizeMcpServerInput: glue.normalizeMcpServerInput,
+    getMcpServerConfig: glue.getMcpServerConfig,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+    connectConfiguredMcp: async (opts) => {
+      calls.push(opts);
+      return { servers: [] };
+    },
+    mcpStatus: () => ({ servers: [] }),
+    awaitKeychainPrewarm: async () => {},
+    reloadFullConfig: () => {},
+    invalidatePreSessionToolSurface: () => {},
+  });
+  t.after(() => api.disposeGlobalExtensionSubscription());
+  return { api, calls, getConfig: () => config };
+}
+
+test('MCP startup/tool timeouts round-trip through add and save', async (t) => {
+  const { api, getConfig } = mcpScopedFixture(t);
+  await run(api, {
+    action: 'add_mcp_server',
+    server: { name: 'slow', command: 'node', startupTimeoutSec: 30, toolTimeoutSec: 300 },
+  });
+  assert.equal(getConfig().mcpServers.slow.startupTimeoutSec, 30);
+  assert.equal(getConfig().mcpServers.slow.timeoutMs, 300000);
+  await run(api, { action: 'save_mcp_server', server: { name: 'slow', cwd: 'x' } });
+  assert.equal(getConfig().mcpServers.slow.startupTimeoutSec, 30);
+  assert.equal(getConfig().mcpServers.slow.timeoutMs, 300000);
+  await run(api, { action: 'save_mcp_server', server: { name: 'slow', toolTimeoutSec: 5 } });
+  assert.equal(getConfig().mcpServers.slow.timeoutMs, 5000);
+  assert.equal(getConfig().mcpServers.slow.startupTimeoutSec, 30);
+  await assert.rejects(run(api, { action: 'add_mcp_server', server: { name: 'bad', command: 'node', toolTimeoutSec: -1 } }));
+});
+
+test('saving a timeout replaces conflicting aliases; unrelated saves keep disabled timeouts', async (t) => {
+  const { api, getConfig } = mcpScopedFixture(t, {
+    old: { command: 'node', startupTimeoutMs: 10000, timeout_ms: 7000, callTimeoutMs: 8000 },
+    off: { command: 'node', startupTimeoutMs: 0, timeoutMs: 'off' },
+  });
+  await run(api, { action: 'save_mcp_server', server: { name: 'old', startupTimeoutSec: 90, toolTimeoutSec: 20 } });
+  assert.equal(resolveMcpStartupTimeoutMs(getConfig().mcpServers.old, {}), 90000);
+  assert.equal(resolveMcpCallTimeoutMs(getConfig().mcpServers.old, {}), 20000);
+  await run(api, { action: 'save_mcp_server', server: { name: 'off', cwd: 'x' } });
+  assert.equal(getConfig().mcpServers.off.startupTimeoutMs, 0);
+  assert.equal(getConfig().mcpServers.off.timeoutMs, 'off');
+  assert.equal(resolveMcpStartupTimeoutMs(getConfig().mcpServers.off, {}), 0);
+});
+
+test('adding, removing or reconnecting one MCP server only addresses that server', async (t) => {
+  const { api, calls } = mcpScopedFixture(t, { keep: { command: 'node' }, other: { command: 'node' } });
+  await run(api, { action: 'add_mcp_server', server: { name: 'fresh', command: 'node' } });
+  assert.deepEqual(calls, [{ only: 'fresh', enabled: true }]);
+  calls.length = 0;
+  await run(api, { action: 'reconnect_mcp', name: 'other' });
+  assert.deepEqual(calls, [{ only: 'other', enabled: true }]);
+  calls.length = 0;
+  await run(api, { action: 'remove_mcp_server', name: 'fresh' });
+  assert.deepEqual(calls, [{ only: 'fresh', enabled: false }]);
+  calls.length = 0;
+  await run(api, { action: 'reconnect_mcp' });
+  assert.deepEqual(calls, [{ reset: true }]);
 });
 
 test('typed MCP input rejects misspellings, wrong types, credentials and conflicting transports before mutation', async () => {

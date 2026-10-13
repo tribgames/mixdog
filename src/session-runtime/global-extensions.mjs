@@ -16,11 +16,11 @@ export function subscribeGlobalExtensionChanges(listener) {
   };
 }
 
-export async function publishGlobalExtensionChange(kind, originId = null) {
+export async function publishGlobalExtensionChange(kind, originId = null, detail = null) {
   const jobs = [];
   for (const [id, listener] of subscribers) {
     if (id === originId) continue;
-    jobs.push(Promise.resolve().then(() => listener(kind)));
+    jobs.push(Promise.resolve().then(() => listener(kind, detail)));
   }
   await Promise.allSettled(jobs);
 }
