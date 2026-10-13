@@ -24,6 +24,11 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import {
+  isAttachmentReference,
+  isPermanentAttachmentError,
+  readAttachmentBuffer,
+} from '../../../../src/runtime/attachments/store.mjs';
 import { desktopSessionSummaries } from './desktop-state';
 import { sessionFinalAnswer, type SessionFinalAnswer } from './session-final-answer';
 import type { DesktopService, SerializableDesktopServiceOptions } from './desktop-service-contract';
@@ -422,6 +427,16 @@ export class SessionHost implements DesktopService {
     page = false
   ): Promise<SessionSnapshot> {
     return this.transport.readSession(sessionId, forceFull, publish, readTraceId, page);
+  }
+
+  async readAttachmentImage(attachmentRef: string): Promise<string | null> {
+    if (!isAttachmentReference({ attachmentRef })) return null;
+    try {
+      return readAttachmentBuffer(attachmentRef).toString('base64');
+    } catch (error) {
+      if (isPermanentAttachmentError(error)) return null;
+      throw error;
+    }
   }
 
   async readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {

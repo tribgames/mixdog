@@ -1287,10 +1287,8 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
     display: block;
   }
 }
-@container composer-island (max-width: 419px) {
-  .composer-island-pill .session-goal-trigger .session-goal-objective {
-    display: none;
-  }
+.composer-island[data-compact] .composer-island-pill .session-goal-trigger .session-goal-objective {
+  display: none;
 }
 /* The approval card and flashes hide the pill even with the Goal tab open. */
 .composer-island[data-expanded="goal"] .composer-island-pill:not([hidden]) {

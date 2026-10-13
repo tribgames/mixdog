@@ -705,6 +705,11 @@ export interface DesktopApi {
    *  renderer holds those bytes only as a session-lifetime preview data URL, so
    *  they travel here and the main process owns the temp file. */
   openAttachmentImage?(dataUrl: string, name?: string): Promise<void>;
+  /** Image data URL of a stored attachment blob by its content-addressed ref,
+   *  for a thumbnail: downscaled (longest side ≤ 320 px) on the desktop, the
+   *  bounded original for a paired phone; null when missing, unreadable or not
+   *  an image. */
+  readAttachmentThumbnail?(attachmentRef: string): Promise<string | null>;
   /** Any `data:` attachment → OS app, keeping the (safe) extension of `name`. */
   openAttachmentFile?(dataUrl: string, name: string): Promise<void>;
   /** Writes a `data:` attachment to the temp dir and returns a one-file access

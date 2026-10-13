@@ -135,7 +135,13 @@ test('beginQuotaContinue reports an unanswered picker and arms nothing', (t) => 
 
 function mount(t) {
   const { dom, root } = installTestDom(t, {
-    expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent'],
+    expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'MutationObserver'],
+    globals: {
+      ResizeObserver: class {
+        observe() {}
+        disconnect() {}
+      },
+    },
     rootId: 'root',
   });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

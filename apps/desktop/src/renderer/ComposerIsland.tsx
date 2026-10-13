@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { dismissShellJobs, useDismissedShellJobs } from './background-jobs-dismissed-store';
 import { AgentPoolRow } from './AgentActivityPane';
 import {
@@ -97,6 +106,39 @@ function useIslandFlash(flash: ComposerIslandFlash | null): ComposerIslandFlash 
     return () => window.clearTimeout(timer);
   }, [visible]);
   return visible;
+}
+
+/** Swaps segment words for bare counts only when the full labels overflow the
+ *  island's room: the pill is measured at its full-label width before paint,
+ *  whenever the room or the pill's content changes. */
+function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const island = islandRef.current;
+    const pill = pillRef.current;
+    const stage = island?.parentElement;
+    if (!island || !pill || !stage) return undefined;
+    const fit = () => {
+      island.removeAttribute('data-compact');
+      island.setAttribute('data-measuring', '');
+      const needed = pill.offsetWidth;
+      island.removeAttribute('data-measuring');
+      island.toggleAttribute('data-compact', needed > stage.clientWidth);
+    };
+    fit();
+    const resize = new ResizeObserver(fit);
+    resize.observe(stage);
+    const mutation = new MutationObserver(fit);
+    mutation.observe(pill, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributeFilter: ['hidden'],
+    });
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+    };
+  }, [islandRef, pillRef]);
 }
 
 /** An agent blocked on the user is marked for attention and never pulses;
@@ -524,6 +566,8 @@ export function ComposerIsland({
     setExpanded(open ? '' : 'jobs');
   };
   const islandRef = useRef<HTMLDivElement | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  useIslandFit(islandRef, pillRef);
   // Finished background work announces nothing: a flash per job would make
   // the island pop in and out.
   const visibleFlash = useIslandFlash(flash ?? null);
@@ -578,7 +622,7 @@ export function ComposerIsland({
                 <span>{visibleFlash.text}</span>
               </div>
             ) : null}
-            <div className="composer-island-pill" hidden={mode === 'approval' || mode === 'flash' || ownPanel}>
+            <div ref={pillRef} className="composer-island-pill" hidden={mode === 'approval' || mode === 'flash' || ownPanel}>
               {quotaResume && (
                 <button
                   type="button"

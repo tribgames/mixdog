@@ -308,6 +308,11 @@ const SessionRow = React.memo(function SessionRow({
         aria-hidden={editing ? true : undefined}
         aria-haspopup={onOpenMenu ? 'menu' : undefined}
         onKeyDown={(event) => {
+          if (event.key === 'F2' && !confirmingDelete && !deleting) {
+            event.preventDefault();
+            onStartRename(session);
+            return;
+          }
           if (!onOpenMenu || !isContextMenuKey(event)) return;
           event.preventDefault();
           onOpenMenu(session, elementMenuPoint(event.currentTarget));

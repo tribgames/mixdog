@@ -1,6 +1,7 @@
 import { type MutableRefObject, type RefObject, useCallback, useLayoutEffect, useMemo } from 'react';
 import { createTranscriptEndPin } from './transcript-end-pin';
 import { type TranscriptVirtualizer, viewportSize } from './transcript-list-geometry';
+import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 
 /** The list's committed scroll extent and the end pin that keeps a following
  *  timeline at it. */
@@ -13,6 +14,7 @@ export function useTranscriptEndPin({
   domTop,
   markProgrammaticScrollRef,
   bottomInset,
+  deviation,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   spacer: RefObject<HTMLDivElement | null>;
@@ -22,6 +24,7 @@ export function useTranscriptEndPin({
   domTop: MutableRefObject<number | null>;
   markProgrammaticScrollRef: MutableRefObject<((top: number, intended?: number) => void) | undefined>;
   bottomInset: number;
+  deviation: TouchScrollDeviation;
 }) {
   // The committed extent: the spacer height virtual-core last wrote (a style
   // read). It is what the DOM scrolls over, also mid-render, when the core's
@@ -48,8 +51,9 @@ export function useTranscriptEndPin({
           domTop.current = top;
           markProgrammaticScrollRef.current?.(top, intended);
         },
+        dropDeviation: () => deviation.drop(),
       }),
-    [maxScrollTop, viewport, virtualizerRef, spacer, hasScrollGestureRef, domTop, markProgrammaticScrollRef]
+    [maxScrollTop, viewport, virtualizerRef, spacer, hasScrollGestureRef, domTop, markProgrammaticScrollRef, deviation]
   );
   useLayoutEffect(() => () => endPin.cancel(), [endPin]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: bottomInset is the intentional trigger — a padding change re-publishes the extent and re-requests the end pin

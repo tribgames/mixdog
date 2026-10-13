@@ -149,6 +149,40 @@ test('the island files segment appears only once the session diff read finds cha
   }
 });
 
+test('the island slot belongs to one session: a switch starts a fresh slot instead of animating the old one', async (t) => {
+  const { root, document, window } = mount(t);
+  await import('./TurnReview');
+  window.mixdogDesktop.invokeCapability = () => new Promise(() => {});
+  const render = (reviewSessionId) =>
+    act(async () =>
+      root.render(
+        React.createElement(ComposerDock, {
+          sessionId: reviewSessionId,
+          goalSubmissionId: '',
+          showProjectSelector: false,
+          reviewActive: false,
+          reviewSessionId,
+          reviewCwd: 'C:/work',
+          reviewItems: [],
+          children: React.createElement('textarea'),
+        })
+      )
+    );
+  const islandSlot = () => document.querySelector('.composer-island-slot');
+  const composer = () => document.querySelector('textarea');
+  await render('session-a');
+  const slotA = islandSlot();
+  const input = composer();
+  assert.ok(slotA);
+  await render('session-a');
+  assert.equal(islandSlot(), slotA, 'the same session keeps its slot');
+  await render('session-b');
+  assert.ok(islandSlot());
+  assert.notEqual(islandSlot(), slotA, 'a new session never inherits the outgoing slot height');
+  assert.equal(composer(), input, 'only the island is replaced; the composer input survives the switch');
+  await act(async () => root.render(null));
+});
+
 test('a transcript tail without its prompt row keeps the turn review of that turn', async (t) => {
   const { root, document, window } = mount(t);
   await import('./TurnReview');
@@ -302,7 +336,7 @@ test('a restored visualize feedback message shows its pin lines and a pin-labell
   assert.doesNotMatch(body, /\[image|\[Image/i);
   assert.deepEqual(
     [...document.querySelectorAll('.message-attachments > .attachment-card')].map((chip) => chip.textContent),
-    ['📌 1 · input177×21']
+    ['1 · input177×21']
   );
 });
 

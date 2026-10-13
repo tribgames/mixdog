@@ -27,6 +27,7 @@ import {
   normalizeWheelDelta,
   boundaryTarget,
   transcriptScrollGeometryRegistered,
+  transcriptScrollDeviation,
   scrollMetrics,
   distanceFromBottom,
   canScroll,
@@ -66,6 +67,8 @@ interface TranscriptFollow {
   followingRef: RefObject<boolean>;
   showJump: boolean;
   hasScrollGesture(): boolean;
+  /** A touch drag that moved the transcript, from finger down through its fling. */
+  hasTouchScroll(): boolean;
   handleScroll(): void;
   handleWheel(event: WheelLike): void;
   handlePointerDown(event: PointerLike): void;
@@ -149,6 +152,10 @@ export function useTranscriptFollow({
   const programmatic = useRef<{ top: number; time: number }[]>([]);
   // Last observed offset, so a release demands an actual UPWARD move.
   const lastTop = useRef(0);
+  // Last native scrollTop seen in a scroll event. Direction is judged from
+  // native displacement: a correction the timeline holds (or lands) during a
+  // touch scroll moves the logical offset while the reader does not move.
+  const lastNativeTop = useRef(0);
   // Last observed content height, so a growth commit can be judged against the
   // bottom it had BEFORE that growth (see grewWhileAtBottom).
   const lastScrollHeight = useRef(0);
@@ -204,12 +211,14 @@ export function useTranscriptFollow({
       try {
         const metrics = scrollMetrics(element);
         lastTop.current = metrics.top;
+        lastNativeTop.current = metrics.top - transcriptScrollDeviation(element);
         lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
         lastDistance.current = distanceFromBottom(metrics);
       } catch {
         /* layout only */
       }
     } else {
+      lastNativeTop.current = 0;
       lastTop.current = 0;
       lastScrollHeight.current = 0;
       lastDistance.current = 0;
@@ -338,13 +347,20 @@ export function useTranscriptFollow({
     // latch alive, so the idle fallback can only close it once the native
     // stream has actually stopped delivering.
     if (touchLatched.current) touchScrollAt.current = Date.now();
-    const previousTop = lastTop.current;
     // The offset is the only layout value read here; the extent comes from the
-    // timeline's geometry.
-    const metrics = scrollMetrics(element, undefined, element.scrollTop);
+    // timeline's geometry. Programmatic writes are recorded as the native
+    // offsets they landed on; reading position and extent are logical, which
+    // includes a correction the timeline holds during a touch scroll. The
+    // previous position is the current logical one minus the NATIVE move, so
+    // a held correction growing between two events is never read as reader
+    // direction.
+    const nativeTop = element.scrollTop;
+    const metrics = scrollMetrics(element, undefined, nativeTop + transcriptScrollDeviation(element));
     const top = metrics.top;
+    const previousTop = top - (nativeTop - lastNativeTop.current);
+    lastNativeTop.current = nativeTop;
     lastTop.current = top;
-    const programmaticScroll = isProgrammatic(top);
+    const programmaticScroll = isProgrammatic(nativeTop);
     if (transcriptScrollDiagnosticsEnabled() && Math.abs(top - previousTop) >= 8) {
       logTranscriptScroll('viewport-move', {
         from: previousTop,
@@ -681,7 +697,7 @@ export function useTranscriptFollow({
         // reading offset resolving from its estimate — lands with the offset
         // sitting on the core's own corrective write. That is the timeline
         // holding the reader still, never the reader arriving at the tail.
-        if (isProgrammatic(metrics.top)) return;
+        if (isProgrammatic(metrics.top - transcriptScrollDeviation(root))) return;
         // Nor is a frame the reader is actively scrolling through: the wheel
         // that just released follow is still animating its notch.
         if (hasGesture()) return;
@@ -724,6 +740,7 @@ export function useTranscriptFollow({
     followingRef,
     showJump,
     hasScrollGesture: hasReaderScroll,
+    hasTouchScroll,
     handleScroll,
     handleWheel,
     handlePointerDown,

@@ -126,7 +126,13 @@ export function ComposerDock({
       {showProjectSelector ? (
         <div className="composer-context-bar">{contextBar}</div>
       ) : (
+        // One island per session: a surviving slot carried the outgoing
+        // session's height into the new one and animated toward it (with the
+        // 1.5s collapse grace), shifting the end-pinned transcript by the
+        // slot height on every switch. Keyed by the route address, which
+        // changes in the same commit as the transcript, unlike the snapshot.
         <ComposerIsland
+          key={reviewSessionId}
           sessionId={sessionId}
           onOpenAgentSession={onOpenAgentSession}
           goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}

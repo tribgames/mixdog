@@ -1109,7 +1109,6 @@ html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer .message-actions,
 html[data-mixdog-mobile-tabs] .dock-pr-row-actions {
   opacity: 1;
-  visibility: visible;
   pointer-events: auto;
   transition: none;
 }

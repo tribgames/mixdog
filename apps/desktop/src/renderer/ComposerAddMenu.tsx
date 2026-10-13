@@ -5,6 +5,7 @@ import { CapabilityIcon } from './CapabilityIcon';
 import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { selectableComposerSkills, skillTitle, type ComposerSkill } from './composer-skill';
 import { wrappedNavigationIndex } from './list-navigation';
 import './desktop/composer-add-menu.css';
@@ -254,6 +255,7 @@ export function ComposerAddMenu({
       cancelled = true;
     };
   }, [open, sessionId, cacheKey]);
+  useMobileBack(open, () => setOpen(false));
   useComposerAddMenuDismiss({ open, panel, trigger, close, setOpen });
   useEffect(() => {
     if (disabled) setOpen(false);

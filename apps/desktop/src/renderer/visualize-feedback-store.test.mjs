@@ -16,6 +16,7 @@ import {
   resetVisualizeFeedback,
   setVisualizeChoice,
   setVisualizePinImage,
+  updateVisualizePinNote,
   visualizeChoicesChip,
   visualizeFeedbackFor,
   visualizeFeedbackPrompt,
@@ -24,6 +25,7 @@ import {
   visualizePaneMarkers,
   visualizePinChip,
   visualizePinsFull,
+  visualizeStoredPin,
 } from './visualize-feedback-store.ts';
 
 const { dom } = installTestDom(null, {
@@ -35,6 +37,15 @@ window.mixdogDesktop = { rendererDiagnostic() {} };
 dom.window.HTMLElement.prototype.attachEvent ??= () => {};
 dom.window.HTMLElement.prototype.detachEvent ??= () => {};
 
+const elementTarget = (overrides = {}) => ({
+  type: 'element',
+  selector: 'main > button.rename',
+  html: '<button class="rename">Rename</button>',
+  styles: { display: 'inline-flex', 'font-size': '14px' },
+  box: { x: 120, y: 40, width: 80, height: 28 },
+  path: ['Section', 'Box · Toolbar'],
+  ...overrides,
+});
 const elementPin = (overrides = {}) => ({
   tabId: 'v1',
   tabLabel: 'Mockup',
@@ -42,13 +53,8 @@ const elementPin = (overrides = {}) => ({
   paneKind: 'html',
   file: 'design/mockups/a/index.html',
   note: 'Make this bigger',
-  label: 'button.rename',
-  element: {
-    selector: 'main > button.rename',
-    html: '<button class="rename">Rename</button>',
-    styles: { display: 'inline-flex', 'font-size': '14px' },
-    box: { x: 120, y: 40, width: 80, height: 28 },
-  },
+  label: 'Button · Rename',
+  target: elementTarget(),
   ...overrides,
 });
 
@@ -71,12 +77,14 @@ test('pins number in session order, and the pages and chips renumber together', 
     elementPin({
       pane: 1,
       paneKind: 'pdf',
-      label: 'report.pdf region',
-      element: undefined,
-      region: { view: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 } },
+      label: 'PDF · Region',
+      target: { type: 'region', view: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 } },
     })
   );
-  const third = addVisualizePin('s1', elementPin({ label: 'h1', element: { ...elementPin().element, selector: 'h1' } }));
+  const third = addVisualizePin(
+    's1',
+    elementPin({ label: 'Heading · Title', target: elementTarget({ selector: 'h1' }) })
+  );
   addVisualizePin('s2', elementPin());
 
   assert.deepEqual(visualizePaneMarkers(visualizeFeedbackFor('s1'), 'v1', 0), {
@@ -91,7 +99,7 @@ test('pins number in session order, and the pages and chips renumber together', 
     visualizePaneMarkers(visualizeFeedbackFor('s1'), 'v1', 1).regions.map(({ n, pin }) => [n, pin.id]),
     [[2, region.id]]
   );
-  assert.equal(visualizePinChip(first, 1), '📌 1 · button.rename');
+  assert.equal(visualizePinChip(first, 1), '1 · Button · Rename');
 
   removeVisualizePin('s1', first.id);
   const after = visualizeFeedbackFor('s1');
@@ -99,7 +107,7 @@ test('pins number in session order, and the pages and chips renumber together', 
   assert.equal(visualizePaneMarkers(after, 'v1', 0).next, 3);
   assert.deepEqual(
     after.pins.map((pin, index) => visualizePinChip(pin, index + 1)),
-    ['📌 1 · report.pdf region', '📌 2 · h1']
+    ['1 · PDF · Region', '2 · Heading · Title']
   );
   assert.equal(visualizeFeedbackFor('s2').pins.length, 1, 'sessions keep their own pins');
 
@@ -111,6 +119,63 @@ test('pins number in session order, and the pages and chips renumber together', 
   );
   setVisualizePinImage('s1', third.id, { data: 'AAAA', mimeType: 'image/png', width: 1, height: 1 });
   assert.equal(visualizeFeedbackFor('s1').pins[1].image.data, 'AAAA');
+});
+
+test('an anchored HTML region is drawn by its page, keeps a valid anchor only, and names it in the message', () => {
+  resetVisualizeFeedback();
+  const anchor = { selector: '#card', rect: { x: 0.125, y: 0.25, width: 0.5, height: 0.5 }, path: ['Section · Card'] };
+  const region = addVisualizePin(
+    's1',
+    elementPin({
+      label: 'Region · 2 elements',
+      note: 'Tighter',
+      target: { type: 'region', view: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 }, elements: 2, anchor },
+    })
+  );
+  const legacy = addVisualizePin(
+    's1',
+    elementPin({ label: 'Region', note: 'Old', target: { type: 'region', view: { x: 0, y: 0, width: 1, height: 1 } } })
+  );
+  const panes = visualizePaneMarkers(visualizeFeedbackFor('s1'), 'v1', 0);
+  assert.deepEqual(panes.markers, [{ n: 1, selector: '#card', region: { pin: region.id, rect: anchor.rect } }]);
+  assert.deepEqual(
+    panes.regions.map(({ n, pin }) => [n, pin.id]),
+    [
+      [1, region.id],
+      [2, legacy.id],
+    ]
+  );
+
+  const lines = visualizeFeedbackPrompt(visualizeFeedbackFor('s1'), 1).text.split('\n');
+  const inside = lines.filter((line) => line.startsWith('  inside:'));
+  assert.deepEqual(inside, ['  inside: Section · Card'], 'only the anchored region has an inside line');
+  assert.equal(lines[lines.indexOf(inside[0]) - 1].startsWith('  region:'), true);
+
+  // Stored: a valid anchor round-trips (fractions normalized), a broken one
+  // is dropped with the pin kept, and only an HTML pane keeps one.
+  const stored = {
+    ...region,
+    target: { ...region.target, anchor: { ...anchor, rect: { x: 0.5, y: 0, width: 0.75, height: 1 } } },
+  };
+  assert.deepEqual(visualizeStoredPin(stored).target.anchor, {
+    selector: '#card',
+    rect: { x: 0.5, y: 0, width: 0.5, height: 1 },
+    path: ['Section · Card'],
+  });
+  assert.deepEqual(visualizeStoredPin(region), region);
+  for (const broken of [
+    { selector: '', rect: anchor.rect },
+    { selector: '#card', rect: { x: 0, y: 0, width: 'wide', height: 1 } },
+    { selector: '#card', rect: { x: 1, y: 0, width: 1, height: 1 } },
+    'body',
+  ]) {
+    const pin = visualizeStoredPin({ ...region, target: { ...region.target, anchor: broken } });
+    assert.equal(pin.target.anchor, undefined);
+    assert.equal(pin.note, 'Tighter', 'the pin itself stays');
+  }
+  const image = visualizeStoredPin({ ...region, paneKind: 'image', label: 'Image · Region' });
+  assert.equal(image.target.anchor, undefined, 'an image region has no page element');
+  resetVisualizeFeedback();
 });
 
 test('choices queue one pick per tab, pane and group', () => {
@@ -157,10 +222,37 @@ test('the message carries every pin field, the crops as numbered images, and the
       pane: 1,
       paneKind: 'image',
       file: 'shots/home.png',
-      label: 'home.png region',
+      label: 'Image · Region',
       note: 'Crop tighter',
-      element: undefined,
-      region: { view: { x: 0.1, y: 0.25, width: 0.5, height: 0.125 }, image: { x: 40, y: 50, width: 200, height: 25 } },
+      target: {
+        type: 'region',
+        view: { x: 0.1, y: 0.25, width: 0.5, height: 0.125 },
+        image: { x: 40, y: 50, width: 200, height: 25 },
+      },
+    })
+  );
+  addVisualizePin(
+    's1',
+    elementPin({
+      note: 'Tighter rows',
+      label: 'Region · 2 elements',
+      target: { type: 'region', view: { x: 0, y: 0.5, width: 1, height: 0.25 }, elements: 2 },
+    })
+  );
+  addVisualizePin(
+    's1',
+    elementPin({
+      pane: 2,
+      paneKind: 'video',
+      file: 'clips/intro.mp4',
+      label: 'Video 0:12 · Region',
+      note: 'Move the subtitle up',
+      target: {
+        type: 'region',
+        view: { x: 0.2, y: 0.8, width: 0.6, height: 0.1 },
+        image: { x: 384, y: 864, width: 1152, height: 108 },
+        time: 12.4,
+      },
     })
   );
   setVisualizeChoice('s1', choice(), true);
@@ -170,19 +262,37 @@ test('the message carries every pin field, the crops as numbered images, and the
     [
       '<visualize_feedback>',
       'The user left this feedback in the visualize panel. Pins are numbered; the image labelled "visualize pin N" is the crop of pin N.',
-      'pin 1 · button.rename',
+      'pin 1 · Button · Rename',
       '  note: Bigger\n    and bolder',
-      '  tab: v1 "Mockup" · pane 1 (html) · file: design/mockups/a/index.html',
+      '  tab: v1 "Mockup" · pane 1 · file: design/mockups/a/index.html',
+      '  kind: html element',
       '  selector: main > button.rename',
+      '  inside: Section › Box · Toolbar',
       '  html: <button class="rename">Rename</button>',
       '  styles: display: inline-flex; font-size: 14px',
       '  box: x 120, y 40, 80×28 (CSS px, page coordinates)',
       '  crop: image "visualize pin 1"',
-      'pin 2 · home.png region',
+      'pin 2 · Image · Region',
       '  note: Crop tighter',
-      '  tab: v1 "Mockup" · pane 2 (image) · file: shots/home.png',
+      '  tab: v1 "Mockup" · pane 2 · file: shots/home.png',
+      '  kind: image region',
       "  region: x 10%, y 25%, 50%×12.5% of the pane's visible view",
       '  image area: x 40, y 50, 200×25 (image px)',
+      '  crop: none',
+      'pin 3 · Region · 2 elements',
+      '  note: Tighter rows',
+      '  tab: v1 "Mockup" · pane 1 · file: design/mockups/a/index.html',
+      '  kind: html region',
+      "  region: x 0%, y 50%, 100%×25% of the pane's visible view",
+      '  elements: 2 wholly inside the region',
+      '  crop: none',
+      'pin 4 · Video 0:12 · Region',
+      '  note: Move the subtitle up',
+      '  tab: v1 "Mockup" · pane 3 · file: clips/intro.mp4',
+      '  kind: video region',
+      '  time: 0:12 (12.4 s into the video)',
+      "  region: x 20%, y 80%, 60%×10% of the pane's visible view",
+      '  frame area: x 384, y 864, 1152×108 (video px)',
       '  crop: none',
       'choices:',
       '  - tab: v2 "Options" · file: design/options.html · group: "layout" → choice: "b" ("Two columns")',
@@ -197,16 +307,29 @@ test('the message carries every pin field, the crops as numbered images, and the
       mimeType: 'image/png',
       data: 'PNGDATA',
       token: '',
-      metadataText: '[Image: visualize pin 1 · button.rename, 80x28]',
+      metadataText: '[Image: visualize pin 1 · Button · Rename, 80x28]',
     },
   ]);
   assert.equal(
     prompt.display,
-    '📌 1 · button.rename — Bigger and bolder\n📌 2 · home.png region — Crop tighter\n☑ layout: Two columns'
+    [
+      '1 · Button · Rename — Bigger and bolder',
+      '2 · Image · Region — Crop tighter',
+      '3 · Region · 2 elements — Tighter rows',
+      '4 · Video 0:12 · Region — Move the subtitle up',
+      '☑ layout: Two columns',
+    ].join('\n')
   );
   assert.equal(withFeedbackText('Hi', 'Hi', 'F'), 'Hi\n\nF');
   assert.deepEqual(
-    withFeedbackText([{ type: 'text', text: 'Hi' }, { type: 'image', data: 'x', mimeType: 'image/png' }], 'Hi', 'F'),
+    withFeedbackText(
+      [
+        { type: 'text', text: 'Hi' },
+        { type: 'image', data: 'x', mimeType: 'image/png' },
+      ],
+      'Hi',
+      'F'
+    ),
     [
       { type: 'text', text: 'Hi' },
       { type: 'text', text: 'F' },
@@ -257,6 +380,22 @@ test('a sent message consumes exactly what it carried', () => {
   );
 });
 
+test('a note edited while its message travels stays queued with the new note', () => {
+  resetVisualizeFeedback();
+  const edited = addVisualizePin('s1', elementPin());
+  const cropped = addVisualizePin('s1', elementPin({ note: 'Other' }));
+  const sent = visualizeFeedbackFor('s1');
+  updateVisualizePinNote('s1', edited.id, 'Make it smaller instead');
+  // A crop arriving meanwhile is no edit: that pin was sent as it is.
+  setVisualizePinImage('s1', cropped.id, { data: 'PNG', mimeType: 'image/png', width: 1, height: 1 });
+  consumeVisualizeFeedback('s1', sent);
+  assert.deepEqual(
+    visualizeFeedbackFor('s1').pins.map((pin) => [pin.id, pin.note]),
+    [[edited.id, 'Make it smaller instead']]
+  );
+  resetVisualizeFeedback();
+});
+
 test('a remote client names files path-free in the feedback it sends', () => {
   resetVisualizeFeedback();
   const cwd = process.platform === 'win32' ? 'C:\\Users\\me\\proj' : '/home/me/proj';
@@ -271,7 +410,9 @@ test('a remote client names files path-free in the feedback it sends', () => {
         remoteLabel: 'site/index.html',
         revision: 0,
         cwd,
-        panes: [{ kind: 'html', label: 'index.html', target: absolute, path: absolute, remoteTarget: 'site/index.html' }],
+        panes: [
+          { kind: 'html', label: 'index.html', target: absolute, path: absolute, remoteTarget: 'site/index.html' },
+        ],
       },
     ],
   });
@@ -280,7 +421,10 @@ test('a remote client names files path-free in the feedback it sends', () => {
   assert.equal(pane.file, undefined);
   assert.equal(visualizePaneFile(pane), 'site/index.html');
   assert.equal(visualizePaneFile({ ...pane, version: 2 }), 'site/index.html (kept version v2, read-only)');
-  assert.equal(visualizePaneFile({ kind: 'html', label: 'a', target: absolute, url: '', file: 'site/index.html' }), 'site/index.html');
+  assert.equal(
+    visualizePaneFile({ kind: 'html', label: 'a', target: absolute, url: '', file: 'site/index.html' }),
+    'site/index.html'
+  );
   addVisualizePin('s1', elementPin({ tabId: tab.id, tabLabel: tab.label, file: visualizePaneFile(pane) }));
   setVisualizeChoice('s1', choice({ tabId: tab.id, tabLabel: tab.label, file: visualizePaneFile(pane) }), true);
   const { text, display } = visualizeFeedbackPrompt(visualizeFeedbackFor('s1'), 1);
@@ -375,6 +519,120 @@ test('queued feedback survives a renderer reload, crops dropped only when storag
   resetVisualizeFeedback();
 });
 
+test('pins stored before `target` are migrated with human labels; invalid ones are dropped', async () => {
+  resetVisualizeFeedback();
+  const legacyElement = {
+    id: 'p7',
+    tabId: 'v1',
+    tabLabel: 'Mockup',
+    pane: 0,
+    paneKind: 'html',
+    file: 'a.html',
+    note: 'Bigger',
+    label: 'button#go.primary',
+    element: {
+      selector: '#go',
+      html: '<button id="go">Go</button>',
+      styles: { color: 'red', bad: 3 },
+      box: { x: 1, y: 2, width: 3, height: 4 },
+    },
+    image: { data: 'PNG', mimeType: 'image/png', width: 3, height: 4 },
+  };
+  const legacyRegion = {
+    ...legacyElement,
+    id: 'p8',
+    pane: 1,
+    paneKind: 'image',
+    label: 'home.png region',
+    element: undefined,
+    image: undefined,
+    region: { view: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, image: { x: 1, y: 2, width: 30, height: 40 } },
+  };
+  assert.deepEqual(visualizeStoredPin(legacyElement), {
+    id: 'p7',
+    tabId: 'v1',
+    tabLabel: 'Mockup',
+    pane: 0,
+    paneKind: 'html',
+    file: 'a.html',
+    note: 'Bigger',
+    label: 'Button',
+    target: {
+      type: 'element',
+      selector: '#go',
+      html: '<button id="go">Go</button>',
+      styles: { color: 'red' },
+      box: { x: 1, y: 2, width: 3, height: 4 },
+      path: [],
+    },
+    image: { data: 'PNG', mimeType: 'image/png', width: 3, height: 4 },
+  });
+  const region = visualizeStoredPin(legacyRegion);
+  assert.equal(region.label, 'Image · Region');
+  assert.deepEqual(region.target, {
+    type: 'region',
+    view: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+    image: { x: 1, y: 2, width: 30, height: 40 },
+  });
+  assert.equal(visualizeStoredPin({ ...legacyElement, label: 'div.card' }).label, 'Box', 'unknown tags read as a box');
+
+  // Today's shape round-trips as stored, label and all.
+  const current = { ...elementPin(), id: 'p9' };
+  assert.deepEqual(visualizeStoredPin(current), current);
+  const video = {
+    ...current,
+    paneKind: 'video',
+    label: 'Video 0:12 · Region',
+    target: { type: 'region', view: { x: 0, y: 0, width: 1, height: 1 }, time: 12 },
+  };
+  assert.deepEqual(visualizeStoredPin(video), video);
+
+  for (const [why, broken] of [
+    ['no target at all', { ...current, target: undefined }],
+    ['an element pin on a region-only pane', { ...current, paneKind: 'pdf' }],
+    ['a pane kind without comments', { ...video, paneKind: 'audio' }],
+    ['an unknown target type', { ...current, target: { type: 'circle' } }],
+    ['a region without its view', { ...video, target: { type: 'region' } }],
+    ['an empty note', { ...current, note: ' ' }],
+    ['a bad id', { ...current, id: 'x' }],
+    ['not an object', 'pin'],
+  ]) {
+    assert.equal(visualizeStoredPin(broken), null, why);
+  }
+
+  // On a reload: migrated, the broken one gone, a session left empty dropped.
+  sessionStorage.setItem(
+    'mixdog:visualize-feedback:v1',
+    JSON.stringify([
+      ['s1', { pins: [legacyElement, { ...current, target: undefined }, legacyRegion], choices: [] }],
+      ['s2', { pins: [{ junk: true }], choices: [] }],
+    ])
+  );
+  const reloaded = await import(`./visualize-feedback-store.ts?reload=${Date.now()}-migrate`);
+  assert.deepEqual(
+    reloaded.visualizeFeedbackFor('s1').pins.map((pin) => [pin.id, pin.label, pin.target.type]),
+    [
+      ['p7', 'Button', 'element'],
+      ['p8', 'Image · Region', 'region'],
+    ]
+  );
+  assert.deepEqual(reloaded.visualizeFeedbackFor('s2'), { pins: [], choices: [], tweaks: [] });
+  assert.equal(reloaded.addVisualizePin('s1', elementPin()).id, 'p9', 'ids continue past the restored ones');
+  resetVisualizeFeedback();
+});
+
+test('a reopened pin takes a new note; an empty one keeps the old', () => {
+  resetVisualizeFeedback();
+  const pin = addVisualizePin('s1', elementPin());
+  updateVisualizePinNote('s1', pin.id, '  Smaller  ');
+  assert.equal(visualizeFeedbackFor('s1').pins[0].note, 'Smaller');
+  updateVisualizePinNote('s1', pin.id, '   ');
+  assert.equal(visualizeFeedbackFor('s1').pins[0].note, 'Smaller');
+  updateVisualizePinNote('s1', 'p0', 'gone');
+  assert.equal(visualizeFeedbackFor('s1').pins.length, 1);
+  resetVisualizeFeedback();
+});
+
 test('queued feedback alone is sendable, rides with the message and clears only once accepted', async () => {
   resetVisualizeFeedback();
   const pin = addVisualizePin('s1', elementPin());
@@ -440,13 +698,13 @@ test('queued feedback alone is sendable, rides with the message and clears only 
     assert.equal(submissions.length, 1, 'no text, but the pins make it sendable');
     const [first] = submissions;
     assert.equal(first.content[0].type, 'text');
-    assert.match(first.content[0].text, /^<visualize_feedback>\n.*\npin 1 · button\.rename\n/);
+    assert.match(first.content[0].text, /^<visualize_feedback>\n.*\npin 1 · Button · Rename\n/);
     assert.match(first.content[0].text, /choice: "b"/);
     assert.deepEqual(first.content.slice(1), [
-      { type: 'text', text: '[Image: visualize pin 1 · button.rename, 80x28]' },
+      { type: 'text', text: '[Image: visualize pin 1 · Button · Rename, 80x28]' },
       { type: 'image', data: 'PNGDATA', mimeType: 'image/png' },
     ]);
-    assert.equal(first.options.displayText, '📌 1 · button.rename — Make this bigger\n☑ layout: Two columns');
+    assert.equal(first.options.displayText, '1 · Button · Rename — Make this bigger\n☑ layout: Two columns');
     assert.equal(Object.keys(first.options.pastedImages).length, 1);
     assert.equal(visualizeFeedbackFor('s1').pins.length, 1, 'a refused send keeps the pins');
     assert.equal(visualizeFeedbackFor('s1').choices.length, 1);

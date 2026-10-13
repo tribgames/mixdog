@@ -11,6 +11,7 @@ export function createTranscriptEndPin({
   getMaxScrollTop,
   hasReaderGesture,
   markProgrammaticScroll,
+  dropDeviation,
 }: {
   getVirtualizer(): Virtualizer<HTMLDivElement, HTMLDivElement>;
   getViewport(): HTMLDivElement | null;
@@ -20,6 +21,9 @@ export function createTranscriptEndPin({
   getMaxScrollTop(): number;
   hasReaderGesture(): boolean;
   markProgrammaticScroll(top: number, intended: number): void;
+  /** The end is a native offset: a row offset held from a touch scroll ends
+   *  with this write. */
+  dropDeviation?(): void;
 }) {
   let queued = false;
   let generation = 0;
@@ -75,6 +79,7 @@ export function createTranscriptEndPin({
         // still equals `max` then: skipping the write loses the tail. Read the
         // actual offset once per coalesced pin, after committing the spacer.
         const diagnose = transcriptScrollDiagnosticsEnabled();
+        dropDeviation?.();
         const before = element.scrollTop;
         if (Math.abs(before - max) >= 0.5) element.scrollTop = max;
         const landed = element.scrollTop;

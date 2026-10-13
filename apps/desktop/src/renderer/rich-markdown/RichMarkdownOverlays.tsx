@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { ArrowDown, ArrowUp, CaseSensitive, Copy, ExternalLink, Pencil, Unlink, X } from 'lucide-react';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { copyTextToClipboard } from '../text-format';
 import type { RichMarkdownBlockCommand, RichMarkdownPromptKind } from './rich-markdown-commands';
 import { frontMatterLines } from './rich-markdown-frontmatter';
@@ -121,6 +122,7 @@ export function RichMarkdownPrompt({
   onSubmit(values: PromptValues): void;
   onCancel(): void;
 }) {
+  useMobileBack(true, onCancel);
   const [values, setValues] = useState(initial);
   const input = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -281,6 +283,7 @@ export function RichMarkdownSearchBar({
   onStep(delta: 1 | -1): void;
   onClose(): void;
 }) {
+  useMobileBack(true, onClose);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     input.current?.focus();

@@ -67,7 +67,7 @@ import { ComposerBanners } from './ComposerBanners';
 import { ComposerFooter } from './ComposerFooter';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
-import { VisualizeFeedbackChips } from './VisualizeFeedback';
+import { VisualizeFeedbackCards } from './VisualizeFeedbackCards';
 import { useVisualizeFeedback, visualizeFeedbackPending } from './visualize-feedback-store';
 
 // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency, logged
@@ -738,7 +738,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             onOpenFile={onOpenFile}
           />
         )}
-        <VisualizeFeedbackChips sessionId={sessionId} />
+        <VisualizeFeedbackCards sessionId={sessionId} />
         {editingPaste && (
           <ComposerPastedTextDialog
             anchor={textarea}

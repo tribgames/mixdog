@@ -1,6 +1,7 @@
 // Session lifecycle and submit methods for one remote connection. Device
 // identity and the stale-view check stay with the methods that use them.
 import type { DesktopService } from './desktop-service-contract';
+import { REMOTE_ORIGINAL_MAX_BYTES, readAttachmentThumbnail } from './attachment-thumbnail';
 import { requiredSessionId } from './desktop-state';
 import {
   requiredAbortOptions,
@@ -39,6 +40,8 @@ export function sessionRemoteMethods(
         consumedUnread === true
       );
     },
+    readAttachmentThumbnail: ([attachmentRef]) =>
+      readAttachmentThumbnail(attachmentRef, (ref) => host.readAttachmentImage(ref), null, REMOTE_ORIGINAL_MAX_BYTES),
     renameSession: ([sessionId, title]) => host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)),
     continueSessionInModel: ([sessionId, route]) =>
       host.continueSessionInModel(requiredSessionId(sessionId), requiredModelSelection(route)),

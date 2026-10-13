@@ -6,6 +6,7 @@ import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { InitialSurface } from './InitialSurface';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { ProviderIcon } from './provider-display';
 import { record } from './record-utils';
 import {
@@ -430,6 +431,10 @@ export function SidebarUsage({
   }, [codexResetKeySignature, resetConfirming]);
   const [resetInfoOpen, setResetInfoOpen] = useState(false);
   const resetRef = useRef<HTMLDivElement | null>(null);
+  useMobileBack(resetConfirming !== null, () => {
+    if (!resetting) setResetConfirming(null);
+  });
+  useMobileBack(resetInfoOpen, () => setResetInfoOpen(false));
   useEffect(() => {
     if (!sidebarOpen) setResetInfoOpen(false);
   }, [sidebarOpen]);

@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 
 import { BROWSER_ZOOM_PRESETS, BROWSER_ZOOM_RANGE, stepZoom, type ZoomRange } from './zoom-range';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import './zoom-pill.css';
 
 export interface ZoomPillLead {
@@ -55,6 +56,8 @@ export function ZoomPill({
     checked: Math.abs(level - 1) < SAME_SCALE,
     onSelect: () => onChange(1),
   };
+
+  useMobileBack(open, () => setOpen(false));
 
   useEffect(() => {
     onActiveChange?.(open || hovered || focused);

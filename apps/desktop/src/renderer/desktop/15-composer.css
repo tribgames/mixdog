@@ -100,6 +100,13 @@
     transition-duration: 0s;
   }
 }
+/* A session entry still behind the reveal takes the island height at once.
+   Content that lands during entry (a late review read) otherwise opened the
+   slot over 180ms starting at the reveal frame, and the end-pinned
+   transcript visibly rode that animation. */
+.conversation[data-transcript-entering] .composer-island-slot {
+  transition: none;
+}
 .composer-island-stage {
   position: absolute;
   inset-inline: 0;
@@ -369,26 +376,32 @@
   flex: none;
   color: var(--mx-text-muted);
 }
-@container composer-island (max-width: 419px) {
-  .composer-island-seg-word,
-  .composer-island-seg.turn-review-segment .diff-stats,
-  .composer-island-seg-model > .composer-island-seg-text {
-    display: none;
-  }
-  .composer-island-seg-num {
-    display: inline-block;
-  }
-  .composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
-    display: inline-block;
-  }
-  .composer-island-seg-state + .composer-island-seg-state::before {
-    content: none;
-  }
-  .composer-island-seg,
-  .composer-island .session-goal-trigger {
-    gap: 5px;
-    padding-inline: 8px;
-  }
+/* The fit check (ComposerIsland's useIslandFit) reads the pill at its
+   full-label width; only when that overflows the island's room does
+   data-compact swap the words for bare counts. */
+.composer-island[data-measuring] > .composer-island-pill {
+  width: max-content;
+}
+.composer-island[data-compact]
+  :is(
+    .composer-island-seg-word,
+    .composer-island-seg.turn-review-segment .diff-stats,
+    .composer-island-seg-model > .composer-island-seg-text
+  ) {
+  display: none;
+}
+.composer-island[data-compact] .composer-island-seg-num {
+  display: inline-block;
+}
+.composer-island[data-compact] .composer-island-seg-state[data-kind="waiting"] > .composer-island-dot {
+  display: inline-block;
+}
+.composer-island[data-compact] .composer-island-seg-state + .composer-island-seg-state::before {
+  content: none;
+}
+.composer-island[data-compact] :is(.composer-island-seg, .session-goal-trigger) {
+  gap: 5px;
+  padding-inline: 8px;
 }
 /* Inline, so the literal space between +a and −b shows. */
 .turn-review-segment .diff-stats {
@@ -1730,7 +1743,6 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   margin-bottom: -2px;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-color: var(--mx-scrollbar-thumb) transparent;
 }
 
 /* Attachment cards (composer, automation editors, sent messages): one size

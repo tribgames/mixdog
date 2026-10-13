@@ -187,6 +187,11 @@ export function useAppSubmitRouting({
           }
         }
       }
+      // The draft ends here: promoted to its session, or closed in flight.
+      // `new:default` recurs (every emptied workspace reopens it), so a later
+      // draft under the same key mints its own session instead of joining
+      // this one (user: 탭 다 닫고 남은 새 작업에서 입력하면 이전 세션으로 감).
+      if (startedSessionId) draftSubmissions.current.delete(draftKey);
       return accepted;
     },
     [

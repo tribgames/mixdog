@@ -19,9 +19,18 @@ import {
   VISUALIZE_INSPECT_LIB_SOURCE,
   visualizePageInspection,
 } from './visualize-inspect';
+import {
+  VISUALIZE_ARIA_ROLES,
+  VISUALIZE_INPUT_ROLES,
+  VISUALIZE_TAG_ROLES,
+  type VisualizeElementRole,
+  visualizeElementRole,
+} from './visualize-comment-kinds';
 import { MAX_VISUALIZE_TWEAKS_CHARS, type VisualizeTweakOp } from './visualize-tweaks';
 
 export const VISUALIZE_FEEDBACK_TAG = '__mixdogVisualize';
+/** Hover, selection and pins share this one pink (panel CSS: --mx-visualize-pin). */
+export const VISUALIZE_PIN_COLOR = '#ff3b6b';
 
 export interface VisualizeFeedbackRect {
   x: number;
@@ -30,25 +39,138 @@ export interface VisualizeFeedbackRect {
   height: number;
 }
 
+// ── Rectangles (one set, for the panel and the gates) ────────────────────
+
+export const sameRect = (a: VisualizeFeedbackRect, b: VisualizeFeedbackRect): boolean =>
+  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+
+/** The overlap of two rectangles, or null under 1px either way. */
+export function intersectRect(a: VisualizeFeedbackRect, b: VisualizeFeedbackRect): VisualizeFeedbackRect | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right - x >= 1 && bottom - y >= 1 ? { x, y, width: right - x, height: bottom - y } : null;
+}
+
+/** A DOMRect-like box as a rectangle. */
+export const rectOfBox = (box: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): VisualizeFeedbackRect => ({
+  x: box.left,
+  y: box.top,
+  width: box.width,
+  height: box.height,
+});
+
+/** The rectangle two points span. */
+export const spanRect = (a: { x: number; y: number }, b: { x: number; y: number }): VisualizeFeedbackRect => ({
+  x: Math.min(a.x, b.x),
+  y: Math.min(a.y, b.y),
+  width: Math.abs(a.x - b.x),
+  height: Math.abs(a.y - b.y),
+});
+
+const unit = (value: number): number => Math.min(1, Math.max(0, value));
+
+/** `rect` as fractions (0-1, clamped) of `frame`; both in one space. */
+export function rectToFractions(rect: VisualizeFeedbackRect, frame: VisualizeFeedbackRect): VisualizeFeedbackRect {
+  if (!frame.width || !frame.height) return { x: 0, y: 0, width: 0, height: 0 };
+  const x = unit((rect.x - frame.x) / frame.width);
+  const y = unit((rect.y - frame.y) / frame.height);
+  return {
+    x,
+    y,
+    width: Math.max(0, unit((rect.x + rect.width - frame.x) / frame.width) - x),
+    height: Math.max(0, unit((rect.y + rect.height - frame.y) / frame.height) - y),
+  };
+}
+
+/** Fractions of `frame` back in `frame`'s space. */
+export const rectFromFractions = (
+  rect: VisualizeFeedbackRect,
+  frame: VisualizeFeedbackRect
+): VisualizeFeedbackRect => ({
+  x: frame.x + rect.x * frame.width,
+  y: frame.y + rect.y * frame.height,
+  width: rect.width * frame.width,
+  height: rect.height * frame.height,
+});
+
+export const roundRect = (rect: VisualizeFeedbackRect, digits = 4): VisualizeFeedbackRect => {
+  const round = (value: number) => Math.round(value * 10 ** digits) / 10 ** digits;
+  return { x: round(rect.x), y: round(rect.y), width: round(rect.width), height: round(rect.height) };
+};
+
+const UNIT_FRAME: VisualizeFeedbackRect = { x: 0, y: 0, width: 1, height: 1 };
+
+/** A rectangle of fractions (0-1) clamped inside the unit square and
+ *  rounded, or null when nothing of it is left. */
+export function visualizeUnitRect(rect: VisualizeFeedbackRect): VisualizeFeedbackRect | null {
+  const unitRect = roundRect(rectToFractions(rect, UNIT_FRAME));
+  return unitRect.width > 0 && unitRect.height > 0 ? unitRect : null;
+}
+
+/** One element as the page names it: a selector, its kind and a short text. */
+export interface VisualizePageNode {
+  selector: string;
+  role: VisualizeElementRole;
+  name: string;
+}
+
 /** The element a pick landed on, as the page describes it. `box` is in page
  *  (document) CSS px; `view` and `masks` in the pane's viewport, for the
  *  crop. `masksOverflow`: the page reported more secret fields than can be
- *  masked (or no usable mask list), so no crop may be taken. */
-export interface VisualizePagePick {
-  selector: string;
-  label: string;
+ *  masked (or no usable mask list), so no crop may be taken. `path`: its
+ *  nearest ancestors, outermost first; `child`: its first visible child. */
+export interface VisualizePagePick extends VisualizePageNode {
   html: string;
   styles: Record<string, string>;
   box: VisualizeFeedbackRect;
   view: VisualizeFeedbackRect;
   masks: VisualizeFeedbackRect[];
   masksOverflow: boolean;
+  path: VisualizePageNode[];
+  child: VisualizePageNode | null;
+}
+
+/** Where a dragged area lies in the page: the smallest element whose border
+ *  box wholly holds it, the area as fractions (0-1) of that box, and the
+ *  element's human path (its ancestors, then itself; empty for body/html). */
+export interface VisualizePageAnchor {
+  selector: string;
+  rect: VisualizeFeedbackRect;
+  path: VisualizePageNode[];
+}
+
+/** What lies in a dragged area of the page: how many elements sit wholly
+ *  inside it (outermost only), the secret fields to mask in its crop, and
+ *  the element it lies in (null: none holds it). */
+export interface VisualizePageMeasure {
+  count: number;
+  masks: VisualizeFeedbackRect[];
+  masksOverflow: boolean;
+  anchor: VisualizePageAnchor | null;
+}
+
+/** A pin number the page draws: an element pin's on its element, or an
+ *  anchored region's (`region`: its pin id and its area as fractions of the
+ *  element's border box) on that area. */
+export interface VisualizePageMarker {
+  n: number;
+  selector: string;
+  region?: { pin: string; rect: VisualizeFeedbackRect };
 }
 
 /** Page → renderer. */
 export type VisualizeFeedbackPageMessage =
   | { type: 'ready' }
-  | { type: 'picked'; id: string; pick: VisualizePagePick }
+  /** `pin`: the pick landed on that anchored region's number. */
+  | { type: 'picked'; id: string; pick: VisualizePagePick; pin?: string }
+  | ({ type: 'measured'; id: string } & VisualizePageMeasure)
   | { type: 'choice'; group: string; choice: string; label: string; selected: boolean }
   | { type: 'exit-comment' }
   /** The answer to `inspect` (screen reading: elements and layout findings). */
@@ -63,11 +185,20 @@ export type VisualizeFeedbackParentMessage =
   | {
       type: 'state';
       comment: boolean;
-      markers: Array<{ n: number; selector: string }>;
+      markers: VisualizePageMarker[];
       choices?: Array<{ group: string; choice: string }>;
+      /** Element kind nouns in the UI language, for the hover label. */
+      nouns?: Record<string, string>;
     }
   | { type: 'hover'; x: number; y: number }
+  /** Move the hovered target to its parent (`up`) or back toward the point (`down`). */
+  | { type: 'hover-step'; dir: 'up' | 'down' }
   | { type: 'pick'; id: string; x: number; y: number }
+  /** The element a comment is being written for (null: none); `pin`: the
+   *  anchored region it is written for. */
+  | { type: 'select'; selector: string | null; pin?: string | null }
+  /** Count and mask what lies in a viewport area; answered as `measured`. */
+  | { type: 'measure'; id: string; rect: VisualizeFeedbackRect }
   /** Re-describe a pinned element (fresh box and secret-field masks) right
    *  before its crop; answered as `picked` with this id. */
   | { type: 'describe'; id: string; selector: string }
@@ -85,10 +216,22 @@ export type VisualizeFeedbackParentMessage =
 
 const MAX_SELECTOR = 1_000;
 const MAX_LABEL = 120;
+const MAX_NAME = 80;
 const MAX_HTML = 600;
 const MAX_STYLES = 16;
+/** Ancestors a pick names (its crumbs). */
+export const MAX_VISUALIZE_PATH = 4;
 /** Most secret-field masks one crop carries; more and the crop is dropped. */
 export const MAX_VISUALIZE_MASKS = 16;
+const MAX_MEASURE_COUNT = 10_000;
+
+/** Send `message` to a pane's page script. */
+export function postToPage(
+  frame: { readonly contentWindow: { postMessage(message: unknown, targetOrigin: string): void } | null },
+  message: VisualizeFeedbackParentMessage
+): void {
+  frame.contentWindow?.postMessage({ ...message, [VISUALIZE_FEEDBACK_TAG]: 1 }, '*');
+}
 
 const clip = (value: unknown, max: number): string => (typeof value === 'string' ? value.slice(0, max) : '');
 
@@ -132,34 +275,75 @@ export function visualizeFeedbackPageMessage(value: unknown): VisualizeFeedbackP
       selected: data.selected === true,
     };
   }
+  if (data.type === 'measured') {
+    const id = clip(data.id, 64);
+    if (!id) return null;
+    const count = typeof data.count === 'number' && Number.isFinite(data.count) ? Math.round(data.count) : 0;
+    return {
+      type: 'measured',
+      id,
+      count: Math.min(MAX_MEASURE_COUNT, Math.max(0, count)),
+      ...maskList(data),
+      anchor: pageAnchor(data.anchor),
+    };
+  }
   if (data.type !== 'picked' || !data.pick || typeof data.pick !== 'object') return null;
   const id = clip(data.id, 64);
   const pick = data.pick as Record<string, unknown>;
-  const selector = clip(pick.selector, MAX_SELECTOR);
-  if (!id || !selector) return null;
+  const node = pageNode(pick);
+  if (!id || !node) return null;
   const styles: Record<string, string> = {};
   if (pick.styles && typeof pick.styles === 'object') {
     for (const [key, style] of Object.entries(pick.styles as Record<string, unknown>).slice(0, MAX_STYLES)) {
       if (/^[a-z-]{1,40}$/.test(key) && typeof style === 'string' && style) styles[key] = style.slice(0, MAX_LABEL);
     }
   }
-  // Fail closed: a crop is only ever taken with every secret field masked.
-  const masks = Array.isArray(pick.masks) ? pick.masks : null;
-  const masksOverflow = pick.masksOverflow === true || !masks || masks.length > MAX_VISUALIZE_MASKS;
+  const pin = clip(data.pin, 64);
   return {
     type: 'picked',
     id,
+    ...(pin ? { pin } : {}),
     pick: {
-      selector,
-      label: clip(pick.label, MAX_LABEL) || 'element',
+      ...node,
       html: clip(pick.html, MAX_HTML),
       styles,
       box: rect(pick.box),
       view: rect(pick.view),
-      masks: masksOverflow ? [] : (masks ?? []).map(rect),
-      masksOverflow,
+      ...maskList(pick),
+      path: pageNodes(pick.path, MAX_VISUALIZE_PATH),
+      child: pageNode(pick.child),
     },
   };
+}
+
+function pageNode(value: unknown): VisualizePageNode | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const selector = clip(raw.selector, MAX_SELECTOR);
+  return selector ? { selector, role: visualizeElementRole(raw.role), name: clip(raw.name, MAX_NAME) } : null;
+}
+
+function pageNodes(value: unknown, max: number): VisualizePageNode[] {
+  const nodes = Array.isArray(value) ? value.slice(-max).map(pageNode) : [];
+  return nodes.every((node) => node !== null) ? (nodes as VisualizePageNode[]) : [];
+}
+
+function pageAnchor(value: unknown): VisualizePageAnchor | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const selector = clip(raw.selector, MAX_SELECTOR);
+  const area = raw.rect && typeof raw.rect === 'object' ? (raw.rect as Record<string, unknown>) : {};
+  const numbers = [area.x, area.y, area.width, area.height];
+  if (!selector || !numbers.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  const rect = visualizeUnitRect(area as unknown as VisualizeFeedbackRect);
+  return rect ? { selector, rect, path: pageNodes(raw.path, MAX_VISUALIZE_PATH + 1) } : null;
+}
+
+/** Fail closed: a crop is only ever taken with every secret field masked. */
+function maskList(raw: Record<string, unknown>): { masks: VisualizeFeedbackRect[]; masksOverflow: boolean } {
+  const masks = Array.isArray(raw.masks) ? raw.masks : null;
+  const masksOverflow = raw.masksOverflow === true || !masks || masks.length > MAX_VISUALIZE_MASKS;
+  return { masks: masksOverflow ? [] : (masks ?? []).map(rect), masksOverflow };
 }
 
 // Plain ES5 (no bundler helpers may leak into the page). `target` is the
@@ -167,12 +351,22 @@ export function visualizeFeedbackPageMessage(value: unknown): VisualizeFeedbackP
 const FEEDBACK_SOURCE = String.raw`(function (target) {
   var KEY = '__mixdogVisualizeFeedback';
   var TAG = '__mixdogVisualize';
-  var MAX_MASKS = 16;
+  var MAX_MASKS = ${MAX_VISUALIZE_MASKS};
+  var MAX_PATH = ${MAX_VISUALIZE_PATH};
+  var MAX_WALK = 4000;
+  var TAG_ROLES = ${JSON.stringify(VISUALIZE_TAG_ROLES)};
+  var INPUT_ROLES = ${JSON.stringify(VISUALIZE_INPUT_ROLES)};
+  var ARIA_ROLES = ${JSON.stringify(VISUALIZE_ARIA_ROLES)};
+  var PIN = '${VISUALIZE_PIN_COLOR}';
+  var PIN_RGB = '${hexRgb(VISUALIZE_PIN_COLOR)}';
   if (!target || target === window) return false;
   if (window[KEY]) return true;
   var api = {};
   window[KEY] = api;
-  var state = { comment: false, markers: [], hover: null, focus: null, frame: 0, hideTimer: 0 };
+  // hover: the element under the point; lifted: the hover target after
+  // Alt+Up/Down (hover or one of its ancestors); badges: drawn pin numbers.
+  // selectedPin: the anchored region a comment is being written for.
+  var state = { comment: false, markers: [], hover: null, lifted: null, selected: null, selectedPin: null, focus: null, nouns: {}, badges: [], frame: 0, hideTimer: 0 };
 
   ${INSPECT_SHARED_SOURCE}
   var inspector = ${VISUALIZE_INSPECT_LIB_SOURCE};
@@ -229,13 +423,58 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     }
     return parts.join(' > ');
   }
-  function labelFor(node) {
-    var label = node.tagName.toLowerCase();
-    var id = node.getAttribute('id');
-    if (id) label += '#' + id;
-    var classes = String(node.getAttribute('class') || '').split(/\s+/).filter(function (name) { return name; }).slice(0, 2);
-    if (classes.length) label += '.' + classes.join('.');
-    return cut(redact(label), 80);
+  function own(table, key) { return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : ''; }
+  function roleOf(node) {
+    var aria = own(ARIA_ROLES, String(node.getAttribute('role') || '').toLowerCase().split(/\s+/)[0]);
+    if (aria) return aria;
+    var tag = node.tagName.toLowerCase();
+    if (tag === 'input') {
+      var typed = own(INPUT_ROLES, String(node.getAttribute('type') || '').toLowerCase());
+      if (typed) return typed;
+    }
+    return own(TAG_ROLES, tag) || 'box';
+  }
+  // The element's text without what a secret field inside it holds (the
+  // fields htmlOf redacts) or the overlay; enough of it for a name.
+  function textOf(node) {
+    var out = '';
+    var stack = [node];
+    while (stack.length && out.length < 400) {
+      var current = stack.pop();
+      if (current.nodeType === 3) { out += current.nodeValue; continue; }
+      if (current.nodeType !== 1 || current === host || secretField(current)) continue;
+      var tag = current.tagName.toLowerCase();
+      if (tag === 'mixdog-visualize-feedback' || tag === 'mixdog-visualize-marks') continue;
+      for (var child = current.lastChild; child; child = child.previousSibling) stack.push(child);
+    }
+    return out;
+  }
+  // A short human text for the element; never a field's value.
+  function nameOf(node) {
+    if (secretField(node)) return '';
+    var tag = node.tagName.toLowerCase();
+    var field = tag === 'input' || tag === 'textarea' || tag === 'select';
+    var text = node.getAttribute('aria-label') || node.getAttribute('alt') || node.getAttribute('title') ||
+      (field ? node.getAttribute('placeholder') || '' : textOf(node));
+    return cut(redact(String(text).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '')), 40);
+  }
+  function nodeInfo(node) { return { selector: selectorFor(node), role: roleOf(node), name: nameOf(node) }; }
+  function ancestorOf(node) {
+    var up = node && node.parentElement;
+    return up && up !== document.body && up !== document.documentElement ? up : null;
+  }
+  function pathOf(node) {
+    var list = [];
+    for (var up = ancestorOf(node); up && list.length < MAX_PATH; up = ancestorOf(up)) list.unshift(nodeInfo(up));
+    return list;
+  }
+  function visibleChild(node) {
+    for (var child = node.firstElementChild; child; child = child.nextElementSibling) {
+      if (child === host) continue;
+      var r = child.getBoundingClientRect();
+      if (r.width && r.height) return child;
+    }
+    return null;
   }
   function stylesOf(node) {
     var out = {};
@@ -261,9 +500,13 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     }
     // More secret fields than masks: report none, and the panel takes no crop.
     var overflow = masks.length > MAX_MASKS;
+    var child = visibleChild(node);
     return {
       selector: selectorFor(node),
-      label: labelFor(node),
+      role: roleOf(node),
+      name: nameOf(node),
+      path: pathOf(node),
+      child: child ? nodeInfo(child) : null,
       html: htmlOf(node),
       styles: stylesOf(node),
       box: {
@@ -275,6 +518,74 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
       view: view,
       masks: overflow ? [] : masks,
       masksOverflow: overflow
+    };
+  }
+  // A dragged area (viewport px): the outermost elements wholly inside it,
+  // and every secret field it touches.
+  function measure(area) {
+    var right = area.x + area.width;
+    var bottom = area.y + area.height;
+    var count = 0;
+    var walked = 0;
+    var stack = document.body ? [document.body] : [];
+    while (stack.length && walked < MAX_WALK) {
+      var node = stack.pop();
+      for (var child = node.lastElementChild; child; child = child.previousElementSibling) {
+        if (child === host) continue;
+        walked += 1;
+        var r = child.getBoundingClientRect();
+        if (r.width && r.height && r.left >= area.x && r.top >= area.y && r.right <= right && r.bottom <= bottom) count += 1;
+        else stack.push(child);
+      }
+    }
+    var masks = [];
+    var fields = document.querySelectorAll('input, textarea');
+    for (var i = 0; i < fields.length; i++) {
+      if (!secretField(fields[i])) continue;
+      var m = rectOf(fields[i]);
+      if (m.width && m.height && m.x < right && m.y < bottom && m.x + m.width > area.x && m.y + m.height > area.y) masks.push(m);
+    }
+    var overflow = masks.length > MAX_MASKS;
+    return { count: count, masks: overflow ? [] : masks, masksOverflow: overflow, anchor: anchorOf(area) };
+  }
+  function fraction(value) { return Math.round(Math.min(1, Math.max(0, value)) * 10000) / 10000; }
+  // The smallest element whose border box wholly holds a dragged area (body
+  // and html included, the overlay never), and the area as fractions of
+  // that box: the page draws the region from it, so it follows scroll and
+  // reflow.
+  function anchorOf(area) {
+    var right = area.x + area.width;
+    var bottom = area.y + area.height;
+    var best = null;
+    var bestBox = null;
+    var walked = 0;
+    var stack = [document.documentElement];
+    while (stack.length && walked < MAX_WALK) {
+      var node = stack.pop();
+      walked += 1;
+      var r = node.getBoundingClientRect();
+      // Parents come before their children: an equal box goes to the child.
+      if (r.width && r.height && r.left <= area.x && r.top <= area.y && r.right >= right && r.bottom >= bottom &&
+        (!bestBox || r.width * r.height <= bestBox.width * bestBox.height)) {
+        best = node;
+        bestBox = r;
+      }
+      for (var child = node.lastElementChild; child; child = child.previousElementSibling) {
+        var tag = child.tagName.toLowerCase();
+        if (child !== host && tag !== 'mixdog-visualize-feedback' && tag !== 'mixdog-visualize-marks') stack.push(child);
+      }
+    }
+    if (!best) return null;
+    var root = best === document.body || best === document.documentElement;
+    return {
+      selector: selectorFor(best),
+      rect: {
+        x: fraction((area.x - bestBox.left) / bestBox.width),
+        y: fraction((area.y - bestBox.top) / bestBox.height),
+        width: fraction(area.width / bestBox.width),
+        height: fraction(area.height / bestBox.height)
+      },
+      path: root ? [] : pathOf(best).concat([nodeInfo(best)])
     };
   }
   function post(message) {
@@ -304,9 +615,14 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     parent.insertBefore(element, before ? parent.firstChild : null);
   }
   addSheet(root, '.box{position:fixed;box-sizing:border-box;border-radius:3px;pointer-events:none}' +
-    '.hover{border:2px dashed #2f6feb;background:rgba(47,111,235,.08)}' +
-    '.pin{border:2px solid #ff3b6b;box-shadow:0 0 0 1px rgba(255,255,255,.75)}' +
-    '.num{position:fixed;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#ff3b6b;color:#fff;font:700 11px/18px system-ui,-apple-system,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none}', false);
+    // Saved pins: the full pin colour with a light halo, for contrast on any
+    // picture; hover and selected stay stronger (the panel's region boxes match).
+    '.pin{outline:1.5px solid ' + PIN + ';outline-offset:1px;box-shadow:0 0 0 1px rgba(255,255,255,.55)}' +
+    '.hover{outline:2px solid ' + PIN + ';outline-offset:1px;box-shadow:0 0 0 1px rgba(255,255,255,.55);background:rgba(' + PIN_RGB + ',.1)}' +
+    '.sel{outline:2px solid ' + PIN + ';outline-offset:1px;box-shadow:0 0 0 5px rgba(' + PIN_RGB + ',.22)}' +
+    '.num{position:fixed;min-width:20px;height:20px;padding:0 4px;box-sizing:border-box;border:2px solid #fff;border-radius:10px;background:' + PIN + ';color:#fff;font:700 11px/16px system-ui,-apple-system,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none}' +
+    '.tag{position:fixed;max-width:min(360px,calc(100vw - 16px));overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box;padding:3px 8px;border-radius:6px;background:#18181b;color:#f2f2f2;font:12px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3);pointer-events:none}' +
+    '.tag em{font-style:normal;color:#a8a8a8;margin-left:6px;font-variant-numeric:tabular-nums}', false);
   var layer = document.createElement('div');
   root.appendChild(layer);
 
@@ -316,35 +632,85 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
   function addBox(r, className) {
     var box = document.createElement('div');
     box.className = 'box ' + className;
-    box.style.left = (r.left - 2) + 'px';
-    box.style.top = (r.top - 2) + 'px';
-    box.style.width = (r.width + 4) + 'px';
-    box.style.height = (r.height + 4) + 'px';
+    box.style.left = r.left + 'px';
+    box.style.top = r.top + 'px';
+    box.style.width = r.width + 'px';
+    box.style.height = r.height + 'px';
     layer.appendChild(box);
   }
-  function addNumber(r, n) {
+  function addNumber(r, n, selector, pin) {
     var badge = document.createElement('div');
     badge.className = 'num';
     badge.textContent = String(n);
-    badge.style.left = Math.max(2, r.left - 9) + 'px';
-    badge.style.top = Math.max(2, r.top - 9) + 'px';
+    var left = Math.max(2, r.left - 10);
+    var top = Math.max(2, r.top - 10);
+    badge.style.left = left + 'px';
+    badge.style.top = top + 'px';
     layer.appendChild(badge);
+    state.badges.push({ selector: selector, pin: pin || '', left: left, top: top });
+  }
+  // An anchored region's box now: its fractions of the element's live box.
+  function regionBox(r, area) {
+    if (!area || typeof area !== 'object') return null;
+    var numbers = [area.x, area.y, area.width, area.height];
+    for (var i = 0; i < numbers.length; i++) if (typeof numbers[i] !== 'number' || !isFinite(numbers[i])) return null;
+    return { left: r.left + area.x * r.width, top: r.top + area.y * r.height, width: area.width * r.width, height: area.height * r.height };
+  }
+  // "Button · Save  120×32" under the hovered element (above it near the bottom).
+  function addTag(node, r) {
+    var info = nodeInfo(node);
+    var noun = typeof state.nouns[info.role] === 'string' ? cut(state.nouns[info.role], 40) : info.role;
+    var tag = document.createElement('div');
+    tag.className = 'tag';
+    tag.textContent = info.name ? noun + ' \u00b7 ' + info.name : noun;
+    var size = document.createElement('em');
+    size.textContent = Math.round(r.width) + '\u00d7' + Math.round(r.height);
+    tag.appendChild(size);
+    tag.style.left = Math.max(4, r.left) + 'px';
+    var below = r.bottom + 6;
+    tag.style.top = (below + 26 > window.innerHeight ? Math.max(4, r.top - 30) : below) + 'px';
+    layer.appendChild(tag);
   }
   function draw() {
     state.frame = 0;
+    state.badges = [];
     if (!host.isConnected) document.documentElement.appendChild(host);
     while (layer.firstChild) layer.removeChild(layer.firstChild);
+    var selected = state.comment && state.selected ? find(state.selected) : null;
     for (var i = 0; i < state.markers.length; i++) {
-      var node = find(state.markers[i].selector);
+      var marker = state.markers[i];
+      var node = marker && typeof marker.selector === 'string' ? find(marker.selector) : null;
       if (!node) continue;
       var r = node.getBoundingClientRect();
       if (!r.width && !r.height) continue;
-      addBox(r, 'pin');
-      addNumber(r, state.markers[i].n);
+      if (marker.region && typeof marker.region === 'object') {
+        var pin = typeof marker.region.pin === 'string' ? marker.region.pin : '';
+        var area = regionBox(r, marker.region.rect);
+        if (!pin || !area) continue;
+        addBox(area, state.comment && pin === state.selectedPin ? 'sel' : 'pin');
+        addNumber(area, marker.n, marker.selector, pin);
+        continue;
+      }
+      if (node !== selected) addBox(r, 'pin');
+      addNumber(r, marker.n, marker.selector);
     }
-    if (state.comment && state.hover && state.hover.isConnected) addBox(state.hover.getBoundingClientRect(), 'hover');
+    if (selected) addBox(selected.getBoundingClientRect(), 'sel');
+    var hovered = state.comment && !selected && state.lifted && state.lifted.isConnected ? state.lifted : null;
+    if (hovered) {
+      var h = hovered.getBoundingClientRect();
+      addBox(h, 'hover');
+      addTag(hovered, h);
+    }
     // The panel's Elements list points at one element.
     if (state.focus && state.focus.isConnected) addBox(state.focus.getBoundingClientRect(), 'hover');
+  }
+  // A pin number under the point (a click there reopens the pin).
+  function badgeAt(x, y) {
+    for (var i = state.badges.length - 1; i >= 0; i--) {
+      var b = state.badges[i];
+      if (x >= b.left && x <= b.left + 20 && y >= b.top && y <= b.top + 20) return b;
+    }
+    return null;
   }
   function schedule() {
     if (!state.frame) state.frame = requestAnimationFrame(draw);
@@ -439,12 +805,51 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     }
     if (message.type === 'hover') {
       var hovered = state.comment ? elementAt(message.x, message.y) : null;
-      if (hovered !== state.hover) { state.hover = hovered; schedule(); }
+      if (hovered !== state.hover) { state.hover = hovered; state.lifted = hovered; schedule(); }
+      return;
+    }
+    if (message.type === 'hover-step') {
+      if (!state.comment || !state.lifted) return;
+      if (message.dir === 'up') {
+        state.lifted = ancestorOf(state.lifted) || state.lifted;
+      } else if (message.dir === 'down') {
+        var down = null;
+        if (state.hover && state.lifted !== state.hover && state.lifted.contains(state.hover)) {
+          for (down = state.hover; down.parentElement !== state.lifted; down = down.parentElement) {}
+        } else {
+          down = visibleChild(state.lifted);
+        }
+        if (down) state.lifted = down;
+      }
+      schedule();
       return;
     }
     if (message.type === 'pick') {
-      var picked = elementAt(message.x, message.y);
-      if (picked && typeof message.id === 'string') post({ type: 'picked', id: message.id, pick: describe(picked) });
+      var at = elementAt(message.x, message.y);
+      var badge = badgeAt(message.x, message.y);
+      var badged = badge ? find(badge.selector) : null;
+      var picked = badged ||
+        (at && state.lifted && state.lifted.isConnected && state.lifted.contains(at) ? state.lifted : at);
+      if (!picked || typeof message.id !== 'string') return;
+      var answer = { type: 'picked', id: message.id, pick: describe(picked) };
+      // An anchored region's number names its pin.
+      if (badged && badge.pin) answer.pin = badge.pin;
+      post(answer);
+      return;
+    }
+    if (message.type === 'select') {
+      state.selected = typeof message.selector === 'string' ? message.selector : null;
+      state.selectedPin = typeof message.pin === 'string' ? message.pin : null;
+      schedule();
+      return;
+    }
+    if (message.type === 'measure') {
+      var area = message.rect;
+      if (typeof message.id !== 'string' || !area || typeof area !== 'object') return;
+      var numbers = [area.x, area.y, area.width, area.height];
+      for (var n = 0; n < numbers.length; n++) if (typeof numbers[n] !== 'number' || !isFinite(numbers[n])) return;
+      var measured = measure(area);
+      post({ type: 'measured', id: message.id, count: measured.count, masks: measured.masks, masksOverflow: measured.masksOverflow, anchor: measured.anchor });
       return;
     }
     if (message.type === 'highlight') {
@@ -475,7 +880,8 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     }
     if (message.type !== 'state') return;
     state.comment = message.comment === true;
-    if (!state.comment) state.hover = null;
+    if (!state.comment) { state.hover = null; state.lifted = null; }
+    if (message.nouns && typeof message.nouns === 'object') state.nouns = message.nouns;
     state.markers = Array.isArray(message.markers) ? message.markers : [];
     if (Array.isArray(message.choices)) markChoices(message.choices);
     schedule();
@@ -502,6 +908,11 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
   else install();
   return true;
 })`;
+
+function hexRgb(hex: string): string {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return `${(value >> 16) & 255},${(value >> 8) & 255},${value & 255}`;
+}
 
 /** The page half, posting to `window.parent` (the panel's renderer). */
 export function visualizeFeedbackScript(): string {

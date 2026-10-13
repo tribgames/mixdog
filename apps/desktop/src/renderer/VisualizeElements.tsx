@@ -9,7 +9,7 @@ import { AlertCircle, AlertTriangle, Info, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { VisualizeTabView } from '../shared/visualize';
-import { VISUALIZE_FEEDBACK_TAG, type VisualizeFeedbackParentMessage, visualizeFeedbackPageMessage } from '../shared/visualize-feedback';
+import { postToPage, visualizeFeedbackPageMessage } from '../shared/visualize-feedback';
 import type { InspectFinding, PageInspection } from '../shared/visualize-inspect';
 import { t } from './i18n';
 import { visualizeRequestId } from './visualize-feedback-gate';
@@ -30,10 +30,6 @@ export type PaneReading =
   | { state: 'unavailable' }
   | { state: 'error'; message: string }
   | { state: 'ready'; inspection: PageInspection };
-
-function postToPage(frame: HTMLIFrameElement, message: VisualizeFeedbackParentMessage): void {
-  frame.contentWindow?.postMessage({ ...message, [VISUALIZE_FEEDBACK_TAG]: 1 }, '*');
-}
 
 /** Reads the tab's HTML panes through their page scripts and keeps the latest
  *  reading per pane. A page's `ready` triggers a read (a reload or a remote
@@ -72,11 +68,15 @@ export function useVisualizeInspection({ body, tab }: { body: HTMLElement | null
       const id = visualizeRequestId();
       const timer = setTimeout(() => {
         if (!open.current.delete(id)) return;
-        setReadings((current) => (current[index]?.state === 'ready' ? current : { ...current, [index]: { state: 'unavailable' } }));
+        setReadings((current) =>
+          current[index]?.state === 'ready' ? current : { ...current, [index]: { state: 'unavailable' } }
+        );
         done.current(index);
       }, ANSWER_TIMEOUT_MS);
       open.current.set(id, { pane: index, source, timer });
-      setReadings((current) => (current[index]?.state === 'ready' ? current : { ...current, [index]: { state: 'loading' } }));
+      setReadings((current) =>
+        current[index]?.state === 'ready' ? current : { ...current, [index]: { state: 'loading' } }
+      );
       postToPage(frame, { type: 'inspect', id });
     },
     [frameOf]
@@ -137,12 +137,17 @@ export function useVisualizeInspection({ body, tab }: { body: HTMLElement | null
       const { inspection } = message;
       setReadings((current) => ({
         ...current,
-        [request.pane]: 'error' in inspection ? { state: 'error', message: inspection.error } : { state: 'ready', inspection },
+        [request.pane]:
+          'error' in inspection ? { state: 'error', message: inspection.error } : { state: 'ready', inspection },
       }));
       done.current(request.pane);
       const pane = request.pane;
       const tries = emptyRetries.current.get(pane) ?? 0;
-      if (!('error' in inspection) && (inspection.viewport.width === 0 || inspection.viewport.height === 0) && tries < EMPTY_VIEWPORT_RETRIES) {
+      if (
+        !('error' in inspection) &&
+        (inspection.viewport.width === 0 || inspection.viewport.height === 0) &&
+        tries < EMPTY_VIEWPORT_RETRIES
+      ) {
         emptyRetries.current.set(pane, tries + 1);
         clearTimeout(readyTimers.current.get(pane));
         readyTimers.current.set(
@@ -242,9 +247,12 @@ export function VisualizeElements({
   // The list leaves no outline behind when it closes.
   const lastHighlight = useRef<number | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: cleanup only, on unmount
-  useEffect(() => () => {
-    if (lastHighlight.current !== null) highlight(lastHighlight.current, null);
-  }, []);
+  useEffect(
+    () => () => {
+      if (lastHighlight.current !== null) highlight(lastHighlight.current, null);
+    },
+    []
+  );
   return (
     <section className="visualize-elements" aria-label={t('Elements')}>
       <header className="visualize-elements-head">
@@ -273,7 +281,9 @@ export function VisualizeElements({
                 <div className="visualize-elements-meta">
                   {reading.inspection.viewport.width}×{reading.inspection.viewport.height}
                 </div>
-                <h4>{t('Findings')} ({reading.inspection.findingCount})</h4>
+                <h4>
+                  {t('Findings')} ({reading.inspection.findingCount})
+                </h4>
                 {reading.inspection.findings.length ? (
                   <ul>
                     {reading.inspection.findings.map((finding, at) => (
@@ -294,7 +304,10 @@ export function VisualizeElements({
                     <h4>{t('Outline')}</h4>
                     <ul>
                       {reading.inspection.outline.map((item) => (
-                        <li key={`${item.kind}:${item.selector}:${item.name}`} style={{ paddingInlineStart: item.depth * 12 }}>
+                        <li
+                          key={`${item.kind}:${item.selector}:${item.name}`}
+                          style={{ paddingInlineStart: item.depth * 12 }}
+                        >
                           <button
                             type="button"
                             className="visualize-elements-row"
@@ -304,7 +317,9 @@ export function VisualizeElements({
                             onBlur={() => hover(null)}
                             onClick={(event) => pin(item.selector, event.nativeEvent.isTrusted)}
                           >
-                            <span className="visualize-elements-role">{item.kind === 'landmark' ? item.role : headingTag(item.level)}</span>
+                            <span className="visualize-elements-role">
+                              {item.kind === 'landmark' ? item.role : headingTag(item.level)}
+                            </span>
                             <span className="visualize-elements-text">{item.name}</span>
                           </button>
                         </li>
@@ -352,7 +367,12 @@ export function VisualizeElements({
 }
 
 /** A trusted row click: turn Comment mode on (its layer takes the request). */
-export function startElementPin(tabId: string, pane: number, selector: string, setComment: (on: boolean) => void): void {
+export function startElementPin(
+  tabId: string,
+  pane: number,
+  selector: string,
+  setComment: (on: boolean) => void
+): void {
   requestVisualizeElementPin({ tabId, pane, selector });
   setComment(true);
 }

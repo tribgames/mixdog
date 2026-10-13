@@ -804,6 +804,10 @@ export class DesktopServiceClient implements DesktopService {
   setQuotaAutoResume(enabled: boolean): Promise<boolean> {
     return this.invoke('setQuotaAutoResume', [enabled]);
   }
+  readAttachmentImage(attachmentRef: string): Promise<string | null> {
+    return this.invokeRead('readAttachmentImage', [attachmentRef]);
+  }
+
   readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt]);
   }

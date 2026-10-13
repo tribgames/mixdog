@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 
 /** Where the suggestion list fits around the input, clamped to the visual
  *  viewport. Null means there is no usable room, and the list stays closed. */
@@ -222,6 +223,7 @@ export function ToolNameInput({
   }, [visible, selectedIndex]);
 
   useDismissOnOutsidePointerDown(open, setOpen, input, menu);
+  useMobileBack(visible, () => setOpen(false));
 
   const show = () => {
     setQuery('');

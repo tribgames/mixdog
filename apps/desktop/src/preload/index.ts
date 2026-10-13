@@ -539,6 +539,7 @@ const api: DesktopApi = {
   openFilePath: (cwd, path, accessToken, confirmedPath) =>
     ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken, confirmedPath),
   openAttachmentImage: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentImage, dataUrl, name),
+  readAttachmentThumbnail: (attachmentRef) => ipcRenderer.invoke(DESKTOP_IPC.readAttachmentThumbnail, attachmentRef),
   openAttachmentFile: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentFile, dataUrl, name),
   stageAttachmentFile: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.stageAttachmentFile, dataUrl, name),
   saveFileAs: (source, suggestedName) => ipcRenderer.invoke(DESKTOP_IPC.saveFileAs, source, suggestedName),

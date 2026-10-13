@@ -4,6 +4,7 @@ import type { DockAction } from './pane-dock-chrome';
 
 import { type DiffStyle, readDiffStyle, writeDiffStyle } from './desktop-types';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { useMobileRemoteSurface } from './mobile-surface';
 
 export type DiffScope = 'unstaged' | 'staged' | 'commit' | 'session';
@@ -68,6 +69,7 @@ export type DiffHeaderControlsProps = Pick<DiffViewState, 'viewMode' | 'onViewMo
  *  where split is unavailable (the phone layout). */
 export function DiffHeaderControls({ viewMode, onViewModeChange, splitAvailable = true }: DiffHeaderControlsProps) {
   const [moreOpen, setMoreOpen] = useState(false);
+  useMobileBack(moreOpen, () => setMoreOpen(false));
   if (!splitAvailable) return null;
   return (
     <div className="diff-header-controls">

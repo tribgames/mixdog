@@ -273,6 +273,7 @@ export const DESKTOP_IPC = {
   revealFile: 'mixdog:reveal-file',
   openFilePath: 'mixdog:open-file-path',
   openAttachmentImage: 'mixdog:open-attachment-image',
+  readAttachmentThumbnail: 'mixdog:read-attachment-thumbnail',
   openAttachmentFile: 'mixdog:open-attachment-file',
   stageAttachmentFile: 'mixdog:stage-attachment-file',
   saveFileAs: 'mixdog:save-file-as',

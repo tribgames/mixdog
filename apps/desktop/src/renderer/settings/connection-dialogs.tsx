@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopRemoteAccessInfo } from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
 import { t, uiFormatLocale } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { setRemoteClaimPromptActive } from '../remote-claim-prompt-state';
 import { claimDisplay, resolveClaim, useClaimQueue } from '../remote-claim-store';
 import { acquireTitleBarDim } from '../titlebar-dim';
@@ -52,6 +53,8 @@ export function ConnDialog({
   const scrimRef = useRef(onScrim ?? onEscape);
   scrimRef.current = onScrim ?? onEscape;
   const id = useId();
+  // Every Connection dialog closes on back through its Escape path.
+  useMobileBack(true, onEscape);
   // The scrim cannot cover the native caption controls: hold the dim claim.
   useEffect(() => acquireTitleBarDim(), []);
   useEffect(() => {

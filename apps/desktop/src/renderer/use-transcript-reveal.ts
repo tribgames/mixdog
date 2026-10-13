@@ -30,6 +30,15 @@ export function useTranscriptReveal({
   hasScrollGesture(): boolean;
 }): boolean {
   const [revealedIdentity, setRevealedIdentity] = useState(draft ? identity : '');
+  // Each visit earns its own reveal. Leaving an entry before it settled kept
+  // the PREVIOUS session's identity recorded, so going straight back to that
+  // session skipped the gate and painted it on the outgoing dock inset — the
+  // tail then jumped by the island height a frame later.
+  const [visitIdentity, setVisitIdentity] = useState(identity);
+  if (visitIdentity !== identity) {
+    setVisitIdentity(identity);
+    setRevealedIdentity('');
+  }
   useLayoutEffect(() => {
     if (revealedIdentity === identity) return undefined;
     if (draft) {

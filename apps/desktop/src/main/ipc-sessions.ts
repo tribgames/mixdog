@@ -2,6 +2,7 @@
 // and the Settings → Connection remote-access controls.
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host';
+import { readAttachmentThumbnail } from './attachment-thumbnail';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import type { DesktopService } from './desktop-service-contract';
 import {
@@ -45,6 +46,13 @@ export function registerSessionIpc({
   remoteHosts,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
+  handle(DESKTOP_IPC.readAttachmentThumbnail, (_event, attachmentRef) =>
+    readAttachmentThumbnail(
+      attachmentRef,
+      (ref) => host.readAttachmentImage(ref),
+      async (buffer) => (await import('electron')).nativeImage.createFromBuffer(buffer)
+    )
+  );
   handle(DESKTOP_IPC.markSessionRead, (_event, sessionId, messageCount, consumedUnread) => {
     if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
       throw new TypeError('consumedUnread must be a boolean.');

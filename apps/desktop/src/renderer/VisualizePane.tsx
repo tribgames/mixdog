@@ -2,7 +2,17 @@
 // session. Main owns the tabs; this view draws the active one and reports the
 // user's tab picks and closes. Capture finds the tab body by its data
 // attributes, so they name the session and tab.
-import { ChevronLeft, ChevronRight, Eye, ListTree, MessageSquarePlus, SlidersHorizontal, Wifi, WifiOff, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  ListTree,
+  MessageSquarePlus,
+  SlidersHorizontal,
+  Wifi,
+  WifiOff,
+  X,
+} from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../shared/contract';
@@ -10,9 +20,9 @@ import { type VisualizePaneSource, type VisualizePaneView, visualizeProblemLocat
 import { withVisualizeFeedbackScript } from '../shared/visualize-feedback';
 import { remotePageGate } from '../shared/visualize-scripts';
 import { t } from './i18n';
-import { useVisualizeFeedbackBridge, VisualizeCommentLayer } from './VisualizeFeedback';
+import { visualizeCommentKind } from '../shared/visualize-comment-kinds';
+import { useVisualizeFeedbackBridge, VisualizeCommentHints, VisualizeCommentLayer } from './VisualizeFeedback';
 import { startElementPin, useVisualizeInspection, VisualizeElements } from './VisualizeElements';
-import { visualizeRegionPane } from './visualize-feedback-store';
 import { VisualizeTweaksDrawer } from './VisualizeTweaks';
 import { useVisualizeTweaksRevision, visualizeTabHasTweaks } from './visualize-tweaks-store';
 import { loadSandboxedPage } from './sandboxed-page-preview';
@@ -196,7 +206,9 @@ function VersionBar({ sessionId, tab }: { sessionId: string; tab: VisualizeTab }
   };
   const restore = () => {
     if (snapshot === null) return;
-    const files = [...new Set(tab.panes.filter((pane) => pane.version !== undefined).map((pane) => pane.target))].join(', ');
+    const files = [...new Set(tab.panes.filter((pane) => pane.version !== undefined).map((pane) => pane.target))].join(
+      ', '
+    );
     // Kept page assets that changed since: other pages may share them.
     const assets = tab.restoreAssets ?? [];
     const message = assets.length
@@ -222,27 +234,27 @@ function VersionBar({ sessionId, tab }: { sessionId: string; tab: VisualizeTab }
         </div>
       ) : null}
       <div className="visualize-versionbar" role="toolbar" aria-label={t('Version history')}>
-      <button
-        type="button"
-        className="visualize-version-step"
-        aria-label={t('Previous version')}
-        data-tooltip={t('Previous version')}
-        disabled={visualizeVersionStep(tab, -1) === undefined}
-        onClick={() => step(-1)}
-      >
-        <ChevronLeft size={14} aria-hidden="true" />
-      </button>
-      <span className="visualize-version-count">{`v${position.shown} / ${position.newest}`}</span>
-      <button
-        type="button"
-        className="visualize-version-step"
-        aria-label={t('Next version')}
-        data-tooltip={t('Next version')}
-        disabled={visualizeVersionStep(tab, 1) === undefined}
-        onClick={() => step(1)}
-      >
-        <ChevronRight size={14} aria-hidden="true" />
-      </button>
+        <button
+          type="button"
+          className="visualize-version-step"
+          aria-label={t('Previous version')}
+          data-tooltip={t('Previous version')}
+          disabled={visualizeVersionStep(tab, -1) === undefined}
+          onClick={() => step(-1)}
+        >
+          <ChevronLeft size={14} aria-hidden="true" />
+        </button>
+        <span className="visualize-version-count">{`v${position.shown} / ${position.newest}`}</span>
+        <button
+          type="button"
+          className="visualize-version-step"
+          aria-label={t('Next version')}
+          data-tooltip={t('Next version')}
+          disabled={visualizeVersionStep(tab, 1) === undefined}
+          onClick={() => step(1)}
+        >
+          <ChevronRight size={14} aria-hidden="true" />
+        </button>
         <span className="visualize-versionbar-spacer" />
         <span className="visualize-version-secondary">
           <button
@@ -274,15 +286,7 @@ function VersionBar({ sessionId, tab }: { sessionId: string; tab: VisualizeTab }
   );
 }
 
-export function VisualizePane({
-  sessionId,
-  active,
-  onClose,
-}: {
-  sessionId: string;
-  active: boolean;
-  onClose(): void;
-}) {
+export function VisualizePane({ sessionId, active, onClose }: { sessionId: string; active: boolean; onClose(): void }) {
   const state = useVisualizeState(sessionId);
   // Present only on a paired remote client.
   const remoteSource = window.mixdogDesktop?.visualizePaneSource;
@@ -358,7 +362,8 @@ export function VisualizePane({
   const [comment, setComment] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the reset trigger
   useEffect(() => setComment(false), [sessionId]);
-  const commentable = Boolean(tab?.panes.some((pane) => pane.kind === 'html' || visualizeRegionPane(pane.kind)));
+  const commentKinds = (tab?.panes ?? []).filter((pane) => visualizeCommentKind(pane.kind)).map((pane) => pane.kind);
+  const commentable = commentKinds.length > 0;
   useVisualizeFeedbackBridge({ sessionId, tab, body, comment: comment && commentable, setComment });
   const commentAction = commentable
     ? [
@@ -501,6 +506,9 @@ export function VisualizePane({
         )}
         onClose={onClose}
       />
+      {comment && commentable ? (
+        <VisualizeCommentHints sessionId={sessionId} kinds={commentKinds} onEnd={() => setComment(false)} />
+      ) : null}
       {tab?.problems?.length && problemsOpen === tab.id ? (
         <ul className="visualize-problems" aria-label={t('Page problems')}>
           {tab.problems.map((problem) => {
@@ -548,13 +556,16 @@ export function VisualizePane({
         >
           {tab.panes.map((pane, index) => (
             // The revision remounts a pane when its file changed on disk.
+            // biome-ignore lint/suspicious/noArrayIndexKey: panes are positional (pane N is the Nth file), never reordered
             <div key={`${tab.id}:${tab.revision}:${index}`} className="visualize-pane-cell" data-visualize-pane={index}>
               {tab.panes.length > 1 && (
                 <div
                   className={`visualize-pane-label${pane.version !== undefined ? ' is-snapshot' : ''}`}
                   title={pane.target}
                 >
-                  {tab.compare ? `${pane.version !== undefined ? `v${pane.version}` : t('Live')} · ${pane.label}` : pane.label}
+                  {tab.compare
+                    ? `${pane.version !== undefined ? `v${pane.version}` : t('Live')} · ${pane.label}`
+                    : pane.label}
                 </div>
               )}
               <div className="visualize-pane-content">
@@ -579,7 +590,7 @@ export function VisualizePane({
                 ) : (
                   <PaneContent pane={pane} />
                 )}
-                {(pane.kind === 'html' || visualizeRegionPane(pane.kind)) && !(extras.sourceOn && visualizePaneHasSource(pane)) && (
+                {visualizeCommentKind(pane.kind) && !(extras.sourceOn && visualizePaneHasSource(pane)) && (
                   <VisualizeCommentLayer
                     sessionId={sessionId}
                     tab={tab}

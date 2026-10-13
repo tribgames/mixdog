@@ -9,7 +9,13 @@ import { t as translate } from './i18n.ts';
 
 function mount(t) {
   const { dom, root } = installTestDom(t, {
-    expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent'],
+    expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'MutationObserver'],
+    globals: {
+      ResizeObserver: class {
+        observe() {}
+        disconnect() {}
+      },
+    },
     rootId: 'root',
   });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

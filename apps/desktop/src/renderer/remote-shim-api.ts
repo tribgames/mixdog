@@ -190,6 +190,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     resolveLocalPaths: (paths, sessionId) => call('resolveLocalPaths', sessionId ? [paths, sessionId] : [paths]),
     readLocalFile: (path) => call('readLocalFile', [path]),
     fileDownloads,
+    readAttachmentThumbnail: (attachmentRef) => call<string | null>('readAttachmentThumbnail', [attachmentRef]),
     listSessions: () => readCatalog(sessionsCatalog, 'listSessions'),
     markSessionRead: (sessionId, messageCount, consumedUnread) =>
       call<boolean>('markSessionRead', [sessionId, messageCount, consumedUnread]),

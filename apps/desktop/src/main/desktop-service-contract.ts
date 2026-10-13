@@ -52,6 +52,8 @@ export interface DesktopService {
   codeGraphQuery(projectPath: string, mode: 'find_symbol' | 'references' | 'symbols', query: string): unknown;
   listSessions(): Promise<DesktopSessionSummary[]>;
   readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
+  /** Base64 of a stored attachment blob; null when it is permanently unreadable. */
+  readAttachmentImage(attachmentRef: string): Promise<string | null>;
   /** The session's transcript as this host holds it (the window its views
    *  were sent), read without publishing when nothing is held. Host-only:
    *  the provenance behind remote file grants (transcript-file-links.ts). */
@@ -151,6 +153,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'codeGraphQuery',
   'listSessions',
   'readSessionFinalAnswer',
+  'readAttachmentImage',
   'markSessionRead',
   'listAgentPool',
   'searchSessionContent',

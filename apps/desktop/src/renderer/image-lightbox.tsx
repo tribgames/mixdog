@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import type { ResolvedLocalLink } from './local-link-resolver';
 import { MarkdownOpenFileContext } from './MarkdownLink';
+import { useMobileBack } from './mobile-back';
 
 export interface LightboxItem {
   id: string;
@@ -128,6 +129,7 @@ export function ImageLightbox({
         : { scale: clampScale((image.current?.naturalWidth ?? 0) / (image.current?.offsetWidth || 1) || 1), x: 0, y: 0 }
     );
   const close = () => dialog.current?.close();
+  useMobileBack(true, close);
   const button = (label: string, icon: ReactNode, onClick: () => void, extra: { disabled?: boolean } = {}) => (
     <button type="button" className="icon-button" aria-label={label} data-tooltip={label} onClick={onClick} {...extra}>
       {icon}

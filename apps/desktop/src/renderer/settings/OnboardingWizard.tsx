@@ -16,6 +16,7 @@ import type {
   DesktopGithubCliStatus,
 } from '../../shared/contract';
 import { t } from '../i18n';
+import { useMobileBack } from '../mobile-back';
 import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { capabilityBlockedRemotely, friendlyCapabilityError, manageOnHostNote } from './remote-capability-guard';
 import { ErrorNotice } from '../ErrorNotice';
@@ -256,6 +257,8 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     setConfirmSkip(false);
     queueMicrotask(() => skipTriggerRef.current?.isConnected && skipTriggerRef.current.focus());
   };
+
+  useMobileBack(confirmSkip, closeSkipConfirmation);
 
   const confirmSkipOnboarding = () => {
     setConfirmSkip(false);

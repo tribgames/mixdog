@@ -18,6 +18,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { commitImmediateOverlay } from './immediate-overlay';
 import { usePhoneDockSwitchActions } from './phone-dock-switch';
@@ -153,6 +154,7 @@ export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
     commitImmediateOverlay(() => setOpen(false));
     trigger.current?.focus();
   };
+  useMobileBack(open, close);
   // biome-ignore lint/correctness/useExhaustiveDependencies: enabledItems only reads refs; focus moves once per open
   useEffect(() => {
     if (open) enabledItems()[0]?.focus();
