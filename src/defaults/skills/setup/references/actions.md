@@ -85,7 +85,9 @@ Read this when choosing a `setup` mutation.
 Inspect `status model`, `status agents`, `status websearch`, or `status
 workflow` before changing the corresponding domain.
 
-- Main and agent routes also accept `modelParameters` and `contextPercent`; agent routes accept `disabled`.
+- Main and agent routes also accept `modelParameters`, `contextPercent`, and
+  `contextTokens` (an exact window in tokens that overrides `contextPercent`);
+  agent routes accept `disabled`.
   Use the model catalog for actual available options, not remembered model ids.
 - A Web Search route must support native web search; tool exposure is changed
   separately.

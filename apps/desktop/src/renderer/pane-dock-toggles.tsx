@@ -3,6 +3,7 @@
 // the only place that names the pane's utility children now, so the dock header itself no longer
 // repeats them. A press opens the dock on that child; pressing the child that
 // is already showing folds the unit.
+import { FolderTree } from 'lucide-react';
 import { t } from './i18n';
 import { useDockVisibilityMenu } from './dock-icon-visibility';
 import type {
@@ -13,19 +14,14 @@ import type {
 
 /** Session-owned surfaces need a session behind the pane; a New Task draft
  *  keeps their toggles visible but inert so the strip never reflows. */
-const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = [
-  'session-diff',
-  'background-jobs',
-  'visualize',
-  'browser',
-  'terminal',
-];
+const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = ['session-diff', 'visualize', 'browser', 'terminal'];
 
 export function PaneDockToggles({
   groups,
   descriptors,
   activeRoot,
   sessionBound,
+  files,
   onSelect,
   onClose,
 }: {
@@ -34,20 +30,29 @@ export function PaneDockToggles({
   /** The child the pane's dock is showing, or null while it is folded. */
   activeRoot: WorkbenchSideViewId | null;
   sessionBound: boolean;
+  /** The project Files tree child (the phone sheet header). Absent, no toggle. */
+  files?: { active: boolean; onOpen(): void };
   onSelect(id: WorkbenchSideViewId): void;
   onClose(): void;
 }) {
+  // Background jobs open from the composer island's jobs list, not the strip.
   const roots = groups
     .map((group) => group[0])
-    .filter((root): root is WorkbenchSideViewId => root !== undefined && descriptors.has(root));
+    .filter(
+      (root): root is WorkbenchSideViewId => root !== undefined && root !== 'background-jobs' && descriptors.has(root)
+    );
+  const filesLabel = t('Files');
   const { isVisible, menuProps, menu } = useDockVisibilityMenu(
-    roots.map((root) => {
-      const descriptor = descriptors.get(root)!;
-      return { id: root, label: descriptor.tooltip || descriptor.label };
-    }),
+    [
+      ...(files ? [{ id: 'files', label: filesLabel }] : []),
+      ...roots.map((root) => {
+        const descriptor = descriptors.get(root)!;
+        return { id: root, label: descriptor.tooltip || descriptor.label };
+      }),
+    ],
     'Utility panel'
   );
-  if (roots.length === 0) return null;
+  if (roots.length === 0 && !files) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the toggle strip.
     <div
@@ -57,6 +62,23 @@ export function PaneDockToggles({
       {...menuProps}
       style={{ minWidth: 28, minHeight: 28 }}
     >
+      {files && isVisible('files') && (
+        <button
+          type="button"
+          className="pane-dock-toggle"
+          aria-pressed={files.active}
+          aria-label={filesLabel}
+          data-tooltip={
+            files.active ? t('Close {{label}}', { label: filesLabel }) : t('Open {{label}}', { label: filesLabel })
+          }
+          onClick={() => {
+            if (files.active) onClose();
+            else files.onOpen();
+          }}
+        >
+          <FolderTree size={15} aria-hidden="true" />
+        </button>
+      )}
       {roots.filter(isVisible).map((root) => {
         const descriptor = descriptors.get(root)!;
         const Icon = descriptor.icon;

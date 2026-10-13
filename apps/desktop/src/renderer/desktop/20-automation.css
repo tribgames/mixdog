@@ -810,6 +810,35 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Host folder browser (remote project add): one plain column of folder rows
+   that scrolls on its own, so the path row and actions stay in view. */
+.host-folder-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.host-folder-browser .projects-folder-row input {
+  flex: 1;
+  min-width: 0;
+}
+.host-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(320px, 45vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.host-folder-list button {
+  width: 100%;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .settings-metric-grid > div {
   border: 0;
   border-radius: var(--mx-radius-md);

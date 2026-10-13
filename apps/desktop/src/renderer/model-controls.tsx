@@ -16,7 +16,7 @@ import {
   requestModelCatalog,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
-import { filterConfiguredModels } from './model-catalog';
+import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import {
   EFFORT_FALLBACK_ORDER,
   modelOffersUltrafast,
@@ -25,6 +25,7 @@ import {
   speedRouteFields,
 } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
+import { routedExactContextTokens } from './route-editor-context';
 import { cancelQuotaContinue, takeQuotaContinue } from './quota-continue';
 import { hostRouteAutoEffort, routeAutoEffortCapable, useAutoEffortRoute } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
@@ -318,6 +319,7 @@ export const ModelSelector = memo(function ModelSelector({
   autoEffort: sourceAutoEffort,
   modelParameters: sourceModelParameters,
   contextPercent: sourceContextPercent,
+  contextTokens: sourceContextTokens,
   modelDisabled,
   tuningDisabled,
   invokeResult,
@@ -339,6 +341,8 @@ export const ModelSelector = memo(function ModelSelector({
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
+  /** Exact context window; overrides contextPercent. */
+  contextTokens?: number;
   modelDisabled: boolean;
   tuningDisabled: boolean;
   /** The pane's session. Route changes address it directly, so a background
@@ -366,8 +370,18 @@ export const ModelSelector = memo(function ModelSelector({
     ...(typeof sourceAutoEffort === 'boolean' ? { autoEffort: sourceAutoEffort } : {}),
     modelParameters: sourceModelParameters,
     contextPercent: sourceContextPercent,
+    ...(sourceContextTokens ? { contextTokens: sourceContextTokens } : {}),
   });
-  const { provider, model, effort = '', fast = false, autoEffort, modelParameters, contextPercent } = selection;
+  const {
+    provider,
+    model,
+    effort = '',
+    fast = false,
+    autoEffort,
+    modelParameters,
+    contextPercent,
+    contextTokens: selectedContextTokens,
+  } = selection;
   // Every route write carries the route's known Auto flag, like `fast`.
   // An older host rejects the field, so it travels only to a host that takes it.
   const autoEffortField = hostRouteAutoEffort() && typeof autoEffort === 'boolean' ? { autoEffort } : {};
@@ -419,11 +433,15 @@ export const ModelSelector = memo(function ModelSelector({
   const normalizedContextPercent = contextSliderPercent(
     Number(contextPercent) || Number(known?.savedContextPercent) || contextDefaultPercent
   );
-  const contextTokens = contextTokensForPercent(normalizedContextPercent, {
-    defaultPercent: contextDefaultPercent,
-    defaultTokens: defaultContextWindow,
-    maxTokens: maxContextWindow,
-  });
+  const exactContextTokens = routedExactContextTokens(selectedContextTokens, defaultContextWindow, maxContextWindow);
+  const contextTokens =
+    exactContextTokens ||
+    contextTokensForPercent(normalizedContextPercent, {
+      defaultPercent: contextDefaultPercent,
+      defaultTokens: defaultContextWindow,
+      maxTokens: maxContextWindow,
+    });
+  const exactContextField = exactContextTokens ? { contextTokens: exactContextTokens } : {};
   const routedModelParameters = routeModelParameters(selectedModelParameters, maxContextWindow);
   const routedParameterFields = Object.keys(routedModelParameters).length
     ? { modelParameters: routedModelParameters }
@@ -434,6 +452,7 @@ export const ModelSelector = memo(function ModelSelector({
     () => filterConfiguredModels(catalogModels, providerSetup, providerSetupError),
     [catalogModels, providerSetup, providerSetupError]
   );
+  const providerNames = useMemo(() => customProviderDisplayNames(providerSetup), [providerSetup]);
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
@@ -610,6 +629,7 @@ export const ModelSelector = memo(function ModelSelector({
         ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
         : {}),
       ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
+      ...(optionMaxWindow > 0 && sameModel ? exactContextField : {}),
     };
     // "Continue in another model" after a quota stop: this explicit pick goes
     // to the continue flow instead of the ordinary route change.
@@ -630,6 +650,7 @@ export const ModelSelector = memo(function ModelSelector({
         fast: enabled,
         ...autoEffortField,
         contextPercent: normalizedContextPercent,
+        ...exactContextField,
       });
       return;
     }
@@ -670,6 +691,7 @@ export const ModelSelector = memo(function ModelSelector({
       ...autoEffortField,
       modelParameters: routeModelParameters(next.modelParameters, maxContextWindow),
       contextPercent: normalizedContextPercent,
+      ...exactContextField,
     });
   };
   const changeEffort = async (effort: string) => {
@@ -686,6 +708,7 @@ export const ModelSelector = memo(function ModelSelector({
         ...autoEffortField,
         ...routedParameterFields,
         contextPercent: normalizedContextPercent,
+        ...exactContextField,
       });
       return;
     }
@@ -698,6 +721,7 @@ export const ModelSelector = memo(function ModelSelector({
         ...autoEffortField,
         ...routedParameterFields,
         contextPercent: normalizedContextPercent,
+        ...exactContextField,
       });
       return;
     }
@@ -730,6 +754,7 @@ export const ModelSelector = memo(function ModelSelector({
             ...autoEffortField,
             ...routedParameterFields,
             contextPercent: normalizedContextPercent,
+            ...exactContextField,
           });
         }
       }
@@ -738,7 +763,7 @@ export const ModelSelector = memo(function ModelSelector({
     }
   };
 
-  const changeContext = async (nextContextPercent: number) => {
+  const changeContext = async (nextContextPercent: number, nextContextTokens?: number) => {
     if (!known || !maxContextWindow || tuningUnavailable) return;
     await route({
       provider,
@@ -748,6 +773,7 @@ export const ModelSelector = memo(function ModelSelector({
       ...autoEffortField,
       ...routedParameterFields,
       contextPercent: nextContextPercent,
+      ...(nextContextTokens ? { contextTokens: nextContextTokens } : {}),
     });
   };
   // This route's Auto reasoning switch: the route changes, never the master.
@@ -761,6 +787,7 @@ export const ModelSelector = memo(function ModelSelector({
       autoEffort: enabled,
       ...routedParameterFields,
       contextPercent: normalizedContextPercent,
+      ...exactContextField,
     };
     if (onDraftSelection) {
       onDraftSelection(selection);
@@ -782,6 +809,7 @@ export const ModelSelector = memo(function ModelSelector({
       ...autoEffortField,
       modelParameters: routeModelParameters(nextModelParameters, maxContextWindow),
       contextPercent: normalizedContextPercent,
+      ...exactContextField,
     });
   };
 
@@ -795,6 +823,7 @@ export const ModelSelector = memo(function ModelSelector({
     <div className="route-controls">
       <RouteEditor
         models={selectableModels}
+        providerNames={providerNames}
         provider={provider}
         model={model}
         triggerModel={triggerModel}
@@ -807,6 +836,7 @@ export const ModelSelector = memo(function ModelSelector({
         contextPercent={normalizedContextPercent}
         contextDefaultPercent={contextDefaultPercent}
         contextTokens={contextTokens}
+        contextExactTokens={exactContextTokens}
         contextMaxTokens={maxContextWindow}
         contextDefaultTokens={defaultContextWindow}
         modelParameterOptions={known?.modelParameterOptions || []}
@@ -823,7 +853,7 @@ export const ModelSelector = memo(function ModelSelector({
         onSelectModel={chooseModel}
         onChangeEffort={(value) => void changeEffort(value)}
         onChangeSpeed={(speed) => void changeSpeed(speed)}
-        onChangeContext={(value) => void changeContext(value)}
+        onChangeContext={(value, tokens) => void changeContext(value, tokens)}
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelPane={() => void loadCatalog()}

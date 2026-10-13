@@ -17,6 +17,8 @@ const { loadTokens, ensureTokenPlanBaseUrl, probeTokenPlanBaseUrl, TOKEN_PLAN_BA
   './mimo-oauth-tokens.mjs'
 );
 const profile = await import('./mimo-oauth-profile.mjs');
+const { providerCachedModelsSync } = await import('./provider-catalog-cache.mjs');
+const { getModelMetadataSync } = await import('./model-catalog.mjs');
 
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -208,6 +210,13 @@ test('discovery drops speech models, keeps display names, falls back to the seed
     assert.equal(gw.requests[0].headers.accept, 'application/json');
     assert.equal(gw.requests[0].headers['x-mimo-source'], 'mimocode-cli');
 
+    // The discovered roster is persisted for the sync lookup, without seed values.
+    const cached = Object.fromEntries(providerCachedModelsSync('mimo-oauth').map((m) => [m.id, m]));
+    assert.deepEqual(Object.keys(cached).sort(), ['mimo-v2.6-flash', 'mimo-v2.6-pro']);
+    assert.equal(cached['mimo-v2.6-pro'].contextWindow, undefined);
+    assert.equal(getModelMetadataSync('mimo-v2.6-flash', 'mimo-oauth').contextWindow, 5000);
+    assert.equal(getModelMetadataSync('mimo-v2.6-pro', 'mimo-oauth').contextWindow, 1_048_576, 'seed fills the gap');
+
     for (mode of ['empty', 'down']) {
       const seeded = await newProvider().listModels();
       const ids = seeded.map((r) => r.id);
@@ -215,7 +224,114 @@ test('discovery drops speech models, keeps display names, falls back to the seed
       const pro = seeded.find((r) => r.id === 'mimo-v2.6-pro');
       assert.equal(pro.contextWindow, 1_048_576);
       assert.equal(pro.outputTokens, 131_072);
+      // The seed roster never overrides limits an earlier discovery fetched.
+      const fallbackFlash = seeded.find((r) => r.id === 'mimo-v2.6-flash');
+      assert.equal(fallbackFlash.contextWindow, 5000, mode);
+      assert.equal(fallbackFlash.outputTokens, 700, mode);
     }
+  } finally {
+    gw.close();
+  }
+});
+
+test('a stale or other-credential discovery response is not published', async () => {
+  const held = [];
+  const gw = await gateway((_req, _body, res) => held.push(res));
+  const until = async (n) => {
+    while (held.length < n) await new Promise((r) => setTimeout(r, 5));
+  };
+  const answer = (i, id) => json(held[i], 200, { data: [{ id, context_window: 7000 }] });
+  const cachedIds = () => providerCachedModelsSync('mimo-oauth').map((m) => m.id);
+  try {
+    signIn(gw.baseUrl);
+    const provider = newProvider();
+    // The older request answers last and must not overwrite the newer roster.
+    const older = provider.listModels();
+    await until(1);
+    const newer = provider.listModels();
+    await until(2);
+    answer(1, 'mimo-v2.6-flash');
+    await newer;
+    answer(0, 'mimo-v2.6-pro');
+    await older;
+    assert.deepEqual(cachedIds(), ['mimo-v2.6-flash']);
+    const liveIds = () => (provider._inner._enrichedModels || []).map((m) => m.id);
+    assert.deepEqual(liveIds(), ['mimo-v2.6-flash']);
+    assert.deepEqual(
+      provider._rosterItems.map((m) => m.id),
+      ['mimo-v2.6-flash']
+    );
+
+    // The active key changed while the request was in flight.
+    const switched = provider.listModels();
+    await until(3);
+    signIn(gw.baseUrl, 'sk-other');
+    answer(2, 'mimo-v2.6-pro');
+    const rows = await switched;
+    assert.deepEqual(
+      rows.map((m) => m.id),
+      ['mimo-v2.6-pro']
+    );
+    assert.deepEqual(cachedIds(), ['mimo-v2.6-flash']);
+    assert.deepEqual(liveIds(), ['mimo-v2.6-flash']);
+    assert.deepEqual(
+      provider._rosterItems.map((m) => m.id),
+      ['mimo-v2.6-flash']
+    );
+
+    // Supersession during catalog enrichment (after the fetch settled) must not
+    // publish either. `name` is read once more right after enrichment finishes.
+    signIn(gw.baseUrl);
+    const base = provider.listModels();
+    await until(4);
+    answer(3, 'mimo-v2.6-flash');
+    await base;
+    const inner = provider._inner;
+    const innerIds = () => (inner._enrichedModels || []).map((m) => m.id);
+    const rosterIds = () => provider._rosterItems.map((m) => m.id);
+    assert.deepEqual(innerIds(), ['mimo-v2.6-flash']);
+    const innerName = inner.name;
+    let onEnriched = null;
+    let reads = 0;
+    Object.defineProperty(inner, 'name', {
+      configurable: true,
+      get() {
+        if (onEnriched && ++reads === 2) onEnriched();
+        return innerName;
+      },
+    });
+    const duringEnrichment = async (action, heldIndex) => {
+      reads = 0;
+      onEnriched = action;
+      const pending = provider.listModels();
+      await until(heldIndex + 1);
+      answer(heldIndex, 'mimo-v2.6-pro');
+      const got = await pending;
+      onEnriched = null;
+      return got;
+    };
+    // A newer request claims the roster while the older one is enriching.
+    let newerFetch;
+    const gotOlder = await duringEnrichment(() => {
+      newerFetch = inner._fetchModelItems({});
+    }, 4);
+    assert.deepEqual(
+      gotOlder.map((m) => m.id),
+      ['mimo-v2.6-pro']
+    );
+    await until(6);
+    answer(5, 'mimo-v2.6-flash');
+    await newerFetch;
+    assert.deepEqual(innerIds(), ['mimo-v2.6-flash']);
+    assert.deepEqual(rosterIds(), ['mimo-v2.6-flash']);
+    // The key switches while the request is enriching.
+    const gotSwitched = await duringEnrichment(() => signIn(gw.baseUrl, 'sk-other'), 6);
+    assert.deepEqual(
+      gotSwitched.map((m) => m.id),
+      ['mimo-v2.6-pro']
+    );
+    assert.deepEqual(innerIds(), ['mimo-v2.6-flash']);
+    assert.deepEqual(rosterIds(), ['mimo-v2.6-flash']);
   } finally {
     gw.close();
   }
@@ -418,7 +534,9 @@ test('seeds include ultraspeed; bare rows inherit seed limits by id or lineage',
   assert.ok(profile.SEED_MODELS.some((m) => m.id === 'mimo-v2.6-pro-ultraspeed' && m.max_output_tokens === 131_072));
   const gw = await gateway((req, body, res) =>
     req.url.endsWith('/models')
-      ? json(res, 200, { data: [{ id: 'mimo-v2.6-pro-ultraspeed' }, { id: 'mimo-v2.6-flash-20260101' }, { id: 'other' }] })
+      ? json(res, 200, {
+          data: [{ id: 'mimo-v2.6-pro-ultraspeed' }, { id: 'mimo-v2.6-flash-20260101' }, { id: 'other' }],
+        })
       : streamOk(req, body, res)
   );
   try {
@@ -458,13 +576,18 @@ test('three regional 401s yield a typed reauth error; setup failures are shaped 
   assert.equal(err.httpStatus, 401);
   assert.equal(err.reauthRequired, true);
   assert.match(err.message, /sign in again/);
-  const busy = await probeTokenPlanBaseUrl('tp-secret', { fetchImpl: async () => new Response('x', { status: 503 }) }).catch((e) => e);
+  const busy = await probeTokenPlanBaseUrl('tp-secret', {
+    fetchImpl: async () => new Response('x', { status: 503 }),
+  }).catch((e) => e);
   assert.equal(busy.status, 503);
   assert.equal(busy.reauthRequired, undefined);
 
   signIn('https://api.xiaomimimo.com/v1', 'tp-secret');
   const provider = newProvider({ fetchImpl: rejected });
-  for (const call of [() => provider.send([{ role: 'user', content: 'hi' }], 'm', [], {}), () => provider.listModels()]) {
+  for (const call of [
+    () => provider.send([{ role: 'user', content: 'hi' }], 'm', [], {}),
+    () => provider.listModels(),
+  ]) {
     const e = await call().catch((x) => x);
     assert.equal(e.reauthRequired, true);
     assert.equal(e.status, 401);
@@ -534,7 +657,10 @@ test('a deleted token file signs the provider out', async () => {
     const provider = newProvider();
     await provider.send([{ role: 'user', content: 'hi' }], 'mimo-v2.6-pro', [], {});
     rmSync(process.env.MIMO_OAUTH_CREDENTIALS_PATH);
-    await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'mimo-v2.6-pro', [], {}), /credentials not found/);
+    await assert.rejects(
+      provider.send([{ role: 'user', content: 'hi' }], 'mimo-v2.6-pro', [], {}),
+      /credentials not found/
+    );
     assert.equal(provider.tokens, null);
     assert.equal(await provider.isAvailable(), false);
   } finally {

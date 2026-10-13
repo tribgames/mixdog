@@ -250,6 +250,9 @@ const openSocketAttempt = (
     ctx.peerRemoteParity = false;
     ctx.peerNativePush = false;
     ctx.peerBrowserParity = false;
+    ctx.peerBrowserDrive = false;
+    ctx.peerTermSizeOwner = false;
+    ctx.peerHostDirectories = false;
     ctx.peerRouteAutoEffort = false;
     ctx.peerVisualize = false;
     dropMediaSession(ctx);
@@ -316,6 +319,9 @@ const openSocketAttempt = (
         ctx.peerRemoteParity = clear.remoteParity === 1;
         ctx.peerNativePush = clear.nativePush === 1;
         ctx.peerBrowserParity = clear.browserParity === 1;
+        ctx.peerBrowserDrive = clear.browserDrive === 1;
+        ctx.peerTermSizeOwner = clear.termSizeOwner === 1;
+        ctx.peerHostDirectories = clear.hostDirectories === 1;
         ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;
         ctx.peerVisualize = clear.visualize === 1;
         // The previous leg's media session ended with it.

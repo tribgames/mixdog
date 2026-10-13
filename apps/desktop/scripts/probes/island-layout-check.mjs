@@ -229,9 +229,9 @@ try {
     } else {
       await page.setViewport({ width: vp.width, height: vp.height });
     }
-    // The phone boot script installs the attribute and a native-pixel device scale of 1.
+    // The phone boot script installs the attribute.
     await page.setContent(
-      `<!doctype html><html${vp.mobile ? ' data-mixdog-mobile-tabs style="--mx-device-scale:1"' : ''}><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body><div id="root"></div></body></html>`
+      `<!doctype html><html${vp.mobile ? ' data-mixdog-mobile-tabs' : ''}><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body><div id="root"></div></body></html>`
     );
     await page.addStyleTag({ content: styles.outputFiles[0].text });
     for (const f of bundle.outputFiles.filter((f) => f.path.endsWith('.css')))

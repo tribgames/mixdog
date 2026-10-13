@@ -10,6 +10,7 @@
 import { withGrandfatheredBuiltins } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { webSearchRouteOrDefault } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { applyConfigPatch } from '../runtime/shared/config-patch.mjs';
+import { normalizeContextTokens } from '../runtime/shared/llm/default-context-window.mjs';
 import { withEffectiveDisabledAgents, withStoredDisabledAgents } from '../runtime/shared/agent-route-config.mjs';
 import {
   DEFAULT_MAINTENANCE,
@@ -43,15 +44,21 @@ export function resolveInitialConfigState({
   autoEffort,
   modelParameters,
   contextPercent,
+  contextTokens,
   selectedContextWindow,
 }) {
   const config = withGrandfatheredBuiltins(
     initialConfig && typeof initialConfig === 'object' ? initialConfig : loadConfig()
   );
+  // A requested percent replaces a saved token window; requested tokens
+  // replace both (resolveRouteContextState lets tokens win).
+  const { contextTokens: savedTokens, ...resolved } = resolveRoute(config, { provider, model });
+  const tokens = normalizeContextTokens(contextTokens) || (contextPercent > 0 ? undefined : savedTokens);
   return {
     config,
     route: {
-      ...resolveRoute(config, { provider, model }),
+      ...resolved,
+      ...(tokens ? { contextTokens: tokens } : {}),
       ...(effort === undefined ? {} : { effort: effort || null }),
       ...(fast === true || fast === false ? { fast } : {}),
       ...(autoEffort === true || autoEffort === false ? { autoEffort } : {}),

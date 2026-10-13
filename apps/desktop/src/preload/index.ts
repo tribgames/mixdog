@@ -263,7 +263,8 @@ const api: DesktopApi = {
   sshInspectHostKey: (target) => ipcRenderer.invoke(DESKTOP_IPC.sshInspectHostKey, target),
   sshConnect: (request) => ipcRenderer.invoke(DESKTOP_IPC.sshConnect, request),
   sshCancel: (attemptId) => ipcRenderer.invoke(DESKTOP_IPC.sshCancel, attemptId),
-  sshAskpassReply: (attemptId, requestId, secret) => ipcRenderer.invoke(DESKTOP_IPC.sshAskpassReply, attemptId, requestId, secret),
+  sshAskpassReply: (attemptId, requestId, secret) =>
+    ipcRenderer.invoke(DESKTOP_IPC.sshAskpassReply, attemptId, requestId, secret),
   sshCleanupHost: (id, request) => ipcRenderer.invoke(DESKTOP_IPC.sshCleanupHost, id, request),
   sshUpdateHostSettings: (id, settings) => ipcRenderer.invoke(DESKTOP_IPC.sshUpdateHostSettings, id, settings),
   subscribeSshAskpass: (listener) => subscribeIpc(DESKTOP_IPC.sshAskpass, listener),
@@ -476,6 +477,7 @@ const api: DesktopApi = {
   },
   termDispose: (id) => ipcRenderer.invoke(DESKTOP_IPC.termDispose, id),
   subscribeTermData: (listener) => subscribeIpc(DESKTOP_IPC.termData, listener),
+  subscribeTermSizeOwner: (listener) => subscribeIpc(DESKTOP_IPC.termSizeOwner, listener),
   gitStatus: (cwd, options) => ipcRenderer.invoke(DESKTOP_IPC.gitStatus, cwd, options),
   gitBranches: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitBranches, cwd),
   gitCheckoutBranch: (cwd, branch, remote) =>
@@ -621,7 +623,8 @@ const api: DesktopApi = {
   visualizeCommand: (command) => ipcRenderer.invoke(DESKTOP_IPC.visualizeCommand, command),
   visualizePaneText: (sessionId, tabId, index) =>
     ipcRenderer.invoke(DESKTOP_IPC.visualizePaneText, sessionId, tabId, index),
-  visualizeFeedbackAttach: (sessionId, tabId) => ipcRenderer.invoke(DESKTOP_IPC.visualizeFeedbackAttach, sessionId, tabId),
+  visualizeFeedbackAttach: (sessionId, tabId) =>
+    ipcRenderer.invoke(DESKTOP_IPC.visualizeFeedbackAttach, sessionId, tabId),
   visualizeCaptureRect: (rect) => ipcRenderer.invoke(DESKTOP_IPC.visualizeCaptureRect, rect),
   visualizeConsumeGesture: (target) => ipcRenderer.invoke(DESKTOP_IPC.visualizeConsumeGesture, target),
   onBrowserSessionReleased: (listener) => subscribeIpc(DESKTOP_IPC.browserSessionReleased, listener),
@@ -643,7 +646,8 @@ const api: DesktopApi = {
   browserCredentialSuggestions: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
   browserCredentialFill: (sessionId, credentialId) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId),
-  browserPageIdentity: (url) => ipcRenderer.invoke(DESKTOP_IPC.browserPageIdentity, url),
+  browserPageIdentity: (url, options) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserPageIdentity, url, options?.preview === true),
   onBrowserPageIdentityChanged: (listener) => subscribeIpc(DESKTOP_IPC.browserPageIdentityChanged, listener),
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),

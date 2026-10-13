@@ -5,7 +5,7 @@ import { SESSION_CONFIGURE_ACTION_SET, SESSION_READ_ACTION_SET } from '../../ses
 import { sanitizeForWire } from '../../session-wire-values.mjs';
 
 /** Reads a session without a live runtime answers from disk (readStoredReview). */
-const STORED_REVIEW_ACTIONS = new Set(['getTurnReviewDiff', 'getSessionReviewDiff']);
+const STORED_REVIEW_ACTIONS = new Set(['getTurnReviewDiff', 'getSessionReviewDiff', 'getTurnChanges']);
 
 /** One compact description of an action result for the daemon log, never the payload itself. */
 function resultSummary(value) {
@@ -22,8 +22,16 @@ function requireSessionAction(action, allowed) {
 }
 
 export function createSessionActionCalls(ctx) {
-  const { isClosed, log, listSessions, getRemoteSessionState, loadProjectStore, advanceForCaller, readStoredReview, responseSessionId } =
-    ctx;
+  const {
+    isClosed,
+    log,
+    listSessions,
+    getRemoteSessionState,
+    loadProjectStore,
+    advanceForCaller,
+    readStoredReview,
+    responseSessionId,
+  } = ctx;
   const { bodyForClient } = ctx.projection;
   const { retainUnwatched } = ctx.retention;
   const { assertAvailable, hostedEntryForSession, entryForSession } = ctx.entries;

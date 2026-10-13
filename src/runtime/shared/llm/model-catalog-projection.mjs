@@ -69,7 +69,8 @@ function projectModelsDevRow(row) {
   if (limit) out.limit = limit;
   const modalities = pickArrays(row.modalities, MODELSDEV_MODALITY_FIELDS);
   if (modalities) out.modalities = modalities;
-  if (row.reasoning === true) out.reasoning = true;
+  // A declared `reasoning: false` must stay distinct from absent (capabilityFlag).
+  if (typeof row.reasoning === 'boolean') out.reasoning = row.reasoning;
   if (Array.isArray(row.reasoning_options) && row.reasoning_options.length > 0) {
     out.reasoning_options = row.reasoning_options;
   }
@@ -129,8 +130,8 @@ const LITELLM_NUMBER_FIELDS = [
   'output_cost_per_video_token',
   'output_cost_per_second',
 ];
-// _normalize tests each of these with `=== true`, so only a true value carries
-// information; anything else is indistinguishable from absent.
+// _normalize keeps each declared boolean (an explicit false outranks a lower
+// layer's true); any other value is indistinguishable from absent.
 const LITELLM_FLAG_FIELDS = [
   'supports_vision',
   'supports_function_calling',
@@ -164,7 +165,7 @@ function projectLitellmRow(row) {
       out[field] = value;
   }
   for (const field of LITELLM_FLAG_FIELDS) {
-    if (row[field] === true) out[field] = true;
+    if (typeof row[field] === 'boolean') out[field] = row[field];
   }
   for (const field of LITELLM_STRING_FIELDS) {
     const value = row[field];

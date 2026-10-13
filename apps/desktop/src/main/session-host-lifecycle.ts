@@ -202,7 +202,10 @@ export class SessionHostLifecycle {
       const { value } = await this.owner.invokeSession(id, 'stopShellJob', [taskId]);
       const result = (value && typeof value === 'object' ? value : {}) as { stopped?: unknown; error?: unknown };
       if (result.stopped === true) return { stopped: true };
-      return { stopped: false, error: typeof result.error === 'string' && result.error ? result.error : 'The job was not stopped.' };
+      return {
+        stopped: false,
+        error: typeof result.error === 'string' && result.error ? result.error : 'The job was not stopped.',
+      };
     } catch (error) {
       return { stopped: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -445,6 +448,7 @@ export class SessionHostLifecycle {
         ...(typeof draft.route.autoEffort === 'boolean' ? { autoEffort: draft.route.autoEffort } : {}),
         ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
         ...(typeof draft.route.contextPercent === 'number' ? { contextPercent: draft.route.contextPercent } : {}),
+        ...(typeof draft.route.contextTokens === 'number' ? { contextTokens: draft.route.contextTokens } : {}),
         applyToCurrentSession: true,
       },
     ]);

@@ -197,23 +197,35 @@ test('visualize version commands carry a kept version number (null = live) and c
   assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'restore', version: null }), TypeError);
   // A chat card reopens a closed tab's file targets (never URLs, no cwd).
   assert.deepEqual(
-    requiredVisualizeTabCommand({ ...base, action: 'reopen', targets: ['a.html', 'b.png'], label: 'Pair', cwd: '/etc' }),
+    requiredVisualizeTabCommand({
+      ...base,
+      action: 'reopen',
+      targets: ['a.html', 'b.png'],
+      label: 'Pair',
+      cwd: '/etc',
+    }),
     { ...base, action: 'reopen', targets: ['a.html', 'b.png'], label: 'Pair' }
   );
   for (const targets of [[], ['a', 'b', 'c', 'd'], ['http://x/'], [''], 'a.html', [3]]) {
     assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'reopen', targets }), TypeError);
   }
   // A restore carries the page assets its confirm listed.
-  assert.deepEqual(requiredVisualizeTabCommand({ ...base, action: 'restore', version: 1, assets: ['site/style.css'] }), {
-    ...base,
-    action: 'restore',
-    version: 1,
-    assets: ['site/style.css'],
-  });
+  assert.deepEqual(
+    requiredVisualizeTabCommand({ ...base, action: 'restore', version: 1, assets: ['site/style.css'] }),
+    {
+      ...base,
+      action: 'restore',
+      version: 1,
+      assets: ['site/style.css'],
+    }
+  );
   for (const assets of ['site/style.css', [''], [3], new Array(65).fill('a.css')]) {
     assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'restore', version: 1, assets }), TypeError);
   }
-  assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'version', version: 2, compare: 'yes' }), TypeError);
+  assert.throws(
+    () => requiredVisualizeTabCommand({ ...base, action: 'version', version: 2, compare: 'yes' }),
+    TypeError
+  );
   assert.deepEqual(requiredVisualizeTabCommand({ ...base, action: 'network', allow: true, extra: 1 }), {
     sessionId: 'sess-1',
     tabId: 'v2',
@@ -234,7 +246,11 @@ test('visualize history and export commands validate their payloads', () => {
   });
   assert.throws(() => requiredVisualizeTabCommand({ sessionId: 'sess-1', action: 'history', entry: '' }), TypeError);
   const base = { sessionId: 'sess-1', tabId: 'v2', action: 'export' };
-  assert.deepEqual(requiredVisualizeTabCommand({ ...base, format: 'png', pane: 1 }), { ...base, format: 'png', pane: 1 });
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, format: 'png', pane: 1 }), {
+    ...base,
+    format: 'png',
+    pane: 1,
+  });
   assert.deepEqual(requiredVisualizeTabCommand({ ...base, format: 'project' }), { ...base, format: 'project' });
   for (const format of [undefined, 'gif', 'PNG']) {
     assert.throws(() => requiredVisualizeTabCommand({ ...base, format }), TypeError);
@@ -357,4 +373,15 @@ test('submit options accept the renderer retryFailedTurn field at the IPC bounda
   // Unknown fields are still rejected.
   assert.throws(() => requiredSubmitOptions({ retryFailedTurns: true }), TypeError);
   assert.throws(() => requiredSubmitOptions({ device: 'studio' }), TypeError);
+});
+
+test('a model route selection carries contextTokens only as a positive integer', () => {
+  const base = { provider: 'openai', model: 'gpt-test', contextPercent: 70 };
+  assert.deepEqual(requiredModelSelection({ ...base, contextTokens: 640000 }), { ...base, contextTokens: 640000 });
+  for (const bad of [0, -1, 1.5, '640000', Number.NaN]) {
+    assert.throws(
+      () => requiredModelSelection({ ...base, contextTokens: bad }),
+      /contextTokens must be a positive integer/
+    );
+  }
 });

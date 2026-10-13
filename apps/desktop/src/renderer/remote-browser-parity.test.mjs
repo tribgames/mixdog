@@ -63,6 +63,44 @@ test('a browserParity host exposes tabs, history, saved logins and import over t
   });
 });
 
+test('only a host advertising browserDrive is driven at the phone size, re-read on every leg', async () => {
+  await withShim({}, async (shim) => {
+    const api = (await connect(shim, true)).api;
+    assert.equal(shim.ctx.peerBrowserDrive, false);
+    assert.equal(api.remoteBrowserDrive, false, 'a browserParity host without browserDrive predates the control');
+    const redial = (flags) => {
+      shim.ctx.connectionReady = false;
+      shim.ctx.socket = null;
+      shim.ctx.openPromise = null;
+      return shim.dial({ remoteParity: true, ...flags, ready: publishedCeilings(4096, 4096) });
+    };
+    await redial({ browserParity: true, browserDrive: true });
+    assert.equal(shim.ctx.peerBrowserDrive, true);
+    assert.equal(api.remoteBrowserDrive, true);
+    await redial({ browserParity: true });
+    assert.equal(api.remoteBrowserDrive, false, 'a reconnect to an older host withdraws it');
+  });
+});
+
+test('listHostDirectories is absent on a legacy handshake so the folder browser falls back', async () => {
+  await withShim({}, async (shim) => {
+    const { api } = await connect(shim, true);
+    assert.equal(shim.ctx.peerHostDirectories, false);
+    assert.equal(api.listHostDirectories, undefined);
+    shim.ctx.connectionReady = false;
+    shim.ctx.socket = null;
+    shim.ctx.openPromise = null;
+    const leg = await shim.dial({ remoteParity: true, hostDirectories: true, ready: publishedCeilings(4096, 4096) });
+    assert.equal(typeof api.listHostDirectories, 'function');
+    const pending = api.listHostDirectories('/h');
+    let frame = await leg.nextPayload();
+    while (frame.method !== 'listHostDirectories') frame = await leg.nextPayload();
+    assert.deepEqual(frame.params, ['/h']);
+    await leg.deliver({ id: frame.id, ok: true, value: 'ok' });
+    assert.equal(await pending, 'ok');
+  });
+});
+
 test('pushed tab lists and import progress reach their listeners; malformed rows are dropped', async () => {
   await withShim({}, async (shim) => {
     const { api, leg } = await connect(shim, true);

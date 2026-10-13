@@ -33,7 +33,10 @@ const NOT_SEND_OPTIONS = new Map([
   ['openai-compat-wire.mjs::includeSystem', 'message-conversion helper argument'],
   ['openai-compat-wire.mjs::model', 'message-conversion helper argument'],
   ['openai-compat-wire.mjs::provider', 'message-conversion helper argument'],
-  ['openai-oauth.mjs::model', 'startup prewarm options built by the adapter (the model is a positional send parameter)'],
+  [
+    'openai-oauth.mjs::model',
+    'startup prewarm options built by the adapter (the model is a positional send parameter)',
+  ],
   ['openai-ws-send/send-context.mjs::body', 'internal WS send context'],
   ['openai-ws-send/send-context.mjs::cacheKey', 'internal WS send context'],
   ['openai-ws-send/send-context.mjs::displayModel', 'internal WS send context'],
@@ -60,6 +63,10 @@ const DYNAMIC_READS = new Map([
     'keys from the literal list onStreamDelta/onTextDelta/onToolCall (bridged callbacks) and onThinkingDelta (no caller supplies it)',
   ],
   ['account-pool.mjs::opts[key]', 'writes the wrapped callbacks of that same literal list onto a copy'],
+  ['effort-rejection.mjs::opts?.[key]', 'EFFORT_OPT_KEYS: xai/openRouter/deepseek reasoning effort, all allowlisted'],
+  ['effort-rejection.mjs::next[key]', 'writes EFFORT_OPT_KEYS onto a copy'],
+  ['effort-rejection.mjs::opts?.[name]', 'STREAM_CALLBACKS: onStreamDelta/onTextDelta/onToolCall, all bridged'],
+  ['effort-rejection.mjs::tracked[name]', 'writes the wrapped STREAM_CALLBACKS onto a copy'],
   ['mimo-oauth-profile.mjs::opts[key]', 'keys from the literal list topP/topK, both allowlisted'],
   ['model-proxy-channel.mjs::options[key]', 'the daemon-side split writing a fresh wire object'],
 ]);
@@ -95,7 +102,11 @@ export function scanSendOptionReads(text, fileName = 'fixture.mjs') {
         node = node.expression;
       } else if (ts.isBinaryExpression(node) && FALLBACK_OPERATORS.has(node.operatorToken.kind)) {
         node = node.left;
-      } else if (ts.isObjectLiteralExpression(node) && node.properties[0] && ts.isSpreadAssignment(node.properties[0])) {
+      } else if (
+        ts.isObjectLiteralExpression(node) &&
+        node.properties[0] &&
+        ts.isSpreadAssignment(node.properties[0])
+      ) {
         node = node.properties[0].expression;
       } else {
         return node;
@@ -233,7 +244,15 @@ function scanAdapters() {
 const { options: readKeys, session: readSessionKeys, dynamic: dynamicReads } = scanAdapters();
 
 test('the scan sees the adapters (a broken scan must not pass vacuously)', () => {
-  for (const key of ['effort', 'toolChoice', 'sessionId', 'promptCacheKey', 'onStageChange', 'baseURL', 'requestHeaders']) {
+  for (const key of [
+    'effort',
+    'toolChoice',
+    'sessionId',
+    'promptCacheKey',
+    'onStageChange',
+    'baseURL',
+    'requestHeaders',
+  ]) {
     assert.ok(readKeys.has(key), `scan no longer finds "${key}"`);
   }
   assert.ok(readSessionKeys.has('deferredToolCatalog'));

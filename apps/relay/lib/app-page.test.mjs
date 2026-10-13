@@ -28,7 +28,7 @@ test('/app links the Android release recorded at deploy time', () => {
   });
   assert.match(
     renderAppPage(RELEASE_URL),
-    /<a class="btn" id="androidBtn" href="https:\/\/github\.com\/tribgames\/mixdog\/releases\/tag\/mobile-v0\.1\.13"/
+    /<a class="mxp-btn" id="androidBtn" href="https:\/\/github\.com\/tribgames\/mixdog\/releases\/tag\/mobile-v0\.1\.13"/
   );
 });
 

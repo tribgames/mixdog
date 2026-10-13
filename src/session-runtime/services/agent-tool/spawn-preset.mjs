@@ -46,6 +46,7 @@ export function resolveAgentSpawnPreset(config, args = {}) {
         ...(agentRoute.autoEffort === false ? { autoEffort: false } : {}),
         ...(agentRoute.modelParameters ? { modelParameters: agentRoute.modelParameters } : {}),
         ...(agentRoute.contextPercent ? { contextPercent: agentRoute.contextPercent } : {}),
+        ...(agentRoute.contextTokens ? { contextTokens: agentRoute.contextTokens } : {}),
         tools: 'full',
       },
     };

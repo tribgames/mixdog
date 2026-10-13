@@ -235,7 +235,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (name) deviceNames.set(credentialId, name);
     return name;
   };
-  const methodsFor = (_clientId: string, state: RelayClientState): ReturnType<typeof createRemoteMethods> => {
+  const methodsFor = (clientId: string, state: RelayClientState): ReturnType<typeof createRemoteMethods> => {
     let table = clientMethods.get(state);
     if (!table) {
       table = createRemoteMethods(
@@ -254,13 +254,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
                 (row) => row.clientId === clientId && (!tokenFilter || row.token === tokenFilter)
               );
               const removed = await nativeStore.remove(clientId, tokenFilter);
-              for (const row of rows) sendEnvelope({ type: 'native-push-unbind', token: row.token, clientId: row.clientId });
+              for (const row of rows)
+                sendEnvelope({ type: 'native-push-unbind', token: row.token, clientId: row.clientId });
               return removed;
             },
           },
         },
         {
           credentialId: () => state.credentialId,
+          connectionId: () => clientId,
           deviceName: () => deviceNameFor(state.credentialId),
           staleView: (sessionId, device) => {
             const held = (

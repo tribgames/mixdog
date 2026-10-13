@@ -100,6 +100,37 @@ test('late responses cannot update a closed diff pane and a reopened pane still 
   assert.match(view.text(), /fresh/);
 });
 
+test('refresh reports adoption: skipped hidden reads and superseded responses are not adopted', async (t) => {
+  const requests = [];
+  const view = harness(t, () => {
+    const request = Promise.withResolvers();
+    requests.push(request);
+    return request.promise;
+  });
+  let refresh;
+  await view.render({ onRender: (state) => (refresh = state.refresh) });
+  await view.settle(() => requests[0].resolve({ value: { supported: true, files: [], patch: 'initial' } }));
+  await view.visibility('hidden');
+  assert.equal(await refresh(true), false);
+  assert.equal(requests.length, 1);
+  await view.visibility('visible');
+  const visibleRead = requests.length;
+  let first;
+  let second;
+  await act(async () => {
+    first = refresh(true);
+    second = refresh(true);
+  });
+  assert.ok(requests.length > visibleRead - 1);
+  await view.settle(() => {
+    for (const request of requests.slice(visibleRead - 1)) {
+      request.resolve({ value: { supported: true, files: [], patch: 'newer' } });
+    }
+  });
+  assert.equal(await first, false);
+  assert.equal(await second, true);
+});
+
 test('repeated diff pane mounts leave no timer that can launch another backend read', async (t) => {
   let calls = 0;
   const view = harness(t, async () => {

@@ -196,8 +196,6 @@ const settle = () => settleFrames();
   async render(view: string, theme: string, mobile = false) {
     document.documentElement.dataset.mixdogTheme = theme;
     document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', mobile);
-    // This fixture uses a logical-pixel viewport, as current mobile boot does.
-    document.documentElement.style.setProperty('--mx-device-scale', '1');
     flushSync(() => root.render(<Scene key={`${view}-${theme}-${mobile}`} view={view} mobile={mobile} />));
     if (view === 'select')
       Object.assign(document.querySelector<HTMLElement>('.mx-menu')!.style, {

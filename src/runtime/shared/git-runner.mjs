@@ -13,8 +13,9 @@ const requestGit = createWorkerRequestClient(new URL('./git-runner-worker.mjs', 
 /**
  * Resolves to { code, stdout, stderr }. Rejects with code ETIMEDOUT after
  * timeoutMs (the child is killed), EMAXBUFFER once stdout+stderr exceed
- * maxBytes, or the spawn error itself.
+ * maxBytes, or the spawn error itself. `stdoutEncoding: 'base64'` returns the
+ * exact stdout bytes base64-encoded instead of decoded as UTF-8.
  */
-export function runGitOffThread(args, { cwd, input = '', env = null, timeoutMs, maxBytes }) {
-  return requestGit({ args, cwd, input, env, timeoutMs, maxBytes });
+export function runGitOffThread(args, { cwd, input = '', env = null, timeoutMs, maxBytes, stdoutEncoding = 'utf8' }) {
+  return requestGit({ args, cwd, input, env, timeoutMs, maxBytes, stdoutEncoding });
 }

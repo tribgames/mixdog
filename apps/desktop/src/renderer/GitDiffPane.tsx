@@ -254,7 +254,13 @@ export function GitDiffPane({
         </ChangeFileRow>
       </ul>
     );
-  const controls = <DiffHeaderControls viewMode={view.viewMode} onViewModeChange={view.onViewModeChange} />;
+  const controls = (
+    <DiffHeaderControls
+      viewMode={view.viewMode}
+      onViewModeChange={view.onViewModeChange}
+      splitAvailable={view.splitAvailable}
+    />
+  );
   if (chrome === 'side') {
     // Side dock: the dock header names the surface; the shared strip carries
     // the file chip and the controls — no second header row. A host that

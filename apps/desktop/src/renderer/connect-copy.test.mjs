@@ -33,7 +33,7 @@ test('all three connecting-side surfaces carry the identical layout CSS', () => 
   // The layer is exactly the viewport and never grows with its content.
   assert.match(
     css,
-    /\.mxp-screen\{position:fixed;inset:0;height:100vh;height:100dvh;max-height:100dvh;[^}]*overflow:hidden/
+    /\.mxp-screen\{[^}]*position:fixed;inset:0;height:100vh;height:100dvh;max-height:100dvh;[^}]*overflow:hidden/
   );
   assert.match(
     css,
@@ -45,11 +45,13 @@ test('all three connecting-side surfaces carry the identical layout CSS', () => 
   assert.match(css, /\.mxp-title\{[^}]*height:30px;margin-top:20px;[^}]*font-size:22px;[^}]*font-weight:700/);
   assert.match(css, /\.mxp-sub\{[^}]*height:45px;margin-top:8px;[^}]*word-break:keep-all;[^}]*text-wrap:balance/);
   assert.match(css, /\.mxp-extra\{[^}]*height:80px;margin-top:24px/);
-  assert.match(css, /\.mxp-btn\{[^}]*min-height:48px/);
+  assert.match(css, /--mxp-btn-h:48px/);
+  assert.match(css, /\.mxp-btn\{[^}]*min-height:var\(--mxp-btn-h\)/);
   assert.match(css, /\.mxp-digit\{[^}]*max-width:44px;height:52px[^}]*border-radius:10px/);
   assert.match(css, /prefers-reduced-motion:reduce\)\{\.mxp-spinner\{animation:none/);
   assert.match(css, /\.mxp-btn\{[^}]*font-family:inherit;[^}]*font-weight:700/);
-  assert.match(css, /Noto Sans KR/);
+  assert.match(css, /Pretendard Variable[^;]*Apple SD Gothic Neo/);
+  assert.match(css, /--mxp-band:#18181b/);
   assert.doesNotMatch(css, /mxp-ring|mxp-mark|mxp-chev|mxp-btn svg/, 'no decorative icon rules');
 });
 

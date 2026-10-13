@@ -7,6 +7,7 @@ import {
   preferredModelParameters,
   speedRouteFields,
 } from './model-route-utils';
+import { routedExactContextTokens } from './route-editor-context';
 import { contextSliderPercent, contextTokensForPercent, defaultContextPercent } from './model-controls';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
 import { RouteEditor } from './RouteEditor';
@@ -68,8 +69,9 @@ export function ModelRouteEditor({
     const requestedFast = patch.fast ?? (sameModel ? fast : option.fastPreferred);
     const nextFast = modelFastAvailable(option, nextEffort, nextParameters) && requestedFast === true;
     const nextContextPercent = patch.contextPercent ?? (sameModel ? value.contextPercent : undefined);
-    const nextAutoEffort =
-      patch.autoEffort ?? (sameModel ? routeAutoEffort : (option.savedAutoEffort ?? true));
+    // An exact window follows its own patch; a percent patch clears it.
+    const nextContextTokens = patch.contextPercent ? patch.contextTokens : sameModel ? value.contextTokens : undefined;
+    const nextAutoEffort = patch.autoEffort ?? (sameModel ? routeAutoEffort : (option.savedAutoEffort ?? true));
     return {
       provider: option.provider,
       model: option.model,
@@ -78,6 +80,7 @@ export function ModelRouteEditor({
       ...(routeAutoEffortCapable(option) ? { autoEffort: nextAutoEffort } : {}),
       ...(option.modelParameterOptions?.length ? { modelParameters: nextParameters } : {}),
       ...(nextContextPercent ? { contextPercent: nextContextPercent } : {}),
+      ...(nextContextTokens ? { contextTokens: nextContextTokens } : {}),
     };
   };
   const defaultWindow = selected ? modelContextWindow(selected) : 0;
@@ -94,8 +97,12 @@ export function ModelRouteEditor({
   const contextPercent = contextVisible
     ? contextSliderPercent(Number(value.contextPercent) || contextDefaultPercent)
     : 100;
+  const exactContextTokens = contextVisible
+    ? routedExactContextTokens(value.contextTokens, defaultWindow, maxWindow)
+    : 0;
   const contextTokens = contextVisible
-    ? contextTokensForPercent(contextPercent, {
+    ? exactContextTokens ||
+      contextTokensForPercent(contextPercent, {
         defaultPercent: contextDefaultPercent,
         defaultTokens: defaultWindow,
         maxTokens: maxWindow,
@@ -117,6 +124,7 @@ export function ModelRouteEditor({
       contextPercent={contextPercent}
       contextDefaultPercent={contextVisible ? contextDefaultPercent : 100}
       contextTokens={contextTokens}
+      contextExactTokens={exactContextTokens}
       contextMaxTokens={contextVisible ? maxWindow : 0}
       contextDefaultTokens={contextVisible ? defaultWindow : 0}
       modelParameterOptions={selected?.modelParameterOptions || []}
@@ -137,8 +145,10 @@ export function ModelRouteEditor({
         const next = speedRouteFields(speed, modelParameters, modelOffersUltrafast(selected));
         onChange(selectionFor(selected, next));
       }}
-      onChangeContext={(nextPercent) => {
-        if (selected && contextVisible) onChange(selectionFor(selected, { contextPercent: nextPercent }));
+      onChangeContext={(nextPercent, nextTokens) => {
+        if (selected && contextVisible) {
+          onChange(selectionFor(selected, { contextPercent: nextPercent, contextTokens: nextTokens }));
+        }
       }}
       onChangeModelParameter={(id, nextValue) => {
         if (!selected) return;

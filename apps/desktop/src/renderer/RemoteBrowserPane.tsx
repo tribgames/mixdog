@@ -18,6 +18,7 @@ import { BrowserTabStrip } from './BrowserTabStrip';
 import { DockOverflowMenu, type DockAction } from './pane-dock-chrome';
 import { browserInputNotice } from '../shared/browser-input-policy';
 import { normalizeAddressInput } from './browser-address';
+import { onBrowserPageAddressTaken } from './browser-page-request';
 import { createRemoteBrowserInputQueue } from './remote-browser-input';
 import { createRemoteBrowserInputClient, type RemoteInputFrame } from './remote-browser-input-client';
 import { createRemoteTouchController } from './remote-browser-touch';
@@ -39,6 +40,23 @@ import type { BrowserPaneProps } from './BrowserPane.lazy';
 function clampPan(offset: number, size: number, zoom: number): number {
   const reach = Math.max(0, (size * (zoom - 1)) / 2);
   return Math.min(reach, Math.max(-reach, offset));
+}
+
+/** Phone-width toolbar: the less-used "Open in system browser" moves into the
+ *  More menu so the address field keeps the room (same split as the PC pane's
+ *  browserNavLayout). */
+function useNarrowToolbar(): boolean {
+  const query = '(max-width: 640px)';
+  const [narrow, setNarrow] = useState(() => Boolean(window.matchMedia?.(query).matches));
+  useEffect(() => {
+    const list = window.matchMedia?.(query);
+    if (!list) return undefined;
+    const update = () => setNarrow(list.matches);
+    update();
+    list.addEventListener?.('change', update);
+    return () => list.removeEventListener?.('change', update);
+  }, []);
+  return narrow;
 }
 
 export { STREAM_RENEW_MS } from './use-remote-browser-stream';
@@ -66,6 +84,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   const [touchDot, setTouchDot] = useState<{ x: number; y: number; key: number } | null>(null);
   const [addressHasFocus, setAddressHasFocus] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const narrow = useNarrowToolbar();
   const [, setConnectionEpoch] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency rebuilds the queue if the bridge object is replaced.
   const inputQueue = useMemo(
@@ -275,6 +294,18 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     setActionFailure,
   });
 
+  // A chat link or page card asks this session's pane for an address; the
+  // host page loads it (the tap usually reveals the pane in the same press).
+  const takeAddress = useRef((_request: { url: string; newTab: boolean }) => {});
+  takeAddress.current = ({ url, newTab: inNewTab }) => {
+    if (inNewTab && tabsSupported) void openTab(url);
+    else navigate(url);
+  };
+  useEffect(() => {
+    if (!active) return undefined;
+    return onBrowserPageAddressTaken(sessionId, (request) => takeAddress.current(request));
+  }, [active, sessionId]);
+
   const { historySuggestions, setHistorySuggestions } = useHistorySuggestions(api, address, addressHasFocus);
   const {
     credentialBusy,
@@ -309,6 +340,18 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
       icon: Link2,
       separatorBefore: credentialSuggestions.length > 0,
       onSelect: () => setImportOpen(true),
+    });
+  }
+  if (narrow) {
+    moreActions.push({
+      id: 'open-external',
+      label: t('Open in system browser'),
+      icon: ExternalLink,
+      separatorBefore: moreActions.length > 0,
+      disabled: !externalUrl,
+      onSelect: () => {
+        if (externalUrl) void api?.openExternal(externalUrl);
+      },
     });
   }
 
@@ -422,18 +465,20 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         >
           <Keyboard size={16} />
         </button>
-        <button
-          type="button"
-          className="browser-pane-nav-button"
-          disabled={!externalUrl}
-          onClick={() => {
-            if (externalUrl) void api?.openExternal(externalUrl);
-          }}
-          aria-label={t('Open in system browser')}
-          data-tooltip={t('Open in system browser')}
-        >
-          <ExternalLink size={16} />
-        </button>
+        {!narrow && (
+          <button
+            type="button"
+            className="browser-pane-nav-button"
+            disabled={!externalUrl}
+            onClick={() => {
+              if (externalUrl) void api?.openExternal(externalUrl);
+            }}
+            aria-label={t('Open in system browser')}
+            data-tooltip={t('Open in system browser')}
+          >
+            <ExternalLink size={16} />
+          </button>
+        )}
         {moreActions.length > 0 && <DockOverflowMenu items={moreActions} />}
       </div>
       {tabsSupported && tabs.length > 0 && (

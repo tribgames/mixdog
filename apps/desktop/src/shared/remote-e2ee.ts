@@ -44,6 +44,17 @@ export interface RelayE2EEChallenge {
   /** This host serves the remote browser pane's tabs, history, saved-login
    *  fill and profile import. Absent on an older host. */
   browserParity?: 1;
+  /** This host takes the remote browser pane's `viewport` control: the
+   *  streamed page renders at the phone's size as a mobile page. Absent on an
+   *  older host, which rejects that control. */
+  browserDrive?: 1;
+  /** This host honors the terminal size-owner protocol (the 4th `termResize`
+   *  argument: phone claims, the 0x0 release). Absent on an older host, which
+   *  would resize the PTY to those grids: the phone sends only plain fits. */
+  termSizeOwner?: 1;
+  /** This host serves `listHostDirectories` (the project-less host folder
+   *  browser). Absent on an older host. */
+  hostDirectories?: 1;
   /** This host serves the HTTP media lane as end-to-end encrypted frames
    *  (shared/remote-media-crypto.ts) under keys derived from this session. */
   mediaE2ee?: 1;

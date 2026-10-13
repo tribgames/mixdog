@@ -94,6 +94,7 @@ import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
 import { installDefaultContextMenu } from './context-menu';
 import { nativeT, refreshNativeUiLanguage } from './native-i18n';
+import { readHostWindowDisplayPreferences } from './host-display-preferences';
 import { DesktopSettingsStore } from './settings-store';
 import { mixdogDataDirectory } from './computer/shared/common';
 import { desktopUpdater, startAutoUpdater } from './updater';
@@ -569,7 +570,7 @@ const sshConnections = createConnectionManager<DesktopConnection>({
         name: spec.name,
         target: spec.target,
         remoteCwd:
-          spec.id === ENV_SSH_CONNECTION_ID ? (envSshConfig?.remoteCwd ?? null) : (settings?.remoteCwd?.trim() || null),
+          spec.id === ENV_SSH_CONNECTION_ID ? (envSshConfig?.remoteCwd ?? null) : settings?.remoteCwd?.trim() || null,
         ...(settings?.autoReconnect === false ? { autoReconnect: false } : {}),
         // The host's grace (minutes) caps the reconnect backoff and tells the
         // server how long to keep its daemon for this PC.
@@ -602,7 +603,8 @@ const serverWindowRestore = createServerWindowRestore({
       sshConnections.open(spec, onProgress)
     ),
   onProgress: (progress) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(DESKTOP_IPC.serverRestoreProgress, progress);
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send(DESKTOP_IPC.serverRestoreProgress, progress);
   },
 });
 /** Each server window's OS notifications (final answers, approvals, link). */
@@ -838,7 +840,7 @@ function applyComputerControlSetting(enabled: boolean): void {
     enabled,
     app.isPackaged
       ? join(process.resourcesPath, 'gnome-extension', 'mixdog-windows@mixdog.io')
-      : join(app.getAppPath(), '..', '..', 'native', 'gnome-extension', 'mixdog-windows@mixdog.io'),
+      : join(app.getAppPath(), '..', '..', 'native', 'gnome-extension', 'mixdog-windows@mixdog.io')
   );
   computerHost?.setBridgeEnabled(computerControlEnabled);
 }
@@ -869,6 +871,7 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
         request.method === 'updaterState' ||
         request.method === 'updaterCheck' ||
         request.method === 'updaterInstall' ||
+        request.method === 'displayPreferences' ||
         request.method === 'visualizeState' ||
         request.method === 'visualizeCommand')
     ) {
@@ -883,6 +886,8 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             result = desktopUpdater.getState();
           } else if (hostMethod === 'updaterCheck') {
             result = await desktopUpdater.check();
+          } else if (hostMethod === 'displayPreferences') {
+            result = await readHostWindowDisplayPreferences(mainWindow, app.getLocale());
           } else if (hostMethod === 'visualizeState') {
             result = visualize.hostSnapshot();
           } else if (hostMethod === 'visualizeCommand') {
@@ -1957,6 +1962,8 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     void refreshNativeUiLanguage(window).then(() => {
       if (!window.isDestroyed()) installDesktopMenu();
       desktopTray?.relabel();
+      // A language change reloads this window: paired browsers re-read the host's display choice.
+      if (local) void localService.invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
     });
     diagnostics?.write('renderer-dom-ready', {
       totalMs: Date.now() - startupStartedAt,

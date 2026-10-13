@@ -19,6 +19,7 @@ type ModelProps = Pick<
   | 'autoEffort'
   | 'modelParameters'
   | 'contextPercent'
+  | 'contextTokens'
   | 'sessionId'
   | 'invokeResult'
   | 'applySnapshot'

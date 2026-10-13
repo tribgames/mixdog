@@ -9,6 +9,23 @@ export function preferredSurfaceSlot<Slot extends { active: boolean; foreground:
 
 type SurfaceRect = { left: number; top: number; width: number; height: number };
 
+/** Pins a fixed surface container over `rect` (viewport coordinates). The
+ *  phone body follows the visual viewport through `transform`
+ *  (mobile-web-runtime.css), which makes it the containing block of every
+ *  fixed descendant: viewport coordinates written as-is applied the body's
+ *  offset a second time once the visual viewport panned (keyboard, pinch),
+ *  shifting the terminal/browser body off the sheet header. */
+export function placeFixedSurface(container: HTMLElement, rect: SurfaceRect): void {
+  const doc = container.ownerDocument;
+  const origin = doc.documentElement.hasAttribute('data-mixdog-mobile-tabs')
+    ? doc.body.getBoundingClientRect()
+    : { left: 0, top: 0 };
+  container.style.left = `${rect.left - origin.left}px`;
+  container.style.top = `${rect.top - origin.top}px`;
+  container.style.width = `${rect.width}px`;
+  container.style.height = `${rect.height}px`;
+}
+
 function restoreDockHeader(header: HTMLElement): void {
   delete header.dataset.surfaceExpanded;
   header.style.removeProperty('left');

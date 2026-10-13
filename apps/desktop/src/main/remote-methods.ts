@@ -21,8 +21,10 @@ import {
 } from '../shared/contract';
 import { REMOTE_BLOCKED_CAPABILITY_NAMES } from '../shared/remote-blocked-capabilities';
 import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
+import { readHostDisplayPreferences } from '../shared/host-display-preferences';
 import { browserParityRemoteMethods, type BrowserRemoteMethod } from './remote-browser-methods';
 import { pushRemoteMethods } from './remote-push-methods';
+import { validatedHostDirectoryPath } from './host-directories';
 import { sessionRemoteMethods } from './remote-session-methods';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { submitFeedback } from './feedback-client';
@@ -61,6 +63,7 @@ import { absoluteLocalPath } from './local-files';
 import { createRemoteFilePreviewMethods } from './remote-file-preview';
 import { createRemoteVisualizeMethods, type RemoteVisualizeMirror } from './remote-visualize';
 import { projectEntryPathIn } from './project-files';
+import { clientSizeOwner, type TerminalSizeOwner } from '../shared/terminal-size-owner';
 import { MAX_SELECTED_FILE_GRANTS, owningProject, sameGrantedPath, selectedFileGrantKey } from './selected-file-grants';
 import {
   requiredCommitHash,
@@ -90,6 +93,9 @@ export interface RemoteMethodClient {
   /** The paired client (relay credential) behind this connection; '' when the
    *  relay did not name it. Native push registrations are bound to it. */
   credentialId?(): string;
+  /** The relay's id for THIS connection (one per phone/tab). Terminal size
+   *  ownership is claimed and released per connection. */
+  connectionId?(): string;
   /** Whether this connection has not yet been shown another device's prompt
    *  in the session. A stale view is re-sent as a side effect. */
   staleView?(sessionId: string, device: string): boolean;
@@ -137,9 +143,11 @@ export interface RemoteMethodDependencies {
       id: string | null,
       cwd: string | null,
       profile?: TerminalSpawnProfile | string | null
-    ): { id: string; replay: string } | Promise<{ id: string; replay: string }>;
+    ):
+      | { id: string; replay: string; sizeOwner?: TerminalSizeOwner }
+      | Promise<{ id: string; replay: string; sizeOwner?: TerminalSizeOwner }>;
     write(id: string, data: string): void;
-    resize(id: string, cols: number, rows: number): void;
+    resize(id: string, cols: number, rows: number, client?: string): void;
   };
   browserRemote?: (method: BrowserRemoteMethod, args: unknown[], timeoutMs?: number) => Promise<unknown>;
   /** Electron-only host actions (OS trash, auto-updater) run in the window
@@ -154,6 +162,7 @@ export type RemoteHostRequestMethod =
   | 'updaterState'
   | 'updaterCheck'
   | 'updaterInstall'
+  | 'displayPreferences'
   | 'visualizeState'
   | 'visualizeCommand';
 
@@ -697,6 +706,8 @@ export function createRemoteMethods(
     renameProject: ([projectPath, alias]) =>
       host.renameProject(requiredString(projectPath, 'projectPath'), projectDisplayName(alias)),
     removeProject: ([projectPath]) => host.removeProject(requiredString(projectPath, 'projectPath')),
+    // Add-project browser: directories only, valid before any project exists.
+    listHostDirectories: ([path]) => invokeDesktopOperation('listHostDirectories', [validatedHostDirectoryPath(path)]),
     listProjectDir: ([projectPath, relDir]) =>
       host.listProjectDir(requiredString(projectPath, 'projectPath'), typeof relDir === 'string' ? relDir : ''),
     readProjectFile: ([projectPath, relPath, accessToken]) => {
@@ -766,8 +777,9 @@ export function createRemoteMethods(
       // The daemon answers a session-addressed call with that session's whole
       // snapshot (transcript included). The turn review bar reads the value
       // only and the phone mirrors the session on its own lane, so each
-      // re-read crossed the relay carrying the entire conversation.
-      if (request.capability !== 'getTurnReviewDiff') return result;
+      // re-read crossed the relay carrying the entire conversation. The
+      // transcript card's turn-changes read is value-only for the same reason.
+      if (request.capability !== 'getTurnReviewDiff' && request.capability !== 'getTurnChanges') return result;
       return result.then(({ value }) => ({ value }));
     },
     readCapabilities: ([input]) => {
@@ -795,6 +807,9 @@ export function createRemoteMethods(
     getUpdaterState: () => requiredHostRequest()('updaterState', []) as Promise<DesktopUpdaterState>,
     checkForDesktopUpdate: () => requiredHostRequest()('updaterCheck', []) as Promise<DesktopUpdaterState>,
     showDesktopUpdate: () => requiredHostRequest()('updaterInstall', []) as Promise<DesktopUpdaterState>,
+    // The host window's theme + UI language: a browser with no choice of its own follows them.
+    readHostDisplayPreferences: async () =>
+      readHostDisplayPreferences(await requiredHostRequest()('displayPreferences', [])),
     // Only main-workspace browser tabs are the client's to release.
     browserReleasePage: async ([pageId]) => {
       if (!browserRemote) return;
@@ -819,18 +834,24 @@ export function createRemoteMethods(
     };
   }
   if (terminals) {
-    methods.termEnsure = ([id, cwd, shell]) =>
-      terminals.ensure(
+    // Size ownership is per connection: this phone's claims and releases are
+    // keyed by the relay's id for THIS leg, never by anything it sends.
+    const connectionId = (): string => client?.connectionId?.() || 'remote';
+    methods.termEnsure = async ([id, cwd, shell]) => {
+      const { sizeOwner, ...ensured } = await terminals.ensure(
         typeof id === 'string' && id ? id : null,
         typeof cwd === 'string' && cwd ? cwd : null,
         typeof shell === 'string' && shell ? shell : null
       );
+      const owner = clientSizeOwner(sizeOwner, connectionId());
+      return owner ? { ...ensured, sizeOwner: owner } : ensured;
+    };
     methods.termProfiles = () => invokeDesktopOperation('termProfiles', []);
     methods.termWrite = ([id, data]) => {
       terminals.write(String(id || ''), String(data ?? ''));
     };
-    methods.termResize = ([id, cols, rows]) => {
-      terminals.resize(String(id || ''), Number(cols), Number(rows));
+    methods.termResize = ([id, cols, rows, phoneOwner]) => {
+      terminals.resize(String(id || ''), Number(cols), Number(rows), phoneOwner === true ? connectionId() : '');
     };
     // Closing a remote terminal pane must release its PTY; without this the
     // browser's dispose call answered "unknown method" and the shell lingered.
@@ -923,7 +944,8 @@ export async function executeRemoteFrame(
   }
   const method = typeof message.method === 'string' ? message.method : '';
   const params = Array.isArray(message.params) ? message.params : [];
-  const handler = methods[method];
+  // Own entries only: an inherited name (`constructor`, `toString`) is not a method.
+  const handler = Object.hasOwn(methods, method) ? methods[method] : undefined;
   if (typeof message.id !== 'number') {
     // Fire-and-forget lane (terminal keystrokes/resize): no response frame.
     if (handler && (method === 'termWrite' || method === 'termResize')) {

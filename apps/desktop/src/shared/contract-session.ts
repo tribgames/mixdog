@@ -26,6 +26,9 @@ export interface DesktopTranscriptItem extends Readonly<Record<string, unknown>>
   agent?: string;
   /** Device that submitted this prompt (user rows only). */
   device?: string;
+  /** The turn's change-record key (the outer prompt id) on `user` and
+   *  `turndone` rows: what getTurnChanges/revertTurnChanges address. */
+  checkpointId?: string;
 }
 
 export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
@@ -202,6 +205,10 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   autoEffort?: boolean;
   modelParameters?: Readonly<Record<string, string>>;
   contextPercent?: number;
+  /** Exact context window in force (only when it is a non-default value). */
+  contextTokens?: number;
+  contextDefaultPercent?: number;
+  selectedContextWindow?: number;
   desktopSessionTitle?: string;
   agentWorkers?: DesktopAgentWorker[];
   agentJobs?: DesktopAgentJob[];
@@ -368,6 +375,8 @@ export interface DesktopModelSelection {
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
+  /** Exact window (positive integer); overrides contextPercent. */
+  contextTokens?: number;
 }
 
 export interface DesktopPromptTextPart {

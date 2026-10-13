@@ -65,16 +65,16 @@
 /* Nothing to carry: the slot collapses too. Same content test as the
    island's hidden rule below; :root outranks the mobile slot height. */
 :root
-  .composer-island-slot:not(
-    :has(
-      .composer-island-seg,
-      .session-goal-island,
-      .composer-island-approval,
-      .composer-island-flash,
-      .composer-island-quota,
-      .turn-review-bar
-    )
-  ) {
+.composer-island-slot:not(
+  :has(
+    .composer-island-seg,
+    .session-goal-island,
+    .composer-island-approval,
+    .composer-island-flash,
+    .composer-island-quota,
+    .turn-review-bar
+  )
+) {
   height: 0;
   /* Grace period: the collapse waits 1.5s so one job ending and another
      starting right after does not close and reopen the slot. The delay lives
@@ -145,15 +145,15 @@
 /* Nothing to carry: the island vanishes, its slot stays. A distinct
    animation per mode replays the pop whenever the island changes shape. */
 .composer-island:not(
-    :has(
-      .composer-island-seg,
-      .session-goal-island,
-      .composer-island-approval,
-      .composer-island-flash,
-      .composer-island-quota,
-      .turn-review-bar
-    )
-  ) {
+  :has(
+    .composer-island-seg,
+    .session-goal-island,
+    .composer-island-approval,
+    .composer-island-flash,
+    .composer-island-quota,
+    .turn-review-bar
+  )
+) {
   visibility: hidden;
   animation: none;
 }
@@ -626,74 +626,72 @@ button.composer-island-tab {
   filter: saturate(0.6);
 }
 html[data-mixdog-mobile-tabs] .composer-island-slot {
-  height: calc(48px * var(--mx-device-scale, 2.5));
+  height: 48px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-stage {
-  bottom: calc(12px * var(--mx-device-scale, 2.5));
+  bottom: 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island {
-  font-size: calc(13px * var(--mx-device-scale, 2.5));
-  line-height: calc(18px * var(--mx-device-scale, 2.5));
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
 }
 html[data-mixdog-mobile-tabs] .composer-island-pill {
-  height: calc(36px * var(--mx-device-scale, 2.5));
+  height: 36px;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-seg, .composer-island .session-goal-trigger) {
-  height: calc(28px * var(--mx-device-scale, 2.5));
-  padding-inline: calc(11px * var(--mx-device-scale, 2.5));
+  height: 28px;
+  padding-inline: 11px;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-dot, .composer-island-pulse) {
-  width: calc(6px * var(--mx-device-scale, 2.5));
-  height: calc(6px * var(--mx-device-scale, 2.5));
+  width: 6px;
+  height: 6px;
 }
 /* Panel controls share the Goal controls' 32px touch box; the header and
    rows are tall enough to hold it. */
 html[data-mixdog-mobile-tabs] .composer-island-phead {
-  height: calc(44px * var(--mx-device-scale, 2.5));
-  padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+  height: 44px;
+  padding-inline: 8px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-tab {
-  height: calc(32px * var(--mx-device-scale, 2.5));
-  gap: calc(7px * var(--mx-device-scale, 2.5));
-  padding-inline: calc(11px * var(--mx-device-scale, 2.5));
+  height: 32px;
+  gap: 7px;
+  padding-inline: 11px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-close {
-  width: calc(32px * var(--mx-device-scale, 2.5));
-  height: calc(32px * var(--mx-device-scale, 2.5));
+  width: 32px;
+  height: 32px;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-close, .composer-island-flash) > svg {
-  width: calc(16px * var(--mx-device-scale, 2.5));
-  height: calc(16px * var(--mx-device-scale, 2.5));
+  width: 16px;
+  height: 16px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-button {
-  height: calc(32px * var(--mx-device-scale, 2.5));
-  padding-inline: calc(12px * var(--mx-device-scale, 2.5));
+  height: 32px;
+  padding-inline: 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-pbody {
-  padding: calc(10px * var(--mx-device-scale, 2.5)) calc(14px * var(--mx-device-scale, 2.5))
-    calc(12px * var(--mx-device-scale, 2.5));
+  padding: 10px 14px 12px;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-model, .composer-island-quota) .composer-island-pbody {
-  padding: calc(14px * var(--mx-device-scale, 2.5)) calc(16px * var(--mx-device-scale, 2.5))
-    calc(12px * var(--mx-device-scale, 2.5));
+  padding: 14px 16px 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-pfoot {
-  gap: calc(6px * var(--mx-device-scale, 2.5));
-  padding-top: calc(8px * var(--mx-device-scale, 2.5));
+  gap: 6px;
+  padding-top: 8px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-row {
   min-height: var(--mx-touch-row-main);
-  gap: calc(10px * var(--mx-device-scale, 2.5));
+  gap: 10px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-ptitle {
-  gap: calc(8px * var(--mx-device-scale, 2.5));
-  font-size: calc(14px * var(--mx-device-scale, 2.5));
-  line-height: calc(20px * var(--mx-device-scale, 2.5));
+  gap: 8px;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
 }
 html[data-mixdog-mobile-tabs] .composer-island-flash {
-  height: calc(36px * var(--mx-device-scale, 2.5));
-  gap: calc(8px * var(--mx-device-scale, 2.5));
-  padding-inline: calc(16px * var(--mx-device-scale, 2.5));
+  height: 36px;
+  gap: 8px;
+  padding-inline: 16px;
 }
 /* Project / workflow pills: one shared ghost-chip grammar. At rest the chip
    paints no plate or ring (it reads as part of the prompt area, not a second
@@ -973,13 +971,12 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   background: var(--mx-hover);
 }
 .composer-dictation-status {
-  min-height: calc(36px * var(--mx-device-scale, 1));
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: calc(10px * var(--mx-device-scale, 1));
-  padding: calc(5px * var(--mx-device-scale, 1)) calc(6px * var(--mx-device-scale, 1))
-    calc(5px * var(--mx-device-scale, 1)) calc(10px * var(--mx-device-scale, 1));
+  gap: 10px;
+  padding: 5px 6px 5px 10px;
   border: 1px solid var(--mx-border-muted);
   border-radius: var(--mx-radius-pill);
   background: var(--mx-bg-layer-1);
@@ -987,22 +984,22 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   animation: composer-dictation-status-enter var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
 .composer-dictation-status[data-state="transcribing"] {
-  padding-right: calc(12px * var(--mx-device-scale, 1));
+  padding-right: 12px;
 }
 .composer-dictation-status[data-state="recording"] .composer-dictation-cancel {
-  margin-left: calc(2px * var(--mx-device-scale, 1));
+  margin-left: 2px;
 }
 .composer-dictation-progress {
-  width: calc(24px * var(--mx-device-scale, 1));
-  height: calc(18px * var(--mx-device-scale, 1));
+  width: 24px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: calc(2px * var(--mx-device-scale, 1));
+  gap: 2px;
 }
 .composer-dictation-progress > span {
-  width: calc(2px * var(--mx-device-scale, 1));
-  height: calc(16px * var(--mx-device-scale, 1));
+  width: 2px;
+  height: 16px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-text-muted);
   transform-origin: center;
@@ -1661,14 +1658,12 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 /* Attachment cards (composer, automation editors, sent messages): one size
    for every kind — an image is its own thumbnail; anything else shows a
    picture of its content (first page, code or prose minimap, else the drawn
-   sheet) above a 24px bar with its name and a small coloured type word.
-   `--attachment-unit` is the phone scale (07-mobile-chrome); the thumbnail
-   art draws in units of it. */
+   sheet) above a 24px bar with its name and a small coloured type word. */
 .attachment-card {
-  --file-mini-char: calc(1.2px * var(--attachment-unit, 1));
-  --file-mini-unit: calc(2px * var(--attachment-unit, 1));
-  --file-mini-row: calc(2.5px * var(--attachment-unit, 1));
-  --file-mini-gap: calc(2.5px * var(--attachment-unit, 1));
+  --file-mini-char: 1.2px;
+  --file-mini-unit: 2px;
+  --file-mini-row: 2.5px;
+  --file-mini-gap: 2.5px;
   position: relative;
   flex: 0 0 auto;
   display: flex;
@@ -1774,7 +1769,7 @@ button.attachment-card-file {
 }
 .attachment-card-shot > .file-sheet {
   width: auto;
-  height: calc(44px * var(--attachment-unit, 1));
+  height: 44px;
 }
 /* One paper frame for a rendered page and the minimaps: inset by equal side
    margins, top-aligned, running off the plate under the name bar. The frame
@@ -1782,22 +1777,21 @@ button.attachment-card-file {
    instead of keeping its own width. */
 .attachment-card-frame {
   position: absolute;
-  inset: calc(6px * var(--attachment-unit, 1)) calc(8px * var(--attachment-unit, 1))
-    calc(-10px * var(--attachment-unit, 1));
+  inset: 6px 8px -10px;
   overflow: hidden;
-  border-radius: calc(3px * var(--attachment-unit, 1));
+  border-radius: 3px;
   box-shadow: 0 1px 4px var(--mx-alpha-dark-30);
 }
 .attachment-card-frame > .file-minimap {
-  padding: calc(6px * var(--attachment-unit, 1)) calc(7px * var(--attachment-unit, 1));
+  padding: 6px 7px;
 }
 .attachment-card-bar {
   display: flex;
   flex: none;
   align-items: center;
-  gap: calc(5px * var(--attachment-unit, 1));
-  height: calc(24px * var(--attachment-unit, 1));
-  padding: 0 calc(7px * var(--attachment-unit, 1));
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
   background: var(--mx-bg-layer-1);
 }
@@ -1805,12 +1799,12 @@ button.attachment-card-file {
   display: block;
   flex: 1;
   min-width: 0;
-  font-size: calc(11.5px * var(--attachment-unit, 1));
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .attachment-card-bar > .file-type-word {
-  font-size: calc(9.5px * var(--attachment-unit, 1));
+  font-size: 9.5px;
 }
 .attachment-card-name {
   display: -webkit-box;
@@ -2027,27 +2021,25 @@ button.attachment-card-file {
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
-/* Phone: the tray is on the projected main surface, so rows and their touch
-   targets scale with the device like the island does. Rows are one step
-   taller than the 36px row-tier targets so the hairline never clips them. */
+/* Phone: the tray's rows and their touch targets take the touch tier like
+   the island does. Rows are one step taller than the 36px row-tier targets so the hairline never clips them. */
 html[data-mixdog-mobile-tabs] .queue-items {
-  padding: calc(2px * var(--mx-device-scale, 2.5)) calc(6px * var(--mx-device-scale, 2.5))
-    calc(2px * var(--mx-device-scale, 2.5)) calc(12px * var(--mx-device-scale, 2.5));
+  padding: 2px 6px 2px 12px;
 }
 html[data-mixdog-mobile-tabs] .queue-item {
-  height: calc(40px * var(--mx-device-scale, 2.5));
-  gap: calc(8px * var(--mx-device-scale, 2.5));
-  font-size: calc(14px * var(--mx-device-scale, 2.5));
-  line-height: calc(20px * var(--mx-device-scale, 2.5));
+  height: 40px;
+  gap: 8px;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
 }
 html[data-mixdog-mobile-tabs] .queue-item-icon,
 html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-remove, .row-overflow-trigger) svg {
-  width: calc(14px * var(--mx-device-scale, 2.5));
-  height: calc(14px * var(--mx-device-scale, 2.5));
+  width: 14px;
+  height: 14px;
 }
 html[data-mixdog-mobile-tabs] .queue-item-attachments {
-  font-size: calc(13px * var(--mx-device-scale, 2.5));
-  line-height: calc(18px * var(--mx-device-scale, 2.5));
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
 }
 html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-steer, .queue-remove, .row-overflow-trigger) {
   height: var(--mx-touch-row-main);
@@ -2060,8 +2052,8 @@ html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-remove, .row-ov
   margin: 0;
 }
 html[data-mixdog-mobile-tabs] .queue-list .queue-steer {
-  padding-inline: calc(8px * var(--mx-device-scale, 2.5));
-  font-size: calc(13px * var(--mx-device-scale, 2.5));
+  padding-inline: 8px;
+  font-size: 13px;
 }
 .composer {
   z-index: 1;

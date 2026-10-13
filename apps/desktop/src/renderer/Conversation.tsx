@@ -41,6 +41,7 @@ import type { CommandSurface as CommandSurfaceName, SettingsSection } from './sl
 
 import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
 import { TranscriptDevicesContext, TranscriptViewerDeviceContext } from './transcript-row';
+import { TurnChangesContext, type TurnChangesSurface } from './TurnChangesCard';
 import { useViewerDevice } from './use-viewer-device';
 import { useRetiredApproval } from './use-retired-approval';
 import { ApprovalCard } from './ApprovalCard';
@@ -445,6 +446,28 @@ export function Conversation({
     []
   );
   const openFolder = onOpenFolder ? stableOpenFolder : undefined;
+  const openSessionDiffRef = useRef(onOpenSessionDiff);
+  openSessionDiffRef.current = onOpenSessionDiff;
+  const stableOpenSessionDiff = useCallback(() => openSessionDiffRef.current?.(), []);
+  const hasSessionDiffRoute = Boolean(onOpenSessionDiff);
+  // Per-turn changed-files cards. A read-only view mounts none: their
+  // Undo/Reapply mutate the session.
+  const turnChangesSessionId = draftMode || readOnly ? '' : String(routeSnapshot.sessionId || '');
+  const turnChangesBusy = Boolean(snapshot.busy || snapshot.commandBusy);
+  const turnChangesRunning = Boolean(snapshot.busy) && transcriptPendingPromptItems.length === 0;
+  const turnChangesSurface = useMemo<TurnChangesSurface | null>(
+    () =>
+      turnChangesSessionId
+        ? {
+            sessionId: turnChangesSessionId,
+            busy: turnChangesBusy,
+            turnRunning: turnChangesRunning,
+            onOpenSessionDiff: hasSessionDiffRoute ? stableOpenSessionDiff : undefined,
+            onOpenFile: openFile,
+          }
+        : null,
+    [turnChangesSessionId, turnChangesBusy, turnChangesRunning, hasSessionDiffRoute, stableOpenSessionDiff, openFile]
+  );
   const renderTranscriptRow = (row: TranscriptRowModel) =>
     transcriptRowNode(row, {
       disclosureScope,
@@ -712,23 +735,25 @@ export function Conversation({
                   <MarkdownOpenFolderContext.Provider value={openFolder ?? null}>
                     <TranscriptDevicesContext.Provider value={multiDevice}>
                       <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
-                        {showTranscriptTimeline && (
-                          <TranscriptList
-                            key={transcriptIdentity.current}
-                            sessionKey={transcriptSessionKey}
-                            rows={transcriptRows}
-                            viewport={viewport}
-                            content={content}
-                            bottomInset={composerDockHeight}
-                            shouldAnchorBottom={shouldAnchorTranscriptBottom}
-                            markProgrammaticScroll={markTranscriptProgrammaticScroll}
-                            hasScrollGesture={hasTranscriptScrollGesture}
-                            onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
-                            setAnchorBottomRef={setTranscriptAnchorBottomRef}
-                            scrollToEndRef={scrollToEndRef}
-                            renderRow={renderTranscriptRow}
-                          />
-                        )}
+                        <TurnChangesContext.Provider value={turnChangesSurface}>
+                          {showTranscriptTimeline && (
+                            <TranscriptList
+                              key={transcriptIdentity.current}
+                              sessionKey={transcriptSessionKey}
+                              rows={transcriptRows}
+                              viewport={viewport}
+                              content={content}
+                              bottomInset={composerDockHeight}
+                              shouldAnchorBottom={shouldAnchorTranscriptBottom}
+                              markProgrammaticScroll={markTranscriptProgrammaticScroll}
+                              hasScrollGesture={hasTranscriptScrollGesture}
+                              onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
+                              setAnchorBottomRef={setTranscriptAnchorBottomRef}
+                              scrollToEndRef={scrollToEndRef}
+                              renderRow={renderTranscriptRow}
+                            />
+                          )}
+                        </TurnChangesContext.Provider>
                       </TranscriptViewerDeviceContext.Provider>
                     </TranscriptDevicesContext.Provider>
                   </MarkdownOpenFolderContext.Provider>
@@ -811,6 +836,13 @@ export function Conversation({
               (routeSnapshot.modelParameters as Record<string, string> | undefined)
             }
             contextPercent={draftModelSelection?.contextPercent ?? (Number(routeSnapshot.contextPercent) || undefined)}
+            contextTokens={
+              draftModelSelection
+                ? draftModelSelection.contextTokens
+                : Number(routeSnapshot.contextTokens) > 0
+                  ? Number(routeSnapshot.contextTokens)
+                  : undefined
+            }
             draftMode={draftMode}
             onDraftModelSelection={onDraftModelSelection}
             onRoutePreferenceApplied={onRoutePreferenceApplied}

@@ -295,9 +295,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
           <ToolGroupIcon />
         </span>
         <span className="tool-title tool-activity-title" title={label}>
-          <b>
-            {label}
-          </b>
+          <b>{label}</b>
         </span>
         {pending && (
           <span className="sr-only" role="status">
@@ -335,7 +333,7 @@ function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPag
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   // What the in-app browser saw there: a screenshot leads the card; without
   // one the site icon and title stand in; without either, globe and address.
-  const identity = useBrowserPageIdentity(page.url);
+  const identity = useBrowserPageIdentity(page.url, { preview: true });
   const [faviconSrc, onFaviconError] = useLoadableFavicon(identity?.favicon);
   if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) !== 'pane') return null;
   const favicon = faviconSrc ? (
@@ -616,9 +614,7 @@ function renderToolActivityHeader({
         />
       )}
       <span className="tool-title tool-activity-item-title">
-        <b>
-          {presentation.verb}
-        </b>
+        <b>{presentation.verb}</b>
         {presentation.headerSubject &&
           !(open && presentation.hideSubjectWhenOpen) &&
           !(presentation.pending && !presentation.command) && (

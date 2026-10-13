@@ -69,10 +69,9 @@ try {
     // Pretendard's dynamic subset splits Hangul away from its Latin face.
     // Supplying Korean text starts a Hangul range before React's first layout.
     document.fonts.load('400 15px "Pretendard Variable"', '한글'),
-    // Only Electron can restore an editor/terminal before the first visible
-    // frame. A phone loads the mono face with that deferred surface instead of
-    // spending one more cold relay request before its shell appears.
-    ...(nativeDesktop ? [document.fonts.load('400 13px "JetBrains Mono Variable"')] : []),
+    // The mono face is part of every first paint (code, terminal), so browsers
+    // start it here too.
+    document.fonts.load('400 13px "JetBrains Mono Variable"'),
   ]);
 } catch {
   /* font swap stays a cosmetic fallback */

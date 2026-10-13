@@ -90,6 +90,9 @@ export const draftModelSelectionFromSnapshot = (snapshot: Snapshot): DesktopMode
     ...(typeof snapshot.autoEffort === 'boolean' ? { autoEffort: snapshot.autoEffort } : {}),
     ...(snapshot.modelParameters ? { modelParameters: { ...snapshot.modelParameters } } : {}),
     ...(Number(snapshot.contextPercent) >= 10 ? { contextPercent: Number(snapshot.contextPercent) } : {}),
+    ...(Number.isInteger(snapshot.contextTokens) && Number(snapshot.contextTokens) > 0
+      ? { contextTokens: Number(snapshot.contextTokens) }
+      : {}),
   };
 };
 

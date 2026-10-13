@@ -116,11 +116,6 @@ html[data-mixdog-remote] body {
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
 }
-html[data-mixdog-remote] .titlebar-caption-space {
-  display: none;
-  width: 0;
-  flex: 0 0 0;
-}
 .topbar {
   position: relative;
   z-index: 20;
@@ -143,6 +138,25 @@ html[data-mixdog-remote] .titlebar-caption-space {
   border: 0;
   background: var(--mx-window-band);
   -webkit-app-region: drag;
+}
+/* A plain browser tab renders no title band (titlebar.tsx marks the root):
+   every band-height consumer collapses to zero and the shell starts at y=0. */
+html[data-mixdog-titlebar="hidden"] {
+  --titlebar-height: 0px;
+}
+html[data-mixdog-titlebar="hidden"] .desktop-body {
+  border-top: 0;
+}
+/* The joined sheets keep the same gap from the window's top edge as from its
+   other edges; the rail still runs from y=0 to the bottom. */
+@media (min-width: 761px) {
+  html[data-mixdog-titlebar="hidden"]:not([data-mixdog-mobile-tabs]) .desktop-body {
+    padding-top: var(--mx-sheet-gap);
+  }
+  html[data-mixdog-titlebar="hidden"]:not([data-mixdog-mobile-tabs]) .activity-rail {
+    height: calc(100% + var(--mx-sheet-gap));
+    margin-top: calc(-1 * var(--mx-sheet-gap));
+  }
 }
 .topbar button,
 .topbar nav {
@@ -213,12 +227,15 @@ html[data-mixdog-remote] .titlebar-caption-space {
 /* User decision: NO press-flash anywhere — the darker :active tint on click
    read as visual noise. Hover remains the only transient affordance;
    var(--mx-pressed) is reserved for PERSISTENT selected/toggled states. */
+/* Layout toggles read one ink step QUIETER than content icons
+   (user: 여는 메뉴만 눈에 띄게 밝다 — 색감 통일): codicon glyphs carry more
+   ink than the old 1.25px lucide strokes, so soft ink restores the old
+   optical weight; interaction states re-ink to full text. */
 .toolbar-sidebar {
   width: 36px;
   height: 36px;
   border-radius: var(--mx-radius-md);
-}
-.toolbar-sidebar {
+  color: var(--mx-text-soft);
   position: relative;
   top: auto;
   right: auto;
@@ -247,20 +264,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
    share the 18px frame (user: 사이드탭 아이콘이 더 작은 게 이해가 안 된다 —
    the dock tabs sat at 16px beside 18px header toggles). The stroke is the
    pixel-snapped 1px global; this cluster no longer thins it by hand. */
-/* Layout toggles read one ink step QUIETER than content icons
-   (user: 여는 메뉴만 눈에 띄게 밝다 — 색감 통일): codicon glyphs carry more
-   ink than the old 1.25px lucide strokes, so soft ink restores the old
-   optical weight; interaction states re-ink to full text. */
-.toolbar-sidebar {
-  color: var(--mx-text-soft);
-}
 .toolbar-sidebar:hover,
 .toolbar-sidebar:focus-visible {
   color: var(--mx-text);
-}
-/* Header cluster glyphs share ONE optical box: identical 18px frame so the
-   review / remote / panel icons cannot drift in perceived weight. */
-.session-dock-toggle svg.lucide {
-  width: var(--mx-icon-lg);
-  height: var(--mx-icon-lg);
 }

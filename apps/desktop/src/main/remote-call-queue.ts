@@ -13,6 +13,7 @@ const PARALLEL_READS = new Set([
   // barrier it held the transcript's getSnapshot behind it.
   'listProviderModels',
   'listProjectDir',
+  'listHostDirectories',
   'readProjectFile',
   'statProjectFile',
   // Validated to read-only capabilities (ipc-validation) and served by the
@@ -49,8 +50,10 @@ const SLOW_READS = new Set([
   'ghPrList',
   'ghPrView',
   'ghPrDiff',
-  // Keyed by capability at the dispatch site: a worktree diff read.
+  // Keyed by capability at the dispatch site: a worktree diff read, and a
+  // turn's recorded changes (its patch text can be large).
   'invokeCapability:getTurnReviewDiff',
+  'invokeCapability:getTurnChanges',
 ]);
 
 // Dictation (keyed by capability at the dispatch site). A transcription runs

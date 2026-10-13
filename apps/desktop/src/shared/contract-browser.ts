@@ -77,6 +77,9 @@ export interface DesktopBrowserGuestViewportChange {
 export interface DesktopBrowserRemoteViewerChange {
   sessionId: string;
   active: boolean;
+  /** Present when it changed: a streaming phone drives the page's viewport,
+   *  so its size wins over the pane's until it stops. */
+  driving?: boolean;
 }
 
 export interface DesktopBrowserOpenRequest {
@@ -226,7 +229,17 @@ export type DesktopRemoteBrowserPageInput = Extract<
   { type: 'pointer' | 'wheel' | 'text' | 'key' | 'composition' | 'composition-end' }
 > & { documentId: string };
 
+/** The phone pane's content box in CSS pixels and its device pixel ratio: a
+ * host advertising `browserDrive` renders the streamed page at this size as a
+ * mobile page while the client streams it. */
+export interface DesktopRemoteBrowserViewport {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+}
+
 export type DesktopRemoteBrowserControl =
   | { type: 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
+  | ({ type: 'viewport' } & DesktopRemoteBrowserViewport)
   | DesktopRemoteBrowserPageInput;

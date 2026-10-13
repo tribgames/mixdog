@@ -16,7 +16,8 @@ function sameSelection(left: DesktopModelSelection, right: DesktopModelSelection
     (left.effort || '') !== (right.effort || '') ||
     Boolean(left.fast) !== Boolean(right.fast) ||
     (left.autoEffort !== false) !== (right.autoEffort !== false) ||
-    left.contextPercent !== right.contextPercent
+    left.contextPercent !== right.contextPercent ||
+    left.contextTokens !== right.contextTokens
   )
     return false;
   const before = left.modelParameters || {};
@@ -32,8 +33,14 @@ function acknowledgedSelection(
   const value = snapshot as Record<string, unknown>;
   const effort = typeof value.effort === 'string' ? value.effort : '';
   const contextPercent = typeof value.contextPercent === 'number' ? value.contextPercent : undefined;
+  // A snapshot that reports contextPercent is the whole context answer: an
+  // exact window it does not carry is no longer in force.
+  const { contextTokens: requestedTokens, ...requestedRest } = requested;
+  const contextTokens = typeof value.contextTokens === 'number' ? value.contextTokens : undefined;
+  const keptTokens = Object.hasOwn(value, 'contextPercent') ? contextTokens : requestedTokens;
   return {
-    ...requested,
+    ...requestedRest,
+    ...(keptTokens ? { contextTokens: keptTokens } : {}),
     ...(typeof value.provider === 'string' ? { provider: value.provider } : {}),
     ...(typeof value.model === 'string' ? { model: value.model } : {}),
     ...(Object.hasOwn(value, 'effort') ? { effort } : {}),

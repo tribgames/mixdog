@@ -205,6 +205,7 @@ export const DESKTOP_IPC = {
   termAcknowledge: 'mixdog:term-acknowledge',
   termDispose: 'mixdog:term-dispose',
   termData: 'mixdog:term-data',
+  termSizeOwner: 'mixdog:term-size-owner',
   termProfiles: 'mixdog:term-profiles',
   gitStatus: 'mixdog:git-status',
   gitBranches: 'mixdog:git-branches',

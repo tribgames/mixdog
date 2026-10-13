@@ -41,7 +41,14 @@ export function registerProjectIpc({
   );
   handle(DESKTOP_IPC.startTask, () => host.startTask());
   handle(DESKTOP_IPC.listProjects, () => host.listProjects());
-  handle(DESKTOP_IPC.addProject, (_event, projectPath) => host.addProject(requiredString(projectPath, 'projectPath')));
+  // Paired phones re-read their project list from the existing settings-changed event.
+  const announceProjectsChanged = <T>(result: T): T => {
+    void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    return result;
+  };
+  handle(DESKTOP_IPC.addProject, async (_event, projectPath) =>
+    announceProjectsChanged(await host.addProject(requiredString(projectPath, 'projectPath')))
+  );
   handle(DESKTOP_IPC.openProjectInExplorer, async (_event, projectPath) => {
     const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     const failure = await shell.openPath(directory);
@@ -76,11 +83,13 @@ export function registerProjectIpc({
   // Extensions → Office: LibreOffice dependency probe + guided install.
   handle(DESKTOP_IPC.libreOfficeStatus, () => operations.libreOfficeStatus());
   handle(DESKTOP_IPC.installLibreOffice, () => operations.installLibreOffice());
-  handle(DESKTOP_IPC.renameProject, (_event, projectPath, alias) =>
-    host.renameProject(requiredString(projectPath, 'projectPath'), projectDisplayName(alias))
+  handle(DESKTOP_IPC.renameProject, async (_event, projectPath, alias) =>
+    announceProjectsChanged(
+      await host.renameProject(requiredString(projectPath, 'projectPath'), projectDisplayName(alias))
+    )
   );
-  handle(DESKTOP_IPC.removeProject, (_event, projectPath) =>
-    host.removeProject(requiredString(projectPath, 'projectPath'))
+  handle(DESKTOP_IPC.removeProject, async (_event, projectPath) =>
+    announceProjectsChanged(await host.removeProject(requiredString(projectPath, 'projectPath')))
   );
   handle(
     DESKTOP_IPC.searchProjectFiles,

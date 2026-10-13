@@ -54,6 +54,53 @@ test('each file of a multi-file patch renders under its own key', async (t) => {
   );
 });
 
+test('on a phone each changed file has a visible ⋯ that opens its menu without a long-press', async (t) => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const saved = { api: window.mixdogDesktop, raf: globalThis.requestAnimationFrame };
+  const userAgent = Object.getOwnPropertyDescriptor(globalThis.navigator, 'userAgent');
+  Object.defineProperty(globalThis.navigator, 'userAgent', {
+    configurable: true,
+    get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile',
+  });
+  globalThis.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+  window.mixdogRemoteServer = 'wss://relay.example';
+  window.mixdogDesktop = {
+    gitStatus: async () => ({ repository: true, branch: 'main', ahead: 0, behind: 0, upstream: true, files: [] }),
+    gitReview: async () => ({
+      base: 'origin/main',
+      files: [{ path: 'src/a.ts', status: 'M', additions: 1, deletions: 1, untracked: false, uncommitted: true }],
+    }),
+    gitReviewDiff: async () => '',
+  };
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    window.mixdogDesktop = saved.api;
+    delete window.mixdogRemoteServer;
+    globalThis.requestAnimationFrame = saved.raf;
+    delete document.hidden;
+    if (userAgent) Object.defineProperty(globalThis.navigator, 'userAgent', userAgent);
+    else delete globalThis.navigator.userAgent;
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+
+  await act(async () => root.render(React.createElement(ReviewPane, { cwd: '/repo' })));
+  await settle();
+  const more = host.querySelector('.review-file-header .review-file-more');
+  assert.ok(more, 'the ⋯ is drawn on the phone');
+  assert.equal(more.getAttribute('aria-label'), 'More actions');
+  await act(async () => more.click());
+  const items = [...document.querySelectorAll('.review-context-menu [role="menuitem"]')].map(
+    (item) => item.textContent
+  );
+  // OS-only items stay hidden on a remote surface.
+  assert.deepEqual(items, ['Copy path', 'Revert changes']);
+  assert.equal(more.getAttribute('aria-expanded'), 'true');
+});
+
 // A failed diff read is an error state, not patch text: it must not reach the
 // diff renderer, whose fallback would print the message as a raw patch.
 test('a failed file diff read renders as an error, never as patch text', async (t) => {
@@ -87,6 +134,7 @@ test('a failed file diff read renders as an error, never as patch text', async (
   await settle();
   const trigger = host.querySelector('.review-file-trigger');
   assert.ok(trigger, 'the changed file is listed');
+  assert.equal(host.querySelector('.review-file-more') === null, true, 'no ⋯ off the phone: right-click owns the menu');
   await act(async () => trigger.click());
   await settle();
 

@@ -1,5 +1,5 @@
-// Read-only, directories-only listing for a server window's add-project
-// folder picker, usable before any project is registered. It validates like
+// Read-only, directories-only listing for a paired client's add-project
+// browser, usable before any project is registered. It validates like
 // addProject (a canonical existing directory) and never returns files or
 // file contents.
 import { readdir, realpath, stat } from 'node:fs/promises';
@@ -9,6 +9,13 @@ import { isAbsolute, join } from 'node:path';
 /** Entry cap per listing; the client sees `truncated` when it applies. */
 export const HOST_DIRECTORY_LIST_LIMIT = 1_000;
 const HOST_DIRECTORY_PATH_MAX = 32_768;
+
+export interface HostDirectoryListing {
+  /** Canonical directory that was listed. */
+  path: string;
+  folders: string[];
+  truncated: boolean;
+}
 
 /** An empty request starts at the host user's home directory. */
 export function validatedHostDirectoryPath(value: unknown): string {
@@ -36,6 +43,15 @@ async function readDirectoryNames(
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));
   return { canonical, names };
+}
+
+export async function listHostDirectories(rawPath: unknown): Promise<HostDirectoryListing> {
+  const { canonical, names } = await readDirectoryNames(rawPath, true);
+  return {
+    path: canonical,
+    folders: names.slice(0, HOST_DIRECTORY_LIST_LIMIT),
+    truncated: names.length > HOST_DIRECTORY_LIST_LIMIT,
+  };
 }
 
 export interface ServerDirectoryEntry {

@@ -10,7 +10,10 @@ import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/prov
 import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
 import { boundProviderAuthPath } from './runtime/shared/provider-auth-binding.mjs';
 import { newProviderAccountId } from './runtime/shared/provider-accounts.mjs';
-import { withGrandfatheredBuiltins, featureDisallowedToolsFor } from './runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
+import {
+  withGrandfatheredBuiltins,
+  featureDisallowedToolsFor,
+} from './runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import {
   applyDeferredToolSurface,
   deferredCatalogUnion,
@@ -193,6 +196,9 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       usageLedgerCleanup: () => {
         cleanupOrder.push('ledger');
       },
+      sessionStoreDrain: async () => {
+        cleanupOrder.push('sessions');
+      },
       hasActiveTasks: (scope) => {
         activeScopes.push(scope);
         return false;
@@ -217,7 +223,8 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     assert.equal(runtimeClosed, true);
     // The ledger handle must be gone before the pristine root is removed:
     // an open SQLite file turns that rmSync into a ~128s EBUSY retry loop on Windows.
-    assert.deepEqual(cleanupOrder, ['runtime', 'ledger', 'daemon', 'memory', 'boundary']);
+    // Pending session saves flush before the boundary restores the host data dir.
+    assert.deepEqual(cleanupOrder, ['runtime', 'sessions', 'ledger', 'daemon', 'memory', 'boundary']);
     // A finished answer never waits the default removal budget on a straggling root.
     assert.deepEqual(boundaryCleanupOptions, { tolerateRootRemovalFailure: true, rootRemovalRetries: 10 });
     assert.deepEqual(daemonCleanupCalls, [

@@ -761,6 +761,17 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   color: var(--mx-text);
   background: var(--mx-hover);
 }
+/* Phone sheet header: [title … toggles X]. The toggles take the free space's
+   auto margin, so the X sits right beside them; the title yields first. */
+html[data-mixdog-mobile-tabs] .pane-side-dock-header > .pane-dock-toggles {
+  flex: 0 0 auto;
+}
+html[data-mixdog-mobile-tabs] .pane-side-dock-header > .pane-dock-toggles + .pane-side-dock-close {
+  margin-left: 0;
+}
+html[data-mixdog-mobile-tabs] .pane-side-dock-header > .pane-side-dock-title {
+  flex: 0 1 auto;
+}
 .pane-side-dock-main {
   position: relative;
   flex: 1 1 auto;

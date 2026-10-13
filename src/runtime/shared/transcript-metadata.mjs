@@ -29,6 +29,9 @@ export function persistedUserTranscriptMetadata(value) {
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     // The device that submitted the prompt (host-stamped display name).
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    // The turn's change-record key (the outer prompt id), so a restored user
+    // row still addresses its turn's Undo/Reapply.
+    ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
   };
 }
 

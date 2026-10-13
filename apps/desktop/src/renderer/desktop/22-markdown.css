@@ -300,9 +300,6 @@ html[data-window-material="mica"] .jump-to-latest {
 .workspace-tabs-shell > .workspace-tab-new:focus-visible {
   color: var(--mx-text);
 }
-.workspace-tabs .workspace-tab {
-  -webkit-app-region: no-drag;
-}
 .workspace-tab.preview .workspace-tab-main > span {
   font-style: italic;
 }
@@ -1596,38 +1593,37 @@ html[data-window-material="mica"] .jump-to-latest {
 }
 
 html[data-mixdog-mobile-tabs] .session-goal-bar {
-  width: calc(22px * var(--mx-device-scale, 2.5));
-  height: calc(3px * var(--mx-device-scale, 2.5));
+  width: 22px;
+  height: 3px;
 }
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-control {
-  height: calc(32px * var(--mx-device-scale, 2.5));
-  padding-inline: calc(12px * var(--mx-device-scale, 2.5));
+  height: 32px;
+  padding-inline: 12px;
 }
 /* Phone drawer rows: at a finger's row height and the phone's 14/20 body
    line (user: 모바일도 PC에 맞춰). */
 html[data-mixdog-mobile-tabs] .session-goal-body {
-  padding: calc(10px * var(--mx-device-scale, 2.5)) calc(14px * var(--mx-device-scale, 2.5))
-    calc(12px * var(--mx-device-scale, 2.5));
+  padding: 10px 14px 12px;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
-  grid-template-columns: calc(16px * var(--mx-device-scale, 2.5)) minmax(0, 1fr) auto;
-  column-gap: calc(6px * var(--mx-device-scale, 2.5));
-  padding: calc(8px * var(--mx-device-scale, 2.5)) 0;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 6px;
+  padding: 8px 0;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li > span {
-  width: calc(16px * var(--mx-device-scale, 2.5));
-  height: calc(20px * var(--mx-device-scale, 2.5));
+  width: 16px;
+  height: 20px;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li > span > svg {
-  width: calc(14px * var(--mx-device-scale, 2.5));
-  height: calc(14px * var(--mx-device-scale, 2.5));
+  width: 14px;
+  height: 14px;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li > div > span {
-  font-size: calc(14px * var(--mx-device-scale, 2.5));
-  line-height: calc(20px * var(--mx-device-scale, 2.5));
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
 }
 html[data-mixdog-mobile-tabs] .session-goal-empty,
 html[data-mixdog-mobile-tabs] .session-goal-blocker {
-  font-size: calc(13px * var(--mx-device-scale, 2.5));
-  line-height: calc(18px * var(--mx-device-scale, 2.5));
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
 }

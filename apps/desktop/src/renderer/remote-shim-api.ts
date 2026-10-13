@@ -49,6 +49,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     agentsCatalog,
     sessionInbox,
     termListeners,
+    termSizeOwnerListeners,
     folderChangeListeners,
     lspDiagnosticsListeners,
     lspStatusListeners,
@@ -227,9 +228,11 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     termEnsure: (id, cwd, shell) => call('termEnsure', [id, cwd ?? null, shell ?? null]),
     termProfiles: () => call('termProfiles'),
     termWrite: (id, data) => fire('termWrite', [id, data]),
-    termResize: (id, cols, rows) => fire('termResize', [id, cols, rows]),
+    termResize: (id, cols, rows, phoneOwner) => fire('termResize', [id, cols, rows, phoneOwner === true]),
     termDispose: (id) => call('termDispose', [id]),
     subscribeTermData: (listener) => laneSubscription('terminal', termListeners, listener),
+    // Rides the terminal lane the output subscription already registers.
+    subscribeTermSizeOwner: (listener) => listenOn(termSizeOwnerListeners, listener),
     gitStatus: (cwd, options) => call('gitStatus', [cwd, options]),
     gitBranches: (cwd) => call('gitBranches', [cwd]),
     gitCheckoutBranch: (cwd, branch, remote) => call('gitCheckoutBranch', [cwd, branch, remote === true]),
@@ -312,7 +315,11 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       const stable = { ...options, id: options?.id || newBrowserId() };
       return recoverableCreation(
         () =>
-          call('submitNewTask', [prompt, stable, draft?.route ? { ...draft, route: hostSelection(draft.route) } : (draft ?? {})]),
+          call('submitNewTask', [
+            prompt,
+            stable,
+            draft?.route ? { ...draft, route: hostSelection(draft.route) } : (draft ?? {}),
+          ]),
         async () => {
           if (document.visibilityState === 'hidden') {
             await new Promise<void>((resolve) => {
@@ -365,6 +372,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // Always present: settings pages subscribe once at mount, possibly before
     // the handshake. An older host simply never emits the event.
     subscribeSettingsChanged: (listener) => listenOn(ctx.settingsChangedListeners, listener),
+    // An older host answers `unknown method`; the caller keeps its own defaults.
+    readHostDisplayPreferences: () => call('readHostDisplayPreferences'),
     // Agent visualize panel. Always present (the store connects at mount,
     // possibly before the handshake); an older host is read as having no tabs
     // and never emits the lane's event.
@@ -419,6 +428,17 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     });
   }
   Object.defineProperty(api, 'routeAutoEffort', { enumerable: true, get: routeAutoEffort });
+  // Read per access like the members below: a reconnect may reach a host that
+  // predates `browserDrive`, and the pane must then never send `viewport`.
+  Object.defineProperty(api, 'remoteBrowserDrive', { enumerable: true, get: () => ctx.peerBrowserDrive === true });
+  // Read per access: a reconnect may reach a host that predates `termSizeOwner`.
+  Object.defineProperty(api, 'remoteTermSizeOwner', { enumerable: true, get: () => ctx.peerTermSizeOwner === true });
+  // Absent on a host that predates `hostDirectories`, so the folder browser
+  // keeps its legacy fallback.
+  Object.defineProperty(api, 'listHostDirectories', {
+    enumerable: true,
+    get: () => (ctx.peerHostDirectories === true ? (path: string) => call('listHostDirectories', [path]) : undefined),
+  });
   // The remote browser pane's extras follow their own flag: a host that
   // predates `browserParity` leaves them absent and the pane keeps one stream.
   const browserGated: Pick<DesktopApi, BrowserGatedKey> = {

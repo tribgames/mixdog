@@ -32,6 +32,8 @@ import type { DesktopSettingKey, DesktopSettings } from './contract-settings';
 import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
+import type { HostDisplayPreferences } from './host-display-preferences';
+import type { TerminalSizeOwnerEvent } from './terminal-size-owner';
 import type {
   DesktopVisualizeEvent,
   DesktopVisualizeTabCommand,
@@ -232,6 +234,9 @@ export interface DesktopApi {
   removeProject(projectPath: string): Promise<void>;
   /** Dock Files tab: lazy per-directory listing. */
   listProjectDir?(projectPath: string, relDir: string): Promise<DesktopDirEntry[]>;
+  /** Remote add-project browser: subfolders of an absolute host directory
+   *  ('' = the host's home). Directories only; needs no registered project. */
+  listHostDirectories?(path: string): Promise<{ path: string; folders: string[]; truncated: boolean }>;
   /** Server-window folder picker: subfolders (git marker, hidden ones only on
    *  request) of an absolute directory on this window's own connection
    *  ('' = the user's home there). */
@@ -508,9 +513,7 @@ export interface DesktopApi {
   getServerRestoreProgress?(): Promise<import('./contract-connection-link').DesktopServerRestoreProgress[]>;
   /** Server window's Ports panel; `rescan` false returns the last scan. */
   listServerPorts?(rescan?: boolean): Promise<import('./contract-server-ports').DesktopServerPortsView>;
-  subscribeServerPorts?(
-    listener: (view: import('./contract-server-ports').DesktopServerPortsView) => void
-  ): () => void;
+  subscribeServerPorts?(listener: (view: import('./contract-server-ports').DesktopServerPortsView) => void): () => void;
   /** Forwards a server port to 127.0.0.1 on this PC (the same number when free, unless `localPort` is given). */
   forwardServerPort?(
     remotePort: number,
@@ -569,12 +572,20 @@ export interface DesktopApi {
   /** The running version's What's new notice was shown (or has no notes): main retires its pending announcement. */
   acknowledgeWhatsNew?(version: string): void;
   /** Dock terminal: create or reattach the shared PTY (main-process owned). */
-  termEnsure?(id: string | null, cwd?: string | null, shell?: string | null): Promise<{ id: string; replay: string }>;
+  termEnsure?(
+    id: string | null,
+    cwd?: string | null,
+    shell?: string | null
+  ): Promise<{ id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } }>;
   termWrite?(id: string, data: string): void;
-  termResize?(id: string, cols: number, rows: number): void;
+  /** `phoneOwner`: the phone showing this terminal owns the PTY size (a
+   *  non-positive size releases it); other views follow instead of fitting. */
+  termResize?(id: string, cols: number, rows: number, phoneOwner?: boolean): void;
   termAcknowledge?(id: string, charCount: number): void;
   termDispose?(id: string): Promise<void>;
   subscribeTermData?(listener: (event: { id: string; data: string }) => void): () => void;
+  /** A phone claimed, released or lost a PTY's size; other views follow or re-fit. */
+  subscribeTermSizeOwner?(listener: (event: TerminalSizeOwnerEvent) => void): () => void;
   /** Shells detected on this machine for the terminal strip's picker. */
   termProfiles?(): Promise<Array<{ id: string; label: string; path: string; default?: boolean }>>;
   /** Dock Git panel: plain git CLI over the active project directory. */
@@ -716,6 +727,8 @@ export interface DesktopApi {
   previewNotificationSound?(): Promise<string>;
   /** A desktop setting or the global Git identity was written (here or on the host). */
   subscribeSettingsChanged?(listener: (change: SettingsChange) => void): () => void;
+  /** Remote clients only: the host window's theme preference and UI language. */
+  readHostDisplayPreferences?(): Promise<HostDisplayPreferences | null>;
   readActivityRailPins(): Promise<ActivityRailPinsState | null>;
   /** Only Electron seeds a missing shared value from its existing local pins. */
   updateActivityRailPins(pins: string[], initializeIfMissing?: boolean): Promise<ActivityRailPinsState>;
@@ -798,8 +811,10 @@ export interface DesktopApi {
   /** Current session's Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(sessionId: string): Promise<DesktopBrowserCredentialSuggestion[]>;
   browserCredentialFill?(sessionId: string, credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
-  /** What the in-app browser saw of `url` (or of its site), or null. */
-  browserPageIdentity?(url: string): Promise<DesktopBrowserPageIdentity | null>;
+  /** What the in-app browser saw of `url` (or of its site), or null.
+   *  `preview`: a page card asks, so a missing thumbnail is fetched from the
+   *  page's own preview and announced through onBrowserPageIdentityChanged. */
+  browserPageIdentity?(url: string, options?: { preview?: boolean }): Promise<DesktopBrowserPageIdentity | null>;
   /** Identity facts changed for pages of `origin`. */
   onBrowserPageIdentityChanged?(listener: (origin: string) => void): () => void;
   /** Paired web app live view of the desktop's current Browser Use guest,
@@ -811,6 +826,13 @@ export interface DesktopApi {
   remoteBrowserStreamAck?(sessionId: string, seq: number): void;
   onRemoteBrowserFrame?(listener: (frame: DesktopRemoteBrowserStreamFrame) => void): () => void;
   remoteBrowserControl?(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
+  /** Paired web app: the current host advertised `browserDrive` and takes the
+   *  `viewport` control (the streamed page renders at the phone's size). */
+  readonly remoteBrowserDrive?: boolean;
+  /** Paired web app: the current host advertised `termSizeOwner` and honors
+   *  the phone size-owner claim/release on `termResize`. Absent/false on an
+   *  older host, where the phone sends plain fit resizes only. */
+  readonly remoteTermSizeOwner?: boolean;
   /** Paired web app, host advertising `browserParity` only (absent otherwise,
    *  as are the history, saved-login and profile-import members above):
    *  the main-workspace browser tabs. `watch` starts or stops pushes to

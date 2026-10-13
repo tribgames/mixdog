@@ -232,7 +232,6 @@ function makeTurnHarness({
   let activeTurnCount = 0;
   let activeController = null;
   let unregistered = false;
-  let cancelledSnapshot = false;
   const api = createSessionTurnApi({
     getSession: () => session,
     setSession: () => {},
@@ -264,9 +263,6 @@ function makeTurnHarness({
     awaitRoutePreparation,
     refreshSessionForCwdIfNeeded: async () => session,
     beginTurnSnapshotForTurn,
-    cancelTurnSnapshotForTurn: () => {
-      cancelledSnapshot = true;
-    },
     completeTurnSnapshotForTurn: async () => {},
     turnCleanupSettleMs,
     hooks: { emit: () => {}, dispatch: hookDispatch },
@@ -285,7 +281,6 @@ function makeTurnHarness({
     getActiveController: () => activeController,
     getActiveTurnCount: () => activeTurnCount,
     wasUnregistered: () => unregistered,
-    wasSnapshotCancelled: () => cancelledSnapshot,
   };
 }
 
@@ -378,7 +373,6 @@ test('runtime ask aborts while route preparation is permanently pending', async 
   ]);
   assert.equal(harness.getActiveTurnCount(), 0);
   assert.equal(harness.wasUnregistered(), true);
-  assert.equal(harness.wasSnapshotCancelled(), true);
 });
 
 test('runtime ask aborts while a prompt hook ignores cancellation', async () => {

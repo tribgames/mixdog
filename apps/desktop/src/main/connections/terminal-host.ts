@@ -1,3 +1,4 @@
+import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerEvent } from '../../shared/terminal-size-owner';
 import type { DesktopService } from '../desktop-service-contract';
 import type { DesktopTerminalHost } from '../ipc-terminal';
 import type { TerminalSpawnProfile } from '../terminal-contract';
@@ -18,7 +19,13 @@ export function createServiceTerminalHost(service: TerminalService): DesktopTerm
         throw new Error('The service terminal did not return a session.');
       }
       const result = value as Record<string, unknown>;
-      return { id: String(result.id || ''), replay: String(result.replay || '') };
+      // The window is never a size owner: a phone's grid is followed, not claimed.
+      const owner = result.sizeOwner as { cols?: unknown; rows?: unknown } | undefined;
+      return {
+        id: String(result.id || ''),
+        replay: String(result.replay || ''),
+        ...(owner ? { sizeOwner: { cols: Number(owner.cols) || 0, rows: Number(owner.rows) || 0, own: false } } : {}),
+      };
     },
     write(id: string, data: string): void {
       // Keystrokes take the fire-and-forget lane: a response frame per keypress
@@ -42,6 +49,18 @@ export function createServiceTerminalHost(service: TerminalService): DesktopTerm
         if (name !== 'terminal-data' || !value || typeof value !== 'object') return;
         const event = value as Record<string, unknown>;
         listener({ id: String(event.id || ''), data: String(event.data || '') });
+      });
+    },
+    subscribeSizeOwner(listener: (event: TerminalSizeOwnerEvent) => void): () => void {
+      return subscribe(({ name, value }) => {
+        if (name !== TERMINAL_SIZE_OWNER_EVENT || !value || typeof value !== 'object') return;
+        const event = value as Record<string, unknown>;
+        listener({
+          id: String(event.id || ''),
+          cols: Number(event.cols) || 0,
+          rows: Number(event.rows) || 0,
+          own: false,
+        });
       });
     },
   };

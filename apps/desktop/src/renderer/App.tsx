@@ -14,7 +14,6 @@ import { desktopBootPrerequisitesReady, markBootStage } from './boot-metrics';
 import { DesktopBootGate } from './PaneSurfaceGate';
 import { usePaneTypingFocus } from './use-composer-focus';
 import { navigationKey } from './text-format';
-import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSideFileGuardOpeners } from './app-root/use-side-file-guard';
 import { bindAppFrameSideFileGuard } from './app-root/app-frame-side-file-guard';
 import { useAppFrameEntryIntake } from './app-root/app-frame-entry-intake';
@@ -55,6 +54,7 @@ import { AppShellOverlays } from './app-root/AppShellOverlays';
 import { useAppWorkbenchViews } from './app-root/use-app-workbench-views';
 import { useAppTabActions } from './app-root/use-app-tab-actions';
 import { usePaneConversationRenderer } from './app-root/use-pane-conversation-renderer';
+import { paneSideDockLinkRoutes } from './app-root/app-conversation-pane-renderer';
 import { AppWorkspaceMain } from './app-root/AppWorkspaceMain';
 import { AppSidebarDrawer } from './app-root/AppSidebarDrawer';
 import { applySessionLaneResult, LAST_SESSION_KEY, useAppTaskLifecycle } from './app-root/use-app-task-lifecycle';
@@ -640,8 +640,6 @@ export function App() {
     sessionPaneSurfaces,
   });
 
-  // A phone/web renderer has no side dock to host the editor: it keeps main tabs.
-  const sideDockHostsFiles = !isRemoteHostRenderer() && workbenchSideLayout.layout.right.length > 0;
   const openSessionDiffInSideDock = useCallback(
     (leafId: string) => selectWorkbenchSideView('session-diff', leafId),
     [selectWorkbenchSideView]
@@ -653,6 +651,13 @@ export function App() {
     },
     [selectWorkbenchSideView]
   );
+  const sideDockRoutes = paneSideDockLinkRoutes(workbenchSideLayout.layout.right, {
+    openFileInSideDock,
+    openFolderInSideDock: paneSideDocks.openFolder,
+    openSessionDiffInSideDock,
+    openBackgroundJobsInSideDock,
+    openPreviewToSide,
+  });
   // A server window reveals files in the focused pane's Files tree.
   const openFolderInDock = paneSideDocks.openFolder;
   const revealServerFile = useCallback(
@@ -687,10 +692,10 @@ export function App() {
     stageNewTaskOrchestrationMode,
     openConversationCommandSurface,
     openFileTab,
-    openFileInSideDock: sideDockHostsFiles ? openFileInSideDock : undefined,
-    openFolderInSideDock: sideDockHostsFiles ? paneSideDocks.openFolder : undefined,
-    openSessionDiffInSideDock: sideDockHostsFiles ? openSessionDiffInSideDock : undefined,
-    openBackgroundJobsInSideDock: sideDockHostsFiles ? openBackgroundJobsInSideDock : undefined,
+    openFileInSideDock: sideDockRoutes.openFileInSideDock,
+    openFolderInSideDock: sideDockRoutes.openFolderInSideDock,
+    openSessionDiffInSideDock: sideDockRoutes.openSessionDiffInSideDock,
+    openBackgroundJobsInSideDock: sideDockRoutes.openBackgroundJobsInSideDock,
     openAgentSession: dockOpenAgentSession,
   });
 
@@ -701,7 +706,7 @@ export function App() {
     handleFileDirty,
     registerEditorSaveHandle,
     openFileTab,
-    openPreviewToSide: sideDockHostsFiles ? openPreviewToSide : undefined,
+    openPreviewToSide: sideDockRoutes.openPreviewToSide,
     latestEditorLocation,
     sidebarOpen,
     toggleSidebar,
@@ -786,6 +791,7 @@ export function App() {
     dockOpenPullRequest,
     dockOpenLeadSession,
     dockOpenAgentSession,
+    closeSidebarForNavigation,
     renameProjectEntry,
     paneSideDocks,
     setSidebarDiff,

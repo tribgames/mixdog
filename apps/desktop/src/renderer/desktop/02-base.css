@@ -54,6 +54,13 @@
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+/* Firefox has no ::-webkit-scrollbar: a thin, token-coloured bar instead. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--mx-scrollbar-thumb, var(--mx-border-strong)) transparent;
+  }
+}
 
 body,
 button,

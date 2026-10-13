@@ -102,8 +102,16 @@ export function registerWindowSettingsIpc({
   // theme. The engine/TUI theme is a separate user setting — the old
   // getTheme/setTheme capability hook let it overwrite this band with a
   // mismatched palette, so capabilities stay theme-neutral now.
+  let appliedTheme: string | undefined;
   handle(DESKTOP_IPC.applyTitleBarTheme, async (_event, theme, systemPreference) => {
-    setDesktopTitleBarTheme(window, requiredString(theme, 'theme'), systemPreference === true);
+    const resolved = requiredString(theme, 'theme');
+    setDesktopTitleBarTheme(window, resolved, systemPreference === true);
+    // The first apply is the window booting; a later change is the user's choice,
+    // which paired browsers without their own theme follow.
+    const applied = `${resolved}|${systemPreference === true}`;
+    const changed = appliedTheme !== undefined && appliedTheme !== applied;
+    appliedTheme = applied;
+    if (changed) void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
   });
   // Fullscreen-modal dim for the native WCO caption band: the renderer sends
   // pre-composited hex colors; anything malformed clears back to the theme.

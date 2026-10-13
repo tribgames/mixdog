@@ -1,8 +1,10 @@
 /** What the in-app browser already knows about the pages it showed — title,
  *  site icon and a small screenshot — so transcript links and cards can name
- *  a page the way its tab did. Fed only by the browser's own guests; never by
- *  an outside favicon or preview service. Bounded and in memory: it lives for
- *  the app session. */
+ *  a page the way its tab did. Fed by the browser's own guests, and for a
+ *  page card with nothing recorded, by that page's own markup read through
+ *  the browser session (page-preview); never by an outside favicon or preview
+ *  service. Bounded; a snapshot carries it across restarts
+ *  (page-identity-file). */
 import type { WebContents } from 'electron';
 import type { DesktopBrowserPageIdentity } from '../../shared/contract';
 import { isHttpUrl } from './favicon-fetch';
@@ -10,7 +12,10 @@ import { isHttpUrl } from './favicon-fetch';
 const PAGE_LIMIT = 300;
 const ORIGIN_LIMIT = 300;
 const THUMBNAIL_LIMIT = 80;
-const TITLE_MAX_CHARS = 300;
+export const TITLE_MAX_CHARS = 300;
+/** Restored data URLs above these sizes are not ours and are dropped. */
+const FAVICON_MAX_CHARS = 64 * 1024;
+const THUMBNAIL_MAX_CHARS = 256 * 1024;
 /** A finished load settles its late paint before the thumbnail is taken. */
 const CAPTURE_DELAY_MS = 700;
 
@@ -35,6 +40,9 @@ function keyVariants(key: string): string[] {
 function boundedMap<V>(limit: number) {
   const map = new Map<string, V>();
   return {
+    has: (key: string) => map.has(key),
+    /** Oldest first, so replaying them restores the recency order. */
+    entries: () => [...map],
     get(key: string): V | undefined {
       const value = map.get(key);
       if (value !== undefined) {
@@ -48,6 +56,18 @@ function boundedMap<V>(limit: number) {
       map.set(key, value);
       while (map.size > limit) map.delete(map.keys().next().value as string);
     },
+    /** Older entries placed beneath the live ones: a live key keeps its
+     *  value, and over the limit the older entries go first. */
+    seed(older: [string, V][]): void {
+      const live = [...map];
+      map.clear();
+      for (const [key, value] of older) map.set(key, value);
+      for (const [key, value] of live) {
+        map.delete(key);
+        map.set(key, value);
+      }
+      while (map.size > limit) map.delete(map.keys().next().value as string);
+    },
   };
 }
 
@@ -56,6 +76,21 @@ export interface BrowserPageIdentityPatch {
   favicon?: string;
   thumbnail?: string;
 }
+
+export interface BrowserPageIdentitySnapshot {
+  pages: [string, { title?: string; favicon?: string }][];
+  origins: [string, string][];
+  thumbnails: [string, string][];
+}
+
+const snapshotList = (value: unknown): unknown[][] =>
+  Array.isArray(value) ? value.filter((entry): entry is unknown[] => Array.isArray(entry)) : [];
+const snapshotText = (value: unknown, max: number): string | undefined =>
+  typeof value === 'string' && value && value.length <= max ? value : undefined;
+const snapshotImage = (value: unknown, max: number): string | undefined => {
+  const text = snapshotText(value, max);
+  return text && /^data:image\//i.test(text) ? text : undefined;
+};
 
 export function createBrowserPageIdentityStore(options: { onChange?(origin: string): void } = {}) {
   const pages = boundedMap<{ title?: string; favicon?: string }>(PAGE_LIMIT);
@@ -98,7 +133,50 @@ export function createBrowserPageIdentityStore(options: { onChange?(origin: stri
     };
   }
 
-  return { update, lookup };
+  function snapshot(): BrowserPageIdentitySnapshot {
+    return { pages: pages.entries(), origins: originFavicons.entries(), thumbnails: thumbnails.entries() };
+  }
+
+  /** Put a saved snapshot back under what this session already recorded;
+   *  anything malformed is skipped. Returns the origins it filled, without
+   *  reporting them as changes. */
+  function restore(saved: unknown): string[] {
+    const data = (saved && typeof saved === 'object' ? saved : {}) as Record<string, unknown>;
+    const filled = new Set<string>();
+    const savedPages: [string, { title?: string; favicon?: string }][] = [];
+    for (const [url, value] of snapshotList(data.pages)) {
+      const key = typeof url === 'string' ? pageIdentityKey(url) : null;
+      if (!key || key !== url || pages.has(key)) continue;
+      const record = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+      const title = snapshotText(record.title, TITLE_MAX_CHARS);
+      const favicon = snapshotImage(record.favicon, FAVICON_MAX_CHARS);
+      if (!title && !favicon) continue;
+      savedPages.push([key, { ...(title ? { title } : {}), ...(favicon ? { favicon } : {}) }]);
+      filled.add(new URL(key).origin);
+    }
+    const savedOrigins: [string, string][] = [];
+    for (const [origin, value] of snapshotList(data.origins)) {
+      const key = typeof origin === 'string' ? pageIdentityKey(origin) : null;
+      const favicon = snapshotImage(value, FAVICON_MAX_CHARS);
+      if (!key || new URL(key).origin !== origin || !favicon || originFavicons.has(origin)) continue;
+      savedOrigins.push([origin, favicon]);
+      filled.add(origin);
+    }
+    const savedThumbnails: [string, string][] = [];
+    for (const [url, value] of snapshotList(data.thumbnails)) {
+      const key = typeof url === 'string' ? pageIdentityKey(url) : null;
+      const thumbnail = snapshotImage(value, THUMBNAIL_MAX_CHARS);
+      if (!key || key !== url || !thumbnail || thumbnails.has(key)) continue;
+      savedThumbnails.push([key, thumbnail]);
+      filled.add(new URL(key).origin);
+    }
+    pages.seed(savedPages);
+    originFavicons.seed(savedOrigins);
+    thumbnails.seed(savedThumbnails);
+    return [...filled];
+  }
+
+  return { update, lookup, snapshot, restore };
 }
 
 export type BrowserPageIdentityStore = ReturnType<typeof createBrowserPageIdentityStore>;

@@ -298,6 +298,14 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
       fanOut(ctx.termListeners, { id: String(payload.id || ''), data: String(payload.data ?? '') });
+    } else if (message.event === 'termSizeOwner') {
+      const payload = (message.payload ?? {}) as { id?: unknown; cols?: unknown; rows?: unknown; own?: unknown };
+      fanOut(ctx.termSizeOwnerListeners, {
+        id: String(payload.id || ''),
+        cols: Number(payload.cols) || 0,
+        rows: Number(payload.rows) || 0,
+        own: payload.own === true,
+      });
     } else if (message.event === 'folderChanged') {
       const dir = String(message.payload || '');
       if (!dir) return;

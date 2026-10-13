@@ -117,8 +117,12 @@ export function resolveSessionContextMeta(provider, model, seed = {}, { wholeWin
   // (a session older than selectedContextWindow, a route saved before the
   // catalog warmed) is still the user's choice and keeps the served window.
   const recordsSelection = wholeWindow || boundedPercent(seed.contextPercent) !== null;
+  // An exact token selection without its resolved window still names it,
+  // bounded by what the model serves.
+  const selectedTokens = positiveInt(seed.contextTokens);
   const requestedContextWindow =
     positiveInt(seed.selectedContextWindow) ||
+    (selectedTokens ? Math.min(selectedTokens, servedContextWindow) : 0) ||
     (recordsSelection
       ? servedContextWindow
       : contextWindowRange({ provider: providerNameOf(provider), contextWindow: servedContextWindow }).defaultWindow);

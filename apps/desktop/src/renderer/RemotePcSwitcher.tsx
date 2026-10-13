@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ExternalLink, Plus, SlidersHorizontal, Terminal } from 'lucide-react';
+import { Check, ChevronDown, ExternalLink, Monitor, Plus, SlidersHorizontal, Terminal } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopRemoteHost, DesktopSshHost } from '../shared/contract';
@@ -6,7 +6,11 @@ import { nativeAppInfo } from '../shared/native-app';
 import { remoteWindowInfo, remoteWindowSwitcher } from '../shared/remote-window';
 import { t } from './i18n';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
-import { type ConnectionDialogRequest, requestConnectionDialog, type SshHostRequest } from './settings/connection-intent';
+import {
+  type ConnectionDialogRequest,
+  requestConnectionDialog,
+  type SshHostRequest,
+} from './settings/connection-intent';
 import { openSshHost } from './settings/ssh-hosts';
 import { relativeWhen } from './settings/relative-when';
 import { useRemoteAccessSettings } from './settings/remote-access-settings';
@@ -317,10 +321,63 @@ export function RemotePcCard() {
   );
 }
 
-/** Title-bar PC button at the leading edge. A remote surface (another PC's
- *  window, tablet/browser) shows "● <PC name> ▾"; the main window shows this
- *  PC's name the same way once other PCs are saved, and nothing before. */
-export function RemotePcSwitcher() {
+/** The switcher's trigger: "● <PC name> ▾" in the title band; on the rail a
+ *  compact icon cell whose dot carries the link state and whose name is the
+ *  tooltip and accessible label. */
+function SwitcherButton({
+  rail,
+  open,
+  connected,
+  name,
+  title,
+  onToggle,
+}: {
+  rail: boolean;
+  open: boolean;
+  connected: boolean;
+  name: string;
+  title?: string;
+  onToggle(): void;
+}) {
+  if (rail) {
+    return (
+      <button
+        type="button"
+        className="remote-pc-button remote-pc-rail-button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={name}
+        data-tooltip={open ? undefined : title || name}
+        onClick={onToggle}
+      >
+        <Monitor size={24} aria-hidden="true" />
+        <PcDot connected={connected} />
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="remote-pc-name remote-pc-button"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      title={title}
+      onClick={onToggle}
+    >
+      <PcDot connected={connected} />
+      <span className="remote-pc-label">{name}</span>
+      <ChevronDown size={13} aria-hidden="true" />
+    </button>
+  );
+}
+
+/** PC button at the title band's leading edge, or at the top of the activity
+ *  rail in a plain browser tab (which has no band). A remote surface (another
+ *  PC's window, tablet/browser) shows "● <PC name> ▾"; the main window shows
+ *  this PC's name the same way once other PCs are saved, and nothing before. */
+export function RemotePcSwitcher({ placement = 'titlebar' }: { placement?: 'titlebar' | 'rail' } = {}) {
+  const rail = placement === 'rail';
+  const switcherClass = rail ? 'remote-pc-switcher remote-pc-switcher-rail' : 'remote-pc-switcher';
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const { remote, pcs, name, connected, connectAnother, switchTo } = useRemotePcs(open);
@@ -348,19 +405,15 @@ export function RemotePcSwitcher() {
     const linked = serverLink?.state.status !== 'reconnecting' && serverLink?.state.status !== 'lost';
     const rtt = serverLink?.rttMs;
     return (
-      <div className="remote-pc-switcher" ref={root}>
-        <button
-          type="button"
-          className="remote-pc-name remote-pc-button"
-          aria-haspopup="menu"
-          aria-expanded={open}
+      <div className={switcherClass} ref={root}>
+        <SwitcherButton
+          rail={rail}
+          open={open}
+          connected={linked}
+          name={server.name}
           title={rtt == null ? server.name : `${server.name} · ${t('Round trip {{ms}} ms', { ms: rtt })}`}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <PcDot connected={linked} />
-          <span className="remote-pc-label">{server.name}</span>
-          <ChevronDown size={13} aria-hidden="true" />
-        </button>
+          onToggle={() => setOpen((value) => !value)}
+        />
         {open && (
           <div className="remote-pc-menu" role="menu">
             <button type="button" role="menuitem" className="remote-pc-item on" disabled>
@@ -398,18 +451,14 @@ export function RemotePcSwitcher() {
     run();
   };
   return (
-    <div className="remote-pc-switcher" ref={root}>
-      <button
-        type="button"
-        className="remote-pc-name remote-pc-button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <PcDot connected={main || connected} />
-        <span className="remote-pc-label">{main ? mainPcs.name : name}</span>
-        <ChevronDown size={13} aria-hidden="true" />
-      </button>
+    <div className={switcherClass} ref={root}>
+      <SwitcherButton
+        rail={rail}
+        open={open}
+        connected={main || connected}
+        name={main ? mainPcs.name : name}
+        onToggle={() => setOpen((value) => !value)}
+      />
       {open && (
         <div className="remote-pc-menu" role="menu">
           <PcMenuItems

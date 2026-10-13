@@ -10,8 +10,10 @@ import type {
   DesktopRemoteBrowserControl,
   DesktopRemoteBrowserStreamFrame,
   DesktopRemoteBrowserStreamOptions,
+  DesktopRemoteBrowserViewport,
 } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
+import type { BrowserRemoteDrive } from './remote-drive';
 import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 
@@ -31,6 +33,8 @@ interface BrowserRemoteControlHost {
   dispatchPageInput(guest: WebContents, input: DesktopBrowserPageControl, assertCurrent: () => void): Promise<void>;
   /** Hands one frame to the service, which paces it per client. */
   publishFrame(frame: DesktopRemoteBrowserStreamFrame): Promise<void>;
+  /** Renders a streamed page at the client's viewport, and restores the pane's. */
+  drive?: Pick<BrowserRemoteDrive, 'apply' | 'restore'>;
 }
 
 /** A subscription not renewed within this window ends the stream. */
@@ -97,13 +101,26 @@ interface RemoteStream {
   lastPublishedAt: number;
   publishTimer: ReturnType<typeof setTimeout> | null;
   publishing: boolean;
+  /** The viewport the client drives the page at, once it sent one. */
+  viewport: DesktopRemoteBrowserViewport | null;
+  /** The page and document that viewport was last applied to. */
+  driven: { guest: WebContents; documentId: string; key: string } | null;
 }
+
+const viewportKey = (viewport: DesktopRemoteBrowserViewport): string =>
+  `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}`;
 
 export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
   const { state, cdp, urlPolicy, ensureGuest, assertResolvedUrlAllowed } = host;
   const streams = new Map<string, RemoteStream>();
+  /** A stopped stream's teardown (screencast stop, pane restore) per session,
+   *  until it settles: the session's next stream waits for it, so a stale
+   *  restore can never undo the viewport a newer stream applied. */
+  const teardowns = new Map<string, Promise<void>>();
 
-  const sizeKey = (options: DesktopRemoteBrowserStreamOptions): string => `${options.maxWidth}x${options.maxHeight}`;
+  /** Frame size plus driven viewport: a change to either restarts the screencast. */
+  const sizeKey = (stream: RemoteStream): string =>
+    `${stream.options.maxWidth}x${stream.options.maxHeight}${stream.viewport ? `:${viewportKey(stream.viewport)}` : ''}`;
 
   function publishNow(stream: RemoteStream): void {
     stream.publishTimer = null;
@@ -219,7 +236,11 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     );
     const viewport = metrics.cssVisualViewport;
     if (!viewport?.clientWidth || !viewport.clientHeight) return;
-    const scale = Math.min(1, stream.options.maxWidth / viewport.clientWidth, stream.options.maxHeight / viewport.clientHeight);
+    const scale = Math.min(
+      1,
+      stream.options.maxWidth / viewport.clientWidth,
+      stream.options.maxHeight / viewport.clientHeight
+    );
     const shot = await cdp.call<{ data: string }>(run.guest, 'Page.captureScreenshot', {
       format: 'jpeg',
       quality: STREAM_JPEG_QUALITY,
@@ -250,7 +271,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     await cdp.waitForInitialDocument(guest);
     const port = await cdp.guestDebugger(guest);
     const documentId = browserDocumentId(state, guest);
-    const size = sizeKey(stream.options);
+    const size = sizeKey(stream);
     const current = stream.run;
     if (
       current &&
@@ -262,6 +283,15 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       return;
     }
     await stopRun(stream);
+    if (streams.get(sessionId) !== stream) return;
+    if (current && current.size !== size) {
+      // A frame captured at the old size must not reach the client as the new one.
+      stream.pending = null;
+      stream.lastView = null;
+    }
+    // Every page, document and size change passes here, so a driven viewport
+    // is re-applied before the new screencast captures anything.
+    await driveGuest(sessionId, stream, guest, documentId);
     if (streams.get(sessionId) !== stream) return;
     const run: ScreencastRun = {
       guest,
@@ -311,6 +341,19 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     run.firstFrameTimer.unref?.();
   }
 
+  /** Apply the client's viewport to this page and document unless it already
+   *  holds it; a page the stream left behind gets its pane's viewport back. */
+  async function driveGuest(sessionId: string, stream: RemoteStream, guest: WebContents, documentId: string) {
+    const viewport = stream.viewport;
+    if (!host.drive || !viewport) return;
+    const key = viewportKey(viewport);
+    const previous = stream.driven;
+    if (previous?.guest === guest && previous.documentId === documentId && previous.key === key) return;
+    stream.driven = { guest, documentId, key };
+    await host.drive.apply(sessionId, guest, viewport).catch(() => undefined);
+    if (previous && previous.guest !== guest) await host.drive.restore(previous.guest).catch(() => undefined);
+  }
+
   function reconcile(sessionId: string, stream: RemoteStream): Promise<void> {
     stream.work = stream.work.then(() => sync(sessionId, stream)).catch(() => undefined);
     return stream.work;
@@ -325,7 +368,19 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     clearInterval(stream.watch);
     if (stream.publishTimer) clearTimeout(stream.publishTimer);
     stream.pending = null;
-    stream.work = stream.work.then(() => stopRun(stream)).catch(() => undefined);
+    // An explicit stop and a lapsed lease alike hand the page back to its pane.
+    const driven = stream.driven;
+    stream.viewport = null;
+    stream.driven = null;
+    const teardown = stream.work
+      .then(() => stopRun(stream))
+      .then(() => (driven ? host.drive?.restore(driven.guest) : undefined))
+      .catch(() => undefined)
+      .finally(() => {
+        if (teardowns.get(sessionId) === teardown) teardowns.delete(sessionId);
+      });
+    stream.work = teardown;
+    teardowns.set(sessionId, teardown);
     host.viewerChanged?.(sessionId, false);
   }
 
@@ -337,7 +392,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
   }
 
   /** Start or renew (options) or stop (null) streaming a session's page. */
-  async function remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void> {
+  async function remoteBrowserStream(
+    sessionId: string,
+    options: DesktopRemoteBrowserStreamOptions | null
+  ): Promise<void> {
     if (!options) {
       stopStream(sessionId);
       return;
@@ -350,13 +408,16 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
         run: null,
         lastView: null,
         checking: false,
-        work: Promise.resolve(),
+        // Starts only once the session's previous stream has handed its page back.
+        work: teardowns.get(sessionId) ?? Promise.resolve(),
         expiry: setTimeout(() => undefined, 0),
         watch: setInterval(() => void check(sessionId, created), STREAM_WATCH_MS),
         pending: null,
         lastPublishedAt: Number.NEGATIVE_INFINITY,
         publishTimer: null,
         publishing: false,
+        viewport: null,
+        driven: null,
       };
       created.watch.unref?.();
       stream = created;
@@ -374,6 +435,17 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
   }
 
   async function remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
+    if (control.type === 'viewport') {
+      // Only a streaming client drives the page; it resends with each renewal,
+      // so a viewport for a lapsed stream is simply dropped.
+      const stream = streams.get(sessionId);
+      if (!stream) return;
+      const viewport = { width: control.width, height: control.height, deviceScaleFactor: control.deviceScaleFactor };
+      if (stream.viewport && viewportKey(stream.viewport) === viewportKey(viewport)) return;
+      stream.viewport = viewport;
+      await reconcile(sessionId, stream);
+      return;
+    }
     const guest = await ensureGuest(sessionId, { reveal: false });
     host.onUserControl?.(guest);
     if (

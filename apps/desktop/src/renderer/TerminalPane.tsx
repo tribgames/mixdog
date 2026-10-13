@@ -12,7 +12,8 @@ import { errorSummary } from './ErrorNotice';
 import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalImeGuard } from './terminal-ime-guard';
 
-const IS_LINUX = typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+const IS_LINUX =
+  typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
 import { TerminalWritePump } from './terminal-write-pump';
 import { attachTerminalOutput, detachTerminalOutput } from './terminal-output-subscription';
 import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
@@ -26,6 +27,26 @@ import {
   useConnectionLink,
 } from './connection-link-store';
 import { t } from './i18n';
+import { isMobileRemoteSurface, useMobileRemoteSurface } from './mobile-surface';
+import { TerminalKeyBar } from './TerminalKeyBar';
+import {
+  applyTerminalModifiers,
+  forgetTerminalModifiers,
+  terminalBarSequence,
+  terminalModifiers,
+  type TerminalBarKey,
+} from './terminal-key-bar';
+import {
+  applyEnsuredSizeOwner,
+  applySizeOwner,
+  sendSizeOwnerHeartbeat,
+  sendSizeOwnerRelease,
+} from './terminal-size-owner';
+
+/** Quiet period before a layout change re-fits and resizes the PTY. */
+const FIT_DEBOUNCE_MS = 50;
+/** A phone re-claims the PTY size this often; the host's lease is 30s. */
+const SIZE_OWNER_HEARTBEAT_MS = 10_000;
 
 type TerminalView = {
   id: string | null;
@@ -41,6 +62,12 @@ type TerminalView = {
    *  the PTY echo is effectively instant. */
   localEcho: TerminalLocalEcho | null;
   unsubscribeOutput?: (() => void) | null;
+  /** Grid a phone owns for this PTY; this view follows it instead of fitting. */
+  followSize: { cols: number; rows: number } | null;
+  /** Re-fits the mounted pane after the phone gives the size back. */
+  refit: (() => void) | null;
+  /** Typed-input path (modifiers, local echo, PTY write) for bar keys. */
+  sendInput: ((data: string) => void) | null;
 };
 interface TerminalViewState {
   cols: number;
@@ -113,13 +140,30 @@ function fitTerminalView(view: TerminalView, restore?: TerminalViewState | null)
         atBottom: buffer.viewportY >= buffer.baseY,
       };
     })();
-  view.fit.fit();
+  if (view.followSize) view.term.resize(view.followSize.cols, view.followSize.rows);
+  else view.fit.fit();
   if (current.atBottom) view.term.scrollToBottom();
   else view.term.scrollToLine(Math.min(current.scrollY, view.term.buffer.active.baseY));
 }
 
+let unwatchSizeOwner: (() => void) | undefined;
+function watchTerminalSizeOwner(): void {
+  if (unwatchSizeOwner) return;
+  unwatchSizeOwner =
+    window.mixdogDesktop.subscribeTermSizeOwner?.((event) => {
+      for (const view of terminalViews.values()) {
+        if (view.id === event.id) applySizeOwner(view, event);
+      }
+    }) ?? (() => {});
+}
+
 function tryEnableWebglRenderer(view: TerminalView): void {
   if (view.webgl || view.webglUnavailable || !view.term.element) return;
+  // A phone keeps xterm's DOM renderer: at a fractional device pixel ratio
+  // the WebGL canvas kept a CSS-pixel backing store while its glyph atlas was
+  // drawn at device pixels, so the prompt painted ~3x large and cut off at the
+  // sheet's left edge. A phone-sized grid gains nothing from the GPU path.
+  if (isMobileRemoteSurface()) return;
   const addon = new WebglAddon();
   let contextLossDisposable: { dispose(): void } | undefined;
   try {
@@ -220,7 +264,7 @@ function terminalView(key: string): TerminalView {
         validationStreak: 1,
       })
     : null;
-  const created = {
+  const created: TerminalView = {
     id: null,
     term,
     fit,
@@ -229,8 +273,12 @@ function terminalView(key: string): TerminalView {
     webglUnavailable: false,
     writer,
     localEcho,
+    followSize: null,
+    refit: null,
+    sendInput: null,
   };
   terminalViews.set(key, created);
+  watchTerminalSizeOwner();
   return created;
 }
 
@@ -254,7 +302,7 @@ function armTerminalMonoRefresh() {
             /* atlas rebuilds lazily */
           }
           try {
-            view.fit.fit();
+            if (!view.followSize) view.fit.fit();
             view.term.refresh(0, Math.max(0, view.term.rows - 1));
           } catch {
             /* a detached terminal refits on its next mount */
@@ -271,6 +319,7 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   const view = terminalViews.get(id);
   terminalViews.delete(id);
   clearTerminalViewState(id);
+  forgetTerminalModifiers(id);
   const ptyId = view?.id || id;
   view?.localEcho?.reset();
   if (view) detachTerminalOutput(view);
@@ -369,6 +418,8 @@ export default function TerminalPane({
     let replayOnReattach = false;
     const view = terminalView(key);
     const { term } = view;
+    const modifiers = terminalModifiers(key);
+    let fitDebounce = 0;
     const schedulePersist = () => {
       window.clearTimeout(persistTimer);
       persistTimer = window.setTimeout(() => {
@@ -383,10 +434,12 @@ export default function TerminalPane({
         return rect.width >= 1 && rect.height >= 1;
       },
       currentGrid: () => ({ cols: term.cols, rows: term.rows }),
-      proposeGrid: () => view.fit.proposeDimensions() ?? null,
+      proposeGrid: () => view.followSize ?? view.fit.proposeDimensions() ?? null,
       fit: (restore) => fitTerminalView(view, restore),
       emitResize: ({ cols, rows }) => {
-        if (view.id) window.mixdogDesktop.termResize?.(view.id, cols, rows);
+        // A followed grid is the phone's: never send it back as our own.
+        if (view.id && !view.followSize)
+          window.mixdogDesktop.termResize?.(view.id, cols, rows, isMobileRemoteSurface());
       },
       onSettled: () => {
         writeTerminalViewState(key, view);
@@ -398,6 +451,11 @@ export default function TerminalPane({
       cancelFrame: (id) => window.cancelAnimationFrame(id),
     });
     fitSchedulerRef.current = fitScheduler;
+    const refit = () => {
+      fitScheduler.invalidateResize();
+      fitScheduler.schedule();
+    };
+    view.refit = refit;
     if (term.element) container.appendChild(term.element);
     else term.open(container);
     if (activeRef.current) tryEnableWebglRenderer(view);
@@ -463,6 +521,13 @@ export default function TerminalPane({
       const reattached = replayOnReattach && !isNewPty;
       replayOnReattach = false;
       view.id = ensured.id;
+      // Attaching to a PTY a phone already sizes: follow it from the start. A
+      // phone attaching takes the size over instead (its first fit claims it).
+      // An answer without `sizeOwner` says nobody owns it: a follower that
+      // missed the release (e.g. across a reconnect) stops following.
+      // Phones reconcile too: a phone only follows another phone's live claim,
+      // and clearing a stale follow lets its refit send a fresh claim.
+      applyEnsuredSizeOwner(view, ensured.sizeOwner);
       view.shell = shell;
       if (isNewPty) fitScheduler.invalidateResize();
       let replayWrite: Promise<void> | null = null;
@@ -487,11 +552,14 @@ export default function TerminalPane({
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
       attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData);
-      const sendToPty = (data: string) => {
+      const sendToPty = (rawData: string) => {
         if (!view.id) return;
+        // Armed phone Ctrl/Alt apply to the next input, typed or from the bar.
+        const data = applyTerminalModifiers(rawData, modifiers.take());
         view.localEcho?.onInput(data);
         window.mixdogDesktop.termWrite?.(view.id, data);
       };
+      view.sendInput = sendToPty;
       // ibus/Linux IME commits reach xterm's onData several times; the guard
       // sends each commit once and keeps xterm from re-reading it.
       const imeGuard = IS_LINUX && term.textarea ? new TerminalImeGuard(sendToPty, term.textarea) : null;
@@ -517,7 +585,15 @@ export default function TerminalPane({
         fitScheduler.schedule();
       }
       if (!observer) {
-        observer = new ResizeObserver(() => fitScheduler.schedule());
+        // A soft keyboard or sheet slide fires a burst of observations; fit
+        // (and the PTY resize it emits) once the layout has been quiet.
+        observer = new ResizeObserver(() => {
+          window.clearTimeout(fitDebounce);
+          fitDebounce = window.setTimeout(() => {
+            fitDebounce = 0;
+            fitScheduler.schedule();
+          }, FIT_DEBOUNCE_MS);
+        });
         observer.observe(container);
         const surface = container.parentElement;
         if (surface) observer.observe(surface);
@@ -580,6 +656,8 @@ export default function TerminalPane({
       }
       retryDelay = 1000;
       view.localEcho?.reset();
+      // The new connection holds none of this phone's size claims.
+      refit();
       attemptEnsure();
     };
     const onConnectionReattached = () => {
@@ -595,8 +673,11 @@ export default function TerminalPane({
       disposed = true;
       window.removeEventListener('mixdog:remote-reconnected', onRemoteReconnected);
       window.removeEventListener(CONNECTION_REATTACHED_EVENT, onConnectionReattached);
+      window.clearTimeout(fitDebounce);
       fitScheduler.dispose();
       if (fitSchedulerRef.current === fitScheduler) fitSchedulerRef.current = null;
+      if (view.refit === refit) view.refit = null;
+      view.sendInput = null;
       window.clearTimeout(revealTimer);
       window.clearTimeout(persistTimer);
       if (retryTimer) window.clearTimeout(retryTimer);
@@ -633,7 +714,34 @@ export default function TerminalPane({
     });
     return undefined;
   }, [active, key]);
+  const phoneLayout = useMobileRemoteSurface();
+  // While the phone shows this terminal its grid is the PTY's: renew the claim
+  // for the host's lease, and hand the size back (so the PC fits its own pane
+  // again) the moment the phone stops showing it.
+  useEffect(() => {
+    if (!active || !phoneLayout) return undefined;
+    const beat = window.setInterval(() => {
+      const view = terminalViews.get(key);
+      if (!view?.id) return;
+      // Renew with THIS phone's fitted grid: while it follows another phone
+      // its xterm holds that phone's size, but its own claim stays current so
+      // ownership can pass back to it.
+      const grid = view.fit.proposeDimensions() ?? view.term;
+      sendSizeOwnerHeartbeat(window.mixdogDesktop, view.id, grid.cols, grid.rows);
+    }, SIZE_OWNER_HEARTBEAT_MS);
+    return () => {
+      window.clearInterval(beat);
+      fitSchedulerRef.current?.invalidateResize();
+      const view = terminalViews.get(key);
+      if (view?.id) sendSizeOwnerRelease(window.mixdogDesktop, view.id);
+    };
+  }, [active, key, phoneLayout]);
   const serverLink = useConnectionLink();
+  const modifiers = terminalModifiers(key);
+  const sendBarKey = (barKey: TerminalBarKey) => {
+    const view = terminalViews.get(key);
+    view?.sendInput?.(terminalBarSequence(barKey, view.term.modes.applicationCursorKeysMode));
+  };
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop file target; the terminal surface is not a control
     <div
@@ -679,6 +787,7 @@ export default function TerminalPane({
           {t('Disconnected — reconnecting…')}
         </div>
       ) : null}
+      {phoneLayout && active ? <TerminalKeyBar modifiers={modifiers} onKey={sendBarKey} /> : null}
     </div>
   );
 }

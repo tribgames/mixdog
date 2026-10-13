@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSideFileGuard, sideFileDirtyKey } from './side-file-guard.ts';
 import { planSideFileOpen, sideFileKey } from './side-file-tabs.ts';
-import { sideEditorOptions } from './editor-side-options.ts';
+import { editorSurfaceOptions, sideEditorOptions } from './editor-side-options.ts';
 import { renderPaneProblemsView } from './app-shell-pane-problems.tsx';
 
 test('side-mode editor options: minimap, sticky scroll off; wrapped; shell-sized scrollbars', () => {
@@ -24,6 +24,30 @@ test('side-mode editor options: minimap, sticky scroll off; wrapped; shell-sized
   });
   assert.equal(sideEditorOptions(base, 'off').wordWrap, 'off', 'Alt+Z still overrides');
   assert.equal(base.minimap.enabled, true, 'main-tab options are not mutated');
+});
+
+test('phone layout main-tab editor: wrap on and minimap off; the PC keeps the settings', () => {
+  const base = {
+    minimap: { enabled: true, side: 'right' },
+    stickyScroll: { enabled: true },
+    wordWrap: 'off',
+    glyphMargin: true,
+  };
+  const phone = editorSurfaceOptions(base, null, { side: false, phone: true });
+  assert.equal(phone.minimap.enabled, false);
+  assert.equal(phone.minimap.side, 'right');
+  assert.equal(phone.wordWrap, 'on');
+  // Only wrap and the minimap change: the main-tab gutter stays.
+  assert.equal(phone.glyphMargin, true);
+  assert.equal(phone.stickyScroll.enabled, true);
+  assert.equal(editorSurfaceOptions(base, 'off', { side: false, phone: true }).wordWrap, 'off', 'Alt+Z overrides');
+  assert.equal(editorSurfaceOptions(base, null, { side: false, phone: false }), base, 'PC main tab unchanged');
+  assert.deepEqual(
+    editorSurfaceOptions(base, null, { side: true, phone: true }),
+    sideEditorOptions(base, null),
+    'a side-dock editor keeps the side set on the phone too'
+  );
+  assert.equal(base.minimap.enabled, true, 'options are not mutated');
 });
 
 test('a conversation pane never opens the MAIN bottom Problems panel (side files use their own split)', () => {
@@ -172,6 +196,19 @@ test('replacing a dirty preview tab confirms first; a clean one is replaced dire
   clean.guard.openFileInSideDock('L1', 'C:/p', 'b.ts');
   assert.deepEqual(clean.state.log, [['dock-open', 'L1', 'b.ts', undefined]]);
   assert.deepEqual(clean.state.requests, [{ preview: true }]);
+});
+
+test('a pinned open (phone Files-tree tap) opens a normal tab even under Link preview', () => {
+  const { guard, state } = harness({ sideFiles: { L1: preview('a.ts') }, linkPreview: true });
+  guard.openFileInSideDock('L1', 'C:/p', 'b.ts', undefined, undefined, undefined, undefined, true);
+  assert.deepEqual(state.requests, [{ preview: false }]);
+  assert.deepEqual(
+    state.sideFiles.L1.map((f) => [f.rel, Boolean(f.preview)]),
+    [
+      ['a.ts', true],
+      ['b.ts', false],
+    ]
+  );
 });
 
 test('a dirty normal tab is never asked about: a new file just adds a tab', () => {

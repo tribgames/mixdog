@@ -3,6 +3,7 @@
 import { clean, hasOwn } from './session-text.mjs';
 import { normalizeEffortInput, normalizeSavedEffort } from './effort.mjs';
 import { routeFastKey, fastPreferenceFor } from './model-capabilities.mjs';
+import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
 export const DEFAULT_MODEL = '';
@@ -53,6 +54,14 @@ function cleanContextPercent(value) {
   return Math.max(10, Math.min(100, Math.round(percent / 10) * 10));
 }
 
+/** The route's exact window in tokens: an explicit request, else none when a
+ *  percent is chosen instead, else the saved or preset selection. */
+function resolveContextTokens({ contextTokens, hasExplicitContextPercent, saved, preset = null }) {
+  if (contextTokens !== undefined) return normalizeContextTokens(contextTokens);
+  if (hasExplicitContextPercent) return undefined;
+  return normalizeContextTokens(saved.contextTokens ?? preset?.contextTokens);
+}
+
 /** The route's fast flag: an explicit request, else the saved choice, else the preset or the provider preference. */
 function resolveFast({ hasExplicitFast, explicitFast, saved, presetFast = false, preference }) {
   if (hasExplicitFast) return explicitFast;
@@ -71,7 +80,7 @@ function resolveAutoEffort({ autoEffort, saved, preset = null }) {
 export function makeResolveRoute(resolveDefaultProvider) {
   return function resolveRoute(
     config,
-    { provider, model, effort, fast, autoEffort, modelParameters, contextPercent } = {}
+    { provider, model, effort, fast, autoEffort, modelParameters, contextPercent, contextTokens } = {}
   ) {
     const explicitProvider = clean(provider);
     const explicitModel = clean(model);
@@ -81,6 +90,9 @@ export function makeResolveRoute(resolveDefaultProvider) {
     const explicitFast = fast === true;
     const hasExplicitModelParameters = modelParameters !== undefined;
     const hasExplicitContextPercent = contextPercent !== undefined;
+    // An exact token selection replaces a saved percent unless a percent is
+    // requested alongside it.
+    const keepsSavedPercent = contextTokens === undefined;
 
     if (!explicitProvider) {
       const preset = findPreset(config, explicitModel || config?.default);
@@ -89,6 +101,7 @@ export function makeResolveRoute(resolveDefaultProvider) {
         const m = clean(preset.model) || DEFAULT_MODEL;
         if (p && m) {
           const saved = modelSettingsFor(config, p, m);
+          const tokens = resolveContextTokens({ contextTokens, hasExplicitContextPercent, saved, preset });
           return {
             provider: p,
             model: m,
@@ -107,7 +120,10 @@ export function makeResolveRoute(resolveDefaultProvider) {
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
             contextPercent: hasExplicitContextPercent
               ? cleanContextPercent(contextPercent)
-              : cleanContextPercent(saved.contextPercent ?? preset.contextPercent),
+              : keepsSavedPercent
+                ? cleanContextPercent(saved.contextPercent ?? preset.contextPercent)
+                : undefined,
+            ...(tokens ? { contextTokens: tokens } : {}),
           };
         }
       }
@@ -116,6 +132,7 @@ export function makeResolveRoute(resolveDefaultProvider) {
     const p = explicitProvider || resolveDefaultProvider(config);
     const m = explicitModel || DEFAULT_MODEL;
     const saved = modelSettingsFor(config, p, m);
+    const tokens = resolveContextTokens({ contextTokens, hasExplicitContextPercent, saved });
     return {
       provider: p,
       model: m,
@@ -128,7 +145,10 @@ export function makeResolveRoute(resolveDefaultProvider) {
         : cleanModelParameters(saved.modelParameters),
       contextPercent: hasExplicitContextPercent
         ? cleanContextPercent(contextPercent)
-        : cleanContextPercent(saved.contextPercent),
+        : keepsSavedPercent
+          ? cleanContextPercent(saved.contextPercent)
+          : undefined,
+      ...(tokens ? { contextTokens: tokens } : {}),
     };
   };
 }

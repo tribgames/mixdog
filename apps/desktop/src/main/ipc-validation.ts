@@ -125,7 +125,13 @@ export function requiredVisualizeTabCommand(value: unknown): DesktopVisualizeTab
       !Array.isArray(targets) ||
       targets.length < 1 ||
       targets.length > 3 ||
-      targets.some((target) => typeof target !== 'string' || !target.trim() || target.length > 4096 || /^[a-z][a-z0-9+.-]*:\/\//i.test(target))
+      targets.some(
+        (target) =>
+          typeof target !== 'string' ||
+          !target.trim() ||
+          target.length > 4096 ||
+          /^[a-z][a-z0-9+.-]*:\/\//i.test(target)
+      )
     ) {
       throw new TypeError('visualize reopen targets must be 1-3 file paths.');
     }
@@ -211,7 +217,12 @@ export function requiredVisualizeCaptureRect(value: unknown): { x: number; y: nu
     }
     return number;
   };
-  return { x: coordinate('x', 0), y: coordinate('y', 0), width: coordinate('width', 1), height: coordinate('height', 1) };
+  return {
+    x: coordinate('x', 0),
+    y: coordinate('y', 0),
+    width: coordinate('width', 1),
+    height: coordinate('height', 1),
+  };
 }
 
 const MAX_PROMPT_LENGTH = 1_000_000;
@@ -247,7 +258,16 @@ const SUBMIT_OPTION_KEYS = new Set([
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
-const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'autoEffort', 'modelParameters', 'contextPercent']);
+const MODEL_SELECTION_KEYS = new Set([
+  'provider',
+  'model',
+  'effort',
+  'fast',
+  'autoEffort',
+  'modelParameters',
+  'contextPercent',
+  'contextTokens',
+]);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
@@ -370,6 +390,9 @@ const CAPABILITY_ARITY = {
   getTurnReviewDiff: [0, 1],
   revertTurnReview: [0, 1],
   revertTurnReviewFile: [1, 2],
+  getTurnChanges: [1, 1],
+  revertTurnChanges: [3, 3],
+  reapplyTurnChanges: [3, 3],
   getOnboardingStatus: [0, 0],
   skipOnboarding: [0, 0],
   completeOnboarding: [0, 1],
@@ -1060,6 +1083,27 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
       throw new TypeError('turn review options are invalid.');
     }
   }
+  if (capability === 'getTurnChanges') {
+    // `{ checkpointId, patch?, file? }`: one turn's recorded changes.
+    const options =
+      args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
+    if (!options) throw new TypeError('turn changes options are invalid.');
+    requiredString(options.checkpointId, 'checkpointId', 512);
+    for (const [key, option] of Object.entries(options)) {
+      if (key === 'checkpointId') continue;
+      if (key === 'patch' && typeof option === 'boolean') continue;
+      if (key === 'file' && typeof option === 'string' && option.length <= 4_096) continue;
+      throw new TypeError('turn changes options are invalid.');
+    }
+  }
+  if (capability === 'revertTurnChanges' || capability === 'reapplyTurnChanges') {
+    // `[checkpointId, file | null, revision]`.
+    requiredString(args[0], 'checkpointId', 512);
+    if (args[1] !== null) requiredString(args[1], 'file', 4_096);
+    if (typeof args[2] !== 'number' || !Number.isSafeInteger(args[2]) || args[2] < 0) {
+      throw new TypeError('revision must be a non-negative integer.');
+    }
+  }
   if (capability === 'getProviderSetup' && args[0] !== undefined) {
     const options =
       args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
@@ -1103,6 +1147,13 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   const autoEffort = selection.autoEffort;
   const modelParameters = selection.modelParameters;
   const contextPercent = selection.contextPercent;
+  const contextTokens = selection.contextTokens;
+  if (
+    contextTokens !== undefined &&
+    (typeof contextTokens !== 'number' || !Number.isSafeInteger(contextTokens) || contextTokens < 1)
+  ) {
+    throw new TypeError('selection.contextTokens must be a positive integer.');
+  }
   if (effort !== undefined && typeof effort !== 'string') {
     throw new TypeError('selection.effort must be a string.');
   }
@@ -1139,6 +1190,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
     ...(autoEffort === undefined ? {} : { autoEffort }),
     ...(modelParameters === undefined ? {} : { modelParameters: { ...(modelParameters as Record<string, string>) } }),
     ...(contextPercent === undefined ? {} : { contextPercent }),
+    ...(contextTokens === undefined ? {} : { contextTokens }),
   };
 }
 

@@ -84,8 +84,7 @@ type MarkdownOpenFile = (
 ) => void;
 export const MarkdownOpenFileContext = createContext<MarkdownOpenFile | null>(null);
 /** Reveals a Project folder in the conversation pane's side-dock Files tree;
- *  absent where there is no dock (phone/remote), so folders keep the OS file
- *  manager. */
+ *  absent where there is no dock, so folders keep the OS file manager. */
 export const MarkdownOpenFolderContext = createContext<((project: string, rel: string) => void) | null>(null);
 
 /** A directory the dock can reveal: a trailing separator names one, an

@@ -6,6 +6,7 @@ import { hasOwn } from '../../runtime/agent/orchestrator/runtime-core/session-te
 import { toolSpecForMode } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { pluginDataDir } from '../runtime-paths.mjs';
 import { LEAD_DISALLOWED_TOOLS } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
+import { HEADLESS_TOOL_PROFILE } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 
 // Ownership and permission fields an agent-owned session inherits from its profile.
 function agentOwnedSessionFields(sessionProfile) {
@@ -47,7 +48,13 @@ export function sessionOptions(deps, coreMemoryContext) {
     owner: agentOwned ? 'agent' : 'cli',
     agent: agentOwned ? sessionProfile?.agent || 'worker' : 'lead',
     lane: agentOwned ? 'agent' : 'cli',
-    sourceType: agentOwned ? sessionProfile?.sourceType || 'agent' : 'lead',
+    // One-shot `mixdog exec` runs carry their own source so session catalogs
+    // can keep them out of the user's resumable list.
+    sourceType: agentOwned
+      ? sessionProfile?.sourceType || 'agent'
+      : rt.toolProfile === HEADLESS_TOOL_PROFILE
+        ? 'exec'
+        : 'lead',
     sourceName: agentOwned ? sessionProfile?.sourceName || sessionProfile?.agent || 'agent' : 'main',
     ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
     clientHostPid: sessionProfile?.clientHostPid || process.pid,
@@ -67,6 +74,7 @@ export function sessionOptions(deps, coreMemoryContext) {
     autoEffort: rt.route.autoEffort !== false,
     modelParameters: rt.route.modelParameters || {},
     contextPercent: rt.route.contextPercent,
+    contextTokens: rt.route.contextTokens || null,
     selectedContextWindow: rt.route.selectedContextWindow || null,
     compaction:
       rt.config.compaction && typeof rt.config.compaction === 'object'

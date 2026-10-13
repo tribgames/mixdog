@@ -77,6 +77,7 @@ export function prepareAgentSession({
   sessionId,
   mcpScopeId,
   contextPercent,
+  contextTokens,
   selectedContextWindow,
 }) {
   const effectivePermission = resolveAgentSessionPermission(agent, permission);
@@ -115,6 +116,7 @@ export function prepareAgentSession({
     mcpScopeId: mcpScopeId || null,
   };
   if (contextPercent) sessionOpts.contextPercent = contextPercent;
+  if (contextTokens) sessionOpts.contextTokens = contextTokens;
   if (selectedContextWindow) sessionOpts.selectedContextWindow = selectedContextWindow;
   if (agentTag) sessionOpts.agentTag = agentTag;
   if (effectivePermission) sessionOpts.permission = effectivePermission;

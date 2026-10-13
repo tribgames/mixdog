@@ -1,5 +1,5 @@
 import { Check, Plus, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
@@ -29,6 +29,23 @@ function providerSetupEntries(value: unknown): Array<RecordValue & { group: 'api
       ? entries.map(record).map((entry) => ({ ...entry, group }) as RecordValue & { group: typeof group })
       : [];
   });
+}
+
+/** Resolve generated provider ids to their setup names. */
+export function customProviderDisplayNames(providerSetup: unknown): Record<string, string> {
+  if (providerSetup == null) return {};
+  const names: Record<string, string> = {};
+  for (const entry of providerSetupEntries(providerSetup)) {
+    const id = String(entry.id || entry.provider || '').trim();
+    const name = String(entry.name || entry.label || '').trim();
+    if (id && name) names[id] = name;
+  }
+  return names;
+}
+
+/** Setup names apply only to custom providers; built-ins keep curated labels. */
+export function resolveProviderDisplayName(id: string, providerNames?: Record<string, string>): string {
+  return (id.startsWith('custom-') && providerNames?.[id]) || providerDisplayName(id);
 }
 
 export function filterConfiguredModels(
@@ -99,6 +116,7 @@ export function ModelCatalog({
   models,
   provider,
   model,
+  providerNames,
   active = true,
   catalogLoaded = true,
   catalogRefreshing = false,
@@ -111,6 +129,8 @@ export function ModelCatalog({
   models: DesktopModelOption[];
   provider: string;
   model: string;
+  /** Setup-derived display names (custom providers), keyed by provider id. */
+  providerNames?: Record<string, string>;
   active?: boolean;
   catalogLoaded?: boolean;
   catalogRefreshing?: boolean;
@@ -148,6 +168,10 @@ export function ModelCatalog({
     if (active && modelList.current) modelList.current.scrollTop = 0;
   }, [active, query]);
 
+  const resolveProviderLabel = useCallback(
+    (id: string) => resolveProviderDisplayName(id, providerNames),
+    [providerNames]
+  );
   const providerEntries = useMemo(() => {
     const entries = new Map<string, DesktopModelOption[]>();
     for (const option of models) {
@@ -158,14 +182,14 @@ export function ModelCatalog({
     return [...entries].sort(
       ([left], [right]) =>
         providerDisplayRank(left) - providerDisplayRank(right) ||
-        providerDisplayName(left).localeCompare(providerDisplayName(right)) ||
+        resolveProviderLabel(left).localeCompare(resolveProviderLabel(right)) ||
         left.localeCompare(right)
     );
-  }, [models]);
+  }, [models, resolveProviderLabel]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matchesQuery = (option: DesktopModelOption) =>
     !normalizedQuery ||
-    `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)} ${modelOptionDescription(option)}`
+    `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)} ${modelOptionDescription(option)} ${resolveProviderLabel(option.provider)}`
       .toLocaleLowerCase()
       .includes(normalizedQuery);
   const visibleProviderEntries = providerEntries
@@ -270,7 +294,7 @@ export function ModelCatalog({
             <strong>
               {modelDisplayName(option.model, option.provider, option.display)}
               {scope === 'recent:' && (
-                <span className="model-row-source">{` (${providerDisplayName(option.provider)})`}</span>
+                <span className="model-row-source">{` (${resolveProviderLabel(option.provider)})`}</span>
               )}
             </strong>
           </span>
@@ -363,7 +387,7 @@ export function ModelCatalog({
                   <h3>
                     <span className="model-provider-heading">
                       <ProviderIcon provider={entryProvider} />
-                      <span>{providerDisplayName(entryProvider)}</span>
+                      <span>{resolveProviderLabel(entryProvider)}</span>
                     </span>
                   </h3>
                   <div className="model-items">{options.map((option) => renderModelOption(option))}</div>

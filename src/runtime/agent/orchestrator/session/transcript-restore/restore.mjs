@@ -49,12 +49,16 @@ function restoredTranscriptMetadata(message) {
   if (completionValue && completionStatus && Number.isFinite(completionElapsedMs)) {
     completion = { status: completionStatus, elapsedMs: Math.max(0, completionElapsedMs) };
     if (typeof completionValue.verb === 'string' && completionValue.verb) completion.verb = completionValue.verb;
+    if (typeof completionValue.checkpointId === 'string' && completionValue.checkpointId) {
+      completion.checkpointId = completionValue.checkpointId;
+    }
   }
   return {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
     ...(completion ? { completion } : {}),
   };
 }

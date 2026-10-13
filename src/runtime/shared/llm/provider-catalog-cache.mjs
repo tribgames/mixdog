@@ -2,19 +2,29 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { ANTIGRAVITY_MODELS, ANTIGRAVITY_PRICING_ALIASES, normalizeGrokModelId } from './provider-model-identities.mjs';
+import { providerRosterFiles, rosterProviders } from './provider-catalog-registry.mjs';
 
-const PROVIDER_CACHE_FILES = Object.freeze({
-  'openai-oauth': ['openai-oauth-models.json'],
-  'anthropic-oauth': ['anthropic-oauth-models.json'],
-  anthropic: ['anthropic-oauth-models.json'],
-  gemini: ['gemini-models.json'],
-  'grok-oauth': ['grok-oauth-models.json'],
-  'antigravity-oauth': ['antigravity-oauth-models.json'],
-});
+/** A declared capability keeps its boolean; an undeclared one stays undefined,
+ *  so lower layers (catalogs, seeds) fill only what no source stated. */
+export function capabilityFlag(value) {
+  return typeof value === 'boolean' ? value : undefined;
+}
 
-export function providerUsesEndpointScopedLimits(provider) {
-  const p = String(provider || '').toLowerCase();
-  return p === 'openai-oauth' || p === 'anthropic-oauth' || p === 'grok-oauth';
+/** Provider roster rows coerce "unknown" to `false` (`x === true`), so only a
+ *  `true` there is a declaration; `false` leaves the field to catalogs/seeds. */
+export function rosterCapabilityFlag(value) {
+  return value === true ? true : undefined;
+}
+
+/** A roster row's effort ladder: `reasoningOptions` when it carries an effort
+ *  entry, else the flat `reasoningLevels` some rosters store (Antigravity). */
+export function rosterReasoningOptions(row) {
+  const options = Array.isArray(row?.reasoningOptions) ? row.reasoningOptions : [];
+  // An effort entry with no values declares nothing.
+  const usable = options.filter((o) => o?.type !== 'effort' || (Array.isArray(o.values) && o.values.length > 0));
+  if (usable.some((o) => o?.type === 'effort')) return usable;
+  const levels = Array.isArray(row?.reasoningLevels) ? row.reasoningLevels.filter((v) => typeof v === 'string') : [];
+  return levels.length ? [...usable, { type: 'effort', values: levels }] : usable;
 }
 
 function num(value) {
@@ -34,8 +44,7 @@ function readModelsFromCacheFile(fileName) {
 }
 
 export function providerCachedModelsSync(provider) {
-  const p = String(provider || '').toLowerCase();
-  const files = PROVIDER_CACHE_FILES[p] || [];
+  const files = providerRosterFiles(provider);
   const rows = [];
   const seen = new Set();
   for (const fileName of files) {
@@ -50,11 +59,7 @@ export function providerCachedModelsSync(provider) {
 }
 
 export function cachedProviderModelListsSync() {
-  return Object.fromEntries(
-    Object.keys(PROVIDER_CACHE_FILES)
-      .filter((provider) => provider !== 'anthropic')
-      .map((provider) => [provider, providerCachedModelsSync(provider)])
-  );
+  return Object.fromEntries(rosterProviders().map((provider) => [provider, providerCachedModelsSync(provider)]));
 }
 
 /** Only explicit catalog wire mappings establish an alias. Never strip an
@@ -86,8 +91,7 @@ function rowId(row) {
 }
 
 function getProviderCachedModelSync(provider, model) {
-  const p = String(provider || '').toLowerCase();
-  const files = PROVIDER_CACHE_FILES[p] || [];
+  const files = providerRosterFiles(provider);
   if (!files.length || !model) return null;
   const aliases = new Set(modelAliases(model));
   for (const fileName of files) {
@@ -101,9 +105,13 @@ function getProviderCachedModelSync(provider, model) {
 }
 
 export function providerCachedModelMetadataSync(provider, model) {
-  const p = String(provider || '').toLowerCase();
   const row = getProviderCachedModelSync(provider, model);
-  if (!row) return null;
+  return row ? rosterRowMetadata(provider, row) : null;
+}
+
+/** Metadata layer of one live-roster row (cached or just listed). */
+export function rosterRowMetadata(provider, row) {
+  const p = String(provider || '').toLowerCase();
   return {
     contextWindow: num(
       row.contextWindow ?? row.context_window ?? row.maxContextWindow ?? row.max_context_window ?? row.max_input_tokens
@@ -115,12 +123,12 @@ export function providerCachedModelMetadataSync(provider, model) {
       p === 'grok-oauth'
         ? null
         : num(row.outputTokens ?? row.maxOutputTokens ?? row.max_output_tokens ?? row.output_token_limit),
-    supportsVision: row.supportsVision === true,
-    supportsFunctionCalling: row.supportsFunctionCalling === true,
-    supportsWebSearch: row.supportsWebSearch === true,
-    supportsPromptCaching: row.supportsPromptCaching === true,
-    supportsReasoning: row.supportsReasoning === true,
-    reasoningOptions: Array.isArray(row.reasoningOptions) ? row.reasoningOptions : [],
+    supportsVision: rosterCapabilityFlag(row.supportsVision),
+    supportsFunctionCalling: rosterCapabilityFlag(row.supportsFunctionCalling),
+    supportsWebSearch: rosterCapabilityFlag(row.supportsWebSearch),
+    supportsPromptCaching: rosterCapabilityFlag(row.supportsPromptCaching),
+    supportsReasoning: rosterCapabilityFlag(row.supportsReasoning),
+    reasoningOptions: rosterReasoningOptions(row),
     reasoningContentField: row.reasoningContentField || null,
     mode: row.mode || null,
     displayName: row.displayName || row.display || row.name || null,

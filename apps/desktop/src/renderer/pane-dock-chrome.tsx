@@ -18,6 +18,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { commitImmediateOverlay } from './immediate-overlay';
 import './tab-strip.css';
 
@@ -243,14 +244,7 @@ export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
       </button>
       {open &&
         createPortal(
-          <div
-            ref={menu}
-            className="dock-header-menu"
-            role="menu"
-            aria-label={t('More actions')}
-            data-dock-menu-owner=""
-            style={placement}
-          >
+          <div ref={menu} className="dock-header-menu" role="menu" aria-label={t('More actions')} style={placement}>
             {items.map((item) => {
               const Glyph = item.icon;
               let glyph: ReactNode = null;
@@ -316,7 +310,11 @@ export function DockHeaderRow({
   className?: string;
 }) {
   const dockExpand = useContext(PaneDockExpandContext);
-  const toggleExpanded = onToggleExpanded ?? dockExpand?.toggle;
+  // The phone sheet is already full-screen: expanding would only lift the
+  // header out of the sheet (fixed, over the transformed frame) and leave the
+  // body behind it.
+  const phone = useMobileRemoteSurface();
+  const toggleExpanded = phone ? undefined : (onToggleExpanded ?? dockExpand?.toggle);
   const isExpanded = onToggleExpanded ? expanded : (dockExpand?.expanded ?? expanded);
   const { inline, menu } = splitDockActions(actions);
   const closeText = closeLabel ?? t('Close panel');
@@ -346,7 +344,9 @@ export function DockHeaderRow({
               onClick={action.onSelect}
             >
               {Glyph ? <Glyph size={15} aria-hidden={true} /> : <span>{action.label}</span>}
-              {action.badge ? <span className="dock-action-badge">{action.badge > 99 ? '99+' : action.badge}</span> : null}
+              {action.badge ? (
+                <span className="dock-action-badge">{action.badge > 99 ? '99+' : action.badge}</span>
+              ) : null}
             </button>
           );
         })}

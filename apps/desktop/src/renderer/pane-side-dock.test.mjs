@@ -391,6 +391,93 @@ test('the side file header offers Open in main tab', async () => {
   }
 });
 
+test('phone sheet header keeps the dock toggles and a Files toggle while the editor shows', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
+  });
+  Object.defineProperty(dom.window.navigator, 'userAgent', {
+    configurable: true,
+    get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile',
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  const calls = [];
+  const Icon = () => React.createElement('span');
+  const descriptors = new Map([
+    ['session-diff', { id: 'session-diff', label: 'Changes', icon: Icon }],
+    ['terminal', { id: 'terminal', label: 'Terminal', icon: Icon }],
+  ]);
+  const root = createRoot(document.getElementById('root'));
+  const render = (entry) =>
+    act(async () =>
+      root.render(
+        React.createElement(PaneSideDock, {
+          leafId: 'pane-1',
+          groups: [['session-diff'], ['terminal']],
+          descriptors,
+          focused: true,
+          sessionBound: true,
+          onOpenFiles: () => calls.push(['files']),
+          onSelect: (id) => calls.push(['select', id]),
+          onClose: () => calls.push(['fold']),
+          onCloseDiff() {},
+          onCloseFile: () => calls.push(['close-file']),
+          onMoveGroup() {},
+          onMoveView() {},
+          onFocusPane() {},
+          openFileTab() {},
+          renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
+          renderView: () => null,
+          entry,
+        })
+      )
+    );
+  try {
+    await render(withPaneDockFileOpened(closed('session-diff'), fileLink, 1, { now: 2 }));
+    const header = document.querySelector('.pane-side-dock-header');
+    assert.ok(header, 'the phone sheet draws its own header');
+    assert.equal(header.querySelector('.pane-side-dock-title')?.textContent, 'File');
+    const toggles = [...header.querySelectorAll('.pane-dock-toggles .pane-dock-toggle')];
+    assert.deepEqual(
+      toggles.map((button) => button.getAttribute('aria-label')),
+      ['Files', 'Changes', 'Terminal']
+    );
+    // No child is pressed while the editor shows; any toggle switches to it.
+    assert.deepEqual(
+      toggles.map((button) => button.getAttribute('aria-pressed')),
+      ['false', 'false', 'false']
+    );
+    await act(async () => toggles[1].click());
+    await act(async () => toggles[0].click());
+    assert.deepEqual(calls, [['select', 'session-diff'], ['files']]);
+    // The header X closes the showing file through the guarded path.
+    await act(async () => header.querySelector('.pane-side-dock-close').click());
+    assert.deepEqual(calls.at(-1), ['close-file']);
+
+    // The Files tree showing: its toggle is pressed and folds the unit.
+    calls.length = 0;
+    await render({
+      open: true,
+      view: 'session-diff',
+      surface: 'files',
+      folder: { project: 'C:/p', rel: '', nonce: 1 },
+      diff: null,
+    });
+    const filesToggle = document.querySelector('.pane-side-dock-header .pane-dock-toggle[aria-label="Files"]');
+    assert.equal(filesToggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(document.querySelector('.pane-side-dock-header .pane-side-dock-title')?.textContent, 'Files');
+    await act(async () => filesToggle.click());
+    assert.deepEqual(calls, [['fold']]);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('file tabs: select, double-click keeps a preview, close and the menu act per tab', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',

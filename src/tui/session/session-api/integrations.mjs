@@ -61,6 +61,23 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
         checkpointId
       );
     },
+    getTurnChanges: async (options = {}) => {
+      return await requireRuntimeMethod('getTurnChanges', 'Turn changes are unavailable')(options);
+    },
+    revertTurnChanges: async (checkpointId, file, revision) => {
+      return await requireRuntimeMethod('revertTurnChanges', 'Turn changes undo is unavailable')(
+        checkpointId,
+        file,
+        revision
+      );
+    },
+    reapplyTurnChanges: async (checkpointId, file, revision) => {
+      return await requireRuntimeMethod('reapplyTurnChanges', 'Turn changes reapply is unavailable')(
+        checkpointId,
+        file,
+        revision
+      );
+    },
     getOnboardingStatus: () => {
       return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };
     },

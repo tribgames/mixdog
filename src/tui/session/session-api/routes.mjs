@@ -9,7 +9,16 @@ import { createApiHelpers } from './shared.mjs';
 // published before the runtime write settles. What is NOT previewed about the
 // route (effort options, Fast capability, context window) is provider
 // metadata the runtime resolves while the preview is already on screen.
-const ROUTE_PREVIEW_KEYS = ['provider', 'model', 'effort', 'fast', 'autoEffort', 'modelParameters', 'contextPercent'];
+const ROUTE_PREVIEW_KEYS = [
+  'provider',
+  'model',
+  'effort',
+  'fast',
+  'autoEffort',
+  'modelParameters',
+  'contextPercent',
+  'contextTokens',
+];
 
 /**
  * The patch that publishes a requested route before the runtime write settles.

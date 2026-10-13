@@ -83,8 +83,9 @@ export function normalizeModels(models) {
       name: isCursorAutoModelId(rawId)
         ? 'Auto'
         : model.displayName || model.displayNameShort || model.displayModelId || aliases[0] || id,
+      // GetUsableModels publishes no window; the provider default applies
+      // after any described window instead of a seeded constant.
       reasoning: Boolean(model.thinkingDetails),
-      contextWindow: 200_000,
     });
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));

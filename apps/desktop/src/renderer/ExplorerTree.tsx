@@ -64,6 +64,13 @@ const DRAG_EXPAND_DELAY_MS = 500;
 
 export { SetiFileIcon };
 
+/** How a file row's single click opens the file: a touch tap pins it (touch
+ *  has no double-click to pin with), any other pointer opens the preview tab
+ *  and a double-click pins it. */
+function explorerOpenMode(pointerType: string | undefined): 'preview' | 'pinned' {
+  return pointerType === 'touch' ? 'pinned' : 'preview';
+}
+
 /** Right-click command surface. The row menu and the background menu are one
  *  portal over a single command set, so the whole surface lives beside the
  *  pane instead of inside it; the pane only owns where it is anchored. */
@@ -185,8 +192,9 @@ function explorerContextMenu({
           {!remote &&
             !multi &&
             !menu.isDir &&
-            item(serverWindow ? 'Download to this PC and open' : 'Open in default app', () =>
-              void openEditorFileExternally(projectPath, menu.rel)
+            item(
+              serverWindow ? 'Download to this PC and open' : 'Open in default app',
+              () => void openEditorFileExternally(projectPath, menu.rel)
             )}
           {!multi && menu.isDir && item('New file…', () => beginCreate(false, menu.rel))}
           {!multi && menu.isDir && item('New folder…', () => beginCreate(true, menu.rel))}
@@ -199,9 +207,13 @@ function explorerContextMenu({
             !serverWindow &&
             !multi &&
             item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, menu.rel))}
-          {item(serverWindow ? 'Copy server path' : 'Copy path', () => void copyTextToClipboard(copyRels.map(absOf).join('\n')), {
-            hint: 'Shift+Alt+C',
-          })}
+          {item(
+            serverWindow ? 'Copy server path' : 'Copy path',
+            () => void copyTextToClipboard(copyRels.map(absOf).join('\n')),
+            {
+              hint: 'Shift+Alt+C',
+            }
+          )}
           {item('Copy relative path', () => void copyTextToClipboard(copyRels.join('\n')))}
           {sep('row-path')}
           {!multi && item('Rename…', () => beginRename(menu.rel, menu.name, menu.isDir), { hint: 'F2' })}
@@ -916,7 +928,9 @@ export const FilesRootPane = memo(function FilesRootPane({
           }
           selectOnly(row.rel);
           if (row.dir) toggle(row.rel);
-          else openFile(row.rel, 'preview');
+          // A touch tap has no double-click to pin with, so it opens the file
+          // pinned; a mouse click keeps the PC preview-then-pin behavior.
+          else openFile(row.rel, explorerOpenMode((event.nativeEvent as Partial<PointerEvent>).pointerType));
         }}
         onDoubleClick={row.dir ? undefined : () => openFile(row.rel, 'pinned')}
         onContextMenu={(event) => {

@@ -55,39 +55,52 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
     const ws = await ctx.connect();
     return await new Promise<T>((resolve, reject) => {
       const id = ctx.nextId++;
-      const deadline = armRemoteCallDeadline(ctx.pending, id, reject, ctx.wakeProbe);
+      // Bounded send phase: a frame that cannot leave this page in time (a
+      // stalled handshake, a re-keying leg) fails the call and wakes the
+      // liveness probe, so recovery never waits on a send that never ends.
+      let cancelDeadline = armRemoteCallDeadline(ctx.pending, id, reject, ctx.wakeProbe);
       ctx.pending.set(id, {
         resolve: (value: unknown) => {
-          window.clearTimeout(deadline);
+          cancelDeadline();
           (resolve as (value: unknown) => void)(value);
         },
         reject: (reason: Error) => {
-          window.clearTimeout(deadline);
+          cancelDeadline();
           reject(reason);
         },
       });
-      void sendApplicationFrame(ws, { id, method, params }).catch((error) => {
-        ctx.pending.delete(id);
-        const failure = error instanceof Error ? error : new Error(String(error));
-        window.clearTimeout(deadline);
-        // The socket was handed out before its handshake finished — or it is
-        // already closed. Nothing was sent on it, and a socket re-keying in
-        // place after a desktop redial must not be closed for this: the call
-        // fails as interrupted and the connection recovers on its own.
-        if (ctx.socket !== ws || !ctx.connectionReady) {
-          reject(remoteConnectionInterruptedError());
-          return;
+      // Once the frame is sent the network deadline restarts: on a busy
+      // phone the ordered encryption queue alone used most of it, failing
+      // reads the desktop then answered in milliseconds.
+      void sendApplicationFrame(ws, { id, method, params }).then(
+        () => {
+          if (!ctx.pending.has(id)) return;
+          cancelDeadline();
+          cancelDeadline = armRemoteCallDeadline(ctx.pending, id, reject, ctx.wakeProbe);
+        },
+        (error) => {
+          cancelDeadline();
+          if (!ctx.pending.delete(id)) return;
+          const failure = error instanceof Error ? error : new Error(String(error));
+          // The socket was handed out before its handshake finished — or it is
+          // already closed. Nothing was sent on it, and a socket re-keying in
+          // place after a desktop redial must not be closed for this: the call
+          // fails as interrupted and the connection recovers on its own.
+          if (ctx.socket !== ws || !ctx.connectionReady) {
+            reject(remoteConnectionInterruptedError());
+            return;
+          }
+          reject(failure);
+          // A payload this leg refused to send is a bad request, not a broken
+          // socket: every other call on it stays alive.
+          if ((failure as { code?: string }).code === RELAY_PAYLOAD_TOO_LARGE_CODE) return;
+          try {
+            ws.close();
+          } catch {
+            /* reconnect loop handles it */
+          }
         }
-        reject(failure);
-        // A payload this leg refused to send is a bad request, not a broken
-        // socket: every other call on it stays alive.
-        if ((failure as { code?: string }).code === RELAY_PAYLOAD_TOO_LARGE_CODE) return;
-        try {
-          ws.close();
-        } catch {
-          /* reconnect loop handles it */
-        }
-      });
+      );
     });
   };
 

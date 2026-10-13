@@ -330,7 +330,7 @@ test('relay: /app is a parameterless install page, never the web client or an ap
       assert.doesNotMatch(html, /<a[^>]+href="[^"]*\/d\//);
     }
     const raw = await (await fetch(`${origin}/app`)).text();
-    assert.match(raw, /<h1 id="heading">Install Mixdog<\/h1>/);
+    assert.match(raw, /<h1 class="mxp-title" id="heading">Install Mixdog<\/h1>/);
     assert.match(raw, /<a[^>]+href="https:\/\/testflight\.apple\.com\/join\/UNPBM2hU"[^>]*>Get it for iPhone<\/a>/);
     assert.match(raw, /<a[^>]+href="[^"]*releases[^"]*"[^>]*>Get it for Android<\/a>/);
     assert.equal((await fetch(`${origin}/app`, { method: 'POST' })).status, 405);

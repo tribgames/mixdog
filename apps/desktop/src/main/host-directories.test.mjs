@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { HOST_DIRECTORY_LIST_LIMIT, listServerDirectories, validatedHostDirectoryPath } from './host-directories.ts';
+import {
+  HOST_DIRECTORY_LIST_LIMIT,
+  listHostDirectories,
+  listServerDirectories,
+  validatedHostDirectoryPath,
+} from './host-directories.ts';
 
 test('server listing: home by default, absolute paths only, git roots marked, hidden folders opt-in', async () => {
   const home = await listServerDirectories('');
@@ -62,4 +67,37 @@ test('path validation: empty is home; relative, NUL, device and non-string paths
   assert.throws(() => validatedHostDirectoryPath('\\\\.\\PhysicalDrive0'), /invalid/);
   assert.throws(() => validatedHostDirectoryPath('/'.repeat(40_000)), /too long/);
   assert.equal(validatedHostDirectoryPath(tmpdir()), tmpdir());
+});
+
+test('listing returns sorted directories only, never files, with a canonical path', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'host-dirs-'));
+  try {
+    await mkdir(join(root, 'beta'));
+    await mkdir(join(root, 'alpha'));
+    await mkdir(join(root, '.hidden'));
+    await writeFile(join(root, 'secret.txt'), 'x');
+    const listing = await listHostDirectories(root);
+    assert.equal(listing.path, await realpath(root));
+    assert.deepEqual(listing.folders, ['.hidden', 'alpha', 'beta']);
+    assert.equal(listing.truncated, false);
+    assert.ok(!JSON.stringify(listing).includes('secret.txt'));
+    await assert.rejects(listHostDirectories(join(root, 'secret.txt')), /not a directory/);
+    await assert.rejects(listHostDirectories(join(root, 'missing')));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('listing caps the entry count and reports truncation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'host-dirs-cap-'));
+  try {
+    for (let index = 0; index < HOST_DIRECTORY_LIST_LIMIT + 5; index += 1) {
+      await mkdir(join(root, `d${String(index).padStart(5, '0')}`));
+    }
+    const listing = await listHostDirectories(root);
+    assert.equal(listing.folders.length, HOST_DIRECTORY_LIST_LIMIT);
+    assert.equal(listing.truncated, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -234,6 +234,7 @@ export type ComposerProps = {
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
+  contextTokens?: number;
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
@@ -291,6 +292,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     autoEffort,
     modelParameters,
     contextPercent,
+    contextTokens,
     draftMode,
     onDraftModelSelection,
     onRoutePreferenceApplied,
@@ -821,6 +823,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           autoEffort={autoEffort}
           modelParameters={modelParameters}
           contextPercent={contextPercent}
+          contextTokens={contextTokens}
           sessionId={sessionId}
           invokeResult={invokeResult}
           applySnapshot={applySnapshot}

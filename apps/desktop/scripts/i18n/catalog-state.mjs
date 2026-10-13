@@ -46,11 +46,20 @@ export function neutralAllowlist() {
 
 // Both classic-script environments use generated code from the typed owner:
 // no independent Chinese-script or preference rules to drift between surfaces.
-export function languageRuntime() {
-  const source = readFileSync(new URL('../../src/shared/ui-language.ts', import.meta.url), 'utf8');
+function classicRuntime(file) {
+  const source = readFileSync(new URL(`../../src/shared/${file}`, import.meta.url), 'utf8');
   return ts.transpileModule(source.replace(/^export /gm, ''), {
     compilerOptions: { target: ts.ScriptTarget.ES2019, module: ts.ModuleKind.None },
   }).outputText;
+}
+
+export function languageRuntime() {
+  return classicRuntime('ui-language.ts');
+}
+
+/** The phone/tablet classifier mobile-surface.ts uses, for the boot script. */
+export function surfaceRuntime() {
+  return classicRuntime('surface-class.ts');
 }
 
 export function supportedLanguages() {

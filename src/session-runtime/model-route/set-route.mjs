@@ -55,12 +55,23 @@ async function resolveSelectedRoute(deps, next) {
     selectedRoute.effort,
     selectedRoute.modelParameters
   );
+  const contextState = resolveRouteContextState(selectedRoute, modelMeta);
+  // An exact selection is saved clamped, and not at all when it is the
+  // default window; an unknown window keeps it as requested.
+  const contextTokens =
+    contextState.contextDefaultPercent === undefined ? selectedRoute.contextTokens : contextState.contextTokens;
+  const { contextTokens: requestedTokens, ...routeFields } = selectedRoute;
+  // Tokens that land on the default window select the default, whatever
+  // percent travelled with them.
+  const tokensAtDefault = requestedTokens && !contextTokens && contextState.contextDefaultPercent !== undefined;
   return {
     selectedRoute: {
-      ...selectedRoute,
+      ...routeFields,
+      ...(tokensAtDefault ? { contextPercent: contextState.contextDefaultPercent } : {}),
       fast: fastCapable ? selectedRoute.fast === true : false,
       // Lets the saved model settings tell a chosen window from the default.
-      contextDefaultPercent: resolveRouteContextState(selectedRoute, modelMeta).contextDefaultPercent,
+      contextDefaultPercent: contextState.contextDefaultPercent,
+      ...(contextTokens ? { contextTokens } : {}),
     },
     fastCapable,
     modelMeta,
@@ -96,6 +107,7 @@ function updateSessionInPlace(deps, session, updateOptions) {
     effort: route.effectiveEffort || null,
     modelParameters: route.modelParameters || {},
     contextPercent: route.contextPercent,
+    contextTokens: route.contextTokens || null,
     selectedContextWindow: route.selectedContextWindow || null,
   };
   const updated = mgr.updateSessionRoute?.(session.id, fields, updateOptions);

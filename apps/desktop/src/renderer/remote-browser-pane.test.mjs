@@ -571,6 +571,118 @@ test('a host without the tab members keeps the single-stream pane', async () => 
   }
 });
 
+test('a chat link opened before and while the pane is mounted navigates the host page', async () => {
+  const state = fakeApi();
+  const { requestBrowserPage } = await import('./browser-page-request.ts');
+  const url = 'https://github.com/tribgames/mixdog/issues/new?title=x';
+  // The tap reveals the pane in the same press: the address arrives first.
+  requestBrowserPage('link-session', url);
+  const pane = await mount({ sessionId: 'link-session', active: true });
+  try {
+    await flush();
+    const navigations = () =>
+      state.controls
+        .filter(({ input }) => input.type === 'navigate')
+        .map(({ sessionId, input }) => [sessionId, input.url]);
+    assert.deepEqual(navigations(), [['link-session', url]]);
+    assert.equal(document.querySelector('.browser-pane-address').value, url);
+
+    // A second link while the pane is open, and a remount, never replay the first.
+    await act(async () => requestBrowserPage('link-session', 'https://example.test/next'));
+    await flush();
+    assert.deepEqual(navigations().at(-1), ['link-session', 'https://example.test/next']);
+    await pane.rerender({ sessionId: 'link-session', active: false });
+    await pane.rerender({ sessionId: 'link-session', active: true });
+    await flush();
+    assert.equal(navigations().length, 2);
+  } finally {
+    await pane.unmount();
+  }
+});
+
+test('a browserDrive host gets the content box on start and after a debounced resize; an older host never does', async () => {
+  const state = fakeApi();
+  let box = { width: 390, height: 700 };
+  const original = window.HTMLElement.prototype.getBoundingClientRect;
+  window.HTMLElement.prototype.getBoundingClientRect = function boundingRect() {
+    if (!this.classList.contains('browser-remote-content')) return original.call(this);
+    return { left: 0, top: 0, x: 0, y: 0, right: box.width, bottom: box.height, ...box, toJSON() {} };
+  };
+  const viewports = () =>
+    state.controls.filter(({ input }) => input.type === 'viewport').map(({ sessionId, input }) => [sessionId, input]);
+  try {
+    const older = await mount();
+    await flush();
+    const streams = state.streams.length;
+    await act(async () => window.dispatchEvent(new window.Event('resize')));
+    await act(async () => wait(200));
+    assert.deepEqual(viewports(), [], 'an older host never receives the control');
+    assert.equal(state.streams.length, streams, 'and keeps renewal-only streaming');
+    await older.unmount();
+
+    window.mixdogDesktop.remoteBrowserDrive = true;
+    const pane = await mount();
+    try {
+      await flush();
+      assert.deepEqual(viewports(), [['s', { type: 'viewport', width: 390, height: 700, deviceScaleFactor: 1 }]]);
+      assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 390, maxHeight: 700 });
+
+      // A rotation lands once, after the burst of resize events settles.
+      box = { width: 700, height: 390 };
+      await act(async () => {
+        window.dispatchEvent(new window.Event('orientationchange'));
+        window.dispatchEvent(new window.Event('resize'));
+        window.dispatchEvent(new window.Event('resize'));
+      });
+      await act(async () => wait(50));
+      assert.equal(viewports().length, 1, 'debounced');
+      await act(async () => wait(200));
+      assert.deepEqual(viewports().slice(1), [
+        ['s', { type: 'viewport', width: 700, height: 390, deviceScaleFactor: 1 }],
+      ]);
+      assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 700, maxHeight: 390 });
+
+      // Each renewal restates it, so a host whose lease lapsed is driven again.
+      await act(async () => state.renew());
+      await flush();
+      assert.equal(viewports().length, 3);
+    } finally {
+      await pane.unmount();
+    }
+  } finally {
+    window.HTMLElement.prototype.getBoundingClientRect = original;
+  }
+});
+
+test('on a narrow screen the More menu always exists and carries Open in system browser', async () => {
+  const state = fakeApi();
+  const opened = [];
+  window.mixdogDesktop.openExternal = async (url) => opened.push(url);
+  window.matchMedia = (query) => ({
+    matches: query.includes('max-width: 640px'),
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  const pane = await mount({ sessionId: 's', active: true });
+  try {
+    await showFrame(state);
+    await flush();
+    assert.equal(document.querySelector('button[aria-label="Open in system browser"]'), null);
+    const menu = document.querySelector('[aria-label="More actions"]');
+    assert.ok(menu, 'the overflow menu exists without credentials or import');
+    await act(async () => menu.click());
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((node) =>
+      /Open in system browser/.test(node.textContent)
+    );
+    assert.ok(item);
+    await act(async () => item.click());
+    assert.deepEqual(opened, ['https://example.test/']);
+  } finally {
+    delete window.matchMedia;
+    await pane.unmount();
+  }
+});
+
 test('stored-login suggestions come from the host and filling names only the credential id', async () => {
   const state = fakeApi();
   const filled = [];

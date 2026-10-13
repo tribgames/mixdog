@@ -83,6 +83,9 @@ export const DESKTOP_CAPABILITIES = [
   'getTurnReviewDiff',
   'revertTurnReview',
   'revertTurnReviewFile',
+  'getTurnChanges',
+  'revertTurnChanges',
+  'reapplyTurnChanges',
   'memoryControl',
   'recall',
   'runDoctor',
@@ -199,6 +202,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'inheritancePreflight',
   'getSessionReviewDiff',
   'getTurnReviewDiff',
+  'getTurnChanges',
   'listPresets',
   'getWebSearchRoute',
   'listWebSearchModels',
@@ -248,6 +252,46 @@ export interface DesktopCapabilityReadRequest {
 }
 
 export type DesktopCapabilityReadResult = { ok: true; value: unknown } | { ok: false; error: string };
+
+/** One recorded file of a turn's changes. */
+export interface TurnChangesFile {
+  /** Root-relative, forward slashes. */
+  path: string;
+  oldPath?: string;
+  status: 'A' | 'M' | 'D' | 'R';
+  additions: number;
+  deletions: number;
+  binary?: boolean;
+  state: 'applied' | 'reverted';
+  revertable: boolean;
+  /** Why the file is not revertable. */
+  reason?: string;
+  /** Its replay/preview patch was dropped for size (byte-budget eviction or an oversized single turn). */
+  patchOmitted?: true;
+}
+
+/**
+ * The reply of `getTurnChanges` (`[{ checkpointId, patch?, file? }]`),
+ * `revertTurnChanges` and `reapplyTurnChanges`
+ * (`[checkpointId, file | null, revision]`).
+ */
+export interface TurnChangesReply {
+  /** pending = turn still finalizing; none = changed nothing; missing = no record (evicted/unknown). */
+  status: 'ready' | 'pending' | 'none' | 'missing';
+  checkpointId: string;
+  revision: number;
+  /** Absolute recorded root. */
+  root: string;
+  files: TurnChangesFile[];
+  /** Only when `patch: true`; only that file's patch when `file` is given. */
+  patch?: string;
+  /** Some file applied and every applied file revertable. */
+  canUndo: boolean;
+  /** Some file reverted. */
+  canReapply: boolean;
+  /** Why canUndo is false when files exist. */
+  reason?: string;
+}
 
 export interface DesktopCapabilityResult<T = unknown> {
   value: T;

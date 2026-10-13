@@ -309,7 +309,9 @@ export function registerDesktopIpc(
   registerBrowserIpc({ handle, browserHost });
   registerComputerIpc({ handle, shell, computer });
   handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);
-  handle(DESKTOP_IPC.visualizeCommand, async (_event, command) => visualize?.command(requiredVisualizeTabCommand(command)));
+  handle(DESKTOP_IPC.visualizeCommand, async (_event, command) =>
+    visualize?.command(requiredVisualizeTabCommand(command))
+  );
   handle(DESKTOP_IPC.visualizePaneText, async (_event, sessionId, tabId, index) => {
     if (!visualize) throw new Error('Visualize is unavailable.');
     const target = requiredVisualizeGestureTarget({ sessionId, tabId, pane: index });
@@ -323,8 +325,9 @@ export function registerDesktopIpc(
     if (!visualize?.captureRect) throw new Error('Visualize capture is unavailable.');
     return visualize.captureRect(requiredVisualizeCaptureRect(rect));
   });
-  handle(DESKTOP_IPC.visualizeConsumeGesture, async (_event, target) =>
-    (await visualize?.consumeChoiceGesture?.(requiredVisualizeGestureTarget(target))) === true
+  handle(
+    DESKTOP_IPC.visualizeConsumeGesture,
+    async (_event, target) => (await visualize?.consumeChoiceGesture?.(requiredVisualizeGestureTarget(target))) === true
   );
   registerWindowSettingsIpc({
     window,
@@ -381,6 +384,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.termResize,
     DESKTOP_IPC.termAcknowledge,
     DESKTOP_IPC.termData,
+    DESKTOP_IPC.termSizeOwner,
     DESKTOP_IPC.lspDiagnostics,
     DESKTOP_IPC.lspStatus,
     DESKTOP_IPC.remoteClientClaim,

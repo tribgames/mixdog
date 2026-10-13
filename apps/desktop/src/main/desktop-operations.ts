@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
 
 import { childEnvironment } from './child-environment';
-import { listServerDirectories } from './host-directories';
+import { listHostDirectories, listServerDirectories } from './host-directories';
 import * as editorBackups from './editor-backups';
 import * as gh from './gh-cli';
 import * as git from './git-cli';
@@ -25,6 +25,7 @@ import { listListeningPorts } from './server-ports';
 
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
+import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwner } from '../shared/terminal-size-owner';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 
 interface DesktopOperationEvent {
@@ -33,6 +34,7 @@ interface DesktopOperationEvent {
     | 'lsp-diagnostics'
     | 'lsp-status'
     | 'terminal-data'
+    | typeof TERMINAL_SIZE_OWNER_EVENT
     | typeof ACTIVITY_RAIL_PINS_EVENT
     | typeof PROVIDER_MODELS_EVENT
     | typeof SETTINGS_CHANGED_EVENT
@@ -269,6 +271,7 @@ const STATIC_OPERATIONS = {
   replaceWorkspaceTextIn: workspaceSearch.replaceWorkspaceTextIn,
   searchWorkspaceTextIn: workspaceSearch.searchWorkspaceTextIn,
   statProjectFileIn: projectFiles.statProjectFileIn,
+  listHostDirectories,
   listServerDirectories,
   writeEditorBackup: editorBackups.writeEditorBackup,
   writeProjectTextFileIn: projectFiles.writeProjectTextFileIn,
@@ -316,6 +319,9 @@ export function createDesktopOperations({
     emit({ name: 'lsp-status', value });
   });
   const terminalOutput = createTerminalOutputCoalescer(terminals, emit);
+  const unsubscribeSizeOwner = terminals.subscribeSizeOwner((value) => {
+    emit({ name: TERMINAL_SIZE_OWNER_EVENT, value });
+  });
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
     if (name === 'githubRequest') return executeGithub(args[0], args[1]);
@@ -412,7 +418,12 @@ export function createDesktopOperations({
       return null;
     }
     if (name === 'termResize') {
-      terminals.resize(String(args[0] || ''), Number(args[1]), Number(args[2]));
+      terminals.resize(
+        String(args[0] || ''),
+        Number(args[1]),
+        Number(args[2]),
+        typeof args[3] === 'string' ? args[3] : ''
+      );
       return null;
     }
     if (name === 'termPause') {
@@ -444,6 +455,7 @@ export function createDesktopOperations({
     unsubscribeDiagnostics();
     unsubscribeStatus();
     terminalOutput.dispose();
+    unsubscribeSizeOwner();
     folderWatchers.dispose();
     terminals.disposeAll();
     await languageServers.dispose();
@@ -456,13 +468,18 @@ export function createDesktopOperations({
       cwd: string | null,
       profile?: import('./terminal-contract').TerminalSpawnProfile | string | null
     ) {
-      return invoke('termEnsure', [id, cwd, profile ?? null]) as Promise<{ id: string; replay: string }>;
+      return invoke('termEnsure', [id, cwd, profile ?? null]) as Promise<{
+        id: string;
+        replay: string;
+        sizeOwner?: TerminalSizeOwner;
+      }>;
     },
     write(id: string, data: string): void {
       void invoke('termWrite', [id, data]).catch(() => {});
     },
-    resize(id: string, cols: number, rows: number): void {
-      void invoke('termResize', [id, cols, rows]).catch(() => {});
+    /** `client` is the remote connection of a phone claiming the size; '' for any other view. */
+    resize(id: string, cols: number, rows: number, client = ''): void {
+      void invoke('termResize', [id, cols, rows, client]).catch(() => {});
     },
   };
 

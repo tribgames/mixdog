@@ -61,6 +61,21 @@ export function onBrowserPageAddressRequested(sessionId: string, listener: Addre
   };
 }
 
+/** A pane without a local guest (a paired phone streaming the host's page)
+ *  takes each requested address as it arrives, settling it at once: its
+ *  navigation is a host command that cannot fail to start locally. */
+export function onBrowserPageAddressTaken(
+  sessionId: string,
+  take: (request: { url: string; newTab: boolean }) => void
+): () => void {
+  return onBrowserPageAddressRequested(sessionId, () => {
+    const request = pendingAddress.get(sessionId);
+    if (!request) return;
+    pendingAddress.delete(sessionId);
+    take(request);
+  });
+}
+
 type RequestedGuest = {
   getWebContentsId(): number;
   addEventListener(type: 'dom-ready', listener: () => void): void;

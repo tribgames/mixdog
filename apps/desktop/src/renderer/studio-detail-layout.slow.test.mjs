@@ -6,9 +6,9 @@ import puppeteer from 'puppeteer-core';
 
 // The Studio detail lays itself out from the size of its own pane, so one
 // harness renders it on every surface that pane reaches: desktop windows and
-// split cells, phones in both orientations, tablets, and a stale projected PWA
-// (a 1040px layout shrunk onto a phone). `top` stands in for the phone toolbar
-// above the pane; phones and tablets are web-app (remote) surfaces.
+// split cells, phones in both orientations, and tablets. `top` stands in for
+// the phone toolbar above the pane. Tablets take the phone layout only below
+// 640px (shared/surface-class.ts); wider ones get the desktop layout.
 const SURFACES = [
   { name: 'desktop window', width: 1280, height: 800, layout: 'rail' },
   { name: 'short desktop window', width: 1024, height: 600, layout: 'compact-rail' },
@@ -20,9 +20,9 @@ const SURFACES = [
   { name: 'phone 430', width: 430, height: 932, top: 56, mobile: true, layout: 'stacked' },
   { name: 'phone landscape', width: 844, height: 390, top: 52, mobile: true, layout: 'compact-rail' },
   { name: 'small phone landscape', width: 667, height: 375, top: 52, mobile: true, layout: 'compact-rail' },
-  { name: 'tablet portrait', width: 820, height: 1180, top: 56, mobile: true, layout: 'stacked' },
-  { name: 'tablet landscape', width: 1180, height: 820, top: 56, mobile: true, layout: 'rail' },
-  { name: 'projected phone', width: 1040, height: 2250, top: 140, mobile: true, scale: 2.5 },
+  { name: 'tablet split view', width: 600, height: 1180, top: 56, mobile: true, layout: 'stacked' },
+  { name: 'tablet portrait', width: 820, height: 1180, layout: 'stacked' },
+  { name: 'tablet landscape', width: 1180, height: 820, layout: 'rail' },
 ];
 
 const PROMPT =
@@ -205,18 +205,12 @@ test('Studio detail keeps media, rail and actions in frame on every surface size
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
 
   for (const surface of SURFACES) {
-    const scale = surface.scale || 1;
     await page.setViewport({ width: surface.width, height: surface.height });
-    await page.evaluate(
-      ({ mobile, top }, deviceScale) => {
-        const root = document.documentElement;
-        root.toggleAttribute('data-mixdog-mobile-tabs', Boolean(mobile));
-        root.style.setProperty('--mx-device-scale', String(deviceScale));
-        root.style.setProperty('--harness-top', `${top || 0}px`);
-      },
-      surface,
-      scale
-    );
+    await page.evaluate(({ mobile, top }) => {
+      const root = document.documentElement;
+      root.toggleAttribute('data-mixdog-mobile-tabs', Boolean(mobile));
+      root.style.setProperty('--harness-top', `${top || 0}px`);
+    }, surface);
     for (const promptOpen of [false, true]) {
       const label = `${surface.name} ${surface.width}x${surface.height}${promptOpen ? ', prompt open' : ''}`;
       await page.evaluate((state) => window.renderDetail(state), {
@@ -260,7 +254,7 @@ test('Studio detail keeps media, rail and actions in frame on every surface size
           assert.equal(control.lines, 1, `single-word label "${control.text}" stays whole: ${label}`);
         }
         if (!surface.mobile) continue;
-        const floor = (control.kind === 'row' ? 36 : 44) * scale - 0.5;
+        const floor = (control.kind === 'row' ? 36 : 44) - 0.5;
         assert.ok(control.box.height >= floor, `${control.name} is ${control.box.height}px tall: ${label}`);
         if (control.kind === 'stage') {
           assert.ok(control.box.width >= floor, `${control.name} is ${control.box.width}px wide: ${label}`);
