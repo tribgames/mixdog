@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
+import { READ_PREFIX_HASH_BYTES } from '../../tools/builtin/read-cache-policy.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-session-read-cache-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -15,7 +16,7 @@ process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
 const { captureReadCacheState, tryReadCached, setReadCached, invalidatePathForSession } = await import(
   './read-cache.mjs'
 );
-const { _statTuple, _normalizeCacheKey } = await import('./util.mjs');
+const { _statTuple, _statEqual, _normalizeCacheKey } = await import('./util.mjs');
 const { differentFieldValue } = await import('../../tools/builtin/file-version-test-helpers.mjs');
 const { TEXT_CACHE_MAX_BYTES } = await import('./text-cache-budget.mjs');
 const { setScopedToolCached } = await import('./scoped-cache.mjs');
@@ -300,3 +301,182 @@ test('cache metadata probes do not touch UNC or device paths before read validat
     syncBuiltinESMExports();
   }
 });
+
+const FIXED_TIME = new Date('2025-01-01T00:00:00.000Z');
+const PREFIX_LINE = `${'A'.repeat(63)}\n`;
+const SUFFIX_LINE = READ_PREFIX_HASH_BYTES / PREFIX_LINE.length + 1;
+const ALIASES = ['file_path', 'path', 'file_path[]', 'path[]', 'file_path objects', 'path objects'];
+
+function largeLines(suffix) {
+  return `${PREFIX_LINE.repeat(SUFFIX_LINE - 1)}${suffix}\n`;
+}
+function aliasArgs(shape, file, window = null) {
+  const ranged = window ? { offset: window.offset, limit: window.limit } : {};
+  if (shape === 'file_path') return { file_path: file, ...ranged };
+  if (shape === 'path') return { path: file, ...ranged };
+  if (shape === 'file_path[]') return { file_path: [file], ...ranged };
+  if (shape === 'path[]') return { path: [file], ...ranged };
+  if (shape === 'file_path objects') return { file_path: [{ file_path: file, ...ranged }] };
+  if (shape === 'path objects') return { path: [{ path: file, ...ranged }] };
+  throw new Error(shape);
+}
+function suffixArgs(shape, file) {
+  const offset = shape.startsWith('path') ? SUFFIX_LINE - 1 : SUFFIX_LINE;
+  return aliasArgs(shape, file, { offset, limit: 1 });
+}
+function statSnapshot(file) {
+  const st = statSync(file);
+  return {
+    mtimeMs: st.mtimeMs,
+    ctimeMs: st.ctimeMs,
+    size: st.size,
+    ino: typeof st.ino === 'number' ? st.ino : Number(st.ino) || 0,
+    dev: typeof st.dev === 'number' ? st.dev : Number(st.dev) || 0,
+  };
+}
+function pinCtime(t, file, ctimeMs) {
+  const key = _normalizeCacheKey(file);
+  const original = fs.statSync;
+  const mock = t.mock.method(fs, 'statSync', (path, ...options) => {
+    const st = original(path, ...options);
+    if (_normalizeCacheKey(path) === key) st.ctimeMs = ctimeMs;
+    return st;
+  });
+  syncBuiltinESMExports();
+  return () => {
+    mock.mock.restore();
+    syncBuiltinESMExports();
+  };
+}
+
+test('prefix-budget boundary stays cached across scalar and array aliases', () => {
+  const fx = fixture();
+  const exact = join(fx.cwd, 'exact.txt');
+  const exactOther = join(fx.cwd, 'exact-other.txt');
+  const over = join(fx.cwd, 'over.txt');
+  writeFileSync(exact, 'x'.repeat(READ_PREFIX_HASH_BYTES));
+  writeFileSync(exactOther, 'z'.repeat(READ_PREFIX_HASH_BYTES));
+  writeFileSync(over, 'y'.repeat(READ_PREFIX_HASH_BYTES + 1));
+  assert.equal(statSync(exact).size, READ_PREFIX_HASH_BYTES);
+  assert.equal(statSync(over).size, READ_PREFIX_HASH_BYTES + 1);
+  for (const shape of ALIASES) {
+    const exactArgs = aliasArgs(shape, exact);
+    const state = captureReadCacheState({ args: exactArgs, cwd: fx.cwd });
+    assert.ok(state, shape);
+    setReadCached({ ...fx, args: exactArgs, content: `exact:${shape}`, readState: state });
+    assert.equal(tryReadCached({ ...fx, args: exactArgs })?.content, `exact:${shape}`, shape);
+    const overArgs = aliasArgs(shape, over);
+    assert.equal(captureReadCacheState({ args: overArgs, cwd: fx.cwd }), null, shape);
+    setReadCached({ ...fx, args: overArgs, content: `over:${shape}` });
+    setReadCached({ ...fx, args: overArgs, content: `over:${shape}`, readState: null });
+    assert.equal(tryReadCached({ ...fx, args: overArgs }), null, shape);
+  }
+  const both = { file_path: [exact, exactOther] };
+  const bothState = captureReadCacheState({ args: both, cwd: fx.cwd });
+  assert.ok(bothState);
+  setReadCached({ ...fx, args: both, content: 'both-exact', readState: bothState });
+  assert.equal(tryReadCached({ ...fx, args: both })?.content, 'both-exact');
+  const mixedBoundary = { path: [exact, over] };
+  assert.equal(captureReadCacheState({ args: mixedBoundary, cwd: fx.cwd }), null);
+  setReadCached({ ...fx, args: mixedBoundary, content: 'mixed-boundary' });
+  assert.equal(tryReadCached({ ...fx, args: mixedBoundary }), null);
+  assert.equal(tryReadCached({ ...fx, args: both })?.content, 'both-exact');
+});
+
+test('prefix-budget mixed arrays stay uncached and preserve unrelated small entries', () => {
+  const fx = fixture('SMALL\n');
+  const other = join(fx.cwd, 'other.txt');
+  const large = join(fx.cwd, 'large.txt');
+  writeFileSync(other, 'OTHER\n');
+  writeFileSync(large, 'L'.repeat(READ_PREFIX_HASH_BYTES + 1));
+  const scalar = { file_path: fx.file, offset: 1, limit: 1 };
+  const smallArray = { path: [other] };
+  setReadCached({ ...fx, args: scalar, content: 'kept-scalar' });
+  setReadCached({ ...fx, args: smallArray, content: 'kept-array' });
+  for (const args of [
+    { file_path: [fx.file, large] },
+    { path: [large, other] },
+    { file_path: [{ file_path: fx.file }, { path: large }] },
+    { path: [{ path: other }, { file_path: large }] },
+  ]) {
+    assert.equal(captureReadCacheState({ args, cwd: fx.cwd }), null);
+    setReadCached({ ...fx, args, content: 'mixed-body' });
+    assert.equal(tryReadCached({ ...fx, args }), null);
+  }
+  assert.equal(tryReadCached({ ...fx, args: scalar })?.content, 'kept-scalar');
+  assert.equal(tryReadCached({ ...fx, args: smallArray })?.content, 'kept-array');
+  invalidatePathForSession(fx.sessionId, large, fx.cwd);
+  assert.equal(tryReadCached({ ...fx, args: scalar })?.content, 'kept-scalar');
+  assert.equal(tryReadCached({ ...fx, args: smallArray })?.content, 'kept-array');
+  invalidatePathForSession(fx.sessionId, fx.file, fx.cwd);
+  assert.equal(tryReadCached({ ...fx, args: scalar }), null);
+  assert.equal(tryReadCached({ ...fx, args: smallArray })?.content, 'kept-array');
+});
+
+for (const shape of ALIASES) {
+  test(`prefix-budget same-metadata suffix rewrite is not reused (${shape})`, async (t) => {
+    const fx = fixture(largeLines('OLD_SUFFIX'));
+    utimesSync(fx.file, FIXED_TIME, FIXED_TIME);
+    const args = aliasArgs(shape, fx.file);
+    const before = statSnapshot(fx.file);
+    assert.ok(before.size > READ_PREFIX_HASH_BYTES);
+    setReadCached({ ...fx, args, content: 'STALE_OLD_SUFFIX' });
+    writeFileSync(fx.file, largeLines('NEW_SUFFIX'));
+    utimesSync(fx.file, FIXED_TIME, FIXED_TIME);
+    const restore = pinCtime(t, fx.file, before.ctimeMs);
+    try {
+      assert.equal(_statEqual(_statTuple(fx.file), before), true, shape);
+      assert.equal(tryReadCached({ ...fx, args }), null, shape);
+    } finally {
+      restore();
+    }
+  });
+}
+
+for (const eager of [false, true]) {
+  test(`prefix-budget exact file still dedups across dispatch (eager=${eager})`, async () => {
+    const fx = fixture('x\n'.repeat(READ_PREFIX_HASH_BYTES / 2));
+    assert.equal(statSync(fx.file).size, READ_PREFIX_HASH_BYTES);
+    const args = { file_path: fx.file, offset: 1, limit: 1 };
+    let executions = 0;
+    const execute = async (...input) => {
+      executions += 1;
+      return executeRead(fx)(...input);
+    };
+    const [first] = await batch(fx, [readCall(args)], execute, { eager });
+    const [second] = await batch(fx, [readCall(args)], execute, { eager });
+    assert.equal(executions, 1);
+    assert.equal(second.content, first.content);
+    assert.equal(second.toolKind, 'cache-hit');
+  });
+
+  for (const shape of ['file_path', 'path', 'file_path[]', 'path[]']) {
+    test(`prefix-budget suffix rewrite re-executes on dispatch (${shape}, eager=${eager})`, async (t) => {
+      const fx = fixture(largeLines('OLD_SUFFIX'));
+      utimesSync(fx.file, FIXED_TIME, FIXED_TIME);
+      const before = statSnapshot(fx.file);
+      assert.ok(before.size > READ_PREFIX_HASH_BYTES);
+      const args = suffixArgs(shape, fx.file);
+      let executions = 0;
+      const execute = async (...input) => {
+        executions += 1;
+        return executeRead(fx)(...input);
+      };
+      const [first] = await batch(fx, [readCall(args)], execute, { eager });
+      assert.match(String(first.content), /OLD_SUFFIX/, shape);
+      writeFileSync(fx.file, largeLines('NEW_SUFFIX'));
+      utimesSync(fx.file, FIXED_TIME, FIXED_TIME);
+      const restore = pinCtime(t, fx.file, before.ctimeMs);
+      try {
+        assert.equal(_statEqual(_statTuple(fx.file), before), true, shape);
+        const [second] = await batch(fx, [readCall(args)], execute, { eager });
+        assert.match(String(second.content), /NEW_SUFFIX/, shape);
+        assert.doesNotMatch(String(second.content), /OLD_SUFFIX/, shape);
+        assert.equal(executions, 2, shape);
+        assert.equal(second.toolKind, 'normal', shape);
+      } finally {
+        restore();
+      }
+    });
+  }
+}

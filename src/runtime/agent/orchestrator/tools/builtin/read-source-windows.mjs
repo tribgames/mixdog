@@ -1,4 +1,4 @@
-import { open } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import { hashText } from './hash-utils.mjs';
 import { runResultCacheInFlight } from './cache-layers.mjs';
 import {
@@ -9,6 +9,7 @@ import {
   publishReadRangeIndex,
 } from './read-range-index.mjs';
 import { READ_MAX_SCAN_BYTES, READ_STREAM_TIMEOUT_MS } from './read-constants.mjs';
+import { canCacheReadFile } from './read-cache-policy.mjs';
 
 // Raw, one-based inclusive source windows. Callers merge/sort intervals first.
 // Unlike the display reader, this never truncates a line into usable patch text.
@@ -16,6 +17,9 @@ export async function readSourceWindows(path, intervals, { signal } = {}) {
   signal?.throwIfAborted();
   if (!intervals.length) return new Map();
   const snapshot = intervals.map(({ start, end }) => ({ start, end }));
+  // A later caller must not join a scan that already observed old deep bytes.
+  // Preserve small-file fan-out and its per-subscriber cancellation contract.
+  if (!canCacheReadFile(await stat(path))) return scanSourceWindows(path, snapshot, signal);
   const key = `source-windows:${canonicalCachePath(path)}:${JSON.stringify(snapshot.map((w) => [w.start, w.end]))}`;
   const shared = await runResultCacheInFlight(
     key,

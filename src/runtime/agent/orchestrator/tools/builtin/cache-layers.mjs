@@ -5,6 +5,7 @@ import { isAbsolute, sep } from 'node:path';
 import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 import { fileVersion, sameFileVersion } from './file-version.mjs';
+import { canCacheReadFile } from './read-cache-policy.mjs';
 
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
 const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subscribers, settled }
@@ -279,7 +280,7 @@ export async function runRawContentInFlight(fullPath, loader = fsPromises.readFi
   // Buffered reads provide their observed version: a later read must not
   // join older bytes merely because a watcher has not fired yet. Preserve
   // the unversioned helper contract for callers that supply no stat.
-  if (stat !== undefined && !version) return await loader(fullPath);
+  if (stat !== undefined && (!version || !canCacheReadFile(version))) return await loader(fullPath);
   const key = version ? JSON.stringify([path, version]) : path;
   return await runPathInFlight(RAW_CONTENT_INFLIGHT, key, path, () => loader(fullPath));
 }
@@ -300,6 +301,10 @@ function rawContentCacheDelete(key) {
 export function rawContentCacheGet(fullPath, stat, now = Date.now()) {
   if (!fullPath || !stat) return null;
   const key = canonicalCachePath(fullPath);
+  if (!canCacheReadFile(stat)) {
+    rawContentCacheDelete(key);
+    return null;
+  }
   const entry = RAW_CONTENT_CACHE.get(key);
   if (!entry) return null;
   if (now - entry.ts > RAW_CONTENT_CACHE_TTL_MS) {
@@ -319,7 +324,7 @@ export function rawContentCacheSet(fullPath, stat, rawBuf, now = Date.now()) {
   if (!canPublishReadCache(fullPath)) return;
   if (!fullPath || !Buffer.isBuffer(rawBuf)) return;
   const version = fileVersion(stat);
-  if (!version || rawBuf.length !== version.size || rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES) return;
+  if (!version || !canCacheReadFile(version) || rawBuf.length !== version.size || rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES) return;
   const key = canonicalCachePath(fullPath);
   rawContentCacheDelete(key);
   RAW_CONTENT_CACHE.set(key, {

@@ -7,7 +7,7 @@
 import * as fsPromises from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { sameFileVersion } from './file-version.mjs';
-import { READ_PREFIX_HASH_BYTES } from './read-single-fast-paths.mjs';
+import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
 import { decodeUtf16Body, isUtf16Encoding } from './snapshot-helpers.mjs';
 
 /**
@@ -159,7 +159,7 @@ function bufferedReadSnapshotMeta(content, rawBuf, render, ctx, helpers) {
   };
   // Cache validation hashes on-disk bytes, unlike the decoded snapshot.
   // Use a byte boundary for every encoding, matching the streaming path.
-  const contentPrefixHash = _hashText(rawBuf.subarray(0, READ_PREFIX_HASH_BYTES));
+  const contentPrefixHash = canCacheReadFile(ctx.st) ? _hashText(rawBuf.subarray(0, READ_PREFIX_HASH_BYTES)) : '';
   return { snapshotMeta, contentPrefixHash };
 }
 
@@ -187,8 +187,10 @@ export async function bufferedReadResult(ctx, { prefetched, readEnc }, helpers) 
   const render = renderReadWindow(content, ctx, helpers);
   if (readStable) {
     const { snapshotMeta, contentPrefixHash } = bufferedReadSnapshotMeta(content, rawBuf, render, ctx, helpers);
-    _cacheSet(cacheKey, render.out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
-    _rawContentCacheSet(fullPath, st, rawBuf);
+    if (canCacheReadFile(st)) {
+      _cacheSet(cacheKey, render.out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
+      _rawContentCacheSet(fullPath, st, rawBuf);
+    }
     _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
   }
   return render.out;

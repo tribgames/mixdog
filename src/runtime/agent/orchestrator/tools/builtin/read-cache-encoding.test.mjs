@@ -40,7 +40,7 @@ const encodings = [
 for (const { name, unit, encode } of encodings) {
   for (const size of [0, 65536 - unit, 65536, 65536 + unit]) {
     for (const ranged of [false, true]) {
-      test(`${name} cache retains unchanged bytes and rejects rewrites (bytes=${size || 'small'}, ranged=${ranged})`, async (t) => {
+      test(`${name} reads retain bounded cache hits and return fresh rewrites (bytes=${size || 'small'}, ranged=${ranged})`, async (t) => {
         const base = 'BEFORE 한글 😀\n';
         const text = base + (size ? 'x'.repeat((size - encode(base).length) / unit) : '');
         const bytes = encode(text);
@@ -64,12 +64,13 @@ for (const { name, unit, encode } of encodings) {
           const first = String(await executeBuiltinTool('read', args, root, options));
           assert.match(first, /BEFORE 한글 😀/);
           const cachedRaw = rawContentCacheGet(path, before);
-          assert.deepEqual(cachedRaw, bytes);
+          const cacheable = bytes.length <= 65536;
+          assert.deepEqual(cachedRaw, cacheable ? bytes : null);
           let invalidations = 0;
           unsubscribe = registerCacheInvalidationListener(() => invalidations++);
           assert.equal(String(await executeBuiltinTool('read', args, root, options)), first);
           assert.equal(invalidations, 0, 'unchanged encoded bytes must not invalidate caches');
-          assert.equal(rawContentCacheGet(path, before), cachedRaw, 'unchanged reads retain raw reuse');
+          assert.equal(rawContentCacheGet(path, before), cachedRaw, 'only bounded files retain raw reuse');
 
           const replacement = encode(text.replace('BEFORE', 'AFTER_'));
           writeFileSync(path, replacement);
@@ -80,8 +81,8 @@ for (const { name, unit, encode } of encodings) {
           }
           const reread = String(await executeBuiltinTool('read', args, root, options));
           assert.equal(reread, first.replace('BEFORE', 'AFTER_'));
-          assert.equal(invalidations, 1, 'changed bytes still reject the cached result');
-          assert.deepEqual(rawContentCacheGet(path, observed), replacement);
+          assert.equal(invalidations, cacheable ? 1 : 0, 'bounded hits reject changes; large reads bypass caching');
+          assert.deepEqual(rawContentCacheGet(path, observed), cacheable ? replacement : null);
         } finally {
           unsubscribe?.();
           mock.mock.restore();

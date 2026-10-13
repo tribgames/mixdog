@@ -276,6 +276,21 @@ for (const encoding of ['utf8', 'utf16le']) {
         if (target === path) st.ctimeMs = before.ctimeMs;
         return st;
       });
+      // Streaming owns a descriptor version and rechecks it against the path.
+      // Both observations must collide for this fixture's intended race.
+      const originalOpen = fsPromises.open;
+      const openMock = t.mock.method(fsPromises, 'open', async (target, ...options) => {
+        const handle = await originalOpen(target, ...options);
+        if (target === path) {
+          const stat = handle.stat.bind(handle);
+          handle.stat = async (...options) => {
+            const st = await stat(...options);
+            st.ctimeMs = before.ctimeMs;
+            return st;
+          };
+        }
+        return handle;
+      });
       syncBuiltinESMExports();
       let unsubscribe;
       try {
@@ -292,8 +307,16 @@ for (const encoding of ['utf8', 'utf16le']) {
         writeFileSync(path, encode('AFTER_\nGAP___\nLAST_B\nTAIL__\n'));
         utimesSync(path, time, time);
         const observed = await fsPromises.stat(path);
+        const handle = await fsPromises.open(path, 'r');
+        let descriptor;
+        try {
+          descriptor = await handle.stat();
+        } finally {
+          await handle.close();
+        }
         for (const key of ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev']) {
           assert.equal(observed[key], before[key], `${key} must collide`);
+          assert.equal(descriptor[key], before[key], `descriptor ${key} must collide`);
         }
         const second = String(await executeBuiltinTool('read', args, root, options));
         assert.match(second, /AFTER_/);
@@ -315,6 +338,7 @@ for (const encoding of ['utf8', 'utf16le']) {
       } finally {
         unsubscribe?.();
         mock.mock.restore();
+        openMock.mock.restore();
         syncBuiltinESMExports();
       }
     });
