@@ -338,6 +338,7 @@ final class MixdogFileSave {
       sink.out.getFD().sync();
       sink.closeQuietly();
       String displayName = usesMediaStore() ? publishMediaStore(sink) : publishAppFile(sink);
+      sink.name = displayName; // the name actually published; titles the share sheet
       sessions.markFinished(session);
       return ok(
           new JSONObject()
@@ -423,10 +424,11 @@ final class MixdogFileSave {
       return;
     }
     String mime = sink.mime;
-    activity.runOnUiThread(() -> startShare(uri, mime, reply));
+    String name = sink.name;
+    activity.runOnUiThread(() -> startShare(uri, mime, name, reply));
   }
 
-  private void startShare(Uri uri, String mime, Reply reply) {
+  private void startShare(Uri uri, String mime, String name, Reply reply) {
     resolveShare(); // an older chooser is superseded
     Share share = new Share(reply);
     String action = activity.getPackageName() + ".FILE_SHARE_CHOSEN";
@@ -442,12 +444,18 @@ final class MixdogFileSave {
     int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? PendingIntent.FLAG_MUTABLE : 0);
     PendingIntent chosen =
         PendingIntent.getBroadcast(activity, 0, new Intent(action).setPackage(activity.getPackageName()), flags);
-    Intent send = new Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri);
-    send.setClipData(ClipData.newRawUri("", uri));
+    // The sheet previews the clip / EXTRA_TITLE; without them it shows the MediaStore id.
+    Intent send =
+        new Intent(Intent.ACTION_SEND)
+            .setType(mime)
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_TITLE, name)
+            .putExtra(Intent.EXTRA_SUBJECT, name);
+    send.setClipData(new ClipData(name, new String[] {mime}, new ClipData.Item(uri)));
     send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
     pendingShare = share;
     try {
-      activity.startActivity(Intent.createChooser(send, null, chosen.getIntentSender()));
+      activity.startActivity(Intent.createChooser(send, name, chosen.getIntentSender()));
     } catch (ActivityNotFoundException | SecurityException e) {
       pendingShare = null;
       activity.unregisterReceiver(share.receiver);
