@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
 Esta versão introduz o painel de alterações e cartões de alterações por turno com controles de desfazer e reaplicar por turno, mantém o histórico anterior visível após a compactação e adiciona uma ferramenta integrada de visualização para maquetes interativas de interface e diagramas. Os fluxos de trabalho remotos são expandidos com conexões de servidor SSH, sessões isoladas de worktree do Git, gerenciamento de shells em segundo plano e downloads diretos de arquivos em telefones pareados. A interface também traz maior contraste, rolagem mais suave em dispositivos móveis e organização flexível de sessões.
 
 ### Novos recursos

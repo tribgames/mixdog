@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
 This release introduces the Changes panel and per-turn change cards with per-turn undo and reapply controls, keeps earlier conversation history visible after compaction, and adds a built-in visualization tool for interactive UI mockups and diagrams. Remote workflows expand with SSH server connections, isolated Git worktree sessions, background shell management, and direct file downloads on paired phones. The interface also brings higher contrast styling, smoother mobile scrolling, and flexible session organization.
 
 ### New features

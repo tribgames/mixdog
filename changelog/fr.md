@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
 Cette version introduit le panneau des modifications et les cartes de changements par tour avec commandes d'annulation et de réapplication par tour, conserve l'historique antérieur lisible après compactage et ajoute un outil de visualisation intégré pour les maquettes interactives et diagrammes. Les flux à distance s'étendent avec les connexions de serveur SSH, les sessions d'arbres de travail Git isolées, le contrôle des shells en arrière-plan et le téléchargement direct de fichiers sur les téléphones associés. L'interface propose également un contraste accru, un défilement mobile plus fluide et une organisation flexible des sessions.
 
 ### Nouvelles fonctionnalités

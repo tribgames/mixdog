@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
 Questa versione introduce il pannello delle modifiche e le schede delle modifiche per turno con controlli di annullamento e riapplicazione per turno, mantiene visibile la cronologia precedente dopo la compattazione e aggiunge uno strumento di visualizzazione integrato per mockup interattivi e diagrammi. I flussi di lavoro remoti si espandono con connessioni SSH ai server, sessioni isolate con Git worktree, gestione dei comandi shell in background e download diretto di file sui telefoni associati. L'interfaccia offre inoltre un contrasto maggiore, uno scorrimento più fluido sui dispositivi mobili e una gestione flessibile delle sessioni.
 
 ### Nuove funzionalità

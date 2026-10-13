@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
 Bản phát hành này giới thiệu bảng thay đổi và thẻ thay đổi theo lượt với các nút hoàn tác và áp dụng lại theo lượt, giữ lại lịch sử cuộc trò chuyện trước đó sau khi nén và bổ sung công cụ trực quan hóa tích hợp cho các bản dựng giao diện và sơ đồ tương tác. Quy trình làm việc từ xa được mở rộng với kết nối máy chủ SSH, các phiên Git worktree riêng biệt, quản lý lệnh shell nền và tải tệp trực tiếp trên điện thoại đã ghép nối. Giao diện cũng mang lại độ tương phản cao hơn, cuộn mượt mà hơn trên thiết bị di động và tổ chức phiên linh hoạt.
 
 ### Tính năng mới

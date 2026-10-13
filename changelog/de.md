@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
 Diese Version führt das Änderungen-Panel und änderungsbezogene Verlaufskarten pro Durchlauf mit Steuerelementen zum Rückgängigmachen und Wiederholen ein, hält den früheren Gesprächsverlauf nach einer Kompaktierung lesbar und fügt ein integriertes Visualisierungstool für interaktive UI-Entwürfe und Diagramme hinzu. Remote-Workflows werden durch SSH-Serververbindungen, isolierte Git-Worktree-Sitzungen, Steuerung von Hintergrund-Shells und direkte Dateidownloads auf gekoppelten Mobiltelefonen erweitert. Die Benutzeroberfläche bietet zudem kontrastreichere Farben, flüssigeres Scrollen auf Mobilgeräten und flexible Sitzungsorganisation.
 
 ### Neue Funktionen

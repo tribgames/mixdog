@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
 Esta versión presenta el panel de cambios y tarjetas de cambios por turno con controles de deshacer y reaplicar por turno, mantiene visible el historial anterior tras la compactación y añade una herramienta de visualización integrada para prototipos interactivos y diagramas. Los flujos remotos se amplían con conexiones SSH a servidores, sesiones aisladas con árboles de trabajo de Git, gestión de terminales en segundo plano y descargas directas de archivos en teléfonos vinculados. La interfaz también ofrece mayor contraste, desplazamiento más fluido en dispositivos móviles y una organización flexible de sesiones.
 
 ### Nuevas funciones
