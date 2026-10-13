@@ -1,0 +1,24 @@
+{
+    "task": {
+        "path": "/opt/hive-benchmark/payload/tasks-1cpu/protein-assembly",
+        "source": "tasks-1cpu"
+    },
+    "trial_name": "protein-assembly__cQKzcpm",
+    "trials_dir": "/opt/hive-benchmark/results/jobs-dsh-1cpu/2026-10-12__07-24-49",
+    "agent": {
+        "name": "aws_agents:HiveDSH",
+        "model_name": "deepseek-ai/deepseek-v4.1-flash"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/opt/hive-benchmark/payload",
+                "target": "/opt/hive-runtime",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "2ef692a2-d56e-4f59-b8c4-2412b98b15b7"
+}

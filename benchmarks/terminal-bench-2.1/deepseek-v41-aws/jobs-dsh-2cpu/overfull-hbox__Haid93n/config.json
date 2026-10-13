@@ -1,0 +1,24 @@
+{
+    "task": {
+        "path": "/opt/hive-benchmark/payload/tasks-2cpu/overfull-hbox",
+        "source": "tasks-2cpu"
+    },
+    "trial_name": "overfull-hbox__Haid93n",
+    "trials_dir": "/opt/hive-benchmark/results/jobs-dsh-2cpu/2026-10-12__10-41-27",
+    "agent": {
+        "name": "aws_agents:HiveDSH",
+        "model_name": "deepseek-ai/deepseek-v4.1-flash"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/opt/hive-benchmark/payload",
+                "target": "/opt/hive-runtime",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "d968d777-cd6f-43b3-831a-ae2a16452cf2"
+}

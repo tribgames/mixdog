@@ -1,0 +1,24 @@
+{
+    "task": {
+        "path": "/opt/hive-benchmark/payload/tasks-4cpu/rstan-to-pystan",
+        "source": "tasks-4cpu"
+    },
+    "trial_name": "rstan-to-pystan__fPPkiqG",
+    "trials_dir": "/opt/hive-benchmark/results/jobs-dsh-4cpu/2026-10-12__11-07-14",
+    "agent": {
+        "name": "aws_agents:HiveDSH",
+        "model_name": "deepseek-ai/deepseek-v4.1-flash"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/opt/hive-benchmark/payload",
+                "target": "/opt/hive-runtime",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "12439466-1792-4286-a879-cbbd4ec0294b"
+}
