@@ -13,7 +13,6 @@ export {
   collectSkillsCached,
   filterSkillsExcludingDisabled,
   invalidateSkillsCache,
-  invalidateSkillsMtimeGate,
   isSkillDisabled,
   loadSkillResource,
   skillBodyPresentInSession,

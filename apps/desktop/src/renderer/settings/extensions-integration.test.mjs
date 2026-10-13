@@ -87,6 +87,7 @@ function panelContext(overrides = {}) {
     snapshot: null,
     pending: '',
     async run() {},
+    async refreshExtensions() {},
     async route() {},
     async setFast() {},
     confirm() {},

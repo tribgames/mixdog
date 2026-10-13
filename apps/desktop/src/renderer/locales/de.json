@@ -2408,6 +2408,7 @@
   "No shells detected": "Keine Shells erkannt",
   "No sign-up": "Keine Anmeldung",
   "No skills found.": "Keine Skills gefunden.",
+  "No skills or MCP server found. Searched: {{paths}}": "Keine Skills oder MCP-Server gefunden. Durchsucht: {{paths}}",
   "No ssh-agent is running. Start one and load your key:": "Es läuft kein ssh-agent. Starten Sie einen und laden Sie Ihren Schlüssel:",
   "No status data available.": "Keine Statusdaten verfügbar.",
   "No subscription? Use an API key": "Kein Abo? API-Schlüssel verwenden",

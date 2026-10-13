@@ -108,6 +108,8 @@ export interface PanelContext {
     silent?: boolean,
     errorMode?: 'toast' | 'throw'
   ): Promise<T | undefined>;
+  /** Re-read just the plugin/skill/MCP sections, without a full sweep. */
+  refreshExtensions(): Promise<void>;
   route(model: DesktopModelOption): Promise<void>;
   setFast(enabled: boolean): Promise<void>;
   confirm(options: SettingsConfirmation): void;
@@ -206,6 +208,14 @@ interface CapabilitySettingsCacheEntry {
   /** Sweep order, so an older sweep that lands late never replaces a newer one. */
   sweeps: number;
   adoptedSweep: number;
+  /** Shared ordering clock for sweeps and section refreshes. */
+  clock: number;
+  /** Section values refreshed on their own, with the clock tick their read
+   *  started at: a sweep that started earlier must not overwrite them. */
+  sections: Map<string, { value: unknown; startedAt: number }>;
+  /** Per section key, the clock tick of the newest value that landed from
+   *  either a full sweep or a section refresh; older results are dropped. */
+  landedAt: Map<string, number>;
 }
 
 const CAPABILITY_SETTINGS_CACHE = new WeakMap<object, CapabilitySettingsCacheEntry>();
@@ -220,6 +230,9 @@ function settingsCacheEntry(api: CapabilityApi): CapabilitySettingsCacheEntry {
     valueEpoch: 0,
     sweeps: 0,
     adoptedSweep: 0,
+    clock: 0,
+    sections: new Map(),
+    landedAt: new Map(),
   };
   CAPABILITY_SETTINGS_CACHE.set(key, created);
   return created;
@@ -402,8 +415,21 @@ export function preloadCapabilitySettings(
   if (entry.value && !force && entry.valueEpoch === entry.epoch) return Promise.resolve(entry.value);
   const epoch = entry.epoch;
   const sweep = ++entry.sweeps;
+  const startedAt = ++entry.clock;
   const request = readAllCapabilitySettings(api, force, entry.value, (partial) => {
     onPartial?.(partial);
+  }).then((value) => {
+    // Sections refreshed after this sweep began are newer than its reads.
+    const newer = [...entry.sections].filter(([, section]) => section.startedAt > startedAt);
+    return newer.length
+      ? {
+          ...value,
+          data: applySectionRefresh(
+            value.data,
+            Object.fromEntries(newer.map(([key, section]) => [key, section.value]))
+          ),
+        }
+      : value;
   });
   entry.inFlight = request;
   entry.inFlightEpoch = epoch;
@@ -413,6 +439,9 @@ export function preloadCapabilitySettings(
         entry.value = value;
         entry.valueEpoch = epoch;
         entry.adoptedSweep = sweep;
+        for (const [key] of SECTION_READS) {
+          if ((entry.landedAt.get(key) ?? 0) < startedAt) entry.landedAt.set(key, startedAt);
+        }
       }
       if (entry.inFlight === request) entry.inFlight = undefined;
     },
@@ -421,6 +450,72 @@ export function preloadCapabilitySettings(
     }
   );
   return request;
+}
+
+/** Sections a plugin/skill/MCP change can touch. */
+export const EXTENSION_SECTIONS = ['plugins', 'skills', 'disabledSkills', 'mcp'] as const;
+
+/** Overlay refreshed sections onto a settings data object and mark them loaded. */
+export function applySectionRefresh(
+  data: Record<string, unknown>,
+  sections: Record<string, unknown>
+): Record<string, unknown> {
+  const loaded = new Set<string>(Array.isArray(data[LOADED_SECTIONS_KEY]) ? (data[LOADED_SECTIONS_KEY] as string[]) : []);
+  for (const key of Object.keys(sections)) loaded.add(key);
+  return { ...data, ...sections, [LOADED_SECTIONS_KEY]: [...loaded] };
+}
+
+/** Re-read only the given sections (no full sweep) and merge them into the
+ *  shared cache. Resolves with the sections that landed; a failed read keeps
+ *  the previous value. A read superseded by a newer one for the same key is
+ *  dropped, and a full sweep that started earlier never overwrites the result. */
+export async function refreshCapabilitySections(
+  api: CapabilityApi,
+  keys: readonly string[]
+): Promise<Record<string, unknown>> {
+  const entry = settingsCacheEntry(api);
+  const wanted = SECTION_READS.filter(([key]) => keys.includes(key));
+  if (!wanted.length || (!api.readCapabilities && !api.invokeCapability)) return {};
+  const startedAt = ++entry.clock;
+  const requests = wanted.map(([, capability, args = []]) => ({
+    capability: capability as DesktopReadCapability,
+    args: [...args],
+  })) satisfies DesktopCapabilityReadRequest[];
+  const landed: Record<string, unknown> = {};
+  const land = (key: string, value: unknown) => {
+    if ((entry.landedAt.get(key) ?? 0) > startedAt) return;
+    entry.landedAt.set(key, startedAt);
+    entry.sections.set(key, { value, startedAt });
+    landed[key] = value;
+  };
+  const individually = async () => {
+    await Promise.all(
+      wanted.map(async ([key], position) => {
+        try {
+          land(key, (await api.invokeCapability!(requests[position]))?.value);
+        } catch {
+          /* keep the previous section value */
+        }
+      })
+    );
+  };
+  if (api.readCapabilities) {
+    try {
+      const results = await api.readCapabilities(requests);
+      wanted.forEach(([key], position) => {
+        const result = results[position];
+        if (result?.ok) land(key, result.value);
+      });
+    } catch {
+      if (api.invokeCapability) await individually();
+    }
+  } else {
+    await individually();
+  }
+  if (entry.value && Object.keys(landed).length) {
+    entry.value = { ...entry.value, data: applySectionRefresh(entry.value.data, landed) };
+  }
+  return landed;
 }
 
 export function rows(value: unknown, ...keys: string[]): RecordValue[] {

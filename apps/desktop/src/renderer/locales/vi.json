@@ -2357,6 +2357,7 @@
   "No shells detected": "Không phát hiện shell",
   "No sign-up": "Không đăng ký",
   "No skills found.": "Không tìm thấy kỹ năng.",
+  "No skills or MCP server found. Searched: {{paths}}": "Không tìm thấy kỹ năng hoặc máy chủ MCP. Đã tìm trong: {{paths}}",
   "No ssh-agent is running. Start one and load your key:": "Không có ssh-agent nào đang chạy. Hãy khởi động và nạp khóa của bạn:",
   "No status data available.": "Không có dữ liệu trạng thái.",
   "No subscription? Use an API key": "Không có gói thuê bao? Dùng khóa API",

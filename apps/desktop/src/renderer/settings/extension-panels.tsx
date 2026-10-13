@@ -306,7 +306,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
   );
 }
 
-function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: PanelContext) {
+function SkillsPanel({ api, data, pending, run, refreshExtensions, createOpen, closeCreate }: PanelContext) {
   const status = record(data.skills);
   const skills = rows(status, 'skills').filter(
     (skill) => record(skill.owner).kind !== 'builtin' && record(skill.owner).kind !== 'plugin'
@@ -320,6 +320,7 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
   const openDetail = (name: string) => {
     closeCreate?.();
     setDetail({ name, content: null });
+    void refreshExtensions();
     void run<RecordValue>('skillContent', [name], `skill-content-${name}`, false).then((value) => {
       setDetail((current) => {
         if (current?.name !== name) return current;
@@ -454,15 +455,21 @@ function PluginDetailDialog({
   busy,
   run,
   confirm,
+  refreshExtensions,
   openSkillTools,
   onClose,
-}: Pick<PanelContext, 'api' | 'data' | 'run' | 'confirm'> & {
+}: Pick<PanelContext, 'api' | 'data' | 'run' | 'confirm' | 'refreshExtensions'> & {
   plugin: RecordValue;
   busy: boolean;
   openSkillTools(name: string): void;
   onClose(): void;
 }) {
   const id = String(open.id || open.name);
+  // Opening the dialog shows what is on disk now, not the last sweep.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per opened plugin.
+  useEffect(() => {
+    void refreshExtensions();
+  }, [id]);
   const skills = pluginSkillRows(data, id);
   const servers = pluginMcpServers(data, open);
   const disabledSkills = disabledSkillNames(data);
@@ -521,6 +528,13 @@ function PluginDetailDialog({
         currentPath={currentProjectPath(data)}
         busy={busy}
       />
+      {Boolean(open.warning) && (
+        <ExtensionNote tone="danger">
+          {t('No skills or MCP server found. Searched: {{paths}}', {
+            paths: (Array.isArray(open.searchedSkillRoots) ? open.searchedSkillRoots : []).map(String).join(', '),
+          })}
+        </ExtensionNote>
+      )}
       <ExtensionSection title={t('Contents')} count={contents}>
         {contents > 0 && (
           <ExtensionItemList>
@@ -603,7 +617,16 @@ function PluginDetailDialog({
   );
 }
 
-function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
+function PluginsPanel({
+  api,
+  data,
+  pending,
+  run,
+  confirm,
+  refreshExtensions,
+  createOpen,
+  closeCreate,
+}: PanelContext) {
   const { openSkillTools, skillToolsDialog } = useSkillToolLinks({ data, pending, run });
   const status = record(data.plugins);
   const plugins = rows(status, 'plugins');
@@ -670,7 +693,13 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
             icon={<Blocks size={16} aria-hidden="true" />}
             title={label(plugin)}
             description={description}
-            status={!enabled ? { label: t('Disabled'), tone: 'muted' } : null}
+            status={
+              !enabled
+                ? { label: t('Disabled'), tone: 'muted' }
+                : plugin.warning
+                  ? { label: t('No skills found.'), tone: 'warn' }
+                  : null
+            }
             enabled={enabled}
             busy={busy}
             onOpen={() => setOpenId(id)}
@@ -687,6 +716,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
           busy={busy}
           run={run}
           confirm={confirm}
+          refreshExtensions={refreshExtensions}
           openSkillTools={openSkillTools}
           onClose={() => setOpenId('')}
         />

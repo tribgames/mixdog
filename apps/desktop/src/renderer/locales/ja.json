@@ -2357,6 +2357,7 @@
   "No shells detected": "シェルが見つかりません",
   "No sign-up": "サインアップなし",
   "No skills found.": "スキルが見つかりません。",
+  "No skills or MCP server found. Searched: {{paths}}": "スキルと MCP サーバーが見つかりません。検索したパス: {{paths}}",
   "No ssh-agent is running. Start one and load your key:": "実行中の ssh-agent がありません。起動して鍵を読み込んでください。",
   "No status data available.": "状態データがありません。",
   "No subscription? Use an API key": "サブスクリプションがなければ API キーを使う",

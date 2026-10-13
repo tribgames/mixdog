@@ -2357,6 +2357,7 @@
   "No shells detected": "감지된 셸 없음",
   "No sign-up": "가입 필요 없음",
   "No skills found.": "스킬이 없습니다.",
+  "No skills or MCP server found. Searched: {{paths}}": "스킬과 MCP 서버를 찾지 못했습니다. 찾아본 경로: {{paths}}",
   "No ssh-agent is running. Start one and load your key:": "실행 중인 ssh-agent가 없습니다. ssh-agent를 시작하고 키를 불러오세요.",
   "No status data available.": "상태 데이터가 없습니다.",
   "No subscription? Use an API key": "구독이 없다면 API 키를 쓰세요",

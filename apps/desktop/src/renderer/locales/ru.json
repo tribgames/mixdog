@@ -2510,6 +2510,7 @@
   "No shells detected": "Оболочки не обнаружены",
   "No sign-up": "Нет регистрации",
   "No skills found.": "Навыки не найдены.",
+  "No skills or MCP server found. Searched: {{paths}}": "Навыки и MCP-сервер не найдены. Проверенные пути: {{paths}}",
   "No ssh-agent is running. Start one and load your key:": "ssh-agent не запущен. Запустите его и загрузите ключ:",
   "No status data available.": "Нет данных о статусе.",
   "No subscription? Use an API key": "Нет подписки? Используйте API-ключ",

@@ -30,7 +30,8 @@ function pluginSummary(plugin) {
   const version = plugin.version ? ` · ${plugin.version}` : '';
   const mcpState = plugin.mcpEnabled ? 'enabled' : plugin.mcpScript;
   const mcp = plugin.mcpScript ? ` · mcp ${mcpState}` : '';
-  return `${plugin.sourceType || plugin.source}${version} · skills ${plugin.skillCount || 0}${mcp}`;
+  const warning = plugin.warning ? ` · ⚠ ${plugin.warning}` : '';
+  return `${plugin.sourceType || plugin.source}${version} · skills ${plugin.skillCount || 0}${mcp}${warning}`;
 }
 
 const pluginInfoNotice = (p) =>
@@ -41,6 +42,7 @@ const pluginInfoNotice = (p) =>
     `mcp: ${mcpSummary(p)}`,
     `applies to: ${Array.isArray(p.scope) && p.scope.length ? p.scope.join(', ') : 'all projects'}`,
     `root: ${p.root}`,
+    p.warning ? `warning: ${p.warning}` : '',
     p.description ? `\n${p.description}` : '',
   ]
     .filter(Boolean)

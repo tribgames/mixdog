@@ -12,7 +12,6 @@ import {
   collectSkillsCached,
   filterSkillsExcludingDisabled,
   invalidateSkillsCache,
-  invalidateSkillsMtimeGate,
   isSkillDisabled,
   loadSkillResource,
   skillMissingFeature,
@@ -310,11 +309,67 @@ test('loads plugin skills from the manifest skills path as well as the conventio
     );
     utimesSync(edited, future, future);
     utimesSync(join(pluginRoot, 'skills', 'conventional-skill'), future, future);
-    invalidateSkillsMtimeGate();
     assert.equal(
       collectSkillsCached(join(root, 'any-project')).find((skill) => skill.name === 'conventional-skill')?.description,
       'Edited in place.'
     );
+
+    // A Claude Code manifest's skills path loads, and a SKILL.md created
+    // afterwards is visible on the very next call (no TTL window).
+    const claudeRoot = join(root, 'claude-plugin');
+    mkdirSync(join(claudeRoot, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(claudeRoot, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'claude-plugin', skills: './.claude/skills/' })
+    );
+    writeFileSync(
+      join(registryDir, 'registry.json'),
+      JSON.stringify({ plugins: [{ id: 'claude-plugin', root: claudeRoot, enabled: true }] })
+    );
+    const names1 = collectSkillsCached(join(root, 'any-project')).map((s) => s.name);
+    assert.equal(names1.includes('late-skill'), false);
+    const lateDir = join(claudeRoot, '.claude', 'skills', 'late-skill');
+    mkdirSync(lateDir, { recursive: true });
+    writeFileSync(
+      join(lateDir, 'SKILL.md'),
+      ['---', 'name: late-skill', 'description: Created later.', '---', '', '# Instructions', ''].join('\n')
+    );
+    const late = collectSkillsCached(join(root, 'any-project')).find((s) => s.name === 'late-skill');
+    assert.equal(late?.plugin, 'claude-plugin');
+  } finally {
+    invalidateSkillsCache();
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an unchanged future-dated file does not mask edits elsewhere', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-future-mask-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  invalidateSkillsCache();
+  try {
+    const skillsDir = join(root, 'data', 'skills');
+    const write = (name, description) => {
+      const dir = join(skillsDir, name);
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, 'SKILL.md');
+      writeFileSync(file, ['---', `name: ${name}`, `description: ${description}`, '---', '', '# Body', ''].join('\n'));
+      return file;
+    };
+    const future = new Date(Date.now() + 3_600_000);
+    const futureFile = write('future-skill', 'Dated ahead.');
+    utimesSync(futureFile, future, future);
+    utimesSync(join(skillsDir, 'future-skill'), future, future);
+    const describe = (name) => collectSkillsCached(null).find((s) => s.name === name)?.description;
+    assert.equal(describe('future-skill'), 'Dated ahead.');
+    const edited = write('plain-skill', 'First.');
+    assert.equal(describe('plain-skill'), 'First.');
+    writeFileSync(edited, ['---', 'name: plain-skill', 'description: Second.', '---', '', '# Body', ''].join('\n'));
+    const past = new Date(Date.now() + 5_000);
+    utimesSync(edited, past, past);
+    assert.equal(describe('plain-skill'), 'Second.');
   } finally {
     invalidateSkillsCache();
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;

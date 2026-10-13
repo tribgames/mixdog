@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { statSync, readdirSync } from 'node:fs';
 
 /**
@@ -14,6 +15,28 @@ import { statSync, readdirSync } from 'node:fs';
  */
 export function maxMtimeRecursive(paths, depth = 3) {
   let max = 0;
+  walkMtimes(paths, depth, (_p, m) => {
+    if (m > max) max = m;
+  });
+  return max;
+}
+
+/**
+ * Exact change signature over the same walk as maxMtimeRecursive: every
+ * stat'ed path with its own mtime, so any single path changing (even to an
+ * older time) changes the result. Compare for equality only.
+ *
+ * @param {string[]} paths
+ * @param {number}   [depth=3]
+ * @returns {string}
+ */
+export function mtimeSignatureRecursive(paths, depth = 3) {
+  const parts = [];
+  walkMtimes(paths, depth, (p, m) => parts.push(`${p}:${m}`));
+  return createHash('sha1').update(parts.join('\n')).digest('hex');
+}
+
+function walkMtimes(paths, depth, visit) {
   function walk(p, d) {
     let st;
     try {
@@ -22,7 +45,7 @@ export function maxMtimeRecursive(paths, depth = 3) {
       return;
     }
     if (st.isDirectory()) {
-      if (st.mtimeMs > max) max = st.mtimeMs;
+      visit(p, st.mtimeMs);
       if (d <= 0) return;
       let entries;
       try {
@@ -36,17 +59,15 @@ export function maxMtimeRecursive(paths, depth = 3) {
           walk(child, d - 1);
         } else if (e.isFile() && (e.name.endsWith('.md') || e.name.endsWith('.json'))) {
           try {
-            const m = statSync(child).mtimeMs;
-            if (m > max) max = m;
+            visit(child, statSync(child).mtimeMs);
           } catch {
             /* unreadable entry: skipped like a missing path */
           }
         }
       }
     } else {
-      if (st.mtimeMs > max) max = st.mtimeMs;
+      visit(p, st.mtimeMs);
     }
   }
   for (const p of paths) walk(p, depth);
-  return max;
 }

@@ -21,7 +21,10 @@ import {
   type CapabilitySettingsProps,
   type PanelContext,
   type SettingsConfirmation,
+  EXTENSION_SECTIONS,
+  applySectionRefresh,
   getCachedCapabilitySettings,
+  refreshCapabilitySections,
   invalidateCapabilitySettings,
   preloadCapabilitySettings,
 } from './capability-data';
@@ -160,6 +163,27 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     };
   }, [api]);
 
+  const extensionCategory = category === 'plugins' || category === 'skills' || category === 'mcp';
+  const refreshExtensions = useCallback(async () => {
+    const sections = await refreshCapabilitySections(api, EXTENSION_SECTIONS);
+    if (Object.keys(sections).length) setData((previous) => applySectionRefresh(previous, sections));
+  }, [api]);
+  // Plugin folders change outside the app: re-read the extension sections the
+  // moment the window is back instead of waiting for the next opening.
+  useEffect(() => {
+    if (!active || !extensionCategory) return;
+    const onFocus = () => void refreshExtensions();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshExtensions();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [active, extensionCategory, refreshExtensions]);
+
   const run = useCallback(
     async <T,>(
       capability: DesktopCapability,
@@ -193,7 +217,12 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           // The next load must re-read past the write instead of adopting a
           // cached or still-running sweep that predates it.
           invalidateCapabilitySettings(api, capability);
-          if (refresh) setRevision((value) => value + 1);
+          if (refresh) {
+            // Extension lists update from a section read right away; the full
+            // sweep below only reconciles the rest.
+            if (extensionCategory) await refreshExtensions();
+            setRevision((value) => value + 1);
+          }
           return result.value;
         } catch (rawReason) {
           const reason = friendlyCapabilityError(rawReason);
@@ -210,7 +239,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       );
       return task;
     },
-    [api, hydrating]
+    [api, extensionCategory, hydrating, refreshExtensions]
   );
 
   const checkDesktopUpdate = useCallback(async (): Promise<void> => {
@@ -328,6 +357,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       snapshot: liveSnapshot,
       pending: effectivePending,
       run,
+      refreshExtensions,
       route,
       setFast,
       confirm,
@@ -353,6 +383,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       onCompose,
       onOpenCategory,
       pushNotice,
+      refreshExtensions,
       route,
       run,
       setFast,

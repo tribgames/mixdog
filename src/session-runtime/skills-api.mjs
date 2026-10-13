@@ -54,7 +54,10 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
         const source = sourceForSkill(skill);
         return {
           name: skill.name,
-          enabled: !(contextMod.isSkillDisabled?.(skill.name) || contextMod.skillMissingFeature?.(skill.name)),
+          enabled: !(
+            contextMod.isSkillDisabled?.(skill.name, null, skills) ||
+            contextMod.skillMissingFeature?.(skill.name, null, skills)
+          ),
           description: skill.description || '',
           whenToUse: skill.whenToUse || '',
           filePath: skill.filePath || null,

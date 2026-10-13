@@ -2357,6 +2357,7 @@
   "No shells detected": "未检测到 Shell",
   "No sign-up": "无需注册",
   "No skills found.": "未找到技能。",
+  "No skills or MCP server found. Searched: {{paths}}": "未找到技能或 MCP 服务器。已搜索的路径：{{paths}}",
   "No ssh-agent is running. Start one and load your key:": "没有正在运行的 ssh-agent。请启动并加载密钥：",
   "No status data available.": "暂无状态数据。",
   "No subscription? Use an API key": "没有订阅？使用 API 密钥",
