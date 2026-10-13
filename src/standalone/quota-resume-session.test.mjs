@@ -83,7 +83,9 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
       initProviders: async () => {},
       getProvider: () => provider,
       getAllProviders: () => new Map([['openai', provider]]),
-      // The real registry memoizes the startup refresh per catalog epoch; a fresh promise per call\n      // would make the readiness gate re-observe it forever.\n      refreshProviderCatalogsOnStartup: () => startupRefresh,
+      // The real registry memoizes the startup refresh per catalog epoch; a fresh promise per call
+      // would make the readiness gate re-observe it forever.
+      refreshProviderCatalogsOnStartup: () => startupRefresh,
       refreshCatalogs: async () => {},
     },
   });

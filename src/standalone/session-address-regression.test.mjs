@@ -65,7 +65,9 @@ test('a cancelled canonical worker never gets a new conversation from its own sh
       initProviders: async () => {},
       getProvider: () => provider,
       getAllProviders: () => new Map([['openai', provider]]),
-      // The real registry memoizes the startup refresh per catalog epoch; a fresh promise per call\n      // would make the readiness gate re-observe it forever.\n      refreshProviderCatalogsOnStartup: () => startupRefresh,
+      // The real registry memoizes the startup refresh per catalog epoch; a fresh promise per call
+      // would make the readiness gate re-observe it forever.
+      refreshProviderCatalogsOnStartup: () => startupRefresh,
       refreshCatalogs: async () => {},
     },
   });
