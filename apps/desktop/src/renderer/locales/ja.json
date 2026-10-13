@@ -1222,6 +1222,7 @@
   "Discover models": "モデルを検出",
   "Discovering…": "検出中…",
   "Dismiss": "閉じる",
+  "Dismiss goal": "目標を閉じる",
   "Dismiss {{name}}": "{{name}} を閉じる",
   "Dismiss error": "エラーを閉じる",
   "Dismiss install prompt": "インストール案内を閉じる",

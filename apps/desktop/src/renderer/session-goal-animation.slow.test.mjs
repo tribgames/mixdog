@@ -39,18 +39,18 @@ test('the Goal progress bar is static in every state', async (t) => {
       ${css}
     </style></head><body>${markup}</body></html>`);
   };
-  // The progress mark is a static bar (island-icons.html): nothing in the
-  // segment animates, whether work is running or not.
+  // The progress mark is five static cells (goal-progress-bar-v1.html):
+  // nothing in the segment animates, whether work is running or not.
   const sample = () =>
     page.$eval('.session-goal-trigger', (trigger) => {
-      const bar = trigger.querySelector('.session-goal-bar');
+      const cells = trigger.querySelector('.session-goal-pips');
       const animations = trigger.getAnimations({ subtree: true }).length;
-      if (!bar) return { animations, size: null, fill: null };
-      const box = bar.getBoundingClientRect();
+      if (!cells) return { animations, size: null, filled: null };
+      const box = cells.getBoundingClientRect();
       return {
         animations,
         size: [box.width, box.height],
-        fill: bar.querySelector('i').getBoundingClientRect().width,
+        filled: cells.querySelectorAll('i[data-status="completed"]').length,
       };
     });
 
@@ -66,6 +66,6 @@ test('the Goal progress bar is static in every state', async (t) => {
     ['duration_reached', {}],
   ]) {
     await render(status, execution);
-    assert.deepEqual(await sample(), { animations: 0, size: [22, 3], fill: 0 }, `${status}: the mark stays still`);
+    assert.deepEqual(await sample(), { animations: 0, size: [58, 4], filled: 0 }, `${status}: the mark stays still`);
   }
 });

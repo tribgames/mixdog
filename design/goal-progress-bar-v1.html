@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Goal 진행 막대 · 시안 v1</title>
+<style>
+  /* Dark theme values from apps/desktop/src/renderer/desktop/01-tokens.css;
+     the current rule from session-goal-presentation.ts (8 pips, then a 22px bar). */
+  :root {
+    --sheet: #111113;
+    --frame: color-mix(in srgb, #222225 62%, #1c1c1f);
+    --text: #e9e9e9;
+    --soft: color-mix(in srgb, #e9e9e9 85%, transparent);
+    --muted: #a8a8a8;
+    --accent: #5bb0ff;
+    --ok: #3ddc6e;
+    --warn: #ffb52e;
+    --border: rgba(255, 255, 255, 0.125);
+    --rule: rgba(255, 255, 255, 0.09);
+    --track: color-mix(in srgb, #e9e9e9 13%, transparent);
+    --raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 0.5px #ffffff29, 0 -0.5px 0 #ffffff0f;
+  }
+  [data-state] { --tint: var(--accent); --fill: var(--accent); }
+  [data-state="complete"] { --tint: var(--ok); --fill: var(--ok); }
+  [data-state="waiting"] { --tint: var(--warn); }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 40px 72px;
+    background: #0b0b0d;
+    color: var(--text);
+    font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  }
+  main { max-width: 1320px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 600; }
+  h2 { margin: 36px 0 6px; font-size: 15px; font-weight: 600; }
+  .lead { max-width: 940px; margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+
+  .grid { display: grid; grid-template-columns: 190px repeat(6, minmax(0, 1fr)); gap: 10px 12px; align-items: stretch; }
+  .head { align-self: end; color: var(--muted); font-size: 12.5px; line-height: 17px; }
+  .head b { display: block; color: var(--soft); font-weight: 500; }
+  .mode { align-self: center; font-weight: 600; }
+  .mode small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 16px; }
+  .mode em {
+    margin-left: 6px;
+    padding: 0 7px;
+    border-radius: 999px;
+    color: var(--ok);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 45%, transparent);
+    font-size: 11.5px;
+    font-style: normal;
+    font-weight: 500;
+  }
+  .box {
+    min-height: 66px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: var(--sheet);
+    box-shadow: 0 0 0 1px var(--rule);
+  }
+  .box.big { min-height: 72px; }
+
+  svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  svg.l { stroke-width: 2.6; }
+
+  .island {
+    border-radius: 999px;
+    color: var(--text);
+    background: var(--frame);
+    box-shadow: inset 0 0 0 0.5px var(--border), var(--raised);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+  }
+  .pillrow { height: 34px; display: flex; align-items: center; padding: 0 4px; white-space: nowrap; }
+  .trigger { height: 26px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; font-variant-numeric: tabular-nums; }
+  .state { display: inline-flex; color: var(--tint); }
+
+  /* Bars. now: today's pips (one per task in 56px) or the 22px bar past 8.
+     five: five 10px cells. fit: one cell per task inside a fixed 58px. */
+  .bar-now { width: 22px; height: 3px; display: block; flex: none; overflow: hidden; border-radius: 2px; background: var(--track); }
+  .bar-now > i { height: 100%; display: block; background: var(--fill); }
+  .cells { height: 4px; display: grid; flex: none; }
+  .cells.now { width: 56px; gap: 2px; }
+  .cells.five { grid-template-columns: repeat(5, 10px); gap: 2px; }
+  .cells.fit { width: 58px; }
+  .cells i { min-width: 0; border-radius: 2px; background: var(--track); }
+  .cells i.c { background: var(--fill); }
+  .cells i.p { background: linear-gradient(90deg, var(--tint) 50%, var(--track) 50%); }
+  .cells i.a { background: var(--warn); }
+  .cells.gapless { overflow: hidden; border-radius: 2px; }
+  .cells.gapless i { border-radius: 0; }
+  .zoom { zoom: 3; }
+
+  .rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .rules section { padding: 14px 16px; border-radius: 12px; background: var(--sheet); box-shadow: 0 0 0 1px var(--rule); }
+  .rules h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  .rules ul { margin: 0; padding-left: 18px; color: var(--soft); }
+  .rules li + li { margin-top: 4px; }
+  .rules .minus { color: var(--muted); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-waiting" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+</svg>
+
+<main>
+  <h1>Goal 진행 막대 · 시안 v1</h1>
+  <p class="lead">지금은 작업이 8개까지면 작업마다 한 칸, 9개부터는 짧은 막대 하나로 바뀌어서 Goal마다 모양과 길이가 달라집니다.
+    같은 Goal 6개를 지금 방식, 가안(5칸 고정), 나안(길이 고정, 작업 수만큼 자동 배분)으로 나란히 그렸습니다.</p>
+
+  <h2>실제 크기</h2>
+  <div class="grid" id="actual"></div>
+
+  <h2>3배 확대 (칸 모양만)</h2>
+  <div class="grid" id="zoomed"></div>
+
+  <h2>규칙</h2>
+  <div class="rules">
+    <section>
+      <h3>가안 · 5칸 고정 (추천)</h3>
+      <ul>
+        <li>작업이 몇 개든 항상 5칸, 칸 너비 10px로 같습니다.</li>
+        <li>완료 수 ÷ 전체 × 5를 내림한 만큼 채웁니다. 다 끝나기 전에는 5칸이 꽉 차지 않습니다.</li>
+        <li>그다음 칸: 진행 중이면 반 칸, 답변 대기면 노란 칸.</li>
+        <li>정확한 수는 옆의 13/20 숫자가 알려 줍니다.</li>
+        <li class="minus">칸 하나가 작업 하나는 아닙니다.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>나안 · 길이 고정, 자동 배분</h3>
+      <ul>
+        <li>길이 58px 고정, 작업 수만큼 나눕니다.</li>
+        <li>간격: 8개까지 2px, 16개까지 1px, 그 이상은 이어 붙인 막대.</li>
+        <li>작업 하나가 칸 하나라, 어느 작업이 진행·대기 중인지 위치로 보입니다.</li>
+        <li class="minus">작업이 많으면 칸이 얇아집니다(20개면 3px 안팎). 개수에 따라 칸 굵기가 달라 보입니다.</li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<script>
+  // Task letters: c completed, p in progress, a awaiting the user, _ pending.
+  const goals = [
+    { label: '작업 2개', note: '1 완료 · 1 진행 중', tasks: 'cp', state: 'active' },
+    { label: '작업 5개', note: '2 완료 · 1 진행 중', tasks: 'ccp__', state: 'active' },
+    { label: '작업 7개', note: '2 완료 · 1 진행 중', tasks: 'ccp____', state: 'active' },
+    { label: '작업 9개', note: '4 완료 · 1 답변 대기', tasks: 'cccca____', state: 'waiting' },
+    { label: '작업 20개', note: '13 완료 · 1 진행 중', tasks: `${'c'.repeat(13)}p${'_'.repeat(6)}`, state: 'active' },
+    { label: '작업 20개', note: '모두 완료', tasks: 'c'.repeat(20), state: 'complete' },
+  ];
+  const modes = [
+    { id: 'now', title: '지금', sub: '8개까지 작업당 1칸, 9개부터 22px 막대' },
+    { id: 'five', title: '가안 · 5칸 고정', sub: '완료 비율만큼 + 지금 하는 칸', recommended: true },
+    { id: 'fit', title: '나안 · 길이 고정', sub: '58px를 작업 수만큼 자동 배분' },
+  ];
+  const icons = { active: 'i-target', waiting: 'i-waiting', complete: 'i-check' };
+
+  function cell(className = '') {
+    const node = document.createElement('i');
+    if (className) node.className = className;
+    return node;
+  }
+
+  function bar(mode, tasks) {
+    const list = [...tasks];
+    const total = list.length;
+    const done = list.filter((task) => task === 'c').length;
+    const node = document.createElement('span');
+    if (mode === 'now' && total > 8) {
+      node.className = 'bar-now';
+      const fill = cell();
+      fill.style.width = `${(done / total) * 100}%`;
+      node.append(fill);
+      return node;
+    }
+    if (mode === 'five') {
+      node.className = 'cells five';
+      const filled = Math.floor((done / total) * 5);
+      let current = '';
+      if (list.includes('a')) current = 'a';
+      else if (list.includes('p')) current = 'p';
+      for (let index = 0; index < 5; index += 1) {
+        if (index < filled) node.append(cell('c'));
+        else node.append(cell(index === filled ? current : ''));
+      }
+      return node;
+    }
+    node.className = `cells ${mode}`;
+    node.style.gridTemplateColumns = `repeat(${total}, minmax(0, 1fr))`;
+    if (mode === 'fit') {
+      const gap = total <= 8 ? 2 : total <= 16 ? 1 : 0;
+      node.style.gap = `${gap}px`;
+      if (gap === 0) node.classList.add('gapless');
+    }
+    for (const task of list) node.append(cell(task === '_' ? '' : task));
+    return node;
+  }
+
+  function pill(mode, goal) {
+    const island = document.createElement('div');
+    island.className = 'island';
+    const done = [...goal.tasks].filter((task) => task === 'c').length;
+    island.innerHTML =
+      `<div class="pillrow"><span class="trigger" data-state="${goal.state}">` +
+      `<span class="state"><svg class="l"><use href="#${icons[goal.state]}"/></svg></span>` +
+      `<span data-bar></span><span>${done}/${goal.tasks.length}</span></span></div>`;
+    island.querySelector('[data-bar]').replaceWith(bar(mode, goal.tasks));
+    return island;
+  }
+
+  function header(grid) {
+    grid.append(document.createElement('span'));
+    for (const goal of goals) {
+      const head = document.createElement('div');
+      head.className = 'head';
+      head.innerHTML = `<b>${goal.label}</b>${goal.note}`;
+      grid.append(head);
+    }
+  }
+
+  function modeLabel(mode) {
+    const label = document.createElement('div');
+    label.className = 'mode';
+    label.innerHTML = `${mode.title}${mode.recommended ? '<em>추천</em>' : ''}<small>${mode.sub}</small>`;
+    return label;
+  }
+
+  const actual = document.getElementById('actual');
+  header(actual);
+  for (const mode of modes) {
+    actual.append(modeLabel(mode));
+    for (const goal of goals) {
+      const box = document.createElement('div');
+      box.className = 'box';
+      box.append(pill(mode.id, goal));
+      actual.append(box);
+    }
+  }
+
+  const zoomed = document.getElementById('zoomed');
+  header(zoomed);
+  for (const mode of modes) {
+    zoomed.append(modeLabel(mode));
+    for (const goal of goals) {
+      const box = document.createElement('div');
+      box.className = 'box big';
+      const holder = document.createElement('span');
+      holder.className = 'zoom';
+      holder.dataset.state = goal.state;
+      holder.append(bar(mode.id, goal.tasks));
+      box.append(holder);
+      zoomed.append(box);
+    }
+  }
+</script>
+</body>
+</html>

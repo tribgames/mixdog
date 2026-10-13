@@ -1259,7 +1259,8 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 /* Goal: the lead segment of the composer island (15-composer.css owns the
    island and the segment chrome). Closed it is bar · title · n/m; a crowded
    island keeps bar · n/m. Open, the island becomes the Goal tab (bar · n/m ·
-   elapsed): the task drawer with pause / edit / stop under it. */
+   elapsed): the task drawer with pause / edit / stop under it, or one
+   dismiss once the Goal has finished (the closed segment carries it too). */
 .session-goal-island {
   position: relative;
   min-width: 0;
@@ -1300,20 +1301,34 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .composer-island[data-expanded="goal"] .composer-island-pill > :not(.session-goal-island) {
   display: none;
 }
-/* Progress as a short static meter: no motion, so it never reads as a
-   loading spinner; the fill is the accent blue. */
-.session-goal-bar {
-  width: 22px;
-  height: 3px;
-  display: block;
+/* A finished Goal's dismiss: a round button after the closed segment. The
+   open tab carries its own, so this one leaves with the trigger. */
+.session-goal-dismiss {
+  width: 24px;
+  height: 24px;
+  display: grid;
   flex: none;
-  border-radius: 2px;
-  background: var(--mx-meter-track);
-  overflow: hidden;
+  place-items: center;
+  margin-inline: -2px 1px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
 }
-.session-goal-bar > i {
-  height: 100%;
-  display: block;
+.session-goal-dismiss:hover:not(:disabled),
+.session-goal-dismiss:focus-visible {
+  color: var(--mx-text);
+  background: var(--composer-island-wash);
+  outline: none;
+}
+.session-goal-dismiss:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.session-goal-island[data-open="true"] > .session-goal-dismiss {
+  display: none;
 }
 .session-goal-objective {
   min-width: 0;
@@ -1352,18 +1367,18 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-objective[data-label="status"] {
   color: var(--goal-tint);
 }
-/* One pip per counted task in a fixed 56px, so the segment keeps its width
-   whatever the task count. */
+/* Five fixed 10px cells whatever the task count, so every Goal's mark keeps
+   one shape and length (goal-progress-bar-v1.html). Static: no motion, so it
+   never reads as a loading spinner. */
 .session-goal-pips {
-  width: 56px;
+  width: 58px;
   height: 4px;
-  display: flex;
+  display: grid;
   flex: none;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 2px;
 }
 .session-goal-pips > i {
-  min-width: 0;
-  flex: 1 1 0;
   border-radius: 2px;
   background: var(--mx-meter-track);
 }
@@ -1375,9 +1390,6 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-pips > i[data-status="awaiting_approval"] {
   background: var(--mx-warning);
-}
-.session-goal-bar > i {
-  background: var(--goal-fill);
 }
 .session-goal-progress,
 .session-goal-time {
@@ -1605,9 +1617,9 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   color: var(--mx-warning);
 }
 
-html[data-mixdog-mobile-tabs] .session-goal-bar {
-  width: 22px;
-  height: 3px;
+html[data-mixdog-mobile-tabs] .session-goal-dismiss {
+  width: 28px;
+  height: 28px;
 }
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-control {
   height: 32px;

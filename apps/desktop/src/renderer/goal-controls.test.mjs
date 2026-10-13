@@ -220,3 +220,57 @@ test('goal creation defaults to maximum time and preserves input after a rejecte
     host.remove();
   }
 });
+
+test('a finished Goal is dismissed from its segment or its tab; a running one offers no dismiss', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const calls = [];
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      return { value: { ok: true } };
+    },
+  };
+  const goal = {
+    id: 'goal-done',
+    revision: 4,
+    objective: 'Ship it',
+    status: 'complete',
+    timeUsedMs: 60_000,
+    tasks: [{ id: 'one', text: 'Done work', status: 'completed' }],
+  };
+  const render = (current) =>
+    act(async () =>
+      root.render(React.createElement(SessionGoalIsland, { snapshot: { sessionId: 'own-pane', goal: current } }))
+    );
+  try {
+    await render(goal);
+    const segmentDismiss = host.querySelector('.session-goal-dismiss');
+    assert.equal(segmentDismiss.getAttribute('aria-label'), t('Dismiss goal'));
+    assert.equal(segmentDismiss.title, t('Dismiss goal'));
+    assert.equal(segmentDismiss.closest('[inert]'), null, 'the closed segment dismisses in one click');
+    await click(segmentDismiss);
+    assert.deepEqual(calls.at(-1), {
+      capability: 'goalControl',
+      sessionId: 'own-pane',
+      args: [{ action: 'dismiss', expectedGoalId: goal.id }],
+    });
+
+    await click(host.querySelector('.session-goal-trigger'));
+    const tabDismiss = host.querySelector('.session-goal-controls .session-goal-control');
+    assert.equal(tabDismiss.textContent, t('Dismiss goal'));
+    assert.equal(tabDismiss.closest('[inert], [aria-hidden="true"]'), null);
+    await click(tabDismiss);
+    assert.deepEqual(calls.at(-1).args, [{ action: 'dismiss', expectedGoalId: goal.id }]);
+
+    await render({ ...goal, id: 'goal-stopped', status: 'stopped' });
+    assert.ok(host.querySelector('.session-goal-dismiss'), 'a Goal the model stopped is dismissed the same way');
+    await render({ ...goal, id: 'goal-running', status: 'active' });
+    assert.equal(host.querySelector('.session-goal-dismiss'), null);
+    assert.equal(button(host, 'Dismiss goal'), undefined);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

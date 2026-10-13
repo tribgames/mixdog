@@ -19,7 +19,7 @@ import {
   stopActiveClock,
   validateObjective,
 } from './goal-state.mjs';
-import { assertExpectedGoal } from './goal-mutations.mjs';
+import { assertExpectedGoal, goalFinished } from './goal-mutations.mjs';
 import { clean } from '../../../shared/clean.mjs';
 
 /** "12m remaining" for a budgeted Goal, "3m elapsed" for an open-ended one. */
@@ -109,6 +109,17 @@ const GOAL_CONTROL_ACTIONS = {
     const goal = await ctx.updateGoal(id, { status: 'complete' }, { user: true });
     return reply(action, goal, `Goal complete · ${goal.objective} · ${durationLabel(goal.timeUsedMs)} elapsed`);
   },
+  async dismiss(ctx, { id, goal, at, action }) {
+    // The user's acknowledgement of finished work: the same archive a new
+    // prompt applies, so the chrome lets go while the record stays.
+    if (!goalFinished(goal)) throw new Error('only a finished Goal can be dismissed; stop or complete it first');
+    if (!goal.archivedAt) {
+      goal.archivedAt = at;
+      goal.updatedAt = at;
+      await ctx.commit(id, goal);
+    }
+    return reply(action, null, `Goal dismissed · ${goal.objective}`);
+  },
 };
 
 export async function runGoalControl(ctx, sessionId, rawArgs = {}) {
@@ -146,7 +157,9 @@ export async function runGoalControl(ctx, sessionId, rawArgs = {}) {
     throw new Error('Goal changed while editing; reopen the editor before saving');
   }
   const at = ctx.now();
-  if (goal.status === 'stopped') throw new Error('a stopped Goal cannot be changed; create a new Goal');
+  if (goal.status === 'stopped' && action !== 'dismiss') {
+    throw new Error('a stopped Goal cannot be changed; create a new Goal');
+  }
   const handler = GOAL_CONTROL_ACTIONS[action];
   if (!handler) throw new Error(`unknown Goal action: ${action}`);
   return handler(ctx, { id, goal, args, at, expectedGoalId, action });

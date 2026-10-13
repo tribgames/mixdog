@@ -1,4 +1,4 @@
-import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
+import type { GoalSnapshot, Snapshot } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 
 export type GoalDisplayStatus = NonNullable<GoalSnapshot['status']> | 'responding';
@@ -106,34 +106,45 @@ export function goalStateLabel(goal: GoalSnapshot, kind: GoalStateKind, displayS
   return goalStatusLabel(goal);
 }
 
+type GoalProgressCell = 'completed' | 'in_progress' | 'awaiting_approval' | 'pending';
+
 export type GoalTaskProgress = {
   completed: number;
   total: number;
-  /** One status per counted task (dropped excluded); null when there are too
-   *  many tasks, or only a summary count, for per-task pips. */
-  pips: NonNullable<GoalTask['status']>[] | null;
+  /** GOAL_PROGRESS_CELLS cells whatever the task count: the finished share of
+   *  the counted tasks (dropped excluded), rounded down so only a finished
+   *  list fills them all, then one cell for the work in hand. */
+  pips: GoalProgressCell[];
 };
 
-const GOAL_MAX_PIPS = 8;
+const GOAL_PROGRESS_CELLS = 5;
 
 export function goalTaskProgress(goal: GoalSnapshot): GoalTaskProgress {
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
   const summaryTotal = Number(goal.tasksTotal) || 0;
+  let completed: number;
+  let total: number;
   if (tasks.length > 0 && tasks.length >= summaryTotal) {
     const counted = tasks.filter((task) => task.status !== 'dropped');
-    const statuses = counted.map((task) => task.status || 'pending');
-    return {
-      completed: statuses.filter((status) => status === 'completed').length,
-      total: counted.length,
-      pips: counted.length > 0 && counted.length <= GOAL_MAX_PIPS ? statuses : null,
-    };
+    completed = counted.filter((task) => task.status === 'completed').length;
+    total = counted.length;
+  } else {
+    total = Math.max(tasks.length, summaryTotal);
+    completed = Math.min(
+      total,
+      Math.max(tasks.filter((task) => task.status === 'completed').length, Number(goal.tasksCompleted) || 0)
+    );
   }
-  const total = Math.max(tasks.length, summaryTotal);
-  const completed = Math.min(
-    total,
-    Math.max(tasks.filter((task) => task.status === 'completed').length, Number(goal.tasksCompleted) || 0)
-  );
-  return { completed, total, pips: null };
+  const filled = total > 0 ? Math.floor((completed * GOAL_PROGRESS_CELLS) / total) : 0;
+  // Work that needs the user's answer outranks work in hand.
+  let current: GoalProgressCell = 'pending';
+  if (tasks.some((task) => task.status === 'awaiting_approval')) current = 'awaiting_approval';
+  else if (tasks.some((task) => task.status === 'in_progress')) current = 'in_progress';
+  const pips = Array.from({ length: GOAL_PROGRESS_CELLS }, (_, index): GoalProgressCell => {
+    if (index < filled) return 'completed';
+    return index === filled ? current : 'pending';
+  });
+  return { completed, total, pips };
 }
 
 export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
