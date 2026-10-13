@@ -557,6 +557,105 @@ function sameMtimes(left, right) {
 const CATALOG_VERIFY_INTERVAL_MS = 10_000;
 const CATALOG_VERIFY_BATCH = 32;
 
+function unlistableRefresh() {
+  return { rows: null, catalog: null, fresh: false, changedIds: null, absent: false };
+}
+
+function newSessionCatalog(directory, dirStamp, index, scan) {
+  return {
+    directory,
+    dirStamp,
+    dirSettled: isSettledSessionStamp(dirStamp),
+    index,
+    entries: scan.entries,
+    heartbeatIds: scan.heartbeatIds,
+    heartbeatMtimes: null,
+    rows: null,
+    dirty: new Set(),
+    verifiedAt: Date.now(),
+    verifying: null,
+    rearm: false,
+    timer: null,
+  };
+}
+
+/** Brings an existing `catalog` up to date with the index, the directory and
+ *  the `hinted` ids: `{ changed, changedIds }`, or null when the directory
+ *  can no longer be enumerated. */
+function reconcileKnownCatalog(catalog, directory, dirStamp, index, hinted) {
+  let changed = false;
+  const changedIds = new Set();
+  // Files the background pass found with a new full stamp: their index row
+  // can still match size + mtime (a same-length, mtime-preserving
+  // replacement), so they are re-derived from the file itself.
+  const forced = catalog.dirty;
+  catalog.dirty = new Set();
+  const ids = new Set([...forced, ...hinted]);
+  if (catalog.index !== index) {
+    for (const id of changedIndexIds(catalog.index, index)) ids.add(id);
+    catalog.index = index;
+    changed = true;
+  }
+  if (!catalog.dirSettled || !sameSessionStamp(catalog.dirStamp, dirStamp)) {
+    const names = listSessionNames(directory);
+    if (!names) return null;
+    const present = new Set(names.sessionIds);
+    for (const id of catalog.entries.keys()) {
+      if (present.has(id)) continue;
+      catalog.entries.delete(id);
+      changedIds.add(id);
+      changed = true;
+    }
+    for (const id of names.sessionIds) if (!catalog.entries.has(id)) ids.add(id);
+    catalog.heartbeatIds = names.heartbeatIds;
+    catalog.dirStamp = dirStamp;
+    catalog.dirSettled = isSettledSessionStamp(dirStamp);
+  }
+  for (const id of ids) {
+    const entry = reconcileSessionFile(directory, id, index.rowsById.get(id), forced.has(id));
+    if (entry) catalog.entries.set(id, entry);
+    else catalog.entries.delete(id);
+    changedIds.add(id);
+    changed = true;
+  }
+  return { changed, changedIds };
+}
+
+/** Liveness: `.hb` sidecars are rewritten in place, so their mtimes are
+ *  probed every call (absent or unreadable contributes nothing). True when
+ *  they differ from the previous probe. */
+function refreshHeartbeatMtimes(catalog, directory) {
+  const heartbeatMtimes = new Map();
+  for (const id of catalog.heartbeatIds) {
+    const probe = probePath(join(directory, `${id}.hb`));
+    if (probe.state === PROBE_PRESENT && probe.mtimeMs > 0) heartbeatMtimes.set(id, probe.mtimeMs);
+  }
+  const differs = !sameMtimes(heartbeatMtimes, catalog.heartbeatMtimes);
+  catalog.heartbeatMtimes = heartbeatMtimes;
+  return differs;
+}
+
+/** Marks every entry of `snapshot` whose file no longer has the full stamp it
+ *  was judged at dirty (a replacement brings a new inode and change time even
+ *  when its size and mtime match). Stops early once `isCurrent()` is false. */
+async function markChangedEntriesDirty(catalog, snapshot, isCurrent) {
+  for (let start = 0; start < snapshot.length; start += CATALOG_VERIFY_BATCH) {
+    if (!isCurrent()) return;
+    await Promise.all(
+      snapshot.slice(start, start + CATALOG_VERIFY_BATCH).map(async ([id, entry]) => {
+        let changed;
+        try {
+          const info = await stat(join(catalog.directory, `${id}.json`), { bigint: true });
+          changed = entry.kind === 'unreadable' || !sameSessionStamp(sessionStampOf(info), entry.stamp);
+        } catch (error) {
+          changed = entry.kind !== 'unreadable' || STAMP_ABSENT_CODES.has(error?.code);
+        }
+        if (changed && catalog.entries.get(id) === entry) catalog.dirty.add(id);
+      })
+    );
+  }
+}
+
 /**
  * One ordinary catalog with its own index cache, reconcile state, background
  * pass and change listeners.
@@ -599,78 +698,25 @@ export function createOrdinaryCatalog() {
       return { rows: absent ? [] : null, catalog: null, fresh: false, changedIds: null, absent };
     }
     let catalog = sessionCatalog?.directory === directory ? sessionCatalog : null;
-    let changed = false;
     const fresh = !catalog;
-    const changedIds = new Set();
+    let changed = true;
+    let changedIds = new Set();
     const hinted = hintedIds;
     hintedIds = new Set();
-    if (!catalog) {
+    if (fresh) {
       const scan = scanSessionEntries(directory, index.rowsById, false);
-      if (!scan) return { rows: null, catalog: null, fresh: false, changedIds: null, absent: false };
-      catalog = {
-        directory,
-        dirStamp,
-        dirSettled: isSettledSessionStamp(dirStamp),
-        index,
-        entries: scan.entries,
-        heartbeatIds: scan.heartbeatIds,
-        heartbeatMtimes: null,
-        rows: null,
-        dirty: new Set(),
-        verifiedAt: Date.now(),
-        verifying: null,
-        rearm: false,
-        timer: null,
-      };
+      if (!scan) return unlistableRefresh();
+      catalog = newSessionCatalog(directory, dirStamp, index, scan);
       sessionCatalog = catalog;
-      changed = true;
     } else {
-      // Files the background pass found with a new full stamp: their index row
-      // can still match size + mtime (a same-length, mtime-preserving
-      // replacement), so they are re-derived from the file itself.
-      const forced = catalog.dirty;
-      catalog.dirty = new Set();
-      const ids = new Set([...forced, ...hinted]);
-      if (catalog.index !== index) {
-        for (const id of changedIndexIds(catalog.index, index)) ids.add(id);
-        catalog.index = index;
-        changed = true;
+      const reconciled = reconcileKnownCatalog(catalog, directory, dirStamp, index, hinted);
+      if (!reconciled) {
+        dropSessionCatalog();
+        return unlistableRefresh();
       }
-      if (!catalog.dirSettled || !sameSessionStamp(catalog.dirStamp, dirStamp)) {
-        const names = listSessionNames(directory);
-        if (!names) {
-          dropSessionCatalog();
-          return { rows: null, catalog: null, fresh: false, changedIds: null, absent: false };
-        }
-        const present = new Set(names.sessionIds);
-        for (const id of catalog.entries.keys()) {
-          if (present.has(id)) continue;
-          catalog.entries.delete(id);
-          changedIds.add(id);
-          changed = true;
-        }
-        for (const id of names.sessionIds) if (!catalog.entries.has(id)) ids.add(id);
-        catalog.heartbeatIds = names.heartbeatIds;
-        catalog.dirStamp = dirStamp;
-        catalog.dirSettled = isSettledSessionStamp(dirStamp);
-      }
-      for (const id of ids) {
-        const entry = reconcileSessionFile(directory, id, index.rowsById.get(id), forced.has(id));
-        if (entry) catalog.entries.set(id, entry);
-        else catalog.entries.delete(id);
-        changedIds.add(id);
-        changed = true;
-      }
+      ({ changed, changedIds } = reconciled);
     }
-    // Liveness: `.hb` sidecars are rewritten in place, so their mtimes are
-    // probed every call (absent or unreadable contributes nothing).
-    const heartbeatMtimes = new Map();
-    for (const id of catalog.heartbeatIds) {
-      const probe = probePath(join(directory, `${id}.hb`));
-      if (probe.state === PROBE_PRESENT && probe.mtimeMs > 0) heartbeatMtimes.set(id, probe.mtimeMs);
-    }
-    if (!sameMtimes(heartbeatMtimes, catalog.heartbeatMtimes)) changed = true;
-    catalog.heartbeatMtimes = heartbeatMtimes;
+    if (refreshHeartbeatMtimes(catalog, directory)) changed = true;
     if (changed) catalog.rows = null;
     if (assemble) rowsOf(catalog);
     armCatalogVerify(catalog);
@@ -719,25 +765,9 @@ export function createOrdinaryCatalog() {
     return verifying;
   }
 
-  /** Marks every entry whose file no longer has the full stamp it was judged
-   *  at dirty (a replacement brings a new inode and change time even when its
-   *  size and mtime match). */
+  /** Background pass: marks changed entries dirty and tells the listeners. */
   async function verifyCatalogEntries(catalog, snapshot) {
-    for (let start = 0; start < snapshot.length; start += CATALOG_VERIFY_BATCH) {
-      if (sessionCatalog !== catalog) return;
-      await Promise.all(
-        snapshot.slice(start, start + CATALOG_VERIFY_BATCH).map(async ([id, entry]) => {
-          let changed;
-          try {
-            const info = await stat(join(catalog.directory, `${id}.json`), { bigint: true });
-            changed = entry.kind === 'unreadable' || !sameSessionStamp(sessionStampOf(info), entry.stamp);
-          } catch (error) {
-            changed = entry.kind !== 'unreadable' || STAMP_ABSENT_CODES.has(error?.code);
-          }
-          if (changed && catalog.entries.get(id) === entry) catalog.dirty.add(id);
-        })
-      );
-    }
+    await markChangedEntriesDirty(catalog, snapshot, () => sessionCatalog === catalog);
     if (sessionCatalog !== catalog || catalog.dirty.size === 0) return;
     for (const listener of listeners) {
       try {

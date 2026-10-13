@@ -8,7 +8,12 @@
 // model declares effort levels (the effort is sent with each request).
 import { readSection } from '../../../../shared/config.mjs';
 import { autoEffortModel, turnEffortConfigurationMode } from '../../providers/effort-configuration.mjs';
-import { autoEffortApplicable, autoEffortBase, normalizeAutoEffortMode, resolveAutoEffort } from '../../providers/auto-effort.mjs';
+import {
+  autoEffortApplicable,
+  autoEffortBase,
+  normalizeAutoEffortMode,
+  resolveAutoEffort,
+} from '../../providers/auto-effort.mjs';
 import { builtinFeatureActive } from '../../runtime-core/builtin-features.mjs';
 import { effortOptionsFor } from '../../runtime-core/effort.mjs';
 import { effortJudgeSupportsSteps, judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';

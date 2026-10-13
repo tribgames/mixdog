@@ -30,9 +30,10 @@ async function prefetchRawBody(fullPath, st, helpers, forceFresh = false) {
   const cachedRaw = !forceFresh && _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
   if (cachedRaw) return { buf: cachedRaw, fromCache: true };
   try {
-    const buf = !forceFresh && _runRawContentInFlight
-      ? await _runRawContentInFlight(fullPath, readFile, st)
-      : await readFile(fullPath);
+    const buf =
+      !forceFresh && _runRawContentInFlight
+        ? await _runRawContentInFlight(fullPath, readFile, st)
+        : await readFile(fullPath);
     return { buf, fromCache: false };
   } catch {
     return { buf: null, fromCache: false };

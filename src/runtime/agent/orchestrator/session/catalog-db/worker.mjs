@@ -20,11 +20,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { postWorkerEvent, serveWorkerRequests } from '../../../../shared/worker-requests.mjs';
-import {
-  agentHeartbeatsByOwner,
-  createOrdinaryCatalog,
-  isLeadVisibleRow,
-} from '../store-summary-catalog.mjs';
+import { agentHeartbeatsByOwner, createOrdinaryCatalog, isLeadVisibleRow } from '../store-summary-catalog.mjs';
 import { positiveNumber } from '../store-summary-fields.mjs';
 import { SQLITE_REQUIREMENT, sqliteVersionSupported } from './sqlite-gate.mjs';
 import {

@@ -55,7 +55,11 @@ test('many concurrent saves never overlap flushes and the latest op per session 
     await settleSummaryIndexWrites();
     assert.equal(summaryLockFailureStats().total, before, 'overlapping flushes would have refused each other');
     const rows = catalog();
-    assert.equal(rows.some((r) => r.id === 's3'), false, 'later removal wins');
+    assert.equal(
+      rows.some((r) => r.id === 's3'),
+      false,
+      'later removal wins'
+    );
     assert.equal(rows.find((r) => r.id === 's9')?.updatedAt, 199, 'latest upsert wins');
   }));
 

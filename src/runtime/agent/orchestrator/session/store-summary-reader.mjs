@@ -285,6 +285,72 @@ export function storedSessionTranscriptStamp(id) {
   return archive ? `${record}|${checkpoint}|${archive}` : null;
 }
 
+/** Projects the strictly parsed record `text` (read at full stamp `stamp`, or
+ *  null when not provably stable) into the cached transcript value. */
+async function produceStoredTranscript(text, stamp, context) {
+  const { sessionId, recordPath, itemLimit, includeMessages, mode, offloadable, checkpointAbsent, timing } = context;
+  // A large record with no checkpoint sidecar parses and projects on a
+  // worker thread: the same pipeline, off the daemon event loop. It hands
+  // no parse to the load cache (a later resume reads the file itself).
+  if (offloadable && text.length >= OFFLOAD_MIN_CHARS) {
+    try {
+      timing.worker = storedTranscriptWorkerRunning() ? 'warm' : 'cold';
+      const workerStartedAt = performance.now();
+      const answer = await projectStoredTranscriptOffThread({ sessionId, text, itemLimit });
+      timing.workerMs = performance.now() - workerStartedAt;
+      Object.assign(timing, answer.timing);
+      if (answer.unreadable) return null;
+      if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, answer.lifecycle);
+      // Stamps are process-unique per module realm; re-issue in this one.
+      answer.value.projectionStamp = nextProjectionStamp();
+      return answer.value;
+    } catch {
+      // Worker unavailable: fall through to the in-process pipeline.
+    }
+  }
+  const parseStartedAt = performance.now();
+  const record = readTopLevelLifecycleRecord(text);
+  timing.parseMs = performance.now() - parseStartedAt;
+  if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+  // The same strict verdict the lifecycle authority would reach for these
+  // bytes (storedSessionExists runs next when the pane's runtime loads).
+  if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, record);
+  // Hand the parse to the session load cache BEFORE projecting: a resume
+  // that runs while this projection is still being built (the daemon
+  // resumes the panes it restores) claims it instead of reading the file
+  // again. The projection path loads the store anyway, so loading its
+  // cache first costs nothing and gives the hand-off somewhere to go on
+  // the process's first read.
+  let handedOver = false;
+  if (stamp) {
+    await import('./store/load-cache.mjs');
+    handedOver = offerStrictSessionRecord(recordPath, stamp, record, text.length);
+  }
+  // Once handed over, the record is a runtime's mutable session. The
+  // projection is then built from a private parse of the same bytes, so
+  // nothing it retains aliases that session and it needs no copying. With
+  // a turn checkpoint the projection recovers through loadSession, the very
+  // load the hand-off serves, and projects the load cache's session
+  // exactly as before; only that projection is detached.
+  const projectStartedAt = performance.now();
+  const value = await projectStoredTranscript(
+    sessionId,
+    handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
+    {
+      itemLimit,
+      includeMessages,
+      checkpointAbsent,
+    }
+  );
+  timing.projectMs = performance.now() - projectStartedAt;
+  if (!handedOver || checkpointAbsent || !value || mode !== 'items') return value;
+  try {
+    return structuredClone(value);
+  } catch {
+    return value;
+  }
+}
+
 /** Read exactly one persisted session for a visible desktop pane. This never
  * enumerates siblings. Normal reads stay independent of runtime ownership;
  * interrupted turns conditionally use the same durable reconnect recovery as
@@ -321,10 +387,21 @@ export async function readStoredSessionTranscript(id, options = {}) {
   let readStamp = null;
   // The strict record parse (full JSON + duplicate-key scan) is itself a
   // large share of a cold read, so it only runs when the content is new.
-  const mode = options.includeMessages === true ? 'messages' : 'items';
+  const includeMessages = options.includeMessages === true;
+  const mode = includeMessages ? 'messages' : 'items';
+  const checkpointAbsent = checkpoint.state === PROBE_ABSENT;
   // Large, checkpoint-free item projections run off the daemon event loop.
-  const offloadable =
-    options.includeMessages !== true && checkpoint.state === PROBE_ABSENT && recordStat.size >= OFFLOAD_MIN_CHARS;
+  const offloadable = !includeMessages && checkpointAbsent && recordStat.size >= OFFLOAD_MIN_CHARS;
+  const produceContext = {
+    sessionId,
+    recordPath,
+    itemLimit,
+    includeMessages,
+    mode,
+    offloadable,
+    checkpointAbsent,
+    timing,
+  };
   const { value, hit, read } = await storedTranscriptCache.read({
     key: `${sessionId}|${itemLimit}|${mode}`,
     // Growing history windows of one session replace each other.
@@ -361,70 +438,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
       readStamp = before && sameSessionStamp(before, observeStamp(recordPath)) ? before : null;
       return body.text;
     },
-    produce: async (text) => {
-      const stamp = readStamp;
-      // A large record with no checkpoint sidecar parses and projects on a
-      // worker thread: the same pipeline, off the daemon event loop. It hands
-      // no parse to the load cache (a later resume reads the file itself).
-      if (offloadable && text.length >= OFFLOAD_MIN_CHARS) {
-        try {
-          timing.worker = storedTranscriptWorkerRunning() ? 'warm' : 'cold';
-          const workerStartedAt = performance.now();
-          const answer = await projectStoredTranscriptOffThread({ sessionId, text, itemLimit });
-          timing.workerMs = performance.now() - workerStartedAt;
-          Object.assign(timing, answer.timing);
-          if (answer.unreadable) return null;
-          if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, answer.lifecycle);
-          // Stamps are process-unique per module realm; re-issue in this one.
-          answer.value.projectionStamp = nextProjectionStamp();
-          return answer.value;
-        } catch {
-          // Worker unavailable: fall through to the in-process pipeline.
-        }
-      }
-      const parseStartedAt = performance.now();
-      const record = readTopLevelLifecycleRecord(text);
-      timing.parseMs = performance.now() - parseStartedAt;
-      if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-      // The same strict verdict the lifecycle authority would reach for these
-      // bytes (storedSessionExists runs next when the pane's runtime loads).
-      if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, record);
-      const checkpointAbsent = checkpoint.state === PROBE_ABSENT;
-      // Hand the parse to the session load cache BEFORE projecting: a resume
-      // that runs while this projection is still being built (the daemon
-      // resumes the panes it restores) claims it instead of reading the file
-      // again. The projection path loads the store anyway, so loading its
-      // cache first costs nothing and gives the hand-off somewhere to go on
-      // the process's first read.
-      let handedOver = false;
-      if (stamp) {
-        await import('./store/load-cache.mjs');
-        handedOver = offerStrictSessionRecord(recordPath, stamp, record, text.length);
-      }
-      // Once handed over, the record is a runtime's mutable session. The
-      // projection is then built from a private parse of the same bytes, so
-      // nothing it retains aliases that session and it needs no copying. With
-      // a turn checkpoint the projection recovers through loadSession, the very
-      // load the hand-off serves, and projects the load cache's session
-      // exactly as before; only that projection is detached.
-      const projectStartedAt = performance.now();
-      const value = await projectStoredTranscript(
-        sessionId,
-        handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
-        {
-          itemLimit,
-          includeMessages: options.includeMessages === true,
-          checkpointAbsent,
-        }
-      );
-      timing.projectMs = performance.now() - projectStartedAt;
-      if (!handedOver || checkpointAbsent || !value || mode !== 'items') return value;
-      try {
-        return structuredClone(value);
-      } catch {
-        return value;
-      }
-    },
+    produce: (text) => produceStoredTranscript(text, readStamp, produceContext),
   });
   // The record vanished between stat and read: same answer as an absent probe.
   if (readState === PROBE_ABSENT) return readArchivedAgentResult(sessionId);

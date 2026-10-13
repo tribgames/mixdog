@@ -291,7 +291,11 @@ export async function basePathDiagnostic(basePaths, workDir, statCache = null) {
       }
       return (
         `${normalizeOutputPath(basePath)}: path does not exist (${err?.code || 'ENOENT'})` +
-        finalizeReadFamilyEnoentTail(await buildNotFoundHint(workDir, resolved, 'Search', err?.code), basePath, err?.code)
+        finalizeReadFamilyEnoentTail(
+          await buildNotFoundHint(workDir, resolved, 'Search', err?.code),
+          basePath,
+          err?.code
+        )
       );
     })
   );

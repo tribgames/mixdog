@@ -96,8 +96,17 @@ test('adaptive source windows preserve split UTF-8 and CRLF across separated int
   const prefix = `${'x'.repeat(192 * 1024 - 2)}\n`;
   const gap = 'skip\n'.repeat(300000);
   await fs.writeFile(file, `${prefix}한글\r\n${gap}last`);
-  const result = await readSourceWindows(file, [{ start: 2, end: 2 }, { start: 300003, end: 300003 }]);
-  assert.deepEqual([...result], [[2, '한글'], [300003, 'last']]);
+  const result = await readSourceWindows(file, [
+    { start: 2, end: 2 },
+    { start: 300003, end: 300003 },
+  ]);
+  assert.deepEqual(
+    [...result],
+    [
+      [2, '한글'],
+      [300003, 'last'],
+    ]
+  );
 });
 
 test('nearby source windows keep a single 64 KiB read on a large file', async (t) => {
@@ -116,7 +125,13 @@ test('nearby source windows keep a single 64 KiB read on a large file', async (t
     }
     return handle;
   });
-  assert.deepEqual([...(await readSourceWindows(file, [{ start: 2, end: 3 }]))], [[2, 'line'], [3, 'line']]);
+  assert.deepEqual(
+    [...(await readSourceWindows(file, [{ start: 2, end: 3 }]))],
+    [
+      [2, 'line'],
+      [3, 'line'],
+    ]
+  );
   assert.deepEqual(reads, [65536]);
 });
 

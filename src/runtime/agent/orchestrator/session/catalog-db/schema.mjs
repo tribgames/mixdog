@@ -220,9 +220,7 @@ export function compareListings(json, dbRows) {
   for (let index = 0; index < commonJson.length; index++) {
     if (commonJson[index].id !== commonDb[index].id) order.push(commonJson[index].id);
   }
-  const fields = commonJson
-    .filter((row) => comparable(row) !== comparable(dbById.get(row.id)))
-    .map((row) => row.id);
+  const fields = commonJson.filter((row) => comparable(row) !== comparable(dbById.get(row.id))).map((row) => row.id);
   return {
     json: json.length,
     db: dbRows.length,

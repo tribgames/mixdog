@@ -108,7 +108,9 @@ async function computePrefixHashForIndex(fullPath, st, handle = null, prefixBuff
       if (!handle) {
         try {
           await fh.close();
-        } catch {}
+        } catch {
+          /* close failure after a completed read is irrelevant */
+        }
       }
     }
   } catch {
@@ -255,6 +257,7 @@ async function persistReadRangeIndexOnce(key, job, state) {
     }
     rememberPersisted(key, text);
   } catch {
+    /* persisting the index is best-effort */
   } finally {
     releaseReadRangeIndexWriteSlot();
   }
@@ -312,7 +315,9 @@ export function flushReadRangeIndexesSync() {
   for (const [key, timer] of READ_RANGE_INDEX_PERSIST_PENDING) {
     try {
       clearTimeout(timer);
-    } catch {}
+    } catch {
+      /* a timer that cannot be cleared must not block the flush */
+    }
     READ_RANGE_INDEX_PERSIST_PENDING.delete(key);
     const index = READ_RANGE_INDEX_CACHE.get(key);
     if (index) persistReadRangeIndexSync({ index, row: null });
@@ -381,7 +386,9 @@ export async function sweepStaleReadRangeIndexes(directory = READ_RANGE_INDEX_DI
           // A removed file invalidates the unchanged-content skip.
           READ_RANGE_INDEX_LAST_PERSISTED.clear();
         }
-      } catch {}
+      } catch {
+        /* best-effort sweep: a file that vanished or cannot be removed is skipped */
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(READ_RANGE_INDEX_SWEEP_CONCURRENCY, entries.length) }, worker));
@@ -491,8 +498,7 @@ export async function publishReadRangeIndex(index, handle, signal = null, before
   // result requesting producer certification still owes its terminal stats.
   if (slot && READ_RANGE_INDEX_CACHE.get(key) !== slot && !onValidated) return false;
   try {
-    if (!sameFileVersion(version, await handle.stat()) || !sameFileVersion(version, await stat(fullPath)))
-      return false;
+    if (!sameFileVersion(version, await handle.stat()) || !sameFileVersion(version, await stat(fullPath))) return false;
   } catch {
     return false;
   }

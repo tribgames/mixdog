@@ -608,9 +608,12 @@ export async function executeGlobTool(args, workDir, options = {}) {
   };
   return await runScopedSearchInFlight(
     cacheKey,
-    ({ signal: sharedSignal, scopedCacheOutcome }) => scanGlobGroups({
-      ...scan, sharedSignal, options: { ...options, scopedCacheOutcome },
-    }),
+    ({ signal: sharedSignal, scopedCacheOutcome }) =>
+      scanGlobGroups({
+        ...scan,
+        sharedSignal,
+        options: { ...options, scopedCacheOutcome },
+      }),
     { signal: options?.signal || options?.abortSignal || null, scopes },
     options?.scopedCacheOutcome
   );

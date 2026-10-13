@@ -21,9 +21,7 @@ const FEEDBACK_BLOCK = /<visualize_feedback>\n([\s\S]*?)\n?<\/visualize_feedback
 // on the blob itself: the reference's claimed sizeBytes is not trusted.
 const FEEDBACK_MAX_BYTES = 128 * 1024;
 const QUOTED = '("(?:[^"\\\\]|\\\\.)*")';
-const CHOICE_LINE = new RegExp(
-  `· group: (?:${QUOTED}|\\(none\\)) → choice: ${QUOTED}(?: \\(${QUOTED}\\))?$`
-);
+const CHOICE_LINE = new RegExp(`· group: (?:${QUOTED}|\\(none\\)) → choice: ${QUOTED}(?: \\(${QUOTED}\\))?$`);
 
 function unquote(value) {
   if (!value) return '';
@@ -53,7 +51,7 @@ function feedbackDisplay(body) {
       continue;
     }
     if (tweaks) {
-      const change = /^    (.+?) \([^)]*\): (.*) \(was (.*)\)$/.exec(line);
+      const change = /^ {4}(.+?) \([^)]*\): (.*) \(was (.*)\)$/.exec(line);
       if (change) tweaks.push(`${change[1]}: ${change[2]} (was ${change[3]})`);
       else if (line.startsWith('  - tab: ')) {
         tweaks = [];
@@ -157,7 +155,7 @@ export function restoredUserText(content) {
 export function restoredUserImageRefs(content) {
   if (!Array.isArray(content)) return [];
   const slots = restoredUserParts(content).images.map(({ part, line }) =>
-    isAttachmentReference(part) ? { line, ref: part.attachmentRef } : { line },
+    isAttachmentReference(part) ? { line, ref: part.attachmentRef } : { line }
   );
   return slots.some((slot) => slot.ref) ? slots : [];
 }

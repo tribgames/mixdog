@@ -47,6 +47,9 @@ test('an ordinary listing costs the main thread no fs call and no SQLite call', 
     ['lead_e', 'lead_d']
   );
   assert.ok(page.nextCursor);
-  assert.ok(afterWrite.some((row) => row.id === 'lead_f'), 'the external write is on the next listing');
+  assert.ok(
+    afterWrite.some((row) => row.id === 'lead_f'),
+    'the external write is on the next listing'
+  );
   assert.equal(sqliteLoaded(), false, 'node:sqlite never loaded on the main thread');
 });

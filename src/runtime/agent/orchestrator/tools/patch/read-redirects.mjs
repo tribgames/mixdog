@@ -42,32 +42,36 @@ export function patchHeaderPathForResolved(basePath, fullPath) {
 }
 
 export async function rewriteV4AReadRedirects(sections, basePath) {
-  return Promise.all((sections || []).map(async (section) => {
-    if (!section || section.kind === 'add' || !section.path) return section;
-    const requested = resolveV4AEntryPath(basePath, section.path);
-    const redirected = await redirectedPatchPath(requested, basePath);
-    if (pathKey(redirected) === pathKey(requested)) return section;
-    return { ...section, path: patchHeaderPathForResolved(basePath, redirected) };
-  }));
+  return Promise.all(
+    (sections || []).map(async (section) => {
+      if (!section || section.kind === 'add' || !section.path) return section;
+      const requested = resolveV4AEntryPath(basePath, section.path);
+      const redirected = await redirectedPatchPath(requested, basePath);
+      if (pathKey(redirected) === pathKey(requested)) return section;
+      return { ...section, path: patchHeaderPathForResolved(basePath, redirected) };
+    })
+  );
 }
 
 export async function rewriteParsedReadRedirects(parsed, basePath) {
-  return Promise.all((parsed || []).map(async (entry) => {
-    const kind = classifyEntry(entry);
-    if (kind === 'create' || !entry?.oldFileName) return entry;
-    const requested = resolveEntryPath(basePath, entry.oldFileName);
-    const redirected = await redirectedPatchPath(requested, basePath);
-    if (pathKey(redirected) === pathKey(requested)) return entry;
-    const rewritten = {
-      ...entry,
-      oldFileName: patchHeaderPathForResolved(basePath, redirected),
-    };
-    if (kind === 'modify' && entry.newFileName) {
-      const newRequested = resolveEntryPath(basePath, entry.newFileName);
-      if (pathKey(newRequested) === pathKey(requested)) {
-        rewritten.newFileName = rewritten.oldFileName;
+  return Promise.all(
+    (parsed || []).map(async (entry) => {
+      const kind = classifyEntry(entry);
+      if (kind === 'create' || !entry?.oldFileName) return entry;
+      const requested = resolveEntryPath(basePath, entry.oldFileName);
+      const redirected = await redirectedPatchPath(requested, basePath);
+      if (pathKey(redirected) === pathKey(requested)) return entry;
+      const rewritten = {
+        ...entry,
+        oldFileName: patchHeaderPathForResolved(basePath, redirected),
+      };
+      if (kind === 'modify' && entry.newFileName) {
+        const newRequested = resolveEntryPath(basePath, entry.newFileName);
+        if (pathKey(newRequested) === pathKey(requested)) {
+          rewritten.newFileName = rewritten.oldFileName;
+        }
       }
-    }
-    return rewritten;
-  }));
+      return rewritten;
+    })
+  );
 }

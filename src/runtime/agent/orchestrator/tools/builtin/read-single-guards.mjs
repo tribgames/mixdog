@@ -108,7 +108,9 @@ async function symlinkTargetGuard(fullPath, filePath, helpers) {
     if (typeof isSpecialFileStat === 'function' && isSpecialFileStat(targetStat)) {
       return guardResponse('special', helpers, filePath, realTarget);
     }
-  } catch {}
+  } catch {
+    /* vanished target: see above */
+  }
   return null;
 }
 
@@ -138,7 +140,9 @@ export async function statReadTarget(fullPath, filePath, options, helpers) {
       const error = await symlinkTargetGuard(fullPath, filePath, helpers);
       if (error) return { st, error };
     }
-  } catch {}
+  } catch {
+    /* lstat failure is non-fatal: see above */
+  }
   return { st };
 }
 

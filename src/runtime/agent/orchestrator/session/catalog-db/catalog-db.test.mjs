@@ -196,7 +196,10 @@ test('the worker detects storage changes itself; listings equal JSON in exact or
   unlinkSync(join(sessionsDir(), 'lead_b.hb'));
   await step('liveness follows the sidecars');
   await db().settled();
-  assert.ok(shadowLines().every((line) => line.includes(' ok ')), shadowLines().join('\n'));
+  assert.ok(
+    shadowLines().every((line) => line.includes(' ok ')),
+    shadowLines().join('\n')
+  );
 });
 
 test('storage hints: a hinted in-place change is on the next listing before any index append', async (t) => {
@@ -302,7 +305,11 @@ test('a DB error answers from JSON and the DB is reopened later', async (t) => {
   assert.equal(await db().list(), null);
   assert.ok(logs.some((line) => line.startsWith('[session-catalog-db] listing failed: ')));
   assert.deepEqual(await listStoredSessionSummariesAsync(), json());
-  assert.equal(readdirSync(dataDir()).some((name) => name.includes('.corrupt-')), false, 'not corruption');
+  assert.equal(
+    readdirSync(dataDir()).some((name) => name.includes('.corrupt-')),
+    false,
+    'not corruption'
+  );
   // Retried: reopened, rebuilt from JSON, serving again.
   await ready();
   assert.deepEqual(await dbList(), json());
@@ -377,7 +384,11 @@ test('fencing: a held DB keeps a second writer on JSON and is never moved aside'
   assert.equal(await db().list(), null);
   assert.equal((await db().status()).reason, 'locked');
   assert.match(logs.join('\n'), /locked: database is locked; catalog stays JSON/);
-  assert.equal(readdirSync(dataDir()).some((name) => name.includes('.corrupt-')), false, 'never moved aside');
+  assert.equal(
+    readdirSync(dataDir()).some((name) => name.includes('.corrupt-')),
+    false,
+    'never moved aside'
+  );
   assert.deepEqual(await listStoredSessionSummariesAsync(), json());
   other.close();
   // Released: the next attempt takes the DB over.
