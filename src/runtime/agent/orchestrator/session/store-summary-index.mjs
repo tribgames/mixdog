@@ -354,7 +354,9 @@ function _scheduleSummaryRetry() {
 // Defer the flush off the caller's stack: file I/O has no business on the
 // keystroke/session-save path.
 function _scheduleSummaryFlush() {
-  if (_summaryFlushScheduled) return;
+  // A scheduled retry will write whatever is pending; a flush in flight
+  // schedules one follow-up when it settles. Either way, don't start another.
+  if (_summaryFlushScheduled || _summaryRetryTimer || _summaryFlushInflight > 0) return;
   _summaryFlushScheduled = true;
   setImmediate(() => {
     _summaryFlushScheduled = false;
@@ -365,6 +367,9 @@ function _scheduleSummaryFlush() {
 
 export function _flushPendingSummaryOps({ sync = false } = {}) {
   if (_pendingUpserts.size === 0 && _pendingRemovals.size === 0) return;
+  // One async flush in flight per process; ops queued meanwhile stay pending
+  // and are drained by the follow-up flush scheduled when it settles.
+  if (!sync && _summaryFlushInflight > 0) return;
   // Snapshot + clear first: ops queued by other callers DURING the flush
   // must not be lost, and a failed flush re-queues only what it took
   // (without clobbering anything newer queued meanwhile).
@@ -420,6 +425,7 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
     .catch(requeue)
     .finally(() => {
       _summaryFlushInflight--;
+      if (_pendingUpserts.size > 0 || _pendingRemovals.size > 0) _scheduleSummaryFlush();
       _notifySummarySettled();
     });
 }
