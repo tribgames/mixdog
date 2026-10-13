@@ -75,6 +75,7 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
       return { content: `answer ${sends.length}`, usage: { inputTokens: 10, outputTokens: 5 } };
     },
   };
+  const startupRefresh = Promise.resolve();
   const realRegistry = await import('../runtime/agent/orchestrator/providers/registry.mjs?real=1');
   t.mock.module('../runtime/agent/orchestrator/providers/registry.mjs', {
     namedExports: {
@@ -82,7 +83,7 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
       initProviders: async () => {},
       getProvider: () => provider,
       getAllProviders: () => new Map([['openai', provider]]),
-      refreshProviderCatalogsOnStartup: async () => {},
+      // The real registry memoizes the startup refresh per catalog epoch; a fresh promise per call\n      // would make the readiness gate re-observe it forever.\n      refreshProviderCatalogsOnStartup: () => startupRefresh,
       refreshCatalogs: async () => {},
     },
   });

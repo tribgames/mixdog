@@ -49,7 +49,7 @@ export class AnthropicProvider {
   // it was built (e.g. a keyless-constructed instance).
   _currentClient() {
     const key = resolveProviderApiKey(this.name, this.config) || null;
-    if (key !== this.apiKey) {
+    if (key && key !== this.apiKey) {
       this.apiKey = key;
       this.client = this._createClient(key);
     }
