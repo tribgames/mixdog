@@ -116,11 +116,10 @@
   pointer-events: none;
 }
 .composer-island {
-  /* The composer's own surface, so island and input read as one family. */
-  --composer-island-bg: var(--mx-composer-surface);
-  /* The same raised edge as the composer, approval card and search bar
-     (user: 테두리를 다른 쪽과 비슷한 정도로). */
-  --composer-island-edge: var(--mx-raised);
+  /* The status island's frame: one opaque blend of the base and the sheet,
+     ringed by a half-pixel hairline and the raised shadow. */
+  --composer-island-bg: var(--mx-island-frame);
+  --composer-island-edge: inset 0 0 0 0.5px var(--mx-border), var(--mx-raised);
   --composer-island-wash: var(--mx-hover);
   --composer-island-rule: var(--mx-border-muted);
   position: relative;
@@ -130,7 +129,7 @@
   border-radius: 18px;
   color: var(--mx-text);
   background: var(--composer-island-bg);
-  box-shadow: var(--composer-island-edge), var(--mx-composer-lift);
+  box-shadow: var(--composer-island-edge);
   overflow: hidden;
   /* One step above the transcript's meta lines: inside the dark pill the
      same 13px read smaller than the rows around it. */
@@ -164,6 +163,10 @@
 }
 .composer-island[data-mode="approval"] {
   animation-name: composer-island-pop-approval;
+}
+/* Collapsed, the island is one capsule like its pill row. */
+.composer-island:is([data-mode="pill"], [data-mode="flash"]) {
+  border-radius: var(--mx-radius-pill);
 }
 .composer-island[data-mode="flash"] {
   animation-name: composer-island-pop-flash;

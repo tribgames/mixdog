@@ -89,6 +89,9 @@
      the changed-files plate sits. */
   --mx-composer-surface: var(--mx-bg-layer-1);
   --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+  /* The status island's frame keeps its original blend over the earlier
+     #1c1c1f sheet, so it still floats one step above the darker sheet. */
+  --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, #1c1c1f);
   --mx-user-bubble: var(--mx-bg-layer-1);
   /* Terminal canvas and ink stay dark-theme paired in every app theme. */
   --mx-terminal-bg: #121215;
@@ -566,6 +569,7 @@
   /* Paper: the prompt card stays white; the bubble is Grok's grey fill. */
   --mx-composer-surface: var(--mx-bg-base);
   --mx-composer-lift: 0 2px 8px -2px rgb(0 0 0 / 4%);
+  --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
   --mx-user-bubble: var(--mx-bg-layer-2);
 
   /* ── 3. Ink ── */

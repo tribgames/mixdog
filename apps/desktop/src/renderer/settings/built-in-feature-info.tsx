@@ -129,7 +129,10 @@ export function BuiltInFeatureInfo({
     facts.push(...computerPlatformFacts(linux), ['Input', t('Mouse, keyboard, and accessibility controls')]);
   if (feature.id === 'office') facts.push(['Supported formats', 'Word · Excel · PowerPoint · PDF · CSV · TSV']);
   if (feature.id === 'visualize') {
-    facts.push(['Supported formats', 'HTML · PDF · Word · Excel · PowerPoint · Images · Audio · Video · Web']);
+    facts.push([
+      'Supported formats',
+      ['HTML', 'PDF', 'Word', 'Excel', 'PowerPoint', t('Image'), t('Audio'), t('Video'), t('Web')].join(' · '),
+    ]);
   }
   if (feature.id === 'git' || feature.id === 'office') {
     facts.push([feature.id === 'git' ? 'Git CLI' : 'LibreOffice', dependencyStateLabel(dependency)]);

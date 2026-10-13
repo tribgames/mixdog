@@ -18,6 +18,7 @@ const DESCRIPTIONS: Record<string, () => string> = {
   setup: () => t('Configure models, tools, and application settings.'),
   'skill-creator': () => t('Create, review, and improve reusable skills.'),
   'code-tidy': () => t('Format, lint, and tidy code across languages.'),
+  visualize: () => t('Show mockups, documents, and other results beside the chat.'),
 };
 
 /** Shipped with the app, as opposed to a global, project or plugin skill.

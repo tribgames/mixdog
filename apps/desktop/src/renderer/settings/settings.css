@@ -369,7 +369,9 @@
   min-height: 100%;
   display: block;
 }
-.mixdog-settings-v2 {
+/* Two classes, so the frame outranks the desktop layer's `.mixdog-settings`
+   whichever order this lazy sheet and desktop.css end up in. */
+.mixdog-settings.mixdog-settings-v2 {
   width: min(980px, calc(100vw - 32px));
   /* Grows with the window, but stops at 760 (user: 팝업 상하 최대 크기). */
   height: min(760px, var(--settings-panel-height));
@@ -596,7 +598,7 @@
     place-items: stretch;
     padding: 0;
   }
-  .mixdog-settings-v2 {
+  .mixdog-settings.mixdog-settings-v2 {
     width: 100vw;
     height: var(--vvh, 100vh);
     max-width: none;
@@ -620,7 +622,7 @@
 }
 
 @media (max-width: 760px) {
-  .mixdog-settings-v2 {
+  .mixdog-settings.mixdog-settings-v2 {
     grid-template-columns: 200px minmax(0, 1fr);
   }
   .mixdog-settings__rail {
@@ -640,7 +642,7 @@
 /* Very narrow DESKTOP window: use the main 48px Activity Bar grammar rather
    than spending 200px on labels. */
 @media (max-width: 640px) {
-  .mixdog-settings-v2 {
+  .mixdog-settings.mixdog-settings-v2 {
     --settings-narrow-value-column: minmax(0, 45%);
     grid-template-columns: 48px minmax(0, 1fr);
   }
@@ -1364,19 +1366,29 @@
 .ssh-field-wrap {
   position: relative;
 }
-.ssh-suggest {
+/* `.mx-menu` (desktop layer, loaded after this sheet) is position: fixed with
+   no coordinates; the extra class makes the anchoring win. The dialog scrolls
+   (overflow: auto), which would clip an absolute child, so it is released while
+   the list is open. */
+.conn-dialog:has(.ssh-suggest) {
+  overflow: visible;
+}
+.ssh-field-wrap .ssh-suggest {
   position: absolute;
   left: 0;
   right: 0;
-  top: 48px;
-  z-index: 2;
+  top: 44px; /* 40px input + 4px gap */
+  z-index: 10;
+  width: auto;
   max-width: none;
+  max-height: 240px;
+  overflow-y: auto;
 }
-.ssh-suggest .mx-menu-item {
+.ssh-field-wrap .ssh-suggest .mx-menu-item {
   display: flex;
   gap: 10px;
 }
-.ssh-suggest .mx-menu-item small {
+.ssh-field-wrap .ssh-suggest .mx-menu-item small {
   margin-left: auto;
   color: var(--mx-text-muted);
   font-size: 12px;
