@@ -23,6 +23,7 @@ import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
 import { positiveInt } from '../../../shared/numbers.mjs';
 import { resolveMcpRequestTimeouts, resolveMcpTransportKind, scrubMcpConnectionMessage } from './client-config.mjs';
+import { createLazyOutputValidator } from './lazy-output-validator.mjs';
 import { appendMcpStderrTail, createMcpTransport } from './client-transport.mjs';
 import { listAllMcpTools, runBoundedHandshake } from './client-handshake.mjs';
 
@@ -98,8 +99,10 @@ async function loadMcpSdk() {
     import('@modelcontextprotocol/sdk/client/sse.js'),
     import('@modelcontextprotocol/sdk/client/websocket.js'),
     import('@modelcontextprotocol/sdk/types.js'),
-  ]).then(([clientMod, stdioMod, httpMod, sseMod, wsMod, typesMod]) => ({
+    import('@modelcontextprotocol/sdk/validation/ajv'),
+  ]).then(([clientMod, stdioMod, httpMod, sseMod, wsMod, typesMod, ajvMod]) => ({
     Client: clientMod.Client,
+    AjvJsonSchemaValidator: ajvMod.AjvJsonSchemaValidator,
     StdioClientTransport: stdioMod.StdioClientTransport,
     StreamableHTTPClientTransport: httpMod.StreamableHTTPClientTransport,
     SSEClientTransport: sseMod.SSEClientTransport,
@@ -1255,7 +1258,10 @@ function createMcpClient(sdk, name, cfg) {
   const projectRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
   const client = new sdk.Client(
     { name: `mixdog-agent/${name}`, version: '1.0.0' },
-    { capabilities: projectRoot ? { roots: { listChanged: false } } : {} }
+    {
+      capabilities: projectRoot ? { roots: { listChanged: false } } : {},
+      jsonSchemaValidator: createLazyOutputValidator(sdk.AjvJsonSchemaValidator),
+    }
   );
   if (projectRoot && sdk.ListRootsRequestSchema) {
     client.setRequestHandler(sdk.ListRootsRequestSchema, async () => {
