@@ -32,6 +32,12 @@ export function catalogRelevantStoreEntry(filename: string | Buffer | null | und
   return top === '' || CATALOG_STORE_ENTRIES.has(top);
 }
 
+/** Subscribes `changed`; resolves to its unsubscribe function (or nothing when
+ *  the store offers no such notification). */
+type StoreChangeSubscription = (
+  changed: () => void
+) => Promise<(() => void) | undefined | void> | (() => void) | undefined | void;
+
 interface SessionHostCatalogOwner {
   isDisposed(): boolean;
   listSessions(): Promise<DesktopSessionSummary[]>;
@@ -50,14 +56,22 @@ export class SessionHostCatalog {
   private coldViewTimer: NodeJS.Timeout | null = null;
   private readonly refreshingColdSessionIds = new Set<string>();
   private readonly watcher: RecoveringStoreWatcher;
+  private readonly subscribeStoreChanges: StoreChangeSubscription | undefined;
+  private storeSubscribed = false;
+  private unsubscribeStore: (() => void) | null = null;
+  private closed = false;
 
   constructor(
     private readonly owner: SessionHostCatalogOwner,
     options: {
       directory(): string;
       watch?: typeof import('node:fs').watch;
+      /** Store-side catalog corrections that no file event reports (the
+       *  stored-session reader's background verification). */
+      subscribeStoreChanges?: StoreChangeSubscription;
     }
   ) {
+    this.subscribeStoreChanges = options.subscribeStoreChanges;
     this.watcher = new RecoveringStoreWatcher({
       directory: options.directory,
       relevant: catalogRelevantStoreEntry,
@@ -109,7 +123,20 @@ export class SessionHostCatalog {
   }
 
   ensureStoreWatcher(): void {
-    if (!this.owner.isDisposed()) this.watcher.start();
+    if (this.owner.isDisposed()) return;
+    this.watcher.start();
+    if (this.storeSubscribed || !this.subscribeStoreChanges) return;
+    this.storeSubscribed = true;
+    void Promise.resolve()
+      .then(() => this.subscribeStoreChanges?.(() => this.scheduleCatalogRefresh()))
+      .then(
+        (unsubscribe) => {
+          if (typeof unsubscribe !== 'function') return;
+          if (this.closed) unsubscribe();
+          else this.unsubscribeStore = unsubscribe;
+        },
+        (error) => console.warn('[mixdog-catalog] store change subscription failed', error)
+      );
   }
 
   /** A catalog refresh re-enumerates every stored session (stat per file and a
@@ -143,6 +170,9 @@ export class SessionHostCatalog {
   }
 
   close(): void {
+    this.closed = true;
+    this.unsubscribeStore?.();
+    this.unsubscribeStore = null;
     if (this.storeRefreshTimer) clearTimeout(this.storeRefreshTimer);
     this.storeRefreshTimer = null;
     if (this.coldViewTimer) clearInterval(this.coldViewTimer);

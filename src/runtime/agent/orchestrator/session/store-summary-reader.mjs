@@ -6,8 +6,8 @@
  * unless a durable turn checkpoint exists; only then does it lazily enter the
  * reconnect recovery boundary so restored panes never paint a stale prompt.
  */
-import { readdirSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readdirSync, readFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 // Leaf helpers only (no store.mjs, no workers, no config): the three-way
 // present/absent/unreadable classification and the strict record parser the
@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
-import { applySummaryLogText, readSummaryLogText } from './store-summary-log.mjs';
+import { applySummaryLogText, summaryLogPath } from './store-summary-log.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
 import {
   OFFLOAD_MIN_CHARS,
@@ -30,6 +30,7 @@ import { compactionArchivePath, readCompactionArchivePage } from './compaction-a
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
   offerStrictSessionRecord,
+  sessionStampOf,
   statSessionStamp,
   sameSessionStamp,
   isSettledSessionStamp,
@@ -267,6 +268,122 @@ function rowFromSession(session, heartbeatAt = 0) {
   );
 }
 
+// ── Session file reconcile ──────────────────────────────────────────────────
+// What one `sessions/<id>.json` name contributes to the catalog, with the full
+// stamp { dev, ino, size, mtimeNs, ctimeNs } it was judged at (and the
+// { mtimeMs, size } fingerprint the summary index records):
+//   indexed     its summary-index row (the file matches the row's fingerprint)
+//   row         a row strictly parsed from the file (the index does not describe it)
+//   none        parsed, but yields no row (ambiguous or foreign record)
+//   unreadable  present but not statable/readable: the index row is retained
+const UNREADABLE_ENTRY = Object.freeze({ kind: 'unreadable', stamp: null, mtimeMs: 0, size: 0 });
+
+/** `stat().mtimeMs` of a bigint stat: Node's own sec * 1e3 + nsec / 1e6. */
+function stampMtimeMs(stamp) {
+  return Number(stamp.mtimeNs / 1_000_000_000n) * 1e3 + Number(stamp.mtimeNs % 1_000_000_000n) / 1e6;
+}
+
+/** The entry for `<storageId>.json`, or null when the file is provably gone. */
+function reconcileSessionFile(directory, storageId, retained, forceRead) {
+  const path = join(directory, `${storageId}.json`);
+  let stamp;
+  try {
+    stamp = statSessionStamp(path);
+  } catch (error) {
+    // Provably gone: the row legitimately disappears with the file.
+    return STAMP_ABSENT_CODES.has(error?.code) ? null : UNREADABLE_ENTRY;
+  }
+  const fingerprint = { stamp, mtimeMs: stampMtimeMs(stamp), size: Number(stamp.size) };
+  if (
+    !forceRead &&
+    retained &&
+    retained.storageMtimeMs > 0 &&
+    retained.storageSize > 0 &&
+    retained.storageMtimeMs === fingerprint.mtimeMs &&
+    retained.storageSize === fingerprint.size
+  ) {
+    return { kind: 'indexed', ...fingerprint };
+  }
+  // A file the index does not describe (never saved by the store, or
+  // saved after the index was written) is parsed once per full stamp.
+  const read = stampedDerivation('row', path, (text) => {
+    // Same strict authority as the store: a duplicate/ambiguous top-level
+    // record or a foreign identity is not this file's session.
+    const record = readTopLevelLifecycleRecord(text);
+    if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
+    return rowFromSession(record.doc, 0);
+  });
+  if (read.state === PROBE_ABSENT) return null;
+  // Exists and could not be read (EACCES/EIO): retain the last known row
+  // rather than let a transient IO error delete it from view.
+  if (read.state !== PROBE_PRESENT) return UNREADABLE_ENTRY;
+  if (!read.value) return { kind: 'none', ...fingerprint };
+  return {
+    kind: 'row',
+    row: deepFreeze({
+      ...structuredClone(read.value),
+      storageMtimeMs: fingerprint.mtimeMs,
+      storageSize: fingerprint.size,
+    }),
+    ...fingerprint,
+  };
+}
+
+/** Cached rows are shared by every listing that hands them out: frozen, so
+ *  no caller can edit what the next caller sees. */
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const key of Object.keys(value)) deepFreeze(value[key]);
+  }
+  return value;
+}
+
+/** The session ids (`<id>.json`) and live sidecar ids (`<id>.hb`) of
+ *  `directory`, or null when it cannot be enumerated. */
+function listSessionNames(directory) {
+  let names;
+  try {
+    names = readdirSync(directory);
+  } catch {
+    return null;
+  }
+  const sessionIds = [];
+  const heartbeatIds = [];
+  for (const filename of names) {
+    if (filename.endsWith('.json')) sessionIds.push(filename.slice(0, -5));
+    else if (filename.endsWith('.hb') && isStoredSessionId(filename.slice(0, -3))) {
+      heartbeatIds.push(filename.slice(0, -3));
+    }
+  }
+  return { sessionIds, heartbeatIds };
+}
+
+/** Every `.json` entry and `.hb` sidecar id of an enumerable `directory`, or
+ *  null when it cannot be enumerated. */
+function scanSessionEntries(directory, indexRowsById, forceRead) {
+  const names = listSessionNames(directory);
+  if (!names) return null;
+  const entries = new Map();
+  for (const storageId of names.sessionIds) {
+    const entry = reconcileSessionFile(directory, storageId, indexRowsById.get(storageId), forceRead);
+    if (entry) entries.set(storageId, entry);
+  }
+  return { entries, heartbeatIds: names.heartbeatIds };
+}
+
+/** Catalog rows of reconciled `entries`, newest activity first. */
+function assembleCatalog(entries, indexRowsById, heartbeatMtimes) {
+  const rows = [];
+  for (const [id, entry] of entries) {
+    let row = null;
+    if (entry.kind === 'row') row = entry.row;
+    else if (entry.kind !== 'none') row = indexRowsById.get(id);
+    if (row) rows.push({ ...row, heartbeatAt: positiveNumber(heartbeatMtimes.get(id), 0) });
+  }
+  return leadRowsWithAgentHeartbeat(rows).sort(byRecentActivity);
+}
+
 /**
  * Read-only scan of the authoritative session files.
  * Returns `null` when the directory itself is NOT enumerable (unreadable
@@ -276,72 +393,13 @@ function rowFromSession(session, heartbeatAt = 0) {
  * durable summary and a single UNREADABLE file retains its last known row
  * instead of vanishing.
  */
-function scanSessionFiles(
-  heartbeatMtimes = sessionHeartbeatMtimes(),
-  indexRowsById = new Map(),
-  { forceRead = false } = {}
-) {
+function scanSessionFiles(heartbeatMtimes, indexRowsById, forceRead) {
   const directory = join(dataDir(), 'sessions');
   const dirProbe = probePath(directory);
   if (dirProbe.state === PROBE_ABSENT) return [];
   if (dirProbe.state !== PROBE_PRESENT) return null;
-  let entries;
-  try {
-    entries = readdirSync(directory);
-  } catch {
-    return null;
-  }
-  const rows = [];
-  for (const filename of entries) {
-    if (!filename.endsWith('.json')) continue;
-    const storageId = filename.slice(0, -5);
-    const path = join(directory, filename);
-    const retained = indexRowsById.get(storageId);
-    const probe = probePath(path);
-    // Provably gone: the row legitimately disappears with the file.
-    if (probe.state === PROBE_ABSENT) continue;
-    if (probe.state !== PROBE_PRESENT) {
-      if (retained) rows.push(retained);
-      continue;
-    }
-    if (!forceRead && retained) {
-      const exactFingerprint =
-        retained.storageMtimeMs > 0 &&
-        retained.storageSize > 0 &&
-        retained.storageMtimeMs === probe.mtimeMs &&
-        retained.storageSize === probe.size;
-      if (exactFingerprint) {
-        rows.push(retained);
-        continue;
-      }
-    }
-    // A file the index does not describe (never saved by the store, or
-    // saved after the index was written) is parsed once per full stamp.
-    const read = stampedDerivation('row', path, (text) => {
-      // Same strict authority as the store: a duplicate/ambiguous top-level
-      // record or a foreign identity is not this file's session.
-      const record = readTopLevelLifecycleRecord(text);
-      if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
-      return rowFromSession(record.doc, 0);
-    });
-    // Provably gone: the row legitimately disappears with the file.
-    if (read.state === PROBE_ABSENT) continue;
-    if (read.state !== PROBE_PRESENT) {
-      // Exists and could not be read (EACCES/EIO): retain the last known
-      // row rather than let a transient IO error delete it from view.
-      if (retained) rows.push(retained);
-      continue;
-    }
-    if (read.value) {
-      rows.push({
-        ...structuredClone(read.value),
-        heartbeatAt: positiveNumber(heartbeatMtimes.get(storageId), 0),
-        storageMtimeMs: probe.mtimeMs,
-        storageSize: probe.size,
-      });
-    }
-  }
-  return leadRowsWithAgentHeartbeat(rows).sort(byRecentActivity);
+  const scan = scanSessionEntries(directory, indexRowsById, forceRead);
+  return scan && assembleCatalog(scan.entries, indexRowsById, heartbeatMtimes);
 }
 
 // Newest conversation activity first (see normalizedRow's lastUsedAt note).
@@ -349,47 +407,375 @@ function byRecentActivity(left, right) {
   return (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0);
 }
 
-export function listStoredSessionSummaries(options = {}) {
-  const heartbeatMtimes = sessionHeartbeatMtimes();
+// ── Summary index ───────────────────────────────────────────────────────────
+// Base + delta log, parsed once per full stamp of the pair. Stamps are taken
+// BEFORE the reads: a write landing mid-read changes them, and the next call
+// reads again. Every session update appends to the log; when the log has only
+// grown — its bytes up to what was applied last are byte-for-byte unchanged
+// and the base stamp is the same — only the appended lines are applied. A
+// compaction (new base, truncated log) or any other rewrite fails that check
+// and reloads both. Only newline-terminated lines are applied: a line still
+// being appended is picked up whole by the next call.
+const NO_INDEX_ROWS = new Map();
+const NEWLINE = 0x0a;
+let summaryIndexCache = null;
+let summaryIndexSerial = 0;
+
+function sameOptionalStamp(left, right) {
+  return (!left && !right) || sameSessionStamp(left, right);
+}
+
+/** `{ bytes, failed }`: the log, empty when absent; `failed` when it exists
+ *  and could not be read (EACCES/EIO), which is never cached. */
+function readLogBytes(logPath) {
+  try {
+    return { bytes: readFileSync(logPath), failed: false };
+  } catch (error) {
+    return { bytes: Buffer.alloc(0), failed: !STAMP_ABSENT_CODES.has(error?.code) };
+  }
+}
+
+function freshIndex(indexPath, baseStamp, logStamp, logBytes) {
+  return {
+    serial: ++summaryIndexSerial,
+    // The index this one extends by appended log lines, and the ids they touched.
+    parentSerial: 0,
+    touchedIds: null,
+    indexPath,
+    baseStamp,
+    logStamp,
+    // The log prefix applied: every byte up to and including its last newline.
+    logBytes: logBytes.subarray(0, logBytes.lastIndexOf(NEWLINE) + 1),
+    // `rows` null = missing, unreadable or malformed: the files are the authority.
+    rows: null,
+    rowsById: NO_INDEX_ROWS,
+    // JSON of every row of base + log by id. Without a valid base the log's
+    // rows are still recorded here: they say which sessions an index-updating
+    // writer touched, even though they are not used as rows.
+    signatures: new Map(),
+  };
+}
+
+function loadSummaryIndex() {
   const indexPath = join(dataDir(), 'session-summaries.json');
-  // The index is read on EVERY path (it is one small file): its rows are the
-  // authority that must be retained whenever storage cannot be enumerated or
-  // an individual session file cannot be read.
-  const indexRowsById = new Map();
-  let indexRows = null;
+  const baseStamp = observeStamp(indexPath);
+  const logStamp = observeStamp(summaryLogPath(indexPath));
+  const cached = summaryIndexCache?.indexPath === indexPath ? summaryIndexCache : null;
+  if (cached && sameOptionalStamp(cached.baseStamp, baseStamp) && sameOptionalStamp(cached.logStamp, logStamp)) {
+    return cached;
+  }
   // The delta log (per-session updates since the last compaction) is read
   // before the base; see store-summary-log.mjs.
-  const logText = readSummaryLogText(indexPath);
+  const log = readLogBytes(summaryLogPath(indexPath));
+  const index = freshIndex(indexPath, baseStamp, logStamp, log.bytes);
+  const appliedBytes = cached?.logBytes.length ?? 0;
+  if (
+    !log.failed &&
+    cached?.rows &&
+    sameOptionalStamp(cached.baseStamp, baseStamp) &&
+    index.logBytes.length >= appliedBytes &&
+    index.logBytes.compare(cached.logBytes, 0, appliedBytes, 0, appliedBytes) === 0
+  ) {
+    const rowsById = new Map(cached.rowsById);
+    const touched = new Set();
+    for (const line of index.logBytes.toString('utf8', appliedBytes).split('\n')) {
+      if (!line) continue;
+      let op;
+      try {
+        op = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      // Same semantics as applySummaryLogText: last writer wins per id.
+      if (op?.u && typeof op.u.id === 'string') {
+        const row = normalizedRow(op.u, 0);
+        if (row) rowsById.set(row.id, deepFreeze(row));
+        else rowsById.delete(op.u.id);
+        touched.add(op.u.id);
+      } else if (Array.isArray(op?.r)) {
+        for (const id of op.r) {
+          rowsById.delete(id);
+          touched.add(id);
+        }
+      }
+    }
+    index.parentSerial = cached.serial;
+    index.touchedIds = touched;
+    index.rows = [...rowsById.values()];
+    index.rowsById = rowsById;
+    index.signatures = new Map(cached.signatures);
+    for (const id of touched) {
+      const row = rowsById.get(id);
+      if (row) index.signatures.set(id, JSON.stringify(row));
+      else index.signatures.delete(id);
+    }
+    summaryIndexCache = index;
+    return index;
+  }
   const indexRead = readTextFile(indexPath);
+  let baseRows = null;
   if (indexRead.state === PROBE_PRESENT) {
     try {
-      const index = applySummaryLogText(JSON.parse(indexRead.text), logText);
-      if (Number(index?.version) === SESSION_SUMMARY_INDEX_VERSION) {
-        const normalizedRows = (Array.isArray(index.rows) ? index.rows : [])
-          .map((row) => normalizedRow(row, heartbeatMtimes.get(row?.id) || 0))
-          .filter(Boolean);
-        for (const row of normalizedRows) indexRowsById.set(row.id, row);
-        indexRows = leadRowsWithAgentHeartbeat(normalizedRows).sort(byRecentActivity);
-      }
+      const raw = JSON.parse(indexRead.text);
+      if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) baseRows = Array.isArray(raw.rows) ? raw.rows : [];
     } catch {
-      /* malformed sidecar: the files below are the authority */
+      /* malformed sidecar: the files are the authority */
     }
   }
-  // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
-  // nor empty: the scan below still runs, and when IT cannot enumerate
-  // either, the catalog reports nothing rather than inventing an empty truth.
-  const scan = (forceRead = false) => scanSessionFiles(heartbeatMtimes, indexRowsById, { forceRead });
-  if (options.refreshFromStorage === true) return scan(true) ?? indexRows ?? [];
-  if (indexRows) {
-    if (options.rebuildIfMissing === false) return indexRows;
-    // Enumerate identities to detect deletions, stat known files, and parse
-    // only rows newer than the index. Cold-start cost therefore scales with
-    // changed transcripts rather than total transcript bytes.
-    return scan(false) ?? indexRows;
+  const rows = applySummaryLogText({ rows: baseRows ?? [] }, index.logBytes.toString('utf8'))
+    .rows.map((row) => normalizedRow(row, 0))
+    .filter(Boolean)
+    .map(deepFreeze);
+  for (const row of rows) index.signatures.set(row.id, JSON.stringify(row));
+  if (baseRows) {
+    index.rows = rows;
+    index.rowsById = new Map(rows.map((row) => [row.id, row]));
   }
-  // Missing/malformed index is the sole cold path that must rebuild every
-  // summary from canonical session bytes.
-  return options.rebuildIfMissing === false ? [] : (scan(true) ?? indexRows ?? []);
+  // A read that failed (EACCES/EIO) is not cached: the next call reads again.
+  if (!log.failed && (indexRead.state === PROBE_PRESENT || indexRead.state === PROBE_ABSENT)) {
+    summaryIndexCache = index;
+  }
+  return index;
+}
+
+/** Ids whose index row differs between two loads (added, changed or removed). */
+function changedIndexIds(previous, next) {
+  const ids = [];
+  const candidates = next.parentSerial === previous.serial ? next.touchedIds : next.signatures.keys();
+  for (const id of candidates) if (previous.signatures.get(id) !== next.signatures.get(id)) ids.push(id);
+  if (next.parentSerial !== previous.serial) {
+    for (const id of previous.signatures.keys()) if (!next.signatures.has(id)) ids.push(id);
+  }
+  return ids;
+}
+
+// ── Ordinary catalog ────────────────────────────────────────────────────────
+// The ordinary listing keeps its last reconcile and answers an unchanged call
+// from cheap stamps alone: the index pair (above), the sessions DIRECTORY and
+// the handful of live `.hb` sidecars — no per-session-file filesystem work.
+//
+// The directory stamp changes on every create, delete and rename in it
+// (including a temp-file + rename replace), and NOT on an in-place write
+// (measured on NTFS; POSIX directories behave the same). So:
+//  - directory stamp changed → one enumeration; names that appeared are
+//    reconciled, names that vanished are dropped, names present before and
+//    after keep their entry. A stamp still inside the racy window is
+//    re-enumerated on every call until it settles: on a coarse-clock
+//    filesystem a create/delete in the same tick would leave it unchanged;
+//  - index rows changed (this process, another process, a compaction) → only
+//    those ids are re-reconciled — this is what refreshes a session an
+//    index-updating writer replaced under its existing name;
+//  - a file replaced (rename) or rewritten in place by a writer that does not
+//    update the index keeps its name and its index row: a background pass
+//    (async stats, never blocking a listing) finds it, the next listing
+//    re-reconciles just that file, and subscribers are told to list again.
+//    A pass runs at most once per CATALOG_VERIFY_INTERVAL_MS and at the
+//    latest that long after a listing.
+const CATALOG_VERIFY_INTERVAL_MS = 10_000;
+const CATALOG_VERIFY_BATCH = 32;
+let sessionCatalog = null;
+const catalogListeners = new Set();
+
+/** `listener()` runs when a background pass finds a session file that changed
+ *  without a directory or index change, i.e. when an ordinary listing would
+ *  now differ from the last one. Returns the unsubscribe function. */
+export function subscribeStoredSessionCatalogChanges(listener) {
+  catalogListeners.add(listener);
+  return () => catalogListeners.delete(listener);
+}
+
+function sameMtimes(left, right) {
+  if (!right || left.size !== right.size) return false;
+  for (const [id, mtimeMs] of left) if (right.get(id) !== mtimeMs) return false;
+  return true;
+}
+
+/** Ordinary catalog rows, [] when the sessions directory is absent, or null
+ *  when it cannot be enumerated. */
+function ordinarySessionCatalog(index) {
+  const directory = join(dataDir(), 'sessions');
+  let dirStamp;
+  try {
+    dirStamp = statSessionStamp(directory);
+  } catch (error) {
+    dropSessionCatalog();
+    return STAMP_ABSENT_CODES.has(error?.code) ? [] : null;
+  }
+  let catalog = sessionCatalog?.directory === directory ? sessionCatalog : null;
+  let changed = false;
+  if (!catalog) {
+    const scan = scanSessionEntries(directory, index.rowsById, false);
+    if (!scan) return null;
+    catalog = {
+      directory,
+      dirStamp,
+      dirSettled: isSettledSessionStamp(dirStamp),
+      index,
+      entries: scan.entries,
+      heartbeatIds: scan.heartbeatIds,
+      heartbeatMtimes: null,
+      rows: null,
+      dirty: new Set(),
+      verifiedAt: Date.now(),
+      verifying: null,
+      rearm: false,
+      timer: null,
+    };
+    sessionCatalog = catalog;
+    changed = true;
+  } else {
+    // Files the background pass found with a new full stamp: their index row
+    // can still match size + mtime (a same-length, mtime-preserving
+    // replacement), so they are re-derived from the file itself.
+    const forced = catalog.dirty;
+    catalog.dirty = new Set();
+    const ids = new Set(forced);
+    if (catalog.index !== index) {
+      for (const id of changedIndexIds(catalog.index, index)) ids.add(id);
+      catalog.index = index;
+      changed = true;
+    }
+    if (!catalog.dirSettled || !sameSessionStamp(catalog.dirStamp, dirStamp)) {
+      const names = listSessionNames(directory);
+      if (!names) {
+        dropSessionCatalog();
+        return null;
+      }
+      const present = new Set(names.sessionIds);
+      for (const id of catalog.entries.keys()) {
+        if (present.has(id)) continue;
+        catalog.entries.delete(id);
+        changed = true;
+      }
+      for (const id of names.sessionIds) if (!catalog.entries.has(id)) ids.add(id);
+      catalog.heartbeatIds = names.heartbeatIds;
+      catalog.dirStamp = dirStamp;
+      catalog.dirSettled = isSettledSessionStamp(dirStamp);
+    }
+    for (const id of ids) {
+      const entry = reconcileSessionFile(directory, id, index.rowsById.get(id), forced.has(id));
+      if (entry) catalog.entries.set(id, entry);
+      else catalog.entries.delete(id);
+      changed = true;
+    }
+  }
+  // Liveness: `.hb` sidecars are rewritten in place, so their mtimes are
+  // probed every call (absent or unreadable contributes nothing).
+  const heartbeatMtimes = new Map();
+  for (const id of catalog.heartbeatIds) {
+    const probe = probePath(join(directory, `${id}.hb`));
+    if (probe.state === PROBE_PRESENT && probe.mtimeMs > 0) heartbeatMtimes.set(id, probe.mtimeMs);
+  }
+  if (!sameMtimes(heartbeatMtimes, catalog.heartbeatMtimes)) changed = true;
+  catalog.heartbeatMtimes = heartbeatMtimes;
+  if (changed || !catalog.rows) {
+    catalog.rows = assembleCatalog(catalog.entries, index.rowsById, heartbeatMtimes).map(Object.freeze);
+  }
+  armCatalogVerify(catalog);
+  // Rows (and everything in them) are frozen: callers share them read-only.
+  return catalog.rows.slice();
+}
+
+function dropSessionCatalog() {
+  if (sessionCatalog?.timer) clearTimeout(sessionCatalog.timer);
+  sessionCatalog = null;
+}
+
+/** Schedules the next background pass: CATALOG_VERIFY_INTERVAL_MS after the
+ *  last one started, unless one is already scheduled or running. */
+function armCatalogVerify(catalog) {
+  if (catalog.verifying) {
+    // A listing during a pass: the next pass is scheduled when this one ends.
+    catalog.rearm = true;
+    return;
+  }
+  if (catalog.timer) return;
+  const delay = Math.max(0, catalog.verifiedAt + CATALOG_VERIFY_INTERVAL_MS - Date.now());
+  catalog.timer = setTimeout(() => {
+    catalog.timer = null;
+    if (sessionCatalog === catalog) startCatalogVerify(catalog);
+  }, delay);
+  catalog.timer.unref?.();
+}
+
+function startCatalogVerify(catalog) {
+  if (catalog.verifying) return catalog.verifying;
+  if (catalog.timer) clearTimeout(catalog.timer);
+  catalog.timer = null;
+  catalog.verifiedAt = Date.now();
+  const verifying = verifyCatalogEntries(catalog, [...catalog.entries]).finally(() => {
+    if (catalog.verifying !== verifying) return;
+    catalog.verifying = null;
+    if (!catalog.rearm) return;
+    catalog.rearm = false;
+    if (sessionCatalog === catalog) armCatalogVerify(catalog);
+  });
+  catalog.verifying = verifying;
+  return verifying;
+}
+
+/** Marks every entry whose file no longer has the full stamp it was judged
+ *  at dirty (a replacement brings a new inode and change time even when its
+ *  size and mtime match). */
+async function verifyCatalogEntries(catalog, snapshot) {
+  for (let start = 0; start < snapshot.length; start += CATALOG_VERIFY_BATCH) {
+    if (sessionCatalog !== catalog) return;
+    await Promise.all(
+      snapshot.slice(start, start + CATALOG_VERIFY_BATCH).map(async ([id, entry]) => {
+        let changed;
+        try {
+          const info = await stat(join(catalog.directory, `${id}.json`), { bigint: true });
+          changed = entry.kind === 'unreadable' || !sameSessionStamp(sessionStampOf(info), entry.stamp);
+        } catch (error) {
+          changed = entry.kind !== 'unreadable' || STAMP_ABSENT_CODES.has(error?.code);
+        }
+        if (changed && catalog.entries.get(id) === entry) catalog.dirty.add(id);
+      })
+    );
+  }
+  if (sessionCatalog !== catalog || catalog.dirty.size === 0) return;
+  for (const listener of catalogListeners) {
+    try {
+      listener();
+    } catch {
+      /* a listener's failure is its own */
+    }
+  }
+}
+
+/** Run a background verification of the ordinary catalog now (or join the
+ *  running one); resolves when it has finished. */
+export function verifyStoredSessionCatalog() {
+  return sessionCatalog ? startCatalogVerify(sessionCatalog) : Promise.resolve();
+}
+
+/** Test seam: forget the ordinary catalog and the parsed summary index. */
+export function clearStoredSessionCatalog() {
+  dropSessionCatalog();
+  summaryIndexCache = null;
+}
+
+export function listStoredSessionSummaries(options = {}) {
+  // The index is consulted on EVERY path: its rows are the authority that
+  // must be retained whenever storage cannot be enumerated or an individual
+  // session file cannot be read.
+  const index = loadSummaryIndex();
+  const indexRows = (heartbeatMtimes) =>
+    index.rows &&
+    leadRowsWithAgentHeartbeat(
+      index.rows.map((row) => ({ ...row, heartbeatAt: positiveNumber(heartbeatMtimes.get(row.id), 0) }))
+    ).sort(byRecentActivity);
+  // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
+  // nor empty: the scan still runs, and when IT cannot enumerate either, the
+  // catalog reports nothing rather than inventing an empty truth.
+  if (options.refreshFromStorage === true) {
+    const heartbeatMtimes = sessionHeartbeatMtimes();
+    return scanSessionFiles(heartbeatMtimes, index.rowsById, true) ?? indexRows(heartbeatMtimes) ?? [];
+  }
+  if (options.rebuildIfMissing === false) return indexRows(sessionHeartbeatMtimes()) ?? [];
+  // A missing/malformed index leaves every file to be parsed (once per
+  // stamp); a present one lets unchanged files reuse their durable summary.
+  return ordinarySessionCatalog(index) ?? indexRows(sessionHeartbeatMtimes()) ?? [];
 }
 
 /** Exact, fail-closed existence check for a durable session address.

@@ -76,6 +76,9 @@ export interface MixdogSessionStoreModule {
     rebuildIfMissing?: boolean;
     refreshFromStorage?: boolean;
   }): Array<Record<string, unknown>>;
+  /** `changed()` runs when the store's background verification corrects the
+   *  catalog; returns the unsubscribe function. Optional: older runtimes. */
+  subscribeStoredSessionCatalogChanges?(changed: () => void): () => void;
   storedAgentWorkerIndexPath?(): string;
   listStoredAgentWorkers?(): DesktopAgentPoolRow[];
 }

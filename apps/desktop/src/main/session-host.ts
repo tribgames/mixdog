@@ -168,7 +168,13 @@ export class SessionHost implements DesktopService {
           [...this.visibleSessionIds].filter((sessionId) => Boolean(this.publication.projections.get(sessionId)?.cold)),
         readSession: (sessionId) => this.readSession(sessionId),
       },
-      { directory: mixdogDataDirectory }
+      {
+        directory: mixdogDataDirectory,
+        // The daemon hosts this service and the stored-session reader in one
+        // process: the reader's background corrections refresh the catalog.
+        subscribeStoreChanges: async (changed) =>
+          (await runtime.loadSessionStore()).subscribeStoredSessionCatalogChanges?.(changed),
+      }
     );
     this.shellJobsPoller = createShellJobsPoller({
       getEngineState: () => this.shellJobsEngineState(),
