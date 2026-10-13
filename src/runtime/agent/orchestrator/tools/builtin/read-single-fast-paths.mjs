@@ -33,7 +33,7 @@ function unchangedStub(filePath, helpers) {
  */
 export async function readPrefixHash(fullPath, st, hashText) {
   try {
-    if (st.size <= READ_PREFIX_HASH_BYTES) return hashText(await readFile(fullPath, 'utf-8'));
+    if (st.size <= READ_PREFIX_HASH_BYTES) return hashText(await readFile(fullPath));
     const fh = await fsPromises.open(fullPath, 'r');
     try {
       const buf = Buffer.allocUnsafe(READ_PREFIX_HASH_BYTES);
@@ -74,29 +74,30 @@ export function mutationUnchangedStub({ fullPath, filePath, st, readStateScope, 
 
 // Single-pass cache-hit guard. The cache key already pins mtimeMs+ctimeMs+
 // size, so a hit can differ only when all metadata collides across a rewrite
-// — caught by re-hashing the on-disk body. ≤64KiB: one full-body read
-// validates whichever hash the entry carries (prefix == full at this size;
-// the exact contentHash is preferred). >64KiB: contentHash may still be
-// stored, but validating it would sha a multi-megabyte body on every check,
-// so only the 64KiB head prefix is checked — it catches same-mtime/same-size
+// — caught by re-hashing the same raw-byte prefix used by the producer.
+// The decoded snapshot hash is a separate contract, never a fallback after
+// a prefix mismatch. >64KiB: only the head prefix is checked, not the whole
+// multi-megabyte body — it catches same-mtime/same-size
 // rewrites within the first 64KiB (the common case); writes through
 // edit/apply_patch/write invalidate by path and shell mutationMode='global'
 // wipes the caches, bounding stale risk past the head.
 async function cachedEntryStillValid(cachedEntry, fullPath, st, hashText) {
   const prefixHash = cachedEntry.contentPrefixHash;
   const snapHash = cachedEntry.readSnapshotMeta?.contentHash;
-  if (!prefixHash && !snapHash) return true;
+  if (prefixHash) {
+    const curHash = await readPrefixHash(fullPath, st, hashText);
+    return !!curHash && curHash === prefixHash;
+  }
+  if (!snapHash) return true;
   if (st.size <= READ_PREFIX_HASH_BYTES) {
     try {
       const freshHash = hashText(await readFile(fullPath, 'utf-8'));
-      return !!freshHash && freshHash === (snapHash || prefixHash);
+      return !!freshHash && freshHash === snapHash;
     } catch {
       return false;
     }
   }
-  if (!prefixHash) return true;
-  const curHash = await readPrefixHash(fullPath, st, hashText);
-  return !!curHash && curHash === prefixHash;
+  return true;
 }
 
 /**
