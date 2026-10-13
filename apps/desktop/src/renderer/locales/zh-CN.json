@@ -2789,6 +2789,7 @@
   "Read-only": "只读",
   "Read-only files open in Preview.": "只读文件将在预览中打开。",
   "Read-only snapshot": "只读快照",
+  "Read-only: this file has invalid text encoding. Convert or repair it in an external editor to avoid data loss.": "只读：此文件的文本编码无效。请在外部编辑器中转换或修复，以免丢失数据。",
   "Read-only: this file is over 1 MB, so it can be viewed but not edited.": "只读：此文件超过 1 MB，只能查看，无法编辑。",
   "Read, create, and edit PDF documents.": "阅读、创建和编辑 PDF 文档。",
   "Readiness": "就绪状态",

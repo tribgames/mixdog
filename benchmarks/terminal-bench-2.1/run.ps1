@@ -93,6 +93,11 @@ function Get-EffortJudgeBundleProblem([string]$Mode, [string]$TarPath, [string]$
     if ([string]$stamp.release -ne $Release) {
         return "effort-judge bundle holds $($stamp.release) but the manifest names $Release"
     }
+    $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
+    $runtime = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).dependencies.'onnxruntime-node')
+    if ([string]::IsNullOrWhiteSpace($runtime) -or [string]$stamp.onnxruntime -ne $runtime) {
+        return "effort-judge bundle ONNX Runtime $($stamp.onnxruntime) != pinned $runtime"
+    }
     if ($Mode -eq "steps" -and $stamp.steps -ne $true) {
         return "effort judge $Release is not step-trained; -EffortJudge steps needs one"
     }
