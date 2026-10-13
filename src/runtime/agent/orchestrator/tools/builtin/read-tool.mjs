@@ -19,6 +19,7 @@ import { dispatchBatchReads } from './read-tool/batch-dispatch.mjs';
 import { restoreCallerSlots, recordSlicedBatchSnapshots } from './read-tool/batch-snapshot.mjs';
 import { renderBatchResults } from './read-tool/batch-render.mjs';
 import { runBatchReadSnapshotPublication } from './read-tool/batch-publication.mjs';
+import { runReadCachePublication } from './cache-layers.mjs';
 
 function hasLineCoordinate(path) {
   return typeof path === 'string' && /(?:#L\d+|:\d+(?:-\d+)?(?::|$))/i.test(path);
@@ -69,9 +70,11 @@ async function executeBatchRead(args, workDir, readStateScope, executeChildBuilt
     return renderBatchResults(orderedResults, args, helpers);
   };
   if (!origEntries) return run();
-  // Publish only the restored caller windows, using the generation and
-  // observed version of the child that actually supplied each body.
-  return runBatchReadSnapshotPublication(executeChildBuiltinTool, helpers, run);
+  // Keep the original batch lease for glance/media paths outside the scalar
+  // pipeline. Sliced evidence uses the producing child's retained lease, so
+  // a hash rejection never requires renewing this potentially stale parent.
+  const paths = entries.filter((entry) => entry?.path).map((entry) => helpers.resolveAgainstCwd(entry.path, workDir));
+  return runReadCachePublication(paths, () => runBatchReadSnapshotPublication(executeChildBuiltinTool, helpers, run));
 }
 
 // Glance modes served by their own child tool: the tool name and the args it

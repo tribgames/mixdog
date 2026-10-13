@@ -12,7 +12,7 @@ const root = mkdtempSync(join(tmpdir(), 'mixdog-batch-publication-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
-const { runBatchReadSnapshotPublication } = await import('./read-tool/batch-publication.mjs');
+const { renderedBatchReadRanges, runBatchReadSnapshotPublication } = await import('./read-tool/batch-publication.mjs');
 const {
   canPublishReadCache,
   invalidateBuiltinResultCache,
@@ -56,6 +56,23 @@ function fixture(produce = null) {
 function correct(helpers, path) {
   helpers._recordReadSnapshot(path, undefined, scope, sliced);
 }
+
+test('batch publication recognizes streamed rows and preserves gaps without a total-line footer', async () => {
+  for (const separator of ['\t', '│', '→']) {
+    assert.deepEqual(renderedBatchReadRanges(`1${separator}FIRST\n3${separator}LAST\n... [range limit reached]`), sliced.ranges);
+  }
+  assert.deepEqual(renderedBatchReadRanges('binary preview'), []);
+  const path = join(root, 'streamed.txt');
+  const fx = fixture(({ publish }) => {
+    publish();
+    return '1→FIRST\n2→GAP\n3→LAST\n... [range limit reached; next offset: 3]';
+  });
+  await runBatchReadSnapshotPublication(fx.child, fx.helpers, async (child, helpers) => {
+    await child('read', { path }, root);
+    correct(helpers, path);
+  });
+  assert.deepEqual(fx.saved.get(path), { ...sliced, ...identity, scope });
+});
 
 test('batch publication retains a fresh rejecting child without renewing its stale parent', async () => {
   const path = join(root, 'fresh.txt');
@@ -158,6 +175,18 @@ test('batch publication preserves non-sliced binary evidence', async () => {
   assert.deepEqual(fx.saved.get(path), { ...meta, ...identity, scope });
 });
 
+test('batch publication discards observations when the aggregate rejects delivery', async () => {
+  const path = join(root, 'rejected.txt');
+  const fx = fixture();
+  const result = await runBatchReadSnapshotPublication(fx.child, fx.helpers, async (child, helpers) => {
+    await child('read', { path }, root);
+    correct(helpers, path);
+    return 'Error: batch read rejected (reject_partial:true)';
+  });
+  assert.match(result, /^Error:/);
+  assert.equal(fx.saved.size, 0, 'the caller never received the staged body');
+});
+
 for (const outcome of ['success', 'throw', 'abort']) {
   test(`batch publication releases retained leases after ${outcome}`, async () => {
     const path = join(root, `cleanup-${outcome}.txt`);
@@ -186,8 +215,46 @@ for (const outcome of ['success', 'throw', 'abort']) {
   });
 }
 
+for (const mode of ['head', 'tail']) {
+  test(`coalesced batch preserves inherited publication fencing for ${mode}`, async () => {
+    const { executeReadTool } = await import('./read-tool.mjs');
+    const path = join(root, `glance-${mode}.txt`);
+    writeFileSync(path, 'BEFORE\n');
+    const entry = { path, mode, n: 1 };
+    const fx = fixture();
+    let called = false;
+    const result = await executeReadTool({
+      path: [path],
+      _readsEntries: [entry],
+      _readsOrigEntries: [entry],
+      _readsEntryToDeduped: [0],
+    }, root, scope, async (name, args) => {
+      called = true;
+      assert.equal(name, 'read');
+      assert.equal(args.mode, mode);
+      assert.equal(canPublishReadCache(path), true);
+      invalidateBuiltinResultCache([path]);
+      assert.equal(canPublishReadCache(path), false, 'glance children retain the original batch fence');
+      fx.helpers._recordReadSnapshot(path, identity, scope, union);
+      return 'BEFORE';
+    }, { _skipReachPreflight: true }, {
+      ...fx.helpers,
+      normalizeInputPath: (value) => value,
+      normalizeOutputPath: (value) => value,
+      normaliseReadLineWindowArgs: (value) => value,
+      READ_MAX_OUTPUT_BYTES: 16384,
+      _isFullModeReadEntry: () => false,
+      _mergeReadRanges: (ranges) => ranges,
+    });
+    assert.equal(called, true);
+    assert.match(result, /BEFORE/);
+    assert.equal(fx.saved.size, 0);
+    assert.equal(canPublishReadCache(path), true, 'the batch lease is released');
+  });
+}
+
 for (const encoding of ['utf8', 'utf16le']) {
-  for (const shape of ['reads', 'file_path']) {
+  for (const shape of ['path', 'file_path']) {
     test(`coalesced hash rejection records only delivered windows (${encoding}, ${shape})`, async (t) => {
       const { executeBuiltinTool } = await import('../builtin.mjs');
       const { getReadSnapshot } = await import('./read-snapshot-runtime.mjs');
@@ -208,8 +275,8 @@ for (const encoding of ['utf8', 'utf16le']) {
       syncBuiltinESMExports();
       let unsubscribe;
       try {
-        const args = shape === 'reads'
-          ? { reads: [{ path, offset: 0, limit: 1 }, { path, offset: 2, limit: 1 }] }
+        const args = shape === 'path'
+          ? { path: [{ path, offset: 0, limit: 1 }, { path, offset: 2, limit: 1 }] }
           : { file_path: [{ file_path: path, offset: 1, limit: 1 }, { file_path: path, offset: 3, limit: 1 }] };
         const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
         const first = String(await executeBuiltinTool('read', args, root, options));

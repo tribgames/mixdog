@@ -6,9 +6,23 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { canPublishReadCache, runReadCachePublication } from '../cache-layers.mjs';
 import { fileVersion, sameFileVersion } from '../file-version.mjs';
+import { mergeReadRanges } from '../read-ranges.mjs';
+
+// Streamed reads have numbered rows but no total-line footer. Prefer the
+// rows themselves so smart-elided gaps never become delivered evidence.
+export function renderedBatchReadRanges(body) {
+  if (typeof body !== 'string') return [];
+  const rows = [...body.matchAll(/^(\d+)[\t│→]/gm)]
+    .map((match) => Number(match[1]))
+    .filter((line) => Number.isSafeInteger(line) && line > 0)
+    .map((line) => ({ startLine: line, endLine: line }));
+  if (rows.length) return mergeReadRanges(rows);
+  const footer = /\[lines\s+(\d+)-(\d+)\s+of\s+\d+/.exec(body);
+  return footer ? mergeReadRanges([{ startLine: Number(footer[1]), endLine: Number(footer[2]) }]) : [];
+}
 
 function hasRenderedLines(body) {
-  return typeof body === 'string' && /\[lines\s+\d+-\d+\s+of\s+\d+/.test(body);
+  return renderedBatchReadRanges(body).length > 0;
 }
 
 export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, helpers, run) {
@@ -68,6 +82,11 @@ export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, h
 
   try {
     const result = await run(executeChild, snapshotHelpers);
+    // reject_partial refuses the entire payload: staged bodies were not
+    // delivered, so none of their snapshots may become session evidence.
+    if (result?.isError === true || (typeof result === 'string' && helpers.classifyResultKind(result) === 'error')) {
+      return result;
+    }
     for (const [fullPath, correction] of corrections) {
       const delivered = tasks.filter((task) => task.fullPath === fullPath && hasRenderedLines(task.body));
       const observations = delivered.map((task) => task.records.findLast(
@@ -84,7 +103,8 @@ export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, h
     // Rich media/binary results have no line slices. Preserve their original
     // evidence, still under the producer's lease rather than the batch's.
     for (const task of tasks) {
-      if (hasRenderedLines(task.body) || helpers.classifyResultKind(task.body) === 'error') continue;
+      if (hasRenderedLines(task.body) || task.body?.isError === true ||
+          (typeof task.body === 'string' && helpers.classifyResultKind(task.body) === 'error')) continue;
       for (const record of task.records) {
         if (!corrections.has(record.fullPath)) record.publish();
       }

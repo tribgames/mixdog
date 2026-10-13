@@ -6,6 +6,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { rangeTextOf } from '../snapshot-helpers.mjs';
+import { renderedBatchReadRanges } from './batch-publication.mjs';
 
 // Coalesced batch reads fetch the union window from disk; every caller slot
 // must be sliced back to its original request window (_orig*), not the
@@ -38,16 +39,12 @@ function deliveredRangesByPath(
   const rangeHashesByPath = new Map();
   for (const r of orderedResults) {
     if (r?.mode !== 'full' || classifyResultKind(String(r.body || '')) === 'error') continue;
-    const m = String(r.body || '').match(/\[lines\s+(\d+)-(\d+)\s+of\s+(\d+)/);
-    if (!m) continue;
-    const startLine = Number(m[1]);
-    const endLine = Number(m[2]);
-    if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) continue;
+    const ranges = renderedBatchReadRanges(r.body);
+    if (ranges.length === 0) continue;
     const fullPath = resolveAgainstCwd(r.path, workDir);
     if (!exactRangesByPath.has(fullPath)) exactRangesByPath.set(fullPath, []);
-    const range = { startLine, endLine };
-    exactRangesByPath.get(fullPath).push(range);
-    const renderedHashes = _rangeHashesFromRenderedReadText(r.body, [range]);
+    exactRangesByPath.get(fullPath).push(...ranges);
+    const renderedHashes = _rangeHashesFromRenderedReadText(r.body, ranges);
     if (renderedHashes.length > 0) {
       if (!rangeHashesByPath.has(fullPath)) rangeHashesByPath.set(fullPath, []);
       rangeHashesByPath.get(fullPath).push(...renderedHashes);
