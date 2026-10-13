@@ -8,10 +8,10 @@ import { requireLocalRunDir, resolveRunDir } from './run-dir.mjs';
 test('run directories fall back to the committed export via its index', () => {
     const root = mkdtempSync(join(tmpdir(), 'run-dir-'));
     try {
-        const a = join(root, 'm', '2026-01-01', 'h');
+        const a = join(root, 'records', 'm', '2026-01-01', 'h');
         mkdirSync(join(a, 'sub'), { recursive: true });
         mkdirSync(join(root, 'jobs-b'));
-        writeFileSync(join(root, 'index.json'), JSON.stringify([
+        writeFileSync(join(root, 'records', 'index.json'), JSON.stringify([
             { jobsDir: 'jobs-a', path: 'm/2026-01-01/h' },
             { jobsDir: 'jobs-b', path: 'm/2026-01-01/other' },
         ]));

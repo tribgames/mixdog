@@ -7,7 +7,7 @@
 //              payload.info.last_token_usage.input_tokens
 // A published pair is archived only when every trial on both sides yields a
 // value. The session logs are too large to publish, so the medians are written
-// to `analysis/first-context.json` for the charts to read.
+// to `records/first-context.json` for the charts to read.
 //
 // Usage: node analysis/first-context.mjs [--write]
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -76,6 +76,6 @@ for (const [key, entry] of Object.entries(published)) {
     console.log(`${key}: ${ours.medianTokens} vs ${baseline.medianTokens} tokens (${ours.trials} vs ${baseline.trials} trials)`);
 }
 if (process.argv.includes('--write')) {
-    writeFileSync(join(here, 'first-context.json'), `${JSON.stringify(archive, null, 2)}\n`);
-    console.log('wrote analysis/first-context.json');
+    writeFileSync(join(root, 'records', 'first-context.json'), `${JSON.stringify(archive, null, 2)}\n`);
+    console.log('wrote records/first-context.json');
 }

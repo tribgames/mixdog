@@ -1,5 +1,5 @@
 // Exports the verification-grade subset of the published runs into
-// `<harness>/<model>/<date>[-k5]/` (located through `index.json`,
+// `records/<harness>/<model>/<date>[-k5]/` (located through `records/index.json`,
 // which this script adds to or updates), which is committed so anyone can recompute every number in the READMEs.
 //
 // Full `jobs-*` directories stay local. Their session transcripts (mixdog.txt,
@@ -7,10 +7,11 @@
 // surface, none of which is needed to re-derive a score or a cost figure.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { readHistoryIndex } from './run-dir.mjs';
+import { RECORDS_DIR, readHistoryIndex } from './run-dir.mjs';
 
 const ROOT = 'benchmarks/terminal-bench-2.1';
-const INDEX_FILE = join(ROOT, 'index.json');
+const RECORDS = join(ROOT, RECORDS_DIR);
+const INDEX_FILE = join(RECORDS, 'index.json');
 const index = readHistoryIndex(ROOT);
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
@@ -81,7 +82,7 @@ function newEntry(run, src) {
   const lead = existsSync(presetRun) ? readJson(presetRun).definition?.routes?.lead : null;
   const model = agent.model_name || lead?.model;
   if (!harness || !model) {
-    throw new Error(`${run}: harness or model is not recorded; add its index.json entry by hand`);
+    throw new Error(`${run}: harness or model is not recorded; add its records/index.json entry by hand`);
   }
   return { jobsDir: run, path: '', model, date, harness, k: 1, score: '', source: 'mixdog' };
 }
@@ -129,7 +130,7 @@ for (const run of RUNS) {
     index.push(entry);
   }
   Object.assign(entry, result);
-  const OUT = join(ROOT, entry.path);
+  const OUT = join(RECORDS, entry.path);
   for (const f of RUN_FILES) copy(join(src, f), join(OUT, f));
   for (const day of readdirSync(src)) {
     const dayDir = join(src, day);

@@ -9,7 +9,7 @@ import { generateRunReport } from './run-report.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const CUR = process.argv[2] || resolve(here, '..', 'jobs-full-opus5-solo-20260823-144706');
 const PREV = resolve(here, '..', 'jobs-full-opus5-solo-20260823-112220', 'report.json');
-const CC = resolve(here, '..', 'cc-baseline-plus.json');
+const CC = resolve(here, '..', 'records', 'baselines', 'cc-baseline-plus.json');
 
 const rep = generateRunReport({ jobsDir: CUR, historyRoot: resolve(CUR, '..'), status: true });
 const prev = JSON.parse(readFileSync(PREV, 'utf8'));

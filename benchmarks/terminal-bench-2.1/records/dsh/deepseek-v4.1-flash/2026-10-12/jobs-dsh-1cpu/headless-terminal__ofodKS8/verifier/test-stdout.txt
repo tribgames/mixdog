@@ -1,0 +1,42 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+vim is already the newest version (2:9.0.1378-2+deb12u2).
+0 upgraded, 0 newly installed, 0 to remove and 33 not upgraded.
+Requirement already satisfied: pytest==8.4.1 in /usr/local/lib/python3.13/site-packages (8.4.1)
+Requirement already satisfied: requests==2.32.5 in /usr/local/lib/python3.13/site-packages (2.32.5)
+Requirement already satisfied: pytest-json-ctrf==0.3.5 in /usr/local/lib/python3.13/site-packages (0.3.5)
+Requirement already satisfied: iniconfig>=1 in /usr/local/lib/python3.13/site-packages (from pytest==8.4.1) (2.3.1)
+Requirement already satisfied: packaging>=20 in /usr/local/lib/python3.13/site-packages (from pytest==8.4.1) (26.3)
+Requirement already satisfied: pluggy<2,>=1.5 in /usr/local/lib/python3.13/site-packages (from pytest==8.4.1) (1.6.0)
+Requirement already satisfied: pygments>=2.7.2 in /usr/local/lib/python3.13/site-packages (from pytest==8.4.1) (2.21.0)
+Requirement already satisfied: charset_normalizer<4,>=2 in /usr/local/lib/python3.13/site-packages (from requests==2.32.5) (3.5.2)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.13/site-packages (from requests==2.32.5) (3.20)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.13/site-packages (from requests==2.32.5) (2.8.0)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.13/site-packages (from requests==2.32.5) (2026.7.22)
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.2 -> 26.2.1
+[notice] To update, run: pip install --upgrade pip
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 7 items
+
+../tests/test_outputs.py .......                                         [100%]
+
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_import
+PASSED ../tests/test_outputs.py::test_send_non_interactive_command
+PASSED ../tests/test_outputs.py::test_send_interactive_command
+PASSED ../tests/test_outputs.py::test_cancel_command
+PASSED ../tests/test_outputs.py::test_startup_files
+PASSED ../tests/test_outputs.py::test_shell_state_persists_between_commands
+PASSED ../tests/test_outputs.py::test_background_commands
+============================== 7 passed in 14.44s ==============================

@@ -1,4 +1,4 @@
-// Regenerate results.md / results.json from the two published runs.
+// Regenerate records/results.md / records/results.json from the two published runs.
 // Usage: node analysis/results-table.mjs   (from benchmarks/terminal-bench-2.1)
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
@@ -113,8 +113,8 @@ const md = [
     '',
     ...pairSection,
 ];
-writeFileSync('results.md', md.join('\n'));
-writeFileSync('results.json', JSON.stringify({
+writeFileSync('records/results.md', md.join('\n'));
+writeFileSync('records/results.json', JSON.stringify({
     generated: new Date().toISOString().slice(0, 10),
     runs: Object.fromEntries(Object.entries(RUNS).map(([n, d]) => [n, {
         jobs_dir: d,

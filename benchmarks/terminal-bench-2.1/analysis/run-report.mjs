@@ -830,7 +830,7 @@ export function generateRunReport({ jobsDir, historyRoot }) {
       contract: manifest.contract ?? null,
       // What the container ran: source commit, whether the tree matched it,
       // and the digest of the uploaded runtime bundle. Null for runs recorded
-      // before provenance capture existed — see source-provenance.json.
+      // before provenance capture existed — see records/source-provenance.json.
       runtime: manifest.runtime ?? null,
       suite: manifest?.definition?.suite ?? null,
       routeProfile: manifest?.definition?.routeProfile ?? null,
