@@ -29,6 +29,9 @@ interface WindowSettingsIpcOptions {
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   /** Settings → Notifications: play the notification sound at the saved volume. */
   previewNotificationSound?: () => Promise<string>;
+  /** Onboarding status may come straight from this PC's status file: only
+   *  when `host` is this PC's daemon. Defaults to true. */
+  readsLocalOnboardingStatus?: boolean;
 }
 
 export function registerWindowSettingsIpc({
@@ -40,6 +43,7 @@ export function registerWindowSettingsIpc({
   settingsStore,
   onDesktopSettingsChanged,
   previewNotificationSound,
+  readsLocalOnboardingStatus = true,
 }: WindowSettingsIpcOptions): void {
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
@@ -118,7 +122,7 @@ export function registerWindowSettingsIpc({
   });
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
-    if (request.capability === 'getOnboardingStatus' && !request.sessionId) {
+    if (readsLocalOnboardingStatus && request.capability === 'getOnboardingStatus' && !request.sessionId) {
       const status = await readOnboardingStatusFromDisk();
       if (status) return { value: status, snapshot: host.getSnapshot() };
     }

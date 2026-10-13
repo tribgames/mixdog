@@ -19,6 +19,13 @@ import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fi
 import { dataTransferHasLocalFiles, droppedLocalPaths, terminalPathText } from './file-drag';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { onTerminalCommandRequested } from './terminal-command-request';
+import {
+  CONNECTION_REATTACHED_EVENT,
+  connectionLinkView,
+  isConnectionDown,
+  useConnectionLink,
+} from './connection-link-store';
+import { t } from './i18n';
 
 type TerminalView = {
   id: string | null;
@@ -359,6 +366,7 @@ export default function TerminalPane({
     let noticeShown = false;
     let ensureInFlight: Promise<void> | null = null;
     let pendingRestore: TerminalViewState | null = null;
+    let replayOnReattach = false;
     const view = terminalView(key);
     const { term } = view;
     const schedulePersist = () => {
@@ -450,6 +458,10 @@ export default function TerminalPane({
         return;
       }
       const isNewPty = view.id !== ensured.id;
+      // A server window back from an outage missed the output in between:
+      // the same PTY's replay redraws it from a clean screen.
+      const reattached = replayOnReattach && !isNewPty;
+      replayOnReattach = false;
       view.id = ensured.id;
       view.shell = shell;
       if (isNewPty) fitScheduler.invalidateResize();
@@ -463,6 +475,14 @@ export default function TerminalPane({
         // A restored tab backed by a fresh PTY must not inherit the old
         // process's viewport position.
         clearTerminalViewState(key);
+      } else if (reattached && ensured.replay) {
+        view.localEcho?.reset();
+        try {
+          term.reset();
+        } catch {
+          /* disposed mid-reattach */
+        }
+        replayWrite = view.writer.writeReplay(ensured.replay);
       }
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
@@ -512,7 +532,7 @@ export default function TerminalPane({
     // Surface it once, reveal the pane, and keep retrying: TerminalHost
     // lazily respawns its worker on the next ensure().
     const attemptEnsure = () => {
-      if (disposed || ensureInFlight) return;
+      if (disposed || ensureInFlight || connectionLinkView()?.terminalsAvailable === false) return;
       ensureInFlight = runEnsure();
       void ensureInFlight
         .catch((error: unknown) => {
@@ -562,11 +582,19 @@ export default function TerminalPane({
       view.localEcho?.reset();
       attemptEnsure();
     };
+    const onConnectionReattached = () => {
+      replayOnReattach = true;
+      onRemoteReconnected();
+    };
     window.addEventListener('mixdog:remote-reconnected', onRemoteReconnected);
-    attemptEnsure();
+    window.addEventListener(CONNECTION_REATTACHED_EVENT, onConnectionReattached);
+    // A server without terminals: the pane says so instead of retrying.
+    if (connectionLinkView()?.terminalsAvailable !== false) attemptEnsure();
+    else onReadyRef.current?.();
     return () => {
       disposed = true;
       window.removeEventListener('mixdog:remote-reconnected', onRemoteReconnected);
+      window.removeEventListener(CONNECTION_REATTACHED_EVENT, onConnectionReattached);
       fitScheduler.dispose();
       if (fitSchedulerRef.current === fitScheduler) fitSchedulerRef.current = null;
       window.clearTimeout(revealTimer);
@@ -605,6 +633,7 @@ export default function TerminalPane({
     });
     return undefined;
   }, [active, key]);
+  const serverLink = useConnectionLink();
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop file target; the terminal surface is not a control
     <div
@@ -641,6 +670,15 @@ export default function TerminalPane({
       }}
     >
       <div className="dock-terminal" ref={host} />
+      {serverLink?.terminalsAvailable === false ? (
+        <div className="terminal-connection-note" data-kind="unavailable" role="note">
+          {t('Terminals are not available on this server.')}
+        </div>
+      ) : isConnectionDown(serverLink) ? (
+        <div className="terminal-connection-note" role="status">
+          {t('Disconnected — reconnecting…')}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import {
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
 import { HostFolderBrowser, parentHostPath } from './HostFolderBrowser';
+import { desktopConnection, isSshConnectionWindow } from './desktop-connection';
+import { ServerFolderDialog } from './settings/connection-dialogs';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
@@ -22,6 +24,12 @@ import './desktop/extension-dialog.css';
 import { publishSidebarProjects } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { displayProjectFolder, ProjectEditorDialog, type ProjectEditorDialogHandle } from './ProjectEditorDialog';
+
+function listServerFolders(path: string) {
+  const list = window.mixdogDesktop?.listServerDirectories;
+  if (!list) return Promise.reject(new Error('Server folder listing is unavailable.'));
+  return list(path);
+}
 
 /** Add-project dialog: a name and an OS-chosen folder, nothing else (user
  *  decision — the folder never comes from typed text). */
@@ -40,9 +48,12 @@ function projectAddDialog({
   browsing,
   setBrowsing,
   browseStart,
+  setServerPicking,
 }: {
   browsing: boolean;
   setBrowsing(value: boolean): void;
+  /** Opens the server folder dialog of an ssh window. */
+  setServerPicking(value: boolean): void;
   browseStart: string;
   addPath: string;
   addName: string;
@@ -114,6 +125,11 @@ function projectAddDialog({
             className="extensions-action"
             disabled={addBusy}
             onClick={() => {
+              // A server window picks on the server, not with this PC's dialog.
+              if (isSshConnectionWindow()) {
+                setServerPicking(true);
+                return;
+              }
               // A remote surface cannot show the host's OS chooser.
               if (isRemoteHostRenderer()) {
                 setBrowsing(true);
@@ -176,6 +192,7 @@ export function ProjectListSection({
   const [addError, setAddError] = useState('');
   const [addBusy, setAddBusy] = useState(false);
   const [browsing, setBrowsing] = useState(false);
+  const [serverPicking, setServerPicking] = useState(false);
   const editorRef = useRef<ProjectEditorDialogHandle>(null);
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
@@ -217,6 +234,7 @@ export function ProjectListSection({
   }, [active, projectPathsKey, memoriesSupported]);
   const closeAdd = () => {
     setBrowsing(false);
+    setServerPicking(false);
     setAddOpen(false);
     setAddPath('');
     setAddName('');
@@ -265,8 +283,24 @@ export function ProjectListSection({
           onCreateProject,
           browsing,
           setBrowsing,
+          setServerPicking,
           browseStart: addPath || parentHostPath(projects[0]?.path ?? '') || projects[0]?.path || '',
         })}
+      {/* Beside the add dialog, not inside it: its Escape and backdrop
+          handling must not see the server dialog's events. */}
+      {active && addOpen && serverPicking && (
+        <ServerFolderDialog
+          serverName={desktopConnection()?.name ?? ''}
+          list={listServerFolders}
+          onClose={() => setServerPicking(false)}
+          onSelect={(selected) => {
+            setServerPicking(false);
+            setAddPath(selected);
+            setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
+            setAddError('');
+          }}
+        />
+      )}
       <ProjectEditorDialog
         ref={editorRef}
         active={active}

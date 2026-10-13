@@ -27,8 +27,12 @@ import {
 import { CategoryPanel } from './capability-panels';
 import { friendlyCapabilityError } from './remote-capability-guard';
 import { errorMessage } from '../editor-pane-session-errors';
+import { isSshConnectionWindow } from '../desktop-connection';
 export { getCachedCapabilitySettings, preloadCapabilitySettings } from './capability-data';
 export { OAuthControl } from './capability-panels';
+
+// The updater is this PC's: a server window neither reads nor checks it.
+const serverWindow = isSshConnectionWindow();
 
 export const CapabilitySettings = memo(function CapabilitySettings({
   api,
@@ -129,6 +133,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     };
   }, [api]);
   useEffect(() => {
+    if (serverWindow) return;
     let live = true;
     const receive = (next: DesktopUpdaterState) => {
       if (!live) return;
@@ -231,7 +236,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       updateChecked.current = false;
       return;
     }
-    if (hydrating || updateChecked.current) return;
+    if (serverWindow || hydrating || updateChecked.current) return;
     updateChecked.current = true;
     if (api.checkForDesktopUpdate) void checkDesktopUpdate();
     else void run('checkForUpdate', [{}]);

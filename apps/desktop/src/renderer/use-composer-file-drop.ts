@@ -16,6 +16,7 @@ export function useComposerFileDrop({
   attachLocalPaths,
   attachProjectPaths,
   insertAbsolutePaths,
+  insertLocalFolderPaths = insertAbsolutePaths,
 }: {
   dropTargetRef: RefObject<HTMLElement | null>;
   transitioningRef: RefObject<boolean>;
@@ -24,6 +25,8 @@ export function useComposerFileDrop({
   attachLocalPaths: (paths: string[]) => Promise<void>;
   insertAbsolutePaths: (paths: string[]) => void;
   attachProjectPaths: (projectPath: string, paths: string[]) => Promise<void>;
+  /** Folders dropped from the OS (this PC's file manager). */
+  insertLocalFolderPaths?: (paths: string[]) => void;
 }) {
   const [draggingFiles, setDraggingFiles] = useState(false);
 
@@ -88,7 +91,7 @@ export function useComposerFileDrop({
         else itemFiles.push(file);
       }
       void attachFiles(itemFiles.length || directoryPaths.length ? itemFiles : event.dataTransfer.files);
-      insertAbsolutePaths(directoryPaths);
+      insertLocalFolderPaths(directoryPaths);
     };
     target.addEventListener('dragenter', onDragEnter);
     target.addEventListener('dragover', onDragOver);
@@ -113,6 +116,7 @@ export function useComposerFileDrop({
     attachLocalPaths,
     attachProjectPaths,
     insertAbsolutePaths,
+    insertLocalFolderPaths,
     dropTargetRef,
     projectScope,
     transitioningRef,

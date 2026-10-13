@@ -5,6 +5,7 @@ import type { SourceControlDiffRequest } from '../SourceControlDock';
 import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
 import { t } from '../i18n';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
+import { isSshConnectionWindow } from '../desktop-connection';
 import { navigationKey, newBrowserSelection, newStudioSelection } from '../text-format';
 import { onBrowserMainRequested, type BrowserMainRequest } from '../browser-main-request';
 import { canSplitPaneSize, paneActiveSelection } from '../pane-layout';
@@ -85,6 +86,11 @@ export function useAppTabActions({
   // folds. The tab gets its own browser page (user-only, same sign-in
   // partition), loaded at the URL.
   const openBrowserTab = (url: string, title: string | undefined, leafId = paneWorkspace.focusedLeafId) => {
+    // A server window has no browser pane (it drives this PC's browser).
+    if (isSshConnectionWindow()) {
+      void window.mixdogDesktop?.openExternal?.(url)?.catch(() => {});
+      return;
+    }
     void prefetchBrowserPane().catch(() => {});
     paneWorkspace.focusLeaf(leafId);
     openSelectionInFocusedPane(newBrowserSelection(url, title));

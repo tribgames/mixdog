@@ -83,6 +83,8 @@
   },
   "localeExceptions": {
     "de": {
+      "Ports": "same spelling for network ports in German UI",
+      "Port {{port}}": "same spelling for a network port in German UI",
       "Workflow": "established software term in German UI",
       "Webhooks": "established web term in German UI",
       "Browser": "established web loanword in German UI",
@@ -207,6 +209,8 @@
       "Tokens (est.)": "established AI term in Spanish UI"
     },
     "fr": {
+      "Ports": "same spelling for network ports in French UI",
+      "Port {{port}}": "same spelling for a network port in French UI",
       "Sessions": "same spelling in French",
       "Workflow": "established software term in French UI",
       "Extensions": "same spelling in French",

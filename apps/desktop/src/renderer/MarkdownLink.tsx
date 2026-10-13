@@ -18,6 +18,8 @@ import {
 } from './ScmContextMenu';
 import { copyTextToClipboard } from './text-format';
 import { openEditorFileExternally } from './editor-external-file';
+import { isSshConnectionWindow } from './desktop-connection';
+import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { useBrowserSiteFavicon } from './browser-page-identity';
@@ -426,7 +428,11 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
           .catch(() => {});
       }
     : undefined;
-  const webPage = local && pageLink && typeof window !== 'undefined' && Boolean(window.mixdogDesktop?.localPageUrl);
+  // A server window's pages live on the server, out of reach of this PC's
+  // loopback page server: they open as source in the editor.
+  const serverWindow = isSshConnectionWindow();
+  const webPage =
+    local && pageLink && !serverWindow && typeof window !== 'undefined' && Boolean(window.mixdogDesktop?.localPageUrl);
   const open = async (external?: boolean) => {
     warmEditor();
     try {
@@ -434,7 +440,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       // A web page opens in the session's browser pane from a loopback address
       // main serves; with no pane to reveal (a draft) the system browser takes
       // the same address. Without the server (a paired phone) it stays source.
-      const pageUrl = window.mixdogDesktop?.localPageUrl;
+      const pageUrl = serverWindow ? undefined : window.mixdogDesktop?.localPageUrl;
       if (!directory && pageLink && pageUrl) {
         const url = await pageUrl(project, file, accessToken);
         await openWebLink(sessionId, url, external);
@@ -462,6 +468,17 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       // A text file with an extension opens in the editor directly. Documents,
       // folders and extension-less names go through main, which launches the
       // OS app or file manager and hands text files back as 'editor'.
+      if (serverWindow && directory) {
+        // A server folder outside every project: its own tree in the dock.
+        if (!openFolder) throw new Error(t('Local file links can only be opened in the desktop app.'));
+        openFolder(project, '');
+        return;
+      }
+      if (serverWindow && kind === 'file' && editorFileOpener(file) === 'os') {
+        // This PC's app can open a server file only after an explicit download.
+        await downloadAndOpenServerFile(project, file, accessToken);
+        return;
+      }
       if (directory || kind !== 'file' || editorFileOpener(file) === 'os') {
         const api = window.mixdogDesktop;
         if (!api?.openLocalFileLink) {
@@ -508,6 +525,12 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const reveal = async () => {
     try {
       const { project, path: file, accessToken } = await resolveTarget();
+      // A server window reveals in the conversation's own Files tree.
+      if (serverWindow) {
+        if (openFolder) openFolder(project, file);
+        else await revealFileFromWindow(project, file, accessToken);
+        return;
+      }
       const api = window.mixdogDesktop;
       if (!api?.revealFile) throw new Error(t('Desktop file access is unavailable.'));
       await api.revealFile(project, file, accessToken);

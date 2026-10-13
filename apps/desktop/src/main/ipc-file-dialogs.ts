@@ -11,10 +11,15 @@ import type { DesktopService } from './desktop-service-contract';
 import { absoluteLocalPath, readLocalFileAbs } from './local-files';
 import type { IpcHandle as Handle } from './ipc';
 import { requiredSaveSource, requiredString, requiredWorkspaceFolders, sanitizedFileName } from './ipc-validation';
+import type { ConnectionKind } from './connections/contract';
+import { remotePickerRequired } from './connections/feature-gates';
+import { absoluteServerPath } from './server-file-access';
 
 interface FileDialogIpcOptions {
   window: BrowserWindow;
   app: Partial<Pick<App, 'getPath'>>;
+  /** A server (`ssh`) window: its folders live on the server, not this PC. */
+  connectionKind?: ConnectionKind;
   dialog: Pick<Dialog, 'showOpenDialog'> & Partial<Pick<Dialog, 'showSaveDialog'>>;
   host: Pick<DesktopService, 'addProject' | 'projectDirectory'>;
   handle: Handle;
@@ -69,6 +74,7 @@ export async function downloadToFile(
 export function registerFileDialogIpc({
   window,
   app,
+  connectionKind = 'local',
   dialog,
   host,
   handle,
@@ -79,7 +85,11 @@ export function registerFileDialogIpc({
   const defaultPathOption = (defaultPath: unknown) =>
     typeof defaultPath === 'string' && pathIsAbsolute(defaultPath) ? { defaultPath } : {};
 
+  const watchedDirectory = connectionKind === 'ssh' ? absoluteServerPath : absoluteLocalPath;
+
   handle(DESKTOP_IPC.chooseProject, async () => {
+    // This PC's folder dialog cannot pick a folder on the server.
+    if (connectionKind === 'ssh') throw remotePickerRequired();
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Choose a Mixdog project folder'),
       properties: ['openDirectory', 'createDirectory'],
@@ -101,17 +111,28 @@ export function registerFileDialogIpc({
     await downloadToFile(target.url, result.filePath);
     return true;
   });
+  // A server window's "local" paths (its file tree, agent output links) are
+  // the server's: they are described and read there by the daemon.
   handle(DESKTOP_IPC.resolveLocalPaths, (_event, paths) => describeLocalPaths(paths));
-  handle(DESKTOP_IPC.readLocalFile, (_event, rawPath) => readLocalFileAbs(rawPath));
+  handle(DESKTOP_IPC.readLocalFile, (_event, rawPath) =>
+    connectionKind === 'ssh'
+      ? invokeDesktopOperation('readLocalFileAbs', [absoluteServerPath(rawPath)])
+      : readLocalFileAbs(rawPath)
+  );
   // Project file refresh is daemon-owned and refcounted there.
   handle(DESKTOP_IPC.folderWatch, (_event, dirRaw, recursive) => {
-    const dir = absoluteLocalPath(dirRaw);
+    const dir = watchedDirectory(dirRaw);
     return invokeDesktopOperation('folderWatch', [dir, recursive === true]);
   });
   handle(DESKTOP_IPC.folderUnwatch, (_event, dirRaw, recursive) => {
-    const dir = absoluteLocalPath(dirRaw);
+    const dir = watchedDirectory(dirRaw);
     return invokeDesktopOperation('folderUnwatch', [dir, recursive === true]);
   });
+  // The folder picker of a server window: the daemon (on the server) lists its
+  // own directories and rejects a path that is not absolute there.
+  handle(DESKTOP_IPC.listServerDirectories, (_event, path, includeHidden) =>
+    invokeDesktopOperation('listServerDirectories', [path, includeHidden === true])
+  );
   handle(DESKTOP_IPC.chooseFile, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Open file'),

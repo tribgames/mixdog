@@ -20,6 +20,7 @@
     "test:slow": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --lane slow",
     "test:live": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --lane live",
     "test:all": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --lane all",
+    "test:ssh:e2e": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --lane live ssh-remote-docker.e2e",
     "test:daemon:e2e": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --lane live daemon.e2e",
     "verify:packaging-artifact": "node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --lane live packaging-artifact",
     "test:browser-host:integration": "node scripts/run-browser-host-integration.mjs",

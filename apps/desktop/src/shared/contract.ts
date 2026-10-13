@@ -33,6 +33,21 @@ import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
 import type {
+  DesktopSshAskpass,
+  DesktopSshCleanupProgress,
+  DesktopSshCleanupRequest,
+  DesktopSshLogView,
+  DesktopSshServerLog,
+  DesktopSshCleanupResult,
+  DesktopSshConfigHost,
+  DesktopSshConnectRequest,
+  DesktopSshConnectResult,
+  DesktopSshHost,
+  DesktopSshHostSettings,
+  DesktopSshInspection,
+  DesktopSshProgress,
+} from './contract-ssh';
+import type {
   DesktopBrowserCredentialFillResult,
   DesktopBrowserCredentialSuggestion,
   DesktopBrowserGuestViewportChange,
@@ -75,6 +90,7 @@ import type {
 } from './contract-git';
 import type {
   DesktopBootContext,
+  DesktopConnectionIdentity,
   DesktopDirEntry,
   DesktopDocumentPreviewPages,
   DesktopEditorBackup,
@@ -117,6 +133,8 @@ export * from './contract-browser';
 export * from './contract-git';
 export * from './contract-computer';
 export * from './contract-workspace';
+export * from './contract-ssh';
+export * from './contract-connection-link';
 
 export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 
@@ -125,6 +143,9 @@ export type { GithubRequest, GithubResult } from '../../../../src/runtime/github
 export interface DesktopApi {
   /** Immutable process timeline identity injected before renderer modules run. */
   readonly bootContext?: DesktopBootContext;
+  /** The daemon connection this Electron window drives; absent on remote
+   *  surfaces (phone, browser, another PC's window). */
+  readonly connection?: DesktopConnectionIdentity;
   /** The host accepts per-route Auto reasoning: `autoEffort` in model
    *  selections and `+noauto` automation model refs. Absent on an older
    *  remote host, which rejects both. */
@@ -203,6 +224,36 @@ export interface DesktopApi {
   removeProject(projectPath: string): Promise<void>;
   /** Dock Files tab: lazy per-directory listing. */
   listProjectDir?(projectPath: string, relDir: string): Promise<DesktopDirEntry[]>;
+  /** Server-window folder picker: subfolders (git marker, hidden ones only on
+   *  request) of an absolute directory on this window's own connection
+   *  ('' = the user's home there). */
+  listServerDirectories?(
+    path: string,
+    includeHidden?: boolean
+  ): Promise<{ path: string; entries: Array<{ name: string; git: boolean }>; truncated: boolean }>;
+  /** Server window: a file of this PC streamed in chunks into the server's
+   *  attachment staging folder (`scope` = the session, or a draft). */
+  serverUploadBegin?(
+    name: string,
+    size: number,
+    scope: string
+  ): Promise<{ uploadId: string; chunkBytes: number; maxBytes: number }>;
+  serverUploadChunk?(uploadId: string, offset: number, bytes: Uint8Array): Promise<{ received: number }>;
+  serverUploadCommit?(uploadId: string): Promise<DesktopLocalPathEntry>;
+  serverUploadAbort?(uploadId: string): Promise<boolean>;
+  /** Server window: "download to this PC", one ranged read per step. */
+  serverDownloadBegin?(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string
+  ): Promise<{ downloadId: string; name: string; size: number }>;
+  serverDownloadStep?(downloadId: string): Promise<{ received: number; size: number; done: boolean }>;
+  serverDownloadFinish?(downloadId: string): Promise<{ path: string }>;
+  serverDownloadAbort?(downloadId: string): Promise<boolean>;
+  /** Opens a file this window downloaded from its server with this PC's app. */
+  openServerDownload?(path: string, confirmedPath?: string): Promise<void | FileLaunchConfirmation>;
+  /** Server window: whether deleting in this project can use the server's trash. */
+  serverTrashInfo?(projectPath: string): Promise<{ available: boolean; path: string }>;
   /** Editor tab: project file IO (traversal-guarded in main). */
   readProjectFile?(
     projectPath: string,
@@ -276,7 +327,9 @@ export interface DesktopApi {
   ): Promise<{ mtimeMs: number; size: number }>;
   createProjectEntry?(projectPath: string, relDir: string, name: string, dir: boolean): Promise<void>;
   renameProjectEntry?(projectPath: string, relPath: string, newName: string): Promise<void>;
-  trashProjectEntry?(projectPath: string, relPath: string): Promise<void>;
+  /** A server window's daemon moves the entry to the server's trash, or with
+   *  `permanent` (asked for explicitly) deletes it for good. */
+  trashProjectEntry?(projectPath: string, relPath: string, options?: { permanent?: boolean }): Promise<void>;
   /** Explorer DnD / cut-paste: move an entry into another project folder. */
   moveProjectEntry?(projectPath: string, relPath: string, targetDirRel: string): Promise<void>;
   /** Explorer copy-paste: copy an entry; collisions get "name copy" names. */
@@ -387,6 +440,81 @@ export interface DesktopApi {
   openRemoteHost?(id: string): Promise<DesktopRemoteHost[]>;
   /** Closes the host's window and clears its stored pairing. */
   forgetRemoteHost?(id: string): Promise<DesktopRemoteHost[]>;
+  /** SSH servers saved on this machine (Settings → Connection, PC menu). */
+  sshListHosts?(): Promise<DesktopSshHost[]>;
+  /** Local name of a saved SSH server. */
+  sshRenameHost?(id: string, name: string): Promise<DesktopSshHost[]>;
+  /** Removes only the saved entry; the server and its window are untouched. */
+  sshForgetHost?(id: string): Promise<DesktopSshHost[]>;
+  /** Opens (or focuses) a saved server's window. A failure comes back as a result, not a rejection. */
+  sshOpenHost?(id: string): Promise<DesktopSshConnectResult>;
+  /** Host aliases of ~/.ssh/config (wildcard patterns skipped). */
+  sshConfigHosts?(): Promise<DesktopSshConfigHost[]>;
+  /** Reads the server's host key, compares it with this PC's known_hosts and
+   *  opens an attempt (main-minted `attemptId`) that the calls below name. */
+  sshInspectHostKey?(target: string): Promise<DesktopSshInspection>;
+  /** Connects the inspected address, saves the server and opens its window. Progress arrives through `subscribeSshProgress`. */
+  sshConnect?(request: DesktopSshConnectRequest): Promise<DesktopSshConnectResult>;
+  sshCancel?(attemptId: string): Promise<void>;
+  /** Answers a question ssh asked (passphrase, password, one-time code); null cancels it. */
+  sshAskpassReply?(attemptId: string, requestId: string, secret: string | null): Promise<void>;
+  /** Removes Mixdog from a saved server over ssh (optionally with its work history), then optionally forgets the entry. */
+  sshCleanupHost?(id: string, request: DesktopSshCleanupRequest): Promise<DesktopSshCleanupResult>;
+  /** Per-server settings: folder, login key file, auto-reconnect. */
+  sshUpdateHostSettings?(id: string, settings: DesktopSshHostSettings): Promise<DesktopSshHost[]>;
+  subscribeSshAskpass?(listener: (request: DesktopSshAskpass) => void): () => void;
+  /** `ref`: a saved server's id or an address; a server window always gets its own server. */
+  sshDiagnosticsLog?(ref: string): Promise<DesktopSshLogView>;
+  /** The text to copy for a bug report: app, OS, ssh version, the redacted ssh -G summary and the last log lines. */
+  sshDiagnosticsCopy?(ref: string): Promise<string>;
+  /** The last 200 lines of the server's daemon.log. */
+  sshServerLog?(ref: string): Promise<DesktopSshServerLog>;
+  subscribeSshCleanupProgress?(listener: (progress: DesktopSshCleanupProgress) => void): () => void;
+  subscribeSshProgress?(listener: (progress: DesktopSshProgress) => void): () => void;
+  /** A server window's link to its daemon; null in this PC's window. */
+  getConnectionLink?(): Promise<import('./contract-connection-link').DesktopConnectionLinkView | null>;
+  subscribeConnectionLink?(
+    listener: (view: import('./contract-connection-link').DesktopConnectionLinkView) => void
+  ): () => void;
+  subscribeConnectionNotice?(
+    listener: (notice: import('./contract-connection-link').DesktopConnectionNotice) => void
+  ): () => void;
+  /** Reconnects this server window now; a stopped connection is opened again. */
+  retryConnection?(): Promise<void>;
+  /** Runs the waiting reconnect attempt now instead of after its countdown. */
+  retryConnectionNow?(): Promise<void>;
+  /** Closes this server window (detaches; the server keeps running). */
+  closeConnectionWindow?(): Promise<void>;
+  /** Shows Settings → Connection in this PC's window. */
+  openConnectionSettings?(): Promise<void>;
+  /** "Keep allowing": this server window lets its server use this PC's
+   *  models again (a new grant). */
+  allowServerModelUse?(): Promise<void>;
+  /** "Reopen server windows when the app starts" (this PC's window only). */
+  getReopenServerWindows?(): Promise<boolean>;
+  setReopenServerWindows?(enabled: boolean): Promise<boolean>;
+  subscribeServerRestoreProgress?(
+    listener: (progress: import('./contract-connection-link').DesktopServerRestoreProgress) => void
+  ): () => void;
+  /** The reopenings still running or failed when this window subscribed. */
+  getServerRestoreProgress?(): Promise<import('./contract-connection-link').DesktopServerRestoreProgress[]>;
+  /** Server window's Ports panel; `rescan` false returns the last scan. */
+  listServerPorts?(rescan?: boolean): Promise<import('./contract-server-ports').DesktopServerPortsView>;
+  subscribeServerPorts?(
+    listener: (view: import('./contract-server-ports').DesktopServerPortsView) => void
+  ): () => void;
+  /** Forwards a server port to 127.0.0.1 on this PC (the same number when free, unless `localPort` is given). */
+  forwardServerPort?(
+    remotePort: number,
+    localPort?: number | null
+  ): Promise<import('./contract-server-ports').DesktopPortForward>;
+  stopServerPortForward?(remotePort: number): Promise<void>;
+  dismissServerPort?(port: number): Promise<void>;
+  /** Opens http://127.0.0.1:<local>/ of an active forward in this PC's default browser. */
+  openServerPortInBrowser?(remotePort: number): Promise<void>;
+  /** This PC's window: a server window needs the user's connect attempt
+   *  (sign in again, or confirm a changed host key). */
+  subscribeConnectionSignIn?(listener: (server: { id: string; name: string; target: string }) => void): () => void;
   /** Web Push. Only the relay shim implements these — an Electron window has
    *  the taskbar/dock signal instead, and its absence is what hides the
    *  notification toggle outside the web app. */

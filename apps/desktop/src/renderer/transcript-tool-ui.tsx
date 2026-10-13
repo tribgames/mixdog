@@ -38,6 +38,7 @@ import {
   type ScmContextMenuState,
 } from './ScmContextMenu';
 import { ToolComputerReadinessCard } from './transcript-computer-card';
+import { useToolOutcomeUnknown } from './connection-link-store';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
 import { CodeDiff } from './transcript-diff';
@@ -266,7 +267,8 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   );
   const { rendered, expanded } = useToolActivityDisclosure(open);
   const contentId = useId();
-  const pending = items.some((item) => !toolItemDone(item));
+  const outcomeUnknown = useToolOutcomeUnknown();
+  const pending = items.some((item) => !toolItemDone(item) && !outcomeUnknown(item.id));
   const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
   const label = summary || t('Tool use');
@@ -1006,7 +1008,15 @@ function ToolActivityItem({
   contentId: string;
 }) {
   const [open, onToggle, chosen, keepOpen] = useRememberedDisclosure(disclosureKey, defaultOpen);
-  const presentation = useMemo(() => desktopToolActivityItemPresentation(item), [item]);
+  const outcomeUnknown = useToolOutcomeUnknown()(item.id);
+  const presentation = useMemo(() => {
+    const base = desktopToolActivityItemPresentation(item);
+    // A server window lost this call's result with its link: say so instead of
+    // running forever. It is never run again.
+    return outcomeUnknown && base.pending
+      ? { ...base, pending: false, tone: 'failed', resultLabel: t('Outcome unknown'), outcomeReason: '' }
+      : base;
+  }, [item, outcomeUnknown]);
   const panelOpen = open && presentation.hasDetails;
   const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
 

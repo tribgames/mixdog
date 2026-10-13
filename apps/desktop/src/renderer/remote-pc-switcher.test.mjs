@@ -303,3 +303,43 @@ test('without the desktop bridge and outside a remote window the chip renders no
   await act(async () => root.render(React.createElement(RemotePcSwitcher)));
   assert.equal(document.querySelector('.remote-pc-switcher'), null);
 });
+
+test('main window: SSH servers join the PC menu with an "SSH · " detail; an open one is focused, a closed one opens the connect dialog; "Connect SSH server" is an action', async (t) => {
+  const { takeConnectionDialogRequest, takeSshHostRequest } = await import('./settings/connection-intent.ts');
+  const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['Event'], globals: ELECTRON });
+  installMainWindow(window);
+  const calls = [];
+  const ssh = [
+    { id: 's1', name: 'My VPS', target: 'root@vps.example.com', lastConnectedAt: Date.now() - 1000, open: true },
+    { id: 's2', name: 'gpu-box', target: 'gpu-box', lastConnectedAt: Date.now() - 5000, open: false },
+  ];
+  window.mixdogDesktop.sshListHosts = () => Promise.resolve(ssh);
+  window.mixdogDesktop.sshOpenHost = (id) => {
+    calls.push(['ssh-open', id]);
+    return Promise.resolve({ ok: true, host: ssh[0] });
+  };
+  await act(async () => root.render(React.createElement(RemotePcSwitcher)));
+  await settleChip();
+  const openMenu = () => act(async () => document.querySelector('button.remote-pc-button').click());
+  const items = () => [...document.querySelectorAll('[role="menuitem"]')];
+  await openMenu();
+  assert.match(items()[1].textContent, /My VPS.*SSH · Online · Window open/);
+  assert.match(items()[2].textContent, /gpu-box.*SSH · /);
+  assert.deepEqual(
+    items().slice(3).map((item) => item.textContent),
+    ['Open another PC', 'Connect SSH server', 'Connect a device', 'Connection settings']
+  );
+
+  await act(async () => items()[1].click());
+  assert.deepEqual(calls, [['ssh-open', 's1']]);
+  assert.equal(takeConnectionDialogRequest(), null, 'an open window is focused without leaving the page');
+
+  await openMenu();
+  await act(async () => items()[2].click());
+  assert.equal(takeConnectionDialogRequest(), 'ssh-host');
+  assert.deepEqual(takeSshHostRequest(), { id: 's2', name: 'gpu-box', target: 'gpu-box' }, 'a closed one connects through the dialog');
+
+  await openMenu();
+  await act(async () => items().find((item) => item.textContent === 'Connect SSH server').click());
+  assert.equal(takeConnectionDialogRequest(), 'ssh');
+});

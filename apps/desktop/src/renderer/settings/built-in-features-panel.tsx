@@ -45,6 +45,12 @@ import { useAutoEffortStatus } from './auto-effort-status';
 import { TidyEngines } from './tidy-engines';
 import { computerReadinessBlocking } from './computer-readiness';
 import { ComputerReadinessSection, useComputerReadiness } from './computer-readiness-section';
+import { isSshConnectionWindow } from '../desktop-connection';
+
+/** Browser Use and Computer Use drive this PC's browser and screen; a server
+ *  window does not offer them. */
+const PC_ONLY_FEATURES: ReadonlySet<BuiltInFeatureId> = new Set(['browser', 'computer']);
+const serverWindow = isSshConnectionWindow();
 
 type FeatureAction = {
   id: BuiltInFeatureId;
@@ -523,7 +529,7 @@ export function BuiltInFeaturesPanel({
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
   return (
     <Group title={t('Built-in')}>
-      {BUILT_IN_FEATURES.map((feature) => {
+      {BUILT_IN_FEATURES.filter((feature) => !(serverWindow && PC_ONLY_FEATURES.has(feature.id))).map((feature) => {
         const state = stateOf(feature);
         return (
           <ExtensionRow

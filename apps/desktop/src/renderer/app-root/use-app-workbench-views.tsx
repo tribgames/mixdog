@@ -9,6 +9,7 @@ import type { SidebarPanelKey } from '../app-shell-components';
 import { requestPaneDockClose } from '../pane-dock-chrome';
 import { BackgroundJobsPane } from '../BackgroundJobsPane';
 import { SessionDiffPane } from '../SessionDiffPane';
+import { ServerPortsPanel } from '../ServerPortsPanel';
 import { prefetchDiffView } from '../lazy-widgets';
 import { SnapshotUtilityDock } from '../app-snapshot-views';
 import type { DesktopSnapshotStore } from '../desktop-snapshot-store';
@@ -206,6 +207,13 @@ export function useAppWorkbenchViews({
       return (
         <SessionSidebar {...sessionSidebarProps} panelActive panelTitle={sideViewDescriptors.get(id)?.label}>
           {renderSidebarPanel(id as SidebarPanelKey, active)}
+        </SessionSidebar>
+      );
+    }
+    if (id === 'ports') {
+      return (
+        <SessionSidebar {...sessionSidebarProps} panelActive panelTitle={sideViewDescriptors.get(id)?.label}>
+          <ServerPortsPanel active={active} />
         </SessionSidebar>
       );
     }

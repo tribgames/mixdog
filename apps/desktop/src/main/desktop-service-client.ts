@@ -28,6 +28,7 @@ import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-se
 import { filterSessionIds } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
+import { isTerminalRemoteError } from './ssh/remote-bootstrap';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { SessionFinalAnswer } from './session-final-answer';
 
@@ -67,7 +68,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 // summarization pass over the whole transcript. That work outlives the
 // ordinary request deadline, which is sized for interactive calls.
 const INHERIT_SESSION_TIMEOUT_MS = 600_000;
-const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
+export const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_RESTART_BASE_DELAY_MS = 250;
 const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
 const DEFAULT_RESTART_STABLE_MS = 30_000;
@@ -138,6 +139,8 @@ export class DesktopServiceClient implements DesktopService {
   private nextRequestId = 1;
   private generation = 0;
   private lastExitError: Error | null = null;
+  /** A failure only a fix on the server side resolves; reconnecting cannot help. */
+  private terminalError: Error | null = null;
   private readyPromise: Promise<void> | null = null;
   private readyResolve: (() => void) | null = null;
   private readyReject: ((error: Error) => void) | null = null;
@@ -161,6 +164,7 @@ export class DesktopServiceClient implements DesktopService {
     if (this.disposed || this.disposing) {
       return Promise.reject(new Error('Mixdog desktop service client is disposed.'));
     }
+    if (this.terminalError) return Promise.reject(this.terminalError);
     if (this.readyPromise) return this.readyPromise;
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
@@ -179,6 +183,44 @@ export class DesktopServiceClient implements DesktopService {
       this.connectService();
     }
     return readyPromise;
+  }
+
+  /** The failure no reconnect fixes (a refused login, a changed host key, an
+   *  incompatible server), once one stopped the client; null otherwise. */
+  get terminalFailure(): Error | null {
+    return this.terminalError;
+  }
+
+  /** Try again now: a restart waiting out its backoff runs at once, and a
+   *  client stopped by a terminal failure starts over (its connector must
+   *  have been replaced first). An attachment in progress is left alone. */
+  retryNow(): Promise<void> {
+    if (this.disposed || this.disposing) {
+      return Promise.reject(new Error('Mixdog desktop service client is disposed.'));
+    }
+    this.terminalError = null;
+    this.consecutiveExitCount = 0;
+    this.nextRestartAt = 0;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+      this.connectService();
+      return this.readyPromise ?? Promise.resolve();
+    }
+    if (this.readyPromise) return this.readyPromise;
+    if (this.transport) return Promise.resolve();
+    return this.start();
+  }
+
+  /** Drops the current attachment and attaches again now: the connector it
+   *  went through was replaced (a server connection opened anew). */
+  reattach(): Promise<void> {
+    const transport = this.transport;
+    if (transport) {
+      this.handleExit(transport, 1);
+      void transport.close().catch(() => {});
+    }
+    return this.retryNow();
   }
 
   private armStartupTimer(): void {
@@ -465,6 +507,19 @@ export class DesktopServiceClient implements DesktopService {
     this.lastExitError = error;
     this.rejectPending(error);
     if (this.disposing || this.disposed) return;
+    if (cause && isTerminalRemoteError(cause)) {
+      this.terminalError = cause;
+      this.recovering = false;
+      this.clearFailureNoticeTimer();
+      this.options.onDiagnostic?.('desktop-transport-terminal', {
+        code,
+        errorName: cause.name,
+        errorCode: String((cause as { code?: unknown }).code ?? ''),
+      });
+      this.publish(this.processFailureSnapshot(this.cachedSnapshot, cause.message));
+      this.rejectStartup(cause);
+      return;
+    }
     this.consecutiveExitCount += 1;
     const baseDelayMs = Math.max(0, this.options.restartBaseDelayMs ?? DEFAULT_RESTART_BASE_DELAY_MS);
     const maxDelayMs = Math.max(baseDelayMs, this.options.restartMaxDelayMs ?? DEFAULT_RESTART_MAX_DELAY_MS);
@@ -568,7 +623,10 @@ export class DesktopServiceClient implements DesktopService {
     return { ...previous, toasts } as SessionSnapshot;
   }
 
-  private processFailureSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
+  private processFailureSnapshot(
+    snapshot: SessionSnapshot,
+    text = 'The service connection stopped. Retrying automatically.'
+  ): SessionSnapshot {
     const previous = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : {};
     const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
     return {
@@ -583,7 +641,7 @@ export class DesktopServiceClient implements DesktopService {
           id: PROCESS_FAILURE_TOAST_ID,
           tone: 'error',
           lifetime: 'state',
-          text: 'The service connection stopped. Retrying automatically.',
+          text,
         },
       ].slice(-8),
     } as SessionSnapshot;

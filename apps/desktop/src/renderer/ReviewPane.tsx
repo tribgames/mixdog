@@ -1,6 +1,8 @@
 import { ChevronDown, FileDiff } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t, uiFormatLocale } from './i18n';
+import { isSshConnectionWindow } from './desktop-connection';
+import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import { useMobileBack } from './mobile-back';
 import { DiffBoundary } from './transcript-diff';
 import { REVIEW_DIFF_STYLE_KEY } from './desktop-types';
@@ -472,7 +474,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 role="menuitem"
                 onClick={() => {
                   setMenu(null);
-                  void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
+                  if (isSshConnectionWindow()) void downloadAndOpenServerFile(cwd, menu.file.path);
+                  else void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
                 }}
               >
                 {t('Open file')}
@@ -482,7 +485,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 role="menuitem"
                 onClick={() => {
                   setMenu(null);
-                  void window.mixdogDesktop.revealFile?.(cwd, menu.file.path).catch(() => {});
+                  void revealFileFromWindow(cwd, menu.file.path).catch(() => {});
                 }}
               >
                 {t('Reveal in Explorer')}

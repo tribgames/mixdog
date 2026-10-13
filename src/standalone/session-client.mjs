@@ -21,6 +21,8 @@ import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { daemonDataDir } from '../session-runtime/services/daemon-crash-capture.mjs';
 import { forkDaemonCandidate } from '../session-runtime/services/daemon-candidate.mjs';
 import { createAttachmentCalls } from './session-client/attachment-calls.mjs';
+import { createLeaseHeartbeat } from './session-client/lease-heartbeat.mjs';
+import { clampLeaseMs } from './session-transport/client-registry/client-grace.mjs';
 import {
   EVENT_STREAM_LIVENESS_TIMEOUT_MS,
   EVENT_STREAM_RECONNECT_BASE_MS,
@@ -145,6 +147,14 @@ export async function probeSessionHealth({ port, token, timeoutMs = 800 } = {}) 
   } catch {
     return null;
   }
+}
+
+/** Health probe + protocol compatibility against an explicit discovery,
+ *  without reading daemon.json or spawning anything. `health` is null when
+ *  the daemon does not answer (then `compatibility` is null too). */
+export async function probeSessionCompatibility(discovery, { timeoutMs = 800, probeHealth = probeSessionHealth } = {}) {
+  const health = await probeHealth({ port: discovery?.port, token: discovery?.token, timeoutMs });
+  return { health, compatibility: health ? sessionDaemonCompatibility(health) : null };
 }
 
 export function readSessionDiscovery(discoveryPath = sessionDiscoveryPath()) {
@@ -454,6 +464,12 @@ export async function attachSession({
   streamReconnectMaxMs = EVENT_STREAM_RECONNECT_MAX_MS,
   streamLivenessTimeoutMs = EVENT_STREAM_LIVENESS_TIMEOUT_MS,
   streamReconnectBudgetMs = EVENT_STREAM_RECONNECT_BUDGET_MS,
+  remote = false,
+  leaseMs = 30_000,
+  heartbeatMs = 10_000,
+  readDiscovery = remote ? () => discovery : () => readSessionDiscovery(),
+  pidAlive = remote ? () => true : isPidAlive,
+  probeHealth = probeSessionHealth,
   log = () => {},
 } = {}) {
   if (!discovery?.port || !discovery?.token) throw new Error('daemon discovery {port, token} required');
@@ -462,13 +478,15 @@ export async function attachSession({
     port,
     serverToken,
     body: {
-      leadPid,
+      // A remote client's process lives on another machine: no local pid.
+      leadPid: remote ? 0 : leadPid,
       cwd,
       lifecycle: lifecycle !== false,
       clientKind: clientKind === 'desktop' ? 'desktop' : 'session',
       registrationId: String(registrationId || randomUUID()),
       protocol: SESSION_PROTOCOL,
       revision: SESSION_REVISION,
+      ...(remote ? { remote: true, leaseMs: clampLeaseMs(leaseMs) } : {}),
     },
   });
   const clientToken = reg?.token;
@@ -487,18 +505,23 @@ export async function attachSession({
     reconnectMaxMs: streamReconnectMaxMs,
     reconnectBudgetMs: streamReconnectBudgetMs,
     livenessTimeoutMs: streamLivenessTimeoutMs,
-    readDiscovery: () => readSessionDiscovery(),
-    probeHealth: probeSessionHealth,
-    pidAlive: isPidAlive,
+    readDiscovery,
+    probeHealth,
+    pidAlive,
     log,
   });
   link.open();
+  const heartbeat = remote
+    ? createLeaseHeartbeat({ request, port, serverToken, clientToken, heartbeatMs, leaseMs, log })
+    : null;
+  heartbeat?.start();
   const { call, close } = createAttachmentCalls({
     request,
     port,
     serverToken,
     clientToken,
     stopStream: link.stop,
+    stopHeartbeat: heartbeat?.stop,
     log,
   });
 

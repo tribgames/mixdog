@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useBrowserFeatureInstalled } from './browser-feature-install';
+import { isSshConnectionWindow } from './desktop-connection';
 import {
   desktopFeatureEnabled,
   desktopSidebarDestinationEnabled,
@@ -41,6 +42,8 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     () => [
       ...(desktopFeatureEnabled('sessions') ? ['sessions' as const] : []),
       ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) => desktopSidebarDestinationEnabled(panel)),
+      // The Ports panel belongs to server windows.
+      ...(isSshConnectionWindow() ? ['ports' as const] : []),
       'session-diff' as const,
       'background-jobs' as const,
       ...(browserFeatureInstalled ? ['browser' as const] : []),

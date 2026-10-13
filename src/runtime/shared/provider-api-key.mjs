@@ -1,7 +1,8 @@
 import { createRequire } from 'node:module';
+import { modelProxyClientMode } from './model-proxy-mode.mjs';
 
 const require = createRequire(import.meta.url);
-const { getSecret, hasSecret } = require('../../lib/keychain-cjs.cjs');
+const { getSecret, getSecretAsync, hasSecret } = require('../../lib/keychain-cjs.cjs');
 
 // Lightweight API-key lookup shared by pristine startup and the general config
 // loader. This module deliberately has no mixdog-config.json dependency: asking
@@ -41,6 +42,8 @@ function environmentApiKey(provider) {
 /** Presence-only credential probe. On Windows this is a cheap DPAPI-file
  * check; decrypting through PowerShell is reserved for an actual API call. */
 export function hasAgentApiKey(provider) {
+  // Remote mode: this server holds no model credentials (model-proxy-mode.mjs).
+  if (modelProxyClientMode()) return false;
   const id = String(provider || '').trim();
   if (!id) return false;
   if (environmentApiKey(id)) return true;
@@ -52,6 +55,7 @@ export function hasAgentApiKey(provider) {
 }
 
 export function getAgentApiKey(provider) {
+  if (modelProxyClientMode()) return null;
   const id = String(provider || '').trim();
   const environment = environmentApiKey(id);
   if (environment) return environment;
@@ -63,4 +67,20 @@ export function getAgentApiKey(provider) {
     // environment aliases remain available as the final provider-local source.
   }
   return null;
+}
+
+/** One provider's key read on demand, warming no other account: the
+ *  environment first (getAgentApiKey's precedence), then only this provider's
+ *  keychain entry through the async path (no whole-keyring snapshot). */
+export async function readAgentApiKeyAsync(provider) {
+  if (modelProxyClientMode()) return null;
+  const id = String(provider || '').trim();
+  if (!id) return null;
+  const environment = environmentApiKey(id);
+  if (environment) return environment;
+  try {
+    return (await getSecretAsync(`agent.${id}.apiKey`)) || null;
+  } catch {
+    return null;
+  }
 }

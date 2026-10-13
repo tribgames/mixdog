@@ -1,8 +1,8 @@
-import type { BrowserWindow, IpcMain, IpcMainEvent } from 'electron';
+import type { BrowserWindow, IpcMainEvent } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import { TerminalDataBufferer } from './terminal-data-buffer';
-import type { IpcHandle as Handle } from './ipc';
+import type { DesktopIpcMain, IpcHandle as Handle } from './ipc';
 import { requiredString } from './ipc-validation';
 
 export interface DesktopTerminalHost {
@@ -21,7 +21,7 @@ export interface DesktopTerminalHost {
 
 interface TerminalIpcOptions {
   window: BrowserWindow;
-  ipcMain: Pick<IpcMain, 'on' | 'removeListener'>;
+  ipcMain: Pick<DesktopIpcMain, 'on' | 'removeListener'>;
   handle: Handle;
   terminals?: DesktopTerminalHost;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;

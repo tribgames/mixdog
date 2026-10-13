@@ -4,6 +4,8 @@ import { performance } from 'node:perf_hooks';
 import { sessionClientModuleUrl } from './desktop-support';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import type { DesktopTransport } from './desktop-service-client';
+import { RemoteBootstrapError } from './ssh/remote-bootstrap';
+import type { RemoteDaemonConnector, RemoteDaemonEndpoint } from './ssh/remote-session';
 
 interface AttachedDaemon {
   call(
@@ -29,10 +31,22 @@ interface SessionClientModule {
     onUpgradeWait?: (info: DaemonUpgradeWait) => void;
   }): Promise<Record<string, unknown>>;
   forceDaemonUpgrade(options?: { log?: (line: string) => void }): Promise<boolean>;
+  /** Health + protocol verdict for an explicit discovery; reads no files. */
+  probeSessionCompatibility(
+    discovery: Record<string, unknown>,
+    options?: { timeoutMs?: number }
+  ): Promise<{
+    health: Record<string, unknown> | null;
+    compatibility: { status: string; protocol?: number; revision?: number; version?: string } | null;
+  }>;
   attachSession(options: {
     discovery: Record<string, unknown>;
     cwd?: string;
     clientKind?: 'desktop' | 'session';
+    /** Lease-based liveness over a tunnel: heartbeats, no local pid checks. */
+    remote?: boolean;
+    readDiscovery?: () => Record<string, unknown> | null;
+    pidAlive?: (pid: number) => boolean;
     onFrame?: (frame: Record<string, unknown>) => void;
     onFatal?: (reason: string) => void;
     onStreamDisconnect?: (details: Record<string, unknown>) => void;
@@ -40,6 +54,8 @@ interface SessionClientModule {
     log?: (line: string) => void;
   }): Promise<AttachedDaemon>;
 }
+
+const REMOTE_HEALTH_TIMEOUT_MS = 5_000;
 
 type DesktopInitOptions = Extract<DesktopServiceInbound, { kind: 'init' }>['options'];
 type SessionClientLoader = (options: DesktopInitOptions) => Promise<SessionClientModule>;
@@ -104,7 +120,10 @@ export class SessionTransport implements DesktopTransport {
     private readonly loadClientModule: SessionClientLoader | null = null,
     /** Settles once this process's environment is final: a daemon spawned
      *  here inherits it for its whole life. */
-    private readonly environmentReady: Promise<unknown> = Promise.resolve()
+    private readonly environmentReady: Promise<unknown> = Promise.resolve(),
+    /** Remote mode: the daemon runs on an ssh server behind a tunnel. A local
+     *  daemon is never spawned or attached while this is set. */
+    private readonly remote: RemoteDaemonConnector | null = null
   ) {}
 
   on(event: string, listener: (...args: any[]) => void): unknown {
@@ -220,6 +239,167 @@ export class SessionTransport implements DesktopTransport {
   private async connectDaemon(daemonModule: SessionClientModule, options: DesktopInitOptions): Promise<AttachedDaemon> {
     const attempt = ++this.connectAttempt;
     this.viewSyncSupported = false;
+    const remote = this.remote;
+    let discovery: Record<string, unknown>;
+    let moduleUrl = this.moduleUrl;
+    let initOptions = options;
+    let cwd = this.cwd;
+    if (remote) {
+      const endpoint = await this.measureBootPhase(
+        'remote-connect',
+        () =>
+          remote.connect((line) => this.emit('diagnostic', 'remote-daemon-log', { detail: line, attempt })),
+        { attempt }
+      );
+      await this.checkRemoteCompatibility(daemonModule, remote, endpoint, attempt);
+      discovery = { ...endpoint.discovery };
+      moduleUrl = endpoint.moduleUrl;
+      initOptions = endpoint.remapOptions(options);
+      cwd = endpoint.cwd;
+    } else {
+      discovery = await this.ensureLocalDaemon(daemonModule, attempt);
+    }
+    let attached: AttachedDaemon | null = null;
+    let fatalDuringAttach = '';
+    try {
+      attached = await this.measureBootPhase(
+        'attach-session',
+        () =>
+          daemonModule.attachSession({
+            discovery,
+            cwd,
+            clientKind: 'desktop',
+            ...(remote
+              ? {
+                  remote: true,
+                  // The daemon's pid lives on the server; its liveness is the
+                  // lease, and replacement shows up as a new remote discovery.
+                  readDiscovery: () => remote.currentDiscovery() as Record<string, unknown> | null,
+                  pidAlive: () => true,
+                }
+              : {}),
+            onFrame: (frame) => {
+              if (frame?.type !== 'desktop-event') return;
+              if (String(frame.desktopId || '') !== this.desktopId) return;
+              const outbound = frame.message as DesktopServiceOutbound;
+              if (outbound?.kind === 'view-sync-complete') this.viewSyncSupported = true;
+              if (outbound && typeof outbound === 'object') this.emit('message', outbound);
+            },
+            onFatal: (reason) => {
+              if (!attached) {
+                fatalDuringAttach = reason;
+                return;
+              }
+              void this.recoverDaemon(attached, reason).catch(() => {});
+            },
+            onStreamDisconnect: (details) => {
+              this.emit('diagnostic', 'session-stream-reconnecting', details);
+            },
+            onStreamReconnect: (details) => {
+              this.emit('diagnostic', 'session-stream-reconnected', details);
+              void this.resyncAfterStreamReconnect(details);
+            },
+          }),
+        { attempt }
+      );
+      if (fatalDuringAttach) {
+        throw new Error(`Mixdog daemon disconnected during attach: ${fatalDuringAttach}`);
+      }
+      if (this.closed) {
+        await attached.close('desktop transport closed during init');
+        throw new Error('Mixdog daemon transport is closed.');
+      }
+      const initialized = await this.measureBootPhase(
+        'desktop-init',
+        () =>
+          attached!.call('desktop.init', {
+            desktopId: this.requestedDesktopId,
+            moduleUrl,
+            options: initOptions,
+          }) as Promise<{ desktopId?: unknown }>,
+        { attempt }
+      );
+      this.desktopId = String(initialized?.desktopId || this.requestedDesktopId);
+      await this.measureBootPhase(
+        'desktop-state-resync',
+        () =>
+          attached!.call('desktop.control', {
+            desktopId: this.desktopId,
+            message: { kind: 'state-resync' },
+          }),
+        { attempt }
+      );
+      await this.measureBootPhase(
+        'desktop-background-ready',
+        () =>
+          attached!.call('desktop.ready', {
+            desktopId: this.desktopId,
+          }),
+        { attempt }
+      );
+      this.client = attached;
+      return attached;
+    } catch (error) {
+      await attached
+        ?.call(
+          'desktop.unsubscribe',
+          {
+            desktopId: this.desktopId,
+          },
+          {
+            timeoutMs: 1_000,
+          }
+        )
+        .catch(() => {});
+      await attached?.close('desktop daemon attach failed').catch(() => {});
+      throw error;
+    }
+  }
+
+  /** The tunnel reaches a daemon this desktop cannot replace: refuse a
+   *  different protocol with an actionable message, attach otherwise. */
+  private async checkRemoteCompatibility(
+    daemonModule: SessionClientModule,
+    remote: RemoteDaemonConnector,
+    endpoint: RemoteDaemonEndpoint,
+    attempt: number
+  ): Promise<void> {
+    const { health, compatibility } = await this.measureBootPhase(
+      'remote-health',
+      () => daemonModule.probeSessionCompatibility({ ...endpoint.discovery }, { timeoutMs: REMOTE_HEALTH_TIMEOUT_MS }),
+      { attempt }
+    );
+    if (!health || !compatibility) {
+      remote.invalidate();
+      throw Object.assign(new Error(`The Mixdog daemon on ${remote.display} does not answer through the ssh tunnel.`), {
+        daemonTransportError: true,
+      });
+    }
+    if (compatibility.status === 'compatible' || compatibility.status === 'daemon-newer') return;
+    if (compatibility.status === 'client-newer') {
+      // Only the server's own install can replace its daemon; an older
+      // build still serves the attach, so report the skew and continue.
+      this.emit('diagnostic', 'remote-daemon-older', {
+        attempt,
+        daemonVersion: String(compatibility.version || ''),
+        packageVersion: endpoint.packageVersion,
+      });
+      return;
+    }
+    // Retrying reaches the same daemon: stop until the server is updated.
+    const mismatch = new RemoteBootstrapError(
+      'protocol-mismatch',
+      `The Mixdog daemon on ${remote.display} (mixdog ${compatibility.version || endpoint.packageVersion || 'unknown'}, ` +
+        `session protocol ${compatibility.protocol ?? 'unknown'}) is incompatible with this desktop. ` +
+        'Reconnect: Mixdog installs the version that matches this desktop on the server.'
+    );
+    remote.fail(mismatch);
+    throw mismatch;
+  }
+
+  /** Spawn-or-attach the machine-local daemon, waiting out an older build
+   *  that is still draining. */
+  private async ensureLocalDaemon(daemonModule: SessionClientModule, attempt: number): Promise<Record<string, unknown>> {
     let discovery: Record<string, unknown>;
     let upgradeWaiting = false;
     const emitUpgradeWait = (state: 'waiting' | 'done', fromVersion?: unknown, toVersion?: unknown): void => {
@@ -273,92 +453,7 @@ export class SessionTransport implements DesktopTransport {
       }
     }
     if (upgradeWaiting) emitUpgradeWait('done');
-    let attached: AttachedDaemon | null = null;
-    let fatalDuringAttach = '';
-    try {
-      attached = await this.measureBootPhase(
-        'attach-session',
-        () =>
-          daemonModule.attachSession({
-            discovery,
-            cwd: this.cwd,
-            clientKind: 'desktop',
-            onFrame: (frame) => {
-              if (frame?.type !== 'desktop-event') return;
-              if (String(frame.desktopId || '') !== this.desktopId) return;
-              const outbound = frame.message as DesktopServiceOutbound;
-              if (outbound?.kind === 'view-sync-complete') this.viewSyncSupported = true;
-              if (outbound && typeof outbound === 'object') this.emit('message', outbound);
-            },
-            onFatal: (reason) => {
-              if (!attached) {
-                fatalDuringAttach = reason;
-                return;
-              }
-              void this.recoverDaemon(attached, reason).catch(() => {});
-            },
-            onStreamDisconnect: (details) => {
-              this.emit('diagnostic', 'session-stream-reconnecting', details);
-            },
-            onStreamReconnect: (details) => {
-              this.emit('diagnostic', 'session-stream-reconnected', details);
-              void this.resyncAfterStreamReconnect(details);
-            },
-          }),
-        { attempt }
-      );
-      if (fatalDuringAttach) {
-        throw new Error(`Mixdog daemon disconnected during attach: ${fatalDuringAttach}`);
-      }
-      if (this.closed) {
-        await attached.close('desktop transport closed during init');
-        throw new Error('Mixdog daemon transport is closed.');
-      }
-      const initialized = await this.measureBootPhase(
-        'desktop-init',
-        () =>
-          attached!.call('desktop.init', {
-            desktopId: this.requestedDesktopId,
-            moduleUrl: this.moduleUrl,
-            options,
-          }) as Promise<{ desktopId?: unknown }>,
-        { attempt }
-      );
-      this.desktopId = String(initialized?.desktopId || this.requestedDesktopId);
-      await this.measureBootPhase(
-        'desktop-state-resync',
-        () =>
-          attached!.call('desktop.control', {
-            desktopId: this.desktopId,
-            message: { kind: 'state-resync' },
-          }),
-        { attempt }
-      );
-      await this.measureBootPhase(
-        'desktop-background-ready',
-        () =>
-          attached!.call('desktop.ready', {
-            desktopId: this.desktopId,
-          }),
-        { attempt }
-      );
-      this.client = attached;
-      return attached;
-    } catch (error) {
-      await attached
-        ?.call(
-          'desktop.unsubscribe',
-          {
-            desktopId: this.desktopId,
-          },
-          {
-            timeoutMs: 1_000,
-          }
-        )
-        .catch(() => {});
-      await attached?.close('desktop daemon attach failed').catch(() => {});
-      throw error;
-    }
+    return discovery;
   }
 
   private recoverDaemon(failedClient: AttachedDaemon, reason: string): Promise<void> {
@@ -374,7 +469,12 @@ export class SessionTransport implements DesktopTransport {
       reason,
       oldPid: Number((failedClient as AttachedDaemon & { pid?: number }).pid) || 0,
       oldPort: Number((failedClient as AttachedDaemon & { port?: number }).port) || 0,
+      ...(this.remote ? { remote: this.remote.display } : {}),
     };
+    // Remote: the old token and pid may be gone with the server's daemon.
+    // Reconnecting re-reads the server and waits on the tunnel supervisor;
+    // connectDaemon never falls back to a local daemon.
+    this.remote?.invalidate();
     this.emit('diagnostic', 'session-daemon-reconnecting', previous);
     const recovery = (async () => {
       await failedClient.close('desktop daemon replaced').catch(() => {});

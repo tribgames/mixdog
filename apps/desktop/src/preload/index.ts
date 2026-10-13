@@ -5,6 +5,7 @@ import {
   DESKTOP_IPC,
   type DesktopApi,
   type DesktopBootContext,
+  type DesktopConnectionIdentity,
   type DesktopSessionStateUpdate,
   type DesktopSessionStateWireUpdate,
   type DesktopStateFieldsPatch,
@@ -38,6 +39,21 @@ function bootContextValue(): DesktopBootContext | undefined {
 }
 const bootContext = bootContextValue();
 
+/** Which daemon this window drives; main passes it at window creation. */
+function connectionValue(): DesktopConnectionIdentity | undefined {
+  const id = additionalArgument('mixdog-connection-id');
+  const kind = additionalArgument('mixdog-connection-kind');
+  if (!id || (kind !== 'local' && kind !== 'ssh')) return undefined;
+  let name = '';
+  try {
+    name = decodeURIComponent(additionalArgument('mixdog-connection-name'));
+  } catch {
+    /* a malformed name shows as empty */
+  }
+  return Object.freeze({ id, kind, name });
+}
+const connection = connectionValue();
+
 /** Wire-only keys of a DesktopStateWire; never part of a SessionSnapshot's fields. */
 const STATE_WIRE_CONTROL_KEYS = new Set([
   'items',
@@ -63,6 +79,7 @@ function subscribeIpc<Args extends unknown[]>(channel: string, listener: (...arg
 
 const api: DesktopApi = {
   ...(bootContext ? { bootContext } : {}),
+  ...(connection ? { connection } : {}),
   // This app's own host always takes per-route Auto reasoning.
   routeAutoEffort: true,
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
@@ -123,6 +140,20 @@ const api: DesktopApi = {
   readLocalFile: (path) => ipcRenderer.invoke(DESKTOP_IPC.readLocalFile, path),
   folderWatch: (dir, recursive) => ipcRenderer.invoke(DESKTOP_IPC.folderWatch, dir, recursive === true),
   folderUnwatch: (dir, recursive) => ipcRenderer.invoke(DESKTOP_IPC.folderUnwatch, dir, recursive === true),
+  listServerDirectories: (path, includeHidden) =>
+    ipcRenderer.invoke(DESKTOP_IPC.listServerDirectories, path, includeHidden === true),
+  serverUploadBegin: (name, size, scope) => ipcRenderer.invoke(DESKTOP_IPC.serverUploadBegin, name, size, scope),
+  serverUploadChunk: (uploadId, offset, bytes) =>
+    ipcRenderer.invoke(DESKTOP_IPC.serverUploadChunk, uploadId, offset, bytes),
+  serverUploadCommit: (uploadId) => ipcRenderer.invoke(DESKTOP_IPC.serverUploadCommit, uploadId),
+  serverUploadAbort: (uploadId) => ipcRenderer.invoke(DESKTOP_IPC.serverUploadAbort, uploadId),
+  serverDownloadBegin: (projectPath, relPath, accessToken) =>
+    ipcRenderer.invoke(DESKTOP_IPC.serverDownloadBegin, projectPath, relPath, accessToken),
+  serverDownloadStep: (downloadId) => ipcRenderer.invoke(DESKTOP_IPC.serverDownloadStep, downloadId),
+  serverDownloadFinish: (downloadId) => ipcRenderer.invoke(DESKTOP_IPC.serverDownloadFinish, downloadId),
+  serverDownloadAbort: (downloadId) => ipcRenderer.invoke(DESKTOP_IPC.serverDownloadAbort, downloadId),
+  openServerDownload: (path, confirmedPath) => ipcRenderer.invoke(DESKTOP_IPC.openServerDownload, path, confirmedPath),
+  serverTrashInfo: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.serverTrashInfo, projectPath),
   subscribeRelayPayloadRefused: (listener) => {
     const receive = (
       _event: Electron.IpcRendererEvent,
@@ -170,7 +201,10 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.createProjectEntry, projectPath, relDir, name, dir),
   renameProjectEntry: (projectPath, relPath, newName) =>
     ipcRenderer.invoke(DESKTOP_IPC.renameProjectEntry, projectPath, relPath, newName),
-  trashProjectEntry: (projectPath, relPath) => ipcRenderer.invoke(DESKTOP_IPC.trashProjectEntry, projectPath, relPath),
+  trashProjectEntry: (projectPath, relPath, options) =>
+    options
+      ? ipcRenderer.invoke(DESKTOP_IPC.trashProjectEntry, projectPath, relPath, options)
+      : ipcRenderer.invoke(DESKTOP_IPC.trashProjectEntry, projectPath, relPath),
   moveProjectEntry: (projectPath, relPath, targetDirRel) =>
     ipcRenderer.invoke(DESKTOP_IPC.moveProjectEntry, projectPath, relPath, targetDirRel),
   copyProjectEntry: (projectPath, relPath, targetDirRel) =>
@@ -221,6 +255,43 @@ const api: DesktopApi = {
   subscribeShowConnectionSettings: (listener) => subscribeIpc(DESKTOP_IPC.showConnectionSettings, () => listener()),
   openRemoteHost: (id) => ipcRenderer.invoke(DESKTOP_IPC.openRemoteHost, id),
   forgetRemoteHost: (id) => ipcRenderer.invoke(DESKTOP_IPC.forgetRemoteHost, id),
+  sshListHosts: () => ipcRenderer.invoke(DESKTOP_IPC.sshListHosts),
+  sshRenameHost: (id, name) => ipcRenderer.invoke(DESKTOP_IPC.sshRenameHost, id, name),
+  sshForgetHost: (id) => ipcRenderer.invoke(DESKTOP_IPC.sshForgetHost, id),
+  sshOpenHost: (id) => ipcRenderer.invoke(DESKTOP_IPC.sshOpenHost, id),
+  sshConfigHosts: () => ipcRenderer.invoke(DESKTOP_IPC.sshConfigHosts),
+  sshInspectHostKey: (target) => ipcRenderer.invoke(DESKTOP_IPC.sshInspectHostKey, target),
+  sshConnect: (request) => ipcRenderer.invoke(DESKTOP_IPC.sshConnect, request),
+  sshCancel: (attemptId) => ipcRenderer.invoke(DESKTOP_IPC.sshCancel, attemptId),
+  sshAskpassReply: (attemptId, requestId, secret) => ipcRenderer.invoke(DESKTOP_IPC.sshAskpassReply, attemptId, requestId, secret),
+  sshCleanupHost: (id, request) => ipcRenderer.invoke(DESKTOP_IPC.sshCleanupHost, id, request),
+  sshUpdateHostSettings: (id, settings) => ipcRenderer.invoke(DESKTOP_IPC.sshUpdateHostSettings, id, settings),
+  subscribeSshAskpass: (listener) => subscribeIpc(DESKTOP_IPC.sshAskpass, listener),
+  sshDiagnosticsLog: (ref) => ipcRenderer.invoke(DESKTOP_IPC.sshDiagnosticsLog, ref),
+  sshDiagnosticsCopy: (ref) => ipcRenderer.invoke(DESKTOP_IPC.sshDiagnosticsCopy, ref),
+  sshServerLog: (ref) => ipcRenderer.invoke(DESKTOP_IPC.sshServerLog, ref),
+  subscribeSshCleanupProgress: (listener) => subscribeIpc(DESKTOP_IPC.sshCleanupProgress, listener),
+  subscribeSshProgress: (listener) => subscribeIpc(DESKTOP_IPC.sshProgress, listener),
+  getConnectionLink: () => ipcRenderer.invoke(DESKTOP_IPC.connectionLinkGet),
+  subscribeConnectionLink: (listener) => subscribeIpc(DESKTOP_IPC.connectionLinkState, listener),
+  subscribeConnectionNotice: (listener) => subscribeIpc(DESKTOP_IPC.connectionNotice, listener),
+  retryConnection: () => ipcRenderer.invoke(DESKTOP_IPC.connectionRetry),
+  retryConnectionNow: () => ipcRenderer.invoke(DESKTOP_IPC.connectionRetryNow),
+  closeConnectionWindow: () => ipcRenderer.invoke(DESKTOP_IPC.connectionCloseWindow),
+  openConnectionSettings: () => ipcRenderer.invoke(DESKTOP_IPC.connectionOpenSettings),
+  allowServerModelUse: () => ipcRenderer.invoke(DESKTOP_IPC.connectionAllowModelUse),
+  getReopenServerWindows: () => ipcRenderer.invoke(DESKTOP_IPC.reopenServerWindowsGet),
+  setReopenServerWindows: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.reopenServerWindowsSet, enabled),
+  subscribeServerRestoreProgress: (listener) => subscribeIpc(DESKTOP_IPC.serverRestoreProgress, listener),
+  getServerRestoreProgress: () => ipcRenderer.invoke(DESKTOP_IPC.serverRestoreProgressGet),
+  listServerPorts: (rescan) => ipcRenderer.invoke(DESKTOP_IPC.serverPortsList, rescan !== false),
+  subscribeServerPorts: (listener) => subscribeIpc(DESKTOP_IPC.serverPortsChanged, listener),
+  forwardServerPort: (remotePort, localPort) =>
+    ipcRenderer.invoke(DESKTOP_IPC.serverPortForward, remotePort, localPort ?? null),
+  stopServerPortForward: (remotePort) => ipcRenderer.invoke(DESKTOP_IPC.serverPortStop, remotePort),
+  dismissServerPort: (port) => ipcRenderer.invoke(DESKTOP_IPC.serverPortDismiss, port),
+  openServerPortInBrowser: (remotePort) => ipcRenderer.invoke(DESKTOP_IPC.serverPortOpen, remotePort),
+  subscribeConnectionSignIn: (listener) => subscribeIpc(DESKTOP_IPC.connectionSignIn, listener),
   prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
     ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId, transcriptItemLimit, readTraceId),
   setVisibleSessions: (sessionIds) => ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),

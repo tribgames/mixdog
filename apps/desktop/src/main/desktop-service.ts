@@ -1,3 +1,5 @@
+import { dirname, join } from 'node:path';
+
 import type {
   DesktopRemoteAccessSettings,
   DesktopRemoteClientInfo,
@@ -22,6 +24,7 @@ import {
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import { createDesktopServiceStateSync } from './desktop-service-state-sync';
 import { createDesktopOperations } from './desktop-operations';
+import { sessionRecordsReferencing } from './server-file-operations';
 import { rotatePairingToken } from './remote-pairing-token';
 import { remoteAccessDescriptor } from './remote-access-descriptor';
 import {
@@ -39,10 +42,18 @@ import { createPendingRevokeDrain } from './remote-revoke-drain';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
 import type { RemoteHostRequestMethod } from './remote-methods';
 import type { BrowserRemoteMethod } from './remote-browser-methods';
+import {
+  getModelProxyChannel,
+  MODEL_PROXY_REQUEST_EVENT,
+} from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
+import { modelProxyClientMode } from '../../../../src/runtime/shared/model-proxy-mode.mjs';
 
 // Slightly under the relay's own claim TTL: a dialog left open must never
 // outlive the request it answers.
 const REMOTE_CLAIM_TIMEOUT_MS = 295_000;
+/** Server-window upload staging sweep: shortly after start, then daily. */
+const UPLOAD_SWEEP_FIRST_MS = 5 * 60 * 1000;
+const UPLOAD_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 interface DesktopServiceFactoryInput {
   options: SerializableDesktopServiceOptions;
@@ -224,8 +235,36 @@ export async function createDesktopService({
     emit: (event) => publishDesktopEvent(event.name, event.value),
   });
   const settingsStore = operations.settingsStore;
+  // A deleted session takes its server-window upload staging folder with it.
+  const deleteSessionWithUploads = async (sessionId: unknown): Promise<unknown> => {
+    const result = await host.deleteSession(String(sessionId || ''));
+    void operations.serverFiles.removeSessionUploads(String(sessionId || '')).catch(() => {});
+    return result;
+  };
+  const sweepUploads = async (): Promise<void> => {
+    const store = await runtime.loadSessionStore();
+    const liveSessionIds = store
+      .listStoredSessionSummaries()
+      .map((row) => String(row.id || ''))
+      .filter(Boolean);
+    const sessionsDir = store.storedAgentWorkerIndexPath
+      ? join(dirname(store.storedAgentWorkerIndexPath()), 'sessions')
+      : null;
+    await operations.serverFiles.sweepUploads({
+      liveSessionIds,
+      // Without the store's location no reference can be ruled out.
+      referencedFolders: async (folders) =>
+        sessionsDir ? sessionRecordsReferencing(sessionsDir, folders) : new Set(folders),
+    });
+  };
+  const runUploadSweep = (): void => void sweepUploads().catch(() => {});
+  const firstUploadSweep = setTimeout(runUploadSweep, UPLOAD_SWEEP_FIRST_MS);
+  firstUploadSweep.unref?.();
+  const uploadSweepTimer = setInterval(runUploadSweep, UPLOAD_SWEEP_INTERVAL_MS);
+  uploadSweepTimer.unref?.();
   const remoteHost = new Proxy(host, {
     get(target, property) {
+      if (property === 'deleteSession') return deleteSessionWithUploads;
       if (property === 'invokeDesktopOperation') {
         return (name: string, args: unknown[] = []) => operations.invoke(name, args);
       }
@@ -250,6 +289,11 @@ export async function createDesktopService({
   const browserRemoteRequests = createBrowserRemoteRequests((request) =>
     publishDesktopEvent('browser-remote-request', request)
   );
+  // Remote mode only: this daemon's model calls run on the connected PC. The
+  // request state travels out as an event; the PC answers through operations.
+  const modelProxy = modelProxyClientMode() ? getModelProxyChannel() : null;
+  const detachModelProxy =
+    modelProxy?.attachPublisher((snapshot) => publishDesktopEvent(MODEL_PROXY_REQUEST_EVENT, snapshot)) ?? null;
   const accessSettings = createRemoteAccessSettingsStore(options.userDataPath);
   let pcName = (await accessSettings.read()).name;
   // While access is off the relay is closed and cannot list its paired
@@ -423,6 +467,7 @@ export async function createDesktopService({
   const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
   const stateSync = createDesktopServiceStateSync({ host, emit });
   const invokeServiceOperation = async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
+    if (modelProxy?.handlesOperation(operation)) return modelProxy.handleOperation(operation, operationArgs);
     switch (operation) {
       case 'remoteAccessStart':
         await startRemoteServices();
@@ -514,6 +559,7 @@ export async function createDesktopService({
       if (method === 'setVisibleSessions') {
         return stateSync.setDeliveryFilter(args);
       }
+      if (method === 'deleteSession') return deleteSessionWithUploads(args[0]);
       const target = (host as unknown as Record<DesktopServiceMethod, (...values: unknown[]) => unknown>)[
         method as DesktopServiceMethod
       ];
@@ -532,6 +578,9 @@ export async function createDesktopService({
       stateSync.dispose();
       desktopEventListeners.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');
+      detachModelProxy?.();
+      clearTimeout(firstUploadSweep);
+      clearInterval(uploadSweepTimer);
       if (relayRetryTimer) {
         clearTimeout(relayRetryTimer);
         relayRetryTimer = null;

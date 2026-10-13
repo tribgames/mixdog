@@ -3,6 +3,7 @@
 // session tool surface. The settings panel announces marker changes, so an
 // install lands live without polling.
 import { useEffect, useState } from 'react';
+import { isSshConnectionWindow } from './desktop-connection';
 
 /** The last resolved marker outlives the renderer: on the phone the settings
  *  read rides the relay, and the first paint drew every Browser Use entry a
@@ -19,9 +20,15 @@ function readStoredBrowserFeatureInstalled(): boolean | null {
   }
 }
 
-let cachedBrowserFeatureInstalled: boolean | null = readStoredBrowserFeatureInstalled();
+// A server window has no browser pane: the pane drives this PC's browser.
+const browserPaneUnavailable = isSshConnectionWindow();
+
+let cachedBrowserFeatureInstalled: boolean | null = browserPaneUnavailable
+  ? false
+  : readStoredBrowserFeatureInstalled();
 
 async function readBrowserFeatureInstalled(): Promise<boolean | null> {
+  if (browserPaneUnavailable) return false;
   try {
     const settings = await window.mixdogDesktop?.readSettings?.();
     cachedBrowserFeatureInstalled = settings?.browserInstalled !== false;

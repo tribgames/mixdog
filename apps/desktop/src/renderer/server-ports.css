@@ -1,0 +1,60 @@
+/* Ports panel of a server window (ServerPortsPanel.tsx): the connection
+   settings' rows and groups, sized for the sidebar. */
+.server-ports {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 8px 12px 16px;
+}
+.server-ports[data-down="true"] .conn-list {
+  opacity: 0.6;
+}
+.server-ports .conn-row {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 8px 0 10px;
+}
+/* A forward has two actions; its text takes the tile's room. */
+.server-ports .server-port-row--forward {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-left: 12px;
+}
+.server-ports .conn-row-actions {
+  gap: 4px;
+}
+.server-port-number {
+  width: auto;
+  min-width: 32px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--mx-weight-semibold);
+}
+.server-port-suggestions {
+  box-shadow:
+    inset 3px 0 0 var(--mx-accent),
+    var(--mx-card-outline);
+}
+.server-port-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+.server-port-form .conn-field {
+  display: grid;
+  gap: 4px;
+  font-size: var(--mx-font-meta);
+  color: var(--mx-text-muted);
+}
+.session-panel-action.is-busy svg {
+  animation: server-ports-spin 0.9s linear infinite;
+}
+@keyframes server-ports-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -13,7 +13,7 @@ const URGENT_CALLS = new Set([
   'desktop.unsubscribe',
 ]);
 
-export function createAttachmentCalls({ request, port, serverToken, clientToken, stopStream, log }) {
+export function createAttachmentCalls({ request, port, serverToken, clientToken, stopStream, stopHeartbeat, log }) {
   let closed = false;
 
   async function call(name, args = {}, { timeoutMs = 300_000, callId = null } = {}) {
@@ -47,6 +47,7 @@ export function createAttachmentCalls({ request, port, serverToken, clientToken,
     if (closed) return;
     closed = true;
     stopStream();
+    stopHeartbeat?.();
     try {
       await request({
         port,

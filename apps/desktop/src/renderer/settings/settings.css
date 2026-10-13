@@ -863,6 +863,32 @@
 .conn-row + .conn-row {
   box-shadow: inset 0 1px 0 var(--mx-border-muted);
 }
+/* Server folder chooser (D1): rows are buttons, the list scrolls. */
+.conn-list--picker {
+  max-height: 264px;
+  overflow-y: auto;
+}
+.conn-list--picker:empty {
+  display: none;
+}
+.conn-row--pick {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.conn-row--pick:hover,
+.conn-row--pick:focus-visible {
+  outline: none;
+  background: var(--mx-hover);
+}
+.conn-row-text {
+  min-width: 0;
+}
 .conn-row-title {
   display: flex;
   align-items: baseline;
@@ -1305,6 +1331,56 @@
   outline: none;
   box-shadow: inset 0 0 0 1.5px var(--mx-text);
 }
+.conn-input[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1px var(--mx-danger);
+}
+/* SSH connect: progress states on conn-steps, and the ~/.ssh/config
+   suggestions (mx-menu) attached under the address field. */
+.conn-steps li[data-state="done"]::before {
+  content: "✓";
+  color: var(--mx-success);
+}
+.conn-steps li[data-state="now"]::before {
+  color: var(--mx-text);
+  box-shadow: inset 0 0 0 1.5px var(--mx-text);
+  background: transparent;
+}
+.conn-steps li[data-state="wait"] {
+  color: var(--mx-text-muted);
+}
+.conn-steps li small {
+  margin-left: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+/* ssh's own words, kept as they came. */
+.conn-note--raw {
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.ssh-field-wrap {
+  position: relative;
+}
+.ssh-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 48px;
+  z-index: 2;
+  max-width: none;
+}
+.ssh-suggest .mx-menu-item {
+  display: flex;
+  gap: 10px;
+}
+.ssh-suggest .mx-menu-item small {
+  margin-left: auto;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+}
 .conn-otp {
   position: relative;
   display: grid;
@@ -1407,4 +1483,69 @@
 .settings-model-hidden span {
   opacity: 0.55;
   text-decoration: line-through;
+}
+.ssh-hops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.ssh-hops li {
+  display: grid;
+  gap: 2px;
+  line-height: 20px;
+}
+.ssh-hops li span {
+  color: var(--mx-text-muted);
+}
+.ssh-hops code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.ssh-hops li[data-status="changed"] b,
+.ssh-hops li[data-status="revoked"] b {
+  color: var(--mx-danger);
+}
+.ssh-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ssh-settings .conn-field > span {
+  color: var(--mx-text-muted);
+}
+.ssh-providers {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ssh-providers legend {
+  padding: 0 0 6px;
+  color: var(--mx-text-muted);
+}
+.ssh-forwards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ssh-forwards code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.ssh-log {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--mx-surface-sunken, rgba(127, 127, 127, 0.12));
+  font: 12px/1.5 var(--mx-font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }

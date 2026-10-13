@@ -13,6 +13,8 @@ import { MarkdownLink, MarkdownProjectContext } from './MarkdownLink';
 import { MxIcon } from './MxIcon';
 import { parseLocalFileLocation } from '../shared/local-files';
 import { mediaUrl } from './studio-support';
+import { openMediaAssetFromWindow, openMediaFolderFromWindow } from './studio-pane-media-actions';
+import { isSshConnectionWindow } from './desktop-connection';
 import { transcriptArtifacts, type TranscriptArtifact } from './transcript-artifacts';
 
 /** file:// href for a local artifact path; a Windows drive segment stays unencoded. */
@@ -177,11 +179,14 @@ function MediaFigure({
 function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; square: boolean }) {
   const api = window.mixdogDesktop;
   const id = artifact.assetId!;
+  const openLabel = isSshConnectionWindow() ? t('Download to this PC and open') : t('Open file');
+  const folderLabel = isSshConnectionWindow() ? t('Reveal in Files') : t('Open Folder');
   const open = async (folder = false) => {
     try {
       const action = folder ? api?.openMediaFolder : api?.openMediaAsset;
       if (!action) throw new Error(t('Local file links can only be opened in the desktop app.'));
-      await action(id);
+      // A server window downloads or reveals instead of handing a server path to this PC.
+      await (folder ? openMediaFolderFromWindow : openMediaAssetFromWindow)(api, id);
     } catch (error) {
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
     }
@@ -200,8 +205,8 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
           <button
             type="button"
             className="icon-button"
-            aria-label={t('Open file')}
-            data-tooltip={t('Open file')}
+            aria-label={openLabel}
+            data-tooltip={openLabel}
             onClick={() => void open()}
           >
             <MxIcon name="open-file" size={14} />
@@ -210,8 +215,8 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
             <button
               type="button"
               className="icon-button"
-              aria-label={t('Open Folder')}
-              data-tooltip={t('Open Folder')}
+              aria-label={folderLabel}
+              data-tooltip={folderLabel}
               onClick={() => void open(true)}
             >
               <FolderOpen size={14} aria-hidden="true" />

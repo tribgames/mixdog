@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
 
 import { childEnvironment } from './child-environment';
+import { listServerDirectories } from './host-directories';
 import * as editorBackups from './editor-backups';
 import * as gh from './gh-cli';
 import * as git from './git-cli';
@@ -19,6 +20,8 @@ import * as workspaceConfig from './workspace-config';
 import * as workspaceSearch from './workspace-search';
 import { createDocumentPreviewOperations } from './document-preview';
 import type { DocumentPreviewModule } from './document-preview';
+import { createServerFileOperations } from './server-file-operations';
+import { listListeningPorts } from './server-ports';
 
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
@@ -266,6 +269,7 @@ const STATIC_OPERATIONS = {
   replaceWorkspaceTextIn: workspaceSearch.replaceWorkspaceTextIn,
   searchWorkspaceTextIn: workspaceSearch.searchWorkspaceTextIn,
   statProjectFileIn: projectFiles.statProjectFileIn,
+  listServerDirectories,
   writeEditorBackup: editorBackups.writeEditorBackup,
   writeProjectTextFileIn: projectFiles.writeProjectTextFileIn,
   writeProjectTextFilesIn: projectFiles.writeProjectTextFilesIn,
@@ -303,6 +307,8 @@ export function createDesktopOperations({
     loadDocumentPreview,
   });
   const folderWatchers = createFolderWatchRegistry(emit);
+  // Upload staging, ranged reads and trash for server windows' files.
+  const serverFiles = createServerFileOperations({ userDataPath });
   const unsubscribeDiagnostics = languageServers.subscribeDiagnostics((value) => {
     emit({ name: 'lsp-diagnostics', value });
   });
@@ -317,6 +323,7 @@ export function createDesktopOperations({
       | ((...values: unknown[]) => unknown)
       | undefined;
     if (staticOperation) return await staticOperation(...args);
+    if (serverFiles.handles(name)) return serverFiles.invoke(name, args);
     if (name === 'documentPreviewIn') {
       return documentPreviews.documentPreviewIn(String(args[0] || ''), String(args[1] || ''));
     }
@@ -393,6 +400,8 @@ export function createDesktopOperations({
       );
     }
     if (name === 'termProfiles') return listShellProfiles();
+    // The Ports panel of a server window: what listens on this machine.
+    if (name === 'listListeningPorts') return listListeningPorts();
     // Read-only views for the agent `terminal` bridge (see terminal/bridge-server.ts).
     if (name === 'termSessionTabs') return terminals.sessionTabs(String(args[0] || ''));
     if (name === 'termSnapshot') {
@@ -438,6 +447,7 @@ export function createDesktopOperations({
     folderWatchers.dispose();
     terminals.disposeAll();
     await languageServers.dispose();
+    await serverFiles.dispose();
   }
 
   const remoteTerminals = {
@@ -462,6 +472,7 @@ export function createDesktopOperations({
     userDataPath,
     terminals: remoteTerminals,
     settingsStore,
+    serverFiles,
     subscribeTerminalData: (listener: (event: { id: string; data: string }) => void) => terminals.subscribe(listener),
   };
 }

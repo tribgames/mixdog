@@ -139,6 +139,7 @@ savings come from.
 - [Benchmarks](benchmarks/terminal-bench-2.1/)
 - [Code Tidy](docs/code-tidy.md)
 - [Git & GitHub](docs/git-github-integration.md)
+- [SSH servers](docs/ssh-remote.md) (Korean, with an English summary)
 - [Language servers](docs/language-servers.md)
 - [Office runtime](src/runtime/office/README.md)
 - [Development, configuration, and testing](docs/development.md)

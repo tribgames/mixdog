@@ -1,9 +1,58 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { t } from './i18n';
+import { isSshConnectionWindow } from './desktop-connection';
+import { showDesktopToast } from './desktop-toasts';
+import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import { base64Bytes, type MediaBytes, mediaFile } from './studio-pane-support';
 import { callCapability, errorText, type MediaAsset, type MediaAssetRead, type StudioApi } from './studio-support';
 
 type AssetUrl = (id: string, variant: 'original') => string;
+type MediaOpenApi = StudioApi | undefined;
+
+/** A server window's asset lives on the server: its original's server path,
+ *  resolved to a Project entry or a one-file grant like any server path. */
+async function serverMediaEntry(api: MediaOpenApi, assetId: string) {
+  const file = (await callCapability(api, 'resolveMediaFile', [assetId, { variant: 'original' }])) as {
+    available?: unknown;
+    path?: unknown;
+  } | null;
+  if (file?.available !== true || typeof file.path !== 'string' || !file.path) {
+    throw new Error(t('Could not read this media file.'));
+  }
+  const [entry] = (await window.mixdogDesktop?.resolveLocalPaths?.([file.path])) ?? [];
+  if (!entry?.projectPath || !entry.relPath) throw new Error(t('Could not read this media file.'));
+  return { path: file.path, project: entry.projectPath, rel: entry.relPath, accessToken: entry.accessToken };
+}
+
+/** "Open": this PC's viewer in a local window; a server window downloads the
+ *  asset to this PC first (asking before it does). */
+export async function openMediaAssetFromWindow(api: MediaOpenApi, assetId: string): Promise<void> {
+  if (isSshConnectionWindow()) {
+    const { project, rel, accessToken } = await serverMediaEntry(api, assetId);
+    await downloadAndOpenServerFile(project, rel, accessToken);
+    return;
+  }
+  if (api?.openMediaAsset) await api.openMediaAsset(assetId);
+  else await callCapability(api, 'openMediaAsset', [assetId]);
+}
+
+/** "Open folder": this PC's file manager in a local window. A server window
+ *  reveals the asset in its own Files tree when a Project holds it, and
+ *  otherwise copies its server path. */
+export async function openMediaFolderFromWindow(api: MediaOpenApi, assetId: string): Promise<void> {
+  if (isSshConnectionWindow()) {
+    const { path, project, rel, accessToken } = await serverMediaEntry(api, assetId);
+    if (!accessToken) {
+      await revealFileFromWindow(project, rel);
+      return;
+    }
+    await navigator.clipboard.writeText(path);
+    showDesktopToast(t('Copied the server path: {{path}}', { path }), 'success');
+    return;
+  }
+  if (api?.openMediaFolder) await api.openMediaFolder(assetId);
+  else await callCapability(api, 'openMediaFolder', [assetId]);
+}
 
 // Per-asset actions of the detail viewer and the tile hover: reading original
 // bytes, saving/sharing, opening in the OS, copying the prompt, hover preview.
@@ -74,8 +123,7 @@ export function createStudioMediaActions({
 
   const openAsset = async (asset: MediaAsset) => {
     try {
-      if (api?.openMediaAsset) await api.openMediaAsset(asset.id);
-      else await callCapability(api, 'openMediaAsset', [asset.id]);
+      await openMediaAssetFromWindow(api, asset.id);
     } catch (reason) {
       setError(errorText(reason));
     }
@@ -83,8 +131,7 @@ export function createStudioMediaActions({
 
   const openAssetFolder = async (asset: MediaAsset) => {
     try {
-      if (api?.openMediaFolder) await api.openMediaFolder(asset.id);
-      else await callCapability(api, 'openMediaFolder', [asset.id]);
+      await openMediaFolderFromWindow(api, asset.id);
     } catch (reason) {
       setError(errorText(reason));
     }

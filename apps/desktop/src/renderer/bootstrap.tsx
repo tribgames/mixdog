@@ -9,6 +9,13 @@ import './i18n';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { AppUpdateBanner } from './AppUpdateBanner';
+import { lazy, Suspense } from 'react';
+
+// Connection banner of an Electron window (server link, server-window
+// reopening); its styles load with it, after the first paint.
+const ConnectionStatusBanner = lazy(() =>
+  import('./ConnectionStatusBanner').then((module) => ({ default: module.ConnectionStatusBanner }))
+);
 import { RemoteClaimPrompt } from './RemoteClaimPrompt';
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from './RendererRecovery';
 import './bootstrap-styles';
@@ -88,6 +95,11 @@ createRoot(document.getElementById('root')!).render(
     <App />
     <RemoteClaimPrompt />
     <AppUpdateBanner />
+    {window.mixdogDesktop?.connection ? (
+      <Suspense fallback={null}>
+        <ConnectionStatusBanner />
+      </Suspense>
+    ) : null}
   </DesktopErrorBoundary>
 );
 markBootStage('react-render-requested');

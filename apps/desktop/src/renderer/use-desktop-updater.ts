@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopUpdaterState } from '../shared/contract';
+import { isSshConnectionWindow } from './desktop-connection';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 
 type Invoke = (action: () => unknown) => Promise<void>;
@@ -14,6 +15,11 @@ export function useDesktopUpdater(invoke: Invoke) {
   }, [state.status]);
 
   useEffect(() => {
+    // The updater is this PC's: a server window offers no update entry.
+    if (isSshConnectionWindow()) {
+      setReady(true);
+      return;
+    }
     const host = window.mixdogDesktop;
     let live = true;
     const getState = host?.getUpdaterState;

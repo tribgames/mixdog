@@ -58,10 +58,14 @@ export async function transferExplorerEntries(
 
 /** Recycle-bin delete of a whole selection: every entry is attempted, so one
  *  locked file never keeps the rest of the selection on disk. */
-export async function trashExplorerEntries(request: ExplorerEntryRequest): Promise<ExplorerBatchResult> {
-  const { api, projectPath, rels } = request;
+export async function trashExplorerEntries(
+  request: ExplorerEntryRequest & { options?: { permanent: boolean } }
+): Promise<ExplorerBatchResult> {
+  const { api, projectPath, rels, options } = request;
   const results = await Promise.allSettled(
-    rels.map((rel) => Promise.resolve(api?.trashProjectEntry?.(projectPath, rel)))
+    rels.map((rel) =>
+      Promise.resolve(options ? api?.trashProjectEntry?.(projectPath, rel, options) : api?.trashProjectEntry?.(projectPath, rel))
+    )
   );
   const rejection = results.find((result) => result.status === 'rejected');
   return {

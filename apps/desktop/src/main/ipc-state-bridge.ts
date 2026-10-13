@@ -1,4 +1,4 @@
-import type { BrowserWindow, IpcMain, IpcMainEvent, PowerMonitor } from 'electron';
+import type { BrowserWindow, IpcMainEvent, PowerMonitor } from 'electron';
 import {
   DESKTOP_IPC,
   type DesktopSessionStateUpdate,
@@ -18,7 +18,7 @@ import {
   shouldPublishSessionState,
   type SnapshotDeltaEncoder,
 } from './state-delta';
-import type { IpcHandle as Handle } from './ipc';
+import type { DesktopIpcMain, IpcHandle as Handle } from './ipc';
 
 export interface DesktopUpdater {
   getState(): DesktopUpdaterState;
@@ -30,7 +30,7 @@ export interface DesktopUpdater {
 interface DesktopStateBridgeOptions {
   window: BrowserWindow;
   host: DesktopService;
-  ipcMain: Pick<IpcMain, 'on' | 'removeListener'>;
+  ipcMain: Pick<DesktopIpcMain, 'on' | 'removeListener'>;
   handle: Handle;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
   updater?: DesktopUpdater;

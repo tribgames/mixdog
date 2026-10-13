@@ -204,6 +204,10 @@ function storedInstructionFiles(agent) {
 
 export function loadConfig(options = {}) {
   const includeSecrets = options.secrets !== false;
+  // `secrets: 'presence'`: credentials are detected (env, OAuth files, which
+  // keychain entries exist) but no keychain value is read or attached — the
+  // availability view the model proxy answers a server with.
+  const presenceOnly = options.secrets === 'presence';
   try {
     ensureDefaultsSeparated({ stripRouteDefaults: separateStoredAgent });
   } catch (err) {
@@ -219,7 +223,7 @@ export function loadConfig(options = {}) {
       const storageNeedsMigration = agentConfigStorageNeedsMigration(raw);
       raw = canonicalizeAgentStorage(raw);
       const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
-      const mergedProviders = mergeStoredProviders({ raw, defaults, includeSecrets });
+      const mergedProviders = mergeStoredProviders({ raw, defaults, includeSecrets, presenceOnly });
       // Drop unknown maintenance keys (e.g. truly legacy slot names from
       // pre-removal installs). Every valid fallback slot lives in
       // DEFAULT_MAINTENANCE, so the allow-list below is the single

@@ -4,8 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 import { build } from 'esbuild';
 
+import { writeRemoteServerDependencies } from './remote-server-deps.mjs';
+
 const desktopDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outfile = join(desktopDir, 'out', 'main', 'daemon.cjs');
+// Loaded at runtime from node_modules, never bundled; a server install gets
+// them from its generated lockfile.
+const DAEMON_EXTERNALS = ['@homebridge/node-pty-prebuilt-multiarch'];
 
 await build({
   entryPoints: [join(desktopDir, 'src', 'main', 'desktop-service.ts')],
@@ -16,7 +21,7 @@ await build({
   target: 'node22',
   treeShaking: true,
   sourcemap: false,
-  external: ['@homebridge/node-pty-prebuilt-multiarch'],
+  external: DAEMON_EXTERNALS,
   // The package's UMD main resolves its modules through a runtime require the
   // bundler cannot follow; its ESM build bundles statically.
   alias: { 'jsonc-parser': 'jsonc-parser/lib/esm/main.js' },
@@ -39,3 +44,11 @@ if (typeof service.createDesktopService !== 'function') {
   throw new Error('daemon service bundle has no createDesktopService export');
 }
 console.log(`Built plain-Node desktop service: ${outfile}`);
+
+// The server payload's npm manifest and lockfile (see ssh/remote-install-payload.ts).
+const serverDepsDir = writeRemoteServerDependencies({
+  rootDir: join(desktopDir, '..', '..'),
+  desktopDir,
+  externals: DAEMON_EXTERNALS,
+});
+console.log(`Wrote remote server module lockfile: ${serverDepsDir}`);

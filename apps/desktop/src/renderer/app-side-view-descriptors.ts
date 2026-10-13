@@ -8,6 +8,7 @@ import {
   Layers3,
   ListChecks,
   MessageSquare,
+  Network,
   Package,
   PanelsTopLeft,
   Search,
@@ -34,6 +35,7 @@ export function createAppSideViewDescriptors(
     ],
     ['schedules', { id: 'schedules', label: t('Schedules'), icon: Clock, onPrefetch: () => onPrefetch('schedules') }],
     ['webhooks', { id: 'webhooks', label: t('Webhooks'), icon: Webhook, onPrefetch: () => onPrefetch('webhooks') }],
+    ['ports', { id: 'ports', label: t('Ports'), icon: Network }],
     [
       'browser',
       {

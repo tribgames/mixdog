@@ -15,7 +15,9 @@ export type WorkbenchSideViewId =
   | 'session-diff'
   | 'background-jobs'
   | 'browser'
-  | 'terminal';
+  | 'terminal'
+  /** Server windows only: the server's ports and their forwards to this PC. */
+  | 'ports';
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
 export type WorkbenchSideTitleDragProps = {
   draggable: boolean;
@@ -38,6 +40,7 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   'extensions',
   'schedules',
   'webhooks',
+  'ports',
   'session-diff',
   'background-jobs',
   'browser',
@@ -62,6 +65,7 @@ const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ['source-control'],
     ['search'],
     ['webhooks'],
+    ['ports'],
   ],
   right: [['session-diff'], ['background-jobs'], ['browser'], ['terminal'], ['pull-requests']],
 };

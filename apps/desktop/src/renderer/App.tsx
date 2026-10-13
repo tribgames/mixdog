@@ -1,5 +1,6 @@
 import type React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useServerFileReveal } from './server-transfers';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DesktopTitlebar, type NavigationSelection } from './navigation';
@@ -652,6 +653,13 @@ export function App() {
     },
     [selectWorkbenchSideView]
   );
+  // A server window reveals files in the focused pane's Files tree.
+  const openFolderInDock = paneSideDocks.openFolder;
+  const revealServerFile = useCallback(
+    (project: string, rel: string) => openFolderInDock(focusedLeafIdRef.current, project, rel),
+    [openFolderInDock]
+  );
+  useServerFileReveal(revealServerFile);
   const paneConversationSurface = usePaneConversationRenderer({
     ...taskLifecycle,
     ...sessionTitle,
