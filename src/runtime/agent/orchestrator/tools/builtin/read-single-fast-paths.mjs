@@ -7,6 +7,7 @@
  */
 import * as fsPromises from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
+import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getReadSnapshot } from './read-snapshot-runtime.mjs';
 import { snapshotCoversFullFile, statMatchesSnapshot } from './snapshot-helpers.mjs';
 
@@ -100,14 +101,19 @@ async function cachedEntryStillValid(cachedEntry, fullPath, st, hashText) {
 
 /**
  * Validated result-cache hit.
- * @returns {Promise<{ result: unknown } | null>} null when there is no entry
- *   or the entry lost the race guard (fresh read follows).
+ * @returns {Promise<{ result: unknown } | { rejected: true } | null>}
+ *   A rejected entry requires fresh IO even if an older reader republishes.
  */
 export async function readCachedResult({ cacheKey, fullPath, filePath, st, readStateScope, options }, helpers) {
   const { _cacheGetEntry, _hashText, _recordReadSnapshot, classifyResultKind } = helpers;
   const cachedEntry = _cacheGetEntry(cacheKey);
   if (cachedEntry === null) return null;
-  if (!(await cachedEntryStillValid(cachedEntry, fullPath, st, _hashText))) return null;
+  if (!(await cachedEntryStillValid(cachedEntry, fullPath, st, _hashText))) {
+    // The metadata no longer proves byte identity. Detach raw/in-flight
+    // reuse too, or the fresh-read fallback can return the rejected body.
+    invalidateBuiltinResultCache([fullPath]);
+    return { rejected: true };
+  }
   // Cross-session stub guard: RESULT_CACHE is process-global, so a cache hit
   // can be an entry SET BY ANOTHER SESSION whose body this conversation never
   // received. The stub assumes the full body is already in a prior

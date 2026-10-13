@@ -15,7 +15,8 @@ process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
 const { captureReadCacheState, tryReadCached, setReadCached, invalidatePathForSession } = await import(
   './read-cache.mjs'
 );
-const { _statTuple } = await import('./util.mjs');
+const { _statTuple, _normalizeCacheKey } = await import('./util.mjs');
+const { differentFieldValue } = await import('../../tools/builtin/file-version-test-helpers.mjs');
 const { TEXT_CACHE_MAX_BYTES } = await import('./text-cache-budget.mjs');
 const { setScopedToolCached } = await import('./scoped-cache.mjs');
 const { executeBuiltinTool } = await import('../../tools/builtin.mjs');
@@ -143,7 +144,7 @@ for (const firstPublic of [true, false]) {
   });
 }
 
-test('same-size same-mtime external rewrites invalidate session results', async () => {
+test('same-size same-mtime external rewrites invalidate session results when ctime changes', async (t) => {
   const fx = fixture('BEFORE\n');
   const time = new Date('2025-01-01T00:00:00.000Z');
   utimesSync(fx.file, time, time);
@@ -156,8 +157,23 @@ test('same-size same-mtime external rewrites invalidate session results', async 
   const after = statSync(fx.file);
   assert.equal(before.size, after.size);
   assert.equal(before.mtimeMs, after.mtimeMs);
-  assert.notEqual(before.ctimeMs, after.ctimeMs);
-  assert.equal(tryReadCached({ ...fx, args }), null);
+  // Keep real bytes/mtime, but make the observed version change independent
+  // of the filesystem clock's resolution.
+  const ctimeMs = differentFieldValue(before.ctimeMs, 'ctimeMs');
+  const originalStat = fs.statSync;
+  const mock = t.mock.method(fs, 'statSync', (path, ...options) => {
+    const st = originalStat(path, ...options);
+    if (_normalizeCacheKey(path) === _normalizeCacheKey(fx.file)) st.ctimeMs = ctimeMs;
+    return st;
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.notEqual(_statTuple(fx.file).ctimeMs, before.ctimeMs);
+    assert.equal(tryReadCached({ ...fx, args }), null);
+  } finally {
+    mock.mock.restore();
+    syncBuiltinESMExports();
+  }
 });
 
 for (const publicInput of [false, true]) {

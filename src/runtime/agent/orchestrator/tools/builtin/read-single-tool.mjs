@@ -24,12 +24,12 @@ import { bufferedReadResult } from './read-single-render.mjs';
 
 // Buffered reads take the whole body up front: the raw-content cache first,
 // else one readFile shared with in-flight reads of the same path AND version.
-async function prefetchRawBody(fullPath, st, helpers) {
+async function prefetchRawBody(fullPath, st, helpers, forceFresh = false) {
   const { _rawContentCacheGet, _runRawContentInFlight } = helpers;
-  const cachedRaw = _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
+  const cachedRaw = !forceFresh && _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
   if (cachedRaw) return { buf: cachedRaw, fromCache: true };
   try {
-    const buf = _runRawContentInFlight
+    const buf = !forceFresh && _runRawContentInFlight
       ? await _runRawContentInFlight(fullPath, readFile, st)
       : await readFile(fullPath);
     return { buf, fromCache: false };
@@ -112,7 +112,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     widenNote,
   };
   const cached = await readCachedResult(ctx, helpers);
-  if (cached) return cached.result;
+  if (cached && !cached.rejected) return cached.result;
   const pathStub = await pathSnapshotUnchangedStub(ctx, helpers);
   if (pathStub) return pathStub;
   // Pre-read size cap: a small error response beats 25K tokens of truncated
@@ -124,7 +124,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
   const preferSmartStream = !hasRangeArgs && !wantFull && st.size >= READ_SMART_STREAM_MIN_BYTES;
   const preferBufferedRead = st.size <= READ_MAX_SIZE_BYTES && !preferRangeStream && !preferSmartStream;
   const prefetched = preferBufferedRead
-    ? await prefetchRawBody(fullPath, st, helpers)
+    ? await prefetchRawBody(fullPath, st, helpers, cached?.rejected === true)
     : { buf: null, fromCache: false };
   return await readBodyResult(ctx, { prefetched, preferRangeStream, preferSmartStream }, helpers);
 }
