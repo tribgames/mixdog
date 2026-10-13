@@ -148,6 +148,23 @@ test('a displayed device list and its cache survive until the relay answers agai
   assert.equal(dom.document.querySelector('.conn-list'), null, 'no stale list once the relay lost the link');
 });
 
+async function remoteNoteGroup(t, native) {
+  const dom = installTestDom(t, DOM);
+  if (native) dom.window.mixdogNative = native;
+  await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api: {} })));
+  return dom.document.querySelector('.settings-connection-note')?.closest('.settings-group')?.textContent;
+}
+
+test('a remote browser titles its connection note "Web app"', async (t) => {
+  assert.match(await remoteNoteGroup(t, null), /Web app/);
+});
+
+test('the Android app titles its connection note with the app wording, not "Web app"', async (t) => {
+  const group = await remoteNoteGroup(t, { platform: 'android', version: '1', call: () => Promise.resolve(true) });
+  assert.match(group, /Mixdog app/);
+  assert.doesNotMatch(group, /Web app/);
+});
+
 test('the page has no tabs or lede: identity card, two buttons, one device list, saved PCs', async (t) => {
   const info = readyInfo('bbbbbbbb', [
     client('c1', 'Fold · Mixdog App', 'Mixdog App', true),

@@ -66,7 +66,7 @@ test('/connect: full-screen column, v4 copy, one centered primary button, footno
   assert.match(html, /heading: 'PC에 연결'/);
   assert.match(html, /note: 'PC의 Mixdog에서 설정 > 연결 > 웹으로 이동해 코드를 확인하세요\.'/);
   assert.match(html, /fine: 'iPhone에서는 아직 알림을 받을 수 없습니다\.'/);
-  assert.match(html, /<img class="mxp-logo" src="\/mixdog-logo-titanium\.svg"/);
+  assert.match(html, /<img class="mxp-logo" src="data:image\/svg\+xml,%3Csvg/);
   const copy = html.slice(html.indexOf('var T = ko'), html.indexOf('document.documentElement.lang'));
   assert.doesNotMatch(copy, BANNED);
 });

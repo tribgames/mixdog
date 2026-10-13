@@ -3,10 +3,10 @@
 // takes no parameters and grants nothing; pairing is the 6-digit code typed in
 // the app, approved on the PC. No link to any web client.
 import { readFileSync } from 'node:fs';
-import { PAGE_BASE_CSS, PAIRING_CSS } from './connect-page.mjs';
+import { LOGO_SRC, PAGE_BASE_CSS, PAIRING_CSS } from './connect-page.mjs';
 
 const APP_PAGE_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
 
 const TESTFLIGHT_URL = 'https://testflight.apple.com/join/UNPBM2hU';
 // Written beside server.mjs by deploy/deploy-release.sh: the newest Android
@@ -54,7 +54,7 @@ ${PAIRING_CSS}
 <div class="mxp-col">
 <main class="mxp-main">
 <div class="mxp-block">
-<div class="mxp-vis"><img class="mxp-logo" src="/mixdog-logo-titanium.svg" alt="" draggable="false" /></div><h1 class="mxp-title" id="heading">Install Mixdog</h1><p class="mxp-sub" id="after">After installing, open the app and tap Connect with a code.</p>
+<div class="mxp-vis"><img class="mxp-logo" src="${LOGO_SRC}" alt="" draggable="false" /></div><h1 class="mxp-title" id="heading">Install Mixdog</h1><p class="mxp-sub" id="after">After installing, open the app and tap Connect with a code.</p>
 </div>
 </main>
 <footer class="mxp-actions">

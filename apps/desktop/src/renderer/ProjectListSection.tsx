@@ -116,7 +116,9 @@ function projectAddDialog({
       </ExtensionField>
       <ExtensionField as="div" label={t('Folder')} note={t('Folder opened for this project.')}>
         <div className="projects-folder-row">
-          <code>{addPath || t('No folder selected')}</code>
+          <code>
+            <bdi>{addPath || t('No folder selected')}</bdi>
+          </code>
           {/* Folder comes from a chooser only (user decision) — the OS dialog,
             or the in-app host browser on a remote surface: prefill the Name
             with the folder's basename once picked. */}

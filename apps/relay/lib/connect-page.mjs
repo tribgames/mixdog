@@ -5,7 +5,24 @@
 // the PC for permission. The page itself grants nothing. Same full-screen
 // column as the phone app's picker and the web pairing layer.
 const CONNECT_PAGE_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'";
+
+// The relay root serves no renderer assets of its own (with per-device releases
+// `/mixdog-logo-titanium.svg` only exists under `/d/<id>/`), so the public
+// pages carry the logo inline instead of linking to it.
+const LOGO_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"><defs>' +
+  '<linearGradient id="a" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ffffff"/><stop offset="50%" stop-color="#94a3b8"/><stop offset="100%" stop-color="#ffffff"/></linearGradient>' +
+  '<linearGradient id="b" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#cbd5e1"/><stop offset="50%" stop-color="#475569"/><stop offset="100%" stop-color="#cbd5e1"/></linearGradient>' +
+  '<linearGradient id="c" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#94a3b8"/><stop offset="50%" stop-color="#334155"/><stop offset="100%" stop-color="#94a3b8"/></linearGradient>' +
+  '</defs><rect width="256" height="256" rx="60" fill="#07080b"/>' +
+  '<g fill="none" stroke-width="22" stroke-linecap="round">' +
+  '<path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#a)"/>' +
+  '<path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" stroke="url(#b)"/>' +
+  '<path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" stroke="url(#c)"/></g>' +
+  '<polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123" fill="#cbd5e1"/>' +
+  '<circle cx="128" cy="128" r="3.5" fill="#07080b"/><circle cx="128" cy="128" r="1.5" fill="#ffffff"/></svg>';
+export const LOGO_SRC = `data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}`;
 
 // Shared with /app: one token block and one column layout for every relay page.
 export const PAGE_BASE_CSS = 'html,body{margin:0;background:#18181b}';
@@ -29,7 +46,7 @@ ${PAIRING_CSS}
 <div class="mxp-col">
 <main class="mxp-main">
 <div class="mxp-block">
-<div class="mxp-vis"><img class="mxp-logo" src="/mixdog-logo-titanium.svg" alt="" draggable="false" /></div><h1 class="mxp-title" id="heading"></h1><p class="mxp-sub" id="note"></p>
+<div class="mxp-vis"><img class="mxp-logo" src="${LOGO_SRC}" alt="" draggable="false" /></div><h1 class="mxp-title" id="heading"></h1><p class="mxp-sub" id="note"></p>
 <div class="mxp-extra">
 <div class="mxp-otp" id="otp"><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><span class="mxp-digit"></span><input class="mxp-code" id="code" inputmode="numeric" autocomplete="one-time-code" aria-labelledby="heading" /></div>
 <p class="mxp-error" id="status" role="alert"></p>

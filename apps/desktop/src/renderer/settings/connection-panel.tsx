@@ -128,7 +128,7 @@ function applyConnectionResult(
 
 function renderConnectionNote(message: string) {
   return (
-    <Group title={t('Web app')}>
+    <Group title={nativeAppInfo() ? t('Mixdog app') : t('Web app')}>
       <p className="settings-connection-note">{message}</p>
     </Group>
   );
