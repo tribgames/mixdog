@@ -8,6 +8,7 @@ import test from 'node:test';
 const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-range-scan-budget-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 const { streamReadRange } = await import('./read-streaming.mjs');
+const { readSourceWindows } = await import('./read-source-windows.mjs');
 const { expandGrepAnchorContextOutput } = await import('./lib/grep-context-expander.mjs');
 const { READ_MAX_SCAN_BYTES } = await import('./read-constants.mjs');
 let sequence = 0;
@@ -15,7 +16,7 @@ test.after(() => fs.rm(root, { recursive: true, force: true }));
 
 // Exercise the real scanner and its real byte limit without a 512 MiB fixture.
 // The virtual file is zero-filled except for an explicitly positioned suffix.
-async function fixture(t, size, suffixPosition, suffix) {
+async function fixture(t, size, suffixPosition, suffix, onRead = () => {}) {
   const path = join(root, `${sequence++}.txt`);
   await fs.writeFile(path, '');
   const st = await fs.stat(path);
@@ -38,6 +39,7 @@ async function fixture(t, size, suffixPosition, suffix) {
         const end = Math.min(position + bytesRead, suffixPosition + bytes.length);
         if (end > start) bytes.copy(buffer, offset + start - position, start - suffixPosition, end - suffixPosition);
         reads.push({ position, length, bytesRead });
+        onRead();
         return { buffer, bytesRead };
       });
       const close = handle.close.bind(handle);
@@ -123,5 +125,46 @@ test('a deep grep context budget failure preserves the match without claiming co
   assert.equal(result.shown, 1);
   assert.match(result.text, /\[lines 3-3\]\nTARGET/);
   assert.doesNotMatch(result.text, /BEFORE|AFTER/);
+  assert.equal(f.closes(), 1);
+});
+
+test('deep source seeking amortizes IO and completes within the deadline on a high-latency reader', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const suffix = '\nBEFORE\nTARGET\nAFTER\n';
+  const f = await fixture(t, READ_MAX_SCAN_BYTES + 65536,
+    READ_MAX_SCAN_BYTES - 65521, suffix, () => { now += 3; });
+  const result = await expandGrepAnchorContextOutput({
+    allLines: ['3:TARGET'], workDir: root, rgSpawnCwd: root,
+    grepResolvedPath: f.path, searchPath: f.path, outputMode: 'content',
+    filenameOmitted: true, headLimit: 10, offset: 0, requestedContext: 1, maxContext: 1,
+  });
+  assert.equal(result.sourceComplete, true);
+  assert.match(result.text, /BEFORE\nTARGET\nAFTER/);
+  assert.ok(f.reads.length < 600, 'deep seeking should need roughly one read per MiB, not per 64 KiB');
+  assert.ok(f.reads.every(({ length }) => length <= 1024 * 1024));
+  assert.ok(f.reads.every(({ position, bytesRead }) => position + bytesRead <= READ_MAX_SCAN_BYTES));
+  assert.equal(f.closes(), 1);
+});
+
+test('source context ending at the budget is delivered without probing outside it', async (t) => {
+  const suffix = '\nTARGET\n';
+  const f = await fixture(t, READ_MAX_SCAN_BYTES + 1, READ_MAX_SCAN_BYTES - suffix.length, suffix);
+  assert.deepEqual([...(await readSourceWindows(f.path, [{ start: 2, end: 2 }]))], [[2, 'TARGET']]);
+  assert.equal(f.reads.at(-1).position + f.reads.at(-1).bytesRead, READ_MAX_SCAN_BYTES);
+  assert.equal(f.closes(), 1);
+});
+
+test('source context accepts exact EOF at the budget', async (t) => {
+  const f = await fixture(t, READ_MAX_SCAN_BYTES, READ_MAX_SCAN_BYTES - 7, '\nTARGET');
+  assert.deepEqual([...(await readSourceWindows(f.path, [{ start: 2, end: 2 }]))], [[2, 'TARGET']]);
+  assert.deepEqual(f.reads.at(-1), { position: READ_MAX_SCAN_BYTES, length: 1, bytesRead: 0 });
+  assert.equal(f.closes(), 1);
+});
+
+test('source context cannot certify a line continuing outside the byte budget', async (t) => {
+  const f = await fixture(t, READ_MAX_SCAN_BYTES + 1, READ_MAX_SCAN_BYTES - 7, '\nTARGETX');
+  await assert.rejects(readSourceWindows(f.path, [{ start: 2, end: 2 }]), /scan exceeds byte budget/);
+  assert.deepEqual(f.reads.at(-1), { position: READ_MAX_SCAN_BYTES, length: 1, bytesRead: 1 });
   assert.equal(f.closes(), 1);
 });

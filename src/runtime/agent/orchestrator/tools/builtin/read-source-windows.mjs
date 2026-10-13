@@ -45,7 +45,10 @@ async function scanSourceWindows(path, intervals, signal) {
     let parts = [];
     let partBytes = 0;
     const lines = new Map();
-    const buffer = Buffer.allocUnsafe(64 * 1024);
+    const minChunkBytes = 64 * 1024;
+    const maxChunkBytes = 1024 * 1024;
+    let chunkBytes = minChunkBytes;
+    let buffer = Buffer.allocUnsafe(chunkBytes);
     const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
     const check = () => {
       signal?.throwIfAborted();
@@ -70,7 +73,11 @@ async function scanSourceWindows(path, intervals, signal) {
     };
     while (interval < intervals.length) {
       check();
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (buffer.length < chunkBytes) buffer = Buffer.allocUnsafe(chunkBytes);
+      // Consume every byte inside the budget, even when a seeking chunk would
+      // cross it. The one-byte EOF probe never becomes usable source text.
+      const readBytes = Math.min(chunkBytes, Math.max(1, READ_MAX_SCAN_BYTES - scanned));
+      const { bytesRead } = await handle.read(buffer, 0, readBytes, position);
       check();
       if (!bytesRead) {
         if (partBytes) save(Buffer.alloc(0), true);
@@ -95,6 +102,11 @@ async function scanSourceWindows(path, intervals, signal) {
         start = end + 1;
       }
       position += bytesRead;
+      // Deep windows still validate coordinates from current bytes. Amortize
+      // positional IO while skipping, then return to small reads in a window.
+      chunkBytes = interval < intervals.length && line < intervals[interval].start
+        ? Math.min(maxChunkBytes, chunkBytes * 2)
+        : minChunkBytes;
     }
     // Publication checks after its async stats, immediately before committing.
     // An unpublished result still owes a final deadline/cancellation check.
