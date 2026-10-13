@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
@@ -44,8 +44,26 @@ function pathKey(value) {
 
 /** `resolve` plus symlinks of the nearest existing ancestor: git reports the
  *  worktree root canonically (macOS /var -> /private/var), callers may not. */
-function canonicalPath(value) {
+function canonicalPath(value, dirs = null) {
   const full = resolve(value);
+  if (dirs) {
+    // Same result as the walk below without repeating it per file: the parent
+    // directory is canonicalized once per call; the final component only
+    // matters when it is itself a link (or its state is unknown).
+    const parent = dirname(full);
+    if (parent !== full) {
+      let canonicalParent = dirs.get(parent);
+      if (canonicalParent === undefined) {
+        canonicalParent = canonicalPath(parent);
+        dirs.set(parent, canonicalParent);
+      }
+      try {
+        if (!lstatSync(full).isSymbolicLink()) return join(canonicalParent, basename(full));
+      } catch (error) {
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return join(canonicalParent, basename(full));
+      }
+    }
+  }
   let head = full;
   while (!existsSync(head)) {
     const parent = dirname(head);
@@ -139,8 +157,10 @@ function stateForRoot(root) {
 /** Report written paths (or `null`: anything may have changed). The next
  *  review poll of an affected worktree captures instead of reusing. */
 export function noteTurnWorktreeChange(paths = null) {
+  if (states.size === 0) return;
   const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
-  const keys = list.map((value) => pathKey(canonicalPath(value)));
+  const dirs = new Map();
+  const keys = list.map((value) => pathKey(canonicalPath(value, dirs)));
   for (const state of states.values()) {
     const root = pathKey(state.root);
     if (keys.length === 0 || keys.some((key) => key === root || key.startsWith(`${root}/`))) {
