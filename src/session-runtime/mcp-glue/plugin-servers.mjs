@@ -170,7 +170,12 @@ function copyKey(name, copy, plugin, declared) {
  * Pure and idempotent: an already-adopted config yields an empty plan.
  */
 function planCopyAdoption(userServers, intents, declared) {
-  const byRoot = new Map(declared.map((d) => [comparablePath(d.plugin.root), d]));
+  // A present declaration wins over a missing one sharing its root, in any order.
+  const byRoot = new Map();
+  for (const d of declared) {
+    const root = comparablePath(d.plugin.root);
+    if (!d.missing || !byRoot.has(root)) byRoot.set(root, d);
+  }
   const next = structuredClone(intents);
   const removed = [];
   const warnings = [];

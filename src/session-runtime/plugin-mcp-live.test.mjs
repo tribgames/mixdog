@@ -567,6 +567,16 @@ test('an unadoptable plugin copy keeps its transport and the plugin lifecycle (d
   assert.equal(gone.servers['plugin-own']._mixdogPlugin.id, registered.id, 'scoping still sees the plugin id');
   assert.equal(gone.entries['plugin-own'].owner.id, registered.id);
   assert.equal(gone.sources['plugin-own'], 'config', 'the copy is not adopted');
+  // A missing duplicate of the same root never shadows the present plugin, whatever the order.
+  const ghost = { ...registered, id: 'ghost', enabled: true, exists: false };
+  for (const plugins of [
+    [{ ...registered, enabled: false }, ghost],
+    [ghost, { ...registered, enabled: false }],
+  ]) {
+    const shadowed = resolveMcpServerCatalog({ config, plugins });
+    assert.equal(shadowed.servers['plugin-own'].enabled, false);
+    assert.equal(shadowed.entries['plugin-own'].owner.id, registered.id);
+  }
 });
 
 test('user server CRUD reconciles plugin servers that move names; a collision name sticks', async (t) => {
