@@ -198,7 +198,14 @@ test('the pin request slot is single, scoped to its pane and expires', () => {
 test('a flood of ready messages makes a bounded number of reads, one in flight, trailing-debounced', async (t) => {
   const page = await mount(t);
   const reads = () => page.toPage.filter((message) => message.type === 'inspect');
-  for (let i = 0; i < 40; i += 1) await page.fromPage({ type: 'ready' });
+  // One burst: per-message waits would let the debounce pass mid-flood on a coarse timer.
+  await act(async () => {
+    for (let i = 0; i < 40; i += 1) {
+      window.dispatchEvent(
+        new window.MessageEvent('message', { data: tagged({ type: 'ready' }), source: page.frame.contentWindow })
+      );
+    }
+  });
   assert.equal(reads().length, 0, 'nothing is read before the debounce passes');
   await settle(450);
   assert.equal(reads().length, 1, 'the flood collapses to one read');
