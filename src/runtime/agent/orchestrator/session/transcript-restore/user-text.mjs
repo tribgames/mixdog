@@ -118,23 +118,43 @@ function referencedFeedbackText(part) {
   }
 }
 
+/** The display lines of a stored prompt's parts, and for each image part the
+ *  line that draws it: the composer's metadata line right before it, else a
+ *  bare line of its own (a bare line never stands for the next image). */
+function restoredUserParts(content) {
+  const texts = [];
+  const images = [];
+  let pendingMetadata = '';
+  for (const part of content) {
+    if (part?.type === 'image' || part?.type === 'input_image') {
+      let line = pendingMetadata;
+      if (!line) {
+        line = `[Image: ${part.mimeType || part.mediaType || 'image'}]`;
+        texts.push(line);
+      }
+      pendingMetadata = '';
+      images.push({ part, line });
+      continue;
+    }
+    const text = isAttachmentReference(part) ? referencedFeedbackText(part) : toolResultText([part]);
+    if (text) texts.push(text);
+    pendingMetadata = IMAGE_METADATA_LINE.test(text) ? text.trimEnd().split(/\r?\n/).pop().trim() : '';
+  }
+  return { texts, images };
+}
+
 export function restoredUserText(content) {
   if (!Array.isArray(content)) {
     return withVisualizeFeedbackDisplay(typeof content === 'string' ? content : toolResultText(content));
   }
-  const texts = [];
-  let previous = '';
-  for (const part of content) {
-    let text;
-    if (part?.type === 'image' || part?.type === 'input_image') {
-      text = IMAGE_METADATA_LINE.test(previous) ? '' : `[Image: ${part.mimeType || part.mediaType || 'image'}]`;
-    } else if (isAttachmentReference(part)) {
-      text = referencedFeedbackText(part);
-    } else {
-      text = toolResultText([part]);
-    }
-    previous = text;
-    if (text) texts.push(text);
-  }
-  return withVisualizeFeedbackDisplay(texts.join('\n'));
+  return withVisualizeFeedbackDisplay(restoredUserParts(content).texts.join('\n'));
+}
+
+/** The stored original of each image the restored bubble draws, by the
+ *  `[Image: …]` line that draws it (images without a stored original left out). */
+export function restoredUserImageRefs(content) {
+  if (!Array.isArray(content)) return [];
+  return restoredUserParts(content)
+    .images.filter(({ part }) => isAttachmentReference(part))
+    .map(({ part, line }) => ({ line, ref: part.attachmentRef }));
 }

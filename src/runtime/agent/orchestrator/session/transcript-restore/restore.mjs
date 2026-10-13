@@ -6,7 +6,7 @@
  */
 import { contextMeasurementStats } from '../../../../shared/context-measurement.mjs';
 import { toolResultText } from './tool-result-text.mjs';
-import { restoredUserText } from './user-text.mjs';
+import { restoredUserImageRefs, restoredUserText } from './user-text.mjs';
 import {
   completionCardFromExecution,
   parseModelVisibleCompletionWrapper,
@@ -353,7 +353,16 @@ function restoredUserTranscriptItems(message, nextId) {
   }
   const synthetic = parseSyntheticAgentMessage(text);
   if (!synthetic) {
-    return [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }];
+    const imageRefs = restoredUserImageRefs(message?.content);
+    return [
+      {
+        kind: 'user',
+        id: nextId(),
+        text,
+        ...restoredTranscriptMetadata(message),
+        ...(imageRefs.length ? { imageRefs } : {}),
+      },
+    ];
   }
   return [restoredNotificationToolItem(synthetic, text, message, nextId, /^(failed|error|killed|cancelled)$/i)];
 }

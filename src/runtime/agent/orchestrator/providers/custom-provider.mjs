@@ -4,6 +4,7 @@
 // runtime reuses the existing OpenAI-compat / Anthropic engines, constructed
 // under the custom id so model routes and provider identity stay `custom-…`.
 
+import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { effectiveCustomModelRows, normalizeCustomProviderConfig } from './custom-provider-config.mjs';
 import { ANTHROPIC_VERSION } from './lib/anthropic-models.mjs';
 import { enrichModels } from './model-catalog.mjs';
@@ -39,8 +40,11 @@ function withCustomModels(Base, discover) {
     customConfig = null;
     customDiscoveryError = null;
     _customDiscovered = null;
-    _customApiKey = '';
     _customKeyless = false;
+    // The key for discovery and error redaction, resolved per use like sends.
+    _customKey() {
+      return this._customKeyless ? '' : resolveProviderApiKey(this.name, this.config);
+    }
     _customRows() {
       return effectiveCustomModelRows(this.customConfig, this._customDiscovered || [], { providerId: this.name });
     }
@@ -57,7 +61,7 @@ function withCustomModels(Base, discover) {
         this.customDiscoveryError = null;
       } catch (error) {
         if (signal?.aborted) throw error;
-        failure = sanitizeDiscoveryError(error, this._customApiKey);
+        failure = sanitizeDiscoveryError(error, this._customKey());
         this.customDiscoveryError = failure;
       }
       const rows = this._customRows();
@@ -82,7 +86,7 @@ async function discoverAnthropicModels(provider, signal) {
     method: 'GET',
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     headers: {
-      ...(provider._customKeyless ? {} : { 'x-api-key': provider.apiKey || '' }),
+      ...(provider._customKeyless ? {} : { 'x-api-key': provider._customKey() }),
       'anthropic-version': ANTHROPIC_VERSION,
     },
   });
@@ -141,7 +145,6 @@ export async function createCustomProvider(id, config) {
     provider = new Custom(providerId, engine);
   }
   provider.customConfig = cfg;
-  provider._customApiKey = apiKey;
   provider._customKeyless = keyless;
   provider._applyCustomRows(provider._customRows());
   return provider;

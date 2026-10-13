@@ -79,7 +79,13 @@ function resolveLatestGeminiModel() {
 export async function ensureLatestGeminiModel(provider) {
   let model = resolveLatestGeminiModel();
   if (model) return model;
-  await provider._refreshModelCache();
+  try {
+    await provider._refreshModelCache();
+  } catch (err) {
+    throw new Error(`[gemini] model catalog refresh failed — cannot resolve default model (${err.message})`, {
+      cause: err,
+    });
+  }
   model = resolveLatestGeminiModel();
   if (model) return model;
   throw new Error('[gemini] model catalog unavailable after warmup — cannot resolve default model');

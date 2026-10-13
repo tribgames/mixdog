@@ -1,7 +1,7 @@
 ---
 name: visualize
-description: Show mockups, design options, diagrams, and finished artifacts beside the chat with the visualize tool.
-when_to_use: 'Mockups before UI work, design options, visual explanations, or showing a produced artifact; not production code alone.'
+description: Show mockups, design options, diagrams, and finished artifacts in the side panel beside the chat.
+when_to_use: 'Mockups, previews, design options, diagrams, or showing any finished artifact; not code alone.'
 metadata:
   requires: visualize
 dependencies:
@@ -68,13 +68,16 @@ testing a page belong to `browser`.
    panel keeps each saved state as a version (v1…vN) the user can step back
    to, compare side by side, or restore, so never copy the file to keep an
    old version. The user can also point at the page: their message then carries a
-   `<visualize_feedback>` block of numbered pins (`pin N` = the "📌 N" they
-   saw), each with the note, tab and project-relative file, and for an HTML
-   element its selector, label, trimmed HTML, key styles and box (a PDF or
-   image pin gives a region instead), plus the crop image "visualize pin N"
-   when there is one. Answer pin by pin by number and act on the element
-   the selector names; secret values arrive as `[redacted]`, so never restore
-   them from the crop or guess them.
+   `<visualize_feedback>` block of numbered pins (`pin N` = the pin numbered
+   N they saw), each with its label, note, tab, project-relative file and
+   `kind` (pane kind + element or region). An HTML element pin adds its
+   selector, `inside` path, trimmed HTML, key styles and box; a region pin
+   (an HTML drag, a document, PDF, image, diagram, or video frame) adds its
+   area, plus `elements` for an HTML drag and `time` for a video. The crop
+   image "visualize pin N" comes when there is one (`crop: none` otherwise).
+   Answer pin by pin by number and act on what the selector or area names;
+   secret values arrive as `[redacted]`, so never restore them from the crop
+   or guess them.
 8. **After approval**: implement from the approved mockup; its values are the
    spec. When the work needs a record, `export` the approved tab to PNG or PDF
    beside the page (`export` with `format` and a project-relative `output`,

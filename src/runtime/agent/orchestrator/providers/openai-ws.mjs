@@ -23,7 +23,7 @@ import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import { applyOpenAIDirectCachePolicy } from './openai-direct-request.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
@@ -86,7 +86,7 @@ export class OpenAIDirectProvider {
     this.config = config || {};
   }
   _ensureKey() {
-    const k = this.config.apiKey;
+    const k = resolveProviderApiKey('openai', this.config);
     if (!k) throw new Error('OPENAI_API_KEY not configured (providers.openai.apiKey)');
     return k;
   }
@@ -97,7 +97,7 @@ export class OpenAIDirectProvider {
   // the WS/HTTP transports take the key per-call via the `auth` object.
   reloadApiKey() {
     try {
-      const newKey = getAgentApiKey('openai') || this.config.apiKey;
+      const newKey = reloadProviderApiKey('openai', this.config);
       if (newKey) {
         this.config = { ...(this.config || {}), apiKey: newKey };
         return newKey;
@@ -295,6 +295,6 @@ export class OpenAIDirectProvider {
     }
   }
   async isAvailable() {
-    return !!this.config.apiKey;
+    return !!resolveProviderApiKey('openai', this.config);
   }
 }

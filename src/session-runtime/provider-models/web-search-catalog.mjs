@@ -38,7 +38,11 @@ export function createWebSearchCatalog({
     try {
       let models = null;
       if (forceRefresh && typeof provider._refreshModelCache === 'function') {
-        models = await provider._refreshModelCache();
+        try {
+          models = await provider._refreshModelCache();
+        } catch {
+          models = null; // fall back to listModels below
+        }
       }
       if (!Array.isArray(models)) models = await provider.listModels();
       if (!Array.isArray(models)) return [];

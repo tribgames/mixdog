@@ -625,6 +625,26 @@ test('anthropic: empty models discover from /v1/models without built-in fallback
   );
 });
 
+test('anthropic: discovery built without a config key sends the stored key', async () => {
+  const id = 'custom-ant-stored';
+  const envKey = `MIXDOG_AGENT_${id.toUpperCase().replace(/[.\s]+/g, '_')}_APIKEY`;
+  const p = await createCustomProvider(id, { ...base, protocol: 'anthropic' });
+  process.env[envKey] = 'stored-ant';
+  try {
+    const calls = [];
+    await withFetch(
+      (_url, init) => {
+        calls.push(init.headers);
+        return Response.json({ data: [{ id: 'ant-stored' }] });
+      },
+      () => p.listModels()
+    );
+    assert.equal(calls[0]['x-api-key'], 'stored-ant');
+  } finally {
+    delete process.env[envKey];
+  }
+});
+
 test('anthropic: discovered rows are catalog-enriched; keyless sends no x-api-key', async () => {
   const p = await createCustomProvider('custom-ant-enrich', {
     ...base,

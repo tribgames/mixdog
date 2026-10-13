@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { canFallbackNonStreaming, emitProviderRetryStage, withRetry } from './retry-classifier.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { traceNonStreamingFallback } from './lib/transport-fallback-trace.mjs';
@@ -153,8 +153,9 @@ export class GeminiProvider {
     this._createGenAI =
       typeof config.createGenAI === 'function' ? config.createGenAI : (apiKey) => new GoogleGenerativeAI(apiKey);
     this._modelCache = config.modelCache || _modelCache;
-    const apiKey = config.apiKey || process.env.GEMINI_API_KEY || '';
-    this.genAI = config.genAI || this._createGenAI(apiKey);
+    this._injectedGenAI = Boolean(config.genAI);
+    this._genAIKey = resolveProviderApiKey('gemini', config);
+    this.genAI = config.genAI || this._createGenAI(this._genAIKey);
     // Warm a kept-alive socket to the Gemini REST API so the first cache/
     // generateContent request skips the cold TLS handshake. Best-effort.
     this._preconnect('https://generativelanguage.googleapis.com');
@@ -162,12 +163,13 @@ export class GeminiProvider {
 
   reloadApiKey() {
     try {
-      const newKey = getAgentApiKey('gemini') || this.config?.apiKey || process.env.GEMINI_API_KEY;
+      const newKey = reloadProviderApiKey('gemini', this.config);
       if (newKey) {
-        // Keep this.config in sync so REST/cache paths (which read the
-        // key via _getApiKey() → this.config.apiKey) don't keep using
-        // the stale key after a rotation; genAI alone is not enough.
+        // Keep this.config in sync so REST/cache paths don't keep using the
+        // stale key after a rotation; genAI alone is not enough.
         this.config = { ...(this.config || {}), apiKey: newKey };
+        this._injectedGenAI = false;
+        this._genAIKey = newKey;
         this.genAI = this._createGenAI(newKey);
       }
       return newKey || '';
@@ -178,7 +180,18 @@ export class GeminiProvider {
   }
 
   _getApiKey() {
-    return this.config?.apiKey || process.env.GEMINI_API_KEY || '';
+    return resolveProviderApiKey('gemini', this.config);
+  }
+
+  // SDK client for the currently resolved key; rebuilt when the key changed
+  // since construction (e.g. a keyless-constructed instance).
+  _currentGenAI() {
+    const key = this._getApiKey();
+    if (!this._injectedGenAI && key !== this._genAIKey) {
+      this._genAIKey = key;
+      this.genAI = this._createGenAI(key);
+    }
+    return this.genAI;
   }
 
   /**
@@ -673,7 +686,7 @@ export class GeminiProvider {
 
   async _streamViaSdk(stream) {
     const { opts, signal, useModel, systemInstruction, geminiTools, toolConfig, generationConfig, contents } = stream;
-    const genModel = this.genAI.getGenerativeModel({
+    const genModel = this._currentGenAI().getGenerativeModel({
       model: useModel,
       systemInstruction,
       tools: geminiTools,
@@ -714,7 +727,7 @@ export class GeminiProvider {
     const cached = this._modelCache.loadSync();
     if (cached) return cached;
     // Dynamic lookup via Gemini v1beta /models. Requires API key.
-    const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
+    const apiKey = this._getApiKey();
     if (!apiKey) return MODELS; // no key — return minimal static list
     try {
       return await this._fetchAndCacheModels(apiKey);
@@ -738,26 +751,26 @@ export class GeminiProvider {
 
   // Force a catalog refresh (ignores the 24h disk TTL). De-duped via
   // _modelRefreshInFlight so concurrent callers share one HTTP round-trip.
-  // Fire-and-forget context: failures are caught/logged, returning null.
+  // Resolves null when there is no key; fetch/normalize failures reject so
+  // callers (registry refresh) report them.
   async _refreshModelCache() {
     if (_modelRefreshInFlight) return _modelRefreshInFlight;
-    _modelRefreshInFlight = (async () => {
-      try {
-        const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
-        if (!apiKey) return null; // no key — nothing to refresh
-        const enriched = await this._fetchAndCacheModels(apiKey);
-        if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
-          process.stderr.write(`[gemini] catalog refreshed (${enriched.length} models)\n`);
-        return enriched;
-      } catch (err) {
-        if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
-          process.stderr.write(`[gemini] catalog refresh failed (${err.message})\n`);
-        return null;
-      } finally {
-        _modelRefreshInFlight = null;
-      }
+    const refresh = (async () => {
+      const apiKey = this._getApiKey();
+      if (!apiKey) return null; // no key — nothing to refresh
+      const enriched = await this._fetchAndCacheModels(apiKey);
+      if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
+        process.stderr.write(`[gemini] catalog refreshed (${enriched.length} models)\n`);
+      return enriched;
     })();
-    return _modelRefreshInFlight;
+    // Clear only after the shared promise is published: a refresh that settles
+    // synchronously (no key) must not leave its settled promise memoized.
+    _modelRefreshInFlight = refresh;
+    try {
+      return await refresh;
+    } finally {
+      if (_modelRefreshInFlight === refresh) _modelRefreshInFlight = null;
+    }
   }
 
   async isAvailable() {
@@ -766,7 +779,7 @@ export class GeminiProvider {
       controller.abort(providerTimeoutError('Gemini availability probe', GEMINI_AVAILABILITY_TIMEOUT_MS));
     }, GEMINI_AVAILABILITY_TIMEOUT_MS);
     try {
-      const model = this.genAI.getGenerativeModel({ model: DEFAULT_MODEL });
+      const model = this._currentGenAI().getGenerativeModel({ model: DEFAULT_MODEL });
       const generation = Promise.resolve(model.generateContent('hi', { signal: controller.signal }));
       generation.catch(() => {});
       await Promise.race([

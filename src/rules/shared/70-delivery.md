@@ -8,8 +8,10 @@
   `src/app.ts:42`); files outside the Project always by absolute path; never a
   bare name, a path relative to another folder, or a `file://` URI.
 - Deliver requested visual artifacts (SVG, diagrams, HTML pages) as saved files
-  and give their path, which opens them in the browser panel; never open them
-  in the system browser or paste their source unless the user asks.
+  and give their path; never open them in the system browser or paste their
+  source unless the user asks.
+<!-- tools: visualize -->
+- Open each finished artifact beside the chat with `visualize open` when available.
 
 <!-- tools: git -->
 - A commit request includes selecting and staging its changes; a stage-only

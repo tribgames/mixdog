@@ -107,7 +107,8 @@ async function wire(session, opts = {}) {
     let headers;
     const provider = Object.assign(Object.create(AnthropicProvider.prototype), {
       name: 'anthropic',
-      config: {},
+      config: { apiKey: 'test-key' },
+      apiKey: 'test-key',
       fastModeBetaHeaderLatched: false,
       client: {
         messages: {

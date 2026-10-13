@@ -1,3 +1,4 @@
+import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
@@ -158,7 +159,7 @@ export async function sendXaiResponsesWebSocket(provider, messages, useModel, to
     const reason = signal.reason;
     throw reason instanceof Error ? reason : new Error('xAI Responses WebSocket request aborted by session close');
   }
-  const apiKey = provider.config?.apiKey || process.env.XAI_API_KEY;
+  const apiKey = resolveProviderApiKey('xai', provider.config);
   if (!apiKey) throw new Error('xAI API key not configured');
   messages = await preparePdfTextForProvider(messages, provider);
   const chatMessagesForTrace = toOpenAIMessages(messages, provider.name, { nativePdf: provider.nativePdf });

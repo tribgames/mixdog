@@ -1,3 +1,4 @@
+import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { PROVIDER_GENERATE_TOTAL_TIMEOUT_MS, createTimeoutSignal, resolveTimeoutMs } from '../stall-policy.mjs';
@@ -15,7 +16,7 @@ export async function fetchCompatModelItems(provider, { signal = null, keyless =
     const res = await fetch(`${String(provider.baseURL || '').replace(/\/+$/, '')}/models`, {
       method: 'GET',
       headers: {
-        ...(keyless ? {} : { Authorization: `Bearer ${provider.apiKey || 'no-key'}` }),
+        ...(keyless ? {} : { Authorization: `Bearer ${resolveProviderApiKey(provider.name, provider.config || provider) || 'no-key'}` }),
         ...(provider.defaultHeaders || {}),
       },
       signal: timeout.signal,

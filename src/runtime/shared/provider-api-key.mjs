@@ -69,6 +69,18 @@ export function getAgentApiKey(provider) {
   return null;
 }
 
+/** The one API-key resolver for key-based providers: an explicit config key
+ *  wins, otherwise the environment/keychain (getAgentApiKey). */
+export function resolveProviderApiKey(provider, config) {
+  return config?.apiKey || getAgentApiKey(provider) || '';
+}
+
+/** Auth-error reload: the stored/environment key is re-read first so a
+ *  rotated key beats the stale one captured in config. */
+export function reloadProviderApiKey(provider, config) {
+  return getAgentApiKey(provider) || config?.apiKey || '';
+}
+
 /** One provider's key read on demand, warming no other account: the
  *  environment first (getAgentApiKey's precedence), then only this provider's
  *  keychain entry through the async path (no whole-keyring snapshot). */

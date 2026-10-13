@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
@@ -69,7 +69,7 @@ export class OpenAICompatProvider {
   constructor(name, config) {
     const preset = PRESETS[name];
     const baseURL = assertSafeBaseURL(config.baseURL || preset?.baseURL || 'http://localhost:8080/v1', name);
-    const apiKey = config.apiKey || 'no-key';
+    const apiKey = resolveProviderApiKey(name, config) || 'no-key';
     this.name = name;
     this.config = config;
     this.baseURL = baseURL;
@@ -121,7 +121,7 @@ export class OpenAICompatProvider {
   reloadApiKey() {
     try {
       const preset = PRESETS[this.name];
-      const newKey = getAgentApiKey(this.name) || this.config.apiKey;
+      const newKey = reloadProviderApiKey(this.name, this.config);
       const baseURL = assertSafeBaseURL(
         this.config.baseURL || preset?.baseURL || 'http://localhost:8080/v1',
         this.name
@@ -138,6 +138,12 @@ export class OpenAICompatProvider {
     }
   }
   async send(messages, model, tools, sendOpts) {
+    // A keyless-constructed instance picks up the key once it is available.
+    const resolvedKey = resolveProviderApiKey(this.name, this.config) || 'no-key';
+    if (resolvedKey !== this.apiKey) {
+      this.apiKey = resolvedKey;
+      this.client = this._createClient(resolvedKey);
+    }
     try {
       return await this._doSend(messages, model, tools, sendOpts);
     } catch (err) {

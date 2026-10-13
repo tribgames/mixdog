@@ -248,3 +248,84 @@ test('startup catalog refresh cannot launch another warmup after runtime closure
   assert.equal(warmed, 0);
   assert.equal(rt.startupProviderCatalogRefreshPending, false);
 });
+
+test('provider set change re-runs the catalog refresh completion once per new promise', async () => {
+  const a = deferred();
+  const b = deferred();
+  const rt = { config: { providers: {} }, closeRequested: false };
+  let current = a.promise;
+  let warmed = 0;
+  const warmArgs = [];
+  const readiness = createProviderReadiness({
+    rt,
+    keychain: { prewarmSecrets: async () => {} },
+    getReg: () => ({
+      initProviders: async () => {},
+      refreshProviderCatalogsOnStartup: () => current,
+    }),
+    getWarmProviderModelCache: () => (arg) => {
+      warmed += 1;
+      warmArgs.push(arg);
+    },
+  });
+  await readiness.ensureProvidersReady({ x: { enabled: true } });
+  assert.equal(rt.startupProviderCatalogRefreshPending, true);
+  await readiness.ensureProvidersReady({ y: { enabled: true } });
+  a.resolve();
+  await setImmediate();
+  assert.equal(warmed, 1, 'same memoized promise runs completion once');
+  assert.equal(rt.startupProviderCatalogRefreshPending, false);
+
+  current = b.promise;
+  readiness.providerModelCaches.providerModelsCache.models = ['stale'];
+  await readiness.ensureProvidersReady({ z: { enabled: true } });
+  assert.equal(rt.startupProviderCatalogRefreshPending, true);
+  b.resolve();
+  await setImmediate();
+  assert.equal(warmed, 2);
+  assert.equal(readiness.providerModelCaches.providerModelsCache.models, null);
+  assert.deepEqual(warmArgs, [{ loadSecrets: true }, { loadSecrets: true }]);
+  assert.equal(rt.startupProviderCatalogRefreshPending, false);
+
+  await readiness.ensureProvidersReady({ w: { enabled: true } });
+  await setImmediate();
+  assert.equal(warmed, 2);
+});
+
+test('an already initialized config still attaches to a refresh another runtime started', async () => {
+  const a = deferred();
+  const b = deferred();
+  const rt = { config: { providers: {} }, closeRequested: false };
+  let current = a.promise;
+  let inits = 0;
+  let warmed = 0;
+  const readiness = createProviderReadiness({
+    rt,
+    keychain: { prewarmSecrets: async () => {} },
+    getReg: () => ({
+      initProviders: async () => {
+        inits += 1;
+      },
+      refreshProviderCatalogsOnStartup: () => current,
+    }),
+    getWarmProviderModelCache: () => () => {
+      warmed += 1;
+    },
+  });
+  const config = { x: { enabled: true } };
+  await readiness.ensureProvidersReady(config);
+  a.resolve();
+  await setImmediate();
+  assert.equal(warmed, 1);
+
+  // The shared registry opened a new catalog epoch elsewhere; this runtime's
+  // config is unchanged, so init is reused but the new refresh is observed.
+  current = b.promise;
+  await readiness.ensureProvidersReady(config);
+  assert.equal(inits, 1, 'the cached init is reused');
+  assert.equal(rt.startupProviderCatalogRefreshPending, true);
+  b.resolve();
+  await setImmediate();
+  assert.equal(warmed, 2);
+  assert.equal(rt.startupProviderCatalogRefreshPending, false);
+});
