@@ -15,12 +15,15 @@ const MAX_MCP_TOOL_PAGES = 100;
  * Every tool of a server: follows `nextCursor` until it is exhausted, repeats,
  * or MAX_MCP_TOOL_PAGES is reached. A page with an invalid shape is returned
  * as-is so the caller's shape validation reports it.
+ * The SDK rebuilds its output validators from each page alone, so after a
+ * paginated listing they are rebuilt once from every page's tools.
  */
 export async function listAllMcpTools(client, requestOptions = undefined) {
   const tools = [];
   const seen = new Set();
   let cursor = null;
-  for (let page = 0; page < MAX_MCP_TOOL_PAGES; page += 1) {
+  let pages = 0;
+  for (; pages < MAX_MCP_TOOL_PAGES; pages += 1) {
     const result = await client.listTools(cursor ? { cursor } : undefined, requestOptions);
     if (!result || !Array.isArray(result.tools)) return result;
     tools.push(...result.tools);
@@ -29,6 +32,7 @@ export async function listAllMcpTools(client, requestOptions = undefined) {
     seen.add(next);
     cursor = next;
   }
+  if (pages > 0) client.cacheToolMetadata?.(tools);
   return { tools };
 }
 
