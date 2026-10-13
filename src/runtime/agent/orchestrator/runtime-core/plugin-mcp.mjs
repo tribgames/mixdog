@@ -302,7 +302,9 @@ function readPluginMcpDeclarations(root, touched) {
   const mcpJson = join(root, '.mcp.json');
   touched.add(mcpJson);
   const hasMcpJson = existsSync(mcpJson);
-  const format = found ? found.format : hasMcpJson ? 'claude' : 'none';
+  let format = 'none';
+  if (found) format = found.format;
+  else if (hasMcpJson) format = 'claude';
 
   if (hasMcpJson) loadMcpJsonFile(mcpJson, into, errors);
 
@@ -373,7 +375,7 @@ export function loadPluginMcpDeclarations(root) {
 function cachedDeclarations(root) {
   const key = String(root || '');
   const cached = declarationCache.get(key);
-  if (cached && cached.signature.every(([path, stamp]) => fileStamp(path) === stamp)) {
+  if (cached?.signature.every(([path, stamp]) => fileStamp(path) === stamp)) {
     declarationCacheStats.hits += 1;
     return cached.result;
   }

@@ -74,8 +74,14 @@ test('keyless-constructed Gemini refreshes and lists the catalog with the stored
         },
       });
       const models = await provider[method]();
-      assert.ok(models.some((m) => m.id === 'gemini-9.0-flash'), method);
-      assert.ok(urls.some((u) => u.includes('key=stored-gemini')), method);
+      assert.ok(
+        models.some((m) => m.id === 'gemini-9.0-flash'),
+        method
+      );
+      assert.ok(
+        urls.some((u) => u.includes('key=stored-gemini')),
+        method
+      );
       assert.ok(modelCache.state.saved?.length, `${method} saved the catalog`);
     }
     assert.ok(created.every((key) => key === 'stored-gemini'));

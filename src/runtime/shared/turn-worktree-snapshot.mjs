@@ -801,7 +801,7 @@ function scheduleShadowGc(state) {
 async function removeShadowDir(gitDir, removed, kept) {
   if (!(await exists(gitDir))) return;
   await rm(gitDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
-  (await exists(gitDir) ? kept : removed).push(gitDir);
+  ((await exists(gitDir)) ? kept : removed).push(gitDir);
 }
 
 /** Drop every trace of one worktree root: serialize behind its pending capture

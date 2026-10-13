@@ -4,10 +4,7 @@ import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
-import {
-  DEFAULT_INSTRUCTION_FILES_MODE,
-  normalizeInstructionFilesMode,
-} from '../../shared/instruction-files-mode.mjs';
+import { DEFAULT_INSTRUCTION_FILES_MODE, normalizeInstructionFilesMode } from '../../shared/instruction-files-mode.mjs';
 import {
   DEFAULT_DISABLED_AGENT_ROSTER,
   canonicalizeAgentRouteStorage,

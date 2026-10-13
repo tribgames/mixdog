@@ -384,7 +384,9 @@ test('fallback prefers the most headroom, and an exhausted roster re-measures be
   const [first, second, third] = ids;
   const now = Date.now();
   const stamp = async (id, usedPct) =>
-    await recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct, resetAt: now + 3_600_000 }] });
+    await recordProviderAccountUsage(provider, id, {
+      quotaWindows: [{ label: '5H', usedPct, resetAt: now + 3_600_000 }],
+    });
   await stamp(first, 100);
   await stamp(second, 96);
   await stamp(third, 12);

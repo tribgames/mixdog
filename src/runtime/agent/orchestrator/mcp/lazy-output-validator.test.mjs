@@ -18,7 +18,11 @@ test('listing tools compiles no output schema; the first result compiles only it
     { name: 'test', version: '1.0.0' },
     { jsonSchemaValidator: createLazyOutputValidator(CountingValidator) }
   );
-  const tools = Array.from({ length: 50 }, (_, i) => ({ name: `t${i}`, inputSchema: { type: 'object' }, outputSchema: schema }));
+  const tools = Array.from({ length: 50 }, (_, i) => ({
+    name: `t${i}`,
+    inputSchema: { type: 'object' },
+    outputSchema: schema,
+  }));
   client.cacheToolMetadata(tools);
   assert.equal(compiled.length, 0, 'listing compiles nothing');
   const validate = client.getToolOutputValidator('t3');
@@ -34,9 +38,30 @@ test('listing tools compiles no output schema; the first result compiles only it
 
 test('schemas with $id resolve exactly as the stock SDK client, whatever the call order', () => {
   const tools = [
-    { name: 'base', inputSchema: { type: 'object' }, outputSchema: { $id: 'https://example.test/base.json', type: 'object', properties: { n: { type: 'number' } }, required: ['n'] } },
-    { name: 'uses', inputSchema: { type: 'object' }, outputSchema: { type: 'object', properties: { inner: { $ref: 'https://example.test/base.json' } }, required: ['inner'] } },
-    { name: 'dup', inputSchema: { type: 'object' }, outputSchema: { $id: 'https://example.test/base.json', type: 'object', properties: { n: { type: 'string' } } } },
+    {
+      name: 'base',
+      inputSchema: { type: 'object' },
+      outputSchema: {
+        $id: 'https://example.test/base.json',
+        type: 'object',
+        properties: { n: { type: 'number' } },
+        required: ['n'],
+      },
+    },
+    {
+      name: 'uses',
+      inputSchema: { type: 'object' },
+      outputSchema: {
+        type: 'object',
+        properties: { inner: { $ref: 'https://example.test/base.json' } },
+        required: ['inner'],
+      },
+    },
+    {
+      name: 'dup',
+      inputSchema: { type: 'object' },
+      outputSchema: { $id: 'https://example.test/base.json', type: 'object', properties: { n: { type: 'string' } } },
+    },
   ];
   const stock = new Client({ name: 'stock', version: '1.0.0' });
   const lazy = new Client(
@@ -53,14 +78,26 @@ test('schemas with $id resolve exactly as the stock SDK client, whatever the cal
     ['dup', { n: 2 }],
     ['base', { n: 3 }],
   ]) {
-    assert.deepEqual(lazy.getToolOutputValidator(tool)(input), stock.getToolOutputValidator(tool)(input), `${tool} ${JSON.stringify(input)}`);
+    assert.deepEqual(
+      lazy.getToolOutputValidator(tool)(input),
+      stock.getToolOutputValidator(tool)(input),
+      `${tool} ${JSON.stringify(input)}`
+    );
   }
 });
 
 test('a reference to an $id listed later fails the listing, as in the stock SDK client', () => {
   const tools = [
-    { name: 'early', inputSchema: { type: 'object' }, outputSchema: { type: 'object', properties: { inner: { $ref: 'https://example.test/late.json' } } } },
-    { name: 'late', inputSchema: { type: 'object' }, outputSchema: { $id: 'https://example.test/late.json', type: 'object' } },
+    {
+      name: 'early',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'object', properties: { inner: { $ref: 'https://example.test/late.json' } } },
+    },
+    {
+      name: 'late',
+      inputSchema: { type: 'object' },
+      outputSchema: { $id: 'https://example.test/late.json', type: 'object' },
+    },
   ];
   const stock = new Client({ name: 'stock', version: '1.0.0' });
   const lazy = new Client(

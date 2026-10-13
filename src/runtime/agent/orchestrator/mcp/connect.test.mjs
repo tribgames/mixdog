@@ -374,7 +374,7 @@ test('a failure after send reconnects for the next call but is not replayed; "No
   const scopeId = freshScope();
   const calls = [];
   behavior = {
-    callTool: async (client, params) => {
+    callTool: async (client) => {
       calls.push(clients.indexOf(client));
       if (calls.length === 1) throw Object.assign(new Error('Connection closed'), { code: -32000 });
       if (calls.length === 2) throw new Error('Not connected');

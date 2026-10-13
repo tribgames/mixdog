@@ -11,15 +11,33 @@ import {
 
 test('effort updates follow the verified first version of each family and every later one', () => {
   const anthropic = (model) => effortConfigurationMode('anthropic-oauth', model);
-  for (const model of ['claude-opus-5', 'claude-opus-5-5', 'claude-opus-6', 'claude-sonnet-5-5', 'claude-sonnet-5-6',
-    'claude-haiku-5-5', 'claude-haiku-6-0', 'claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5-5-20261001']) {
+  for (const model of [
+    'claude-opus-5',
+    'claude-opus-5-5',
+    'claude-opus-6',
+    'claude-sonnet-5-5',
+    'claude-sonnet-5-6',
+    'claude-haiku-5-5',
+    'claude-haiku-6-0',
+    'claude-fable-5-1',
+    'claude-mythos-5-1',
+    'claude-opus-5-5-20261001',
+  ]) {
     assert.equal(anthropic(model), 'anthropic', model);
   }
-  for (const model of ['claude-opus-4-8', 'claude-sonnet-5', 'claude-sonnet-5-0', 'claude-haiku-4-5', 'claude-fable-5', 'claude-newfamily-9']) {
+  for (const model of [
+    'claude-opus-4-8',
+    'claude-sonnet-5',
+    'claude-sonnet-5-0',
+    'claude-haiku-4-5',
+    'claude-fable-5',
+    'claude-newfamily-9',
+  ]) {
     assert.equal(anthropic(model), null, model);
   }
   const openai = (model) => effortConfigurationMode('openai', model);
-  for (const model of ['gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.2-luna', 'gpt-7', 'gpt-7-astra']) assert.equal(openai(model), 'responses', model);
+  for (const model of ['gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.2-luna', 'gpt-7', 'gpt-7-astra'])
+    assert.equal(openai(model), 'responses', model);
   for (const model of ['gpt-5.6-sol', 'gpt-5.5', 'o4-mini']) assert.equal(openai(model), null, model);
 });
 
@@ -29,10 +47,13 @@ test('a model that rejects the effort update is replayed once without it and swi
   const calls = [];
   const send = async (opts) => {
     calls.push(opts);
-    if (calls.length === 1) throw Object.assign(new Error('400 output_config.effort is not supported for this model'), { status: 400 });
+    if (calls.length === 1)
+      throw Object.assign(new Error('400 output_config.effort is not supported for this model'), { status: 400 });
     return { content: 'ok' };
   };
-  assert.deepEqual(await withEffortConfigurationFallback('anthropic-oauth', model, { effort: 'high' }, send), { content: 'ok' });
+  assert.deepEqual(await withEffortConfigurationFallback('anthropic-oauth', model, { effort: 'high' }, send), {
+    content: 'ok',
+  });
   assert.equal(calls.length, 2);
   assert.equal(calls[1].effortConfigurationEnabled, false);
   assert.equal(effortConfigurationMode('anthropic-oauth', model), null);

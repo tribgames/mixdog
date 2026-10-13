@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawnSync } from 'node:child_process';
-import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import fs, {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -315,7 +324,7 @@ test('a note dirties exactly the states HEAD canonicalization would', {
     'many files in one directory': many,
     'mixed burst': [join(other, 'dir', 'x.txt'), join(linkA, 'a.txt'), ...many],
     'empty list': [],
-    'null': null,
+    null: null,
   };
   if (fileLinked) cases['file link into other root'] = [fileLink];
   if (process.platform === 'win32') cases['differing case'] = [join(repoA, 'SUB', 'F.TXT'), join(repoB, 'A.TXT')];
@@ -362,7 +371,6 @@ test('a 200-file burst in 5 directories canonicalizes each directory once', {
   const before = snapshot.state.changeStamp;
   noteTurnWorktreeChange(paths);
   const newCalls = total();
-  console.log(`fs calls for 200-file burst: HEAD ${headCalls}, now ${newCalls}`);
   assert.equal(snapshot.state.changeStamp, before + 1);
   assert.ok(newCalls < headCalls * 0.6, `${newCalls} vs ${headCalls}`);
 });

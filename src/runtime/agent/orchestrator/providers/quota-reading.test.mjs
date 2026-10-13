@@ -53,7 +53,9 @@ test('a quota resume asks the pool over fresh forced readings of every account',
   await accounts.registerProviderAccount('openai-oauth', ACCOUNT_A);
   await accounts.registerProviderAccount('openai-oauth', ACCOUNT_B);
   for (const id of [ACCOUNT_A, ACCOUNT_B]) {
-    await accounts.blockProviderAccount('openai-oauth', id, Date.now() + 3_600_000, 'gpt-x', 'retry-after', { quota: true });
+    await accounts.blockProviderAccount('openai-oauth', id, Date.now() + 3_600_000, 'gpt-x', 'retry-after', {
+      quota: true,
+    });
   }
 
   meter.set(ACCOUNT_A, 100).set(ACCOUNT_B, 100);

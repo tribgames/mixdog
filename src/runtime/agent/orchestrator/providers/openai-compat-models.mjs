@@ -17,7 +17,9 @@ export async function fetchCompatModelItems(provider, { signal = null, keyless =
     const res = await fetch(`${String(provider.baseURL || '').replace(/\/+$/, '')}/models`, {
       method: 'GET',
       headers: {
-        ...(keyless ? {} : { Authorization: `Bearer ${resolveProviderApiKey(name, provider.config || provider) || 'no-key'}` }),
+        ...(keyless
+          ? {}
+          : { Authorization: `Bearer ${resolveProviderApiKey(name, provider.config || provider) || 'no-key'}` }),
         ...(provider.defaultHeaders || {}),
       },
       signal: timeout.signal,

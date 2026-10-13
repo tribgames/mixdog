@@ -65,8 +65,10 @@ export class AnthropicProvider {
     const custom = isCustomProviderName(this.name);
     const keyless = custom && this.config.keyless === true;
     const betaHeaders = this.config.disableBetaHeaders || custom ? null : buildAnthropicBetaHeaders();
+    let credentials = { apiKey };
+    if (custom) credentials = { apiKey: keyless ? '' : apiKey || '', authToken: null };
     return new (loadAnthropic())({
-      ...(custom ? { apiKey: keyless ? '' : apiKey || '', authToken: null } : { apiKey }),
+      ...credentials,
       ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
       defaultHeaders: {
         ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}),
