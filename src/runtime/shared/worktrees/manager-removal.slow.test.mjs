@@ -30,6 +30,7 @@ import {
   tempDir,
   useTempDataDir,
   writeFile,
+  writeHook,
 } from './test-support.mjs';
 
 let restore = () => {};
@@ -119,7 +120,7 @@ test("removing a repository's last worktree drops its empty store folder, never 
   await removeManagedWorktree({ entryId: third.entry.id, force: true });
   assert.equal(existsSync(root), false);
   // A failed creation rolls back to nothing too.
-  writeFile(repo, '.git/hooks/post-checkout', '#!/bin/sh\nexit 1\n');
+  writeHook(repo, 'post-checkout', '#!/bin/sh\nexit 1\n');
   await assert.rejects(create(repo, { nameHint: 'boom' }));
   assert.equal(existsSync(root), false);
 });

@@ -30,6 +30,7 @@ import {
   tempDir,
   useTempDataDir,
   writeFile,
+  writeHook,
 } from './test-support.mjs';
 
 // Creation, includes, occupancy, checkout and merge; removal and reconcile
@@ -133,7 +134,7 @@ test('slugs avoid existing branches and stay Windows-safe; pre-existing branches
 test('a failed creation rolls back exactly what it made', async () => {
   const repo = makeRepo();
   git(repo, 'branch', 'keep-me');
-  writeFile(repo, '.git/hooks/post-checkout', '#!/bin/sh\nexit 1\n');
+  writeHook(repo, 'post-checkout', '#!/bin/sh\nexit 1\n');
   const id = ids();
   await assert.rejects(createManagedWorktree({ projectPath: repo, nameHint: 'boom', ...id }), /post-checkout|failed/i);
   assert.deepEqual(prefixedBranches(repo), []);
@@ -451,9 +452,9 @@ test('a full disk during worktree add is WORKTREE_DISK_INSUFFICIENT and rolls ba
   const registry = registryPath().replace(/\\/g, '/');
   // The hook runs inside `git worktree add`: it breaks the registry (a directory
   // where the file was) and fails the way a full disk does.
-  writeFile(
+  writeHook(
     repo,
-    '.git/hooks/post-checkout',
+    'post-checkout',
     `#!/bin/sh\nrm -f '${registry}'\nmkdir -p '${registry}'\necho 'fatal: No space left on device' >&2\nexit 1\n`
   );
   await assert.rejects(create(repo, { nameHint: 'full' }), (error) => {

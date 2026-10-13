@@ -124,10 +124,18 @@ try {
     { sessionId: reviewSession, toolCallId: 'review-delete' }
   );
   assertOk('apply_patch delete', deleteResult);
+  // The card shows the call's own change; the turn review nets add-then-delete out.
   const deleteUiDiff = takeApplyPatchUiDiff('review-delete');
   assert(
-    /target\.txt/.test(String(deleteUiDiff)) && !/created\.txt/.test(String(deleteUiDiff)),
-    `add-then-delete did not cancel from the turn diff:\n${deleteUiDiff}`
+    /deleted file mode/.test(String(deleteUiDiff)) &&
+      /created\.txt/.test(String(deleteUiDiff)) &&
+      !/target\.txt/.test(String(deleteUiDiff)),
+    `apply_patch delete did not publish only its own deletion:\n${deleteUiDiff}`
+  );
+  const afterDelete = await getTurnReviewDiff(tmp, reviewSession);
+  assert(
+    /target\.txt/.test(afterDelete.patch) && !/created\.txt/.test(afterDelete.patch),
+    `add-then-delete did not cancel from the turn diff:\n${afterDelete.patch}`
   );
 
   let deleteMissing = false;

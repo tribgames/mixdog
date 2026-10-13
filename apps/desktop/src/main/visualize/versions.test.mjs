@@ -243,8 +243,11 @@ test('a parent swapped for a link between validation and the write changes no ou
   const outside = join(space.root, 'outside');
   mkdirSync(outside);
   writeFileSync(join(outside, 'site.css'), 'outside');
+  // A counter, not the clock: two swaps can land in the same millisecond.
+  let swaps = 0;
   const swap = () => {
-    renameSync(join(space.cwd, 'site', 'css'), join(space.cwd, 'site', `css-old-${Date.now()}`));
+    swaps += 1;
+    renameSync(join(space.cwd, 'site', 'css'), join(space.cwd, 'site', `css-old-${swaps}`));
     symlinkSync(outside, join(space.cwd, 'site', 'css'), 'junction');
   };
   try {

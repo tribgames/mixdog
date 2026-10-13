@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { gitStatusRunner } from './git.mjs';
 import { mergeBranchIntoCheckout } from './merge.mjs';
-import { cleanupTempDirs, commitFile, git, makeRepo, writeFile } from './test-support.mjs';
+import { cleanupTempDirs, commitFile, git, makeRepo, writeHook } from './test-support.mjs';
 
 after(() => cleanupTempDirs());
 
@@ -17,7 +17,7 @@ test('a merge that fails after a clean preflight aborts only its own merge and t
   commitFile(repo, 'topic.txt', 'topic\n');
   git(repo, 'checkout', '-q', 'main');
   const head = git(repo, 'rev-parse', 'HEAD');
-  writeFile(repo, '.git/hooks/pre-merge-commit', '#!/bin/sh\necho refused >&2\nexit 1\n');
+  writeHook(repo, 'pre-merge-commit', '#!/bin/sh\necho refused >&2\nexit 1\n');
   await assert.rejects(merge(repo, 'topic', { target: 'main' }), (error) => {
     assert.equal(error.code, 'MERGE_FAILED');
     assert.equal(error.aborted, true);

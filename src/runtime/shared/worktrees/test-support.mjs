@@ -1,6 +1,6 @@
 // Temporary git repositories and data dirs for the worktree suites.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -39,6 +39,13 @@ export function writeFile(root, rel, content) {
   const path = join(root, ...rel.split('/'));
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+  return path;
+}
+
+/** A git hook script; outside Windows git skips a hook without the executable bit. */
+export function writeHook(root, name, script) {
+  const path = writeFile(root, `.git/hooks/${name}`, script);
+  chmodSync(path, 0o755);
   return path;
 }
 
