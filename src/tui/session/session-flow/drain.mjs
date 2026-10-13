@@ -114,7 +114,12 @@ function turnOptionsForBatch(batch, steering) {
   };
 }
 
-export function createDrainLoop(bag, { queue, steering, submissions, flushDeferredClearedSessionUi }) {
+const COMPLETION_WAKE_MODES = new Set(['task-notification', 'pending-resume']);
+
+export function createDrainLoop(
+  bag,
+  { queue, steering, submissions, flushDeferredClearedSessionUi, autoClearBeforeWake }
+) {
   const {
     tuiDebug,
     flags,
@@ -247,6 +252,15 @@ export function createDrainLoop(bag, { queue, steering, submissions, flushDeferr
         if (batch.length === 0) break;
         if (isGoalQueuedEntry(batch[0]) && bag.shouldRunGoalContinuation?.(batch[0]) !== true) {
           continue;
+        }
+        // A completion wake calls the model like a user turn, so a cold cache
+        // after a long idle is compacted first; the wake runs regardless.
+        if (autoClearBeforeWake && batch.every((entry) => COMPLETION_WAKE_MODES.has(entry.mode))) {
+          await autoClearBeforeWake();
+          if (flags.drainEpoch !== drainEpoch || admission() !== 'open') {
+            queue.requeueEntriesFront(batch);
+            return;
+          }
         }
         tuiDebug(`busy-queue drain batch=${batch.length} remaining=${pending.length}`);
         const merged = mergePromptContents(batch);

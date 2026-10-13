@@ -400,6 +400,10 @@ export async function createLocalSessionRuntime({
     subscribeRuntimeNotifications,
   });
   Object.assign(bag, createSessionFlow(bag));
+  // Runtime-driven completion wakes (no attached surface acked the completion)
+  // get the same idle auto-clear as a user submit.
+  lifecycle.unsubscribeCompletionWakeGate =
+    runtime.setCompletionWakeGate?.(() => bag.autoClearBeforeWake()) || null;
   Object.assign(
     bag,
     createGoalContinuation({

@@ -231,6 +231,70 @@ test('late auto-clear completion defers UI reset until an active turn settles', 
   assert.deepEqual(h.syncs, [{ allowEstimated: true, invalidateExact: true }]);
 });
 
+function wakeHarness(compact, { cfg, contextStatus } = {}) {
+  const h = createHarness(compact);
+  const order = [];
+  const origCompact = h.bag.runtime.compact;
+  h.bag.runtime.compact = async (options) => {
+    order.push('compact');
+    return origCompact(options);
+  };
+  if (cfg) h.bag.autoClearState = () => cfg;
+  if (contextStatus) h.bag.runtime.contextStatus = contextStatus;
+  h.bag.pushUserOrSyntheticItem = () => {};
+  h.bag.runTurn = async () => {
+    order.push('wake-turn');
+    return 'done';
+  };
+  const flow = createSessionFlow(h.bag);
+  Object.assign(h.bag, flow);
+  const wake = async () => {
+    flow.enqueue('<task-notification>done</task-notification>', { mode: 'task-notification', priority: 'next', key: 'k1' });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  };
+  return Object.assign(h, { flow, order, wake });
+}
+
+test('completion wake after a long idle compacts first, then runs the wake turn', async () => {
+  const h = wakeHarness(() => ({ changed: true }));
+  await h.wake();
+  assert.deepEqual(h.order, ['compact', 'wake-turn']);
+  assert.equal(h.state.items.some((i) => i.label === 'Auto-clear complete'), true);
+  assert.deepEqual(h.syncs, [{ allowEstimated: true, invalidateExact: true }]);
+});
+
+for (const [name, opts, patch] of [
+  ['disabled', { cfg: { enabled: false, idleMs: 60_000, minContextPercent: 10 } }],
+  ['not idle', { cfg: { enabled: true, idleMs: 600_000, minContextPercent: 10 } }],
+  [
+    'below the context threshold',
+    { contextStatus: () => ({ usedTokens: 10, compaction: { triggerTokens: 1_000 } }) },
+  ],
+]) {
+  test(`completion wake skips compaction when ${name} and still runs`, async () => {
+    const h = wakeHarness(() => ({ changed: true }), opts);
+    await h.wake();
+    assert.deepEqual(h.order, ['wake-turn']);
+    assert.equal(h.compactCalls, 0);
+  });
+}
+
+test('completion wake still runs when auto-clear compaction fails or times out', async () => {
+  const failed = wakeHarness(() => {
+    throw new Error('summary unavailable');
+  });
+  await failed.wake();
+  assert.deepEqual(failed.order, ['compact', 'wake-turn']);
+  assert.equal(failed.state.items.at(-1).label, 'Auto-clear skipped');
+
+  const timed = wakeHarness(() => new Promise(() => {}));
+  assert.equal(await timed.flow.performAutoClear({ compactTimeoutMs: 5 }), false);
+  timed.order.length = 0;
+  await timed.wake();
+  assert.deepEqual(timed.order, ['wake-turn']);
+  assert.match(timed.state.items.find((i) => i.label === 'Auto-clear skipped').detail, /timed out after 5ms/);
+});
+
 test('explicit manual clear still clears the session instead of compacting it', async () => {
   const h = createHarness(() => {
     throw new Error('manual clear must not compact');

@@ -129,7 +129,9 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     }
   }
 
-  async function autoClearBeforeSubmit() {
+  // `ignorePending`: a completion-wake drain has already dequeued its own
+  // batch, so other queued entries must not veto the idle check.
+  async function autoClearBeforeSubmit({ ignorePending = false } = {}) {
     flushDeferredClearedSessionUi();
     const cfg = autoClearState();
     const now = Date.now();
@@ -138,7 +140,7 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     const notIdle =
       !cfg.enabled ||
       getState().busy ||
-      pending.length > 0 ||
+      (!ignorePending && pending.length > 0) ||
       flags.autoClearRunning ||
       flags.autoClearInFlight ||
       idleMs < cfg.idleMs;
@@ -188,5 +190,18 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     }
   }
 
-  return { autoClearBeforeSubmit, performAutoClear, flushDeferredClearedSessionUi };
+  // Same eligibility as a user submit, run before a completion wake turn so a
+  // cold cache after a long idle is compacted first. Never throws: a skipped or
+  // failed auto-clear must still let the wake run. A viewer mirroring another
+  // surface's owner leaves compaction to that owner.
+  async function autoClearBeforeWake() {
+    if (bag.liveShareMirroring?.() === true) return false;
+    try {
+      return await autoClearBeforeSubmit({ ignorePending: true });
+    } catch {
+      return false;
+    }
+  }
+
+  return { autoClearBeforeSubmit, autoClearBeforeWake, performAutoClear, flushDeferredClearedSessionUi };
 }

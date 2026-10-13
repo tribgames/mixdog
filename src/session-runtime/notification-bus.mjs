@@ -29,7 +29,7 @@ function cleanSessionId(value) {
 // the wake would leave its durable entry parked until the next user message.
 // A completion whose owner is no longer the live session is still dropped (the
 // durable queue carries it into that session's next turn).
-export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi, getOwnerLifecycle }) {
+export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi, getOwnerLifecycle, beforeWake }) {
   // A closing/terminal owner never starts inference from a completion; the
   // check runs at request time and again inside the delayed callback.
   const ownerOpen = (sessionId) => {
@@ -54,6 +54,14 @@ export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi,
             `[notification] delayed completion wake sessionId=${ownerSessionId}` +
               ` executionId=${executionId || 'unknown'} queuedMs=${delayMs}\n`
           );
+        }
+        // Surface hook (idle auto-clear): compacts a cold-cache session before
+        // the wake sends it. A failing hook never blocks the wake.
+        if (typeof beforeWake === 'function') {
+          try {
+            await beforeWake(ownerSessionId);
+          } catch {}
+          if (cleanSessionId(getCurrentSessionId()) !== ownerSessionId || !ownerOpen(ownerSessionId)) return;
         }
         // The wake continues the user turn that launched the worker, so its
         // review keeps that turn's Lead edits and worker diffs.

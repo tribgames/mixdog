@@ -119,6 +119,7 @@ function wireNotifications(boot) {
     getCurrentSessionId: () => rt.session?.id || rt.reservedSessionId || null,
     getTurnApi: () => boot.sessionTurnApi,
     getOwnerLifecycle: (sessionId) => ownerLifecycle(rt, sessionId),
+    beforeWake: (sessionId) => boot.completionWakeGate?.(sessionId),
   });
   const {
     emitRuntimeNotification,

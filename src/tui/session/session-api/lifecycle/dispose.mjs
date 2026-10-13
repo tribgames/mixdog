@@ -35,7 +35,12 @@ export function createDisposeAction(bag, { oauthFlows }) {
       try {
         clearInterval(lifecycle.runtimePulseTimer);
       } catch {}
-      for (const key of ['unsubscribeRuntimeNotifications', 'unsubscribeAgentStatus', 'unsubscribeRemoteState']) {
+      for (const key of [
+        'unsubscribeRuntimeNotifications',
+        'unsubscribeAgentStatus',
+        'unsubscribeRemoteState',
+        'unsubscribeCompletionWakeGate',
+      ]) {
         try {
           lifecycle[key]?.();
         } catch {}

@@ -23,6 +23,7 @@ export function createSessionFlow(bag) {
     steering,
     submissions,
     flushDeferredClearedSessionUi: autoClear.flushDeferredClearedSessionUi,
+    autoClearBeforeWake: autoClear.autoClearBeforeWake,
   });
 
   return {
@@ -41,6 +42,7 @@ export function createSessionFlow(bag) {
     drainPendingSteering: steering.drainPendingSteering,
     restoreLeadSteeringFromDisk: steering.restoreLeadSteeringFromDisk,
     autoClearBeforeSubmit: autoClear.autoClearBeforeSubmit,
+    autoClearBeforeWake: autoClear.autoClearBeforeWake,
     performAutoClear: autoClear.performAutoClear,
     restoreQueued: queue.restoreQueued,
     prioritizeQueued: queue.prioritizeQueued,
