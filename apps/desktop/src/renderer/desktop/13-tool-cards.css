@@ -813,8 +813,7 @@ button.transcript-visualize-card:hover {
 .tool-activity[data-surface="desktop"] .tool-activity-title b,
 .tool-activity[data-surface="desktop"] .tool-activity-title small {
   font-family: var(--mx-font-sans);
-  /* The 13px step: tool lines sit one rung under the 14px conversation. */
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
 /* Level 1 of three (summary → call rows → call detail): the roll-up line
@@ -930,7 +929,7 @@ button.transcript-visualize-card:hover {
   text-overflow: clip;
   color: var(--mx-text-muted);
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   letter-spacing: var(--mx-tracking-tight);
 }
@@ -954,15 +953,15 @@ button.transcript-visualize-card:hover {
 /* A description, a query or an agent's task is plain words. */
 .tool-title.tool-activity-item-title small[data-kind="text"] {
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
 }
 /* A file (or a count of them) is a name: UI face, full ink, medium weight. */
 .tool-title.tool-activity-item-title small[data-kind="target"] {
   max-width: none;
   color: var(--mx-text);
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
-  /* The row-title tier at the tool lines' 13px step (500 weight):
+  font-size: var(--mx-font-ui);
+  /* The app's row-title tier (14/500, as a Settings row or a resource name):
      semibold is the group-heading tier and outweighed the summary above. */
   font-weight: var(--mx-weight-medium);
 }
@@ -1918,7 +1917,7 @@ button.transcript-visualize-card:hover {
    out in the code face). */
 .tool-title.tool-activity-item-title b {
   font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
 }
 /* Narrow windows: the title must ellipsize instead of shoving the elapsed
    readout/chevron sideways.
