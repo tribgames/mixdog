@@ -15,7 +15,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { t, uiFormatLocale } from './i18n';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { sessionLabel } from './session-sidebar-rows';
-import { projectIdentity } from './project-catalog-cache';
+import { projectIdentity, sessionProjectKey } from './project-catalog-cache';
 import { isOpen, type OpenMap } from './sidebar-open-state';
 
 const DEFAULT_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_DEFAULT_WIDTH;
@@ -70,7 +70,7 @@ type AutomationGroup = { key: string; name: string; runs: DesktopSessionSummary[
 export function groupAutomationSessions(activityOrderedRows: DesktopSessionSummary[]): AutomationGroup[] {
   const groups = new Map<string, { name: string; runs: DesktopSessionSummary[] }>();
   for (const session of activityOrderedRows) {
-    if (session.archived === true || !isAutomationRow(session)) continue;
+    if (session.archived || !isAutomationRow(session)) continue;
     const key = `${session.sourceType}:${
       String(session.sourceName || '')
         .trim()
@@ -209,8 +209,8 @@ export function automationsSection({
         <nav className="session-list automation-session-list" aria-label={t('Automations')}>
           {groups.map(({ key, name, runs }) => {
             const expanded = !collapsedGroups.has(key);
-            const working = runs.some((run) => workingSessionIds?.has(run.id) === true);
-            const unread = runs.some((run) => unreadSessionIds?.has(run.id) === true);
+            const working = runs.some((run) => workingSessionIds?.has(run.id));
+            const unread = runs.some((run) => unreadSessionIds?.has(run.id));
             const ExpandGlyph = expanded ? ChevronDown : ChevronRight;
             return (
               <div className="automation-group" key={key}>
@@ -398,8 +398,8 @@ function reorderTarget(props?: ReorderProps) {
 export type ProjectSessionGroup = { key: string; path: string; name: string; rows: DesktopSessionSummary[] };
 
 /** Registered projects as sidebar folders. A session belongs to the project
- *  whose path equals its projectPath (else its cwd); other sessions stay in
- *  Recent only. Folders come newest-activity first; the user's drag order is
+ *  the user moved it to, else the deepest project containing its projectPath,
+ *  worktree project or cwd; other sessions stay in Recent only. Folders come newest-activity first; the user's drag order is
  *  applied on top of that. Expects activity-desc rows. */
 export function groupProjectSessions(
   projects: readonly DesktopProjectSummary[],
@@ -412,34 +412,27 @@ export function groupProjectSessions(
     const name = project.alias?.trim() || project.name?.trim() || project.path;
     byKey.set(key, { key, path: project.path, name, rows: [] });
   }
+  const keys = [...byKey.keys()];
   for (const session of activityOrderedRows) {
-    const group = byKey.get(projectIdentity(session.projectPath)) ?? byKey.get(projectIdentity(session.cwd));
-    group?.rows.push(session);
+    byKey.get(sessionProjectKey(session, keys))?.rows.push(session);
   }
   const newest = (group: ProjectSessionGroup) =>
     group.rows.length ? Number(group.rows[0].activityAt) || group.rows[0].updatedAt : 0;
   return [...byKey.values()].sort((left, right) => newest(right) - newest(left));
 }
 
-/** Projects section above Recent: one folder row per registered project. A
- *  folder opens onto its newest sessions; the folder row is the drag handle
- *  for reordering and its hover + starts a task in that project. */
-export function projectsSection({
-  groups,
-  open,
-  onToggleOpen,
-  projectOpen,
-  onToggleProject,
-  rowLimits,
-  onShowMore,
-  onNewTask,
-  folderReorderProps,
-  headerProps,
-  unreadSessionIds,
-  renderSessionRow,
-  onFolderMenu,
-  rename,
-}: {
+interface ProjectsSectionProps {
+  /** A session row dragged over a folder moves it into that project. */
+  sessionDrop?: {
+    /** Key of the folder currently highlighted as the drop target. */
+    activeKey: string;
+    /** True when the dragged session may drop on this folder (claims the event). */
+    onDragOver(group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>): boolean;
+    onDragLeave(group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>): void;
+    onDrop(group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>): boolean;
+  };
+  /** Header ⋯ menu: opens the shared add-project dialog. */
+  onAddProject?(): void;
   /** Right-click / Menu key on a folder row. */
   onFolderMenu?(group: ProjectSessionGroup, point: { x: number; y: number }): void;
   /** Inline rename of one folder (its project display name). */
@@ -463,10 +456,152 @@ export function projectsSection({
   headerProps?: ReorderProps;
   unreadSessionIds?: ReadonlySet<string>;
   renderSessionRow(session: DesktopSessionSummary, groupKey: string): React.ReactNode;
-}) {
+}
+
+/** One project folder: its drag/drop target, folder row (with inline rename and
+ *  menu), and the opened sessions page. */
+function projectFolderGroup(
+  group: ProjectSessionGroup,
+  {
+    projectOpen,
+    rowLimits,
+    onShowMore,
+    onNewTask,
+    onToggleProject,
+    folderReorderProps,
+    unreadSessionIds,
+    renderSessionRow,
+    onFolderMenu,
+    rename,
+    sessionDrop,
+  }: ProjectsSectionProps
+) {
+  const expanded = isOpen(projectOpen, group.key);
+  const reorder = folderReorderProps(group.key);
+  const limit = rowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
+  const unread = !expanded && group.rows.some((session) => unreadSessionIds?.has(session.id));
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop target; the keyboard path is the session menu's Move to project
+    <div
+      className="project-group"
+      key={group.key}
+      data-project-key={group.key}
+      data-session-drop={sessionDrop?.activeKey === group.key ? 'true' : undefined}
+      {...reorderTarget(reorder)}
+      onDragOver={(event) => {
+        if (!sessionDrop?.onDragOver(group, event)) reorder.onDragOver?.(event);
+      }}
+      onDragLeave={sessionDrop ? (event) => sessionDrop.onDragLeave(group, event) : undefined}
+      onDrop={(event) => {
+        if (!sessionDrop?.onDrop(group, event)) reorder.onDrop?.(event);
+      }}
+    >
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: right-click is a pointer shortcut; the folder button inside opens the same menu from the keyboard (Menu / Shift+F10). */}
+      <div
+        className="project-folder"
+        {...(rename?.key === group.key ? {} : reorderHandle(reorder))}
+        onContextMenu={
+          onFolderMenu
+            ? (event) => {
+                event.preventDefault();
+                onFolderMenu(group, pointerMenuPoint(event));
+              }
+            : undefined
+        }
+      >
+        {rename?.key === group.key && (
+          <input
+            className="session-title-input project-folder-rename"
+            value={rename.draft}
+            maxLength={160}
+            // biome-ignore lint/a11y/noAutofocus: rename starts from an explicit menu action
+            autoFocus
+            aria-label={t('Rename')}
+            onFocus={(event) => event.currentTarget.select()}
+            onInput={(event) => rename.onDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                rename.onCommit(group);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                rename.onCancel();
+              }
+            }}
+            onBlur={() => rename.onCommit(group)}
+          />
+        )}
+        <button
+          type="button"
+          className="session-row project-folder-toggle"
+          aria-expanded={expanded}
+          aria-haspopup={onFolderMenu ? 'menu' : undefined}
+          data-tooltip={group.path}
+          hidden={rename?.key === group.key}
+          onClick={() => onToggleProject(group.key)}
+          onKeyDown={(event) => {
+            if (!onFolderMenu || !isContextMenuKey(event)) return;
+            event.preventDefault();
+            onFolderMenu(group, elementMenuPoint(event.currentTarget));
+          }}
+        >
+          {/* Same project glyph as the Projects panel and composer chip. */}
+          <MxIcon name="folder" className="project-folder-icon" />
+          <span className="session-row-copy">
+            <b>{group.name}</b>
+          </span>
+          {unread && (
+            <span
+              className="session-row-unread-dot"
+              role="status"
+              aria-label={t('{{name}} has new activity', { name: group.name })}
+            />
+          )}
+        </button>
+        {/* Like a collapsed section heading: the unread dot takes the
+            trailing slot, so the + yields until the folder opens. */}
+        {!unread && (
+          <button
+            type="button"
+            className="row-overflow-trigger project-folder-new"
+            aria-label={t('New task')}
+            data-tooltip={t('New task')}
+            onClick={() => onNewTask(group.path)}
+          >
+            <Plus size={14} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <div className="project-group-sessions">
+          {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>}
+          {group.rows.slice(0, limit).map((session) => renderSessionRow(session, group.key))}
+          {group.rows.length > limit && (
+            <button type="button" className="session-row project-group-more" onClick={() => onShowMore(group.key)}>
+              <span className="session-row-copy">
+                <b>{t('More')}</b>
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Projects section above Recent: one folder row per registered project. A
+ *  folder opens onto its newest sessions; the folder row is the drag handle
+ *  for reordering and its hover + starts a task in that project. */
+export function projectsSection(props: ProjectsSectionProps) {
+  const { groups, open, onToggleOpen, headerProps, onAddProject } = props;
   return (
     <section className="sidebar-recent sidebar-projects" aria-label={t('Projects')} {...reorderTarget(headerProps)}>
-      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
+      <div
+        className="sidebar-category-header"
+        {...reorderHandle(headerProps)}
+        {...(onAddProject ? rowOverflowHostProps() : {})}
+      >
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -476,113 +611,16 @@ export function projectsSection({
           <span>{t('Projects')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
+        {onAddProject && (
+          <RowOverflowMenu
+            label={t('Actions')}
+            items={[{ id: 'add-project', label: t('Add project'), onSelect: () => onAddProject() }]}
+          />
+        )}
       </div>
       {open && (
         <nav className="session-list project-session-list" aria-label={t('Projects')}>
-          {groups.map((group) => {
-            const expanded = isOpen(projectOpen, group.key);
-            const reorder = folderReorderProps(group.key);
-            const limit = rowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
-            const unread = !expanded && group.rows.some((session) => unreadSessionIds?.has(session.id) === true);
-            return (
-              <div className="project-group" key={group.key} {...reorderTarget(reorder)}>
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: right-click is a pointer shortcut; the folder button inside opens the same menu from the keyboard (Menu / Shift+F10). */}
-                <div
-                  className="project-folder"
-                  {...(rename?.key === group.key ? {} : reorderHandle(reorder))}
-                  onContextMenu={
-                    onFolderMenu
-                      ? (event) => {
-                          event.preventDefault();
-                          onFolderMenu(group, pointerMenuPoint(event));
-                        }
-                      : undefined
-                  }
-                >
-                  {rename?.key === group.key && (
-                    <input
-                      className="session-title-input project-folder-rename"
-                      value={rename.draft}
-                      maxLength={160}
-                      // biome-ignore lint/a11y/noAutofocus: rename starts from an explicit menu action
-                      autoFocus
-                      aria-label={t('Rename')}
-                      onFocus={(event) => event.currentTarget.select()}
-                      onInput={(event) => rename.onDraft(event.currentTarget.value)}
-                      onKeyDown={(event) => {
-                        event.stopPropagation();
-                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                          event.preventDefault();
-                          rename.onCommit(group);
-                        } else if (event.key === 'Escape') {
-                          event.preventDefault();
-                          rename.onCancel();
-                        }
-                      }}
-                      onBlur={() => rename.onCommit(group)}
-                    />
-                  )}
-                  <button
-                    type="button"
-                    className="session-row project-folder-toggle"
-                    aria-expanded={expanded}
-                    aria-haspopup={onFolderMenu ? 'menu' : undefined}
-                    data-tooltip={group.path}
-                    hidden={rename?.key === group.key}
-                    onClick={() => onToggleProject(group.key)}
-                    onKeyDown={(event) => {
-                      if (!onFolderMenu || !isContextMenuKey(event)) return;
-                      event.preventDefault();
-                      onFolderMenu(group, elementMenuPoint(event.currentTarget));
-                    }}
-                  >
-                    {/* Same project glyph as the Projects panel and composer chip. */}
-                    <MxIcon name="folder" className="project-folder-icon" />
-                    <span className="session-row-copy">
-                      <b>{group.name}</b>
-                    </span>
-                    {unread && (
-                      <span
-                        className="session-row-unread-dot"
-                        role="status"
-                        aria-label={t('{{name}} has new activity', { name: group.name })}
-                      />
-                    )}
-                  </button>
-                  {/* Like a collapsed section heading: the unread dot takes the
-                      trailing slot, so the + yields until the folder opens. */}
-                  {!unread && (
-                    <button
-                      type="button"
-                      className="row-overflow-trigger project-folder-new"
-                      aria-label={t('New task')}
-                      data-tooltip={t('New task')}
-                      onClick={() => onNewTask(group.path)}
-                    >
-                      <Plus size={14} aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
-                {expanded && (
-                  <div className="project-group-sessions">
-                    {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>}
-                    {group.rows.slice(0, limit).map((session) => renderSessionRow(session, group.key))}
-                    {group.rows.length > limit && (
-                      <button
-                        type="button"
-                        className="session-row project-group-more"
-                        onClick={() => onShowMore(group.key)}
-                      >
-                        <span className="session-row-copy">
-                          <b>{t('More')}</b>
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {groups.map((group) => projectFolderGroup(group, props))}
         </nav>
       )}
     </section>

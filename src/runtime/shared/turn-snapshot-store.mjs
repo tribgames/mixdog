@@ -360,7 +360,9 @@ async function forgetChangeRecordsRoot(target, removed, kept) {
     let sessionId = '';
     try {
       sessionId = clean(JSON.parse(await readFile(path, 'utf8'))?.sessionId);
-    } catch {}
+    } catch {
+      // Unreadable or corrupt file: no session id, skipped below.
+    }
     if (!sessionId || changesPath(sessionId) !== path) continue;
     await chain(`changes:${sessionId}`, async () => {
       const records = (await readChangesFile(sessionId))?.records;
@@ -437,14 +439,21 @@ function boundChangeRecords(records, keepCheckpointId) {
   }
   if (total <= MAX_CHANGE_BYTES_PER_SESSION) return;
   const kept = records.find((record) => record.checkpointId === keepCheckpointId);
-  const largest = (kept?.files || [])
-    .filter((file) => typeof file.patch === 'string')
-    .sort((left, right) => right.patch.length - left.patch.length);
+  // Replay patches and display patches share one budget, measured in UTF-8 bytes.
+  const weight = (file) =>
+    ['patch', 'viewPatch'].reduce(
+      (sum, key) => sum + (typeof file[key] === 'string' ? Buffer.byteLength(file[key], 'utf8') : 0),
+      0
+    );
+  const largest = [...(kept?.files || []), ...(kept?.outside || [])]
+    .filter((file) => weight(file) > 0)
+    .sort((left, right) => weight(right) - weight(left));
   for (const file of largest) {
     if (total <= MAX_CHANGE_BYTES_PER_SESSION) break;
-    total -= Buffer.byteLength(file.patch, 'utf8');
+    total -= weight(file);
     file.patch = null;
     delete file.patchEncoding;
+    delete file.viewPatch;
     file.revertable = false;
     file.reason = 'change is too large to keep for undo';
     file.patchOmitted = true;
@@ -456,6 +465,7 @@ let changeWriteHookForTest = null;
 
 async function writeChangeRecords(sessionId, records) {
   await changeWriteHookForTest?.(sessionId, records);
+  changeRecordsCache.delete(sessionId);
   await mkdir(changesRoot(), { recursive: true });
   if (!changesSweepDone) {
     changesSweepDone = true;
@@ -464,7 +474,8 @@ async function writeChangeRecords(sessionId, records) {
   await writeJsonAtomically(changesPath(sessionId), { version: CHANGES_VERSION, sessionId, records });
 }
 
-const changeContent = (record) => JSON.stringify([record.kind, record.root, record.agents || [], record.files || []]);
+const changeContent = (record) =>
+  JSON.stringify([record.kind, record.root, record.agents || [], record.files || [], record.outside || []]);
 
 /**
  * Upsert one turn's frozen changes. Every file of the new freeze is `applied`;
@@ -493,6 +504,9 @@ export async function upsertTurnChangeRecord(sessionId, next) {
       root: clean(next.root),
       agents: Array.isArray(next.agents) ? next.agents : [],
       files,
+      // View-only edits outside the root of a Git turn: never undone or
+      // replayed, listed only by the session review.
+      ...(Array.isArray(next.outside) && next.outside.length ? { outside: next.outside } : {}),
     };
     if (prior && changeContent(prior) === changeContent(candidate)) return prior;
     const now = Date.now();
@@ -542,6 +556,37 @@ export async function loadTurnChangeRecord(sessionId, checkpointId) {
   return records.find((record) => record?.checkpointId === key) || null;
 }
 
+// Parsed change records by session, valid while the file's mtime and size are
+// unchanged: the session review refreshes every few seconds and must not
+// re-read and re-parse a multi-megabyte file each time. Callers never mutate.
+const changeRecordsCache = new Map();
+const CHANGE_RECORDS_CACHE_SESSIONS = 8;
+
+/** Every retained turn's change record of a session, oldest first. */
+export async function loadTurnChangeRecords(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return [];
+  let signature = '';
+  try {
+    const info = await stat(changesPath(id));
+    signature = `${info.mtimeMs}:${info.size}`;
+  } catch {
+    changeRecordsCache.delete(id);
+    return [];
+  }
+  const cached = changeRecordsCache.get(id);
+  if (cached?.signature === signature) return cached.records;
+  const records = ((await readChangesFile(id))?.records || [])
+    .filter(Boolean)
+    .sort((left, right) => (Number(left.createdAt) || 0) - (Number(right.createdAt) || 0));
+  changeRecordsCache.delete(id);
+  changeRecordsCache.set(id, { signature, records });
+  if (changeRecordsCache.size > CHANGE_RECORDS_CACHE_SESSIONS) {
+    changeRecordsCache.delete(changeRecordsCache.keys().next().value);
+  }
+  return records;
+}
+
 export function _setTurnChangeRecordWriteHookForTest(hook) {
   changeWriteHookForTest = typeof hook === 'function' ? hook : null;
 }
@@ -549,6 +594,7 @@ export function _setTurnChangeRecordWriteHookForTest(hook) {
 export function _setTurnSnapshotStoreRootForTest(directory) {
   recordRootOverride = clean(directory);
   writeChains.clear();
+  changeRecordsCache.clear();
   sweepDone = false;
   changesSweepDone = false;
 }

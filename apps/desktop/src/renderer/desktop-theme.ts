@@ -108,7 +108,7 @@ function builtinTheme(resolved: string): boolean {
 // desktop/01-tokens.css), the same color index.html, the manifest and the boot
 // gate start from: Android standalone browsers paint both system bars with it,
 // and the other-PC Electron window tints its caption buttons from it.
-const THEME_COLOR_DARK = '#18181b';
+const THEME_COLOR_DARK = '#181818';
 const THEME_COLOR_LIGHT = '#f7f7f7';
 
 // 'system' | 'dark' | 'white' are the desktop surface modes; any TUI registry

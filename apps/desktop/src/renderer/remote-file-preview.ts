@@ -39,7 +39,7 @@ export function useMediaSessionEpoch(): number {
   return useSyncExternalStore(subscribeMediaSession, getMediaSessionEpoch, getMediaSessionEpoch);
 }
 
-type Call =<T = unknown>(method: string, params?: unknown[]) => Promise<T>;
+type Call = <T = unknown>(method: string, params?: unknown[]) => Promise<T>;
 
 /** Raw bytes requested per round trip (host clamps to 4 MiB). */
 export const REMOTE_PREVIEW_CHUNK_BYTES = 2 * 1024 * 1024;
@@ -209,7 +209,8 @@ export async function readRemoteVisualizePane(
   if (meta.kind === 'html') {
     return { kind: 'html', srcdoc: await buildPageSrcdoc(paneCall, '', meta.rel, null) };
   }
-  if (meta.size > REMOTE_PREVIEW_MAX_FILE_BYTES) throw new Error('This file is too large to preview over remote access.');
+  if (meta.size > REMOTE_PREVIEW_MAX_FILE_BYTES)
+    throw new Error('This file is too large to preview over remote access.');
   const file = await readRemoteFile(paneCall, ['', meta.rel, null], REMOTE_PREVIEW_MAX_FILE_BYTES);
   return { kind: meta.kind, url: URL.createObjectURL(new Blob(file.parts as BlobPart[], { type: meta.mime })) };
 }
@@ -255,10 +256,12 @@ async function mediaLaneAnswers(url: string): Promise<boolean> {
 export function createRemotePreviewApi(
   call: Call,
   laneUrl?: (assetId: string, variant?: string) => string
-): Pick<DesktopApi, 'previewProjectFile' | 'localPageSource'> {
+): Pick<DesktopApi, 'previewProjectFile' | 'localPageSource' | 'captureFileSnapshot'> {
   // key -> blob URL promise; revoked when evicted so a long session stays bounded.
   const blobs = new Map<string, Promise<string>>();
   return {
+    captureFileSnapshot: (projectPath, relPath, accessToken) =>
+      call('captureFileSnapshot', [projectPath, relPath, accessToken ?? null]),
     previewProjectFile: async (projectPath, relPath, accessToken) => {
       const target: [string, string, string | null] = [projectPath, relPath, accessToken ?? null];
       const meta = await call<{

@@ -109,6 +109,63 @@ test('a persistent pane portal mounts layout-sensitive children after its target
   }
 });
 
+test('a persistent pane portal reads scroll offsets once per frame and restores them after a mid-scroll move', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main><div id="slots"><div id="pane-target"></div></div></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement'],
+  });
+  dom.window.requestAnimationFrame = (callback) => dom.window.setTimeout(() => callback(Date.now()), 0);
+  dom.window.cancelAnimationFrame = (id) => dom.window.clearTimeout(id);
+  const { PersistentPanePortal } = await import('./PaneSurfaceGate.tsx');
+  const root = createRoot(document.getElementById('root'));
+  const render = (revision) =>
+    root.render(
+      React.createElement(
+        PersistentPanePortal,
+        { targetId: 'pane-target' },
+        React.createElement('div', { id: 'scroller', 'data-revision': revision })
+      )
+    );
+  try {
+    await act(async () => render(0));
+    const scroller = document.getElementById('scroller');
+    let top = 0;
+    let reads = 0;
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => {
+        reads += 1;
+        return top;
+      },
+      set: (value) => {
+        top = value;
+      },
+    });
+    top = 120;
+    for (let frame = 0; frame < 5; frame += 1) scroller.dispatchEvent(new dom.window.Event('scroll'));
+    assert.equal(reads, 0, 'a scroll event never reads layout back');
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    assert.equal(reads, 1, 'the frame reads the offset once');
+    // Still scrolling (no scrollend) when the slot is replaced: the
+    // detached scroller reads 0, so the frame's read is what restores.
+    await act(async () => {
+      document.getElementById('pane-target').remove();
+      top = 0;
+      const target = document.createElement('div');
+      target.id = 'pane-target';
+      document.getElementById('slots').append(target);
+      // The pane layout commit that produced the new slot re-runs the attach.
+      render(1);
+    });
+    assert.equal(scroller.isConnected, true);
+    assert.equal(scroller.parentElement?.parentElement?.id, 'pane-target');
+    assert.equal(top, 120);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('a newly opened Studio mounts its gallery and composer in the tab-switch commit', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',

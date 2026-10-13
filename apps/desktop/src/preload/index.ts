@@ -175,6 +175,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.readProjectFile, projectPath, relPath, accessToken),
   previewProjectFile: (projectPath, relPath, accessToken) =>
     ipcRenderer.invoke(DESKTOP_IPC.previewProjectFile, projectPath, relPath, accessToken),
+  captureFileSnapshot: (projectPath, relPath, accessToken) =>
+    ipcRenderer.invoke(DESKTOP_IPC.captureFileSnapshot, projectPath, relPath, accessToken),
   previewDocumentFile: (projectPath, relPath, accessToken) =>
     ipcRenderer.invoke(DESKTOP_IPC.previewDocumentFile, projectPath, relPath, accessToken),
   previewDocumentPages: (projectPath, relPath, accessToken, options) =>
@@ -235,6 +237,8 @@ const api: DesktopApi = {
   setQuotaAutoResume: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.setQuotaAutoResume, enabled),
   setSessionArchived: (sessionId, archived) => ipcRenderer.invoke(DESKTOP_IPC.setSessionArchived, sessionId, archived),
   setSessionFavorite: (sessionId, favorite) => ipcRenderer.invoke(DESKTOP_IPC.setSessionFavorite, sessionId, favorite),
+  setSessionProject: (sessionId, projectPath) =>
+    ipcRenderer.invoke(DESKTOP_IPC.setSessionProject, sessionId, projectPath),
   deleteSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.deleteSession, sessionId),
   getRemoteAccessInfo: (options) => ipcRenderer.invoke(DESKTOP_IPC.remoteAccessInfo, options),
   rotateRemoteAccess: () => ipcRenderer.invoke(DESKTOP_IPC.rotateRemoteAccess),

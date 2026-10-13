@@ -6,6 +6,7 @@ import { t } from './i18n';
 import { parseUnifiedDiff } from './renderer-logic.mjs';
 import { GitFileDiff } from './ReviewPane';
 import { fileBaseName } from './text-format';
+import { useHighlightedRows } from './transcript-tool-panel';
 
 export type DiffLineKind = 'ctx' | 'add' | 'del';
 export type DiffLine = { kind: DiffLineKind; oldNo: number; newNo: number; text: string };
@@ -55,7 +56,7 @@ export function patchHunks(patch: string): string[] {
 
 /** Hunks → display items: one number column (new-file numbers; old numbers
  *  for deleted lines), long unchanged runs folded, gaps between hunks named. */
-export function buildDiffItems(hunks: readonly string[]): DiffItem[] {
+export function buildDiffItems(hunks: readonly string[], fold = true): DiffItem[] {
   const items: DiffItem[] = [];
   let nextNew = 1;
   hunks.forEach((hunk, hunkIndex) => {
@@ -76,7 +77,7 @@ export function buildDiffItems(hunks: readonly string[]): DiffItem[] {
       const head = index === 0 ? 0 : DIFF_FOLD_KEEP;
       const tail = end === lines.length ? 0 : DIFF_FOLD_KEEP;
       const hidden = end - index - head - tail;
-      if (hidden >= DIFF_FOLD_MIN_HIDDEN) {
+      if (fold && hidden >= DIFF_FOLD_MIN_HIDDEN) {
         for (let i = index; i < index + head; i += 1) {
           items.push({ type: 'line', key: `${hunkIndex}:${i}`, line: lines[i] });
         }
@@ -115,7 +116,7 @@ export function unmodifiedLabel(count: number): string {
   return count === 1 ? t('1 unmodified line') : t('{{count}} unmodified lines', { count });
 }
 
-function DiffRow({ line }: { line: DiffLine }) {
+function DiffRow({ line, tokens }: { line: DiffLine; tokens?: ReactNode[] }) {
   const number = line.kind === 'del' ? line.oldNo : line.newNo;
   let marker = '';
   if (line.kind === 'add') marker = '+';
@@ -124,19 +125,43 @@ function DiffRow({ line }: { line: DiffLine }) {
     <div className="inline-diff-row" data-kind={line.kind}>
       <span className="inline-diff-ln">{number}</span>
       <span className="inline-diff-mk">{marker}</span>
-      <span className="inline-diff-code">{line.text}</span>
+      <span className="inline-diff-code">{tokens ?? line.text}</span>
     </div>
   );
 }
 
-/** Unified diff of one file's hunks, in one line-number column. */
-export function InlineDiff({ hunks }: { hunks: readonly string[] }) {
-  const items = useMemo(() => buildDiffItems(hunks), [hunks]);
+/** Unified diff of one file's hunks, in one line-number column. `language`
+ *  syntax-colours the code through the transcript's highlighter; `whole`
+ *  draws every recorded line instead of folding unchanged runs. */
+export function InlineDiff({
+  hunks,
+  language = '',
+  whole = false,
+}: {
+  hunks: readonly string[];
+  language?: string;
+  whole?: boolean;
+}) {
+  const items = useMemo(() => buildDiffItems(hunks, !whole), [hunks, whole]);
+  // Every line in reading order (folded ones too), highlighted as one run.
+  const { rows, indexOf } = useMemo(() => {
+    const ordered: DiffLine[] = [];
+    for (const item of items) {
+      if (item.type === 'line') ordered.push(item.line);
+      else if (item.type === 'fold') ordered.push(...item.lines);
+    }
+    return {
+      rows: ordered.map((line) => ({ line: null, text: line.text })),
+      indexOf: new Map(ordered.map((line, index) => [line, index] as const)),
+    };
+  }, [items]);
+  const highlighted = useHighlightedRows(rows, language, false);
+  const tokensOf = (line: DiffLine) => highlighted[indexOf.get(line) ?? -1];
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   return (
     <div className="inline-diff" data-mode="unified">
       {items.map((item) => {
-        if (item.type === 'line') return <DiffRow key={item.key} line={item.line} />;
+        if (item.type === 'line') return <DiffRow key={item.key} line={item.line} tokens={tokensOf(item.line)} />;
         if (item.type === 'gap') {
           return (
             <div key={item.key} className="inline-diff-fold" data-static="true">
@@ -147,7 +172,7 @@ export function InlineDiff({ hunks }: { hunks: readonly string[] }) {
         if (expanded.has(item.key)) {
           return item.lines.map((line, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: lines of one unchanged fold are fixed in order; the position is the identity.
-            <DiffRow key={`${item.key}:${index}`} line={line} />
+            <DiffRow key={`${item.key}:${index}`} line={line} tokens={tokensOf(line)} />
           ));
         }
         return (
@@ -172,15 +197,19 @@ export function FileDiffBody({
   patch,
   mode,
   hideHunkHeader,
+  language = '',
+  whole = false,
 }: {
   patch: string;
   mode: DiffStyle;
   hideHunkHeader?: boolean;
+  language?: string;
+  whole?: boolean;
 }) {
   const hunks = useMemo(() => patchHunks(patch), [patch]);
   if (mode === 'split') return <GitFileDiff patch={patch} mode="split" hideHunkHeader={hideHunkHeader} />;
   if (hunks.length === 0) return <p className="inline-diff-empty">{t('No textual differences.')}</p>;
-  return <InlineDiff hunks={hunks} />;
+  return <InlineDiff hunks={hunks} language={language} whole={whole} />;
 }
 
 /** One changed file: chevron, bold name, dim directory, +N −M. Expanding it

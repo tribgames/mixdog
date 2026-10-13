@@ -2351,9 +2351,11 @@ test('live agent rows carry cumulative usage and tool calls through to the backg
   });
   assert.deepEqual(merged.usage, usage);
   assert.equal(merged.toolCalls, 3);
-  const [job] = backgroundJobRows({
-    agentWorkers: [{ tag: 'build', agent: 'builder', status: 'running', sessionId: 'sess-a', usage, toolCalls: 12 }],
-  }).filter((entry) => entry.kind === 'agent');
-  assert.deepEqual(job.pool.usage, usage);
-  assert.equal(job.pool.toolCalls, 12);
+  // Background shell rows never carry agents: those come from the pool.
+  assert.deepEqual(
+    backgroundJobRows({
+      agentWorkers: [{ tag: 'build', agent: 'builder', status: 'running', sessionId: 'sess-a', usage, toolCalls: 12 }],
+    }),
+    []
+  );
 });

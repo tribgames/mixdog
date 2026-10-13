@@ -23,7 +23,9 @@ export function PaneDockFileSurface({
   onCloseFile,
   onClose,
   openFileTab,
+  leadingTab,
 }: {
+  leadingTab?: { label: string; onSelect(): void };
   /** The open file tabs, in order. */
   files: readonly PaneSideDockFile[];
   activeFile: PaneSideDockFile | null;
@@ -79,6 +81,7 @@ export function PaneDockFileSurface({
       <SideFileStrip
         files={files}
         activeKey={activeFileId}
+        leadingTab={leadingTab}
         chrome={fileChrome}
         onSelect={(fileKey) => onActivateFile?.(fileKey)}
         onCloseTab={(fileKey) => (onCloseFileTab ? onCloseFileTab(fileKey) : (onCloseFile ?? onClose)())}

@@ -8,7 +8,8 @@ export function useComposerUserMessages(settledItems: readonly TranscriptItem[])
     const rows: Array<{ id: string; text: string }> = [];
     for (let index = settledItems.length - 1; index >= 0 && rows.length < 20; index -= 1) {
       const item = settledItems[index];
-      if (item?.kind !== 'user' || item.id == null) continue;
+      // An archived prompt left the model context: nothing to rewind to.
+      if (item?.kind !== 'user' || item.id == null || item.archived === true) continue;
       const text = String(item.text || '').trim();
       if (!text) continue;
       rows.push({ id: String(item.id), text });

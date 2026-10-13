@@ -113,6 +113,7 @@ import {
 } from '../shared/contract';
 import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMethod } from './remote-browser-methods';
 import { modelProxyRuntimeLoader } from './model-proxy-host';
+import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
 import {
   normalizeTranscriptReadDiagnostic,
@@ -847,7 +848,7 @@ function applyComputerControlSetting(enabled: boolean): void {
 // Observation only: the bridge keeps serving reads while every input action is
 // refused by the host, so a running agent turn is narrowed the moment it flips.
 function applyComputerObserveOnlySetting(enabled: boolean): void {
-  computerObserveOnly = enabled === true;
+  computerObserveOnly = enabled;
   computerHost?.setObserveOnly(computerObserveOnly);
 }
 // This PC's daemon drives the PC-wide features: the Browser Use host, the
@@ -873,7 +874,8 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
         request.method === 'updaterInstall' ||
         request.method === 'displayPreferences' ||
         request.method === 'visualizeState' ||
-        request.method === 'visualizeCommand')
+        request.method === 'visualizeCommand' ||
+        request.method === 'captureFileSnapshot')
     ) {
       const hostMethod = request.method;
       void (async () => {
@@ -892,6 +894,9 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             result = visualize.hostSnapshot();
           } else if (hostMethod === 'visualizeCommand') {
             result = (await visualize.command(requiredVisualizeTabCommand(args[0]))) ?? null;
+          } else if (hostMethod === 'captureFileSnapshot') {
+            // The daemon already confined the path; this only renders it.
+            result = await fileSnapshots.capture(String(args[0] || ''), String(args[1] || ''), args[2] === true);
           } else {
             result = desktopUpdater.getState();
             installAfterAnswer = desktopUpdater.getState().status === 'ready';
@@ -1125,7 +1130,7 @@ function showLocalConnectionSettings(): void {
 }
 let remoteHostWindows: Promise<RemoteHostWindows> | null = null;
 function remoteHostsHandle(): RemoteHostWindows {
-  const ready = (remoteHostWindows ??= (async () => {
+  remoteHostWindows ??= (async () => {
     const [{ loadRemoteHostStore, relayHttpOrigin }, { createRemoteHostWindows }] = await Promise.all([
       import('./remote-hosts'),
       import('./remote-host-windows'),
@@ -1142,7 +1147,8 @@ function remoteHostsHandle(): RemoteHostWindows {
         showConnectionSettings: showLocalConnectionSettings,
       }
     );
-  })());
+  })();
+  const ready = remoteHostWindows;
   return {
     list: async () => (await ready).list(),
     connectByCode: async (code) => (await ready).connectByCode(code),
@@ -1750,7 +1756,7 @@ function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
   // Browser pane host: registers this window's browser-pane webviews. The
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
-  const windowBrowserHost = (browserHost = createBrowserHost(window, {
+  const windowBrowserHost = createBrowserHost(window, {
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.
@@ -1766,7 +1772,8 @@ function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
     onSurfaceRequest: (request) => {
       void localService.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
     },
-  }));
+  });
+  browserHost = windowBrowserHost;
   windowBrowserHost.setBridgeEnabled(browserControlEnabled);
   // Taskbar attention: flash/bounce when the active turn finishes while this
   // window is unfocused; focusing it clears the signal.
@@ -1884,8 +1891,86 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   window.webContents.on('dom-ready', () => {
     window.webContents.setZoomFactor(1);
   });
-  // This window's handler table: one ipcMain registration per channel serves
-  // every window, and the router hands each call to its sender's table.
+  const disposeWindowIpc = installWindowIpc(window, connection, windowBrowserHost);
+  // A server window hears its own link and notices, raises its own OS
+  // notifications, and is reopened at the next launch while it stays open.
+  const stopLinkForward = local ? () => {} : forwardConnectionLink(connection, window.webContents);
+  if (!local) {
+    serverNotifiers.set(window, createServerWindowNotifier(window, connection));
+    if (connection.id !== ENV_SSH_CONNECTION_ID) void serverWindowRestore.remember(connection.id).catch(() => {});
+  }
+  windowIpcDisposers.set(window, () => {
+    disposeWindowIpc();
+    stopLinkForward();
+  });
+  diagnostics?.write('window-created', {
+    totalMs: Date.now() - startupStartedAt,
+  });
+
+  const reloadRenderer = () => {
+    if (quitAfterDispose || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.reload();
+  };
+  const onRendererDiagnostic = rendererDiagnosticListener(window);
+  ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
+  // The renderer's notice was on screen: retire the pending update announcement.
+  if (local) {
+    installWhatsNewAcknowledge(ipcMain, window, {
+      version: app.getVersion(),
+      launchRecorded: () => Promise.resolve(launchFollowsUpdate),
+      acknowledge: (version) => acknowledgeAnnouncement(launchVersionPath(), version, launchRecordWriteFailure),
+    });
+  }
+  diagnostics?.write('ipc-ready', {
+    totalMs: Date.now() - startupStartedAt,
+  });
+
+  installRendererConsoleErrorTail(window, startupStartedAt);
+  installDefaultContextMenu(window.webContents);
+
+  installRendererLoadDiagnostics(window, local, startupStartedAt, () => presentation);
+  installRendererCrashRecovery(window, reloadRenderer);
+
+  installNavigationGuards(window, isAllowedNavigation);
+  const presentation = createWindowPresentation(
+    window,
+    startupStartedAt,
+    local
+      ? () => {
+          // Idempotent fallback for recreated windows; the primary boot starts
+          // this concurrently before renderer navigation.
+          startDaemonService();
+          scheduleDeferredDesktopServices(window);
+        }
+      : () => {}
+  );
+  installWindowCloseCleanup(window, connection, windowState, presentation, onRendererDiagnostic);
+
+  try {
+    diagnostics?.write('renderer-navigation-start', {
+      totalMs: Date.now() - startupStartedAt,
+      development: Boolean(developmentUrl),
+    });
+    if (developmentUrl) {
+      await window.loadURL(rendererUrl.href);
+    } else {
+      await window.loadFile(packagedRendererPath);
+    }
+  } catch (error) {
+    if (!window.isDestroyed()) window.destroy();
+    throw error;
+  }
+}
+
+/** This window's handler table: one ipcMain registration per channel serves
+ *  every window, and the router hands each call to its sender's table.
+ *  Returns the disposer for both. */
+function installWindowIpc(
+  window: BrowserWindow,
+  connection: DesktopConnection,
+  windowBrowserHost: BrowserHost | null
+): () => void {
+  const local = connection.kind === 'local';
   const ipcScope = ipcRouter.scope(window.webContents.id, connection.id);
   const removeWindowIpc = registerDesktopIpc(window, connection.client, {
     app,
@@ -1916,43 +2001,18 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     terminals: connection.terminals,
     remoteHosts: remoteHostsHandle(),
   });
-  // A server window hears its own link and notices, raises its own OS
-  // notifications, and is reopened at the next launch while it stays open.
-  const stopLinkForward = local ? () => {} : forwardConnectionLink(connection, window.webContents);
-  if (!local) {
-    serverNotifiers.set(window, createServerWindowNotifier(window, connection));
-    if (connection.id !== ENV_SSH_CONNECTION_ID) void serverWindowRestore.remember(connection.id).catch(() => {});
-  }
-  windowIpcDisposers.set(window, () => {
+  return () => {
     removeWindowIpc();
     ipcScope.dispose();
-    stopLinkForward();
-  });
-  diagnostics?.write('window-created', {
-    totalMs: Date.now() - startupStartedAt,
-  });
-
-  const reloadRenderer = () => {
-    if (quitAfterDispose || window.isDestroyed() || window.webContents.isDestroyed()) return;
-    window.webContents.reload();
   };
-  const onRendererDiagnostic = rendererDiagnosticListener(window);
-  ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
-  // The renderer's notice was on screen: retire the pending update announcement.
-  if (local) {
-    installWhatsNewAcknowledge(ipcMain, window, {
-      version: app.getVersion(),
-      launchRecorded: () => Promise.resolve(launchFollowsUpdate),
-      acknowledge: (version) => acknowledgeAnnouncement(launchVersionPath(), version, launchRecordWriteFailure),
-    });
-  }
-  diagnostics?.write('ipc-ready', {
-    totalMs: Date.now() - startupStartedAt,
-  });
+}
 
-  installRendererConsoleErrorTail(window, startupStartedAt);
-  installDefaultContextMenu(window.webContents);
-
+function installRendererLoadDiagnostics(
+  window: BrowserWindow,
+  local: boolean,
+  startupStartedAt: number,
+  presentation: () => ReturnType<typeof createWindowPresentation>
+): void {
   window.webContents.on('did-start-loading', () => {
     diagnostics?.write('renderer-load-start', {
       totalMs: Date.now() - startupStartedAt,
@@ -1970,11 +2030,11 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     });
   });
   window.webContents.on('did-finish-load', () => {
-    presentation.markRendererLoaded();
+    presentation().markRendererLoaded();
     diagnostics?.write('renderer-load-finished', {
       totalMs: Date.now() - startupStartedAt,
     });
-    presentation.showWhenComposed();
+    presentation().showWhenComposed();
   });
 
   window.on('unresponsive', () => {
@@ -1983,21 +2043,15 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   window.on('responsive', () => {
     diagnostics?.write('renderer-responsive');
   });
-  installRendererCrashRecovery(window, reloadRenderer);
+}
 
-  installNavigationGuards(window, isAllowedNavigation);
-  const presentation = createWindowPresentation(
-    window,
-    startupStartedAt,
-    local
-      ? () => {
-          // Idempotent fallback for recreated windows; the primary boot starts
-          // this concurrently before renderer navigation.
-          startDaemonService();
-          scheduleDeferredDesktopServices(window);
-        }
-      : () => {}
-  );
+function installWindowCloseCleanup(
+  window: BrowserWindow,
+  connection: DesktopConnection,
+  windowState: ReturnType<typeof persistWindowState>,
+  presentation: ReturnType<typeof createWindowPresentation>,
+  onRendererDiagnostic: ReturnType<typeof rendererDiagnosticListener>
+): void {
   window.on('closed', () => {
     presentation.cancelShowDeadline();
     diagnostics?.write('window-closed');
@@ -2015,28 +2069,13 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     // Closing a server window detaches: its tunnel closes, the server's
     // daemon keeps running. Only the user's close forgets it for the next
     // launch; quitting keeps it.
-    if (!local) {
+    if (connection.kind !== 'local') {
       if (!quitApproved) void serverWindowRestore.forget(connection.id).catch(() => {});
       void sshConnections.close(connection.id).catch((error: unknown) => {
         console.error(`Failed to detach from ${connection.name}:`, error);
       });
     }
   });
-
-  try {
-    diagnostics?.write('renderer-navigation-start', {
-      totalMs: Date.now() - startupStartedAt,
-      development: Boolean(developmentUrl),
-    });
-    if (developmentUrl) {
-      await window.loadURL(rendererUrl.href);
-    } else {
-      await window.loadFile(packagedRendererPath);
-    }
-  } catch (error) {
-    if (!window.isDestroyed()) window.destroy();
-    throw error;
-  }
 }
 
 if (!app.requestSingleInstanceLock()) {

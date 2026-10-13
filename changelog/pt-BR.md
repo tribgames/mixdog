@@ -4,6 +4,66 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Esta versão introduz o painel de alterações e cartões de alterações por turno com controles de desfazer e reaplicar por turno, mantém o histórico anterior visível após a compactação e adiciona uma ferramenta integrada de visualização para maquetes interativas de interface e diagramas. Os fluxos de trabalho remotos são expandidos com conexões de servidor SSH, sessões isoladas de worktree do Git, gerenciamento de shells em segundo plano e downloads diretos de arquivos em telefones pareados. A interface também traz maior contraste, rolagem mais suave em dispositivos móveis e organização flexível de sessões.
+
+### Novos recursos
+
+- Após a compactação de uma conversa, as mensagens anteriores, cartões de ferramentas e diffs permanecem legíveis acima de um divisor "Conversa compactada" em vez de desaparecerem. Eles são mantidos apenas para exibição (nunca enviados ao modelo), recarregam ao rolar para cima após reiniciar, usam até cerca de 32 MB por sessão (com os mais antigos descartados primeiro), filtram valores confidenciais como o restante do histórico e são excluídos com a sessão; sessões continuadas vinculam o histórico em vez de duplicá-lo. Desfazer, reaplicar e tentar novamente não estão disponíveis para turnos anteriores à compactação.
+- O novo painel de alterações oferece uma visualização contínua com rolagem dos diffs de todos os arquivos modificados e abas laterais: a aba "Alterações" exibe todos os arquivos, enquanto o clique em um arquivo em um cartão de turno abre apenas a aba correspondente. Funciona sem o Git usando os próprios registros de alteração da sessão, destaca sintaxe, quebra linhas longas sem rolagem horizontal, recolhe ou expande arquivos ao clicar na linha, abre arquivos em abas com `↗`, desfaz edições com `↶` e lista arquivos fora do projeto como somente leitura com o caminho completo na dica de ferramenta. Fechar a última aba fecha o painel.
+- Um cartão de alterações sob cada turno exibe o número de arquivos modificados, um resumo de linhas diff com +N −N, um botão para visualizar alterações e a lista de arquivos editados.
+- Os cartões de ferramentas reprojetados exibem a alteração feita por cada edição individual em vez do total acumulado do turno, renderizados na mesma visualização de diff do painel de alterações, e mostram adições e exclusões de linhas durante a execução da ferramenta.
+- Uma ferramenta integrada de visualização gera maquetes de projeto e diagramas inline (Mermaid, SVG, ECharts, HTML e Markdown) em abas dedicadas do painel lateral. Você pode inspecionar elementos, capturar erros de página, deixar comentários com marcadores e seleções de dados para a próxima mensagem, comparar e restaurar versões e exportar designs para PNG ou PDF.
+- As sessões de worktree do Git permitem trabalhar em ramificações isoladas sem alterar o ambiente de trabalho atual. Um seletor de ramificação acima do compositor permite escolher ou criar uma nova ramificação de worktree ao iniciar uma tarefa, com mesclagens protegidas que evitam resíduos de conflito.
+- Conecte-se a servidores remotos via SSH em Configurações > Conexão. O Mixdog é instalado automaticamente no servidor, abre em sua própria janela com um painel de portas com encaminhamento de portas, navegação remota de arquivos e terminais, e redireciona chamadas de modelos pelo PC para que as credenciais nunca precisem ficar no servidor.
+- Celulares pareados agora podem baixar e compartilhar arquivos produzidos pelo assistente e mídias geradas diretamente a partir de links no chat, com progresso de transferência, novas tentativas e cancelamento (salva em Downloads no Android e via folha de compartilhamento no iOS; com a próxima atualização do aplicativo Android ou compilação iOS) (#40). Os telefones pareados também ficam estritamente restritos a projetos registrados e arquivos produzidos naquela sessão.
+- Comandos de shell em segundo plano podem ser interrompidos diretamente no aplicativo ou remotamente. Comandos finalizados permanecem listados até serem dispensados em vez de sumirem imediatamente, e o painel de tarefas no compositor se expande para mostrar comandos em execução ao lado de agentes com uso acumulado de tokens e chamadas de ferramentas.
+- Mova uma sessão para outro projeto a partir do menu lateral ou arrastando e soltando sem mover a pasta no disco; sessões em subpastas e worktrees de um projeto são agrupadas automaticamente sob esse projeto.
+- Os painéis laterais em celulares (navegador, terminal, alterações e pré-visualização) compartilham o mesmo cabeçalho do PC, com abas, menu para alternar painéis e botão de fechar. No navegador do celular, `+` abre uma nova aba no painel lateral dessa sessão, e as abas alternam e fecham exatamente como no PC (requer o aplicativo de PC atualizado).
+- Imagens enviadas no chat mantêm miniaturas após reiniciar o app, e cartões de arquivos HTML e de visualização exibem uma pré-visualização visual real da página renderizada localmente em um ambiente isolado sem acesso à rede para arquivos dentro do projeto.
+- O compositor lista agentes em execução no mesmo formato da janela de agentes e oculta automaticamente a seção de shell quando não há shells em segundo plano ativos.
+- Fechar a última aba de terminal, navegador ou arquivo fecha automaticamente o painel lateral, e reabrir o terminal inicia uma nova aba limpa (baseado em #49 por @moveju112).
+- Pastas de projeto e seções da barra lateral permanecem abertas por padrão e lembram seu estado recolhido, enquanto selecionar uma sessão em uma pasta recolhida a abre automaticamente. As sessões também podem ser reorganizadas arrastando ou ordenadas por atividade recente.
+- O aplicativo Android agora pode verificar atualizações em segundo plano, baixar, verificar assinaturas e instalar novas versões diretamente (com a próxima atualização do aplicativo Android).
+- O raciocínio automático agora pode ser configurado individualmente por rota de modelo nas configurações de rota e desativado para automações com `+noauto`. Em Configurações > Conexão, você também pode atribuir apelidos locais personalizados a dispositivos remotos pareados.
+
+### Alterações
+
+- Cores de destaque mais nítidas e maior contraste de texto; cabeçalhos de cartões de ferramentas e turnos usam cinza sutil com caixas apenas com contorno; código inline é exibido como blocos cinzas e citações com uma barra à esquerda; texto selecionado e números de linha de diff atendem ao contraste de 4.5:1 em ambos os temas.
+- O menu lateral abre sem sombra e escurece a tela de fundo em 40%.
+- O seletor de ramificação e worktree acima do compositor aparece apenas em projetos Git e antes do início da conversa.
+- A contagem de arquivos alterados no compositor agora abrange toda a sessão em vez de ser redefinida após cada turno.
+- O botão de visualização foi removido do cabeçalho do painel; visualizações abrem automaticamente ou a partir de seu cartão na conversa.
+- O anel de contexto abre apenas com clique, não mais ao passar o mouse (#48).
+- Em celulares, a tecla Enter insere uma quebra de linha; o envio é feito pelo botão.
+- As mensagens esmaecem gradualmente sob o compositor em vez de serem cortadas de forma abrupta.
+- Arquivos fora do projeto exibem seu nome com o caminho completo na dica de ferramenta em vez de um selo.
+- Rolagem mais suave, especialmente no Android: a conversa é redesenhada no máximo uma vez por quadro, o indicador de carregamento é animado na GPU, a posição de rolagem é salva ao parar, toques não são mais bloqueados e o esmaecimento sob o compositor não redesenha a lista inteira.
+- Chamadas de ferramentas MCP aplicam limites de tempo de execução (padrão de 120 segundos) sem travar ou repetir solicitações canceladas, relatam falhas de processos stdio com detalhes de erro e suportam paginação para listas extensas de ferramentas.
+- Limpeza automática de sessões ociosas é executada antes que conclusões em segundo plano reativem a conversa.
+- No macOS, a inicialização do aplicativo desktop anexa diretórios do Homebrew ao `PATH` sem descartar entradas existentes.
+- O terminal remoto no celular inclui uma barra de teclas dedicada com modificadores e teclas de navegação (com a próxima atualização do aplicativo Android ou compilação iOS).
+
+### Correções de bugs
+
+- Tocar em um link no chat abria um navegador interno em branco; a página agora carrega corretamente e em celulares o painel do navegador abre em tela cheia (#41).
+- O indicador de pensamento permanecia em inglês até o carregamento do idioma do aplicativo; a animação de brilho em celulares foi corrigida.
+- O cartão de turno, o compositor e o painel de alterações podiam exibir números divergentes de arquivos modificados.
+- A primeira rolagem para cima em conversas longas podia causar saltos visuais.
+- Fechar a última aba do terminal criava uma nova aba indevidamente e piscava (#49).
+- A leitura de arquivos não retorna mais conteúdo obsoleto nem informa intervalos de linhas que não foram realmente entregues, mesmo ao sobrescrever um arquivo grande no mesmo local com tamanho idêntico (#54, obrigado a @22nsuk).
+- O salvamento de arquivos e a recuperação em lote mantêm a codificação do texto, rejeitam salvamentos com perda, protegem buffers modificados durante conflitos de leitura e rastreiam gravações em lote preservando permissões e maiúsculas/minúsculas de caminhos (#39, obrigado a @22nsuk).
+- No macOS, `Cmd+Up` e `Cmd+Down` movem o cursor dentro de campos de texto em vez de acionar atalhos de navegação da área de trabalho.
+- Arquivos de configuração e estado iniciados com uma marca de ordem de bytes (BOM) carregam corretamente sem falhas ou reinicializações.
+- O login com a OpenAI preserva a lista completa de modelos disponíveis em vez de ocultar modelos indevidamente.
+- No Linux, colar ou ler uma imagem causava o encerramento inesperado do serviço em segundo plano do Mixdog e cancelava o turno em execução; as imagens agora passam por uma compilação da biblioteca de imagens compatível com essa plataforma (#56, #57, obrigado a @cronoboris).
+- Após um encerramento anormal do Mixdog (desligamento do Windows, instaladores, finalização pelo Gerenciador de Tarefas), o aplicativo podia falhar em todas as ações com o erro "daemon session endpoint is unavailable" e não exibir conversas até que um arquivo de bloqueio restante fosse removido; ele agora reconhece o bloqueio obsoleto e se recupera sozinho. Um arquivo ilegível na pasta temporária também não impede mais a inicialização do serviço em segundo plano e, quando ele ainda não consegue iniciar, os detalhes do erro mostram a causa real e a localização dos logs.
+
+### Outros
+
+- Revisão de traduções de termos novos e alterados em todos os 11 idiomas suportados.
+- Publicação de dados brutos de avaliação para DeepSeek V4.1 Flash no Terminal-Bench em 89 tarefas comparando Mixdog com DSH (#43), e adição do perfil completo de avaliação do GPT-6.1 Sol.
+- Ícones do aplicativo móvel atualizados para corresponder ao design em titânio da versão desktop (com a próxima atualização do aplicativo Android).
+
 ## v1.1.2 - 2026-10-12
 
 O aviso "Novidades" agora aparece após uma atualização mesmo que o armazenamento local do app tenha sido perdido, espera até que a boas-vindas ou o tour inicial seja fechado e não reaparece após um downgrade.

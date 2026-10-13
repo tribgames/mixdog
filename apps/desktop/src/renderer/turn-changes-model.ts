@@ -3,6 +3,8 @@ import { t } from './i18n';
 import { RendererLruCache } from './renderer-lru-cache';
 import { registerIdleReclaim } from './idle-reclaim';
 import type { DesktopCapability } from '../shared/contract-capabilities';
+import type { TranscriptItem } from './desktop-types';
+import { summarizeSessionTranscriptReview } from './turn-review-model';
 
 /** Per-turn changed files: the runtime's `getTurnChanges` /
  *  `revertTurnChanges` / `reapplyTurnChanges` reply (one shape for all three). */
@@ -18,6 +20,8 @@ export type TurnChangesFile = {
   state: 'applied' | 'reverted';
   revertable: boolean;
   reason?: string;
+  /** The record kept no counts for this file; the transcript may complete them. */
+  unmeasured?: boolean;
 };
 export type TurnChangesReply = {
   status: 'ready' | 'pending' | 'none' | 'missing';
@@ -44,8 +48,6 @@ export type TurnChangesCapability =
   | typeof REAPPLY_TURN_CHANGES_CAPABILITY;
 /** Bounded backoff while the runtime is still recording the turn. */
 export const TURN_CHANGES_PENDING_DELAYS_MS = [400, 800, 1600, 3200, 6400, 12800];
-/** A preview patch larger than this is not rendered in a hover tooltip. */
-export const TURN_CHANGES_PREVIEW_MAX_CHARS = 200_000;
 
 const STATUSES = new Set(['ready', 'pending', 'none', 'missing']);
 const FILE_STATUSES = new Set(['A', 'M', 'D', 'R']);
@@ -82,6 +84,7 @@ function decodeTurnChangesReply(value: unknown): TurnChangesReply | null {
         deletions: count(file.deletions),
         ...(file.binary === true ? { binary: true } : {}),
         ...(file.patchOmitted === true ? { patchOmitted: true as const } : {}),
+        ...(file.unmeasured === true ? { unmeasured: true } : {}),
         state: file.state === 'reverted' ? 'reverted' : 'applied',
         revertable: file.revertable === true,
         ...(typeof file.reason === 'string' && file.reason ? { reason: file.reason } : {}),
@@ -150,15 +153,8 @@ const replyCache = new RendererLruCache<string, CachedReply>({
   maxChars: 2 * 1024 * 1024,
   measure: (value, key) => key.length + JSON.stringify(value).length,
 });
-const previewCache = new RendererLruCache<string, string>({
-  name: 'turn-changes-preview',
-  maxEntries: 64,
-  maxChars: 2 * 1024 * 1024,
-  measure: (value, key) => key.length + value.length,
-});
 registerIdleReclaim(() => {
   replyCache.clear();
-  previewCache.clear();
 });
 
 export function turnChangesKey(sessionId: string, checkpointId: string): string {
@@ -181,10 +177,9 @@ function rememberTurnChanges(
   replyCache.set(turnChangesKey(sessionId, checkpointId), { boundary, epoch, reply });
 }
 
-/** Test seam: forget every cached reply, preview and epoch. */
+/** Test seam: forget every cached reply and epoch. */
 export function resetTurnChangesCache() {
   replyCache.clear();
-  previewCache.clear();
   epochs.clear();
 }
 
@@ -264,31 +259,6 @@ export function useTurnChanges({
   return { reply, adopt, invalidate };
 }
 
-/** One file's patch for the hover preview, cached per revision. */
-export async function fetchTurnChangesPreview(
-  sessionId: string,
-  checkpointId: string,
-  revision: number,
-  file: string
-): Promise<string> {
-  const key = `${turnChangesKey(sessionId, checkpointId)}\u0000${revision}\u0000${file}`;
-  const cached = previewCache.get(key);
-  if (cached !== undefined) return cached;
-  const reply = await invokeTurnChanges(TURN_CHANGES_CAPABILITY, [{ checkpointId, patch: true, file }], sessionId);
-  const patch = reply.patch ?? '';
-  previewCache.set(key, patch);
-  return patch;
-}
-
-/** Why a fetched preview patch cannot be rendered, or null when it can: a
- *  binary file, a patch the runtime dropped for size (`patchOmitted`) or one
- *  past the tooltip's own cap, or any other empty patch. */
-export function turnChangesPreviewGap(file: TurnChangesFile, patch: string): 'binary' | 'large' | 'empty' | null {
-  if (file.binary === true) return 'binary';
-  if (file.patchOmitted === true || patch.length > TURN_CHANGES_PREVIEW_MAX_CHARS) return 'large';
-  return patch.length > 0 ? null : 'empty';
-}
-
 // ── Presentation helpers ─────────────────────────────────────────────────
 const TURN_CHANGES_COLLAPSED_ROWS = 3;
 
@@ -301,8 +271,18 @@ export function splitChangePath(path: string): { directory: string; base: string
 }
 
 export function turnChangesTitle(files: readonly TurnChangesFile[]): string {
-  if (files.length === 1) return t('Edited {{file}}', { file: splitChangePath(files[0]?.path ?? '').base });
-  return t('Edited {{count}} files', { count: files.length });
+  return t('Turn changes: {{count}} files changed', { count: files.length });
+}
+
+const LOCATION_MAX_CHARS = 32;
+
+/** The directory of an outside file with its middle dropped, so both the
+ *  drive/root and the folder the file sits in stay readable. */
+export function middleTruncatedDirectory(path: string): string {
+  const directory = splitChangePath(path).directory.replace(/\/$/, '');
+  if (directory.length <= LOCATION_MAX_CHARS) return directory;
+  const tail = Math.ceil((LOCATION_MAX_CHARS - 1) * 0.6);
+  return `${directory.slice(0, LOCATION_MAX_CHARS - 1 - tail)}\u2026${directory.slice(directory.length - tail)}`;
 }
 
 export function turnChangesTotals(files: readonly TurnChangesFile[]) {
@@ -315,10 +295,9 @@ export function turnChangesTotals(files: readonly TurnChangesFile[]) {
   return { additions, deletions };
 }
 
-/** The rows a card lists: none for one file (the header names it), all of
- *  two or three, the first three of more unless expanded. */
+/** The rows a card lists: every file up to three, the first three of more
+ *  unless expanded. */
 export function visibleTurnChangeRows(files: readonly TurnChangesFile[], expanded: boolean) {
-  if (files.length <= 1) return { rows: [] as TurnChangesFile[], hidden: 0 };
   if (files.length <= TURN_CHANGES_COLLAPSED_ROWS || expanded) return { rows: [...files], hidden: 0 };
   return {
     rows: files.slice(0, TURN_CHANGES_COLLAPSED_ROWS),
@@ -338,4 +317,20 @@ export function turnChangeFileExists(file: TurnChangesFile): boolean {
 export function turnChangeOpenPath(file: TurnChangesFile): string | null {
   if (!turnChangeFileExists(file)) return null;
   return file.state === 'reverted' && file.status === 'R' && file.oldPath ? file.oldPath : file.path;
+}
+
+/** Files the runtime could not count (old records) take the counts of the
+ *  transcript's own edit — the same fallback the session pane and the island
+ *  use, so a turn card agrees with them. */
+export function withTranscriptCounts(
+  files: readonly TurnChangesFile[],
+  items: TranscriptItem[] | undefined,
+  root: string
+): readonly TurnChangesFile[] {
+  if (!items || !files.some((file) => file.unmeasured)) return files;
+  const transcript = summarizeSessionTranscriptReview(items, root);
+  return files.map((file) => {
+    const entry = file.unmeasured ? transcript.files.get(file.path) : undefined;
+    return entry ? { ...file, additions: entry.additions, deletions: entry.deletions, unmeasured: false } : file;
+  });
 }

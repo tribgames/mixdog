@@ -110,7 +110,13 @@ for (const mode of ['rules', 'summary']) {
       assert.ok(h.session.messages.some((m) => m.content === h.messages[1].content));
       assert.ok(h.session.messages.some((m) => m.content === h.messages[2].content));
     }
-    assert.equal(h.state.items.at(-1).label, 'Auto-clear complete');
+    assert.equal(h.state.items.at(-1).label, 'Conversation compacted');
+    // The compacted conversation stays visible, archived above the divider.
+    assert.equal(h.state.items.at(-1).status, 'compacted');
+    assert.equal(h.state.items.length, 2);
+    assert.equal(h.state.items[0].id, h.originalItem.id);
+    assert.equal(h.state.items[0].text, h.originalItem.text);
+    assert.equal(h.state.items[0].archived, true);
     assert.deepEqual(h.notices, []);
     assert.deepEqual(h.syncs, [{ allowEstimated: true, invalidateExact: true }]);
     assert.equal(h.state.commandBusy, false);
@@ -173,7 +179,7 @@ for (const outcome of ['success', 'error-result', 'throw']) {
     assert.equal(h.flags.autoClearInFlight, false);
     assert.equal(h.clearCalls, 0);
     assert.equal(h.session.messages, h.messages);
-    assert.equal(h.state.items.at(-1).label, outcome === 'success' ? 'Auto-clear complete' : 'Auto-clear skipped');
+    assert.equal(h.state.items.at(-1).label, outcome === 'success' ? 'Conversation compacted' : 'Auto-clear skipped');
     assert.equal(h.syncs.length, outcome === 'success' ? 1 : 0);
     if (outcome !== 'success') assert.equal(h.state.items[0], h.originalItem);
   });
@@ -225,7 +231,7 @@ test('late auto-clear completion defers UI reset until an active turn settles', 
   await h.flow.drain();
   assert.equal(h.flags.autoClearInFlight, false);
   assert.equal(h.flags.pendingClearedSessionUi, null);
-  assert.equal(h.state.items.at(-1).label, 'Auto-clear complete');
+  assert.equal(h.state.items.at(-1).label, 'Conversation compacted');
   assert.equal(h.session.messages, h.messages);
   assert.equal(h.clearCalls, 0);
   assert.deepEqual(h.syncs, [{ allowEstimated: true, invalidateExact: true }]);
@@ -249,7 +255,11 @@ function wakeHarness(compact, { cfg, contextStatus } = {}) {
   const flow = createSessionFlow(h.bag);
   Object.assign(h.bag, flow);
   const wake = async () => {
-    flow.enqueue('<task-notification>done</task-notification>', { mode: 'task-notification', priority: 'next', key: 'k1' });
+    flow.enqueue('<task-notification>done</task-notification>', {
+      mode: 'task-notification',
+      priority: 'next',
+      key: 'k1',
+    });
     await new Promise((resolve) => setTimeout(resolve, 30));
   };
   return Object.assign(h, { flow, order, wake });
@@ -259,17 +269,17 @@ test('completion wake after a long idle compacts first, then runs the wake turn'
   const h = wakeHarness(() => ({ changed: true }));
   await h.wake();
   assert.deepEqual(h.order, ['compact', 'wake-turn']);
-  assert.equal(h.state.items.some((i) => i.label === 'Auto-clear complete'), true);
+  assert.equal(
+    h.state.items.some((i) => i.label === 'Conversation compacted'),
+    true
+  );
   assert.deepEqual(h.syncs, [{ allowEstimated: true, invalidateExact: true }]);
 });
 
-for (const [name, opts, patch] of [
+for (const [name, opts] of [
   ['disabled', { cfg: { enabled: false, idleMs: 60_000, minContextPercent: 10 } }],
   ['not idle', { cfg: { enabled: true, idleMs: 600_000, minContextPercent: 10 } }],
-  [
-    'below the context threshold',
-    { contextStatus: () => ({ usedTokens: 10, compaction: { triggerTokens: 1_000 } }) },
-  ],
+  ['below the context threshold', { contextStatus: () => ({ usedTokens: 10, compaction: { triggerTokens: 1_000 } }) }],
 ]) {
   test(`completion wake skips compaction when ${name} and still runs`, async () => {
     const h = wakeHarness(() => ({ changed: true }), opts);

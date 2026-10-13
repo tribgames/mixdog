@@ -13,7 +13,7 @@
   margin: 20px 0;
   overflow: hidden;
   border-radius: var(--mx-radius-lg);
-  /* Frameless card (user: 프레임리스로 최대한): the plate step off the sheet
+  /* Frameless card: the plate step off the sheet
      is the edge; the language row is told apart by its tint band, not a line. */
   background: var(--mx-bg-base);
   box-shadow: none;
@@ -26,7 +26,7 @@
   padding: 0 6px 0 12px;
   border-bottom: 0;
   color: var(--mx-text-faint);
-  /* Header band (user: 헤더에는 있는게 좋아보여 코덱스스타일로): the same
+  /* Header band: the same
      neutral plate tint as table and diff headers; the code body stays clear. */
   background: var(--mx-surface-plate);
   /* A language label is metadata, and the shell's caption tier is 13/16 — at
@@ -76,36 +76,21 @@
   overflow-x: auto;
   box-shadow: none;
   /* Wrap long script lines instead of hiding them behind a horizontal
-     scroll (user: commands in the transcript kept getting buried). */
+     scroll. */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: normal;
 }
 /* The code card is a hairline frame like every other container. */
 :root .markdown-code {
-  background: var(--mx-item-surface);
-  box-shadow: var(--mx-item-outline);
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  box-shadow: 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-text) 12%, transparent);
 }
 :root .markdown-code > pre {
   background: transparent;
 }
 .tool-state.exited {
   color: var(--mx-warning);
-}
-.diff-collapsed {
-  position: relative;
-  max-height: 260px;
-  overflow: hidden;
-}
-.diff-collapsed::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 36px;
-  pointer-events: none;
-  /* Fades into the CARD it covers, not the transcript backdrop: --mx-bg-deep
-     painted a black band across the bottom of a --mx-bg-base surface. */
-  background: linear-gradient(transparent, var(--mx-bg-base));
 }
 
 /* Chat interaction audit additions. */
@@ -196,10 +181,8 @@ html[data-window-material="mica"] .jump-to-latest {
   box-sizing: border-box;
   padding-inline: 4px;
 }
-/* Dock child toggles at the strip's right end (user: 터미널 / 웹 / 디프창을
-   스트립 아이콘 자리에). One 28px slot per child with a 16px mark and 6px of
-   air between slots — the Claude Desktop tier (user: 클로드 대비 너무 조밀하고
-   큰 것 같다); the pressed child re-inks to text on a quiet plate, and a
+/* Dock child toggles at the strip's right end. One 28px slot per child with a 16px mark and 6px of
+   air between slots — the Claude Desktop tier; the pressed child re-inks to text on a quiet plate, and a
    child that needs a session behind the pane (browser, terminal) dims on a
    draft. */
 .pane-dock-toggles {
@@ -223,7 +206,7 @@ html[data-window-material="mica"] .jump-to-latest {
 }
 /* 15px on a 1.5px stroke: the same weight as the strip's tab glyphs and the
    browser toolbar, so the toggles stop reading heavier than their neighbours
-   (user: 소스컨트롤·브라우저·터미널 버튼 약간 두껍지 않아?). */
+. */
 .pane-dock-toggle svg.lucide {
   width: 15px;
   height: 15px;
@@ -260,7 +243,7 @@ html[data-window-material="mica"] .jump-to-latest {
   width: auto;
   min-width: 0;
   max-width: 100%;
-  /* Chrome flow (user: PC도 크롬식): the run is CONTENT-sized, so the +
+  /* Chrome flow: the run is CONTENT-sized, so the +
      button rides right after the last tab instead of a far-edge slot;
      the leftover row stays the shell's drag band. */
   flex: 0 1 auto;
@@ -274,8 +257,7 @@ html[data-window-material="mica"] .jump-to-latest {
 .workspace-tabs[data-group-dragging="true"] {
   cursor: grabbing;
 }
-/* ONE ink for the strip's two marks — the tab X and the + beside it (user:
-   +가 우측 메뉴들이랑 같은 색인데 X랑 같은 색이어야 할 듯). */
+/* ONE ink for the strip's two marks — the tab X and the + beside it. */
 .workspace-tab-close,
 .workspace-tabs-shell > .workspace-tab-new,
 .workspace-tabs-shell > .workspace-tab-new svg {
@@ -446,7 +428,7 @@ html[data-window-material="mica"] .jump-to-latest {
      `**strong**` (15/650) at the same size, so a bold lead-in outranked the
      heading above it and read as the real section title. Size and ink carry
      the heading ladder; weight only answers "emphasized or not". */
-  font-weight: var(--mx-weight-strong);
+  font-weight: var(--mx-weight-semibold);
   /* A heading is a short line: balance keeps it from dropping one orphan word
      (or one Hangul 어절) onto a second line. */
   text-wrap: balance;
@@ -467,7 +449,7 @@ html[data-window-material="mica"] .jump-to-latest {
    already open the section. */
 /* Literal metrics, like the other content headings, and the ladder is capped
    at 18: a 20px h1 ran 1.33x the body, and Hangul fills its line box edge to
-   edge so it read larger still (user: 제목이 뭐 이렇게 크냐). Line heights stay
+   edge so it read larger still. Line heights stay
    literal too — the 22px chrome step gave a 20px heading a 1.1 ratio and a
    two-line title closed up on itself. */
 .markdown h1 {
@@ -488,13 +470,11 @@ html[data-window-material="mica"] .jump-to-latest {
 /* Body size, so INK is what separates it from an inline bold lead-in. */
 .markdown h4 {
   margin: 14px 0 6px;
-  color: var(--mx-text-muted);
   font-size: var(--mx-font-body);
   line-height: var(--mx-line-body);
 }
 .markdown h5 {
   margin: 14px 0 6px;
-  color: var(--mx-text-muted);
   font-size: 14px;
   line-height: var(--mx-line-body);
 }
@@ -506,12 +486,11 @@ html[data-window-material="mica"] .jump-to-latest {
   line-height: var(--mx-line-body);
 }
 /* Inline emphasis stays on the prose size but must READ as bold: 500, then 600,
-   both washed out against the 450 prose weight (user: 볼드가 표기 안 된다 →
-   제안값 준 게 제대로 안 나온다), so strong takes its own 650 instance. */
+   both washed out against the 450 prose weight, so strong takes its own 650 instance. */
 .markdown strong,
 .markdown b {
-  color: var(--mx-text);
-  font-weight: var(--mx-weight-strong);
+  color: inherit;
+  font-weight: var(--mx-weight-semibold);
 }
 .markdown :is(h1, h2, h3, h4, h5, h6) :is(strong, b) {
   font-weight: inherit;
@@ -525,7 +504,7 @@ html[data-window-material="mica"] .jump-to-latest {
   --mx-md-indent: 24px;
 }
 /* A list opens close under its lead-in sentence (8px) and keeps the full
-   block gap after it (user: 코덱스보다 안 이쁘네 → A안). */
+   block gap after it. */
 .markdown ul,
 .markdown ol {
   margin: 8px 0 12px;
@@ -572,15 +551,11 @@ html[data-window-material="mica"] .jump-to-latest {
   margin-bottom: 0;
 }
 .markdown blockquote {
-  margin: 20px 0;
-  /* A quote is a CARD like the code and table blocks, not a bar with prose
-     hanging off it: the plate gives the quoted run its own surface while the
-     ink stays neutral, so no second accent enters the answer. */
-  padding: 10px 14px;
-  border-left: 2px solid var(--mx-border-strong);
-  border-radius: 0 var(--mx-radius-md) var(--mx-radius-md) 0;
+  margin: 16px 0;
+  /* A quote is a muted run behind a soft rule: no plate, no second accent. */
+  padding: 0 0 0 14px;
+  border-left: 3px solid var(--mx-border);
   color: var(--mx-text-muted);
-  background: var(--mx-surface-plate);
 }
 .markdown blockquote > :first-child {
   margin-top: 0;
@@ -617,7 +592,7 @@ html[data-window-material="mica"] .jump-to-latest {
 }
 .markdown th {
   color: var(--mx-text);
-  font-weight: var(--mx-weight-strong);
+  font-weight: var(--mx-weight-medium);
   background: var(--mx-surface-plate);
 }
 .markdown tbody tr:last-child td {
@@ -656,23 +631,29 @@ html[data-window-material="mica"] .jump-to-latest {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* Inline code and links share ONE blue ink (user: 인라인코드도 파란색쓰고,
-   링크는 밑줄까지 + 파일 타입 아이콘). Code keeps the host weight while links
-   take medium plus a firm underline, so the two never read as one kind (user:
-   링크하고 아닌거하고 구분이 애매). Headings and strong stay neutral. The
+/* Inline code and links share ONE blue ink. Code keeps the host weight while links
+   take medium plus a firm underline, so the two never read as one kind. Headings and strong stay neutral. The
    chip — tint, padding, radius, ring — is gone: color and a box are two marks
    for one meaning, and the box was the half that squashed against the glyphs. */
 .markdown :not(pre) > code {
-  color: var(--mx-md-code);
+  /* Subtle chip: body ink on a faint ink-tinted plate with a hairline, mono
+     slightly under the prose size. Links stay the only coloured run. */
+  padding: 1px 5px;
+  border: var(--mx-hairline) solid color-mix(in srgb, var(--mx-text) 12%, transparent);
+  border-radius: 6px;
+  color: inherit;
+  background: color-mix(in srgb, var(--mx-text) 6%, transparent);
+  font-size: 0.9em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
   /* Inline code runs INSIDE a sentence, so it keeps the host's face and size
-     and lets COLOUR alone carry the distinction (user: 인라인 코드만 본문
-     폰트로). Mono belongs to the code CARD, where the text is read as code
+     and lets COLOUR alone carry the distinction. Mono belongs to the code CARD, where the text is read as code
      rather than prose; carried into a sentence it set a second, wider optical
      body mid-line, and the .88em correction that needed still read oversized
      beside Pretendard. Inheriting also covers every tier at once — 15px prose,
      an 18px h1, a table cell — with no per-tier override. Fenced blocks keep
      var(--mx-font-mono) from base layer 02. */
-  font-family: inherit;
+  font-family: var(--mx-font-mono);
   overflow-wrap: anywhere;
 }
 
@@ -710,16 +691,16 @@ html[data-window-material="mica"] .jump-to-latest {
   max-height: 240px;
   object-fit: contain;
 }
-/* Links wear the inline-code ink (user: 링크 왜 흰색이냐 푸른색계열아니라):
+/* Links wear the inline-code ink:
    the underline and, for files, the type glyph carry the affordance, and a
-   medium weight lifts it a step off the 400 prose (user: 링크는 볼드살짝).
+   medium weight lifts it a step off the 400 prose.
    Pending mentions share ink and weight so resolving one never recolours or
    reflows the line. Ink and underline live in ONE rule; they used to sit ~6k
    lines apart, so a later edit could retune half a link. */
 .markdown a,
 .markdown .markdown-link-pending {
   color: var(--mx-md-code);
-  font-weight: var(--mx-weight-medium);
+  font-weight: inherit;
 }
 /* A file mention that was not found (or not yet) stays plain text: an
    underline would promise a click that does nothing. The underline never
@@ -728,8 +709,8 @@ html[data-window-material="mica"] .jump-to-latest {
   text-decoration: underline;
   /* 75%, not 45%: the underline is what separates a link from same-ink
      inline code, so it must read at a glance. */
-  text-decoration-color: color-mix(in srgb, currentColor 75%, transparent);
-  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
 }
 .markdown a:hover {
   text-decoration-color: currentColor;
@@ -740,9 +721,6 @@ html[data-window-material="mica"] .jump-to-latest {
 .markdown .markdown-path-link,
 .tool-path-link {
   white-space: nowrap;
-}
-.tool-path-link {
-  color: var(--mx-md-code);
 }
 .markdown a > .seti-icon,
 .markdown .markdown-path-link .seti-icon,
@@ -781,7 +759,7 @@ html[data-window-material="mica"] .jump-to-latest {
   text-align: inherit;
   letter-spacing: inherit;
   /* The row's own quiet ink: a blue link was the one coloured run in an
-     otherwise grey operational line (user: no blue emphasis text). The
+     otherwise grey operational line. The
      underline carries the affordance, as in chat links. */
   color: inherit;
   cursor: pointer;
@@ -868,7 +846,6 @@ html[data-window-material="mica"] .jump-to-latest {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.diff-operation,
 .turn-review-status {
   flex: 0 0 auto;
   padding: 1px 5px;
@@ -879,15 +856,12 @@ html[data-window-material="mica"] .jump-to-latest {
   line-height: var(--mx-line-minor);
   white-space: nowrap;
 }
-.diff-operation[data-status="A"],
 .turn-review-status[data-status="A"] {
   color: var(--mx-success);
 }
-.diff-operation[data-status="D"],
 .turn-review-status[data-status="D"] {
   color: var(--mx-danger);
 }
-.diff-operation[data-status="M"],
 .turn-review-status[data-status="M"] {
   color: var(--mx-warning);
 }
@@ -946,8 +920,8 @@ html[data-window-material="mica"] .jump-to-latest {
 /* Composer cluster: animated status text, compact message navigation, context,
    count-aware tools, and a dedicated critical tool-error surface. */
 [data-component="text-shimmer"] {
-  /* User tuned: 2000ms still read rushed; half speed again. Applies to the
-     status verb and running tool-title glow alike. */
+  /* Slow sweep (2000ms read rushed). Applies to the status verb and running
+     tool-title glow alike. */
   --text-shimmer-duration: 4000ms;
   /* The ink the band rests on. A label that already sits at full ink (the
      Agents dock session name) lowers it one tier instead of down to faint. */
@@ -1062,6 +1036,45 @@ html[data-window-material="mica"] .jump-to-latest {
      edges; a single lit colour needs more accent to read on white glyphs. */
   --text-shimmer-glint: color-mix(in oklch, var(--mx-accent) 45%, white);
 }
+/* Android WebView: the desktop sweep runs two transform animations (window and
+   counter-sliding copy) on separate compositor layers that must stay in
+   lockstep, over a wider-than-label box that ellipsizes its copy. In the
+   WebView the layers drift apart (the lit copy lands beside the glyphs, a
+   doubled/dotted fragment between the verb and the byline) and the CJK label
+   overflows the ch-based box so the copy ends in "…". Here the lit copy is
+   pinned exactly over the label — no transform, no clipping glyph — and ONE
+   animation slides a mask window across it. */
+html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-shimmer-glint"] {
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: var(--text-shimmer-band) 100%;
+  mask-size: var(--text-shimmer-band) 100%;
+  transform: none;
+  animation: text-shimmer-mask var(--text-shimmer-duration) linear infinite;
+}
+html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-shimmer-glint"]::before {
+  padding: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre;
+  transform: none;
+  animation: none;
+}
+@keyframes text-shimmer-mask {
+  from {
+    -webkit-mask-position: calc(-1 * var(--text-shimmer-band)) 0;
+    mask-position: calc(-1 * var(--text-shimmer-band)) 0;
+  }
+  to {
+    -webkit-mask-position: calc(100% + var(--text-shimmer-rest-run)) 0;
+    mask-position: calc(100% + var(--text-shimmer-rest-run)) 0;
+  }
+}
 .context-usage {
   position: relative;
   width: 28px;
@@ -1106,7 +1119,7 @@ html[data-window-material="mica"] .jump-to-latest {
   align-items: baseline;
   white-space: nowrap;
 }
-/* Failed tools stay visually quiet (TUI parity, user): no red band or card
+/* Failed tools stay visually quiet (TUI parity): no red band or card
    tint — only a failure that arrives on a retained live card blinks. Restored
    history mounts already failed and must not replay the signal. */
 .tool-card.failed .tool-icon,
@@ -1219,7 +1232,7 @@ html[data-window-material="mica"] .jump-to-latest {
   min-width: 0;
   max-width: calc(100% - 56px);
   /* Shrink-to-fit, not lane-filling: the context gauge sits IMMEDIATELY
-     right of the model label (user: 모델 문자 바로 오른쪽), so the selector
+     right of the model label, so the selector
      must not reserve the footer's leftover width. Long labels still shrink
      and ellipsize under the same max-width cap. */
   flex: 0 1 auto;
@@ -1401,7 +1414,7 @@ html[data-window-material="mica"] .jump-to-latest {
   /* The content row MUST be allowed to shrink under this max-height. As an
      auto row it kept its max-content size, so a long checklist pushed the
      stop confirmation past the clip: the button was still there, but the
-     press landed on the composer behind it (user: 골 중단버튼이 안 눌려).
+     press landed on the composer behind it.
      With minmax(0, 1fr) the task list scrolls and the rows below it stay
      inside the panel. */
   grid-template-rows: minmax(0, 1fr) auto;
@@ -1557,7 +1570,7 @@ html[data-window-material="mica"] .jump-to-latest {
   line-height: var(--mx-line-minor);
 }
 /* Full objective, wrapped: the header's one-line ellipsis is only a handle
-   (user: goal도 많이 잘리던데). Capped so a paragraph-long goal scrolls
+. Capped so a paragraph-long goal scrolls
    instead of pushing the task list out of the drawer. */
 .session-goal-objective-full {
   margin: 0 0 4px;
@@ -1601,7 +1614,7 @@ html[data-mixdog-mobile-tabs] .composer-island .session-goal-control {
   padding-inline: 12px;
 }
 /* Phone drawer rows: at a finger's row height and the phone's 14/20 body
-   line (user: 모바일도 PC에 맞춰). */
+   line. */
 html[data-mixdog-mobile-tabs] .session-goal-body {
   padding: 10px 14px 12px;
 }

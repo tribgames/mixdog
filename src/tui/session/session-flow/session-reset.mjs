@@ -30,12 +30,13 @@ export function createSessionResetOps(bag) {
     return stats;
   };
 
-  const clearUiActivityBeforeContextSync = () => {
+  // `keepTranscript`: a compaction keeps the visible rows (its caller archives
+  // them); a clear or session reset wipes them and the archive range with them.
+  const clearUiActivityBeforeContextSync = ({ keepTranscript = false } = {}) => {
     clearToastTimers();
     resetAllStreamingMarkdownStablePrefixes();
-    const items = replaceItems([]);
     set({
-      items,
+      ...(keepTranscript ? {} : { items: replaceItems([]), transcriptArchive: null }),
       toasts: [],
       queued: [],
       thinking: null,

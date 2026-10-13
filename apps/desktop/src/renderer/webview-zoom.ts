@@ -1,4 +1,4 @@
-import { isMobileRemoteSurface } from './mobile-surface';
+import { isIOSWebSurface, isMobileRemoteSurface } from './mobile-surface';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
 // The application shell stays at 100%, including legacy web profiles.
@@ -37,8 +37,15 @@ document.addEventListener('gesturestart', preventGesture, { passive: false });
 document.addEventListener('gesturechange', preventGesture, { passive: false });
 document.addEventListener('gestureend', preventGesture, { passive: false });
 
+// iOS WebKit ignores `user-scalable=no`, so a phone there blocks pinch by
+// cancelling multi-touch. Everywhere else the viewport meta and the root's
+// `touch-action: pan-x pan-y` already refuse pinch-zoom, and a non-passive
+// document touch listener only made every scroll wait for the main thread
+// before it could start (the whole page became a blocking touch region).
 const preventMultiTouch = (event: TouchEvent): void => {
   if (event.touches.length > 1 && isMobileRemoteSurface()) event.preventDefault();
 };
-document.addEventListener('touchstart', preventMultiTouch, { passive: false });
-document.addEventListener('touchmove', preventMultiTouch, { passive: false });
+if (isIOSWebSurface()) {
+  document.addEventListener('touchstart', preventMultiTouch, { passive: false });
+  document.addEventListener('touchmove', preventMultiTouch, { passive: false });
+}

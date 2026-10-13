@@ -27,8 +27,7 @@
   .main-panel {
     flex-direction: column;
   }
-  /* PC keeps the Activity Rail docked in this band too (user: 좁아져도 사이드
-     탭은 없애지 말 것): only the side panel leaves the row and floats beside
+  /* PC keeps the Activity Rail docked in this band too: only the side panel leaves the row and floats beside
      the rail as an overlay sheet, so the thread keeps its width. Like every
      desktop side panel it toggles in one frame — a slide would pass over the
      rail. The frame stays layout-transparent on PC (05-shell.css); phones
@@ -58,7 +57,7 @@
     position: fixed;
     /* Invisible outside-click catcher below the tab zone and right of the
        docked rail, so a rail click still lands. Side sheets do not dim the
-       working surface (user decision). Phones cover the whole screen
+       working surface. Phones cover the whole screen
        (07-mobile-chrome.css). */
     inset: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px)) 0 0 48px;
     z-index: 39;
@@ -88,7 +87,7 @@
   .studio-topbar-tools {
     grid-column: auto;
   }
-  /* A taller field gives the thumb a real target (user: too small to tap).
+  /* A taller field gives the thumb a real target.
      The type size stays the body size: the iOS zoom-on-focus floor lives in
      mobile-web-runtime.css under the iOS marker only, so a narrow desktop
      window or an Android phone no longer jumps the composer to 16px. */
@@ -299,7 +298,7 @@ html[data-mixdog-mobile-tabs]
 /* Labelled buttons keep the PC face (28px, desktop type and radius); only
    their hit frame reaches the touch minimum, through a transparent ::after
    that hangs past the face. Growing the face made every settings action read
-   one size larger than the PC (user: 버튼이 PC보다 크다). */
+   one size larger than the PC. */
 html[data-mixdog-mobile-tabs]
 :is(.settings-action, .settings-form-controls button, .settings-provider-secret button, .provider-account-add-button) {
   position: relative;
@@ -457,8 +456,8 @@ html[data-mixdog-mobile-tabs] :is(.markdown .markdown-path-link, .tool-path-link
    keeps the room they gave back. */
 html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar {
   height: var(--mx-touch);
-  gap: 0;
-  padding-inline: 4px;
+  gap: 2px;
+  padding-inline: 6px;
 }
 html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar .browser-pane-nav-button {
   width: var(--mx-touch-row);
@@ -466,7 +465,17 @@ html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar .browse
   height: var(--mx-touch);
 }
 html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-address-form {
-  margin-inline: 4px;
+  margin-inline: 0;
+}
+/* The PC toolbar's glyph weight (1.5px stroke, tab-strip.css) at the touch
+   tier's size, and the page well on the sheet plate the PC webview sits on. */
+html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar .browser-pane-nav-button svg.lucide {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.5px;
+}
+html[data-mixdog-mobile-tabs] .browser-remote-content {
+  background: var(--mx-workspace-sheet);
 }
 
 /* Shortcuts: label left, keybind chip right, as on the PC. Only a chord that

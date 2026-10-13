@@ -1,5 +1,6 @@
 import type { DesktopSessionSummary } from '../shared/contract';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
+import { deleteSessionImagePreviews } from './image-preview-store';
 
 const SESSION_CATALOG_STORAGE_KEY = 'mixdog.desktop-session-catalog.v1';
 const SESSION_CATALOG_LIMIT = 500;
@@ -46,6 +47,7 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     // not show a dead worker as still running.
     ...(row.archived === true ? { archived: true } : {}),
     ...(row.favorite === true ? { favorite: true } : {}),
+    ...(typeof row.projectAssignment === 'string' ? { projectAssignment: text(row.projectAssignment, 32_768) } : {}),
     ...(sourceType ? { sourceType } : {}),
     ...(sourceName ? { sourceName } : {}),
   };
@@ -90,6 +92,22 @@ export function writeCachedSessionCatalog(rows: DesktopSessionSummary[], scope =
     window.localStorage.setItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
   } catch {
     // The authoritative live catalog remains usable when storage is unavailable.
+  }
+}
+
+/** An authoritative catalog (an exact store scan) no longer lists sessions the
+ *  previous one did: they were deleted somewhere (another window, the phone, a
+ *  sweep), so their on-device image previews go. `keep` are ids that are only
+ *  absent because the renderer has not seen them durably yet. A session merely
+ *  missing from a partial list must not be passed here. */
+export function purgeRemovedSessionPreviews(
+  previous: readonly DesktopSessionSummary[],
+  next: readonly DesktopSessionSummary[],
+  keep: ReadonlySet<string> = new Set()
+): void {
+  const present = new Set(next.map((row) => row.id));
+  for (const row of previous) {
+    if (!present.has(row.id) && !keep.has(row.id)) deleteSessionImagePreviews(row.id);
   }
 }
 

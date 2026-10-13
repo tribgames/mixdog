@@ -4,6 +4,7 @@
 // Writes drain immutable snapshots; a failed write retains the newest maps
 // for an explicit retry instead of reporting an unsaved mutation as success.
 import { createDebouncedWriter, type DebouncedWriter } from '../../../../src/runtime/shared/debounced-writer.mjs';
+import { projectIdentity } from '../shared/project-identity';
 import { generatedSessionTitle, isMediaSessionTitlePlaceholder } from '../shared/session-title.mjs';
 import { readSessionMetadata, writeSessionMetadata, type SessionReadCursor } from './session-metadata-file';
 import { isSessionId } from './desktop-state';
@@ -14,6 +15,7 @@ export class DesktopSessionMetadata {
   private nameMap: Record<string, string> | null = null;
   private archivedMap: Record<string, number> | null = null;
   private favoriteMap: Record<string, number> | null = null;
+  private projectMap: Record<string, string> | null = null;
   private readMap: Record<string, SessionReadCursor> | null = null;
   private loadRequest: Promise<void> | null = null;
   private readonly writer: DebouncedWriter<Parameters<typeof writeSessionMetadata>[1]>;
@@ -65,6 +67,7 @@ export class DesktopSessionMetadata {
       this.nameMap = maps.names;
       this.archivedMap = maps.archived;
       this.favoriteMap = maps.favorites;
+      this.projectMap = maps.projects;
       this.readMap = maps.reads;
       // A stored title the current generator would render differently is
       // rewritten in memory; persist it so the next read is stable.
@@ -116,6 +119,42 @@ export class DesktopSessionMetadata {
     return true;
   }
 
+  /** Sidebar project membership: a path, '' for no project, null to follow the
+   *  session's folder again. True when the stored value actually changed. */
+  async setProject(sessionId: string, projectPath: string | null): Promise<boolean> {
+    await this.load();
+    this.projectMap ??= Object.create(null) as Record<string, string>;
+    const map = this.projectMap;
+    const next = projectPath === null ? null : projectPath.trim();
+    if (next !== null && next.length > 32_768) throw new TypeError('Project path is too long.');
+    const current = Object.hasOwn(map, sessionId) ? map[sessionId] : null;
+    if (next === current) {
+      await this.flush();
+      return false;
+    }
+    if (next === null) delete map[sessionId];
+    else map[sessionId] = next;
+    await this.queueWrite();
+    return true;
+  }
+
+  /** Drop every assignment that points at `projectPath` (a removed project) so
+   *  re-adding the same path does not resurrect it. '' (no project) entries stay.
+   *  True when any assignment was cleared. */
+  async clearProjectAssignments(projectPath: string): Promise<boolean> {
+    await this.load();
+    const target = projectIdentity(projectPath);
+    const map = this.projectMap;
+    const ids = map && target ? Object.keys(map).filter((id) => map[id] && projectIdentity(map[id]) === target) : [];
+    if (!map || !ids.length) {
+      await this.flush();
+      return false;
+    }
+    for (const id of ids) delete map[id];
+    await this.queueWrite();
+    return true;
+  }
+
   /** Advance the shared read cursor. `consumedUnread` also records a
    * completion-only read when the message count did not move. */
   async markRead(sessionId: string, messageCount: number, consumedUnread: boolean): Promise<boolean> {
@@ -147,11 +186,13 @@ export class DesktopSessionMetadata {
       Object.hasOwn(this.names, sessionId) ||
       Object.hasOwn(this.archivedMap || {}, sessionId) ||
       Object.hasOwn(this.favoriteMap || {}, sessionId) ||
+      Object.hasOwn(this.projectMap || {}, sessionId) ||
       Object.hasOwn(this.readMap || {}, sessionId);
     delete this.titleMap?.[sessionId];
     delete this.nameMap?.[sessionId];
     if (this.archivedMap) delete this.archivedMap[sessionId];
     if (this.favoriteMap) delete this.favoriteMap[sessionId];
+    if (this.projectMap) delete this.projectMap[sessionId];
     if (this.readMap) delete this.readMap[sessionId];
     if (had) await this.queueWrite();
     else await this.flush();
@@ -186,6 +227,15 @@ export class DesktopSessionMetadata {
     return summaries.map((row) => (Object.hasOwn(favorites, row.id) ? { ...row, favorite: true } : row));
   }
 
+  /** Attach user-chosen project membership to a session listing. */
+  withProjectAssignments<T extends { id: string }>(summaries: T[]): Array<T & { projectAssignment?: string }> {
+    const projects = this.projectMap;
+    if (!projects) return summaries;
+    return summaries.map((row) =>
+      Object.hasOwn(projects, row.id) ? { ...row, projectAssignment: projects[row.id] } : row
+    );
+  }
+
   /** Project shared read cursors into the catalog pushed to every surface. */
   withReadCursors<T extends { id: string }>(
     summaries: T[]
@@ -208,8 +258,9 @@ export class DesktopSessionMetadata {
     const names = { ...this.names };
     const archived = { ...(this.archivedMap || {}) };
     const favorites = { ...(this.favoriteMap || {}) };
+    const projects = { ...(this.projectMap || {}) };
     const reads = { ...this.reads };
-    this.writer.schedule({ titles, names, archived, favorites, reads });
+    this.writer.schedule({ titles, names, archived, favorites, projects, reads });
     return this.flush();
   }
 }

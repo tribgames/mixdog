@@ -13,7 +13,9 @@ const optionalFn = (value) => (typeof value === 'function' ? value : undefined);
 const relay = (fn, ...args) => {
   try {
     fn?.(...args);
-  } catch {}
+  } catch {
+    /* a host callback must never break the turn */
+  }
 };
 
 /**
@@ -70,10 +72,10 @@ export function buildAgentLoopOptions({
       checkpoint.schedule();
       if (typeof askOpts?.onReasoningDelta === 'function') askOpts.onReasoningDelta(chunk);
     },
-    onAssistantText: (text) => {
+    onAssistantText: (text, detail) => {
       interruption.recordAssistantText(text);
       checkpoint.schedule(true);
-      if (typeof askOpts?.onAssistantText === 'function') askOpts.onAssistantText(text);
+      if (typeof askOpts?.onAssistantText === 'function') askOpts.onAssistantText(text, detail);
     },
     takeAssistantTranscriptMetadata,
     // Send-opt only. Never copy onto `session` — a transient

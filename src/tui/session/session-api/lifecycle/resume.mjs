@@ -1,6 +1,7 @@
 // Resume: reopen a stored session, rebuild the visible transcript from its
 // messages and reconcile live-share and steering at the same boundary.
 import { primeContextEstimates } from '../../../../runtime/agent/orchestrator/session/context-utils.mjs';
+import { resumedTranscriptArchive } from '../../compaction-view.mjs';
 
 export function createResumeAction(bag, { restoreTranscriptItems }) {
   const {
@@ -52,6 +53,8 @@ export function createResumeAction(bag, { restoreTranscriptItems }) {
         });
         set({
           items: replaceItems(items),
+          // Paged views continue into the compaction archive past these rows.
+          transcriptArchive: resumedTranscriptArchive(r.transcriptArchive),
           toasts: [],
           queued: [],
           thinking: null,

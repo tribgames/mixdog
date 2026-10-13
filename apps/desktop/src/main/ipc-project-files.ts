@@ -3,6 +3,7 @@ import { posix } from 'node:path';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
+import { fileSnapshots } from './file-snapshot';
 import { localPageUrl, revokeLocalPagesFor } from './local-page-server';
 import { LocalAccessDeniedError } from './local-access-denied';
 import { projectEntryPathIn } from './project-files';
@@ -67,8 +68,17 @@ export function registerProjectFileIpc({
       rel: requiredString(relPath, 'relPath', 4_096),
     };
   };
-  const previewOwners = new WeakSet<object>();
-  const editorBackupRoot = typeof app.getPath === 'function' ? app.getPath('userData') : '';
+  const context: ProjectFileContext = {
+    handle,
+    host,
+    invokeDesktopOperation,
+    shell,
+    grantedFile,
+    server,
+    editorFilePath,
+    editorFileTarget,
+    editorBackupRoot: typeof app.getPath === 'function' ? app.getPath('userData') : '',
+  };
 
   handle(DESKTOP_IPC.listProjectDir, (_event, projectPath, relDir) =>
     host.listProjectDir(requiredString(projectPath, 'projectPath'), typeof relDir === 'string' ? relDir : '')
@@ -80,6 +90,39 @@ export function registerProjectFileIpc({
     }
     return host.readProjectTextFile(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
   });
+  registerLocalPageIpc(context);
+  registerPreviewIpc(context);
+  registerEditorFileIpc(context);
+  registerEntryIpc(context);
+  registerLspIpc(context);
+  if (server) {
+    registerServerFileIpc({
+      handle,
+      server,
+      invokeDesktopOperation,
+      fileTarget: editorFileTarget,
+      projectDirectory: (project) => host.projectDirectory(project),
+      shell,
+    });
+  }
+}
+
+type ProjectFileContext = Pick<
+  ProjectFileIpcOptions,
+  'handle' | 'host' | 'invokeDesktopOperation' | 'shell' | 'grantedFile'
+> & {
+  server: ServerFiles | null;
+  editorFilePath: (projectPath: unknown, relPath: unknown, accessToken: unknown) => Promise<string>;
+  editorFileTarget: (
+    projectPath: unknown,
+    relPath: unknown,
+    accessToken: unknown
+  ) => Promise<{ root: string; rel: string }>;
+  editorBackupRoot: string;
+};
+
+function registerLocalPageIpc({ handle, host, grantedFile }: ProjectFileContext): void {
+  const previewOwners = new WeakSet<object>();
   handle(DESKTOP_IPC.localPageUrl, async (event, projectPath, relPath, accessToken) => {
     const project = requiredString(projectPath, 'projectPath');
     const rel = requiredString(relPath, 'relPath', 4_096);
@@ -121,6 +164,16 @@ export function registerProjectFileIpc({
       },
     });
   });
+}
+
+function registerPreviewIpc({
+  handle,
+  host,
+  invokeDesktopOperation,
+  grantedFile,
+  server,
+  editorFileTarget,
+}: ProjectFileContext): void {
   handle(DESKTOP_IPC.previewProjectFile, async (_event, projectPath, relPath, accessToken) => {
     if (server) {
       const target = await editorFileTarget(projectPath, relPath, accessToken);
@@ -148,6 +201,12 @@ export function registerProjectFileIpc({
     const preview = registerFilePreview(file, `${info.mtimeMs}:${info.size}`);
     if (!preview) throw new Error('This file type does not support an in-app preview.');
     return { ...preview, ...info };
+  });
+  handle(DESKTOP_IPC.captureFileSnapshot, async (_event, projectPath, relPath, accessToken) => {
+    // A server window's files live on the server, out of this PC's reach.
+    if (server) throw new Error('Snapshots are not available for server files.');
+    const target = await editorFileTarget(projectPath, relPath, accessToken);
+    return fileSnapshots.capture(target.root, target.rel, typeof accessToken === 'string' && accessToken !== '');
   });
   handle(DESKTOP_IPC.previewDocumentFile, async (_event, projectPath, relPath, accessToken) => {
     const target = await editorFileTarget(projectPath, relPath, accessToken);
@@ -179,6 +238,16 @@ export function registerProjectFileIpc({
     const target = await editorFileTarget(projectPath, relPath, accessToken);
     return invokeDesktopOperation('documentPreviewPagesIn', [target.root, target.rel, options ?? {}]);
   });
+}
+
+function registerEditorFileIpc({
+  handle,
+  host,
+  invokeDesktopOperation,
+  grantedFile,
+  editorFilePath,
+  editorBackupRoot,
+}: ProjectFileContext): void {
   handle(
     DESKTOP_IPC.writeProjectFile,
     async (_event, projectPath, relPath, content, expectedContent, accessToken, encoding) => {
@@ -234,6 +303,9 @@ export function registerProjectFileIpc({
     }
     return host.statProjectFile(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
   });
+}
+
+function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server }: ProjectFileContext): void {
   handle(DESKTOP_IPC.createProjectEntry, (_event, projectPath, relDir, name, dir) =>
     host.createProjectEntry(
       requiredString(projectPath, 'projectPath'),
@@ -278,6 +350,9 @@ export function registerProjectFileIpc({
     );
     await shell.trashItem(target);
   });
+}
+
+function registerLspIpc({ handle, host, invokeDesktopOperation }: ProjectFileContext): void {
   handle(DESKTOP_IPC.codeGraphQuery, (_event, projectPath, mode, symbol) => {
     if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') {
       throw new TypeError('mode is invalid.');
@@ -306,14 +381,4 @@ export function registerProjectFileIpc({
     const root = await host.projectDirectory(project);
     return invokeDesktopOperation('writeProjectTextFilesIn', [root, requiredWorkspaceTextWrites(rawWrites)]);
   });
-  if (server) {
-    registerServerFileIpc({
-      handle,
-      server,
-      invokeDesktopOperation,
-      fileTarget: editorFileTarget,
-      projectDirectory: (project) => host.projectDirectory(project),
-      shell,
-    });
-  }
 }

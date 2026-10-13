@@ -82,6 +82,23 @@ test('only a host advertising browserDrive is driven at the phone size, re-read 
   });
 });
 
+test('conversation browser tabs follow the browserSessionTabs flag, re-read on every leg', async () => {
+  await withShim({}, async (shim) => {
+    const api = (await connect(shim, true)).api;
+    assert.equal(api.remoteBrowserSessionTabs, false, 'a legacy host has no conversation tab controls');
+    const redial = (flags) => {
+      shim.ctx.connectionReady = false;
+      shim.ctx.socket = null;
+      shim.ctx.openPromise = null;
+      return shim.dial({ remoteParity: true, ...flags, ready: publishedCeilings(4096, 4096) });
+    };
+    await redial({ browserParity: true, browserSessionTabs: true });
+    assert.equal(api.remoteBrowserSessionTabs, true);
+    await redial({ browserParity: true });
+    assert.equal(api.remoteBrowserSessionTabs, false);
+  });
+});
+
 test('listHostDirectories is absent on a legacy handshake so the folder browser falls back', async () => {
   await withShim({}, async (shim) => {
     const { api } = await connect(shim, true);

@@ -140,6 +140,23 @@ test('the phone asks for its content box, held inside the emulation bounds', () 
   assert.deepEqual(normalizeRemoteBrowserControl({ type: 'viewport', ...viewport }), { type: 'viewport', ...viewport });
 });
 
+test('tab controls: new-tab, select-tab and close-tab are accepted, bad tab ids refused', () => {
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'new-tab', extra: 1 }), { type: 'new-tab' });
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'select-tab', tabId: 'p3', x: 1 }), {
+    type: 'select-tab',
+    tabId: 'p3',
+  });
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'close-tab', tabId: 'p12' }), {
+    type: 'close-tab',
+    tabId: 'p12',
+  });
+  for (const type of ['select-tab', 'close-tab']) {
+    for (const tabId of [undefined, 3, '', 'main-browser-a', 'p', 'p1x', 'x1', `p${'1'.repeat(80)}`]) {
+      assert.throws(() => normalizeRemoteBrowserControl({ type, tabId }), TypeError, `${type} ${String(tabId)}`);
+    }
+  }
+});
+
 test('stream options are bounded and rounded', () => {
   assert.deepEqual(normalizeRemoteBrowserStreamOptions({ maxWidth: 800.4, maxHeight: 600 }), {
     maxWidth: 800,

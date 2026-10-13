@@ -31,6 +31,7 @@ import { _uncacheSessionSummary, _queueSessionSummaryRemoval } from './summary-c
 import { _savePending, _clearDebounce, _releasePendingSlot } from './pending-saves.mjs';
 import { _runtimeLivenessVeto, _heartbeatLivenessVeto, _deleteHeartbeatUnlessNewer } from './liveness-veto.mjs';
 import { _runSessionPurgeHooks } from './session-observers.mjs';
+import { deleteCompactionArchive } from '../compaction-archive.mjs';
 
 /** Strictly enumerate child-agent session files linked to one visible parent.
  * Used only by explicit parent deletion; ordinary close/context switches keep
@@ -130,6 +131,8 @@ export function deleteSession(id, options = {}) {
     // Preserve a sidecar published strictly after the sweep's scan snapshot.
     _deleteHeartbeatUnlessNewer(id, options);
     deleteSessionPresence(id);
+    // The display-only compaction archive has no meaning without its session.
+    deleteCompactionArchive(getStoreDir(), id);
     _clearLiveSession(id);
     // The file is gone: every marker of the retired incarnation goes with it
     // (save error + failed-snapshot evidence, split-brain drop flag, lifecycle

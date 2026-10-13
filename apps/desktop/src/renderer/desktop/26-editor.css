@@ -30,7 +30,7 @@
 }
 /* Same control grammar as the session-header cluster (.session-dock-toggle):
    28px box, 6px radius, label ink, 4px rhythm — the file strip's icons must
-   not read lighter than the TASK row above (user decision). */
+   not read lighter than the TASK row above. */
 .editor-breadcrumb-actions {
   height: 30px;
   flex: 0 0 auto;
@@ -69,7 +69,7 @@
 }
 /* Same 18px optical frame as the header cluster (context/remote/panel):
    the previous 16px glyph read visibly lighter than the TASK-side icons in
-   the row above (user: 파일쪽 아이콘이 훨씬 잘 안 보인다). */
+   the row above. */
 .editor-breadcrumb-actions svg.lucide {
   width: var(--mx-icon-lg);
   height: var(--mx-icon-lg);
@@ -1029,7 +1029,7 @@
   width: min(600px, 62vw, calc(100vw - 32px));
   overflow: hidden;
   /* Outlined, unlike the frameless popup skin: a centered card over the
-     conversation needs a visible edge (user: 외곽선이 없어서 구분이 안 됨). */
+     conversation needs a visible edge. */
   border: var(--mx-hairline) solid var(--mx-border);
   border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
@@ -1307,7 +1307,7 @@
 html[data-mixdog-mobile-tabs] .terminal-key-bar {
   display: flex;
   flex: 0 0 auto;
-  gap: 4px;
+  gap: 2px;
   padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
   overflow-x: auto;
   scrollbar-width: none;
@@ -1326,19 +1326,26 @@ html[data-mixdog-mobile-tabs] .terminal-key-bar-key {
   height: 36px;
   padding: 0 10px;
   border: 0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--mx-terminal-fg, #e9e9e9);
+  /* The app's own button grammar (.browser-pane-nav-button / .browser-tab):
+     --mx-radius-md plate, idle tab ink, --mx-hover resting plate,
+     --mx-pressed on press, and the active-tab plate + ring while armed. */
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-tab-idle-ink);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
   -webkit-tap-highlight-color: transparent;
 }
 html[data-mixdog-mobile-tabs] .terminal-key-bar-key:active {
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--mx-pressed);
+  color: var(--mx-text);
 }
 html[data-mixdog-mobile-tabs] .terminal-key-bar-key[aria-pressed="true"] {
-  background: var(--mx-accent, #3b8eea);
-  color: #fff;
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-text) 18%, transparent);
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
 }
 .dock-terminal .xterm-viewport {
   overflow-y: scroll;
@@ -1396,7 +1403,7 @@ html[data-mixdog-mobile-tabs] .terminal-key-bar-key[aria-pressed="true"] {
    below the aggregate floor the bottom panel overlays as a sheet instead of
    forcing the workbench into horizontal scroll (full-responsive shell). */
 @media (max-width: 940px) {
-  /* Flush to the window floor like the drawer (user: 안 비게). */
+  /* Flush to the window floor like the drawer. */
   .panel-backdrop {
     display: block;
     position: fixed;

@@ -8,7 +8,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
   jsdom: { url: 'https://mixdog.test/' },
-  expose: ['HTMLElement', 'KeyboardEvent', 'navigator'],
+  expose: ['HTMLElement', 'KeyboardEvent', 'CustomEvent', 'navigator'],
 });
 window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
@@ -64,6 +64,8 @@ function fakeApi() {
     },
     remoteBrowserControl: async (sessionId, input) => {
       state.controls.push({ sessionId, input });
+      // The host answers a close with the tabs it has left.
+      if (input.type === 'close-tab') return state.closeReply?.(input);
     },
     openExternal: async () => {},
   };
@@ -472,6 +474,205 @@ test('a browserParity host adds a tab strip whose selection moves the stream and
   assert.deepEqual(tabsSeen.watch, [true, false]);
 });
 
+test('phone: a conversation browser offers no new tab and keeps its page across hide/reopen; the main browser still creates tabs', async () => {
+  const state = fakeApi();
+  const opened = [];
+  const seen = tabHost([
+    { id: 'main-browser-a', title: 'A', url: 'https://a.test/', loading: false },
+    { id: 'main-browser-b', title: 'B', url: 'https://b.test/', loading: false },
+  ]);
+  Object.assign(window.mixdogDesktop, {
+    remoteBrowserOpenTab: async (url) => {
+      opened.push(url);
+      return { id: 'main-browser-new', title: 'New', url, loading: true };
+    },
+  });
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+  });
+  const pane = await mount({ sessionId: 's', active: true });
+  try {
+    await showFrame(state);
+    await flush();
+    const ids = () => [...document.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('data-page-id'));
+    const selectedId = () =>
+      [...document.querySelectorAll('[role="tab"]')]
+        .find((tab) => tab.getAttribute('aria-selected') === 'true')
+        ?.getAttribute('data-page-id');
+    assert.deepEqual(ids(), ['s']);
+    assert.equal(document.querySelector('button[aria-label="New tab"]'), null);
+    assert.equal(selectedId(), 's');
+
+    await pane.rerender({ sessionId: 's', active: false });
+    await pane.rerender({ sessionId: 's', active: true });
+    await flush();
+    assert.deepEqual(ids(), ['s']);
+    assert.equal(selectedId(), 's');
+    assert.equal(state.streams.at(-1)[0], 's');
+    assert.equal(opened.length, 0);
+    assert.deepEqual(seen.watch, []);
+
+    // The main-workspace browser on the phone keeps its "+".
+    await pane.rerender({ sessionId: 'main-browser-a', active: true });
+    await flush();
+    await act(async () => document.querySelector('button[aria-label="New tab"]').click());
+    const address = document.querySelector('input[aria-label="Address bar"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(address, 'example.com');
+      address.dispatchEvent(new window.Event('input', { bubbles: true }));
+      address.propertyChange({ propertyName: 'value', target: address });
+    });
+    await act(async () => address.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    await flush();
+    assert.equal(opened.length, 1);
+    assert.equal(selectedId(), 'main-browser-new');
+  } finally {
+    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+    else delete window.navigator.userAgent;
+    await pane.unmount();
+  }
+});
+
+test('phone: a host with session tabs mirrors the conversation strip and sends new/select/close', async () => {
+  const state = fakeApi();
+  const { PANE_DOCK_CLOSE_EVENT } = await import('./pane-dock-chrome.tsx');
+  window.mixdogDesktop.remoteBrowserSessionTabs = true;
+  const closes = [];
+  const onClose = (event) => closes.push(event.detail.surface);
+  window.addEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
+  const strip = (...ids) =>
+    ids.map(([id, active]) => ({
+      id,
+      title: `T ${id}`,
+      url: `https://${id}.test/`,
+      active,
+      loading: false,
+      kind: 'page',
+    }));
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+  });
+  const pane = await mount({ sessionId: 's', active: true });
+  const ids = () => [...document.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('data-page-id'));
+  const selected = () =>
+    [...document.querySelectorAll('[role="tab"]')]
+      .find((tab) => tab.getAttribute('aria-selected') === 'true')
+      ?.getAttribute('data-page-id');
+  const sent = () => state.controls.map(({ sessionId, input }) => [sessionId, input.type, input.tabId]);
+  try {
+    await act(async () => state.listener(streamFrame({ tabs: strip(['p1', true]) })));
+    await flush();
+    assert.deepEqual(ids(), ['p1']);
+
+    // "+" asks the host for a tab in this conversation's own browser.
+    await act(async () => document.querySelector('button[aria-label="New tab"]').click());
+    assert.deepEqual(sent(), [['s', 'new-tab', undefined]]);
+    await act(async () =>
+      state.listener(streamFrame({ seq: 2, documentId: 'd2', tabs: strip(['p1', false], ['p2', true]) }))
+    );
+    await flush();
+    assert.deepEqual(ids(), ['p1', 'p2']);
+    assert.equal(selected(), 'p2');
+
+    // Tapping a tab selects it on the host; the strip follows the host's frame.
+    await act(async () => document.querySelector('[role="tab"][data-page-id="p1"]').click());
+    assert.deepEqual(sent().at(-1), ['s', 'select-tab', 'p1']);
+    await act(async () =>
+      state.listener(streamFrame({ seq: 3, documentId: 'd3', tabs: strip(['p1', true], ['p2', false]) }))
+    );
+    await flush();
+    assert.equal(selected(), 'p1');
+
+    // Hide and reopen: the strip comes back from the stream, the page stays reachable.
+    await pane.rerender({ sessionId: 's', active: false });
+    await pane.rerender({ sessionId: 's', active: true });
+    await act(async () =>
+      state.listener(streamFrame({ seq: 4, documentId: 'd3', tabs: strip(['p1', true], ['p2', false]) }))
+    );
+    await flush();
+    assert.deepEqual(ids(), ['p1', 'p2']);
+    assert.equal(selected(), 'p1');
+
+    // × closes on the host; closing the last tab also closes the panel.
+    state.closeReply = ({ tabId }) => ({ remainingTabs: tabId === 'p2' ? 1 : 0 });
+    await act(async () => document.querySelector('button[aria-label="Close tab: T p2"]').click());
+    assert.deepEqual(sent().at(-1), ['s', 'close-tab', 'p2']);
+    assert.deepEqual(closes, []);
+    await act(async () => state.listener(streamFrame({ seq: 5, documentId: 'd3', tabs: strip(['p1', true]) })));
+    await flush();
+    assert.deepEqual(ids(), ['p1']);
+    await act(async () => document.querySelector('button[aria-label="Close tab: T p1"]').click());
+    assert.deepEqual(sent().at(-1), ['s', 'close-tab', 'p1']);
+    assert.deepEqual(closes, ['browser']);
+  } finally {
+    window.removeEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
+    delete window.mixdogDesktop.remoteBrowserSessionTabs;
+    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+    else delete window.navigator.userAgent;
+    await pane.unmount();
+  }
+});
+
+for (const race of [
+  {
+    name: 'the PC adds a tab while the close is pending: the panel stays',
+    strip: [['p1', true]],
+    remaining: 1,
+    closes: [],
+  },
+  {
+    name: 'the PC removed the other tab before the next frame: the real last tab closes the panel',
+    strip: [
+      ['p1', true],
+      ['p2', false],
+    ],
+    remaining: 0,
+    closes: ['browser'],
+  },
+]) {
+  test(`phone: closing a conversation tab is decided by the host's remaining count (${race.name})`, async () => {
+    const state = fakeApi();
+    const { PANE_DOCK_CLOSE_EVENT } = await import('./pane-dock-chrome.tsx');
+    window.mixdogDesktop.remoteBrowserSessionTabs = true;
+    const closes = [];
+    const onClose = (event) => closes.push(event.detail.surface);
+    window.addEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
+    const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+    });
+    const pane = await mount({ sessionId: 's', active: true });
+    try {
+      const tabs = race.strip.map(([id, active]) => ({
+        id,
+        title: `T ${id}`,
+        url: `https://${id}.test/`,
+        active,
+        loading: false,
+        kind: 'page',
+      }));
+      await act(async () => state.listener(streamFrame({ tabs })));
+      await flush();
+      // The strip still shows what it showed when the user tapped ×.
+      state.closeReply = () => ({ remainingTabs: race.remaining });
+      await act(async () => document.querySelector('button[aria-label="Close tab: T p1"]').click());
+      await flush();
+      assert.deepEqual(closes, race.closes);
+    } finally {
+      window.removeEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
+      delete window.mixdogDesktop.remoteBrowserSessionTabs;
+      if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+      else delete window.navigator.userAgent;
+      await pane.unmount();
+    }
+  });
+}
+
 function tabHost(list) {
   const seen = { watch: [], closed: [], log: [] };
   const stream = window.mixdogDesktop.remoteBrowserStream;
@@ -537,6 +738,32 @@ test('closing the streamed tab leaves it for a neighbour and is not restarted af
   }
 });
 
+test('closing the only tab asks the side panel to close and keeps the host page; a non-last close does not', async () => {
+  fakeApi();
+  const seen = tabHost([
+    { id: 'main-browser-a', title: 'Alpha', url: 'https://a.test/', loading: false },
+    { id: 'main-browser-b', title: 'Beta', url: 'https://b.test/', loading: false },
+  ]);
+  const requests = [];
+  const onClose = (event) => requests.push(event.detail.surface);
+  window.addEventListener('mixdog:pane-dock-close', onClose);
+  const pane = await mount({ sessionId: 'main-browser-a', active: true });
+  try {
+    await flush();
+    await act(async () => document.querySelector('button[aria-label="Close tab: Beta"]').click());
+    await flush();
+    assert.deepEqual(seen.closed, ['main-browser-b']);
+    assert.deepEqual(requests, []);
+    await act(async () => document.querySelector('button[aria-label="Close tab: Alpha"]').click());
+    await flush();
+    assert.deepEqual(requests, ['browser']);
+    assert.deepEqual(seen.closed, ['main-browser-b']);
+  } finally {
+    window.removeEventListener('mixdog:pane-dock-close', onClose);
+    await pane.unmount();
+  }
+});
+
 test('panes share one host-side tab watch that stops with the last pane', async () => {
   fakeApi();
   const seen = tabHost([{ id: 'main-browser-a', title: 'Alpha', url: 'https://a.test/', loading: false }]);
@@ -559,18 +786,21 @@ test('panes share one host-side tab watch that stops with the last pane', async 
   assert.deepEqual(seen.watch, [true, true, false, true, false]);
 });
 
-test('a host without the tab members keeps the single-stream pane', async () => {
+test('off the phone the remote pane keeps its own layout: no header row, keyboard + ⋯ in the toolbar', async () => {
   fakeApi();
   const pane = await mount({ sessionId: 'main-browser-a', active: true });
   try {
     await flush();
-    assert.equal(document.querySelector('[role="tablist"]'), null);
-    assert.equal(document.querySelector('button[aria-label="More actions"], .dock-overflow-trigger'), null);
+    // The phone sheet's PC-style header row and its ⋯-folded controls are phone-only.
+    assert.equal(document.querySelector('.dock-header-row'), null);
+    assert.equal(document.querySelector('.browser-pane-popup-tabs'), null);
+    const toolbar = document.querySelector('.browser-pane-toolbar');
+    assert.ok(toolbar.querySelector('.browser-remote-keyboard-button'), 'keyboard button stays in the toolbar');
+    assert.equal(toolbar.querySelector('.browser-pane-import-button'), null);
   } finally {
     await pane.unmount();
   }
 });
-
 test('a chat link opened before and while the pane is mounted navigates the host page', async () => {
   const state = fakeApi();
   const { requestBrowserPage } = await import('./browser-page-request.ts');

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { desktopToolActivityItemPresentation } from './transcript-tool-model.ts';
 import {
+  rememberVisualizeTabTitles,
+  visualizeCallTabTitle,
   visualizeCardCalls,
   visualizeCardKind,
   visualizeCardTab,
@@ -19,10 +22,21 @@ const open = (id, targets, result, extra = {}) => ({
 
 test('cards come from file opens: pending ones shimmer, URLs and failures get none, one card per tab', () => {
   const items = [
-    open('a', ['site/index.html'], 'Showing site/index.html (html) in the side panel as tab v1. The tab reloads when the file changes.\nv1 html index.html → site/index.html'),
-    open('b', ['http://localhost:3000/'], 'Opened http://localhost:3000/ in the session\'s browser panel (tab v2).'),
+    open(
+      'a',
+      ['site/index.html'],
+      'Showing site/index.html (html) in the side panel as tab v1. The tab reloads when the file changes.\nv1 html index.html → site/index.html'
+    ),
+    open('b', ['http://localhost:3000/'], "Opened http://localhost:3000/ in the session's browser panel (tab v2)."),
     { ...open('c', ['missing.png'], 'Error: target not found: missing.png'), isError: true },
-    { id: 'd', kind: 'tool', name: 'visualize', args: { action: 'capture', input: { tab: 'v1', output: 'a.png' } }, result: 'Captured', completedAt: 1 },
+    {
+      id: 'd',
+      kind: 'tool',
+      name: 'visualize',
+      args: { action: 'capture', input: { tab: 'v1', output: 'a.png' } },
+      result: 'Captured',
+      completedAt: 1,
+    },
     open('e', ['site/index.html'], 'Showing site/index.html (html) in the side panel as tab v1.', { label: 'Home' }),
     open('f', ['a.png', 'b.pdf']),
   ];
@@ -43,7 +57,10 @@ test('cards come from file opens: pending ones shimmer, URLs and failures get no
     completedAt: 1,
   };
   assert.equal(visualizeResultTabId(stored), 'v4');
-  assert.deepEqual(visualizeCardCalls([stored]).map((call) => call.tabId), ['v4']);
+  assert.deepEqual(
+    visualizeCardCalls([stored]).map((call) => call.tabId),
+    ['v4']
+  );
 });
 
 test('a card stands for its live tab only while that tab shows the same files', () => {
@@ -67,7 +84,10 @@ test('a card stands for its live tab only while that tab shows the same files', 
       { kind: 'html', label: 'index.html', target: 'site/index.html', url: '', version: 1 },
       { kind: 'html', label: 'index.html', target: 'site/index.html', url: '' },
     ],
-    versions: [{ n: 1, at: 1 }, { n: 2, at: 2 }],
+    versions: [
+      { n: 1, at: 1 },
+      { n: 2, at: 2 },
+    ],
     version: 1,
   });
   const live = visualizeCardTab(state([comparing]), call);
@@ -84,7 +104,12 @@ test('the card icon follows the live pane kind, else the target extension', () =
   assert.equal(visualizeCardKind(call(['deck.pptx']), null), 'document');
   assert.equal(visualizeCardKind(call(['a.png', 'b.pdf']), null), 'split');
   assert.equal(
-    visualizeCardKind(call(['page']), { id: 'v1', label: '', revision: 0, panes: [{ kind: 'html', label: '', target: 'page', url: '' }] }),
+    visualizeCardKind(call(['page']), {
+      id: 'v1',
+      label: '',
+      revision: 0,
+      panes: [{ kind: 'html', label: '', target: 'page', url: '' }],
+    }),
     'html'
   );
 });
@@ -97,7 +122,8 @@ test('inline content opens get a card: kind icon, title, tab match by title, reo
     args: { action: 'open', input: { content } },
     ...(result === undefined ? {} : { result, completedAt: 1 }),
   });
-  const done = 'Showing inline chart "Sales" in the side panel as tab v3. Open again with the same title to add a version.';
+  const done =
+    'Showing inline chart "Sales" in the side panel as tab v3. Open again with the same title to add a version.';
   const calls = visualizeCardCalls([
     inline('a', { kind: 'chart', source: '{}', title: 'Sales' }, done),
     inline('b', { kind: 'mermaid', source: 'graph TD;A-->B' }),
@@ -123,11 +149,58 @@ test('inline content opens get a card: kind icon, title, tab match by title, reo
     inline: { kind, source: '{"n":2}', title },
     ...(version ? { version } : {}),
   });
-  const tab = { id: 'v3', label: 'Sales', revision: 1, panes: [pane('Sales')], versions: [{ n: 1, at: 1 }, { n: 2, at: 2 }], version: null };
+  const tab = {
+    id: 'v3',
+    label: 'Sales',
+    revision: 1,
+    panes: [pane('Sales')],
+    versions: [
+      { n: 1, at: 1 },
+      { n: 2, at: 2 },
+    ],
+    version: null,
+  };
   const state = { sessionId: 's1', active: 'v3', tabs: [tab] };
   assert.equal(visualizeCardTab(state, calls[0]), tab);
   assert.equal(visualizeCardVersion(tab), 'v2');
   assert.equal(visualizeCardTab({ ...state, tabs: [{ ...tab, panes: [pane('Other')] }] }, calls[0]), null);
   assert.equal(visualizeCardTab({ ...state, tabs: [{ ...tab, panes: [pane('Sales', 'html')] }] }, calls[0]), null);
   assert.equal(visualizeCardTab({ ...state, tabs: [] }, calls[0]), null, 'closed once the tab is gone');
+});
+
+test('visualize rows name the tab by the title it opened with, never its bare id', () => {
+  const session = 'sess-rows';
+  const opened = {
+    id: 'o',
+    kind: 'tool',
+    name: 'visualize',
+    args: { action: 'open', input: { targets: ['design/mockups/pricing.html'], label: '요금제 배치 시안 (3가지)' } },
+    result: 'Showing design/mockups/pricing.html (html) in the side panel as tab v1.',
+    completedAt: 1,
+  };
+  const call = (action, input) => ({
+    id: action,
+    kind: 'tool',
+    name: 'visualize',
+    args: { action, input },
+    result: 'ok',
+    completedAt: 2,
+  });
+  rememberVisualizeTabTitles(session, [opened]);
+  const row = (item) =>
+    desktopToolActivityItemPresentation(item, undefined, { visualizeTabTitle: visualizeCallTabTitle(session, item) })
+      .subject;
+  assert.equal(row(opened), 'Showed tab · 요금제 배치 시안 (3가지)');
+  assert.equal(row(call('check', { tab: 'v1' })), 'Checked tab · 요금제 배치 시안 (3가지)');
+  assert.equal(row(call('capture', { tab: 'v1' })), 'Captured tab · 요금제 배치 시안 (3가지)');
+  assert.equal(row(call('close', { tab: 'v1' })), 'Closed tab · 요금제 배치 시안 (3가지)');
+  assert.equal(row(call('inspect', { tab: 'v1' })), 'Inspected tab · 요금제 배치 시안 (3가지)');
+  // Another session's v1, or an unknown tab, shows the verb alone.
+  assert.equal(
+    desktopToolActivityItemPresentation(call('check', { tab: 'v9' }), undefined, {
+      visualizeTabTitle: visualizeCallTabTitle(session, call('check', { tab: 'v9' })),
+    }).subject,
+    'Checked tab'
+  );
+  assert.equal(visualizeCallTabTitle('other', call('check', { tab: 'v1' })), '');
 });

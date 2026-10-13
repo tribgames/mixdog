@@ -272,6 +272,8 @@ export interface TurnChangesFile {
   reason?: string;
   /** Its replay/preview patch was dropped for size (byte-budget eviction or an oversized single turn). */
   patchOmitted?: true;
+  /** The record kept no line counts for it (an old outside-root edit). */
+  unmeasured?: true;
 }
 
 /**

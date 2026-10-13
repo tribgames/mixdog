@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대화 안 "턴 변경" 카드 v1 — 현재 vs A/B/C</title>
+<style>
+  /* Tokens copied as values from apps/desktop/src/renderer/desktop/01-tokens.css
+     (dark :root block, light theme block) + ui/tokens.css (radius, hairline). */
+  :root, [data-theme="dark"] {
+    --mx-workspace-sheet: #111113; --mx-bg-base: #222225; --mx-bg-layer-1: #2a2a2d; --mx-bg-layer-2: #323236;
+    --mx-surface-plate: rgba(255,255,255,.035);
+    --mx-text: #e9e9e9; --mx-text-muted: #a8a8a8; --mx-text-faint: #a8a8a8; --mx-text-soft: color-mix(in srgb, #e9e9e9 85%, transparent);
+    --mx-text-accent: #79b8ff;
+    --mx-border-muted: rgba(255,255,255,.09); --mx-border: rgba(255,255,255,.125); --mx-border-strong: rgba(255,255,255,.24);
+    --mx-hover: rgba(255,255,255,.08);
+    --mx-danger: #f17471; --mx-danger-bg: #461516; --mx-warning: #f2cf76; --mx-warning-bg: #443f2e;
+    --mx-success: #6bd586; --mx-success-bg: #14361d; --mx-success-border: #1d783c;
+    --mx-popup-bg: #222225; --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mx-op-disabled: .6;
+    --page: #0b0b0d; /* mockup page only */
+  }
+  [data-theme="light"] {
+    --mx-workspace-sheet: #fcfcfc; --mx-bg-base: #ffffff; --mx-bg-layer-1: #f3f3f3; --mx-bg-layer-2: #ececec;
+    --mx-surface-plate: rgba(119,119,119,.09);
+    --mx-text: #222222; --mx-text-muted: #606060; --mx-text-faint: #606060; --mx-text-soft: color-mix(in srgb, #222 85%, transparent);
+    --mx-text-accent: #185abc;
+    --mx-border-muted: rgba(20,20,20,.1); --mx-border: rgba(20,20,20,.15); --mx-border-strong: rgba(20,20,20,.3);
+    --mx-hover: rgba(119,119,119,.09);
+    --mx-danger: #b82d35; --mx-danger-bg: #fceceb; --mx-warning: #855900; --mx-warning-bg: #fefaec;
+    --mx-success: #137333; --mx-success-bg: #e7f9ea; --mx-success-border: #b8e9c1;
+    --mx-popup-bg: #ffffff; --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 12%), 0 2px 6px rgb(0 0 0 / 6%);
+    --page: #e4e4e6;
+  }
+  :root {
+    --mx-radius-sm: 3px; --mx-radius-md: 6px; --mx-radius-lg: 10px; --mx-hairline: 1px;
+    --mx-font-micro: 12px; --mx-font-meta: 13px; --mx-font-minor: 14px;
+    --mx-line-meta: 16px; --mx-line-minor: 18px;
+    --mx-weight-medium: 500; --mx-weight-semibold: 600;
+    --mx-font-sans: "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+    --mx-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--mx-text); font: 400 14px/20px var(--mx-font-sans); padding: 28px 40px 90px; }
+  main { max-width: 1500px; margin: 0 auto; }
+  h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0 0 6px; }
+  .lead { color: var(--mx-text-muted); font-size: 13px; margin: 0 0 14px; max-width: 980px; }
+  .bar { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin: 14px 0 6px; position: sticky; top: 0; z-index: 30; padding: 8px 0; background: var(--page); }
+  .seg { display: inline-flex; gap: 4px; }
+  .seg button { font: inherit; font-size: 12px; color: var(--mx-text-muted); background: transparent; border: 0; border-radius: 7px; box-shadow: inset 0 0 0 1px var(--mx-border); padding: 3px 11px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { color: var(--mx-text); background: var(--mx-hover); }
+  .barlbl { font-size: 12px; color: var(--mx-text-muted); }
+
+  .opt { display: grid; grid-template-columns: 662px 392px minmax(260px, 1fr); gap: 24px; align-items: start; padding: 26px 0 30px; border-top: 1px solid var(--mx-border-muted); }
+  .opt h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; grid-column: 1 / -1; }
+  .opt h2 b { color: var(--mx-text-accent); margin-right: 6px; }
+  .cap { font-size: 12px; color: var(--mx-text-muted); margin: 0 0 8px; }
+  .note { font-size: 13px; line-height: 20px; color: var(--mx-text-soft); }
+  .note p { margin: 0 0 8px; }
+  .note ul { margin: 0 0 8px; padding-left: 18px; }
+  .note .rec { color: var(--mx-success); font-weight: 600; }
+  .note .warn { color: var(--mx-warning); }
+
+  svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* transcript frame */
+  .frame { position: relative; background: var(--mx-workspace-sheet); border-radius: 10px; box-shadow: 0 0 0 1px var(--mx-border-muted); padding: 16px; }
+  .frame.room-top { padding-top: 40px; }
+  .frame.room-bot { padding-bottom: 150px; }
+  .say { color: var(--mx-text-soft); font-size: 15px; line-height: 24px; margin: 0; }
+
+  /* ── shared atoms ── */
+  .tc { container-type: inline-size; position: relative; margin-top: 8px; border-radius: var(--mx-radius-lg); box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border); font-size: var(--mx-font-minor); line-height: var(--mx-line-minor); }
+  .tc ul { list-style: none; margin: 0; padding: 0; }
+  .st { display: inline-flex; gap: 6px; font-family: var(--mx-font-mono); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .st i { color: var(--mx-success); font-style: normal; }
+  .st em { color: var(--mx-danger); font-style: normal; }
+  .st .z { color: var(--mx-text-faint); opacity: .55; }
+  .tc button { font: inherit; color: inherit; }
+  .ub { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-md); background: transparent; color: var(--mx-text-muted); cursor: pointer; }
+  .ub:hover { color: var(--mx-text); background: var(--mx-hover); }
+  .slot { flex: none; width: 28px; display: grid; place-items: center; }
+  .tag { flex: none; font-size: 12px; line-height: 16px; padding: 0 6px; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); box-shadow: inset 0 0 0 1px var(--mx-border-muted); white-space: nowrap; }
+  .chip { flex: none; width: 34px; text-align: center; font-size: 12px; line-height: 18px; border-radius: var(--mx-radius-sm); white-space: nowrap; }
+  .chip.A { color: var(--mx-success); background: var(--mx-success-bg); }
+  .chip.M { color: var(--mx-text-muted); background: var(--mx-hover); }
+  .chip.D { color: var(--mx-danger); background: var(--mx-danger-bg); }
+  .sico { flex: none; width: 16px; display: grid; place-items: center; }
+  .sico.A { color: var(--mx-success); } .sico.M { color: var(--mx-text-muted); } .sico.D { color: var(--mx-danger); }
+  .stxt.A { color: var(--mx-success); } .stxt.D { color: var(--mx-danger); }
+
+  /* path with middle-truncated directory */
+  .path { flex: 1; min-width: 0; display: flex; align-items: baseline; }
+  .dir { flex: 0 1 auto; min-width: 0; display: flex; color: var(--mx-text-faint); white-space: nowrap; overflow: hidden; }
+  .dh { flex: 1 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .dt { flex: 0 1 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; }
+  .base { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text); font-weight: var(--mx-weight-medium); }
+  .rev .base { color: var(--mx-text-faint); text-decoration: line-through; }
+  .rev .st, .rev .chip, .rev .sico { opacity: .5; }
+
+  /* diff snippets (tip / inline / side panel) */
+  .diff { font: 12px/18px var(--mx-font-mono); background: var(--mx-bg-layer-1); padding: 2px 0; }
+  .diff div { padding: 0 10px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  .diff .a { background: color-mix(in srgb, var(--mx-success) 13%, transparent); color: var(--mx-success); }
+  .diff .d { background: color-mix(in srgb, var(--mx-danger) 13%, transparent); color: var(--mx-danger); }
+  .tip { position: absolute; z-index: 20; width: 440px; max-width: calc(100% - 16px); border-radius: var(--mx-radius-lg); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow), 0 0 0 var(--mx-hairline) var(--mx-border); overflow: hidden; pointer-events: none; display: none; }
+  .tip .th { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--mx-border-muted); color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: 20px; }
+  .tip .th .st { margin-left: auto; }
+  .hov > .tip { display: block; }
+
+  /* ═════ 현재 ═════ */
+  .cur .head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px 6px 0; border-radius: var(--mx-radius-lg); }
+  .cur .head:hover { background: var(--mx-hover); }
+  .cur .summary { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; align-self: stretch; padding-left: 12px; }
+  .cur .icon { width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--mx-radius-md); background: var(--mx-hover); color: var(--mx-text-muted); flex: none; }
+  .cur .title { display: flex; flex-direction: column; min-width: 0; }
+  .cur .title strong { font-weight: var(--mx-weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cur.allrev .title strong { color: var(--mx-text-faint); text-decoration: line-through; }
+  .cur .title .st { font-size: var(--mx-font-meta); }
+  .cur .action { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 0; border-radius: var(--mx-radius-md); background: transparent; color: var(--mx-text-soft); font-size: var(--mx-font-meta); white-space: nowrap; cursor: pointer; }
+  .cur .action:hover { background: var(--mx-hover); color: var(--mx-text); }
+  .cur .action svg { width: 11px; height: 11px; }
+  .cur ul { border-top: 1px solid var(--mx-border-muted); }
+  .cur .fr { position: relative; display: flex; align-items: center; gap: 6px; height: 36px; padding-right: 8px; background: var(--mx-surface-plate); }
+  .cur .fr:hover, .cur .fr.hov { background: var(--mx-hover); }
+  .cur .fr:last-child { border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg); }
+  .cur .main { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding-left: 12px; }
+  .cur .path { align-items: center; }
+  .cur .dir { display: block; text-overflow: ellipsis; flex: 0 1000 auto; }
+  .cur .rev .path { text-decoration: line-through; }
+  .cur .rbtn { flex: 0 0 18px; width: 18px; height: 18px; display: grid; place-items: center; border: 0; border-radius: var(--mx-radius-sm); background: transparent; color: var(--mx-text-muted); cursor: pointer; }
+  .cur .rbtn:hover { color: var(--mx-text); background: var(--mx-hover); }
+  .cur .rbtn svg { width: 12px; height: 12px; }
+  .cur .tip { left: 24px; bottom: calc(100% + 4px); }
+  .cur .fr:hover > .tip { display: block; }
+
+  /* ═════ 공통(제안) 헤더 ═════ */
+  .nw .head { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px 6px 12px; }
+  .nw .icon { width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--mx-radius-md); background: var(--mx-hover); color: var(--mx-text-muted); flex: none; }
+  .nw .title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+  .nw .title strong { font-weight: var(--mx-weight-medium); white-space: nowrap; }
+  .nw.allrev .title strong { color: var(--mx-text-faint); }
+  .nw.allrev .title .st { opacity: .5; text-decoration: line-through; }
+  .nw .act { flex: none; display: inline-flex; align-items: center; height: 28px; padding: 0 0 0 10px; border: 0; border-radius: var(--mx-radius-md); background: transparent; color: var(--mx-text-soft); font-size: var(--mx-font-meta); cursor: pointer; white-space: nowrap; }
+  .nw .act:hover { background: var(--mx-hover); color: var(--mx-text); }
+  .nw .act .slot { color: var(--mx-text-muted); }
+  .nw ul { border-top: 1px solid var(--mx-border-muted); }
+  .nw .fr { position: relative; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 3px 8px 3px 12px; background: var(--mx-surface-plate); cursor: pointer; }
+  .nw .fr:hover, .nw .fr.hov { background: var(--mx-hover); }
+  .nw .fr:last-child { border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg); }
+  .nw .fr .st { flex: none; width: 66px; justify-content: flex-end; }
+  .nw .more { height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 12px; color: var(--mx-text-soft); font-size: var(--mx-font-meta); }
+  .nw .hint { display: none; flex: none; color: var(--mx-text-muted); font-size: 12px; align-items: center; gap: 2px; white-space: nowrap; }
+  .nw .fr:hover .hint, .nw .fr.hov .hint { display: inline-flex; }
+
+  /* ═════ B: 앵커 미리보기 ═════ */
+  .vb .tip { top: calc(100% - 2px); left: 44px; }
+  .vb .fr:hover > .tip { display: block; }
+  .vb .fr:hover { z-index: 21; }
+  .vb .fr.hov { z-index: 21; }
+
+  /* ═════ C: 두 줄 행 + 인라인 펼침 ═════ */
+  .vc .head { align-items: center; }
+  .vc .title { flex-direction: column; gap: 0; align-items: stretch; }
+  .vc .fr { min-height: 50px; padding-top: 6px; padding-bottom: 6px; }
+  .vc .blk { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .vc .l1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .vc .l2 { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); color: var(--mx-text-faint); }
+  .vc .l2 .dir { flex: 0 1 auto; }
+  .vc .l2 .sep { flex: none; opacity: .6; }
+  .vc .fr .st { width: auto; min-width: 66px; }
+  .vc .chev { flex: none; color: var(--mx-text-muted); transition: transform .12s; }
+  .vc .fr.open .chev { transform: rotate(90deg); }
+  .vc .inl { border-top: 1px solid var(--mx-border-muted); }
+  .vc .inl .foot { display: flex; align-items: center; gap: 4px; padding: 5px 12px; font-size: 12px; color: var(--mx-text-accent); background: var(--mx-surface-plate); cursor: pointer; }
+  .vc .inl-wrap { display: block; }
+
+  /* A: 사이드 패널 상세 힌트 */
+  .sp { margin-top: 10px; width: 100%; border-radius: var(--mx-radius-lg); box-shadow: inset 0 0 0 1px var(--mx-border); background: var(--mx-bg-base); overflow: hidden; }
+  .sp .th { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--mx-border-muted); font-size: 13px; color: var(--mx-text-muted); }
+  .sp .th b { color: var(--mx-text); font-weight: 500; }
+  .sp .th .st { margin-left: auto; }
+  .sp .lbl { font-size: 11px; padding: 4px 10px; color: var(--mx-text-faint); }
+
+  /* narrow card (phone) */
+  @container (max-width: 480px) {
+    .nw .title { flex-direction: column; gap: 0; align-items: stretch; }
+    .nw:not(.vc) .path { flex-direction: column-reverse; align-items: stretch; }
+    .nw:not(.vc) .base { order: 1; }
+    .nw .hint { display: none !important; }
+    .nw:not(.vc) .dir { font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+  }
+  .vc .l2 { }
+  @media (max-width: 1500px) { .opt { grid-template-columns: 662px 392px; } .opt .note { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>대화 안 "턴 변경" 카드 — 현재 vs 제안 A / B / C</h1>
+  <p class="lead">디자인 목업(앱 소스 변경 없음). 토큰은 <code>01-tokens.css</code> 값 그대로 복사. 각 옵션은 데스크톱 카드 630px / 폰 카드 360px을 나란히 보여 주고, 위 탭으로 네 가지 상태(일반 · 행 호버 · 실행 취소됨 · 삭제 포함)를 한꺼번에 전환합니다. 행에 마우스를 올리면 실제 호버도 동작합니다.</p>
+  <div class="bar">
+    <span class="barlbl">상태</span>
+    <div class="seg" id="states"></div>
+    <span class="barlbl">테마</span>
+    <div class="seg" id="themes">
+      <button data-t="dark" aria-pressed="true">다크</button>
+      <button data-t="light" aria-pressed="false">라이트</button>
+    </div>
+  </div>
+  <div id="out"></div>
+</main>
+
+<script>
+const I = {
+  diff: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 13V7"/><path d="M9 17h6"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/>',
+  chev: '<path d="m9 18 6-6-6-6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  fplus: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M12 18v-6"/><path d="M9 15h6"/>',
+  fminus: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 15h6"/>',
+  fpen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'
+};
+const svg = (n, s) => `<svg viewBox="0 0 24 24"${s ? ` style="width:${s}px;height:${s}px"` : ''}>${I[n]}</svg>`;
+const OUT = 'C:/Users/tempe/AppData/Local/Temp/mixdog-dl-outside/outside-note.txt';
+const SET_BASE = [
+  { p: OUT, out: true, s: 'A', a: 1, d: 0 },
+  { p: 'note.txt', s: 'A', a: 3, d: 0 }
+];
+const SET_DEL = [
+  { p: 'note.txt', s: 'A', a: 3, d: 0 },
+  { p: 'src/legacy/old-util.ts', s: 'D', a: 0, d: 12 },
+  { p: 'src/app/main.ts', s: 'M', a: 5, d: 2 }
+];
+const STATES = {
+  normal: { label: '일반', files: SET_BASE },
+  hover: { label: '행 호버 (note.txt)', files: SET_BASE, hover: 1 },
+  undone: { label: '실행 취소됨 (다시 적용)', files: SET_BASE.map(f => ({ ...f, rev: true })), allrev: true },
+  deleted: { label: '삭제 파일 포함', files: SET_DEL }
+};
+const STAT = { A: '추가', M: '수정', D: '삭제' };
+const SIC = { A: 'fplus', M: 'fpen', D: 'fminus' };
+const st = (a, d) => `<span class="st"><i class="${a ? '' : 'z'}">+${a}</i><em class="${d ? '' : 'z'}">\u2212${d}</em></span>`;
+const tot = fs => fs.reduce((t, f) => ({ a: t.a + f.a, d: t.d + f.d }), { a: 0, d: 0 });
+const split = p => { const i = p.lastIndexOf('/'); return i < 0 ? { dir: '', base: p } : { dir: p.slice(0, i + 1), base: p.slice(i + 1) }; };
+function dirHtml(dir) {
+  if (!dir) return '';
+  const segs = dir.replace(/\/$/, '').split('/');
+  const tail = segs.pop() + '/';
+  const head = segs.length ? segs.join('/') + '/' : '';
+  return `<span class="dir"><span class="dh">${head}</span><span class="dt">${tail}</span></span>`;
+}
+const DIFF = '<div class="a">+테스트 노트 1</div><div class="a">+테스트 노트 2</div><div class="a">+테스트 노트 3</div>';
+const tip = (extra = '') => `<div class="tip"><div class="th"><span>note.txt</span>${extra}${st(3, 0)}</div><div class="diff">${DIFF}</div></div>`;
+
+/* ── 현재 (TurnChangesCard.tsx + 27-search-review.css 그대로) ── */
+function curCard(s) {
+  const fs = s.files, n = fs.length;
+  const adds = fs.filter(f => !f.out).reduce((t, f) => t + f.a, 0);
+  const dels = fs.reduce((t, f) => t + f.d, 0);
+  const sub = `<span class="st">${adds > 0 ? `<i>+${adds}</i>` : ''}${dels > 0 ? `<em>\u2212${dels}</em>` : ''}</span>`;
+  const rows = fs.map((f, i) => {
+    const { dir, base } = split(f.p);
+    const stats = f.out ? '' : `<span class="st">${f.a > 0 ? `<i>+${f.a}</i>` : ''}${f.d > 0 ? `<em>\u2212${f.d}</em>` : ''}</span>`;
+    const hov = s.hover === i;
+    return `<li class="fr${f.rev ? ' rev' : ''}${hov ? ' hov' : ''}"><button class="main" style="border:0;background:transparent;text-align:left;cursor:pointer"><span class="path">${dir ? `<span class="dir">${dir}</span>` : ''}<span class="base">${base}</span></span>${stats}</button><span class="slot" style="width:auto"><button class="rbtn">${svg(f.rev ? 'redo' : 'undo')}</button></span>${i === 1 || hov ? tip() : ''}</li>`;
+  }).join('');
+  return `<div class="tc cur${s.allrev ? ' allrev' : ''}"><div class="head"><div class="summary"><span class="icon">${svg('diff')}</span><span class="title"><strong>파일 ${n}개 편집함</strong>${sub}</span></div><button class="action" style="border:0">${s.allrev ? '다시 적용' : '실행 취소'}${svg(s.allrev ? 'redo' : 'undo')}</button></div><ul>${rows}</ul></div>`;
+}
+
+/* ── 제안 공통 ── */
+function head(s, v) {
+  const t = tot(s.files), n = s.files.length;
+  const title = s.allrev ? `파일 ${n}개 변경 취소됨` : `파일 ${n}개 변경됨`;
+  return `<div class="head"><span class="icon">${svg('diff')}</span><div class="title"><strong>${title}</strong>${st(t.a, t.d)}</div><button class="act">${s.allrev ? '다시 적용' : '실행 취소'}<span class="slot">${svg(s.allrev ? 'redo' : 'undo')}</span></button></div>`;
+}
+const ubtn = f => `<span class="slot"><button class="ub" title="${f.rev ? '이 파일 다시 적용' : '이 파일을 턴 시작 상태로 되돌리기'}">${svg(f.rev ? 'redo' : 'undo')}</button></span>`;
+
+/* A: 한 줄 + 상태 칩, 호버 = 강조만, 클릭 = 사이드 패널 상세 */
+function aCard(s) {
+  const rows = s.files.map((f, i) => {
+    const { dir, base } = split(f.p);
+    return `<li class="fr${f.rev ? ' rev' : ''}${s.hover === i ? ' hov' : ''}" title="클릭: 사이드 패널에서 변경 내용 보기"><span class="chip ${f.s}">${STAT[f.s]}</span><span class="path">${dirHtml(dir)}<span class="base">${base}</span></span>${f.out ? '<span class="tag">프로젝트 밖</span>' : ''}${st(f.a, f.d)}${ubtn(f)}</li>`;
+  }).join('');
+  const sp = s.hover === 1 ? `<div class="sp"><div class="lbl">행 클릭 → 사이드 패널(상세) · 섬 → 목록 → 파일 클릭 → 상세 + 뒤로</div><div class="th"><span>‹ 뒤로</span><b>note.txt</b>${st(3, 0)}</div><div class="diff">${DIFF}</div></div>` : '';
+  return `<div class="tc nw va">${head(s)}<ul>${rows}</ul></div>${sp}`;
+}
+
+/* B: 한 줄 + 상태 아이콘, 호버 = 행에 붙는 미리보기 */
+function bCard(s) {
+  const rows = s.files.map((f, i) => {
+    const { dir, base } = split(f.p);
+    const hov = s.hover === i;
+    return `<li class="fr${f.rev ? ' rev' : ''}${hov ? ' hov' : ''}"><span class="sico ${f.s}" title="${STAT[f.s]}">${svg(SIC[f.s])}</span><span class="path">${dirHtml(dir)}<span class="base">${base}</span></span>${f.out ? '<span class="tag">프로젝트 밖</span>' : ''}${st(f.a, f.d)}${ubtn(f)}${f.p === 'note.txt' ? tip(`<span class="stxt A">${STAT.A}</span>`) : ''}</li>`;
+  }).join('');
+  return `<div class="tc nw vb">${head(s)}<ul>${rows}</ul></div>`;
+}
+
+/* C: 두 줄 행, 호버 = 강조 + ›, 클릭 = 행 아래 인라인 펼침 */
+function cCard(s) {
+  const rows = s.files.map((f, i) => {
+    const { dir, base } = split(f.p);
+    const hov = s.hover === i;
+    const l2 = `<span class="stxt ${f.s}">${STAT[f.s]}</span>${dir ? '<span class="sep">·</span>' + dirHtml(dir) : ''}`;
+    const li = `<li class="fr${f.rev ? ' rev' : ''}${hov ? ' hov open' : ''}"><div class="blk"><div class="l1"><span class="base">${base}</span>${f.out ? '<span class="tag">프로젝트 밖</span>' : ''}</div><div class="l2">${l2}</div></div><span class="chev">${svg('chev', 12)}</span>${st(f.a, f.d)}${ubtn(f)}</li>`;
+    const inl = hov ? `<li class="inl"><div class="diff">${DIFF}</div><div class="foot">사이드 패널에서 열기 ${svg('chev', 11)}</div></li>` : '';
+    return li + inl;
+  }).join('');
+  return `<div class="tc nw vc">${head(s)}<ul>${rows}</ul></div>`;
+}
+
+const OPTS = [
+  { id: 'cur', name: '현재', sub: '지금 앱 그대로', fn: curCard, room: s => ({ top: s.hover !== undefined || true, bot: false }),
+    note: `<p>헤더가 <b>"파일 2개 편집함"</b> 아래에 <b>"+3"</b>만 따로 한 줄 더 쓰고(섬은 +4), 전체 절대 경로가 그대로 나옵니다.</p>
+      <ul><li>프로젝트 밖 파일은 절대 경로가 길어 파일명이 뒤로 밀리고 +/− 개수는 없음</li><li>추가/수정/삭제 구분 없음, "실행 취소"와 행 되돌리기 아이콘이 서로 다른 열</li><li>호버 미리보기가 헤더와 윗 줄을 가림 (행 위로 뜸)</li></ul>` },
+  { id: 'a', name: 'A', sub: '한 줄 목록 + 상태 칩 · 호버는 강조만, 클릭은 사이드 패널', fn: aCard, room: () => ({}),
+    note: `<p><b>가장 조용한 안.</b> 행은 [추가/수정/삭제 칩] 디렉터리(중간 말줄임, 흐리게) <b>파일명</b> [프로젝트 밖] +1 −0 ↶ 순서. 미리보기 팝오버를 없애고, 클릭하면 사이드 패널의 상세 단계(뒤로 버튼 포함)가 열립니다.</p>
+      <ul><li>헤더 "실행 취소" 아이콘이 행 ↶ 열과 같은 x에 정렬</li><li>폰: 디렉터리가 파일명 아래 줄로 내려감</li></ul>
+      <p class="rec">추천: 계획된 "섬 → 목록 → 파일 → 상세" 이동과 가장 잘 맞고, 가림 문제가 구조적으로 사라집니다.</p>` },
+  { id: 'b', name: 'B', sub: '한 줄 목록 + 상태 아이콘 · 호버 시 행에 붙는 미리보기', fn: bCard, room: () => ({}),
+    note: `<p>A와 같은 열 구조지만 상태를 칩 대신 <b>파일 아이콘(＋/연필/－)</b>으로 더 작게 표시하고, 호버 미리보기는 <b>해당 행 바로 아래</b>에 카드 폭 안에서 붙습니다(헤더·윗 줄을 가리지 않음).</p>
+      <ul><li>마우스 이동만으로 diff 확인 가능 — 대신 아래 내용을 가림</li><li class="warn">마지막 행은 카드 밖 아래로 열려 다음 대화를 덮음. 폰(터치)에는 호버가 없어 별도 동작 필요</li></ul>
+      <p>호버 미리보기를 유지하고 싶을 때의 최소 변경안.</p>` },
+  { id: 'c', name: 'C', sub: '두 줄 행 · 클릭 시 인라인 펼침(+ 사이드 패널 링크)', fn: cCard, room: () => ({}),
+    note: `<p>1줄: <b>파일명</b> + [프로젝트 밖], 2줄: <b>추가·수정·삭제</b> · 디렉터리(흐리게). 폭이 좁은 폰에서도 같은 구조라 일관되고, 경로가 길어도 파일명이 잘리지 않습니다. 행을 누르면 그 자리에서 diff가 펼쳐지고 "사이드 패널에서 열기" 링크가 있습니다.</p>
+      <ul><li>행 높이 50px로 목록이 약 40% 길어짐</li><li>호버 팝오버 없음, 터치/마우스 동작 동일</li></ul>
+      <p>파일이 2~3개로 적은 카드에는 여유 있지만 많으면 길어짐 — 기존 "더 보기(3개 기준)" 규칙과 함께 쓰는 것을 전제로.</p>` }
+];
+
+let state = 'normal', theme = 'dark';
+const out = document.getElementById('out');
+function frame(o, s, wide) {
+  const w = wide ? 662 : 392;
+  const hv = s.hover !== undefined;
+  const cls = ['frame'];
+  if (o.id === 'cur' && hv) cls.push('room-top');
+  if (o.id === 'b' && hv && wide !== undefined) cls.push('room-bot');
+  const say = o.id === 'cur' || true ? '<p class="say">note.txt 파일을 만들고 프로젝트 밖에도 메모를 남겼습니다.</p>' : '';
+  return `<div class="${cls.join(' ')}" style="width:${w}px">${say}${o.fn(s)}</div>`;
+}
+function render() {
+  const s = STATES[state];
+  document.documentElement.dataset.theme = theme;
+  out.innerHTML = OPTS.map(o => `<section class="opt"><h2><b>${o.name}</b>${o.sub}</h2>
+    <div><p class="cap">데스크톱 · 카드 630px</p>${frame(o, s, true)}</div>
+    <div><p class="cap">폰 · 카드 360px</p>${frame(o, s, false)}</div>
+    <div class="note">${o.note}</div></section>`).join('');
+}
+document.getElementById('states').innerHTML = Object.entries(STATES).map(([k, v]) => `<button data-s="${k}" aria-pressed="${k === state}">${v.label}</button>`).join('');
+document.addEventListener('click', e => {
+  const b = e.target.closest('button[data-s],button[data-t]');
+  if (!b) return;
+  if (b.dataset.s) { state = b.dataset.s; document.querySelectorAll('#states button').forEach(x => x.setAttribute('aria-pressed', x === b)); }
+  if (b.dataset.t) { theme = b.dataset.t; document.querySelectorAll('#themes button').forEach(x => x.setAttribute('aria-pressed', x === b)); }
+  render();
+});
+render();
+</script>
+</body>
+</html>

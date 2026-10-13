@@ -14,6 +14,7 @@ import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { runSessionCompaction } from './manager/compaction-runner.mjs';
 import { agentLoop } from './agent-loop.mjs';
 import { conversationCompactionInput, SUMMARY_PREFIX } from './compact.mjs';
+import { withoutStampedIds } from './message-ids.test-support.mjs';
 
 const summary = [
   '## Goal',
@@ -314,7 +315,8 @@ test('a rule-only manual no-op preserves the provider continuation and reports n
   const result = await runSessionCompaction(session, { config: {}, mode: 'manual' });
   assert.equal(result.changed, false);
   assert.equal(result.usage, null);
-  assert.deepEqual(session.messages, before);
+  // Unchanged but for the stable ids stamped before the compaction ran.
+  assert.deepEqual(withoutStampedIds(session.messages), before);
   assert.deepEqual(session.providerState, { previousResponse: 'keep-unchanged-prefix' });
   assert.equal(session.compaction.lastSummaryProvider, null);
   assert.equal(session.compaction.lastSummaryModel, null);

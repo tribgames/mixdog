@@ -602,18 +602,7 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   // (the action rides beside it), so an action shows only when flat.
   [
     ['visualize'],
-    (args, _path, fallback) => {
-      const action = toolActivityFirstText(args, 'action');
-      const content = asRecord(args.content);
-      const kind = VISUALIZE_INLINE_KINDS.find((candidate) => candidate === content?.kind);
-      const subject =
-        toolActivityFirstText(args, 'label') ||
-        (content ? toolActivityFirstText(content, 'title') : '') ||
-        toolActivityOneOrCount(toolActivityValues(args.targets), 'path') ||
-        toolActivityFirstText(args, 'output', 'tab') ||
-        (kind ? visualizeInlineKindLabel(kind) : '');
-      return toolActivityCompact([action ? toolActivityActionLabel(action) : '', subject]) || fallback;
-    },
+    (args, _path, fallback) => visualizeRowSubject(toolActivityFirstText(args, 'action'), args, '') || fallback,
   ],
   [
     [
@@ -633,6 +622,45 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     (args, _path, fallback) => localizeActionSubject(args, fallback),
   ],
 ]);
+
+/** The visualize tool's actions as past-tense verbs in the active language. */
+function visualizeActionLabel(action: string): string {
+  switch (action.toLowerCase()) {
+    case 'open':
+      return t('Showed tab');
+    case 'close':
+      return t('Closed tab');
+    case 'check':
+      return t('Checked tab');
+    case 'capture':
+      return t('Captured tab');
+    case 'annotate':
+      return t('Annotated tab');
+    case 'export':
+      return t('Exported tab');
+    case 'inspect':
+      return t('Inspected tab');
+    default:
+      return action ? toolActivityActionLabel(action) : '';
+  }
+}
+
+/** "Checked tab · 요금제 배치 시안 (3가지)": the action verb, then the tab's
+ *  title (the label given at open, which `tabTitle` resolves from the tab id),
+ *  else what the call acted on. A bare tab id is never shown. `args` is the
+ *  call's `input`; the action rides beside it. */
+export function visualizeRowSubject(action: string, args: Record<string, unknown>, tabTitle: string): string {
+  const content = asRecord(args.content);
+  const kind = VISUALIZE_INLINE_KINDS.find((candidate) => candidate === content?.kind);
+  const subject =
+    toolActivityFirstText(args, 'label') ||
+    (content ? toolActivityFirstText(content, 'title') : '') ||
+    toolActivityOneOrCount(toolActivityValues(args.targets), 'path') ||
+    tabTitle ||
+    toolActivityFirstText(args, 'output') ||
+    (kind ? visualizeInlineKindLabel(kind) : '');
+  return toolActivityCompact([visualizeActionLabel(action), subject]);
+}
 
 export function toolActivitySubject(normalizedName: string, args: Record<string, unknown>, fallback: string): string {
   const format = TOOL_SUBJECTS[normalizedName];

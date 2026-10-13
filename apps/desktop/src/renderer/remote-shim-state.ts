@@ -108,6 +108,9 @@ export interface RemoteShimState {
    *  remote browser pane's `viewport` control. Absent means an older host,
    *  which rejects that control: the pane never sends it. */
   peerBrowserDrive: boolean;
+  /** The current host advertised `browserSessionTabs`: a conversation browser's
+   *  tabs ride its frames and its tab controls are accepted. */
+  peerBrowserSessionTabs: boolean;
   /** The current host advertised `termSizeOwner`: it honors the size-owner
    *  flag on `termResize`. Absent means an older host: never send the 0x0
    *  release or owner heartbeats. */
@@ -373,6 +376,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerNativePush: false,
     peerBrowserParity: false,
     peerBrowserDrive: false,
+    peerBrowserSessionTabs: false,
     peerTermSizeOwner: false,
     peerHostDirectories: false,
     peerRouteAutoEffort: false,

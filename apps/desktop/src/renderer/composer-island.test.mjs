@@ -13,10 +13,33 @@ function mount(t) {
     rootId: 'root',
   });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-  dom.window.mixdogDesktop = {};
+  // The island lists agents from the same pool feed as the Agents window.
+  let pushPool = () => {};
+  let poolRows = [];
+  dom.window.mixdogDesktop = {
+    listAgentPool: async () => poolRows,
+    subscribeAgentPool: (listener) => {
+      pushPool = listener;
+    },
+  };
   t.after(() => defaultSessionLaneStore.clear());
-  return { root, document: dom.window.document, window: dom.window };
+  const publishPool = (rows) =>
+    act(async () => {
+      poolRows = rows;
+      pushPool(rows);
+    });
+  return { root, document: dom.window.document, window: dom.window, publishPool };
 }
+
+const poolAgent = (tag, overrides = {}) => ({
+  tag,
+  agent: 'worker',
+  ownerSessionId: 'island-session',
+  stage: 'running',
+  status: 'running',
+  startedAt: Date.now() - 5_000,
+  ...overrides,
+});
 
 const dockProps = (overrides = {}) => ({
   sessionId: 'island-session',
@@ -93,26 +116,32 @@ test('background jobs show as one segment, expand to rows, collapse on Escape an
 });
 
 test('agents and shells are counted in separate icon segments that both survive a narrow island', async (t) => {
-  const { root, document } = mount(t);
-  const agent = (tag) => ({ tag, agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 });
+  const { root, document, publishPool } = mount(t);
+  const agent = (tag) => poolAgent(tag);
   const shells = (n) => ({
     count: n,
-    jobs: Array.from({ length: n }, (_, i) => ({ taskId: `j${i}`, command: 'npm test', startedAt: Date.now() - 5_000 })),
+    jobs: Array.from({ length: n }, (_, i) => ({
+      taskId: `j${i}`,
+      command: 'npm test',
+      startedAt: Date.now() - 5_000,
+    })),
   });
   const segments = () => ({
     agents: document.querySelector('.composer-island-seg-agents'),
     shell: document.querySelector('.composer-island-seg-shell'),
   });
-  await publish({ agentWorkers: [agent('a'), agent('b')] });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([agent('a'), agent('b')]);
   assert.equal(segments().agents.textContent, '2 agents');
   assert.equal(segments().shell, null);
-  await publish({ agentWorkers: [agent('a')] });
+  await publishPool([agent('a')]);
   assert.equal(segments().agents.textContent, '1 agent');
-  await publish({ agentWorkers: [], shellJobs: shells(2) });
+  await publishPool([]);
+  await publish({ shellJobs: shells(2) });
   assert.equal(segments().shell.textContent, '2 shells');
   assert.equal(segments().agents, null);
-  await publish({ agentWorkers: [agent('a'), agent('b')], shellJobs: shells(1) });
+  await publishPool([agent('a'), agent('b')]);
+  await publish({ shellJobs: shells(1) });
   const { agents, shell } = segments();
   assert.equal(agents.textContent, '2 agents');
   assert.equal(shell.textContent, '1 shell');
@@ -130,16 +159,14 @@ test('agents and shells are counted in separate icon segments that both survive 
 });
 
 test('a queued agent reads Queued while a running one shows elapsed time, never Queued', async (t) => {
-  const { root, document } = mount(t);
-  await publish({
-    agentWorkers: [
-      { tag: 'run-a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
-      { tag: 'wait-b', agent: 'reviewer', stage: 'queued', status: 'queued', startedAt: Date.now() - 1_000 },
-    ],
-  });
+  const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([
+    poolAgent('run-a'),
+    poolAgent('wait-b', { agent: 'reviewer', stage: 'queued', status: 'queued', startedAt: Date.now() - 1_000 }),
+  ]);
   await act(async () => document.querySelector('.composer-island-seg').click());
-  const rows = [...document.querySelectorAll('.composer-island-row')];
+  const rows = [...document.querySelectorAll('.agent-pool-row')];
   assert.equal(rows.length, 2);
   const queued = rows.filter((row) => row.textContent.includes(translate('Queued')));
   assert.equal(queued.length, 1);
@@ -147,42 +174,32 @@ test('a queued agent reads Queued while a running one shows elapsed time, never 
 });
 
 test('a continued agent times its current turn, not its session creation', async (t) => {
-  const { root, document } = mount(t);
-  await publish({
-    agentWorkers: [
-      {
-        tag: 'run-a',
-        agent: 'worker',
-        stage: 'running',
-        status: 'running',
-        createdAt: new Date(Date.now() - 7.5 * 3_600_000).toISOString(),
-        turnStartedAt: new Date(Date.now() - 5_000).toISOString(),
-      },
-    ],
-  });
+  const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([
+    poolAgent('run-a', {
+      createdAt: new Date(Date.now() - 7.5 * 3_600_000).toISOString(),
+      turnStartedAt: new Date(Date.now() - 5_000).toISOString(),
+    }),
+  ]);
   await act(async () => document.querySelector('.composer-island-seg').click());
-  const row = document.querySelector('.composer-island-row');
+  const row = document.querySelector('.agent-pool-row');
   assert.match(row.textContent, /[0-9]s$/);
   assert.doesNotMatch(row.textContent, /7h/);
 });
 
 test('an agent blocked on a user approval reads as needing the user, not working', async (t) => {
-  const { root, document } = mount(t);
-  await publish({
-    agentWorkers: [
-      { tag: 'run-a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
-      {
-        tag: 'ask-b',
-        agent: 'reviewer',
-        stage: 'tool_running',
-        status: 'running',
-        startedAt: Date.now() - 65_000,
-        awaitingUser: 'approval',
-      },
-    ],
-  });
+  const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([
+    poolAgent('run-a'),
+    poolAgent('ask-b', {
+      agent: 'reviewer',
+      stage: 'tool_running',
+      startedAt: Date.now() - 65_000,
+      awaitingUser: 'approval',
+    }),
+  ]);
   const segment = document.querySelector('.composer-island-seg-agents');
   // Counted apart from the running total, so it is never hidden in it.
   assert.match(segment.textContent, new RegExp(`^2 agents.*${translate('Needs you {{needs}}', { needs: 1 })}`));
@@ -192,50 +209,87 @@ test('an agent blocked on a user approval reads as needing the user, not working
   assert.equal(needs.querySelector('.composer-island-seg-num').dataset.count, '1');
   assert.ok(needs.querySelector('.composer-island-seg-word'));
   await act(async () => segment.click());
-  const rows = [...document.querySelectorAll('.composer-island-row')];
+  // Same order as the Agents window (spawn order), not re-ranked by state.
+  const rows = [...document.querySelectorAll('.agent-pool-row')];
   assert.equal(rows.length, 2);
-  // The blocked agent leads, with the label instead of a running timer.
-  assert.match(rows[0].textContent, /ask-b/);
-  assert.equal(rows[0].querySelector('.agent-activity-elapsed').textContent, translate('Waiting for approval'));
-  assert.equal(rows[1].querySelector('.agent-activity-elapsed').dataset.state, 'running');
-  assert.match(rows[1].querySelector('.agent-activity-elapsed').textContent, /\d/);
+  assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'running');
+  assert.match(rows[0].querySelector('.agent-activity-elapsed').textContent, /\d/);
+  assert.match(rows[1].textContent, /ask-b/);
+  assert.equal(rows[1].querySelector('.agent-activity-elapsed').textContent, translate('Waiting for approval'));
+});
+
+test('idle, finished and cancelled agents drop out; waiting parents stay; the Lead row is not listed', async (t) => {
+  const { root, document, publishPool } = mount(t);
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([
+    poolAgent('island-session', { agent: 'lead', sessionId: 'island-session', ownerSessionId: 'island-session' }),
+    poolAgent('idle-a', { sessionId: 's-idle', stage: 'idle', status: 'idle' }),
+    poolAgent('done-b', { sessionId: 's-done', stage: 'done', status: 'done' }),
+    poolAgent('stop-c', { sessionId: 's-stop', stage: 'cancelled', status: 'cancelled' }),
+    poolAgent('parent-d', { sessionId: 's-parent', stage: 'idle', status: 'idle' }),
+    poolAgent('child-e', { sessionId: 's-child', parentSessionId: 's-parent' }),
+  ]);
+  assert.equal(document.querySelector('.composer-island-seg-agents').textContent.slice(0, 8), '2 agents');
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  const rows = [...document.querySelectorAll('.agent-pool-row')];
+  assert.deepEqual(
+    rows.map((row) => row.dataset.agentTag),
+    ['parent-d', 'child-e']
+  );
+  assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'waiting');
+  assert.equal(
+    document.querySelector('.composer-island-tab').textContent.includes(translate('Shell {{shell}}', { shell: 0 })),
+    false
+  );
+});
+
+test('with no shells there is no shell segment, tab or row anywhere in the island', async (t) => {
+  const { root, document, publishPool } = mount(t);
+  await publish({ shellJobs: { count: 0, jobs: [], finished: [] } });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([poolAgent('run-a', { sessionId: 's-run' })]);
+  assert.equal(document.querySelector('.composer-island-seg-shell'), null);
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  assert.equal(document.querySelectorAll('.composer-island-tab').length, 1);
+  assert.equal(
+    document
+      .querySelector('.composer-island-panel')
+      .textContent.includes(translate('Island: {{count}} finished shells', { count: 0 })),
+    false
+  );
+  assert.equal(document.querySelector('.composer-island-row'), null);
+  assert.equal(
+    document.querySelector('.composer-island-seg-agents').getAttribute('title'),
+    translate('Agent {{agent}}', { agent: 1 })
+  );
 });
 
 test('an agent row with a session is a button that opens it and closes the panel; others stay inert', async (t) => {
-  const { root, document } = mount(t);
+  const { root, document, publishPool } = mount(t);
   await publish({
     shellJobs: { count: 1, jobs: [{ taskId: 'job-1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
-    agentWorkers: [
-      {
-        tag: 'ask-b',
-        agent: 'reviewer',
-        sessionId: 'child-1',
-        stage: 'tool_running',
-        status: 'running',
-        startedAt: Date.now() - 65_000,
-        awaitingUser: 'approval',
-      },
-      { tag: 'run-a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
-    ],
   });
   const opened = [];
   await act(async () =>
-    root.render(
-      React.createElement(ComposerDock, dockProps({ onOpenAgentSession: (...args) => opened.push(args) }))
-    )
+    root.render(React.createElement(ComposerDock, dockProps({ onOpenAgentSession: (...args) => opened.push(args) })))
   );
+  await publishPool([
+    poolAgent('ask-b', {
+      agent: 'reviewer',
+      sessionId: 'child-1',
+      stage: 'tool_running',
+      startedAt: Date.now() - 65_000,
+      awaitingUser: 'approval',
+    }),
+    poolAgent('run-a'),
+  ]);
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
-  const rows = [...document.querySelectorAll('.composer-island-row')];
+  const rows = [...document.querySelectorAll('.agent-pool-row')];
   assert.equal(rows.length, 2);
-  // Needs-user agent with a session: a button named after the agent.
-  const button = rows[0].querySelector('button.composer-island-row-open');
-  assert.ok(button);
-  assert.equal(button.type, 'button');
-  assert.match(button.getAttribute('aria-label'), /Reviewer · ask-b/);
-  assert.match(button.getAttribute('aria-label'), new RegExp(translate('Waiting for approval')));
-  // No session id: inert.
-  assert.equal(rows[1].querySelector('button'), null);
-  await act(async () => button.click());
+  // An agent with a session opens it; one without stays disabled.
+  assert.equal(rows[0].disabled, false);
+  assert.equal(rows[1].disabled, true);
+  await act(async () => rows[0].click());
   assert.equal(opened.length, 1);
   assert.equal(opened[0][0], 'child-1');
   assert.equal(opened[0][2], 'island-session');
@@ -247,15 +301,13 @@ test('an agent row with a session is a button that opens it and closes the panel
 });
 
 test('without an open action agent rows stay non-interactive', async (t) => {
-  const { root, document } = mount(t);
-  await publish({
-    agentWorkers: [
-      { tag: 'run-a', agent: 'worker', sessionId: 'child-2', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 },
-    ],
-  });
+  const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([poolAgent('run-a', { sessionId: 'child-2' })]);
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
-  assert.equal(document.querySelector('.composer-island-row button'), null);
+  // Clicking is a no-op without an open action, and the panel stays.
+  await act(async () => document.querySelector('.agent-pool-row').click());
+  assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'panel');
 });
 
 test('a pending approval takes over the island; a flash notice replaces any leftover card', async (t) => {
@@ -372,7 +424,10 @@ test('Stop calls stopShellJob once; a refused stop keeps the row running with a 
     return result;
   };
   await publish({
-    shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm test', cwd: '/work/cart-service', startedAt: Date.now() - 5_000 }] },
+    shellJobs: {
+      count: 1,
+      jobs: [{ taskId: 'j1', command: 'npm test', cwd: '/work/cart-service', startedAt: Date.now() - 5_000 }],
+    },
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
@@ -398,20 +453,57 @@ test('Stop calls stopShellJob once; a refused stop keeps the row running with a 
       finished: [{ taskId: 'j1', command: 'npm test', status: 'cancelled', exitCode: 1, startedAt: 1, finishedAt: 2 }],
     },
   });
-  assert.equal(document.querySelector('.composer-island-row .agent-activity-elapsed').textContent, translate('Island: Stopped'));
+  assert.equal(
+    document.querySelector('.composer-island-row .agent-activity-elapsed').textContent,
+    translate('Island: Stopped')
+  );
   assert.equal(document.querySelector('.composer-island-row button').textContent, translate('Dismiss'));
 });
 
 test('the agent and shell segments expand the island panel inline', async (t) => {
-  const { root, document } = mount(t);
+  const { root, document, publishPool } = mount(t);
   await publish({
-    agentWorkers: [{ tag: 'a', agent: 'worker', stage: 'running', status: 'running', startedAt: Date.now() - 5_000 }],
     shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([poolAgent('a')]);
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'panel');
   assert.ok(document.querySelector('.composer-island-jobs .agent-pool-name'));
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
   assert.equal(document.querySelector('.composer-island-jobs .composer-island-shell-command').textContent, 'npm test');
+});
+
+test('the shared poll runs once for all subscribers, pauses while hidden and refreshes on becoming visible', async (t) => {
+  const { subscribeSharedPoll } = await import('./shared-pool-poll.ts');
+  const saved = { window: globalThis.window, document: globalThis.document };
+  const doc = Object.assign(new EventTarget(), { hidden: false });
+  const timers = new Map();
+  let nextTimer = 1;
+  globalThis.document = doc;
+  globalThis.window = {
+    setInterval: (fn) => (timers.set(nextTimer, fn), nextTimer++),
+    clearInterval: (id) => timers.delete(id),
+  };
+  t.after(() => {
+    globalThis.window = saved.window;
+    globalThis.document = saved.document;
+  });
+  let refreshes = 0;
+  const key = {};
+  const refresh = () => void refreshes++;
+  const off1 = subscribeSharedPoll(key, refresh, 2000);
+  const off2 = subscribeSharedPoll(key, refresh, 2000);
+  assert.equal(timers.size, 1, 'two islands share one interval');
+  doc.hidden = true;
+  doc.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(timers.size, 0, 'hidden pauses the poll');
+  doc.hidden = false;
+  doc.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(refreshes, 1, 'becoming visible refreshes at once');
+  assert.equal(timers.size, 1);
+  off1();
+  assert.equal(timers.size, 1, 'poll stays while a subscriber remains');
+  off2();
+  assert.equal(timers.size, 0);
 });

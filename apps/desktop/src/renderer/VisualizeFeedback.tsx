@@ -27,6 +27,7 @@ import {
   visualizeFeedbackPageMessage,
 } from '../shared/visualize-feedback';
 import { t } from './i18n';
+import { loadImage } from './load-image';
 import { takeVisualizeElementPin, useVisualizeElementPinPending } from './visualize-elements-store';
 import {
   beginVisualizeCapture,
@@ -101,15 +102,6 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 const nextFrames = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('the crop could not be decoded'));
-    image.src = src;
-  });
-}
-
 /** PNG of `source`'s area (source px), at most MAX_CROP_EDGE on its long
  *  edge, with `masks` (source px) painted over. */
 function encodeCrop(
@@ -142,7 +134,7 @@ async function captureWindowArea(
   const capture = window.mixdogDesktop?.visualizeCaptureRect;
   const clipped = intersect(area, { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
   if (!capture || !clipped) return null;
-  const image = await loadImage(`data:image/png;base64,${await capture(clipped)}`);
+  const image = await loadImage(`data:image/png;base64,${await capture(clipped)}`, 'the crop could not be decoded');
   const ratio = image.naturalWidth / clipped.width;
   return encodeCrop(
     image,
@@ -162,7 +154,10 @@ function postToPage(frame: HTMLIFrameElement, message: VisualizeFeedbackParentMe
 
 /** The page's fresh description of a pinned element (box and secret-field
  *  masks now), or null when it does not answer in time. */
-export function requestVisualizeDescription(frame: HTMLIFrameElement, selector: string): Promise<VisualizePagePick | null> {
+export function requestVisualizeDescription(
+  frame: HTMLIFrameElement,
+  selector: string
+): Promise<VisualizePagePick | null> {
   const source = frame.contentWindow;
   if (!source) return Promise.resolve(null);
   const id = visualizeRequestId();
@@ -191,7 +186,10 @@ export function requestVisualizeDescription(frame: HTMLIFrameElement, selector: 
 export async function captureVisualizeElementCrop(
   target: HTMLIFrameElement,
   pick: VisualizePagePick,
-  capture: (area: VisualizeFeedbackRect, masks: VisualizeFeedbackRect[]) => Promise<VisualizePinImage | null> = captureWindowArea
+  capture: (
+    area: VisualizeFeedbackRect,
+    masks: VisualizeFeedbackRect[]
+  ) => Promise<VisualizePinImage | null> = captureWindowArea
 ): Promise<VisualizePinImage | null> {
   const before = await requestVisualizeDescription(target, pick.selector);
   const plan = visualizeFreshCrop(pick, before);
@@ -204,7 +202,8 @@ export async function captureVisualizeElementCrop(
   if (!image) return null;
   const after = await requestVisualizeDescription(target, pick.selector);
   const moved = domRect(target.getBoundingClientRect());
-  const framePut = moved.x === origin.x && moved.y === origin.y && moved.width === origin.width && moved.height === origin.height;
+  const framePut =
+    moved.x === origin.x && moved.y === origin.y && moved.width === origin.width && moved.height === origin.height;
   return framePut && visualizeSameDescription(before, after) ? image : null;
 }
 
@@ -250,7 +249,10 @@ export function useVisualizeFeedbackBridge({
     if (!shown || !pane) return null;
     const tweaks = visualizePaneTweaks(session, shown.id, index);
     if (!tweaks.length) return null;
-    return { type: 'tweaks', ops: tweakOps(tweaks, visualizeTweakValues(session, shown.id, index, visualizeTweakVersion(shown, pane))) };
+    return {
+      type: 'tweaks',
+      ops: tweakOps(tweaks, visualizeTweakValues(session, shown.id, index, visualizeTweakVersion(shown, pane))),
+    };
   };
   const tweaksRef = useRef(tweaksFor);
   tweaksRef.current = tweaksFor;
@@ -488,10 +490,13 @@ export function VisualizeCommentLayer({
     postToPage(target, { type: 'describe', id: pickGate.request(performance.now()), selector: request.selector });
   }, [html, comment, elementPinPending]);
 
-  const confirmBar = html ? <VisualizeChoiceConfirm proposalKey={visualizeProposalKey(sessionId, tab.id, index)} /> : null;
+  const confirmBar = html ? (
+    <VisualizeChoiceConfirm proposalKey={visualizeProposalKey(sessionId, tab.id, index)} />
+  ) : null;
   if (!comment && !capturing && (html || !regions.length)) return confirmBar;
 
-  const showFull = () => setNotice(t('Up to {{count}} pins per message. Send or remove some first.', { count: MAX_VISUALIZE_PINS }));
+  const showFull = () =>
+    setNotice(t('Up to {{count}} pins per message. Send or remove some first.', { count: MAX_VISUALIZE_PINS }));
   const fraction = (clientX: number, clientY: number) => {
     const box = layer.current?.getBoundingClientRect();
     if (!box?.width || !box.height) return { x: 0, y: 0 };
@@ -671,75 +676,75 @@ export function VisualizeCommentLayer({
   const placeholder = html ? t('Comment on this element…') : t('Comment on this area…');
   return (
     <>
-    {confirmBar}
-    <div
-      ref={layer}
-      className={`visualize-region-layer${comment ? ' is-commenting' : ''}`}
-      style={capturing ? { visibility: 'hidden' } : undefined}
-      onClick={onClick}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={() => {
-        if (html && !draft) post({ type: 'hover', x: -1, y: -1 });
-      }}
-      onPointerCancel={() => {
-        start.current = null;
-        setDrag(null);
-      }}
-      onWheel={onWheel}
-    >
-      {regions.map(({ n, pin }) =>
-        pin.region ? (
-          <div key={pin.id} className="visualize-region-box" style={fractionStyle(pin.region.view)}>
-            <span className="visualize-region-number">{n}</span>
-          </div>
-        ) : null
-      )}
-      {drag && <div className="visualize-region-box is-draft" style={fractionStyle(drag)} />}
-      {notice && (
-        <div className="visualize-region-notice" role="status">
-          {notice}
-        </div>
-      )}
-      {draft && (
-        <>
-          <div className="visualize-region-box is-draft" style={fractionStyle(draft.rect)}>
-            <span className="visualize-region-number">{next}</span>
-          </div>
-          <form
-            className="visualize-region-note"
-            style={{
-              left: `clamp(8px, ${draft.rect.x * 100}%, calc(100% - 248px))`,
-              ...(below
-                ? { top: `calc(${(draft.rect.y + draft.rect.height) * 100}% + 8px)` }
-                : { bottom: `calc(${(1 - draft.rect.y) * 100}% + 8px)` }),
-            }}
-            onSubmit={(event) => void submit(event)}
-          >
-            {draft.pick && <div className="visualize-region-note-label">{draft.pick.label}</div>}
-            <textarea
-              // biome-ignore lint/a11y/noAutofocus: the note box opens from the user's own click or drag and takes the text at once
-              autoFocus
-              rows={3}
-              value={note}
-              placeholder={placeholder}
-              aria-label={placeholder}
-              onChange={(event) => setNote(event.currentTarget.value)}
-              onKeyDown={onNoteKey}
-            />
-            <div className="visualize-region-note-row">
-              <button type="button" onClick={cancel}>
-                {t('Cancel')}
-              </button>
-              <button type="submit" className="is-primary" disabled={!note.trim()}>
-                {t('Add')}
-              </button>
+      {confirmBar}
+      <div
+        ref={layer}
+        className={`visualize-region-layer${comment ? ' is-commenting' : ''}`}
+        style={capturing ? { visibility: 'hidden' } : undefined}
+        onClick={onClick}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={() => {
+          if (html && !draft) post({ type: 'hover', x: -1, y: -1 });
+        }}
+        onPointerCancel={() => {
+          start.current = null;
+          setDrag(null);
+        }}
+        onWheel={onWheel}
+      >
+        {regions.map(({ n, pin }) =>
+          pin.region ? (
+            <div key={pin.id} className="visualize-region-box" style={fractionStyle(pin.region.view)}>
+              <span className="visualize-region-number">{n}</span>
             </div>
-          </form>
-        </>
-      )}
-    </div>
+          ) : null
+        )}
+        {drag && <div className="visualize-region-box is-draft" style={fractionStyle(drag)} />}
+        {notice && (
+          <div className="visualize-region-notice" role="status">
+            {notice}
+          </div>
+        )}
+        {draft && (
+          <>
+            <div className="visualize-region-box is-draft" style={fractionStyle(draft.rect)}>
+              <span className="visualize-region-number">{next}</span>
+            </div>
+            <form
+              className="visualize-region-note"
+              style={{
+                left: `clamp(8px, ${draft.rect.x * 100}%, calc(100% - 248px))`,
+                ...(below
+                  ? { top: `calc(${(draft.rect.y + draft.rect.height) * 100}% + 8px)` }
+                  : { bottom: `calc(${(1 - draft.rect.y) * 100}% + 8px)` }),
+              }}
+              onSubmit={(event) => void submit(event)}
+            >
+              {draft.pick && <div className="visualize-region-note-label">{draft.pick.label}</div>}
+              <textarea
+                // biome-ignore lint/a11y/noAutofocus: the note box opens from the user's own click or drag and takes the text at once
+                autoFocus
+                rows={3}
+                value={note}
+                placeholder={placeholder}
+                aria-label={placeholder}
+                onChange={(event) => setNote(event.currentTarget.value)}
+                onKeyDown={onNoteKey}
+              />
+              <div className="visualize-region-note-row">
+                <button type="button" onClick={cancel}>
+                  {t('Cancel')}
+                </button>
+                <button type="submit" className="is-primary" disabled={!note.trim()}>
+                  {t('Add')}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+      </div>
     </>
   );
 }

@@ -5,9 +5,9 @@
 // turn-snapshot-store.mjs. Every file carries its own complete patch, separate
 // from the bounded display patch the review bar renders, so a historical turn
 // stays undoable after later turns, cache eviction or a runtime restart.
-import { stat } from 'node:fs/promises';
+import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { structuredPatch } from 'diff';
+import { applyPatch, parsePatch, reversePatch, structuredPatch } from 'diff';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
 
@@ -162,7 +162,9 @@ const utf8Decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 function decodeText(content) {
   if (content == null) return '';
   try {
-    return utf8Decoder.decode(content);
+    const text = utf8Decoder.decode(content);
+    // A NUL byte marks binary content: it gets no text diff.
+    return text.includes('\0') ? null : text;
   } catch {
     return null;
   }
@@ -265,6 +267,11 @@ export function findChangeFile(record, value) {
   );
 }
 
+function findOutsideChange(outside, value) {
+  const key = changePathKey(value);
+  return outside.find((entry) => changePathKey(entry.path) === key) || null;
+}
+
 /** Why a file can no longer be undone or reapplied: a state change touched the
  *  worktree but could neither be recorded nor rolled back. */
 export const CHANGE_STATE_UNKNOWN_REASON =
@@ -289,6 +296,8 @@ function publicChangeFile(file) {
     // Its replay/preview patch was dropped for size (per-file ceiling or the
     // session byte budget).
     ...(file.patchOmitted === true ? { patchOmitted: true } : {}),
+    // The record kept no counts for it: a viewer may complete them.
+    ...(isUnmeasuredFile(file) ? { unmeasured: true } : {}),
   };
 }
 
@@ -303,6 +312,9 @@ function undoBlocker(files) {
 /** The fixed TurnChangesReply contract (see contract-capabilities.ts). */
 export function turnChangesReply({ status, checkpointId, record = null, patch = false, file = null }) {
   const files = Array.isArray(record?.files) ? record.files : [];
+  // Edits outside a Git turn's root are listed beside its files but are
+  // view-only: Undo, Reapply and the blocker never see them.
+  const outside = Array.isArray(record?.outside) ? record.outside : [];
   const ready = status === 'ready';
   const blocker = undoBlocker(files);
   let reason = '';
@@ -315,21 +327,381 @@ export function turnChangesReply({ status, checkpointId, record = null, patch = 
     checkpointId,
     revision: Number(record?.revision) || 0,
     root: clean(record?.root),
-    files: files.map(publicChangeFile),
+    files: [...files, ...outside.map((entry) => ({ ...entry, revertable: false }))].map(publicChangeFile),
     canUndo: ready && !blocker,
     canReapply: ready && files.some((entry) => entry.state === 'reverted' && entry.revertable === true),
     ...(reason ? { reason } : {}),
   };
   if (patch === true) {
-    let selected = files;
+    let selected = [...files, ...outside];
     if (file) {
-      const match = findChangeFile(record, file);
-      if (!match && files.length > 0) throw new Error(`${file} is not part of this turn's changes`);
+      const match = findChangeFile(record, file) || findOutsideChange(outside, file);
+      if (!match && selected.length > 0) throw new Error(`${file} is not part of this turn's changes`);
       selected = match ? [match] : [];
     }
-    reply.patch = selected.map((entry) => changePatchBuffer(entry)?.toString('utf8') || '').join('');
+    reply.patch = selected.map((entry) => patchOf(entry)).join('');
   }
   return reply;
+}
+
+// ── Session review: net recorded changes ────────────────────────────────────
+
+export const NET_TEXT_MAX_BYTES = 1024 * 1024;
+/** Budget of the merged session patch, in UTF-8 bytes. */
+export const MERGED_PATCH_MAX_BYTES = 2 * 1024 * 1024;
+const VIEW_PATCH_MAX_BYTES = 256 * 1024;
+
+/** A git-format patch of exact before/after text under the names a viewer
+ *  shows (absolute for a file outside the worktree). `before`/`after` are
+ *  Buffers or null (absent). */
+export function namedChangePatch({ before, after, oldName, newName, maxBytes = VIEW_PATCH_MAX_BYTES }) {
+  const renamed = oldName !== newName;
+  const measured = trackedChangeFile({
+    oldPath: renamed ? 'mx-old-file' : 'mx-file',
+    newPath: renamed ? 'mx-new-file' : 'mx-file',
+    before,
+    after,
+  });
+  const text = measured.patch ? measured.patch.toString('utf8') : '';
+  const split = text.search(/\n@@ /);
+  const head = (split >= 0 ? text.slice(0, split) : text)
+    .split('mx-old-file')
+    .join(oldName)
+    .split('mx-new-file')
+    .join(newName)
+    .split('mx-file')
+    .join(newName);
+  const patch = head + (split >= 0 ? text.slice(split) : '');
+  return {
+    status: measured.status,
+    additions: measured.additions,
+    deletions: measured.deletions,
+    ...(measured.binary ? { binary: true } : {}),
+    patch: Buffer.byteLength(patch, 'utf8') > maxBytes ? '' : patch,
+  };
+}
+
+const slashPath = (value) => clean(value).replace(/\\/g, '/');
+const isOutsidePath = (path) => isAbsolute(path) || /^[A-Za-z]:[\\/]/.test(path);
+const absoluteKey = (root, path) => changePathKey(isOutsidePath(path) ? resolve(path) : resolve(root, path));
+const patchOf = (file) =>
+  changePatchBuffer(file)?.toString('utf8') || (typeof file?.viewPatch === 'string' ? file.viewPatch : '');
+
+const insideDirectory = (parent, child) => {
+  const rel = relative(parent, child);
+  return rel === '' || (!isAbsolute(rel) && rel.split(/[\\/]+/)[0] !== '..');
+};
+
+/** At most NET_TEXT_MAX_BYTES of a regular file, read through one handle:
+ *  undefined when it is larger (checked by size first, never read whole). */
+async function readBounded(file) {
+  const handle = await open(file, 'r');
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > NET_TEXT_MAX_BYTES) return undefined;
+    const buffer = Buffer.alloc(NET_TEXT_MAX_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return bytesRead > NET_TEXT_MAX_BYTES ? undefined : buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+/** The file's current text: a string, null when absent, undefined when it
+ *  cannot be netted (unreadable, binary, large, or reached through a link).
+ *  An in-root file is followed only while it stays inside the recorded root;
+ *  an outside file is read only at its exact recorded path, never through a
+ *  link. */
+export async function currentText(root, path) {
+  const outside = isOutsidePath(path);
+  const file = outside ? resolve(path) : resolve(root, path);
+  try {
+    const info = await lstat(file);
+    if (outside) {
+      if (info.isSymbolicLink() || !info.isFile()) return undefined;
+      // A link in any parent directory would also lead elsewhere: the real
+      // location must be exactly the recorded path.
+      if (changePathKey(await realpath(file)) !== changePathKey(file)) return undefined;
+    } else {
+      const [realRoot, realFile] = await Promise.all([realpath(root), realpath(file)]);
+      if (!insideDirectory(realRoot, realFile)) return undefined;
+    }
+    const bytes = await readBounded(file);
+    return bytes === undefined ? undefined : (decodeText(bytes) ?? undefined);
+  } catch (error) {
+    return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? null : undefined;
+  }
+}
+
+/** A new file whose record kept neither counts nor a diff (an old outside-root
+ *  edit): its numbers are unknown, not zero. */
+function isUnmeasuredFile(file) {
+  return (
+    file?.status === 'A' &&
+    file.state !== 'reverted' &&
+    !file.binary &&
+    file.patchOmitted !== true &&
+    !patchOf(file) &&
+    (Number(file.additions) || 0) + (Number(file.deletions) || 0) === 0
+  );
+}
+
+/** A legacy record kept no counts or diff for a new file it could not replay
+ *  (outside the root): measure the file as it is on disk now. Returns the
+ *  file with its counts and display patch, or the file unchanged. */
+export async function measureLegacyChangeFile(file, root) {
+  if (!isUnmeasuredFile(file)) return file;
+  const text = await currentText(root, file.path);
+  if (typeof text !== 'string' || !text) return file;
+  const name = slashPath(file.path);
+  const named = namedChangePatch({ before: null, after: Buffer.from(text, 'utf8'), oldName: name, newName: name });
+  if (!named.patch) return file;
+  return { ...file, additions: named.additions, deletions: named.deletions, viewPatch: named.patch };
+}
+
+/** The text a chain's file had before its first recorded turn, rebuilt by
+ *  reverse-applying the recorded per-turn patches, newest first, onto the
+ *  file as it is now (`current`: string, or null when absent). null = the file
+ *  did not exist; undefined = a patch is missing or no longer matches, so the
+ *  chain cannot be netted exactly. Nothing about the before-state is stored. */
+function originalText(entries, current) {
+  let text = current;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const { file } = entries[index];
+    const patch = patchOf(file);
+    if (!patch || file.binary === true) return undefined;
+    let sections;
+    try {
+      sections = parsePatch(patch);
+    } catch {
+      return undefined;
+    }
+    if (sections.length !== 1) return undefined;
+    const [section] = sections;
+    if (file.status === 'D') {
+      if (text !== null) return undefined;
+      text = '';
+    } else if (text === null) {
+      return undefined;
+    }
+    if (section.hunks.length) {
+      const result = applyPatch(text, reversePatch(section));
+      if (result === false) return undefined;
+      text = result;
+    }
+    if (file.status === 'A') {
+      if (text !== '') return undefined;
+      text = null;
+    }
+  }
+  return text;
+}
+
+/** A recorded patch re-headed with the names the merged review shows, so a
+ *  disambiguated file keeps one identity in its list row and its diff. */
+function retargetPatch(patch, { status, oldName, newName }) {
+  const split = patch.search(/\n@@ /);
+  const head = split >= 0 ? patch.slice(0, split) : patch;
+  const tail = split >= 0 ? patch.slice(split) : '';
+  const from = status === 'R' ? oldName : newName;
+  const tab = (name) => (name.includes(' ') ? '\t' : '');
+  const lines = head.split('\n').map((line) => {
+    if (line.startsWith('diff --git ')) return `diff --git a/${from} b/${newName}`;
+    if (line.startsWith('--- ') && !line.startsWith('--- /dev/null')) return `--- a/${from}${tab(from)}`;
+    if (line.startsWith('+++ ') && !line.startsWith('+++ /dev/null')) return `+++ b/${newName}${tab(newName)}`;
+    if (line.startsWith('rename from ')) return `rename from ${from}`;
+    if (line.startsWith('rename to ')) return `rename to ${newName}`;
+    return line;
+  });
+  return lines.join('\n') + tail;
+}
+
+/** One path's turns, oldest first, as a single net change; null when the
+ *  session left the file as it found it. The original is rebuilt from the
+ *  recorded patches (see originalText) and compared with the disk, so undo,
+ *  create→delete and renames fall out; when that fails the turns are merged
+ *  per turn. `show` names a file for display. */
+async function netChain(chain, show) {
+  const first = chain.entries[0];
+  const last = chain.entries.at(-1);
+  const path = show(last.root, last.file.path);
+  const firstRel = first.file.oldPath || first.file.path;
+  const oldName = absoluteKey(first.root, firstRel) === chain.key ? path : show(first.root, firstRel);
+  const identity = {
+    id: slashPath(isOutsidePath(last.file.path) ? resolve(last.file.path) : resolve(last.root, last.file.path)),
+    outside: isOutsidePath(last.file.path),
+  };
+  const after = await currentText(last.root, last.file.path);
+  if (after !== undefined) {
+    const before = originalText(chain.entries, after);
+    if (before !== undefined) {
+      if (before === after && oldName === path) return null;
+      const net = namedChangePatch({
+        before: before === null ? null : Buffer.from(before, 'utf8'),
+        after: after === null ? null : Buffer.from(after, 'utf8'),
+        oldName,
+        newName: path,
+        maxBytes: MERGED_PATCH_MAX_BYTES,
+      });
+      const omitted = !net.patch && net.additions + net.deletions > 0;
+      return {
+        path,
+        ...identity,
+        ...(oldName !== path ? { oldPath: oldName } : {}),
+        ...net,
+        ...(omitted ? { patchOmitted: true } : {}),
+      };
+    }
+  }
+  if (first.file.status === 'A' && last.file.status === 'D') return null;
+  const files = await Promise.all(chain.entries.map((entry) => measureLegacyChangeFile(entry.file, entry.root)));
+  const patches = files
+    .map((file) => {
+      const patch = patchOf(file);
+      return patch ? retargetPatch(patch, { status: file.status, oldName, newName: path }) : '';
+    })
+    .filter(Boolean);
+  const additions = files.reduce((sum, file) => sum + (Number(file.additions) || 0), 0);
+  const deletions = files.reduce((sum, file) => sum + (Number(file.deletions) || 0), 0);
+  const binary = files.some((file) => file.binary === true);
+  const patch = patches.join('');
+  return {
+    path,
+    ...identity,
+    ...(oldName !== path ? { oldPath: oldName } : {}),
+    status: first.file.status === 'A' ? 'A' : last.file.status,
+    additions,
+    deletions,
+    ...(binary ? { binary: true } : {}),
+    patch,
+    // A legacy record that measured nothing: the transcript may know more.
+    ...(!patch && additions + deletions === 0 && !binary ? { unmeasured: true, reason: clean(last.file.reason) } : {}),
+    ...(!patch && last.file.patchOmitted === true ? { patchOmitted: true } : {}),
+  };
+}
+
+/** Group the records' files into per-path chains (renames continue a chain).
+ *  A chain is keyed by root + path, so two roots' `x.txt` stay two files. */
+function recordChains(records, { inRootKinds }) {
+  const chains = new Map();
+  for (const record of records) {
+    const root = clean(record?.root);
+    const entries = [
+      ...(inRootKinds.has(record?.kind) ? record.files || [] : []),
+      ...(Array.isArray(record?.outside) ? record.outside : []),
+    ];
+    for (const file of entries) {
+      if (!file?.path || file.state === 'reverted') continue;
+      const key = absoluteKey(root, file.path);
+      const from = file.oldPath ? absoluteKey(root, file.oldPath) : key;
+      const chain = chains.get(from) || chains.get(key) || { entries: [] };
+      chains.delete(chain.key);
+      chain.entries.push({ file, root });
+      chain.key = key;
+      chains.set(key, chain);
+    }
+  }
+  return [...chains.values()];
+}
+
+/** Records whose emptiness the session review may vouch for: a baseline that
+ *  lists the files itself, or retained records (undo-aware). Without either
+ *  the history is absent, never authoritative. */
+const knownSources = new Set(['git', 'empty', 'tool']);
+
+/**
+ * The session-wide review completed with the turns' recorded changes — the
+ * source the transcript's turn-changes cards read — as ONE net change per
+ * file, identical before and after a runtime restart. `base.source` says what
+ * the baseline review could vouch for:
+ *  - `git`: the baseline is authoritative; only edits outside its root are added.
+ *  - `empty` / `tool`: no baseline lists files (a non-Git session, or a
+ *    session whose tracker holds nothing yet): the `tracked` records and the
+ *    running turn (`live`) supply them, never the tracker's single-turn patch.
+ *  - `absent` / `unavailable`: no ownership metadata survived; every retained
+ *    record supplies the files, and with no record the review is not complete.
+ * A file the user undid is never listed; Reapply lists it again. Each listed
+ * file carries an `id` (root + path); when two roots would show the same
+ * relative name both show their absolute path.
+ */
+export async function mergeRecordedSessionChanges(base, records, live = null) {
+  const source = base?.source || '';
+  const gitBacked = source === 'git';
+  const cleared = source === 'tool' ? { ...base, files: [], patch: '' } : base;
+  const retained = Array.isArray(records) ? records : [];
+  const withLive =
+    live && !retained.some((record) => record?.checkpointId === live.checkpointId) ? [...retained, live] : retained;
+  let inRootKinds = new Set(['tracked']);
+  if (gitBacked) inRootKinds = new Set();
+  else if (source === 'absent' || source === 'unavailable') inRootKinds = new Set(['git', 'tracked']);
+  const baseFiles = Array.isArray(cleared?.files) ? cleared.files : [];
+  const basePatch = typeof cleared?.patch === 'string' ? cleared.patch : '';
+  const baseRoot = clean(base?.root);
+  const known = new Set();
+  for (const file of baseFiles) {
+    if (file?.path) known.add(absoluteKey(baseRoot, file.path));
+    if (file?.oldPath) known.add(absoluteKey(baseRoot, file.oldPath));
+  }
+  const chains = recordChains(withLive, { inRootKinds }).filter((chain) => !known.has(chain.key));
+  // A relative name shared by different roots (or with a baseline file) is
+  // shown absolute, so each file stays distinct.
+  const owners = new Map();
+  const claim = (rel, key) => {
+    const name = changePathKey(rel);
+    owners.set(name, new Set([...(owners.get(name) || []), key]));
+  };
+  for (const file of baseFiles) if (file?.path) claim(file.path, absoluteKey(baseRoot, file.path));
+  for (const chain of chains) {
+    const entry = chain.entries.at(-1);
+    claim(entry.file.path, chain.key);
+    const origin = chain.entries[0];
+    if (origin.file.oldPath) claim(origin.file.oldPath, absoluteKey(origin.root, origin.file.oldPath));
+  }
+  const show = (root, rel) =>
+    isOutsidePath(rel) || (owners.get(changePathKey(rel))?.size || 0) <= 1
+      ? slashPath(rel)
+      : slashPath(resolve(root, rel));
+  const nets = [];
+  for (const chain of chains) {
+    const net = await netChain(chain, show);
+    if (net) nets.push(net);
+  }
+  const { source: _source, reason: unavailableReason, ...kept } = cleared || {};
+  const complete = knownSources.has(source) || withLive.length > 0;
+  if (nets.length === 0) {
+    // Nothing recorded to add: the baseline answer stands (an unavailable
+    // baseline stays unavailable, never an invented empty set).
+    if (cleared?.supported === false) return { ...kept, reason: unavailableReason };
+    return { ...kept, ...(complete ? { complete: true } : {}) };
+  }
+  // The merged response stays bounded: past the budget a file is listed
+  // without its diff.
+  let budget = MERGED_PATCH_MAX_BYTES - Buffer.byteLength(basePatch, 'utf8');
+  let truncated = false;
+  const files = [];
+  const patches = [];
+  for (const { patch, ...file } of nets) {
+    const size = patch ? Buffer.byteLength(patch, 'utf8') : 0;
+    if (patch && size <= budget) {
+      budget -= size;
+      patches.push(patch);
+    } else if (patch) {
+      truncated = true;
+      files.push({ ...file, patchOmitted: true });
+      continue;
+    }
+    files.push(file);
+  }
+  return {
+    ...kept,
+    supported: true,
+    authoritative: true,
+    complete,
+    files: [...baseFiles, ...files],
+    patch: [basePatch, ...patches].filter(Boolean).join(basePatch.endsWith('\n') || !basePatch ? '' : '\n'),
+    patchTruncated: kept.patchTruncated === true || truncated,
+    snapshotKind: cleared?.snapshotKind || 'session',
+  };
 }
 
 // ── Apply ───────────────────────────────────────────────────────────────────

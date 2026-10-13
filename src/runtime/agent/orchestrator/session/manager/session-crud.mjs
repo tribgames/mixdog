@@ -25,6 +25,8 @@ import {
 import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
 import { mintSessionId } from './session-id.mjs';
+import { hideCompactionArchive } from '../compaction-archive-capture.mjs';
+import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 
 /** Force-flush session metrics to disk. Used by watchdog terminal-reap (fix B). */
 export async function flushSessionMetrics(sessionId) {
@@ -97,14 +99,6 @@ export async function updateSessionManualTitle(id, title) {
   return true;
 }
 // --- Clear messages (keep system prompt + provider/model/cwd) ---
-function bestEffortStderr(line) {
-  try {
-    process.stderr.write(line);
-  } catch {
-    /* best-effort */
-  }
-}
-
 // Token/provider accounting a cleared transcript starts from; shared by the
 // live session and the cold fork of its outgoing transcript.
 function clearedTokenAccounting(now) {
@@ -134,11 +128,18 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
   let clearCompactError = null;
   if (messages.length >= 3) {
     try {
-      const compactResult = await runSessionCompaction(session, { mode: 'manual', force: true, sessionId });
+      // The clear right after discards this compaction's display too, so it
+      // archives nothing (clear semantics are unchanged).
+      const compactResult = await runSessionCompaction(session, {
+        mode: 'manual',
+        force: true,
+        sessionId,
+        archive: false,
+      });
       if (compactResult?.error) clearCompactError = new Error(compactResult.error);
     } catch (err) {
       clearCompactError = err;
-      bestEffortStderr(`[session] auto-clear pre-compact failed (sess=${sessionId}): ${err?.message || err}\n`);
+      writeStderrBestEffort(`[session] auto-clear pre-compact failed (sess=${sessionId}): ${err?.message || err}\n`);
     }
     messages = Array.isArray(session.messages) ? session.messages : [];
   }
@@ -209,6 +210,11 @@ function forkOutgoingTranscript(session, messages, now) {
       ...clearedTokenAccounting(now),
     };
     delete fork.liveTurnMessages;
+    // The archive sidecar belongs to the source id; the fork has none.
+    if (fork.compaction?.archive) {
+      fork.compaction = { ...fork.compaction };
+      delete fork.compaction.archive;
+    }
     setLiveSession(fork);
     void saveSessionAsync(fork)
       .then(() => {
@@ -220,10 +226,10 @@ function forkOutgoingTranscript(session, messages, now) {
         evictLiveSession(forkId);
       })
       .catch((err) => {
-        bestEffortStderr(`[session] clear-fork save failed (sess=${forkId}): ${err?.message || err}\n`);
+        writeStderrBestEffort(`[session] clear-fork save failed (sess=${forkId}): ${err?.message || err}\n`);
       });
   } catch (err) {
-    bestEffortStderr(`[session] clear-fork failed (sess=${session.id}): ${err?.message || err}\n`);
+    writeStderrBestEffort(`[session] clear-fork failed (sess=${session.id}): ${err?.message || err}\n`);
   }
 }
 
@@ -278,6 +284,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
     lastClearAfterMessageTokens: tokens.afterMessageTokens,
     lastClearCompactError: clearCompactError?.message || null,
   };
+  // A clear wipes the visible conversation: earlier compactions' archived
+  // display goes with it (nothing new is archived).
+  hideCompactionArchive(session);
   if (summaryCarriedForward && tokens.postClearPolicy) {
     recordContextUsageSnapshot(session, tokens.postClearPolicy, {
       messages: keep,

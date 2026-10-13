@@ -111,7 +111,7 @@ test('phone layout: the host browser and the selected path fit the add dialog fi
   assert.match(path, /direction:\s*rtl/);
   assert.match(path, /text-overflow:\s*ellipsis/);
   assert.match(path, /overflow:\s*hidden/);
-  const source = readFileSync(new URL('./ProjectListSection.tsx', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('./ProjectAddDialogHost.tsx', import.meta.url), 'utf8');
   assert.match(source, /<code>\s*<bdi>\{addPath \|\| t\('No folder selected'\)\}<\/bdi>\s*<\/code>/);
 });
 

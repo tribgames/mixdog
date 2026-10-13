@@ -2,6 +2,7 @@ import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction 
 import type { DesktopSessionSummary, SessionSnapshot } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
+import { deleteSessionImagePreviews } from './image-preview-store';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
 
@@ -150,6 +151,36 @@ export function useAppSessionActions({
     [invalidateSessionListings, sessions, setError, setSessions]
   );
 
+  /** Sidebar membership only ('' = no project); the session's cwd is untouched. */
+  const moveSessionToProject = useCallback(
+    async (sessionId: string, projectPath: string) => {
+      const previousSession = sessions.find((session) => session.id === sessionId);
+      if (!previousSession || previousSession.projectAssignment === projectPath) return;
+      invalidateSessionListings();
+      setSessions((current) =>
+        current.map((session) => (session.id === sessionId ? { ...session, projectAssignment: projectPath } : session))
+      );
+      setError('');
+      try {
+        await window.mixdogDesktop.setSessionProject?.(sessionId, projectPath);
+      } catch (reason) {
+        invalidateSessionListings();
+        setSessions((current) =>
+          current.map((session) => {
+            if (session.id !== sessionId || session.projectAssignment !== projectPath) return session;
+            const { projectAssignment: _moved, ...rest } = session;
+            return previousSession.projectAssignment === undefined
+              ? rest
+              : { ...rest, projectAssignment: previousSession.projectAssignment };
+          })
+        );
+        setError(reason instanceof Error ? reason.message : String(reason));
+        throw reason;
+      }
+    },
+    [invalidateSessionListings, sessions, setError, setSessions]
+  );
+
   const deleteSession = useCallback(
     async (sessionId: string) => {
       const previousSession = sessions.find((session) => session.id === sessionId);
@@ -167,6 +198,7 @@ export function useAppSessionActions({
         throw reason;
       }
       onSessionDeleted(sessionId);
+      deleteSessionImagePreviews(sessionId);
       invalidateSessionListings();
       pendingRenames.current.delete(sessionId);
       applySnapshot(next);
@@ -205,5 +237,5 @@ export function useAppSessionActions({
     ]
   );
 
-  return { renameSession, archiveSession, favoriteSession, deleteSession };
+  return { renameSession, archiveSession, favoriteSession, moveSessionToProject, deleteSession };
 }

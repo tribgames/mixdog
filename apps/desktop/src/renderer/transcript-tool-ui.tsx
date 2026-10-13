@@ -23,6 +23,7 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
+  useContext,
   useState,
   type ReactNode,
 } from 'react';
@@ -38,11 +39,16 @@ import {
   type ScmContextMenuState,
 } from './ScmContextMenu';
 import { ToolComputerReadinessCard } from './transcript-computer-card';
+import { usePersistedThumbnail } from './persisted-thumbnail';
 import { ToolVisualizeCards } from './transcript-visualize-card';
+import { rememberVisualizeTabTitles, visualizeCallTabTitle } from './visualize-card-model';
 import { useToolOutcomeUnknown } from './connection-link-store';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
 import { CodeDiff } from './transcript-diff';
+import { TurnChangesContext } from './TurnChangesCard';
+import { requestSessionDiffFile } from './session-diff-focus';
+import { capPatchLines } from './renderer-logic.mjs';
 import { CopyControl } from './transcript-primitives';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
@@ -60,8 +66,10 @@ import {
 } from './transcript-tool-panel';
 import {
   desktopToolActivityBrowserPage,
+  desktopToolActivityCategory,
   desktopToolActivitySummary,
   desktopToolActivityItemPresentation,
+  diffTargetPath,
   flattenedToolActivityItems,
   isHookApprovalDenialToolItem,
   shortMachineId,
@@ -226,31 +234,36 @@ function ToolWorkingStatus({ startedAt, spark = false }: { startedAt: number; sp
   );
 }
 
-/** Sparkle + list glyph of a tool group. It stays still while the group runs:
- *  the shimmering title already carries the running state. */
-function ToolGroupIcon() {
-  const d = sparklePath(5, 6, 3.2);
+type LineCounts = { additions: number; deletions: number };
+
+/** Lines a change adds and removes as one split pill ("+12 −3"). Both halves
+ *  show once either is non-zero, so a row of pills lines up; nothing changed
+ *  draws nothing. */
+function ToolDiffCounts({ counts }: { counts: LineCounts | null }) {
+  if (!counts || (counts.additions === 0 && counts.deletions === 0)) return null;
   return (
-    <svg
-      className="tool-group-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
+    <span
+      className="tool-diff-counts"
+      role="img"
+      aria-label={t('Lines changed: +{{additions}} −{{deletions}}', counts)}
     >
-      <path className="tool-group-icon-star" d={d} fill="currentColor" stroke="none" />
-      <circle className="tool-group-icon-dot" cx="5" cy="12" r="1.25" fill="currentColor" stroke="none" />
-      <circle className="tool-group-icon-dot" cx="5" cy="18" r="1.25" fill="currentColor" stroke="none" />
-      <path className="tool-group-icon-line" d="M11 6h10" />
-      <path className="tool-group-icon-line" d="M11 12h8" />
-      <path className="tool-group-icon-line" d="M11 18h10" />
-    </svg>
+      <i aria-hidden="true">+{counts.additions}</i>
+      <em aria-hidden="true">−{counts.deletions}</em>
+    </span>
   );
+}
+
+/** The lines every file change of a group adds and removes. */
+function groupLineCounts(calls: readonly TranscriptItem[]): LineCounts {
+  const total: LineCounts = { additions: 0, deletions: 0 };
+  for (const item of calls) {
+    if (desktopToolActivityCategory(item.name, item.args) !== 'Patch') continue;
+    const counts = desktopToolActivityItemPresentation(item).diffCounts;
+    if (!counts) continue;
+    total.additions += counts.additions;
+    total.deletions += counts.deletions;
+  }
+  return total;
 }
 
 /** Memoized: every TranscriptList render re-invokes renderRow for each row. */
@@ -262,6 +275,8 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   const { mode, key: viewKey } = useToolActivityView();
   const disclosureKey = toolActivityDisclosureKey(items, disclosureScope, viewKey);
   const calls = useMemo(() => flattenedToolActivityItems(items), [items]);
+  // Before the rows render: they name a visualize tab by the title it opened with.
+  useMemo(() => rememberVisualizeTabTitles(disclosureScope, items), [disclosureScope, items]);
   const [open, toggleOpen] = useRememberedDisclosure(
     disclosureKey,
     calls.some((item) => toolActivityCallExpands(item, mode))
@@ -271,6 +286,9 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   const outcomeUnknown = useToolOutcomeUnknown();
   const pending = items.some((item) => !toolItemDone(item) && !outcomeUnknown(item.id));
   const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
+  // Settled changes count as soon as they land; a call still running (or
+  // failed) has no counts yet, and the running readout stays its own.
+  const lineCounts = useMemo(() => groupLineCounts(calls), [calls]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
   const label = summary || t('Tool use');
   const pendingStartedAt = useMemo(() => {
@@ -291,12 +309,10 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         aria-expanded={open}
         aria-controls={contentId}
       >
-        <span className="tool-icon">
-          <ToolGroupIcon />
-        </span>
         <span className="tool-title tool-activity-title" title={label}>
           <b>{label}</b>
         </span>
+        <ToolDiffCounts counts={lineCounts} />
         {pending && (
           <span className="sr-only" role="status">
             {t('Running')}
@@ -311,7 +327,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         <div className="tool-activity-reveal" data-expanded={expanded ? 'true' : 'false'}>
           <div className="tool-activity-reveal-clip">
             <div className="tool-activity-content" id={contentId}>
-              <ToolActivityDetails items={calls} disclosureKey={disclosureKey} mode={mode} />
+              <ToolActivityDetails items={calls} disclosureKey={disclosureKey} mode={mode} scope={disclosureScope} />
             </div>
           </div>
         </div>
@@ -335,6 +351,9 @@ function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPag
   // one the site icon and title stand in; without either, globe and address.
   const identity = useBrowserPageIdentity(page.url, { preview: true });
   const [faviconSrc, onFaviconError] = useLoadableFavicon(identity?.favicon);
+  // The page's screenshot is kept per session + address, so the card still has
+  // its picture after a restart, before (or without) the browser seeing it again.
+  const thumbnail = usePersistedThumbnail(sessionId, `browser|${page.url}`, identity?.thumbnail || undefined);
   if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) !== 'pane') return null;
   const favicon = faviconSrc ? (
     <img
@@ -346,18 +365,18 @@ function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPag
     />
   ) : null;
   let body: ReactNode;
-  if (identity?.thumbnail) {
+  if (thumbnail) {
     body = (
       <>
         <span className="transcript-browser-page-thumb" aria-hidden="true">
-          <img src={identity.thumbnail} alt="" draggable={false} />
+          <img src={thumbnail} alt="" draggable={false} />
         </span>
         <span className="transcript-browser-page-copy" title={page.url}>
           <span className="transcript-browser-page-site">
             {favicon ?? <Globe size={14} aria-hidden="true" />}
             <span>{page.host}</span>
           </span>
-          <b>{identity.title || page.host}</b>
+          <b>{identity?.title || page.host}</b>
           {page.path && <small>{page.path}</small>}
         </span>
       </>
@@ -381,7 +400,7 @@ function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPag
   }
   return (
     <div
-      className={`transcript-browser-page${identity?.thumbnail ? ' has-thumbnail' : ''}`}
+      className={`transcript-browser-page${thumbnail ? ' has-thumbnail' : ''}`}
       onContextMenu={(event) => {
         event.preventDefault();
         setMenu(webLinkMenu(sessionId, page.url, pointerMenuPoint(event)));
@@ -432,10 +451,12 @@ function ToolActivityDetails({
   items,
   disclosureKey,
   mode,
+  scope,
 }: {
   items: readonly TranscriptItem[];
   disclosureKey: string;
   mode: ToolActivityExpansion;
+  scope: string;
 }) {
   const contentId = useId();
   return (
@@ -449,6 +470,7 @@ function ToolActivityDetails({
             disclosureKey={disclosureChildKey(disclosureKey, key)}
             defaultOpen={toolActivityCallExpands(item, mode)}
             contentId={`${contentId}-item-${index}`}
+            scope={scope}
           />
         );
       })}
@@ -545,6 +567,14 @@ export function ToolRowOutcome({ presentation }: { presentation: ToolActivityPre
     if (meta) return <span className="tool-activity-item-result">{meta}</span>;
   }
   if (!presentation.resultLabel) return null;
+  // A file change says its lines once, in the pill beside its name.
+  if (presentation.diffCounts && presentation.tone === 'neutral') return null;
+  // A failed command's row stays one short line: its red verb already says it
+  // failed, so the row adds only the exit ("종료 코드 2"); the error itself
+  // (often a long interpreter path) is in the output below.
+  if (presentation.command && presentation.tone === 'error') {
+    return <span className="tool-activity-item-result">{presentation.outputNote || t('Failed')}</span>;
+  }
   if (presentation.tone !== 'neutral') {
     const text = toolActivityOutcomeText(presentation);
     const reason = presentation.outcomeReason;
@@ -629,6 +659,7 @@ function renderToolActivityHeader({
             </small>
           )}
       </span>
+      <ToolDiffCounts counts={presentation.diffCounts} />
       {metaLine && <span className="tool-activity-item-meta">{metaLine}</span>}
       <ToolRowOutcome presentation={presentation} />
       {presentation.pending && <ToolWorkingStatus startedAt={startedAt} spark />}
@@ -647,9 +678,9 @@ function renderToolActivityHeader({
 }
 
 const PREVIEW_OUTPUT_LINES = 5;
-// Every box a preview may cut short: plates, the command, plain output.
-const PREVIEW_CUT_SELECTOR =
-  '.tool-panel-body, .tool-panel[data-kind="command"] .tool-code, .tool-activity-item-output';
+// Every box a preview may cut short: plates and plain output. A command is
+// always shown whole.
+const PREVIEW_CUT_SELECTOR = '.tool-panel:not([data-kind="command"]) > .tool-panel-body, .tool-activity-item-output';
 
 type ToolActivityPreviewMode = 'lines' | 'height';
 
@@ -727,7 +758,13 @@ function capPresentation(presentation: ToolActivityPresentation): {
     promptText: lines(presentation.promptText),
     beforeText: lines(presentation.beforeText),
     afterText: lines(presentation.afterText),
-    diffPatch: presentation.diffPatch ? lines(presentation.diffPatch) : presentation.diffPatch,
+    diffPatch: presentation.diffPatch
+      ? (() => {
+          const capped = capPatchLines(presentation.diffPatch, PREVIEW_HEIGHT_LINES);
+          cut ||= capped.cut;
+          return capped.text;
+        })()
+      : presentation.diffPatch,
     entries: rowsBudget(presentation.entries),
     structuredRows: rowsBudget(presentation.structuredRows),
     sections,
@@ -866,9 +903,43 @@ function renderToolActivityFields(presentation: ToolActivityPresentation) {
   );
 }
 
+/** A file change: its full path on one quiet line (copy at the far right; the
+ *  path opens the side diff pane where there is one), then the diff in its
+ *  own outlined frame that scrolls under the fixed path line. */
+function renderToolActivityDiff(patch: string, full: ToolActivityPresentation, onOpenDiff: (() => void) | null) {
+  const path = full.targetPath || diffTargetPath(full.diffPatch);
+  return (
+    <section className="tool-activity-item-section tool-diff-block">
+      <div className="tool-diff-path">
+        {onOpenDiff ? (
+          <button type="button" className="tool-diff-path-link" title={t('View changes')} onClick={onOpenDiff}>
+            {path}
+          </button>
+        ) : (
+          <span className="tool-diff-path-text">{path}</span>
+        )}
+        <CopyControl
+          value={full.diffPatch}
+          label="Copy diff for {{value0}}"
+          labelOptions={{ value0: path }}
+          className="tool-detail-copy"
+        />
+      </div>
+      <div className="tool-diff-frame">
+        <CodeDiff patch={patch} target={full.targetPath} />
+      </div>
+    </section>
+  );
+}
+
 // Every detail section a tool item can carry: command output, structured rows,
 // a preview, a before/after replacement, arguments, a diff, and plain output.
-function renderToolActivityDetails(full: ToolActivityPresentation, contentId: string, onShowMore: (() => void) | null) {
+function renderToolActivityDetails(
+  full: ToolActivityPresentation,
+  contentId: string,
+  onShowMore: (() => void) | null,
+  onOpenDiff: (() => void) | null = null
+) {
   const mode = onShowMore ? toolActivityPreviewMode(full) : null;
   const capped = mode === 'height' ? capPresentation(full) : null;
   const presentation = capped ? capped.view : full;
@@ -915,8 +986,11 @@ function renderToolActivityDetails(full: ToolActivityPresentation, contentId: st
         {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation, full)}
         {presentation.fields.length > 0 && !presentation.fieldsInline && renderToolActivityFields(presentation)}
         {presentation.command && renderToolActivityTerminal(presentation, output.text, full)}
-        {presentation.outputNote && <p className="tool-activity-item-note">{presentation.outputNote}</p>}
-        {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
+        {presentation.outputNote && !(presentation.command && presentation.tone === 'error') && (
+          // A failed command's exit already stands on its row.
+          <p className="tool-activity-item-note">{presentation.outputNote}</p>
+        )}
+        {presentation.diffPatch && renderToolActivityDiff(presentation.diffPatch, full, onOpenDiff)}
         {presentation.outputText &&
           !presentation.command &&
           presentation.sections.length === 0 &&
@@ -926,8 +1000,8 @@ function renderToolActivityDetails(full: ToolActivityPresentation, contentId: st
   );
 }
 
-/** A call the expansion setting opened shows a preview: a command's first two
- *  lines and five lines of output, or a capped height for anything else. A
+/** A call the expansion setting opened shows a preview: a command whole and
+ *  five lines of its output, or a capped height for anything else. A
  *  quiet "… +N lines" note under it lifts the cap, as does opening by hand. */
 function ToolActivityPreview({
   mode,
@@ -999,22 +1073,37 @@ function ToolActivityItem({
   disclosureKey,
   defaultOpen,
   contentId,
+  scope,
 }: {
   item: TranscriptItem;
   disclosureKey: string;
   defaultOpen: boolean;
   contentId: string;
+  scope: string;
 }) {
   const [open, onToggle, chosen, keepOpen] = useRememberedDisclosure(disclosureKey, defaultOpen);
   const outcomeUnknown = useToolOutcomeUnknown()(item.id);
+  const visualizeTabTitle = visualizeCallTabTitle(scope, item);
   const presentation = useMemo(() => {
-    const base = desktopToolActivityItemPresentation(item);
+    const base = desktopToolActivityItemPresentation(item, undefined, { visualizeTabTitle });
     // A server window lost this call's result with its link: say so instead of
     // running forever. It is never run again.
     return outcomeUnknown && base.pending
       ? { ...base, pending: false, tone: 'failed', resultLabel: t('Outcome unknown'), outcomeReason: '' }
       : base;
-  }, [item, outcomeUnknown]);
+  }, [item, outcomeUnknown, visualizeTabTitle]);
+  // A settled file change opens in place; its path line also opens the side
+  // diff pane on that file (with the way back to the list), where a session
+  // has that pane.
+  const turnChanges = useContext(TurnChangesContext);
+  const diffPath = presentation.diffPatch && !presentation.pending ? diffTargetPath(presentation.diffPatch) : '';
+  const openDiff =
+    diffPath && turnChanges?.sessionId && turnChanges.onOpenSessionDiff
+      ? () => {
+          requestSessionDiffFile(turnChanges.sessionId, diffPath);
+          turnChanges.onOpenSessionDiff?.();
+        }
+      : null;
   const panelOpen = open && presentation.hasDetails;
   const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
 
@@ -1027,7 +1116,7 @@ function ToolActivityItem({
       {renderToolActivityHeader({ presentation, open, onToggle, contentId, startedAt: toolItemStartedAt(item) })}
       {rendered &&
         presentation.hasDetails &&
-        renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen)}
+        renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen, openDiff)}
     </article>
   );
 }

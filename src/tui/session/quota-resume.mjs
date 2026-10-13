@@ -52,7 +52,8 @@ export function latestQuotaFailure(items) {
   const transcript = Array.isArray(items) ? items : [];
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const item = transcript[index];
-    if (item?.kind === 'user') return null;
+    // A turn a compaction archived is no longer the model's to resume.
+    if (item?.kind === 'user' || item?.archived === true) return null;
     if (item?.kind !== 'turndone') continue;
     const quota = item.quota;
     if (String(item.status || '').toLowerCase() !== 'failed' || !quota || typeof quota.provider !== 'string') {

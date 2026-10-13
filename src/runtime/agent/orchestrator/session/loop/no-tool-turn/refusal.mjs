@@ -15,7 +15,7 @@ export function resolveRefusal(response, hasContent, { state, segments, messages
   // A provider may emit harmless narration before its safety classifier
   // terminates the turn. Preserve that partial turn and its stop reason,
   // but never mistake the non-empty text for a successful completion.
-  if (hasContent && segments.commitIntermediate(response)) segments.record(response.content);
+  if (hasContent && segments.commitIntermediate(response)) segments.record(response.content, { committed: true });
   messages.push({
     role: 'user',
     content: REFUSAL_RECOVERY_PROMPT,

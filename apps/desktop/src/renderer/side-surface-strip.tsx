@@ -1,4 +1,14 @@
-import { Columns2, ExternalLink, FileText as FileIcon, FolderOpen, ListTree, PanelTop, Save, X } from 'lucide-react';
+import {
+  Columns2,
+  ExternalLink,
+  FileDiff,
+  FileText as FileIcon,
+  FolderOpen,
+  ListTree,
+  PanelTop,
+  Save,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
@@ -191,9 +201,12 @@ export function SideFileStrip({
   onKeep,
   onOpenInMain,
   onClose,
+  leadingTab,
 }: {
   files: readonly PaneSideDockFile[];
   activeKey: string | null;
+  /** A panel-view tab (the session's Changes) kept in front of the file tabs. */
+  leadingTab?: { label: string; onSelect(): void };
   chrome: SideFileChrome | null;
   onSelect(fileKey: string): void;
   onCloseTab(fileKey: string): void;
@@ -211,6 +224,21 @@ export function SideFileStrip({
         className="side-file-header"
         left={
           <div className="browser-tab-list" role="tablist" aria-label={t('Files')}>
+            {leadingTab && (
+              <div className="browser-tab dock-header-chip" data-side-leading-tab="">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  className="browser-tab-select"
+                  title={leadingTab.label}
+                  onClick={leadingTab.onSelect}
+                >
+                  <FileDiff size={14} aria-hidden="true" />
+                  <span>{leadingTab.label}</span>
+                </button>
+              </div>
+            )}
             {files.map((file) => {
               const key = sideFileKey(file);
               const active = key === activeKey;

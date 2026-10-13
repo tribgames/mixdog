@@ -25,6 +25,12 @@
   pointer-events: none;
 }
 
+/* A parked surface is off screen: its loaders (the "Connecting to desktop
+   Browser Use…" spinner above all) must not keep the page producing frames. */
+.session-browser-surface-container[data-parked="true"] * {
+  animation-play-state: paused !important;
+}
+
 .session-browser-surface-container[data-expanded="true"][data-parked="false"] {
   z-index: 40;
   box-shadow: var(--mx-floating);

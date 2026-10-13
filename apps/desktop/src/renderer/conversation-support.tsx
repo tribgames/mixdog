@@ -18,7 +18,7 @@ import { describeError, ErrorNotice } from './ErrorNotice';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
-import { submissionIdentity, turnPromptText, type TranscriptRowModel } from './transcript-rows';
+import { submissionIdentity, transcriptRowArchived, turnPromptText, type TranscriptRowModel } from './transcript-rows';
 import { TranscriptRow } from './transcript-row';
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { ToolActivityGroup } from './transcript-tool-ui';
@@ -304,6 +304,59 @@ export function conversationKeyDownCapture(
     ?.focus({ preventScroll: true });
 }
 
+function errorRowNode(
+  row: Extract<TranscriptRowModel, { _tag: 'Error' }>,
+  {
+    readOnly,
+    retryDisabled,
+    settledItems,
+    settledTurnKeys,
+    onRetryTurn,
+    onOpenSettings,
+  }: {
+    readOnly: boolean;
+    retryDisabled: boolean;
+    settledItems: readonly TranscriptItem[];
+    settledTurnKeys: readonly string[];
+    onRetryTurn(turnKey: string): void;
+    onOpenSettings(section?: SettingsSection | null): void;
+  }
+): ReactNode {
+  const retryKey = [...row.failures]
+    .reverse()
+    .find((failure) => turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
+  const errors = row.failures.map(
+    ({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
+  );
+  const reauth = describeError(errors.at(-1)).kind === 'reauth';
+  const notice = (
+    <ErrorNotice
+      className="transcript-error-notice"
+      errors={errors}
+      action={
+        reauth && !readOnly ? (
+          <button type="button" onClick={() => onOpenSettings('providers')}>
+            {t('Sign in again')}
+          </button>
+        ) : undefined
+      }
+      onRetry={
+        !reauth && !readOnly && retryKey && !transcriptRowArchived(row) ? () => onRetryTurn(retryKey) : undefined
+      }
+      retryDisabled={retryDisabled}
+      role="status"
+    />
+  );
+  return row.turnChanges ? (
+    <>
+      {notice}
+      <TurnChangesCard turnChanges={row.turnChanges} />
+    </>
+  ) : (
+    notice
+  );
+}
+
 /** One projected row as elements. Row kinds are a closed set, so this dispatch
  *  is the whole mapping from the row model to the transcript's chrome. */
 export function transcriptRowNode(
@@ -339,37 +392,7 @@ export function transcriptRowNode(
     return <div className="transcript-turn-gap" aria-hidden="true" />;
   }
   if (row._tag === 'Error') {
-    const retryKey = [...row.failures]
-      .reverse()
-      .find((failure) => turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
-    const errors = row.failures.map(
-      ({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
-    );
-    const reauth = describeError(errors.at(-1)).kind === 'reauth';
-    const notice = (
-      <ErrorNotice
-        className="transcript-error-notice"
-        errors={errors}
-        action={
-          reauth && !readOnly ? (
-            <button type="button" onClick={() => onOpenSettings('providers')}>
-              {t('Sign in again')}
-            </button>
-          ) : undefined
-        }
-        onRetry={!reauth && !readOnly && retryKey ? () => onRetryTurn(retryKey) : undefined}
-        retryDisabled={retryDisabled}
-        role="status"
-      />
-    );
-    return row.turnChanges ? (
-      <>
-        {notice}
-        <TurnChangesCard turnChanges={row.turnChanges} />
-      </>
-    ) : (
-      notice
-    );
+    return errorRowNode(row, { readOnly, retryDisabled, settledItems, settledTurnKeys, onRetryTurn, onOpenSettings });
   }
   if (row._tag === 'Thinking') {
     return (

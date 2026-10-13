@@ -251,6 +251,7 @@ const openSocketAttempt = (
     ctx.peerNativePush = false;
     ctx.peerBrowserParity = false;
     ctx.peerBrowserDrive = false;
+    ctx.peerBrowserSessionTabs = false;
     ctx.peerTermSizeOwner = false;
     ctx.peerHostDirectories = false;
     ctx.peerRouteAutoEffort = false;
@@ -321,6 +322,7 @@ const openSocketAttempt = (
         ctx.peerNativePush = clear.nativePush === 1;
         ctx.peerBrowserParity = clear.browserParity === 1;
         ctx.peerBrowserDrive = clear.browserDrive === 1;
+        ctx.peerBrowserSessionTabs = clear.browserSessionTabs === 1;
         ctx.peerTermSizeOwner = clear.termSizeOwner === 1;
         ctx.peerHostDirectories = clear.hostDirectories === 1;
         ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;

@@ -1,0 +1,68 @@
+import { type MutableRefObject, useRef } from 'react';
+import type { TranscriptVirtualizer } from './transcript-list-geometry';
+
+/** A row whose markdown is still parsing (data-transcript-pending) renders a
+ *  source fallback whose box is not its settled height (a reply measured
+ *  272px pending, then 264px), so every reply first met above the reader was
+ *  corrected twice. When the row already has a learned estimate, the core
+ *  keeps that estimate while the row is pending — the clipped row box is the
+ *  geometry, so at most a few pixels of fallback overlap the next row — and
+ *  takes the settled box once the marker leaves. Must run before the resize
+ *  patch captures resizeItem, so landings and deferrals see it too. */
+export function useProvisionalRowResize({
+  virtualizer,
+  virtualizerRef,
+  heldEstimates,
+  fallbackEstimates,
+}: {
+  virtualizer: TranscriptVirtualizer;
+  virtualizerRef: MutableRefObject<TranscriptVirtualizer>;
+  heldEstimates: MutableRefObject<Map<unknown, number>>;
+  fallbackEstimates: MutableRefObject<Set<unknown>>;
+}) {
+  const provisionalRows = useRef(new Set<HTMLElement>());
+  const provisionalFrame = useRef(0);
+  const wrappedResizeFor = useRef<TranscriptVirtualizer | null>(null);
+  if (wrappedResizeFor.current !== virtualizer) {
+    wrappedResizeFor.current = virtualizer;
+    const coreResizeItem = virtualizer.resizeItem;
+    const settleProvisional = () => {
+      provisionalFrame.current = 0;
+      const instance = virtualizerRef.current;
+      for (const element of provisionalRows.current) {
+        if (!element.isConnected) {
+          provisionalRows.current.delete(element);
+          continue;
+        }
+        if (element.querySelector('[data-transcript-pending]')) continue;
+        provisionalRows.current.delete(element);
+        const index = instance.indexFromElement(element as HTMLDivElement);
+        if (index >= 0 && index < instance.options.count) {
+          instance.resizeItem(index, Math.round(element.getBoundingClientRect().height));
+        }
+      }
+      if (provisionalRows.current.size > 0) {
+        provisionalFrame.current = window.requestAnimationFrame(settleProvisional);
+      }
+    };
+    virtualizer.resizeItem = (index, size) => {
+      const key = virtualizer.options.getItemKey(index);
+      const element = virtualizer.elementsCache.get(key);
+      const held = heldEstimates.current.get(key);
+      if (
+        element &&
+        held !== undefined &&
+        !fallbackEstimates.current.has(key) &&
+        (provisionalRows.current.has(element) || !virtualizer.itemSizeCache.has(key)) &&
+        element.querySelector('[data-transcript-pending]')
+      ) {
+        provisionalRows.current.add(element);
+        if (!provisionalFrame.current) provisionalFrame.current = window.requestAnimationFrame(settleProvisional);
+        coreResizeItem(index, held);
+        return;
+      }
+      coreResizeItem(index, size);
+    };
+  }
+  return provisionalFrame;
+}

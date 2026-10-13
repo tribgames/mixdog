@@ -7,7 +7,7 @@
   align-self: center;
   gap: 0;
   padding: 0;
-  /* Chrome desktop grammar (user: PC도 크롬식으로): the run NEVER scrolls —
+  /* Chrome desktop grammar: the run NEVER scrolls —
      tabs shrink together toward the compact floor with every tab visible,
      and below that floor the strip collapses to the count switcher. */
   overflow: hidden;
@@ -28,7 +28,7 @@
   position: relative;
   align-self: center;
 }
-/* Phone strip (user decision (a)): [brand mark][title pill][+][dock toggles]
+/* Phone strip: [brand mark][title pill][+][dock toggles]
    — the pill names the active tab in place of the tab run, and the + and
    toggles are the desktop's own. The old count switcher is retired. */
 .workspace-tabs-shell[data-mobile="true"] {
@@ -38,7 +38,7 @@
 }
 .workspace-tab-compact-current {
   min-width: 0;
-  /* The label FILLS the row (user: 라벨 폭이 너무 좁아) so the + and the
+  /* The label FILLS the row so the + and the
      toggles dock at the right edge. */
   flex: 1 1 auto;
   display: flex;
@@ -113,7 +113,7 @@
   gap: 2px;
   padding: 0 12px;
   border: 0;
-  /* Tab grammar (user request): square, gapless cells. */
+  /* Tab grammar: square, gapless cells. */
   border-radius: 0;
   /* Inactive tabs read clearly dimmer than the active one. */
   color: var(--mx-text-faint);
@@ -157,7 +157,7 @@
 }
 /* Closing mirrors opening: the collapsing cell clips its glyph, title and X
    the way a growing one does, instead of spilling them over its neighbours
-   (user: 탭 열고 닫을 때 애니가 각각 달라 이상하다). */
+. */
 .workspace-tab.closing,
 .workspace-tab.closing.active {
   overflow: clip;
@@ -181,13 +181,11 @@
    2) labels go icon-only below the favicon+title floor;
    3) a sliver that fits NOTHING keeps its lone glyph and centers it across
       the whole cell;
-   4) the ACTIVE tab keeps its close to its floor (user: 선택탭 넓이 —
-      icon+close fit at 56px), but under the same 84px line its X stops
+   4) the ACTIVE tab keeps its close to its floor, but under the same 84px line its X stops
       reserving a slot: it floats over the cell's right end and the label
       steps aside for it only while the pointer or keyboard is on the tab.
       A reserved slot cost the active label ~20px, so it vanished well
-      before its idle neighbours' at the same width (user: 작은 창에서 선택
-      탭만 폰트가 빨리 사라진다); labels now drop at one shared floor. */
+      before its idle neighbours' at the same width; labels now drop at one shared floor. */
 @container (max-width: 84px) {
   .workspace-tab:not(.active) .workspace-tab-close {
     display: none;
@@ -208,8 +206,8 @@
 }
 @container (max-width: 48px) {
   .workspace-tab-main span,
-  /* Doubled class beats the later base `display: block` (the dot rode the
-     sliver edge half-clipped — user: 레드닷 위치가 잘리네). */
+  /* Doubled class beats the later base `display: block`: the dot would ride
+     the sliver edge half-clipped. */
   .workspace-tab .workspace-tab-unread-dot {
     display: none;
   }
@@ -233,20 +231,23 @@
   position: absolute;
   top: 0;
   height: 100%;
-  width: 2px;
-  background: var(--mx-focus);
+  width: 8px;
+  /* 2px accent line centred in the box with an 8px dot at its top end. */
+  background:
+    radial-gradient(circle 4px at 4px 4px, var(--mx-accent) 98%, transparent) top / 8px 8px no-repeat,
+    linear-gradient(var(--mx-accent), var(--mx-accent)) center / 2px 100% no-repeat;
   pointer-events: none;
   z-index: 11;
 }
 .workspace-tab.drop-target-right::before {
-  left: 0;
+  left: -3px;
 }
-/* -2px joins the neighbor's drop-target-right line. */
+/* Centres the line on the neighbor's drop-target-right line. */
 .workspace-tab.drop-target-left::after {
-  right: -2px;
+  right: -5px;
 }
 .workspace-tab:last-child.drop-target-left::after {
-  right: 0;
+  right: -3px;
 }
 .workspace-tab-ghost {
   position: fixed;
@@ -282,28 +283,23 @@
   cursor: grabbing;
 }
 /* Hover lifts only the plate; the label keeps its idle ink rather than
-   jumping to the selection's full ink (user: 마우스 올린 미선택 탭은 굳이
-   다 똑같이). */
+   jumping to the selection's full ink. */
 .workspace-tab.active {
   color: var(--mx-text);
 }
 /* PANE tabs are flat cells on the strip, which wears the pane surface
    (pane-layout.css) with no closing hairline. The selection is a borderless
-   rounded plate, Fleet/Arc style (user: 시안 R5). It replaced an inset plate
-   with a ring and a focus band laid on its top edge (user: 포커스 페이탭의
-   띠지 안 마음에 안 드는데), then square VS Code cells capped by a 2px top
+   rounded plate, Fleet/Arc style. It replaced an inset plate
+   with a ring and a focus band laid on its top edge, then square VS Code cells capped by a 2px top
    line. Background panes wear a neutral plate; the focused pane of a split
    tints it accent. Hover draws a fainter plate of the same shape. Labels and
-   icons keep their ink on every pane (user: 포커싱 안 된 페인도 폰트랑
-   아이콘 색은 유지). A drop-target-right cell hands its ::before back to the
+   icons keep their ink on every pane. A drop-target-right cell hands its ::before back to the
    insertion line. */
 /* Seams are SHORT, centered 16px strokes, Chrome style: full-height seams
-   hung loose once the strip lost its closing hairline (user: 탭 사이 연결
-   마감 정리). Painted as a background image so both pseudos stay free for
+   hung loose once the strip lost its closing hairline. Painted as a background image so both pseudos stay free for
    the plate and the drop markers. Every pair of neighbours keeps its seam,
    the active and hovered cells included — hiding it beside them lost the
-   boundary between adjacent tabs (user: 바로 인접한 탭의 중앙 경계는 안
-   보이는 게 별로); only the last cell drops it before the +. */
+   boundary between adjacent tabs; only the last cell drops it before the +. */
 .pane-cell .workspace-tab {
   isolation: isolate;
   background: linear-gradient(var(--mx-border-structure), var(--mx-border-structure)) right center / 1px 16px no-repeat;
@@ -312,8 +308,7 @@
 .pane-cell .workspace-tab:last-child {
   background-image: none;
 }
-/* Idle tabs rest on a very faint plate of the same shape (user: 미선택도
-   바탕판 아주 희게), so every cell reads as a tab; hover and the selection
+/* Idle tabs rest on a very faint plate of the same shape, so every cell reads as a tab; hover and the selection
    steps below lift it. */
 .pane-cell .workspace-tab:not(.drop-target-right)::before {
   content: "";
@@ -337,20 +332,18 @@
 .pane-cell .workspace-tab:not(.active):is(:hover, :focus-within):not(.drop-target-right)::before {
   background: var(--mx-hover);
 }
-/* Focus reads by BRIGHTNESS, not color (user: 선택탭 색감 재고 → 시안 C1):
+/* Focus reads by BRIGHTNESS, not color:
    the selection plate is a neutral ink step — the same neutral family as the
-   side panel's selected row. Three steps (user: 비포커스 선택은 중간짜리로):
+   side panel's selected row. Three steps:
    the focused pane's selection — 14% plate, full ink; a background pane's
    selection — 7% plate, 83% ink; idle tabs — a 3% plate, the strip's idle
-   ink (--mx-tab-idle-ink, 67%) on every pane (user: 비선택 탭 폰트색은
-   포커스 기준이 아니라 탭 기준). The inks sit an even ~16% apart so the
-   three steps read in the labels too, not only in the plates (user: 폰트
-   3단계도 좀 명확하게); 75% / 70% had left the lower two nearly equal. */
+   ink (--mx-tab-idle-ink, 67%) on every pane. The inks sit an even ~16% apart so the
+   three steps read in the labels too, not only in the plates; 75% / 70% had left the lower two nearly equal. */
 .pane-cell .workspace-tab.active:not(.drop-target-right)::before {
   background: color-mix(in srgb, var(--mx-text) 14%, transparent);
 }
 /* The focused pane's selection alone adds a quiet 1px ring — the one extra
-   accent on the strip (user: 하나 더 강조 → 포커싱된 선택 탭 테두리). A
+   accent on the strip. A
    lone pane is always focused, so it wears the ring too. */
 .workspace-tabs-shell[data-focused="true"] .workspace-tab.active:not(.drop-target-right)::before {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-text) 18%, transparent);
@@ -374,7 +367,7 @@
   background: color-mix(in srgb, var(--mx-text) 6%, transparent);
 }
 /* Every tab, the selected one included, shows its X only under the pointer
-   or keyboard (user: 호버 안 했을 때 x 없애라), keeping its slot so the
+   or keyboard, keeping its slot so the
    label never shifts; unsaved work keeps its dot visible. */
 .workspace-tab:hover .workspace-tab-close,
 .workspace-tab:focus-within .workspace-tab-close {
@@ -405,7 +398,7 @@
   padding: 0;
 }
 /* Glyph, spinner, X and + all sit on the cell centre line — no optical lift
-   (user: 라벨 안의 아이콘이랑 스피너도 같은 선상에). */
+. */
 .workspace-tab-main > svg {
   width: 15px;
   height: 15px;
@@ -416,7 +409,7 @@
   stroke-width: 1.5px;
 }
 /* Tab labels share the 14px item tier with the sidebar's session rows — at
-   13px the label read cramped in its plate (user: 탭이 살짝 좁아 보인다).
+   13px the label read cramped in its plate.
    Selection adds the 500 label weight; inactive tabs rest at 400 and remain
    readable through solid ink. */
 .workspace-tab-main span {
@@ -428,9 +421,7 @@
   font-weight: var(--mx-weight-medium);
 }
 .workspace-tab-new {
-  /* The HIT BOX fills the strip row and a full 34px column (user: +의
-     상하좌우 패딩이 이상해서 누르기 힘들다 — a 28px box in the 35px row
-     left dead edges); the hover pill is drawn on the glyph below, so the
+  /* The HIT BOX fills the strip row and a full 34px column; the hover pill is drawn on the glyph below, so the
      visual stays a quiet 26px pill while every pixel of the slot clicks. */
   width: 30px;
   align-self: stretch;
@@ -533,7 +524,7 @@
   pointer-events: none;
   /* Optical centering against the TITLE GLYPHS, not the line box: the 21px
      line carries descender space at the bottom, so a box-centered icon reads
-     ~1px low next to the text (user: center on the font's vertical extent). */
+     ~1px low next to the text. */
   transform: translateY(calc(-50% - 1px));
 }
 .session-row-spinner {
@@ -556,7 +547,7 @@
 }
 /* Same lucide mark as the strip's +: 18px @ stroke 2 draws a 10.5px cross on
    a 1.5px line in ONE ink, and it sits on the cell centre with no optical
-   lift (user: X가 살짝 위인 것 같고, +는 X랑 색감 맞추고). */
+   lift. */
 .workspace-tab-close svg {
   width: 16px;
   height: 16px;

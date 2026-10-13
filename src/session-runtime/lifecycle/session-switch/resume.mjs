@@ -10,6 +10,8 @@ import {
   deferredSurfaceModeForLead,
 } from '../../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { isScratchConversation } from '../shared.mjs';
+import { compactionArchiveRange } from '../../../runtime/agent/orchestrator/session/compaction-archive.mjs';
+import { stampCompactionMessageIds } from '../../../runtime/agent/orchestrator/session/compaction-archive-capture.mjs';
 import { boundWorkspaceCwd, restoreWorkspaceAfterResume } from '../../workspace/workspace-state.mjs';
 
 export function resolveResumeCwd(session, currentCwd) {
@@ -66,9 +68,9 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
   }
 
   // The resumed session's OWN effort wins. resolveRoute always returns an
-  // effort key, so this used to reinstate the effort of whichever session
-  // happened to be open before — a schedule/webhook session opened with a
-  // different effort than the one it actually ran with.
+  // effort key, so the route's effort applies only when the session has none —
+  // otherwise a schedule/webhook session would reopen with the effort of
+  // whichever session happened to be open before.
   function resumedRouteFor(resumed) {
     const route = getRoute();
     const resumeEffort = resumed.effort || (hasOwn(route, 'effort') ? route.effort : undefined);
@@ -133,6 +135,10 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
     };
     const resumed = await mgr.resumeSession(id, toolSpecForMode(getMode()), resumeOptions);
     if (!resumed) return null;
+    // Restored rows carry their messages' stable ids (legacy transcripts are
+    // stamped here and persisted), so a live compaction can grey exactly the
+    // rows of what it drops.
+    stampCompactionMessageIds(resumed.messages, resumed.id || id);
     retirePrevious(previous, resumed);
     setSession(resumed);
     // Resume is not work: the Lead pool row is written only by turn
@@ -164,6 +170,8 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
       cwd: getCurrentCwd(),
       provider: resumed.provider,
       model: resumed.model,
+      // The display-only compaction archive above the restored rows.
+      transcriptArchive: compactionArchiveRange(resumed),
     };
   }
 

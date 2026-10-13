@@ -811,6 +811,10 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('setSessionFavorite', [sessionId, favorite]);
   }
 
+  setSessionProject(sessionId: string, projectPath: string | null): Promise<unknown> {
+    return this.invoke('setSessionProject', [sessionId, projectPath]);
+  }
+
   setSessionArchived(sessionId: string, archived: boolean): Promise<unknown> {
     return this.invoke('setSessionArchived', [sessionId, archived]);
   }

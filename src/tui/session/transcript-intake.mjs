@@ -11,6 +11,7 @@ import {
 } from '../../runtime/shared/tool-execution-contract.mjs';
 import { isLateToolAnnouncement } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { appendPromptHistory } from '../prompt-history-store.mjs';
+import { newTranscriptMessageId } from '../../runtime/shared/transcript-metadata.mjs';
 import {
   buildExecutionResponseToolItem,
   completionCardFromExecution,
@@ -21,7 +22,7 @@ import { appendAgentResponseTail } from './agent-response-tail.mjs';
 import { nextId } from './transcript-spill.mjs';
 
 export function createTranscriptIntake({ getState, flags, pushItem, patchItem, transcriptRouteMetadata }) {
-  const upsertSyntheticToolItem = (text, id = nextId(), parsed = null) => {
+  const upsertSyntheticToolItem = (text, id = nextId(), parsed = null, messageId = '') => {
     const synthetic = parsed || parseSyntheticAgentMessage(text);
     if (!synthetic) return false;
     const label = synthetic.label || 'notification';
@@ -56,6 +57,7 @@ export function createTranscriptIntake({ getState, flags, pushItem, patchItem, t
     pushItem({
       kind: 'tool',
       id,
+      ...(messageId ? { messageId } : {}),
       name: synthetic.name || 'agent',
       args,
       result: synthetic.result,
@@ -75,11 +77,11 @@ export function createTranscriptIntake({ getState, flags, pushItem, patchItem, t
     // the text parser cannot read still shows up instead of vanishing.
     if (origin === 'injected' && (extra?.mode === 'task-notification' || extra?.execution)) {
       const card = completionCardFromExecution(extra?.execution, text);
-      if (card && upsertSyntheticToolItem(text, id, card)) return;
+      if (card && upsertSyntheticToolItem(text, id, card, extra?.messageId)) return;
     }
     if (origin === 'injected') {
       const completion = parseModelVisibleCompletionWrapper(text);
-      if (completion && upsertSyntheticToolItem(text, id, completion)) return;
+      if (completion && upsertSyntheticToolItem(text, id, completion, extra?.messageId)) return;
     }
     // The lenient shape-only wrapper check is display-suppression only and
     // must never hide a real, directly-typed/pasted user prompt just because
@@ -95,13 +97,20 @@ export function createTranscriptIntake({ getState, flags, pushItem, patchItem, t
     // keep it in model context, but render NOTHING user-facing — not even the
     // collapsed one-line notice (user request: hide late-tool notices entirely).
     if (isLateToolAnnouncement(text)) return;
-    if (upsertSyntheticToolItem(text, id)) return;
+    if (upsertSyntheticToolItem(text, id, null, extra?.messageId)) return;
     // Genuine, directly-typed/pasted user submissions only (never injected or
     // synthetic paths, which returned above): persist to the cwd-scoped store so
     // up-arrow history survives across sessions. Runs before pushItem so the
     // merge in pushItem's user branch (loadPromptHistory) already sees it.
     if (origin === 'user') appendPromptHistory(getState().cwd, text);
-    const transcriptMeta = transcriptRouteMetadata();
+    // The row carries its message's stable id: the runtime's (a steered
+    // message reports it) or, for a typed prompt, a new one that goes with
+    // the prompt into the model transcript. An injected row with no message
+    // id of its own carries none.
+    let messageId = '';
+    if (typeof extra?.messageId === 'string' && extra.messageId) messageId = extra.messageId;
+    else if (origin === 'user') messageId = newTranscriptMessageId();
+    const transcriptMeta = { ...transcriptRouteMetadata(), ...(messageId ? { messageId } : {}) };
     if (origin === 'user') flags.pendingTranscriptMeta = transcriptMeta;
     pushItem({
       kind: 'user',

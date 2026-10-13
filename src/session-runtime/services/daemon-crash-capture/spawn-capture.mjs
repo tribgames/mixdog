@@ -20,6 +20,11 @@ const CAPTURE_ID_ATTEMPTS = 8;
 const MIRROR_MAX_BYTES = 16 * 1024;
 const MESSAGE_MAX_CHARS = 512;
 const HEAP_FLAG_RE = /^--max-(?:old-space|semi-space|heap)-size=/;
+// Bytes of fd 2 a failure summary scans (the newest ones when larger).
+const SUMMARY_SCAN_MAX_BYTES = 256 * 1024;
+// Node's uncaught-error report (`TypeError: …`, `Error [ERR_…]: …`), V8's
+// fatal abort and the daemon's own `fatal boot error` log line.
+const STDERR_ERROR_LINE_RE = /\b[A-Z][A-Za-z]*Error\b(?: \[[A-Z0-9_]+\])?:|^Error\b|FATAL ERROR|(?<!non-)\bfatal\b/;
 
 function stamp(ms) {
   const iso = new Date(ms).toISOString();
@@ -256,6 +261,8 @@ function noteSpawnError(capture, error) {
 // this stream, so nothing here extends its lifetime.
 function drainStderrPipe(capture, stream) {
   const onData = (chunk) => {
+    // No capture file to read back: keep the newest bytes for summary().
+    capture.pipeText = `${capture.pipeText}${chunk}`.slice(-SUMMARY_SCAN_MAX_BYTES);
     mirrorText(capture.log, chunk);
   };
   stream.on('data', onData);
@@ -270,6 +277,52 @@ function drainStderrPipe(capture, stream) {
     stream.once('close', finish);
     stream.once('error', finish);
   });
+}
+
+/** The candidate's fd 2 as text: the capture file (its newest bytes when
+ *  large) or, when fd 2 fell back to a pipe, what that pipe delivered. */
+function stderrText(capture) {
+  if (!capture.capturePath || capture.removed) return capture.pipeText;
+  try {
+    const handle = fs.openSync(capture.capturePath, 'r');
+    try {
+      const size = fs.fstatSync(handle).size;
+      const length = Math.min(size, SUMMARY_SCAN_MAX_BYTES);
+      const buffer = Buffer.allocUnsafe(length);
+      const bytesRead = fs.readSync(handle, buffer, 0, length, size - length);
+      return buffer.subarray(0, bytesRead).toString('utf8');
+    } finally {
+      fs.closeSync(handle);
+    }
+  } catch {
+    return capture.pipeText;
+  }
+}
+
+/** What a launcher that gave up on this boot needs to name its cause: the
+ *  lifecycle as far as observed, the first error line on fd 2 (else its last
+ *  line, where a stalled boot stopped) and where the full text is. */
+function summarize(capture) {
+  const { record } = capture;
+  const lines = stderrText(capture)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const errorLine = lines.find((line) => STDERR_ERROR_LINE_RE.test(line));
+  return {
+    pid: record.pid,
+    ready: record.ready,
+    spawnedAt: record.spawnedAt,
+    exitedAt: record.exitedAt,
+    exitCode: record.exitCode,
+    exitSignal: record.exitSignal,
+    exitReason: record.exitReason ?? null,
+    uptimeMs: record.uptimeMs,
+    error: record.error,
+    stderrErrorLine: errorLine ? boundedMessage(errorLine) : null,
+    stderrLastLine: lines.length > 0 ? boundedMessage(lines.at(-1)) : null,
+    stderrPath: capture.removed ? null : capture.capturePath,
+  };
 }
 
 /** Attach to the forked child: record its identity and keep a lifetime
@@ -347,6 +400,7 @@ export function beginDaemonSpawnCapture({
     readOffset: 0,
     removed: false,
     pipeDrained: null,
+    pipeText: '',
     stderrStdio: 'pipe',
   };
   openCapture(capture, { captureDir, prune, launcherPid, nonce });
@@ -377,5 +431,6 @@ export function beginDaemonSpawnCapture({
      *  recording anything — the child, if any, keeps its duplicate. */
     release: () => closeWriteFd(capture),
     snapshot: () => ({ ...capture.record }),
+    summary: () => summarize(capture),
   };
 }

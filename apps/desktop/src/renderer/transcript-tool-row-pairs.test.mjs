@@ -95,8 +95,9 @@ const FIXTURES = {
       },
       result: 'OK Modify a.txt — +1 -1\nOK Modify b.txt — +1 -1',
     },
-    en: { verb: 'Edit', header: '2 files' },
-    ko: { verb: '편집', header: '파일 2개' },
+    // A settled change says what happened to its files.
+    en: { verb: 'Edited file', header: '2 files' },
+    ko: { verb: '편집됨', header: '파일 2개' },
   },
   github: {
     item: {
@@ -192,22 +193,20 @@ test(
   })
 );
 
-// ── 3. the failure reason shrinks, the chips stay ──────────────────────────
+// ── 3. a failed command's row stays one short line ─────────────────────────
 test(
-  'a failure outcome splits into fixed chips and an ellipsizing reason',
+  'a failed command row says only its exit; the error stays in the output',
   inLanguage('ko', () => {
     const row = present(FIXTURES.shell.item);
+    assert.ok(row.outcomeReason);
     const html = renderToStaticMarkup(React.createElement(ToolRowOutcome, { presentation: row }));
-    assert.match(html, /data-reason="true"/);
-    assert.match(html, /<span class="tool-activity-item-chips">실패 · <\/span>/);
-    assert.ok(
-      html.includes(`<span class="tool-activity-item-reason">${row.outcomeReason.replace(/&/g, '&amp;')}</span>`)
-    );
-    // No reason: one plain outcome with the exit and nothing to shrink.
+    assert.doesNotMatch(html, /data-reason/);
+    assert.ok(!html.includes(row.outcomeReason.replace(/&/g, '&amp;')));
+    assert.equal(html, `<span class="tool-activity-item-result">${row.outputNote || '실패'}</span>`);
+    // No output at all: the same short exit line.
     const silent = present({ ...FIXTURES.shell.item, result: '', rawResult: '[exit code: 2]\n' });
     const plain = renderToStaticMarkup(React.createElement(ToolRowOutcome, { presentation: silent }));
-    assert.doesNotMatch(plain, /data-reason/);
-    assert.match(plain, /실패 · 종료 2/);
+    assert.equal(plain, '<span class="tool-activity-item-result">종료 코드 2</span>');
   })
 );
 

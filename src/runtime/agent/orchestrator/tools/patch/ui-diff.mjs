@@ -1,6 +1,7 @@
 // UI-diff side channel: a committed apply_patch (or edit-tool write) records
 // a turn-review change entry and a per-call diff the desktop/TUI tool cards
 // pick up. Display only — never affects edit semantics.
+import { createTwoFilesPatch } from 'diff';
 import { boundReviewPatch } from '../../../../shared/review-diff.mjs';
 import { recordTurnDiffChanges } from '../../../../shared/turn-snapshot.mjs';
 import { pathKey, resolveV4AEntryPath } from './paths.mjs';
@@ -29,6 +30,77 @@ export function takeApplyPatchUiDiff(callId) {
   return value;
 }
 
+// A display path is a plain relative or absolute path; the patch header only
+// needs forward slashes. Its own leading "a/" is part of the name.
+function headerPath(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\\/g, '/');
+}
+
+const DIFF_TIMEOUT_MS = 100;
+
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+function isOmitted(value) {
+  return Boolean(value) && typeof value === 'object' && !(value instanceof Uint8Array) && value.omitted === true;
+}
+
+// Text of one side: '' for an absent file, null when it is not UTF-8 text.
+function sideText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) {
+    try {
+      return utf8.decode(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// One file's change, from the call's own before and after states: absent
+// (null), bytes or text, or an omitted marker when the bytes were not kept.
+function renderCallChange({ displayPath, newDisplayPath, before, after }) {
+  const oldName = headerPath(displayPath) || 'unknown file';
+  const newName = headerPath(newDisplayPath) || oldName;
+  const oldHeader = before == null ? '/dev/null' : `a/${oldName}`;
+  const newHeader = after == null ? '/dev/null' : `b/${newName}`;
+  let head = `diff --git a/${oldName} b/${newName}\n`;
+  if (before == null && after != null) head += 'new file mode 100644\n';
+  else if (before != null && after == null) head += 'deleted file mode 100644\n';
+  if (isOmitted(before) || isOmitted(after)) {
+    return `${head}Binary files ${oldHeader} and ${newHeader} differ\n`;
+  }
+  const oldText = sideText(before);
+  const newText = sideText(after);
+  if (oldText === null || newText === null) return `${head}Binary files ${oldHeader} and ${newHeader} differ\n`;
+  if (oldText === newText) {
+    // An empty file created or deleted still changed: git writes the mode line alone.
+    if ((before == null) !== (after == null)) return head;
+    return oldName === newName ? '' : `${head}similarity index 100%\nrename from ${oldName}\nrename to ${newName}\n`;
+  }
+  const rename = oldName === newName ? '' : `rename from ${oldName}\nrename to ${newName}\n`;
+  try {
+    const generated = createTwoFilesPatch(oldHeader, newHeader, oldText, newText, '', '', {
+      context: 3,
+      timeout: DIFF_TIMEOUT_MS,
+    });
+    const start = generated.search(/^--- /m);
+    if (start >= 0) return `${head}${rename}${generated.slice(start).replace(/\n*$/, '\n')}`;
+  } catch {
+    // A pathological diff timing out must not stall tool completion.
+  }
+  return `${head}${rename}Binary files ${oldHeader} and ${newHeader} differ\n`;
+}
+
+// A call's card shows the change that call made — its own before against its
+// own after — never the turn's running total for the same files.
+export function callUiDiff(changes) {
+  return (changes || []).map(renderCallChange).join('');
+}
+
 // Edit-tool UI diff: a successful single-file str-replace edit records the
 // same turn-review change entry and per-call UI diff side channel that a
 // committed apply_patch gets, so desktop/TUI tool cards render both edit
@@ -36,15 +108,16 @@ export function takeApplyPatchUiDiff(callId) {
 export function registerEditToolUiDiff({ callId, sessionId, basePath, fullPath, before, after }) {
   if (!callId || !sessionId || typeof fullPath !== 'string') return;
   try {
-    const turnDiff = recordTurnDiffChanges(sessionId, [
+    const changes = [
       {
         path: fullPath,
         displayPath: patchHeaderPathForResolved(basePath || '', fullPath),
         before: before ?? null,
         after: after ?? null,
       },
-    ]);
-    registerApplyPatchUiDiff(callId, turnDiff);
+    ];
+    recordTurnDiffChanges(sessionId, changes);
+    registerApplyPatchUiDiff(callId, callUiDiff(changes));
   } catch {
     // best-effort display channel
   }
@@ -111,8 +184,8 @@ export function registerCommittedPatchUiDiff({
         after: snapshotContent(after),
       });
     }
-    const turnDiff = recordTurnDiffChanges(sessionId, changes);
-    registerApplyPatchUiDiff(callId, turnDiff);
+    recordTurnDiffChanges(sessionId, changes);
+    registerApplyPatchUiDiff(callId, callUiDiff(changes));
   } catch {
     // Review collection is a side channel and must never affect committed
     // apply_patch success/failure semantics.

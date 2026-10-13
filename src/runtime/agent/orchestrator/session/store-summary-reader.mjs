@@ -26,6 +26,7 @@ import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { dataDir, sessionHeartbeatMtimes } from './store-summary-locations.mjs';
 import { desktopSession, isStoredSessionId, positiveNumber, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
+import { compactionArchivePath, readCompactionArchivePage } from './compaction-archive.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
   offerStrictSessionRecord,
@@ -457,6 +458,9 @@ function storedTranscriptInputPaths(sessionId) {
   return {
     recordPath: join(dataDir(), 'sessions', `${sessionId}.json`),
     checkpointPath: join(dataDir(), 'turn-checkpoints', `${sessionId}.json`),
+    // Written after the compaction commit that names it, so its identity
+    // joins the projection's.
+    archivePath: compactionArchivePath(join(dataDir(), 'sessions'), sessionId),
   };
 }
 
@@ -469,7 +473,7 @@ const STAMP_ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 export function storedSessionTranscriptStamp(id) {
   const sessionId = String(id || '').trim();
   if (!isStoredSessionId(sessionId)) return null;
-  const { recordPath, checkpointPath } = storedTranscriptInputPaths(sessionId);
+  const { recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
   const settled = (path, absent) => {
     let stamp;
     try {
@@ -482,7 +486,8 @@ export function storedSessionTranscriptStamp(id) {
   };
   const record = settled(recordPath, null);
   const checkpoint = record && settled(checkpointPath, 'absent');
-  return checkpoint ? `${record}|${checkpoint}` : null;
+  const archive = checkpoint && settled(archivePath, 'absent');
+  return archive ? `${record}|${checkpoint}|${archive}` : null;
 }
 
 /** Read exactly one persisted session for a visible desktop pane. This never
@@ -494,8 +499,13 @@ export async function readStoredSessionTranscript(id, options = {}) {
   if (!isStoredSessionId(sessionId)) return null;
   // Same strict authority as the store, and the same fail-closed rule: an
   // absent, unreadable, ambiguous or foreign record yields no transcript.
-  const { recordPath, checkpointPath } = storedTranscriptInputPaths(sessionId);
+  const { recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
   if (options.metadataOnly === true) return readStoredSessionMetadata(recordPath, sessionId);
+  // One page of the display-only compaction archive (the live head loader
+  // pages it once a runtime's in-memory rows are exhausted).
+  if (options.compactionArchive && typeof options.compactionArchive === 'object') {
+    return readCompactionArchivePage(join(dataDir(), 'sessions'), sessionId, options.compactionArchive);
+  }
   // The checkpoint sidecar shapes the projection as much as the record does,
   // so its identity joins the cache fingerprint. Only a PROVABLY absent
   // checkpoint skips recovery: an unreadable probe must not silently
@@ -507,6 +517,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
   if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
   if (recordStat.state !== PROBE_PRESENT) return null;
   const checkpoint = probePath(checkpointPath);
+  const archive = probePath(archivePath);
   const requestedLimit = Number(options.transcriptItemLimit);
   const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : Number.POSITIVE_INFINITY;
   let readState = PROBE_PRESENT;
@@ -530,6 +541,9 @@ export async function readStoredSessionTranscript(id, options = {}) {
       checkpoint.size,
       checkpoint.ino,
       checkpoint.dev,
+      archive.state,
+      archive.mtimeMs,
+      archive.size,
     ].join(':'),
     fileStat: recordStat,
     loadText: async () => {

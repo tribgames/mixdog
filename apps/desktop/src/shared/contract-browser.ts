@@ -220,6 +220,9 @@ export interface DesktopRemoteBrowserStreamFrame extends DesktopRemoteBrowserFra
   /** CSS viewport the image depicts; pointer and wheel coordinates use it. */
   viewportWidth: number;
   viewportHeight: number;
+  /** The session's tab strip, as the local pane shows it. Present on a host
+   *  advertising `browserSessionTabs`. */
+  tabs?: DesktopBrowserTab[];
 }
 
 /** Human page input from a paired client: the local pane's own input set,
@@ -238,8 +241,16 @@ export interface DesktopRemoteBrowserViewport {
   deviceScaleFactor: number;
 }
 
+/** Reply to a `close-tab` control: the session's tabs left once the host finished closing. */
+export interface DesktopBrowserTabControlResult {
+  remainingTabs: number;
+}
+
 export type DesktopRemoteBrowserControl =
   | { type: 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
   | ({ type: 'viewport' } & DesktopRemoteBrowserViewport)
+  /** Tab chrome of the session's own browser; a host advertising `browserSessionTabs` takes these. */
+  | { type: 'new-tab' }
+  | { type: 'select-tab' | 'close-tab'; tabId: string }
   | DesktopRemoteBrowserPageInput;

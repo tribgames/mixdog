@@ -2,8 +2,9 @@
  *  native recovery, navigation, and input dispatched through CDP under the
  *  document guard that ties every event to the page the user still sees. */
 import type { WebContents } from 'electron';
-import type { DesktopBrowserPageControl } from '../../shared/contract';
+import type { DesktopBrowserPageControl, DesktopBrowserTabControlResult } from '../../shared/contract';
 import { createBrowserInputDriver } from './input';
+import { controlSessionTab, isSessionTabControl } from './tabs-close-result';
 import { normalizePageUrl } from './url-policy';
 import { BROWSER_DIALOG_BLOCKING, browserInputRecovery } from '../../shared/browser-input-policy';
 import type { BrowserPageSurfaceHost } from './page-surface';
@@ -136,24 +137,15 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
   const { paneSizes, paneZooms, invalidateGeometry, resizeGuest, presenting } = state;
   const dispatchPageInput = createPageInputDispatcher(host);
 
-  function controlTabs(sessionId: string, input: DesktopBrowserPageControl): boolean {
-    if (input.type !== 'new-tab' && input.type !== 'select-tab' && input.type !== 'close-tab') return false;
-    if (!host.tabs) throw new Error('Browser tabs are unavailable.');
-    if (input.type === 'new-tab') host.tabs.create(sessionId);
-    else if (input.type === 'select-tab') host.tabs.select(sessionId, input.tabId);
-    else host.tabs.close(sessionId, input.tabId);
-    return true;
-  }
-
   return async function control(
     sessionId: string,
     input: DesktopBrowserPageControl,
     signal?: AbortSignal
-  ): Promise<void> {
+  ): Promise<DesktopBrowserTabControlResult | void> {
     // Tab chrome targets a session-owned page, not the document inside it.
     // Navigation and a blocked page dialog must not trap the user on that tab.
     signal?.throwIfAborted();
-    if (controlTabs(sessionId, input)) return;
+    if (isSessionTabControl(input)) return controlSessionTab(host.tabs, sessionId, input);
     const guest = await host.ensureGuest(sessionId, { reveal: false });
     const assertCurrent = () => {
       signal?.throwIfAborted();

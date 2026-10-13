@@ -18,7 +18,8 @@ function selectableUserItems(items, limit = MAX_SELECTABLE_MESSAGES) {
   for (let index = source.length - 1; index >= 0 && rows.length < limit; index -= 1) {
     const item = source[index];
     if (item?.kind !== 'user') continue;
-    if (item?.id == null) continue;
+    // Prompts a compaction archived are display-only.
+    if (item?.id == null || item.archived === true) continue;
     const text = String(item.text || '').trim();
     if (!text) continue;
     rows.push({ id: String(item.id), text });

@@ -7,6 +7,7 @@ import {
   desktopAgentCancelStatus,
   desktopAgentIdentity,
   desktopAgentStatus,
+  hasPendingDesktopAgentWork,
   isActiveDesktopAgentEntry,
   isCancelUnconfirmedDesktopAgentEntry,
   isCancelledDesktopAgentEntry,
@@ -516,6 +517,43 @@ export function agentActivityGroups(
     agents,
     nodes: agentTreeNodes(ownerId, agents),
   }));
+}
+
+export interface IslandAgentRow {
+  node: AgentActivityNode;
+  state: DesktopAgentActivityState;
+  waitingForTasks: boolean;
+}
+
+const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
+  'queued',
+  'running',
+  'needs-user',
+  'waiting',
+  'cancel-unconfirmed',
+]);
+
+/** The agents the composer island lists for one session: its group in the
+ *  Agents window (same grouping, nesting and depth-first order), minus the
+ *  session's own Lead row and every agent that is idle, done or cancelled. */
+export function islandAgentRows(
+  pool: readonly DesktopAgentPoolRow[] | null | undefined,
+  ownerSessionId: string
+): IslandAgentRow[] {
+  const group = agentActivityGroups(pool, (id) => id === ownerSessionId).find(
+    (candidate) => candidate.ownerId === ownerSessionId
+  );
+  if (!group) return [];
+  const walk = (nodes: readonly AgentActivityNode[]): IslandAgentRow[] =>
+    nodes.flatMap((node) => {
+      const waitingForTasks = flattenAgentActivityNodes(node.children).some(({ agent }) =>
+        hasPendingDesktopAgentWork(agent)
+      );
+      const state = desktopAgentActivityState(node.agent, { waitingForTasks });
+      const own = node.sessionId === ownerSessionId || !ISLAND_AGENT_STATES.has(state);
+      return [...(own ? [] : [{ node, state, waitingForTasks }]), ...walk(node.children)];
+    });
+  return walk(group.nodes);
 }
 
 /** Depth-first render order: a parent is immediately followed by its subtree. */

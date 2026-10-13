@@ -20,6 +20,7 @@ import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { commitImmediateOverlay } from './immediate-overlay';
+import { usePhoneDockSwitchActions } from './phone-dock-switch';
 import './tab-strip.css';
 
 export interface DockAction {
@@ -316,7 +317,10 @@ export function DockHeaderRow({
   const phone = useMobileRemoteSurface();
   const toggleExpanded = phone ? undefined : (onToggleExpanded ?? dockExpand?.toggle);
   const isExpanded = onToggleExpanded ? expanded : (dockExpand?.expanded ?? expanded);
-  const { inline, menu } = splitDockActions(actions);
+  const phoneSwitch = usePhoneDockSwitchActions(phone);
+  const split = splitDockActions(actions);
+  const inline = split.inline;
+  const menu = [...split.menu, ...phoneSwitch];
   const closeText = closeLabel ?? t('Close panel');
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the row takes the group role whenever it carries a name.
@@ -331,6 +335,7 @@ export function DockHeaderRow({
         {controlsLead}
         {inline.map((action) => {
           const Glyph = action.icon;
+          const badgeText = action.badge && action.badge > 99 ? '99+' : action.badge;
           return (
             <button
               key={action.id}
@@ -344,9 +349,7 @@ export function DockHeaderRow({
               onClick={action.onSelect}
             >
               {Glyph ? <Glyph size={15} aria-hidden={true} /> : <span>{action.label}</span>}
-              {action.badge ? (
-                <span className="dock-action-badge">{action.badge > 99 ? '99+' : action.badge}</span>
-              ) : null}
+              {action.badge ? <span className="dock-action-badge">{badgeText}</span> : null}
             </button>
           );
         })}

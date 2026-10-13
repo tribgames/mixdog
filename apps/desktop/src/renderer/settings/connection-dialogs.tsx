@@ -25,6 +25,7 @@ export function ConnDialog({
   description,
   footer,
   onEscape,
+  onScrim,
   scrimCloses = true,
   viewKey = '',
   role = 'dialog',
@@ -34,6 +35,9 @@ export function ConnDialog({
   description?: string;
   footer: ReactNode;
   onEscape(): void;
+  /** A press on the backdrop; defaults to onEscape. Set it where Escape first
+   *  folds an inner popup, so the backdrop still closes the dialog at once. */
+  onScrim?(): void;
   /** Off where closing is an answer (a pairing request is declined), so a
    *  stray press beside the dialog never decides it. */
   scrimCloses?: boolean;
@@ -45,6 +49,8 @@ export function ConnDialog({
   const ref = useRef<HTMLElement>(null);
   const escapeRef = useRef(onEscape);
   escapeRef.current = onEscape;
+  const scrimRef = useRef(onScrim ?? onEscape);
+  scrimRef.current = onScrim ?? onEscape;
   const id = useId();
   // The scrim cannot cover the native caption controls: hold the dim claim.
   useEffect(() => acquireTitleBarDim(), []);
@@ -87,7 +93,7 @@ export function ConnDialog({
     <div
       className="settings-confirm-layer"
       onMouseDown={(event) => {
-        if (scrimCloses && event.target === event.currentTarget) escapeRef.current();
+        if (scrimCloses && event.target === event.currentTarget) scrimRef.current();
       }}
     >
       <section ref={ref} className="conn-dialog" role={role} aria-modal="true" aria-labelledby={`${id}-title`}>
@@ -411,6 +417,10 @@ export interface ServerFolderListing {
 
 /** Folder chooser for a server window (D1): the server's folders in place of
  *  this PC's OS dialog. `list('')` starts at the user's home on the server. */
+function folderListingNote(listing: ServerFolderListing | null): string {
+  return listing?.entries.length === 0 ? t('No folders') : '\u00a0';
+}
+
 export function ServerFolderDialog({
   serverName,
   list,
@@ -428,7 +438,7 @@ export function ServerFolderDialog({
   const [error, setError] = useState('');
   const listRef = useRef(list);
   listRef.current = list;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `target` is the trigger; the list function is read through its ref.
+  // `target` is the trigger; the list function is read through its ref.
   useEffect(() => {
     let live = true;
     setError('');
@@ -498,16 +508,18 @@ export function ServerFolderDialog({
           }}
         />
         <div className="conn-list conn-list--picker">
-          {parent !== null && pickRow('..', false, () => setTarget(parent), <ArrowUp size={16} aria-hidden="true" />, t('Up'))}
+          {parent !== null &&
+            pickRow('..', false, () => setTarget(parent), <ArrowUp size={16} aria-hidden="true" />, t('Up'))}
           {listing?.entries.map((entry) =>
-            pickRow(entry.name, entry.git, () => setTarget(joinHostPath(here, entry.name)), (
+            pickRow(
+              entry.name,
+              entry.git,
+              () => setTarget(joinHostPath(here, entry.name)),
               <Folder size={16} aria-hidden="true" />
-            ))
+            )
           )}
         </div>
-        <div className="conn-field-msg">
-          {error ? <ErrorNotice error={error} /> : listing && listing.entries.length === 0 ? t('No folders') : '\u00a0'}
-        </div>
+        <div className="conn-field-msg">{error ? <ErrorNotice error={error} /> : folderListingNote(listing)}</div>
       </div>
     </ConnDialog>,
     document.body

@@ -710,6 +710,49 @@ test('desktop shell blocks zoom shortcuts and pinch without blocking normal scro
   }
 });
 
+/** Imports webview-zoom under `userAgent` and returns its non-passive document touch listeners. */
+async function blockingTouchListeners(userAgent, tag) {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body></body></html>',
+    expose: ['navigator'],
+    actEnvironment: false,
+  });
+  Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, value: userAgent });
+  Object.defineProperty(dom.window.navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+  const blocking = [];
+  const add = dom.window.document.addEventListener;
+  dom.window.document.addEventListener = function (type, listener, options) {
+    if (/^touch/.test(type) && options?.passive === false) blocking.push(type);
+    return add.call(this, type, listener, options);
+  };
+  try {
+    await import(`./webview-zoom.ts?${tag}=${Date.now()}`);
+    return blocking;
+  } finally {
+    dom.window.document.addEventListener = add;
+    restore();
+  }
+}
+
+test('only iOS keeps a blocking document touch listener to stop pinch', async () => {
+  // Android honours user-scalable=no and the root touch-action; a blocking
+  // document listener there only delayed the start of every scroll.
+  assert.deepEqual(
+    await blockingTouchListeners(
+      'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile',
+      'android-touch'
+    ),
+    []
+  );
+  assert.deepEqual(
+    await blockingTouchListeners(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+      'ios-touch'
+    ),
+    ['touchstart', 'touchmove']
+  );
+});
+
 test('Android phones keep native scale on Pixel and Samsung screens', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body></body></html>',

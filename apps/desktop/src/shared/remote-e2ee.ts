@@ -48,6 +48,10 @@ export interface RelayE2EEChallenge {
    *  streamed page renders at the phone's size as a mobile page. Absent on an
    *  older host, which rejects that control. */
   browserDrive?: 1;
+  /** This host streams a conversation browser's tab strip in its frames and
+   *  takes the `new-tab`, `select-tab` and `close-tab` controls. Absent on an
+   *  older host: the phone offers no new tab there. */
+  browserSessionTabs?: 1;
   /** This host honors the terminal size-owner protocol (the 4th `termResize`
    *  argument: phone claims, the 0x0 release). Absent on an older host, which
    *  would resize the PTY to those grids: the phone sends only plain fits. */

@@ -53,7 +53,17 @@ export function createTransportRoutes({
   transportMemory,
   onClientsEmpty,
   onUpgradeRequested,
+  admitWork = () => true,
 }) {
+  // Checked on every register/call, last right before the work is handed on
+  // (after the body is read): a daemon that lost (or cannot re-verify) its
+  // owner lease serves nothing.
+  const refuseUnadmitted = (res) => {
+    if (admitWork()) return false;
+    sendError(res, 'daemon owner lease is not held', 503);
+    return true;
+  };
+
   const health = (res) => {
     // Identity travels with EVERY health probe: a view negotiates version
     // skew before it attaches, so an embedder can never forget to publish
@@ -89,6 +99,7 @@ export function createTransportRoutes({
 
   const register = async (req, res) => {
     const body = await readBody(req);
+    if (refuseUnadmitted(res)) return;
     if (drain.committed) {
       sendError(res, `daemon is draining: ${drain.reason}`, 503);
       return;
@@ -139,11 +150,15 @@ export function createTransportRoutes({
   };
 
   const call = async (req, res) => {
+    if (refuseUnadmitted(res)) return;
     if (drain.committed) {
       sendError(res, `daemon is draining: ${drain.reason}`, 503);
       return;
     }
     const body = await readBody(req);
+    // Again right before dispatch: the lease may have been fenced while the
+    // body was still arriving.
+    if (refuseUnadmitted(res)) return;
     await callRoute(body, res);
   };
 

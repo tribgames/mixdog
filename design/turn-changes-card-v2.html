@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>턴 변경 카드 v2 — 레퍼런스 기반 시안</title>
+<style>
+/* Mixdog tokens (apps/desktop/src/renderer/desktop/01-tokens.css, ui/tokens.css) */
+:root {
+  --mx-radius-sm: 3px; --mx-radius-md: 6px; --mx-radius-lg: 10px; --mx-radius-xl: 12px; --mx-radius-pill: 999px;
+  --mx-hairline: 1px;
+  --mx-window-band: #18181b; --mx-workspace-sheet: #111113;
+  --mx-bg-base: #222225; --mx-bg-layer-1: #2a2a2d; --mx-bg-layer-2: #323236; --mx-bg-layer-3: #3d3d41;
+  --mx-surface-plate: rgba(255,255,255,.035);
+  --mx-composer-surface: var(--mx-bg-layer-1);
+  --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, #1c1c1f);
+  --mx-user-bubble: var(--mx-bg-layer-1);
+  --mx-text: #e9e9e9; --mx-text-muted: #a8a8a8; --mx-text-faint: var(--mx-text-muted);
+  --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+  --mx-text-accent: #79b8ff;
+  --mx-border-muted: rgba(255,255,255,.09); --mx-border: rgba(255,255,255,.125); --mx-border-strong: rgba(255,255,255,.24);
+  --mx-hover: rgba(255,255,255,.08); --mx-pressed: rgba(255,255,255,.12);
+  --mx-danger: #f17471; --mx-danger-bg: #461516; --mx-success: #6bd586; --mx-success-bg: #14361d;
+  --mx-raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 1px #ffffff29, 0 -0.5px 0 #ffffff0f;
+  --mx-button: 0 0 0 1px #ffffff33;
+  --mx-chip-bg: #ffffff0f;
+  --mx-popup-bg: var(--mx-bg-base);
+  --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+  --mx-op-disabled: .6;
+  --mx-font-sans: "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  --mx-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace;
+  --page: var(--mx-window-band);
+  color-scheme: dark;
+}
+:root[data-mixdog-theme="light"] {
+  --mx-window-band: #f7f7f7; --mx-workspace-sheet: #fcfcfc;
+  --mx-bg-base: #fff; --mx-bg-layer-1: #f3f3f3; --mx-bg-layer-2: #eee; --mx-bg-layer-3: #e8e8e8;
+  --mx-surface-plate: rgba(119,119,119,.09);
+  --mx-composer-surface: var(--mx-bg-base);
+  --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
+  --mx-user-bubble: var(--mx-bg-layer-2);
+  --mx-text: #222; --mx-text-muted: #606060;
+  --mx-text-accent: #185abc;
+  --mx-border-muted: rgba(20,20,20,.1); --mx-border: rgba(20,20,20,.15); --mx-border-strong: rgba(20,20,20,.3);
+  --mx-hover: rgba(119,119,119,.09); --mx-pressed: rgba(119,119,119,.17);
+  --mx-danger: #b82d35; --mx-danger-bg: #fceceb; --mx-success: #137333; --mx-success-bg: #e7f9ea;
+  --mx-raised: 0 1px 2px rgba(0,0,0,.03), 0 0 0 1px rgba(0,0,0,.1);
+  --mx-button: 0 0 0 1px rgba(0,0,0,.141);
+  --mx-chip-bg: rgba(0,0,0,.05);
+  --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 12%), 0 2px 6px rgb(0 0 0 / 6%);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; padding: 0 40px 80px; background: var(--page); color: var(--mx-text); font: 400 14px/20px var(--mx-font-sans); }
+button { font: inherit; color: inherit; }
+svg.i { flex: none; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── page chrome ── */
+.top { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 16px; padding: 18px 0 12px; background: var(--page); border-bottom: 1px solid var(--mx-border-muted); }
+.top h1 { margin: 0; font-size: 16px; font-weight: 600; }
+.top p { margin: 0; color: var(--mx-text-muted); font-size: 13px; }
+.seg { margin-left: auto; display: inline-flex; padding: 2px; border-radius: var(--mx-radius-md); background: var(--mx-chip-bg); }
+.seg button { height: 26px; padding: 0 12px; border: 0; border-radius: 5px; background: transparent; color: var(--mx-text-muted); font-size: 13px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--mx-bg-layer-3); color: var(--mx-text); }
+:root[data-mixdog-theme="light"] .seg button[aria-pressed="true"] { background: #fff; box-shadow: var(--mx-raised); }
+
+.opt { padding: 36px 0 8px; border-bottom: 1px solid var(--mx-border-muted); }
+.opt-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.opt-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.ref { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--mx-radius-pill); background: var(--mx-chip-bg); color: var(--mx-text-soft); font-size: 12px; font-weight: 500; }
+.opt-note { max-width: 1060px; margin: 0 0 18px; color: var(--mx-text-muted); font-size: 13px; line-height: 20px; }
+.opt-note b { color: var(--mx-text-soft); font-weight: 500; }
+.row { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+.cap { margin: 0 0 8px; color: var(--mx-text-muted); font-size: 12px; letter-spacing: .02em; }
+
+/* a transcript pane at app scale */
+.pane { position: relative; background: var(--mx-workspace-sheet); border-radius: var(--mx-radius-lg); box-shadow: 0 0 0 1px var(--mx-border-muted); padding: 20px 24px 14px; }
+.pane.desk { width: 630px; }
+.pane.phone { width: 360px; padding: 16px 14px 12px; }
+.ubub { margin: 0 0 14px auto; width: fit-content; max-width: 80%; padding: 8px 14px; border-radius: 16px; background: var(--mx-user-bubble); font-size: 15px; line-height: 24px; }
+.prose { margin: 0 0 4px; font-size: 15px; line-height: 24px; }
+.prose code { font: 13px var(--mx-font-mono); padding: 1px 5px; border-radius: 4px; background: var(--mx-chip-bg); }
+.island-slot { display: flex; justify-content: center; margin-top: 22px; }
+.island { display: inline-flex; align-items: center; height: 34px; padding: 0 4px; border-radius: var(--mx-radius-pill); background: var(--mx-island-frame); box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised); font-size: 13px; }
+.island .iseg { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: var(--mx-radius-pill); background: transparent; color: var(--mx-text-soft); cursor: pointer; }
+.island .iseg:hover, .island .iseg.on { background: var(--mx-hover); color: var(--mx-text); }
+.island .rule { width: 1px; height: 14px; background: var(--mx-border-muted); margin: 0 2px; }
+.island .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mx-success); }
+.composer { margin-top: 8px; height: 52px; border-radius: 16px; background: var(--mx-composer-surface); box-shadow: inset 0 0 0 1px var(--mx-border-muted); display: flex; align-items: center; padding: 0 16px; color: var(--mx-text-muted); font-size: 15px; }
+.pane.phone .composer { height: 46px; font-size: 15px; }
+
+/* shared bits */
+.st { display: inline-flex; gap: 6px; font: 13px/16px var(--mx-font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.st i { color: var(--mx-success); font-style: normal; }
+.st em { color: var(--mx-danger); font-style: normal; }
+.tip { position: absolute; z-index: 5; padding: 4px 8px; border-radius: var(--mx-radius-md); background: var(--mx-bg-layer-3); color: var(--mx-text); font-size: 12px; line-height: 16px; white-space: nowrap; box-shadow: var(--mx-popup-shadow); pointer-events: none; }
+:root[data-mixdog-theme="light"] .tip { background: #222; color: #fff; }
+.ibtn { flex: none; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-md); background: transparent; color: var(--mx-text-muted); cursor: pointer; }
+.ibtn:hover, .ibtn.hov { background: var(--mx-hover); color: var(--mx-text); }
+.tbtn { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border: 0; border-radius: var(--mx-radius-md); background: transparent; color: var(--mx-text-soft); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.tbtn:hover { background: var(--mx-hover); color: var(--mx-text); }
+.tbtn.outline { box-shadow: var(--mx-button); }
+.ext { display: inline-flex; align-items: center; gap: 3px; flex: none; color: var(--mx-text-muted); font-size: 12px; }
+.ftype { flex: none; color: var(--mx-text-muted); }
+.trunc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* hover diff preview (popup skin) */
+.pv { position: absolute; z-index: 6; width: 400px; border-radius: var(--mx-radius-lg); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow), 0 0 0 1px var(--mx-border); overflow: hidden; pointer-events: none; }
+.pv-h { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--mx-border-muted); color: var(--mx-text-muted); font-size: 13px; }
+.pv-h .st { margin-left: auto; }
+.diff { margin: 0; padding: 4px 0; background: var(--mx-bg-layer-1); font: 12px/20px var(--mx-font-mono); }
+.diff div { display: flex; padding-right: 12px; white-space: pre; }
+.diff b { flex: none; width: 34px; padding-right: 8px; text-align: right; color: var(--mx-text-muted); font-weight: 400; opacity: .7; }
+.diff s { flex: none; width: 14px; text-decoration: none; color: var(--mx-text-muted); }
+.diff .a { background: color-mix(in srgb, var(--mx-success) 12%, transparent); }
+.diff .a s { color: var(--mx-success); }
+.diff .h { color: var(--mx-text-muted); background: color-mix(in srgb, var(--mx-text-accent) 7%, transparent); }
+
+/* ═════ 현재: faithful to TurnChangesCard.tsx + 27-search-review.css ═════ */
+.cur { position: relative; margin-top: 8px; border-radius: var(--mx-radius-lg); box-shadow: inset 0 0 0 1px var(--mx-border); font-size: 14px; line-height: 18px; }
+.cur .head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px 6px 0; border-radius: var(--mx-radius-lg); }
+.cur .head:hover { background: var(--mx-hover); }
+.cur .sum { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; align-self: stretch; padding-left: 12px; border: 0; background: none; text-align: left; cursor: pointer; }
+.cur .tile { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--mx-radius-md); background: var(--mx-hover); color: var(--mx-text-muted); }
+.cur .ttl { min-width: 0; display: flex; flex-direction: column; }
+.cur .ttl strong { font-weight: 500; }
+.cur .act { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 0; border-radius: var(--mx-radius-md); background: none; color: var(--mx-text-soft); font-size: 13px; cursor: pointer; }
+.cur ul { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--mx-border-muted); }
+.cur li { display: flex; align-items: center; gap: 6px; height: 36px; padding-right: 8px; background: var(--mx-surface-plate); }
+.cur li:last-child { border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg); }
+.cur li:hover { background: var(--mx-hover); }
+.cur .main { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding-left: 12px; border: 0; background: none; text-align: left; cursor: pointer; }
+.cur .path { flex: 1; min-width: 0; display: flex; }
+.cur .dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-faint); }
+.cur .base { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.cur .rv { width: 22px; height: 22px; display: grid; place-items: center; border: 0; border-radius: var(--mx-radius-md); background: none; color: var(--mx-text-muted); cursor: pointer; }
+.cur .rv:hover { background: var(--mx-hover); color: var(--mx-text); }
+
+/* ═════ A: Claude 방식 — 카드 없는 인라인 목록 ═════ */
+.ca { margin: 6px -8px 0; font-size: 14px; line-height: 20px; }
+.ca ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 1px; }
+.ca li { position: relative; display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 6px 0 8px; border-radius: var(--mx-radius-md); cursor: pointer; }
+.ca li:hover, .ca li.hov { background: var(--mx-hover); }
+.ca .lab { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.ca .lab .nm { color: var(--mx-text); }
+.ca .hint { flex: 0 1000 auto; min-width: 0; color: var(--mx-text-muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca .meta { display: flex; align-items: center; gap: 8px; color: var(--mx-text-muted); }
+.ca .st { font: 14px/20px var(--mx-font-sans); font-variant-numeric: tabular-nums; gap: 3px; }
+.ca .chev { color: var(--mx-text-muted); }
+.ca .acts { display: flex; align-items: center; }
+.ca .acts .ibtn { width: 22px; height: 22px; opacity: 0; }
+.ca li:hover .acts .ibtn, .ca li.hov .acts .ibtn, .ca.touch .acts .ibtn { opacity: 1; }
+.ca .ghost { height: 22px; padding: 0 7px; font-size: 13px; color: var(--mx-text-muted); }
+.ca .ghost:hover { color: var(--mx-text); }
+.ca .sumrow .nm { font-weight: 400; }
+.ca .sumrow .lab > svg { color: var(--mx-text-muted); }
+.ca .filerow .lab { padding-left: 0; }
+.ca .out .nm { color: var(--mx-text-soft); }
+.ca.touch li { min-height: 40px; }
+
+/* ═════ B: Codex 방식 — 리소스 카드 + 행 + 호버 미리보기 ═════ */
+.cx { position: relative; margin-top: 10px; border-radius: var(--mx-radius-lg); box-shadow: inset 0 0 0 1px var(--mx-border-muted); font-size: 14px; line-height: 20px; }
+.cx .hd { position: relative; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px 0 14px; border-radius: var(--mx-radius-lg) var(--mx-radius-lg) 0 0; cursor: pointer; }
+.cx .hd:hover, .cx .hd.hov { background: color-mix(in srgb, var(--mx-hover) 60%, transparent); }
+.cx .hd > svg { color: var(--mx-text-muted); }
+.cx .ttl { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.cx .ttl strong { font-weight: 500; white-space: nowrap; }
+.cx .sub-h { display: none; align-items: center; gap: 3px; color: var(--mx-text-muted); font-size: 13px; }
+.cx .hd:hover .sub-d, .cx .hd.hov .sub-d { display: none; }
+.cx .hd:hover .sub-h, .cx .hd.hov .sub-h { display: inline-flex; }
+.cx .trail { display: flex; align-items: center; gap: 4px; }
+.cx ul { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--mx-border-muted); }
+.cx li { position: relative; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 14px; background: color-mix(in srgb, var(--mx-surface-plate) 70%, transparent); cursor: pointer; }
+.cx li + li { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--mx-border-muted) 55%, transparent); }
+.cx li:last-child { border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg); }
+.cx li:hover, .cx li.hov { background: var(--mx-hover); }
+.cx .path { flex: 1; min-width: 0; display: flex; align-items: center; }
+.cx .dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-muted); }
+.cx .base { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx .rowact { width: 24px; display: grid; place-items: center; }
+.cx .rowact .ibtn { opacity: 0; }
+.cx li:hover .rowact .ibtn, .cx li.hov .rowact .ibtn, .cx.touch .rowact .ibtn { opacity: 1; }
+.cx .ext { margin-right: 6px; }
+.cx.touch .hd { height: 48px; }
+.cx.touch li { height: 44px; }
+
+/* ═════ C: 혼합 — 접히는 한 줄 헤더 + 파일 아이콘 행 ═════ */
+.mx { position: relative; margin-top: 10px; border-radius: var(--mx-radius-lg); box-shadow: inset 0 0 0 1px var(--mx-border-muted); font-size: 14px; line-height: 20px; overflow: visible; }
+.mx .hd { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 6px 0 8px; border-radius: var(--mx-radius-lg); }
+.mx[data-open="true"] .hd { border-radius: var(--mx-radius-lg) var(--mx-radius-lg) 0 0; }
+.mx .tog { flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 6px; border: 0; border-radius: var(--mx-radius-md); background: none; text-align: left; cursor: pointer; }
+.mx .tog:hover { background: var(--mx-hover); }
+.mx .car { color: var(--mx-text-muted); transition: transform 120ms; }
+.mx[data-open="true"] .car { transform: rotate(90deg); }
+.mx .tog strong { font-weight: 500; white-space: nowrap; }
+.mx .tog .count { color: var(--mx-text-muted); font-size: 13px; }
+.mx .sep { width: 1px; height: 16px; background: var(--mx-border-muted); }
+.mx .body { display: none; padding: 2px 6px 6px; border-top: 1px solid var(--mx-border-muted); }
+.mx[data-open="true"] .body { display: block; }
+.mx ul { margin: 0; padding: 0; list-style: none; }
+.mx li { position: relative; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 2px 0 8px; margin-top: 2px; border-radius: var(--mx-radius-md); cursor: pointer; }
+.mx li:hover, .mx li.hov { background: var(--mx-hover); }
+.mx .nm { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx .loc { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-muted); font-size: 13px; }
+.mx .grow { flex: 1; }
+.mx li .ibtn { color: var(--mx-text-muted); opacity: .72; }
+.mx li:hover .ibtn, .mx li.hov .ibtn { opacity: 1; }
+.mx .chev { color: var(--mx-text-muted); opacity: 0; margin-left: -4px; }
+.mx li:hover .chev, .mx li.hov .chev { opacity: 1; }
+.mx.touch .hd { height: 46px; }
+.mx.touch li { height: 42px; }
+.mx.touch .chev { opacity: 1; }
+
+/* ═════ navigation: island → list → detail ═════ */
+.flow { display: flex; gap: 20px; align-items: flex-start; margin-top: 22px; flex-wrap: wrap; }
+.step { width: 360px; }
+.step .cap b { color: var(--mx-text-soft); font-weight: 500; }
+.sheet { position: relative; width: 360px; border-radius: var(--mx-radius-xl); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow), 0 0 0 1px var(--mx-border-muted); overflow: hidden; font-size: 14px; line-height: 20px; }
+.sh-h { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--mx-border-muted); }
+.sh-h.back { padding-left: 6px; }
+.sh-h strong { font-weight: 500; }
+.sh-h .grow { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.sh-b { padding: 6px; }
+.sh-f { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 8px 0 14px; border-top: 1px solid var(--mx-border-muted); color: var(--mx-text-muted); font-size: 13px; }
+.sheet .diff { background: transparent; padding: 6px 0 10px; }
+.sheet .path-line { padding: 8px 14px 0; color: var(--mx-text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.island-under .island-slot { margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div>
+    <h1>턴 변경 카드 v2</h1>
+    <p>현재 구현 vs. 레퍼런스 기반 시안 · 데스크톱 630px / 휴대폰 360px · 앱 실측 크기</p>
+  </div>
+  <div class="seg" role="group" aria-label="테마">
+    <button type="button" data-theme="dark" aria-pressed="true">다크</button>
+    <button type="button" data-theme="light" aria-pressed="false">라이트</button>
+  </div>
+</div>
+<main id="app"></main>
+
+<script>
+const OUT_DIR = 'C:/Users/tempe/AppData/Local/Temp/mixdog-dl-outside/';
+const FILES = [
+  { dir: '', base: 'note.txt', add: 3, del: 0, out: false },
+  { dir: OUT_DIR, base: 'outside-note.txt', add: 1, del: 0, out: true },
+];
+const TOTAL = FILES.reduce((s, f) => s + f.add, 0);
+
+const P = {
+  fileDiff: ['M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z', 'M14 3v5h5', 'M12 10.5v5', 'M9.5 13h5', 'M9.5 18h5'],
+  file: ['M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z', 'M14 3v5h5', 'M9 13h6', 'M9 17h4'],
+  undo: ['M9 14 4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11'],
+  chevR: ['m9 6 6 6-6 6'], chevD: ['m6 9 6 6 6-6'], chevL: ['m15 6-6 6 6 6'],
+  x: ['M6 6l12 12', 'M18 6 6 18'],
+  out: ['M14 4h6v6', 'M20 4l-8.5 8.5', 'M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10'],
+  upRight: ['M7 17 17 7', 'M8 7h9v9'],
+  pm: ['M7 4v6', 'M4 7h6', 'M14 17h6', 'M18 5 6 19'],
+  panel: ['M4 5h16v14H4z', 'M14 5v14'],
+};
+const ic = (n, s = 14, sw) => `<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24"${sw ? ` style="stroke-width:${sw}"` : ''}>${P[n].map(d => `<path d="${d}"/>`).join('')}</svg>`;
+const st = (a, d) => `<span class="st">${a ? `<i>+${a}</i>` : ''}${d ? `<em>\u2212${d}</em>` : ''}</span>`;
+const shortOut = '~/AppData/Local/Temp/mixdog-dl-outside';
+
+const TRANSCRIPT = `
+  <div class="ubub">메모 두 개에 한 줄씩 추가해 줘</div>
+  <p class="prose"><code>note.txt</code>에 세 줄, 프로젝트 밖 <code>outside-note.txt</code>에 한 줄을 추가했습니다.</p>`;
+const island = (on) => `<div class="island-slot"><div class="island"><span class="iseg"><span class="dot"></span>준비됨</span><span class="rule"></span><button class="iseg${on ? ' on' : ''}" type="button">${ic('fileDiff', 14)}파일 2 <span class="st" style="font-family:inherit"><i>+${TOTAL}</i></span></button></div></div>`;
+const composer = `<div class="composer">메시지 입력…</div>`;
+const pane = (kind, card, onIsland) => `<div><p class="cap">${kind === 'desk' ? '데스크톱 · 630px' : '휴대폰 · 360px'}</p><div class="pane ${kind}">${TRANSCRIPT}${card}${island(onIsland)}${composer}</div></div>`;
+
+const DIFF = {
+  'note.txt': [['h', '', '@@ -1,2 +1,5 @@'], ['c', 1, '# 메모'], ['c', 2, ''], ['a', 3, '- 장보기: 우유, 달걀'], ['a', 4, '- 금요일 회의 자료 정리'], ['a', 5, '- 운동 30분']],
+  'outside-note.txt': [['h', '', '@@ -1 +1,2 @@'], ['c', 1, '임시 메모'], ['a', 2, '프로젝트 밖에서 추가한 줄']],
+};
+const diff = (name) => `<div class="diff">${DIFF[name].map(([k, n, t]) => `<div class="${k}"><b>${n}</b><s>${k === 'a' ? '+' : ' '}</s>${t || ' '}</div>`).join('')}</div>`;
+const preview = (f, style) => `<div class="pv" style="${style}"><div class="pv-h">${f.base}${st(f.add, f.del)}</div>${diff(f.base)}</div>`;
+
+/* ── 현재 ── */
+function current(kind) {
+  const rows = FILES.map((f, i) => `<li><button class="main" type="button"><span class="path">${f.dir ? `<span class="dir">${f.dir}</span>` : ''}<span class="base">${f.base}</span></span>${st(f.add, f.del)}</button><button class="rv" type="button" aria-label="되돌리기">${ic('undo', 12)}</button></li>`).join('');
+  return `<section class="cur"><div class="head"><button class="sum" type="button"><span class="tile">${ic('fileDiff', 14)}</span><span class="ttl"><strong>파일 2개 편집함</strong><span>${st(TOTAL, 0)}</span></span></button><button class="act" type="button">실행 취소 ${ic('undo', 11)}</button></div><ul>${rows}</ul></section>`;
+}
+
+/* ── A: Claude 방식 ── */
+function claude(kind) {
+  const touch = kind === 'phone';
+  const rows = FILES.map((f, i) => {
+    const hov = !touch && i === 1;
+    const hint = f.out ? `<span class="ext" title="${f.dir}">${ic('out', 12)}${touch ? '프로젝트 밖' : 'Temp/mixdog-dl-outside'}</span>` : '';
+    return `<li class="filerow${f.out ? ' out' : ''}${hov ? ' hov' : ''}"><span class="lab"><span class="ftype">${ic('file', 16, 1.75)}</span><span class="nm trunc">${f.base}</span>${hint}</span><span class="acts"><button class="ibtn" type="button" aria-label="이 파일 되돌리기" title="이 파일만 되돌리기">${ic('undo', 13)}</button></span><span class="meta">${st(f.add, f.del)}<span class="chev">${ic('chevR', 14)}</span></span></li>`;
+  }).join('');
+  return `<section class="ca${touch ? ' touch' : ''}"><ul>
+    <li class="sumrow"><span class="lab">${ic('pm', 16, 1.75)}<span class="nm">파일 2개 변경됨</span></span><button class="tbtn ghost" type="button">실행 취소</button><span class="meta">${st(TOTAL, 0)}<span class="chev">${ic('chevR', 14)}</span></span></li>
+    ${rows}</ul></section>`;
+}
+
+/* ── B: Codex 방식 ── */
+function codex(kind, demo = false) {
+  const touch = kind === 'phone';
+  const rows = FILES.map((f, i) => {
+    const hov = demo && i === 0;
+    const dir = f.out ? `<span class="ext" title="${f.dir}">${ic('out', 12)}</span><span class="dir">${touch ? '…/mixdog-dl-outside/' : shortOut + '/'}</span>` : '';
+    return `<li class="${hov ? 'hov' : ''}"><span class="path">${dir}<span class="base">${f.base}</span></span>${st(f.add, f.del)}<span class="rowact"><button class="ibtn" type="button" aria-label="이 파일 되돌리기">${ic('undo', 13)}</button></span>${hov ? preview(f, 'left:120px;top:40px') : ''}</li>`;
+  }).join('');
+  return `<section class="cx${touch ? ' touch' : ''}"><div class="hd${demo ? ' hov' : ''}">${ic('fileDiff', 16, 1.75)}<span class="ttl"><strong>파일 2개 변경됨</strong><span class="sub-d">${st(TOTAL, 0)}</span><span class="sub-h">변경 보기 ${ic('upRight', 11)}</span></span><span class="trail"><button class="tbtn" type="button">실행 취소 ${ic('undo', 12)}</button>${touch ? '' : `<button class="tbtn outline" type="button">검토</button>`}</span></div><ul>${rows}</ul></section>`;
+}
+
+/* ── C: 혼합 ── */
+function blend(kind, open = true) {
+  const touch = kind === 'phone';
+  const rows = FILES.map((f, i) => {
+    const hov = !touch && i === 1;
+    const loc = f.out ? `<span class="ext" title="${f.dir}">${ic('out', 12)}${touch ? '프로젝트 밖' : shortOut}</span>` : '';
+    return `<li class="${hov ? 'hov' : ''}"><span class="ftype">${ic('file', 16, 1.75)}</span><span class="nm">${f.base}</span>${f.out ? `<span class="loc">${loc}</span>` : ''}<span class="grow"></span>${st(f.add, f.del)}<button class="ibtn" type="button" aria-label="이 파일 되돌리기" title="이 파일만 되돌리기">${ic('undo', 13)}</button><span class="chev">${ic('chevR', 14)}</span></li>`;
+  }).join('');
+  return `<section class="mx${touch ? ' touch' : ''}" data-open="${open}"><div class="hd"><button class="tog" type="button" aria-expanded="${open}"><span class="car">${ic('chevR', 14)}</span><strong>파일 2개 변경됨</strong>${st(TOTAL, 0)}</button><button class="tbtn" type="button">${ic('undo', 13)}실행 취소</button>${touch ? '' : `<span class="sep"></span><button class="ibtn" type="button" aria-label="변경 패널에서 보기">${ic('panel', 14)}</button>`}</div><div class="body"><ul>${rows}</ul></div></section>`;
+}
+
+/* ── navigation sheets, styled per option ── */
+function listSheet(style) {
+  let body;
+  if (style === 'claude') body = `<div class="ca touch" style="margin:0"><ul>${FILES.map(f => `<li class="filerow"><span class="lab"><span class="ftype">${ic('file', 16, 1.75)}</span><span class="nm trunc">${f.base}</span>${f.out ? `<span class="ext">${ic('out', 12)}프로젝트 밖</span>` : ''}</span><span class="acts"><button class="ibtn" type="button">${ic('undo', 13)}</button></span><span class="meta">${st(f.add, f.del)}<span class="chev">${ic('chevR', 14)}</span></span></li>`).join('')}</ul></div>`;
+  else if (style === 'codex') body = `<div class="cx touch" style="margin:0;box-shadow:none"><ul style="border-top:0">${FILES.map(f => `<li style="border-radius:var(--mx-radius-md);background:none"><span class="path">${f.out ? `<span class="ext">${ic('out', 12)}</span><span class="dir">…/mixdog-dl-outside/</span>` : ''}<span class="base">${f.base}</span></span>${st(f.add, f.del)}<span class="rowact"><button class="ibtn" type="button">${ic('undo', 13)}</button></span></li>`).join('')}</ul></div>`;
+  else body = `<div class="mx touch" data-open="true" style="margin:0;box-shadow:none"><ul>${FILES.map(f => `<li><span class="ftype">${ic('file', 16, 1.75)}</span><span class="nm">${f.base}</span>${f.out ? `<span class="loc"><span class="ext">${ic('out', 12)}프로젝트 밖</span></span>` : ''}<span class="grow"></span>${st(f.add, f.del)}<button class="ibtn" type="button">${ic('undo', 13)}</button><span class="chev">${ic('chevR', 14)}</span></li>`).join('')}</ul></div>`;
+  return `<div class="sheet"><div class="sh-h"><span class="grow"><strong>파일 2개 변경됨</strong>${st(TOTAL, 0)}</span><button class="ibtn" type="button" aria-label="닫기">${ic('x', 14)}</button></div><div class="sh-b">${body}</div><div class="sh-f"><span>이번 턴</span><button class="tbtn${style === 'codex' ? ' outline' : ''}" type="button">${ic('undo', 13)}전체 실행 취소</button></div></div>`;
+}
+function detailSheet(f) {
+  return `<div class="sheet"><div class="sh-h back"><button class="ibtn" type="button" aria-label="목록으로">${ic('chevL', 16)}</button><span class="grow"><strong class="trunc">${f.base}</strong>${st(f.add, f.del)}</span><button class="tbtn" type="button">${ic('undo', 13)}되돌리기</button></div>${f.out ? `<div class="path-line">${ic('out', 12).replace('class="i"', 'class="i" style="display:inline;vertical-align:-1px;margin-right:4px"')}프로젝트 밖 · ${f.dir}</div>` : ''}${diff(f.base)}</div>`;
+}
+const flow = (style) => `<div class="flow">
+  <div class="step"><p class="cap"><b>① 섬 → 목록</b> · 「파일 2 +4」를 누르면 위로 펼쳐짐</p>${listSheet(style)}<div class="island-under">${island(true)}</div></div>
+  <div class="step"><p class="cap"><b>② 파일 → 상세</b> · 같은 시트 안 diff, ‹ 로 목록 복귀</p>${detailSheet(FILES[1])}</div>
+  <div class="step"><p class="cap"><b>② 상세</b> · 프로젝트 안 파일</p>${detailSheet(FILES[0])}</div>
+</div>`;
+
+const OPTIONS = [
+  { id: 'cur', title: '현재', ref: '구현 그대로', note: '<b>TurnChangesCard.tsx</b> + <b>27-search-review.css</b> 재현: 26px 아이콘 타일 + 두 줄 제목(제목/합계), 헤더 호버 시 합계가 「변경 보기 ›」로 바뀜, 행 36px·디렉터리 흐림 + 파일명 500, 행 끝 12px 되돌리기. 프로젝트 밖 파일은 절대 경로가 그대로 붙어 행이 길고 거칠게 보이는 것이 주요 문제. (제목은 현재 문자열 「파일 2개 편집함」)', render: current, flow: null },
+  { id: 'a', title: 'A안', ref: 'Claude 방식', note: '카드 테두리 없이 대화 흐름에 붙는 <b>인라인 목록</b>. 요약 행(± 아이콘 · 「파일 2개 변경됨」 · 고스트 「실행 취소」 · +합계 · ›)과 파일 행(파일 아이콘 · 파일명 · 흐린 폴더 힌트 · +/− · ›)이 같은 30px 행 문법을 공유, 호버는 6px 고스트 플레이트. 요약 행 클릭 = 변경 패널, 파일 행 클릭 = 해당 파일 diff. 파일별 되돌리기는 호버 시 행 안에 나타남(레퍼런스엔 없는 보강), 휴대폰은 항상 표시. 4개 이상이면 3개 + 「파일 N개 더 보기」.', render: claude, flow: 'claude' },
+  { id: 'b', title: 'B안', ref: 'Codex 방식', note: '<b>리소스 카드</b>: 44px 헤더(아이콘 · 제목 · 합계 → 호버 시 「변경 보기 ↗」) + 오른쪽 고스트 「실행 취소 ↶」와 외곽선 「검토」. 아래 36px 행은 <b>디렉터리(흐림)/파일명</b> 한 줄, 행 호버 시 해당 파일 diff 미리보기 팝업. 헤더 전체가 변경 탭을 여는 버튼. 레퍼런스는 행에 되돌리기가 없어서 호버 시 오른쪽 거터에 아이콘을 추가. 프로젝트 밖은 ↗ 아이콘 + 줄인 경로.', render: codex, flow: 'codex' },
+  { id: 'c', title: 'C안 (추천)', ref: '혼합 · Codex 카드 + Claude 행', note: 'Codex의 카드 묶음과 헤더 액션 위치를 유지하되, 헤더를 <b>40px 한 줄</b>(› 접기 · 제목 · 합계)로 줄이고 아이콘 타일을 제거. 행은 Claude식 <b>파일 아이콘 + 파일명 + 흐린 위치 힌트</b>(프로젝트 밖일 때만), +/−, 항상 보이는 옅은 되돌리기 아이콘(호버 시 진해짐), 호버 시 ›. 기본은 펼침(≤3개), 많으면 3개 + 더 보기; 헤더를 눌러 접을 수 있음. 패널 아이콘 = 변경 패널 열기.', render: blend, flow: 'blend' },
+];
+
+document.getElementById('app').innerHTML = OPTIONS.map(o => `
+  <section class="opt" id="opt-${o.id}">
+    <div class="opt-head"><h2>${o.title}</h2><span class="ref">${o.ref}</span></div>
+    <p class="opt-note">${o.note}</p>
+    <div class="row">${pane('desk', o.render('desk'), false)}${pane('phone', o.render('phone'), false)}</div>
+    ${o.id === 'c' ? `<div class="row" style="margin-top:18px"><div><p class="cap">접힌 상태 · 630px</p><div class="pane desk" style="padding-top:6px">${blend('desk', false)}</div></div></div>` : ''}
+    ${o.id === 'b' ? `<div class="row" style="margin-top:18px"><div><p class="cap">호버 상태 · 헤더 → 「변경 보기 ↗」, 행 → diff 미리보기</p><div class="pane desk" style="padding-top:6px;height:330px">${codex('desk', true)}</div></div></div>` : ''}
+    ${o.flow ? flow(o.flow) : ''}
+  </section>`).join('');
+
+function setTheme(t) {
+  document.documentElement.dataset.mixdogTheme = t;
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === t)));
+}
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
+document.addEventListener('click', e => {
+  const tog = e.target.closest('.mx .tog');
+  if (!tog) return;
+  const card = tog.closest('.mx');
+  const open = card.dataset.open !== 'true';
+  card.dataset.open = String(open);
+  tog.setAttribute('aria-expanded', String(open));
+});
+setTheme(new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark');
+</script>
+</body>
+</html>

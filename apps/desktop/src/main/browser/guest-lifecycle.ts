@@ -540,6 +540,8 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     ensureOffscreen,
     requestBrowserSurface,
     ensureGuest,
+    replacementPage: (sessionId: string) => primaryPages.replacement(sessionId),
+    claimPage: (sessionId: string, guest: WebContents) => primaryPages.claim(sessionId, guest),
     recoverCrashedGuest,
     destroyAllPrimaryPages: () => {
       suspendedSessions.clear();

@@ -676,7 +676,10 @@ function DesktopBrowserPane({
                 await webviewRef.current?.selectTab(id);
               }}
               onClose={async (id) => {
-                await webviewRef.current?.closeTab(id);
+                // The host's count after the close decides, not the frame this
+                // click was made from: tabs may have changed in between.
+                const result = await webviewRef.current?.closeTab(id);
+                if (result?.remainingTabs === 0) requestPaneDockClose('browser');
               }}
               onCreate={async () => {
                 await webviewRef.current?.createTab();

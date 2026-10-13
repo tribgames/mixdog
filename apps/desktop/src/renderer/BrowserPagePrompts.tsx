@@ -8,7 +8,7 @@ export function BrowserPagePrompts({
   control,
 }: {
   frame: DesktopBrowserPageFrame;
-  control(action: DesktopBrowserPageAction): Promise<void>;
+  control(action: DesktopBrowserPageAction): Promise<unknown>;
 }) {
   const [text, setText] = useState(frame.dialog?.defaultPrompt ?? '');
   const [busy, setBusy] = useState(false);

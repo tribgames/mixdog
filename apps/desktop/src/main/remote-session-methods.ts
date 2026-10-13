@@ -59,6 +59,10 @@ export function sessionRemoteMethods(
       if (typeof favorite !== 'boolean') throw new TypeError('favorite must be a boolean.');
       return host.setSessionFavorite(requiredSessionId(sessionId), favorite);
     },
+    setSessionProject: ([sessionId, projectPath]) => {
+      if (projectPath !== null && typeof projectPath !== 'string') throw new TypeError('projectPath must be a string.');
+      return host.setSessionProject(requiredSessionId(sessionId), projectPath);
+    },
     deleteSession: async ([sessionId]) => {
       const ownerSessionId = requiredSessionId(sessionId);
       const snapshot = await host.deleteSession(ownerSessionId);

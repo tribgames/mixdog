@@ -286,6 +286,7 @@ export class CaptureService implements DesktopService {
   }
   async setSessionArchived(): Promise<void> {}
   async setSessionFavorite(): Promise<void> {}
+  async setSessionProject(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> {
     return null;
   }

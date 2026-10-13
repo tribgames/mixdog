@@ -32,7 +32,7 @@ export interface VisualizeCardCall {
 
 const URL_TARGET = /^[a-z][a-z0-9+.-]*:\/\//i;
 
-function callArgs(item: TranscriptItem): { action: string; input: Record<string, unknown> } {
+export function callArgs(item: TranscriptItem): { action: string; input: Record<string, unknown> } {
   let root = asRecord(item.args);
   if (!root && typeof item.args === 'string') {
     try {
@@ -58,7 +58,11 @@ function resultText(value: unknown): string {
 /** The tab id an open's result names ("… as tab v3." / "v3 html label → …"). */
 export function visualizeResultTabId(item: TranscriptItem): string {
   const text = `${resultText(item.result)}\n${resultText(item.rawResult)}`;
-  return /\bas tab (v\d+)\b/.exec(text)?.[1] ?? /^(v\d+) (?:html|document|pdf|image|audio|video|split) /m.exec(text)?.[1] ?? '';
+  return (
+    /\bas tab (v\d+)\b/.exec(text)?.[1] ??
+    /^(v\d+) (?:html|document|pdf|image|audio|video|split) /m.exec(text)?.[1] ??
+    ''
+  );
 }
 
 /** `input.content` of an open, when it is well-formed (the tool validated it). */
@@ -102,6 +106,66 @@ export function visualizeCardCalls(items: readonly TranscriptItem[]): VisualizeC
     calls.push(call);
   }
   return calls;
+}
+
+/** What a card's saved snapshot is filed under (with the session): the tab and
+ *  what it showed, so a tab id reused for other files never shows the old picture. */
+export function visualizeCardThumbnailLine(call: VisualizeCardCall): string {
+  const shown = call.content
+    ? `${call.content.kind}:${call.content.title ?? ''}`
+    : call.targets.map(normalized).join('|');
+  return `visualize|${call.tabId}|${shown}`;
+}
+
+/** First letter (or digit) of a title, upper-cased, for the placeholder tile. */
+export function monogramLetter(title: string): string {
+  const letter = /[\p{L}\p{N}]/u.exec(title)?.[0] ?? '';
+  return letter.toLocaleUpperCase() || '·';
+}
+
+/** A stable tint (0-359) per title. */
+export function monogramHue(title: string): number {
+  let hash = 0;
+  for (const char of title) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 360;
+  return hash;
+}
+
+// Tab titles as the agent gave them at open ("v1" → "요금제 배치 시안"), per
+// session, so later rows (check, capture, close…) name the page, not the id.
+const tabTitles = new Map<string, Map<string, string>>();
+
+function openTitle(input: Record<string, unknown>): string {
+  const content = asRecord(input.content);
+  const label = typeof input.label === 'string' ? input.label.trim() : '';
+  const contentTitle = typeof content?.title === 'string' ? content.title.trim() : '';
+  const targets = Array.isArray(input.targets)
+    ? input.targets.filter((target): target is string => typeof target === 'string' && target.trim() !== '')
+    : [];
+  return label || contentTitle || targets.join(', ');
+}
+
+/** Remembers the titles of every tab the group's open calls named. */
+export function rememberVisualizeTabTitles(sessionId: string, items: readonly TranscriptItem[]): void {
+  for (const item of flattenedToolActivityItems(items)) {
+    if (item.isError || desktopToolActivitySurface(item.name, item.args).normalizedName !== 'visualize') continue;
+    const { action, input } = callArgs(item);
+    if (action !== 'open' || !toolItemDone(item)) continue;
+    const tabId = visualizeResultTabId(item);
+    const title = openTitle(input);
+    if (!tabId || !title) continue;
+    let titles = tabTitles.get(sessionId);
+    if (!titles) {
+      titles = new Map();
+      tabTitles.set(sessionId, titles);
+    }
+    titles.set(tabId, title);
+  }
+}
+
+/** The remembered title of the tab a visualize call acts on; '' when unknown. */
+export function visualizeCallTabTitle(sessionId: string, item: TranscriptItem): string {
+  const tab = callArgs(item).input.tab;
+  return typeof tab === 'string' ? (tabTitles.get(sessionId)?.get(tab.trim()) ?? '') : '';
 }
 
 const normalized = (path: string) => path.replace(/\\/g, '/').replace(/^\.\//, '');

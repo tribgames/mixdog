@@ -32,6 +32,7 @@ import {
   type DesktopBrowserPageIdentity,
   type DesktopBrowserPageResample,
   type DesktopBrowserPageControl,
+  type DesktopBrowserTabControlResult,
   type DesktopRemoteBrowserControl,
   type DesktopBrowserOpenRequest,
   type DesktopRemoteBrowserStreamFrame,
@@ -79,6 +80,7 @@ import { createBrowserIntercept } from './intercept';
 import { createBrowserNetworkReports } from './network-report';
 import { createBrowserPageState } from './page-state';
 import { createBrowserPageSurface } from './page-surface';
+import { isSessionTabControl, type SessionTabStrip } from './tabs-close-result';
 import { createBrowserLocalPrompts } from './local-prompts';
 import {
   BROWSER_INPUT_WAIT_MS,
@@ -140,7 +142,10 @@ export interface BrowserHost {
     previousFrameId?: string,
     texture?: boolean
   ): Promise<DesktopBrowserPageFrame | DesktopBrowserPageResample>;
-  browserPageControl(sessionId: string, input: DesktopBrowserPageControl): Promise<void>;
+  browserPageControl(
+    sessionId: string,
+    input: DesktopBrowserPageControl
+  ): Promise<DesktopBrowserTabControlResult | void>;
   /** Page facts without pixels, for a pane whose page is natively presented. */
   browserPageMetadata(sessionId: string): Promise<DesktopBrowserPageFrame>;
   /** Show the session's current page natively at `rect` (shell CSS pixels), or
@@ -164,7 +169,10 @@ export interface BrowserHost {
   browserPageIdentity(url: string, preview?: boolean): DesktopBrowserPageIdentity | null;
   /** Start/renew (options) or stop (null) streaming a session's live frames. */
   remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
-  remoteBrowserControl(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
+  remoteBrowserControl(
+    sessionId: string,
+    input: DesktopRemoteBrowserControl
+  ): Promise<DesktopBrowserTabControlResult | void>;
   /** The main-workspace browser tabs a paired client may switch between. */
   remoteTabs(): DesktopRemoteBrowserTab[];
   /** Start/stop publishing tab changes; returns the current list. */
@@ -627,7 +635,31 @@ export function createBrowserHost(
         driving,
       }),
   });
+  // One session tab strip for the local pane and for paired clients' tab controls.
+  const sessionTabs: SessionTabStrip = {
+    list: (sessionId) => tabs.displayTabs(sessionId),
+    select: (sessionId, tabId) => {
+      tabs.selectDisplayTab(sessionId, tabId);
+      const guest = browserSessions.currentGuest(sessionId);
+      if (guest) {
+        lifecycle.claimPage(sessionId, guest);
+        retainGuest(guest);
+      }
+    },
+    create: (sessionId) => {
+      tabs.createDisplayTab(sessionId);
+      // "+" may reuse the blank stand-in page: it is the user's tab from now on.
+      const guest = browserSessions.currentGuest(sessionId);
+      if (guest) lifecycle.claimPage(sessionId, guest);
+    },
+    close: (sessionId, tabId) => tabs.closeDisplayTab(sessionId, tabId),
+    isReplacement: (sessionId, tabId) => {
+      const guest = lifecycle.replacementPage(sessionId);
+      return guest !== null && !guest.isDestroyed() && state.pageId(guest) === tabId;
+    },
+  };
   const remote = createBrowserRemoteControl({
+    tabs: sessionTabs,
     drive: remoteDrive,
     state,
     cdp,
@@ -666,16 +698,7 @@ export function createBrowserHost(
     ensureGuest: lifecycle.ensureGuest,
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
     remoteDriven: (guest) => remoteDrive.driven(guest),
-    tabs: {
-      list: (sessionId) => tabs.displayTabs(sessionId),
-      select: (sessionId, tabId) => {
-        tabs.selectDisplayTab(sessionId, tabId);
-        const guest = browserSessions.currentGuest(sessionId);
-        if (guest) retainGuest(guest);
-      },
-      create: (sessionId) => tabs.createDisplayTab(sessionId),
-      close: (sessionId, tabId) => tabs.closeDisplayTab(sessionId, tabId),
-    },
+    tabs: sessionTabs,
     state,
     cdp,
     dispatchInput,
@@ -927,8 +950,7 @@ export function createBrowserHost(
       if (
         !guest ||
         guest.isDestroyed() ||
-        (!['new-tab', 'select-tab', 'close-tab'].includes(input.type) &&
-          input.documentId !== browserDocumentId(state, guest))
+        (!isSessionTabControl(input) && input.documentId !== browserDocumentId(state, guest))
       ) {
         return Promise.reject(new Error('Browser page changed; input was not sent.'));
       }
@@ -1048,10 +1070,16 @@ export function createBrowserHost(
       refreshSessionPower(owner);
       return remote.remoteBrowserStream(owner, streamOptions);
     },
-    remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
+    remoteBrowserControl(
+      sessionId: string,
+      control: DesktopRemoteBrowserControl
+    ): Promise<DesktopBrowserTabControlResult | void> {
       // Sizing the view is presentation, like the pane's own resize: it neither
-      // waits behind nor interrupts an agent command.
-      if (control.type === 'viewport') return remote.remoteBrowserControl(browserSessionId(sessionId), control);
+      // waits behind nor interrupts an agent command. Tab chrome is the same,
+      // as the local pane's tab controls are.
+      if (control.type === 'viewport' || isSessionTabControl(control)) {
+        return remote.remoteBrowserControl(browserSessionId(sessionId), control);
+      }
       return executeSerialized({ action: 'remote_control', session_id: browserSessionId(sessionId) }, undefined, () =>
         remote.remoteBrowserControl(browserSessionId(sessionId), control)
       );

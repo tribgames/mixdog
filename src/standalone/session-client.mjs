@@ -18,9 +18,11 @@ import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
-import { daemonDataDir } from '../session-runtime/services/daemon-crash-capture.mjs';
+import { daemonCrashCaptureDir, daemonDataDir } from '../session-runtime/services/daemon-crash-capture.mjs';
 import { forkDaemonCandidate } from '../session-runtime/services/daemon-candidate.mjs';
+import { daemonOwnerIsStale, proveDaemonOwnerRecord } from './daemon-owner.mjs';
 import { createAttachmentCalls } from './session-client/attachment-calls.mjs';
+import { daemonUnavailableError } from './session-client/daemon-unavailable.mjs';
 import { createLeaseHeartbeat } from './session-client/lease-heartbeat.mjs';
 import { clampLeaseMs } from './session-transport/client-registry/client-grace.mjs';
 import {
@@ -92,8 +94,20 @@ function request({
   timeoutMs = 120_000,
   control = false,
   urgent = false,
+  // Total-duration bound (timeoutMs only measures socket inactivity, which a
+  // trickling response keeps resetting). Probes set it; calls do not.
+  deadlineMs = 0,
 }) {
-  return new Promise((resolve, reject) => {
+  return new Promise((settleResolve, settleReject) => {
+    let deadlineTimer = null;
+    const resolve = (value) => {
+      clearTimeout(deadlineTimer);
+      settleResolve(value);
+    };
+    const reject = (error) => {
+      clearTimeout(deadlineTimer);
+      settleReject(error);
+    };
     const payload = body ? JSON.stringify(body) : null;
     const req = http.request(
       {
@@ -114,6 +128,7 @@ function request({
         res.on('data', (chunk) => {
           data += chunk;
         });
+        res.on('error', reject);
         res.on('end', () => {
           let parsed = null;
           try {
@@ -135,14 +150,29 @@ function request({
       req.destroy(new Error(`session timeout: ${method} ${urlPath}`));
     });
     req.on('error', reject);
+    if (deadlineMs > 0) {
+      deadlineTimer = setTimeout(() => {
+        const error = new Error(`session timeout: ${method} ${urlPath}`);
+        reject(error);
+        req.destroy(error);
+      }, deadlineMs);
+    }
     if (payload) req.write(payload);
     req.end();
   });
 }
 
+/** /health within `timeoutMs` of total duration; null when it does not answer. */
 export async function probeSessionHealth({ port, token, timeoutMs = 800 } = {}) {
   try {
-    const health = await request({ port, token, path: '/health', timeoutMs, control: true });
+    const health = await request({
+      port,
+      token,
+      path: '/health',
+      timeoutMs,
+      deadlineMs: Math.max(1, timeoutMs),
+      control: true,
+    });
     return health?.status === 'ok' ? health : null;
   } catch {
     return null;
@@ -329,13 +359,15 @@ export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = dae
   });
 }
 
-/** Spawn-or-attach discovery for the machine-global daemon. */
+/** Spawn-or-attach discovery for the machine-global daemon.
+ *  `entry` is a test seam; production always forks the real daemon. */
 export async function ensureDaemon({
   cwd = process.cwd(),
   log = () => {},
   attempts = 5,
   readyTimeoutMs = null,
   onUpgradeWait = null,
+  entry = daemonEntry(),
 } = {}) {
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS);
   let requestedTimeoutMs = DEFAULT_DAEMON_READY_TIMEOUT_MS;
@@ -348,6 +380,11 @@ export async function ensureDaemon({
   let spawnAttempts = 0;
   let waitingOwnerPid = 0;
   let waitingDrainPid = 0;
+  let staleOwnerPid = 0;
+  // What the passes observed, for the error when no endpoint ever appears.
+  let unansweredDiscovery = null;
+  let waitedOwner = null;
+  let lastCandidate = null;
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
   while (Date.now() < deadline) {
@@ -362,7 +399,7 @@ export async function ensureDaemon({
       const health = await probeSessionHealth({
         port: discovery.port,
         token: discovery.token,
-        timeoutMs: DAEMON_BOOT_PROBE_TIMEOUT_MS,
+        timeoutMs: Math.max(1, Math.min(DAEMON_BOOT_PROBE_TIMEOUT_MS, deadline - Date.now())),
       });
       log(
         `discovery pid=${discovery.pid} port=${discovery.port}` +
@@ -395,13 +432,35 @@ export async function ensureDaemon({
         err.sessionProtocolMismatch = true;
         throw err;
       }
+      unansweredDiscovery = { pid: discovery.pid, port: discovery.port };
     }
     // A concurrent launcher can win the owner lock before it publishes
     // daemon.json. That is a healthy singleton boot, not a reason to spawn five
-    // doomed contenders and report "endpoint unavailable" after ~500 ms.
-    const ownerState = readSingletonOwner(daemonOwnerPath());
+    // doomed contenders and report "endpoint unavailable" after ~500 ms. A
+    // live pid whose heartbeat stopped is a reused pid (daemon-owner.mjs):
+    // spawn, and the candidate reclaims it.
+    // A live-pid record whose heartbeat looks stale (or that has none: v1.1.2
+    // and older) is reclaimable only when its holder's endpoint does not
+    // answer with its pid — a crashed daemon leaves its files behind, naming a
+    // pid the OS may have reused. A probe cut short by this deadline proves
+    // nothing either way.
+    const proof = await proveDaemonOwnerRecord(daemonOwnerPath(), {
+      discoveryPath: sessionDiscoveryPath(),
+      budgetMs: Math.max(1, deadline - Date.now()),
+    });
+    const ownerState = readSingletonOwner(daemonOwnerPath(), {
+      isStale: (owner) => daemonOwnerIsStale(owner, { proof }),
+    });
+    if (ownerState.stale && Number(ownerState.owner?.pid) !== staleOwnerPid) {
+      staleOwnerPid = Number(ownerState.owner?.pid) || 0;
+      log(
+        `daemon owner record pid=${staleOwnerPid} heartbeatAt=${ownerState.owner?.heartbeatAt ?? '-'}` +
+          ` probe=${proof?.verdict ?? '-'} is stale; spawning a daemon to reclaim it`
+      );
+    }
     const ownerPid = ownerState.alive ? Number(ownerState.owner?.pid) || 0 : 0;
     if (ownerPid) {
+      waitedOwner = { pid: ownerPid, claimedAt: ownerState.owner?.claimedAt ?? null };
       if (ownerPid !== waitingOwnerPid) {
         waitingOwnerPid = ownerPid;
         log(`waiting for daemon owner pid=${ownerPid} to publish its session endpoint`);
@@ -410,16 +469,25 @@ export async function ensureDaemon({
       continue;
     }
     waitingOwnerPid = 0;
+    waitedOwner = null;
     if (spawnAttempts >= maxSpawnAttempts) break;
     spawnAttempts += 1;
     log(`spawning daemon candidate attempt=${spawnAttempts} at=${elapsed()}ms`);
-    await spawnDaemonCandidate({
+    lastCandidate = await spawnDaemonCandidate({
       cwd,
       log,
       timeoutMs: Math.max(1, deadline - Date.now()),
+      entry,
     });
   }
-  throw new Error('daemon session endpoint is unavailable');
+  throw daemonUnavailableError({
+    discovery: unansweredDiscovery,
+    owner: waitedOwner,
+    candidate: lastCandidate?.summary?.() ?? null,
+    spawnAttempts,
+    maxSpawnAttempts,
+    captureDir: daemonCrashCaptureDir(),
+  });
 }
 
 /** Registers this client with the daemon. Transport failures are retried

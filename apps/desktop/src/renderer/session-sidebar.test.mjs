@@ -743,3 +743,47 @@ test('sections and folders default open, persist choices, and a selected session
     restore();
   }
 });
+
+test('the Projects header menu offers Add project, also with zero projects', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  let adds = 0;
+  const render = (projects) =>
+    act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          open: true,
+          sessions: [],
+          sessionsReady: true,
+          projects,
+          selection: { kind: 'new' },
+          onAddProject() {
+            adds += 1;
+          },
+          onNewTask() {},
+          onNewStudio() {},
+          onResumeSession() {},
+          async onRenameSession() {},
+          async onArchiveSession() {},
+          async onDeleteSession() {},
+        })
+      )
+    );
+  try {
+    for (const projects of [[], [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }]]) {
+      await render(projects);
+      const header = document.querySelector('section[aria-label="Projects"] .sidebar-category-header');
+      await act(async () => header.querySelector('.row-overflow-trigger').click());
+      const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+        (n) => n.textContent.trim() === 'Add project'
+      );
+      assert.ok(item, 'Add project is in the header menu');
+      await act(async () => item.click());
+    }
+    assert.equal(adds, 2);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});

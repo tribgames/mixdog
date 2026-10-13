@@ -33,6 +33,9 @@ function createHarness() {
 test('a typed user prompt becomes a user item with route metadata and persisted history', () => {
   const { intake, flags, cwd, getState } = createHarness();
   intake.pushUserOrSyntheticItem('hello there', 'u1', 'user', { sender: 'desktop', images: [{ name: 'a.png' }] });
+  // The row and the prompt it sends share one stable message id.
+  const messageId = getState().items[0]?.messageId;
+  assert.match(String(messageId), /^msg_[0-9a-f]{32}$/);
   assert.deepEqual(getState().items, [
     {
       kind: 'user',
@@ -40,11 +43,12 @@ test('a typed user prompt becomes a user item with route metadata and persisted 
       text: 'hello there',
       provider: 'p',
       model: 'm',
+      messageId,
       sender: 'desktop',
       images: [{ name: 'a.png' }],
     },
   ]);
-  assert.deepEqual(flags.pendingTranscriptMeta, { provider: 'p', model: 'm' });
+  assert.deepEqual(flags.pendingTranscriptMeta, { provider: 'p', model: 'm', messageId });
   assert.deepEqual(loadPromptHistory(cwd), ['hello there']);
 });
 

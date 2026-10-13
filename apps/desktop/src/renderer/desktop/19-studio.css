@@ -88,8 +88,7 @@
   background: var(--mx-hover);
 }
 /* The trash trigger is a round 28px icon button beside the scale slider,
-   framed by a 1px ring so it reads as a button at rest (user: 동그라미
-   프레임 좀 주지). */
+   framed by a 1px ring so it reads as a button at rest. */
 .studio-cleanup > .studio-cleanup-trigger {
   width: 28px;
   height: 28px;
@@ -204,7 +203,7 @@
   animation: none;
   transition: none;
 }
-/* Range controls follow the app ink instead of the OS accent (user: 색이 튄다). */
+/* Range controls follow the app ink instead of the OS accent. */
 .studio-density input[type="range"] {
   height: 4px;
   accent-color: var(--mx-text);
@@ -232,7 +231,7 @@
 /* One justified row per wrapper: tiles scale as flex-grow ratios with CSS
    aspect-ratio, so a pane width change resizes every thumbnail in the SAME
    frame as the moving divider — no JS relayout in the loop, no snap a frame
-   later (user: 섬네일이 넓이 조정될 때 튄다). Row BREAKS still come from the
+   later. Row BREAKS still come from the
    solved layout and recommit on the next frame, which only matters when a
    tile crosses a row boundary. */
 .studio-grid-row {
@@ -362,7 +361,7 @@
   top: 8px;
   right: 8px;
   /* Above the hover clip: the mounted <video> carries z-index 1 and was
-     swallowing the buttons after a few hovers (user). */
+     swallowing the buttons after a few hovers. */
   z-index: 2;
   opacity: 0;
   transition: opacity var(--mx-motion-chrome);
@@ -434,14 +433,14 @@
 }
 /* The sweep is a transform-only overlay: animating the tile's own background
    repainted it every frame and the keyframe wrap popped the band back
-   (user: 섬네일 애니가 튄다 / 가볍게). It enters and leaves fully off the tile,
+. It enters and leaves fully off the tile,
    so the loop is seamless, and the band is faint enough to read as breathing. */
 .studio-tile--pending .studio-tile-open::after {
   content: "";
   position: absolute;
   inset: 0;
   /* Wider, softer falloff on a near-vertical axis: the steep narrow band read
-     as a hard streak crossing the plate (user: 흐르는 거 더 깔끔하게). */
+     as a hard streak crossing the plate. */
   background: linear-gradient(
     94deg,
     transparent 8%,
@@ -466,7 +465,7 @@
   }
 }
 /* Status and Cancel share ONE header row. As opposing absolute corners they
-   overlapped on a narrow slot (user: 제너레이트와 캔슬이 겹침), so the status
+   overlapped on a narrow slot, so the status
    is now a bare spinner and only Cancel carries a label. */
 .studio-pending-head {
   position: absolute;
@@ -485,7 +484,7 @@
   left: 5px;
   right: 5px;
 }
-/* Spinner only (user): the percentage and the clock live on the rail below. */
+/* Spinner only: the percentage and the clock live on the rail below. */
 .studio-pending-chip {
   display: inline-grid;
   place-items: center;
@@ -549,7 +548,7 @@
   transition: width 600ms linear;
 }
 /* Lanes that report nothing get an indeterminate sliver instead of a rail
-   driven by an invented estimate (user: 퍼센테이지가 안 맞는다). */
+   driven by an invented estimate. */
 .studio-pending-bar--idle > span {
   width: 34%;
   transition: none;
@@ -583,7 +582,7 @@
   border: 0;
   border-radius: var(--mx-radius-pill);
   /* Stopping a run is destructive, so it carries the danger tint like the
-     tile's delete action (user: 중단은 빨간 계통). */
+     tile's delete action. */
   color: var(--mx-danger);
   background: var(--mx-action-bg);
   box-shadow:
@@ -660,15 +659,16 @@
   z-index: 2;
   top: 3px;
   bottom: 3px;
-  width: 2px;
-  border-radius: var(--mx-radius-hair);
-  background: var(--mx-accent);
+  width: 8px;
+  background:
+    radial-gradient(circle 4px at 4px 4px, var(--mx-accent) 98%, transparent) top / 8px 8px no-repeat,
+    linear-gradient(var(--mx-accent), var(--mx-accent)) center / 2px 100% no-repeat;
 }
 .studio-ref[data-drop-position="before"]::before {
-  left: -4px;
+  left: -7px;
 }
 .studio-ref[data-drop-position="after"]::before {
-  right: -4px;
+  right: -7px;
 }
 .studio-ref-open {
   display: block;
@@ -717,7 +717,7 @@
      reading column: fluid below 800px, then the SAME 800→848 ramp --pane-column
      gives the chat composer (12-transcript.css), measured against .studio-root.
      A 1000px ceiling here made Studio's composer up to 152px wider than the
-     chat one on the same pane (user: 컴포저 좌우 넓이도 다르다). */
+     chat one on the same pane. */
   width: min(100%, clamp(800px, 80cqi, 848px));
   margin: 0 auto;
   /* Same floor gap as .composer-region so a 2×2 split lines the cards up. */
@@ -748,7 +748,7 @@
   /* Match the session form's block flow. Its inline textarea line box plus
      footer is the rendered chat-card height; grid tracks made Studio shorter. */
   display: block;
-  /* Chat-composer parity (user): same radius, surface, lift, type scale, and
+  /* Chat-composer parity: same radius, surface, lift, type scale, and
      row metrics. */
   border-radius: var(--mx-radius-sheet);
   min-height: 84px;
@@ -778,19 +778,20 @@
 .studio-composer textarea::placeholder {
   color: var(--mx-text-faint);
 }
-/* Neutral accents app-wide (user: 파란 강조/선택 톤 제거). Native controls,
+/* Neutral accents app-wide. Native controls,
    text selection, and focus rings follow the app ink instead of the OS blue. */
 :root {
   accent-color: var(--mx-text);
 }
 ::selection {
-  color: var(--mx-bg-base);
-  background: var(--mx-text);
+  /* One full-strength ink for every selected run (body, link, muted, code):
+     their own colors fell under 4.5:1 on the accent tint. */
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-accent) 32%, transparent);
 }
 /* Android Chromium paints the IME's composing syllable with the ::selection
    COLOR but not its background, so the inverted ink above rendered each
-   composing character invisible on the dark surface (user: 타이핑한 글자가
-   투명이 됨). Editable fields on touch devices keep their own ink and take a
+   composing character invisible on the dark surface. Editable fields on touch devices keep their own ink and take a
    translucent highlight that reads for both selection and composition. */
 @media (pointer: coarse) {
   input::selection,
@@ -800,13 +801,15 @@
   }
 }
 .studio-composer[data-dropping="true"] {
-  box-shadow:
-    var(--mx-raised),
-    inset 0 0 0 1.5px var(--mx-border-strong);
+  box-shadow: var(--mx-raised);
+  outline: 1.5px solid var(--mx-accent);
+  outline-offset: -1.5px;
 }
 .dock-terminal-surface[data-dropping="true"],
 .pane-cell[data-file-dropping="true"] .pane-surface-stack {
-  box-shadow: inset 0 0 0 1.5px var(--mx-border-strong);
+  outline: 1.5px solid var(--mx-accent);
+  outline-offset: -1.5px;
+  border-radius: var(--mx-radius-md);
 }
 .studio-composer-bar {
   display: flex;
@@ -818,12 +821,12 @@
   box-sizing: border-box;
   padding: 0 8px;
   /* Mode switch must not reflow the dock: one line, fixed height, whether the
-     model exposes two controls or four (user: "너무 심하게 튄다"). */
+     model exposes two controls or four. */
   flex-wrap: nowrap;
   overflow: visible;
   /* The bar is a GRID item: without this its automatic minimum is its content
      width, and with the side panel open the whole composer card overflowed the
-     pane and clipped the send button (user: 입력창이 잘린다). */
+     pane and clipped the send button. */
   min-width: 0;
 }
 .studio-composer-spacer {
@@ -844,7 +847,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  /* Text-only pills read a size small (user: 토글이 너무 작다): step the
+  /* Text-only pills read a size small: step the
      control up to the session-header control scale. */
   height: 30px;
   padding: 0 16px;
@@ -867,7 +870,7 @@
   align-items: center;
   gap: 6px;
   height: 28px;
-  /* Chat-composer grammar (user): frameless natural-width triggers like the
+  /* Chat-composer grammar: frameless natural-width triggers like the
      session model/effort controls — no pill box, hover reveals the plate. */
   max-width: 200px;
   overflow: hidden;

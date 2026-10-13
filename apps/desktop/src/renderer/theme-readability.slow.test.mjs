@@ -554,3 +554,87 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
     )
   );
 });
+
+test('diff line numbers keep 4.5:1 on every row background in both themes', async (t) => {
+  const browser = await puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.setContent(`
+    <div id="surface">
+      <div class="diff-tailwindcss-wrapper" data-theme="dark"><div class="diff-style-root">
+        ${['plain', 'add', 'del', 'hunk', 'expand']
+          .map(
+            (kind) =>
+              `<div id="lib-${kind}" class="diff-line-num" style="color:var(--diff-${kind === 'hunk' ? 'plain' : kind === 'add' || kind === 'del' ? 'plain' : kind}-lineNumber-color--);background-color:var(--diff-${kind}-lineNumber--)"><div>12</div></div>`
+          )
+          .join('')}
+      </div></div>
+      ${['session-diff-section', 'tool-diff-frame']
+        .map(
+          (frame) =>
+            `<div class="${frame}" id="${frame}"><div class="inline-diff">${['ctx', 'add', 'del']
+              .map(
+                (kind) =>
+                  `<div class="inline-diff-row" data-kind="${kind}"><span class="inline-diff-ln" id="${frame}-${kind}">12</span><span class="inline-diff-mk" id="${frame}-${kind}-mk">+</span></div>`
+              )
+              .join('')}</div></div>`
+        )
+        .join('')}
+    </div>
+  `);
+  for (const file of ['./ui/tokens.css', './desktop/01-tokens.css', './desktop/25-scm-dock.css', './desktop/27-search-review.css']) {
+    await page.addStyleTag({ content: await readFile(new URL(file, import.meta.url), 'utf8') });
+  }
+  const rows = [];
+  for (const theme of ['dark', 'light']) {
+    const measured = await page.evaluate((theme) => {
+      document.documentElement.dataset.mixdogTheme = theme;
+      document.querySelector('.diff-tailwindcss-wrapper').dataset.theme = theme;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      const rgb = (color, under) => {
+        context.fillStyle = under;
+        context.fillRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+      };
+      const root = getComputedStyle(document.documentElement);
+      const grounds = ['bg-base', 'workspace-sheet', 'bg-layer-1'].map((name) =>
+        rgb(root.getPropertyValue(`--mx-${name}`).trim(), '#000')
+      );
+      const hex = (c) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+      const out = [];
+      const sample = (id, ground) => {
+        const element = document.getElementById(id);
+        const style = getComputedStyle(element);
+        const bg = rgb(style.backgroundColor, hex(ground));
+        // The row's tint paints on the row, so read it from the parent for inline rows.
+        const row = element.closest('.inline-diff-row');
+        const base = row ? rgb(getComputedStyle(row).backgroundColor, hex(ground)) : bg;
+        out.push({ id, bg: hex(row ? base : bg), ink: hex(rgb(style.color, hex(row ? base : bg))) });
+      };
+      for (const ground of grounds) {
+        for (const kind of ['plain', 'add', 'del', 'hunk', 'expand']) sample(`lib-${kind}`, ground);
+        for (const frame of ['session-diff-section', 'tool-diff-frame']) {
+          for (const kind of ['ctx', 'add', 'del']) {
+            sample(`${frame}-${kind}`, ground);
+            sample(`${frame}-${kind}-mk`, ground);
+          }
+        }
+      }
+      return out;
+    }, theme);
+    rows.push(...measured.map((row) => ({ theme, ...row })));
+  }
+  const report = rows.map((row) => `${row.theme} ${row.id} ${row.ink} on ${row.bg} = ${contrast(row.ink, row.bg).toFixed(2)}`);
+  t.diagnostic(report.join('\n'));
+  for (const row of rows) {
+    if (row.id.endsWith('-mk')) continue;
+    assert.ok(contrast(row.ink, row.bg) >= 4.5, `${row.theme} ${row.id}: ${row.ink} on ${row.bg}`);
+  }
+});

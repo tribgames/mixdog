@@ -642,3 +642,54 @@ test('.gitattributes eol=crlf files round-trip exactly', { skip }, async () => {
   const repo = seedRepo(lineEndingSeed, { attributes: '* text eol=crlf\n' });
   await assertRoundTrip(repo, 'eol-attributes', lineEndingEdits, lineEndingStatuses);
 });
+
+test('a Git session records an edit outside its root and keeps it across a restart', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'git-outside';
+  const repo = seedRepo({ 'a.txt': 'one\n' });
+  const outside = join(base, `git-outside-${++seq}`, 'outside-note.txt');
+  mkdirSync(dirname(outside), { recursive: true });
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
+  writeTree(repo, { 'a.txt': 'one\ntwo\n' });
+  writeFileSync(outside, 'out\n');
+  recordTurnDiffChanges(sessionId, [
+    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'one\n', after: 'one\ntwo\n' },
+    { path: outside, displayPath: outside, before: null, after: 'out\n' },
+  ]);
+  await completeTurnSnapshot(sessionId);
+  const { getSessionReviewDiff } = snapshotModule;
+  const shape = (review) =>
+    review.files.map((file) => [file.path.replaceAll('\\', '/'), file.status, file.additions]).sort();
+  const expected = [
+    ['a.txt', 'M', 1],
+    [outside.replaceAll('\\', '/'), 'A', 1],
+  ].sort();
+  const live = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(shape(live), expected);
+  assert.equal(live.complete, true);
+  _resetTurnSnapshotForTest();
+  const restarted = await getSessionReviewDiff(repo, sessionId);
+  assert.deepEqual(shape(restarted), expected);
+  assert.ok(restarted.patch.includes('+out\n'));
+  // The Git turn's whole-turn Undo is not blocked by the view-only outside edit.
+  // The card lists it too (session and card agree), as a view-only entry.
+  const reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.deepEqual(
+    reply.files.map((file) => [file.path.replaceAll('\\', '/'), file.revertable]).sort(),
+    [
+      ['a.txt', true],
+      [outside.replaceAll('\\', '/'), false],
+    ].sort()
+  );
+  assert.equal(reply.canUndo, true);
+  assert.equal(reply.files.find((file) => file.path !== 'a.txt').state, 'applied');
+  const outsideReply = await getTurnChanges(sessionId, { checkpointId: 'cp', file: outside, patch: true });
+  assert.ok(outsideReply.patch.includes('+out\n'));
+  // Whole-turn Undo restores a.txt and never touches the outside file.
+  const undone = await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8'), 'one\n');
+  assert.equal(readFileSync(outside, 'utf8'), 'out\n');
+  assert.equal(undone.canUndo, false);
+  assert.equal(undone.files.length, 2);
+  await assert.rejects(revertTurnChanges(sessionId, 'cp', outside, undone.revision));
+});

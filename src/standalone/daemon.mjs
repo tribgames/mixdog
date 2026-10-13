@@ -37,7 +37,15 @@ import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
 import { listenerLeakWarningLine } from '../runtime/shared/listener-leak-warning.mjs';
-import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { claimSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import {
+  createOwnerHeartbeat,
+  daemonOwnerIsStale,
+  daemonOwnerTimings,
+  discoveryPid,
+  proveDaemonOwnerRecord,
+  startOwnerLivenessListener,
+} from './daemon-owner.mjs';
 import { remoteIntentPath } from '../runtime/shared/remote-intent.mjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
@@ -127,6 +135,13 @@ let remoteSessionState = { enabled: false, sessionId: null };
 let shuttingDown = false;
 let shutdownRecheckTimer = null;
 let replacementRequested = null;
+let ownerHeartbeat = null;
+// Answers /health with this pid on the port the owner record names, from
+// before the claim until exit (daemon-owner.mjs).
+let ownerLiveness = null;
+// The endpoints daemon.json carries once published; a heartbeat re-publishes
+// them when the file goes missing (TEMP cleanup).
+let publishedEndpoints = null;
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let idleGc = null;
@@ -182,6 +197,7 @@ const SHUTDOWN_BUDGET_MS = 15_000;
 async function shutdown(reason, code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
+  ownerHeartbeat?.stop();
   exitRecorder.setReason(`shutdown: ${reason}`, code);
   if (shutdownRecheckTimer) {
     clearTimeout(shutdownRecheckTimer);
@@ -259,7 +275,9 @@ async function shutdown(reason, code = 0) {
   daemonTelemetry?.stop();
   eventLoopDelay.disable();
   try {
-    rmSync(DAEMON_DISCOVERY_PATH, { force: true });
+    // Only our own: a successor that reclaimed a stale owner record may
+    // already have published its endpoint here.
+    if (discoveryPid(DAEMON_DISCOVERY_PATH) === process.pid) rmSync(DAEMON_DISCOVERY_PATH, { force: true });
   } catch {}
   try {
     releaseSingletonOwner(OWNER_PATH, process.pid);
@@ -422,7 +440,18 @@ function requestDaemonReplacement({ protocol, revision, version, force } = {}) {
 /** Pid-verified singleton claim (claimSingletonOwner reclaims a dead-pid owner
  *  file and refuses only a LIVE peer). Loser exits so the spawner attaches to
  *  the winner instead of running a second daemon. */
-function claimDaemonOwnership(bootPhases) {
+async function claimDaemonOwnership(bootPhases) {
+  const timings = daemonOwnerTimings();
+  // A live-pid record is reclaimable only when its holder's endpoint does not
+  // answer with its pid (daemon-owner.mjs); probed before the sync claim.
+  const proof = await proveDaemonOwnerRecord(OWNER_PATH, {
+    discoveryPath: DAEMON_DISCOVERY_PATH,
+    staleMs: timings.staleMs,
+  });
+  // Up BEFORE the claim, so even the first record names a port that answers
+  // with this pid: a contender never reclaims a booting daemon on a stale-
+  // looking stamp (a clock jump) alone.
+  ownerLiveness = await startOwnerLivenessListener({ log });
   const claim = claimSingletonOwner(OWNER_PATH, {
     kind: 'mixdog-daemon',
     pid: process.pid,
@@ -431,14 +460,47 @@ function claimDaemonOwnership(bootPhases) {
       protocol: SESSION_PROTOCOL,
       revision: SESSION_REVISION,
       version: runtimeVersion(),
+      heartbeatAt: new Date().toISOString(),
+      ...(ownerLiveness ? { livenessPort: ownerLiveness.port } : {}),
+    },
+    // A live pid that neither beats nor answers is a reused pid, not a peer.
+    isStale: (owner) => {
+      const stale = daemonOwnerIsStale(owner, { proof, staleMs: timings.staleMs });
+      if (stale) {
+        log(
+          `reclaiming stale owner record pid=${owner.pid} claimedAt=${owner.claimedAt}` +
+            ` heartbeatAt=${owner.heartbeatAt ?? '-'} probe=${proof?.verdict ?? '-'}`
+        );
+      }
+      return stale;
     },
   });
   if (!claim.owned) {
     log(`live peer holds owner lock (pid=${claim.owner?.pid}) — exiting for attach`);
+    void ownerLiveness?.close();
+    ownerLiveness = null;
     exitRecorder.setReason(`lost singleton claim to live peer pid=${claim.owner?.pid}`, 0);
     process.exit(0);
   }
   bootPhases.mark('owner-claimed');
+  // Beats from here on, through boot: a slow boot is never mistaken for a
+  // reused pid. Losing the record to another pid, or the lease running out
+  // unrefreshed, means another daemon owns (or may now claim) this data dir —
+  // at most one may keep serving.
+  ownerHeartbeat = createOwnerHeartbeat({
+    ownerPath: OWNER_PATH,
+    owner: claim.owner,
+    heartbeatMs: timings.heartbeatMs,
+    fenceMs: timings.fenceMs,
+    tickMs: timings.tickMs,
+    stallMs: timings.stallMs,
+    log,
+    onBeat: republishMissingDiscovery,
+    onSuperseded: (record) => fenceDaemon(`owner claim superseded by pid=${record?.pid}`),
+    onFenced: ({ lastRefreshAt, sinceMs }) =>
+      fenceDaemon(`owner lease expired (no refresh for ${sinceMs}ms, last ${lastRefreshAt})`),
+  });
+  ownerHeartbeat.start();
   process.on('exit', () => {
     try {
       releaseSingletonOwner(OWNER_PATH, process.pid);
@@ -499,6 +561,8 @@ function daemonStatusSnapshot() {
 /** The file every attacher reads to find this daemon: wire identity plus both
  *  loopback endpoints and their privileged tokens. */
 function publishDaemonDiscovery({ channel, session }) {
+  // A re-publish keeps the first publication's startedAt.
+  publishedEndpoints = { channel, session, startedAt: publishedEndpoints?.startedAt ?? Date.now() };
   writeJsonAtomicSync(
     DAEMON_DISCOVERY_PATH,
     {
@@ -507,7 +571,7 @@ function publishDaemonDiscovery({ channel, session }) {
       version: runtimeVersion(),
       capabilityFingerprint: SESSION_CAPABILITY_FINGERPRINT,
       pid: process.pid,
-      startedAt: Date.now(),
+      startedAt: publishedEndpoints.startedAt,
       endpoints: {
         channel: { port: channel.port, token: channel.token },
         session: { port: session.port, token: session.token },
@@ -515,6 +579,42 @@ function publishDaemonDiscovery({ channel, session }) {
     },
     { compact: true, secret: true }
   );
+}
+
+/** Asked by both front doors before every register/call: an expired lease
+ *  fences here (answered 503), and after an event-loop stall nothing is
+ *  served until the record is re-verified as ours. */
+function admitOwnerWork() {
+  return ownerHeartbeat ? ownerHeartbeat.admit() : true;
+}
+
+/** This process no longer holds (or is about to lose) the owner lease: refuse
+ *  new work at once, unpublish its endpoint so launchers stop finding it, then
+ *  shut down within the shutdown budget — before a contender may reclaim. */
+function fenceDaemon(reason) {
+  if (shuttingDown) return;
+  log(`${reason} — refusing new work and stopping so only one daemon serves`);
+  sessionTransport?.commitDrain?.(reason);
+  transport?.commitDrain?.(reason);
+  try {
+    if (discoveryPid(DAEMON_DISCOVERY_PATH) === process.pid) rmSync(DAEMON_DISCOVERY_PATH, { force: true });
+  } catch (e) {
+    log(`daemon.json unpublish failed: ${e?.message || e}`);
+  }
+  void shutdown(reason);
+}
+
+/** Heartbeat follow-up while this process still owns the lock: a daemon.json
+ *  deleted (TEMP cleanup) or overwritten while it runs is written again, so
+ *  new clients keep finding the one daemon that serves this data dir. */
+function republishMissingDiscovery() {
+  if (!publishedEndpoints || shuttingDown || discoveryPid(DAEMON_DISCOVERY_PATH) === process.pid) return;
+  try {
+    publishDaemonDiscovery(publishedEndpoints);
+    log('daemon.json was missing or named another pid — re-published');
+  } catch (error) {
+    log(`daemon.json re-publish failed: ${error?.message || error}`);
+  }
 }
 
 /** Ready handshake for the spawner, plus the log-sink handoff pinned to the
@@ -570,6 +670,7 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
   transport = createChannelTransport({
     handleCall: channelsRuntime.handleCall,
     agentBroker: agentDispatchBroker,
+    admitWork: admitOwnerWork,
     log,
     // The durable channel link lives in this file. Without it a restart loses
     // the pinned session (nothing to restore) and every catalog reports Remote
@@ -618,7 +719,7 @@ async function main() {
   // are per-user and fail closed if another account owns the configured path.
   ensurePrivateRuntimeRoot(RUNTIME_ROOT);
 
-  claimDaemonOwnership(bootPhases);
+  await claimDaemonOwnership(bootPhases);
   registerMemoryRuntimeLazy();
   // Every in-process session runtime removes managed worktrees through the
   // shared manager; its root cleanups drop the path-keyed caches (turn
@@ -784,8 +885,19 @@ async function main() {
       } catch {}
     },
     onUpgradeRequested: requestDaemonReplacement,
+    admitWork: admitOwnerWork,
   });
   const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
+  // A boot whose holder stopped answering may have been superseded by a
+  // contender between beats; never publish over the winner's endpoint. An
+  // unreadable record (an antivirus lock) is not a takeover.
+  const ownerPid = Number(readSingletonOwner(OWNER_PATH).owner?.pid) || 0;
+  if (shuttingDown) return;
+  if (ownerPid && ownerPid !== process.pid) {
+    log(`owner record now names pid=${ownerPid} — exiting for attach before publishing`);
+    exitRecorder.setReason(`owner claim superseded by pid=${ownerPid} before publish`, 0);
+    process.exit(0);
+  }
   publishDaemonDiscovery({ channel: { port, token }, session: sessionEndpoint });
   bootPhases.mark('discovery-published');
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);

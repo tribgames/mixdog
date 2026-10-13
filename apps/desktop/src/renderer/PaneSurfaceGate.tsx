@@ -401,22 +401,51 @@ export function PersistentPanePortal({
     return element;
   });
   const [attached, setAttached] = useState(false);
-  // Scroll offsets are recorded from the surfaces' own scroll events, so the
-  // relocation itself never has to force layout to read them back.
+  // Scroll offsets are recorded once a surface's scroll settles, so neither
+  // the scroll itself nor the relocation forces a layout to read them back.
+  // Reading scrollTop/Left inside EVERY scroll event forced a style/layout
+  // pass per frame whenever anything had invalidated style (any running
+  // animation), on the transcript's hottest path. The values are still taken
+  // while the host is attached: a slot removed under the host detaches it, and
+  // a detached scroller reads 0.
   const [scrollOffsets] = useState(() => new Map<Element, PersistentSurfaceScroll>());
+  const settleScrollOffsets = useRef<() => void>(() => {});
   useLayoutEffect(() => {
-    const remember = (event: Event) => {
-      const element = event.target;
-      if (!(element instanceof Element) || !host.contains(element)) return;
-      scrollOffsets.set(element, {
-        top: element.scrollTop,
-        left: element.scrollLeft,
-      });
+    const scrolled = new Set<Element>();
+    let frame = 0;
+    const settle = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      for (const element of scrolled) {
+        if (!element.isConnected || !host.contains(element)) continue;
+        scrollOffsets.set(element, { top: element.scrollTop, left: element.scrollLeft });
+      }
+      scrolled.clear();
     };
-    // scroll does not bubble; a capture listener on the host still sees every
-    // scroller inside the portal subtree.
-    host.addEventListener('scroll', remember, true);
-    return () => host.removeEventListener('scroll', remember, true);
+    // At most one read per frame, at the frame's own style point (not inside
+    // each scroll event), so the saved offset trails a live scroll by at most
+    // a frame: a slot removed mid-scroll still restores the latest position.
+    const note = (event: Event) => {
+      const element = event.target;
+      if (!(element instanceof Element)) return;
+      scrolled.add(element);
+      if (!frame) frame = window.requestAnimationFrame(settle);
+    };
+    const end = (event: Event) => {
+      if (event.target instanceof Element) scrolled.add(event.target);
+      settle();
+    };
+    settleScrollOffsets.current = settle;
+    // scroll/scrollend do not bubble; capture listeners on the host still see
+    // every scroller inside the portal subtree.
+    host.addEventListener('scroll', note, { capture: true, passive: true });
+    host.addEventListener('scrollend', end, { capture: true, passive: true });
+    return () => {
+      settleScrollOffsets.current = () => {};
+      if (frame) window.cancelAnimationFrame(frame);
+      host.removeEventListener('scroll', note, { capture: true });
+      host.removeEventListener('scrollend', end, { capture: true });
+    };
   }, [host, scrollOffsets]);
   useLayoutEffect(() => {
     let observer: MutationObserver | null = null;
@@ -424,6 +453,8 @@ export function PersistentPanePortal({
       const target = document.getElementById(targetId);
       if (!target) return false;
       if (host.parentElement !== target) {
+        // A scroll still in flight is read before the move detaches it.
+        if (host.isConnected) settleScrollOffsets.current();
         movePersistentPaneHost(host, target, scrollOffsets);
       }
       // Portal children run their layout effects before their owner's layout

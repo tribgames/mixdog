@@ -15,6 +15,7 @@ import {
 } from '../context-utils.mjs';
 import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/fresh-context.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
+import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
 import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
@@ -33,6 +34,7 @@ import {
   shouldCompactForRequestMedia,
 } from '../loop/compact-policy.mjs';
 import { snapshotProviderRequestTools } from '../../runtime-core/tool-catalog.mjs';
+import { scheduleCompactionArchive, stampCompactionMessageIds } from '../compaction-archive-capture.mjs';
 
 // 'compacting' is a transient in-flight stage written just before Compact
 // runs. If the process crashes or only partially
@@ -126,7 +128,7 @@ function handoffSummaryTimeoutMs(session, messageTokens) {
  * mutated and nothing is persisted — so a caller may compact a COPY of a
  * conversation. Session inheritance relies on exactly that: an oversized
  * transcript is compacted for the heir while the session that owns it keeps
- * every message (user: 자동으로 컴팩트하고 승계).
+ * every message.
  */
 export async function runHandoffCompaction({
   session,
@@ -190,9 +192,8 @@ async function sessionCompactionPlan(session, opts) {
   }
   // Reserve must mirror loop.mjs (buildCompactPolicy): request reserve (tool
   // schema) PLUS the configured reserve (session.compaction.reservedTokens or
-  // MIXDOG_AGENT_COMPACT_RESERVED_TOKENS env). The old request-only value left
-  // the manual / auto-clear compact budget without the configured headroom the
-  // loop path reserves, so a compacted transcript could overflow on next send.
+  // MIXDOG_AGENT_COMPACT_RESERVED_TOKENS env). Without the configured headroom
+  // the loop path reserves, a compacted transcript could overflow on next send.
   // A cold (just loaded) transcript is metered in slices first; the plan
   // numbers below then read the per-message memos.
   await primeContextEstimates(messages, session);
@@ -202,6 +203,7 @@ async function sessionCompactionPlan(session, opts) {
     resolvedSessionId,
     mode,
     force,
+    archive: opts.archive !== false,
     messages,
     boundary,
     alignedPolicy,
@@ -292,8 +294,8 @@ function compactionRecord(plan, { stage, after, now, reserve, outcome }) {
 }
 
 // compact_meta parity with the loop's pre-send pass: the out-of-loop
-// (post-turn/manual) compaction — and its failure — used to be invisible to
-// trace analytics.
+// (post-turn/manual) compaction — and its failure — is visible to trace
+// analytics.
 function traceSessionCompaction(plan, compactStartedAt, { counts, failure }) {
   const { session, mode } = plan;
   traceAgentCompact({
@@ -342,13 +344,9 @@ async function runSessionHandoff(plan, opts) {
   } catch (err) {
     run.freshContextError = err;
     run.compactError = err;
-    try {
-      process.stderr.write(
-        `[session] fresh-context ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`
-      );
-    } catch {
-      /* best-effort */
-    }
+    writeStderrBestEffort(
+      `[session] fresh-context ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`
+    );
   }
   if (!run.compacted && !run.compactError) {
     run.compactError = new Error('fresh-context compact produced no messages');
@@ -515,8 +513,8 @@ function compactionOutcome(session, freshContextResult, changed, now) {
 }
 
 // Observability parity with the loop's pre-send pass: record the
-// out-of-loop mutation as compact_meta (observed live: a 403k→10k post-turn
-// compact traced as intentional_transition: null with no compact_meta).
+// out-of-loop mutation as compact_meta, so a large post-turn compact is not
+// traced as intentional_transition: null.
 function traceCommittedCompaction(plan, compactStartedAt, { messages, compacted, beforeBytes, afterBytes, changed }) {
   let beforePrefixHash = null;
   try {
@@ -645,6 +643,19 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
     },
     outcome: compactionOutcome(session, freshContextResult, changed, now),
   });
+  // Display-only: the dropped conversation stays readable above the divider.
+  // Only the selection and the segment number happen here; the projection and
+  // the write run later, off this commit.
+  const archived =
+    changed && plan.archive
+      ? scheduleCompactionArchive({
+          session,
+          sessionId: resolvedSessionId,
+          before: messages,
+          after: transcript,
+          at: now,
+        })
+      : null;
   if (changed) {
     invalidateProviderContextBaseline(session);
     if (postCompactPolicy) {
@@ -678,6 +689,10 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
       freshContextError: null,
       handoffSource: freshContextResult?.handoffSource || 'session-local',
       usage: freshContextResult?.usage || null,
+      // Messages that left the model context (0 for a rewrite-only pass):
+      // surfaces archive only those rows.
+      droppedMessages: archived?.dropped ?? 0,
+      droppedIdentities: archived?.identities ?? null,
     }
   );
 }
@@ -692,7 +707,8 @@ export async function runSessionCompaction(session, opts = {}) {
     });
   }
   plan.requireReduction =
-    (plan.mode === 'auto' || opts.requireReduction === true) && !shouldCompactForRequestMedia(plan.messages, session.provider);
+    (plan.mode === 'auto' || opts.requireReduction === true) &&
+    !shouldCompactForRequestMedia(plan.messages, session.provider);
   const skipped = () =>
     compactionResult(plan, { changed: false, skipped: true, reason: 'no_token_reduction' }, unchangedAfter(plan), {
       freshContext: false,
@@ -713,6 +729,11 @@ export async function runSessionCompaction(session, opts = {}) {
     }).reducesTokens
   )
     return skipped();
+  // Every message enters the compaction with a stable id (legacy ones are
+  // stamped now and persisted): the result's rewrites carry it, so what was
+  // dropped is exactly the ids the result no longer holds. The snapshot is a
+  // prefix of the live transcript holding the same message objects.
+  stampCompactionMessageIds(plan.messages, plan.resolvedSessionId);
   const compactStartedAt = Date.now();
   try {
     await opts.onStageChange?.('compacting');

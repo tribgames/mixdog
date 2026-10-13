@@ -16,6 +16,7 @@ import {
 import {
   loadSessionSnapshotRecords,
   loadTurnChangeRecord,
+  loadTurnChangeRecords,
   loadTurnSnapshotRecord,
   saveTurnSnapshotRecord,
   updateTurnChangeRecord,
@@ -25,6 +26,9 @@ import {
   applyTurnChangeFiles,
   changePathKey,
   findChangeFile,
+  measureLegacyChangeFile,
+  mergeRecordedSessionChanges,
+  namedChangePatch,
   storedChangeFile,
   trackedChangeFile,
   turnChangesReply,
@@ -815,6 +819,40 @@ function trackedRelativePath(root, entry) {
   return rel.replace(/\\/g, '/');
 }
 
+/** A record file for an edit the worktree root cannot replay: outside it, or
+ *  too large/binary to capture. Display-only (`viewPatch`), never undone. */
+function untrackableRecordFile(pair, { before, after, oldPath, newPath, omitted }) {
+  let status = 'M';
+  if (before === null) status = 'A';
+  else if (after === null) status = 'D';
+  else if (oldPath !== newPath) status = 'R';
+  const shownPath =
+    (status === 'D' ? oldPath : newPath) || displayPath(pair.after?.displayPath || pair.before?.displayPath);
+  const named = omitted ? null : namedChangePatch({ before, after, oldName: shownPath, newName: shownPath });
+  return {
+    path: shownPath,
+    ...(status === 'R' && oldPath ? { oldPath } : {}),
+    status,
+    additions: named?.additions || 0,
+    deletions: named?.deletions || 0,
+    ...(named?.patch ? { viewPatch: named.patch } : {}),
+    ...(omitted ? { binary: true } : {}),
+    revertable: false,
+    reason: omitted ? 'binary/large file content was not captured' : 'file is outside the recorded root',
+  };
+}
+
+/** The exact before/after pair of a tracked entry, or null when it changed nothing. */
+function recordedPair(pair, root) {
+  const before = pair.before?.content ?? null;
+  const after = pair.after?.content ?? null;
+  if (before === null && after === null) return null;
+  const oldPath = trackedRelativePath(root, pair.before || pair.after);
+  const newPath = trackedRelativePath(root, pair.after || pair.before);
+  if (oldPath === newPath && sameContent(before, after)) return null;
+  return { before, after, oldPath, newPath, omitted: [before, after].some(isOmittedContent) };
+}
+
 /** Record files of a non-Git turn, from the exact apply_patch buffers. */
 function trackedRecordFiles(tracker, root) {
   if (!tracker.valid) {
@@ -829,31 +867,29 @@ function trackedRecordFiles(tracker, root) {
   }
   const files = [];
   for (const pair of trackedPairs(tracker)) {
-    const before = pair.before?.content ?? null;
-    const after = pair.after?.content ?? null;
-    if (before === null && after === null) continue;
-    const oldPath = trackedRelativePath(root, pair.before || pair.after);
-    const newPath = trackedRelativePath(root, pair.after || pair.before);
-    if (oldPath === newPath && sameContent(before, after)) continue;
-    const omitted = [before, after].some(isOmittedContent);
-    if (omitted || !oldPath || !newPath) {
-      let status = 'M';
-      if (before === null) status = 'A';
-      else if (after === null) status = 'D';
-      else if (oldPath !== newPath) status = 'R';
-      files.push({
-        path: (status === 'D' ? oldPath : newPath) || displayPath(pair.after?.displayPath || pair.before?.displayPath),
-        ...(status === 'R' && oldPath ? { oldPath } : {}),
-        status,
-        additions: 0,
-        deletions: 0,
-        ...(omitted ? { binary: true } : {}),
-        revertable: false,
-        reason: omitted ? 'binary/large file content was not captured' : 'file is outside the recorded root',
-      });
+    const edit = recordedPair(pair, root);
+    if (!edit) continue;
+    if (edit.omitted || !edit.oldPath || !edit.newPath) {
+      files.push(untrackableRecordFile(pair, edit));
       continue;
     }
-    files.push(trackedChangeFile({ oldPath, newPath, before, after }));
+    files.push(
+      trackedChangeFile({ oldPath: edit.oldPath, newPath: edit.newPath, before: edit.before, after: edit.after })
+    );
+  }
+  return files;
+}
+
+/** Edits of a Git turn that lie outside its worktree root: the baseline diff
+ *  never sees them, so they are recorded view-only beside the Git files. */
+function outsideRecordFiles(tracker, root) {
+  if (!tracker.valid) return [];
+  const files = [];
+  for (const pair of trackedPairs(tracker)) {
+    const edit = recordedPair(pair, root);
+    if (edit && (!edit.oldPath || !edit.newPath)) {
+      files.push(untrackableRecordFile(pair, edit));
+    }
   }
   return files;
 }
@@ -871,7 +907,9 @@ async function freezeTurnChanges(ownerSessionId, tracker, agents) {
       ? null
       : [...ownedPathsUnder(tracker.worktreeSnapshot.root, tracker.ownedPaths)];
     const result = await freezeTurnWorktreeChanges(tracker.worktreeSnapshot, scope);
-    if (result) frozen = { kind: 'git', ...result };
+    if (result) {
+      frozen = { kind: 'git', ...result, outside: outsideRecordFiles(tracker, tracker.worktreeSnapshot.root) };
+    }
   } else if (tracker.worktreeRoot) {
     frozen = { kind: 'tracked', root: tracker.worktreeRoot, files: trackedRecordFiles(tracker, tracker.worktreeRoot) };
   }
@@ -882,6 +920,7 @@ async function freezeTurnChanges(ownerSessionId, tracker, agents) {
     root: frozen.root,
     agents,
     files: frozen.files.map(storedChangeFile),
+    outside: (frozen.outside || []).map(storedChangeFile),
   });
   // A fresh freeze measured the disk itself; nothing about it is unknown.
   _unknownChangeStates.delete(pendingFreezeKey(ownerSessionId, checkpointId));
@@ -910,7 +949,9 @@ function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
     if (tracker.worktreeSnapshot) {
       try {
         await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot, { force: true });
-      } catch {}
+      } catch {
+        // Best-effort refresh: seal with the last captured worktree state.
+      }
     }
     if (tracker.sealEpoch !== epoch || (reseal && !tracker.sealed)) return;
     tracker.sealed = true;
@@ -1068,7 +1109,9 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
     const refreshOptions = options.poll === 'background' ? { visible: options.summary !== true } : { force: true };
     try {
       await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot, refreshOptions);
-    } catch {}
+    } catch {
+      // Best-effort refresh: the review reads the last captured state.
+    }
   }
   const snapshot = isolatedWorktreeSnapshot;
   // Without a usable baseline the review falls back to this session's own
@@ -1117,6 +1160,39 @@ export async function getSessionReviewDiff(worktree, sessionId) {
   if (DISABLED) return { supported: false, files: [], patch: '' };
   const ownerSessionId = clean(sessionId);
   if (!ownerSessionId) return { supported: true, files: [], patch: '', authoritative: true };
+  const review = await baselineSessionReviewDiff(worktree, ownerSessionId);
+  // The same recorded changes the turn-changes cards list: a non-Git session
+  // and files outside the worktree have no baseline above, but do have these.
+  // A Git session whose baseline vouches for its files has nothing to add but
+  // edits outside the root, so its records are read only through the
+  // mtime-keyed cache.
+  const records = await loadTurnChangeRecords(ownerSessionId).catch(() => []);
+  const live = review.source === 'git' ? null : liveTrackedRecord(_diffTrackersBySession.get(ownerSessionId));
+  return mergeRecordedSessionChanges(review, records, live);
+}
+
+const LIVE_RECORD_TTL_MS = 1000;
+const _liveRecords = new WeakMap();
+
+/** The running non-Git turn as a record, so its edits join the net review
+ *  before the turn seals. Rebuilt at most once a second. */
+function liveTrackedRecord(tracker) {
+  if (!tracker || tracker.worktreeSnapshot || !tracker.worktreeRoot || !clean(tracker.checkpointId)) return null;
+  const cached = _liveRecords.get(tracker);
+  if (cached && Date.now() - cached.at < LIVE_RECORD_TTL_MS && cached.checkpointId === tracker.checkpointId) {
+    return cached.record;
+  }
+  const record = {
+    checkpointId: clean(tracker.checkpointId),
+    kind: 'tracked',
+    root: tracker.worktreeRoot,
+    files: trackedRecordFiles(tracker, tracker.worktreeRoot).map(storedChangeFile),
+  };
+  _liveRecords.set(tracker, { at: Date.now(), checkpointId: record.checkpointId, record });
+  return record;
+}
+
+async function baselineSessionReviewDiff(worktree, ownerSessionId) {
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   const scopes = await loadSessionSnapshotRecords(ownerSessionId).catch(() => []);
   const stored = scopes.find((scope) => scopeMatchesWorktree(scope, worktree, tracker));
@@ -1127,17 +1203,24 @@ export async function getSessionReviewDiff(worktree, sessionId) {
   if (tracker?.worktreeSnapshot && !tracker.sealed) {
     try {
       await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot);
-    } catch {}
+    } catch {
+      // Best-effort refresh: the checkpoint diff uses the last captured state.
+    }
   }
   const ownedPaths = new Set(stored?.toolFiles || []);
   for (const path of sessionAttributedPaths(root, tracker)) ownedPaths.add(path);
   if (ownedPaths.size === 0) {
+    // Authoritatively empty only when the session left ownership metadata
+    // behind (a stored scope or a live tracker); with neither, the retained
+    // change records are the only memory of what it changed.
     return {
       supported: true,
+      root,
       files: [],
       patch: '',
       snapshotKind: 'session',
       authoritative: true,
+      source: stored || tracker ? 'empty' : 'absent',
     };
   }
   const baselineTree = stored?.baselineTree || tracker?.worktreeSnapshot?.baselineTree;
@@ -1154,11 +1237,13 @@ export async function getSessionReviewDiff(worktree, sessionId) {
     if (snapshot) {
       return {
         supported: true,
+        root,
         files: snapshot.files || [],
         patch: snapshot.patch || '',
         patchTruncated: snapshot.patchTruncated === true,
         snapshotKind: 'session',
         authoritative: true,
+        source: 'git',
       };
     }
   }
@@ -1173,6 +1258,7 @@ export async function getSessionReviewDiff(worktree, sessionId) {
       patchTruncated: tracker.patchTruncated === true,
       snapshotKind: 'session-tool',
       authoritative: true,
+      source: 'tool',
     };
   }
   return {
@@ -1182,6 +1268,7 @@ export async function getSessionReviewDiff(worktree, sessionId) {
     snapshotKind: 'session',
     authoritative: false,
     reason: 'session baseline is unavailable',
+    source: 'unavailable',
   };
 }
 
@@ -1308,12 +1395,20 @@ function requiredCheckpointId(value) {
 export async function getTurnChanges(sessionId, options = {}) {
   const ownerSessionId = clean(sessionId);
   const checkpointId = requiredCheckpointId(options?.checkpointId);
-  const record = ownerSessionId
+  let record = ownerSessionId
     ? withUnknownChangeStates(ownerSessionId, await loadTurnChangeRecord(ownerSessionId, checkpointId))
     : null;
+  // An old record's outside-root file kept no counts: measure it so the card
+  // agrees with the session review and the island.
+  if (record?.files?.length) {
+    record = {
+      ...record,
+      files: await Promise.all(record.files.map((file) => measureLegacyChangeFile(file, record.root))),
+    };
+  }
   let status = 'missing';
   if (ownerSessionId && turnChangesPending(ownerSessionId, checkpointId)) status = 'pending';
-  else if (record) status = record.files?.length ? 'ready' : 'none';
+  else if (record) status = record.files?.length || record.outside?.length ? 'ready' : 'none';
   return turnChangesReply({
     status,
     checkpointId,
@@ -1364,7 +1459,9 @@ async function markTurnChangeStateUnknown(ownerSessionId, checkpointId, keys) {
   try {
     await updateTurnChangeRecord(ownerSessionId, checkpointId, (current) => markUnknownStates(current.files, keys));
     return;
-  } catch {}
+  } catch {
+    // The store refused the write: fall back to the in-memory marker below.
+  }
   const key = pendingFreezeKey(ownerSessionId, checkpointId);
   _unknownChangeStates.set(key, new Set([...(_unknownChangeStates.get(key) || []), ...keys]));
 }
@@ -1452,7 +1549,9 @@ async function refreshLatestTurnReview(ownerSessionId, root, targets, fold) {
   if (!tracker?.worktreeSnapshot) return;
   try {
     await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot, { force: true });
-  } catch {}
+  } catch {
+    // Best-effort refresh: persist the last captured state.
+  }
   if (tracker.sealed) await persistTurnSnapshotRecord(ownerSessionId, tracker);
 }
 

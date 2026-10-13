@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer-core';
 
 // Run the production hooks in Chromium: synthetic DOM key events cannot prove
 // that focusing during keydown keeps the browser's first native character.
-test('composer focus waits for browser typing without changing native-shell focus', async (t) => {
+test('composer focus waits for touch typing and pre-focuses keyboard surfaces', async (t) => {
   const bundle = await build({
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
@@ -81,8 +81,8 @@ test('composer focus waits for browser typing without changing native-shell focu
   const activeId = (page) => page.evaluate(() => document.activeElement.id);
   const leaveInput = (page) => page.evaluate(() => document.activeElement.blur());
 
-  await t.test('web mount, navigation requests, and settled transitions leave focus and scroll alone', async () => {
-    for (const touch of [false, true]) {
+  await t.test('touch mount, navigation requests, and settled transitions leave focus and scroll alone', async () => {
+    for (const touch of [true]) {
       const page = await newPage({ touch });
       await render(page);
       assert.equal(await activeId(page), '');
@@ -176,7 +176,7 @@ test('composer focus waits for browser typing without changing native-shell focu
   });
 
   await t.test('typing follows only the active pane and leaves inactive surfaces alone', async () => {
-    const page = await newPage();
+    const page = await newPage({ touch: true });
     await render(page, { leafId: 'two', focusRequest: 1 });
     await page.keyboard.type('b');
     assert.equal(await activeId(page), 'other');
@@ -229,7 +229,7 @@ test('composer focus waits for browser typing without changing native-shell focu
     assert.equal(await activeId(page), 'title');
   });
 
-  await t.test('window re-entry restores only native non-touch composer focus', async () => {
+  await t.test('window re-entry restores composer focus only on non-touch surfaces', async () => {
     for (const options of [{ native: true }, { native: false }, { native: false, touch: true }]) {
       const page = await newPage(options);
       await render(page);
@@ -238,7 +238,7 @@ test('composer focus waits for browser typing without changing native-shell focu
         window.dispatchEvent(new Event('focus'));
         await new Promise((resolve) => setTimeout(resolve, 10));
       });
-      assert.equal(await activeId(page), options.native ? 'composer' : '');
+      assert.equal(await activeId(page), options.touch ? '' : 'composer');
     }
   });
 });

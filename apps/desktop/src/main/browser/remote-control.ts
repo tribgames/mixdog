@@ -7,6 +7,7 @@ import type { WebContents } from 'electron';
 
 import type {
   DesktopBrowserPageControl,
+  DesktopBrowserTabControlResult,
   DesktopRemoteBrowserControl,
   DesktopRemoteBrowserStreamFrame,
   DesktopRemoteBrowserStreamOptions,
@@ -15,6 +16,7 @@ import type {
 import type { BrowserGuestCdp } from './cdp';
 import type { BrowserRemoteDrive } from './remote-drive';
 import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
+import { controlSessionTab, isSessionTabControl, type SessionTabStrip } from './tabs-close-result';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 
 interface BrowserRemoteControlHost {
@@ -35,6 +37,8 @@ interface BrowserRemoteControlHost {
   publishFrame(frame: DesktopRemoteBrowserStreamFrame): Promise<void>;
   /** Renders a streamed page at the client's viewport, and restores the pane's. */
   drive?: Pick<BrowserRemoteDrive, 'apply' | 'restore'>;
+  /** The session's tab strip, the very one the local pane shows and drives. */
+  tabs?: SessionTabStrip;
 }
 
 /** A subscription not renewed within this window ends the stream. */
@@ -151,9 +155,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
   }
 
   /** Everything a frame reports besides pixels; a change pushes a frame. */
-  function pageSignature(guest: WebContents, documentId: string): string {
+  function pageSignature(guest: WebContents, documentId: string, sessionId: string): string {
     const history = guest.navigationHistory;
     return [
+      JSON.stringify(host.tabs?.list(sessionId) ?? []),
       documentId,
       guest.getURL(),
       guest.getTitle(),
@@ -182,8 +187,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       run.gotFrame = true;
       stream.lastView = { size, viewport };
     }
-    run.signature = pageSignature(guest, run.documentId);
+    run.signature = pageSignature(guest, run.documentId, sessionId);
     const history = guest.navigationHistory;
+    // A metadata-only frame must not discard an image still waiting to go out.
+    const image = data ? { mimeType: 'image/jpeg' as const, data } : stream.pending?.image;
     stream.seq += 1;
     stream.pending = {
       sessionId,
@@ -199,12 +206,8 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       height: size.height,
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
-      // A metadata-only frame must not discard an image still waiting to go out.
-      ...(data
-        ? { image: { mimeType: 'image/jpeg' as const, data } }
-        : stream.pending?.image
-          ? { image: stream.pending.image }
-          : {}),
+      ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
+      ...(image ? { image } : {}),
     };
     schedulePublish(stream);
   }
@@ -221,7 +224,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       if (!run || run.guest.isDestroyed() || streams.get(sessionId) !== stream) return;
       if (browserDocumentId(state, run.guest) !== run.documentId) return;
       // Before the first image there is no viewport to describe; it follows.
-      if (!stream.lastView || pageSignature(run.guest, run.documentId) === run.signature) return;
+      if (!stream.lastView || pageSignature(run.guest, run.documentId, sessionId) === run.signature) return;
       queueFrame(sessionId, stream, run, undefined, stream.lastView.viewport);
     } finally {
       stream.checking = false;
@@ -434,7 +437,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     stopStream(sessionId);
   }
 
-  async function remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
+  async function remoteBrowserControl(
+    sessionId: string,
+    control: DesktopRemoteBrowserControl
+  ): Promise<DesktopBrowserTabControlResult | void> {
     if (control.type === 'viewport') {
       // Only a streaming client drives the page; it resends with each renewal,
       // so a viewport for a lapsed stream is simply dropped.
@@ -446,6 +452,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       await reconcile(sessionId, stream);
       return;
     }
+    if (isSessionTabControl(control)) return controlSessionTab(host.tabs, sessionId, control);
     const guest = await ensureGuest(sessionId, { reveal: false });
     host.onUserControl?.(guest);
     if (

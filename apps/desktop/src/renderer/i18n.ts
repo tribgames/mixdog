@@ -149,6 +149,8 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: {{count}} shells_other': '{{count}} shells',
   'Island: {{count}} files': '{{count}} files',
   'Island: {{count}} files_other': '{{count}} files',
+  'Turn changes: {{count}} files changed': '{{count}} files changed',
+  'Turn changes: {{count}} files changed_other': '{{count}} files changed',
 });
 
 /** Fetch the resolved language and switch onto it. The renderer entry awaits
@@ -181,6 +183,12 @@ export async function initUiLanguage(
 /** All UI formatting follows the loaded catalog, including its English fallback. */
 export function uiFormatLocale(): UiLanguage {
   return uiLanguageForLocale(i18next.language) || 'en';
+}
+
+/** Subscribe to active-language changes (catalog load finishing after first paint, or a switch). */
+export function subscribeUiLanguage(listener: () => void): () => void {
+  i18next.on('languageChanged', listener);
+  return () => i18next.off('languageChanged', listener);
 }
 
 export function t(key: string, options?: Record<string, unknown>): string {

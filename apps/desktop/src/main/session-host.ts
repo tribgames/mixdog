@@ -460,6 +460,7 @@ export class SessionHost implements DesktopService {
 
   async removeProject(projectPath: string): Promise<void> {
     await this.projects.remove(projectPath);
+    if (await this.sessionMetadata.clearProjectAssignments(projectPath)) await this.catalog.publishCatalogs();
   }
 
   async listProjectDir(projectPath: string, relDir: string): Promise<unknown> {
@@ -615,6 +616,10 @@ export class SessionHost implements DesktopService {
     return this.lifecycle.setSessionFavorite(sessionId, favorite);
   }
 
+  async setSessionProject(sessionId: string, projectPath: string | null): Promise<void> {
+    return this.lifecycle.setSessionProject(sessionId, projectPath);
+  }
+
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
     return this.lifecycle.setSessionArchived(sessionId, archived);
   }
@@ -730,9 +735,11 @@ export class SessionHost implements DesktopService {
 
   private sessionCatalog(): DesktopSessionSummary[] {
     return this.sessionMetadata.withReadCursors(
-      this.sessionMetadata.withFavoriteFlags(
-        this.sessionMetadata.withArchiveFlags(
-          desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+      this.sessionMetadata.withProjectAssignments(
+        this.sessionMetadata.withFavoriteFlags(
+          this.sessionMetadata.withArchiveFlags(
+            desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+          )
         )
       )
     );

@@ -1,5 +1,5 @@
 import type { TranscriptItem } from './desktop-types';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
 import { asRecord, oneLine } from './text-format';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -85,16 +85,15 @@ export function toolActivityItemTone(item: TranscriptItem): 'error' | 'warning' 
   const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
   const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
   const partialMutation = callFailedCount > 0 && typeof item.uiDiff === 'string' && Boolean(item.uiDiff.trim());
+  let terminalStatus = '';
+  if (isHookApprovalDenialToolItem(item)) terminalStatus = 'denied';
+  else if (resultTerminalStatus(item.result ?? item.rawResult) === 'cancelled') terminalStatus = 'cancelled';
   const tone = deriveToolOutcomeTone({
     pending: !toolItemDone(item),
     groupCount: count,
     callFailedCount,
     exitFailedCount,
-    terminalStatus: isHookApprovalDenialToolItem(item)
-      ? 'denied'
-      : resultTerminalStatus(item.result ?? item.rawResult) === 'cancelled'
-        ? 'cancelled'
-        : '',
+    terminalStatus,
     partialMutation,
   });
   return tone === 'error' || tone === 'warning' ? tone : 'neutral';
@@ -587,14 +586,15 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
       return count === 1 ? t('List directory') : t('List {{count}} directories', { count });
     case 'Search|Mapped|symbol':
       return count === 1 ? t('Find symbol') : t('Find {{count}} symbols', { count });
+    // File changes always carry their count ("파일 1개 수정"), as commands do.
     case 'Patch|Created|file':
-      return count === 1 ? t('Create file') : t('Create {{count}} files', { count });
+      return t('Create {{count}} files', { count });
     case 'Patch|Edited|file':
-      return count === 1 ? t('Edit file') : t('Edit {{count}} files', { count });
+      return t('Edit {{count}} files', { count });
     case 'Patch|Changed|file':
-      return count === 1 ? t('Change file') : t('Change {{count}} files', { count });
+      return t('Change {{count}} files', { count });
     case 'Patch|Deleted|file':
-      return count === 1 ? t('Delete file') : t('Delete {{count}} files', { count });
+      return t('Delete {{count}} files', { count });
     case 'Web Research|Researched|query':
       return count === 1 ? t('Search web') : t('Search web {{count}} times', { count });
     case 'Web Research|Fetched|URL':
@@ -602,7 +602,7 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
     case 'Web Research|Fetched|message':
       return count === 1 ? t('Fetch message') : t('Fetch {{count}} messages', { count });
     case 'Shell|Ran|command':
-      return count === 1 ? t('Run command') : t('Run {{count}} commands', { count });
+      return t('Run {{count}} commands', { count });
     case 'Git|Ran|Git command':
       return count === 1 ? t('Run Git command') : t('Run {{count}} Git commands', { count });
     case 'Git|Staged|change':
@@ -635,12 +635,25 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
   }
 }
 
-/** The group summary: each work unit summarized as a natural verb phrase
- *  ("Read 6 files · Search code · Run 4 commands"). */
+/** The group summary: each work unit summarized as a natural verb phrase, file
+ *  changes first, then the rest in call order, as one list ("Edit 2 files,
+ *  Read 6 files, Run 4 commands"). A command that failed says so: a lone one
+ *  as "Command failed", otherwise as a closing "N failed". */
 export function desktopToolActivitySummary(items: readonly TranscriptItem[]): string {
   const groups = new Map<string, { unit: ReturnType<typeof desktopToolActivityUnit>; count: number }>();
-  for (const item of flattenedToolActivityItems(items)) {
+  const calls = flattenedToolActivityItems(items);
+  let failedCommands = 0;
+  for (const item of calls) {
     const unit = desktopToolActivityUnit(item.name, item.args);
+    // A stopped command was not a failure: the stop is its own outcome.
+    if (
+      unit.category === 'Shell' &&
+      toolItemDone(item) &&
+      resultTerminalStatus(item.result ?? item.rawResult) !== 'cancelled' &&
+      toolActivityItemTone(item) !== 'neutral'
+    ) {
+      failedCommands += 1;
+    }
     const prev = groups.get(unit.unitKey);
     const added = Math.max(1, Math.round(Number(item.count || 1))) * unit.count;
     if (prev) {
@@ -649,10 +662,15 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[]): st
       groups.set(unit.unitKey, { unit, count: added });
     }
   }
-  return [...groups.values()]
+  const changesFiles = (unitKey: string) => (unitKey.startsWith('Patch|') ? 0 : 1);
+  const phrases = [...groups.values()]
+    .sort((left, right) => changesFiles(left.unit.unitKey) - changesFiles(right.unit.unitKey))
     .map(({ unit, count }) => toolActivitySummaryPhrase(unit, count))
-    .filter(Boolean)
-    .join(' · ');
+    .filter(Boolean);
+  if (failedCommands > 0 && calls.length === 1) return t('Command failed');
+  if (failedCommands > 0) phrases.push(t('{{count}} failed', { count: failedCommands }));
+  // A plain enumeration comma; Japanese and Chinese write theirs as "、".
+  return phrases.join(/^(?:ja|zh)/.test(uiFormatLocale()) ? '、' : ', ');
 }
 
 /** The work-unit name a call is counted under. */

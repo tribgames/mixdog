@@ -3,9 +3,18 @@
 // The Git-repository integration cases live in turn-changes.slow.test.mjs.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import test from 'node:test';
 
 const gitAvailable = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true }).status === 0;
@@ -31,8 +40,17 @@ const {
   revertTurnReview,
   revertTurnReviewFile,
 } = snapshotModule;
-const { CHANGE_STATE_UNKNOWN_REASON, TURN_CHANGE_FILE_PATCH_MAX_BYTES, storedChangeFile, turnChangesReply } =
-  await import('./turn-changes.mjs');
+const {
+  CHANGE_STATE_UNKNOWN_REASON,
+  MERGED_PATCH_MAX_BYTES,
+  NET_TEXT_MAX_BYTES,
+  TURN_CHANGE_FILE_PATCH_MAX_BYTES,
+  currentText,
+  mergeRecordedSessionChanges,
+  storedChangeFile,
+  trackedChangeFile,
+  turnChangesReply,
+} = await import('./turn-changes.mjs');
 const { _setTurnChangeRecordWriteHookForTest, loadTurnChangeRecord, upsertTurnChangeRecord } = await import(
   './turn-snapshot-store.mjs'
 );
@@ -252,6 +270,30 @@ test('Undo/Reapply refreshes a non-Git turn review tracker', { skip }, async () 
   });
 });
 
+test('the session byte budget counts multibyte display patches in UTF-8 bytes', async () => {
+  // Three Korean patches (3 bytes per character): ~46 MB stored, 30 MB once the
+  // largest is dropped — within the 32 MiB budget, so only that one may go.
+  const outside = [5_200_000, 5_100_000, 5_000_000].map((length, index) => ({
+    path: `${base}/outside-ko-${index}.txt`,
+    status: 'M',
+    additions: 1,
+    deletions: 0,
+    viewPatch: '가'.repeat(length),
+  }));
+  const record = await upsertTurnChangeRecord('multibyte-budget', {
+    checkpointId: 'cp',
+    kind: 'git',
+    root: base,
+    files: [],
+    outside,
+  });
+  assert.deepEqual(
+    record.outside.map((file) => file.patchOmitted === true),
+    [true, false, false]
+  );
+  assert.equal(typeof record.outside[1].viewPatch, 'string');
+});
+
 test('files whose patch was dropped for size carry patchOmitted', async () => {
   const sessionId = 'omitted';
   const big = (fill, bytes) => Buffer.from(`diff --git a/${fill} b/${fill}\n${'+'.repeat(bytes)}\n`);
@@ -387,4 +429,455 @@ test('a non-Git turn records exact tracker patches and replays them', { skip }, 
     reply = await reapplyTurnChanges(sessionId, 'cp', path, reply.revision);
   }
   assert.deepEqual(readTree(root, paths), after);
+});
+
+/** One sealed non-Git turn: `before` states are what the tool recorded, the
+ *  worktree is edited to the `after` states. */
+async function trackedTurn(sessionId, root, checkpointId, edits) {
+  await beginTurnSnapshot(root, sessionId, { checkpointId });
+  recordTurnDiffChanges(
+    sessionId,
+    edits.map(({ path, before, after, displayPath }) => ({
+      path: isAbsolute(path) ? path : join(root, path),
+      displayPath: displayPath ?? path,
+      before,
+      after,
+    }))
+  );
+  await completeTurnSnapshot(sessionId);
+}
+
+const sessionRoot = (name) => {
+  const root = join(base, `session-${name}`);
+  mkdirSync(root, { recursive: true });
+  return root;
+};
+const reviewShape = (review) =>
+  review.files.map((file) => [file.path, file.oldPath || '', file.status, file.additions, file.deletions]);
+/** The review before and after a runtime restart (in-memory trackers gone). */
+async function reviewTwice(root, sessionId) {
+  const live = await getSessionReviewDiff(root, sessionId);
+  _resetTurnSnapshotForTest();
+  return [live, await getSessionReviewDiff(root, sessionId)];
+}
+
+test('the session review lists a non-Git session from its records, outside files with their diff', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-recorded';
+  const root = sessionRoot(sessionId);
+  const outside = join(base, `outside-${sessionId}`, 'outside-note.txt');
+  mkdirSync(dirname(outside), { recursive: true });
+  writeFileSync(join(root, 'note.txt'), 'one\ntwo\nthree');
+  writeFileSync(outside, 'out\n');
+  await trackedTurn(sessionId, root, 'cp', [
+    { path: 'note.txt', before: null, after: 'one\ntwo\nthree' },
+    { path: outside, displayPath: outside, before: null, after: 'out\n' },
+  ]);
+  const turn = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  const [live, restarted] = await reviewTwice(root, sessionId);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+  assert.equal(restarted.complete, true);
+  assert.equal(restarted.source, undefined);
+  const outsideFile = restarted.files.find((file) => file.path !== 'note.txt');
+  assert.deepEqual([outsideFile.status, outsideFile.additions, outsideFile.reason], ['A', 1, undefined]);
+  assert.ok(restarted.patch.includes(`diff --git a/${outsideFile.path} b/${outsideFile.path}\n`));
+  assert.ok(restarted.patch.includes('+out\n'));
+  assert.deepEqual(restarted.files.map((file) => file.path).sort(), turn.files.map((file) => file.path).sort());
+});
+
+test('session review nets turns: create then delete leaves nothing, edits across turns are one diff', {
+  skip,
+}, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-net';
+  const root = sessionRoot(sessionId);
+  const ten = Array.from({ length: 10 }, (_, index) => `line ${index}`).join('\n');
+  writeTree(root, { 'edit.txt': 'head\n' });
+  // Turn 1: create tmp.txt and extend edit.txt by ten lines.
+  writeTree(root, { 'tmp.txt': 'x\n', 'edit.txt': `head\n${ten}\n` });
+  await trackedTurn(sessionId, root, 'cp-1', [
+    { path: 'tmp.txt', before: null, after: 'x\n' },
+    { path: 'edit.txt', before: 'head\n', after: `head\n${ten}\n` },
+  ]);
+  // Turn 2: delete tmp.txt and change one line of edit.txt.
+  writeTree(root, { 'tmp.txt': null, 'edit.txt': `HEAD\n${ten}\n` });
+  await trackedTurn(sessionId, root, 'cp-2', [
+    { path: 'tmp.txt', before: 'x\n', after: null },
+    { path: 'edit.txt', before: `head\n${ten}\n`, after: `HEAD\n${ten}\n` },
+  ]);
+  const [live, restarted] = await reviewTwice(root, sessionId);
+  // head→HEAD plus ten new lines: net +11 −1, never +1 −1 nor +10 +1.
+  assert.deepEqual(reviewShape(restarted), [['edit.txt', '', 'M', 11, 1]]);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+  assert.equal(restarted.patch.includes('tmp.txt'), false);
+});
+
+test('session review keeps a rename as one R entry with its old path', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-rename';
+  const root = sessionRoot(sessionId);
+  writeTree(root, { 'new.txt': 'same\ncontent\n' });
+  // A tool-reported rename (path → newPath) with identical content: a PURE
+  // rename must stay listed, never netted to nothing.
+  await beginTurnSnapshot(root, sessionId, { checkpointId: 'cp' });
+  recordTurnDiffChanges(sessionId, [
+    {
+      path: join(root, 'old.txt'),
+      displayPath: 'old.txt',
+      before: 'same\ncontent\n',
+      after: 'same\ncontent\n',
+      newPath: join(root, 'new.txt'),
+      newDisplayPath: 'new.txt',
+    },
+  ]);
+  await completeTurnSnapshot(sessionId);
+  const [live, restarted] = await reviewTwice(root, sessionId);
+  assert.deepEqual(reviewShape(restarted), [['new.txt', 'old.txt', 'R', 0, 0]]);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+  assert.ok(restarted.patch.includes('rename from old.txt\nrename to new.txt'));
+});
+
+test('a rename followed by an edit nets to one R entry with the combined diff', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-rename-edit';
+  const root = sessionRoot(sessionId);
+  writeTree(root, { 'new.txt': 'same\ncontent\nmore\n' });
+  await beginTurnSnapshot(root, sessionId, { checkpointId: 'cp-1' });
+  recordTurnDiffChanges(sessionId, [
+    {
+      path: join(root, 'old.txt'),
+      displayPath: 'old.txt',
+      before: 'same\ncontent\n',
+      after: 'same\ncontent\n',
+      newPath: join(root, 'new.txt'),
+      newDisplayPath: 'new.txt',
+    },
+  ]);
+  await completeTurnSnapshot(sessionId);
+  await trackedTurn(sessionId, root, 'cp-2', [
+    { path: 'new.txt', before: 'same\ncontent\n', after: 'same\ncontent\nmore\n' },
+  ]);
+  const [live, restarted] = await reviewTwice(root, sessionId);
+  assert.deepEqual(reviewShape(restarted), [['new.txt', 'old.txt', 'R', 1, 0]]);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+});
+
+test('a plain delete and a plain add stay two entries', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-delete-add';
+  const root = sessionRoot(sessionId);
+  writeTree(root, { 'new.txt': 'same\n', 'old.txt': null });
+  await trackedTurn(sessionId, root, 'cp', [
+    { path: 'old.txt', before: 'same\n', after: null },
+    { path: 'new.txt', before: null, after: 'same\n' },
+  ]);
+  const [, restarted] = await reviewTwice(root, sessionId);
+  assert.deepEqual(
+    reviewShape(restarted).map(([path, , status]) => [path, status]),
+    [
+      ['new.txt', 'A'],
+      ['old.txt', 'D'],
+    ]
+  );
+});
+
+test('session review follows Undo and Reapply of a recorded turn', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-undo';
+  const root = sessionRoot(sessionId);
+  writeTree(root, { 'a.txt': 'A\n' });
+  await trackedTurn(sessionId, root, 'cp', [{ path: 'a.txt', before: 'a\n', after: 'A\n' }]);
+  writeTree(root, { 'a.txt': 'A\n' });
+  const reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  const reverted = await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.deepEqual(reviewShape(await getSessionReviewDiff(root, sessionId)), []);
+  const reapplied = await reapplyTurnChanges(sessionId, 'cp', null, reverted.revision);
+  assert.equal(reapplied.files[0].state, 'applied');
+  assert.deepEqual(reviewShape(await getSessionReviewDiff(root, sessionId)), [['a.txt', '', 'M', 1, 1]]);
+  _resetTurnSnapshotForTest();
+  assert.deepEqual(reviewShape(await getSessionReviewDiff(root, sessionId)), [['a.txt', '', 'M', 1, 1]]);
+});
+
+test('session review keys by root: two roots with the same relative path stay two files', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-roots';
+  const first = sessionRoot('roots-a');
+  const second = sessionRoot('roots-b');
+  writeTree(first, { 'x.txt': 'one\n' });
+  writeTree(second, { 'x.txt': 'two\n' });
+  await trackedTurn(sessionId, first, 'cp-1', [{ path: 'x.txt', before: null, after: 'one\n' }]);
+  await trackedTurn(sessionId, second, 'cp-2', [{ path: 'x.txt', before: null, after: 'two\n' }]);
+  const [live, restarted] = await reviewTwice(first, sessionId);
+  for (const review of [live, restarted]) {
+    assert.equal(review.files.length, 2);
+    assert.equal(review.patch.split('new file mode').length - 1, 2);
+    // Distinct ids and distinguishable display paths (the same relative name
+    // is shown absolute), each file keeping its own diff.
+    assert.equal(new Set(review.files.map((file) => file.id)).size, 2);
+    assert.equal(new Set(review.files.map((file) => file.path)).size, 2);
+    assert.ok(review.files.every((file) => file.path.endsWith('/x.txt') && file.path !== 'x.txt'));
+    assert.ok(review.files.every((file) => file.outside === false));
+    for (const file of review.files) assert.ok(review.patch.includes(`diff --git a/${file.path} b/${file.path}\n`));
+  }
+});
+
+test('an old record without before-text or display patch still lists its file for the island fallback', {
+  skip,
+}, async () => {
+  const legacy = {
+    checkpointId: 'old',
+    kind: 'tracked',
+    root: join(base, 'legacy-root'),
+    files: [
+      {
+        path: 'C:/x/legacy.txt',
+        status: 'A',
+        additions: 0,
+        deletions: 0,
+        revertable: false,
+        reason: 'file is outside the recorded root',
+        patch: null,
+        state: 'applied',
+      },
+      {
+        path: 'kept.txt',
+        status: 'A',
+        additions: 3,
+        deletions: 0,
+        revertable: true,
+        patch:
+          'diff --git a/kept.txt b/kept.txt\nnew file mode 100644\n--- /dev/null\n+++ b/kept.txt\n@@ -0,0 +1,3 @@\n+a\n+b\n+c\n',
+        patchEncoding: 'utf8',
+        state: 'applied',
+      },
+    ],
+  };
+  const merged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, [
+    legacy,
+  ]);
+  const byPath = Object.fromEntries(merged.files.map((file) => [file.path, file]));
+  assert.equal(byPath['C:/x/legacy.txt'].unmeasured, true);
+  assert.equal(byPath['kept.txt'].additions, 3);
+  assert.equal(merged.complete, true);
+  // Absent history with nothing recorded is neither complete nor an invented
+  // empty set: the transcript may still know more.
+  const absent = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, []);
+  assert.deepEqual([absent.supported, absent.files, absent.complete], [true, [], undefined]);
+  const emptyKnown = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'empty' }, []);
+  assert.equal(emptyKnown.complete, true);
+  // A missing baseline with nothing recorded stays unavailable, not empty.
+  const unavailable = await mergeRecordedSessionChanges(
+    { supported: false, files: [], patch: '', source: 'unavailable', reason: 'r' },
+    []
+  );
+  assert.equal(unavailable.supported, false);
+});
+test('the merged review stays under its patch budget and lists a file past it without its diff', { skip }, async () => {
+  const big = (name) => ({
+    path: name,
+    status: 'A',
+    additions: 1,
+    deletions: 0,
+    revertable: true,
+    patch: `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1 @@\n+${'x'.repeat(1_500_000)}\n`,
+    patchEncoding: 'utf8',
+    state: 'applied',
+  });
+  const merged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, [
+    { checkpointId: 'big', kind: 'tracked', root: join(base, 'big-root'), files: [big('a.txt'), big('b.txt')] },
+  ]);
+  assert.equal(merged.files.length, 2);
+  assert.equal(merged.files.filter((file) => file.patchOmitted === true).length, 1);
+  assert.equal(merged.patchTruncated, true);
+  assert.ok(Buffer.byteLength(merged.patch, 'utf8') <= MERGED_PATCH_MAX_BYTES);
+  // The budget counts bytes, not characters: multi-byte text fills it sooner.
+  const wide = (name) => ({ ...big(name), patch: big(name).patch.replace(/x{100,}/, '한'.repeat(500_000)) });
+  const wideMerged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'absent' }, [
+    { checkpointId: 'wide', kind: 'tracked', root: join(base, 'wide-root'), files: [wide('a.txt'), wide('b.txt')] },
+  ]);
+  assert.equal(wideMerged.files.filter((file) => file.patchOmitted === true).length, 1);
+});
+
+test('a legacy outside file is measured from disk for the session review and the turn card', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-legacy-outside';
+  const root = sessionRoot(sessionId);
+  const outside = join(base, `legacy-outside-${seq++}`, 'outside-note.txt').replaceAll('\\', '/');
+  mkdirSync(dirname(outside), { recursive: true });
+  writeFileSync(outside, 'Single line of text');
+  await upsertTurnChangeRecord(sessionId, {
+    checkpointId: 'cp',
+    kind: 'tracked',
+    root,
+    files: [
+      {
+        path: outside,
+        status: 'A',
+        additions: 0,
+        deletions: 0,
+        revertable: false,
+        reason: 'file is outside the recorded root',
+        patch: null,
+      },
+    ],
+  });
+  const review = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual(reviewShape(review), [[outside, '', 'A', 1, 0]]);
+  assert.ok(review.patch.includes('+Single line of text'));
+  const card = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.equal(card.files[0].additions, 1);
+});
+test('the turn reply flags a file whose record kept no counts as unmeasured', { skip }, () => {
+  const reply = turnChangesReply({
+    status: 'ready',
+    checkpointId: 'cp',
+    record: {
+      files: [
+        {
+          path: 'C:/o/x.txt',
+          status: 'A',
+          additions: 0,
+          deletions: 0,
+          revertable: false,
+          patch: null,
+          state: 'applied',
+        },
+        { path: 'k.txt', status: 'A', additions: 2, deletions: 0, revertable: false, patch: null, state: 'applied' },
+      ],
+    },
+  });
+  assert.deepEqual(
+    reply.files.map((file) => file.unmeasured),
+    [true, undefined]
+  );
+});
+
+test('no before-text is persisted in a change record', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-no-base';
+  const root = sessionRoot(sessionId);
+  const outside = join(base, `nobase-outside`, 'o.txt');
+  mkdirSync(dirname(outside), { recursive: true });
+  writeFileSync(outside, 'secret before\nplus\n');
+  writeTree(root, { 'a.txt': 'secret in-root after\n' });
+  await trackedTurn(sessionId, root, 'cp', [
+    { path: 'a.txt', before: 'secret in-root before\n', after: 'secret in-root after\n' },
+    { path: outside, displayPath: outside, before: 'secret before\n', after: 'secret before\nplus\n' },
+  ]);
+  const record = await loadTurnChangeRecord(sessionId, 'cp');
+  const text = JSON.stringify(record);
+  assert.equal(/baseText|baseKnown/.test(text), false);
+  assert.ok(record.files.every((file) => !('baseText' in file) && !('baseKnown' in file)));
+  // An old record that still carries one is ignored, and the file still nets.
+  const legacy = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'empty' }, [
+    { ...record, files: record.files.map((file) => ({ ...file, baseKnown: true, baseText: 'WRONG\n' })) },
+  ]);
+  assert.deepEqual(
+    legacy.files.filter((file) => file.path === 'a.txt').map((file) => [file.additions, file.deletions]),
+    [[1, 1]]
+  );
+  assert.equal(legacy.patch.includes('WRONG'), false);
+});
+
+test('the net review rebuilds the original by reverse-applying the recorded patches', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'review-reverse';
+  const root = sessionRoot(sessionId);
+  writeTree(root, { 'doc.txt': 'a\nB\nc\nd\n' });
+  await trackedTurn(sessionId, root, 'cp-1', [{ path: 'doc.txt', before: 'a\nb\nc\n', after: 'a\nB\nc\n' }]);
+  writeTree(root, { 'doc.txt': 'a\nB\nc\nd\n' });
+  await trackedTurn(sessionId, root, 'cp-2', [{ path: 'doc.txt', before: 'a\nB\nc\n', after: 'a\nB\nc\nd\n' }]);
+  const [live, restarted] = await reviewTwice(root, sessionId);
+  assert.deepEqual(reviewShape(restarted), [['doc.txt', '', 'M', 2, 1]]);
+  assert.deepEqual(reviewShape(live), reviewShape(restarted));
+  // The file changed behind the records' back: the patches no longer match,
+  // so the review falls back to the per-turn diffs instead of inventing one.
+  writeTree(root, { 'doc.txt': 'totally\ndifferent\n' });
+  const fallback = await getSessionReviewDiff(root, sessionId);
+  assert.deepEqual(reviewShape(fallback), [['doc.txt', '', 'M', 2, 1]]);
+});
+
+test('the net review never reads through a link out of the root, and reads files only up to a bound', {
+  skip,
+}, async () => {
+  const root = sessionRoot('links');
+  const elsewhere = join(base, 'links-elsewhere');
+  mkdirSync(elsewhere, { recursive: true });
+  writeFileSync(join(elsewhere, 'secret.txt'), 'outside the root\n');
+  writeFileSync(join(root, 'plain.txt'), 'inside\n');
+  let linked = true;
+  try {
+    symlinkSync(elsewhere, join(root, 'junction'), 'junction');
+  } catch {
+    linked = false;
+  }
+  assert.equal(await currentText(root, 'plain.txt'), 'inside\n');
+  assert.equal(await currentText(root, 'missing.txt'), null);
+  if (linked) assert.equal(await currentText(root, 'junction/secret.txt'), undefined);
+  // An outside file is read only at its exact recorded path, never through a link.
+  const outsideFile = join(elsewhere, 'secret.txt');
+  assert.equal(await currentText(root, outsideFile), 'outside the root\n');
+  try {
+    symlinkSync(outsideFile, join(elsewhere, 'alias.txt'), 'file');
+    assert.equal(await currentText(root, join(elsewhere, 'alias.txt')), undefined);
+  } catch {}
+  // Bounded: the size is checked first and a larger file is never netted.
+  writeFileSync(join(root, 'exact.txt'), 'x'.repeat(NET_TEXT_MAX_BYTES));
+  writeFileSync(join(root, 'big.txt'), 'x'.repeat(NET_TEXT_MAX_BYTES + 1));
+  assert.equal((await currentText(root, 'exact.txt')).length, NET_TEXT_MAX_BYTES);
+  assert.equal(await currentText(root, 'big.txt'), undefined);
+  assert.equal(await currentText(root, '.'), undefined);
+});
+
+test('the per-turn fallback re-heads each patch with the emitted path, so two roots stay two rows', {
+  skip,
+}, async () => {
+  const patch = (line) =>
+    `diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+${line}\n`;
+  const entry = (line) => ({
+    path: 'x.txt',
+    status: 'A',
+    additions: 1,
+    deletions: 0,
+    revertable: true,
+    patch: patch(line),
+    patchEncoding: 'utf8',
+    state: 'applied',
+  });
+  const first = join(base, 'fallback-a');
+  const second = join(base, 'fallback-b');
+  const merged = await mergeRecordedSessionChanges({ supported: true, files: [], patch: '', source: 'empty' }, [
+    { checkpointId: 'fa', kind: 'tracked', root: first, files: [entry('one')] },
+    { checkpointId: 'fb', kind: 'tracked', root: second, files: [entry('two')] },
+  ]);
+  assert.equal(merged.files.length, 2);
+  for (const file of merged.files) {
+    assert.ok(file.path.endsWith('/x.txt') && file.path !== 'x.txt');
+    assert.ok(merged.patch.includes(`diff --git a/${file.path} b/${file.path}\n`));
+    assert.ok(merged.patch.includes(`+++ b/${file.path}\n`));
+  }
+  assert.equal(merged.patch.includes('a/x.txt b/x.txt'), false);
+});
+
+test('a file under a parent junction is not read, nor is NUL content diffed as text', { skip }, async () => {
+  const root = sessionRoot('parent-link');
+  const real = join(base, 'parent-link-real');
+  mkdirSync(real, { recursive: true });
+  writeFileSync(join(real, 'f.txt'), 'via the real path\n');
+  const alias = join(base, 'parent-link-alias');
+  let linked = true;
+  try {
+    symlinkSync(real, alias, 'junction');
+  } catch {
+    linked = false;
+  }
+  assert.equal(await currentText(root, join(real, 'f.txt')), 'via the real path\n');
+  if (linked) assert.equal(await currentText(root, join(alias, 'f.txt')), undefined);
+  writeFileSync(join(root, 'bin.dat'), Buffer.from('text\0more\n'));
+  assert.equal(await currentText(root, 'bin.dat'), undefined);
+  const file = trackedChangeFile({ oldPath: 'bin.dat', newPath: 'bin.dat', before: null, after: Buffer.from('a\0b') });
+  assert.equal(file.binary, true);
+  assert.equal(file.revertable, false);
 });

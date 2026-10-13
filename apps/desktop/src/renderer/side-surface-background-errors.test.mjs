@@ -18,7 +18,7 @@ const source = (name) => readFile(new URL(name, import.meta.url), 'utf8');
 
 test('side panel background reads do not escalate into red notifications', async () => {
   const [app, projectCatalog, schedules, webhooks, workflows] = await Promise.all([
-    source('./App.tsx'),
+    source('./app-root/use-app-session-commands.ts'),
     source('./use-app-project-catalog.ts'),
     source('./SchedulesView.tsx'),
     source('./WebhooksView.tsx'),

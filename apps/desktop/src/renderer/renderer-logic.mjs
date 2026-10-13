@@ -321,6 +321,88 @@ export function parseUnifiedDiff(patch) {
   return sections.map(parseFileSection);
 }
 
+// Lines a patch adds and removes, counted inside its hunks only, so file
+// headers ("--- a/x", "+++ b/x") never count as changed lines.
+export function patchLineCounts(patch) {
+  let additions = 0;
+  let deletions = 0;
+  for (const file of parseUnifiedDiff(patch)) {
+    for (const hunk of file.hunks) {
+      for (const line of hunk.split('\n').slice(1)) {
+        if (line.startsWith('+')) additions += 1;
+        else if (line.startsWith('-')) deletions += 1;
+      }
+    }
+  }
+  return { additions, deletions };
+}
+
+// First `max` lines of a patch that still parses: a cut inside a hunk leaves
+// header counts the diff view rejects (it then fell back to raw text), so the
+// last hunk's counts are rewritten to the lines kept, and a file section left
+// without any hunk body is dropped.
+export function capPatchLines(patch, max) {
+  const lines = String(patch || '').split('\n');
+  // A "\ No newline at end of file" marker is not a drawn row: a patch whose
+  // drawn rows fit is not cut, however many markers it carries.
+  if (lines.filter((line) => !line.startsWith('\\')).length <= max) return { text: patch, cut: false };
+  const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+  // Walk the patch by its own structure: a hunk owns exactly the rows its
+  // header counts, and everything outside hunks is a file's header block.
+  let drawn = 0;
+  let index = 0;
+  let headerStart = 0; // first line of the file header block being read
+  let fileHasHunk = false;
+  let hunk = null; // { at, oldLeft, newLeft }
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (hunk && (hunk.oldLeft > 0 || hunk.newLeft > 0)) {
+      if (!line.startsWith('\\')) {
+        if (drawn >= max) break;
+        drawn += 1;
+      }
+      if (line.startsWith('+')) hunk.newLeft -= 1;
+      else if (line.startsWith('-')) hunk.oldLeft -= 1;
+      else if (!line.startsWith('\\')) {
+        hunk.oldLeft -= 1;
+        hunk.newLeft -= 1;
+      }
+      continue;
+    }
+    if (line.startsWith('\\')) continue;
+    const header = HUNK.exec(line);
+    if (drawn >= max) break;
+    drawn += 1;
+    if (header) {
+      hunk = { at: index, oldLeft: Number(header[2] ?? 1), newLeft: Number(header[4] ?? 1) };
+      fileHasHunk = true;
+    } else if (hunk || line.startsWith('diff --git ')) {
+      // A non-hunk line after a finished hunk opens the next file's header.
+      if (hunk || fileHasHunk) headerStart = index;
+      hunk = null;
+      fileHasHunk = false;
+    }
+  }
+  const kept = lines.slice(0, index);
+  if (hunk && (hunk.oldLeft > 0 || hunk.newLeft > 0)) {
+    // Cut inside a hunk: count what was kept, or drop a hunk left bodiless.
+    const body = kept.slice(hunk.at + 1).filter((line) => !line.startsWith('\\'));
+    const header = HUNK.exec(kept[hunk.at]);
+    if (body.length === 0) {
+      const earlierHunk = kept.slice(headerStart, hunk.at).some((line) => HUNK.test(line));
+      kept.length = earlierHunk ? hunk.at : headerStart;
+    } else if (header) {
+      const oldCount = body.filter((line) => !line.startsWith('+')).length;
+      const newCount = body.filter((line) => !line.startsWith('-')).length;
+      kept[hunk.at] = `@@ -${header[1]},${oldCount} +${header[3]},${newCount} @@${header[5]}`;
+    }
+  } else if (!hunk) {
+    // Cut inside a file's header block, before any of its hunks: drop it.
+    kept.length = headerStart;
+  }
+  return { text: kept.join('\n'), cut: true };
+}
+
 // Startup/reload navigation restore plan. The persisted LAST VIEWED selection
 // (localStorage) outranks the host engine's current session: the engine-first
 // order made every renderer reload (crash recovery, dev HMR) yank a draft or

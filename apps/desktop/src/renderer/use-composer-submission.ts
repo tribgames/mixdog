@@ -14,6 +14,7 @@ import { asRecord } from './text-format';
 import { hasSendablePromptContent, shouldBlockPromptSubmit } from './renderer-logic.mjs';
 import { registerSentAttachments, sentAttachmentData } from './attachment-menu';
 import { t } from './i18n';
+import { discardSentImages, stageSentImages } from './image-preview-store';
 import { registerImagePreview } from './transcript-metrics';
 import { MAX_SUBMIT_TEXT_LENGTH, type ComposerAttachment } from './composer-support';
 import {
@@ -92,12 +93,53 @@ export function buildSubmissionContent(submittedDraft: string, submittedAttachme
 }
 
 /** The visualize feedback block goes right after the user's own text. */
-export function withFeedbackText(content: DesktopPromptContent, expandedText: string, text: string): DesktopPromptContent {
+export function withFeedbackText(
+  content: DesktopPromptContent,
+  expandedText: string,
+  text: string
+): DesktopPromptContent {
   if (!text) return content;
   if (typeof content === 'string') return [content, text].filter(Boolean).join('\n\n');
   const parts = [...content];
   parts.splice(expandedText ? 1 : 0, 0, { type: 'text', text });
   return parts;
+}
+
+function attachmentDataUrl(attachment: ComposerAttachment): string {
+  return `data:${attachment.mimeType};base64,${attachment.data}`;
+}
+
+/** The content of a non-slash send: the draft and attachments with the
+ *  session's visualize feedback folded in. */
+function prepareMessageSubmission(
+  submittedDraft: string,
+  submittedAttachments: ComposerAttachment[],
+  feedback: ReturnType<typeof visualizeFeedbackFor>,
+  hasFeedback: boolean
+) {
+  // Crops become image attachments numbered past the composer's own.
+  const visualizePrompt = hasFeedback
+    ? visualizeFeedbackPrompt(
+        feedback,
+        submittedAttachments.reduce((max, attachment) => Math.max(max, attachment.id), 0) + 1
+      )
+    : null;
+  const feedbackImages: ComposerAttachment[] = visualizePrompt?.images ?? [];
+  const feedbackImageIds = new Set(feedbackImages.map((attachment) => attachment.id));
+  const built = buildSubmissionContent(submittedDraft, [...submittedAttachments, ...feedbackImages]);
+  const feedbackText = visualizePrompt?.text ?? '';
+  return {
+    expandedText: built.expandedText,
+    pastedImages: built.pastedImages,
+    pastedTexts: built.pastedTexts,
+    imageAttachments: built.imageAttachments,
+    content: withFeedbackText(built.content, built.expandedText, feedbackText),
+    visualizePrompt,
+    feedbackText,
+    // The crops stay with the feedback store (kept there on a failed send),
+    // never in the composer's own recovery or history.
+    committedAttachments: built.used.filter((attachment) => !feedbackImageIds.has(attachment.id)),
+  };
 }
 
 export function useComposerSubmission({
@@ -227,39 +269,20 @@ export function useComposerSubmission({
           return;
         }
         setAttachmentError('');
-        // Crops become image attachments numbered past the composer's own.
-        const visualizePrompt = hasFeedback
-          ? visualizeFeedbackPrompt(
-              feedback,
-              submittedAttachments.reduce((max, attachment) => Math.max(max, attachment.id), 0) + 1
-            )
-          : null;
-        const feedbackImages: ComposerAttachment[] = visualizePrompt?.images ?? [];
-        const feedbackImageIds = new Set(feedbackImages.map((attachment) => attachment.id));
         const {
           expandedText,
-          used,
           pastedImages,
           pastedTexts,
           imageAttachments,
-          content: userContent,
-        } = buildSubmissionContent(submittedDraft, [...submittedAttachments, ...feedbackImages]);
-        const feedbackText = visualizePrompt?.text ?? '';
-        const content = withFeedbackText(userContent, expandedText, feedbackText);
-        for (const attachment of imageAttachments) {
-          registerImagePreview(
-            attachment.id,
-            base64Bytes(attachment.data),
-            `data:${attachment.mimeType};base64,${attachment.data}`
-          );
-        }
+          content,
+          visualizePrompt,
+          feedbackText,
+          committedAttachments,
+        } = prepareMessageSubmission(submittedDraft, submittedAttachments, feedback, hasFeedback);
         if (expandedText.length + feedbackText.length > MAX_SUBMIT_TEXT_LENGTH) {
           setAttachmentError('This prompt is too large to send. Remove or shorten an inline text attachment.');
           return;
         }
-        // The crops stay with the feedback store (kept there on a failed send),
-        // never in the composer's own recovery or history.
-        const committedAttachments = used.filter((attachment) => !feedbackImageIds.has(attachment.id));
         const retryKey = submissionRetryKey(
           JSON.stringify(feedbackText ? [selectedSkill, expandedText, feedbackText] : [selectedSkill, expandedText]),
           committedAttachments
@@ -272,6 +295,15 @@ export function useComposerSubmission({
           .join('\n');
         const priorRetry = submissionRetryRef.current;
         const submissionId = priorRetry?.key === retryKey ? priorRetry.id : nextComposerSubmissionId();
+        // Keyed by this submission, unique across chats: attachment ids restart at 1.
+        for (const attachment of imageAttachments) {
+          registerImagePreview(
+            submissionId,
+            attachment.id,
+            base64Bytes(attachment.data),
+            attachmentDataUrl(attachment)
+          );
+        }
         retainComposerSubmissionRecovery({
           id: submissionId,
           scope: recoveryScope,
@@ -285,6 +317,15 @@ export function useComposerSubmission({
           rejectComposerSubmissionRecovery(submissionId);
           if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
         };
+        // Durable thumbnails wait here; the message's row saves them under its
+        // session and stable messageId once it renders.
+        stageSentImages(
+          submissionId,
+          imageAttachments.map((attachment) => ({
+            line: attachment.metadataText ?? '',
+            dataUrl: attachmentDataUrl(attachment),
+          }))
+        );
         let accepted: unknown;
         try {
           accepted = await submit(withSelectedSkill(content, selectedSkill), {
@@ -294,6 +335,7 @@ export function useComposerSubmission({
             ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
           });
         } catch (error) {
+          discardSentImages(submissionId);
           submissionRetryRef.current = { key: retryKey, id: submissionId };
           restoreSubmitted();
           throw error;
@@ -309,6 +351,7 @@ export function useComposerSubmission({
         } else {
           // Refused: the draft comes back and the visualize chips stay; say
           // so, rather than leave an emptied composer and no message.
+          discardSentImages(submissionId);
           submissionRetryRef.current = { key: retryKey, id: submissionId };
           restoreSubmitted();
           setAttachmentError(t('The message was not sent. It has been kept for retry.'));

@@ -1,11 +1,11 @@
 import { FoldVertical, GitFork, ListTree, X } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { DesktopModelSelection } from '../shared/contract';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
 import { cachedAutoEffortCapable, useAutoEffortShown } from './auto-effort-store';
-import { t, uiFormatLocale } from './i18n';
+import { subscribeUiLanguage, t, uiFormatLocale } from './i18n';
 import { modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
 import { liveAgentRows } from './agent-activity-model';
@@ -16,8 +16,7 @@ import { inheritSessionDirectly, sessionModelSelection, shouldOfferSessionInheri
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
 import { completionTone, formatTokenCount, TextShimmer } from './transcript-primitives';
 import { localizedTurnFailureReason } from './transcript-failure-text';
-// @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../../../../src/tui/spinner-verbs.mjs';
+import { activityVerb, thinkingEffortLabel } from './activity-verbs';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
@@ -86,10 +85,9 @@ export function ContextUsageIndicator({
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onViewDetails?: () => void;
 }) {
-  // The card hangs 6px off the gauge, so the pointer heading for it leaves the
-  // gauge first; the shared hover contract holds the card through that trip
-  // instead of closing on the frame the pointer crosses the gap.
-  const popover = useHoverPopover({ open: controlledOpen, onOpenChange });
+  // Click-only like the other composer chips: hovering past the gauge must not
+  // surface the compact and inherit actions.
+  const popover = useHoverPopover({ open: controlledOpen, onOpenChange, hoverOpens: false });
   const popoverOpen = popover.open;
   const context = contextMetrics(snapshot);
   const descriptionId = `context-usage-${String(snapshot.sessionId || 'session')}`;
@@ -163,84 +161,87 @@ export function ContextUsageIndicator({
         </svg>
       </button>
       {context && (
-        <div className="session-context-popover" id={descriptionId} role="tooltip">
-          <div className="context-popover-header">
-            <span>{t('Context')}</span>
-            <b>{context.percent == null ? '—' : `${context.percent}%`}</b>
-          </div>
-          <div>
-            <span>{t('Usage')}</span>
-            <b title={contextUsageTitle(context)}>{contextUsageText(context)}</b>
-          </div>
-          {cost > 0 && (
-            <div>
-              <span>{t('Cost')}</span>
-              <b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b>
-            </div>
-          )}
-          {onViewDetails && (
-            <button
-              type="button"
-              className="context-action context-details"
-              onClick={() => {
-                popover.close();
-                onViewDetails();
-              }}
-            >
-              <ListTree size={14} aria-hidden="true" />
-              {t('View context details')}
-            </button>
-          )}
-          {/* One mutating action at a time: a model switch offers inheritance;
-          a completed handover or matching model offers plain compaction. */}
-          {offerInheritance ? (
-            <button
-              type="button"
-              className="context-action context-inherit"
-              disabled={actionBusy}
-              onClick={() => {
-                void inherit();
-              }}
-            >
-              <GitFork size={14} aria-hidden="true" />
-              {t('Inherit session')}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="context-action context-compact"
-              disabled={actionBusy}
-              onClick={() => {
-                void compact();
-              }}
-            >
-              <FoldVertical size={14} aria-hidden="true" />
-              {t('Compact context')}
-            </button>
-          )}
-        </div>
+        <ContextUsagePopover
+          context={context}
+          id={descriptionId}
+          cost={cost}
+          onViewDetails={
+            onViewDetails &&
+            (() => {
+              popover.close();
+              onViewDetails();
+            })
+          }
+          offerInheritance={offerInheritance}
+          actionBusy={actionBusy}
+          onInherit={() => {
+            void inherit();
+          }}
+          onCompact={() => {
+            void compact();
+          }}
+        />
       )}
     </div>
   );
 }
 
-const LOCALIZED_ACTIVITY_VERBS: string[] = [
-  'Thinking',
-  'Pondering',
-  'Musing',
-  'Mulling',
-  'Ruminating',
-  'Contemplating',
-  'Considering',
-  'Deliberating',
-  'Cogitating',
-  'Inferring',
-  'Ideating',
-  'Envisioning',
-];
-
-function activityVerbPool(): string[] {
-  return t('Thinking') === 'Thinking' ? (SPINNER_VERBS as string[]) : LOCALIZED_ACTIVITY_VERBS;
+function ContextUsagePopover({
+  context,
+  id,
+  cost,
+  onViewDetails,
+  offerInheritance,
+  actionBusy,
+  onInherit,
+  onCompact,
+}: {
+  context: NonNullable<ReturnType<typeof contextMetrics>>;
+  id: string;
+  cost: number;
+  onViewDetails?: () => void;
+  offerInheritance: boolean;
+  actionBusy: boolean;
+  onInherit: () => void;
+  onCompact: () => void;
+}) {
+  return (
+    <div className="session-context-popover" id={id} role="tooltip">
+      <div className="context-popover-header">
+        <span>{t('Context')}</span>
+        <b>{context.percent == null ? '—' : `${context.percent}%`}</b>
+      </div>
+      <div>
+        <span>{t('Usage')}</span>
+        <b title={contextUsageTitle(context)}>{contextUsageText(context)}</b>
+      </div>
+      {cost > 0 && (
+        <div>
+          <span>{t('Cost')}</span>
+          <b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b>
+        </div>
+      )}
+      {onViewDetails && (
+        <button type="button" className="context-action context-details" onClick={onViewDetails}>
+          <ListTree size={14} aria-hidden="true" />
+          {t('View context details')}
+        </button>
+      )}
+      {/* One mutating action at a time: a model switch offers inheritance;
+          a completed handover or matching model offers plain compaction. */}
+      {offerInheritance ? (
+        <button type="button" className="context-action context-inherit" disabled={actionBusy} onClick={onInherit}>
+          <GitFork size={14} aria-hidden="true" />
+          {t('Inherit session')}
+        </button>
+      ) : (
+        <button type="button" className="context-action context-compact" disabled={actionBusy} onClick={onCompact}>
+          <FoldVertical size={14} aria-hidden="true" />
+          {t('Compact context')}
+        </button>
+      )}
+    </div>
+  );
 }
 
 /** Does a running command (no turn) paint the activity band? A session
@@ -253,6 +254,49 @@ export function commandShowsActivity(snapshot: Snapshot): boolean {
   if (snapshot.spinner && snapshot.spinner.active !== false) return true;
   const command = snapshot.commandStatus && snapshot.commandStatus.active !== false ? snapshot.commandStatus : null;
   return Boolean(command) && String(command?.mode || '') !== 'resuming';
+}
+
+function LiveActivityIcon({ gradientId }: { gradientId: string }) {
+  return (
+    <span className="live-activity-icon" aria-hidden="true">
+      <svg
+        className="live-activity-logo live-activity-arcs"
+        viewBox="0 0 24 24"
+        width="14"
+        height="14"
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" />
+            <stop offset="1" />
+          </linearGradient>
+        </defs>
+        {/* Each arc is the same r=8.5 ring started 120deg apart, drawn as an
+            un-rotated path: a rotate() transform would also rotate the
+            gradient, so the arc taking over at the loop seam showed a
+            different colour and the mark flickered on every restart. */}
+        <g stroke={`url(#${gradientId})`}>
+          {LIVE_ACTIVITY_ARC_PATHS.map((d) => (
+            <path key={d} className="arc" d={d} pathLength="360" />
+          ))}
+        </g>
+      </svg>
+      <svg
+        className="live-activity-logo live-activity-star"
+        viewBox="0 0 24 24"
+        width="14"
+        height="14"
+        aria-hidden="true"
+      >
+        <path
+          className="star"
+          fill={`url(#${gradientId})`}
+          d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z"
+        />
+      </svg>
+    </span>
+  );
 }
 
 export function LiveActivity({
@@ -269,6 +313,8 @@ export function LiveActivity({
   const activity = spinner || command;
   const optimisticActivity = !activity && optimisticStartedAt > 0;
   const [, setNow] = useState(Date.now());
+  // Re-render when the catalog finishes loading or the language switches.
+  const language = useSyncExternalStore(subscribeUiLanguage, uiFormatLocale, uiFormatLocale);
   const activityStartedAt = Number(activity?.startedAt || 0);
   const submitStartedAt = optimisticStartedAt > 0 ? optimisticStartedAt : 0;
   // The submit clock starts before the spinner exists. Keep that first
@@ -322,13 +368,13 @@ export function LiveActivity({
   if (!anchorRef.current || (startedAt > 0 && Math.abs(startedAt - anchorRef.current) > 5_000)) {
     anchorRef.current = startedAt || nowMs;
   }
-  const overrideVerb = String(SPINNER_MODE_OVERRIDE_VERBS[mode] || '');
-  const rawVerb =
-    overrideVerb ||
-    (mode === 'reconnecting'
-      ? String(activity?.verb || 'Working')
-      : String(spinnerVerbFor(anchorRef.current, nowMs, activityVerbPool())));
-  const verb = t(rawVerb);
+  const verb = activityVerb({
+    mode,
+    runtimeVerb: String(activity?.verb || ''),
+    anchor: anchorRef.current,
+    now: nowMs,
+    language,
+  });
   if (pauseTurnRef.current !== startedAt) {
     pauseTurnRef.current = startedAt;
     pausedTotalRef.current = 0;
@@ -366,9 +412,7 @@ export function LiveActivity({
     if (parts.kind === 'thought') return t('Thought for {{seconds}}s', { seconds: parts.seconds });
     // The effort word is an untranslated name, spelled like the model chip's.
     const effortWord = modelRouteDisplayParts('', parts.effort).effort;
-    return effortWord
-      ? t('Thinking ({{effort}})', { effort: effortWord })
-      : t('Thinking (spinner)', { defaultValue: 'Thinking' });
+    return thinkingEffortLabel(effortWord, language);
   })();
   const tokensLabel = meta.showTokens ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
   const activityMeta = [elapsed, tokensLabel, thinkingLabel].filter(Boolean).join(' · ');
@@ -382,44 +426,7 @@ export function LiveActivity({
         aria-live="polite"
         data-animate={animateEnter ? 'true' : undefined}
       >
-        <span className="live-activity-icon" aria-hidden="true">
-          <svg
-            className="live-activity-logo live-activity-arcs"
-            viewBox="0 0 24 24"
-            width="14"
-            height="14"
-            aria-hidden="true"
-          >
-            <defs>
-              <linearGradient id={logoGradientId} x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" />
-                <stop offset="1" />
-              </linearGradient>
-            </defs>
-            {/* Each arc is the same r=8.5 ring started 120deg apart, drawn as an
-                un-rotated path: a rotate() transform would also rotate the
-                gradient, so the arc taking over at the loop seam showed a
-                different colour and the mark flickered on every restart. */}
-            <g stroke={`url(#${logoGradientId})`}>
-              {LIVE_ACTIVITY_ARC_PATHS.map((d) => (
-                <path key={d} className="arc" d={d} pathLength="360" />
-              ))}
-            </g>
-          </svg>
-          <svg
-            className="live-activity-logo live-activity-star"
-            viewBox="0 0 24 24"
-            width="14"
-            height="14"
-            aria-hidden="true"
-          >
-            <path
-              className="star"
-              fill={`url(#${logoGradientId})`}
-              d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z"
-            />
-          </svg>
-        </span>
+        <LiveActivityIcon gradientId={logoGradientId} />
         <TextShimmer text={verb} />
         {activityMeta ? <span className="live-activity-meta">{activityMeta}</span> : null}
       </div>
@@ -451,6 +458,8 @@ function translateStatusLabel(label: string): string {
       return t('Compact failed');
     case 'Compact failed (overflow retry)':
       return t('Compact failed (overflow retry)');
+    case 'Conversation compacted':
+      return t('Conversation compacted');
     case 'Session inherited':
       return t('Session inherited');
     default:

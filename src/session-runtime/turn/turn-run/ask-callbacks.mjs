@@ -74,9 +74,9 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
       onTextDelta: options.onTextDelta,
       onTextReset: options.onTextReset,
       onReasoningDelta: options.onReasoningDelta,
-      onAssistantText: (text) => {
+      onAssistantText: (text, detail) => {
         transcript.appendAssistantText(text);
-        return options.onAssistantText?.(text);
+        return options.onAssistantText?.(text, detail);
       },
       onUsageDelta: options.onUsageDelta,
       onAssistantToolCallObserved: options.onAssistantToolCallObserved,

@@ -95,3 +95,94 @@ test('session diff rows still render an exact tracked patch without Git metadata
     [{ path: 'new.txt', additions: 1, deletions: 0 }]
   );
 });
+
+test('two roots showing the same relative name stay two rows, each with its own diff', () => {
+  const patch = (name, line) =>
+    `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1 @@\n+${line}\n`;
+  const first = 'C:/work/a/x.txt';
+  const second = 'C:/work/b/x.txt';
+  const rows = buildSessionDiffRows({
+    supported: true,
+    patch: patch(first, 'one') + patch(second, 'two'),
+    files: [
+      { id: first, path: first, outside: false, status: 'A', additions: 1, deletions: 0 },
+      { id: second, path: second, outside: false, status: 'A', additions: 1, deletions: 0 },
+    ],
+  });
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    [first, second]
+  );
+  assert.deepEqual(
+    rows.map((row) => row.parts.length),
+    [1, 1]
+  );
+  assert.ok(rows[0].parts[0].patch.includes('+one') && !rows[0].parts[0].patch.includes('+two'));
+  assert.ok(rows[1].parts[0].patch.includes('+two'));
+  // The runtime's flag, not the absolute spelling, decides "outside project".
+  assert.deepEqual(
+    rows.map((row) => row.outside),
+    [false, false]
+  );
+  const legacy = buildSessionDiffRows({ files: [{ path: 'C:/o/y.txt' }, { path: 'src/z.ts' }] });
+  assert.deepEqual(
+    legacy.map((row) => row.outside),
+    [true, false]
+  );
+  // Same id twice is one row.
+  assert.equal(
+    buildSessionDiffRows({
+      files: [
+        { id: 'k', path: 'a' },
+        { id: 'k', path: 'a' },
+      ],
+    }).length,
+    1
+  );
+});
+
+test('a per-turn fallback response with two roots lists two rows, each selectable with its own diff', () => {
+  const a = 'C:/tmp/fallback-a/x.txt';
+  const b = 'C:/tmp/fallback-b/x.txt';
+  const section = (name, line) =>
+    `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1 @@\n+${line}\n`;
+  const rows = buildSessionDiffRows({
+    supported: true,
+    patch: section(a, 'one') + section(b, 'two'),
+    files: [
+      { path: a, id: a, outside: false, status: 'A', additions: 1, deletions: 0 },
+      { path: b, id: b, outside: false, status: 'A', additions: 1, deletions: 0 },
+    ],
+  });
+  assert.deepEqual(
+    rows.map((row) => row.path),
+    [a, b]
+  );
+  // No phantom relative `x.txt` row, and every listed row has a diff to show.
+  assert.ok(rows.every((row) => row.parts.length === 1));
+  const picked = rows.find((row) => row.path === b);
+  assert.ok(picked.parts[0].patch.includes('+two') && !picked.parts[0].patch.includes('+one'));
+});
+
+test('a real a/ or b/ directory is not the git header prefix: a/x.ts, b/x.ts and x.ts stay separate rows', () => {
+  const patch = (name, line) =>
+    `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-old\n+${line}\n`;
+  const names = ['a/x.ts', 'b/x.ts', 'x.ts'];
+  const result = {
+    supported: true,
+    files: names.map((path) => ({ path, status: 'M' })),
+    patch: names.map((name) => patch(name, `in-${name.replace('/', '-')}`)).join(''),
+  };
+  const rows = buildSessionDiffRows(result);
+  assert.deepEqual(
+    rows.map((row) => row.path),
+    names
+  );
+  rows.forEach((row, index) => {
+    assert.equal(row.parts.length, 1);
+    assert.match(row.parts[0].patch, new RegExp(`\\+in-${names[index].replace('/', '-')}\\b`));
+    assert.equal(row.additions, 1);
+  });
+  assert.match(sessionDiffFilePatch(result.patch, 'b/x.ts'), /\+in-b-x\.ts/);
+  assert.doesNotMatch(sessionDiffFilePatch(result.patch, 'x.ts'), /in-b-x|in-a-x/);
+});

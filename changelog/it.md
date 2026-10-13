@@ -4,6 +4,66 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Questa versione introduce il pannello delle modifiche e le schede delle modifiche per turno con controlli di annullamento e riapplicazione per turno, mantiene visibile la cronologia precedente dopo la compattazione e aggiunge uno strumento di visualizzazione integrato per mockup interattivi e diagrammi. I flussi di lavoro remoti si espandono con connessioni SSH ai server, sessioni isolate con Git worktree, gestione dei comandi shell in background e download diretto di file sui telefoni associati. L'interfaccia offre inoltre un contrasto maggiore, uno scorrimento più fluido sui dispositivi mobili e una gestione flessibile delle sessioni.
+
+### Nuove funzionalità
+
+- Dopo la compattazione di una conversazione, i messaggi precedenti, le schede degli strumenti e i diff rimangono leggibili sopra un separatore "Conversazione compattata" invece di scomparire. Vengono conservati solo per la visualizzazione (mai inviati al modello), si ricaricano scorrendo verso l'alto dopo il riavvio, utilizzano fino a circa 32 MB per sessione (con eliminazione progressiva dei più vecchi), filtrano i valori sensibili come il resto della cronologia e vengono eliminati insieme alla sessione; le sessioni continuate collegano la cronologia precedente senza duplicarla. Annullamento, riapplicazione e ripetizione non sono disponibili per i turni precedenti alla compattazione.
+- Il nuovo pannello delle modifiche offre una vista a scorrimento unico con i diff di tutti i file modificati e schede laterali: la scheda "Modifiche" mostra tutti i file, mentre facendo clic su un file in una scheda di turno si apre solo la relativa scheda. Funziona senza Git tramite i record di modifica della sessione, evidenzia la sintassi, manda a capo le righe lunghe senza scorrimento orizzontale, comprime o espande i file facendo clic su qualsiasi punto della riga, apre i file in una scheda con `↗`, annulla le modifiche al file con `↶` e mostra i file esterni al progetto in sola lettura con il percorso completo nel tooltip. Chiudendo l'ultima scheda si chiude il pannello.
+- Una scheda delle modifiche sotto ogni turno mostra il numero di file modificati, un riepilogo diff di +N −N righe, un pulsante per visualizzare le modifiche e l'elenco dei file modificati.
+- Le schede degli strumenti riprogettate mostrano le modifiche apportate da ogni singola modifica anziché il totale cumulativo del turno, visualizzate nella stessa vista diff del pannello delle modifiche, e mostrano righe aggiunte ed eliminate mentre lo strumento è ancora in esecuzione.
+- Uno strumento integrato di visualizzazione genera mockup di progetto e diagrammi inline (Mermaid, SVG, ECharts, HTML e Markdown) in schede dedicate del pannello laterale. È possibile esaminare elementi, catturare errori di pagina, inserire feedback con puntine e selezioni dati per il messaggio successivo, confrontare e ripristinare versioni ed esportare design in formato PNG o PDF.
+- Le sessioni con Git worktree consentono di lavorare su rami isolati senza interferire con l'ambiente di lavoro corrente. Un selettore di ramo sopra il compositore consente di scegliere o creare un nuovo ramo worktree all'avvio di un'attività, con unioni protette che prevengono residui di conflitto.
+- Connettiti a server remoti tramite SSH da Impostazioni > Connessione. Mixdog si installa automaticamente sul server, si apre in una propria finestra con un pannello delle porte con inoltro delle porte, esplorazione remota dei file e terminali, e inoltra le chiamate ai modelli tramite il PC senza salvare credenziali sul server.
+- I telefoni associati possono ora scaricare e condividere i file prodotti dall'assistente e i contenuti multimediali generati direttamente dai collegamenti nella chat, con avanzamento del trasferimento, tentativi e annullamento (salvataggio in Download su Android e tramite pannello di condivisione su iOS; con il prossimo aggiornamento dell'app Android o build iOS) (#40). I telefoni associati sono inoltre rigorosamente limitati ai progetti registrati e ai file generati in quella sessione.
+- I comandi shell in background possono essere interrotti direttamente dall'app o da remoto. I comandi terminati rimangono elencati fino alla chiusura invece di scomparire immediatamente, e il pannello delle attività nel compositore si espande inline per mostrare i comandi in esecuzione insieme agli agenti con token cumulativi e chiamate agli strumenti.
+- Sposta una sessione in un altro progetto dal menu laterale o tramite trascinamento senza spostare la cartella sul disco; le sessioni nelle sottocartelle e nei worktree di un progetto vengono raggruppate automaticamente sotto tale progetto.
+- I pannelli laterali sui telefoni (browser, terminale, modifiche e anteprima) utilizzano la stessa intestazione del PC, completa di schede, menu per cambiare pannello e pulsante di chiusura. Nel browser del telefono, `+` apre una nuova scheda nel pannello laterale di quella sessione, e le schede si alternano e si chiudono esattamente come su PC (richiede l'app PC aggiornata).
+- Le immagini inviate nella chat mantengono le anteprime dopo il riavvio e le schede dei file HTML e di visualizzazione mostrano un'anteprima reale della pagina renderizzata localmente in un ambiente isolato senza accesso alla rete per i file del progetto.
+- Il compositore elenca gli agenti in esecuzione nello stesso formato della finestra degli agenti e nasconde automaticamente la sezione shell quando non ci sono comandi in background attivi.
+- La chiusura dell'ultima scheda di terminale, browser o file chiude automaticamente il pannello laterale e la riapertura del terminale avvia una nuova scheda pulita (basato su #49 di @moveju112).
+- Le cartelle dei progetti e le sezioni della barra laterale rimangono aperte per impostazione predefinita e ricordano lo stato compresso, mentre selezionando una sessione in una cartella compressa la si apre automaticamente. Le sessioni possono anche essere riordinate tramite trascinamento o ordinate per attività recente.
+- L'app Android può ora cercare aggiornamenti in background, scaricare, verificare le firme e installare nuove versioni direttamente (con il prossimo aggiornamento dell'app Android).
+- Il ragionamento automatico può ora essere configurato individualmente per route di modello nelle impostazioni del percorso e disabilitato per le automazioni con `+noauto`. In Impostazioni > Connessione, è inoltre possibile assegnare soprannomi locali personalizzati ai dispositivi remoti associati.
+
+### Modifiche
+
+- Colori di accento più nitidi e maggiore contrasto del testo; le intestazioni delle schede degli strumenti e dei turni utilizzano un grigio sobrio con riquadri solo contorno; il codice inline viene mostrato come chip grigi e le citazioni con una barra a sinistra; il testo selezionato e i numeri di riga dei diff raggiungono un contrasto di 4.5:1 in entrambi i temi.
+- Il cassetto laterale si apre senza ombreggiatura e oscura lo schermo sottostante del 40%.
+- Il selettore di ramo e worktree sopra il compositore compare solo nei progetti Git e solo prima dell'inizio della conversazione.
+- Il conteggio dei file modificati nel compositore ora copre l'intera sessione anziché azzerarsi dopo ogni turno.
+- Il selettore di visualizzazione è stato rimosso dall'intestazione del pannello; le visualizzazioni si aprono automaticamente o dalla relativa scheda nella conversazione.
+- L'anello del contesto si apre solo al clic e non più al passaggio del mouse (#48).
+- Sui telefoni, il tasto Invio inserisce un'interruzione di riga; l'invio avviene tramite il pulsante.
+- I messaggi sfumano gradualmente sotto il compositore anziché essere tagliati bruscamente.
+- I file esterni al progetto mostrano il loro nome con il percorso completo nel tooltip anziché un badge.
+- Scorrimento più fluido, in particolare su Android: la conversazione viene ridisegnata al massimo una volta per fotogramma, l'indicatore di caricamento si anima sulla GPU, la posizione di scorrimento viene salvata all'arresto, i tocchi non vengono più bloccati e la dissolvenza non ridisegna l'intero elenco.
+- Le chiamate agli strumenti MCP applicano timeout di esecuzione (120 secondi per impostazione predefinita) senza bloccarsi né ritentare richieste annullate, segnalano arresti anomali dei processi stdio con dettagli sull'errore e supportano la paginazione per elenchi estesi di strumenti.
+- Pulizia automatica delle sessioni inattive viene eseguita prima che i completamenti in background riattivino la conversazione.
+- Su macOS, l'avvio dell'applicazione desktop aggiunge le directory di Homebrew a `PATH` senza eliminare le voci esistenti.
+- Il terminale remoto su dispositivi mobili include una barra dei tasti dedicata con modificatori e tasti di navigazione (con il prossimo aggiornamento dell'app Android o build iOS).
+
+### Correzioni di bug
+
+- Toccando un collegamento nella chat si apriva un browser interno vuoto; la pagina ora si carica correttamente e sui telefoni il browser si apre a schermo intero (#41).
+- L'indicatore di pensiero rimaneva in inglese fino al caricamento della lingua dell'applicazione; corretta l'animazione di scintillio sui telefoni.
+- La scheda del turno, il compositore e il pannello delle modifiche potevano mostrare conteggi discordanti dei file modificati.
+- Il primo scorrimento verso l'alto nelle conversazioni lunghe poteva causare salti visivi.
+- La chiusura dell'ultima scheda del terminale creava una nuova scheda con sfarfallio (#49).
+- La lettura dei file non restituisce più contenuti obsoleti né indica intervalli di righe non effettivamente consegnati, anche quando un file di grandi dimensioni viene riscritto sul posto con le stesse dimensioni (#54, grazie a @22nsuk).
+- Il salvataggio dei file e il ripristino batch preservano la codifica del testo, rifiutano i salvataggi con perdita, proteggono i buffer modificati durante i conflitti di lettura e tracciano le scritture batch mantenendo autorizzazioni e maiuscole/minuscole dei percorsi (#39, grazie a @22nsuk).
+- Su macOS, `Cmd+Up` e `Cmd+Down` spostano il cursore all'interno dei campi di testo anziché attivare le scorciatoie dell'area di lavoro.
+- I file di configurazione e di stato che iniziano con un indicatore dell'ordine dei byte (BOM) vengono caricati correttamente anziché fallire o reinizializzarsi.
+- L'accesso con OpenAI conserva l'elenco completo dei modelli disponibili anziché nascondere inavvertitamente modelli validi.
+- Su Linux, l'incollaggio o la lettura di un'immagine provocava l'arresto anomalo del servizio in background di Mixdog e annullava il turno in esecuzione; le immagini ora passano attraverso una build della libreria di immagini funzionante per tale ambiente (#56, #57, grazie a @cronoboris).
+- Dopo una chiusura anomala di Mixdog (arresto di Windows, programma di installazione, chiusura da Gestione attività), l'app poteva fallire ogni operazione con l'errore "daemon session endpoint is unavailable" e non mostrare alcuna chat fino alla rimozione di un file di blocco residuo; ora riconosce il blocco obsoleto e si ripristina autonomamente. Anche un file illeggibile nella cartella temporanea non blocca più l'avvio del servizio in background e, qualora non riesca comunque ad avviarsi, i dettagli dell'errore mostrano la causa effettiva e la posizione dei log.
+
+### Altro
+
+- Revisione delle traduzioni per stringhe nuove e modificate in tutte le 11 lingue supportate.
+- Pubblicazione dei risultati grezzi di valutazione per DeepSeek V4.1 Flash su Terminal-Bench su 89 attività nel confronto tra Mixdog e DSH (#43), e aggiunta del preset di valutazione completo di GPT-6.1 Sol.
+- Icone dell'applicazione mobile aggiornate per uniformarsi al design in titanio della versione desktop (con il prossimo aggiornamento dell'app Android).
+
 ## v1.1.2 - 2026-10-12
 
 L'avviso «Novità» ora compare dopo un aggiornamento anche se l'archiviazione locale dell'app è andata persa, attende la chiusura del benvenuto o del tour iniziale e non ricompare più dopo un downgrade.

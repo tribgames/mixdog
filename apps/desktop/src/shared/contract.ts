@@ -73,6 +73,7 @@ import type {
   DesktopBrowserPageIdentity,
   DesktopBrowserPageResample,
   DesktopBrowserRemoteViewerChange,
+  DesktopBrowserTabControlResult,
   DesktopBrowserViewportConfig,
   DesktopRemoteBrowserControl,
   DesktopRemoteBrowserStreamFrame,
@@ -295,6 +296,14 @@ export interface DesktopApi {
     mtimeMs: number;
     size: number;
   }>;
+  /** A small picture (data URL, at most 640 px wide) of a local HTML or image
+   *  file of the project, rendered off screen by the host. Fails for anything
+   *  outside the project, other file types, and files that render too slowly. */
+  captureFileSnapshot?(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string
+  ): Promise<{ dataUrl: string; mtimeMs: number; size: number }>;
   /** Office document shown through the in-app PDF viewer, converting it once
    *  per revision. Electron only: the URL is a local protocol URL, which is
    *  exactly why a paired phone gets pages instead. */
@@ -410,6 +419,9 @@ export interface DesktopApi {
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;
+  /** Sidebar membership only: a registered project path, '' for no project,
+   *  null to follow the session's folder again. Never touches the cwd. */
+  setSessionProject?(sessionId: string, projectPath: string | null): Promise<void>;
   deleteSession(sessionId: string): Promise<SessionSnapshot>;
   /** /inherit — copy this conversation into a NEW session id that runs on the
    *  supplied (currently selected) model. The source session is left as it is,
@@ -781,7 +793,10 @@ export interface DesktopApi {
   ): Promise<DesktopBrowserPageFrame | DesktopBrowserPageResample>;
   browserPresentTexture?(sessionId: string, textureId: string, canvasId: string): void;
   browserDiscardTexture?(sessionId: string): void;
-  browserPageControl?(sessionId: string, input: DesktopBrowserPageControl): Promise<void>;
+  browserPageControl?(
+    sessionId: string,
+    input: DesktopBrowserPageControl
+  ): Promise<DesktopBrowserTabControlResult | void>;
   /** Page facts without pixels, while the page is natively presented. */
   browserPageMetadata?(sessionId: string): Promise<DesktopBrowserPageFrame>;
   /** Present the session's page natively over `rect` (CSS pixels of this
@@ -828,10 +843,17 @@ export interface DesktopApi {
   /** Acknowledge a displayed frame so the desktop sends the newest next one. */
   remoteBrowserStreamAck?(sessionId: string, seq: number): void;
   onRemoteBrowserFrame?(listener: (frame: DesktopRemoteBrowserStreamFrame) => void): () => void;
-  remoteBrowserControl?(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
+  remoteBrowserControl?(
+    sessionId: string,
+    input: DesktopRemoteBrowserControl
+  ): Promise<DesktopBrowserTabControlResult | void>;
   /** Paired web app: the current host advertised `browserDrive` and takes the
    *  `viewport` control (the streamed page renders at the phone's size). */
   readonly remoteBrowserDrive?: boolean;
+  /** Paired web app: the current host advertised `browserSessionTabs`, so a
+   *  conversation browser's tabs arrive in its frames and `new-tab`,
+   *  `select-tab` and `close-tab` controls are accepted. */
+  readonly remoteBrowserSessionTabs?: boolean;
   /** Paired web app: the current host advertised `termSizeOwner` and honors
    *  the phone size-owner claim/release on `termResize`. Absent/false on an
    *  older host, where the phone sends plain fit resizes only. */

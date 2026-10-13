@@ -153,6 +153,8 @@ export function completionTone(item: TranscriptItem): 'complete' | 'failed' | 'i
     /cancelled|canceled|aborted|interrupted/i.test(label)
   )
     return 'interrupted';
-  if (item.kind === 'statusdone' && /compact/i.test(label)) return 'compaction';
+  // `compacted`: the divider a compaction leaves between its archived rows
+  // and the live conversation (e.g. an auto-clear's "Auto-clear complete").
+  if (item.kind === 'statusdone' && (status === 'compacted' || /compact/i.test(label))) return 'compaction';
   return 'complete';
 }

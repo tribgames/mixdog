@@ -33,6 +33,12 @@ import type { createSideFileGuard } from '../side-file-guard';
 import { WorkbenchProblemsPane } from '../WorkbenchProblems';
 import type { EditorSaveHandle } from '../use-pane-tab-close';
 import { cleanDiffTarget } from './workspace-targets';
+import { showDesktopToast } from '../desktop-toasts';
+import { errorMessageText } from '../ErrorNotice';
+import { t } from '../i18n';
+import { resolveLocalLink } from '../local-link-resolver';
+import { isAbsolutePath } from '../session-diff-model';
+import { sideFileKey } from '../side-file-tabs';
 import { closingDrawerFirst } from './drawer-navigation';
 
 export interface UseAppWorkbenchViewsOptions {
@@ -45,6 +51,8 @@ export interface UseAppWorkbenchViewsOptions {
   sidebarRenameProject: (projectPath: string, alias: string) => void;
   sidebarRevealProject?: (projectPath: string) => void;
   sidebarOpenProjectSettings: (projectPath: string) => void;
+  sidebarAddProject: (onAdded?: (projectPath: string) => void) => void;
+  revealedProject: { path: string; nonce: number };
   workingSessionIds: ReadonlySet<string>;
   unreadSessionIds: ReadonlySet<string>;
   sidebarSelection: NavigationSelection;
@@ -55,6 +63,7 @@ export interface UseAppWorkbenchViewsOptions {
   renameSession: (sessionId: string, title: string) => Promise<void>;
   archiveSession: (sessionId: string, archived: boolean) => Promise<void>;
   favoriteSession: (sessionId: string, favorite: boolean) => Promise<void>;
+  moveSessionToProject: (sessionId: string, projectPath: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
 
   sideViewDescriptors: ReturnType<typeof createAppSideViewDescriptors>;
@@ -111,6 +120,31 @@ export interface UseAppWorkbenchViewsOptions {
   openProblemQuickFix: ReturnType<typeof useEditorNavigation>['openProblemQuickFix'];
 }
 
+// A Changes-pane file opens as a (pinned) tab of the pane's own side dock.
+// Project files are already relative; a file outside the project resolves
+// through the same absolute-path route chat file links use (one-off grant).
+function openSessionDiffFile(
+  sideFileGuard: UseAppWorkbenchViewsOptions['sideFileGuard'],
+  leafId: string,
+  projectPath: string,
+  sessionId: string,
+  path: string
+): void {
+  const open = (project: string, rel: string, accessToken?: string) =>
+    sideFileGuard.openFileInSideDock(leafId, project, rel, undefined, accessToken, undefined, undefined, true);
+  if (!isAbsolutePath(path) && projectPath) {
+    open(projectPath, path);
+    return;
+  }
+  resolveLocalLink(projectPath, path, sessionId)
+    .then((target) => {
+      if (!target.directory) open(target.project, target.path, target.accessToken);
+    })
+    .catch((error: unknown) => {
+      showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
+    });
+}
+
 export function useAppWorkbenchViews({
   sessions,
   sessionCatalogReady,
@@ -121,6 +155,8 @@ export function useAppWorkbenchViews({
   sidebarRenameProject,
   sidebarRevealProject,
   sidebarOpenProjectSettings,
+  sidebarAddProject,
+  revealedProject,
   workingSessionIds,
   unreadSessionIds,
   sidebarSelection,
@@ -131,6 +167,7 @@ export function useAppWorkbenchViews({
   renameSession,
   archiveSession,
   favoriteSession,
+  moveSessionToProject,
   deleteSession,
   sideViewDescriptors,
   renderSidebarPanel,
@@ -194,6 +231,8 @@ export function useAppWorkbenchViews({
       onRenameProject: sidebarRenameProject,
       onRevealProject: sidebarRevealProject,
       onOpenProjectSettings: sidebarOpenProjectSettings,
+      onAddProject: sidebarAddProject,
+      revealedProject,
       workingSessionIds,
       unreadSessionIds,
       selection: sidebarSelection,
@@ -204,6 +243,7 @@ export function useAppWorkbenchViews({
       onRenameSession: renameSession,
       onArchiveSession: archiveSession,
       onFavoriteSession: favoriteSession,
+      onMoveSessionToProject: moveSessionToProject,
       onDeleteSession: deleteSession,
     };
     if (id === 'sessions') return <SessionSidebar {...sessionSidebarProps} />;
@@ -224,12 +264,23 @@ export function useAppWorkbenchViews({
     if (id === 'session-diff') {
       if (!pane) return null;
       const sessionId = pane.sessionId;
+      const sideFiles = paneSideDocks.entryFor(pane.leafId).files ?? [];
       return (
         <SessionDiffPane
           sessionId={sessionId}
           active={active}
+          cwd={pane.projectPath}
           onClose={() => requestPaneDockClose('session-diff')}
-          onOpenFile={pane.projectPath ? (rel) => openFileTab(pane.projectPath, rel) : undefined}
+          onOpenFile={(path) => openSessionDiffFile(sideFileGuard, pane.leafId, pane.projectPath, sessionId, path)}
+          fileTabs={{
+            tabs: sideFiles.map((file) => ({
+              key: sideFileKey(file),
+              name: file.rel.split('/').at(-1) ?? file.rel,
+              title: file.rel,
+            })),
+            onSelect: (key) => paneSideDocks.activateFile(pane.leafId, key),
+            onClose: (key) => sideFileGuard.closeSideFileTab(pane.leafId, key),
+          }}
         />
       );
     }

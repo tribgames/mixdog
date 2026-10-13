@@ -51,7 +51,7 @@ test('all three connecting-side surfaces carry the identical layout CSS', () => 
   assert.match(css, /prefers-reduced-motion:reduce\)\{\.mxp-spinner\{animation:none/);
   assert.match(css, /\.mxp-btn\{[^}]*font-family:inherit;[^}]*font-weight:700/);
   assert.match(css, /Pretendard Variable[^;]*Apple SD Gothic Neo/);
-  assert.match(css, /--mxp-band:#18181b/);
+  assert.match(css, /--mxp-band:#181818/);
   assert.doesNotMatch(css, /mxp-ring|mxp-mark|mxp-chev|mxp-btn svg/, 'no decorative icon rules');
 });
 

@@ -4,6 +4,8 @@ export type RecordValue = Record<string, unknown>;
 export type Project = string;
 export type TranscriptItem = RecordValue & {
   id?: string | number;
+  /** Stable message identity, live and restored (unlike `id` of restored rows). */
+  messageId?: string;
   kind?: string;
   text?: string;
   at?: number;
@@ -15,6 +17,8 @@ export type TranscriptItem = RecordValue & {
   device?: string;
   /** The turn checkpoint a `user` prompt opened or a `turndone` closed. */
   checkpointId?: string;
+  /** A row a compaction took out of the model context: display-only. */
+  archived?: boolean;
   name?: string;
   args?: unknown;
   result?: unknown;

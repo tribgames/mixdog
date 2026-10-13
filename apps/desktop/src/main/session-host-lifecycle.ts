@@ -229,6 +229,13 @@ export class SessionHostLifecycle {
     await this.republishSessionCatalog();
   }
 
+  async setSessionProject(sessionId: string, projectPath: string | null): Promise<void> {
+    const id = sessionIdOf(sessionId);
+    await this.owner.sessionMetadata.load();
+    if (!(await this.owner.sessionMetadata.setProject(id, projectPath))) return;
+    await this.republishSessionCatalog();
+  }
+
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
     const id = sessionIdOf(sessionId);
     await this.owner.sessionMetadata.load();
@@ -761,7 +768,7 @@ export class SessionHostLifecycle {
     args: unknown[] = [],
     sessionId?: string
   ): Promise<DesktopCapabilityResult<T>> {
-    let result;
+    let result: { value: unknown; snapshot: SessionSnapshot };
     try {
       const forwarded = isProjectScopedCapability(capability) ? await this.projectScopedArgs(args) : args;
       result = sessionId

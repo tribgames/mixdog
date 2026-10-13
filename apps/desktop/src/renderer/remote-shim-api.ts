@@ -21,6 +21,7 @@ import type { RemoteShimContext } from './remote-shim-state';
 
 type GatedKey =
   | 'previewProjectFile'
+  | 'captureFileSnapshot'
   | 'localPageSource'
   | 'githubCliLoginOpenBrowser'
   | 'ghPrList'
@@ -206,6 +207,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     setQuotaAutoResume: (enabled) => call('setQuotaAutoResume', [enabled]),
     setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),
     setSessionFavorite: (sessionId: string, favorite: boolean) => call('setSessionFavorite', [sessionId, favorite]),
+    setSessionProject: (sessionId: string, projectPath: string | null) =>
+      call('setSessionProject', [sessionId, projectPath]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
     // Cold session lanes fill through a host-side read; the replay frame
     // arrives on the broadcast sessionState event like any live push.
@@ -452,6 +455,11 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   // Read per access like the members below: a reconnect may reach a host that
   // predates `browserDrive`, and the pane must then never send `viewport`.
   Object.defineProperty(api, 'remoteBrowserDrive', { enumerable: true, get: () => ctx.peerBrowserDrive === true });
+  // Read per access: a reconnect may reach a host without conversation tab controls.
+  Object.defineProperty(api, 'remoteBrowserSessionTabs', {
+    enumerable: true,
+    get: () => ctx.peerBrowserSessionTabs === true,
+  });
   // Read per access: a reconnect may reach a host that predates `termSizeOwner`.
   Object.defineProperty(api, 'remoteTermSizeOwner', { enumerable: true, get: () => ctx.peerTermSizeOwner === true });
   // Absent on a host that predates `hostDirectories`, so the folder browser

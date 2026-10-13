@@ -16,10 +16,6 @@
   color: var(--mx-icon);
   background: var(--mx-hover);
 }
-/* Mid-session row: nothing to show (not a git folder) leaves no gap. */
-.composer-session-context:empty {
-  display: none;
-}
 .branch-chip-trigger {
   height: 28px;
   display: inline-flex;
@@ -80,7 +76,7 @@
   border-radius: var(--mx-radius-md);
   outline: 0;
   color: var(--mx-text);
-  background: var(--mx-workspace-sheet);
+  background: var(--mx-bg-layer-1);
   font-size: var(--mx-font-minor);
 }
 .branch-menu-notice {
@@ -89,13 +85,10 @@
   color: var(--mx-warning);
   font-size: var(--mx-font-meta);
 }
-/* STABLE BOX, as the source-control branch picker: the list scrolls inside
-   one capped height (OpenSelect caps menus at 240px) and never resizes the
-   menu when branches arrive. */
+/* The list sizes to its rows and scrolls past OpenSelect's 240px cap. */
 .branch-menu-list {
-  min-height: 96px;
   max-height: 240px;
-  flex: 0 1 240px;
+  flex: 0 1 auto;
   overflow: auto;
 }
 .branch-menu-item {

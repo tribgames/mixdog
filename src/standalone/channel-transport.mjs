@@ -41,10 +41,21 @@ export function createChannelTransport({
   onClientRegistered = null,
   onRemoteStateChange = null,
   agentBroker = null,
+  // Asked before every register/call/agent dispatch; false answers 503 (the
+  // daemon's owner lease is not held — daemon-owner.mjs).
+  admitWork = () => true,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
-  const remoteIntent = readRemoteIntent(remoteIntentPath);
+  let remoteIntent = null;
+  try {
+    remoteIntent = readRemoteIntent(remoteIntentPath);
+  } catch (error) {
+    // An unreadable pin (permissions, an antivirus lock) only costs the channel
+    // its restored session; it must never keep the whole daemon from booting.
+    // The file stays in place.
+    log(`channel remote intent unreadable, starting unpinned: ${error?.message || error}`);
+  }
   const state = {
     // token -> { token, leadPid, cwd, sse, lastSeen, registeredAt }
     clients: new Map(),
@@ -111,6 +122,7 @@ export function createChannelTransport({
     onClientsEmpty,
     registry,
     dispatch,
+    admitWork,
   });
 
   function beginDrain(reason = 'daemon replacement') {

@@ -9,7 +9,7 @@
 /* ONE pane inset ladder. Every surface inside a pane — header, transcript,
    composer, watermark, Studio topbar/results/dock — spends the SAME inset and
    the SAME centered column, so no two edges drift apart at any pane width
-   (user: pane 안 컨텐츠 패딩을 해상도별로 다 맞춰라). Scrollers get their own
+. Scrollers get their own
    column token: the reserved scrollbar track is paid out of the RIGHT inset
    instead of stealing a second column from the reading frame. */
 .workspace > .session-header,
@@ -24,8 +24,7 @@
   --pane-chrome-inset: 12px;
   /* The composer BOX lands on the pane inset, but its textarea holds the
      typed line another 16px in — so the transcript, which stopped at the box
-     edge, ran 16px wider than the words directly under it (user: 스크립트
-     좌우 여백을 텍스트박스랑 맞춰줘, 살짝 넓다). Both now spend this token,
+     edge, ran 16px wider than the words directly under it. Both now spend this token,
      so the reading line and the typing line share one edge at EVERY pane
      width, including the 12/20/24px inset steps. */
   --composer-text-inset: 16px;
@@ -209,8 +208,7 @@
      chained body scroll moved the whole pane while the virtualizer held its
      own offset, and the two corrections bounced the timeline up/down. */
   overscroll-behavior: contain;
-  /* ONE arrow across the reading surface (user: 스크롤바 위에서는 커서,
-     입력 위에서만 입력 커서가 나와야). Prose lines end within ~40px of the
+  /* ONE arrow across the reading surface. Prose lines end within ~40px of the
      scrollbar, so the I-beam that selectable glyphs draw under cursor:auto
      covered most of the scroll approach. Selection and copy are untouched —
      only the pointer shape is pinned. */
@@ -220,7 +218,7 @@
 }
 /* Top scroll fade strip. Absolute sibling of the scroller, so scroll geometry
    and the virtual list's measurements are untouched. No fade above the
-   composer (user: 컴포저위에 그라데이션제거). */
+   composer. */
 .transcript-shell {
   --mx-scroll-fade-surface: var(--mx-workspace-sheet);
   timeline-scope: --mx-transcript-scroll;
@@ -392,7 +390,7 @@ html[data-window-material="mica"] .transcript-shell {
   gap: 8px;
   margin-top: 42px;
   font-size: var(--mx-font-ui);
-  /* Description-foreground-class ink — faint was illegible (user). */
+  /* Description-foreground-class ink — faint was illegible. */
   color: var(--mx-text-muted);
 }
 .welcome-shortcuts > div {
@@ -426,7 +424,7 @@ html[data-window-material="mica"] .transcript-shell {
   justify-content: center;
   /* The `min-width: 12px` is CONTENT-box: 12 + 5+5 padding + 1+1
      border = a uniform 24px chip for every single-letter key, which is what
-     keeps the Ctrl / + / key columns gridded across rows (user: 틀어짐). */
+     keeps the Ctrl / + / key columns gridded across rows. */
   box-sizing: content-box;
   min-width: 12px;
   font: inherit;
@@ -453,7 +451,7 @@ html[data-window-material="mica"] .transcript-shell {
    heavier chat faces do — 400 read thin next to it. */
 /* Reading surface runs Pretendard-first for BOTH scripts: with Geist leading,
    Latin words inside Korean prose rendered in a different face and read a
-   visible half-tone lighter (user: "폰트가 균일하게 잘 안보여"). One face for
+   visible half-tone lighter. One face for
    the whole paragraph = one ink density; Pretendard's Latin is
    Inter-metric-compatible so rhythm is preserved. Chrome (13px UI) stays
    Geist-led. */
@@ -471,7 +469,7 @@ html[data-window-material="mica"] .transcript-shell {
   margin: 0 0 12px;
 }
 /* Turn rhythm: the LAST paragraph's bottom margin stacked on the thread's
-   16px row gap and read as a two-line hole between turns (user) — collapse
+   16px row gap and read as a two-line hole between turns — collapse
    it so turn-to-turn spacing is the single 16px gap. */
 .message-body p:last-child {
   margin-bottom: 0;
@@ -497,6 +495,15 @@ html[data-window-material="mica"] .transcript-shell {
 /* No content-visibility on settled rows: the transcript is already
    virtualized, and the 88px intrinsic placeholder made off-screen rows paint
    late (ghost flash) then re-measure on entry (scroll jump). */
+/* Rows outside the viewport (overscan, the pinned live row once the reader
+   scrolls away) hold their infinite loaders still. The running logo's arcs
+   animate stroke dashes and its <svg> boxes rotate; neither can run on the
+   compositor, so each kept re-painting on the main thread every frame of the
+   reader's scroll. TranscriptList marks the rows (IntersectionObserver). */
+.transcript-virtual-row[data-offscreen="true"]
+:is(.spin, .live-activity-arcs, .live-activity-star, .live-activity-logo .arc) {
+  animation-play-state: paused;
+}
 .message-actions {
   position: absolute;
   z-index: 2;
@@ -549,8 +556,7 @@ html[data-window-material="mica"] .transcript-shell {
   /* Centre — and every text in this row now runs at ONE size (see
      .message-time). Two different type sizes can share a row either by their
      boxes or by their baselines, never by both, and the leftover fraction
-     snapped the clock a whole device pixel off at 125%/150% scaling (user:
-     시간이랑 복사버튼은 올라가 있다). Same size = same box = same baseline. */
+     snapped the clock a whole device pixel off at 125%/150% scaling. Same size = same box = same baseline. */
   align-items: center;
   /* Same 7px the status rows and the live band use, so the copy control sits
      on the row's own rhythm instead of a footer-only one. */
@@ -558,7 +564,7 @@ html[data-window-material="mica"] .transcript-shell {
   margin-top: 6px;
   color: var(--mx-text-faint);
 }
-/* Uniform 20px rhythm (user): a response footer now exists ONLY on a settled
+/* Uniform 20px rhythm: a response footer now exists ONLY on a settled
    turn (turn-status / compaction divider), so it always carries visible
    content and stays in flow — the 20px gap starts under it. Mid-turn parts
    render no footer at all, so nothing floats over the next row. */
@@ -610,7 +616,7 @@ html[data-window-material="mica"] .transcript-shell {
   max-width: min(82%, 64ch);
   /* Anchor the whole user block to the RIGHT edge: with the default stretch
      anchor, a long multi-line bubble grew from the LEFT edge and read like an
-     assistant block (user report). */
+     assistant block. */
   margin-left: auto;
   display: flex;
   align-items: flex-end;
@@ -659,16 +665,12 @@ html[data-window-material="mica"] .transcript-shell {
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   /* Code blocks sit on the sheet tone with a hairline border — not a darker
-     inset well. The base size here is the CHROME mono; .detail-block keeps it
-     (tool output lives in 13px chrome), .markdown steps up to the prose mono
-     right below. */
+     inset well. */
   background: transparent;
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
-}
-/* Code is an operational tier inside prose: the mono face has a larger optical
-   body, so 13px sits cleanly beside 14px reading text without protruding. */
-.markdown pre {
+  /* Code is an operational tier inside prose: the mono face has a larger
+     optical body, so 13px sits cleanly beside 14px reading text without
+     protruding. */
   font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
 }

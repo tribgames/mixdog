@@ -29,19 +29,13 @@ import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
 import { invalidateProviderRequestToolsScope } from '../runtime-core/provider-request-tools.mjs';
 import { bumpUsageMetricsEpoch } from './manager/usage-metrics.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
+import { scheduleCompactionArchive, stampCompactionMessageIds } from './compaction-archive-capture.mjs';
+import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 import {
   acknowledgePendingGoalReminder,
   markPendingGoalReminder,
   snapshotPendingGoalReminder,
 } from '../runtime-core/goal-reminder.mjs';
-
-function writeStderr(line) {
-  try {
-    process.stderr.write(line);
-  } catch {
-    /* best-effort */
-  }
-}
 
 async function setStage(opts, stage) {
   try {
@@ -126,20 +120,23 @@ function preSendCompactDecision(state, compactPolicy) {
       activeTurn: true,
     }).reducesTokens;
   }
+  let compactTrigger = 'auto';
+  if (reactivePending) compactTrigger = 'reactive';
+  else if (cacheExpired) compactTrigger = 'cache_expired';
   return {
     messageTokensEst,
     pressureTokens,
     shouldCompact,
     requireReduction,
-    compactTrigger: reactivePending ? 'reactive' : cacheExpired ? 'cache_expired' : 'auto',
+    compactTrigger,
     compactBudgetTokens,
   };
 }
 
-// Gauge sync (user: 컴팩트될 때 컨텍스트 표기량이 달랐다). The host refreshes
-// its context readout on provider usage deltas and turn end, so a tool batch
-// that pushed the transcript over the trigger fired compaction while the
-// screen still showed headroom. Publish the decision's OWN numerator here —
+// Gauge sync. The host refreshes its context readout only on provider usage
+// deltas and turn end, so a tool batch that pushed the transcript over the
+// trigger would compact while the screen still showed headroom. Publish the
+// decision's OWN numerator here —
 // before compaction mutates the transcript — so the readout and the trigger
 // describe one moment.
 function publishContextPressure(opts, sessionId, compactPolicy, { pressureTokens, shouldCompact }) {
@@ -158,15 +155,14 @@ function publishContextPressure(opts, sessionId, compactPolicy, { pressureTokens
 }
 
 // Pre/PostCompact bridge to the standard hook bus: a session-property hook
-// (manager/loop have no bus access), { trigger } normalized to
-// 'auto'|'manual'. Best-effort — a hook must never break compaction or the
-// loop.
+// (manager/loop have no bus access); a pre-send pass is always trigger
+// 'auto'. Best-effort — a hook must never break compaction or the loop.
 async function runCompactHook(ctx, name) {
   const { opts, sessionRef, sessionId, cwd } = ctx.state;
   const hook = typeof opts[name] === 'function' ? opts[name] : sessionRef?.[name];
   if (typeof hook !== 'function') return;
   try {
-    await hook({ sessionId, cwd, trigger: ctx.decision.compactTrigger === 'manual' ? 'manual' : 'auto' });
+    await hook({ sessionId, cwd, trigger: 'auto' });
   } catch {
     /* best-effort */
   }
@@ -342,7 +338,7 @@ function throwCompactFailure(ctx, run, compactErr) {
   const { sessionRef, sessionId, signal, model } = state;
   acknowledgeGoalReminder(sessionRef, run);
   if (isCompactAbort(signal, compactErr)) {
-    writeStderr(
+    writeStderrBestEffort(
       `[loop] pre-send compact cancelled (sess=${sessionId || 'unknown'}): ${compactErr?.message || compactErr}\n`
     );
     throw compactErr;
@@ -381,8 +377,16 @@ function throwCompactFailure(ctx, run, compactErr) {
 function adoptCompactedTranscript(ctx, run) {
   const { state } = ctx;
   const { messages, sessionRef, sessionId, opts } = state;
+  const replaced = messages.slice();
   messages.length = 0;
   messages.push(...run.compacted);
+  // Display-only archive of the dropped conversation; the projection and the
+  // write run off this synchronous adoption.
+  const archived = sessionRef
+    ? scheduleCompactionArchive({ session: sessionRef, sessionId, before: replaced, after: messages })
+    : null;
+  ctx.droppedMessages = archived?.dropped ?? 0;
+  ctx.droppedIdentities = archived?.identities ?? null;
   acknowledgeGoalReminder(sessionRef, run);
   resetReadStateAfterCompaction(sessionId);
   // Cross-turn receipts reference tool results that compaction just removed
@@ -451,6 +455,8 @@ function reportCompactOutcome(ctx, run) {
     status: changed ? 'compacted' : 'no_change',
     afterTokens,
     changed,
+    droppedMessages: ctx.droppedMessages || 0,
+    droppedIdentities: ctx.droppedIdentities || null,
     freshContext: freshContextResult?.freshContext === true,
     handoffSource: freshContextResult?.handoffSource || null,
     durationMs,
@@ -460,6 +466,10 @@ function reportCompactOutcome(ctx, run) {
 async function compactBeforeSend(ctx) {
   const { state, decision } = ctx;
   const { messages, sessionRef, sessionId, opts } = state;
+  // Every message enters the compaction with a stable id (legacy ones are
+  // stamped now; the turn's saves persist them): the result's rewrites carry
+  // it, so what was dropped is exactly the ids the result no longer holds.
+  stampCompactionMessageIds(messages, sessionId || sessionRef?.id || '');
   // Snapshot BEFORE mutating the live array below, so compact_meta reports
   // real savings and the true input prefix rather than the replacement
   // transcript.
@@ -489,7 +499,7 @@ async function compactBeforeSend(ctx) {
       await compactTranscript(ctx, run);
     } catch (freshErr) {
       run.freshContextError = freshErr;
-      writeStderr(
+      writeStderrBestEffort(
         `[loop] fresh-context compact failed (sess=${sessionId || 'unknown'}): ${freshErr?.message || freshErr}\n`
       );
       throw freshErr;

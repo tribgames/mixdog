@@ -12,6 +12,9 @@ export function createInitialSessionState({ runtime, runtimeCwd, baseRouteState 
     transcriptViewRevision: 0,
     transcriptHistoryBefore: false,
     transcriptHistoryAfter: false,
+    // Compaction-archive segments a paged view may load above the rows held
+    // here ({ after, before } segment numbers), set on resume.
+    transcriptArchive: null,
     structureRevision: 0,
     streamingTail: null,
     toasts: [],

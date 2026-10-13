@@ -14,7 +14,12 @@ import type {
 
 /** Session-owned surfaces need a session behind the pane; a New Task draft
  *  keeps their toggles visible but inert so the strip never reflows. */
-const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = ['session-diff', 'visualize', 'browser', 'terminal'];
+export const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = ['session-diff', 'visualize', 'browser', 'terminal'];
+
+/** Surfaces with no toggle of their own: Visualize opens when the agent shows
+ *  something and from its card in the transcript, so the strip keeps three
+ *  icons (changes, browser, terminal). */
+const UNTOGGLED_VIEWS: ReadonlySet<WorkbenchSideViewId> = new Set(['visualize']);
 
 export function PaneDockToggles({
   groups,
@@ -35,21 +40,20 @@ export function PaneDockToggles({
   onSelect(id: WorkbenchSideViewId): void;
   onClose(): void;
 }) {
-  const roots = groups
-    .map((group) => group[0])
-    .filter((root): root is WorkbenchSideViewId => root !== undefined && descriptors.has(root));
+  const toggles = groups.flatMap((group) => {
+    const root = group[0];
+    const descriptor = root === undefined ? undefined : descriptors.get(root);
+    return root !== undefined && descriptor && !UNTOGGLED_VIEWS.has(root) ? [{ root, descriptor }] : [];
+  });
   const filesLabel = t('Files');
   const { isVisible, menuProps, menu } = useDockVisibilityMenu(
     [
       ...(files ? [{ id: 'files', label: filesLabel }] : []),
-      ...roots.map((root) => {
-        const descriptor = descriptors.get(root)!;
-        return { id: root, label: descriptor.tooltip || descriptor.label };
-      }),
+      ...toggles.map(({ root, descriptor }) => ({ id: root, label: descriptor.tooltip || descriptor.label })),
     ],
     'Utility panel'
   );
-  if (roots.length === 0 && !files) return null;
+  if (toggles.length === 0 && !files) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the toggle strip.
     <div
@@ -76,35 +80,36 @@ export function PaneDockToggles({
           <FolderTree size={15} aria-hidden="true" />
         </button>
       )}
-      {roots.filter(isVisible).map((root) => {
-        const descriptor = descriptors.get(root)!;
-        const Icon = descriptor.icon;
-        const active =
-          activeRoot !== null && (groups.find((group) => group[0] === root)?.includes(activeRoot) ?? false);
-        const unavailable = !sessionBound && SESSION_BOUND_VIEWS.includes(root);
-        const label = descriptor.tooltip || descriptor.label;
-        return (
-          <button
-            key={root}
-            type="button"
-            className="pane-dock-toggle"
-            aria-pressed={active}
-            aria-disabled={unavailable || undefined}
-            aria-label={label}
-            data-tooltip={active ? t('Close {{label}}', { label }) : t('Open {{label}}', { label })}
-            onPointerEnter={descriptor.onPrefetch}
-            onFocus={descriptor.onPrefetch}
-            onClick={() => {
-              if (unavailable) return;
-              if (active) onClose();
-              else onSelect(root);
-            }}
-          >
-            {/* Claude Desktop tier: a 16px mark in a 28px slot, slots set 6px apart. */}
-            <Icon size={15} aria-hidden="true" />
-          </button>
-        );
-      })}
+      {toggles
+        .filter(({ root }) => isVisible(root))
+        .map(({ root, descriptor }) => {
+          const Icon = descriptor.icon;
+          const active =
+            activeRoot !== null && (groups.find((group) => group[0] === root)?.includes(activeRoot) ?? false);
+          const unavailable = !sessionBound && SESSION_BOUND_VIEWS.includes(root);
+          const label = descriptor.tooltip || descriptor.label;
+          return (
+            <button
+              key={root}
+              type="button"
+              className="pane-dock-toggle"
+              aria-pressed={active}
+              aria-disabled={unavailable || undefined}
+              aria-label={label}
+              data-tooltip={active ? t('Close {{label}}', { label }) : t('Open {{label}}', { label })}
+              onPointerEnter={descriptor.onPrefetch}
+              onFocus={descriptor.onPrefetch}
+              onClick={() => {
+                if (unavailable) return;
+                if (active) onClose();
+                else onSelect(root);
+              }}
+            >
+              {/* Claude Desktop tier: a 16px mark in a 28px slot, slots set 6px apart. */}
+              <Icon size={15} aria-hidden="true" />
+            </button>
+          );
+        })}
       {menu}
     </div>
   );

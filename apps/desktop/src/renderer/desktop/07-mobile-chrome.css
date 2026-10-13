@@ -1,12 +1,11 @@
 /* Desktop layer 07 — Projected-phone toolbar, drawers, mobile dialogs.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Chrome-Android toolbar on the phone (user: 크롬 모바일처럼 + 해상도): every
+/* Chrome-Android toolbar on the phone: every
    metric is written in Chrome's dp grammar — 56dp toolbar row, 40dp address
    pill, 24dp glyphs — and the phone lays out at device-width, so 1px = 1dp.
    Order matches Chrome: [pill][+][count][menu/trailing]. */
-/* The desktop title band is dead weight on a phone (user: 상단 상태줄 하나
-   날리고 최상단): the Chrome toolbar IS the top row. The band takes no row at
+/* The desktop title band is dead weight on a phone: the Chrome toolbar IS the top row. The band takes no row at
    all; the PC being driven shows as the brand button's dot and the drawer's PC
    card, and the tab strip below clears the status bar. */
 html[data-mixdog-mobile-tabs] .topbar {
@@ -61,8 +60,7 @@ html[data-mixdog-mobile-tabs] .remote-connection-overlay > svg {
   width: 40px;
   height: 40px;
 }
-/* ── Tab strip ── [brand mark][title pill][+][dock toggles] (user decision
-   (a)): the Chrome-dp toolbar keeps its 44dp row, the pill names the active
+/* ── Tab strip ── [brand mark][title pill][+][dock toggles]: the Chrome-dp toolbar keeps its 44dp row, the pill names the active
    tab, and the + and the dock toggles are the desktop's own marks scaled to
    the row. The brand mark opens the session drawer. */
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-mobile="true"] {
@@ -97,8 +95,7 @@ html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
   width: 24px;
   height: 24px;
 }
-/* Measured against the user's Chrome screenshot (pill/toolbar = 0.58 →
-   ~33dp; glyph optical ~20dp). */
+/* Chrome proportions (pill/toolbar = 0.58 → ~33dp; glyph optical ~20dp). */
 html[data-mixdog-mobile-tabs] .workspace-tab-compact-current {
   height: var(--mx-touch-main);
   padding: 0 14px;
@@ -150,7 +147,7 @@ html[data-mixdog-mobile-tabs] .workspace-tabs-trailing .pane-dock-toggle svg.luc
   height: var(--mx-touch-row-glyph-main);
   stroke-width: 1.75px;
 }
-/* ── + TIER 1, the composer + (user: +도 규격을 두 개로 나누던가) ── a + that
+/* ── + TIER 1, the composer + ── a + that
    BELONGS to an input bar has no size of its own: it takes that bar's control
    measure so it reads as one instrument with the mic and send disc beside it.
    Studio draws the same bar, so its attach + and generate disc join this tier
@@ -162,12 +159,12 @@ html[data-mixdog-mobile-tabs] .studio-composer-bar {
   height: 44px;
   /* Tighter than the desktop 8: the 44 touch boxes already carry their own
      air, so the +/model/gauge cluster hugs the card edge like the desktop
-     row does (user: + 모델 컨텍스트 정렬도 왼쪽으로 더). */
+     row does. */
   padding-inline: 4px;
 }
 /* The phone composer used two 52dp bands, so its empty state read as a
    three-line text box; trimming the typing band to 36 then went one step too
-   far and the bar read as a squeezed strip (user: 살짝 높이가 좁아보인다).
+   far and the bar read as a squeezed strip.
    The typing band now matches the control row it sits on: 44 + 44 = 88dp,
    one 24dp body line above the 24dp text it holds. */
 html[data-mixdog-mobile-tabs] .composer {
@@ -201,8 +198,7 @@ html[data-mixdog-mobile-tabs] :is(.composer-mic, .send-button) {
   border-radius: var(--mx-radius-pill);
   background-clip: content-box;
 }
-/* ── Composer discs, restated as DESKTOP proportions (user: 비율 똑같이
-   맞춰줘) ── desktop draws a 28px button that IS the disc; the phone keeps a
+/* ── Composer discs, restated as DESKTOP proportions ── desktop draws a 28px button that IS the disc; the phone keeps a
    44 touch target and paints a 36 disc inside it, so the DISC is what the eye
    compares and every value below is written as its desktop measure over 28.
    Three defaults had drifted off that ratio: the tool pair carried a 22 glyph
@@ -289,21 +285,19 @@ html[data-mixdog-mobile-tabs] .composer-dictation-cancel > svg {
   height: 20px;
 }
 /* ── Context gauge ── seated right after the model trigger exactly like the
-   desktop footer (user: 모바일도 PC에 맞춰); the old floating status capsule
+   desktop footer; the old floating status capsule
    over the transcript is retired. The hit box takes the bar's 44 touch
    measure while the ring keeps the desktop 15px-over-28 proportion so it
    still lands on the model label's em box. */
 /* The attach + keeps the 44 touch height but a 36 width, so the model
-   trigger sits right beside its mark instead of a full slot away (user:
-   + 버튼이랑 모델 선택 너무 먼 듯). */
+   trigger sits right beside its mark instead of a full slot away. */
 html[data-mixdog-mobile-tabs] .composer-footer > .composer-tool {
   width: var(--mx-touch-row-main);
   min-width: var(--mx-touch-row-main);
   flex-basis: var(--mx-touch-row-main);
 }
 /* A phone never hovers, but a tap leaves :hover armed until the next touch
-   lands elsewhere, so the wash stayed on after the press (user: + 버튼
-   누르니 하이라이트 안 사라짐). Rest state carries no hover wash here; the
+   lands elsewhere, so the wash stayed on after the press. Rest state carries no hover wash here; the
    press itself still flashes through :active. */
 html[data-mixdog-mobile-tabs]
 :is(
@@ -319,7 +313,7 @@ html[data-mixdog-mobile-tabs]
 /* The same stuck-hover wash on the sheet and panel header controls; a
    control that is open or pressed keeps its plate. */
 html[data-mixdog-mobile-tabs]
-:is(.pane-side-dock-close, .session-panel-action, .row-overflow-trigger, .browser-pane-nav-button):hover:not(
+:is(.session-panel-action, .row-overflow-trigger, .browser-pane-nav-button):hover:not(
   :active,
   .is-active,
   [aria-pressed="true"],
@@ -340,7 +334,7 @@ html[data-mixdog-mobile-tabs] :is(.composer-tool:not(.is-recording), .model-trig
   background: var(--mx-hover);
 }
 /* The route sheet's half-pixel inset frame lands between device pixels on
-   its right edge and vanishes there (user: 모델 피커 오른쪽 테두리 잘림); a
+   its right edge and vanishes there; a
    whole pixel draws on every edge. */
 html[data-mixdog-mobile-tabs] .route-sheet,
 html[data-mixdog-mobile-tabs] .route-sheet-flyout {
@@ -395,7 +389,7 @@ html[data-mixdog-mobile-tabs] .mixdog-settings__close svg {
   width: 22px;
   height: 22px;
 }
-/* ── + TIER 2, the action + (user: +도 규격을 두 개로 나누던가) ── a
+/* ── + TIER 2, the action + ── a
    standalone create control belongs to no bar, so it carries ONE measure
    everywhere it appears: a 44 box with a 22 glyph. The dock header and the
    Sessions panel header already spoke it; the remaining create actions had
@@ -445,7 +439,7 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .
   height: 22px;
 }
 /* The touch target grows from the desktop 28px, but its CENTER has to stay
-   on the list's dot/spinner axis (user: + 버튼이 아래 닷이랑 가로로 틀어짐):
+   on the list's dot/spinner axis:
    a centered 44px box pulled the glyph 8px inboard of that line. The extra
    width is spent outward, into the rail's own 8px inset — the LAST action
    only, so a slot holding two actions keeps its own gap. */
@@ -460,7 +454,7 @@ html[data-mixdog-mobile-tabs] .session-panel-header-actions > .row-overflow .row
   flex-basis: var(--mx-touch);
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 22px);
 }
-/* Chrome has NO hairlines above/below its toolbar (user: 상하 테두리 없네);
+/* Chrome has NO hairlines above/below its toolbar;
    the toolbar band runs uninterrupted into the conversation on ONE tone, the
    workspace sheet the PC pane strip also paints. The pills and square
    controls retain their own raised gray fills. */
@@ -475,10 +469,27 @@ html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell {
   box-shadow: none;
 }
 
-/* ── Mobile session drawer (user: 사이드탭은 전체 안 가리게 비율로, 상하는
-   전체 높이) ── the ≤760px drawer grammar re-scoped to the phone marker, so
+/* ── Phone dark surfaces: neutral greys ── the desktop's blue-offset dark ramp
+   (#18181b band, #111113 sheet…) is hidden on Windows behind a Mica frame, but
+   the phone paints it solid and it reads bluish ("질감이 다르다"). Same
+   contrast steps (band → sheet → card → composer), R=G=B. Desktop is untouched:
+   this block only matches the phone marker. Light tokens are already neutral. */
+:root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) {
+  --mx-bg-deep: #101010;
+  --mx-window-band: #181818;
+  --mx-workspace-sheet: #111111;
+  --mx-bg-base: #222222;
+  --mx-bg-layer-1: #2a2a2a;
+  --mx-bg-layer-2: #323232;
+  --mx-bg-layer-3: #3d3d3d;
+  --mx-bg-contrast: #5c5c5c;
+  --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, #1c1c1c);
+  --mx-terminal-bg: #121212;
+}
+
+/* ── Mobile session drawer ── the ≤760px drawer grammar re-scoped to the phone marker, so
    the drawer spans a stable 78% of the screen at any width. */
-/* ── Sheet height (user: 오른쪽 사이드 아래쪽이 스크롤 안 되고 잘림) ──
+/* ── Sheet height ──
    `top: 0; bottom: 0` on a fixed sheet resolves against the LAYOUT viewport,
    which on Android Chrome is the URL-bar-hidden height. With the URL bar
    showing, the sheet ran past the fold: its inner scroller kept working but
@@ -517,10 +528,10 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
      the window band (below). */
   background: var(--mx-workspace-sheet);
   border-radius: 0 var(--mx-radius-sheet) var(--mx-radius-sheet) 0;
-  box-shadow: 24px 0 24px var(--mx-alpha-dark-24);
-  /* Children clip to the rounded sheet (user: 둥근 테두리 뒤로 긴 선이 보임 —
-     the desktop-width side panel and its resize separator painted past the
-     corner radius). */
+  /* No drop shadow: it darkened a band of the transcript beside the drawer
+     and read as a second frame; the plain backdrop scrim separates the sheet. */
+  box-shadow: none;
+  /* Children clip to the rounded sheet. */
   overflow: hidden;
   transform: translateX(-110%);
   visibility: hidden;
@@ -645,8 +656,9 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop {
   z-index: 149;
   border: 0;
   padding: 0;
-  /* Invisible outside-tap catcher (user decision: side sheets do not dim). */
-  background: transparent;
+  /* Plain neutral scrim and outside-tap catcher: one even dim over the page,
+     so the drawer reads as a single sheet with no ghost frame beside it. */
+  background: rgb(0 0 0 / 40%);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -686,7 +698,7 @@ html[data-mixdog-mobile-tabs] .pane-side-dock {
   border-radius: 0;
   box-shadow: none;
   overflow: visible;
-  /* Same slide as the left drawer (user: 열리고 닫힐 때 부드럽게): the panel
+  /* Same slide as the left drawer: the panel
      is fixed, so the closed state can hold it off-screen instead of removing
      it — the exit runs on the same curve as the entry. */
   transform: translateX(0);
@@ -708,43 +720,35 @@ html[data-mixdog-mobile-tabs]
 .pane-side-dock:has(> .pane-side-dock-main > .workbench-side-panel[data-motion="instant"]) {
   transition: none;
 }
-/* Sheet header at the touch tier: title, the SAME dock toggles the desktop
-   strip carries, and the fold X, on the tab strip's main-surface metrics. */
-html[data-mixdog-mobile-tabs] .pane-side-dock-header {
+/* The sheet has no bar of its own: each pane's PC header row (DockHeaderRow) is
+   the top row, below the status-bar inset, with its controls at the touch tier
+   (44dp slots; the pane switch lives in the row's ⋯ menu). */
+html[data-mixdog-mobile-tabs] .pane-side-dock {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+html[data-mixdog-mobile-tabs] .dock-header-row {
+  /* Row padding (0 6px 0 8px), gap (4px) and control gap (2px) stay the PC's. */
+  --mx-dock-header-height: var(--mx-touch-main);
+}
+/* The diff detail's back chevron keeps its PC glyph box; only its hit frame
+   reaches the touch minimum, hanging off ::after. */
+html[data-mixdog-mobile-tabs] .session-diff-back {
+  position: relative;
+}
+html[data-mixdog-mobile-tabs] .session-diff-back::after {
+  content: "";
+  position: absolute;
+  inset: calc((100% - var(--mx-touch-main)) / 2);
+}
+html[data-mixdog-mobile-tabs] .dock-header-controls .browser-pane-nav-button {
   flex: 0 0 var(--mx-touch-main);
-  height: var(--mx-touch-main);
-  margin-top: env(safe-area-inset-top, 0px);
-  border-left: 0;
-  border-radius: 0;
-  overflow: clip;
-}
-/* The title keeps the desktop dock title (16px semibold on the 12px box
-   line); only the controls take the touch tier, in the desktop shapes. */
-html[data-mixdog-mobile-tabs] .pane-side-dock-header > .pane-dock-toggles {
-  margin-left: auto;
-  gap: 0;
-  padding-inline: 0;
-}
-html[data-mixdog-mobile-tabs] .pane-side-dock-header .pane-dock-toggle,
-html[data-mixdog-mobile-tabs] .pane-side-dock-close {
   width: var(--mx-touch-main);
   height: var(--mx-touch-main);
-  flex-basis: var(--mx-touch-main);
-  margin: 0;
 }
-html[data-mixdog-mobile-tabs] .pane-side-dock-header .pane-dock-toggle svg.lucide,
-html[data-mixdog-mobile-tabs] .pane-side-dock-close > svg {
-  width: var(--mx-touch-glyph-main);
-  height: var(--mx-touch-glyph-main);
-  stroke-width: 1.75px;
-}
-/* The X owns the trailing slot like the desktop header: the shared touch
-   rule above zeroes every margin, which also dropped the desktop
-   `margin-left: auto` and left the X beside the title (user: X자가 오른쪽에
-   붙어 있지 않음). */
-html[data-mixdog-mobile-tabs] .pane-side-dock-close {
-  margin-left: auto;
-  margin-right: 4px;
+html[data-mixdog-mobile-tabs] .dock-header-controls .browser-pane-nav-button svg.lucide {
+  width: 20px;
+  height: 20px;
 }
 html[data-mixdog-mobile-tabs] .pane-side-dock-main {
   flex: 1 1 auto;
@@ -754,7 +758,7 @@ html[data-mixdog-mobile-tabs] .pane-side-dock-main {
 }
 /* Browser Use and Terminal are fixed-position surfaces stacked over their
    dock slot at z 31 — under the phone sheet's 150, so the sheet body read as
-   an empty sheet (user: 오른쪽 사이드탭 엉망). One step above the sheet, only
+   an empty sheet. One step above the sheet, only
    while showing; a parked surface keeps its -1. */
 html[data-mixdog-mobile-tabs] .session-terminal-surface-container:not([data-parked="true"]),
 html[data-mixdog-mobile-tabs] .session-browser-surface-container:not([data-parked="true"]) {
@@ -813,15 +817,14 @@ html[data-mixdog-mobile-tabs]
   outline: 0 !important;
 }
 /* The edge resize separator IS the stray long line behind the rounded
-   corners (user: 둥근 테두리 뒤에 긴 선) — both drawers hide it; the sheet
+   corners — both drawers hide it; the sheet
    width is fixed on the phone anyway. */
 html[data-mixdog-mobile-tabs] .workbench-side-panel-resize {
   display: none;
 }
 /* Mobile scrollbars are overlay feedback, not layout — the transcript already
    hides its bar. The drawer/sheet lists still painted the 8px desktop bar on
-   their right edge, where it darkens on touch and even drags (user: 오른쪽
-   끝을 누르면 클릭되고 회색으로 변함). Same treatment, list-wide. */
+   their right edge, where it darkens on touch and even drags. Same treatment, list-wide. */
 html[data-mixdog-mobile-tabs]
 :is(
   .utility-dock-pane,
@@ -853,8 +856,7 @@ html[data-mixdog-mobile-tabs]
   )::-webkit-scrollbar {
   display: none;
 }
-/* ── Mobile dialogs (user: 팝업이 중앙정렬 안 되고 스크롤됨 — 전체 팝업
-   정렬) ── the modal layer covers exactly the visible screen, and every
+/* ── Mobile dialogs ── the modal layer covers exactly the visible screen, and every
    dialog inside is clamped to the screen and stays dead-centered. */
 html[data-mixdog-mobile-tabs] .mixdog-settings-layer {
   --settings-layer-safe-top: 12px;
@@ -889,7 +891,7 @@ html[data-mixdog-mobile-tabs] .mixdog-settings-layer > .mixdog-settings-v2 {
   box-shadow: none;
 }
 
-/* /context on a phone (user: 팝업 내부 스크롤 제거) — the ≤640px rule in
+/* /context on a phone — the ≤640px rule in
    24-context-dock.css stacks the nine category rows into ONE column, and that
    alone pushes the card past its height cap and hands the popup an internal
    scroller. The phone keeps the two-column legend on a tighter vertical
@@ -930,7 +932,7 @@ html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   PHONE CONTROL SPEC (user: 다 정리해)
+   PHONE CONTROL SPEC
    The shell was authored for a pointer, and every surface picked its own
    control size — 18/19/20/22/24/25/26/28/30/32 all shipped side by side.
    The phone layer used to correct them ONE SELECTOR AT A TIME, so anything
@@ -973,7 +975,7 @@ html[data-mixdog-mobile-tabs] {
      keep the maximum inset so their last row and pinned actions remain
      usable, with an 8dp breathing floor — NOT a navigation-bar reserve: a
      24dp guess read as a button-height dead strip on phones whose viewport
-     already stops above the bar (user: 버튼 크기만큼 아래 여백이 더 잡힘). */
+     already stops above the bar. */
   --mx-mobile-sheet-safe-bottom: max(env(safe-area-inset-bottom, 0px), env(safe-area-max-inset-bottom, 0px), 8px);
 }
 
@@ -999,8 +1001,7 @@ html[data-mixdog-mobile-tabs][data-mixdog-keyboard="open"] .composer-region {
    catalog must neither collapse Project nor move the input when it arrives. */
 /* Agents dock at native dp: the desktop 10px card read too SHORT for a
    finger row, and the page's 16px tail stacked onto the sheet safe-bottom
-   into a wide strip (user: 버튼이 상하로 작고 아래 여백이 넓다 — PC 같은
-   상하 여백감으로). Cards gain the vertical padding a touch row needs; the
+   into a wide strip. Cards gain the vertical padding a touch row needs; the
    page tail drops to the pane's own 8dp rhythm so the sheet closes on the
    same spacing it opens with. */
 html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page .schedules-row {
@@ -1013,8 +1014,7 @@ html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page {
   padding-bottom: 8px;
 }
 /* Source Control's ONE action at native dp: the desktop 28px commit row is a
-   fingernail band on a phone (user: 커밋 버튼 하나가 문제 — PC 같은 상하
-   크기로). The row and its full-width button take the 44dp primary tier. */
+   fingernail band on a phone. The row and its full-width button take the 44dp primary tier. */
 html[data-mixdog-mobile-tabs] .utility-dock .dock-scm-commit-split {
   height: var(--mx-touch);
 }
@@ -1099,7 +1099,7 @@ html[data-mixdog-mobile-tabs]
   }
 }
 
-/* ── 1. Hover-revealed controls (user: 안 보이는 버튼) ──────────────────────
+/* ── 1. Hover-revealed controls ──────────────────────
    A phone never hovers. These rest at `opacity: 0; pointer-events: none`, so
    on touch the control is not merely faint — the tap passes THROUGH it to
    whatever sits underneath, and the action is unreachable. This is the only
@@ -1116,8 +1116,7 @@ html[data-mixdog-mobile-tabs] .dock-pr-row-actions {
 /* EXCEPTION — the session row's action is NOT revealed here. An ordinary row
    carries exactly one: Archive, and it is built to take the unread dot's place
    only while the pointer is on that row. Resting it visible armed a one-tap
-   destructive control on every row at once (user: 아카이브 버튼이 엄청 커지고
-   계속 떠 있음), which is also how the mass-archive incident noted in
+   destructive control on every row at once, which is also how the mass-archive incident noted in
    10-rail-pages.css happened. A phone needs a deliberate affordance for it
    (swipe / long-press / overflow), not a permanently live button. */
 /* This one also collapses to zero WIDTH at rest, so opacity alone would leave
@@ -1178,8 +1177,7 @@ html[data-mixdog-mobile-tabs] .attachment-card-edit {
    status island), so copy, stop and revert were 18-24px pointer targets. They
    take the COMPACT tier, not the row tier: every one of them is a small mark
    pinned beside a line of text, and at 36 with a 20 glyph the mark stopped
-   reading as a mark and started dominating the sentence it belongs to (user:
-   메세지 아래 복사 버튼도 커져버림). Their glyphs keep the designed 14px —
+   reading as a mark and started dominating the sentence it belongs to. Their glyphs keep the designed 14px —
    the box grows for the finger, the mark stays a mark. */
 html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer .message-actions,

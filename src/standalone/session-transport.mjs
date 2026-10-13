@@ -32,6 +32,9 @@ export function createSessionTransport({
   onClientDropped = null,
   onUpgradeRequested = null,
   getStatus = () => ({}),
+  // Asked before every register/call; false answers 503 (the daemon's owner
+  // lease is not held — daemon-owner.mjs).
+  admitWork = () => true,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -52,6 +55,7 @@ export function createSessionTransport({
     onClientDropped,
     onUpgradeRequested,
     getStatus,
+    admitWork,
   });
 
   function beginDrain(reason = 'daemon replacement') {

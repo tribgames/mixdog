@@ -125,7 +125,7 @@ test('a running trailing turn shows no card and does not fetch', async (t) => {
   assert.ok(view.q('.turn-changes-card'));
 });
 
-test('one file: basename title, no file list, the labeled whole-turn Undo in the header', async (t) => {
+test('one file: count title on one line, its row, and the whole-turn Undo in the header', async (t) => {
   const view = await mountCard(t, {
     reply: (request) =>
       request.capability === 'revertTurnChanges'
@@ -136,42 +136,53 @@ test('one file: basename title, no file list, the labeled whole-turn Undo in the
           })
         : ready([file('src/deep/TurnReview.tsx', { additions: 2, deletions: 2 })]),
   });
-  assert.equal(view.q('.turn-changes-title strong').textContent, 'Edited TurnReview.tsx');
-  assert.match(view.q('.turn-changes-sub-default').textContent, /\+2.*\u22122/);
-  assert.match(view.q('.turn-changes-sub-hover').textContent, /View changes/);
-  assert.equal(view.q('.turn-changes-files'), null);
+  assert.equal(view.q('.turn-changes-title strong').textContent, '1 file changed');
+  assert.match(view.q('.turn-changes-title .diff-stats').textContent, /\+2.*\u22122/);
+  assert.equal(view.q('.turn-changes-sub-hover'), null);
+  const rows = view.qa('.turn-changes-file');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].querySelector('.turn-changes-base').textContent, 'TurnReview.tsx');
+  assert.equal(rows[0].querySelector('.turn-changes-dir'), null, 'inside the project: no location hint');
   assert.equal(view.q('.turn-changes-trail .turn-changes-action').textContent, 'Undo');
-  assert.equal(view.q('.turn-review-revert'), null, 'no separate per-file icon');
   // Whole-turn Undo, without a confirm step.
   await view.click(view.q('.turn-changes-action'));
   await settle();
   assert.deepEqual(view.calls.find((call) => call.capability === 'revertTurnChanges').args, ['cp', null, 7]);
   assert.equal(view.q('.turn-changes-action').textContent, 'Reapply');
   assert.equal(view.q('.turn-review-confirm'), null);
-  // Header click opens the session diff on that file; Ctrl+click opens the file.
+  assert.equal(view.q('.turn-changes-file').dataset.reverted, 'true');
+  // Header click opens the session diff on the whole diff; Ctrl+click on the row opens the file.
   await view.click(view.q('.turn-changes-summary'));
   assert.equal(view.diffOpened.length, 1);
-  assert.equal(view.requests.at(-1), 'src/deep/TurnReview.tsx');
-  await view.click(view.q('.turn-changes-summary'), { ctrlKey: true });
+  assert.equal(view.requests.at(-1), '');
+  await view.click(view.q('.turn-changes-file-main'), { ctrlKey: true });
   assert.deepEqual(view.opened, [[ROOT, 'src/deep/TurnReview.tsx']]);
   assert.equal(view.diffOpened.length, 1);
 });
 
-test('three files list every row with dimmed directory and bold basename', async (t) => {
+test('rows show a file icon and name, per-file counts without zeros, and no directory inside the project', async (t) => {
   const view = await mountCard(t, {
     reply: () => ready([file('apps/x/A.tsx'), file('apps/x/B.tsx'), file('C.md', { additions: 41, deletions: 0 })]),
   });
-  assert.equal(view.q('.turn-changes-title strong').textContent, 'Edited 3 files');
-  assert.match(view.q('.turn-changes-sub-default').textContent, /\+47.*\u22122/);
+  assert.equal(view.q('.turn-changes-title strong').textContent, '3 files changed');
+  assert.match(view.q('.turn-changes-title .diff-stats').textContent, /\+47.*\u22122/);
   const rows = view.qa('.turn-changes-file');
   assert.equal(rows.length, 3);
-  assert.equal(rows[0].querySelector('.turn-changes-dir').textContent, 'apps/x/');
   assert.equal(rows[0].querySelector('.turn-changes-base').textContent, 'A.tsx');
-  assert.equal(rows[2].querySelector('.turn-changes-dir'), null);
+  assert.ok(rows[0].querySelector('.seti-icon'));
+  assert.equal(rows[2].querySelector('.diff-stats').textContent, '+41');
   assert.equal(view.q('.turn-changes-more'), null);
   assert.ok(view.q('.turn-changes-action'));
 });
 
+test('a file outside the project shows its name only, with the full path in the tooltip', async (t) => {
+  const dir = 'C:/Users/someone/AppData/Local/Temp/a-rather-long-folder-name';
+  const view = await mountCard(t, { reply: () => ready([file('src/a.ts'), file(`${dir}/outside-note.txt`)]) });
+  const [, outside] = view.qa('.turn-changes-file');
+  assert.equal(outside.querySelector('.turn-changes-base').textContent, 'outside-note.txt');
+  assert.equal(outside.querySelector('.turn-changes-prefix'), null);
+  assert.equal(outside.querySelector('.turn-changes-file-main').title, `${dir}/outside-note.txt`);
+});
 test('four or more files show three rows and a Show more / Collapse toggle', async (t) => {
   const view = await mountCard(t, {
     reply: () => ready(['a', 'b', 'c', 'd', 'e'].map((name) => file(`src/${name}.ts`))),
@@ -205,8 +216,16 @@ test('row click focuses the file in the session diff; Ctrl/Cmd+click opens it', 
   assert.deepEqual(view.opened, [[ROOT, 'src/a.ts']]);
   // The header opens the pane without targeting a file.
   await view.click(view.q('.turn-changes-summary'));
-  assert.equal(view.requests.at(-1), null);
+  assert.equal(view.requests.at(-1), '', 'View changes asks for the all-files list, not a cancellation');
   assert.equal(view.diffOpened.length, 2);
+});
+
+test('a file click carries the recorded root with its path', async (t) => {
+  const view = await mountCard(t, { reply: () => ready([file('x.txt')]) });
+  await view.click(view.q('.turn-changes-file-main'));
+  const { pendingSessionDiffFileRequest } = await import('./session-diff-focus.ts');
+  assert.equal(pendingSessionDiffFileRequest('s1').root, ROOT);
+  assert.equal(pendingSessionDiffFileRequest('s1').path, 'x.txt');
 });
 
 test('Undo reverts the whole turn, then the header offers Reapply', async (t) => {
@@ -398,15 +417,15 @@ test('per-file revert confirms first; a reverted row is struck and offers reappl
   assert.equal(view.qa('.turn-changes-file')[1].dataset.reverted, 'false');
 });
 
-test('a single reverted file is struck in the header and reapplied there as a whole turn', async (t) => {
+test('a single reverted file is struck in its row and reapplied from the header as a whole turn', async (t) => {
   const view = await mountCard(t, {
     reply: (request) =>
       request.capability === 'reapplyTurnChanges'
         ? ready([file('a.ts')], { revision: 8 })
         : ready([file('a.ts', { state: 'reverted' })], { canUndo: false, canReapply: true }),
   });
-  assert.equal(view.q('.turn-changes-card').dataset.reverted, 'true');
-  assert.equal(view.q('[aria-label="Reapply a.ts"]'), null);
+  assert.equal(view.q('.turn-changes-file').dataset.reverted, 'true');
+  assert.ok(view.q('[aria-label="Reapply a.ts"]'), 'the row keeps its faint per-file reapply');
   const action = view.q('.turn-changes-trail .turn-changes-action');
   assert.equal(action.textContent, 'Reapply');
   await view.click(action);
@@ -430,66 +449,15 @@ test('a single-file card follows the whole-turn disabled and reason rules', asyn
   });
 });
 
-test('previews without a renderable patch name their reason', async (t) => {
-  const cases = [
-    // Line counts never decide: only the runtime's flag or the patch itself.
-    ['large.ts', '', { additions: 0, deletions: 0, patchOmitted: true }, /Too large to preview/],
-    ['huge.ts', `diff --git a/huge.ts b/huge.ts\n${'+x\n'.repeat(100000)}`, {}, /Too large to preview/],
-    ['counted.ts', '', { additions: 900, deletions: 40 }, /No preview available/],
-    ['mode.sh', '', { additions: 0, deletions: 0 }, /No preview available/],
-  ];
-  for (const [name, patch, counts, expected] of cases) {
-    await t.test(name, async (t) => {
-      const view = await mountCard(t, {
-        reply: (request) =>
-          request.args[0]?.patch
-            ? { ...ready([file(name, counts)]), patch }
-            : ready([file(name, counts), file('other.ts')]),
-      });
-      await act(async () => {
-        view.q('.turn-changes-file-main').dispatchEvent(new view.dom.window.MouseEvent('mouseover', { bubbles: true }));
-      });
-      await settle(300);
-      const tip = view.document.body.querySelector('.turn-changes-preview').textContent;
-      assert.match(tip, expected);
-      assert.doesNotMatch(tip, /Binary file/);
-    });
-  }
-});
-
-test('hovering a row previews its diff; binary files show no preview', async (t) => {
-  const patch = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n';
-  const view = await mountCard(t, {
-    reply: (request) =>
-      request.args[0]?.patch
-        ? { ...ready([file('a.ts')]), patch }
-        : ready([file('a.ts'), file('lock.bin', { binary: true })]),
-  });
-  const hover = (node) =>
-    act(async () => {
-      node.dispatchEvent(new view.dom.window.MouseEvent('mouseover', { bubbles: true }));
-    });
-  const [first, binary] = view.qa('.turn-changes-file-main');
-  assert.match(binary.textContent, /Binary file — no preview/);
-  await hover(first);
-  await settle(300);
-  const tip = view.document.body.querySelector('.turn-changes-preview');
-  assert.ok(tip);
-  assert.equal(tip.getAttribute('role'), 'tooltip');
-  const previewCall = view.calls.find((call) => call.args[0]?.patch);
-  assert.deepEqual(previewCall.args, [{ checkpointId: 'cp', patch: true, file: 'a.ts' }]);
-  assert.equal(first.getAttribute('aria-describedby'), tip.id);
+test('hovering a row shows no diff popover and never fetches a patch', async (t) => {
+  const view = await mountCard(t, { reply: () => ready([file('a.ts'), file('b.ts')]) });
   await act(async () => {
-    first.dispatchEvent(new view.dom.window.MouseEvent('mouseout', { bubbles: true }));
+    view.q('.turn-changes-file-main').dispatchEvent(new view.dom.window.MouseEvent('mouseover', { bubbles: true }));
   });
-  assert.equal(view.document.body.querySelector('.turn-changes-preview'), null);
-  const callsBefore = view.calls.length;
-  await hover(binary);
   await settle(300);
-  assert.match(view.document.body.querySelector('.turn-changes-preview').textContent, /Binary file — no preview/);
-  assert.equal(view.calls.length, callsBefore);
+  assert.equal(view.document.body.querySelector('[role="tooltip"]'), null);
+  assert.equal(view.calls.filter((call) => call.args[0]?.patch).length, 0);
 });
-
 test('a newer turndone for the checkpoint refetches', async (t) => {
   let files = [file('a.ts'), file('b.ts')];
   const view = await mountCard(t, { reply: () => ready(files) });
@@ -498,9 +466,72 @@ test('a newer turndone for the checkpoint refetches', async (t) => {
   await view.render(view.value, { ...view.ref, boundary: 'done-2' });
   await settle();
   assert.equal(view.calls.length, 2);
-  assert.equal(view.q('.turn-changes-title strong').textContent, 'Edited 3 files');
+  assert.equal(view.q('.turn-changes-title strong').textContent, '3 files changed');
   // The same boundary answers from the cache.
   await view.render(view.value, { ...view.ref, boundary: 'done-2' });
   await settle();
   assert.equal(view.calls.length, 2);
+});
+
+test('per-file confirm moves focus in, and returns it to the row action or the header', async (t) => {
+  const view = await mountCard(t, {
+    reply: (request) =>
+      request.capability === 'revertTurnChanges'
+        ? ready([file('a.ts'), file('src/b.ts', { state: 'reverted' })], { revision: 8 })
+        : ready([file('a.ts'), file('src/b.ts')]),
+  });
+  const active = () => view.document.activeElement;
+  const trigger = () => view.q('[aria-label="Revert src/b.ts"]');
+  trigger().focus();
+  await view.click(trigger());
+  assert.equal(active(), view.q('[aria-label="Cancel revert"]'), 'focus enters the confirm pair');
+  // Cancel returns focus to the row's action.
+  await view.click(view.q('[aria-label="Cancel revert"]'));
+  assert.equal(active(), trigger());
+  // Confirm: once the mutation settles, the row's action (now Reapply) has focus.
+  await view.click(trigger());
+  await view.click(view.q('[aria-label="Confirm revert of src/b.ts"]'));
+  await settle();
+  assert.equal(active(), view.q('[aria-label="Reapply src/b.ts"]'));
+});
+
+test('focus lands on the header button when the confirmed row disappears', async (t) => {
+  const view = await mountCard(t, {
+    reply: (request) =>
+      request.capability === 'revertTurnChanges'
+        ? ready([file('a.ts'), file('c.ts')], { revision: 8 })
+        : ready([file('a.ts'), file('src/b.ts'), file('c.ts')]),
+  });
+  await view.click(view.q('[aria-label="Revert src/b.ts"]'));
+  await view.click(view.q('[aria-label="Confirm revert of src/b.ts"]'));
+  await settle();
+  assert.equal(view.qa('.turn-changes-file').length, 2);
+  assert.equal(view.document.activeElement, view.q('.turn-changes-summary'));
+});
+
+test('an unmeasured file takes the transcript edit counts, so the card agrees with the pane and island', async () => {
+  const { withTranscriptCounts } = await import('./turn-changes-model.ts');
+  const outside = 'C:/Users/me/Temp/outside/outside-note.txt';
+  const files = [
+    file(outside, { status: 'A', additions: 0, deletions: 0, unmeasured: true }),
+    file('note.txt', { additions: 3 }),
+  ];
+  const items = [
+    {
+      id: 'w',
+      kind: 'tool',
+      name: 'write',
+      args: { file_path: outside, content: 'Single line of text' },
+      result: 'Created',
+    },
+  ];
+  const filled = withTranscriptCounts(files, items, ROOT);
+  assert.deepEqual(
+    filled.map((entry) => [entry.additions, entry.deletions]),
+    [
+      [1, 0],
+      [3, 1],
+    ]
+  );
+  assert.equal(withTranscriptCounts(files, undefined, ROOT), files);
 });

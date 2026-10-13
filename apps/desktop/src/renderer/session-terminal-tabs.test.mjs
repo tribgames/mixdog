@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   activeSessionTerminalId,
   closeSessionTerminalTab,
+  followSessionTerminalRoot,
   getSessionTerminalTabs,
   openSessionTerminalTab,
   releaseSessionTerminalTabs,
@@ -37,16 +38,47 @@ test('tabs use the fixed id contract and never reuse a number', () => {
   assert.deepEqual(releaseSessionTerminalTabs(sid), [first, third.id, `${first}:4`]);
 });
 
-test('closing the last tab leaves one fresh default tab', () => {
+test('closing the last tab leaves no tabs until explicitly reopened', () => {
   const sid = 'tabs-last';
   const first = sessionTerminalId(sid);
   assert.equal(closeSessionTerminalTab(sid, first), first);
   const { tabs, activeId } = getSessionTerminalTabs(sid);
-  assert.equal(tabs.length, 1);
-  assert.equal(tabs[0].shell, '');
-  assert.equal(tabs[0].id, `${first}:2`);
-  assert.equal(activeId, tabs[0].id);
+  assert.equal(tabs.length, 0);
+  assert.equal(activeId, '');
   assert.equal(closeSessionTerminalTab(sid, 'unknown'), null);
+  // A closed terminal is not re-created by following the execution root.
+  followSessionTerminalRoot(sid, '/p');
+  assert.equal(getSessionTerminalTabs(sid).tabs.length, 0);
+  const reopened = openSessionTerminalTab(sid, '', '/p');
+  assert.equal(reopened.id, `${first}:2`);
+  assert.equal(reopened.cwd, '/p');
+  assert.equal(activeSessionTerminalId(sid), reopened.id);
+  releaseSessionTerminalTabs(sid);
+});
+
+test('closing a non-last tab keeps the rest and selects the neighbour', () => {
+  const sid = 'tabs-not-last';
+  const first = sessionTerminalId(sid);
+  const second = openSessionTerminalTab(sid);
+  closeSessionTerminalTab(sid, second.id);
+  const { tabs, activeId } = getSessionTerminalTabs(sid);
+  assert.deepEqual(
+    tabs.map((tab) => tab.id),
+    [first]
+  );
+  assert.equal(activeId, first);
+  releaseSessionTerminalTabs(sid);
+});
+
+test('a command request reopens a closed terminal and reaches the new tab', () => {
+  const sid = 'tabs-reopen-command';
+  closeSessionTerminalTab(sid, sessionTerminalId(sid));
+  requestTerminalCommand(sid, 'pwd');
+  const terminalId = activeSessionTerminalId(sid);
+  assert.equal(terminalId, `${sessionTerminalId(sid)}:2`);
+  const input = collect(terminalId);
+  assert.deepEqual(input.entered, ['pwd\r']);
+  input.stop();
   releaseSessionTerminalTabs(sid);
 });
 
@@ -109,18 +141,18 @@ test('shell profiles distinguish failed, empty-ready and ready, and a failure re
 
 test('terminal cwd follows the workspace root; a root change opens a new tab, never re-roots', async () => {
   const { resolveTerminalCwd, followSessionTerminalRoot } = await import('./session-terminal-tabs.ts');
-  assert.equal(resolveTerminalCwd('P:\.wt\a', '/p'), 'P:\.wt\a');
+  assert.equal(resolveTerminalCwd('P:.wta', '/p'), 'P:.wta');
   assert.equal(resolveTerminalCwd(null, '/p'), '/p');
   assert.equal(resolveTerminalCwd('', ''), null);
   const sid = 'tabs-root';
   followSessionTerminalRoot(sid, '/p', false);
   const first = sessionTerminalId(sid);
   assert.equal(getSessionTerminalTabs(sid).tabs[0].cwd, '/p');
-  followSessionTerminalRoot(sid, 'P:\.wt\a');
+  followSessionTerminalRoot(sid, 'P:.wta');
   const moved = getSessionTerminalTabs(sid);
   assert.equal(moved.tabs.length, 2);
   assert.equal(moved.tabs[0].cwd, '/p');
-  assert.equal(moved.tabs[1].cwd, 'P:\.wt\a');
+  assert.equal(moved.tabs[1].cwd, 'P:.wta');
   assert.notEqual(moved.tabs[1].id, first);
   assert.equal(moved.activeId, moved.tabs[1].id);
   followSessionTerminalRoot(sid, '/p');

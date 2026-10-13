@@ -6,7 +6,7 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
-  /* The Settings group card's edge (user: 최종 폰트 위계 · 모든 UI 점검). */
+  /* The Settings group card's edge. */
   border: 0;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-base);
@@ -137,7 +137,7 @@
 }
 .command-surface[data-surface="stats"] {
   width: min(1040px, calc(100vw - 32px));
-  /* Stops at 760 on a tall window (user: 팝업 상하 최대 크기); the body scrolls. */
+  /* Stops at 760 on a tall window; the body scrolls. */
   height: min(760px, var(--settings-panel-height));
   max-height: 100%;
   grid-template-rows: minmax(0, 1fr);
@@ -419,7 +419,7 @@
   border-top: var(--mx-hairline) solid var(--mx-border);
 }
 /* The sticky header carries the same plate tint as every other header band
-   (user: 헤더에는 있는게 좋아보여 코덱스스타일로), layered over the dialog's
+, layered over the dialog's
    own opaque surface so scrolled rows never show through it. */
 :root .usage-table th {
   background: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-bg-base);
@@ -956,8 +956,7 @@
   overflow-wrap: anywhere;
 }
 /* A pace worth noticing tints the line that says so, never the figure: a
-   subscription used hard on purpose is not an alarm (user: 사용량이랑 그래프
-   넓이가 너무 부정색 아닌가). */
+   subscription used hard on purpose is not an alarm. */
 .stats-card:is([data-tone="warning"], [data-tone="danger"]) em {
   color: var(--mx-warning);
 }
@@ -1180,7 +1179,7 @@
   stroke: none;
 }
 /* Each layer fades from a clear ink at the top to a whisper at the baseline:
-   distinct hues (user: 아예 다른 색으로) without a solid slab (user: 깔끔하게). */
+   distinct hues without a solid slab. */
 .quota-chart-stack-top {
   stop-color: var(--quota-ink);
   stop-opacity: 0.75;
@@ -1502,30 +1501,30 @@ button.quota-chart-slot[aria-expanded="true"] {
    Explicit-language fences only; token hues live as theme tokens so the
    light sheet swaps the whole ramp in one place. */
 :root {
-  --mx-syntax-comment: #6a9955;
-  --mx-syntax-keyword: #569cd6;
-  --mx-syntax-control: #c586c0;
-  --mx-syntax-string: #ce9178;
-  --mx-syntax-number: #b5cea8;
-  --mx-syntax-type: #4ec9b0;
-  --mx-syntax-function: #dcdcaa;
-  --mx-syntax-variable: #9cdcfe;
-  --mx-syntax-meta: #d67373;
+  --mx-syntax-comment: #78aa68;
+  --mx-syntax-keyword: #5aa9ff;
+  --mx-syntax-control: #d096f5;
+  --mx-syntax-string: #f0a070;
+  --mx-syntax-number: #8fd18a;
+  --mx-syntax-type: #3fd0b4;
+  --mx-syntax-function: #e8cf70;
+  --mx-syntax-variable: #8fd0ff;
+  --mx-syntax-meta: #f58585;
 }
 :root[data-mixdog-theme="light"] {
   /* A calm light ramp. The stock Light+ primaries (#0000ff, #a31515, #008000)
      were built for a white editor; on the tinted code plates they read as
-     harsh, dated ink (user: 폰트색이 구리다). Every hue keeps >= 4.5:1 on
+     harsh, dated ink. Every hue keeps >= 4.5:1 on
      the layer-1 plate. */
-  --mx-syntax-comment: #6b7280;
-  --mx-syntax-keyword: #0b5cad;
-  --mx-syntax-control: #7c3aad;
-  --mx-syntax-string: #a34a1c;
-  --mx-syntax-number: #0d7267;
-  --mx-syntax-type: #1a6f80;
-  --mx-syntax-function: #6b4e00;
-  --mx-syntax-variable: #2b4a80;
-  --mx-syntax-meta: #b83a36;
+  --mx-syntax-comment: #646b78;
+  --mx-syntax-keyword: #0a58ca;
+  --mx-syntax-control: #8a2fc9;
+  --mx-syntax-string: #b8420a;
+  --mx-syntax-number: #06756a;
+  --mx-syntax-type: #0b6f8a;
+  --mx-syntax-function: #7a5700;
+  --mx-syntax-variable: #1f4fa6;
+  --mx-syntax-meta: #c42b2b;
 }
 .markdown-code .hljs-comment,
 .markdown-code .hljs-quote {
@@ -1615,7 +1614,10 @@ button.quota-chart-slot[aria-expanded="true"] {
 }
 .dock-file-row.explorer-drop-target,
 .dock-files-tree.explorer-drop-root {
-  background-color: color-mix(in srgb, var(--mx-focus) 18%, transparent);
+  background-color: transparent;
+  outline: 1.5px solid var(--mx-accent);
+  outline-offset: -1.5px;
+  border-radius: var(--mx-radius-md);
 }
 .dock-files-tree:focus {
   outline: none;

@@ -4,6 +4,7 @@
 // blob: URLs (or a sandboxed srcdoc page) itself. Authorization is exactly the
 // editor's: a registered project directory or a one-file selected-file grant.
 import { open, stat } from 'node:fs/promises';
+import { relative } from 'node:path';
 
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import { pageAssetType } from './local-page-server';
@@ -67,8 +68,10 @@ export async function readPreviewRange(
 export function createRemoteFilePreviewMethods(deps: {
   host: Pick<DesktopService, 'projectDirectory'>;
   grants: PreviewGrants;
+  /** Electron-only work runs in the window process; the snapshot window lives there. */
+  hostRequest?: (method: 'captureFileSnapshot', args: unknown[]) => Promise<unknown>;
 }): Record<string, RemoteMethod> {
-  const { host, grants } = deps;
+  const { host, grants, hostRequest } = deps;
   const target = async (
     projectPath: unknown,
     relPath: unknown,
@@ -99,6 +102,13 @@ export function createRemoteFilePreviewMethods(deps: {
       // serve; a browser without that lane ignores it and reads ranges below.
       const mediaAssetId = type.kind === 'pdf' ? undefined : leaseMediaFile(absolute, type.mime);
       return { kind: type.kind, mime: type.mime, ...info, ...(mediaAssetId ? { mediaAssetId } : {}) };
+    },
+    // Confined here by the same grants/projects as the desktop's; the capture
+    // itself runs in the window process (the daemon bundle has no Electron).
+    captureFileSnapshot: async ([projectPath, relPath, accessToken]) => {
+      if (!hostRequest) throw new TypeError('The desktop app is unavailable on this connection.');
+      const { root, absolute } = await target(projectPath, relPath, accessToken);
+      return hostRequest('captureFileSnapshot', [root, relative(root, absolute), grants.grantedIf(accessToken)]);
     },
     previewProjectFileRange: async ([projectPath, relPath, accessToken, rawOffset, rawLength]) => {
       // Arguments are checked before any path work, as before.

@@ -5,7 +5,8 @@
 // ready handoff so the daemon's code/signal is recorded against its pid, boot
 // time and ready state. Resolves once the candidate reported ready, exited,
 // failed to spawn, or the timeout elapsed; the caller then re-reads discovery
-// and attaches to whoever won.
+// and attaches to whoever won. The resolved `summary()` describes this boot as
+// observed when called, for a caller that has to give up.
 import { fork } from 'node:child_process';
 import { beginDaemonSpawnCapture } from './daemon-crash-capture.mjs';
 
@@ -34,7 +35,7 @@ export function forkDaemonCandidate({
       // Boot diagnostics written to fd 2 reach this log exactly once, even when
       // the candidate never reached ready.
       capture.mirror();
-      resolve();
+      resolve({ summary: capture.summary });
     };
     let child;
     try {

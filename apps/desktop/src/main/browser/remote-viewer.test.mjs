@@ -10,7 +10,7 @@ async function settle() {
   for (let index = 0; index < 8; index++) await flush();
 }
 
-function fixture(t) {
+function fixture(t, { tabs } = {}) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const state = new BrowserGuestStateStore();
   const changes = [];
@@ -41,6 +41,7 @@ function fixture(t) {
   const b = makeGuest(2, 'https://b.test/');
   const current = { guest: a };
   const remote = createBrowserRemoteControl({
+    tabs,
     state,
     cdp: {
       waitForInitialDocument: async () => {},
@@ -118,6 +119,74 @@ test('streaming reports one viewer, and a subscription not renewed for 4s stops 
     ['s', false],
   ]);
   assert.ok(f.calls.some(([, method]) => method === 'Page.stopScreencast'));
+});
+
+test('tab controls go to the session tab strip and frames carry that strip', async (t) => {
+  const log = [];
+  const strip = [{ id: 'p1', title: 'A', url: 'https://a.test/', active: true, loading: false, kind: 'page' }];
+  const f = fixture(t, {
+    tabs: {
+      list: () => strip,
+      create: (sessionId) => log.push(['create', sessionId]),
+      select: (sessionId, tabId) => log.push(['select', sessionId, tabId]),
+      close: (sessionId, tabId) => log.push(['close', sessionId, tabId]),
+    },
+  });
+  await f.remote.remoteBrowserControl('s', { type: 'new-tab' });
+  await f.remote.remoteBrowserControl('s', { type: 'select-tab', tabId: 'p2' });
+  await f.remote.remoteBrowserControl('s', { type: 'close-tab', tabId: 'p2' });
+  assert.deepEqual(log, [
+    ['create', 's'],
+    ['select', 's', 'p2'],
+    ['close', 's', 'p2'],
+  ]);
+  assert.deepEqual(f.dispatched, [], 'tab chrome never reaches page input');
+
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a, 1);
+  await settle();
+  assert.deepEqual(f.frames.at(-1).tabs, strip);
+  const count = f.frames.length;
+  strip.push({ id: 'p2', title: 'B', url: 'about:blank', active: false, loading: false, kind: 'page' });
+  await f.advance(200);
+  assert.ok(f.frames.length > count, 'a tab change pushes a metadata frame');
+  assert.equal(f.frames.at(-1).tabs.length, 2);
+});
+
+test('close-tab replies with the tabs left after the window actually closed', async (t) => {
+  let strip = [
+    { id: 'p1', title: 'A', url: 'https://a.test/', active: true, loading: false, kind: 'page' },
+    { id: 'p2', title: 'B', url: 'https://b.test/', active: false, loading: false, kind: 'page' },
+  ];
+  const f = fixture(t, {
+    tabs: {
+      list: () => strip,
+      create: () => {},
+      select: () => {},
+      // The window closes a moment later, and the PC added p3 meanwhile.
+      close: (_sessionId, tabId) =>
+        setTimeout(() => {
+          strip = strip
+            .filter((tab) => tab.id !== tabId)
+            .concat({ id: 'p3', title: 'C', url: 'about:blank', active: false, loading: false, kind: 'page' });
+        }, 100),
+    },
+  });
+  const reply = f.remote.remoteBrowserControl('s', { type: 'close-tab', tabId: 'p1' });
+  await f.advance(100);
+  await f.advance(25);
+  assert.deepEqual(await reply, { remainingTabs: 2 });
+});
+
+test('a vetoed close-tab still counts the tab that stayed', async (t) => {
+  const strip = [
+    { id: 'p1', title: 'A', url: 'https://a.test/', active: true, loading: false, kind: 'page' },
+    { id: 'p2', title: 'B', url: 'https://b.test/', active: false, loading: false, kind: 'page' },
+  ];
+  const f = fixture(t, { tabs: { list: () => strip, create() {}, select() {}, close() {} } });
+  const pending = f.remote.remoteBrowserControl('s', { type: 'close-tab', tabId: 'p2' });
+  await f.advance(2_000);
+  assert.deepEqual(await pending, { remainingTabs: 2 });
 });
 
 test('stopping or releasing a session ends the stream and its viewer', async (t) => {

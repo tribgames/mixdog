@@ -1,41 +1,39 @@
-import { Check, ChevronDown, ChevronRight, FileDiff, Redo2, Undo2, X } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronDown, FileDiff, Redo2, Undo2, X } from 'lucide-react';
 import {
   createContext,
-  lazy,
   memo,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
-  Suspense,
+  type RefObject,
   useContext,
   useEffect,
-  useId,
+  useMemo,
   useRef,
   useState,
 } from 'react';
-import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { showDesktopToast } from './desktop-toasts';
-import { requestSessionDiffFile } from './session-diff-focus';
+import { SetiFileIcon } from './SetiFileIcon';
+import { requestSessionDiffFile, requestSessionDiffList } from './session-diff-focus';
+import { isAbsolutePath } from './session-diff-model';
+import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import {
-  fetchTurnChangesPreview,
   invokeTurnChanges,
   REAPPLY_TURN_CHANGES_CAPABILITY,
   REVERT_TURN_CHANGES_CAPABILITY,
   splitChangePath,
   turnChangeOpenPath,
-  turnChangesPreviewGap,
   turnChangesTitle,
   turnChangesTotals,
   useTurnChanges,
+  withTranscriptCounts,
   visibleTurnChangeRows,
   type TurnChangesCapability,
   type TurnChangesFile,
   type TurnChangesRef,
   type TurnChangesReply,
 } from './turn-changes-model';
-
-const TurnChangesPreviewDiff = lazy(() => import('./turn-changes-preview'));
 
 /** What the transcript hands every card: its session, whether that session is
  *  busy, whether its latest turn is still running, and the pane's routes. */
@@ -52,9 +50,6 @@ export type TurnChangesSurface = {
 
 export const TurnChangesContext = createContext<TurnChangesSurface | null>(null);
 
-const HOVER_DELAY_MS = 250;
-const PREVIEW_WIDTH = 440;
-
 function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
   return (
     <span className="diff-stats">
@@ -69,94 +64,8 @@ function DiffStats({ additions, deletions }: { additions: number; deletions: num
   );
 }
 
-type PreviewRect = { top: number; bottom: number; left: number };
-type PreviewAnchor = { file: TurnChangesFile; rect: PreviewRect };
-type PreviewState = { patch: string | null; failed: boolean };
-type PreviewHandlers = (file: TurnChangesFile) => {
-  onMouseEnter(event: ReactMouseEvent<HTMLElement>): void;
-  onMouseLeave(): void;
-  'aria-describedby': string | undefined;
-};
 type ActivateChange = (event: ReactMouseEvent, file: TurnChangesFile | null) => void;
 type MutateChanges = (capability: TurnChangesCapability, file: string | null, success: string) => void;
-
-function previewNote(text: string) {
-  return <p className="turn-changes-preview-note">{text}</p>;
-}
-
-function previewGapNote(gap: 'binary' | 'large' | 'empty'): string {
-  if (gap === 'binary') return t('Binary file — no preview');
-  if (gap === 'large') return t('Too large to preview');
-  return t('No preview available');
-}
-
-function previewBody(file: TurnChangesFile, { patch, failed }: PreviewState): ReactNode {
-  if (file.binary) return previewNote(previewGapNote('binary'));
-  const gap = patch === null ? null : turnChangesPreviewGap(file, patch);
-  if (gap) return previewNote(previewGapNote(gap));
-  if (failed) return previewNote(t('Preview unavailable'));
-  if (patch === null) return previewNote(t('Loading preview…'));
-  return (
-    <Suspense fallback={previewNote(t('Loading preview…'))}>
-      <TurnChangesPreviewDiff patch={patch} />
-    </Suspense>
-  );
-}
-
-/** Below the row, or above it when the viewport has more room there. */
-function previewPosition(rect: PreviewRect) {
-  const viewportWidth = window.innerWidth || PREVIEW_WIDTH;
-  const viewportHeight = window.innerHeight || 0;
-  const left = Math.max(8, Math.min(rect.left + 24, viewportWidth - PREVIEW_WIDTH - 8));
-  const above = viewportHeight > 0 && viewportHeight - rect.bottom < 240 && rect.top > viewportHeight - rect.bottom;
-  return above ? { left, bottom: viewportHeight - rect.top + 4 } : { left, top: rect.bottom + 4 };
-}
-
-/** Hover tooltip: the file's diff for this turn. Portaled, because transcript
- *  rows clip their own overflow. */
-function TurnChangesPreviewTip({
-  id,
-  sessionId,
-  checkpointId,
-  revision,
-  anchor,
-}: {
-  id: string;
-  sessionId: string;
-  checkpointId: string;
-  revision: number;
-  anchor: PreviewAnchor;
-}) {
-  const { file, rect } = anchor;
-  const binary = Boolean(file.binary);
-  const [state, setState] = useState<PreviewState>({ patch: null, failed: false });
-  useEffect(() => {
-    if (binary) return undefined;
-    let stale = false;
-    setState({ patch: null, failed: false });
-    fetchTurnChangesPreview(sessionId, checkpointId, revision, file.path).then(
-      (patch) => {
-        if (!stale) setState({ patch, failed: false });
-      },
-      () => {
-        if (!stale) setState({ patch: null, failed: true });
-      }
-    );
-    return () => {
-      stale = true;
-    };
-  }, [binary, sessionId, checkpointId, revision, file.path]);
-  return createPortal(
-    <div id={id} className="turn-changes-preview" role="tooltip" style={previewPosition(rect)}>
-      <div className="turn-changes-preview-head">
-        <span>{splitChangePath(file.path).base}</span>
-        <DiffStats additions={file.additions} deletions={file.deletions} />
-      </div>
-      <div className="turn-changes-preview-body">{previewBody(file, state)}</div>
-    </div>,
-    document.body
-  );
-}
 
 /** A per-file action: revert an applied file, or reapply a reverted one. */
 function fileActionOf(file: TurnChangesFile) {
@@ -194,6 +103,7 @@ function ConfirmControl({
   confirm,
   confirmTooltip,
   danger,
+  groupRef,
   onCancel,
   onConfirm,
 }: {
@@ -202,12 +112,13 @@ function ConfirmControl({
   confirm: string;
   confirmTooltip: string;
   danger: boolean;
+  groupRef?: RefObject<HTMLSpanElement | null>;
   onCancel(): void;
   onConfirm(): void;
 }) {
   return (
     // biome-ignore lint/a11y/useSemanticElements: inline span inside a row; a fieldset would change layout and DOM
-    <span className="turn-review-confirm" role="group" aria-label={group}>
+    <span className="turn-review-confirm" role="group" aria-label={group} ref={groupRef}>
       <button
         type="button"
         className="turn-review-revert"
@@ -246,9 +157,36 @@ function FileActionControl({
 }) {
   const action = fileActionOf(file);
   const disabled = Boolean(blockedReason) || !file.revertable;
-  if (confirming && !disabled) {
+  const showConfirm = confirming && !disabled;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const groupRef = useRef<HTMLSpanElement>(null);
+  const cardRef = useRef<Element | null>(null);
+  // Focus follows the swap: into the confirm pair on entry, back to the
+  // trigger once it leaves (the trigger is disabled while a mutation runs, so
+  // the restore waits until it can take focus).
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    cardRef.current = (triggerRef.current ?? groupRef.current)?.closest('.turn-changes-card') ?? cardRef.current;
+    if (showConfirm) {
+      restoreFocus.current = true;
+      if (!groupRef.current?.contains(document.activeElement)) groupRef.current?.querySelector('button')?.focus();
+    } else if (restoreFocus.current && triggerRef.current && !triggerRef.current.disabled) {
+      restoreFocus.current = false;
+      triggerRef.current.focus();
+    }
+  });
+  // The row went away (the file left the list) while focus was owed to it:
+  // land on the card's header button instead of the document.
+  useEffect(
+    () => () => {
+      if (restoreFocus.current) cardRef.current?.querySelector<HTMLElement>('.turn-changes-summary')?.focus();
+    },
+    []
+  );
+  if (showConfirm) {
     return (
       <ConfirmControl
+        groupRef={groupRef}
         group={action.group}
         cancel={action.cancel}
         confirm={action.confirm}
@@ -262,6 +200,7 @@ function FileActionControl({
   const fileBlocked = blockedReason || (file.revertable ? '' : file.reason || '');
   return (
     <button
+      ref={triggerRef}
       type="button"
       className={action.reapply ? 'turn-review-revert turn-changes-reapply' : 'turn-review-revert'}
       aria-label={action.trigger}
@@ -318,37 +257,20 @@ function TurnActionButton({
   );
 }
 
-/** The header's summary button: title, totals, and "View changes" on hover. */
-function TurnChangesSummary({
-  files,
-  activate,
-  previewHandlers,
-}: {
-  files: readonly TurnChangesFile[];
-  activate: ActivateChange;
-  previewHandlers: PreviewHandlers;
-}) {
-  const single = files.length === 1 ? files[0] : undefined;
+/** The header's summary button: icon, then title and totals on one line. */
+function TurnChangesSummary({ files, activate }: { files: readonly TurnChangesFile[]; activate: ActivateChange }) {
   const totals = turnChangesTotals(files);
   return (
-    <button
-      type="button"
-      className="turn-changes-summary"
-      title={single?.path}
-      onClick={(event) => activate(event, single ?? null)}
-      {...(single ? previewHandlers(single) : {})}
-    >
+    <button type="button" className="turn-changes-summary" onClick={(event) => activate(event, null)}>
       <span className="turn-changes-icon" aria-hidden="true">
         <FileDiff size={14} />
       </span>
       <span className="turn-changes-title">
         <strong>{turnChangesTitle(files)}</strong>
-        <span className="turn-changes-sub turn-changes-sub-default">
-          <DiffStats additions={totals.additions} deletions={totals.deletions} />
-        </span>
-        <span className="turn-changes-sub turn-changes-sub-hover">
+        <DiffStats additions={totals.additions} deletions={totals.deletions} />
+        <span className="turn-changes-hint">
           {t('View changes')}
-          <ChevronRight size={10} aria-hidden="true" />
+          <ArrowUpRight size={12} aria-hidden="true" />
         </span>
       </span>
     </button>
@@ -358,15 +280,14 @@ function TurnChangesSummary({
 function TurnChangesFileRow({
   file,
   activate,
-  previewHandlers,
   action,
 }: {
   file: TurnChangesFile;
   activate: ActivateChange;
-  previewHandlers: PreviewHandlers;
   action: ReactNode;
 }) {
-  const { directory, base } = splitChangePath(file.path);
+  const { base, directory } = splitChangePath(file.path);
+  const outside = isAbsolutePath(file.path);
   return (
     <li className="turn-changes-file" data-reverted={file.state === 'reverted' ? 'true' : 'false'}>
       <button
@@ -374,13 +295,10 @@ function TurnChangesFileRow({
         className="turn-changes-file-main"
         title={file.path}
         onClick={(event) => activate(event, file)}
-        {...previewHandlers(file)}
       >
-        <span className="turn-changes-path">
-          {directory && <span className="turn-changes-dir">{directory}</span>}
-          <span className="turn-changes-base">{base}</span>
-        </span>
-        {file.binary && <span className="turn-changes-large">{previewGapNote('binary')}</span>}
+        <SetiFileIcon name={base} className="turn-changes-file-icon" />
+        {!outside && directory && <span className="turn-changes-prefix">{directory}</span>}
+        <span className="turn-changes-base">{base}</span>
         <DiffStats additions={file.additions} deletions={file.deletions} />
       </button>
       <span className="turn-changes-file-actions">{action}</span>
@@ -394,7 +312,7 @@ function moreFilesLabel(expanded: boolean, hidden: number): string {
   return t('Show {{count}} more files', { count: hidden });
 }
 
-/** The listed rows plus the Show more / Collapse toggle; nothing for one file. */
+/** The listed rows plus the Show more / Collapse toggle. */
 function TurnChangesFileList({
   files,
   renderRow,
@@ -423,29 +341,6 @@ function TurnChangesFileList({
       )}
     </ul>
   );
-}
-
-/** Hover preview state: the anchored file after a short delay. */
-function useTurnChangesPreview() {
-  const [preview, setPreview] = useState<PreviewAnchor | null>(null);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const previewId = useId();
-  useEffect(() => () => clearTimeout(hoverTimer.current), []);
-  const hidePreview = () => {
-    clearTimeout(hoverTimer.current);
-    setPreview(null);
-  };
-  const previewHandlers: PreviewHandlers = (file) => ({
-    onMouseEnter: (event) => {
-      const box = event.currentTarget.getBoundingClientRect();
-      const rect = { top: box.top, bottom: box.bottom, left: box.left };
-      clearTimeout(hoverTimer.current);
-      hoverTimer.current = setTimeout(() => setPreview({ file, rect }), HOVER_DELAY_MS);
-    },
-    onMouseLeave: hidePreview,
-    'aria-describedby': preview?.file.path === file.path ? previewId : undefined,
-  });
-  return { preview, previewId, hidePreview, previewHandlers };
 }
 
 /** Undo / Reapply calls, their error, and the per-file confirm step. */
@@ -507,7 +402,8 @@ function activateTurnChange(
     if (file) openFile(file);
     return;
   }
-  requestSessionDiffFile(surface.sessionId, file ? file.path : null);
+  if (file) requestSessionDiffFile(surface.sessionId, file.path, root);
+  else requestSessionDiffList(surface.sessionId);
   surface.onOpenSessionDiff();
 }
 
@@ -521,25 +417,26 @@ function TurnChangesCardBody({
   const running = trailing && surface.turnRunning;
   const { reply, adopt, invalidate } = useTurnChanges({ sessionId, checkpointId, boundary, enabled: !running });
   const mutation = useTurnChangesMutation({ sessionId, checkpointId, busy: surface.busy, adopt, invalidate });
-  const { preview, previewId, hidePreview, previewHandlers } = useTurnChangesPreview();
+  // Old records kept no counts for an outside-root file: the transcript's own
+  // edit completes them, as in the session pane and the island.
+  const needsCounts = Boolean(reply?.files.some((file) => file.unmeasured));
+  const lane = useSessionLane(sessionId, defaultSessionLaneStore, undefined, needsCounts);
+  const files = useMemo(
+    () => withTranscriptCounts(reply?.files ?? [], needsCounts ? lane?.items : undefined, reply?.root ?? ''),
+    [reply, needsCounts, lane]
+  );
   if (running || !reply || reply.status !== 'ready' || reply.files.length === 0) return null;
 
-  const { files, revision } = reply;
+  const { revision } = reply;
   const blockedReason = surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : '';
   const mutate: MutateChanges = (capability, file, success) => mutation.mutate(revision, capability, file, success);
   const activate: ActivateChange = (event, file) => {
-    hidePreview();
     activateTurnChange(event, file, surface, reply.root);
   };
   return (
-    <section
-      className="turn-changes-card"
-      aria-label={t('Turn changes')}
-      data-file-count={files.length}
-      data-reverted={files.length === 1 && files[0]?.state === 'reverted' ? 'true' : undefined}
-    >
+    <section className="turn-changes-card" aria-label={t('Turn changes')} data-file-count={files.length}>
       <div className="turn-changes-head">
-        <TurnChangesSummary files={files} activate={activate} previewHandlers={previewHandlers} />
+        <TurnChangesSummary files={files} activate={activate} />
         <span className="turn-changes-trail">
           <TurnActionButton
             canUndo={reply.canUndo}
@@ -548,6 +445,9 @@ function TurnChangesCardBody({
             blockedReason={blockedReason}
             onMutate={mutate}
           />
+          <button type="button" className="turn-changes-view" onClick={(event) => activate(event, null)}>
+            {t('View changes')}
+          </button>
         </span>
       </div>
       {mutation.error && (
@@ -560,7 +460,6 @@ function TurnChangesCardBody({
             key={file.path}
             file={file}
             activate={activate}
-            previewHandlers={previewHandlers}
             action={
               <FileActionControl
                 file={file}
@@ -573,15 +472,6 @@ function TurnChangesCardBody({
           />
         )}
       />
-      {preview && (
-        <TurnChangesPreviewTip
-          id={previewId}
-          sessionId={sessionId}
-          checkpointId={checkpointId}
-          revision={revision}
-          anchor={preview}
-        />
-      )}
     </section>
   );
 }

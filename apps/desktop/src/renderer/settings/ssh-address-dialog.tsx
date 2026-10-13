@@ -109,6 +109,7 @@ export function SshAddressDialog({
       title={t('Connect SSH server')}
       description={t('Enter the address of the server to connect to.')}
       onEscape={() => (showMenu ? field.closeMenu() : onClose())}
+      onScrim={onClose}
       footer={
         <>
           <span className="conn-grow" />

@@ -54,7 +54,7 @@
    the "no match" message inside it cannot center like the pane-level ones. */
 /* No inset of its own: the tree shares the search field's box, so a row's
    chevron lands on the SAME x as the search icon and both edges line up
-   (user: 파일탭 > 가 검색창 왼쪽이랑 안 맞는다). */
+. */
 .dock-files-tree {
   display: flex;
   flex-direction: column;
@@ -67,7 +67,7 @@
    26px field inside a 34px band, so the first row of every tab lands on the
    same baseline. */
 /* Clear (×) matches the app's quiet icon-button grammar — the UA default
-   button chrome read as a stray gray square (user). */
+   button chrome read as a stray gray square. */
 /* Explorer row: fixed 22px item height, full-width
    square highlight, a 16px twistie column reserved on EVERY row so file and
    folder labels share one x per depth (tree.css .monaco-tl-twistie). */
@@ -203,7 +203,7 @@
   min-height: 0;
   color: var(--mx-text);
 }
-/* Right-dock hierarchy = left-sidebar ramp (user: 위계 통일): shell inset 8px,
+/* Right-dock hierarchy = left-sidebar ramp: shell inset 8px,
    BOX LINE 12px; headings 15/600 full ink; item 13/400; meta 12. Every
    left-edge below rides the same 12px line. The dock's own
    `.dock-scm-header` band stays gone: the Utility Dock title row is the only
@@ -229,30 +229,6 @@
   flex: 1 1 0;
   display: flex;
   align-items: center;
-}
-/* Project selection uses this grammar in the Pull Requests context row. */
-.dock-scm-toolbar-project {
-  flex: 1 1 0;
-  min-width: 76px;
-}
-.dock-scm-toolbar-project .dock-project-select {
-  width: 100%;
-}
-.dock-scm-toolbar-project .mx-select-value {
-  min-width: 5.5ch;
-}
-.dock-scm-toolbar-project .dock-project-select .mx-select-trigger {
-  width: 100% !important;
-  height: 28px;
-  padding: 0 7px;
-  border: 0 !important;
-  border-radius: var(--mx-radius-md);
-  outline: 0;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-.dock-scm-toolbar-project .dock-project-select .mx-select-trigger:hover {
-  background: var(--mx-hover) !important;
 }
 .dock-scm-toolbar-branch {
   position: relative;
@@ -319,7 +295,7 @@
 .dock-scm-remote-target {
   white-space: pre;
 }
-/* Narrow steps (user: all three labels stay). The section is a THIRD of the
+/* Narrow steps. The section is a THIRD of the
    dock, so the remote NAME goes first and early (it is the only piece the verb
    does not need). The badge's tiny direction arrows stay visible: without
    them two counts collapse into an ambiguous pair of bare numbers. Below the
@@ -337,7 +313,7 @@
     padding: 0 5px;
   }
 }
-/* Labels never go, and neither do the icons (user: both stay at 14px): below
+/* Labels never go, and neither do the icons: below
    the 300px product floor only the gaps and side padding tighten, so icon
    and text coexist at full size. If even that overflows, the label
    ellipsizes; nothing ever overlaps. */
@@ -352,9 +328,6 @@
    floors themselves have to give, or the row would overflow the dock and push
    the ahead/behind badge past the window edge. */
 @container (max-width: 280px) {
-  .dock-scm-toolbar-project {
-    min-width: 56px;
-  }
   .dock-scm-toolbar-branch {
     min-width: 56px;
   }
@@ -363,8 +336,7 @@
     min-width: 56px;
   }
 }
-/* Ahead/behind rides its own button's top-right corner (user: 푸쉬 우상단에
-   태그), not a band under the toolbar: ahead on Push, behind on Fetch, so a
+/* Ahead/behind rides its own button's top-right corner, not a band under the toolbar: ahead on Push, behind on Fetch, so a
    diverged branch never crowds ONE corner with both counts. The toolbar
    section is the positioning context — the button itself clips its content —
    and the badge floats just outside the corner, clear of the label's line. A
@@ -395,7 +367,7 @@
 .dock-scm-ahead-behind > svg {
   flex: 0 0 auto;
 }
-/* Both directions carry the accent (user: 푸쉬처럼 풀도 색깔): incoming commits
+/* Both directions carry the accent: incoming commits
    are as actionable as outgoing ones, so the Fetch corner wears the same
    bubble as Push. The arrow inside each badge — not its tone — is what tells
    ahead from behind. */
@@ -496,7 +468,7 @@
 .dock-scm-branch-picker > header input:focus {
   border-color: var(--mx-focus);
 }
-/* STABLE BOX (user: 브랜치 패널이 튄다). The panel opens instantly with its
+/* STABLE BOX. The panel opens instantly with its
    loading row, and the branches arrive one turn later; when the list sized
    itself to its content the whole panel grew ~94px on the first open and shrank
    ~44px on a cached reopen, which reads as a jump. The list therefore keeps ONE
@@ -739,7 +711,7 @@
   caret-color: var(--mx-text);
   font-family: inherit;
   /* Control size (14), not the code size: the field holds prose and sits
-     beside 14px rows (user: 텍스트 박스마다 폰트 사이즈가 다르다). */
+     beside 14px rows. */
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
@@ -1126,8 +1098,7 @@
 }
 /* Empty + loading states center in the SCM scrollers, the same grammar the PR
    list uses further down: .dock-scm-scroll / .dock-scm-history are plain
-   blocks, so a message inside them hugged the top (user: 상하로 정렬이 안
-   된다). The :not(:has()) guard keeps the rule to the states where the
+   blocks, so a message inside them hugged the top. The :not(:has()) guard keeps the rule to the states where the
    scroller holds nothing but its zero-height row spacers — while paginating,
    the same "Loading history…" line sits UNDER real rows and must not re-flow
    them. */
@@ -1438,7 +1409,7 @@
   overflow: auto;
   /* The shared menu row grammar (menu-items.css): same inset, row height,
      corner and type as every other menu — this one ran denser and squarer
-     (26px rows, 3px corners) than the rest (user: 팝업 스타일 중구난방). */
+     (26px rows, 3px corners) than the rest. */
   padding: var(--mx-menu-inset);
   border: var(--mx-popup-border);
   border-radius: var(--mx-popup-radius);
@@ -1528,8 +1499,8 @@
 }
 /* Instructions editor (Projects): borrows the WORKFLOW.md editor grammar
    wholesale, INCLUDING the 800px card width and the shared
-   .workflows-md-field textarea skin (user: 워크플로우 편집 레이아웃에 맞춰). */
-/* Empty DRAFT pane: the same watermark as the empty workspace (user)
+   .workflows-md-field textarea skin. */
+/* Empty DRAFT pane: the same watermark as the empty workspace
    — faded brand mark + keycap rows, centered over the (empty) thread as a
    non-interactive overlay. */
 .thread:has(> .thread-welcome-task) {
@@ -1975,7 +1946,7 @@
 }
 /* Loading + empty states center in the list/detail scrollers the same way:
    both scrollers are plain blocks, so .utility-dock-empty's flex:1 never
-   stretches there and the spinner hugged the top (user: 스피너 높이중앙정렬). */
+   stretches there and the spinner hugged the top. */
 .dock-pr-list:has(> .dock-pr-empty),
 .dock-pr-list:has(> .utility-dock-empty),
 .workspace-pr-editor-scroll:has(> .utility-dock-empty) {
@@ -2894,8 +2865,10 @@ i.dock-pr-row-checks[data-checks="pending"] {
   min-width: 0;
   flex: 1;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 .diff-header-spacer {
   flex: 1;
@@ -2913,17 +2886,14 @@ i.dock-pr-row-checks[data-checks="pending"] {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 0 8px;
+  width: 26px;
+  padding: 0;
   border: 0;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text-muted);
   background: transparent;
   font: inherit;
   cursor: pointer;
-}
-.diff-icon-button {
-  width: 26px;
-  padding: 0;
 }
 .diff-icon-button:hover {
   color: var(--mx-text);
@@ -2956,10 +2926,6 @@ i.dock-pr-row-checks[data-checks="pending"] {
 .diff-scope-menu button[aria-checked="true"] {
   color: var(--mx-text);
   background: var(--mx-hover);
-}
-.diff-header-controls {
-  flex-wrap: nowrap;
-  white-space: nowrap;
 }
 .diff-more-menu {
   left: auto;
@@ -3077,7 +3043,7 @@ html[data-mixdog-mobile-tabs] .changes-file-dir {
   flex: none;
   color: var(--mx-text-faint);
 }
-/* Long lines wrap inside the code column: no horizontal scrolling. */
+/* Long lines wrap inside the code column; the session pane scrolls them. */
 .inline-diff-code {
   min-width: 0;
   flex: 1;
@@ -3092,7 +3058,7 @@ html[data-mixdog-mobile-tabs] .changes-file-dir {
 }
 .inline-diff-row[data-kind="add"] .inline-diff-ln,
 .inline-diff-row[data-kind="add"] .inline-diff-mk {
-  color: var(--mx-success);
+  color: color-mix(in srgb, var(--mx-success) 80%, var(--mx-text));
 }
 .inline-diff-row[data-kind="del"] {
   background: color-mix(in srgb, var(--mx-danger) 14%, transparent);
@@ -3100,7 +3066,7 @@ html[data-mixdog-mobile-tabs] .changes-file-dir {
 }
 .inline-diff-row[data-kind="del"] .inline-diff-ln,
 .inline-diff-row[data-kind="del"] .inline-diff-mk {
-  color: var(--mx-danger);
+  color: color-mix(in srgb, var(--mx-danger) 90%, var(--mx-text));
 }
 .inline-diff-fold {
   width: 100%;
@@ -3162,14 +3128,14 @@ button.inline-diff-fold:hover {
 /* Quick Diff defaults to `all`: gutter + minimap gutter + overview
    ruler. These tokens keep all three surfaces on the same dark/light palette. */
 :root {
-  --mx-editor-diff-add: #487e02;
-  --mx-editor-diff-mod: #1b81a8;
-  --mx-editor-diff-del: #f14c4c;
+  --mx-editor-diff-add: #2fbf5f;
+  --mx-editor-diff-mod: #2f9bd6;
+  --mx-editor-diff-del: #f5534e;
 }
 :root[data-mixdog-theme="light"] {
-  --mx-editor-diff-add: #48985d;
-  --mx-editor-diff-mod: #2090d3;
-  --mx-editor-diff-del: #b5200d;
+  --mx-editor-diff-add: #1f9a48;
+  --mx-editor-diff-mod: #1f7fc4;
+  --mx-editor-diff-del: #d32f2a;
 }
 .monaco-editor .editor-dirty-diff {
   box-sizing: border-box;

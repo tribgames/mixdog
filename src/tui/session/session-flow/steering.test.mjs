@@ -44,9 +44,7 @@ test('a prompt submitted before task wait releases it and drains exactly once', 
   };
   const steering = createSteeringOps(bag, { queue, submissions: createSubmissionMemory() });
   const intake = createSubmissionIntake(bag);
-  const stop = registerTaskWaitSteeringCheck(
-    (id) => id === sessionId && steering.hasPendingSteering()
-  );
+  const stop = registerTaskWaitSteeringCheck((id) => id === sessionId && steering.hasPendingSteering());
   const waits = [];
   const begin = () => {
     const wait = beginInterruptibleTaskWait(sessionId);
@@ -58,7 +56,10 @@ test('a prompt submitted before task wait releases it and drains exactly once', 
     assert.equal(begin().signal.aborted, true);
     assert.equal(pending.length, 1, 'checking wait entry must not consume steering');
     const messages = steering.drainPendingSteering();
-    assert.deepEqual(messages.map((message) => message.content), ['새 지시']);
+    assert.deepEqual(
+      messages.map((message) => message.content),
+      ['새 지시']
+    );
     assert.deepEqual(state.queued, []);
     assert.deepEqual(steering.drainPendingSteering(), []);
     assert.equal(begin().signal.aborted, false, 'delivered steering must not interrupt a later wait');
@@ -211,11 +212,16 @@ for (const suppressDisplay of [false, true]) {
       });
       assert.equal(drain(), true);
       assert.equal(messages.length, 2);
+      // Every steered message carries a stable id from creation, reported
+      // back with the display callback.
+      const messageId = messages[0].meta.transcript?.messageId;
+      assert.match(String(messageId), /^msg_[0-9a-f]{32}$/);
       assert.deepEqual(messages[0], {
         role: 'user',
         content,
-        meta: { source: 'task-notification', execution, submissionIds: ['completion-1'] },
+        meta: { source: 'task-notification', execution, submissionIds: ['completion-1'], transcript: { messageId } },
       });
+      assert.equal(displayed[0].meta.messageId, messageId);
       assert.equal(messages[1].meta.source, 'steering');
       assert.deepEqual(skillPrompts, [prompt], 'only typed input reaches onSkillPrompt');
       assert.equal(displayed[0].value, suppressDisplay ? STEERING_SUPPRESSED_DISPLAY : text);

@@ -1,6 +1,12 @@
-import type { DesktopBrowserPageAction, DesktopBrowserPageFrame, DesktopBrowserTab } from '../shared/contract';
+import type {
+  DesktopBrowserPageAction,
+  DesktopBrowserPageFrame,
+  DesktopBrowserTab,
+  DesktopBrowserTabControlResult,
+} from '../shared/contract';
 import { browserPageResample } from '../shared/browser-page-frame';
 import { browserCaptureTransient, browserPageTransition } from './browser-page-recovery';
+import { isAbortedLoad } from './browser-load-failure';
 import {
   BROWSER_INPUT_BUSY,
   BROWSER_INPUT_EXPIRED,
@@ -15,7 +21,7 @@ import {
 export interface BrowserPageElement extends HTMLDivElement {
   src: string;
   getWebContentsId(): number;
-  loadURL(url: string): Promise<void>;
+  loadURL(url: string): Promise<DesktopBrowserTabControlResult | void>;
   getURL(): string;
   canGoBack(): boolean;
   canGoForward(): boolean;
@@ -25,9 +31,9 @@ export interface BrowserPageElement extends HTMLDivElement {
   stop(): void;
   setZoomFactor(factor: number): void;
   getTabs(): DesktopBrowserTab[];
-  createTab(): Promise<void>;
-  selectTab(tabId: string): Promise<void>;
-  closeTab(tabId: string): Promise<void>;
+  createTab(): Promise<DesktopBrowserTabControlResult | void>;
+  selectTab(tabId: string): Promise<DesktopBrowserTabControlResult | void>;
+  closeTab(tabId: string): Promise<DesktopBrowserTabControlResult | void>;
 }
 
 export function createBrowserPageClient(options: {
@@ -46,8 +52,8 @@ export function createBrowserPageClient(options: {
   let current: DesktopBrowserPageFrame | null = null;
   let presentationKey = '';
   let element: BrowserPageElement | null = null;
-  let tail = Promise.resolve();
-  let chromeTail = Promise.resolve();
+  let tail: Promise<unknown> = Promise.resolve();
+  let chromeTail: Promise<unknown> = Promise.resolve();
   let inputGeneration = 0;
   let documentRevision = 0;
   let queued = 0;
@@ -152,7 +158,7 @@ export function createBrowserPageClient(options: {
     return pendingRead;
   }
 
-  function control(action: DesktopBrowserPageAction): Promise<void> {
+  function control(action: DesktopBrowserPageAction): Promise<DesktopBrowserTabControlResult | void> {
     if (!inputOrder.has(action)) inputOrder.set(action, ++nextInputOrder);
     if (pendingText?.action !== action) pendingText = null;
     if (pendingComposition?.action !== action) pendingComposition = null;
@@ -225,8 +231,9 @@ export function createBrowserPageClient(options: {
       // A display sample must not hold up hover, drag, or later keystrokes.
       // The host checks the document again immediately before dispatch.
       if (motion && current?.documentId !== documentId) return;
+      let reply: DesktopBrowserTabControlResult | void;
       try {
-        await options.api.browserPageControl!(options.sessionId, {
+        reply = await options.api.browserPageControl!(options.sessionId, {
           ...action,
           documentId: browserInputPresentation(action) ? current!.documentId : documentId,
         });
@@ -258,6 +265,7 @@ export function createBrowserPageClient(options: {
       if (!disposed && humanInput(action) && !release && admittedFailureRevision === failureRevision) {
         options.recovered?.();
       }
+      return browserTabControl(action) ? reply : undefined;
     });
     // Passive geometry can expire silently. Deliberate human edits must
     // report rejection rather than look like a successful click or keystroke.
@@ -273,7 +281,8 @@ export function createBrowserPageClient(options: {
           // still clean up any press that actually reached the page.
           inputGeneration += 1;
         }
-        if (!disposed) reportFailure(error instanceof Error ? error.message : String(error));
+        // A navigation superseded by a newer one (ERR_ABORTED, -3) is not a failure.
+        if (!disposed && !isAbortedLoad(error)) reportFailure(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         queued -= 1;

@@ -5,6 +5,66 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+This release introduces the Changes panel and per-turn change cards with per-turn undo and reapply controls, keeps earlier conversation history visible after compaction, and adds a built-in visualization tool for interactive UI mockups and diagrams. Remote workflows expand with SSH server connections, isolated Git worktree sessions, background shell management, and direct file downloads on paired phones. The interface also brings higher contrast styling, smoother mobile scrolling, and flexible session organization.
+
+### New features
+
+- After a conversation is compacted, its earlier messages, tool cards, and diffs stay readable above a "Conversation compacted" divider instead of disappearing. They are kept for display only (never sent to the model), reload by scrolling up after a restart, use up to about 32 MB per session (with the oldest trimmed first), filter sensitive values like other history, and are deleted with the session, while continued sessions link back instead of duplicating them. Undo, reapply, and retry are not offered for turns before the compaction.
+- The Changes panel provides a single scrolling view of every changed file's diff with tabs at the side: the "Changes" tab shows all files, while clicking a file in a turn card opens just that file's tab. The panel works without Git using the session's own change records, highlights syntax, wraps long lines instead of scrolling horizontally, folds or unfolds when clicking anywhere on a file row, opens a file in a tab with `↗`, undoes a file with `↶`, and lists files outside the project read-only with their full path in the tooltip. Closing the last tab closes the panel.
+- A turn changes card under each turn displays the number of changed files, a +N −N line diff summary, a View changes button, and the list of modified files.
+- Redesigned tool cards show the change made by each individual edit rather than the turn's running total, rendered in the same diff view as the Changes panel, and display line additions and deletions while the tool is still running.
+- A built-in visualize tool generates project mockups and inline diagrams (Mermaid, SVG, ECharts, HTML, and Markdown) in dedicated side-panel tabs. You can inspect elements, capture page errors, leave pinned feedback with data selections for the next message, compare and restore versions, and export designs to PNG or PDF.
+- Git worktree sessions let you work on isolated branches without touching your current checkout. A branch chip above the composer lets you choose or create a new worktree branch when starting a task, with guarded merges that prevent merge conflict residue.
+- Connect to remote servers over SSH from Settings > Connection. Mixdog installs automatically on the server, opens in its own window with a Ports panel with port forwarding, remote file browsing, and terminals, and proxies model calls through your PC so credentials never need to live on the server.
+- Paired phones can now download and share assistant-produced files and generated media directly from chat links, complete with transfer progress, retries, and cancellation (saves to Downloads on Android and the share sheet on iOS; with the next Android app update or iOS app build) (#40). Paired phones are also strictly limited to registered projects and files produced in that session.
+- Background shell commands can be stopped directly from the app or remotely. Finished commands stay listed until dismissed instead of disappearing immediately, and the composer island's jobs panel expands inline to show running background commands alongside agents with cumulative token usage and tool call counts.
+- Move a session to another project from the sidebar menu or by drag and drop without moving its folder on disk; sessions located in a project's subfolders and worktrees are grouped under that project automatically.
+- Side panels on phones (browser, terminal, changes, and preview) share the same header as on PC, complete with tabs, a menu to switch panels, and a close button. In the phone browser, `+` opens a new tab in that session's side panel, and tabs switch and close just like on the PC (needs the updated PC app).
+- Images you send retain thumbnails after restarting the app, and visualize and HTML file cards display a real visual preview of the page rendered locally in an isolated sandbox with no network access for files inside the project.
+- The composer island lists running agents in the same format as the Agents window, and automatically hides the shell section when no background shells are active.
+- Closing the last terminal, browser, or file tab closes the side panel, and opening the terminal again starts a fresh tab (based on #49 by @moveju112).
+- Project folders and sidebar sections stay open by default and remember their collapsed state, while selecting a session inside a collapsed folder opens it automatically. Sessions can also be reordered by dragging or sorted by recent activity.
+- The Android app can now check for updates in the background, download, verify signatures, and install new versions directly (with the next Android app update).
+- Auto reasoning can now be configured individually per model route in route settings and disabled for automations with `+noauto`. In Settings > Connection, you can also assign custom local nicknames to paired remote devices.
+
+### Changes
+
+- Sharper accent colours and higher text contrast; tool and turn card headers use a subtle grey with outline-only boxes; inline code shows as grey chips and quotes with a left rule; selected text and diff line numbers meet 4.5:1 contrast in both themes.
+- The drawer opens without a shadow and dims the screen behind it by 40%.
+- The branch and worktree chip above the composer appears only in Git projects and only before the conversation starts.
+- The composer island's changed-file count now covers the whole session instead of resetting after each turn.
+- The visualize toggle left the panel header; visualizations open automatically or from their card in the conversation.
+- The context ring opens only when clicked, not on hover (#48).
+- On phones, Enter inserts a line break; send with the button.
+- Messages fade out under the composer and island instead of being cut off.
+- Files outside the project show their name with the full path in the tooltip instead of a badge.
+- Smoother scrolling, especially on Android: the conversation redraws at most once per frame, the spinner animates on the GPU, the scroll position is saved when scrolling stops, touches are no longer blocked, and the fade under the composer no longer repaints the whole list.
+- MCP tool calls enforce execution timeouts (default 120 seconds) without hanging or retrying, report stdio process crashes with error details, and support pagination for long tool listings.
+- Auto-clear runs on idle sessions before background completions wake the conversation.
+- On macOS, launching the desktop app appends Homebrew directories to `PATH` without dropping existing path entries.
+- The remote terminal on mobile includes a dedicated key bar with modifier and navigation keys (with the next Android app update or iOS app build).
+
+### Bug fixes
+
+- Tapping a chat link opened the in-app browser blank; the page now loads, and on phones the browser panel opens full screen (#41).
+- The thinking indicator stayed in English until the app language loaded; the phone shimmer animation is fixed.
+- The turn card, the island, and the Changes panel could show different numbers of changed files.
+- The first upward scroll in a long conversation could jump.
+- Closing the last terminal tab created a new tab and flickered (#49).
+- Reading a file never returns stale content or claims line ranges that were not actually delivered, even when a large file is rewritten in place at the same size (#54, thanks @22nsuk).
+- File saving and batch recovery maintain text encoding, reject lossy saves, protect dirty buffers during conflict reads, and track batch writes while retaining file permissions and path casing (#39, thanks @22nsuk).
+- On macOS, `Cmd+Up` and `Cmd+Down` jump within text fields instead of triggering workspace shortcuts.
+- Configuration and state files starting with a byte order mark (BOM) load cleanly instead of failing or reinitializing.
+- Signing into OpenAI preserves the complete model catalog instead of inadvertently hiding available models.
+- On Linux, pasting or reading an image crashed Mixdog's background service and cancelled the running turn; images now go through a build of the image library that works there (#56, #57, thanks @cronoboris).
+- After Mixdog was shut down abnormally (Windows shutdown, an installer, ending it from Task Manager), the app could fail every action with "daemon session endpoint is unavailable" and show no chats until a leftover lock file was removed; it now recognises the stale lock and recovers on its own. An unreadable file in the temp folder no longer stops the background service from starting either, and when it still cannot start, the error's details show the actual cause and where the logs are.
+
+### Other
+
+- Translations of new and changed strings reviewed across all 11 languages.
+- Published raw evaluation artifacts for DeepSeek V4.1 Flash on Terminal-Bench across 89 tasks comparing Mixdog against DSH (#43), and added the full GPT-6.1 Sol evaluation preset.
+- Mobile app icons updated to match the desktop titanium mark (with the next Android app update).
+
 ## v1.1.2 - 2026-10-12
 
 The "What's new" notice now appears after an update even if the app's local storage was lost, waits until the starter welcome or tour is closed, and no longer reappears after a downgrade.

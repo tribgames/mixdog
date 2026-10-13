@@ -2,7 +2,12 @@ import { t } from './i18n';
 import { findPatch, PATCH_CACHE_LIMIT } from './transcript-diff';
 import type { TranscriptItem } from './desktop-types';
 import { parseUnifiedDiff } from './renderer-logic.mjs';
-import type { SessionDiffRow } from './session-diff-model';
+import {
+  buildSessionDiffRows,
+  isAbsolutePath,
+  type SessionDiffResult,
+  type SessionDiffRow,
+} from './session-diff-model';
 import { RendererLruCache } from './renderer-lru-cache';
 import { registerIdleReclaim } from './idle-reclaim';
 import {
@@ -378,6 +383,73 @@ export function summarizeSessionDiffRows(rows: readonly SessionDiffRow[]): TurnR
   return turnReviewSummaryOf(files);
 }
 
+/** A transcript file the runtime diff lacks becomes a row, and a row takes the
+ *  larger counts and the patch of the transcript's own edit — the island's
+ *  `mergeSessionReviewSummaries`, for a diff that is NOT the complete set (a
+ *  runtime without ownership metadata). */
+function mergeTranscriptIntoRows(rows: readonly SessionDiffRow[], transcript: TurnReviewSummary): SessionDiffRow[] {
+  const known = new Set(rows.map((row) => row.path));
+  const merged = rows.map((row) => {
+    const entry = transcript.files.get(row.path);
+    if (!entry) return row;
+    const additions = Math.max(row.additions, entry.additions);
+    const deletions = Math.max(row.deletions, entry.deletions);
+    const useParts = row.parts.length === 0 && entry.parts.length > 0;
+    return {
+      ...row,
+      additions,
+      deletions,
+      parts: useParts ? entry.parts : row.parts,
+      reason: useParts ? '' : row.reason,
+    };
+  });
+  for (const [path, entry] of transcript.files) {
+    if (known.has(path)) continue;
+    merged.push({
+      id: path,
+      path,
+      outside: isAbsolutePath(path),
+      oldPath: '',
+      status: statusCode(entry) || 'M',
+      additions: entry.additions,
+      deletions: entry.deletions,
+      binary: entry.binary,
+      reason: '',
+      unmeasured: false,
+      parts: entry.parts,
+    });
+  }
+  return merged;
+}
+
+/** THE session file list, shared by the pane, its title and the island.
+ *  A `complete` runtime result is the net change set and is final: the
+ *  transcript (historical activity, blind to Undo) never adds, drops or
+ *  recounts a file — it only completes a row the runtime flagged `unmeasured`
+ *  (an old record that kept no counts). Anything else falls back to the
+ *  transcript-merged list the island always showed. */
+export function resolveSessionRows(
+  result: SessionDiffResult | null,
+  items: TranscriptItem[],
+  cwd = ''
+): SessionDiffRow[] {
+  const rows = buildSessionDiffRows(result);
+  if (result?.supported === false || result?.authoritative !== true) return rows;
+  const transcript = summarizeSessionTranscriptReview(items, cwd);
+  if (result.complete !== true) return mergeTranscriptIntoRows(rows, transcript);
+  return rows.map((row) => {
+    const entry = row.unmeasured ? transcript.files.get(row.path) : undefined;
+    if (!entry) return row;
+    return {
+      ...row,
+      additions: entry.additions,
+      deletions: entry.deletions,
+      parts: entry.parts,
+      reason: entry.parts.length > 0 ? '' : row.reason,
+      unmeasured: false,
+    };
+  });
+}
 export type TurnReviewCapabilityValue = {
   /** The review is exactly the one tagged `etag` the bar already holds. */
   unchanged?: boolean;

@@ -15,6 +15,25 @@ window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
 const { createRoot } = await import('react-dom/client');
 const { ProjectListSection } = await import('./ProjectListSection.tsx');
 
+const { ProjectAddDialogHost } = await import('./ProjectAddDialogHost.tsx');
+
+// The Projects panel action and the host are wired like the app shell does.
+function Harness({ onChooseFolder, onCreateProject }) {
+  const ref = React.useRef(null);
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(ProjectListSection, {
+      projects: [],
+      selectedProjectPath: '',
+      onAddProject: () => ref.current.open(),
+      onRename() {},
+      onRemove() {},
+    }),
+    React.createElement(ProjectAddDialogHost, { ref, projects: [], onChooseFolder, onCreateProject })
+  );
+}
+
 const settle = () => act(async () => new Promise((resolve) => window.setTimeout(resolve, 20)));
 const button = (name) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
 
@@ -41,16 +60,12 @@ async function addFlow(t, connection) {
   });
   await act(async () =>
     root.render(
-      React.createElement(ProjectListSection, {
-        projects: [],
-        selectedProjectPath: '',
+      React.createElement(Harness, {
         onChooseFolder: async () => {
           chosen.push(true);
           return '/c/native';
         },
         onCreateProject: async (path, name) => created.push([path, name]),
-        onRename() {},
-        onRemove() {},
       })
     )
   );
@@ -85,4 +100,14 @@ test('Add project in a local window keeps the native chooser', async (t) => {
   assert.deepEqual(listed, []);
   assert.equal(document.querySelector('.conn-dialog'), null);
   assert.equal(document.querySelector('.projects-folder-row code').textContent, '/c/native');
+});
+
+test('Add project on a remote surface browses the host in-app, not the native chooser', async (t) => {
+  window.mixdogRemoteServer = 'https://host.example';
+  t.after(() => delete window.mixdogRemoteServer);
+  const { chosen } = await addFlow(t, { id: 'local', kind: 'local', name: '' });
+  await act(async () => button('Browse…').click());
+  await settle();
+  assert.deepEqual(chosen, []);
+  assert.ok(document.querySelector('.host-folder-browser'), 'the in-app host browser opens');
 });

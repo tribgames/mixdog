@@ -106,7 +106,7 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.doesNotMatch(vite, /terminal-worker/);
   assert.doesNotMatch(main, /startRemoteRelay|rotatePairingToken|rotateRemoteDevice/);
   assert.doesNotMatch(
-    main.slice(main.indexOf('registerDesktopIpc('), main.indexOf("diagnostics?.write('window-created'")),
+    main.slice(main.indexOf('function installWindowIpc('), main.indexOf('function installRendererLoadDiagnostics(')),
     /\bsettingsStore\b/,
     'product IPC settings use the daemon operation service'
   );
