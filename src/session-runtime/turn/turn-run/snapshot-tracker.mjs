@@ -1,8 +1,10 @@
 import { settleWithin } from '../../../runtime/shared/abort-race.mjs';
 
-// Worktree snapshot for the turn review. Captured immediately, but never on
-// the first-token critical path: every actual tool execution joins the same
-// promise, so shell/apply_patch cannot mutate the worktree before the baseline.
+// Worktree snapshot for the turn review. Captured as soon as the turn's
+// workspace is final (after any lazy worktree provisioning, so the baseline is
+// taken in the root the turn runs in), but never on the first-token critical
+// path: every actual tool execution joins the same promise, so
+// shell/apply_patch cannot mutate the worktree before the baseline.
 export function createSnapshotTrackerFactory({
   getCurrentCwd,
   beginTurnSnapshotForTurn,
@@ -30,6 +32,8 @@ export function createSnapshotTrackerFactory({
         .catch(() => undefined);
     };
     tracker.finish = async (signal, awaitTurn) => {
+      // A turn refused before its workspace was final never began a review.
+      if (!tracker.promise) return;
       // Captured now: a later start (or the next turn) cannot redirect this seal.
       const sessionId = tracker.sessionId;
       const started = Promise.resolve(tracker.promise);

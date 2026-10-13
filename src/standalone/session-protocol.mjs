@@ -50,6 +50,10 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getVoiceStatus',
   'isSetupRequestActive',
   'getWorkflowPack',
+  'getWorktreeSettings',
+  'getBranchMenu',
+  'getProjectBranchMenu',
+  'listWorktrees',
   'hooksStatus',
   'inheritancePreflight',
   'listAgents',
@@ -206,6 +210,14 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'transcribeAudio',
   'prepareTranscription',
   'updatePlugin',
+  'setWorktreeSettings',
+  'selectBranch',
+  'selectProjectBranch',
+  'mergeProjectBranch',
+  'requestWorktree',
+  'mergeWorkspace',
+  'removeWorktree',
+  'pruneWorktrees',
 ]);
 
 export const SESSION_READ_ACTION_SET = new Set(SESSION_READ_ACTIONS);

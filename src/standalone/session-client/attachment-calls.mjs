@@ -38,6 +38,7 @@ export function createAttachmentCalls({ request, port, serverToken, clientToken,
       // Preserve the daemon's machine-readable classification across the wire.
       const err = new Error(out.error);
       if (out.code) err.code = String(out.code);
+      if (out.details && typeof out.details === 'object') err.details = out.details;
       throw err;
     }
     return out?.result;

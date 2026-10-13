@@ -350,6 +350,8 @@ export function useAppWorkbenchViews({
       handleFileDirty,
       registerEditorSaveHandle,
       paneProjectPathFor,
+      sessionWorkspaceCwdFor: (sessionId) =>
+        sessions.find((session) => session?.id === sessionId)?.workspace?.cwd || null,
       renderRightView: (id, active, titleDragProps, pane) =>
         renderWorkbenchSideView('right', id, active, titleDragProps, pane),
     });

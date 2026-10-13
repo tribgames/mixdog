@@ -46,6 +46,13 @@ function stubDaemon({ pid = process.pid, registerStatuses = [] } = {}) {
         case '/call':
           state.calls.push(parsed);
           if (parsed.name === 'session.boom') return json(200, { error: 'exploded', code: 'E_BOOM' });
+          if (parsed.name === 'session.full') {
+            return json(200, {
+              error: 'no space',
+              code: 'WORKTREE_DISK_INSUFFICIENT',
+              details: { requiredBytes: 10, freeBytes: 2 },
+            });
+          }
           return json(200, { result: { echo: parsed.args } });
         case '/events': {
           if (state.eventStatus !== 200) return json(state.eventStatus, { error: 'no' });
@@ -154,6 +161,12 @@ test('attach registers with the wire identity, streams frames, calls with the cl
       callId: 'c1',
     });
     await assert.rejects(handle.call('session.boom'), (err) => err.message === 'exploded' && err.code === 'E_BOOM');
+    // Typed failures keep their details (sizes, holder path) across the daemon wire.
+    await assert.rejects(handle.call('session.full'), (err) => {
+      assert.equal(err.code, 'WORKTREE_DISK_INSUFFICIENT');
+      assert.deepEqual(err.details, { requiredBytes: 10, freeBytes: 2 });
+      return true;
+    });
 
     await handle.close('done');
     assert.deepEqual(daemon.state.deregisters, [{ token: 'tok-1' }]);

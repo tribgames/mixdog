@@ -44,6 +44,7 @@ import {
 } from './config-storage.mjs';
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
 import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
+import { normalizeWorktreeSettings } from '../../shared/worktrees/settings.mjs';
 
 export const {
   PROFILE_LANGUAGES,
@@ -278,6 +279,7 @@ export function loadConfig(options = {}) {
         shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
         update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
         recap: recapConfig,
+        worktree: normalizeWorktreeSettings(raw.worktree),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
         ...(raw.builtins && typeof raw.builtins === 'object'
@@ -320,6 +322,7 @@ export function loadConfig(options = {}) {
     shell: {},
     update: {},
     recap: { enabled: true },
+    worktree: normalizeWorktreeSettings(null),
     developer: {},
     modules: {},
     // No stored section at all is a brand-new profile: its built-ins start
@@ -425,6 +428,7 @@ function buildAgentSaveBuilder(config) {
       shell,
       update: config.update || {},
       recap: config.recap || {},
+      ...(config.worktree ? { worktree: config.worktree } : {}),
       modules,
       builtins,
     };

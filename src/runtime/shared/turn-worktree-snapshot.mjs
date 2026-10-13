@@ -105,11 +105,14 @@ async function repositoryRoot(worktree) {
   return root ? resolve(root) : null;
 }
 
+function shadowDirForKey(key) {
+  return join(snapshotRoot(), createHash('sha256').update(key).digest('hex').slice(0, 24));
+}
+
 function stateForRoot(root) {
   const key = pathKey(root);
   let state = states.get(key);
-  const hash = createHash('sha256').update(key).digest('hex').slice(0, 24);
-  const gitDir = join(snapshotRoot(), hash);
+  const gitDir = shadowDirForKey(key);
   if (state && state.gitDir === gitDir) return state;
   state = {
     root,
@@ -123,6 +126,11 @@ function stateForRoot(root) {
     // Bumped by every reported write under `root`; a capture records the
     // value it started from.
     changeStamp: 0,
+    // Set by forgetTurnWorktreeRoot(): the shadow repository must never be
+    // recreated for this state. A later snapshot of the same path gets a new one.
+    forgotten: false,
+    gcTimer: null,
+    gcRun: null,
   };
   states.set(key, state);
   return state;
@@ -167,7 +175,19 @@ async function sourceLineEndingArgs(root) {
   return [...values].flatMap(([key, value]) => ['-c', `${key}=${value}`]);
 }
 
+// A forgotten root's shadow repository is gone for good. Every git command and
+// every file write on it goes through shadowArgs/ensureState, so refusing there
+// keeps a snapshot object that outlived forgetTurnWorktreeRoot() from
+// recreating the directory.
+function assertStateLive(state) {
+  if (!state.forgotten) return;
+  const error = new Error(`turn worktree snapshot for ${state.root} was removed`);
+  error.code = 'TURN_WORKTREE_SNAPSHOT_REMOVED';
+  throw error;
+}
+
 function shadowArgs(state, args) {
+  assertStateLive(state);
   return [
     ...state.lineEndingArgs,
     // A conversion warning must never fail the snapshot `add`.
@@ -250,6 +270,7 @@ async function refreshSourceTracked(state, { force = false } = {}) {
 }
 
 async function ensureState(state) {
+  assertStateLive(state);
   if (state.initialized && (await exists(join(state.gitDir, 'config')))) return;
   await mkdir(dirname(state.gitDir), { recursive: true });
   if (!(await exists(join(state.gitDir, 'config')))) {
@@ -736,18 +757,59 @@ export async function freezeTurnWorktreeChanges(snapshot, paths = null) {
 const maintainedShadowRepositories = new Set();
 
 function scheduleShadowGc(state) {
-  if (maintainedShadowRepositories.has(state.gitDir)) return;
+  if (state.forgotten || maintainedShadowRepositories.has(state.gitDir)) return;
   maintainedShadowRepositories.add(state.gitDir);
   const timer = setTimeout(() => {
+    state.gcTimer = null;
     // Deliberately outside the state lock: collection can run for minutes and
     // git serializes itself through gc.lock, so a clash just retries later.
-    void runGit(shadowArgs(state, ['gc', '--auto', `--prune=${SHADOW_GC_PRUNE}`, '--quiet']), {
-      cwd: state.root,
-      allowFailure: true,
-      timeoutMs: 300_000,
-    }).catch(() => {});
+    // forgetTurnWorktreeRoot() waits for `gcRun` before deleting the repository.
+    state.gcRun = Promise.resolve()
+      .then(() =>
+        runGit(shadowArgs(state, ['gc', '--auto', `--prune=${SHADOW_GC_PRUNE}`, '--quiet']), {
+          cwd: state.root,
+          allowFailure: true,
+          timeoutMs: 300_000,
+        })
+      )
+      .catch(() => {});
   }, 60_000);
   timer.unref?.();
+  state.gcTimer = timer;
+}
+
+async function removeShadowDir(gitDir, removed, kept) {
+  if (!(await exists(gitDir))) return;
+  await rm(gitDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
+  (await exists(gitDir) ? kept : removed).push(gitDir);
+}
+
+/** Drop every trace of one worktree root: serialize behind its pending capture
+ *  work, remove its shadow repository and in-memory state, and refuse any write
+ *  a snapshot object that still holds the old state attempts afterwards.
+ *  Only the exact root is touched. Returns `{ removed, kept }` shadow paths;
+ *  `kept` lists a shadow repository that could not be deleted. */
+export async function forgetTurnWorktreeRoot(root) {
+  const text = clean(root);
+  const removed = [];
+  const kept = [];
+  if (!text) return { removed, kept };
+  const keys = new Set([pathKey(resolve(text)), pathKey(canonicalPath(text))]);
+  const gitDirs = new Set([...keys].map(shadowDirForKey));
+  for (const [key, state] of [...states]) {
+    if (!keys.has(key) && !keys.has(pathKey(state.root))) continue;
+    gitDirs.add(state.gitDir);
+    await withStateLock(state, async () => {
+      state.forgotten = true;
+      if (states.get(key) === state) states.delete(key);
+      if (state.gcTimer) clearTimeout(state.gcTimer);
+      state.gcTimer = null;
+      await state.gcRun;
+      maintainedShadowRepositories.delete(state.gitDir);
+    });
+  }
+  for (const gitDir of gitDirs) await removeShadowDir(gitDir, removed, kept);
+  return { removed, kept };
 }
 
 export async function createTurnWorktreeSnapshot(worktree) {

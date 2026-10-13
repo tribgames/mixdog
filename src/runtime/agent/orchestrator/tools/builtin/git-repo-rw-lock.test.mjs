@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mjs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { gitRepoLockKey, withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mjs';
+
+test('git repo lock keys are canonical: real path, trailing separators, Windows casing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-rw-key-'));
+  try {
+    const dir = join(root, 'Repo', '.git');
+    mkdirSync(dir, { recursive: true });
+    const key = gitRepoLockKey(dir);
+    assert.equal(gitRepoLockKey(`${dir}/`), key);
+    assert.equal(gitRepoLockKey(join(dir, 'x', '..')), key);
+    assert.equal(gitRepoLockKey(realpathSync.native(dir)), key);
+    if (process.platform === 'win32') {
+      assert.equal(gitRepoLockKey(dir.toUpperCase()), key);
+      assert.equal(gitRepoLockKey(dir.replace(/\\/g, '/')), key);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function gate() {
   let release;

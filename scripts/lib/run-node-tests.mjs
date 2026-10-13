@@ -132,6 +132,15 @@ export function testIsolationEnv(scratchDir) {
 export const DEFAULT_TEST_TIMEOUT_MS = 120_000;
 export const LONG_TEST_TIMEOUT_MS = 600_000;
 
+/** Per-file timeout default for explicitly named files: a `.slow`/`.live`/
+ *  `.electron` test file keeps its lane's long bound (scripts/test.mjs laneOf)
+ *  even when run outside the lane runner. */
+export function explicitFilesTimeoutMs(fileArgs) {
+  return fileArgs.some((arg) => /\.(slow|live|electron)\.test\.mjs$/.test(String(arg)))
+    ? LONG_TEST_TIMEOUT_MS
+    : DEFAULT_TEST_TIMEOUT_MS;
+}
+
 // A batch that has not exited by then is killed with its process tree and
 // fails the run; MIXDOG_TEST_BATCH_TIMEOUT_MS overrides the default.
 const DEFAULT_BATCH_TIMEOUT_MS = 60 * 60 * 1000;

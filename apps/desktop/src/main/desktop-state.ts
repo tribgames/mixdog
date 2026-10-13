@@ -1,7 +1,43 @@
-import type { DesktopSessionClassification, DesktopSessionSummary } from '../shared/contract';
+import type {
+  DesktopSessionClassification,
+  DesktopSessionSummary,
+  DesktopSessionWorkspace,
+  DesktopWorkspaceTransitionState,
+} from '../shared/contract';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 
 const SESSION_WORKING_HEARTBEAT_MS = 2 * 60 * 1000;
+const WORKSPACE_TRANSITION_STATES = new Set(['idle', 'provisioning', 'switching', 'removing', 'recovery']);
+
+const workspaceText = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim() && !value.includes('\0') ? value.trim() : null;
+
+/** The catalog row's workspace record (store-summary-fields workspaceSummary),
+ *  or null when absent or missing either path. */
+function sessionWorkspace(value: unknown): DesktopSessionWorkspace | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const projectPath = workspaceText(record.projectPath);
+  const cwd = workspaceText(record.cwd);
+  if (!projectPath || !cwd) return null;
+  const transition =
+    record.transition && typeof record.transition === 'object' ? (record.transition as Record<string, unknown>) : {};
+  const state = WORKSPACE_TRANSITION_STATES.has(String(transition.state))
+    ? (transition.state as DesktopWorkspaceTransitionState)
+    : 'idle';
+  const txId = state === 'idle' ? null : workspaceText(transition.txId);
+  return {
+    projectPath,
+    repoCommonDir: workspaceText(record.repoCommonDir),
+    cwd,
+    worktreeId: workspaceText(record.worktreeId),
+    branch: workspaceText(record.branch),
+    baseCommit: workspaceText(record.baseCommit),
+    mergeTarget: workspaceText(record.mergeTarget),
+    revision: Number.isSafeInteger(record.revision) && Number(record.revision) >= 0 ? Number(record.revision) : 0,
+    transition: txId ? { state, txId } : { state: 'idle', txId: null },
+  };
+}
 
 function normalizedPath(value: string): string {
   return value
@@ -88,7 +124,11 @@ export function desktopSessionSummaries(
       if (storedClassification === 'project' || storedClassification === 'task') classification = storedClassification;
       else classification = cwd && !isDesktopTaskWorkspace(cwd) ? 'project' : 'task';
       const storedProjectPath = typeof meta?.projectPath === 'string' ? meta.projectPath.trim() : '';
-      const projectPath = classification === 'project' ? cwd || storedProjectPath : '';
+      // A worktree-bound session executes in a managed folder (`cwd`) but stays
+      // grouped under its registered Project: the workspace record, then the
+      // stored classification, outrank the execution root.
+      const workspace = sessionWorkspace(row.workspace);
+      const projectPath = classification === 'project' ? workspace?.projectPath || cwd || storedProjectPath : '';
       if (classification === 'project' && (!projectPath || projectPath.includes('\0'))) return [];
       const preview = String(row.preview || '').trim();
       const id = String(row.id || '');
@@ -139,6 +179,7 @@ export function desktopSessionSummaries(
           ...(automationType && sourceName ? { sourceName } : {}),
           ...(provider ? { provider } : {}),
           ...(model ? { model } : {}),
+          ...(workspace ? { workspace } : {}),
         },
       ];
     })

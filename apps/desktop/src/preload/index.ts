@@ -480,13 +480,9 @@ const api: DesktopApi = {
   subscribeTermSizeOwner: (listener) => subscribeIpc(DESKTOP_IPC.termSizeOwner, listener),
   gitStatus: (cwd, options) => ipcRenderer.invoke(DESKTOP_IPC.gitStatus, cwd, options),
   gitBranches: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitBranches, cwd),
-  gitCheckoutBranch: (cwd, branch, remote) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitCheckoutBranch, cwd, branch, remote === true),
-  gitCreateBranch: (cwd, branch) => ipcRenderer.invoke(DESKTOP_IPC.gitCreateBranch, cwd, branch),
   gitRenameBranch: (cwd, branch, nextBranch) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitRenameBranch, cwd, branch, nextBranch),
   gitDeleteBranch: (cwd, branch) => ipcRenderer.invoke(DESKTOP_IPC.gitDeleteBranch, cwd, branch),
-  gitMergeBranch: (cwd, branch) => ipcRenderer.invoke(DESKTOP_IPC.gitMergeBranch, cwd, branch),
   gitDiff: (cwd, path, staged, worktreeOnly, untracked) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitDiff, cwd, path, staged === true, worktreeOnly === true, untracked === true),
   gitApplyPatch: (cwd, path, patch, reverse) =>
@@ -533,9 +529,6 @@ const api: DesktopApi = {
   gitCherryPickCommit: (cwd, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitCherryPickCommit, cwd, hash),
   gitCreateTag: (cwd, tag, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitCreateTag, cwd, tag, hash),
   gitDeleteTag: (cwd, tag) => ipcRenderer.invoke(DESKTOP_IPC.gitDeleteTag, cwd, tag),
-  gitCheckoutCommit: (cwd, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitCheckoutCommit, cwd, hash),
-  gitCreateBranchAtCommit: (cwd, branch, hash) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitCreateBranchAtCommit, cwd, branch, hash),
   gitReview: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitReview, cwd),
   gitReviewDiff: (cwd, path, untracked) => ipcRenderer.invoke(DESKTOP_IPC.gitReviewDiff, cwd, path, untracked === true),
   revealFile: (cwd, path, accessToken) => ipcRenderer.invoke(DESKTOP_IPC.revealFile, cwd, path, accessToken),

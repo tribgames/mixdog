@@ -248,6 +248,8 @@ function wireInternalTools(boot) {
       mcpStatus: boot.mcpStatus,
       applyResolvedCwd: boot.applyResolvedCwd,
       skillToolContent: boot.skillToolContent,
+      // Late-bound: the workspace authority is built with the API slices.
+      getWorkspaceApi: () => boot.workspaceApi || null,
     }),
   });
   Object.assign(boot, { setupTool, disposeInternalTools });

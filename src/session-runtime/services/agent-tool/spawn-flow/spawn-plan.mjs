@@ -17,6 +17,7 @@ import { isAgentDisabled } from '../../../../runtime/shared/agent-route-config.m
 import { normalizeAgentPermission } from '../../../../runtime/shared/markdown-frontmatter.mjs';
 import { resolveAgentSpawnPreset } from '../spawn-preset.mjs';
 import { AGENT_OWNER } from '../../../../runtime/agent/orchestrator/agent-owner.mjs';
+import { workspaceCwdLock } from '../../../workspace/admission-gate.mjs';
 
 export function createSpawnPlanner({
   cfgMod,
@@ -52,8 +53,15 @@ export function createSpawnPlanner({
     if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args) })) {
       throw new Error(`agent spawn: tag "${tag}" already exists`);
     }
-    const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
-    const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
+    // Workers share their Lead's execution root. While the Lead runs in its
+    // worktree, that root is locked: neither args.cwd nor an inherited
+    // (pre-transition) cwd can send a worker elsewhere.
+    const lockedCwd = workspaceCwdLock([
+      context?.ownerSessionId,
+      context?.callerSessionId || context?.sessionId,
+    ]);
+    const baseCwd = resolve(lockedCwd || callerCwd || defaultCwd || process.cwd());
+    const workerCwd = !lockedCwd && clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
     const prompt = await resolvePrompt(args, workerCwd);
     if (prepState?.timedOut) {
       throw new Error('agent spawn prep timed out before session bind');

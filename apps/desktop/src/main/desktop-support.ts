@@ -26,6 +26,27 @@ export interface MixdogProjectsModule {
   resolveProjectPath?(projectPath: string): string;
 }
 
+/** Registry entry of a Mixdog-managed git worktree (the fields the host reads). */
+export interface ManagedWorktreeEntry {
+  /** Registered Project (main repository) the worktree belongs to. */
+  projectPath: string;
+  /** Absolute worktree folder under the data dir's managed root. */
+  path: string;
+  state?: string;
+}
+
+/** The worktree manager's registry, the only authority on managed folders. */
+export interface MixdogWorktreesModule {
+  /** The registry entry whose folder is `path`, or null when none is. */
+  getWorktreeByPath(path: string): ManagedWorktreeEntry | null | Promise<ManagedWorktreeEntry | null>;
+  /** The registry entry whose folder is `path` or contains it (a subfolder
+   *  Project's session root). Optional: older daemons match exact folders only. */
+  findWorktreeContaining?(path: string): ManagedWorktreeEntry | null | Promise<ManagedWorktreeEntry | null>;
+  /** Register a releaser the manager runs before it deletes a worktree, ahead
+   *  of its cache cleanups and `git worktree remove`. Returns unregister. */
+  registerRootReleaser?(name: string, releaser: (root: string) => unknown): () => void;
+}
+
 export interface StatuslineSegmentsModule {
   shellJobsStatus(options?: { clientHostPid?: number; sessionId?: string }): {
     count?: number;

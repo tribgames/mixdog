@@ -140,6 +140,19 @@ function shellLabel(shell: string): string {
   );
 }
 
+/** Slash-normalized, trailing-slash-free path; case-folded on Windows/macOS. */
+function normalizeRoot(value: string): string {
+  const path = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  return process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
+}
+
+/** True when `path` is `root` or lies inside it (the rule disposeTerminalsUnder uses). */
+export function isPathUnderRoot(root: string, path: string): boolean {
+  const base = normalizeRoot(root);
+  const target = path ? normalizeRoot(path) : '';
+  return !!base && !!target && (target === base || target.startsWith(`${base}/`));
+}
+
 /** 1000 cursor units per wall-clock millisecond: a terminal would have to
  *  print over 1000 characters per millisecond of its lifetime to reach the
  *  epoch of a terminal created after it. Stays a safe integer for centuries. */
@@ -433,6 +446,22 @@ export class TerminalManager {
     this.cursorFloors.set(id, Math.max(this.cursorFloors.get(id) ?? -1, entry.buffer.cursor));
     this.terminals.delete(id);
     this.forgetSizeClaims(id);
+  }
+
+  /** Dispose every terminal whose cwd is `root` or inside it (a removed
+   * managed worktree), so no PTY keeps the directory locked. Returns the ids. */
+  disposeTerminalsUnder(root: string): string[] {
+    const base = normalizeRoot(root);
+    if (!base) return [];
+    const ids: string[] = [];
+    for (const [id, entry] of [...this.terminals]) {
+      const cwd = entry.cwd ? normalizeRoot(entry.cwd) : '';
+      if (cwd && (cwd === base || cwd.startsWith(`${base}/`))) {
+        this.dispose(id);
+        ids.push(id);
+      }
+    }
+    return ids;
   }
 
   disposeAll(): void {

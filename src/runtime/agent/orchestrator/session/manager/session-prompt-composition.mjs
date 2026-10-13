@@ -60,6 +60,33 @@ function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting) {
     .join('\n');
 }
 
+/**
+ * Workspace-scoped prompt facts for an existing session re-rooted at `cwd`
+ * (a Lead workspace change or a worker following its Lead): the shell/git/
+ * listing environment and the instruction files of the new root, derived
+ * exactly as at creation. `undefined` means "keep what the session has": a
+ * tool-free role carries neither, a profile skipping instruction files keeps
+ * none.
+ * @returns {{ environmentContext: string|undefined, instructionFilesContext: string|undefined }}
+ */
+export function buildWorkspacePromptContext(session, cwd) {
+  const ownerIsAgent = session?.owner === 'agent';
+  const toolFreeRole =
+    ownerIsAgent && Array.isArray(session?.schemaAllowedTools) && session.schemaAllowedTools.length === 0;
+  if (toolFreeRole) return { environmentContext: undefined, instructionFilesContext: undefined };
+  const tools = [
+    ...(Array.isArray(session?.tools) ? session.tools : []),
+    ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
+  ];
+  return {
+    environmentContext: buildShellEnvironmentContext({ cwd }, ownerIsAgent, tools),
+    instructionFilesContext:
+      session?.skipInstructionFiles === true
+        ? undefined
+        : loadInstructionFilesContext({ mode: configuredInstructionFilesMode(), cwd }),
+  };
+}
+
 // BP1/BP2/BP3 rule blocks plus the volatile environment, composed into the
 // four system blocks; environmentTailContext is the persisted env tail.
 export function composeSessionSystem(opts, { profile, providerName, modelName, surface }) {

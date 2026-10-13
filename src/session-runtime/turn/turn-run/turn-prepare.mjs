@@ -21,6 +21,8 @@ export function createTurnPreparation({
   agentTool,
   getConfig,
   assertSessionAdmission,
+  prepareTurnWorkspace,
+  admitTurnWorkspace,
 }) {
   const scopedMcpTools = (session) => scopedMcpToolsFor(session, getConfig());
 
@@ -84,7 +86,7 @@ export function createTurnPreparation({
   // Historical-session resume publishes its transcript immediately while
   // provider/model metadata initializes in the background. Only the next
   // actual turn waits, guaranteeing that it cannot run on a stale route.
-  async function prepareSession(turn, prompt) {
+  async function prepareSession(turn, prompt, options = {}) {
     // A closing/closed addressed runtime admits no turn (checked again after
     // every await that could have outlived a close).
     assertSessionAdmission?.();
@@ -96,6 +98,32 @@ export function createTurnPreparation({
     }
     throwIfAborted(turn.signal);
     assertSessionAdmission?.();
+    // Turn admission: waits while this session's workspace transitions or
+    // another session changes the checkout this session works in, then holds
+    // the turn registered (released by settleTurn) so no checkout changes
+    // under it.
+    if (typeof admitTurnWorkspace === 'function') {
+      turn.releaseWorkspace = await admitTurnWorkspace({ signal: turn.signal });
+      throwIfAborted(turn.signal);
+      assertSessionAdmission?.();
+    }
+    // Workspace gate: a session in recovery refuses the turn, and a pending
+    // worktree intent is provisioned and applied (cwd, record, prompt context)
+    // BEFORE the user row, the review snapshot, hooks, the provider and any
+    // worker spawn. The submission id is the provisioning transaction id, so a
+    // retried or duplicate send reuses the same worktree.
+    if (typeof prepareTurnWorkspace === 'function') {
+      await turn.awaitTurn(() =>
+        prepareTurnWorkspace({
+          submissionId: String(options.id || '').trim(),
+          prompt,
+          signal: turn.signal,
+          confirmLarge: options.confirmLarge === true,
+        })
+      );
+      throwIfAborted(turn.signal);
+      assertSessionAdmission?.();
+    }
     ensureSessionTranscriptWriter?.();
     transcript.appendUser(prompt);
     const session0 = getSession();

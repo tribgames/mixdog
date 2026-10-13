@@ -38,6 +38,7 @@ import { ensureCodexWireSessionId, mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { buildSessionRecord, normalizeDesktopSessionMetadata, sessionOriginFields } from './session-record.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
+import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
 
 // Owner liveness (attach-on-resume guard) and the durable turn-checkpoint
 // recovery it gates; re-exported so prior importers of this module stay
@@ -464,13 +465,18 @@ function _applyDesktopResumeScope(session, options) {
   }
   // The host's summary may predate a cwd change. It supplies the
   // classification check, not permission to overwrite the session's
-  // newer execution Project. Task metadata always remains pathless.
+  // newer execution Project. Task metadata always remains pathless. A Lead
+  // in its worktree executes outside the Project: its registered Project
+  // stays the workspace record's projectPath, never the worktree cwd.
+  const workspace = session.workspace;
+  const executionProject =
+    isWorktreeBound(workspace) && typeof workspace.projectPath === 'string' ? workspace.projectPath : session.cwd;
   session.desktopSession =
     expectedDesktop.classification === 'project'
       ? normalizeDesktopSessionMetadata(
           {
             ...expectedDesktop,
-            projectPath: session.cwd || expectedDesktop.projectPath,
+            projectPath: executionProject || expectedDesktop.projectPath,
           },
           session.cwd
         )

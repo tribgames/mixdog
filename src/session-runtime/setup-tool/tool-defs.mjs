@@ -6,6 +6,7 @@ import {
 } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
+import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
@@ -31,6 +32,7 @@ export const SETUP_STATUS_DOMAINS = Object.freeze([
   'plugins',
   'update',
   'onboarding',
+  'worktree',
   ...SETUP_EXTENDED_DOMAINS,
 ]);
 
@@ -108,6 +110,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_plugin_enabled: 'name enabled',
   remove_plugin: 'name',
   enable_plugin_mcp: 'name',
+  set_worktree_settings: 'worktree',
   ...SETUP_EXTENDED_ACTION_FIELDS,
 });
 
@@ -325,6 +328,25 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'array',
           items: { type: 'string', minLength: 1, pattern: '\\S' },
           description: 'set_extension_scope: required project roots; [] = every project.',
+        },
+        worktree: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            newTaskDefault: {
+              type: 'string',
+              enum: [...WORKTREE_NEW_TASK_DEFAULTS],
+              description: 'branch = new tasks use the current branch (default); worktree = a new worktree.',
+            },
+            branchPrefix: { type: 'string', description: 'Ref prefix ending with "/"; default "mixdog/".' },
+            sizeWarnBytes: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Repository size that asks for confirmation first; 0 never asks.',
+            },
+            autoCleanup: { type: 'boolean', description: 'Remove clean, merged worktrees when their task ends.' },
+          },
+          description: 'set_worktree_settings: only the given fields change.',
         },
         ...SETUP_EXTENDED_PROPERTIES,
       },

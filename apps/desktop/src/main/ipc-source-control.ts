@@ -125,13 +125,10 @@ function registerWorkingTreeIpc({ handle, operations }: SourceControlRegistratio
     gitAmend,
     gitApplyPatch,
     gitBranches,
-    gitCheckoutBranch,
     gitCommit,
     gitCommitPaths,
-    gitCreateBranch,
     gitDeleteBranch,
     gitDiff,
-    gitMergeBranch,
     gitRenameBranch,
     gitStage,
     gitStash,
@@ -152,21 +149,15 @@ function registerWorkingTreeIpc({ handle, operations }: SourceControlRegistratio
       skipLineStats: record.skipLineStats === true,
     });
   });
+  // Branch checkout/create (also from a history commit) and the detached
+  // checkout of a history commit go through the runtime's guarded
+  // selectProjectBranch capability, never a raw git switch.
   handle(DESKTOP_IPC.gitBranches, (_event, cwd) => gitBranches(requiredRepositoryCwd(cwd)));
-  handle(DESKTOP_IPC.gitCheckoutBranch, (_event, cwd, branch, remote) =>
-    gitCheckoutBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), remote === true)
-  );
-  handle(DESKTOP_IPC.gitCreateBranch, (_event, cwd, branch) =>
-    gitCreateBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch))
-  );
   handle(DESKTOP_IPC.gitRenameBranch, (_event, cwd, branch, nextBranch) =>
     gitRenameBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredGitBranchName(nextBranch))
   );
   handle(DESKTOP_IPC.gitDeleteBranch, (_event, cwd, branch) =>
     gitDeleteBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch))
-  );
-  handle(DESKTOP_IPC.gitMergeBranch, (_event, cwd, branch) =>
-    gitMergeBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch))
   );
   handle(DESKTOP_IPC.gitDiff, (_event, cwd, path, staged, worktreeOnly, untracked) =>
     gitDiff(
@@ -252,9 +243,7 @@ function registerRepositorySyncIpc({ handle, operations }: SourceControlRegistra
 /** History: reading past commits and moving the tree onto one of them. */
 function registerRepositoryHistoryIpc({ handle, operations }: SourceControlRegistration): void {
   const {
-    gitCheckoutCommit,
     gitCherryPickCommit,
-    gitCreateBranchAtCommit,
     gitCreateTag,
     gitDeleteTag,
     gitLog,
@@ -303,12 +292,6 @@ function registerRepositoryHistoryIpc({ handle, operations }: SourceControlRegis
   );
   handle(DESKTOP_IPC.gitDeleteTag, (_event, cwd, tag) =>
     gitDeleteTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512))
-  );
-  handle(DESKTOP_IPC.gitCheckoutCommit, (_event, cwd, hash) =>
-    gitCheckoutCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash))
-  );
-  handle(DESKTOP_IPC.gitCreateBranchAtCommit, (_event, cwd, branch, hash) =>
-    gitCreateBranchAtCommit(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredCommitHash(hash))
   );
   handle(DESKTOP_IPC.gitReview, (_event, cwd) => gitReview(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.gitReviewDiff, (_event, cwd, path, untracked) =>

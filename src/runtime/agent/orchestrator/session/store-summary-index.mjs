@@ -26,7 +26,7 @@ import {
   sessionMessageText,
 } from '../runtime-core/session-text.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
-import { isStoredSessionId, positiveNumber as _positiveNumber } from './store-summary-fields.mjs';
+import { isStoredSessionId, positiveNumber as _positiveNumber, workspaceSummary } from './store-summary-fields.mjs';
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
@@ -182,6 +182,7 @@ export function _sessionSummary(session) {
     clientHostPid: _positiveNumber(session.clientHostPid, 0) || null,
     cwd: session.cwd || '',
     desktopSession: _desktopSessionSummary(session.desktopSession, session.cwd),
+    ...(workspaceSummary(session.workspace) ? { workspace: workspaceSummary(session.workspace) } : {}),
     provider: session.provider || null,
     model: session.model || null,
     presetName: session.presetName || session.profileId || null,
@@ -232,6 +233,7 @@ function _normalizeSummaryRow(row) {
     clientHostPid: _positiveNumber(row.clientHostPid, 0) || null,
     cwd: row.cwd || '',
     desktopSession: _desktopSessionSummary(row.desktopSession, row.cwd),
+    ...(workspaceSummary(row.workspace) ? { workspace: workspaceSummary(row.workspace) } : {}),
     provider: row.provider || null,
     model: row.model || null,
     presetName: row.presetName || row.profileId || null,

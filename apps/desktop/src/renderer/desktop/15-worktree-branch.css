@@ -1,0 +1,184 @@
+/* Composer branch chip: the third context chip, in the same ghost-chip grammar
+   as the project and workflow pills (15-composer.css). The menu is a body
+   portal opened ABOVE the chip, left-aligned, 2px gap (worktree-branch-model
+   branchMenuPosition, the same rule as OpenSelect's context pills). */
+.composer-branch-context {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+}
+.composer-branch-context:hover,
+.composer-branch-context:focus-within,
+.composer-branch-context:has(.branch-chip-trigger[aria-expanded="true"]) {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+/* Mid-session row: nothing to show (not a git folder) leaves no gap. */
+.composer-session-context:empty {
+  display: none;
+}
+.branch-chip-trigger {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  white-space: nowrap;
+}
+.branch-chip-trigger:disabled {
+  opacity: var(--mx-op-disabled);
+}
+.branch-chip-trigger > svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+}
+.branch-chip-label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-branch-context .branch-chip-fork,
+.branch-menu .branch-chip-fork {
+  color: var(--mx-accent);
+}
+.composer-branch-context[data-recovery] .branch-chip-trigger > svg {
+  color: var(--mx-warning);
+}
+
+.branch-menu {
+  position: fixed;
+  z-index: var(--mx-menu-z-index);
+  width: 280px;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  overflow: hidden;
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  color: var(--mx-text);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
+}
+.branch-menu-search {
+  height: 26px;
+  flex: 0 0 26px;
+  margin: 0 0 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 0;
+  color: var(--mx-text);
+  background: var(--mx-workspace-sheet);
+  font-size: var(--mx-font-minor);
+}
+.branch-menu-notice {
+  margin: 0 0 6px;
+  padding: 4px 10px;
+  color: var(--mx-warning);
+  font-size: var(--mx-font-meta);
+}
+/* STABLE BOX, as the source-control branch picker: the list scrolls inside
+   one capped height (OpenSelect caps menus at 240px) and never resizes the
+   menu when branches arrive. */
+.branch-menu-list {
+  min-height: 96px;
+  max-height: 240px;
+  flex: 0 1 240px;
+  overflow: auto;
+}
+.branch-menu-item {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  text-align: left;
+}
+.branch-menu-item > svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+}
+.branch-menu-item > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-menu-item > small {
+  margin-left: auto;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.branch-menu-item:hover:not([aria-disabled="true"]),
+.branch-menu-item:focus-visible {
+  outline: 0;
+  background: var(--mx-hover);
+}
+.branch-menu-item[data-selected] {
+  background: var(--mx-pressed);
+}
+.branch-menu-item[data-mark="inUse"] > span,
+.branch-menu-item[data-mark="external"] > span {
+  color: var(--mx-text-muted);
+}
+.branch-menu-item[aria-disabled="true"] {
+  cursor: default;
+}
+.branch-menu-item[data-mark="external"] {
+  opacity: var(--mx-op-disabled);
+}
+.branch-menu-label {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  margin: 4px 0 0;
+  padding: 0 10px;
+  border-top: 1px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
+.branch-menu-empty {
+  margin: 0;
+  padding: 12px 8px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-align: center;
+}
+.branch-menu-rule {
+  height: 1px;
+  flex: 0 0 1px;
+  margin: 4px 0;
+  border: 0;
+  background: var(--mx-border-muted);
+}
+
+/* Source-control branch picker: occupancy marks beside the branch name. */
+.dock-scm-branch-main > .dock-scm-branch-mark {
+  flex: 0 0 auto;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.dock-scm-branch-row[data-occupancy="external"] .dock-scm-branch-main {
+  opacity: var(--mx-op-disabled);
+}

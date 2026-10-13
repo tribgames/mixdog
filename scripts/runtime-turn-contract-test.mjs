@@ -356,9 +356,13 @@ test('turn cleanup has a finite settlement contract', async () => {
 });
 
 test('runtime ask aborts while route preparation is permanently pending', async () => {
+  let snapshotBegun = false;
   const harness = makeTurnHarness({
     sessionId: 'route-hang',
     awaitRoutePreparation: () => new Promise(() => {}),
+    beginTurnSnapshotForTurn: async () => {
+      snapshotBegun = true;
+    },
   });
 
   const asking = harness.api.ask('blocked by route preparation');
@@ -373,6 +377,10 @@ test('runtime ask aborts while route preparation is permanently pending', async 
   ]);
   assert.equal(harness.getActiveTurnCount(), 0);
   assert.equal(harness.wasUnregistered(), true);
+  // The review baseline begins only once the turn's workspace is final (after
+  // route preparation and any worktree provisioning): an abort before that
+  // leaves no review to seal.
+  assert.equal(snapshotBegun, false);
 });
 
 test('runtime ask aborts while a prompt hook ignores cancellation', async () => {

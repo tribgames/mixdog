@@ -61,6 +61,7 @@ import { createSessionService } from './session-service.mjs';
 import { createLocalSessionBridge } from './daemon-local-session-bridge.mjs';
 import { createStoredSessionViews } from './daemon-stored-session-views.mjs';
 import * as quotaResumeStore from '../runtime/shared/quota-resume-store.mjs';
+import { registerWorktreeCacheCleanups } from '../runtime/shared/worktrees/cache-cleanups.mjs';
 import { createInlineSessionRuntimeHost } from './session-runtime-inline-host.mjs';
 import { getStandaloneMemoryRuntime } from '../session-runtime/services/memory-runtime-proxy.mjs';
 import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
@@ -619,6 +620,25 @@ async function main() {
 
   claimDaemonOwnership(bootPhases);
   registerMemoryRuntimeLazy();
+  // Every in-process session runtime removes managed worktrees through the
+  // shared manager; its root cleanups drop the path-keyed caches (turn
+  // snapshots, code graph) of a removed worktree. Modules load on first use.
+  registerWorktreeCacheCleanups();
+  // Managed worktrees, off the boot path: finish interrupted deletions and
+  // creations, release stale leases and, with autoCleanup on, remove clean,
+  // merged worktrees no stored session retains (never one a session keeps).
+  void import('../runtime/shared/worktrees/maintenance.mjs')
+    .then((maintenance) => maintenance.reconcileWorktreesAtStartup())
+    .then((report) => {
+      const changed = report.removed.length + report.recovered.length + report.pruned.length;
+      if (changed || report.errors.length) {
+        log(
+          `worktree reconcile: removed ${report.removed.length}, recovered ${report.recovered.length}, ` +
+            `pruned ${report.pruned.length}, errors ${report.errors.length}`
+        );
+      }
+    })
+    .catch((error) => log(`worktree reconcile failed: ${error?.message || error}`));
   // The daemon owns prompt attachments; its census runs off the boot path
   // (first attempt after the store's start delay, then per its interval).
   void import('../runtime/attachments/store.mjs').then((store) => store.startAttachmentGc()).catch(() => {});

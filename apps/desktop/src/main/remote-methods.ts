@@ -281,14 +281,10 @@ const GIT_OPERATION_NAMES = [
   'gitAmend',
   'gitApplyPatch',
   'gitBranches',
-  'gitCheckoutBranch',
-  'gitCheckoutCommit',
   'gitCherryPickCommit',
   'gitCommit',
   'gitCommitPaths',
   'gitContinue',
-  'gitCreateBranch',
-  'gitCreateBranchAtCommit',
   'gitCreateTag',
   'gitDeleteBranch',
   'gitDeleteTag',
@@ -296,7 +292,6 @@ const GIT_OPERATION_NAMES = [
   'gitFetch',
   'gitIgnore',
   'gitLog',
-  'gitMergeBranch',
   'gitPull',
   'gitPush',
   'gitRenameBranch',
@@ -398,14 +393,11 @@ function gitWorkingTreeRemoteMethods(
  *  can leave a merge or rebase in progress. */
 function gitBranchRemoteMethods(git: GitOperations): Record<string, RemoteMethod> {
   return {
+    // Checkout/create: the guarded selectProjectBranch capability (invokeCapability).
     gitBranches: ([cwd]) => git.gitBranches(requiredRepositoryCwd(cwd)),
-    gitCheckoutBranch: ([cwd, branch, remote]) =>
-      git.gitCheckoutBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), remote === true),
-    gitCreateBranch: ([cwd, branch]) => git.gitCreateBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
     gitRenameBranch: ([cwd, branch, nextBranch]) =>
       git.gitRenameBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredGitBranchName(nextBranch)),
     gitDeleteBranch: ([cwd, branch]) => git.gitDeleteBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
-    gitMergeBranch: ([cwd, branch]) => git.gitMergeBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
     gitCreateTag: ([cwd, tag, hash]) =>
       git.gitCreateTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512), requiredCommitHash(hash)),
     gitDeleteTag: ([cwd, tag]) => git.gitDeleteTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512)),
@@ -449,9 +441,6 @@ function gitHistoryRemoteMethods(
       ),
     gitRevertCommit: ([cwd, hash]) => git.gitRevertCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
     gitCherryPickCommit: ([cwd, hash]) => git.gitCherryPickCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitCheckoutCommit: ([cwd, hash]) => git.gitCheckoutCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitCreateBranchAtCommit: ([cwd, branch, hash]) =>
-      git.gitCreateBranchAtCommit(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredCommitHash(hash)),
     gitGlobalConfig: () => invokeDesktopOperation('gitGlobalConfig', []),
     setGitGlobalConfig: ([key, value]) => {
       // Empty is a real value here: it UNSETS the key.

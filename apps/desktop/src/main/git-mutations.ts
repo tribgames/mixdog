@@ -45,10 +45,9 @@ export type { GitIgnoreScope, GitResetMode } from './git-contract.mjs';
 export { publicGitRemoteUrl } from './git-runner';
 
 const branchOperations = createGitBranchOperations({ run, currentGitOperation, gitStatus });
-const { checkedBranchName, assertNoOperationInProgress, assertCleanWorktree, conflictedPaths } = branchOperations;
+const { assertNoOperationInProgress, assertCleanWorktree, conflictedPaths } = branchOperations;
 
-export const { gitBranches, gitCheckoutBranch, gitCreateBranch, gitRenameBranch, gitDeleteBranch, gitMergeBranch } =
-  branchOperations;
+export const { gitBranches, gitRenameBranch, gitDeleteBranch } = branchOperations;
 
 export async function gitApplyPatch(cwd: string, path: string, patch: string, reverse = false): Promise<void> {
   if (!patch.trim()) throw new TypeError('A Git patch is required.');
@@ -413,14 +412,3 @@ export async function gitDeleteTag(cwd: string, value: string): Promise<string> 
   return run(cwd, ['tag', '-d', tag]);
 }
 
-export async function gitCheckoutCommit(cwd: string, value: string): Promise<string> {
-  const commit = await checkedCommit(cwd, value);
-  await run(cwd, ['checkout', '--detach', commit]);
-  return `HEAD is now at ${commit.slice(0, 8)} (detached).`;
-}
-
-export async function gitCreateBranchAtCommit(cwd: string, value: string, at: string): Promise<string> {
-  const branch = await checkedBranchName(cwd, value);
-  const commit = await checkedCommit(cwd, at);
-  return run(cwd, ['switch', '-c', branch, commit]);
-}

@@ -141,3 +141,36 @@ test('cwd reports, lists, and switches the working directory through the caller 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('cwd merge-worktree / remove-worktree drive the Lead workspace authority within the calling turn', async () => {
+  const calls = [];
+  const workspace = {
+    mergeWorkspace: async (input, options) => {
+      calls.push(['merge', input, options]);
+      return { merged: true };
+    },
+    removeWorktree: async (input, options) => {
+      calls.push(['remove', input, options]);
+      return { revision: 4 };
+    },
+  };
+  const { execute } = harness({ getWorkspaceApi: () => workspace });
+  const merged = JSON.parse(await execute('cwd', { action: 'merge-worktree' }, { callerSessionId: 'sess-1' }));
+  assert.deepEqual(merged, { action: 'merge-worktree', cwd: 'C:/work', result: { merged: true } });
+  assert.deepEqual(calls.at(-1), ['merge', { confirmed: true }, { ownTurn: true }]);
+  await execute('cwd', { action: 'remove-worktree', force: true }, {});
+  assert.deepEqual(calls.at(-1), ['remove', { force: true }, { ownTurn: true }]);
+  // The manual list / prune: never a retained worktree (the authority decides).
+  workspace.listWorktrees = async () => (calls.push(['list']), [{ id: 'fix', retained: true }]);
+  workspace.pruneWorktrees = async () => (calls.push(['prune']), { removed: [] });
+  const listed = JSON.parse(await execute('cwd', { action: 'list-worktrees' }, {}));
+  assert.deepEqual(listed.result, [{ id: 'fix', retained: true }]);
+  await execute('cwd', { action: 'prune-worktrees' }, {});
+  assert.deepEqual(calls.slice(-2), [['list'], ['prune']]);
+  await assert.rejects(
+    execute('cwd', { action: 'remove-worktree' }, { callerSessionId: 'worker-2' }),
+    /belongs to the Lead session/
+  );
+  const { execute: bare } = harness();
+  await assert.rejects(bare('cwd', { action: 'merge-worktree' }, {}), /unavailable in this runtime/);
+});

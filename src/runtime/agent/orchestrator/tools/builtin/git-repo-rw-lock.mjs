@@ -1,10 +1,17 @@
-import { resolve } from 'node:path';
+import { pathKey } from '../../../../shared/worktrees/paths.mjs';
 
 const states = new Map();
 
+// Callers key by the canonical `git rev-parse --git-common-dir`, so the main
+// checkout and every linked worktree of one repository share one lock. The key
+// is the real path (8.3 names, symlinked parents) and case-insensitive on
+// Windows, so two spellings of one directory never hold separate locks.
+export function gitRepoLockKey(repo) {
+  return pathKey(String(repo || '.'));
+}
+
 function keyFor(repo) {
-  const key = resolve(String(repo || '.'));
-  return process.platform === 'win32' ? key.toLowerCase() : key;
+  return gitRepoLockKey(repo);
 }
 
 function stateFor(key) {

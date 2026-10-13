@@ -172,7 +172,6 @@ let branchMode: 'few' | 'many' = 'few';
     await new Promise((resolve) => setTimeout(resolve, 80));
     return branchMode === 'many' ? MANY_BRANCHES : BASE_BRANCHES;
   },
-  gitMergeBranch: async () => '',
   gitStage: async () => {},
   gitUnstage: async () => {},
   gitCommit: async () => '',

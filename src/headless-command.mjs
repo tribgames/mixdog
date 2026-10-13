@@ -1,5 +1,12 @@
+import { worktreeNameError } from './runtime/shared/worktrees/contract.mjs';
+
 const VALUE_OPTIONS = new Set(['--provider', '--model', '--effort', '--workflow']);
+// `--worktree [name]` takes an optional value; `--worktree=<name>` is the
+// unambiguous spelling.
+const WORKTREE_OPTION = '--worktree';
+const NO_WORKTREE_OPTION = '--no-worktree';
 const FLAG_OPTIONS = new Set([
+  NO_WORKTREE_OPTION,
   '--readonly',
   '--help',
   '-h',
@@ -12,7 +19,7 @@ const FLAG_OPTIONS = new Set([
   '--memory',
   '--json',
 ]);
-const EXEC_UNSUPPORTED_FLAGS = new Set(['--readonly', '--remote', '--onboarding', '--memory']);
+const EXEC_UNSUPPORTED_FLAGS = new Set(['--readonly', '--remote', '--onboarding', '--memory', NO_WORKTREE_OPTION]);
 const HEADLESS_WORKFLOW_ERROR = 'option --workflow is not supported for mixdog exec';
 
 function roleKey(value) {
@@ -22,6 +29,16 @@ function roleKey(value) {
     .replace(/[\s_]+/g, '-');
 }
 
+const isWorktreeOption = (arg) => arg === WORKTREE_OPTION || arg.startsWith(`${WORKTREE_OPTION}=`);
+
+/** The token after a bare `--worktree` is its name unless it is an option or the exec verb. */
+function worktreeNameToken(value) {
+  if (value === undefined || value === null) return null;
+  const text = String(value);
+  if (!text || text.startsWith('-') || roleKey(text) === 'exec') return null;
+  return text;
+}
+
 function argvIndicatesExec(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] ?? '');
@@ -29,6 +46,11 @@ function argvIndicatesExec(argv) {
       index += 1;
       continue;
     }
+    if (arg === WORKTREE_OPTION) {
+      if (worktreeNameToken(argv[index + 1]) !== null) index += 1;
+      continue;
+    }
+    if (isWorktreeOption(arg)) continue;
     if (arg === '--') continue;
     if (FLAG_OPTIONS.has(arg) || arg.startsWith('-')) continue;
     return roleKey(arg) === 'exec';
@@ -39,9 +61,23 @@ function argvIndicatesExec(argv) {
 function parseTokens(argv, { strictValues = true } = {}) {
   const positional = [];
   const values = {};
+  let worktree;
   const allowHeadlessIntent = strictValues && !argv.includes('--react');
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] ?? '');
+    if (isWorktreeOption(arg)) {
+      let name = arg === WORKTREE_OPTION ? null : arg.slice(WORKTREE_OPTION.length + 1);
+      if (name === null) {
+        name = worktreeNameToken(argv[index + 1]);
+        if (name !== null) index += 1;
+      }
+      const nameError = name === null ? null : worktreeNameError(name);
+      if (nameError && strictValues) {
+        return { error: `option --worktree name ${JSON.stringify(name)} is invalid: ${nameError}` };
+      }
+      worktree = { mode: 'worktree', name: nameError ? null : name };
+      continue;
+    }
     if (VALUE_OPTIONS.has(arg)) {
       const value = argv[index + 1];
       if (value === undefined || value === '' || String(value).startsWith('-')) {
@@ -87,7 +123,19 @@ function parseTokens(argv, { strictValues = true } = {}) {
     }
     positional.push(arg);
   }
-  return { positional, values };
+  return { positional, values, worktree };
+}
+
+/**
+ * Session creation intent from `--worktree [name]` / `--no-worktree`:
+ * undefined follows the worktree settings default.
+ * @returns {{ worktree?: { mode: 'worktree', name: string|null } | { mode: 'branch' } } | { error: string }}
+ */
+function worktreeIntent(argv, parsed) {
+  const disabled = argv.includes(NO_WORKTREE_OPTION);
+  if (disabled && parsed.worktree) return { error: 'options --worktree and --no-worktree are mutually exclusive' };
+  if (disabled) return { worktree: { mode: 'branch' } };
+  return parsed.worktree ? { worktree: parsed.worktree } : {};
 }
 
 function execFromPositional(positional) {
@@ -103,7 +151,10 @@ export function classifyCliInvocation(argv = []) {
   const hasPlain = argv.includes('--plain');
   const parsed = parseTokens(argv, { strictValues: !hasHelp && !hasPlain });
   if (parsed.error) return { kind: 'error', ...parsed };
+  const intent = worktreeIntent(argv, parsed);
+  if (intent.error && !hasHelp && !hasPlain) return { kind: 'error', error: intent.error };
   const options = {
+    ...(intent.worktree ? { worktree: intent.worktree } : {}),
     provider: parsed.values['--provider'],
     model: parsed.values['--model'],
     effort: parsed.values['--effort'],
@@ -129,7 +180,9 @@ export function classifyCliInvocation(argv = []) {
         skipHostPrelude: true,
       };
     }
-    const unsupported = [...EXEC_UNSUPPORTED_FLAGS].find((flag) => argv.includes(flag));
+    const unsupported =
+      [...EXEC_UNSUPPORTED_FLAGS].find((flag) => argv.includes(flag)) ||
+      (parsed.worktree ? WORKTREE_OPTION : undefined);
     if (unsupported) {
       return {
         kind: 'error',

@@ -102,13 +102,24 @@ function findRepositoryRoot(startDirectory, { maxDepth = 64 } = {}) {
     const marker = pathJoin(current, '.git');
     try {
       const stats = statSync(marker);
-      return { root: current, gitDirectory: stats.isDirectory() ? marker : null };
+      return { root: current, gitDirectory: stats.isDirectory() ? marker : _linkedGitDirectory(marker, current) };
     } catch {}
     const parent = pathDirname(current);
     if (parent === current) break;
     current = parent;
   }
   return null;
+}
+
+// A linked worktree's `.git` file names its own git directory (`gitdir: …`),
+// which holds that worktree's HEAD.
+function _linkedGitDirectory(markerFile, root) {
+  try {
+    const target = /^gitdir:\s*(.+)$/m.exec(readFileSync(markerFile, 'utf8'))?.[1]?.trim();
+    return target ? pathResolveAbsolute(root, target) : null;
+  } catch {
+    return null;
+  }
 }
 
 function _headBranch(gitDirectory) {

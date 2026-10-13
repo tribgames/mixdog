@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { _gitCommandInternals } from './git-command-tool.mjs';
+import { gitRepoLockKey } from './git-repo-rw-lock.mjs';
 import { createDiffSnapshot } from './git-partial-stage.mjs';
 
 const plan = { operation: 'diff', cwd: process.cwd(), args: [], globalArgs: [] };
@@ -106,4 +111,28 @@ test('grouped manifests preserve every ID, path and location including escaped f
   );
   assert.equal(text.split('\nfile: ').length - 1, paths.length);
   assert.ok(text.startsWith('body\ndiff_id: diff_lossless\n'));
+});
+
+test('the repository lock key is the common git dir shared by the main checkout and linked worktrees', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-lock-key-'));
+  try {
+    const repo = join(root, 'repo');
+    const linked = join(root, 'linked');
+    const git = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: 'pipe', windowsHide: true });
+    mkdirSync(repo);
+    git(repo, 'init', '-q', '-b', 'main');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(repo, 'worktree', 'add', '-q', '-b', 'side', linked);
+    const resolveFrom = (cwd) =>
+      _gitCommandInternals.resolveRepo({ operation: 'status', cwd, args: [], globalArgs: [] }, null);
+    const main = await resolveFrom(repo);
+    const side = await resolveFrom(linked);
+    assert.notEqual(main.root, side.root);
+    assert.equal(main.lockKey, side.lockKey);
+    assert.equal(main.lockKey, gitRepoLockKey(join(repo, '.git')));
+    // A cache hit answers with the same key.
+    assert.equal((await resolveFrom(linked)).lockKey, side.lockKey);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -84,7 +84,12 @@ export function createTurnSettlement({
     turn.releaseFirstTitle?.();
     turn.emitTiming(turn.timing.status);
     turn.armHeavyRuntimeWarmup('turn-settled');
-    await turn.snapshot.finish(turn.signal, turn.awaitTurn);
+    try {
+      await turn.snapshot.finish(turn.signal, turn.awaitTurn);
+    } finally {
+      // The turn no longer works in its checkout: transitions may proceed.
+      turn.releaseWorkspace?.();
+    }
     try {
       turn.unregister?.();
     } catch {}

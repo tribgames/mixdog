@@ -80,6 +80,7 @@
     "Ln {{line}}, Col {{column}}": "editor status line abbreviation",
     ", Col": "editor status column abbreviation fragment",
     "Auto": "effort-tier name kept in English by design",
+    "Worktree": "established Git CLI and feature term",
     "v{{value0}} / {{value1}}": "version counter, placeholders only"
   },
   "localeExceptions": {

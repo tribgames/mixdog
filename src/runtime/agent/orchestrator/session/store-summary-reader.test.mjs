@@ -514,6 +514,14 @@ test('Lead lifecycle uses only lead-workers.json and removes the idle lease on r
     assert.equal(stored.workers['lead-runtime'].status, 'idle');
     assert.ok(Date.parse(stored.workers['lead-runtime'].reapAt) > Date.now());
 
+    // A workspace transition moves the row's cwd and nothing else; no row, no write.
+    const idleRow = stored.workers['lead-runtime'];
+    assert.equal(index.updateLeadWorkerCwd('lead-runtime', '/repo/worktree'), true);
+    assert.equal(index.updateLeadWorkerCwd('unknown-lead', '/repo/worktree'), true);
+    stored = readPersistedIndex(root, 'lead-workers.json');
+    assert.deepEqual(stored.workers['lead-runtime'], { ...idleRow, cwd: '/repo/worktree' });
+    assert.equal(stored.workers['unknown-lead'], undefined);
+
     assert.equal(index.removeLeadWorkerRow('lead-runtime'), true);
     stored = readPersistedIndex(root, 'lead-workers.json');
     assert.deepEqual(stored.workers, {});

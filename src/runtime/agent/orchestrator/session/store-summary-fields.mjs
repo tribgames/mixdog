@@ -19,6 +19,35 @@ export function cleanValue(value) {
   return String(value || '').trim();
 }
 
+const textOrNull = (value) => cleanValue(typeof value === 'string' ? value : '') || null;
+const TRANSITION_STATES = new Set(['idle', 'provisioning', 'switching', 'removing', 'recovery']);
+
+/** Catalog view of a session workspace record (the SessionWorkspace shape of
+ *  runtime/shared/worktrees/contract.mjs): where it executes (`cwd`, `branch`,
+ *  `worktreeId`) under which registered Project (`projectPath`), at which
+ *  `revision`. Null when the record is absent or lacks either path, so
+ *  consumers group by `projectPath` and never mistake a worktree `cwd` for
+ *  the project. */
+export function workspaceSummary(value) {
+  if (!value || typeof value !== 'object') return null;
+  const projectPath = cleanValue(typeof value.projectPath === 'string' ? value.projectPath : '');
+  const cwd = cleanValue(typeof value.cwd === 'string' ? value.cwd : '');
+  if (!projectPath || !cwd || projectPath.includes('\0') || cwd.includes('\0')) return null;
+  const state = TRANSITION_STATES.has(value.transition?.state) ? value.transition.state : 'idle';
+  const txId = state === 'idle' ? null : textOrNull(value.transition?.txId);
+  return {
+    projectPath,
+    repoCommonDir: textOrNull(value.repoCommonDir),
+    cwd,
+    worktreeId: textOrNull(value.worktreeId),
+    branch: textOrNull(value.branch),
+    baseCommit: textOrNull(value.baseCommit),
+    mergeTarget: textOrNull(value.mergeTarget),
+    revision: Number.isSafeInteger(value.revision) && value.revision >= 0 ? value.revision : 0,
+    transition: txId ? { state, txId } : { state: 'idle', txId: null },
+  };
+}
+
 export function desktopSession(value, cwd = '') {
   if (!value || typeof value !== 'object') return null;
   if (value.classification === 'task') return { classification: 'task', projectPath: null };

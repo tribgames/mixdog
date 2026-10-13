@@ -132,6 +132,7 @@ export async function createLocalSessionRuntime({
   cwd,
   desktopSession,
   sessionProfile,
+  worktree,
   executeAgentControl,
 } = {}) {
   const startedAt = performance.now();
@@ -162,6 +163,8 @@ export async function createLocalSessionRuntime({
     ...(cwd ? { cwd } : {}),
     ...(desktopSession ? { desktopSession } : {}),
     ...(sessionProfile && typeof sessionProfile === 'object' ? { sessionProfile } : {}),
+    // Session creation worktree intent; consumed by the workspace transition scope.
+    ...(worktree && typeof worktree === 'object' ? { worktree } : {}),
     ...(typeof executeAgentControl === 'function' ? { executeAgentControl } : {}),
   });
   bootProfile('session:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });

@@ -6,7 +6,7 @@ import { tokenizeDirectArgv } from './shell-direct-exe.mjs';
 import { GIT_DIFF_EXIT_SIGNAL_FLAGS } from './bash-tool/benign-exit.mjs';
 import { withBuiltinPathLocks } from './path-locks.mjs';
 import { withAdvisoryLocks } from './advisory-lock.mjs';
-import { withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mjs';
+import { gitRepoLockKey, withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
 import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
@@ -460,22 +460,22 @@ function nearestGitDir(startDir) {
 
 function cachedRepoRoot(key, plan) {
   if (!key) return null;
-  const root = repoRootCache.get(key);
-  if (!root) return null;
+  const hit = repoRootCache.get(key);
+  if (!hit) return null;
   const nearest = nearestGitDir(plan.cwd);
-  if (!nearest || resolve(nearest) !== resolve(root)) {
+  if (!nearest || resolve(nearest) !== resolve(hit.root)) {
     repoRootCache.delete(key);
     return null;
   }
   repoRootCache.delete(key);
-  repoRootCache.set(key, root);
-  return root;
+  repoRootCache.set(key, hit);
+  return hit;
 }
 
-function rememberRepoRoot(key, root) {
-  if (!key || !root) return;
+function rememberRepoRoot(key, hit) {
+  if (!key || !hit?.root) return;
   repoRootCache.delete(key);
-  repoRootCache.set(key, root);
+  repoRootCache.set(key, hit);
   while (repoRootCache.size > REPO_ROOT_CACHE_MAX) {
     const oldest = repoRootCache.keys().next().value;
     if (oldest === undefined) break;
@@ -483,15 +483,22 @@ function rememberRepoRoot(key, root) {
   }
 }
 
+// `lockKey` is the repository's canonical common git dir: the main checkout
+// and its linked worktrees share one object store and ref namespace, so their
+// git calls serialize on one repository lock (managed worktree mutations take
+// the same key).
 async function resolveRepo(plan, signal) {
   const key = repoRootCacheKey(plan);
   const hit = cachedRepoRoot(key, plan);
-  if (hit) return { root: hit, probe: null };
-  const result = await runGit(plan, ['rev-parse', '--show-toplevel'], { signal });
+  if (hit) return { root: hit.root, lockKey: hit.lockKey, probe: null };
+  const result = await runGit(plan, ['rev-parse', '--show-toplevel', '--path-format=absolute', '--git-common-dir'], {
+    signal,
+  });
   if (succeeded(result)) {
-    const root = cleanText(result.stdout);
-    rememberRepoRoot(key, root);
-    return { root, probe: result };
+    const [root, commonDir] = cleanText(result.stdout).split('\n');
+    const resolved = { root, lockKey: gitRepoLockKey(commonDir || root) };
+    rememberRepoRoot(key, resolved);
+    return { ...resolved, probe: result };
   }
   // A bare repository (mirror clone, server-side repo) has no work tree, so
   // `--show-toplevel` refuses; that is still a repository. Answering
@@ -499,12 +506,13 @@ async function resolveRepo(plan, signal) {
   // to inspect objects it already had.
   if (/must be run in a work tree/i.test(String(result.stderr || ''))) {
     const bare = await runGit(plan, ['rev-parse', '--absolute-git-dir'], { signal });
-    if (!succeeded(bare)) return { root: null, probe: bare };
+    if (!succeeded(bare)) return { root: null, lockKey: null, probe: bare };
     const root = cleanText(bare.stdout);
-    rememberRepoRoot(key, root);
-    return { root, probe: bare };
+    const resolved = { root, lockKey: gitRepoLockKey(root) };
+    rememberRepoRoot(key, resolved);
+    return { ...resolved, probe: bare };
   }
-  return { root: null, probe: result };
+  return { root: null, lockKey: null, probe: result };
 }
 
 function localizeConfigPlan(plan) {
@@ -650,8 +658,9 @@ async function executeGitStage(input, workDir, options = {}) {
   const limit = outputLimit(input?.output_limit, 50);
   const signal = abortSignalOf(options);
   const repo = snapshot.repo;
+  const { lockKey } = await resolveRepo({ ...snapshot.plan, cwd: repo }, signal);
   return withGitRepoWriteLock(
-    repo,
+    lockKey || repo,
     () =>
       withGitMutationLocks(repo, async () => {
         const current = await runStageableDiff(snapshot.plan, snapshot.argv, repo, signal);
@@ -722,7 +731,7 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   // ("git rev-parse exited 128") for a `git status` in a plain directory hid
   // git's own "fatal: not a git repository" line behind a command the model
   // never issued — and re-ran the probe just to build that message.
-  const { root: repo, probe } = await resolveRepo(plan, signal);
+  const { root: repo, lockKey, probe } = await resolveRepo(plan, signal);
   if (!repo) {
     const missing = probe ?? (await runGit(plan, ['rev-parse', '--show-toplevel'], { signal }));
     return commandResult(plan, missing, limit);
@@ -732,7 +741,7 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   if (stageableRequest) prepared.argv.splice(1, 0, '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/');
   if (isReadOnly(plan)) {
     return withGitRepoReadLock(
-      repo,
+      lockKey,
       async () => {
         const result = stageableRequest
           ? await runStageableDiff(plan, prepared.argv, repo, signal)
@@ -754,7 +763,7 @@ async function executeSingleGitTool(input, workDir, options = {}) {
     );
   }
   return withGitRepoWriteLock(
-    repo,
+    lockKey,
     () =>
       withGitMutationLocks(repo, async () => {
         const result = await runGit(plan, prepared.argv, { signal });
@@ -896,4 +905,5 @@ export const _gitCommandInternals = {
   localizeConfigPlan,
   parseCommand,
   prepare,
+  resolveRepo,
 };

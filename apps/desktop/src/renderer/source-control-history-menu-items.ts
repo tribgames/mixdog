@@ -34,9 +34,10 @@ export function createHistoryMenuItems({
       missingChannel,
       capabilities: {
         amend: Boolean(api?.gitAmend),
-        checkout: Boolean(api?.gitCheckoutCommit),
+        // Detached checkout and branch creation: the guarded selectProjectBranch.
+        checkout: Boolean(api?.invokeCapability),
         cherryPick: Boolean(api?.gitCherryPickCommit),
-        createBranch: Boolean(api?.gitCreateBranchAtCommit),
+        createBranch: Boolean(api?.invokeCapability),
         createTag: Boolean(api?.gitCreateTag),
         deleteTag: Boolean(api?.gitDeleteTag),
         openExternal: Boolean(api?.openExternal),

@@ -1,5 +1,6 @@
 // Session capability names the renderer may invoke and their request/result shapes.
 import type { SessionSnapshot } from './contract-session';
+import { DESKTOP_WORKTREE_CAPABILITIES, DESKTOP_WORKTREE_READ_CAPABILITIES } from './contract-worktree';
 
 // Public session features that are safe to expose to the renderer. Keeping this
 // list explicit prevents the desktop bridge from becoming arbitrary method
@@ -171,6 +172,8 @@ export const DESKTOP_CAPABILITIES = [
   'deleteMediaAssets',
   'openMediaAsset',
   'openMediaFolder',
+  // Lead worktrees (contract-worktree.ts).
+  ...DESKTOP_WORKTREE_CAPABILITIES,
   'clear',
 ] as const;
 
@@ -232,6 +235,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'resolveMediaFile',
   'getMediaJob',
   'getMediaDefault',
+  ...DESKTOP_WORKTREE_READ_CAPABILITIES,
 ] as const satisfies ReadonlyArray<DesktopCapability>;
 
 export type DesktopReadCapability = (typeof DESKTOP_READ_CAPABILITIES)[number];

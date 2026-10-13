@@ -43,6 +43,7 @@ async function fixture(t, kind = 'prompt') {
       return { sessionId, accepted: state.accepted, revision: 1, full: full() };
     },
     async configure(params) {
+      if (state.onConfigure && params.action !== 'goalControl') return state.onConfigure(params);
       assert.equal(params.action, 'goalControl');
       state.goals.push(params.sessionId);
       state.accepted = state.allow;
@@ -220,6 +221,68 @@ for (const kind of ['prompt', 'goal']) {
     assert.deepEqual(f.state.unsubscribes, [f.sessionId]);
   });
 }
+
+test('a worktree draft enters its worktree before the prompt is submitted; a large repository resends the same submission', async (t) => {
+  const f = await fixture(t);
+  const requests = [];
+  f.state.onConfigure = async (params) => {
+    assert.equal(params.action, 'requestWorktree');
+    const [input] = params.args;
+    requests.push({ ...input, submitted: f.state.submits.length });
+    if (!input.confirmLarge) {
+      throw Object.assign(new Error('The repository is large; confirm before creating a worktree.'), {
+        code: 'WORKTREE_LARGE_REPO_CONFIRM',
+      });
+    }
+    return {
+      sessionId: f.sessionId,
+      revision: 1,
+      full: { sessionId: f.sessionId, items: [] },
+      value: { pending: false, workspace: { worktreeId: 'add-dark-mode' } },
+    };
+  };
+  await assert.rejects(f.host.submitNewTask('Accepted work', f.options, { worktree: {} }), (error) => {
+    assert.match(error.message, /^WORKTREE_LARGE_REPO_CONFIRM: /);
+    return true;
+  });
+  assert.deepEqual(f.state.submits, [], 'a refused worktree never sends the prompt');
+  const accepted = await f.host.submitNewTask('Accepted work', f.options, { worktree: { confirmLarge: true } });
+  assert.equal(accepted.accepted, true);
+  assert.deepEqual(
+    requests.map(({ provision, confirmLarge, prompt, txId, submitted }) => [provision, confirmLarge, prompt, txId, submitted]),
+    [
+      [true, false, 'Accepted work', f.options.id, 0],
+      [true, true, 'Accepted work', f.options.id, 0],
+    ]
+  );
+  assert.equal(f.state.submits.length, 1);
+});
+
+test('a worktree draft whose session cannot be created (no model) or is not bound never sends the prompt', async (t) => {
+  const f = await fixture(t);
+  let reply = 'no-model';
+  f.state.onConfigure = async (params) => {
+    assert.equal(params.action, 'requestWorktree');
+    if (reply === 'no-model') {
+      // Provisioning materializes the session, which resolves the model route first.
+      throw new Error('No provider models available. Open /providers to sign in, then /model to choose a model.');
+    }
+    // A runtime that only armed the lazy intent.
+    return { sessionId: f.sessionId, revision: 1, full: { sessionId: f.sessionId, items: [] }, value: { pending: true } };
+  };
+  await assert.rejects(
+    f.host.submitNewTask('Accepted work', f.options, { worktree: {} }),
+    /No provider models available/
+  );
+  assert.deepEqual(f.state.submits, [], 'model resolution failed before the prompt was submitted');
+  reply = 'lazy';
+  await assert.rejects(f.host.submitNewTask('Accepted work', f.options, { worktree: {} }), (error) => {
+    assert.match(error.message, /^WORKTREE_NOT_IMPLEMENTED: /);
+    return true;
+  });
+  assert.deepEqual(f.state.submits, [], 'an unbound session never receives the prompt');
+  assert.notEqual(f.receipt().phase, 'accepted');
+});
 
 for (const phase of ['reserved', 'configured']) {
   test(`${phase} receipt failures still prevent submission`, async (t) => {

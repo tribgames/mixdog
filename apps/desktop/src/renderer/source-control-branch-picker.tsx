@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useMobileBack } from './mobile-back';
 import { t } from './i18n';
 
-import type { DesktopGitBranch, DesktopGitStatus } from '../shared/contract';
+import type { DesktopBranchOccupancy, DesktopGitBranch, DesktopGitStatus } from '../shared/contract';
 import { commitImmediateOverlay } from './immediate-overlay';
 import { touchPrimaryPointer } from './surface-input-focus';
 import { actionTitle, type ScmContextMenuItem } from './ScmContextMenu';
@@ -42,6 +42,7 @@ export function SourceControlBranchPicker({
   defaultBranch,
   otherBranches,
   mergeMode,
+  occupancy,
   capabilities,
   rootRef,
   triggerRef,
@@ -60,6 +61,7 @@ export function SourceControlBranchPicker({
   onDelete,
   onMerge,
   onToggleMergeMode,
+  onOpenSession,
 }: {
   status: DesktopGitStatus;
   busy: string;
@@ -70,6 +72,8 @@ export function SourceControlBranchPicker({
   defaultBranch: DesktopGitBranch | null | undefined;
   otherBranches: DesktopGitBranch[];
   mergeMode: boolean;
+  /** Who holds each local branch outside this folder (worktree sessions). */
+  occupancy: ReadonlyMap<string, DesktopBranchOccupancy>;
   capabilities: BranchCapabilities;
   rootRef: RefObject<HTMLDivElement | null>;
   triggerRef: RefObject<HTMLButtonElement | null>;
@@ -88,21 +92,39 @@ export function SourceControlBranchPicker({
   onDelete(branch: DesktopGitBranch): void;
   onMerge(branch: DesktopGitBranch): void;
   onToggleMergeMode(): void;
+  /** Opens the Mixdog session that holds a branch. */
+  onOpenSession?(sessionId: string): void;
 }) {
   // ABB: the open branch panel owns hardware back.
   useMobileBack(open, onClose);
   const operationReason = operationInProgressReason(status);
+  // A branch another Mixdog session holds is not checked out here: the click
+  // goes to that session. An external worktree's branch cannot be checked out.
+  const checkoutOrOpen = (branch: DesktopGitBranch) => {
+    const held = branch.remote ? undefined : occupancy.get(branch.name);
+    if (held?.kind === 'session' && held.sessionId && onOpenSession) {
+      onClose();
+      onOpenSession(held.sessionId);
+      return;
+    }
+    onCheckout(branch);
+  };
   const branchMenuItems = (branch: DesktopGitBranch): ScmContextMenuItem[] => [
     {
       id: 'checkout',
       label: t('Checkout'),
-      disabled: Boolean(busy) || branch.current || Boolean(status.operation) || !capabilities.checkout,
+      disabled:
+        Boolean(busy) ||
+        branch.current ||
+        Boolean(status.operation) ||
+        !capabilities.checkout ||
+        (!branch.remote && occupancy.get(branch.name)?.kind === 'external'),
       title: actionTitle(
         branch.current ? t('This branch is already checked out') : operationReason,
         capabilities.checkout,
         () => missingChannel(t('Checkout'))
       ),
-      onSelect: () => guarded(() => onCheckout(branch)),
+      onSelect: () => guarded(() => checkoutOrOpen(branch)),
     },
     {
       id: 'rename',
@@ -211,10 +233,19 @@ export function SourceControlBranchPicker({
                   rows.length > 0 && (
                     <section key={label}>
                       <h3>{label}</h3>
-                      {rows.map((branch) => (
+                      {rows.map((branch) => {
+                        const held = branch.remote ? undefined : occupancy.get(branch.name);
+                        const holder = held?.kind === 'session' && held.sessionId ? held.sessionId : '';
+                        const external = held?.kind === 'external';
+                        let rowTitle = operationReason || branch.name;
+                        if (external) {
+                          rowTitle = t('Checked out in an external worktree: {{path}}', { path: held?.path ?? '' });
+                        } else if (holder) rowTitle = t('Open the session that uses this branch');
+                        return (
                         <div
                           className="dock-scm-branch-row"
                           data-current={branch.current || undefined}
+                          data-occupancy={holder ? 'session' : external ? 'external' : undefined}
                           key={`${branch.remote}:${branch.name}`}
                           {...rowContextMenu(t('Actions for branch {{value0}}', { value0: branch.name }), () =>
                             branchMenuItems(branch)
@@ -223,9 +254,14 @@ export function SourceControlBranchPicker({
                           <button
                             type="button"
                             className="dock-scm-branch-main"
-                            disabled={Boolean(busy) || branch.current || Boolean(status.operation)}
-                            title={operationReason || branch.name}
-                            onClick={() => (mergeMode ? onMerge(branch) : onCheckout(branch))}
+                            disabled={
+                              Boolean(busy) || branch.current || Boolean(status.operation) || (external && !mergeMode)
+                            }
+                            title={rowTitle}
+                            onClick={() => {
+                              if (mergeMode) onMerge(branch);
+                              else checkoutOrOpen(branch);
+                            }}
                           >
                             {branch.current ? (
                               <Check size={14} aria-hidden="true" />
@@ -233,8 +269,12 @@ export function SourceControlBranchPicker({
                               <GitBranch size={14} aria-hidden="true" />
                             )}
                             <span>{branch.name}</span>
-                            {(branch.lastCommitRelative || (!branch.remote && branch.upstream)) && (
-                              <small>{branch.lastCommitRelative || branch.upstream}</small>
+                            {holder || external ? (
+                              <small className="dock-scm-branch-mark">{holder ? t('In use') : t('External')}</small>
+                            ) : (
+                              (branch.lastCommitRelative || (!branch.remote && branch.upstream)) && (
+                                <small>{branch.lastCommitRelative || branch.upstream}</small>
+                              )
                             )}
                           </button>
                           {!branch.remote && (
@@ -262,7 +302,8 @@ export function SourceControlBranchPicker({
                             </>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </section>
                   )
               )}

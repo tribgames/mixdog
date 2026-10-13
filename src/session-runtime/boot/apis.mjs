@@ -58,6 +58,8 @@ import { loadInstructionFilesContext } from '../../runtime/agent/orchestrator/co
 import { createSessionTurnApi } from '../session-turn-api.mjs';
 import { createGoalFacadeApi } from '../goal-facade-api.mjs';
 import { createRuntimeReviewApi } from '../runtime-review-api.mjs';
+import { createWorkspaceTransitions, refreshWorkspacePrompt } from '../workspace/transitions.mjs';
+import { saveSession } from '../../runtime/agent/orchestrator/session/store.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
 import {
@@ -98,6 +100,7 @@ export function wireApis(boot) {
   };
   boot.modelRouteApi = modelRouteApiFor(boot);
   boot.workflowAgentsApi = workflowAgentsApiFor(boot);
+  boot.workspaceApi = workspaceApiFor(boot);
   boot.sessionTurnApi = sessionTurnApiFor(boot);
   const getFacadeSessionId = () => boot.rt.session?.id || boot.rt.reservedSessionId || null;
   boot.runtimeReviewApi = createRuntimeReviewApi({
@@ -364,6 +367,8 @@ function lifecycleApiFor(boot) {
     invalidateContextStatusCache: boot.invalidateContextStatusCache,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     applyResolvedCwd: boot.applyResolvedCwd,
+    // Created after the lifecycle API, so resolved at call time.
+    cleanupDeletedSessionWorktree: (sessionId) => boot.workspaceApi?.cleanupDeletedSession?.(sessionId),
     resolveRoute,
     applyDeferredToolSurface,
     beginRoutePreparation: (task) => routePreparation.start(task),
@@ -486,9 +491,39 @@ function workflowAgentsApiFor(boot) {
   });
 }
 
+// The Lead workspace transition authority (worktree / project branch / remove)
+// and the turn-start workspace gate. Facade-facing methods are spread by
+// buildFacade; prepareTurnWorkspace feeds the turn runner.
+function workspaceApiFor(boot) {
+  const { rt } = boot;
+  return createWorkspaceTransitions({
+    getSession: () => rt.session,
+    getReservedSessionId: () => rt.reservedSessionId,
+    getCurrentCwd: () => rt.currentCwd,
+    getDesktopSession: () => rt.desktopSession,
+    getConfig: () => rt.config,
+    createCurrentSession: (reason) => boot.createCurrentSession(reason),
+    applyResolvedCwd: (cwd) => boot.applyResolvedCwd(cwd),
+    persistSession: (session) => saveSession(session, { immediate: true }),
+    refreshWorkspaceContext: (session, cwd) =>
+      refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext: boot.loadCoreMemoryContext }),
+    invalidateCaches: () => {
+      boot.invalidateContextStatusCache();
+      boot.invalidatePreSessionToolSurface();
+    },
+    getActiveTurnCount: () => rt.activeTurnCount || 0,
+    agentStatusState: boot.agentStatusState,
+    updateLeadWorkerCwd: (sessionId, cwd) => boot.agentTool?.updateLeadWorkerCwd?.(sessionId, cwd),
+    sessionManager: boot.mgr,
+    initialIntent: boot.params.worktree,
+  });
+}
+
 function sessionTurnApiFor(boot) {
   const { rt, tunables, remoteTranscript, routePreparation } = boot;
   return createSessionTurnApi({
+    prepareTurnWorkspace: boot.workspaceApi.prepareTurnWorkspace,
+    admitTurnWorkspace: boot.workspaceApi.admitTurnWorkspace,
     getSession: () => rt.session,
     setSession: boot.adoptSession,
     getCurrentCwd: () => rt.currentCwd,

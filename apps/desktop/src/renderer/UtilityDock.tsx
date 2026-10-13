@@ -286,6 +286,7 @@ export const UtilityDock = memo(function UtilityDock({
                 onReadyChange={setSourceControlReady}
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}
+                onOpenSession={onOpenLeadSession}
               />
             </DockPane>
           </UtilityDockViewSection>

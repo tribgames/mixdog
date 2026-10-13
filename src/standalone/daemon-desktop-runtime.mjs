@@ -16,6 +16,7 @@ export function createDesktopRuntime({ getLocalSessionBridge }) {
       return bridge.attach(options);
     },
     loadProjects: () => import('../runtime/shared/projects.mjs'),
+    loadWorktrees: () => import('../runtime/shared/worktrees/manager.mjs'),
     loadSessionStore: () => import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
     loadSessionSearch: () => import('../runtime/session-search/session-search-db.mjs'),
     loadStatuslineSegments: () => import('../runtime/shared/statusline/statusline-segments.mjs'),
