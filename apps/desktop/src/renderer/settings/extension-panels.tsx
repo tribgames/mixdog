@@ -423,12 +423,28 @@ function pluginSkillRows(data: PanelContext['data'], pluginId: string): RecordVa
   );
 }
 
+// A plugin's MCP servers are the status rows whose owner metadata names it.
 function pluginMcpServers(data: PanelContext['data'], plugin: RecordValue): RecordValue[] {
-  const base = String(plugin.mcpServerName || '');
-  if (!base) return [];
-  return rows(record(data.mcp), 'servers').filter(
-    (server) => String(server.name) === base || String(server.name).startsWith(`${base}--`)
+  const id = String(plugin.id || plugin.name || '');
+  if (!id) return [];
+  return rows(record(data.mcp), 'servers').filter((server) => {
+    const owner = record(server.owner);
+    return owner.kind === 'plugin' && String(owner.id || '') === id;
+  });
+}
+
+function pluginMcpProblems(plugin: RecordValue, servers: RecordValue[]): string[] {
+  const declared = (Array.isArray(plugin.mcpErrors) ? plugin.mcpErrors : []).map((error) => {
+    const row = record(error);
+    const key = String(row.key || '');
+    return key ? `${key}: ${String(row.message || '')}` : String(row.message || '');
+  });
+  const warned = servers.flatMap((server) =>
+    [...(Array.isArray(server.warnings) ? server.warnings : []), ...(server.error ? [server.error] : [])].map(
+      (warning) => `${String(server.name)}: ${String(warning)}`
+    )
   );
+  return [...declared, ...warned].filter(Boolean);
 }
 
 function confirmPluginRemoval(
@@ -472,15 +488,13 @@ function PluginDetailDialog({
   }, [id]);
   const skills = pluginSkillRows(data, id);
   const servers = pluginMcpServers(data, open);
+  const mcpProblems = pluginMcpProblems(open, servers);
+  const pluginOn = open.enabled !== false;
   const disabledSkills = disabledSkillNames(data);
   const contents = skills.length + servers.length;
-  // Adding or reconfiguring an MCP server writes its config, which is host-only
-  // on an older host.
-  useRemoteHostOpenAccess();
-  const remote = capabilityBlockedRemotely('saveMcpServer');
-  // Footer keeps the plugin's real actions only — Remove (parked left),
-  // Update, and Reconfigure MCP when the plugin ships one. The root path and
-  // MCP name sit in Info as selectable text.
+  // Footer keeps the plugin's real actions only — Remove (parked left) and
+  // Update. Its MCP servers appear on their own from its declarations; the
+  // root path and MCP names sit in Info as selectable text.
   return (
     <ExtensionDetailDialog
       className="extensions-plugin-detail-dialog"
@@ -503,12 +517,6 @@ function PluginDetailDialog({
           >
             {t('Remove')}
           </button>
-          {remote && Boolean(open.mcpScript) && <small className="extensions-note">{manageOnHostNote()}</small>}
-          {Boolean(open.mcpScript && open.mcpEnabled) && (
-            <button type="button" disabled={busy || remote} onClick={() => void run('enablePluginMcp', [open])}>
-              {t('Reconfigure MCP')}
-            </button>
-          )}
           <button type="button" disabled={busy} onClick={() => void run('updatePlugin', [open])}>
             {open.sourceType === 'local' ? t('Update metadata') : t('Update plugin')}
           </button>
@@ -535,7 +543,15 @@ function PluginDetailDialog({
           })}
         </ExtensionNote>
       )}
+      {mcpProblems.map((problem) => (
+        <ExtensionNote key={problem} tone="danger">
+          {t('MCP problem: {{message}}', { message: problem })}
+        </ExtensionNote>
+      ))}
       <ExtensionSection title={t('Contents')} count={contents}>
+        {!pluginOn && servers.length > 0 && (
+          <ExtensionNote>{t('Turn the plugin on to connect its MCP servers.')}</ExtensionNote>
+        )}
         {contents > 0 && (
           <ExtensionItemList>
             {skills.map((skill) => {
@@ -566,7 +582,9 @@ function PluginDetailDialog({
             })}
             {servers.map((server) => {
               const name = String(server.name);
-              const enabled = server.enabled !== false;
+              // The switch is the server's own intent; the plugin toggle above
+              // still gates whether it runs.
+              const serverOn = server.serverEnabled !== false;
               const status = mcpStatus(server);
               return (
                 <ExtensionItemRow
@@ -579,7 +597,7 @@ function PluginDetailDialog({
                   control={
                     <CompactSwitch
                       label={`${name} · ${t('Enabled')}`}
-                      checked={enabled}
+                      checked={serverOn}
                       disabled={busy}
                       onChange={(next) => void run('setMcpServerEnabled', [name, next])}
                     />
@@ -589,28 +607,7 @@ function PluginDetailDialog({
             })}
           </ExtensionItemList>
         )}
-        {Boolean(open.mcpScript && !open.mcpEnabled) && (
-          <ExtensionItemList>
-            <ExtensionItemRow
-              icon={<Plug size={16} aria-hidden="true" />}
-              title={String(open.mcpServerName || t('MCP server'))}
-              description={t('This plugin ships an MCP server. Enable MCP to connect it.')}
-              tone="muted"
-              control={
-                remote ? (
-                  <ExtensionNote>{manageOnHostNote()}</ExtensionNote>
-                ) : (
-                  <ExtensionAction disabled={busy} onClick={() => void run('enablePluginMcp', [open])}>
-                    {t('Enable MCP')}
-                  </ExtensionAction>
-                )
-              }
-            />
-          </ExtensionItemList>
-        )}
-        {!contents && !(open.mcpScript && !open.mcpEnabled) && (
-          <ExtensionNote>{t('Nothing installed by this plugin yet.')}</ExtensionNote>
-        )}
+        {!contents && <ExtensionNote>{t('Nothing installed by this plugin yet.')}</ExtensionNote>}
       </ExtensionSection>
       <PluginInfo plugin={open} />
     </ExtensionDetailDialog>

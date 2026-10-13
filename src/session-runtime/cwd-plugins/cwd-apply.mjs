@@ -20,6 +20,7 @@ export function createCwdApply({
   writeLastSessionCwd,
   updateCurrentCwdOverride,
   persistSession,
+  onCwdChanged,
   clean,
   resolve,
   statSync,
@@ -53,10 +54,11 @@ export function createCwdApply({
     }
   }
 
-  // cwd changes NEVER recreate the session and never reload MCP or Skills
-  // (extension settings are global): a mid-conversation cwd switch must
-  // preserve the full message history. The live execution cwd is retargeted in
-  // place; the BP3 session snapshot remains the session-start environment.
+  // cwd changes NEVER recreate the session and never reload Skills (extension
+  // settings are global): a mid-conversation cwd switch must preserve the full
+  // message history. The live execution cwd is retargeted in place; the BP3
+  // session snapshot remains the session-start environment. `onCwdChanged`
+  // lets MCP reconnect only the plugin servers that run in the session cwd.
   function applyResolvedCwd(nextCwd, { persistProjectSelection: persist = false } = {}) {
     const resolved = resolve(nextCwd);
     const stat = statSync(resolved);
@@ -85,6 +87,7 @@ export function createCwdApply({
       try {
         void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd }));
       } catch {}
+      onCwdChanged?.(currentCwd);
     }
     return currentCwd;
   }

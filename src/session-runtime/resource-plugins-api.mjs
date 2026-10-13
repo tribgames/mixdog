@@ -1,4 +1,6 @@
-// Plugin registry edits and the MCP entries a plugin owns.
+// Plugin registry edits. A plugin's MCP servers are derived from the registry
+// (mcp-glue/plugin-servers.mjs), so each edit reconciles this runtime's MCP
+// connections and then lets peer runtimes reconcile theirs.
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import {
   addPlugin as registryAddPlugin,
@@ -6,7 +8,7 @@ import {
   setPluginEnabled as registrySetPluginEnabled,
   updatePlugin as registryUpdatePlugin,
 } from './services/plugin-admin.mjs';
-import { pluginMcpServerName, pluginServerMatcher } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
+import { withAdoptedCopies, withoutPluginIntents, withPinnedCollisionNames } from './mcp-glue/plugin-servers.mjs';
 
 const pluginKey = (plugin) => clean(plugin.id || plugin.name || plugin);
 
@@ -24,22 +26,22 @@ export function createPluginsResourceApi({ deps, sync, decorate }) {
     getConfig,
     cfgMod,
     saveConfigAndAdopt,
-    connectConfiguredMcp,
-    invalidatePreSessionToolSurface,
     pluginsStatus,
+    resolveMcpCatalog = () => ({ adoption: null }),
+    flushSkillsSave,
   } = deps;
   const pluginData = () => cfgMod.getPluginData?.();
 
-  /** Rewrite the plugin's MCP entries through `rewrite`; when any existed,
-   *  persist and reconnect so the connection registry matches the config. */
-  async function rewritePluginServers(plugin, rewrite) {
-    const nextConfig = { ...getConfig() };
-    const owned = pluginServerMatcher(pluginMcpServerName(plugin));
-    const current = nextConfig.mcpServers || {};
-    if (!Object.keys(current).some(owned)) return;
-    saveConfigAndAdopt({ ...nextConfig, mcpServers: rewrite(current, owned) });
-    await connectConfiguredMcp({ reset: true });
-    invalidatePreSessionToolSurface();
+  /** Persist any adoptable copies of plugin servers while the registry still
+   *  knows their plugin (a removal must not leave them stranded), and keep any
+   *  collision name a plugin server was just given. */
+  async function adoptPluginServerCopies(transform = (config) => config) {
+    const current = getConfig();
+    const catalog = resolveMcpCatalog();
+    const next = transform(withPinnedCollisionNames(withAdoptedCopies(current, catalog.adoption), catalog));
+    if (next === current) return;
+    saveConfigAndAdopt(next);
+    await flushSkillsSave?.();
   }
 
   return {
@@ -47,49 +49,35 @@ export function createPluginsResourceApi({ deps, sync, decorate }) {
       return decorate.plugins(pluginsStatus());
     },
     async reloadPlugins() {
-      await sync.announce('plugins');
+      await sync.reconcilePluginsAndAnnounce();
       return pluginsStatus();
     },
     async addPlugin(source) {
       const plugin = registryAddPlugin(source, { dataDir: pluginData() });
-      await sync.announce('plugins');
+      await adoptPluginServerCopies();
+      await sync.reconcilePluginsAndAnnounce();
       return { plugin, status: pluginsStatus() };
     },
     async updatePlugin(plugin = {}) {
       const updated = registryUpdatePlugin(pluginKey(plugin), { dataDir: pluginData() });
-      await sync.announce('plugins');
+      await adoptPluginServerCopies();
+      await sync.reconcilePluginsAndAnnounce();
       return { plugin: updated, status: pluginsStatus() };
     },
     async setPluginEnabled(plugin = {}, enabled = true) {
-      const owner = findRegisteredPlugin(pluginsStatus, plugin) || plugin;
+      await adoptPluginServerCopies();
       const updated = registrySetPluginEnabled(pluginKey(plugin), enabled, { dataDir: pluginData() });
-      await rewritePluginServers(owner, (servers, owned) => {
-        const next = {};
-        for (const [name, value] of Object.entries(servers)) {
-          const config = value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : value;
-          if (owned(name) && config && typeof config === 'object' && !Array.isArray(config)) {
-            if (enabled === false) config._mixdogPluginDisabled = true;
-            else delete config._mixdogPluginDisabled;
-          }
-          next[name] = config;
-        }
-        return next;
-      });
-      await sync.announce('plugins');
+      await sync.reconcilePluginsAndAnnounce();
       return { plugin: updated, status: pluginsStatus() };
     },
     async removePlugin(plugin = {}) {
-      // Resolve before the registry forgets the plugin and its manifest name.
-      const owner = findRegisteredPlugin(pluginsStatus, plugin) || plugin;
+      const owner = findRegisteredPlugin(pluginsStatus, plugin);
+      const ownerId = clean(owner?.id);
+      // Adopt first (the registry still knows the plugin), then drop the
+      // plugin's per-server intent together with the plugin.
+      await adoptPluginServerCopies((config) => (ownerId ? withoutPluginIntents(config, ownerId) : config));
       const removed = registryRemovePlugin(pluginKey(plugin), { dataDir: pluginData() });
-      await rewritePluginServers(owner, (servers, owned) => {
-        const next = { ...servers };
-        for (const name of Object.keys(next)) {
-          if (owned(name)) delete next[name];
-        }
-        return next;
-      });
-      await sync.announce('plugins');
+      await sync.reconcilePluginsAndAnnounce();
       return { plugin: removed, status: pluginsStatus() };
     },
   };

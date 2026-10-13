@@ -1,51 +1,25 @@
-// MCP server configuration: add/save/remove/toggle plus the plugin-declared
-// servers a plugin's manifest or script contributes.
-import { join } from 'node:path';
-import { existsSync } from 'node:fs';
+// MCP server configuration: add/save/remove/toggle of the user's servers, and
+// the per-server intent (enabled flag) of servers registered plugins declare.
+// Plugin servers are derived live (mcp-glue/plugin-servers.mjs) and are never
+// written into `mcpServers`; ordinary edits refuse them.
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import {
-  normalizePluginMcpServerConfig,
-  pluginMcpServerName,
-  pluginRawMcpServers,
-  pluginMcpEnableScript,
-  pluginServerMatcher,
-  resolveContainedPluginPath,
   mergeMcpServerConfig,
   MCP_TIMEOUT_FIELD_GROUPS,
 } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
+import { withAdoptedCopies, withPinnedCollisionNames, withPluginServerIntent } from './mcp-glue/plugin-servers.mjs';
+import { findRegisteredPlugin } from './resource-plugins-api.mjs';
 
 /** The `mcpServers` map of a config as a fresh object (never the live one). */
 function mcpServersOf(config) {
   return config.mcpServers && typeof config.mcpServers === 'object' ? { ...config.mcpServers } : {};
 }
 
-function pluginMcpEnv(pluginDataDir, plugin, serverName) {
-  return {
-    MIXDOG_PLUGIN_ROOT: clean(plugin.root),
-    MIXDOG_PLUGIN_DATA: join(pluginDataDir, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
-  };
-}
-
-// Manifest-declared servers replace every entry the plugin owned before; a
-// single server keeps the bare name.
-function manifestPluginMcpServers(existing, { rawServers, mcpRoot }, { plugin, serverName, env }) {
-  const keys = Object.keys(rawServers).filter((k) => {
-    const v = rawServers[k];
-    return v !== null && typeof v === 'object' && !Array.isArray(v);
-  });
-  const owned = pluginServerMatcher(serverName);
-  const nextServers = {};
-  for (const [k, v] of Object.entries(existing || {})) {
-    if (owned(k)) continue;
-    nextServers[k] = v;
-  }
-  for (const serverKey of keys) {
-    const cfg = normalizePluginMcpServerConfig(rawServers[serverKey], mcpRoot);
-    cfg.env = { ...(cfg.env || {}), ...env };
-    if (plugin.enabled === false) cfg._mixdogPluginDisabled = true;
-    nextServers[keys.length === 1 ? serverName : `${serverName}--${serverKey}`] = cfg;
-  }
-  return nextServers;
+function pluginOwnedError(name, owner) {
+  return new Error(
+    `MCP server "${name}" is provided by plugin "${owner.id}" (server "${owner.key}"); ` +
+      'enable or disable it with set_mcp_enabled, or manage the plugin instead'
+  );
 }
 
 const transportType = (type) => (type === 'streamable-http' ? 'http' : type);
@@ -80,24 +54,53 @@ function mergedServerInput(input, existing, originalName) {
 export function createMcpResourceApi({ deps, sync, decorate }) {
   const {
     getConfig,
-    cfgMod,
-    STANDALONE_DATA_DIR,
     saveConfigAndAdopt,
     normalizeMcpServerInput,
     mcpStatus,
     getMcpServerConfig,
+    connectConfiguredMcp,
     reloadFullConfig,
     awaitKeychainPrewarm,
+    pluginsStatus,
+    resolveMcpCatalog = () => ({ adoption: null, plugins: {}, entries: {} }),
+    pluginMcpServer = () => null,
+    flushSkillsSave,
   } = deps;
 
-  /** Persist a new `mcpServers` map; project overrides never survive a global edit. */
+  /** The config with any adoptable plugin server copies already adopted, so
+   *  every write also persists the adoption and never re-adds a copy. */
+  const adoptedConfig = () => withAdoptedCopies(getConfig(), resolveMcpCatalog().adoption);
+
+  /** Persist a new `mcpServers` map; project overrides never survive a global
+   *  edit. A plugin server pushed off its name by the edit keeps the collision
+   *  name it gets, so it does not flip again later. */
   const saveServers = (servers) => {
-    const nextConfig = { ...getConfig() };
+    const nextConfig = { ...adoptedConfig() };
     delete nextConfig.mcpProjectOverrides;
     saveConfigAndAdopt({ ...nextConfig, mcpServers: servers });
+    const saved = getConfig();
+    const pinned = withPinnedCollisionNames(saved, resolveMcpCatalog());
+    if (pinned !== saved) saveConfigAndAdopt(pinned);
+  };
+  const userServers = () => mcpServersOf(adoptedConfig());
+  const refusePluginServer = (name) => {
+    const owned = name ? pluginMcpServer(name) : null;
+    if (owned) throw pluginOwnedError(name, owned.owner);
+  };
+  // Peers reload config from disk on receipt: land the write before publishing.
+  const persisted = async () => {
+    await flushSkillsSave?.();
   };
 
   return {
+    /** One-time, idempotent: move server copies an earlier plugin enable wrote
+     *  into `mcpServers` to per-server plugin intent. Returns adopted names. */
+    migratePluginMcpCopies() {
+      const { adoption } = resolveMcpCatalog();
+      if (!adoption) return [];
+      saveConfigAndAdopt(withAdoptedCopies(getConfig(), adoption));
+      return adoption.removed;
+    },
     mcpStatus() {
       return decorate.mcp(mcpStatus());
     },
@@ -114,26 +117,31 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     },
     async addMcpServer(input = {}) {
       const { name, config: serverConfig } = normalizeMcpServerInput(input);
-      const servers = mcpServersOf(getConfig());
+      const servers = userServers();
       if (Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
+      const owned = pluginMcpServer(name);
+      if (owned) throw new Error(`MCP server already exists: ${name} (provided by plugin "${owned.owner.id}")`);
       saveServers({ ...servers, [name]: serverConfig });
       const status = await sync.reconnectMcpAndAnnounce({ only: name, enabled: serverConfig.enabled !== false });
       return { name, status };
     },
     async saveMcpServer(input = {}) {
-      const servers = mcpServersOf(getConfig());
+      const servers = userServers();
       // An explicit originalName must exist; a bare name edits a matching
-      // server and otherwise creates a new one.
+      // server and otherwise creates a new one. Plugin servers are never
+      // edited, renamed or shadowed here.
       const explicitOriginal = clean(input.originalName);
       if (explicitOriginal && !Object.hasOwn(servers, explicitOriginal)) {
+        refusePluginServer(explicitOriginal);
         throw new Error(`MCP server not configured: ${explicitOriginal}`);
       }
       const bareName = clean(input.name);
+      if (!explicitOriginal && !Object.hasOwn(servers, bareName)) refusePluginServer(bareName);
       const originalName = explicitOriginal || (Object.hasOwn(servers, bareName) ? bareName : '');
       const existing = originalName ? servers[originalName] : {};
       const normalizedInput = normalizeMcpServerInput(mergedServerInput(input, existing, originalName));
       const name = originalName && clean(input.name) === originalName ? originalName : normalizedInput.name;
-      if (name !== originalName && Object.hasOwn(servers, name)) {
+      if (name !== originalName && (Object.hasOwn(servers, name) || pluginMcpServer(name))) {
         throw new Error(`MCP server already exists: ${name}`);
       }
       if (originalName && originalName !== name) delete servers[originalName];
@@ -149,8 +157,9 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     async removeMcpServer(name) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
-      const servers = mcpServersOf(getConfig());
+      const servers = userServers();
       if (!Object.hasOwn(servers, serverName)) {
+        refusePluginServer(serverName);
         throw new Error(`MCP server not configured: ${serverName}`);
       }
       delete servers[serverName];
@@ -161,9 +170,26 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
       const want = enabled !== false;
+      const owned = pluginMcpServer(serverName);
+      if (owned) {
+        // Server intent only: the effective state still requires the plugin.
+        // Only a choice that differs from the declared default is stored.
+        const { owner, pluginEnabled, declaredEnabled } = owned;
+        saveConfigAndAdopt(
+          withPluginServerIntent(adoptedConfig(), owner.id, owner.key, (intent) => ({
+            ...intent,
+            enabled: want === (declaredEnabled !== false) ? undefined : want,
+          }))
+        );
+        await persisted();
+        const effective = want && pluginEnabled;
+        const status = await sync.scheduleMcpToggle(serverName, effective);
+        await sync.publish('mcp', { mcpChanges: [{ name: serverName, enabled: effective }] });
+        return status;
+      }
       const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
       if (!shadowRow) throw new Error(`MCP server not configured: ${serverName}`);
-      const servers = mcpServersOf(getConfig());
+      const servers = userServers();
       const current = servers[serverName];
       if (!current || typeof current !== 'object' || Array.isArray(current)) {
         throw new Error(`MCP server not configured: ${serverName}`);
@@ -174,38 +200,36 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       await sync.publish('mcp', { mcpChanges: [{ name: serverName, enabled: want }] });
       return status;
     },
+    /** Kept for older callers: plugin servers appear on their own once the
+     *  plugin is registered and enabled. This clears any per-server "off"
+     *  intent of the plugin's servers and reconnects them (here and on peers);
+     *  a disabled plugin stays disabled. */
     async enablePluginMcp(plugin = {}) {
-      const root = clean(plugin.root);
-      const script = pluginMcpEnableScript(root, plugin);
-      if (!root || !script) throw new Error('plugin has no MCP script');
-      const serverName = pluginMcpServerName(plugin);
-      const nextConfig = { ...getConfig() };
-      const manifestMcp = pluginRawMcpServers(root, script);
-      const env = pluginMcpEnv(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, plugin, serverName);
-      if (manifestMcp) {
-        nextConfig.mcpServers = manifestPluginMcpServers(nextConfig.mcpServers, manifestMcp, {
-          plugin,
-          serverName,
-          env,
-        });
-      } else {
-        const scriptPath = resolveContainedPluginPath(root, script);
-        if (!scriptPath || !existsSync(scriptPath))
-          throw new Error(`plugin MCP script not found: ${join(root, script)}`);
-        nextConfig.mcpServers = {
-          ...(nextConfig.mcpServers || {}),
-          [serverName]: {
-            command: 'node',
-            args: [scriptPath],
-            cwd: root,
-            env,
-            ...(plugin.enabled === false ? { _mixdogPluginDisabled: true } : {}),
-          },
-        };
+      const registered = findRegisteredPlugin(pluginsStatus, plugin) || plugin;
+      const id = clean(registered.id || registered.name);
+      const catalog = resolveMcpCatalog();
+      const row = catalog.plugins[id];
+      if (!row) throw new Error(`plugin not registered: ${clean(plugin.id || plugin.name || plugin) || id}`);
+      if (!row.servers.length) {
+        const detail = row.errors.map((error) => error.message).join('; ');
+        throw new Error(`plugin declares no MCP servers${detail ? `: ${detail}` : ''}`);
       }
-      saveConfigAndAdopt(nextConfig);
-      const status = await sync.reconnectMcpAndAnnounce();
-      return { serverName, status };
+      let next = withAdoptedCopies(getConfig(), catalog.adoption);
+      for (const name of row.servers) {
+        const { owner, declaredEnabled } = catalog.entries[name];
+        next = withPluginServerIntent(next, id, owner.key, (intent) => ({
+          ...intent,
+          enabled: declaredEnabled === false ? true : undefined,
+        }));
+      }
+      saveConfigAndAdopt(next);
+      await persisted();
+      const mcpChanges = row.servers.map((name) => ({ name, enabled: row.enabled }));
+      let status;
+      for (const change of mcpChanges)
+        status = await connectConfiguredMcp({ only: change.name, enabled: change.enabled });
+      await sync.announce('mcp', { detail: { mcpChanges } });
+      return { serverName: row.servers[0], serverNames: row.servers, status };
     },
   };
 }

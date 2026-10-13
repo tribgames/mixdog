@@ -12,10 +12,14 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { clean } from './session-text.mjs';
-import { readJsonSafe } from './fs-utils.mjs';
-import { pluginManifest, pluginSkillsRoots, resolveContainedPluginPath } from '../../../shared/plugin-manifest.mjs';
+import {
+  PLUGIN_MANIFEST_FILES,
+  pluginManifest,
+  pluginSkillsRoots,
+  resolveContainedPluginPath,
+} from '../../../shared/plugin-manifest.mjs';
 import { isPlainObject } from '../../../shared/object.mjs';
 
 const MCP_TRANSPORT_FIELDS = new Set([
@@ -138,17 +142,15 @@ export function saveProjectMcpServer(cwd, { originalName = '', name, config }) {
 // discovery and this status surface read the same roots.
 export { pluginManifest, resolveContainedPluginPath };
 
-function mcpServersMapFromJson(raw) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  if (isPlainObject(raw.mcpServers)) return raw.mcpServers;
-  return raw;
-}
-
 function isSkillMdFile(name) {
   return /^(SKILL|skill)\.md$/i.test(name);
 }
 
-const PLUGIN_INLINE_MCP_SCRIPT = 'plugin.json';
+const PLUGIN_MANIFEST_FORMATS = {
+  '.codex-plugin/plugin.json': 'codex',
+  'plugin.json': 'mixdog',
+  '.claude-plugin/plugin.json': 'claude',
+};
 
 export function countSkillFiles(root) {
   let count = 0;
@@ -177,102 +179,281 @@ export function countSkillFiles(root) {
   return count;
 }
 
+const MCP_STDIO_TYPES = new Set(['stdio']);
+const MCP_URL_TYPES = new Set(['http', 'streamable-http', 'sse', 'ws']);
+
+function manifestFormat(root) {
+  for (const rel of PLUGIN_MANIFEST_FILES) {
+    const path = join(root, ...rel.split('/'));
+    if (existsSync(path)) return { path, format: PLUGIN_MANIFEST_FORMATS[rel] };
+  }
+  return null;
+}
+
+/** Transport a declared server asks for, inferred the way the MCP client does
+ *  when `type` is absent: `transport: "http"` or a `url` -> http, else stdio.
+ *  Null for an unrecognized explicit type. */
+export function declaredMcpTransport(config) {
+  if (config?.type !== undefined && config?.type !== null && config?.type !== '') {
+    if (typeof config.type !== 'string') return null;
+    const type = config.type.toLowerCase();
+    if (type === 'streamablehttp') return 'streamable-http';
+    return MCP_STDIO_TYPES.has(type) || MCP_URL_TYPES.has(type) ? type : null;
+  }
+  if (config?.transport === 'http') return 'http';
+  if (config?.command !== undefined) return 'stdio';
+  if (config?.url !== undefined) return 'http';
+  return 'stdio';
+}
+
+// One server entry -> a message when it cannot be launched, else null. Messages
+// name fields and expected types only, never a configured value.
+function mcpServerProblem(config) {
+  if (!isPlainObject(config)) return 'server entry must be an object';
+  const type = declaredMcpTransport(config);
+  if (!type) return '"type" must be one of stdio, http, streamable-http, sse, ws';
+  if (MCP_STDIO_TYPES.has(type)) {
+    return typeof config.command === 'string' && config.command.trim() ? null : 'stdio server requires "command"';
+  }
+  return typeof config.url === 'string' && config.url.trim() ? null : `${type} server requires "url"`;
+}
+
+// A JSON parse failure as a location only: engines may quote the offending
+// source text, which can hold credentials.
+function jsonErrorMessage(error) {
+  const text = String(error?.message || '');
+  const lineColumn = /line (\d+) column (\d+)/.exec(text);
+  if (lineColumn) return `invalid JSON at line ${lineColumn[1]} column ${lineColumn[2]}`;
+  const position = /position (\d+)/.exec(text);
+  if (position) return `invalid JSON at position ${position[1]}`;
+  return /end of (JSON|data) input/i.test(text) ? 'invalid JSON: unexpected end of input' : 'invalid JSON';
+}
+
+function readJsonFile(path, errors) {
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    errors.push({ source: path, message: `cannot read file${error?.code ? ` (${error.code})` : ''}` });
+    return { ok: false };
+  }
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (error) {
+    errors.push({ source: path, message: jsonErrorMessage(error) });
+    return { ok: false };
+  }
+}
+
+// A `{ mcpServers: {...} }` wrapper or a bare server map -> the server map.
+function mcpServerMap(doc, source, errors, where = '') {
+  if (!isPlainObject(doc)) {
+    errors.push({ source, message: `${where}MCP declaration must be an object` });
+    return null;
+  }
+  if (!Object.hasOwn(doc, 'mcpServers')) return doc;
+  if (!isPlainObject(doc.mcpServers)) {
+    errors.push({ source, message: `${where}"mcpServers" must be an object` });
+    return null;
+  }
+  return doc.mcpServers;
+}
+
+function collectMcpServers(map, source, into, errors) {
+  for (const [key, config] of Object.entries(map)) {
+    const problem = mcpServerProblem(config);
+    if (problem) errors.push({ source, key, message: problem });
+    else into.set(key, { key, config, source });
+  }
+}
+
+function loadMcpJsonFile(path, into, errors) {
+  const read = readJsonFile(path, errors);
+  if (!read.ok) return;
+  const map = mcpServerMap(read.value, path, errors);
+  if (map) collectMcpServers(map, path, into, errors);
+}
+
+// `where` locates the manifest field (e.g. `mcpServers[1]: `); the declared
+// path itself is never echoed.
+function loadDeclaredPath(root, rel, manifestPath, into, errors, touched, where) {
+  if (typeof rel !== 'string' || !rel.trim()) {
+    errors.push({ source: manifestPath, message: `${where}MCP path must be a non-empty string` });
+    return;
+  }
+  const abs = resolveContainedPluginPath(root, rel);
+  if (!abs || rel.split(/[\\/]/).includes('..')) {
+    errors.push({ source: manifestPath, message: `${where}MCP path must be relative and stay inside the plugin root` });
+    return;
+  }
+  touched.add(abs);
+  if (!existsSync(abs)) {
+    errors.push({ source: manifestPath, message: `${where}MCP file not found` });
+    return;
+  }
+  loadMcpJsonFile(abs, into, errors);
+}
+
+function readPluginMcpDeclarations(root, touched) {
+  const errors = [];
+  const into = new Map();
+  for (const rel of PLUGIN_MANIFEST_FILES) touched.add(join(root, ...rel.split('/')));
+  const found = manifestFormat(root);
+  const mcpJson = join(root, '.mcp.json');
+  touched.add(mcpJson);
+  const hasMcpJson = existsSync(mcpJson);
+  const format = found ? found.format : hasMcpJson ? 'claude' : 'none';
+
+  if (hasMcpJson) loadMcpJsonFile(mcpJson, into, errors);
+
+  let declaredRef;
+  if (found) {
+    const read = readJsonFile(found.path, errors);
+    const declared = read.ok && isPlainObject(read.value) ? read.value.mcpServers : undefined;
+    declaredRef = declared;
+    if (declared === undefined) {
+      /* nothing declared */
+    } else if (typeof declared === 'string') {
+      loadDeclaredPath(root, declared, found.path, into, errors, touched, '"mcpServers": ');
+    } else if (Array.isArray(declared)) {
+      // Members merge in order: a path to a JSON file, or an inline server
+      // map (bare or `{ mcpServers }`-wrapped).
+      declared.forEach((entry, index) => {
+        const where = `"mcpServers"[${index}]: `;
+        if (isPlainObject(entry)) {
+          const map = mcpServerMap(entry, found.path, errors, where);
+          if (map) collectMcpServers(map, found.path, into, errors);
+        } else {
+          loadDeclaredPath(root, entry, found.path, into, errors, touched, where);
+        }
+      });
+    } else if (isPlainObject(declared)) {
+      const map = mcpServerMap(declared, found.path, errors);
+      if (map) collectMcpServers(map, found.path, into, errors);
+    } else {
+      errors.push({ source: found.path, message: '"mcpServers" must be a path, a list, or an object' });
+    }
+  }
+  const declaredPath = typeof declaredRef === 'string' ? declaredRef : null;
+  return { format, servers: [...into.values()], errors, declaredPath };
+}
+
+// Parsed declarations per plugin root, valid while every file the parse looked
+// at (present or absent) still has the same identity, size and timestamps.
+const DECLARATION_CACHE_MAX = 256;
+const declarationCache = new Map();
+const declarationCacheStats = { hits: 0, misses: 0 };
+
+function fileStamp(path) {
+  try {
+    const st = statSync(path, { bigint: true });
+    return `${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`;
+  } catch {
+    return '-';
+  }
+}
+
+function copyDeclarations(result) {
+  return {
+    format: result.format,
+    servers: result.servers.map((server) => ({ ...server, config: structuredClone(server.config) })),
+    errors: result.errors.map((error) => ({ ...error })),
+  };
+}
+
+/** What a plugin declares for MCP, read raw: `<root>/.mcp.json` first, then the
+ *  manifest `mcpServers` (a path, an inline object, or a list mixing both).
+ *  Later sources override earlier ones by key. Never throws for plugin
+ *  content; errors carry locations and field names, never values. Unchanged
+ *  declaration files are not parsed again. */
+export function loadPluginMcpDeclarations(root) {
+  return copyDeclarations(cachedDeclarations(root));
+}
+
+function cachedDeclarations(root) {
+  const key = String(root || '');
+  const cached = declarationCache.get(key);
+  if (cached && cached.signature.every(([path, stamp]) => fileStamp(path) === stamp)) {
+    declarationCacheStats.hits += 1;
+    return cached.result;
+  }
+  declarationCacheStats.misses += 1;
+  // Stamps are taken before reading, so a write racing the parse invalidates.
+  const before = new Map();
+  const result = readPluginMcpDeclarations(root, {
+    add(path) {
+      if (!before.has(path)) before.set(path, fileStamp(path));
+    },
+  });
+  declarationCache.delete(key);
+  declarationCache.set(key, { signature: [...before], result });
+  if (declarationCache.size > DECLARATION_CACHE_MAX) declarationCache.delete(declarationCache.keys().next().value);
+  return result;
+}
+
+/** Test seam: cache hit/miss counters. */
+export function pluginMcpDeclarationCacheStats() {
+  return { ...declarationCacheStats };
+}
+
+// Adapter: where the declarations live, in the shape older callers expect.
 export function discoverPluginMcp(root) {
-  const manifest = pluginManifest(root);
-  const mcp = manifest.mcpServers;
-  if (typeof mcp === 'string' && mcp.trim()) {
-    const rel = mcp.trim();
-    const abs = resolveContainedPluginPath(root, rel);
-    if (abs && existsSync(abs)) return { mcpScript: rel, mcpInline: false };
-  } else if (isPlainObject(mcp)) {
-    const keys = Object.keys(mcp).filter((k) => isPlainObject(mcp[k]));
-    if (keys.length) return { mcpScript: null, mcpInline: true };
+  const { servers, declaredPath } = cachedDeclarations(root);
+  if (!servers.length) return { mcpScript: null, mcpInline: false };
+  const inline = servers.some((s) => PLUGIN_MANIFEST_FILES.some((rel) => s.source === join(root, ...rel.split('/'))));
+  if (inline) return { mcpScript: null, mcpInline: true };
+  if (declaredPath?.trim()) {
+    const abs = resolveContainedPluginPath(root, declaredPath);
+    if (servers.some((s) => s.source === abs)) return { mcpScript: declaredPath.trim(), mcpInline: false };
   }
-  const candidates = ['.mcp.json', 'scripts/run-mcp.mjs', 'mcp/server.mjs', 'server.mjs'];
-  for (const rel of candidates) {
-    const abs = resolveContainedPluginPath(root, rel);
-    if (abs && existsSync(abs)) return { mcpScript: rel, mcpInline: false };
+  const mcpJson = join(root, '.mcp.json');
+  const declaredFile = servers.find((s) => s.source !== mcpJson) || servers[0];
+  return { mcpScript: relative(root, declaredFile.source).split(sep).join('/'), mcpInline: false };
+}
+
+// User intent for plugin-declared servers, stored apart from the declarations
+// as `pluginMcp[pluginId][declaredKey]`: `enabled: false`, a kept `alias`
+// name, and connection overrides layered over the declaration.
+export const PLUGIN_MCP_OVERRIDE_MAP_FIELDS = Object.freeze(['env', 'headers', 'env_http_headers']);
+export const PLUGIN_MCP_OVERRIDE_VALUE_FIELDS = Object.freeze([
+  'command',
+  'args',
+  'url',
+  'bearer_token_env_var',
+  'env_vars',
+  ...MCP_TIMEOUT_FIELD_GROUPS.flat(),
+]);
+
+function normalizePluginMcpIntent(value) {
+  if (!isPlainObject(value)) return null;
+  const out = {};
+  // `enabled: true` is kept too: it turns on a server declared `enabled: false`.
+  if (typeof value.enabled === 'boolean') out.enabled = value.enabled;
+  if (typeof value.alias === 'string' && value.alias.trim()) out.alias = value.alias.trim();
+  for (const field of PLUGIN_MCP_OVERRIDE_MAP_FIELDS) {
+    if (!isPlainObject(value[field])) continue;
+    const map = Object.fromEntries(Object.entries(value[field]).filter(([, v]) => v !== null && v !== undefined));
+    if (Object.keys(map).length) out[field] = map;
   }
-  return { mcpScript: null, mcpInline: false };
-}
-
-export function mcpScriptForPlugin(root) {
-  return discoverPluginMcp(root).mcpScript;
-}
-
-export function pluginMcpEnableScript(root, plugin = {}) {
-  if (plugin.mcpInline) return PLUGIN_INLINE_MCP_SCRIPT;
-  const fromPlugin = clean(plugin.mcpScript);
-  if (fromPlugin) return fromPlugin;
-  const discovered = discoverPluginMcp(root);
-  if (discovered.mcpInline) return PLUGIN_INLINE_MCP_SCRIPT;
-  return discovered.mcpScript || null;
-}
-
-function substitutePluginRootTokens(value, root) {
-  if (typeof value !== 'string') return value;
-  return value.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, root).replace(/\$\{CODEX_PLUGIN_ROOT\}/g, root);
-}
-
-function substitutePluginRootTokensDeep(value, root) {
-  if (typeof value === 'string') return substitutePluginRootTokens(value, root);
-  if (Array.isArray(value)) return value.map((v) => substitutePluginRootTokensDeep(v, root));
-  if (value && typeof value === 'object') {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) out[k] = substitutePluginRootTokensDeep(v, root);
-    return out;
+  for (const field of PLUGIN_MCP_OVERRIDE_VALUE_FIELDS) {
+    if (value[field] !== undefined && value[field] !== null) out[field] = value[field];
   }
-  return value;
+  return Object.keys(out).length ? out : null;
 }
 
-export function normalizePluginMcpServerConfig(cfg, root) {
-  const substituted = substitutePluginRootTokensDeep(cfg, root) || {};
-  const out = { ...substituted };
-  if (typeof out.cwd === 'string' && out.cwd) {
-    out.cwd = isAbsolute(out.cwd) ? out.cwd : join(root, out.cwd);
-  } else {
-    out.cwd = root;
+/** `{ [pluginId]: { [declaredKey]: intent } }` with empty records dropped. */
+export function normalizePluginMcpIntents(value) {
+  const out = {};
+  if (!isPlainObject(value)) return out;
+  for (const [pluginId, servers] of Object.entries(value)) {
+    const id = clean(pluginId);
+    if (!id || !isPlainObject(servers)) continue;
+    const kept = {};
+    for (const [key, intent] of Object.entries(servers)) {
+      const normalized = normalizePluginMcpIntent(intent);
+      if (key && normalized) kept[key] = normalized;
+    }
+    if (Object.keys(kept).length) out[id] = kept;
   }
   return out;
-}
-
-export function pluginRawMcpServers(root, script) {
-  const rel = clean(script);
-  if (!rel) return null;
-  if (rel === PLUGIN_INLINE_MCP_SCRIPT) {
-    const manifest = pluginManifest(root);
-    const rawServers = manifest.mcpServers;
-    if (!isPlainObject(rawServers)) {
-      throw new Error('plugin.json missing inline mcpServers object');
-    }
-    const keys = Object.keys(rawServers).filter((k) => isPlainObject(rawServers[k]));
-    if (!keys.length) throw new Error('plugin.json has no mcpServers');
-    return { rawServers, mcpRoot: root };
-  }
-  if (!/\.json$/i.test(rel)) return null;
-  const mcpJsonPath = resolveContainedPluginPath(root, rel);
-  if (!mcpJsonPath || !existsSync(mcpJsonPath)) {
-    throw new Error(`plugin MCP manifest not found: ${join(root, rel)}`);
-  }
-  const rawServers = mcpServersMapFromJson(readJsonSafe(mcpJsonPath) || {});
-  if (!isPlainObject(rawServers)) {
-    throw new Error(`plugin MCP manifest missing mcpServers object: ${mcpJsonPath}`);
-  }
-  const keys = Object.keys(rawServers).filter((k) => isPlainObject(rawServers[k]));
-  if (!keys.length) throw new Error(`plugin MCP manifest has no mcpServers: ${mcpJsonPath}`);
-  return { rawServers, mcpRoot: root };
-}
-
-/** Every MCP entry a plugin owns: `<serverName>` and `<serverName>--<key>`. */
-export function pluginServerMatcher(serverName) {
-  const prefix = `${serverName}--`;
-  return (name) => name === serverName || name.startsWith(prefix);
-}
-
-export function pluginMcpServerName(plugin = {}) {
-  const base = clean(plugin.name || plugin.title || 'plugin')
-    .toLowerCase()
-    .replace(/[^a-z0-9_.-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return base ? `plugin-${base}` : 'plugin-mcp';
 }

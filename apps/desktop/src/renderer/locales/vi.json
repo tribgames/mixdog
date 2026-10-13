@@ -2399,6 +2399,8 @@
   "Not used yet": "Chưa sử dụng",
   "Nothing has been logged yet.": "Chưa có gì được ghi lại.",
   "Nothing installed by this plugin yet.": "Plugin này chưa cài đặt gì.",
+  "MCP problem: {{message}}": "Sự cố MCP: {{message}}",
+  "Turn the plugin on to connect its MCP servers.": "Bật plugin để kết nối các máy chủ MCP của nó.",
   "Nothing is listening on the server.": "Không có gì đang lắng nghe trên máy chủ.",
   "Nothing to show.": "Không có gì để hiển thị.",
   "Nothing was merged because the branches conflict.": "Không có gì được hợp nhất vì các nhánh xung đột.",

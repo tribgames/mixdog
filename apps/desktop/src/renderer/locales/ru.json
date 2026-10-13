@@ -2552,6 +2552,8 @@
   "Not used yet": "Ещё не использовалось",
   "Nothing has been logged yet.": "Пока ничего не записано.",
   "Nothing installed by this plugin yet.": "Этот плагин пока ничего не установил.",
+  "MCP problem: {{message}}": "Проблема MCP: {{message}}",
+  "Turn the plugin on to connect its MCP servers.": "Включите плагин, чтобы подключить его серверы MCP.",
   "Nothing is listening on the server.": "На сервере ничего не прослушивается.",
   "Nothing to show.": "Нечего показывать.",
   "Nothing was merged because the branches conflict.": "Ничего не было слито, так как ветки конфликтуют.",

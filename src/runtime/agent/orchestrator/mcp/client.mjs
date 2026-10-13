@@ -22,7 +22,12 @@ import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
 import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
 import { positiveInt } from '../../../shared/numbers.mjs';
-import { resolveMcpRequestTimeouts, resolveMcpTransportKind, scrubMcpConnectionMessage } from './client-config.mjs';
+import {
+  providerSafeMcpToolName,
+  resolveMcpRequestTimeouts,
+  resolveMcpTransportKind,
+  scrubMcpConnectionMessage,
+} from './client-config.mjs';
 import { createLazyOutputValidator } from './lazy-output-validator.mjs';
 import { appendMcpStderrTail, createMcpTransport } from './client-transport.mjs';
 import { listAllMcpTools, runBoundedHandshake } from './client-handshake.mjs';
@@ -51,6 +56,8 @@ const MCP_TOOL_NAME_RE = /^mcp__(.+?)__(.+)$/;
 const _knownMcpScopes = new Set([DEFAULT_MCP_SCOPE_ID]);
 const _connectAbortGenerations = new Map();
 const _pendingConnects = new Set();
+// scopeId -> root path advertised by that scope's scope-following servers.
+const _scopeRoots = new Map();
 let mcpSdkPromise = null;
 // Memo for mcpToolHasField(name, field) — keyed by `${scopeId}|${toolName}|${field}`.
 // The lookup (regex parse + servers Map get + tools.find + schema property
@@ -107,6 +114,7 @@ async function loadMcpSdk() {
     StreamableHTTPClientTransport: httpMod.StreamableHTTPClientTransport,
     SSEClientTransport: sseMod.SSEClientTransport,
     WebSocketClientTransport: wsMod.WebSocketClientTransport,
+    JSONRPCMessageSchema: typesMod.JSONRPCMessageSchema,
     ListRootsRequestSchema: typesMod.ListRootsRequestSchema,
     ToolListChangedNotificationSchema: typesMod.ToolListChangedNotificationSchema,
   }));
@@ -166,8 +174,8 @@ function mcpFeatureTools(serverName, capabilities, protocolTools) {
   const tools = [];
   const used = new Set(protocolTools.map((tool) => tool.name));
   const add = (leaf, description, properties, required, operation) => {
-    let name = `mcp__${serverName}__${leaf}`;
-    while (used.has(name)) name += '_';
+    let name = providerSafeMcpToolName(serverName, leaf);
+    for (let suffix = '_'; used.has(name); suffix += '_') name = providerSafeMcpToolName(serverName, leaf + suffix);
     used.add(name);
     tools.push({
       name,
@@ -241,6 +249,7 @@ export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
           ),
         }
       : {}),
+    warnings: Array.isArray(server.warnings) ? server.warnings : [],
     toolCount: Array.isArray(server.tools) ? server.tools.length : 0,
     tools: (server.tools || []).map((tool) => ({
       name: tool.name,
@@ -412,11 +421,12 @@ export async function reconnectSingleMcpServer(scopeId, name, cfg = undefined) {
 export async function executeMcpTool(name, args, options = {}) {
   const match = name.match(MCP_TOOL_NAME_RE);
   if (!match) throw new Error(`Not an MCP tool name: ${name}`);
-  const [, serverName, toolName] = match;
   const scopeId = normalizeMcpScopeId(options);
-  const server = scopedServer(scopeId, serverName);
-  if (!server) throw new Error(`MCP server "${serverName}" not connected`);
-  const definition = (server.tools || []).find((tool) => tool.name === name);
+  const target = resolveMcpToolTarget(scopeId, name);
+  if (!target) throw new Error(`MCP server "${match[1]}" not connected`);
+  const { server, definition } = target;
+  const serverName = server.name;
+  const toolName = definition?.mcpToolName || match[2];
   const callSignal = options?.signal || null;
   const dispatch = (target) =>
     definition?.mcpOperation
@@ -1025,12 +1035,7 @@ export function isMcpTool(name) {
 }
 /** True when the prefixed name exists on a connected MCP server. */
 export function isRegisteredMcpTool(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
-  const match = name.match(MCP_TOOL_NAME_RE);
-  if (!match) return false;
-  const [, serverName] = match;
-  const server = scopedServer(scopeId, serverName);
-  if (!server || !Array.isArray(server.tools)) return false;
-  return server.tools.some((t) => t?.name === name);
+  return Boolean(resolveMcpToolTarget(scopeId, name)?.definition);
 }
 /**
  * Check whether the inputSchema for an MCP tool declares the given top-level
@@ -1043,9 +1048,7 @@ export function mcpToolHasField(name, field, scopeId = DEFAULT_MCP_SCOPE_ID) {
   const memoKey = `${normalizedScopeId}|${name}|${field}`;
   const memoized = _mcpToolFieldMemo.get(memoKey);
   if (memoized !== undefined) return memoized;
-  const match = name.match(MCP_TOOL_NAME_RE);
-  const server = match ? scopedServer(normalizedScopeId, match[1]) : null;
-  const tool = server ? server.tools.find((t) => t.name === name) : null;
+  const tool = resolveMcpToolTarget(normalizedScopeId, name)?.definition;
   const props = tool?.inputSchema?.properties;
   const result = Boolean(props && Object.hasOwn(props, field));
   _mcpToolFieldMemo.set(memoKey, result);
@@ -1166,8 +1169,14 @@ async function connectServer(
     // abort before creating a transport/child at all.
     throw new Error(`MCP server "${name}" connect aborted by shutdown`);
   }
-  const client = createMcpClient(sdk, name, cfg);
-  const { transport, autoDetectAdvert, stderrTail } = createMcpTransport({ name, cfg, sdk, log: mcpLog });
+  const client = createMcpClient(sdk, name, cfg, scopeId);
+  const { transport, autoDetectAdvert, stderrTail, warnings } = createMcpTransport({
+    name,
+    cfg,
+    sdk,
+    log: mcpLog,
+    strictEnv: cfg?._mixdogStrictEnv === true,
+  });
   const liveness = trackMcpLiveness(client, name, cfg, stderrTail);
   const pending = { scopeId, name, client, transport };
   _pendingConnects.add(pending);
@@ -1198,7 +1207,7 @@ async function connectServer(
       }
       throw new Error(`MCP server "${name}" connect aborted by shutdown`);
     }
-    const tools = mcpServerTools(name, capabilities, toolsResult.tools);
+    const tools = mcpServerTools(name, capabilities, toolsResult.tools, cfg);
     const registryKey = mcpServerRegistryKey(scopeId, name);
     servers.set(registryKey, {
       scopeId,
@@ -1212,6 +1221,7 @@ async function connectServer(
       capabilities,
       liveness,
       stderrTail,
+      warnings: warnings || [],
       generation: genAtStart,
     });
     if (capabilities?.tools?.listChanged && sdk.ToolListChangedNotificationSchema) {
@@ -1253,19 +1263,25 @@ function trackMcpLiveness(client, name, cfg, stderrTail) {
   return liveness;
 }
 
-/** The SDK client for one server, advertising the project root when known. */
-function createMcpClient(sdk, name, cfg) {
-  const projectRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
+/** The SDK client for one server, advertising the project root when known.
+ *  A config marked `_mixdogRootsFollowScope` advertises its scope's current
+ *  root (setMcpScopeRoot) and is told when it changes. */
+function createMcpClient(sdk, name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID) {
+  const followScope = cfg?._mixdogRootsFollowScope === true;
+  const fixedRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
+  const currentRoot = () => (followScope ? _scopeRoots.get(normalizeMcpScopeId(scopeId)) || fixedRoot : fixedRoot);
   const client = new sdk.Client(
     { name: `mixdog-agent/${name}`, version: '1.0.0' },
     {
-      capabilities: projectRoot ? { roots: { listChanged: false } } : {},
+      capabilities: followScope || fixedRoot ? { roots: { listChanged: followScope } } : {},
       jsonSchemaValidator: createLazyOutputValidator(sdk.AjvJsonSchemaValidator),
     }
   );
-  if (projectRoot && sdk.ListRootsRequestSchema) {
+  if ((followScope || fixedRoot) && sdk.ListRootsRequestSchema) {
     client.setRequestHandler(sdk.ListRootsRequestSchema, async () => {
-      const rootPath = resolve(projectRoot);
+      const root = currentRoot();
+      if (!root) return { roots: [] };
+      const rootPath = resolve(root);
       return {
         roots: [
           {
@@ -1279,15 +1295,62 @@ function createMcpClient(sdk, name, cfg) {
   return client;
 }
 
-/** Protocol tools under the `mcp__<server>__` prefix plus the feature tools. */
-function mcpServerTools(name, capabilities, rawTools) {
-  const protocolTools = (rawTools || []).map((t) => ({
-    name: `mcp__${name}__${t.name}`,
-    description: t.description || '',
-    inputSchema: t.inputSchema || { type: 'object', properties: {} },
-    ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
-  }));
-  return [...protocolTools, ...mcpFeatureTools(name, capabilities, protocolTools)];
+/**
+ * Set the root advertised by `scopeId`'s scope-following servers (plugin
+ * servers, whose roots track the session cwd) and notify the connected ones
+ * when it changed. No reconnect: the connection and its tools stay as they are.
+ */
+export function setMcpScopeRoot(scopeId, root) {
+  const normalized = normalizeMcpScopeId(scopeId);
+  const next = String(root || '').trim();
+  if ((_scopeRoots.get(normalized) || '') === next) return;
+  if (next) _scopeRoots.set(normalized, next);
+  else _scopeRoots.delete(normalized);
+  for (const [, server] of scopedServerEntries(normalized)) {
+    if (server.cfg?._mixdogRootsFollowScope !== true) continue;
+    Promise.resolve()
+      .then(() => server.client?.sendRootsListChanged?.())
+      .catch(() => {});
+  }
+}
+
+/** The connected server and tool definition a prefixed tool name refers to.
+ *  The name's server part finds it directly; a name shortened to fit provider
+ *  limits is found by scanning this scope's servers. A known server without
+ *  the tool still resolves (definition null) so the call reaches the server. */
+function resolveMcpToolTarget(scopeId, name) {
+  const match = MCP_TOOL_NAME_RE.exec(String(name || ''));
+  if (!match) return null;
+  const direct = scopedServer(scopeId, match[1]);
+  const directTool = direct?.tools?.find((tool) => tool.name === name);
+  if (directTool) return { server: direct, definition: directTool };
+  for (const [, server] of scopedServerEntries(scopeId)) {
+    const definition = server.tools?.find((tool) => tool.name === name);
+    if (definition) return { server, definition };
+  }
+  return direct ? { server: direct, definition: null } : null;
+}
+
+/** Protocol tools under the `mcp__<server>__` prefix plus the feature tools.
+ *  Names that would exceed provider limits are shortened deterministically
+ *  (`providerSafeMcpToolName`); a tool whose name was shortened carries the
+ *  server's own tool name as `mcpToolName` and its server as `mcpServerName`.
+ *  A plugin-declared server's tools carry its owner as `mcpPluginId`, so
+ *  scope filtering never has to infer ownership from the server name. */
+function mcpServerTools(name, capabilities, rawTools, cfg) {
+  const protocolTools = (rawTools || []).map((t) => {
+    const safeName = providerSafeMcpToolName(name, t.name);
+    return {
+      name: safeName,
+      ...(safeName === `mcp__${name}__${t.name}` ? {} : { mcpToolName: t.name, mcpServerName: name }),
+      description: t.description || '',
+      inputSchema: t.inputSchema || { type: 'object', properties: {} },
+      ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
+    };
+  });
+  const tools = [...protocolTools, ...mcpFeatureTools(name, capabilities, protocolTools)];
+  const pluginId = String(cfg?._mixdogPlugin?.id || '').trim();
+  return pluginId ? tools.map((tool) => ({ ...tool, mcpPluginId: pluginId })) : tools;
 }
 
 // tools/list_changed refreshes run one at a time per server connection, so an
@@ -1310,7 +1373,7 @@ async function runToolRefresh(registryKey, live, name, cfg, capabilities) {
       throw new Error('ListTools returned invalid shape: missing or non-array tools field');
     }
     if (servers.get(registryKey) !== live) return;
-    live.tools = mcpServerTools(name, capabilities, refreshed.tools);
+    live.tools = mcpServerTools(name, capabilities, refreshed.tools, cfg);
     _invalidateMcpToolFieldMemo();
   } catch (error) {
     mcpLog(
@@ -1323,19 +1386,28 @@ async function runToolRefresh(registryKey, live, name, cfg, capabilities) {
 export function _registerMcpServerForTest(scopeId, name, rawTools = [], options = {}) {
   const normalizedScopeId = normalizeMcpScopeId(scopeId);
   const registryKey = mcpServerRegistryKey(normalizedScopeId, name);
-  const tools = rawTools.map((tool) => ({
-    ...tool,
-    name: String(tool?.name || '').startsWith('mcp__')
-      ? String(tool.name)
-      : `mcp__${name}__${String(tool?.name || '')}`,
-    inputSchema: tool?.inputSchema || { type: 'object', properties: {} },
-  }));
+  const tools = rawTools.map((tool) => {
+    const prefixed = String(tool?.name || '').startsWith('mcp__');
+    const leaf = String(tool?.name || '');
+    const safeName = prefixed ? leaf : providerSafeMcpToolName(name, leaf);
+    const shortened = !prefixed && safeName !== `mcp__${name}__${leaf}`;
+    return {
+      ...tool,
+      name: safeName,
+      ...(shortened ? { mcpToolName: leaf, mcpServerName: name } : {}),
+      inputSchema: tool?.inputSchema || { type: 'object', properties: {} },
+    };
+  });
   const capabilities = options.capabilities || {};
+  const pluginId = String(options.cfg?._mixdogPlugin?.id || '').trim();
   const server = {
     scopeId: normalizedScopeId,
     registryKey,
     name,
-    tools: [...tools, ...mcpFeatureTools(name, capabilities, tools)],
+    tools: [...tools, ...mcpFeatureTools(name, capabilities, tools)].map((tool) =>
+      pluginId ? { ...tool, mcpPluginId: pluginId } : tool
+    ),
+    warnings: options.warnings || [],
     cfg: options.cfg || {},
     instructions: options.instructions || '',
     capabilities,

@@ -45,6 +45,7 @@ import {
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
 import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
 import { normalizeWorktreeSettings } from '../../shared/worktrees/settings.mjs';
+import { normalizePluginMcpIntents } from './runtime-core/plugin-mcp.mjs';
 
 export const {
   PROFILE_LANGUAGES,
@@ -253,6 +254,7 @@ export function loadConfig(options = {}) {
       const loaded = canonicalizeAgentRouteStorage({
         providers: mergedProviders,
         mcpServers,
+        pluginMcp: normalizePluginMcpIntents(raw.pluginMcp),
         presets: withDefaultPresets(normalizedPresets),
         default: raw.default || null,
         maintenance: { ...DEFAULT_MAINTENANCE, ...normalizedMaint },
@@ -305,6 +307,7 @@ export function loadConfig(options = {}) {
   return {
     ...defaults,
     mcpServers: {},
+    pluginMcp: {},
     presets: DEFAULT_PRESETS.map((p) => ({ ...p })),
     default: null,
     maintenance: { ...DEFAULT_MAINTENANCE },
@@ -432,6 +435,10 @@ function buildAgentSaveBuilder(config) {
       modules,
       builtins,
     };
+    // Per-server intent for plugin-declared MCP servers; empty stays absent.
+    const pluginMcp = normalizePluginMcpIntents(config.pluginMcp);
+    if (Object.keys(pluginMcp).length) next.pluginMcp = pluginMcp;
+    else delete next.pluginMcp;
     // Developer options (developer-options.mjs); an empty set stays absent.
     if (Object.keys(developer).length) next.developer = developer;
     else if (Object.hasOwn(config, 'developer')) delete next.developer;

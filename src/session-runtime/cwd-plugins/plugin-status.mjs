@@ -6,11 +6,10 @@ import { PLUGIN_MANIFEST_FILES, pluginSkillsRoots } from '../../runtime/shared/p
 import { pluginMetadata } from '../../runtime/shared/plugin-metadata.mjs';
 
 export function createPluginStatus({
-  getConfig,
   listRegisteredPlugins,
   pluginAdminStatus,
   pluginManifest,
-  pluginMcpServerName,
+  pluginMcpSummary = () => new Map(),
   countSkillFiles,
   clean,
   resolve,
@@ -56,7 +55,7 @@ export function createPluginStatus({
     return entry;
   }
 
-  function registeredPlugin(entry, configuredMcp) {
+  function registeredPlugin(entry, mcpByPlugin) {
     const root = clean(entry.root);
     if (!root) return null;
     if (!existsSync(root)) return { missing: true, id: clean(entry.id) || clean(entry.name) || root, name: clean(entry.name) || clean(entry.id) || root.split(/[\\/]/).pop() || root };
@@ -89,21 +88,39 @@ export function createPluginStatus({
       plugin.searchedSkillRoots = pluginSkillsRoots(root);
       plugin.warning = `No skills or MCP server found. Searched skill roots: ${plugin.searchedSkillRoots.join(', ')}`;
     }
-    plugin.mcpServerName = pluginMcpServerName(plugin);
-    plugin.mcpEnabled =
-      Object.hasOwn(configuredMcp, plugin.mcpServerName) ||
-      Object.keys(configuredMcp).some((k) => k.startsWith(`${plugin.mcpServerName}--`));
+    // Servers the plugin declares, live: name, declared key, intent/effective
+    // state, connection, and declaration problems.
+    const mcp = mcpByPlugin.get(plugin.id) || { format: 'none', errors: [], servers: [] };
+    plugin.mcpFormat = mcp.format;
+    plugin.mcpErrors = mcp.errors;
+    plugin.mcpServers = mcp.servers.filter(Boolean).map((row) => ({
+      name: row.name,
+      key: row.owner?.key || '',
+      enabled: row.enabled !== false,
+      serverEnabled: row.serverEnabled !== false,
+      connected: row.connected === true,
+      status: row.status,
+      error: row.error || null,
+      warnings: row.warnings || [],
+      cwdDependent: row.owner?.cwdDependent === true,
+    }));
+    plugin.mcpServerName = plugin.mcpServers[0]?.name || '';
+    plugin.mcpEnabled = plugin.mcpServers.some((server) => server.serverEnabled);
     return plugin;
   }
 
   function pluginsStatus() {
-    const config = getConfig();
     const dataDir = cfgMod.getPluginData?.();
-    const configuredMcp = config?.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {};
+    let mcpByPlugin = new Map();
+    try {
+      mcpByPlugin = pluginMcpSummary();
+    } catch {
+      /* status still lists plugins without their MCP rows */
+    }
     const plugins = [];
     const missing = [];
     for (const entry of listRegisteredPlugins({ dataDir })) {
-      const plugin = registeredPlugin(entry, configuredMcp);
+      const plugin = registeredPlugin(entry, mcpByPlugin);
       if (plugin?.missing) missing.push({ id: plugin.id, name: plugin.name, enabled: entry.enabled !== false });
       else if (plugin) plugins.push(plugin);
     }

@@ -1,11 +1,8 @@
 // extension-scopes.mjs — plugin-aware layer over the shared scope model. A
 // plugin's scope cascades to the skills it owns and to the MCP server(s) it
-// installed, so limiting the plugin limits everything it brought along.
-import { readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { pluginMcpServerName, pluginServerMatcher } from './plugin-mcp.mjs';
-import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+// declares, so limiting the plugin limits everything it brought along. MCP
+// ownership comes from the tool's `mcpPluginId`, set when the plugin's server
+// connected, never from the server name.
 import { loadConfig } from '../config.mjs';
 import {
   extensionAllowedForCwd,
@@ -28,64 +25,27 @@ export {
   withExtensionScope,
 } from '../../../shared/extension-scopes.mjs';
 
-/** Plugin id that installed MCP server `serverName`, or ''. Plugin servers are
- *  named `plugin-<name>` or `plugin-<name>--<suffix>` (plugin-mcp.mjs). */
-export function pluginIdForMcpServer(serverName, plugins) {
-  const name = clean(serverName);
-  if (!name) return '';
-  for (const plugin of Array.isArray(plugins) ? plugins : []) {
-    if (pluginServerMatcher(pluginMcpServerName(plugin))(name)) return clean(plugin?.id || plugin?.name);
-  }
-  return '';
-}
-
-export function mcpServerAllowedForCwd(scopes, serverName, cwd, { plugins = [] } = {}) {
+/** Server scope ∩ owning plugin's scope (`pluginId` from owner metadata). */
+export function mcpServerAllowedForCwd(scopes, serverName, cwd, { pluginId = '' } = {}) {
   if (!extensionAllowedForCwd(scopes, 'mcp', serverName, cwd)) return false;
-  const pluginId = pluginIdForMcpServer(serverName, plugins);
-  if (pluginId && !extensionAllowedForCwd(scopes, 'plugins', pluginId, cwd)) return false;
+  const owner = clean(pluginId);
+  if (owner && !extensionAllowedForCwd(scopes, 'plugins', owner, cwd)) return false;
   return true;
 }
 
 /** Drop tools of MCP servers whose scope excludes cwd; non-MCP tools pass. */
-export function filterMcpToolsForCwd(tools, scopes, cwd, options = {}) {
+export function filterMcpToolsForCwd(tools, scopes, cwd) {
   const list = Array.isArray(tools) ? tools : [];
   const verdicts = new Map();
   return list.filter((tool) => {
-    const server = mcpServerNameOfTool(tool?.name);
+    // A name shortened for provider limits carries its server explicitly.
+    const server = mcpServerNameOfTool(tool);
     if (!server) return true;
-    if (!verdicts.has(server)) verdicts.set(server, mcpServerAllowedForCwd(scopes, server, cwd, options));
-    return verdicts.get(server);
+    const pluginId = clean(tool?.mcpPluginId);
+    const key = `${server}\0${pluginId}`;
+    if (!verdicts.has(key)) verdicts.set(key, mcpServerAllowedForCwd(scopes, server, cwd, { pluginId }));
+    return verdicts.get(key);
   });
-}
-
-// `{ id, name }` of every registered plugin, from <data>/plugins/registry.json.
-// mtime-cached: this runs on every session create and MCP catalog fold.
-let _registryCache = { path: '', mtime: -1, plugins: [] };
-export function registeredPluginIdentities(dataDir = null) {
-  let path = '';
-  try {
-    path = join(dataDir || resolvePluginData(), 'plugins', 'registry.json');
-  } catch {
-    return [];
-  }
-  let mtime = -1;
-  try {
-    mtime = statSync(path).mtimeMs;
-  } catch {
-    return [];
-  }
-  if (_registryCache.path === path && _registryCache.mtime === mtime) return _registryCache.plugins;
-  let plugins = [];
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    plugins = (Array.isArray(parsed?.plugins) ? parsed.plugins : [])
-      .map((entry) => ({ id: clean(entry?.id || entry?.name), name: clean(entry?.name || entry?.id) }))
-      .filter((entry) => entry.id);
-  } catch {
-    plugins = [];
-  }
-  _registryCache = { path, mtime, plugins };
-  return plugins;
 }
 
 /** The MCP tools a session at `cwd` may see. No scopes configured → input
@@ -95,5 +55,5 @@ export function filterMcpToolsForSession(tools, cwd, config = null) {
   if (!list.length) return list;
   const scopes = extensionScopesFromConfig(config || loadConfig({ secrets: false }));
   if (!hasExtensionScopes(scopes)) return list;
-  return filterMcpToolsForCwd(list, scopes, cwd, { plugins: registeredPluginIdentities() });
+  return filterMcpToolsForCwd(list, scopes, cwd);
 }

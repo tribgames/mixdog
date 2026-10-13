@@ -30,7 +30,15 @@ export function PluginInfo({ plugin }: { plugin: RecordValue }) {
     ],
     ['Source', [text(plugin.sourceType), text(plugin.sourceUrl)].filter(Boolean).join(' · ')],
     ['Root', text(plugin.root)],
-    ['MCP server', text(plugin.mcpServerName)],
+    [
+      'MCP server',
+      Array.isArray(plugin.mcpServers)
+        ? plugin.mcpServers
+            .map((server) => text((server as RecordValue | null)?.name))
+            .filter(Boolean)
+            .join(', ')
+        : text(plugin.mcpServerName),
+    ],
     ['Installed', formatInstallDate(plugin.installedAt)],
     ['Updated', formatInstallDate(plugin.updatedAt)],
   ];

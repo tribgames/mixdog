@@ -2399,6 +2399,8 @@
   "Not used yet": "사용 기록 없음",
   "Nothing has been logged yet.": "아직 기록된 내용이 없습니다.",
   "Nothing installed by this plugin yet.": "이 플러그인이 설치한 항목이 아직 없습니다.",
+  "MCP problem: {{message}}": "MCP 문제: {{message}}",
+  "Turn the plugin on to connect its MCP servers.": "플러그인을 켜면 MCP 서버가 연결됩니다.",
   "Nothing is listening on the server.": "서버에서 열린 포트가 없습니다.",
   "Nothing to show.": "표시할 내용이 없습니다.",
   "Nothing was merged because the branches conflict.": "브랜치가 충돌하여 병합하지 않았습니다.",

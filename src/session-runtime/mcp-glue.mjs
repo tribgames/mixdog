@@ -6,11 +6,28 @@ import { createMcpServerCatalog } from './mcp-glue/server-catalog.mjs';
 import { createMcpConnect } from './mcp-glue/connect.mjs';
 import { createMcpServerInput } from './mcp-glue/server-input.mjs';
 
-export function createMcpGlue({ mcpClient, getConfig, getCurrentCwd, getMcpScopeId = () => null, state }) {
-  const catalog = createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, state });
+export function createMcpGlue({
+  mcpClient,
+  getConfig,
+  getCurrentCwd,
+  getMcpScopeId = () => null,
+  getPluginDataDir,
+  listPlugins,
+  state,
+}) {
+  const catalog = createMcpServerCatalog({
+    mcpClient,
+    getConfig,
+    getCurrentCwd,
+    getMcpScopeId,
+    getPluginDataDir,
+    listPlugins,
+    state,
+  });
   const connect = createMcpConnect({
     mcpClient,
     getMcpScopeId,
+    getCurrentCwd,
     state,
     resolveEffectiveMcpServers: catalog.resolveEffectiveMcpServers,
     mcpStatus: catalog.mcpStatus,
@@ -19,6 +36,9 @@ export function createMcpGlue({ mcpClient, getConfig, getCurrentCwd, getMcpScope
 
   return {
     mcpStatus: catalog.mcpStatus,
+    resolveMcpCatalog: catalog.resolveCatalog,
+    pluginMcpServer: catalog.pluginServer,
+    pluginMcpSummary: catalog.pluginMcpSummary,
     getMcpServerConfig: catalog.getMcpServerConfig,
     connectConfiguredMcp: connect.connectConfiguredMcp,
     awaitInitialMcpConnect: connect.awaitInitialMcpConnect,

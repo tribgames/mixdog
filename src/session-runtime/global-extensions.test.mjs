@@ -21,10 +21,9 @@ test('a named MCP reconnect reaches peer runtimes as a scoped change, not a full
   const peer = syncRuntime(peerCalls);
   try {
     await writer.reconnectMcpAndAnnounce({ only: 'rea', enabled: true, drop: ['old'] });
-    const expected = [
-      { only: 'old', enabled: false },
-      { only: 'rea', enabled: true },
-    ];
+    // The scoped changes, then a reconcile that touches only servers whose
+    // resolved config changed (a plugin server moved off a freed name).
+    const expected = [{ only: 'old', enabled: false }, { only: 'rea', enabled: true }, { reconcile: true }];
     assert.deepEqual(writerCalls, expected);
     assert.deepEqual(peerCalls, expected);
     peerCalls.length = 0;

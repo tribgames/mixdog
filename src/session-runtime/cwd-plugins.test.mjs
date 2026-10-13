@@ -23,6 +23,7 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
   const persisted = [];
   const sentinels = [];
   const overrides = [];
+  const cwdChanges = [];
   try {
     const { applyResolvedCwd } = createCwdPlugins({
       getCurrentCwd: () => currentCwd,
@@ -48,8 +49,7 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
       listRegisteredPlugins: () => [],
       pluginAdminStatus: () => ({}),
       pluginManifest: () => ({}),
-      pluginMcpServerName: () => '',
-      mcpScriptForPlugin: () => '',
+      onCwdChanged: (cwd) => cwdChanges.push(cwd),
       countSkillFiles: () => 0,
       writeLastSessionCwd: (cwd, pid) => sentinels.push({ cwd, pid }),
       updateCurrentCwdOverride: (cwd) => overrides.push(cwd),
@@ -84,6 +84,8 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
       { cwd: after, pid: 4321 },
     ]);
     assert.deepEqual(overrides, [after, after]);
+    // Only an effective switch lets MCP reconcile cwd-following plugin servers.
+    assert.deepEqual(cwdChanges, [after]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -22,8 +22,39 @@ function rawToolName(name) {
   return String(name || 'tool').replace(/^functions\./, '');
 }
 
-export function parseMcpToolName(name) {
-  const text = rawToolName(name);
+// Tool names shortened to fit provider limits -> their real server and tool,
+// recorded when the name is built so name-only callers in this process
+// resolve them. Bounded; the oldest entries go first.
+const MCP_TOOL_IDENTITY_MAX = 4096;
+const mcpToolIdentities = new Map();
+
+export function rememberMcpToolIdentity(name, server, tool) {
+  const key = String(name || '');
+  if (!key) return;
+  mcpToolIdentities.delete(key);
+  mcpToolIdentities.set(key, { server: String(server || ''), tool: String(tool || '') });
+  if (mcpToolIdentities.size > MCP_TOOL_IDENTITY_MAX) mcpToolIdentities.delete(mcpToolIdentities.keys().next().value);
+}
+
+/** Server and tool of a shortened MCP tool name, when this process built it. */
+export function knownMcpToolIdentity(name) {
+  const known = mcpToolIdentities.get(rawToolName(name));
+  return known ? { ...known } : null;
+}
+
+/** `{ server, tool }` of an MCP tool, or null. Takes a tool definition (its
+ *  `mcpServerName`/`mcpToolName` metadata wins) or a name (a recorded
+ *  shortened name first, else the `mcp__<server>__<tool>` form). */
+export function parseMcpToolName(nameOrTool) {
+  if (nameOrTool && typeof nameOrTool === 'object') {
+    const server = String(nameOrTool.mcpServerName || '').trim();
+    const parsed = parseMcpToolName(nameOrTool.name);
+    if (!server) return parsed;
+    return { server, tool: String(nameOrTool.mcpToolName || '') || parsed?.tool || '' };
+  }
+  const text = rawToolName(nameOrTool);
+  const known = mcpToolIdentities.get(text);
+  if (known) return { ...known };
   const match = /^mcp__(.+?)__(.+)$/.exec(text);
   if (!match) return null;
   return { server: match[1], tool: match[2] };
@@ -169,6 +200,8 @@ export function toolSearchDisplayLabel(args = {}) {
 export function displayToolSearchTarget(value) {
   const text = String(value || '').trim();
   if (/^skill:/i.test(text)) return text.slice('skill:'.length);
+  const known = knownMcpToolIdentity(text);
+  if (known) return `${known.server}.${known.tool}`;
   const mcp = /^mcp__(.*?)__(.+)$/.exec(text);
   if (mcp) return `${mcp[1]}.${mcp[2]}`;
   return stripToolPrefix(text);

@@ -41,7 +41,7 @@ test('awaitInitialMcpConnect waits for the largest per-server startup budget', a
   assert.deepEqual(seen.sort(), [5, undefined]);
 });
 
-test('mcpStatus marks plugin-owned servers so they list under the plugin, not as loose MCP entries', () => {
+test('a root marker alone never makes a configured server plugin-owned', () => {
   const glue = createMcpGlue({
     mcpClient: {
       resolveMcpTransportKind: () => 'stdio',
@@ -62,12 +62,15 @@ test('mcpStatus marks plugin-owned servers so they list under the plugin, not as
     getCurrentCwd: () => process.cwd(),
     state: { mcpFailures: [] },
   });
-  const byName = Object.fromEntries(glue.mcpStatus().servers.map((server) => [server.name, server]));
+  const status = glue.mcpStatus();
+  const byName = Object.fromEntries(status.servers.map((server) => [server.name, server]));
   assert.equal(byName.mine.source, 'config');
-  assert.equal(byName['plugin-a'].source, 'plugin');
-  assert.equal(byName['plugin-a'].enabled, true);
-  // The plugin toggle, not an MCP toggle, is what turned this one off.
-  assert.equal(byName['plugin-b'].source, 'plugin');
+  // No registered plugin owns these roots: they stay configured servers,
+  // flagged, and an old plugin-disabled marker keeps them off.
+  assert.equal(byName['plugin-a'].source, 'config');
+  assert.equal(byName['plugin-a'].owner, undefined);
+  assert.match(byName['plugin-a'].warnings[0], /no registered plugin has root/);
   assert.equal(byName['plugin-b'].enabled, false);
-  assert.equal(glue.getMcpServerConfig('plugin-a').source, 'plugin');
+  assert.equal(glue.getMcpServerConfig('plugin-a').source, 'config');
+  assert.equal(status.warnings.length, 2);
 });

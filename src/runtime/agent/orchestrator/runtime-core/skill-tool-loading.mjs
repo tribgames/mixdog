@@ -2,6 +2,7 @@
 // definitions out of the eager prefix; selection never changes permission policy.
 import { deferredCatalogUnion, selectDeferredTools, toolSearchNativePayload } from './tool-catalog.mjs';
 import { preDispatchDenyForSession } from '../session/loop/pre-dispatch-deny.mjs';
+import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
 
 export function loadSkillToolDependencies(envelope, session, mode) {
   if (!envelope?.__toolEnvelope) return envelope;
@@ -15,7 +16,9 @@ export function loadSkillToolDependencies(envelope, session, mode) {
   for (const { type, value } of dependencies) {
     if (type === 'tool') names.add(value);
     else if (type === 'mcp') {
-      const matches = [...catalog.keys()].filter((name) => name.startsWith(`mcp__${value}__`));
+      const matches = [...catalog.values()]
+        .filter((tool) => parseMcpToolName(tool)?.server === value)
+        .map((tool) => tool.name);
       if (matches.length)
         matches.forEach((name) => {
           names.add(name);

@@ -2399,6 +2399,8 @@
   "Not used yet": "未使用",
   "Nothing has been logged yet.": "まだ記録はありません。",
   "Nothing installed by this plugin yet.": "このプラグインがインストールしたものはまだありません。",
+  "MCP problem: {{message}}": "MCP の問題: {{message}}",
+  "Turn the plugin on to connect its MCP servers.": "プラグインをオンにすると MCP サーバーが接続されます。",
   "Nothing is listening on the server.": "サーバーで待ち受け中のポートはありません。",
   "Nothing to show.": "表示するものがありません。",
   "Nothing was merged because the branches conflict.": "ブランチが競合しているため、何もマージされませんでした。",

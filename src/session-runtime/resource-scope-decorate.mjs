@@ -7,14 +7,13 @@ import {
   cwdWithinProjects,
   extensionScopeProjects,
   extensionScopesFromConfig,
-  pluginIdForMcpServer,
 } from '../runtime/agent/orchestrator/runtime-core/extension-scopes.mjs';
 
 function listOf(status, key) {
   return Array.isArray(status?.[key]) ? status[key] : [];
 }
 
-export function createScopeDecorators({ getConfig, getCurrentCwd, pluginsStatus }) {
+export function createScopeDecorators({ getConfig, getCurrentCwd }) {
   function scopeInfo(kind, name, pluginId = '') {
     const scopes = extensionScopesFromConfig(getConfig());
     const scope = extensionScopeProjects(scopes, kind, name);
@@ -27,12 +26,11 @@ export function createScopeDecorators({ getConfig, getCurrentCwd, pluginsStatus 
   }
   return {
     mcp(status) {
-      const plugins = pluginsStatus()?.plugins || [];
       return {
         ...status,
         servers: listOf(status, 'servers').map((server) => ({
           ...server,
-          ...scopeInfo('mcp', server.name, pluginIdForMcpServer(server.name, plugins)),
+          ...scopeInfo('mcp', server.name, server?.owner?.kind === 'plugin' ? clean(server.owner.id) : ''),
         })),
       };
     },

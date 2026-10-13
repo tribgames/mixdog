@@ -94,6 +94,15 @@ export function wireApis(boot) {
   });
   boot.lifecycleApi = lifecycleApiFor(boot);
   boot.resourceApi = resourceApiFor(boot);
+  // Plugin MCP servers are derived live; copies an earlier enable action wrote
+  // into mcpServers are adopted once (an injected headless config is left as is).
+  if (!boot.params.initialConfig || typeof boot.params.initialConfig !== 'object') {
+    try {
+      boot.resourceApi.migratePluginMcpCopies();
+    } catch (error) {
+      bootProfile('plugin-mcp:adopt-failed', { error: error?.message || String(error) });
+    }
+  }
   boot.disposeGlobalExtensionSubscription = () => {
     boot.disposeConfigSync?.();
     boot.resourceApi.disposeGlobalExtensionSubscription?.();
@@ -403,6 +412,8 @@ function resourceApiFor(boot) {
     normalizeMcpServerInput: boot.normalizeMcpServerInput,
     mcpStatus: boot.mcpStatus,
     getMcpServerConfig: boot.getMcpServerConfig,
+    resolveMcpCatalog: boot.resolveMcpCatalog,
+    pluginMcpServer: boot.pluginMcpServer,
     skillsStatus: boot.skillsStatus,
     skillContent: boot.skillContent,
     addGlobalSkill: boot.addGlobalSkill,

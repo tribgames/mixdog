@@ -80,7 +80,6 @@ for (const { name, manifest, expected } of [
         listRegisteredPlugins,
         pluginAdminStatus,
         pluginManifest,
-        pluginMcpServerName: (plugin) => `plugin-${plugin.id}`,
         countSkillFiles: () => 0,
         clean: (value) => String(value || '').trim(),
         resolve,

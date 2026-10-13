@@ -2,9 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolve, join } from 'node:path';
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-
 import {
   normalizeExtensionScopes,
   extensionScopeProjects,
@@ -13,9 +10,7 @@ import {
   mcpServerAllowedForCwd,
   filterMcpToolsForCwd,
   filterMcpToolsForSession,
-  registeredPluginIdentities,
   withExtensionScope,
-  pluginIdForMcpServer,
 } from './extension-scopes.mjs';
 import { _registerMcpServerForTest, disconnectAll, getMcpTools } from '../mcp/client.mjs';
 
@@ -53,48 +48,40 @@ test('skill scope and owning plugin scope both gate visibility', () => {
   assert.equal(skillAllowedForCwd(scopes, { name: 'free', owner: { kind: 'plugin', id: 'unity' } }, B), true);
 });
 
-test('MCP tools filter by server scope, cascading from the installing plugin', () => {
-  const plugins = [{ id: 'unity', name: 'Unity Tools' }];
-  assert.equal(pluginIdForMcpServer('plugin-unity-tools', plugins), 'unity');
-  assert.equal(pluginIdForMcpServer('plugin-unity-tools--editor', plugins), 'unity');
-  assert.equal(pluginIdForMcpServer('UnityMCP', plugins), '');
-  const scopes = normalizeExtensionScopes({ mcp: { UnityMCP: [B] }, plugins: { unity: [A] } });
+test('MCP tools filter by server scope intersected with the owning plugin scope', () => {
+  const scopes = normalizeExtensionScopes({
+    mcp: { UnityMCP: [B], 'plugin-unity-editor': [A, B] },
+    plugins: { unity: [A] },
+  });
   assert.equal(mcpServerAllowedForCwd(scopes, 'UnityMCP', A), false);
   assert.equal(mcpServerAllowedForCwd(scopes, 'UnityMCP', B), true);
-  assert.equal(mcpServerAllowedForCwd(scopes, 'plugin-unity-tools', B, { plugins }), false);
+  assert.equal(mcpServerAllowedForCwd(scopes, 'plugin-unity-editor', B, { pluginId: 'unity' }), false);
+  assert.equal(mcpServerAllowedForCwd(scopes, 'plugin-unity-editor', A, { pluginId: 'unity' }), true);
   const tools = [
     { name: 'read' },
     { name: 'mcp__UnityMCP__manage_scene' },
-    { name: 'mcp__plugin-unity-tools--editor__run' },
+    { name: 'mcp__plugin-unity-editor__run', mcpPluginId: 'unity' },
+    // Owner metadata, not the name, decides: a look-alike user server is free.
+    { name: 'mcp__plugin-unity-tools__run' },
     { name: 'mcp__demo__tool' },
   ];
   assert.deepEqual(
-    filterMcpToolsForCwd(tools, scopes, A, { plugins }).map((tool) => tool.name),
-    ['read', 'mcp__plugin-unity-tools--editor__run', 'mcp__demo__tool']
+    filterMcpToolsForCwd(tools, scopes, A).map((tool) => tool.name),
+    ['read', 'mcp__plugin-unity-editor__run', 'mcp__plugin-unity-tools__run', 'mcp__demo__tool']
   );
   assert.deepEqual(
-    filterMcpToolsForCwd(tools, scopes, B, { plugins }).map((tool) => tool.name),
-    ['read', 'mcp__UnityMCP__manage_scene', 'mcp__demo__tool']
+    filterMcpToolsForCwd(tools, scopes, B).map((tool) => tool.name),
+    ['read', 'mcp__UnityMCP__manage_scene', 'mcp__plugin-unity-tools__run', 'mcp__demo__tool']
   );
 });
 
-test('a live MCP registry is filtered per session cwd, cascading the plugin scope from registry.json', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-scope-data-'));
-  const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = dataDir;
+test('a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata', async () => {
   const scopeId = 'scope-test';
   try {
-    mkdirSync(join(dataDir, 'plugins'), { recursive: true });
-    writeFileSync(
-      join(dataDir, 'plugins', 'registry.json'),
-      JSON.stringify({
-        plugins: [{ id: 'unity', name: 'Unity Tools', root: dataDir, enabled: true }],
-      })
-    );
-    assert.deepEqual(registeredPluginIdentities(dataDir), [{ id: 'unity', name: 'Unity Tools' }]);
-
     _registerMcpServerForTest(scopeId, 'UnityMCP', [{ name: 'manage_scene' }]);
-    _registerMcpServerForTest(scopeId, 'plugin-unity-tools', [{ name: 'run' }]);
+    _registerMcpServerForTest(scopeId, 'plugin-unity-tools', [{ name: 'run' }], {
+      cfg: { _mixdogPlugin: { id: 'unity', key: 'tools' } },
+    });
     _registerMcpServerForTest(scopeId, 'demo', [{ name: 'tool' }]);
     const live = getMcpTools(scopeId);
     assert.ok(live.some((tool) => tool.name === 'mcp__UnityMCP__manage_scene'));
@@ -115,9 +102,6 @@ test('a live MCP registry is filtered per session cwd, cascading the plugin scop
     assert.equal(filterMcpToolsForSession(live, A, {}).length, live.length);
   } finally {
     await disconnectAll({ scopeId });
-    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previousDataDir;
-    rmSync(dataDir, { recursive: true, force: true });
   }
 });
 

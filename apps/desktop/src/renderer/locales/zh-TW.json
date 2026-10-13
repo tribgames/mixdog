@@ -2399,6 +2399,8 @@
   "Not used yet": "尚未使用",
   "Nothing has been logged yet.": "尚無記錄。",
   "Nothing installed by this plugin yet.": "此外掛尚未安裝任何內容。",
+  "MCP problem: {{message}}": "MCP 問題：{{message}}",
+  "Turn the plugin on to connect its MCP servers.": "開啟外掛後即可連線其 MCP 伺服器。",
   "Nothing is listening on the server.": "伺服器上沒有正在監聽的連接埠。",
   "Nothing to show.": "沒有可顯示的內容。",
   "Nothing was merged because the branches conflict.": "由於分支存在衝突，未合併任何內容。",

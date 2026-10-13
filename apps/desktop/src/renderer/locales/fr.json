@@ -2501,6 +2501,8 @@
   "Not used yet": "Pas encore utilisé",
   "Nothing has been logged yet.": "Rien n’a encore été journalisé.",
   "Nothing installed by this plugin yet.": "Ce plugin n'a encore rien installé.",
+  "MCP problem: {{message}}": "Problème MCP : {{message}}",
+  "Turn the plugin on to connect its MCP servers.": "Activez le plugin pour connecter ses serveurs MCP.",
   "Nothing is listening on the server.": "Rien n’écoute sur le serveur.",
   "Nothing to show.": "Rien à afficher.",
   "Nothing was merged because the branches conflict.": "Rien n'a été fusionné car les branches sont en conflit.",

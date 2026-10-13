@@ -3,33 +3,47 @@
 // (info / update / MCP / copy / uninstall) and the add-plugin prompt.
 import { readStatus, withScope } from './scope-note.mjs';
 
+// A plugin's MCP servers are derived from its declarations (`mcpServers` on
+// the status row); older hosts only report `mcpScript`/`mcpServerName`.
+const mcpNames = (p) =>
+  Array.isArray(p.mcpServers) ? p.mcpServers.map((server) => server.name) : p.mcpServerName ? [p.mcpServerName] : [];
+const hasMcp = (p) => mcpNames(p).length > 0 || Boolean(p.mcpScript || p.mcpInline);
+
+function serverState(server) {
+  if (server.serverEnabled === false) return 'off';
+  if (server.enabled === false) return 'plugin off';
+  return server.status || (server.connected ? 'connected' : 'disconnected');
+}
+
 const mcpSummary = (p) => {
-  if (!p.mcpScript) return '(none)';
-  const state = p.mcpEnabled ? 'enabled' : 'available';
-  return `${state} (${p.mcpServerName || 'plugin-mcp'})`;
+  if (!hasMcp(p))
+    return Array.isArray(p.mcpErrors) && p.mcpErrors.length ? `(invalid: ${p.mcpErrors[0].message})` : '(none)';
+  if (!Array.isArray(p.mcpServers)) return `${p.mcpEnabled ? 'enabled' : 'available'} (${mcpNames(p).join(', ')})`;
+  const errors =
+    Array.isArray(p.mcpErrors) && p.mcpErrors.length ? ` · ${p.mcpErrors.length} declaration error(s)` : '';
+  return `${p.mcpServers.map((server) => `${server.name} ${serverState(server)}`).join(', ')}${errors}`;
 };
 
 function mcpActionItem(p) {
-  if (!p.mcpScript) {
+  if (!hasMcp(p)) {
     return {
       value: 'enable-mcp',
-      label: 'No MCP script',
-      description: 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
+      label: 'No MCP server',
+      description: 'plugin declares no MCP servers (.mcp.json or manifest mcpServers)',
       _action: 'noop',
     };
   }
   return {
     value: 'enable-mcp',
-    label: p.mcpEnabled ? 'Refresh MCP server' : 'Enable MCP server',
-    description: `${p.mcpServerName || 'plugin-mcp'} · ${p.mcpEnabled ? 'configured' : p.mcpScript}`,
+    label: p.mcpEnabled ? 'Reconnect MCP servers' : 'Enable MCP servers',
+    description: `${mcpNames(p).join(', ') || 'plugin MCP'} · ${p.mcpEnabled ? 'on' : 'turned off'}`,
     _action: 'enable-mcp',
   };
 }
 
 function pluginSummary(plugin) {
   const version = plugin.version ? ` · ${plugin.version}` : '';
-  const mcpState = plugin.mcpEnabled ? 'enabled' : plugin.mcpScript;
-  const mcp = plugin.mcpScript ? ` · mcp ${mcpState}` : '';
+  const mcp = hasMcp(plugin) ? ` · mcp ${mcpNames(plugin).length || 1}${plugin.mcpEnabled ? '' : ' off'}` : '';
   const warning = plugin.warning ? ` · ⚠ ${plugin.warning}` : '';
   return `${plugin.sourceType || plugin.source}${version} · skills ${plugin.skillCount || 0}${mcp}${warning}`;
 }
@@ -70,9 +84,9 @@ const pluginDetailItems = (p) => [
   },
   {
     value: 'copy-mcp-name',
-    label: p.mcpScript ? 'Copy MCP server name' : 'No MCP server name',
-    description: p.mcpServerName || '',
-    _action: p.mcpScript ? 'copy-mcp-name' : 'noop',
+    label: mcpNames(p).length ? 'Copy MCP server name' : 'No MCP server name',
+    description: mcpNames(p).join(', '),
+    _action: mcpNames(p).length ? 'copy-mcp-name' : 'noop',
   },
   {
     value: 'uninstall',
@@ -129,7 +143,7 @@ export function createPluginsPickers({
           void store
             .enablePluginMcp?.(p)
             .then(own.defer(() => openMcpPicker()))
-            .catch((e) => store.pushNotice(`plugin MCP enable failed: ${e?.message || e}`, 'error'));
+            .catch((e) => store.pushNotice(`plugin MCP reconnect failed: ${e?.message || e}`, 'error'));
           return;
         }
         if (detail._action === 'copy-root') {
@@ -137,7 +151,7 @@ export function createPluginsPickers({
           return;
         }
         if (detail._action === 'copy-mcp-name') {
-          copyText(p.mcpServerName || '', `copied plugin MCP server: ${p.mcpServerName}`);
+          copyText(mcpNames(p).join(', '), `copied plugin MCP server: ${mcpNames(p).join(', ')}`);
           return;
         }
         if (detail._action === 'uninstall') {

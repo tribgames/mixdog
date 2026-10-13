@@ -21,7 +21,8 @@ export function createNewSessionConfig({
     await flushPendingSessionConfigWrites();
     await sharedCfgMod.pendingConfigWrites();
     sharedCfgMod.invalidateConfigReadCache();
-    const previousMcp = rt.config.mcpServers;
+    const mcpSettings = () => [rt.config.mcpServers, rt.config.pluginMcp];
+    const previousMcp = mcpSettings();
     // Headless callers inject a deliberately isolated config. Never replace
     // their explicit policy with the interactive profile on disk.
     if (!initialConfig || typeof initialConfig !== 'object') {
@@ -34,7 +35,7 @@ export function createNewSessionConfig({
     invalidatePreSessionToolSurface();
     invalidateSkills();
     await configureEmbedding(sharedCfgMod.readSection('memory')?.embedding || {});
-    if (!firstSession || !isDeepStrictEqual(previousMcp, rt.config.mcpServers)) {
+    if (!firstSession || !isDeepStrictEqual(previousMcp, mcpSettings())) {
       // Reused runtimes may still own old connections. This reset is scoped to
       // the runtime that is constructing the new session, not to its peers.
       await connectConfiguredMcp({ reset: true });

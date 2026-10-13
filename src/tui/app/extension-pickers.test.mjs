@@ -242,8 +242,12 @@ test('Plugins: menu → installed list → detail actions (info, copy, update, M
     sourceUrl: 'https://example.test/demo',
     skillCount: 2,
     root: 'C:/plugins/demo',
-    mcpScript: 'mcp/server.mjs',
-    mcpServerName: 'demo-mcp',
+    mcpScript: '.mcp.json',
+    mcpServerName: 'plugin-demo',
+    mcpEnabled: false,
+    mcpServers: [
+      { name: 'plugin-demo', key: 'demo', enabled: false, serverEnabled: false, connected: false, status: 'disabled' },
+    ],
     description: 'A demo plugin',
   };
   const updated = [];
@@ -271,7 +275,7 @@ test('Plugins: menu → installed list → detail actions (info, copy, update, M
   await h.openInstalledPluginsPicker();
   await flush();
   assert.equal(h.current().title, 'Installed plugins');
-  assert.equal(h.row('demo:1.2.0').description, 'git · 1.2.0 · skills 2 · mcp mcp/server.mjs');
+  assert.equal(h.row('demo:1.2.0').description, 'git · 1.2.0 · skills 2 · mcp 1 off');
   h.select(h.row('demo:1.2.0'));
   const detail = h.current();
   assert.equal(detail.title, 'Demo');
@@ -286,12 +290,12 @@ test('Plugins: menu → installed list → detail actions (info, copy, update, M
       ['uninstall', 'uninstall'],
     ]
   );
-  assert.equal(h.row('enable-mcp').label, 'Enable MCP server');
+  assert.equal(h.row('enable-mcp').label, 'Enable MCP servers');
 
   h.select(h.row('info'));
   assert.match(
     h.notices.at(-1)[0],
-    /^Demo 1\.2\.0\nsource: git \/ https:\/\/example\.test\/demo\nskills: 2\nmcp: available \(demo-mcp\)/
+    /^Demo 1\.2\.0\nsource: git \/ https:\/\/example\.test\/demo\nskills: 2\nmcp: plugin-demo off/
   );
   assert.match(h.notices.at(-1)[0], /applies to: all projects\nroot: C:\/plugins\/demo\n\nA demo plugin$/);
 
@@ -314,10 +318,10 @@ test('Plugins: menu → installed list → detail actions (info, copy, update, M
   assert.equal(h.current()._kind, 'mcp-servers');
 });
 
-test('a plugin without an MCP script shows the no-op MCP rows', async () => {
+test('a plugin without MCP servers shows the no-op MCP rows', async () => {
   const h = createHarness({ store: { pluginsStatus: async () => ({ count: 0, plugins: [] }) } });
-  h.openPluginDetailPicker({ name: 'bare', sourceType: 'local', source: 'local', root: '/p' });
-  assert.equal(h.row('enable-mcp').label, 'No MCP script');
+  h.openPluginDetailPicker({ name: 'bare', sourceType: 'local', source: 'local', root: '/p', mcpServers: [] });
+  assert.equal(h.row('enable-mcp').label, 'No MCP server');
   assert.equal(h.row('enable-mcp')._action, 'noop');
   assert.equal(h.row('copy-mcp-name')._action, 'noop');
   assert.equal(h.row('update').label, 'Refresh metadata');

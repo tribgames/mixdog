@@ -2,6 +2,7 @@
 // (signature + stub) and the edit-progress classification.
 // Pure string/signature helpers; the loop body only wires state + messages.
 // No provider/manager coupling.
+import { knownMcpToolIdentity } from '../../../../shared/tool-primitives.mjs';
 
 // Deterministic, key-sorted stringify for cross-turn call signatures (recursive,
 // unlike tool-classify's top-level-only _canonicalArgs).
@@ -43,7 +44,7 @@ const NON_PROGRESS_TOOLS = new Set(['Skill', 'recall', 'agent', 'task', 'cwd', '
 // not in the meta/non-progress set. apply_patch and shell/bash always count.
 export function isEditProgressTool(name, isEager) {
   if (isEager) return false;
-  const bare = name?.startsWith('mcp__') ? name.split('__').pop() : name;
+  const bare = name?.startsWith('mcp__') ? knownMcpToolIdentity(name)?.tool || name.split('__').pop() : name;
   if (bare === 'apply_patch' || bare === 'shell' || bare === 'bash' || bare === 'bash_session') return true;
   return !NON_PROGRESS_TOOLS.has(bare);
 }

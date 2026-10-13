@@ -35,6 +35,7 @@ class FakeWsTransport extends FakeTransport {
   constructor(...args) {
     super('ws', ...args);
   }
+  start() {}
 }
 
 let behavior = {};
@@ -171,7 +172,7 @@ test('a malformed listTools shape closes the client before the connect fails', a
   assert.equal(clients[0].closed, true);
 });
 
-test('remote transports receive the normalized URL; headers reach HTTP and SSE but never WebSocket', async () => {
+test('remote transports receive the normalized URL; headers reach HTTP, SSE and WebSocket', async () => {
   const scopeId = freshScope();
   behavior = { capabilities: { tools: {} } };
   await connectMcpServers(

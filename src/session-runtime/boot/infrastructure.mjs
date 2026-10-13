@@ -7,11 +7,7 @@ import { createStandaloneHookBus } from '../services/hook-bus.mjs';
 import { updateCurrentCwdOverride, writeLastSessionCwd } from '../../runtime/shared/user-cwd.mjs';
 import { listRegisteredPlugins, pluginAdminStatus } from '../services/plugin-admin.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import {
-  countSkillFiles,
-  pluginManifest,
-  pluginMcpServerName,
-} from '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
+import { countSkillFiles, pluginManifest } from '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
 import { createSelfUpdateController } from '../self-update.mjs';
@@ -41,20 +37,30 @@ function wireMcp(boot) {
     mcpConnectGeneration: 0,
     mcpConnectInFlight: null,
   };
-  const { mcpStatus, getMcpServerConfig, connectConfiguredMcp, awaitInitialMcpConnect, normalizeMcpServerInput } =
-    createMcpGlue({
-      mcpClient,
-      getConfig: () => rt.config,
-      getCurrentCwd: () => rt.currentCwd,
-      getMcpScopeId: () => rt.mcpScopeId,
-      getDesktopSession: () => rt.desktopSession,
-      setDesktopSession: (v) => {
-        rt.desktopSession = v;
-      },
-      state: mcpState,
-    });
+  const {
+    mcpStatus,
+    resolveMcpCatalog,
+    pluginMcpServer,
+    pluginMcpSummary,
+    getMcpServerConfig,
+    connectConfiguredMcp,
+    awaitInitialMcpConnect,
+    normalizeMcpServerInput,
+  } = createMcpGlue({
+    mcpClient,
+    getConfig: () => rt.config,
+    getCurrentCwd: () => rt.currentCwd,
+    getMcpScopeId: () => rt.mcpScopeId,
+    // Plugin-declared servers are derived from the registry on every resolve.
+    getPluginDataDir: () => dataDirOf(boot.cfgMod),
+    listPlugins: () => listRegisteredPlugins({ dataDir: boot.cfgMod.getPluginData() }),
+    state: mcpState,
+  });
   Object.assign(boot, {
     mcpStatus,
+    resolveMcpCatalog,
+    pluginMcpServer,
+    pluginMcpSummary,
     getMcpServerConfig,
     connectConfiguredMcp,
     awaitInitialMcpConnect,
@@ -250,7 +256,12 @@ function wireCwdPlugins(boot) {
     listRegisteredPlugins,
     pluginAdminStatus,
     pluginManifest,
-    pluginMcpServerName,
+    pluginMcpSummary: boot.pluginMcpSummary,
+    // Plugin MCP servers without a declared cwd follow this runtime's cwd:
+    // reconnect just those (and refresh advertised roots) in place.
+    onCwdChanged: () => {
+      void boot.connectConfiguredMcp({ reconcile: true }).catch(() => {});
+    },
     countSkillFiles,
     writeLastSessionCwd,
     updateCurrentCwdOverride,

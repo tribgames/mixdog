@@ -30,7 +30,7 @@ export function resolveContainedPluginPath(root, rel) {
   const base = resolve(root);
   const abs = resolve(base, trimmed);
   const relToBase = relative(base, abs);
-  if (relToBase.startsWith('..') || isAbsolute(relToBase)) return null;
+  if (relToBase.split(/[\\/]/)[0] === '..' || isAbsolute(relToBase)) return null;
   return abs;
 }
 

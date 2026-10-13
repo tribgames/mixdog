@@ -279,7 +279,9 @@ test('MCP startup/tool timeouts round-trip through add and save', async (t) => {
   await run(api, { action: 'save_mcp_server', server: { name: 'slow', toolTimeoutSec: 5 } });
   assert.equal(getConfig().mcpServers.slow.timeoutMs, 5000);
   assert.equal(getConfig().mcpServers.slow.startupTimeoutSec, 30);
-  await assert.rejects(run(api, { action: 'add_mcp_server', server: { name: 'bad', command: 'node', toolTimeoutSec: -1 } }));
+  await assert.rejects(
+    run(api, { action: 'add_mcp_server', server: { name: 'bad', command: 'node', toolTimeoutSec: -1 } })
+  );
 });
 
 test('saving a timeout replaces conflicting aliases; unrelated saves keep disabled timeouts', async (t) => {
@@ -299,13 +301,15 @@ test('saving a timeout replaces conflicting aliases; unrelated saves keep disabl
 test('adding, removing or reconnecting one MCP server only addresses that server', async (t) => {
   const { api, calls } = mcpScopedFixture(t, { keep: { command: 'node' }, other: { command: 'node' } });
   await run(api, { action: 'add_mcp_server', server: { name: 'fresh', command: 'node' } });
-  assert.deepEqual(calls, [{ only: 'fresh', enabled: true }]);
+  // Each scoped change ends with a reconcile, which reconnects only servers
+  // whose resolved config changed.
+  assert.deepEqual(calls, [{ only: 'fresh', enabled: true }, { reconcile: true }]);
   calls.length = 0;
   await run(api, { action: 'reconnect_mcp', name: 'other' });
-  assert.deepEqual(calls, [{ only: 'other', enabled: true }]);
+  assert.deepEqual(calls, [{ only: 'other', enabled: true }, { reconcile: true }]);
   calls.length = 0;
   await run(api, { action: 'remove_mcp_server', name: 'fresh' });
-  assert.deepEqual(calls, [{ only: 'fresh', enabled: false }]);
+  assert.deepEqual(calls, [{ only: 'fresh', enabled: false }, { reconcile: true }]);
   calls.length = 0;
   await run(api, { action: 'reconnect_mcp' });
   assert.deepEqual(calls, [{ reset: true }]);
