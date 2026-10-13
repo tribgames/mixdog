@@ -376,6 +376,20 @@ test('a stored rail order drops the retired Studio launcher id on load', () => {
   });
 });
 
+test('a stored rail order drops the removed background-jobs view id on load', () => {
+  const layout = normalizeWorkbenchSideViewLayout(
+    {
+      left: [['sessions'], ['background-jobs']],
+      right: [['session-diff'], ['background-jobs'], ['browser']],
+    },
+    ['sessions', 'session-diff', 'browser']
+  );
+  assert.deepEqual(layout, {
+    left: [['sessions']],
+    right: [['session-diff'], ['browser']],
+  });
+});
+
 test('dragging a combined pane label reorders it within the group', () => {
   const layout = {
     left: [['projects', 'search', 'extensions']],

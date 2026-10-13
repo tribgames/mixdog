@@ -5,7 +5,6 @@ import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DesktopTitlebar, type NavigationSelection } from './navigation';
 import { usePaneWorkspace } from './pane-workspace-state';
-import { requestBackgroundJobsTab } from './background-jobs-tab-store';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import type { ExtensionsSection } from './extension-sections';
 import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
@@ -644,18 +643,10 @@ export function App() {
     (leafId: string) => selectWorkbenchSideView('session-diff', leafId),
     [selectWorkbenchSideView]
   );
-  const openBackgroundJobsInSideDock = useCallback(
-    (leafId: string, sessionId: string, kind: 'agent' | 'shell') => {
-      requestBackgroundJobsTab(sessionId, kind);
-      selectWorkbenchSideView('background-jobs', leafId);
-    },
-    [selectWorkbenchSideView]
-  );
   const sideDockRoutes = paneSideDockLinkRoutes(workbenchSideLayout.layout.right, {
     openFileInSideDock,
     openFolderInSideDock: paneSideDocks.openFolder,
     openSessionDiffInSideDock,
-    openBackgroundJobsInSideDock,
     openPreviewToSide,
   });
   // A server window reveals files in the focused pane's Files tree.
@@ -695,7 +686,6 @@ export function App() {
     openFileInSideDock: sideDockRoutes.openFileInSideDock,
     openFolderInSideDock: sideDockRoutes.openFolderInSideDock,
     openSessionDiffInSideDock: sideDockRoutes.openSessionDiffInSideDock,
-    openBackgroundJobsInSideDock: sideDockRoutes.openBackgroundJobsInSideDock,
     openAgentSession: dockOpenAgentSession,
   });
 

@@ -47,7 +47,7 @@ export function useSideViewPrefetch(
         void prefetchTerminalPane().catch(() => {});
         return;
       }
-      if (id === 'background-jobs' || id === 'visualize' || id === 'ports') return;
+      if (id === 'visualize' || id === 'ports') return;
       if (id === 'session-diff') {
         void prefetchDiffView().catch(() => {});
         return;

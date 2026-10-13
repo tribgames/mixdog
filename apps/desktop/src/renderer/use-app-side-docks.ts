@@ -48,7 +48,6 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       // The Ports panel belongs to server windows.
       ...(isSshConnectionWindow() ? ['ports' as const] : []),
       'session-diff' as const,
-      'background-jobs' as const,
       ...(visualizeAvailable ? ['visualize' as const] : []),
       ...(browserFeatureInstalled ? ['browser' as const] : []),
       'terminal' as const,

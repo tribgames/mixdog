@@ -35,12 +35,9 @@ export function PaneDockToggles({
   onSelect(id: WorkbenchSideViewId): void;
   onClose(): void;
 }) {
-  // Background jobs open from the composer island's jobs list, not the strip.
   const roots = groups
     .map((group) => group[0])
-    .filter(
-      (root): root is WorkbenchSideViewId => root !== undefined && root !== 'background-jobs' && descriptors.has(root)
-    );
+    .filter((root): root is WorkbenchSideViewId => root !== undefined && descriptors.has(root));
   const filesLabel = t('Files');
   const { isVisible, menuProps, menu } = useDockVisibilityMenu(
     [

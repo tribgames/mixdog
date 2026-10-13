@@ -21,7 +21,6 @@ test('the phone/web (remote) renderer routes file, folder, diff and jobs links i
       openFileInSideDock: record('file'),
       openFolderInSideDock: record('folder'),
       openSessionDiffInSideDock: record('diff'),
-      openBackgroundJobsInSideDock: record('jobs'),
       openPreviewToSide: record('preview'),
     };
     const routes = paneSideDockLinkRoutes([['session-diff'], ['terminal']], handlers);
@@ -50,7 +49,6 @@ test('the phone/web (remote) renderer routes file, folder, diff and jobs links i
     props.onOpenFile('/p', 'src/a.ts', 3);
     props.onOpenFolder('/p', 'src');
     props.onOpenSessionDiff();
-    assert.equal(props.onOpenBackgroundJobs, undefined, 'the island lists jobs itself, not in the side dock');
     assert.deepEqual(calls, [
       ['file', 'leaf-9', '/p', 'src/a.ts', 3, undefined],
       ['folder', 'leaf-9', '/p', 'src'],

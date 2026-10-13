@@ -1208,7 +1208,7 @@ export function PaneSideDock({
   const sessionDiffPanelShowing =
     openNow &&
     entry.surface === '' &&
-    (entry.view === 'session-diff' || entry.view === 'background-jobs' || entry.view === 'visualize');
+    (entry.view === 'session-diff' || entry.view === 'visualize');
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
     useDockWidthPrefs();

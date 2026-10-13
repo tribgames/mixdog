@@ -7,7 +7,6 @@ import type { usePaneWorkspace } from '../pane-workspace-state';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from '../sidebar-view-layout';
 import type { SidebarPanelKey } from '../app-shell-components';
 import { requestPaneDockClose } from '../pane-dock-chrome';
-import { BackgroundJobsPane } from '../BackgroundJobsPane';
 import { SessionDiffPane } from '../SessionDiffPane';
 import { VisualizePane } from '../VisualizePane';
 import { ServerPortsPanel } from '../ServerPortsPanel';
@@ -231,17 +230,6 @@ export function useAppWorkbenchViews({
           active={active}
           onClose={() => requestPaneDockClose('session-diff')}
           onOpenFile={pane.projectPath ? (rel) => openFileTab(pane.projectPath, rel) : undefined}
-        />
-      );
-    }
-    if (id === 'background-jobs') {
-      if (!pane) return null;
-      return (
-        <BackgroundJobsPane
-          sessionId={pane.sessionId}
-          active={active}
-          onClose={() => requestPaneDockClose('background-jobs')}
-          onOpenAgentSession={dockOpenAgentSession}
         />
       );
     }

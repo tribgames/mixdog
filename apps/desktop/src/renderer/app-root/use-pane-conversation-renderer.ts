@@ -51,7 +51,6 @@ export function usePaneConversationRenderer(options: RendererOptions) {
       options.openFileInSideDock,
       options.openFolderInSideDock,
       options.openSessionDiffInSideDock,
-      options.openBackgroundJobsInSideDock,
       options.openAgentSession,
       options.replaceWithInheritedSession,
     ]
