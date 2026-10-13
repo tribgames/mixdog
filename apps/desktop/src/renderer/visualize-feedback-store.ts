@@ -152,6 +152,19 @@ function storedImage(value: unknown): VisualizePinImage | undefined {
 /** A stored pin in today's shape: one written before `target` existed
  *  (`element` / `region`, a `tag#id.class` label) is converted and relabelled;
  *  anything that cannot be a pin of a commentable pane is dropped (null). */
+function storedCurrentTarget(current: Record<string, unknown>, page: boolean) {
+  if (current.type === 'element') return storedElement(current, current.path);
+  if (current.type === 'region') return storedRegion(current, page);
+  return null;
+}
+
+function storedLegacyTarget(raw: Record<string, unknown>) {
+  const legacyElement = record(raw.element);
+  if (legacyElement) return storedElement(legacyElement, []);
+  const legacyRegion = record(raw.region);
+  return legacyRegion ? storedRegion(legacyRegion, false) : null;
+}
+
 export function visualizeStoredPin(value: unknown): VisualizePin | null {
   const raw = record(value);
   if (!raw) return null;
@@ -163,19 +176,7 @@ export function visualizeStoredPin(value: unknown): VisualizePin | null {
   const kind = visualizeCommentKind(paneKind);
   if (!kind) return null;
   const current = record(raw.target);
-  const legacyElement = record(raw.element);
-  const legacyRegion = record(raw.region);
-  const target = current
-    ? current.type === 'element'
-      ? storedElement(current, current.path)
-      : current.type === 'region'
-        ? storedRegion(current, kind.page)
-        : null
-    : legacyElement
-      ? storedElement(legacyElement, [])
-      : legacyRegion
-        ? storedRegion(legacyRegion, false)
-        : null;
+  const target = current ? storedCurrentTarget(current, kind.page) : storedLegacyTarget(raw);
   if (!target || !kind.select.includes(target.type)) return null;
   let label = current && typeof raw.label === 'string' && raw.label ? raw.label : '';
   if (!label) {

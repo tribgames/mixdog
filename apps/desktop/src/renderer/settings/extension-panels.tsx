@@ -156,9 +156,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
   useEffect(() => {
     latestMcp.current = data.mcp;
     setRemoved((current) => {
-      const next = new Map(
-        [...current].filter(([, seen]) => seen === REMOVAL_IN_FLIGHT || seen === data.mcp)
-      );
+      const next = new Map([...current].filter(([, seen]) => seen === REMOVAL_IN_FLIGHT || seen === data.mcp));
       return next.size === current.size ? current : next;
     });
   }, [data.mcp]);
@@ -417,6 +415,12 @@ function SkillsPanel({ api, data, pending, run, refreshExtensions, createOpen, c
   );
 }
 
+function pluginRowStatus(enabled: boolean, warning: boolean) {
+  if (!enabled) return { label: t('Disabled'), tone: 'muted' as const };
+  if (warning) return { label: t('No skills found.'), tone: 'warn' as const };
+  return null;
+}
+
 function pluginSkillRows(data: PanelContext['data'], pluginId: string): RecordValue[] {
   return rows(record(data.skills), 'skills').filter(
     (skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === pluginId
@@ -614,16 +618,7 @@ function PluginDetailDialog({
   );
 }
 
-function PluginsPanel({
-  api,
-  data,
-  pending,
-  run,
-  confirm,
-  refreshExtensions,
-  createOpen,
-  closeCreate,
-}: PanelContext) {
+function PluginsPanel({ api, data, pending, run, confirm, refreshExtensions, createOpen, closeCreate }: PanelContext) {
   const { openSkillTools, skillToolsDialog } = useSkillToolLinks({ data, pending, run });
   const status = record(data.plugins);
   const plugins = rows(status, 'plugins');
@@ -690,13 +685,7 @@ function PluginsPanel({
             icon={<Blocks size={16} aria-hidden="true" />}
             title={label(plugin)}
             description={description}
-            status={
-              !enabled
-                ? { label: t('Disabled'), tone: 'muted' }
-                : plugin.warning
-                  ? { label: t('No skills found.'), tone: 'warn' }
-                  : null
-            }
+            status={pluginRowStatus(enabled, Boolean(plugin.warning))}
             enabled={enabled}
             busy={busy}
             onOpen={() => setOpenId(id)}

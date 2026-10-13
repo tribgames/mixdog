@@ -397,11 +397,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
         {loadError && <ErrorNotice error={loadError} role="status" onRetry={() => void load(true)} />}
         <CategoryPanel category={category} context={context} />
         {confirmation && (
-          <SettingsConfirmDialog
-            options={confirmation}
-            portal={portalConfirm}
-            onClose={() => setConfirmation(null)}
-          />
+          <SettingsConfirmDialog options={confirmation} portal={portalConfirm} onClose={() => setConfirmation(null)} />
         )}
       </div>
     </PaneSurfaceGate>

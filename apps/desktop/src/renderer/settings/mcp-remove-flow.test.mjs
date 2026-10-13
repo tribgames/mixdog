@@ -76,7 +76,9 @@ const rowNames = () =>
 async function removeFromMenu(name) {
   const row = document.querySelector(`[data-extension-row="${name}"]`);
   await act(async () => {
-    row.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+    row.dispatchEvent(
+      new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+    );
   });
   await act(async () => {
     document.querySelector('[role="menu"] [data-action-id="remove"]').click();
@@ -90,7 +92,13 @@ test('a sidebar confirmation renders outside its host so the sidebar cannot clip
   let closed = 0;
   const view = await mount(
     React.createElement(SettingsConfirmDialog, {
-      options: { title: 'Remove MCP server?', description: 'rea', confirmLabel: 'Remove', danger: true, onConfirm() {} },
+      options: {
+        title: 'Remove MCP server?',
+        description: 'rea',
+        confirmLabel: 'Remove',
+        danger: true,
+        onConfirm() {},
+      },
       onClose: () => {
         closed += 1;
       },
@@ -145,8 +153,12 @@ test('removing an MCP server from the row menu hides its row at once and calls r
     });
     assert.deepEqual(rowNames(), ['webdocs']);
     // The re-read no longer lists it; a later server with that name shows again.
-    await act(async () => view.root.render(skillsPanel({ run: async () => undefined, confirm() {}, mcpServers: [servers[1]] })));
-    await act(async () => view.root.render(skillsPanel({ run: async () => undefined, confirm() {}, mcpServers: servers })));
+    await act(async () =>
+      view.root.render(skillsPanel({ run: async () => undefined, confirm() {}, mcpServers: [servers[1]] }))
+    );
+    await act(async () =>
+      view.root.render(skillsPanel({ run: async () => undefined, confirm() {}, mcpServers: servers }))
+    );
     assert.deepEqual(rowNames(), ['rea', 'webdocs']);
   } finally {
     await view.cleanup();

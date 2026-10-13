@@ -115,7 +115,8 @@ test('the island files segment appears only once the session diff read finds cha
     });
     const answerSession = (files) =>
       act(async () => {
-        for (const resolve of sessionPending.splice(0)) resolve({ value: { ...response(files).value, checkpointId: '' } });
+        for (const resolve of sessionPending.splice(0))
+          resolve({ value: { ...response(files).value, checkpointId: '' } });
       });
     await act(async () => pending.shift()(response([])));
     assert.equal(pending.length, 1);
@@ -184,7 +185,7 @@ test('the island slot belongs to one session: a switch starts a fresh slot inste
 });
 
 test('a transcript tail without its prompt row keeps the turn review of that turn', async (t) => {
-  const { root, document, window } = mount(t);
+  const { root, window } = mount(t);
   await import('./TurnReview');
   const pending = [];
   // Only the turn review read is observed; the session diff is left unanswered.

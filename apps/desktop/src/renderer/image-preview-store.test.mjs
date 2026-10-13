@@ -77,7 +77,12 @@ const asIs = async (dataUrl) => dataUrl;
 
 test('a row with an attachmentRef and no live preview fetches the thumbnail and caches it', async () => {
   const calls = stubHost(async () => url('F'));
-  const item = { kind: 'user', id: 'u-f', text: 'hi', images: [{ id: 1, bytes: 4, name: 'f.png', attachmentRef: 'ref-f' }] };
+  const item = {
+    kind: 'user',
+    id: 'u-f',
+    text: 'hi',
+    images: [{ id: 1, bytes: 4, name: 'f.png', attachmentRef: 'ref-f' }],
+  };
   assert.doesNotMatch(renderRow('chat-f', item), /<img/);
   assert.equal(await loadAttachmentThumbnail('chat-f', 'ref-f', asIs), url('F'));
   assert.deepEqual(calls, ['ref-f']);

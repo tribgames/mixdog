@@ -421,16 +421,15 @@ export function transcriptRowNode(
     !snapshot.busy &&
     Boolean(latestCompletion) &&
     (row.completion === latestCompletion || row.item === latestCompletion);
+  const sessionId = String(snapshot.sessionId || '').trim();
+  const turnIdentity = submissionIdentity(row.turnKey);
   const assistantProps: TranscriptAssistantRowProps = {
     item: row.item,
     live: Boolean(row.live),
     completion: row.completion,
     backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
-    animateComplete: hadLiveActivity(String(snapshot.sessionId || '').trim(), submissionIdentity(row.turnKey)),
-    completionActivityKey: completionActivityKey(
-      String(snapshot.sessionId || '').trim(),
-      submissionIdentity(row.turnKey)
-    ),
+    animateComplete: hadLiveActivity(sessionId, turnIdentity),
+    completionActivityKey: completionActivityKey(sessionId, turnIdentity),
     disclosureScope,
   };
   const assistant = renderAssistantRow ? (

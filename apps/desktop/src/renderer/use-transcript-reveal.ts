@@ -76,9 +76,7 @@ export function useTranscriptReveal({
       const current = JSON.stringify(signature);
       const chromePending = Boolean(scope?.current?.querySelector('[data-entry-pending]'));
       const pending =
-        space.querySelector('[data-transcript-pending]') ||
-        chromePending ||
-        document.fonts?.status === 'loading';
+        space.querySelector('[data-transcript-pending]') || chromePending || document.fonts?.status === 'loading';
       const atEnd = position.maxScrollTop - top <= 1;
       const readerOwnsPosition = hasScrollGesture();
       const settled = visible > 0 && !pending && (atEnd || readerOwnsPosition) && current === previous;

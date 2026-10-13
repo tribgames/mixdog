@@ -140,7 +140,9 @@ async function mountTranscript(heights, sessionKey, gesture = () => false, touch
   };
   /** The row space's held touch offset (its translateY, negated). */
   const deviation = () => {
-    const match = /translateY\((-?[\d.]+)px\)/.exec(viewport.querySelector('.transcript-virtual-space')?.style.transform);
+    const match = /translateY\((-?[\d.]+)px\)/.exec(
+      viewport.querySelector('.transcript-virtual-space')?.style.transform
+    );
     return match ? -Number(match[1]) : 0;
   };
   /** The first row in view that `keys` carries, and its offset from the top. */

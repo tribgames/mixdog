@@ -185,46 +185,6 @@ export function useTranscriptFollow({
     jumpPinSettled.current = 0;
   }, []);
 
-  // Session switch: the viewport element survives while the timeline remounts
-  // for the new session. Offsets, distances, and programmatic writes from the
-  // previous session must not judge the new session's first frames — a stale
-  // baseline made the entry scroll read as a reader leave (or a return) and
-  // the transcript visibly jumped on every tab switch. Never writes scrollTop:
-  // the virtual timeline owns the entry position.
-  const resetSessionKey = useRef(sessionKey);
-  useEffect(() => {
-    if (resetSessionKey.current === sessionKey) return;
-    resetSessionKey.current = sessionKey;
-    cancelJumpPin();
-    programmatic.current = [];
-    gestureAt.current = 0;
-    readerMotionAt.current = 0;
-    touchGesture.current = undefined;
-    touchLatched.current = false;
-    touchDown.current = false;
-    touchScrollAt.current = 0;
-    pointerGesture.current = undefined;
-    pointerDragging.current = false;
-    chromeScroll.current = false;
-    const element = viewport.current;
-    if (element) {
-      try {
-        const metrics = scrollMetrics(element);
-        lastTop.current = metrics.top;
-        lastNativeTop.current = metrics.top - transcriptScrollDeviation(element);
-        lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
-        lastDistance.current = distanceFromBottom(metrics);
-      } catch {
-        /* layout only */
-      }
-    } else {
-      lastNativeTop.current = 0;
-      lastTop.current = 0;
-      lastScrollHeight.current = 0;
-      lastDistance.current = 0;
-    }
-  }, [cancelJumpPin, sessionKey, viewport]);
-
   /** The jump owns the viewport only until the reader asks for it back. */
   const markGesture = useCallback(() => {
     cancelJumpPin();
@@ -245,6 +205,39 @@ export function useTranscriptFollow({
     pointerDragging.current = false;
     chromeScroll.current = false;
   }, []);
+
+  // Session switch: the viewport element survives while the timeline remounts
+  // for the new session. Offsets, distances, and programmatic writes from the
+  // previous session must not judge the new session's first frames — a stale
+  // baseline made the entry scroll read as a reader leave (or a return) and
+  // the transcript visibly jumped on every tab switch. Never writes scrollTop:
+  // the virtual timeline owns the entry position.
+  const resetSessionKey = useRef(sessionKey);
+  useEffect(() => {
+    if (resetSessionKey.current === sessionKey) return;
+    resetSessionKey.current = sessionKey;
+    cancelJumpPin();
+    programmatic.current = [];
+    clearReaderGesture();
+    const element = viewport.current;
+    if (element) {
+      try {
+        const metrics = scrollMetrics(element);
+        lastTop.current = metrics.top;
+        lastNativeTop.current = metrics.top - transcriptScrollDeviation(element);
+        lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
+        lastDistance.current = distanceFromBottom(metrics);
+      } catch {
+        /* layout only */
+      }
+    } else {
+      lastNativeTop.current = 0;
+      lastTop.current = 0;
+      lastScrollHeight.current = 0;
+      lastDistance.current = 0;
+    }
+  }, [cancelJumpPin, clearReaderGesture, sessionKey, viewport]);
+
   const hasGesture = useCallback(() => Date.now() - gestureAt.current < GESTURE_WINDOW_MS, []);
   const markReaderMotion = useCallback(() => {
     readerMotionAt.current = Date.now();

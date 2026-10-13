@@ -124,23 +124,21 @@ export function useAppSubmitRouting({
         // The draft's "Worktree" choice rides with its first prompt; it is
         // given back when the task was not started, so a retry keeps it.
         try {
-          const result = (await sendDraftWithWorktreeIntent(
-            draftPrefsKey,
-            (choice) =>
-              host.submitNewTask(content, options, {
-                ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
-                ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
-                ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
-                ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
-                ...(choice ? { worktree: choice } : {}),
-              })
+          const result = (await sendDraftWithWorktreeIntent(draftPrefsKey, (choice) =>
+            host.submitNewTask(content, options, {
+              ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
+              ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
+              ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
+              ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
+              ...(choice ? { worktree: choice } : {}),
+            })
           )) ?? { accepted: false, sessionId: '', snapshot: null };
           accepted = result.accepted;
           startedSessionId = result.accepted ? String(result.sessionId || '') : '';
           if (result.accepted && !startedSessionId) {
             throw new Error('New task submission was accepted without a session id.');
           }
-          if (result.accepted && startedSessionId) {
+          if (startedSessionId) {
             const resultSessionId = String(asRecord(result.snapshot)?.sessionId || '');
             if (resultSessionId !== startedSessionId) {
               throw new Error('New task session returned a mismatched session snapshot.');

@@ -622,7 +622,11 @@ export function ComposerIsland({
                 <span>{visibleFlash.text}</span>
               </div>
             ) : null}
-            <div ref={pillRef} className="composer-island-pill" hidden={mode === 'approval' || mode === 'flash' || ownPanel}>
+            <div
+              ref={pillRef}
+              className="composer-island-pill"
+              hidden={mode === 'approval' || mode === 'flash' || ownPanel}
+            >
               {quotaResume && (
                 <button
                   type="button"

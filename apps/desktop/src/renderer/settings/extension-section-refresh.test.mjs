@@ -14,9 +14,8 @@ installTestDom(null, {
 window.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 
 const { CapabilitySettings } = await import('./CapabilitySettings.tsx');
-const { preloadCapabilitySettings, refreshCapabilitySections, getCachedCapabilitySettings, EXTENSION_SECTIONS } = await import(
-  './capability-data.ts'
-);
+const { preloadCapabilitySettings, refreshCapabilitySections, getCachedCapabilitySettings, EXTENSION_SECTIONS } =
+  await import('./capability-data.ts');
 
 const EXTENSION = ['pluginsStatus', 'skillsStatus', 'getDisabledSkills', 'mcpStatus'];
 
@@ -175,7 +174,9 @@ test('a mutation refreshes extension sections before the full sweep finishes', a
     hold = true;
     state.skillCount = 7;
     api.invokeCapability = async () => ({ value: { ok: true }, snapshot: null });
-    const button = document.querySelector('.extensions-plugin-detail-dialog input[type=checkbox]') || document.querySelector('input[type=checkbox]');
+    const button =
+      document.querySelector('.extensions-plugin-detail-dialog input[type=checkbox]') ||
+      document.querySelector('input[type=checkbox]');
     assert.ok(button, 'plugin toggle rendered');
     await act(async () => {
       button.click();
@@ -189,9 +190,6 @@ test('a mutation refreshes extension sections before the full sweep finishes', a
     await act(async () => root.unmount());
   }
 });
-
-
-
 
 test('an older section read finishing after a newer full sweep does not overwrite it', async () => {
   let current = 1;
@@ -231,4 +229,3 @@ test('an older section read finishing after a newer full sweep does not overwrit
   await oldRefresh;
   assert.equal(cachedSkillCount(api), 2);
 });
-

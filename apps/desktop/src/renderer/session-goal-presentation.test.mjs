@@ -183,12 +183,15 @@ test('task progress is five fixed cells: the finished share, then the work in ha
       );
     });
     const trigger = host.querySelector('.session-goal-trigger');
-    assert.equal(trigger.getAttribute('aria-label'), t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
-      objective: 'Ship it',
-      status: t('Blocked'),
-      completed: 1,
-      total: 3,
-    }));
+    assert.equal(
+      trigger.getAttribute('aria-label'),
+      t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
+        objective: 'Ship it',
+        status: t('Blocked'),
+        completed: 1,
+        total: 3,
+      })
+    );
     assert.equal(trigger.querySelector('.session-goal-objective').textContent, t('Blocked'));
     assert.equal(trigger.querySelectorAll('.session-goal-pips > i').length, 5);
     assert.equal(host.querySelector('.session-goal-badge[data-tone="blocked"]').textContent, t('Blocked'));

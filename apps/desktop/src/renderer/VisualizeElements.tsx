@@ -196,6 +196,12 @@ function headingTag(level: number): string {
   return `h${level}`;
 }
 
+function unreadyMessage(reading: Exclude<PaneReading, { state: 'ready' }>): string {
+  if (reading.state === 'loading') return t('Reading the page…');
+  if (reading.state === 'error') return reading.message;
+  return t('This page is not running, so its elements cannot be listed.');
+}
+
 function FindingRow({
   finding,
   onHover,
@@ -222,6 +228,89 @@ function FindingRow({
         <code>{finding.selector}</code>
       </button>
     </li>
+  );
+}
+
+function InspectionReport({
+  inspection,
+  hover,
+  pin,
+}: {
+  inspection: PageInspection;
+  hover(selector: string | null): void;
+  pin(selector: string, trusted: boolean): void;
+}) {
+  return (
+    <>
+      <div className="visualize-elements-meta">
+        {inspection.viewport.width}×{inspection.viewport.height}
+      </div>
+      <h4>
+        {t('Findings')} ({inspection.findingCount})
+      </h4>
+      {inspection.findings.length ? (
+        <ul>
+          {inspection.findings.map((finding, at) => (
+            <FindingRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: findings repeat (kind, selector, text) and never reorder
+              key={`${at}:${finding.kind}:${finding.selector}`}
+              finding={finding}
+              onHover={hover}
+              onPin={pin}
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="visualize-elements-empty">{t('No layout findings.')}</p>
+      )}
+      {inspection.outline.length ? (
+        <>
+          <h4>{t('Outline')}</h4>
+          <ul>
+            {inspection.outline.map((item) => (
+              <li key={`${item.kind}:${item.selector}:${item.name}`} style={{ paddingInlineStart: item.depth * 12 }}>
+                <button
+                  type="button"
+                  className="visualize-elements-row"
+                  onMouseEnter={() => hover(item.selector)}
+                  onMouseLeave={() => hover(null)}
+                  onFocus={() => hover(item.selector)}
+                  onBlur={() => hover(null)}
+                  onClick={(event) => pin(item.selector, event.nativeEvent.isTrusted)}
+                >
+                  <span className="visualize-elements-role">
+                    {item.kind === 'landmark' ? item.role : headingTag(item.level)}
+                  </span>
+                  <span className="visualize-elements-text">{item.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      <h4>
+        {t('Interactive')} ({inspection.elementCount})
+      </h4>
+      <ul>
+        {inspection.elements.map((element) => (
+          <li key={`${element.selector}:${element.x}:${element.y}`}>
+            <button
+              type="button"
+              className="visualize-elements-row"
+              onMouseEnter={() => hover(element.selector)}
+              onMouseLeave={() => hover(null)}
+              onFocus={() => hover(element.selector)}
+              onBlur={() => hover(null)}
+              onClick={(event) => pin(element.selector, event.nativeEvent.isTrusted)}
+            >
+              <span className="visualize-elements-role">{element.role}</span>
+              <span className="visualize-elements-text">{element.name || '—'}</span>
+              <code>{element.selector}</code>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -277,87 +366,9 @@ export function VisualizeElements({
           <div key={`${index}:${pane.url}`} className="visualize-elements-pane">
             {htmlPanes.length > 1 ? <div className="visualize-elements-pane-label">{pane.label}</div> : null}
             {reading.state === 'ready' ? (
-              <>
-                <div className="visualize-elements-meta">
-                  {reading.inspection.viewport.width}×{reading.inspection.viewport.height}
-                </div>
-                <h4>
-                  {t('Findings')} ({reading.inspection.findingCount})
-                </h4>
-                {reading.inspection.findings.length ? (
-                  <ul>
-                    {reading.inspection.findings.map((finding, at) => (
-                      <FindingRow
-                        // biome-ignore lint/suspicious/noArrayIndexKey: findings repeat (kind, selector, text) and never reorder
-                        key={`${at}:${finding.kind}:${finding.selector}`}
-                        finding={finding}
-                        onHover={hover}
-                        onPin={pin}
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="visualize-elements-empty">{t('No layout findings.')}</p>
-                )}
-                {reading.inspection.outline.length ? (
-                  <>
-                    <h4>{t('Outline')}</h4>
-                    <ul>
-                      {reading.inspection.outline.map((item) => (
-                        <li
-                          key={`${item.kind}:${item.selector}:${item.name}`}
-                          style={{ paddingInlineStart: item.depth * 12 }}
-                        >
-                          <button
-                            type="button"
-                            className="visualize-elements-row"
-                            onMouseEnter={() => hover(item.selector)}
-                            onMouseLeave={() => hover(null)}
-                            onFocus={() => hover(item.selector)}
-                            onBlur={() => hover(null)}
-                            onClick={(event) => pin(item.selector, event.nativeEvent.isTrusted)}
-                          >
-                            <span className="visualize-elements-role">
-                              {item.kind === 'landmark' ? item.role : headingTag(item.level)}
-                            </span>
-                            <span className="visualize-elements-text">{item.name}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-                <h4>
-                  {t('Interactive')} ({reading.inspection.elementCount})
-                </h4>
-                <ul>
-                  {reading.inspection.elements.map((element) => (
-                    <li key={`${element.selector}:${element.x}:${element.y}`}>
-                      <button
-                        type="button"
-                        className="visualize-elements-row"
-                        onMouseEnter={() => hover(element.selector)}
-                        onMouseLeave={() => hover(null)}
-                        onFocus={() => hover(element.selector)}
-                        onBlur={() => hover(null)}
-                        onClick={(event) => pin(element.selector, event.nativeEvent.isTrusted)}
-                      >
-                        <span className="visualize-elements-role">{element.role}</span>
-                        <span className="visualize-elements-text">{element.name || '—'}</span>
-                        <code>{element.selector}</code>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
+              <InspectionReport inspection={reading.inspection} hover={hover} pin={pin} />
             ) : (
-              <p className="visualize-elements-empty">
-                {reading.state === 'loading'
-                  ? t('Reading the page…')
-                  : reading.state === 'error'
-                    ? reading.message
-                    : t('This page is not running, so its elements cannot be listed.')}
-              </p>
+              <p className="visualize-elements-empty">{unreadyMessage(reading)}</p>
             )}
           </div>
         );

@@ -6,7 +6,11 @@
 import { Check, Code, File, FileText, Film, Image, Shapes, SlidersHorizontal, X } from 'lucide-react';
 import type { ComponentType } from 'react';
 
-import { formatVisualizeTime, type VisualizeCommentIcon, visualizeCommentIcon } from '../shared/visualize-comment-kinds';
+import {
+  formatVisualizeTime,
+  type VisualizeCommentIcon,
+  visualizeCommentIcon,
+} from '../shared/visualize-comment-kinds';
 import { t } from './i18n';
 import {
   clearVisualizeChoices,

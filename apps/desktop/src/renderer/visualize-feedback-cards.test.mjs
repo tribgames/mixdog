@@ -27,9 +27,22 @@ function queue() {
     paneKind: 'html',
     label: 'Button · Save',
     image,
-    target: { type: 'element', selector: '#save', html: '', styles: {}, box: { x: 0, y: 0, width: 1, height: 1 }, path: [] },
+    target: {
+      type: 'element',
+      selector: '#save',
+      html: '',
+      styles: {},
+      box: { x: 0, y: 0, width: 1, height: 1 },
+      path: [],
+    },
   });
-  addVisualizePin('s1', { ...base, paneKind: 'video', label: 'Video 0:12 · Region', image, target: { ...region, time: 12.4 } });
+  addVisualizePin('s1', {
+    ...base,
+    paneKind: 'video',
+    label: 'Video 0:12 · Region',
+    image,
+    target: { ...region, time: 12.4 },
+  });
   addVisualizePin('s1', { ...base, paneKind: 'pdf', label: 'PDF · Region', target: region });
   setVisualizeChoice(
     's1',

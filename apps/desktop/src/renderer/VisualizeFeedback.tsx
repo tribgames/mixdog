@@ -16,6 +16,7 @@ import {
   type MouseEvent,
   type PointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type WheelEvent,
   useCallback,
   useEffect,
@@ -922,12 +923,9 @@ export function VisualizeCommentLayer({
 
   // The page outlines the element a comment is being written for.
   const editedPin = draft?.mode === 'edit' ? value.pins.find((pin) => pin.id === draft.pinId) : undefined;
-  const selected =
-    draft?.mode === 'new'
-      ? (draft.pick?.selector ?? null)
-      : editedPin?.target.type === 'element'
-        ? editedPin.target.selector
-        : null;
+  let selected: string | null = null;
+  if (draft?.mode === 'new') selected = draft.pick?.selector ?? null;
+  else if (editedPin?.target.type === 'element') selected = editedPin.target.selector;
   // An anchored region's box is the page's too: it outlines that one as selected.
   const selectedPin = editedPin?.target.type === 'region' && editedPin.target.anchor && paged ? editedPin.id : null;
   useEffect(() => {
@@ -1180,12 +1178,11 @@ export function VisualizeCommentLayer({
         if (!measured) return;
         const { anchor } = measured;
         const path = anchor?.path.map((node) => visualizeElementName(node, t)) ?? [];
+        const pathPart = path.length ? { path } : {};
         const measuredDraft = {
           ...opened,
           elements: measured.count,
-          ...(anchor
-            ? { anchor: { selector: anchor.selector, rect: anchor.rect, ...(path.length ? { path } : {}) } }
-            : {}),
+          ...(anchor ? { anchor: { selector: anchor.selector, rect: anchor.rect, ...pathPart } } : {}),
         };
         setDraft((current) => (current === opened ? measuredDraft : current));
       }
@@ -1194,7 +1191,9 @@ export function VisualizeCommentLayer({
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
     const target = paged && !draft ? paneFrame(layer.current) : null;
     if (!target) return;
-    const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
+    let scale = 1;
+    if (event.deltaMode === 1) scale = 16;
+    else if (event.deltaMode === 2) scale = 400;
     postToPage(target, { type: 'scroll', dx: event.deltaX * scale, dy: event.deltaY * scale });
   };
 
@@ -1317,14 +1316,75 @@ export function VisualizeCommentLayer({
   };
   const editing = draft?.mode === 'edit';
   const placeholder = draft?.mode === 'new' && draft.pick ? t('Comment on this element…') : t('Comment on this area…');
-  const crumbs =
-    draft?.mode === 'new' && draft.pick
-      ? [...draft.pick.path, draft.pick, ...(draft.pick.child ? [draft.pick.child] : [])]
-      : [];
+  const pickedNode = draft?.mode === 'new' ? draft.pick : undefined;
+  const crumbs = pickedNode ? [...pickedNode.path, pickedNode] : [];
+  if (pickedNode?.child) crumbs.push(pickedNode.child);
   const sizeOf = (rect: VisualizeFeedbackRect) => {
     const box = layerBox();
     return box ? `${Math.round(rect.width * box.width)}×${Math.round(rect.height * box.height)}` : '';
   };
+  let draftBox: ReactNode = null;
+  if (draft?.mode === 'new') {
+    draftBox = (
+      <div
+        className={`visualize-region-box ${draft.pick ? 'is-anchor' : 'is-selected'}`}
+        style={fractionStyle(draft.rect)}
+      >
+        <span className="visualize-region-number">{next}</span>
+      </div>
+    );
+  } else if (draft && editedPin?.target.type === 'element') {
+    draftBox = <div className="visualize-region-box is-anchor" style={fractionStyle(draft.rect)} />;
+  }
+  let mediaBar: ReactNode = null;
+  if (video && mediaState) {
+    const PlayPause = mediaState.paused ? Play : Pause;
+    const pinMarkers = mediaState.duration
+      ? regions.map(({ n, pin, target }) => {
+          if (target.time === undefined) return null;
+          return (
+            <button
+              key={pin.id}
+              type="button"
+              className="visualize-media-pin"
+              style={{ left: `${Math.min(100, (target.time / mediaState.duration) * 100)}%` }}
+              aria-label={t('Go to pin {{number}}', { number: String(n) })}
+              onClick={() => seek(target.time ?? 0)}
+            >
+              {n}
+            </button>
+          );
+        })
+      : null;
+    mediaBar = (
+      <div className="visualize-media-bar">
+        <button
+          type="button"
+          aria-label={mediaState.paused ? t('Play') : t('Pause')}
+          onClick={() => {
+            if (video.paused) void video.play().catch(() => {});
+            else video.pause();
+          }}
+        >
+          <PlayPause size={14} aria-hidden="true" />
+        </button>
+        <span className="visualize-media-time">{formatVisualizeTime(mediaState.time)}</span>
+        <span className="visualize-media-track">
+          <input
+            type="range"
+            min={0}
+            max={mediaState.duration || 0}
+            step={0.01}
+            value={Math.min(mediaState.time, mediaState.duration || 0)}
+            aria-label={t('Seek')}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => seek(Number(event.currentTarget.value))}
+          />
+          {pinMarkers}
+        </span>
+        <span className="visualize-media-time">{formatVisualizeTime(mediaState.duration)}</span>
+      </div>
+    );
+  }
   return (
     <>
       {confirmBar}
@@ -1350,12 +1410,11 @@ export function VisualizeCommentLayer({
         {shownRegions.map(({ n, pin, rect }) => {
           const open = draft?.mode === 'edit' && draft.pinId === pin.id;
           const over = hovered === pin.id && !draft;
+          let state = '';
+          if (open) state = ' is-selected';
+          else if (over) state = ' is-hover';
           return (
-            <div
-              key={pin.id}
-              className={`visualize-region-box${open ? ' is-selected' : over ? ' is-hover' : ''}`}
-              style={fractionStyle(rect)}
-            >
+            <div key={pin.id} className={`visualize-region-box${state}`} style={fractionStyle(rect)}>
               <span className="visualize-region-number">{n}</span>
               {over ? (
                 <span className="visualize-region-tag">
@@ -1381,16 +1440,7 @@ export function VisualizeCommentLayer({
         )}
         {draft && (
           <>
-            {draft.mode === 'new' ? (
-              <div
-                className={`visualize-region-box ${draft.pick ? 'is-anchor' : 'is-selected'}`}
-                style={fractionStyle(draft.rect)}
-              >
-                <span className="visualize-region-number">{next}</span>
-              </div>
-            ) : editedPin?.target.type === 'element' ? (
-              <div className="visualize-region-box is-anchor" style={fractionStyle(draft.rect)} />
-            ) : null}
+            {draftBox}
             <form ref={card} className="visualize-region-note" onSubmit={(event) => void submit(event)}>
               <div className="visualize-region-note-head">
                 <span className="visualize-region-note-number">
@@ -1403,7 +1453,7 @@ export function VisualizeCommentLayer({
                   </button>
                 ) : null}
               </div>
-              {crumbs.length > 1 && draft.mode === 'new' && draft.pick ? (
+              {crumbs.length > 1 && draft.mode === 'new' && draft.pick && (
                 <nav className="visualize-region-crumbs" aria-label={t('Element path')}>
                   {crumbs.map((node, at) => {
                     const current = node.selector === draft.pick?.selector;
@@ -1425,7 +1475,7 @@ export function VisualizeCommentLayer({
                     );
                   })}
                 </nav>
-              ) : null}
+              )}
               <textarea
                 // biome-ignore lint/a11y/noAutofocus: the card opens from the user's own click or drag and takes the text at once
                 autoFocus
@@ -1450,49 +1500,7 @@ export function VisualizeCommentLayer({
             </form>
           </>
         )}
-        {video && mediaState ? (
-          <div className="visualize-media-bar">
-            <button
-              type="button"
-              aria-label={mediaState.paused ? t('Play') : t('Pause')}
-              onClick={() => {
-                if (video.paused) void video.play().catch(() => {});
-                else video.pause();
-              }}
-            >
-              {mediaState.paused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
-            </button>
-            <span className="visualize-media-time">{formatVisualizeTime(mediaState.time)}</span>
-            <span className="visualize-media-track">
-              <input
-                type="range"
-                min={0}
-                max={mediaState.duration || 0}
-                step={0.01}
-                value={Math.min(mediaState.time, mediaState.duration || 0)}
-                aria-label={t('Seek')}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => seek(Number(event.currentTarget.value))}
-              />
-              {mediaState.duration
-                ? regions.map(({ n, pin, target }) =>
-                    target.time === undefined ? null : (
-                      <button
-                        key={pin.id}
-                        type="button"
-                        className="visualize-media-pin"
-                        style={{ left: `${Math.min(100, (target.time / mediaState.duration) * 100)}%` }}
-                        aria-label={t('Go to pin {{number}}', { number: String(n) })}
-                        onClick={() => seek(target.time ?? 0)}
-                      >
-                        {n}
-                      </button>
-                    )
-                  )
-                : null}
-            </span>
-            <span className="visualize-media-time">{formatVisualizeTime(mediaState.duration)}</span>
-          </div>
-        ) : null}
+        {mediaBar}
       </div>
     </>
   );

@@ -261,7 +261,11 @@ export function StarterTour({
       // (Settings panels load their rows a beat after the dialog opens).
       const precise = findTarget(selectors.slice(0, 1));
       const fallbackAllowed = performance.now() - startedAt > FALLBACK_AFTER_MS;
-      const next = precise ?? (element?.isConnected ? element : fallbackAllowed ? findTarget(selectors) : null);
+      let next = precise;
+      if (!next) {
+        if (element?.isConnected) next = element;
+        else next = fallbackAllowed ? findTarget(selectors) : null;
+      }
       if (next !== element) {
         element = next;
         targetRef.current = element;

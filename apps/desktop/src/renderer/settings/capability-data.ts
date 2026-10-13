@@ -460,7 +460,9 @@ export function applySectionRefresh(
   data: Record<string, unknown>,
   sections: Record<string, unknown>
 ): Record<string, unknown> {
-  const loaded = new Set<string>(Array.isArray(data[LOADED_SECTIONS_KEY]) ? (data[LOADED_SECTIONS_KEY] as string[]) : []);
+  const loaded = new Set<string>(
+    Array.isArray(data[LOADED_SECTIONS_KEY]) ? (data[LOADED_SECTIONS_KEY] as string[]) : []
+  );
   for (const key of Object.keys(sections)) loaded.add(key);
   return { ...data, ...sections, [LOADED_SECTIONS_KEY]: [...loaded] };
 }

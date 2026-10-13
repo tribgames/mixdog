@@ -488,7 +488,10 @@ test('the shared poll runs once for all subscribers, pauses while hidden and ref
   let nextTimer = 1;
   globalThis.document = doc;
   globalThis.window = {
-    setInterval: (fn) => (timers.set(nextTimer, fn), nextTimer++),
+    setInterval: (fn) => {
+      timers.set(nextTimer, fn);
+      return nextTimer++;
+    },
     clearInterval: (id) => timers.delete(id),
   };
   t.after(() => {

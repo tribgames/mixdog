@@ -9,7 +9,7 @@ import { OpenSelect } from '../OpenSelect';
 import { t } from '../i18n';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
-import { type SettingsConfirmation } from './capability-data';
+import type { SettingsConfirmation } from './capability-data';
 
 export function Group({
   title,
@@ -58,15 +58,14 @@ export function ToggleRow({
   optimistic?: boolean;
   onChange(value: boolean): void;
 }) {
-  const displayTitle = title;
   return (
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
-        <span className="mixdog-settings__row-title">{displayTitle}</span>
+        <span className="mixdog-settings__row-title">{title}</span>
       </div>
       <div className="settings-row-control">
         <CompactSwitch
-          label={displayTitle}
+          label={title}
           checked={checked}
           disabled={disabled}
           optimistic={optimistic}
@@ -142,16 +141,15 @@ export function SelectRow({
   const normalized = options.some((entry) => entry.value === value)
     ? options
     : [{ value, label: value || t('Select…') }, ...options];
-  const displayTitle = title;
   return (
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
-        <span className="mixdog-settings__row-title">{displayTitle}</span>
+        <span className="mixdog-settings__row-title">{title}</span>
       </div>
       <div className="settings-row-control">
         <OpenSelect
           className="settings-select"
-          ariaLabel={displayTitle}
+          ariaLabel={title}
           value={value}
           disabled={disabled}
           options={normalized}
@@ -186,17 +184,16 @@ export function AutoSaveRow({
     if (required && !input.reportValidity()) return;
     onSave(input.value);
   };
-  const displayTitle = title;
   return (
     <div className="settings-form-row">
       <div>
-        <b>{displayTitle}</b>
+        <b>{title}</b>
       </div>
       <div className="settings-form-controls">
         <input
           key={value}
           name={name}
-          aria-label={displayTitle}
+          aria-label={title}
           defaultValue={value}
           placeholder={placeholder}
           required={required}
