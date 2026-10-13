@@ -34,7 +34,7 @@ import { createRelayConnectionCaps } from './remote-relay-capabilities';
 import { createRelayClientLifecycle } from './remote-relay-client-lifecycle';
 import { createRelayCatalogs } from './remote-relay-catalog';
 import { createRelayClientCallDispatch } from './remote-relay-client-calls';
-import { createRelayClientRegistry, type RelayClientState } from './remote-relay-clients';
+import { clientViewsSessionLane, createRelayClientRegistry, type RelayClientState } from './remote-relay-clients';
 import { createRelayControlRequests } from './remote-relay-control';
 import { createRelayEncryptedDelivery } from './remote-relay-delivery';
 import { createPairCodeManager, type PairCodeState, type PairCodeUnsupported } from './remote-pair-code';
@@ -111,6 +111,8 @@ export interface RemoteRelayHandle {
   /** The main-workspace browser tab list, pushed to every watching client. */
   publishBrowserTabs(tabs: DesktopRemoteBrowserTab[]): void;
   publishBrowserImportProgress(progress: DesktopBrowserImportProgress): void;
+  /** Whether a connected device registered `lane` and is showing `sessionId`. */
+  viewsSessionLane(sessionId: string, lane: string): boolean;
   listClients(): Promise<DesktopRemoteClientInfo[]>;
   /** The 6-digit pairing code of an open Settings → Connection screen:
    *  'ensure' returns the live one (minting if needed), 'renew' replaces it,
@@ -711,6 +713,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     publishBrowserTabs: (tabs) => browserTabs.publish(tabs),
     publishBrowserImportProgress: (progress) =>
       broadcastEncrypted({ event: REMOTE_BROWSER_IMPORT_PROGRESS_EVENT, payload: progress }, false),
+    viewsSessionLane: (sessionId, lane) =>
+      [...clients.clients.values()].some((state) => clientViewsSessionLane(state, sessionId, lane)),
     revokeClient: async (clientId: string): Promise<void> => {
       browserStreams.dropClient(clientId);
       browserTabs.dropClient(clientId);

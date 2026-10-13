@@ -54,6 +54,7 @@ export function ComposerFooter({
   voiceSend,
   draft,
   attachments,
+  feedbackPending = false,
   onStop,
   modelAside,
   ...modelProps
@@ -83,6 +84,8 @@ export function ComposerFooter({
   voiceSend: boolean;
   draft: string;
   attachments: ComposerAttachment[];
+  /** Visualize pins or picks are queued: sendable without text. */
+  feedbackPending?: boolean;
   onStop: () => void;
   modelAside: ComposerProps['modelAside'];
 }) {
@@ -160,6 +163,7 @@ export function ComposerFooter({
           dictationState={dictation.dictationState}
           draft={draft}
           attachments={attachments}
+          feedbackPending={feedbackPending}
           onStop={onStop}
           onStopDictationAndSend={() => void dictation.stopDictationAndSend()}
         />

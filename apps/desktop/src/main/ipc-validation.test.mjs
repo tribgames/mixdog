@@ -9,6 +9,7 @@ import {
   requiredNewTaskDraft,
   requiredSubmitOptions,
   requiredTextFileEncoding,
+  requiredVisualizeTabCommand,
 } from './ipc-validation.ts';
 
 test('an editor save without an encoding change passes the IPC and remote boundaries', () => {
@@ -146,8 +147,101 @@ test('desktop IPC still rejects unknown built-in lifecycle names', () => {
         capability: 'setBuiltinToolEnabled',
         args: ['thirdPartyRuntime', true],
       }),
-    /git, office, localProvider, or tidy/
+    /git, office, localProvider, tidy, autoEffort, or visualize/
   );
+});
+
+test('Visualize is a toggle-only built-in: it toggles but never installs', () => {
+  assert.deepEqual(
+    requiredDesktopCapabilityRequest({ capability: 'setBuiltinToolEnabled', args: ['visualize', false] }),
+    { capability: 'setBuiltinToolEnabled', args: ['visualize', false] }
+  );
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'installBuiltinFeature', args: ['visualize'] }),
+    /installBuiltinFeature requires/
+  );
+});
+
+test('visualize tab commands name a session, a tab, and activate or close', () => {
+  assert.deepEqual(requiredVisualizeTabCommand({ sessionId: 'sess-1', tabId: 'v2', action: 'close' }), {
+    sessionId: 'sess-1',
+    tabId: 'v2',
+    action: 'close',
+  });
+  assert.throws(() => requiredVisualizeTabCommand({ sessionId: 'sess-1', tabId: 'v2', action: 'open' }), TypeError);
+  assert.throws(() => requiredVisualizeTabCommand({ sessionId: 'sess-1', tabId: '', action: 'close' }), TypeError);
+  assert.throws(() => requiredVisualizeTabCommand(null), TypeError);
+});
+
+test('visualize version commands carry a kept version number (null = live) and compare', () => {
+  const base = { sessionId: 'sess-1', tabId: 'v2' };
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, action: 'version', version: 3, compare: true, extra: 1 }), {
+    ...base,
+    action: 'version',
+    version: 3,
+    compare: true,
+  });
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, action: 'version', version: null }), {
+    ...base,
+    action: 'version',
+    version: null,
+  });
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, action: 'restore', version: 1 }), {
+    ...base,
+    action: 'restore',
+    version: 1,
+  });
+  for (const version of [0, 1.5, '2', undefined]) {
+    assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'version', version }), TypeError);
+  }
+  assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'restore', version: null }), TypeError);
+  // A chat card reopens a closed tab's file targets (never URLs, no cwd).
+  assert.deepEqual(
+    requiredVisualizeTabCommand({ ...base, action: 'reopen', targets: ['a.html', 'b.png'], label: 'Pair', cwd: '/etc' }),
+    { ...base, action: 'reopen', targets: ['a.html', 'b.png'], label: 'Pair' }
+  );
+  for (const targets of [[], ['a', 'b', 'c', 'd'], ['http://x/'], [''], 'a.html', [3]]) {
+    assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'reopen', targets }), TypeError);
+  }
+  // A restore carries the page assets its confirm listed.
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, action: 'restore', version: 1, assets: ['site/style.css'] }), {
+    ...base,
+    action: 'restore',
+    version: 1,
+    assets: ['site/style.css'],
+  });
+  for (const assets of ['site/style.css', [''], [3], new Array(65).fill('a.css')]) {
+    assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'restore', version: 1, assets }), TypeError);
+  }
+  assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'version', version: 2, compare: 'yes' }), TypeError);
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, action: 'network', allow: true, extra: 1 }), {
+    sessionId: 'sess-1',
+    tabId: 'v2',
+    action: 'network',
+    allow: true,
+  });
+  for (const allow of [undefined, 'yes', 1, null]) {
+    assert.throws(() => requiredVisualizeTabCommand({ ...base, action: 'network', allow }), TypeError);
+  }
+});
+
+test('visualize history and export commands validate their payloads', () => {
+  assert.deepEqual(requiredVisualizeTabCommand({ sessionId: 'sess-1', action: 'history', entry: 'abc123' }), {
+    sessionId: 'sess-1',
+    tabId: '',
+    action: 'history',
+    entry: 'abc123',
+  });
+  assert.throws(() => requiredVisualizeTabCommand({ sessionId: 'sess-1', action: 'history', entry: '' }), TypeError);
+  const base = { sessionId: 'sess-1', tabId: 'v2', action: 'export' };
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, format: 'png', pane: 1 }), { ...base, format: 'png', pane: 1 });
+  assert.deepEqual(requiredVisualizeTabCommand({ ...base, format: 'project' }), { ...base, format: 'project' });
+  for (const format of [undefined, 'gif', 'PNG']) {
+    assert.throws(() => requiredVisualizeTabCommand({ ...base, format }), TypeError);
+  }
+  for (const pane of [-1, 1.5, 99, '1']) {
+    assert.throws(() => requiredVisualizeTabCommand({ ...base, format: 'pdf', pane }), TypeError);
+  }
 });
 
 test('developer settings travel the read lane and option writes require an id and boolean', () => {

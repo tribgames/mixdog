@@ -79,6 +79,10 @@ import { createBrowserHost, type BrowserHost } from './browser/host';
 import { createComputerHost, type ComputerHost } from './computer';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import { TerminalBridgeServer } from './terminal/bridge-server';
+import { requiredVisualizeTabCommand } from './ipc-validation';
+import { VisualizeBridgeServer } from './visualize/bridge-server';
+import { createDesktopVisualize } from './visualize/host';
+import { localPageOrigin } from './local-page-server';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import type { SessionTerminalTab } from './terminal-manager';
 import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
@@ -618,6 +622,7 @@ function reportDaemonServiceStart(): void {
 function startDaemonService(): void {
   if (!daemonServiceStartedAt) daemonServiceStartedAt = Date.now();
   reportDaemonServiceStart();
+  visualizeBridge.start();
   void localConnection
     .start()
     .then(() => {
@@ -679,6 +684,38 @@ const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
       } | null,
   }),
 });
+// Agent `visualize` tool: shows produced artifacts in the session's side
+// panel. Default-on built-in; the runtime gates the tool by its toggle, and
+// the bridge runs for the app's lifetime like the terminal bridge.
+let browserFeatureInstalled = false;
+const visualize = createDesktopVisualize({
+  window: () => mainWindow,
+  invokeDesktopOperation: (method, args) => localService.invokeDesktopOperation(method, args),
+  browserAvailable: () => browserFeatureInstalled,
+  // Paired remote clients: the daemon mirrors the tabs and serves pane bytes.
+  publishRemote: (event) => {
+    void localService.invokeDesktopOperation('visualizeRemotePublish', [event]).catch(() => {});
+  },
+  remoteViewing: async (sessionId) =>
+    (await localService.invokeDesktopOperation('visualizeRemoteViewing', [sessionId])) === true,
+  // Kept versions of visualize tabs: app data, never the project.
+  versionsDirectory: join(app.getPath('userData'), 'visualize-versions'),
+  // A chat card reopening a closed tab: the session's own working directory.
+  sessionCwd: async (sessionId) =>
+    (await localService.listSessions()).find((session) => session.id === sessionId)?.cwd || null,
+});
+const visualizeBridge = new VisualizeBridgeServer<object>({
+  dataDirectory: bridgeDiscoveryDirectory,
+  execute: (command) => visualize.execute(command),
+});
+// The renderer frames visualize HTML from the local page server; its CSP
+// names that one origin, so the server starts with the app.
+let localPageFrameOrigin = '';
+void localPageOrigin()
+  .then((origin) => {
+    localPageFrameOrigin = origin;
+  })
+  .catch((error: unknown) => console.error('local page server failed to start:', error));
 // Keep-awake spans the app lifetime, not one window: agents keep working
 // while the window is closed on macOS and through renderer reloads.
 const awakeService = new AgentAwakeService(powerSaveBlocker);
@@ -780,6 +817,7 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
   applyComputerControlSetting(settings.computerControl === true);
   applyComputerObserveOnlySetting(settings.computerObserveOnly === true);
   browserControlEnabled = settings.browserControl === true;
+  browserFeatureInstalled = settings.browserInstalled !== false;
   browserHost?.setBridgeEnabled(browserControlEnabled);
 };
 // Computer use is opt-in and high risk, so the bridge (and thus the agent
@@ -830,7 +868,9 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
       (request.method === 'trashItem' ||
         request.method === 'updaterState' ||
         request.method === 'updaterCheck' ||
-        request.method === 'updaterInstall')
+        request.method === 'updaterInstall' ||
+        request.method === 'visualizeState' ||
+        request.method === 'visualizeCommand')
     ) {
       const hostMethod = request.method;
       void (async () => {
@@ -843,6 +883,10 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             result = desktopUpdater.getState();
           } else if (hostMethod === 'updaterCheck') {
             result = await desktopUpdater.check();
+          } else if (hostMethod === 'visualizeState') {
+            result = visualize.hostSnapshot();
+          } else if (hostMethod === 'visualizeCommand') {
+            result = (await visualize.command(requiredVisualizeTabCommand(args[0]))) ?? null;
           } else {
             result = desktopUpdater.getState();
             installAfterAnswer = desktopUpdater.getState().status === 'ready';
@@ -1165,6 +1209,8 @@ function disposeDesktopResources(): Promise<void> {
       await browserHostDisposal;
       await computerHost?.dispose();
       await terminalBridge.stop();
+      await visualizeBridge.stop();
+      visualize.dispose();
     })();
     const cleanup = Promise.all([
       browserAndComputerCleanup,
@@ -1393,14 +1439,17 @@ function installRendererSessionPolicy(target: Electron.Session): void {
       return;
     }
     const development = Boolean(process.env.ELECTRON_RENDERER_URL);
+    // Visualize panes frame project pages from the local page server only
+    // (tokenized, loopback); no other http origin may be framed.
+    const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}:${localPageFrameOrigin ? ` ${localPageFrameOrigin}` : ''}`;
     // GitHub avatar hosts are allowed in img-src for the onboarding /
     // settings account cards (github.com redirects to avatars host).
     // media-src mirrors img-src: Studio tiles load from the mixdog-media
     // byte lane, and older paths still inline data:/blob: URLs, which
     // default-src 'self' would otherwise block.
     const policy = development
-      ? `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ${MEDIA_SCHEME}: ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:`
-      : `default-src 'self'; script-src 'self'; connect-src 'self' ${MEDIA_SCHEME}:; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`;
+      ? `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ${MEDIA_SCHEME}: ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; ${frameSrc}; style-src 'self' 'unsafe-inline'; font-src 'self' data:`
+      : `default-src 'self'; script-src 'self'; connect-src 'self' ${MEDIA_SCHEME}:; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; ${frameSrc}; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`;
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -1856,6 +1905,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
           remoteAccessInfo,
           rotateRemoteAccess,
           revokeRemoteAccessClient,
+          visualize,
         }
       : {}),
     terminals: connection.terminals,

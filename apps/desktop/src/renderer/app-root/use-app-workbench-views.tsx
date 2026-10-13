@@ -9,6 +9,7 @@ import type { SidebarPanelKey } from '../app-shell-components';
 import { requestPaneDockClose } from '../pane-dock-chrome';
 import { BackgroundJobsPane } from '../BackgroundJobsPane';
 import { SessionDiffPane } from '../SessionDiffPane';
+import { VisualizePane } from '../VisualizePane';
 import { ServerPortsPanel } from '../ServerPortsPanel';
 import { prefetchDiffView } from '../lazy-widgets';
 import { SnapshotUtilityDock } from '../app-snapshot-views';
@@ -237,6 +238,16 @@ export function useAppWorkbenchViews({
           active={active}
           onClose={() => requestPaneDockClose('background-jobs')}
           onOpenAgentSession={dockOpenAgentSession}
+        />
+      );
+    }
+    if (id === 'visualize') {
+      if (!pane) return null;
+      return (
+        <VisualizePane
+          sessionId={pane.sessionId}
+          active={active}
+          onClose={() => requestPaneDockClose('visualize')}
         />
       );
     }

@@ -33,6 +33,14 @@ import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
 import type {
+  DesktopVisualizeEvent,
+  DesktopVisualizeTabCommand,
+  VisualizeCommandResult,
+  VisualizePaneSource,
+  VisualizePaneText,
+  VisualizeSessionState,
+} from './visualize';
+import type {
   DesktopSshAskpass,
   DesktopSshCleanupProgress,
   DesktopSshCleanupRequest,
@@ -723,6 +731,28 @@ export interface DesktopApi {
   /** Agent browser bridge (desktop host only): retain the owning session's
    *  Browser surface and optionally reveal its dock for a foreground call. */
   onBrowserOpenRequested?(listener: (request: DesktopBrowserOpenRequest) => void): () => void;
+  /** Agent `visualize` tool (desktop host only): a session's side-panel tabs
+   *  changed, a reveal was asked for, or a web URL goes to the browser panel. */
+  onVisualizeChanged?(listener: (event: DesktopVisualizeEvent) => void): () => void;
+  /** Every session's visualize tabs, for a renderer that (re)loads. */
+  visualizeState?(): Promise<VisualizeSessionState[]>;
+  /** The user picked or closed a visualize tab (or exported it, or picked
+   *  an entry of the session's list); an export answers with where it went. */
+  visualizeCommand?(command: DesktopVisualizeTabCommand): Promise<VisualizeCommandResult | void>;
+  /** The source text of a displayed visualize pane (an HTML file; the host
+   *  caps it), for the panel's source view. */
+  visualizePaneText?(sessionId: string, tabId: string, index: number): Promise<VisualizePaneText>;
+  /** Paired web app only: one visualize pane's content, fetched over the
+   *  encrypted RPC lane (pane URLs name the host's loopback servers). */
+  visualizePaneSource?(sessionId: string, tabId: string, index: number): Promise<VisualizePaneSource>;
+  /** Desktop only: run the feedback page script (Comment pins, `data-choice`
+   *  picks) in a visualize tab's loaded HTML panes. */
+  visualizeFeedbackAttach?(sessionId: string, tabId: string): Promise<void>;
+  /** Desktop only: base64 PNG of an area of this window (CSS px), a pin's crop. */
+  visualizeCaptureRect?(rect: { x: number; y: number; width: number; height: number }): Promise<string>;
+  /** Desktop only: spend one real user gesture main saw inside this pane on
+   *  a `data-choice` pick; false when there is none. */
+  visualizeConsumeGesture?(target: { sessionId: string; tabId: string; pane: number }): Promise<boolean>;
   /** Runtime unload frees pixels but retains the session's dock selection. */
   onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */

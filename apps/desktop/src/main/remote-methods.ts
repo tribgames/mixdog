@@ -59,6 +59,7 @@ import {
 } from './ipc-validation';
 import { absoluteLocalPath } from './local-files';
 import { createRemoteFilePreviewMethods } from './remote-file-preview';
+import { createRemoteVisualizeMethods, type RemoteVisualizeMirror } from './remote-visualize';
 import { projectEntryPathIn } from './project-files';
 import { MAX_SELECTED_FILE_GRANTS, owningProject, sameGrantedPath, selectedFileGrantKey } from './selected-file-grants';
 import {
@@ -144,9 +145,17 @@ export interface RemoteMethodDependencies {
   /** Electron-only host actions (OS trash, auto-updater) run in the window
    *  process; the daemon asks it and awaits the answer. */
   hostRequest?: (method: RemoteHostRequestMethod, args: unknown[]) => Promise<unknown>;
+  /** The daemon's mirror of the window's agent `visualize` tabs. */
+  visualize?: RemoteVisualizeMirror;
 }
 
-export type RemoteHostRequestMethod = 'trashItem' | 'updaterState' | 'updaterCheck' | 'updaterInstall';
+export type RemoteHostRequestMethod =
+  | 'trashItem'
+  | 'updaterState'
+  | 'updaterCheck'
+  | 'updaterInstall'
+  | 'visualizeState'
+  | 'visualizeCommand';
 
 export type RemoteMethod = (params: unknown[]) => unknown;
 type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown>;
@@ -657,6 +666,7 @@ export function createRemoteMethods(
     nativePush,
     browserRemote,
     hostRequest,
+    visualize,
   }: RemoteMethodDependencies,
   client?: RemoteMethodClient
 ): Record<string, RemoteMethod> {
@@ -794,6 +804,7 @@ export function createRemoteMethods(
     },
     ...editorRemoteMethods({ host, userDataPath, invokeDesktopOperation, grants }),
     ...createRemoteFilePreviewMethods({ host, grants }),
+    ...createRemoteVisualizeMethods({ mirror: visualize, hostRequest, invokeDesktopOperation }),
   };
   if (settingsStore) {
     methods.readSettings = () => settingsStore.read();

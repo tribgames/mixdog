@@ -13,7 +13,13 @@ import type {
 
 /** Session-owned surfaces need a session behind the pane; a New Task draft
  *  keeps their toggles visible but inert so the strip never reflows. */
-const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = ['session-diff', 'background-jobs', 'browser', 'terminal'];
+const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = [
+  'session-diff',
+  'background-jobs',
+  'visualize',
+  'browser',
+  'terminal',
+];
 
 export function PaneDockToggles({
   groups,

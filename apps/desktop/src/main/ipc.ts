@@ -34,8 +34,15 @@ import { registerWindowSettingsIpc } from './ipc-window-settings';
 import { SelectedFileAccess } from './selected-file-access';
 import type { ConnectionKind } from './connections/contract';
 import { connectionFeatureGate } from './connections/feature-gates';
-import { requiredAttachmentFile } from './ipc-validation';
+import {
+  requiredAttachmentFile,
+  requiredVisualizeCaptureRect,
+  requiredVisualizeGestureTarget,
+  requiredVisualizeTabCommand,
+} from './ipc-validation';
 import { createServerFiles, uploadServerBytes } from './server-file-access';
+import type { DesktopVisualize } from './visualize/host';
+import type { VisualizeService } from './visualize/service';
 
 /** The ipcMain surface one window's registration uses: Electron's ipcMain or
  *  that window's connection-router scope (connections/ipc-router). */
@@ -152,6 +159,9 @@ interface DesktopIpcDependencies {
   >;
   /** Extensions → Computer Use: OS readiness reads and one-press fixes. */
   computer?: ComputerIpcHost;
+  /** Agent `visualize` tabs (this PC's window only). */
+  visualize?: Pick<VisualizeService, 'snapshot' | 'command' | 'paneText'> &
+    Partial<Pick<DesktopVisualize, 'attachFeedback' | 'captureRect' | 'consumeChoiceGesture'>>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -191,6 +201,7 @@ export function registerDesktopIpc(
     rotateRemoteAccess,
     revokeRemoteAccessClient,
     remoteHosts,
+    visualize,
     connectionKind = 'local',
     serviceUserDataPath,
   }: DesktopIpcDependencies
@@ -297,6 +308,24 @@ export function registerDesktopIpc(
   });
   registerBrowserIpc({ handle, browserHost });
   registerComputerIpc({ handle, shell, computer });
+  handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);
+  handle(DESKTOP_IPC.visualizeCommand, async (_event, command) => visualize?.command(requiredVisualizeTabCommand(command)));
+  handle(DESKTOP_IPC.visualizePaneText, async (_event, sessionId, tabId, index) => {
+    if (!visualize) throw new Error('Visualize is unavailable.');
+    const target = requiredVisualizeGestureTarget({ sessionId, tabId, pane: index });
+    return visualize.paneText(target.sessionId, target.tabId, target.pane);
+  });
+  handle(DESKTOP_IPC.visualizeFeedbackAttach, async (_event, sessionId, tabId) => {
+    const target = requiredVisualizeTabCommand({ sessionId, tabId, action: 'activate' });
+    await visualize?.attachFeedback?.(target.sessionId, target.tabId);
+  });
+  handle(DESKTOP_IPC.visualizeCaptureRect, async (_event, rect) => {
+    if (!visualize?.captureRect) throw new Error('Visualize capture is unavailable.');
+    return visualize.captureRect(requiredVisualizeCaptureRect(rect));
+  });
+  handle(DESKTOP_IPC.visualizeConsumeGesture, async (_event, target) =>
+    (await visualize?.consumeChoiceGesture?.(requiredVisualizeGestureTarget(target))) === true
+  );
   registerWindowSettingsIpc({
     window,
     app,

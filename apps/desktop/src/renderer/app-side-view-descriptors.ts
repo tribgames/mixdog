@@ -1,6 +1,7 @@
 import {
   Bot,
   Clock,
+  Eye,
   FileDiff,
   GitCompare,
   Github,
@@ -70,6 +71,7 @@ export function createAppSideViewDescriptors(
         onPrefetch: () => onPrefetch('background-jobs'),
       },
     ],
+    ['visualize', { id: 'visualize', label: t('Visualize'), tooltip: t('Visualize'), icon: Eye }],
     ['agents', { id: 'agents', label: t('Agents'), icon: Bot, onPrefetch: () => onPrefetch('agents') }],
     ['search', { id: 'search', label: t('Search'), icon: Search, onPrefetch: () => onPrefetch('search') }],
     [

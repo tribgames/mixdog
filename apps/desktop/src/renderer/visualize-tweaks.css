@@ -1,0 +1,104 @@
+/* The Tweaks drawer under the visualize toolbar: compact, wraps in a narrow pane. */
+.visualize-tweaks {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--mx-border);
+  font-size: 12px;
+}
+.visualize-tweaks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--mx-text-muted);
+}
+.visualize-tweaks-title {
+  font-weight: 600;
+}
+.visualize-tweaks-hide,
+.visualize-tweak-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.visualize-tweaks-hide:hover,
+.visualize-tweak-reset:not(:disabled):hover {
+  background: color-mix(in srgb, var(--mx-text) 10%, transparent);
+}
+.visualize-tweak-reset:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.visualize-tweaks-pane {
+  margin-top: 4px;
+  color: var(--mx-text-muted);
+  font-size: 11px;
+}
+.visualize-tweak {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 3px 0;
+}
+.visualize-tweak-label {
+  flex: 1 1 90px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.visualize-tweak-input {
+  display: inline-flex;
+  flex: 1 1 130px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.visualize-tweak-input input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 60px;
+}
+.visualize-tweak-input select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.visualize-tweak-value {
+  min-width: 3ch;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.visualize-tweaks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 4px;
+}
+.visualize-tweaks-actions button {
+  padding: 3px 10px;
+  border: 1px solid var(--mx-border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.visualize-tweaks-actions button.is-primary {
+  border-color: transparent;
+  background: var(--mx-accent);
+  color: var(--mx-accent-contrast, #fff);
+}
+.visualize-tweaks-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

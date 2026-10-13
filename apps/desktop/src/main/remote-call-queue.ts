@@ -24,6 +24,9 @@ const PARALLEL_READS = new Set([
   'gitBranches',
   'gitShow',
   'gitShowDiff',
+  // Agent visualize panel: the tab list and pane byte ranges.
+  'visualizeState',
+  'visualizePaneRange',
 ]);
 
 // Read-only operations that may walk a whole Project index, grep its text or
@@ -37,6 +40,8 @@ const SLOW_READS = new Set([
   // Full-text scan of every stored conversation (session_search schema).
   'searchSessionContent',
   'previewDocumentPages',
+  // A visualize Office pane converts the document before answering.
+  'visualizePaneFile',
   // GitHub CLI reads (gh process + GitHub API round trip). Observed at 20s as
   // an unknown-method barrier, holding Settings reads ~10s behind it.
   'githubCliStatus',

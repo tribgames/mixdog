@@ -74,6 +74,7 @@ const ROUTINE_RESULT_TOOLS = new Set([
   'office',
   'media',
   'tidy',
+  'visualize',
   'cwd',
   'setup',
 ]);

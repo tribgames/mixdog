@@ -18,6 +18,7 @@ import type { RelayE2EEChannel, RelayE2EEPairingMaterial } from '../shared/remot
 import type { ActivityRailPinsState } from '../shared/activity-rail-pins';
 import type { ProviderModelsChange } from '../shared/provider-models';
 import type { SettingsChange } from '../shared/settings-changed';
+import type { DesktopVisualizeEvent } from '../shared/visualize';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import { createRemoteCatalog } from '../shared/remote-catalog';
 import { createRemoteRosterCache, createIndexedDbRosterStorage } from '../shared/remote-roster-cache';
@@ -105,6 +106,9 @@ export interface RemoteShimState {
   /** The current host advertised `routeAutoEffort` in its challenge: it takes
    *  `autoEffort` in model selections and `+noauto` automation refs. */
   peerRouteAutoEffort: boolean;
+  /** The current host advertised `visualize`: it serves the agent visualize
+   *  panel's state, tab commands and pane reads. Absent means an older host. */
+  peerVisualize: boolean;
   /** The current host serves the encrypted HTTP media lane (`mediaE2ee` in
    *  its challenge). Absent means an older host: media stays on RPC. */
   peerMediaE2ee: boolean;
@@ -165,6 +169,7 @@ export interface RemoteShimCollaborators {
   browserImportProgressListeners: Set<(progress: DesktopBrowserImportProgress) => void>;
   lspDiagnosticsListeners: Set<(event: DesktopLspDiagnosticEvent) => void>;
   lspStatusListeners: Set<(event: DesktopLspStatusEvent) => void>;
+  visualizeListeners: Set<(event: DesktopVisualizeEvent) => void>;
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
   // used to reach every paired phone regardless of what it had open, so a
@@ -352,6 +357,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerNativePush: false,
     peerBrowserParity: false,
     peerRouteAutoEffort: false,
+    peerVisualize: false,
     peerMediaE2ee: false,
     mediaSid: null,
     legacyVisibleSessionsQueue: Promise.resolve(),
@@ -391,6 +397,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     browserImportProgressListeners: new Set(),
     lspDiagnosticsListeners: new Set(),
     lspStatusListeners: new Set(),
+    visualizeListeners: new Set(),
     activeLanes: new Set(),
     viewBaselines: createRemoteViewBaselineCache(),
     sessionsDecoder,

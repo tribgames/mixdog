@@ -315,6 +315,11 @@ button {
 .message-body p {
   white-space: pre-wrap;
 }
+.message-body .message-tweaks-line svg {
+  display: inline-block;
+  vertical-align: -1px;
+  color: var(--mx-text-muted);
+}
 .markdown > :first-child {
   margin-top: 0;
 }

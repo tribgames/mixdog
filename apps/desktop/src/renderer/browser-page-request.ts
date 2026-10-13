@@ -5,7 +5,9 @@
 // pane has actually started loading it, so a card works whether the pane is
 // already open, folded, replaced, or not mounted yet.
 
-export type BrowserPageRequest = { sessionId: string; url: string };
+/** `agent`: an agent tool asked (visualize), not the user, so a browser panel
+ *  the user closed stays closed; the address still waits for the pane. */
+export type BrowserPageRequest = { sessionId: string; url: string; agent?: boolean };
 type RevealListener = (request: BrowserPageRequest) => void;
 type AddressListener = (url: string) => void;
 
@@ -21,10 +23,15 @@ export function browserPageRequestsAvailable(): boolean {
 
 /** `newTab` asks the pane to open the address in a freshly created tab
  *  instead of the current one. */
-export function requestBrowserPage(sessionId: string, url: string, options?: { newTab?: boolean }): void {
+export function requestBrowserPage(
+  sessionId: string,
+  url: string,
+  options?: { newTab?: boolean; agent?: boolean }
+): void {
   if (!sessionId || !url) return;
   pendingAddress.set(sessionId, { url, newTab: options?.newTab === true });
-  for (const listener of revealListeners) listener({ sessionId, url });
+  const request: BrowserPageRequest = options?.agent ? { sessionId, url, agent: true } : { sessionId, url };
+  for (const listener of revealListeners) listener(request);
   const listeners = addressListeners.get(sessionId);
   if (listeners) for (const listener of [...listeners]) listener(url);
 }

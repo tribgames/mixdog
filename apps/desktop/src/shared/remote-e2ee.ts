@@ -53,6 +53,10 @@ export interface RelayE2EEChallenge {
   /** This host accepts per-route Auto reasoning (`autoEffort` in model
    *  selections, `+noauto` automation refs). Absent on an older host. */
   routeAutoEffort?: 1;
+  /** This host serves the agent visualize panel (`visualizeState`,
+   *  `visualizeCommand`, pane reads, the visualize push lane). Absent on an
+   *  older host. */
+  visualize?: 1;
 }
 
 interface RelayE2EEHello {

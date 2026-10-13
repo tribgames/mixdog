@@ -12,6 +12,33 @@ const PREVIEW_READY = 'mixdog-preview-ready';
 const PREVIEW_DOCUMENT = 'mixdog-preview-document';
 const PREVIEW_READY_TIMEOUT_MS = 3000;
 
+/** Loads `srcdoc` into a `sandbox="allow-scripts"` frame: through the relay's
+ *  /preview-frame page when it answers, else as a plain srcdoc. Returns the
+ *  cleanup. Shared by the full-window viewer and the visualize panel. */
+export function loadSandboxedPage(frame: HTMLIFrameElement, srcdoc: string): () => void {
+  const onMessage = (event: MessageEvent): void => {
+    if (sent || event.source !== frame.contentWindow) return;
+    const data = event.data as { type?: unknown } | null;
+    if (!data || data.type !== PREVIEW_READY) return;
+    sent = true;
+    clearTimeout(fallbackTimer);
+    frame.contentWindow?.postMessage({ type: PREVIEW_DOCUMENT, html: srcdoc }, '*');
+  };
+  let sent = false;
+  const fallbackTimer = setTimeout(() => {
+    if (sent) return;
+    sent = true;
+    frame.removeAttribute('src');
+    frame.srcdoc = srcdoc;
+  }, PREVIEW_READY_TIMEOUT_MS);
+  window.addEventListener('message', onMessage);
+  frame.src = PREVIEW_FRAME_PATH;
+  return () => {
+    clearTimeout(fallbackTimer);
+    window.removeEventListener('message', onMessage);
+  };
+}
+
 export function openSandboxedPagePreview(srcdoc: string, title: string): () => void {
   const overlay = document.createElement('div');
   overlay.setAttribute('role', 'dialog');
@@ -34,26 +61,9 @@ export function openSandboxedPagePreview(srcdoc: string, title: string): () => v
   // Preferred: the relay's /preview-frame page (own CSP, scripts allowed in an
   // opaque origin) receives the document by postMessage once it says it is
   // ready. If it never does (route missing), fall back to a plain srcdoc.
-  const onMessage = (event: MessageEvent): void => {
-    if (sent || event.source !== frame.contentWindow) return;
-    const data = event.data as { type?: unknown } | null;
-    if (!data || data.type !== PREVIEW_READY) return;
-    sent = true;
-    clearTimeout(fallbackTimer);
-    frame.contentWindow?.postMessage({ type: PREVIEW_DOCUMENT, html: srcdoc }, '*');
-  };
-  let sent = false;
-  const fallbackTimer = setTimeout(() => {
-    if (sent) return;
-    sent = true;
-    frame.removeAttribute('src');
-    frame.srcdoc = srcdoc;
-  }, PREVIEW_READY_TIMEOUT_MS);
-  window.addEventListener('message', onMessage);
-  frame.src = PREVIEW_FRAME_PATH;
+  const unload = loadSandboxedPage(frame, srcdoc);
   const dismiss = (): void => {
-    clearTimeout(fallbackTimer);
-    window.removeEventListener('message', onMessage);
+    unload();
     document.removeEventListener('keydown', onKey, true);
     overlay.remove();
   };

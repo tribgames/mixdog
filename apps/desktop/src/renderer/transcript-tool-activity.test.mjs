@@ -1144,6 +1144,18 @@ test('desktop labels name the operation actually called and its real outcome', a
   assert.equal(desktopToolActivityRowVerb('terminal', { action: 'list' }), 'List tabs');
   assert.equal(desktopToolActivityRowVerb('terminal', { action: 'read', tab: 1 }), 'Read output');
 
+  // Visualize rows name the tab's title (the call's `input` arrives
+  // unwrapped), never a raw "Label" field.
+  const visualize = (input) => desktopToolActivityItemPresentation(item('visualize', { action: 'open', input }));
+  const diagram = visualize({ content: { kind: 'mermaid', source: 'graph TD', title: '주문 처리 흐름' }, label: '주문 처리 흐름' });
+  assert.equal(diagram.subject, '주문 처리 흐름');
+  assert.deepEqual(diagram.fields, []);
+  assert.equal(visualize({ content: { kind: 'chart', source: '{}', title: 'Orders' } }).subject, 'Orders');
+  assert.equal(visualize({ content: { kind: 'mermaid', source: 'graph TD' } }).subject, 'Mermaid diagram');
+  assert.equal(visualize({ targets: ['site/index.html'], label: 'Home' }).subject, 'Home');
+  assert.deepEqual(visualize({ targets: ['site/index.html'], label: 'Home' }).fields, []);
+  assert.equal(visualize({ targets: ['site/index.html'] }).subject, 'site/index.html');
+
   // Public-schema subjects instead of first-field fallbacks.
   assert.equal(
     desktopToolActivityItemPresentation(item('github', { action: 'issue.create', repo: 'owner/repo', title: 'Bug' }))

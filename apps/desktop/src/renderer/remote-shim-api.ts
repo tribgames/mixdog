@@ -4,7 +4,8 @@ import type { DesktopApi, DesktopCapabilityRequest, DesktopCapabilityResult } fr
 import { browserProfile, newBrowserId } from './remote-browser-identity';
 import { LEGACY_HOST_FALLBACKS, REMOTE_BROWSER_FALLBACKS } from './remote-browser-fallbacks';
 import { recoverableCreation } from './recoverable-creation';
-import { createRemotePreviewApi } from './remote-file-preview';
+import { REMOTE_VISUALIZE_LANE, type VisualizeCommandResult, type VisualizeSessionState } from '../shared/visualize';
+import { createRemotePreviewApi, readRemoteVisualizePane, readRemoteVisualizePaneText } from './remote-file-preview';
 import { mediaLaneSupported, remoteMediaLaneUrl } from './remote-media-lane';
 import { VISIBLE_SESSIONS_STORAGE_KEY, MAX_RESTORED_VISIBLE_SESSIONS } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
@@ -364,6 +365,29 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // Always present: settings pages subscribe once at mount, possibly before
     // the handshake. An older host simply never emits the event.
     subscribeSettingsChanged: (listener) => listenOn(ctx.settingsChangedListeners, listener),
+    // Agent visualize panel. Always present (the store connects at mount,
+    // possibly before the handshake); an older host is read as having no tabs
+    // and never emits the lane's event.
+    onVisualizeChanged: (listener) => laneSubscription(REMOTE_VISUALIZE_LANE, ctx.visualizeListeners, listener),
+    visualizeState: async () => {
+      await connect();
+      return ctx.peerVisualize ? call<VisualizeSessionState[]>('visualizeState') : [];
+    },
+    visualizeCommand: async (command) => {
+      await connect();
+      if (!ctx.peerVisualize) return undefined;
+      return (await call<VisualizeCommandResult | null>('visualizeCommand', [command])) ?? undefined;
+    },
+    visualizePaneText: async (sessionId, tabId, index) => {
+      await connect();
+      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      return readRemoteVisualizePaneText(call, sessionId, tabId, index);
+    },
+    visualizePaneSource: async (sessionId, tabId, index) => {
+      await connect();
+      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
+      return readRemoteVisualizePane(call, sessionId, tabId, index);
+    },
     // Gallery bytes ride HTTP, not this socket: the browser caches tiles and
     // asks for byte ranges when a clip seeks. A host that does not serve the
     // lane answers 404 and the caller falls back to the RPC payload.

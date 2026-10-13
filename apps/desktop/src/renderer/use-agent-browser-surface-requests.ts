@@ -116,10 +116,11 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
   );
   // A page card in the transcript: the user asked for the pane, so a panel
   // they closed earlier opens again and the layout change is theirs to keep.
+  // An agent's hand-off (visualize) respects that closed panel instead.
   useEffect(
     () =>
-      onBrowserPageRevealRequested(({ sessionId }) => {
-        surfaces.browserAutoRevealSuppressed.current.delete(sessionId);
+      onBrowserPageRevealRequested(({ sessionId, agent }) => {
+        if (!agent) surfaces.browserAutoRevealSuppressed.current.delete(sessionId);
         requestRef.current({ sessionId });
       }),
     [surfaces.browserAutoRevealSuppressed]

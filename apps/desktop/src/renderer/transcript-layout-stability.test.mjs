@@ -267,6 +267,41 @@ test('media cards keep the requested ratio until decoded and turn four or more i
   assert.ok(cards.every((card) => width(card) === '160px' && card.dataset.fit === 'cover'));
 });
 
+test('a restored visualize feedback message shows its pin lines and a pin-labelled crop placeholder', async (t) => {
+  const { root, document } = mount(t);
+  // What history restore yields for a message that carried a pin and a pick.
+  const item = {
+    kind: 'user',
+    id: 'hist_s_3_1',
+    text: [
+      '핀과 선택 함께 전송',
+      '📌 1 · input — 재로드 후에도 남는지 확인',
+      '☑ layout: 2안 · 여유 있게',
+      '[Image: visualize pin 1 · input, 177x21]',
+    ].join('\n'),
+  };
+  await act(async () => root.render(React.createElement(TranscriptRow, { item })));
+  const body = document.querySelector('.message-body').textContent;
+  assert.match(body, /📌 1 · input — 재로드 후에도 남는지 확인/);
+  assert.match(body, /☑ layout: 2안 · 여유 있게/);
+  assert.doesNotMatch(body, /\[image|\[Image/i);
+  assert.deepEqual(
+    [...document.querySelectorAll('.message-attachments > .attachment-card')].map((chip) => chip.textContent),
+    ['📌 1 · input177×21']
+  );
+});
+
+test('a tweaks line in a user message is drawn with an icon, not the emoji', async (t) => {
+  const { root, document } = mount(t);
+  const item = { kind: 'user', id: 'tweaks-message', text: 'Bake these\n🎚 card-radius: 24px (was 16px)' };
+  await act(async () => root.render(React.createElement(TranscriptRow, { item })));
+  const line = document.querySelector('.message-body .message-tweaks-line');
+  assert.equal(line.textContent.trim(), 'card-radius: 24px (was 16px)');
+  assert.ok(line.querySelector('svg'));
+  assert.doesNotMatch(document.querySelector('.message-body').textContent, /🎚/);
+  assert.equal(document.querySelector('.message-body > p').textContent, 'Bake these');
+});
+
 test('inline image markers preserve user text and attachment chips', async (t) => {
   const { root, document } = mount(t);
   const item = {

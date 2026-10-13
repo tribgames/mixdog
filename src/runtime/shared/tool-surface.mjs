@@ -140,6 +140,8 @@ export function displayToolName(name, args = {}) {
       return 'Media';
     case 'tidy':
       return 'Tidy';
+    case 'visualize':
+      return 'Visualize';
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
@@ -310,6 +312,11 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     }
     case 'terminal':
       return compactParts([String(a.action || ''), a.tab ? `tab ${a.tab}` : '']);
+    case 'visualize': {
+      const input = a.input && typeof a.input === 'object' ? a.input : {};
+      const targets = Array.isArray(input.targets) ? input.targets.map(String).join(', ') : '';
+      return compactParts([String(a.action || ''), targets || String(input.tab || '')]);
+    }
     case 'office':
       return compactParts([String(a.action || ''), pathOrId(a.path, a.session, max)]);
     case 'media':

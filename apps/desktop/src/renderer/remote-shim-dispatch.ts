@@ -29,6 +29,7 @@ import {
   REMOTE_BROWSER_TABS_EVENT,
 } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
+import { type DesktopVisualizeEvent, REMOTE_VISUALIZE_CHANGED_EVENT } from '../shared/visualize';
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
@@ -274,6 +275,25 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       const request = message.payload as DesktopBrowserOpenRequest | null;
       if (request && typeof request === 'object' && typeof request.sessionId === 'string' && request.sessionId) {
         fanOut(ctx.browserOpenListeners, request);
+      }
+    } else if (message.event === REMOTE_VISUALIZE_CHANGED_EVENT) {
+      if (!authenticated) return;
+      const event = message.payload as DesktopVisualizeEvent | null;
+      const state = event?.state;
+      if (
+        event &&
+        typeof event.sessionId === 'string' &&
+        event.sessionId &&
+        state &&
+        typeof state === 'object' &&
+        Array.isArray(state.tabs)
+      ) {
+        // Only state and reveal: web URLs reach a client through the browser handoff.
+        fanOut(ctx.visualizeListeners, {
+          sessionId: event.sessionId,
+          state: { ...state, sessionId: event.sessionId },
+          ...(event.reveal === true ? { reveal: true } : {}),
+        });
       }
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };

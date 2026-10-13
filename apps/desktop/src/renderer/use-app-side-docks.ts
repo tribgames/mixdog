@@ -18,6 +18,7 @@ import {
 import { usePaneSideDocks, type PaneSideDockDiff } from './pane-side-dock';
 import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
 import { useStableEvent } from './use-stable-event';
+import { allowVisualizeReveal, suppressVisualizeReveal, useVisualizeAvailable } from './visualize-store';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 
@@ -38,6 +39,8 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     dismissBrowserSurface,
   } = sessionSurfaces;
   const browserFeatureInstalled = useBrowserFeatureInstalled();
+  // The visualize toggle joins the strip once the agent has shown something.
+  const visualizeAvailable = useVisualizeAvailable();
   const availableSideViews = useMemo<WorkbenchSideViewId[]>(
     () => [
       ...(desktopFeatureEnabled('sessions') ? ['sessions' as const] : []),
@@ -46,13 +49,14 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       ...(isSshConnectionWindow() ? ['ports' as const] : []),
       'session-diff' as const,
       'background-jobs' as const,
+      ...(visualizeAvailable ? ['visualize' as const] : []),
       ...(browserFeatureInstalled ? ['browser' as const] : []),
       'terminal' as const,
       ...(['agents', 'search', 'source-control', 'pull-requests'] as const).filter((panel) =>
         desktopUtilityDockTabEnabled(panel)
       ),
     ],
-    [browserFeatureInstalled]
+    [browserFeatureInstalled, visualizeAvailable]
   );
   const workbenchSideLayout = useWorkbenchSideViewLayout(availableSideViews);
   const sidebarViewGroups = useMemo<readonly SidebarViewGroup[]>(
@@ -94,6 +98,11 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     if (entry.diff?.source === 'session' && sessionId) {
       setSessionDiff(sessionId, null);
     }
+    // Closing the visualize panel is the user's call: agent opens keep
+    // updating its tabs but no longer reveal it for this session.
+    if (sessionId && entry.open && entry.surface === '' && entry.view === 'visualize') {
+      suppressVisualizeReveal(sessionId);
+    }
     // The dock shows ONE child: closing folds the whole unit, so a Session
     // Diff list left under the browser/terminal must not reopen it on close.
     if (sessionId && sessionPanelViews.get(sessionId)) {
@@ -131,6 +140,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       rawEntry.surface === '' &&
       isSessionSidePanelView(rawEntry.view)
     ) {
+      if (rawEntry.view === 'visualize') allowVisualizeReveal(sessionId);
       setSessionPanelView(sessionId, rawEntry.view);
       paneSideDocks.setOpen(leafId, true);
       return;

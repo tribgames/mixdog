@@ -6,6 +6,7 @@
  */
 import { contextMeasurementStats } from '../../../../shared/context-measurement.mjs';
 import { toolResultText } from './tool-result-text.mjs';
+import { restoredUserText } from './user-text.mjs';
 import {
   completionCardFromExecution,
   parseModelVisibleCompletionWrapper,
@@ -303,7 +304,7 @@ function restoredUserTranscriptItems(message, nextId) {
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
   if (message?.meta === 'skill' || message?.meta === 'hook') return [];
-  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
+  const text = restoredUserText(message?.content).trim();
   // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live
   // Response card is an event-time push that does not survive a transcript

@@ -79,7 +79,8 @@
     "[Ln": "editor status line abbreviation fragment",
     "Ln {{line}}, Col {{column}}": "editor status line abbreviation",
     ", Col": "editor status column abbreviation fragment",
-    "Auto": "effort-tier name kept in English by design"
+    "Auto": "effort-tier name kept in English by design",
+    "v{{value0}} / {{value1}}": "version counter, placeholders only"
   },
   "localeExceptions": {
     "de": {
@@ -163,6 +164,7 @@
       "Version": "same spelling in German"
     },
     "es": {
+      "1 error": "same spelling in Spanish",
       "Workflow": "established software term in Spanish UI",
       "Webhooks": "established web term in Spanish UI",
       "Terminal": "established software term in Spanish UI",

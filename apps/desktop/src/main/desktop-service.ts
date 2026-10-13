@@ -8,6 +8,8 @@ import type {
   DesktopRemoteBrowserTab,
 } from '../shared/contract';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
+import { REMOTE_VISUALIZE_LANE, VISUALIZE_REMOTE_DESKTOP_EVENT } from '../shared/visualize';
+import { createRemoteVisualizeMirror } from './remote-visualize';
 import type {
   MixdogProjectsModule,
   MixdogSessionSearchModule,
@@ -289,6 +291,8 @@ export async function createDesktopService({
   const browserRemoteRequests = createBrowserRemoteRequests((request) =>
     publishDesktopEvent('browser-remote-request', request)
   );
+  // The window's agent `visualize` tabs, mirrored for paired remote clients.
+  const visualizeMirror = createRemoteVisualizeMirror();
   // Remote mode only: this daemon's model calls run on the connected PC. The
   // request state travels out as an event; the PC answers through operations.
   const modelProxy = modelProxyClientMode() ? getModelProxyChannel() : null;
@@ -342,6 +346,7 @@ export async function createDesktopService({
     terminals: operations.terminals,
     browserRemote: browserRemoteRequests.request,
     hostRequest: browserRemoteRequests.request,
+    visualize: visualizeMirror,
     subscribeTerminalData: operations.subscribeTerminalData,
     userDataPath: options.userDataPath,
     onClientCountChanged,
@@ -534,6 +539,14 @@ export async function createDesktopService({
       case 'browserRemoteOpen':
         publishDesktopEvent(BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, operationArgs[0]);
         return null;
+      // The window's visualize changes; the relay forwards the path-free form.
+      case 'visualizeRemotePublish': {
+        const event = visualizeMirror.apply(operationArgs[0]);
+        if (event) publishDesktopEvent(VISUALIZE_REMOTE_DESKTOP_EVENT, event);
+        return null;
+      }
+      case 'visualizeRemoteViewing':
+        return remoteRelay?.viewsSessionLane(String(operationArgs[0] || ''), REMOTE_VISUALIZE_LANE) ?? false;
       case 'browserRemoteResolve':
         return browserRemoteRequests.settle(
           String(operationArgs[0] || ''),

@@ -364,6 +364,8 @@ export function BuiltInFeaturesPanel({
       tidy: record(toolModules.tidy).installed === true,
       localProvider: localProvider.installed === true,
       autoEffort: autoEffort.installed === true,
+      // Visualize ships with the app and has no install step: toggle only.
+      visualize: true,
       voice: voiceInstalled || voice.installed === true,
     }),
     [gitStatus?.installed, settings, toolModules, localProvider, autoEffort, voice.installed, voiceInstalled]
@@ -378,6 +380,7 @@ export function BuiltInFeaturesPanel({
       tidy: record(toolModules.tidy).enabled !== false,
       localProvider: localProvider.enabled === true,
       autoEffort: autoEffort.enabled === true,
+      visualize: record(toolModules.visualize).enabled !== false,
       voice: voice.enabled === true && installed.voice,
     }),
     [installed.voice, settings, toolModules, localProvider, autoEffort, voice.enabled]
@@ -402,7 +405,14 @@ export function BuiltInFeaturesPanel({
       const result = record(await run('setMemoryToolsEnabled', [next], `built-in-${id}`));
       return record(result.memory).enabled === next;
     }
-    if (id === 'git' || id === 'office' || id === 'localProvider' || id === 'tidy' || id === 'autoEffort') {
+    if (
+      id === 'git' ||
+      id === 'office' ||
+      id === 'localProvider' ||
+      id === 'tidy' ||
+      id === 'autoEffort' ||
+      id === 'visualize'
+    ) {
       const result = record(await run('setBuiltinToolEnabled', [id, next], `built-in-${id}`));
       if (id === 'autoEffort') publishAutoEffort(result);
       return record(result[id]).enabled === next;
@@ -428,7 +438,7 @@ export function BuiltInFeaturesPanel({
       .finally(() => setOptimistic(null));
   };
   const install = (id: BuiltInFeatureId) => {
-    if (id === 'localProvider') return;
+    if (id === 'localProvider' || id === 'visualize') return;
     if ((action && action.status !== 'failed') || pending) return;
     setAction({ id, status: 'installing' });
     void (async () => {

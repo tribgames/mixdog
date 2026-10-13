@@ -616,6 +616,14 @@ const api: DesktopApi = {
   onZoomFactorChanged: (listener) => subscribeIpc(DESKTOP_IPC.zoomFactorChanged, listener),
   onNotificationOpenSession: (listener) => subscribeIpc(DESKTOP_IPC.notificationOpenSession, listener),
   onBrowserOpenRequested: (listener) => subscribeIpc(DESKTOP_IPC.browserOpenRequested, listener),
+  onVisualizeChanged: (listener) => subscribeIpc(DESKTOP_IPC.visualizeChanged, listener),
+  visualizeState: () => ipcRenderer.invoke(DESKTOP_IPC.visualizeState),
+  visualizeCommand: (command) => ipcRenderer.invoke(DESKTOP_IPC.visualizeCommand, command),
+  visualizePaneText: (sessionId, tabId, index) =>
+    ipcRenderer.invoke(DESKTOP_IPC.visualizePaneText, sessionId, tabId, index),
+  visualizeFeedbackAttach: (sessionId, tabId) => ipcRenderer.invoke(DESKTOP_IPC.visualizeFeedbackAttach, sessionId, tabId),
+  visualizeCaptureRect: (rect) => ipcRenderer.invoke(DESKTOP_IPC.visualizeCaptureRect, rect),
+  visualizeConsumeGesture: (target) => ipcRenderer.invoke(DESKTOP_IPC.visualizeConsumeGesture, target),
   onBrowserSessionReleased: (listener) => subscribeIpc(DESKTOP_IPC.browserSessionReleased, listener),
   browserSetActiveGuest: (sessionId, webContentsId, active) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),

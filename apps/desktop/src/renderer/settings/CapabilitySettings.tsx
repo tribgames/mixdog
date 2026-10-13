@@ -22,6 +22,7 @@ import {
   type PanelContext,
   type SettingsConfirmation,
   getCachedCapabilitySettings,
+  invalidateCapabilitySettings,
   preloadCapabilitySettings,
 } from './capability-data';
 import { CategoryPanel } from './capability-panels';
@@ -112,7 +113,14 @@ export const CapabilitySettings = memo(function CapabilitySettings({
   }, [active, api, load, refreshNonce, revision]);
   // A setup-tool change rewrites settings outside this panel: re-read now
   // while visible; a hidden panel refreshes on its next opening.
-  useEffect(() => subscribeSetupChanges(() => setRevision((value) => value + 1)), []);
+  useEffect(
+    () =>
+      subscribeSetupChanges(() => {
+        invalidateCapabilitySettings(api);
+        setRevision((value) => value + 1);
+      }),
+    [api]
+  );
   useEffect(() => {
     let live = true;
     const receive = (snapshot: SessionSnapshot) => {
@@ -181,6 +189,9 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           // a resolved call invalidates the sidebar reference keys it makes
           // untrue (provider setup/model catalogs, search route, agents).
           invalidateSidebarReferenceForMutation(capability);
+          // The next load must re-read past the write instead of adopting a
+          // cached or still-running sweep that predates it.
+          invalidateCapabilitySettings(api, capability);
           if (refresh) setRevision((value) => value + 1);
           return result.value;
         } catch (rawReason) {
@@ -273,6 +284,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           ...(fast === undefined ? {} : { fast }),
           ...(autoEffort === undefined ? {} : { autoEffort }),
         });
+        invalidateCapabilitySettings(api);
         setRevision((value) => value + 1);
       } catch (reason) {
         setError(errorMessage(reason));
@@ -290,6 +302,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       setError('');
       try {
         await api.setFast(enabled);
+        invalidateCapabilitySettings(api);
         setRevision((value) => value + 1);
       } catch (reason) {
         setError(errorMessage(reason));

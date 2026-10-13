@@ -75,6 +75,8 @@ export function formatToolStartProgress(name, args = {}) {
     }
     case 'terminal':
       return a.action === 'read' ? `reading terminal${a.tab ? ` ${_t(a.tab)}` : ''}` : 'listing terminals';
+    case 'visualize':
+      return `visualize ${_t(a.action || 'command')}`;
     case 'office':
       return a.path ? `office ${_t(a.action || 'command')} ${_t(a.path)}` : `office ${_t(a.action || 'command')}`;
     case 'media': {

@@ -36,7 +36,183 @@ import {
   PROMPT_IMAGE_MIME_PATTERN,
   MAX_PROMPT_IMAGES,
 } from '../shared/prompt-limits';
+import {
+  type DesktopVisualizeTabCommand,
+  MAX_VISUALIZE_INLINE_BYTES,
+  VISUALIZE_INLINE_KINDS,
+  type VisualizeInlineContent,
+} from '../shared/visualize';
 import { requiredSessionId } from './desktop-state';
+
+const visualizeVersionNumber = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 1_000_000_000) {
+    throw new TypeError('visualize version must be a positive integer.');
+  }
+  return value;
+};
+
+/** The renderer's visualize tab click/close/version step:
+ *  `{ sessionId, tabId, action, version?, compare? }`. */
+export function requiredVisualizeTabCommand(value: unknown): DesktopVisualizeTabCommand {
+  const command = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const action = command.action;
+  if (
+    action !== 'activate' &&
+    action !== 'close' &&
+    action !== 'version' &&
+    action !== 'restore' &&
+    action !== 'network' &&
+    action !== 'reopen' &&
+    action !== 'render' &&
+    action !== 'history' &&
+    action !== 'export'
+  ) {
+    throw new TypeError(
+      'visualize command action must be activate, close, version, restore, network, reopen, render, history, or export.'
+    );
+  }
+  if (action === 'history') {
+    return {
+      sessionId: requiredSessionId(command.sessionId),
+      tabId: '',
+      action,
+      entry: requiredString(command.entry, 'visualize history entry', 64),
+    };
+  }
+  const base = {
+    sessionId: requiredSessionId(command.sessionId),
+    tabId: requiredString(command.tabId, 'visualize tab id', 64),
+  };
+  if (action === 'export') {
+    const { format, pane } = command;
+    if (format !== 'png' && format !== 'pdf' && format !== 'project') {
+      throw new TypeError('visualize export format must be png, pdf, or project.');
+    }
+    if (pane !== undefined && (typeof pane !== 'number' || !Number.isInteger(pane) || pane < 0 || pane > 15)) {
+      throw new TypeError('visualize pane index is invalid.');
+    }
+    return { ...base, action, format, ...(pane !== undefined ? { pane } : {}) };
+  }
+  if (action === 'reopen') {
+    // A closed tab's file targets, from its chat card: 1-3 paths, never URLs;
+    // or the inline content it showed (fully validated again by the open).
+    const content = command.content;
+    if (content !== undefined) {
+      const item = content && typeof content === 'object' ? (content as Record<string, unknown>) : {};
+      if (
+        !VISUALIZE_INLINE_KINDS.some((kind) => kind === item.kind) ||
+        typeof item.source !== 'string' ||
+        item.source.length > MAX_VISUALIZE_INLINE_BYTES ||
+        (item.title !== undefined && (typeof item.title !== 'string' || item.title.length > 120)) ||
+        (command.label !== undefined && (typeof command.label !== 'string' || command.label.length > 120))
+      ) {
+        throw new TypeError('visualize reopen content is invalid.');
+      }
+      return {
+        ...base,
+        action,
+        targets: [],
+        content: {
+          kind: item.kind as VisualizeInlineContent['kind'],
+          source: item.source,
+          ...(typeof item.title === 'string' && item.title ? { title: item.title } : {}),
+        },
+        ...(typeof command.label === 'string' && command.label ? { label: command.label } : {}),
+      };
+    }
+    const targets = command.targets;
+    if (
+      !Array.isArray(targets) ||
+      targets.length < 1 ||
+      targets.length > 3 ||
+      targets.some((target) => typeof target !== 'string' || !target.trim() || target.length > 4096 || /^[a-z][a-z0-9+.-]*:\/\//i.test(target))
+    ) {
+      throw new TypeError('visualize reopen targets must be 1-3 file paths.');
+    }
+    if (command.label !== undefined && (typeof command.label !== 'string' || command.label.length > 120)) {
+      throw new TypeError('visualize reopen label is invalid.');
+    }
+    return {
+      ...base,
+      action,
+      targets: [...targets],
+      ...(typeof command.label === 'string' && command.label ? { label: command.label } : {}),
+    };
+  }
+  if (action === 'network') {
+    if (typeof command.allow !== 'boolean') throw new TypeError('visualize network allow must be a boolean.');
+    return { ...base, action, allow: command.allow };
+  }
+  if (action === 'version') {
+    if (command.compare !== undefined && typeof command.compare !== 'boolean') {
+      throw new TypeError('visualize compare must be a boolean.');
+    }
+    return {
+      ...base,
+      action,
+      version: command.version === null ? null : visualizeVersionNumber(command.version),
+      ...(command.compare === true ? { compare: true } : {}),
+    };
+  }
+  if (action === 'render') {
+    // An inline pane's render result; a failure carries its (clipped) error.
+    const { pane, error } = command;
+    if (typeof pane !== 'number' || !Number.isInteger(pane) || pane < 0 || pane > 15) {
+      throw new TypeError('visualize pane index is invalid.');
+    }
+    if (error !== undefined && typeof error !== 'string') throw new TypeError('visualize render error must be text.');
+    return {
+      ...base,
+      action,
+      pane,
+      renderId: requiredString(command.renderId, 'visualize render id', 128),
+      ...(error ? { error: error.slice(0, 4000) } : {}),
+    };
+  }
+  if (action === 'restore') {
+    // The page assets the user confirmed the restore may also overwrite.
+    const assets = command.assets;
+    if (
+      assets !== undefined &&
+      (!Array.isArray(assets) ||
+        assets.length > 64 ||
+        assets.some((rel) => typeof rel !== 'string' || !rel || rel.length > 1024))
+    ) {
+      throw new TypeError('visualize restore assets must be a list of file paths.');
+    }
+    return {
+      ...base,
+      action,
+      version: visualizeVersionNumber(command.version),
+      ...(Array.isArray(assets) && assets.length ? { assets: [...assets] } : {}),
+    };
+  }
+  return { ...base, action };
+}
+
+/** The pane a `data-choice` pick came from: `{ sessionId, tabId, pane }`. */
+export function requiredVisualizeGestureTarget(value: unknown): { sessionId: string; tabId: string; pane: number } {
+  const target = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const { sessionId, tabId } = requiredVisualizeTabCommand({ ...target, action: 'activate' });
+  const pane = target.pane;
+  if (typeof pane !== 'number' || !Number.isInteger(pane) || pane < 0 || pane > 15) {
+    throw new TypeError('visualize pane index is invalid.');
+  }
+  return { sessionId, tabId, pane };
+}
+
+/** A visualize pin's crop area: `{ x, y, width, height }` in window CSS px. */
+export function requiredVisualizeCaptureRect(value: unknown): { x: number; y: number; width: number; height: number } {
+  const rect = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const coordinate = (key: 'x' | 'y' | 'width' | 'height', min: number): number => {
+    const number = rect[key];
+    if (typeof number !== 'number' || !Number.isFinite(number) || number < min || number > 100_000) {
+      throw new TypeError(`visualize capture ${key} is invalid.`);
+    }
+    return number;
+  };
+  return { x: coordinate('x', 0), y: coordinate('y', 0), width: coordinate('width', 1), height: coordinate('height', 1) };
+}
 
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
@@ -75,7 +251,7 @@ const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'au
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
-const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort']);
+const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort', 'visualize']);
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
 const CAPABILITY_ARITY = {
@@ -801,7 +977,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     throw new TypeError(`${capability} requires a boolean value.`);
   }
   if (capability === 'setBuiltinToolEnabled' && !TOGGLEABLE_BUILTIN_TOOLS.has(args[0] as string)) {
-    throw new TypeError('setBuiltinToolEnabled requires git, office, localProvider, or tidy.');
+    throw new TypeError('setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, or visualize.');
   }
   if (capability === 'setDeveloperOption') requiredString(args[0], 'developer option id', 128);
   if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {

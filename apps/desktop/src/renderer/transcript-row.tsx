@@ -1,3 +1,4 @@
+import { SlidersHorizontal } from 'lucide-react';
 import { Suspense, createContext, memo, useContext, useEffect, useRef } from 'react';
 import { AttachmentCard, composerCardMeta } from './attachment-card';
 import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource } from './attachment-menu';
@@ -6,6 +7,7 @@ import { MarkdownOpenFileContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
 import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
+import { VISUALIZE_TWEAKS_MARK } from './visualize-feedback-store';
 import MarkdownBody from './MarkdownBody';
 import {
   createStreamingMarkdownCache,
@@ -113,6 +115,17 @@ function extractPastedTextMarkers(text: string): { text: string; chips: PastedTe
   return { text: cleaned, chips };
 }
 
+/** Tweaks lines of a feedback message (`<mark> accent: #fff (was #000)`) come out of the text, to be drawn with an icon. */
+function extractTweaksLines(text: string): { text: string; lines: string[] } {
+  const lines: string[] = [];
+  const kept: string[] = [];
+  for (const line of String(text || '').split('\n')) {
+    if (line.startsWith(`${VISUALIZE_TWEAKS_MARK} `)) lines.push(line.slice(VISUALIZE_TWEAKS_MARK.length + 1).trim());
+    else kept.push(line);
+  }
+  return lines.length ? { text: kept.join('\n').trim(), lines } : { text, lines };
+}
+
 interface ImageMarkerChip {
   name: string;
   dims: string;
@@ -122,6 +135,10 @@ interface ImageMarkerChip {
 // Chip for an `[Image: …]` / `[Image source: …]` metadata line: the file name
 // from its source path and its dimensions.
 function imageMetaChip(meta: string, line: string): ImageMarkerChip {
+  // A visualize pin's crop (`[Image: visualize pin N · label, WxH]`): named
+  // like its 📌 chip. Restored history has no crop thumbnail to show.
+  const pin = /^visualize pin (\d+) · (.+), (\d+)x(\d+)$/.exec(meta);
+  if (pin) return { name: `📌 ${pin[1]} · ${pin[2]}`, dims: `${pin[3]}\u00D7${pin[4]}`, title: line };
   const parts = meta.split(/,\s*/);
   const source =
     (parts.find((part) => part.startsWith('source: ')) || '').slice(8).trim() ||
@@ -306,6 +323,7 @@ export const TranscriptRow = memo(
       : { text: userDisplayText, chips: [] as PastedTextChip[] };
     const fileFold = user ? extractFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
     const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
+    const tweaksFold = user ? extractTweaksLines(webhookFold.text) : { text: webhookFold.text, lines: [] as string[] };
     return (
       <>
         <article
@@ -395,10 +413,17 @@ export const TranscriptRow = memo(
               </div>
             )}
           {menuElement}
-          {(!user || webhookFold.text) && (
+          {(!user || tweaksFold.text || tweaksFold.lines.length > 0) && (
             // biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control.
             <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-              {user ? <p>{webhookFold.text}</p> : <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
+              {user && tweaksFold.text ? <p>{tweaksFold.text}</p> : null}
+              {tweaksFold.lines.map((line, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: lines are parsed from a sent message and never reorder.
+                <p key={`tweaks-${index}`} className="message-tweaks-line">
+                  <SlidersHorizontal size={12} aria-hidden="true" /> {line}
+                </p>
+              ))}
+              {user ? null : <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
             </div>
           )}
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (

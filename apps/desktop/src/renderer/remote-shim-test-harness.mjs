@@ -133,6 +133,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
       browserOpenListeners: new Set(),
       remoteBrowserTabListeners: new Set(),
       browserImportProgressListeners: new Set(),
+      visualizeListeners: new Set(),
       activeLanes: new Set(),
       compactFrames: { reset() {} },
       viewBaselines: { restore: (value) => value, clear() {} },
@@ -162,6 +163,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
       browserParity = false,
       nativePush = false,
       routeAutoEffort = false,
+      visualize = false,
       ready = {},
     } = {}) => {
       const known = FakeSocket.instances.length;
@@ -186,6 +188,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
         ...(browserParity ? { browserParity: 1 } : {}),
         ...(nativePush ? { nativePush: 1 } : {}),
         ...(routeAutoEffort ? { routeAutoEffort: 1 } : {}),
+        ...(visualize ? { visualize: 1 } : {}),
       };
       ws.onmessage({ data: JSON.stringify(challenge) });
       await until(() => ws.sent.length === 1, 'the client hello');

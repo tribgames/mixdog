@@ -7,6 +7,7 @@ export type BuiltInFeatureId =
   | 'tidy'
   | 'localProvider'
   | 'autoEffort'
+  | 'visualize'
   | 'voice';
 
 export interface BuiltInFeatureDefinition {
@@ -56,6 +57,11 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     title: 'Auto reasoning',
     description:
       'Adjust the reasoning effort of each turn and each step after tool results to how hard the work is, on models that can change it without breaking the prompt cache.',
+  },
+  {
+    id: 'visualize',
+    title: 'Visualize',
+    description: 'Show mockups, documents, and other results beside the chat.',
   },
   {
     id: 'voice',
