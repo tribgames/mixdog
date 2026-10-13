@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -11,7 +11,7 @@ const DESKTOP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const REPOSITORY_ROOT = resolve(DESKTOP_DIR, '../..');
 
 test('plain-Node daemon loads the unpacked desktop adapter and serves pane catalogs', async () => {
-  const runtimeRoot = mkdtempSync(join(tmpdir(), 'mixdog-desktop-service-e2e-'));
+  const runtimeRoot = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-desktop-service-e2e-')));
   const environment = {
     ...process.env,
     MIXDOG_RUNTIME_ROOT: runtimeRoot,
