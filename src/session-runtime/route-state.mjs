@@ -1,11 +1,14 @@
 // Pure route derivations: the effective effort / Fast capability of a route
 // against provider model metadata, and its context-window percentage.
-import { modelMetaLooksResolved, modelSettingsFor } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import {
+  modelMetaLooksResolved,
+  modelSettingsFor,
+} from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { clean, hasOwn } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { coerceEffortFor } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { fastCapableFor } from '../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import { providerCachedModelMetadataSync } from '../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
-import { contextWindowRange } from '../runtime/shared/llm/default-context-window.mjs';
+import { contextWindowRange, normalizeContextTokens } from '../runtime/shared/llm/default-context-window.mjs';
 
 export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
   const requested = hasOwn(targetRoute, 'effort') ? targetRoute.effort : targetRoute.preset?.effort || null;
@@ -68,6 +71,17 @@ export function resolveRouteContextState(targetRoute = {}, modelMeta = null, win
     return { contextPercent: undefined, contextDefaultPercent: undefined, selectedContextWindow: undefined };
   }
   const contextDefaultPercent = Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
+  // An exact token selection overrides the 10% stops. It is clamped to the
+  // selectable range; one that lands on the default window is the default.
+  const requestedTokens = normalizeContextTokens(targetRoute?.contextTokens);
+  if (requestedTokens) {
+    const contextTokens = Math.max(Math.ceil(maxWindow * 0.1), Math.min(maxWindow, requestedTokens));
+    if (contextTokens === defaultWindow) {
+      return { contextPercent: contextDefaultPercent, contextDefaultPercent, selectedContextWindow: defaultWindow };
+    }
+    const contextPercent = Math.max(10, Math.min(100, Math.round((contextTokens / maxWindow) * 10) * 10));
+    return { contextPercent, contextDefaultPercent, selectedContextWindow: contextTokens, contextTokens };
+  }
   const requested = Number(targetRoute?.contextPercent);
   const contextPercent =
     Number.isFinite(requested) && requested > 0

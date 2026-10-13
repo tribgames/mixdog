@@ -615,10 +615,10 @@
   font-weight: 600;
   color: var(--mx-warning);
 }
-.session-diff-status[data-status='A'] {
+.session-diff-status[data-status="A"] {
   color: var(--mx-success);
 }
-.session-diff-status[data-status='D'] {
+.session-diff-status[data-status="D"] {
   color: var(--mx-danger);
 }
 .session-diff-file-head {
@@ -899,6 +899,24 @@ div.diff-tailwindcss-wrapper .diff-line {
   border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;
   box-shadow: 0 var(--mx-hairline) 0 var(--mx-border-muted);
 }
+/* Phone-only ⋯ (ReviewPane): the header's context menu without a long-press. */
+.review-file-more {
+  flex: none;
+  width: var(--mx-touch-row, 36px);
+  height: var(--mx-touch-row, 36px);
+  margin-right: 4px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-icon-muted);
+  background: transparent;
+}
+.review-file-more[aria-expanded="true"] {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .review-file-trigger {
   flex: 1;
   min-width: 0;
@@ -1030,6 +1048,274 @@ div.diff-tailwindcss-wrapper .diff-line {
 }
 .review-context-menu button[data-danger] {
   color: var(--mx-danger);
+}
+
+/* Per-turn changed-files card in the transcript (Codex-style): one card per
+   checkpoint after its last completion. Header = title + stats (hover swaps
+   to "View changes ›") and the turn actions; up to three file rows show. */
+.turn-changes-card {
+  position: relative;
+  margin-top: 8px;
+  border-radius: var(--mx-radius-lg);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+}
+.turn-changes-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 8px 6px 0;
+  border-radius: var(--mx-radius-lg);
+}
+.turn-changes-head:hover {
+  background: var(--mx-hover);
+}
+.turn-changes-summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: stretch;
+  padding: 0 0 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.turn-changes-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
+}
+.turn-changes-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: var(--mx-line-minor);
+}
+.turn-changes-title strong {
+  overflow: hidden;
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-changes-card[data-reverted="true"] .turn-changes-title strong {
+  color: var(--mx-text-faint);
+  text-decoration: line-through;
+}
+.turn-changes-sub {
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.turn-changes-sub-hover {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--mx-text-muted);
+}
+.turn-changes-head:hover .turn-changes-sub-default {
+  display: none;
+}
+.turn-changes-head:hover .turn-changes-sub-hover {
+  display: inline-flex;
+}
+.turn-changes-card .diff-stats {
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+}
+.turn-changes-card .diff-stats i,
+.turn-changes-preview .diff-stats i {
+  color: var(--mx-success);
+  font-style: normal;
+}
+.turn-changes-card .diff-stats em,
+.turn-changes-preview .diff-stats em {
+  color: var(--mx-danger);
+  font-style: normal;
+}
+.turn-changes-trail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.turn-changes-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text-soft);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.turn-changes-action:hover:not(:disabled) {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.turn-changes-action:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.turn-changes-error {
+  margin: 0 8px 8px;
+}
+.turn-changes-files {
+  margin: 0;
+  padding: 0;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  list-style: none;
+}
+.turn-changes-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding-right: 8px;
+  background: var(--mx-surface-plate);
+}
+.turn-changes-file:hover {
+  background: var(--mx-hover);
+}
+.turn-changes-files > li:last-child {
+  border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg);
+}
+.turn-changes-file-main {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.turn-changes-path {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.turn-changes-dir {
+  /* The directory yields first; the basename truncates only once it is gone. */
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-changes-base {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
+}
+.turn-changes-file[data-reverted="true"] .turn-changes-path {
+  text-decoration: line-through;
+}
+.turn-changes-file[data-reverted="true"] .turn-changes-base {
+  color: var(--mx-text-faint);
+}
+.turn-changes-large {
+  flex: none;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
+.turn-changes-file-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.turn-changes-more {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg);
+  background: transparent;
+  color: var(--mx-text-soft);
+  font: inherit;
+  cursor: pointer;
+}
+.turn-changes-more:hover {
+  background: var(--mx-hover);
+}
+.turn-changes-more svg[data-open="true"] {
+  transform: rotate(180deg);
+}
+/* Hover preview: portaled to the body because transcript rows clip. */
+.turn-changes-preview {
+  position: fixed;
+  z-index: 60;
+  width: 440px;
+  max-width: calc(100vw - 16px);
+  max-height: min(360px, 50vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-popup-bg);
+  box-shadow:
+    var(--mx-popup-shadow),
+    0 0 0 var(--mx-hairline) var(--mx-border);
+  pointer-events: none;
+}
+.turn-changes-preview-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.turn-changes-preview-head .diff-stats {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+  font-family: var(--mx-font-mono);
+}
+.turn-changes-preview-body {
+  min-height: 0;
+  overflow: hidden;
+  background: var(--mx-bg-layer-1);
+}
+.turn-changes-preview-note {
+  margin: 0;
+  padding: 10px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
 }
 
 /* Compact desktop: when both navigation rails are present, keep the Task and

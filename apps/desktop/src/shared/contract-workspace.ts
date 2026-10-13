@@ -411,6 +411,16 @@ export interface DesktopBootContext {
   afterUpdate?: true;
 }
 
+/** The daemon connection a desktop window drives: this PC (`local`) or a
+ *  server reached over ssh. Fixed for the window's lifetime. */
+export interface DesktopConnectionIdentity {
+  /** `'local'` for this PC, the saved SSH host id otherwise. */
+  id: string;
+  kind: 'local' | 'ssh';
+  /** Display name: this PC's host name, or the saved server name. */
+  name: string;
+}
+
 export interface DesktopWorkspaceTextSearchOptions {
   query: string;
   include?: string;

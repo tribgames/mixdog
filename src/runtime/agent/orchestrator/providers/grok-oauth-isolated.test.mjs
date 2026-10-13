@@ -172,6 +172,11 @@ async function isolated() {
       },
     },
     '../../../shared/open-url.mjs': { openInBrowser: (url) => s.opened.push(url) },
+    // Local mode: server-side credentials stay enabled.
+    '../../../shared/model-proxy-mode.mjs': {
+      modelProxyClientMode: () => false,
+      serverModelCredentialsDisabledError: (what) => new Error(String(what)),
+    },
     './model-cache.mjs': {
       makeModelCache: (options) => {
         s.cacheOptions = plain(options);

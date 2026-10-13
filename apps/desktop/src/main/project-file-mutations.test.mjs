@@ -433,19 +433,28 @@ test('opposite-order overlapping batches settle without deadlock', { timeout: 50
 });
 
 
-test('a retargeted directory alias cannot redirect a queued save outside its claim', { timeout: 5000 }, async (t) => {
-  const root = await fixture(t, { 'one/a.txt': 'one', 'two/a.txt': 'two' });
+for (const distinctCase of [false, true]) {
+test(`a retargeted ${distinctCase ? 'case-distinct ' : ''}directory alias cannot redirect a queued save outside its claim`, { timeout: 5000 }, async (t) => {
+  const original = distinctCase ? 'A' : 'one';
+  const other = distinctCase ? 'a' : 'two';
+  const root = await fixture(t, { [`${original}/a.txt`]: 'one' });
+  await fs.mkdir(join(root, other), { recursive: true });
+  if (distinctCase && await fs.realpath(join(root, original)) === await fs.realpath(join(root, other))) {
+    t.skip('fixture filesystem does not support distinct case-variant directories');
+    return;
+  }
+  await fs.writeFile(join(root, other, 'a.txt'), 'two');
   const alias = join(root, 'alias');
   const kind = process.platform === 'win32' ? 'junction' : 'dir';
-  await fs.symlink(join(root, 'one'), alias, kind);
-  const gate = pauseRead(t, join(root, 'one/a.txt'));
-  const first = save(root, 'one/a.txt', 'saved one', 'one');
+  await fs.symlink(join(root, original), alias, kind);
+  const gate = pauseRead(t, join(root, original, 'a.txt'));
+  const first = save(root, `${original}/a.txt`, 'saved one', 'one');
   await gate.entered;
   const second = save(root, 'alias/a.txt', 'must not land', 'two');
   const finished = Promise.allSettled([first, second]);
   try {
     await fs.unlink(alias);
-    await fs.symlink(join(root, 'two'), alias, kind);
+    await fs.symlink(join(root, other), alias, kind);
   } finally {
     gate.release();
     await finished;
@@ -454,8 +463,10 @@ test('a retargeted directory alias cannot redirect a queued save outside its cla
   assert.equal(a.status, 'fulfilled');
   assert.equal(b.status, 'rejected');
   assert.match(b.reason.message, /Project path changed/);
-  assert.equal(await fs.readFile(join(root, 'two/a.txt'), 'utf8'), 'two');
+  assert.equal(await fs.readFile(join(root, original, 'a.txt'), 'utf8'), 'saved one');
+  assert.equal(await fs.readFile(join(root, other, 'a.txt'), 'utf8'), 'two');
 });
+}
 
 for (const [encoding, before, after] of [
   ['utf8bom', Buffer.from([0xef, 0xbb, 0xbf, 65]), Buffer.from([0xef, 0xbb, 0xbf, 66])],

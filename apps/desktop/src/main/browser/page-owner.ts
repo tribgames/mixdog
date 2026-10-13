@@ -35,6 +35,14 @@ export function createBrowserPageOwner(host: {
     return entry.guest;
   }
 
+  /** A page still committing its initial document; settles once it is usable
+   *  (or gone). Callers must not drive a guest before this settles: a load
+   *  started earlier aborts the initial one, and the failed page is destroyed. */
+  function settled(sessionId: string): Promise<void> {
+    const entry = pages.get(sessionId);
+    return entry ? entry.ready.catch(() => {}) : Promise.resolve();
+  }
+
   function release(sessionId: string): void {
     const entry = pages.get(sessionId);
     pages.delete(sessionId);
@@ -45,5 +53,5 @@ export function createBrowserPageOwner(host: {
     for (const sessionId of [...pages.keys()]) release(sessionId);
   }
 
-  return { ensure, release, dispose };
+  return { ensure, settled, release, dispose };
 }

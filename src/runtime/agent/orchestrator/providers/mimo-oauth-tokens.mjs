@@ -8,6 +8,7 @@ import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { accountIdentityFields, fileMtimeMs, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 
 const DEFAULT_PLATFORM_ORIGIN = 'https://platform.xiaomimimo.com';
 const DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1';
@@ -98,6 +99,7 @@ export function getKeyName() {
 }
 
 export function loadTokens() {
+  if (modelProxyClientMode()) return null;
   const path = getOwnTokenPath();
   if (!existsSync(path)) return null;
   try {

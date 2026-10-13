@@ -14,8 +14,11 @@ export type WorkbenchSideViewId =
   | UtilityDockTab
   | 'session-diff'
   | 'background-jobs'
+  | 'visualize'
   | 'browser'
-  | 'terminal';
+  | 'terminal'
+  /** Server windows only: the server's ports and their forwards to this PC. */
+  | 'ports';
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
 export type WorkbenchSideTitleDragProps = {
   draggable: boolean;
@@ -38,8 +41,10 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   'extensions',
   'schedules',
   'webhooks',
+  'ports',
   'session-diff',
   'background-jobs',
+  'visualize',
   'browser',
   'terminal',
   'agents',
@@ -62,8 +67,9 @@ const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ['source-control'],
     ['search'],
     ['webhooks'],
+    ['ports'],
   ],
-  right: [['session-diff'], ['background-jobs'], ['browser'], ['terminal'], ['pull-requests']],
+  right: [['session-diff'], ['background-jobs'], ['visualize'], ['browser'], ['terminal'], ['pull-requests']],
 };
 
 export function isViewId(value: unknown): value is WorkbenchSideViewId {

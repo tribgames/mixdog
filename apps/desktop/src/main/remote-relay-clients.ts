@@ -99,6 +99,19 @@ export function clientReadsLane(lanes: ReadonlySet<string> | null, lane: string)
   return lanes === null || lanes.has(lane);
 }
 
+/** A live, foreground client that explicitly registered `lane` and shows
+ *  `sessionId`: a device actually displaying that session's surface. Unlike
+ *  clientReadsLane, a client that predates lanes does not count. */
+export function clientViewsSessionLane(
+  state: Pick<RelayClientState, 'channel' | 'background' | 'lanes' | 'visibleSessionIds'>,
+  sessionId: string,
+  lane: string
+): boolean {
+  return Boolean(
+    state.channel && !state.background && state.lanes?.has(lane) && state.visibleSessionIds.has(sessionId)
+  );
+}
+
 /** Sends one payload inside a client's encrypted channel. */
 export type SendEncryptedFrame = (
   clientId: string,

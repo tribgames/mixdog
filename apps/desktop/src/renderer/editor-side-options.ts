@@ -4,6 +4,31 @@ export const SIDE_EDITOR_SCROLLBAR_SIZE = 8;
 export const SIDE_EDITOR_LINE_DECORATIONS_WIDTH = 12;
 export const SIDE_EDITOR_LINE_NUMBERS_MIN_CHARS = 3;
 
+/** A main-tab editor on the phone layout: a phone-wide column has no room for
+ *  a minimap or horizontal scrolling, so wrap is on (Alt+Z still overrides)
+ *  and the minimap off. The PC keeps the user's settings. */
+export function phoneEditorOptions(
+  base: editor.IStandaloneEditorConstructionOptions,
+  wordWrapOverride: editor.IStandaloneEditorConstructionOptions['wordWrap'] | null
+): editor.IStandaloneEditorConstructionOptions {
+  return {
+    ...base,
+    minimap: { ...base.minimap, enabled: false },
+    wordWrap: wordWrapOverride ?? 'on',
+  };
+}
+
+/** The options an editor surface mounts with: the side dock's narrow set,
+ *  the phone set for a main tab on the phone layout, else the base. */
+export function editorSurfaceOptions(
+  base: editor.IStandaloneEditorConstructionOptions,
+  wordWrapOverride: editor.IStandaloneEditorConstructionOptions['wordWrap'] | null,
+  surface: { side: boolean; phone: boolean }
+): editor.IStandaloneEditorConstructionOptions {
+  if (surface.side) return sideEditorOptions(base, wordWrapOverride);
+  return surface.phone ? phoneEditorOptions(base, wordWrapOverride) : base;
+}
+
 /** The narrow side-dock editor: no minimap or sticky-scroll overlay (they eat
  *  a narrow panel's width and pin lines over the revealed one) and wrapped
  *  lines, so only the vertical scrollbar remains. Alt+Z still overrides wrap. */

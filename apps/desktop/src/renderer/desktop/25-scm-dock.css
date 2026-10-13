@@ -1557,24 +1557,6 @@
   contain: paint;
   will-change: opacity;
 }
-/* Titlebar brand mark: sits ON the Activity Rail's axis — a 48px cell whose
-   center matches the rail icons below (user: 마크가 작고 축이 어긋난다). */
-.titlebar-brand {
-  align-self: stretch;
-  /* Cancel the topbar's 5px left padding and mirror the 47px rail button so
-     the mark shares the rail icons' exact axis (measured 23.5px center). */
-  width: 47px;
-  flex: 0 0 47px;
-  margin: 0 0 0 -5px;
-  display: grid;
-  place-items: center;
-  color: var(--mx-text-soft);
-  -webkit-app-region: drag;
-}
-.titlebar-brand svg {
-  width: var(--mx-icon-xl);
-  height: var(--mx-icon-xl);
-}
 /* Pull Requests tab: the view/title actions
    live in the dock header; this compact toolbar is only the headerless
    fallback used when the surface is embedded elsewhere. */
@@ -3025,6 +3007,18 @@ i.dock-pr-row-checks[data-checks="pending"] {
   overflow: hidden;
   color: var(--mx-text-muted);
   text-overflow: ellipsis;
+}
+/* Phone width: a long name must not push the stats off the row. The dim
+   directory gives up all of its width first; only then does the name itself
+   end in an ellipsis. */
+html[data-mixdog-mobile-tabs] .changes-file-main > b {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html[data-mixdog-mobile-tabs] .changes-file-dir {
+  flex: 0 100000 auto;
 }
 .changes-file-stats {
   flex: none;

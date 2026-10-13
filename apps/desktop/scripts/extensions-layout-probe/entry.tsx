@@ -316,7 +316,6 @@ function click(selector: string) {
     seedReferences();
     document.documentElement.dataset.mixdogTheme = theme;
     document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', mobile);
-    document.documentElement.style.setProperty('--mx-device-scale', '1');
     setUiLanguagePreference(language);
     await initUiLanguage();
     flushSync(() => root.render(<Scene key={`${view}-${theme}-${language}`} view={view} railWidth={railWidth} />));

@@ -407,6 +407,7 @@ export function SendButton({
   dictationState,
   draft,
   attachments,
+  feedbackPending = false,
   onStop,
   onStopDictationAndSend,
 }: {
@@ -420,6 +421,8 @@ export function SendButton({
   dictationState: DictationState;
   draft: string;
   attachments: ComposerAttachment[];
+  /** Visualize pins or picks are queued: sendable without text. */
+  feedbackPending?: boolean;
   onStop: () => void;
   onStopDictationAndSend: () => void;
 }) {
@@ -429,7 +432,9 @@ export function SendButton({
   const disabled =
     !stopOnly &&
     !voiceSend &&
-    ((!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
+    ((!draft.trim() &&
+      !feedbackPending &&
+      !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
       transitioning ||
       dictationState !== 'idle');
   let label = t('Send message');

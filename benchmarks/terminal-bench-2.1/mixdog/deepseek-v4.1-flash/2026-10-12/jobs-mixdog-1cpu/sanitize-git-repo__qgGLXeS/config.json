@@ -1,0 +1,24 @@
+{
+    "task": {
+        "path": "/opt/hive-benchmark/payload/tasks-1cpu/sanitize-git-repo",
+        "source": "tasks-1cpu"
+    },
+    "trial_name": "sanitize-git-repo__qgGLXeS",
+    "trials_dir": "/opt/hive-benchmark/results/jobs-mixdog-1cpu/2026-10-12__07-24-49",
+    "agent": {
+        "name": "aws_agents:HiveMixdog",
+        "model_name": "deepseek-ai/deepseek-v4.1-flash"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/opt/hive-benchmark/payload",
+                "target": "/opt/hive-runtime",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "63759cfa-5cb9-4a3b-a32c-c2abcc8137ee"
+}

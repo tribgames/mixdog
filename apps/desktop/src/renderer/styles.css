@@ -315,6 +315,11 @@ button {
 .message-body p {
   white-space: pre-wrap;
 }
+.message-body .message-tweaks-line svg {
+  display: inline-block;
+  vertical-align: -1px;
+  color: var(--mx-text-muted);
+}
 .markdown > :first-child {
   margin-top: 0;
 }
@@ -726,30 +731,38 @@ button.remote-pc-card-head {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The popup surface every other menu uses (.mx-menu); the action rows are
+   shared .mx-menu-item rows (desktop/menu-items.css). */
 .remote-pc-menu {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
   z-index: 60;
   width: 280px;
-  padding: 6px;
-  border-radius: var(--mx-radius-lg, 12px);
-  background: var(--mx-bg-elevated, var(--mx-bg-base));
-  box-shadow:
-    var(--mx-card-outline),
-    0 16px 40px rgba(0, 0, 0, 0.45);
+  padding: var(--mx-menu-inset);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  color: var(--mx-text);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
+  animation: mx-menu-in var(--mx-motion-chrome);
 }
+/* Two-line PC rows: the shared row grammar with room for the state line. */
 .remote-pc-item {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
+  min-height: 56px;
   padding: 8px 10px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: transparent;
   font: inherit;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
   text-align: left;
   cursor: pointer;
 }
@@ -760,20 +773,13 @@ button.remote-pc-card-head {
 .remote-pc-item:disabled {
   cursor: default;
 }
-.remote-pc-item:not(.remote-pc-action) {
-  min-height: 56px;
-}
-.remote-pc-action {
-  min-height: 34px;
-  font-weight: var(--mx-weight-semibold);
-}
 .remote-pc-action > svg {
-  flex: none;
   color: var(--mx-text-muted);
 }
 .remote-pc-item small {
   display: block;
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
 }
 .remote-pc-item span {
   flex: 1;

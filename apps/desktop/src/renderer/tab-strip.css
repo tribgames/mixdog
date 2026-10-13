@@ -422,6 +422,25 @@
   width: 14px;
   color: var(--mx-text-muted);
 }
+/* A ⋯ item that wants attention (blocked network, findings): warning glyph,
+   and a dot on the ⋯ button while the menu is closed. */
+.dock-header-menu > button[data-attention="true"] .dock-header-menu-glyph,
+.dock-header-menu > button[data-attention="true"] .dock-header-menu-detail {
+  color: var(--mx-warning, #e0a030);
+}
+.dock-header-more {
+  position: relative;
+}
+.dock-header-more-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-warning, #e0a030);
+  pointer-events: none;
+}
 /* The phone sheet keeps its own dock header and X. */
 html[data-mixdog-mobile-tabs] .dock-header-close {
   display: none;

@@ -2,14 +2,30 @@
 // "device is asking to connect" notice) to land on the page with one of its
 // dialogs open. The panel may not be mounted yet, so the request waits here
 // until it is.
-export type ConnectionDialogRequest = 'connect' | 'open-pc';
+export type ConnectionDialogRequest = 'connect' | 'open-pc' | 'ssh' | 'ssh-host';
+
+/** The saved SSH server a 'ssh-host' request connects to. */
+export interface SshHostRequest {
+  id: string;
+  name: string;
+  target: string;
+}
 
 const EVENT = 'mixdog:connection-dialog-request';
 let pending: ConnectionDialogRequest | null = null;
+let pendingSshHost: SshHostRequest | null = null;
 
-export function requestConnectionDialog(dialog: ConnectionDialogRequest): void {
+export function requestConnectionDialog(dialog: ConnectionDialogRequest, sshHost?: SshHostRequest): void {
   pending = dialog;
+  pendingSshHost = sshHost ?? null;
   window.dispatchEvent(new Event(EVENT));
+}
+
+/** The server of the waiting 'ssh-host' request, once. */
+export function takeSshHostRequest(): SshHostRequest | null {
+  const host = pendingSshHost;
+  pendingSshHost = null;
+  return host;
 }
 
 /** The waiting request, once. */

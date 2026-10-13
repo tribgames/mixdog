@@ -1,6 +1,11 @@
-import { ExternalLink, Monitor, Plus, Wifi } from 'lucide-react';
+import { ExternalLink, Monitor, Plus, Server, Terminal, Wifi } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import type { DesktopRemoteAccessInfo, DesktopRemoteClientInfo, DesktopRemoteHost } from '../../shared/contract';
+import type {
+  DesktopRemoteAccessInfo,
+  DesktopRemoteClientInfo,
+  DesktopRemoteHost,
+  DesktopSshHost,
+} from '../../shared/contract';
 import { nativeAppInfo } from '../../shared/native-app';
 import { remoteClientKind } from '../../shared/remote-trust';
 import { ErrorNotice } from '../ErrorNotice';
@@ -16,11 +21,21 @@ import {
   setCachedConnectionInfo,
 } from './connection-info';
 import { ConfirmDialog, ConnectDeviceDialog, RenameDialog } from './connection-dialogs';
-import { subscribeConnectionDialogRequests, takeConnectionDialogRequest } from './connection-intent';
+import {
+  type ConnectionDialogRequest,
+  type SshHostRequest,
+  subscribeConnectionDialogRequests,
+  takeConnectionDialogRequest,
+  takeSshHostRequest,
+} from './connection-intent';
 import { ConnRow, KindIcon } from './connection-ui';
 import { useRemoteAccessSettings } from './remote-access-settings';
 import { OpenPcDialog, savedHostOnline, useRemoteHosts } from './remote-hosts-panel';
 import { relativeWhen } from './relative-when';
+import { SshConnectDialog } from './ssh-connect-dialog';
+import { SshCleanupDialog, SshHostSettingsDialog } from './ssh-host-dialogs';
+import { openSshHost, useSshHosts } from './ssh-hosts';
+import { ReopenServerWindowsToggle } from './reopen-server-windows-toggle';
 import { errorMessage } from '../editor-pane-session-errors';
 
 const CONNECTION_RETRY_MS = 2_000;
@@ -113,7 +128,7 @@ function applyConnectionResult(
 
 function renderConnectionNote(message: string) {
   return (
-    <Group title={t('Web app')}>
+    <Group title={nativeAppInfo() ? t('Mixdog app') : t('Web app')}>
       <p className="settings-connection-note">{message}</p>
     </Group>
   );
@@ -126,7 +141,18 @@ type Dialog =
   | { kind: 'rename-host'; host: DesktopRemoteHost }
   | { kind: 'rename-client'; client: DesktopRemoteClientInfo }
   | { kind: 'disconnect-all' }
-  | { kind: 'forget'; host: DesktopRemoteHost };
+  | { kind: 'forget'; host: DesktopRemoteHost }
+  | { kind: 'ssh'; host: SshHostRequest | null }
+  | { kind: 'rename-ssh'; host: DesktopSshHost }
+  | { kind: 'settings-ssh'; host: DesktopSshHost }
+  | { kind: 'cleanup-ssh'; host: DesktopSshHost }
+  | { kind: 'forget-ssh'; host: DesktopSshHost };
+
+/** The dialog a request from outside (title-bar menu, notice) asks for. */
+function dialogForRequest(requested: ConnectionDialogRequest): Dialog {
+  if (requested === 'ssh' || requested === 'ssh-host') return { kind: 'ssh', host: takeSshHostRequest() };
+  return { kind: requested };
+}
 
 export function ConnectionPanel({ api }: { api: CapabilityApi }) {
   const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(() => getCachedConnectionInfo(api));
@@ -139,10 +165,11 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
   const [hostError, setHostError] = useState('');
   const [dialog, setDialog] = useState<Dialog | null>(() => {
     const requested = takeConnectionDialogRequest();
-    return requested ? { kind: requested } : null;
+    return requested ? dialogForRequest(requested) : null;
   });
   const [settings, setSettings, settingsSettled] = useRemoteAccessSettings(api);
   const { hosts, refresh: refreshHosts } = useRemoteHosts(api);
+  const { hosts: sshHosts, refresh: refreshSshHosts } = useSshHosts(api);
   const enabled = settings ? settings.enabled : info?.enabled !== false;
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -150,7 +177,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     () =>
       subscribeConnectionDialogRequests(() => {
         const requested = takeConnectionDialogRequest();
-        if (requested && (requested === 'open-pc' || enabledRef.current)) setDialog({ kind: requested });
+        if (requested && (requested !== 'connect' || enabledRef.current)) setDialog(dialogForRequest(requested));
       }),
     []
   );
@@ -414,6 +441,85 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
     </section>
   );
 
+  const sshGroup = sshHosts.length > 0 && (
+    <section className="conn-group">
+      <div className="conn-group-head">
+        <h4>
+          {t('SSH servers')}
+          <span>{sshHosts.length}</span>
+        </h4>
+      </div>
+      <div className="conn-list">
+        {sshHosts.map((host) => (
+          <ConnRow
+            key={host.id}
+            icon={<Server size={16} aria-hidden="true" />}
+            title={host.name}
+            status={host.open ? t('Online') : undefined}
+            statusTone="on"
+            meta={`${host.target} · ${
+              host.lastConnectedAt
+                ? t('Last connected {{lastSeen}}', { lastSeen: relativeWhen(host.lastConnectedAt) })
+                : t('Not connected yet')
+            }`}
+            actions={
+              <>
+                <button
+                  type="button"
+                  className="conn-btn conn-btn--sm"
+                  disabled={Boolean(hostBusy)}
+                  onClick={() =>
+                    void openSshHost(api, host, () =>
+                      setDialog({ kind: 'ssh', host: { id: host.id, name: host.name, target: host.target } })
+                    )
+                  }
+                >
+                  {t('Open')}
+                </button>
+                <button
+                  type="button"
+                  className="conn-btn conn-btn--sm"
+                  disabled={Boolean(hostBusy)}
+                  onClick={() => setDialog({ kind: 'rename-ssh', host })}
+                >
+                  {t('Rename')}
+                </button>
+                <button
+                  type="button"
+                  className="conn-btn conn-btn--sm"
+                  disabled={Boolean(hostBusy)}
+                  onClick={() => setDialog({ kind: 'settings-ssh', host })}
+                >
+                  {t('Settings')}
+                </button>
+                {api.sshCleanupHost && (
+                  <button
+                    type="button"
+                    className="conn-btn conn-btn--sm"
+                    disabled={Boolean(hostBusy)}
+                    onClick={() => setDialog({ kind: 'cleanup-ssh', host })}
+                  >
+                    {t('Clean up Mixdog on the server…')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="conn-btn conn-btn--sm"
+                  disabled={Boolean(hostBusy)}
+                  onClick={() => setDialog({ kind: 'forget-ssh', host })}
+                >
+                  {t('Forget')}
+                </button>
+              </>
+            }
+          />
+        ))}
+      </div>
+      <ReopenServerWindowsToggle api={api} />
+      {!savedHosts && hostError && <ErrorNotice error={hostError} />}
+    </section>
+  );
+
   return (
     <div className="conn-page">
       {identity}
@@ -422,6 +528,12 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
           <button type="button" className="conn-btn" onClick={() => setDialog({ kind: 'open-pc' })}>
             <ExternalLink size={16} aria-hidden="true" />
             {t('Open another PC')}
+          </button>
+        )}
+        {api.sshConnect && (
+          <button type="button" className="conn-btn" onClick={() => setDialog({ kind: 'ssh', host: null })}>
+            <Terminal size={16} aria-hidden="true" />
+            {t('Connect SSH server')}
           </button>
         )}
         <button
@@ -436,7 +548,38 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
       </div>
       {devices}
       {savedHosts}
+      {sshGroup}
       {dialog?.kind === 'connect' && <ConnectDeviceDialog api={api} info={info} onClose={closeDialog} />}
+      {dialog?.kind === 'ssh' && (
+        <SshConnectDialog api={api} host={dialog.host} onConnected={refreshSshHosts} onClose={closeDialog} />
+      )}
+      {dialog?.kind === 'rename-ssh' && (
+        <RenameDialog
+          title={t('Rename server')}
+          description={t('Only this computer shows the new name.')}
+          initial={dialog.host.name}
+          allowEmpty={false}
+          onSave={(name) => Promise.resolve(api.sshRenameHost?.(dialog.host.id, name)).then(refreshSshHosts)}
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'settings-ssh' && (
+        <SshHostSettingsDialog api={api} host={dialog.host} onSaved={refreshSshHosts} onClose={closeDialog} />
+      )}
+      {dialog?.kind === 'cleanup-ssh' && (
+        <SshCleanupDialog api={api} host={dialog.host} onDone={refreshSshHosts} onClose={closeDialog} />
+      )}
+      {dialog?.kind === 'forget-ssh' && (
+        <ConfirmDialog
+          title={t('Forget {{name}}', { name: dialog.host.name })}
+          description={t('Only the saved entry for {{name}} is removed. The server itself is not changed.', {
+            name: dialog.host.name,
+          })}
+          confirmLabel={t('Forget')}
+          onConfirm={() => runHost(`forget-ssh:${dialog.host.id}`, () => api.sshForgetHost?.(dialog.host.id).then(refreshSshHosts))}
+          onClose={closeDialog}
+        />
+      )}
       {dialog?.kind === 'open-pc' && <OpenPcDialog api={api} onConnected={refreshHosts} onClose={closeDialog} />}
       {dialog?.kind === 'rename-self' && settings && (
         <RenameDialog

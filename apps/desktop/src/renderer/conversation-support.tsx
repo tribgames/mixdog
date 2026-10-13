@@ -22,6 +22,7 @@ import { submissionIdentity, turnPromptText, type TranscriptRowModel } from './t
 import { TranscriptRow } from './transcript-row';
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { ToolActivityGroup } from './transcript-tool-ui';
+import { TurnChangesCard } from './TurnChangesCard';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
 
@@ -345,7 +346,7 @@ export function transcriptRowNode(
       ({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
     );
     const reauth = describeError(errors.at(-1)).kind === 'reauth';
-    return (
+    const notice = (
       <ErrorNotice
         className="transcript-error-notice"
         errors={errors}
@@ -360,6 +361,14 @@ export function transcriptRowNode(
         retryDisabled={retryDisabled}
         role="status"
       />
+    );
+    return row.turnChanges ? (
+      <>
+        {notice}
+        <TurnChangesCard turnChanges={row.turnChanges} />
+      </>
+    ) : (
+      notice
     );
   }
   if (row._tag === 'Thinking') {
@@ -397,5 +406,17 @@ export function transcriptRowNode(
     ),
     disclosureScope,
   };
-  return renderAssistantRow ? renderAssistantRow(assistantProps) : <TranscriptAssistantRow {...assistantProps} />;
+  const assistant = renderAssistantRow ? (
+    renderAssistantRow(assistantProps)
+  ) : (
+    <TranscriptAssistantRow {...assistantProps} />
+  );
+  return row.turnChanges ? (
+    <>
+      {assistant}
+      <TurnChangesCard turnChanges={row.turnChanges} />
+    </>
+  ) : (
+    assistant
+  );
 }

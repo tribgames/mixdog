@@ -10,7 +10,7 @@ import { disposeTerminalPane } from './lazy-widgets';
 import { SessionTerminalTabs } from './SessionTerminalTabs';
 import { releaseSessionTerminalTabs, sessionTerminalId } from './session-terminal-tabs';
 import { useSlotRemeasure } from './surface-slot-remeasure';
-import { expandedSurfaceRect, preferredSurfaceSlot } from './surface-slots';
+import { expandedSurfaceRect, placeFixedSurface, preferredSurfaceSlot } from './surface-slots';
 
 type TerminalSurfaceSlot = {
   active: boolean;
@@ -91,10 +91,7 @@ export function useSessionTerminalSurfaces(
     surface.container.dataset.expanded = expanded ? 'true' : 'false';
     const visible = Boolean(selected && rect && rect.width >= 1 && rect.height >= 1);
     if (visible && rect) {
-      surface.container.style.left = `${rect.left}px`;
-      surface.container.style.top = `${rect.top}px`;
-      surface.container.style.width = `${rect.width}px`;
-      surface.container.style.height = `${rect.height}px`;
+      placeFixedSurface(surface.container, rect);
       surface.container.dataset.parked = 'false';
       surface.container.removeAttribute('aria-hidden');
       return selected;

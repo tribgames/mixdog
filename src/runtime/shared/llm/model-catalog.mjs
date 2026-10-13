@@ -20,12 +20,19 @@ import { createHash } from 'node:crypto';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { writeJsonAtomicSync } from '../atomic-file.mjs';
 import {
+  capabilityFlag,
+  rosterRowMetadata,
   providerCachedModelMetadataSync,
-  providerUsesEndpointScopedLimits,
   providerPricingModelSync,
   cachedProviderModelListsSync,
   providerCachedModelsSync,
 } from './provider-catalog-cache.mjs';
+import {
+  modelsDevProviderId,
+  providerCatalogEntry,
+  providerMetadataCorrection,
+  providerSeedRow,
+} from './provider-catalog-registry.mjs';
 import { litellmMediaPricing, litellmPricing, modelsDevPricing, PRICING_RATE_KEYS } from './model-pricing-rates.mjs';
 // Both overlays are narrowed to their read surface before becoming resident;
 // the disk caches below still receive the full payload.
@@ -45,34 +52,21 @@ const MODELSDEV_CACHE_FILE = 'modelsdev-catalog.json';
 export const PRICING_CATALOG_REFRESH_MS = 6 * 60 * 60 * 1000;
 const PRICING_CATALOG_RETRY_MS = 60_000;
 
-// mixdog provider id → models.dev provider id. Identity for ids that already
-// match (opencode-go / deepseek / xai / openai / anthropic / groq /
-// mistral); only the OAuth aliases and gemini→google need remapping.
-const _MODELSDEV_PROVIDER_ALIAS = {
-  'anthropic-oauth': 'anthropic',
-  'openai-oauth': 'openai',
-  'grok-oauth': 'xai',
-  'mimo-oauth': 'xiaomi',
-  gemini: 'google',
-};
-function _modelsDevProviderId(provider) {
-  if (!provider) return null;
-  const p = String(provider).toLowerCase();
-  return _MODELSDEV_PROVIDER_ALIAS[p] || p;
-}
-
+// The mixdog provider → models.dev provider mapping, relay flags, live-roster
+// files and seeds live in provider-catalog-registry.mjs.
+//
 // Relays sell access, not models: one subscription fronts Anthropic, Google,
-// OpenAI and xAI SKUs at once. No catalog lists them under the relay's own
-// name, so a provider-keyed lookup finds nothing and the route silently prices
-// at zero — indistinguishable from a genuinely free local model.
-const _RELAY_PROVIDERS = new Set(['cursor-oauth', 'cursor-api', 'antigravity-oauth', 'opencode-go', 'muse-code-oauth']);
+// OpenAI and xAI SKUs at once. Few catalogs list them under the relay's own
+// name, so a provider-keyed lookup can find nothing and the route silently
+// prices at zero — indistinguishable from a genuinely free local model.
 
-// Which vendor actually served a relayed model, read off the model id. This is
-// a LAST resort: it runs only after the provider-keyed lookup has already
-// failed, so a route with real catalog coverage can never be repriced by a
-// name guess. Ids are matched on their leading family token rather than a bare
-// substring, so an unrelated model that merely mentions a vendor is not
-// adopted by it.
+// Which vendor actually served a relayed model, read off the model id. Only a
+// guess: its row fills capabilities and the effort ladder the route's own
+// sources left undeclared, and prices a model only when the provider-keyed
+// lookup found no rates, so a route with real catalog coverage is never
+// repriced by a name guess. Ids are matched on their leading family token
+// rather than a bare substring, so an unrelated model that merely mentions a
+// vendor is not adopted by it.
 const _RELAYED_MODEL_VENDORS = [
   [/^claude[-.]/, 'anthropic'],
   [/^(gpt|o[1-9]|codex)[-.]/, 'openai'],
@@ -82,6 +76,10 @@ const _RELAYED_MODEL_VENDORS = [
   [/^kimi[-.]/, 'moonshotai'],
   [/^glm[-.]/, 'zai'],
   [/^muse[-.]/, 'meta'],
+  [/^qwen(?:\d|[-.])/, 'alibaba'],
+  [/^minimax[-.]/, 'minimax'],
+  [/^mimo[-.]/, 'xiaomi'],
+  [/^longcat[-.]/, 'longcat'],
 ];
 
 function _relayedModelVendor(id) {
@@ -91,12 +89,6 @@ function _relayedModelVendor(id) {
     if (pattern.test(model)) return vendor;
   }
   return null;
-}
-
-/** The vendor to reprice a relayed model under, or null to leave it alone. */
-function _relayPricingProvider(provider, id) {
-  if (!provider || !_RELAY_PROVIDERS.has(String(provider).toLowerCase())) return null;
-  return _relayedModelVendor(id);
 }
 
 // Provider prefix variants used by the shared catalog resolver.
@@ -118,7 +110,7 @@ const _CATALOG_BEDROCK_PREFIXES = ['anthropic.', 'bedrock/anthropic.'];
 
 // Provider hint → catalog prefixes to try (subset of _CATALOG_SIMPLE_PREFIXES).
 // Keyed by the *mapped* models.dev provider id
-// (see _modelsDevProviderId), so anthropic-oauth and anthropic share one
+// (see modelsDevProviderId), so anthropic-oauth and anthropic share one
 // entry, likewise grok-oauth/xai and gemini/google. A provider missing here
 // (unknown/custom) gets bare-id lookup only — no prefix guessing across
 // unrelated providers. No provider hint at all (mappedProvider null) keeps
@@ -366,12 +358,13 @@ function _modelsDevMetadata(row) {
     max_input_tokens: row?.limit?.context,
     max_output_tokens: row?.limit?.output,
     mode: 'chat',
-    supports_reasoning: row?.reasoning === true,
+    // Undeclared capabilities stay undefined (see capabilityFlag).
+    supports_reasoning: capabilityFlag(row?.reasoning),
     reasoning_options: Array.isArray(row?.reasoning_options) ? row.reasoning_options : [],
     reasoning_content_field: row?.interleaved?.field || null,
-    supports_function_calling: row?.tool_call === true,
-    supports_vision: Array.isArray(row?.modalities?.input) && row.modalities.input.includes('image'),
-    supports_prompt_caching: c.cache_read != null,
+    supports_function_calling: capabilityFlag(row?.tool_call),
+    supports_vision: Array.isArray(row?.modalities?.input) ? row.modalities.input.includes('image') : undefined,
+    supports_prompt_caching: c.cache_read != null ? true : undefined,
   };
   return { ..._normalize(out), ...modelsDevPricing(c), pricingSource: row?.cost ? 'models.dev' : null };
 }
@@ -387,7 +380,7 @@ export function getModelsDevRowSync(id, provider, _test) {
   if (!_test) warmModelsDevFromDiskSync();
   const cat = _test || modelsDevSource.cache;
   if (!cat) return null;
-  const pid = _modelsDevProviderId(provider);
+  const pid = modelsDevProviderId(provider);
   if (!pid) return null;
   const row = cat?.[pid]?.models?.[id];
   return row || null;
@@ -400,7 +393,7 @@ export function getModelsDevProviderModelsSync(provider, _test) {
   if (!_test) warmModelsDevFromDiskSync();
   const cat = _test || modelsDevSource.cache;
   if (!cat) return null;
-  const pid = _modelsDevProviderId(provider);
+  const pid = modelsDevProviderId(provider);
   if (!pid) return null;
   const models = cat?.[pid]?.models;
   return models && typeof models === 'object' ? models : null;
@@ -486,11 +479,85 @@ function scaledRates(row, factor) {
   return Object.fromEntries(PRICING_RATE_KEYS.map((key) => [key, row?.[key] == null ? null : row[key] * factor]));
 }
 
-// Both list enrichment and synchronous accounting use this exact resolver.
-function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
-  const id = providerPricingModelSync(provider, originalId);
-  const mappedProvider = provider ? _modelsDevProviderId(provider) : null;
-  const providerNative = provider ? providerCachedModelMetadataSync(provider, originalId) : null;
+// Pricing a catalog row can lend to a route it does not describe.
+const PRICING_FIELDS = Object.freeze([
+  ...PRICING_RATE_KEYS,
+  'pricingTiers',
+  'fastPricing',
+  'ultrafastPricing',
+  'offPeakMultiplier',
+  'outputImageCostPerM',
+  'outputVideoCostPerM',
+  'outputCostPerImage',
+  'outputCostPerSecond',
+  'outputCostPerSecondByResolution',
+  'pricingSource',
+  'pricingProvider',
+  // Decides whether a cache-read rate is required, so it travels with prices.
+  'supportsPromptCaching',
+]);
+const hasRates = (meta) => PRICING_RATE_KEYS.some((key) => meta?.[key] != null);
+
+function pricingFields(meta) {
+  return Object.fromEntries(PRICING_FIELDS.filter((key) => meta?.[key] !== undefined).map((key) => [key, meta[key]]));
+}
+
+// A vendor row describes the vendor's own endpoint. Elsewhere it prices the
+// model and lends its label; capabilities and the effort ladder come back
+// only as a guess (withVendorGuess), its limits never.
+function pricingOnly(meta) {
+  if (!meta) return null;
+  return { ..._normalize({}), ...pricingFields(meta), displayName: meta.displayName || null };
+}
+
+// Capabilities a vendor row may lend; fast mode is an endpoint feature.
+const GUESSED_FLAGS = Object.freeze([
+  'supportsVision',
+  'supportsFunctionCalling',
+  'supportsWebSearch',
+  'supportsPromptCaching',
+  'supportsReasoning',
+]);
+const effortEntry = (options) => (Array.isArray(options) ? options.find((o) => o?.type === 'effort') : null) || null;
+
+// A vendor row is a first guess for a route it does not describe (relay,
+// same-vendor other endpoint, custom provider): it fills only the capabilities
+// and effort ladder the route's own sources left undeclared. Never limits.
+function withVendorGuess(meta, guess, { ladder = true } = {}) {
+  if (!guess) return meta;
+  const out = { ...(meta || _normalize({})) };
+  for (const key of GUESSED_FLAGS) out[key] ??= guess[key];
+  const effort = effortEntry(guess.reasoningOptions);
+  if (ladder && effort && out.supportsReasoning !== false && !effortEntry(out.reasoningOptions)) {
+    out.reasoningOptions = [...(out.reasoningOptions || []), effort];
+  }
+  return out;
+}
+
+// Offline seed: fills only what no fetched source supplied.
+function withSeedFallback(meta, seed, provider) {
+  if (!seed) return meta;
+  // A capability any fetched layer declared (false included) stands; the seed
+  // fills only undeclared ones, and never gives a non-reasoning model a ladder.
+  const out = { ...(meta || _normalize({})) };
+  for (const key of CAPABILITY_FLAGS) out[key] ??= capabilityFlag(seed[key]);
+  if (!out.displayName && seed.name) out.displayName = seed.name;
+  if (!out.contextWindow && seed.contextWindow) out.contextWindow = seed.contextWindow;
+  if (!out.outputTokens && seed.outputTokens) out.outputTokens = seed.outputTokens;
+  if (!out.reasoningOptions?.length && seed.reasoningOptions?.length && out.supportsReasoning !== false) {
+    out.reasoningOptions = seed.reasoningOptions;
+  }
+  if (!hasRates(out) && hasRates(seed)) {
+    for (const key of PRICING_RATE_KEYS) out[key] = seed[key] ?? null;
+    out.pricingTiers = [];
+    out.pricingSource = 'seed';
+    out.pricingProvider = provider;
+  }
+  return out;
+}
+
+// Override → LiteLLM → models.dev rows under one catalog provider id.
+function catalogMetadata(id, mappedProvider, catalog, modelsDevCatalog) {
   let meta = null;
   // 1. Manual overrides — authoritative + offline. Provider-guarded: when a
   //    provider hint is given, an override is only honoured if it belongs to
@@ -498,13 +565,13 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
   //    deepseek-v4-pro under `deepseek` vs `opencode-go`) never leaks the
   //    wrong provider's rate. Bare-id callers keep the legacy behaviour.
   const ov = PRICING_OVERRIDES[id];
-  if (ov && (!mappedProvider || _modelsDevProviderId(ov.litellm_provider) === mappedProvider)) {
+  if (ov && (!mappedProvider || modelsDevProviderId(ov.litellm_provider) === mappedProvider)) {
     meta = { ..._normalize(ov), pricingSource: 'override' };
   }
   const metaFromPricingOverride = meta !== null;
   // 2. LiteLLM community catalog (broad mainstream coverage).
   if (!meta) {
-    if (catalog[id] && (!mappedProvider || _modelsDevProviderId(catalog[id].litellm_provider) === mappedProvider)) {
+    if (catalog[id] && (!mappedProvider || modelsDevProviderId(catalog[id].litellm_provider) === mappedProvider)) {
       meta = { ..._normalize(catalog[id]), pricingSource: 'litellm' };
     }
     for (const prefix of _prefixesForProvider(mappedProvider, _CATALOG_SIMPLE_PREFIXES)) {
@@ -530,16 +597,49 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
       });
     if (row) meta = { ...meta, displayName: modelsDevDisplayName(row) };
   }
-  const relayVendor = _relayPricingProvider(provider, id);
-  if (relayVendor && !PRICING_RATE_KEYS.some((key) => meta?.[key] != null)) {
-    // Anthropic SKUs spell versions with hyphens (claude-opus-5-5); relays
-    // may list the same SKU with dots (claude-opus-5.5).
-    const vendorId = relayVendor === 'anthropic' ? id.replace(/(\d)\.(\d)/g, '$1-$2') : id;
-    const relayed = lookupModelMetadata(vendorId, relayVendor, catalog, modelsDevCatalog);
-    if (relayed) meta = { ...relayed, contextWindow: null, outputTokens: null };
+  return meta;
+}
+
+// The row of the vendor serving a relayed or custom model id (no vendor: a
+// bare-id catalog lookup).
+function servingVendorMetadata(id, vendor, catalog, modelsDevCatalog) {
+  // Anthropic SKUs spell versions with hyphens (claude-opus-5-5); relays
+  // may list the same SKU with dots (claude-opus-5.5).
+  const vendorId = vendor === 'anthropic' ? id.replace(/(\d)\.(\d)/g, '$1-$2') : id;
+  return lookupModelMetadata(vendorId, vendor, catalog, modelsDevCatalog);
+}
+
+// Both list enrichment and synchronous accounting use this exact resolver;
+// enrichment passes the listed row, which is the live roster just fetched.
+// Precedence, for every provider (see provider-catalog-registry.mjs):
+//   (a) the provider's own live roster (cached row, then the listed row);
+//   (b) catalog rows under its models.dev id — in full when that entry is the
+//       same endpoint, otherwise pricing only;
+//   (c) verified corrections for confirmed upstream catalog gaps;
+//   (d) offline seed rows fill whatever nothing above supplied;
+//   (e) relays, same-vendor providers on another endpoint and custom
+//       providers take the vendor row as a first guess for capabilities and
+//       the effort ladder still undeclared — never its limits;
+//   (f) a relay model with no rates of its own borrows the vendor's pricing.
+function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog, listedRow = null) {
+  const custom = String(provider || '').startsWith('custom-');
+  const id = providerPricingModelSync(provider, originalId);
+  const source = provider ? providerCatalogEntry(provider) : null;
+  const mappedProvider = source?.modelsDev || null;
+  const mapped = catalogMetadata(id, mappedProvider, catalog, modelsDevCatalog);
+  let meta = source && !source.sameEndpoint ? pricingOnly(mapped) : mapped;
+  const correction = source ? providerMetadataCorrection(provider, id) : null;
+  if (meta && correction) meta = { ...meta, ...correction };
+  let guess = null;
+  const relayVendor = source?.relay ? _relayedModelVendor(id) : null;
+  if (custom) guess = customVendorMetadata(originalId, catalog, modelsDevCatalog);
+  else if (relayVendor) guess = servingVendorMetadata(id, relayVendor, catalog, modelsDevCatalog);
+  else if (source && !source.sameEndpoint) guess = mapped;
+  if (source?.relay && !hasRates(meta) && hasRates(guess)) {
+    meta = meta ? { ...meta, ...pricingFields(guess) } : pricingOnly(guess);
   }
-  const variant = PRICED_VARIANTS[String(provider || '').toLowerCase()]?.[id];
-  if (variant && !PRICING_RATE_KEYS.some((key) => meta?.[key] != null)) {
+  const variant = PRICED_VARIANTS[source?.provider || '']?.[id];
+  if (variant && !hasRates(meta)) {
     const base = lookupModelMetadata(variant.base, provider, catalog, modelsDevCatalog);
     if (base && PRICING_RATE_KEYS.some((key) => base[key] != null)) {
       meta = {
@@ -554,38 +654,39 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
       };
     }
   }
-  const cursorRow = /^cursor-(?:oauth|api)$/.test(String(provider || '').toLowerCase()) ? CURSOR_PRICING[id] : null;
+  const cursorRow = /^cursor-(?:oauth|api)$/.test(source?.provider || '') ? CURSOR_PRICING[id] : null;
   if (cursorRow) {
-    if (!PRICING_RATE_KEYS.some((key) => meta?.[key] != null)) {
+    if (!hasRates(meta)) {
       meta = { ...meta, ...listedRates(cursorRow), pricingSource: 'override' };
     }
     if (cursorRow.fast) meta = { ...meta, fastPricing: listedRates(cursorRow.fast) };
   }
-  if (providerUsesEndpointScopedLimits(provider) && !providerNative && meta) {
-    // OAuth/backend routes can expose smaller account/backend windows than
-    // the public API SKU. External catalogs and manual overrides remain useful
-    // for costs and capabilities, but their public-SKU limits are not
-    // authoritative for these routes.
-    meta = { ...meta, contextWindow: null, outputTokens: null };
-  }
-  if (providerNative) {
-    // Provider cache limits are only authoritative for endpoint-scoped
-    // routes (OAuth/backend), where the cached row reflects the live
-    // account/backend window. For every other provider the cache is a
-    // best-effort snapshot that can go stale, so it must NOT override the
-    // catalog/known limits — otherwise this function returns cache limits
-    // labelled as catalog data and downstream catalog-vs-cache staleness
-    // checks (context-meta, statusline route-meta) compare stale-vs-stale
-    // and can never correct an outdated cached window. Capabilities and
-    // gap-filling (base limit null) still flow through the merge.
-    const nativeLimitsAuthoritative = providerUsesEndpointScopedLimits(provider);
-    meta = mergeModelMetadata(meta, providerNative, {
+  const cached = provider ? providerCachedModelMetadataSync(provider, originalId) : null;
+  const seed = source ? providerSeedRow(provider, originalId) : null;
+  // A listed row alone is no metadata: enrichment then keeps it as listed.
+  if (!meta && !cached && !seed && !guess) return null;
+  const listed = listedRow ? rosterRowMetadata(provider, listedRow) : null;
+  // A custom model known only through its vendor gets the guess alone.
+  if (custom && !meta && !cached) return customCatalogDefaults(withVendorGuess(listed, guess), guess);
+  for (const roster of [cached, listed]) {
+    if (!roster) continue;
+    // The live roster's effort ladder and capabilities win. Its limits beat
+    // catalog limits only where the registry marks them authoritative (the
+    // row reflects the live account/backend window). Elsewhere the cache is
+    // a best-effort snapshot that can go stale, so it must NOT override the
+    // catalog limits — otherwise downstream catalog-vs-cache staleness checks
+    // (context-meta, statusline route-meta) compare stale-vs-stale and can
+    // never correct an outdated cached window; it still fills missing limits.
+    meta = mergeModelMetadata(meta, roster, {
       preserveBaseCosts: true,
-      preserveBaseLimits: !nativeLimitsAuthoritative,
+      preserveBaseLimits: !source?.rosterLimitsAuthoritative,
     });
   }
-  if (!meta && String(provider || '').startsWith('custom-'))
-    return customCatalogDefaults(originalId, catalog, modelsDevCatalog);
+  meta = withSeedFallback(meta, seed, source?.provider);
+  const rosterLadders = [cached?.rawProviderModel, listedRow].filter(
+    (row) => Array.isArray(row?.reasoningLevels) || Array.isArray(row?.reasoningOptions)
+  );
+  meta = withVendorGuess(meta, guess, { ladder: !(source?.rosterLadderFinal && rosterLadders.length) });
   return meta
     ? {
         ...meta,
@@ -595,25 +696,30 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
     : null;
 }
 
-// A user-defined (`custom-*`) provider is in no catalog under its own id, so
-// its discovered models match by bare model id (as listed, then without a
-// `vendor/` route prefix) under the vendor the id names. Only the reasoning
-// capabilities become defaults for the custom row (its overrides win); prices
-// and limits describe the vendor's own API, not the custom endpoint.
-function customCatalogDefaults(originalId, catalog, modelsDevCatalog) {
-  const listed = String(originalId || '');
-  for (const id of new Set([listed, listed.slice(listed.lastIndexOf('/') + 1)])) {
+// A user-defined (`custom-*`) provider is rarely in a catalog under its own
+// id, so its discovered models match by bare model id (as listed, then without
+// a `vendor/` route prefix) under the vendor the id names. That vendor row is a
+// first guess for the capabilities and effort ladder the custom route leaves
+// undeclared (the row's customReasoning overrides still win); prices and
+// limits describe the vendor's own API, not the custom endpoint.
+function customVendorMetadata(originalId, catalog, modelsDevCatalog) {
+  const listedId = String(originalId || '');
+  for (const id of new Set([listedId, listedId.slice(listedId.lastIndexOf('/') + 1)])) {
     if (!id) continue;
-    const vendor = _relayedModelVendor(id) || _modelsDevProviderId(catalog[id]?.litellm_provider);
-    const meta = lookupModelMetadata(id, vendor, catalog, modelsDevCatalog);
-    if (!meta) continue;
-    return {
-      supportsReasoning: meta.supportsReasoning === true,
-      reasoningOptions: Array.isArray(meta.reasoningOptions) ? meta.reasoningOptions : [],
-      reasoningContentField: meta.reasoningContentField || null,
-    };
+    const vendor = _relayedModelVendor(id) || modelsDevProviderId(catalog[id]?.litellm_provider);
+    const guess = servingVendorMetadata(id, vendor, catalog, modelsDevCatalog);
+    if (guess) return guess;
   }
   return null;
+}
+
+// The defaults a vendor guess gives a custom row: capabilities and reasoning only.
+function customCatalogDefaults(meta, guess) {
+  return {
+    ...Object.fromEntries(GUESSED_FLAGS.map((key) => [key, meta[key]])),
+    reasoningOptions: meta.reasoningOptions || [],
+    reasoningContentField: meta.reasoningContentField || guess.reasoningContentField || null,
+  };
 }
 
 function _normalize(entry) {
@@ -629,16 +735,37 @@ function _normalize(entry) {
     ...(PRICING_RATE_KEYS.some((key) => fastPricing[key] != null) ? { fastPricing } : {}),
     ...(PRICING_RATE_KEYS.some((key) => ultrafastPricing[key] != null) ? { ultrafastPricing } : {}),
     ...(entry.off_peak_multiplier ? { offPeakMultiplier: entry.off_peak_multiplier } : {}),
-    supportsVision: entry.supports_vision === true,
-    supportsFunctionCalling: entry.supports_function_calling === true,
-    supportsWebSearch: entry.supports_web_search === true || entry.supports_websearch === true,
-    supportsPromptCaching: entry.supports_prompt_caching === true,
-    supportsFastMode: entry.supports_fast_mode === true,
-    supportsReasoning: entry.supports_reasoning === true,
+    // Tri-state: true/false as declared, undefined when the row is silent.
+    supportsVision: capabilityFlag(entry.supports_vision),
+    supportsFunctionCalling: capabilityFlag(entry.supports_function_calling),
+    supportsWebSearch:
+      entry.supports_web_search === true || entry.supports_websearch === true
+        ? true
+        : (capabilityFlag(entry.supports_web_search) ?? capabilityFlag(entry.supports_websearch)),
+    supportsPromptCaching: capabilityFlag(entry.supports_prompt_caching),
+    supportsFastMode: capabilityFlag(entry.supports_fast_mode),
+    supportsReasoning: capabilityFlag(entry.supports_reasoning),
     reasoningOptions: Array.isArray(entry.reasoning_options) ? entry.reasoning_options : [],
     reasoningContentField: entry.reasoning_content_field || null,
     mode: entry.mode || null,
   };
+}
+
+const CAPABILITY_FLAGS = Object.freeze([
+  'supportsVision',
+  'supportsFunctionCalling',
+  'supportsWebSearch',
+  'supportsPromptCaching',
+  'supportsFastMode',
+  'supportsReasoning',
+]);
+
+// A layer's own ladder wins; a lower layer's ladder never reaches a model the
+// higher layer declares non-reasoning.
+function mergedReasoningOptions(base, overlay) {
+  if (overlay.reasoningOptions?.length) return overlay.reasoningOptions;
+  if ((overlay.supportsReasoning ?? base.supportsReasoning) === false) return [];
+  return base.reasoningOptions || [];
 }
 
 function mergeModelMetadata(base, overlay, opts = {}) {
@@ -674,13 +801,10 @@ function mergeModelMetadata(base, overlay, opts = {}) {
       !opts.preserveBaseCosts && PRICING_RATE_KEYS.some((key) => overlay[key] != null)
         ? overlay.pricingSource
         : base.pricingSource,
-    supportsVision: base.supportsVision || overlay.supportsVision,
-    supportsFunctionCalling: base.supportsFunctionCalling || overlay.supportsFunctionCalling,
-    supportsWebSearch: base.supportsWebSearch || overlay.supportsWebSearch,
-    supportsPromptCaching: base.supportsPromptCaching || overlay.supportsPromptCaching,
-    supportsFastMode: base.supportsFastMode || overlay.supportsFastMode,
-    supportsReasoning: base.supportsReasoning || overlay.supportsReasoning,
-    reasoningOptions: overlay.reasoningOptions?.length ? overlay.reasoningOptions : base.reasoningOptions || [],
+    // The overlay is the higher layer: a capability it declares (false
+    // included) wins; the base fills only what the overlay leaves undeclared.
+    ...Object.fromEntries(CAPABILITY_FLAGS.map((key) => [key, overlay[key] ?? base[key]])),
+    reasoningOptions: mergedReasoningOptions(base, overlay),
     reasoningContentField: overlay.reasoningContentField || base.reasoningContentField || null,
     mode: base.mode || overlay.mode || null,
   };
@@ -695,7 +819,7 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
   if (!Array.isArray(models)) return models;
   const catalog = await loadCatalog({ fetchFn, force });
   let modelsDevCatalog = modelsDevSource.cache;
-  if (models.some((m) => _modelsDevProviderId(m?.provider))) {
+  if (models.some((m) => modelsDevProviderId(m?.provider))) {
     try {
       modelsDevCatalog = await loadModelsDevCatalog({ fetchFn, force });
     } catch {
@@ -705,7 +829,7 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
   return models.map((m) => {
     const id = m.id || m.name;
     if (!id) return m;
-    const meta = lookupModelMetadata(id, m.provider, catalog, modelsDevCatalog || {});
+    const meta = lookupModelMetadata(id, m.provider, catalog, modelsDevCatalog || {}, m);
     if (!meta) return m;
     const catalogDisplay = meta.displayName;
     return {
@@ -726,12 +850,10 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
       pricingModel: meta.pricingModel,
       pricingProvider: meta.pricingProvider,
       pricingSource: meta.pricingSource,
-      supportsVision: m.supportsVision === true || meta.supportsVision,
-      supportsFunctionCalling: m.supportsFunctionCalling === true || meta.supportsFunctionCalling,
-      supportsWebSearch: meta.supportsWebSearch || m.supportsWebSearch === true,
-      supportsPromptCaching: m.supportsPromptCaching === true || meta.supportsPromptCaching,
-      supportsReasoning: m.supportsReasoning === true || meta.supportsReasoning,
-      reasoningOptions: m.reasoningOptions?.length ? m.reasoningOptions : meta.reasoningOptions || [],
+      // The lookup already layered the listed row as the live roster, with
+      // the same roster semantics as the sync path.
+      ...Object.fromEntries(GUESSED_FLAGS.map((key) => [key, meta[key]])),
+      reasoningOptions: meta.reasoningOptions || [],
       reasoningContentField: meta.reasoningContentField || m.reasoningContentField || null,
       mode: meta.mode || m.mode || null,
     };

@@ -16,6 +16,7 @@ function failedItem(error) {
   const ctx = {
     turn: {
       startedAt: Date.now(),
+      submittedIds: [],
       completionVerb: 'Done',
       routeMeta: { provider: 'route-provider', model: 'route-model' },
     },

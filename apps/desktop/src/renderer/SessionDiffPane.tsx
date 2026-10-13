@@ -1,5 +1,5 @@
 import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronUp, RefreshCw, Undo2 } from 'lucide-react';
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { SESSION_DIFF_STYLE_KEY, type Snapshot } from './desktop-types';
 import { diffModeActions, useDiffViewState, type DiffViewState } from './diff-header-controls';
 import { DockHeaderRow } from './pane-dock-chrome';
@@ -10,6 +10,8 @@ import { FileDiffBody } from './inline-diff';
 import { buildSessionDiffRows, type SessionDiffRow } from './session-diff-model';
 import { useSessionDiffRefresh } from './use-session-diff-refresh';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
+import { consumeSessionDiffFileRequest, useSessionDiffFileRequest } from './session-diff-focus';
+import { normalizeChangePath } from './turn-changes-model';
 
 function activityKey(snapshot: Snapshot | null): string {
   const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
@@ -122,13 +124,13 @@ export function SessionDiffPane({
   viewState?: DiffViewState;
 }) {
   const ownViewState = useDiffViewState(SESSION_DIFF_STYLE_KEY);
-  const { viewMode, onViewModeChange } = viewState ?? ownViewState;
+  const { viewMode, onViewModeChange, splitAvailable } = viewState ?? ownViewState;
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, sessionDiffSnapshotsEqual, active);
   const revision = activityKey(lane);
   const busy = Boolean(lane?.busy || lane?.commandBusy);
   // A revisited session paints its cached rows instantly while the refresh
   // below revalidates behind them.
-  const { result, loading, error, refresh } = useSessionDiffRefresh({
+  const { result, loading, error, refresh, adoptions } = useSessionDiffRefresh({
     sessionId,
     active,
     revision,
@@ -151,12 +153,57 @@ export function SessionDiffPane({
   }, [listChoice, rows.length]);
   const [selectedPath, setSelectedPath] = useState('');
   const [revertError, setRevertError] = useState('');
+  const [fileNotice, setFileNotice] = useState('');
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger; a session switch resets the drill-down.
   useEffect(() => {
     setListChoice(null);
     setSelectedPath('');
     setRevertError('');
+    setFileNotice('');
   }, [sessionId]);
+  // A transcript turn-changes card asks for one file: re-read the diff, then
+  // open that file, or say it is gone — never silently select another one.
+  const fileRequest = useSessionDiffFileRequest(active ? sessionId : '');
+  const fileRequestSeq = fileRequest?.seq ?? 0;
+  const [fileRequestRead, setFileRequestRead] = useState(0);
+  // A request resolves only against a result a refresh adopted after it was
+  // posted. A skipped (hidden) or superseded refresh leaves the request
+  // waiting for the next adopted result instead of reading stale rows.
+  const adoptionsRef = useRef(adoptions);
+  adoptionsRef.current = adoptions;
+  const [fileRequestWait, setFileRequestWait] = useState({ seq: 0, base: 0 });
+  useEffect(() => {
+    if (!fileRequestSeq) return undefined;
+    let stale = false;
+    const base = adoptionsRef.current;
+    void refresh(true).then((adopted) => {
+      if (stale) return;
+      if (adopted) setFileRequestRead(fileRequestSeq);
+      else setFileRequestWait({ seq: fileRequestSeq, base });
+    });
+    return () => {
+      stale = true;
+    };
+  }, [fileRequestSeq, refresh]);
+  useEffect(() => {
+    if (fileRequestSeq && fileRequestWait.seq === fileRequestSeq && adoptions > fileRequestWait.base) {
+      setFileRequestRead(fileRequestSeq);
+    }
+  }, [adoptions, fileRequestSeq, fileRequestWait]);
+  useEffect(() => {
+    if (!fileRequest || fileRequestRead !== fileRequest.seq || !result || error) return;
+    consumeSessionDiffFileRequest(fileRequest.seq);
+    const wanted = normalizeChangePath(fileRequest.path);
+    const row = rows.find((candidate) => normalizeChangePath(candidate.path) === wanted);
+    if (row) {
+      setSelectedPath(row.path);
+      setListChoice(false);
+      setFileNotice('');
+    } else {
+      setListChoice(true);
+      setFileNotice(t('{{file}} is no longer in the session diff.', { file: wanted }));
+    }
+  }, [fileRequest, fileRequestRead, result, error, rows]);
   const foundIndex = rows.findIndex((row) => row.path === selectedPath);
   const index = foundIndex >= 0 ? foundIndex : 0;
   const current: SessionDiffRow | undefined = rows[index];
@@ -299,7 +346,7 @@ export function SessionDiffPane({
           disabled: !sessionId || loading,
           onSelect: () => void refresh(true),
         },
-        ...diffModeActions(viewMode, onViewModeChange),
+        ...diffModeActions(viewMode, onViewModeChange, splitAvailable),
       ]}
     />
   );
@@ -348,6 +395,11 @@ export function SessionDiffPane({
       {header}
       {result?.patchTruncated && <p className="session-diff-notice">{t('The session diff was truncated.')}</p>}
       {revertError && <p className="session-diff-notice">{revertError}</p>}
+      {fileNotice && (
+        <p className="session-diff-notice" role="status">
+          {fileNotice}
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="utility-dock-empty">{t('No changes from this session.')}</p>
       ) : inDiff && current ? (
@@ -360,6 +412,7 @@ export function SessionDiffPane({
           onSelect={(path) => {
             setSelectedPath(path);
             setListChoice(false);
+            setFileNotice('');
           }}
         />
       )}

@@ -14,7 +14,7 @@ const WIDTH = 412;
 const FULL = 900;
 const KEYBOARD = 360;
 
-const PAGE = `<!doctype html><html data-mixdog-mobile-tabs style="--mx-device-scale:1"><head>
+const PAGE = `<!doctype html><html data-mixdog-mobile-tabs><head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   </head><body><div id="root"><div class="app-shell"><div class="desktop-body"><main class="workspace">
     <section class="conversation">
@@ -44,7 +44,8 @@ test('phone composer follows the keyboard-shrunk viewport without a double offse
       stdin: {
         resolveDir,
         loader: 'ts',
-        contents: 'import { installShellViewport } from "./shell-viewport"; window.__installShellViewport = installShellViewport;',
+        contents:
+          'import { installShellViewport } from "./shell-viewport"; window.__installShellViewport = installShellViewport;',
       },
       bundle: true,
       format: 'iife',
@@ -111,7 +112,13 @@ test('phone composer follows the keyboard-shrunk viewport without a double offse
     await settle(page);
     const resting = await measure(page);
     assertFrame(resting, 0, FULL);
-    await page.setViewport({ width: WIDTH, height: FULL - KEYBOARD, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+    await page.setViewport({
+      width: WIDTH,
+      height: FULL - KEYBOARD,
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 1,
+    });
     await settle(page);
     assertFrame(await measure(page), 0, FULL - KEYBOARD);
     await page.setViewport({ width: WIDTH, height: FULL, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });

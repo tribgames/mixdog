@@ -9,6 +9,8 @@ import type { SidebarPanelKey } from '../app-shell-components';
 import { requestPaneDockClose } from '../pane-dock-chrome';
 import { BackgroundJobsPane } from '../BackgroundJobsPane';
 import { SessionDiffPane } from '../SessionDiffPane';
+import { VisualizePane } from '../VisualizePane';
+import { ServerPortsPanel } from '../ServerPortsPanel';
 import { prefetchDiffView } from '../lazy-widgets';
 import { SnapshotUtilityDock } from '../app-snapshot-views';
 import type { DesktopSnapshotStore } from '../desktop-snapshot-store';
@@ -32,6 +34,7 @@ import type { createSideFileGuard } from '../side-file-guard';
 import { WorkbenchProblemsPane } from '../WorkbenchProblems';
 import type { EditorSaveHandle } from '../use-pane-tab-close';
 import { cleanDiffTarget } from './workspace-targets';
+import { closingDrawerFirst } from './drawer-navigation';
 
 export interface UseAppWorkbenchViewsOptions {
   sessions: ReturnType<typeof useSessionCatalog>['sessions'];
@@ -77,6 +80,8 @@ export interface UseAppWorkbenchViewsOptions {
   dockOpenPullRequest: PullRequestOpenHandler;
   dockOpenLeadSession: (sessionId: string) => void;
   dockOpenAgentSession: (sessionId: string, title: string, ownerSessionId: string) => void;
+  /** Phone drawer close (no-op on wide layouts); left-drawer results close it. */
+  closeSidebarForNavigation?: () => void;
   renameProjectEntry: (projectPath: string, relPath: string, newName: string) => Promise<void>;
 
   paneSideDocks: ReturnType<typeof useAppSideDocks>['paneSideDocks'];
@@ -141,6 +146,7 @@ export function useAppWorkbenchViews({
   dockOpenPullRequest,
   dockOpenLeadSession,
   dockOpenAgentSession,
+  closeSidebarForNavigation,
   renameProjectEntry,
   paneSideDocks,
   setSidebarDiff,
@@ -209,6 +215,13 @@ export function useAppWorkbenchViews({
         </SessionSidebar>
       );
     }
+    if (id === 'ports') {
+      return (
+        <SessionSidebar {...sessionSidebarProps} panelActive panelTitle={sideViewDescriptors.get(id)?.label}>
+          <ServerPortsPanel active={active} />
+        </SessionSidebar>
+      );
+    }
     if (id === 'session-diff') {
       if (!pane) return null;
       const sessionId = pane.sessionId;
@@ -232,9 +245,18 @@ export function useAppWorkbenchViews({
         />
       );
     }
+    if (id === 'visualize') {
+      if (!pane) return null;
+      return (
+        <VisualizePane sessionId={pane.sessionId} active={active} onClose={() => requestPaneDockClose('visualize')} />
+      );
+    }
     // Session-owned surfaces render in the pane dock's persistent stack.
     if (id === 'browser' || id === 'terminal') return null;
     const tab = id as UtilityDockTab;
+    // A result opened from the left drawer closes it on the phone so the
+    // result is visible; the pane's own right dock is unchanged.
+    const closeDrawer = side === 'left' && !pane ? closeSidebarForNavigation : undefined;
     // Search's file tree reveals the editor of the pane this view serves.
     const dockLeaf = paneWorkspace.leaves.find((leaf) => leaf.id === (pane?.leafId ?? paneWorkspace.focusedLeafId));
     const dockSelection = dockLeaf ? paneActiveSelection(dockLeaf) : null;
@@ -259,8 +281,8 @@ export function useAppWorkbenchViews({
         metricSurface={side === 'left' ? 'sidebar' : 'dock'}
         entering
         contentReady
-        onOpenFile={dockOpenFile}
-        onOpenFileAt={dockOpenFileAt}
+        onOpenFile={closingDrawerFirst(closeDrawer, dockOpenFile)}
+        onOpenFileAt={closingDrawerFirst(closeDrawer, dockOpenFileAt)}
         activeFileKey={dockSelection?.kind === 'file' ? navigationKey(dockSelection) : ''}
         onRenameProjectEntry={renameProjectEntry}
         onOpenDiff={
@@ -273,7 +295,7 @@ export function useAppWorkbenchViews({
                 const target = cleanDiffTarget(project, rel);
                 if (!target) return;
                 if (!sidebarDiffColumnAvailable()) {
-                  dockOpenDiff(project, rel, request);
+                  closingDrawerFirst(closeDrawer, dockOpenDiff)(project, rel, request);
                   return;
                 }
                 void prefetchDiffView().catch(() => {});
@@ -283,9 +305,9 @@ export function useAppWorkbenchViews({
                 });
               }
         }
-        onOpenPullRequest={dockOpenPullRequest}
-        onOpenLeadSession={dockOpenLeadSession}
-        onOpenAgentSession={dockOpenAgentSession}
+        onOpenPullRequest={closingDrawerFirst(closeDrawer, dockOpenPullRequest)}
+        onOpenLeadSession={closingDrawerFirst(closeDrawer, dockOpenLeadSession)}
+        onOpenAgentSession={closingDrawerFirst(closeDrawer, dockOpenAgentSession)}
       />
     );
   };

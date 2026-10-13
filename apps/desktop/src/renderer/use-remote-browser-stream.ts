@@ -1,11 +1,14 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 
 import type { DesktopRemoteBrowserStreamFrame } from '../shared/contract';
+import { remoteBrowserDriveViewport } from '../shared/remote-browser';
 import type { RemoteInputFrame } from './remote-browser-input-client';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 
 /** The desktop stops a stream that is not renewed for 4s. */
 export const STREAM_RENEW_MS = 2_000;
+/** A drag-resize or rotation settles before the host page is resized. */
+export const VIEWPORT_DEBOUNCE_MS = 150;
 export { REMOTE_CONNECTION_READY_EVENT };
 const FALLBACK_STREAM_BOX = { maxWidth: 1280, maxHeight: 720 };
 
@@ -112,6 +115,7 @@ export function useRemoteBrowserStream({
     setFailure('');
     setActionFailure('');
     let timer = 0;
+    let resizeTimer = 0;
     let running = false;
     const renew = () => {
       const box = contentRef.current?.getBoundingClientRect();
@@ -120,10 +124,33 @@ export function useRemoteBrowserStream({
         box && box.width > 0 && box.height > 0
           ? { maxWidth: Math.round(box.width * scale), maxHeight: Math.round(box.height * scale) }
           : FALLBACK_STREAM_BOX;
-      api.remoteBrowserStream!(ownerSessionId, options).catch((error: unknown) => {
-        if (running) setFailure(error instanceof Error ? error.message : String(error));
-      });
+      // A host advertising browserDrive renders the page at this pane's size.
+      // The viewport rides every renewal once the stream exists, so a host
+      // whose lease lapsed gets it back; the host ignores an unchanged one.
+      const viewport = api.remoteBrowserDrive === true ? remoteBrowserDriveViewport(box, scale) : null;
+      api.remoteBrowserStream!(ownerSessionId, options).then(
+        () => {
+          if (running && viewport) {
+            api.remoteBrowserControl?.(ownerSessionId, { type: 'viewport', ...viewport }).catch(() => {});
+          }
+        },
+        (error: unknown) => {
+          if (running) setFailure(error instanceof Error ? error.message : String(error));
+        }
+      );
     };
+    // Resizes and rotations re-send the size at once (debounced) rather than
+    // at the next renewal; an older host keeps today's renewal-only stream.
+    const resized = () => {
+      if (!running || api.remoteBrowserDrive !== true) return;
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(renew, VIEWPORT_DEBOUNCE_MS);
+    };
+    const content = contentRef.current;
+    const observer = content && typeof ResizeObserver === 'function' ? new ResizeObserver(resized) : null;
+    if (content) observer?.observe(content);
+    window.addEventListener('resize', resized);
+    window.addEventListener('orientationchange', resized);
     const begin = () => {
       if (running) return;
       running = true;
@@ -134,6 +161,7 @@ export function useRemoteBrowserStream({
       if (!running) return;
       running = false;
       window.clearInterval(timer);
+      window.clearTimeout(resizeTimer);
       api.remoteBrowserStream!(ownerSessionId, null).catch(() => {});
     };
     const visibility = () => (document.visibilityState === 'hidden' ? end() : begin());
@@ -148,6 +176,9 @@ export function useRemoteBrowserStream({
     return () => {
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
+      observer?.disconnect();
+      window.removeEventListener('resize', resized);
+      window.removeEventListener('orientationchange', resized);
       end();
     };
   }, [active, api, ownerSessionId]);

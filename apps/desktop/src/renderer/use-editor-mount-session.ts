@@ -15,6 +15,7 @@ export function useEditorMountSession({
   wireCommands,
   activeRef,
   focusedRef,
+  autoFocusRef,
   savedText,
   projectPath,
   relPath,
@@ -34,6 +35,8 @@ export function useEditorMountSession({
   wireCommands(editor: Editor): void;
   activeRef: RefObject<boolean>;
   focusedRef: RefObject<boolean>;
+  /** False on the phone, where a mount never raises the soft keyboard. */
+  autoFocusRef: RefObject<boolean>;
   savedText: RefObject<string>;
   projectPath: string;
   relPath: string;
@@ -69,7 +72,7 @@ export function useEditorMountSession({
           // Stale Monaco state starts at the top.
         }
       }
-      if (activeRef.current && focusedRef.current) {
+      if (autoFocusRef.current && activeRef.current && focusedRef.current) {
         requestAnimationFrame(() => editorInstance.focus());
       }
       if (model) markDirty(model.getValue() !== savedText.current);
@@ -81,6 +84,7 @@ export function useEditorMountSession({
       accessToken,
       activeRef,
       armFonts,
+      autoFocusRef,
       bindModel,
       editorLayoutObserver,
       editorLayoutSize,

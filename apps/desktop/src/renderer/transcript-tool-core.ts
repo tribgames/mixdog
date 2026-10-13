@@ -120,6 +120,7 @@ function localizedToolActivityCategory(category: string): string {
   if (category === 'Office') return t('Document work');
   if (category === 'Media') return t('Media generation');
   if (category === 'Tidy') return t('Code Tidy');
+  if (category === 'Visualize') return t('Visualize');
   return t('External tools');
 }
 

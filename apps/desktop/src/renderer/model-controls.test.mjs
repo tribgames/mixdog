@@ -730,3 +730,33 @@ test('/fast parsing accepts ultra and executes Ultrafast only when the model off
   const bad = await run(true, 'nope');
   assert.equal(bad.errors.at(-1), 'Usage: /fast [on|off|ultra]');
 });
+
+test('exact context tokens: input parsing, clamping, and the default/stop collapse', async () => {
+  const {
+    parseContextTokensInput,
+    clampContextTokens,
+    contextTokensChange,
+    routedExactContextTokens,
+    exactContextPercent,
+  } = await import('./route-editor-context.ts');
+  assert.equal(parseContextTokensInput('500'), 500000);
+  assert.equal(parseContextTokensInput('500k'), 500000);
+  assert.equal(parseContextTokensInput('0.5m'), 500000);
+  assert.equal(parseContextTokensInput('abc'), null);
+  assert.equal(parseContextTokensInput('1,000'), 1000000);
+  for (const malformed of ['500garbage', '1.2.3', '5m0', 'k', '', '-5', '500 kb']) {
+    assert.equal(parseContextTokensInput(malformed), null, malformed);
+  }
+  const max = 872000;
+  assert.equal(clampContextTokens(1000, max), 88000);
+  assert.equal(clampContextTokens(5_000_000, max), max);
+  assert.equal(clampContextTokens(640400, max), 640000);
+  const window = { defaultPercent: 60, defaultTokens: 500000, maxTokens: max };
+  assert.deepEqual(contextTokensChange(500000, window), { percent: 60 });
+  assert.deepEqual(contextTokensChange(max, window), { percent: 100 });
+  assert.deepEqual(contextTokensChange(640000, window), { percent: 70, tokens: 640000 });
+  assert.equal(exactContextPercent(640000, max), 73.4);
+  assert.equal(routedExactContextTokens(500000, 500000, max), 0);
+  assert.equal(routedExactContextTokens(640000, 500000, max), 640000);
+  assert.equal(routedExactContextTokens(undefined, 500000, max), 0);
+});

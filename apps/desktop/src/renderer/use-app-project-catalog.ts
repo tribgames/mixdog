@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DesktopProjectSummary } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
-import { isMobileRemoteSurface } from './MobileTabOverview';
+import { isMobileRemoteSurface } from './mobile-surface';
 import { createProjectCatalogRequests } from './project-catalog-requests';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
 import { subscribeSetupChanges } from './setup-change-refresh';

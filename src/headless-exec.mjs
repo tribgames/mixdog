@@ -75,6 +75,7 @@ export async function runHeadlessExec({
   memoryRuntimeCleanup = stopStandaloneMemoryRuntimesForProcess,
   daemonRuntimeCleanup = shutdownDaemonForRuntimeRoot,
   usageLedgerCleanup = closeUsageLedgers,
+  sessionStoreDrain = drainHeadlessSessionStore,
   hasActiveTasks = hasActiveBackgroundTasks,
   installSignalCleanupFn = installProcessSignalCleanup,
 } = {}) {
@@ -122,6 +123,7 @@ export async function runHeadlessExec({
     memoryRuntimeCleanup,
     daemonRuntimeCleanup,
     usageLedgerCleanup,
+    sessionStoreDrain,
     hasActiveTasks,
     installSignalCleanupFn,
   });
@@ -155,6 +157,7 @@ async function executeHeadlessPrompt(
     memoryRuntimeCleanup,
     daemonRuntimeCleanup,
     usageLedgerCleanup,
+    sessionStoreDrain,
     hasActiveTasks,
     installSignalCleanupFn,
   }
@@ -172,6 +175,7 @@ async function executeHeadlessPrompt(
     writeErr,
     hasActiveTasks,
     usageLedgerCleanup,
+    sessionStoreDrain,
     daemonRuntimeCleanup,
     memoryRuntimeCleanup,
   });
@@ -266,7 +270,7 @@ function taskScopeFor(session) {
 // pristine root.
 function headlessCleanup(
   run,
-  { writeErr, hasActiveTasks, usageLedgerCleanup, daemonRuntimeCleanup, memoryRuntimeCleanup }
+  { writeErr, hasActiveTasks, usageLedgerCleanup, sessionStoreDrain, daemonRuntimeCleanup, memoryRuntimeCleanup }
 ) {
   let cleanupPromise = null;
   const shutdown = async (reason) => {
@@ -288,6 +292,13 @@ function headlessCleanup(
         const { drainAgentTrace } = await import('./runtime/agent/orchestrator/agent-trace.mjs');
         await drainAgentTrace();
       }
+    });
+    // The session store's process-exit hook flushes any save still pending
+    // at exit to the data dir resolved AT THAT MOMENT — by then the boundary
+    // has restored the host environment, so a late write would land in the
+    // host's session catalog. Flush while the pristine data dir is current.
+    await attemptShutdownStep(errors, async () => {
+      if (boundary) await sessionStoreDrain();
     });
     // The usage ledger lives inside the pristine root. Its open SQLite
     // handle blocks the root removal below on Windows (EBUSY) for the whole
@@ -314,6 +325,11 @@ function headlessCleanup(
     cleanupPromise ??= shutdown(reason);
     return cleanupPromise;
   };
+}
+
+async function drainHeadlessSessionStore() {
+  const { drainSessionStore } = await import('./runtime/agent/orchestrator/session/store.mjs');
+  drainSessionStore();
 }
 
 // Runs one shutdown step, collecting its failure so the remaining steps still

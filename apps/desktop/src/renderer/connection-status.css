@@ -1,0 +1,83 @@
+/* Server window connection banner and notices (ConnectionStatusBanner.tsx):
+   toast skin, centered under the title bar over the workspace. */
+.conn-link-stack {
+  position: fixed;
+  z-index: var(--mx-toast-z-index, 300);
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.conn-link-stack > .mx-toast {
+  width: auto;
+  max-width: none;
+  align-items: center;
+  pointer-events: auto;
+}
+.conn-link-banner[data-state="lost"] {
+  box-shadow: inset 3px 0 0 var(--mx-danger);
+}
+.conn-link-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+.conn-link-copy > b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+.conn-link-sub {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.conn-link-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.conn-link-log-slot:empty {
+  display: none;
+}
+.conn-link-notice[data-tone="error"] {
+  box-shadow: inset 3px 0 0 var(--mx-danger);
+}
+/* The composer takes no input while the server window's link is down. */
+html[data-connection-down] .composer {
+  opacity: 0.55;
+}
+/* Terminal panes: a server that cannot run terminals, or a link that is down. */
+.dock-terminal-surface:has(> .terminal-connection-note) {
+  position: relative;
+}
+.terminal-connection-note {
+  position: absolute;
+  inset: auto 12px 12px auto;
+  z-index: 2;
+  padding: 4px 10px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-card-outline);
+  font-size: var(--mx-font-meta);
+  pointer-events: none;
+}
+.terminal-connection-note[data-kind="unavailable"] {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 0;
+  box-shadow: none;
+}

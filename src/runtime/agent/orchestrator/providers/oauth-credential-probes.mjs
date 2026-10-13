@@ -6,6 +6,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { cursorTokenExpiry } from './cursor-auth.mjs';
 import { isValidMuseCredentialDocument } from './muse-code-oauth-tokens.mjs';
 import { developerOptionEnabled, developerOptionForProvider } from '../../../shared/developer-options.mjs';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 
 const ANTHROPIC_DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
 
@@ -100,6 +101,8 @@ function credentialPathsSignature(paths, extra = '') {
 }
 
 function memoProbe(key, paths, compute, extraSignature = '') {
+  // Remote mode: no credential file on this server is ever read.
+  if (modelProxyClientMode()) return 'absent';
   const signature = credentialPathsSignature(paths, extraSignature);
   const hit = _probeCache.get(key);
   const now = Date.now();

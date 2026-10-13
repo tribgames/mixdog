@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>대화 안 턴별 변경 카드 v1</title>
+<style>
+  /* Tokens: composer-island-goal-v3.html */
+  :root, [data-theme="dark"] {
+    --page: #0f0f11; --bg: #161618; --text: #e9e9e9; --soft: #d6d6d6; --muted: #a8a8a8; --faint: #7a7a80;
+    --accent: #79b8ff; --ok: #6bd586; --danger: #f17471; --warn: #f2cf76;
+    --line: rgba(255,255,255,.08); --island: #232326; --hover: rgba(255,255,255,.06); --code: #19191c;
+    --sep: rgba(255,255,255,.09); --btn-line: rgba(255,255,255,.12); --user: #26262a;
+    --add-bg: rgba(107,213,134,.10); --del-bg: rgba(241,116,113,.10);
+    --pill-shadow: 0 2px 4px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 12px 24px -4px rgba(0,0,0,.22);
+  }
+  [data-theme="light"] {
+    --page: #e8e8e8; --bg: #fcfcfc; --text: #222; --soft: rgba(34,34,34,.85); --muted: #606060; --faint: #7a7a7a;
+    --accent: #185abc; --ok: #137333; --danger: #b82d35; --warn: #855900;
+    --line: rgba(0,0,0,.09); --island: #fff; --hover: rgba(119,119,119,.10); --code: #f3f3f3;
+    --sep: rgba(0,0,0,.12); --btn-line: rgba(0,0,0,.16); --user: #ececec;
+    --add-bg: rgba(19,115,51,.09); --del-bg: rgba(184,45,53,.08);
+    --pill-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.18), 0 8px 18px -6px rgba(0,0,0,.16);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 32px 40px 80px; }
+  main { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 44px 0 6px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 980px; }
+  .tools { position: absolute; right: 40px; top: 28px; display: flex; gap: 6px; }
+  .tools button { font: inherit; font-size: 12px; color: var(--muted); background: transparent; border: 0; border-radius: 7px; box-shadow: inset 0 0 0 1px var(--btn-line); padding: 3px 10px; cursor: pointer; }
+  .tools button[aria-pressed="true"] { color: var(--text); background: var(--hover); }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 24px; }
+  .cap { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+  .cap b { color: var(--accent); margin-right: 6px; font-weight: 600; }
+  svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ── 대화 프레임 ── */
+  .frame { background: var(--bg); border-radius: 10px; box-shadow: 0 0 0 1px var(--line); padding: 20px 22px 16px; display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
+  .user { align-self: flex-end; max-width: 78%; background: var(--user); border-radius: 14px; padding: 8px 12px; }
+  .tool { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .tool code { font: 12px/18px ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--soft); }
+  .say { color: var(--soft); }
+  .meta { color: var(--faint); font-size: 12px; }
+
+  /* ── 턴 변경 카드 (새로 추가) ── */
+  .tc { border-radius: 9px; box-shadow: inset 0 0 0 1px var(--btn-line); overflow: hidden; }
+  .tc-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px; cursor: pointer; }
+  .tc-head:hover { background: var(--hover); }
+  .tc-head strong { font-weight: 500; }
+  .tc-head .chev { margin-left: auto; color: var(--faint); transition: transform .12s; }
+  .tc[data-open="true"] .tc-head .chev { transform: rotate(90deg); }
+  .tc-head .act { font-size: 12px; color: var(--muted); padding: 2px 8px; border-radius: 6px; }
+  .tc-head .act:hover { color: var(--text); background: var(--hover); }
+  .stats { font: 12px/18px ui-monospace, Consolas, monospace; display: inline-flex; gap: 6px; }
+  .stats i { color: var(--ok); font-style: normal; }
+  .stats em { color: var(--danger); font-style: normal; }
+  .tc ul { list-style: none; margin: 0; padding: 2px 0 4px; border-top: 1px solid var(--line); }
+  .tc li > .f { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 12px; }
+  .tc li > .f:hover { background: var(--hover); }
+  .st { width: 16px; font: 600 11px/16px ui-monospace, Consolas, monospace; text-align: center; border-radius: 4px; flex: none; }
+  .st[data-s="M"] { color: var(--warn); } .st[data-s="A"] { color: var(--ok); } .st[data-s="D"] { color: var(--danger); }
+  .f code { font: 12.5px/18px ui-monospace, "Cascadia Code", Consolas, monospace; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .f code span { color: var(--faint); }
+  .f .stats { margin-left: auto; }
+  .f .ic { color: var(--faint); width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; }
+  .f .ic:hover { color: var(--text); background: var(--hover); }
+  .diff { margin: 2px 10px 8px 34px; border-radius: 6px; background: var(--code); font: 12px/18px ui-monospace, Consolas, monospace; overflow: hidden; }
+  .diff div { padding: 0 10px; white-space: pre; }
+  .diff .h { color: var(--faint); }
+  .diff .a { background: var(--add-bg); color: var(--ok); }
+  .diff .d { background: var(--del-bg); color: var(--danger); }
+  .tc li[data-reverted="true"] code { text-decoration: line-through; color: var(--faint); }
+  .tc li[data-reverted="true"] .stats { opacity: .4; }
+  .tag { font-size: 11px; color: var(--muted); padding: 0 6px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--btn-line); }
+  .sub { font-size: 12px; color: var(--muted); padding: 6px 12px 2px; }
+
+  /* ── 기존 입력창 위 세션 전체 변경 (그대로 유지) ── */
+  .dock { margin-top: auto; padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .pill { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--island); box-shadow: var(--pill-shadow); font-size: 13px; font-weight: 500; }
+  .composer { height: 46px; border-radius: 14px; background: var(--island); box-shadow: var(--pill-shadow); color: var(--faint); display: flex; align-items: center; padding: 0 14px; font-size: 13px; }
+  .note { font-size: 12px; color: var(--accent); }
+  .divider { height: 1px; background: var(--line); margin: 6px 0; }
+</style>
+</head>
+<body>
+<div class="tools"><button data-t="dark" aria-pressed="true">Dark</button><button data-t="light" aria-pressed="false">Light</button></div>
+<main>
+<h1>대화 안 턴별 변경 카드 — v1</h1>
+<p class="lead">턴이 끝나면 그 턴의 마지막 답변 바로 아래에 "이번 턴에 바뀐 파일" 카드를 남깁니다. 입력창 위의 세션 전체 변경(파일 N개)은 지금처럼 그대로 둡니다. 카드는 지난 턴에도 계속 남아 있어서, 스크롤만으로 턴마다 무엇이 바뀌었는지 볼 수 있습니다. 파일 목록과 경로는 예시 데이터입니다.</p>
+
+<h2>1. 기본: 접힌 카드</h2>
+<div class="row">
+  <div>
+    <p class="cap"><b>A. 턴 종료 직후</b>답변 아래 한 줄짜리 카드. 누르면 펼쳐지고, "변경 보기"는 옆 패널의 전체 diff로 이동합니다.</p>
+    <div class="frame">
+      <div class="user">턴 끝나면 바뀐 파일 목록 보이게 해줘</div>
+      <div class="tool"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/></svg>편집 <code>TurnReview.tsx</code></div>
+      <div class="tool"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/></svg>편집 <code>Transcript.tsx</code> 외 1개</div>
+      <div class="tool"><svg viewBox="0 0 16 16"><path d="M2 4l4 4-4 4"/><path d="M8 12h6"/></svg>실행 <code>npm test -- turn-review</code></div>
+      <div class="say">턴 종료 카드를 대화 기록에 추가했습니다. 테스트 42개가 모두 통과했습니다.</div>
+      <div class="tc" data-open="false">
+        <div class="tc-head">
+          <svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg>
+          <strong>파일 3개 변경</strong>
+          <span class="stats"><i>+86</i><em>-12</em></span>
+          <span class="act" style="margin-left:auto">변경 보기</span>
+          <svg class="chev" style="margin-left:0" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg>
+        </div>
+      </div>
+      <div class="meta">1분 12초</div>
+      <div class="dock">
+        <span class="pill"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg>파일 7개 <span class="stats"><i>+214</i><em>-40</em></span><span class="note">← 세션 전체(기존)</span></span>
+        <div class="composer">메시지 입력…</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="cap"><b>B. 펼침</b>파일별 상태(M/A/D), 경로, 줄 수. 행을 누르면 그 자리에서 diff가 열리고, 오른쪽 아이콘은 파일 열기와 이 턴 시작 상태로 되돌리기입니다.</p>
+    <div class="frame">
+      <div class="say">턴 종료 카드를 대화 기록에 추가했습니다. 테스트 42개가 모두 통과했습니다.</div>
+      <div class="tc" data-open="true">
+        <div class="tc-head">
+          <svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg>
+          <strong>파일 3개 변경</strong>
+          <span class="stats"><i>+86</i><em>-12</em></span>
+          <span class="act" style="margin-left:auto">변경 보기</span>
+          <svg class="chev" style="margin-left:0" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg>
+        </div>
+        <ul>
+          <li>
+            <div class="f"><span class="st" data-s="M">M</span><code><span>apps/desktop/src/renderer/</span>TurnReview.tsx</code><span class="stats"><i>+31</i><em>-9</em></span>
+              <span class="ic"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span></div>
+            <div class="diff">
+              <div class="h">@@ -312,7 +312,8 @@</div>
+              <div>   onOpenFile,</div>
+              <div class="d">-  variant = 'bar',</div>
+              <div class="a">+  variant = 'bar',</div>
+              <div class="a">+  turnId,</div>
+              <div>   onOpenChanges,</div>
+            </div>
+          </li>
+          <li><div class="f"><span class="st" data-s="M">M</span><code><span>apps/desktop/src/renderer/</span>Transcript.tsx</code><span class="stats"><i>+14</i><em>-3</em></span>
+            <span class="ic"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span></div></li>
+          <li><div class="f"><span class="st" data-s="A">A</span><code><span>apps/desktop/src/renderer/</span>turn-changes-card.test.mjs</code><span class="stats"><i>+41</i><em></em></span>
+            <span class="ic"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span></div></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>2. 여러 턴이 쌓였을 때</h2>
+<div class="row">
+  <div>
+    <p class="cap"><b>A. 턴마다 자기 카드</b>파일을 바꾼 턴에만 카드가 붙습니다. 질문만 한 턴처럼 바뀐 게 없으면 카드를 띄우지 않습니다.</p>
+    <div class="frame">
+      <div class="user">헤더 색 좀 바꿔줘</div>
+      <div class="say">헤더 배경을 토큰 색으로 바꿨습니다.</div>
+      <div class="tc"><div class="tc-head"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg><strong>파일 1개 변경</strong><span class="stats"><i>+2</i><em>-2</em></span><svg class="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg></div></div>
+      <div class="divider"></div>
+      <div class="user">이거 왜 그런거야?</div>
+      <div class="say">토큰이 라이트 테마에서 덮어써지기 때문입니다. <span class="meta">(바뀐 파일 없음 → 카드 없음)</span></div>
+      <div class="divider"></div>
+      <div class="user">그럼 라이트도 맞춰줘</div>
+      <div class="say">라이트 테마 토큰도 같이 맞췄습니다.</div>
+      <div class="tc"><div class="tc-head"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg><strong>파일 2개 변경</strong><span class="stats"><i>+9</i><em>-4</em></span><svg class="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg></div></div>
+      <div class="dock">
+        <span class="pill"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg>파일 3개 <span class="stats"><i>+11</i><em>-6</em></span><span class="note">← 세션 전체는 합계</span></span>
+        <div class="composer">메시지 입력…</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="cap"><b>B. 에이전트가 바꾼 파일 / 되돌린 파일</b>서브 에이전트 몫은 이름 태그로 구분합니다. 되돌린 파일은 취소선으로 남겨서 기록이 사라지지 않게 합니다.</p>
+    <div class="frame">
+      <div class="say">작업자 2명이 나눠서 구현했고, 검토까지 끝났습니다.</div>
+      <div class="tc" data-open="true">
+        <div class="tc-head"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg><strong>파일 4개 변경</strong><span class="stats"><i>+120</i><em>-31</em></span><span class="meta">Lead 1 · 에이전트 3</span><svg class="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg></div>
+        <ul>
+          <li><div class="f"><span class="st" data-s="M">M</span><code><span>src/runtime/shared/</span>turn-snapshot.mjs</code><span class="stats"><i>+18</i><em>-6</em></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span></div></li>
+          <li><div class="f"><span class="st" data-s="M">M</span><code><span>src/standalone/</span>session-protocol.mjs</code><span class="tag">worker</span><span class="stats"><i>+40</i><em>-11</em></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span></div></li>
+          <li data-reverted="true"><div class="f"><span class="st" data-s="D">D</span><code><span>src/runtime/shared/</span>legacy-diff.mjs</code><span class="tag">worker</span><span class="meta">되돌림</span><span class="stats"><i></i><em>-14</em></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg></span><span class="ic" style="opacity:.35"><svg viewBox="0 0 16 16"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span></div></li>
+          <li><div class="f"><span class="st" data-s="A">A</span><code><span>src/standalone/</span>turn-changes.test.mjs</code><span class="tag">worker-2</span><span class="stats"><i>+62</i><em></em></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg></span><span class="ic"><svg viewBox="0 0 16 16"><path d="M4 7h6a3 3 0 010 6H8"/><path d="M6 4L3 7l3 3"/></svg></span></div></li>
+        </ul>
+        <div class="sub">되돌리기는 이 턴 시작 상태로 돌립니다. 이후 턴에서 같은 파일을 또 바꿨다면 되돌리기 버튼이 비활성화됩니다.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>3. 진행 중인 턴</h2>
+<div class="row">
+  <div>
+    <p class="cap"><b>A. 작업 중에는 카드 없음</b>카드는 턴이 끝날 때 확정됩니다. 진행 중 변경은 지금처럼 각 도구 카드와 입력창 위 합계에서 보입니다.</p>
+    <div class="frame">
+      <div class="user">테스트까지 고쳐줘</div>
+      <div class="tool"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/></svg>편집 <code>turn-review-model.ts</code></div>
+      <div class="tool" style="color:var(--accent)"><svg viewBox="0 0 16 16"><path d="M2 4l4 4-4 4"/><path d="M8 12h6"/></svg>실행 중 <code>npm test</code></div>
+      <div class="dock">
+        <span class="pill"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg>파일 4개 <span class="stats"><i>+130</i><em>-20</em></span></span>
+        <div class="composer">메시지 입력…</div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="cap"><b>B. 중단된 턴</b>사용자가 멈춰도 그때까지 바뀐 파일은 카드로 남기고, 제목에 "중단됨"을 붙입니다.</p>
+    <div class="frame">
+      <div class="user">테스트까지 고쳐줘</div>
+      <div class="tool"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/></svg>편집 <code>turn-review-model.ts</code></div>
+      <div class="meta">사용자가 중단함</div>
+      <div class="tc"><div class="tc-head"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M8 6v4M6 12h4"/></svg><strong>파일 1개 변경</strong><span class="stats"><i>+7</i><em>-2</em></span><span class="tag">중단됨</span><svg class="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg></div></div>
+    </div>
+  </div>
+</div>
+</main>
+<script>
+  document.querySelectorAll('.tools button').forEach((b) => b.addEventListener('click', () => {
+    document.documentElement.dataset.theme = b.dataset.t;
+    document.querySelectorAll('.tools button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  document.querySelectorAll('.tc-head').forEach((h) => h.addEventListener('click', (e) => {
+    if (e.target.closest('.act')) return;
+    const c = h.closest('.tc');
+    c.dataset.open = c.dataset.open === 'true' ? 'false' : 'true';
+    const list = c.querySelector('ul');
+    if (list) list.hidden = c.dataset.open !== 'true';
+  }));
+</script>
+</body>
+</html>

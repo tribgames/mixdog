@@ -2,7 +2,7 @@
 // the panes themselves (WorkspaceTabStrip); the bar
 // keeps the draggable run, the updater badge, and the Windows caption reserve.
 import { ArrowDown } from 'lucide-react';
-import { useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 
 import { version as appVersion } from '../../package.json';
@@ -11,6 +11,7 @@ import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { RemotePcSwitcher } from './RemotePcSwitcher';
 import { ProgressSpinner } from './ProgressSpinner';
+import { isElectronRenderer } from './remote-ui-projection';
 import { useWhatsNewNotice } from './settings/use-whats-new-notice';
 
 interface DesktopTitlebarProps {
@@ -18,15 +19,50 @@ interface DesktopTitlebarProps {
   onOpenUpdate?(): void;
 }
 
-export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarProps) {
-  // The - ㅁ x caption band belongs to the ELECTRON shell alone. A browser or
-  // web surface serves the SAME bundle through the relay/LAN bridge
-  // (remote-shim installs mixdogRemoteServer there), and reserving a caption
-  // strip there only steals the title row of a window that has no caption.
+type WindowControlsOverlay = EventTarget & { readonly visible: boolean };
+
+function windowControlsOverlay(): WindowControlsOverlay | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  return (navigator as { windowControlsOverlay?: WindowControlsOverlay }).windowControlsOverlay;
+}
+
+function subscribeWindowControlsOverlay(listener: () => void): () => void {
+  const overlay = windowControlsOverlay();
+  overlay?.addEventListener('geometrychange', listener);
+  return () => overlay?.removeEventListener('geometrychange', listener);
+}
+
+const windowControlsOverlayVisible = (): boolean => windowControlsOverlay()?.visible === true;
+
+function useWindowControlsOverlayVisible(): boolean {
+  return useSyncExternalStore(subscribeWindowControlsOverlay, windowControlsOverlayVisible, () => false);
+}
+
+/** A plain browser tab (not Electron, not the phone layout, no native caption
+ *  overlay) has nothing to drag and no caption to clear: it drops the title
+ *  band and the activity rail carries the PC switcher at its top instead. */
+export function usePlainBrowserChrome(): boolean {
   const phoneLayout = useMobileRemoteSurface();
-  const electronShell = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
-  // Windows and Linux both draw native caption controls via the overlay.
-  const windowsCaptionControls = electronShell && /Windows|Linux/i.test(navigator.userAgent);
+  const captionOverlay = useWindowControlsOverlayVisible();
+  return !isElectronRenderer() && !phoneLayout && !captionOverlay;
+}
+
+export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarProps) {
+  // The - ㅁ x caption reserve exists only where the window really draws
+  // native caption controls over the page (Window Controls Overlay: the
+  // Windows/Linux main window and other-PC windows). A browser tab, a phone or
+  // macOS has none, and a reserve there only steals the title row.
+  const phoneLayout = useMobileRemoteSurface();
+  const windowsCaptionControls = useWindowControlsOverlayVisible();
+  const bandless = usePlainBrowserChrome();
+  // Band-height consumers (floating side sheet, backdrop, dialogs) read
+  // --titlebar-height; the root marker zeroes it while no band renders.
+  useLayoutEffect(() => {
+    if (!bandless) return undefined;
+    const root = document.documentElement;
+    root.setAttribute('data-mixdog-titlebar', 'hidden');
+    return () => root.removeAttribute('data-mixdog-titlebar');
+  }, [bandless]);
   // The updater stays window-global; layout controls belong to their panes.
   const updateVisible =
     Boolean(onOpenUpdate) && (updaterState?.status === 'ready' || updaterState?.status === 'installing');
@@ -51,6 +87,17 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [ChangelogDialog]);
+  const dialogs = (
+    <>
+      {notice &&
+        createPortal(
+          <notice.Dialog release={notice.release} onClose={closeNotice} onViewAll={openChangelog} />,
+          document.body
+        )}
+      {ChangelogDialog && createPortal(<ChangelogDialog onClose={closeChangelog} />, document.body)}
+    </>
+  );
+  if (bandless) return dialogs;
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the top-level header is the window's banner landmark, which takes a name.
     <header className="topbar" aria-label={t('Window bar')}>
@@ -88,12 +135,7 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
         )}
       </div>
       {windowsCaptionControls && <div className="titlebar-caption-space" aria-hidden="true" />}
-      {notice &&
-        createPortal(
-          <notice.Dialog release={notice.release} onClose={closeNotice} onViewAll={openChangelog} />,
-          document.body
-        )}
-      {ChangelogDialog && createPortal(<ChangelogDialog onClose={closeChangelog} />, document.body)}
+      {dialogs}
     </header>
   );
 }

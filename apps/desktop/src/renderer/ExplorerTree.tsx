@@ -40,6 +40,8 @@ import { COMPOSER_PROJECT_PATHS_MIME } from './composer-support';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { openEditorFileExternally } from './editor-external-file';
+import { isSshConnectionWindow } from './desktop-connection';
+import { confirmServerDelete } from './server-transfers';
 import { useMobileBack } from './mobile-back';
 import { scheduleEditorPanePrefetch } from './lazy-widgets';
 import { SetiFileIcon } from './SetiFileIcon';
@@ -61,6 +63,13 @@ const TYPE_AHEAD_RESET_MS = 700;
 const DRAG_EXPAND_DELAY_MS = 500;
 
 export { SetiFileIcon };
+
+/** How a file row's single click opens the file: a touch tap pins it (touch
+ *  has no double-click to pin with), any other pointer opens the preview tab
+ *  and a double-click pins it. */
+function explorerOpenMode(pointerType: string | undefined): 'preview' | 'pinned' {
+  return pointerType === 'touch' ? 'pinned' : 'preview';
+}
 
 /** Right-click command surface. The row menu and the background menu are one
  *  portal over a single command set, so the whole surface lives beside the
@@ -101,6 +110,9 @@ function explorerContextMenu({
     action();
   };
   const remote = isRemoteHostRenderer();
+  // A server window's tree IS where its files are shown: no file manager of
+  // this PC to reveal them in, and opening means downloading first.
+  const serverWindow = isSshConnectionWindow();
   const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);
   let pasteTarget = '';
   if (!menu.background) pasteTarget = menu.isDir ? menu.rel : menu.parent;
@@ -171,8 +183,8 @@ function explorerContextMenu({
           {sep('bg-clipboard')}
           {item('Paste', () => void pasteClipboard(''), { hint: 'Ctrl+V', disabled: !clipboard })}
           {sep('bg-path')}
-          {!remote && item('Reveal in Explorer', () => void api?.openProjectInExplorer(projectPath))}
-          {item('Copy path', () => void copyTextToClipboard(projectPath))}
+          {!remote && !serverWindow && item('Reveal in Explorer', () => void api?.openProjectInExplorer(projectPath))}
+          {item(serverWindow ? 'Copy server path' : 'Copy path', () => void copyTextToClipboard(projectPath))}
         </>
       ) : (
         <>
@@ -180,7 +192,10 @@ function explorerContextMenu({
           {!remote &&
             !multi &&
             !menu.isDir &&
-            item('Open in default app', () => void openEditorFileExternally(projectPath, menu.rel))}
+            item(
+              serverWindow ? 'Download to this PC and open' : 'Open in default app',
+              () => void openEditorFileExternally(projectPath, menu.rel)
+            )}
           {!multi && menu.isDir && item('New file…', () => beginCreate(false, menu.rel))}
           {!multi && menu.isDir && item('New folder…', () => beginCreate(true, menu.rel))}
           {!multi && sep('row-open')}
@@ -188,10 +203,17 @@ function explorerContextMenu({
           {item('Copy', () => stashClipboard(false), { hint: 'Ctrl+C' })}
           {!multi && item('Paste', () => void pasteClipboard(pasteTarget), { hint: 'Ctrl+V', disabled: !clipboard })}
           {sep('row-clipboard')}
-          {!remote && !multi && item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, menu.rel))}
-          {item('Copy path', () => void copyTextToClipboard(copyRels.map(absOf).join('\n')), {
-            hint: 'Shift+Alt+C',
-          })}
+          {!remote &&
+            !serverWindow &&
+            !multi &&
+            item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, menu.rel))}
+          {item(
+            serverWindow ? 'Copy server path' : 'Copy path',
+            () => void copyTextToClipboard(copyRels.map(absOf).join('\n')),
+            {
+              hint: 'Shift+Alt+C',
+            }
+          )}
           {item('Copy relative path', () => void copyTextToClipboard(copyRels.join('\n')))}
           {sep('row-path')}
           {!multi && item('Rename…', () => beginRename(menu.rel, menu.name, menu.isDir), { hint: 'F2' })}
@@ -616,15 +638,23 @@ export const FilesRootPane = memo(function FilesRootPane({
     if (rels.length === 0) return;
     const label =
       rels.length === 1 ? rels[0].split('/').at(-1) || rels[0] : t('{{count}} items', { count: rels.length });
-    if (!window.confirm(t('Move {{name}} to the Recycle Bin?', { name: label }))) return;
-    setMutationError('');
-    void trashExplorerEntries({ api, projectPath, rels }).then(({ failed, firstError }) => {
+    void (async () => {
+      // A server window deletes on the server: its trash, or a permanent
+      // delete it names as such. Never this PC's recycle bin.
+      let options: { permanent: boolean } | undefined;
+      if (isSshConnectionWindow()) {
+        const confirmed = await confirmServerDelete(api, projectPath, label);
+        if (!confirmed) return;
+        options = confirmed;
+      } else if (!window.confirm(t('Move {{name}} to the Recycle Bin?', { name: label }))) return;
+      setMutationError('');
+      const { failed, firstError } = await trashExplorerEntries({ api, projectPath, rels, options });
       // Only what survived the delete stays selected, ready for a retry.
       setSelected(new Set(failed));
       setFocusedRel(failed[0] || '');
       if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
       refreshParentsOf(rels);
-    });
+    })();
   };
   const stashClipboard = (cut: boolean) => {
     const rels = selectionRels();
@@ -898,7 +928,9 @@ export const FilesRootPane = memo(function FilesRootPane({
           }
           selectOnly(row.rel);
           if (row.dir) toggle(row.rel);
-          else openFile(row.rel, 'preview');
+          // A touch tap has no double-click to pin with, so it opens the file
+          // pinned; a mouse click keeps the PC preview-then-pin behavior.
+          else openFile(row.rel, explorerOpenMode((event.nativeEvent as Partial<PointerEvent>).pointerType));
         }}
         onDoubleClick={row.dir ? undefined : () => openFile(row.rel, 'pinned')}
         onContextMenu={(event) => {

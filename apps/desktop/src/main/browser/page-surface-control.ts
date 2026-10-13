@@ -119,8 +119,21 @@ export function createPageInputDispatcher(
   };
 }
 
+/** Set a page's zoom factor; the factor it already has changes nothing. */
+export function zoomGuest(
+  host: Pick<BrowserPageSurfaceHost, 'state'>,
+  state: Pick<PageSurfaceState, 'invalidateGeometry'>,
+  guest: WebContents,
+  factor: number
+): void {
+  if (Math.abs(guest.getZoomFactor() - factor) < ZOOM_EPSILON) return;
+  state.invalidateGeometry(guest);
+  host.state.invalidateInteraction(guest);
+  guest.setZoomFactor(factor);
+}
+
 export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: PageSurfaceState) {
-  const { paneSizes, invalidateGeometry, resizeGuest, presenting } = state;
+  const { paneSizes, paneZooms, invalidateGeometry, resizeGuest, presenting } = state;
   const dispatchPageInput = createPageInputDispatcher(host);
 
   function controlTabs(sessionId: string, input: DesktopBrowserPageControl): boolean {
@@ -166,11 +179,10 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
     // Re-applying the factor the guest already has changes nothing: it must
     // not discard the agent's refs, and it never waits for page execution.
     if (input.type === 'zoom') {
-      if (Math.abs(guest.getZoomFactor() - input.factor) >= ZOOM_EPSILON) {
-        invalidateGeometry(guest);
-        host.state.invalidateInteraction(guest);
-        guest.setZoomFactor(input.factor);
-      }
+      paneZooms.set(sessionId, input.factor);
+      // A driving phone keeps the page at its own scale; this one waits.
+      if (host.remoteDriven?.(guest)) return;
+      zoomGuest(host, state, guest, input.factor);
       return;
     }
     // Native recovery releases a blocked execution; it must not wait for that

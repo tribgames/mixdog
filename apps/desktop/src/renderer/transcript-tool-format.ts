@@ -1,6 +1,8 @@
+import { VISUALIZE_INLINE_KINDS } from '../shared/visualize';
 import { t, tExisting } from './i18n';
-import { formatElapsed, oneLine } from './text-format';
+import { asRecord, formatElapsed, oneLine } from './text-format';
 import { boundedTextOf } from './transcript-tool-core';
+import { visualizeInlineKindLabel } from './visualize-card-model';
 
 // Getters: each read resolves in the ACTIVE language, not the boot language.
 export const TOOL_DETAIL_LABELS = {
@@ -595,6 +597,24 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     ['browser', 'browser_devtools'],
     (args, _path, fallback) => localizeActionSubject(args, fallback.replace(/\bhttps?:\/\/(?:www\.)?/g, '')),
   ],
+  // "주문 처리 흐름", "mockup.html", "shots/home.png": the tab's title, else
+  // what the call acted on. The arguments arrive as the unwrapped `input`
+  // (the action rides beside it), so an action shows only when flat.
+  [
+    ['visualize'],
+    (args, _path, fallback) => {
+      const action = toolActivityFirstText(args, 'action');
+      const content = asRecord(args.content);
+      const kind = VISUALIZE_INLINE_KINDS.find((candidate) => candidate === content?.kind);
+      const subject =
+        toolActivityFirstText(args, 'label') ||
+        (content ? toolActivityFirstText(content, 'title') : '') ||
+        toolActivityOneOrCount(toolActivityValues(args.targets), 'path') ||
+        toolActivityFirstText(args, 'output', 'tab') ||
+        (kind ? visualizeInlineKindLabel(kind) : '');
+      return toolActivityCompact([action ? toolActivityActionLabel(action) : '', subject]) || fallback;
+    },
+  ],
   [
     [
       'setup',
@@ -653,6 +673,7 @@ const TOOL_TARGETS = byToolName<ToolTargetsFormatter>([
     (args) => [toolActivityValues(args.query ?? args.queries ?? args.keywords).map(toolActivityQuoted)],
   ],
   [['web_fetch', 'fetch'], (args) => [toolActivityValues(args.url ?? args.urls ?? args.uri)]],
+  [['visualize'], (args) => [toolActivityValues(args.targets)]],
 ]);
 
 /** Every entry of each argument that carried more than one; empty when none did. */
@@ -735,6 +756,7 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
   ],
   [['git_stage'], ['files', 'paths']],
   [['github', 'setup', 'tidy', 'office', 'computer', 'media'], ['action']],
+  [['visualize'], ['action', 'targets', 'tab', 'output', 'label', 'content']],
   // The row's subject already names the page / element the call acted on.
   [
     ['browser', 'browser_devtools'],

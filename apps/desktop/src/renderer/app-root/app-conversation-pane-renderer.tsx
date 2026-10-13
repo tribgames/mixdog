@@ -91,6 +91,15 @@ export interface PaneConversationRendererOptions {
   replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
 }
 
+/** The side-dock open routes a renderer offers transcript links and editors:
+ *  every surface with a right side layout — the phone/web renderer's
+ *  full-screen sheet included — opens files, folders, the session diff and
+ *  background jobs in the pane's side dock, exactly like the PC. Without one,
+ *  none are offered and links keep opening main tabs. */
+export function paneSideDockLinkRoutes<T extends object>(rightGroups: readonly unknown[], routes: T): Partial<T> {
+  return rightGroups.length > 0 ? routes : {};
+}
+
 export function createPaneConversationRenderer(options: PaneConversationRendererOptions) {
   return function renderPaneConversation(
     paneSelection: NavigationSelection,

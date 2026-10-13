@@ -48,6 +48,7 @@ import { createAnthropicOAuthRecovery } from './anthropic-oauth-recovery.mjs';
 import { createMidState, createMidstreamRecovery } from './anthropic-oauth-midstream.mjs';
 import { assertAnthropicStreamNotEmpty } from './anthropic-midstream-recovery.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
+import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-rejection.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
   applyAnthropicCacheMarkers,
@@ -408,6 +409,17 @@ export class AnthropicOAuthProvider {
   }
 
   async send(messages, model, tools, sendOpts) {
+    return withEffortRejectionFallback(
+      'anthropic-oauth',
+      model,
+      sendOpts || {},
+      undefined,
+      (opts) => this._sendOnce(messages, model, tools, opts),
+      { levels: ANTHROPIC_EFFORT_LEVELS }
+    );
+  }
+
+  async _sendOnce(messages, model, tools, sendOpts) {
     await warmCliVersion();
     // Re-warm the kept-alive socket before the turn. preconnect() is a
     // best-effort no-op while a socket is still hot (TTL gate), but after an
@@ -625,7 +637,9 @@ export class AnthropicOAuthProvider {
     // without them (the request keeps its turn effort).
     if (isEffortConfigurationRejection(response.status, scrubbedText) && !opts._effortConfigurationRetry) {
       markEffortConfigurationUnsupported('anthropic-oauth', useModel);
-      process.stderr.write(`[anthropic-oauth] ${useModel} rejected the mid-conversation effort update; retrying once without it\n`);
+      process.stderr.write(
+        `[anthropic-oauth] ${useModel} rejected the mid-conversation effort update; retrying once without it\n`
+      );
       return this.send(messages, useModel, tools, {
         ...opts,
         effortConfigurationEnabled: false,

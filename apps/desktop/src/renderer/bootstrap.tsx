@@ -9,6 +9,13 @@ import './i18n';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { AppUpdateBanner } from './AppUpdateBanner';
+import { lazy, Suspense } from 'react';
+
+// Connection banner of an Electron window (server link, server-window
+// reopening); its styles load with it, after the first paint.
+const ConnectionStatusBanner = lazy(() =>
+  import('./ConnectionStatusBanner').then((module) => ({ default: module.ConnectionStatusBanner }))
+);
 import { RemoteClaimPrompt } from './RemoteClaimPrompt';
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from './RendererRecovery';
 import './bootstrap-styles';
@@ -62,10 +69,9 @@ try {
     // Pretendard's dynamic subset splits Hangul away from its Latin face.
     // Supplying Korean text starts a Hangul range before React's first layout.
     document.fonts.load('400 15px "Pretendard Variable"', '한글'),
-    // Only Electron can restore an editor/terminal before the first visible
-    // frame. A phone loads the mono face with that deferred surface instead of
-    // spending one more cold relay request before its shell appears.
-    ...(nativeDesktop ? [document.fonts.load('400 13px "JetBrains Mono Variable"')] : []),
+    // The mono face is part of every first paint (code, terminal), so browsers
+    // start it here too.
+    document.fonts.load('400 13px "JetBrains Mono Variable"'),
   ]);
 } catch {
   /* font swap stays a cosmetic fallback */
@@ -88,6 +94,11 @@ createRoot(document.getElementById('root')!).render(
     <App />
     <RemoteClaimPrompt />
     <AppUpdateBanner />
+    {window.mixdogDesktop?.connection ? (
+      <Suspense fallback={null}>
+        <ConnectionStatusBanner />
+      </Suspense>
+    ) : null}
   </DesktopErrorBoundary>
 );
 markBootStage('react-render-requested');

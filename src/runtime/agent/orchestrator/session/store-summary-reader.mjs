@@ -132,6 +132,8 @@ function isLeadVisibleRow(row) {
   const sourceType = String(row.sourceType || '')
     .trim()
     .toLowerCase();
+  // Mirror listLeadSessions: one-shot `mixdog exec` runs stay out of Recent.
+  if (sourceType === 'exec') return false;
   const sourceName = String(row.sourceName || '')
     .trim()
     .toLowerCase();

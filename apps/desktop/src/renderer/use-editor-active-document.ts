@@ -13,6 +13,7 @@ export function useEditorActiveDocument({
   onNavigationLocationRef,
   active,
   focused,
+  autoFocus,
   revealed,
   loaded,
   viewMode,
@@ -27,6 +28,9 @@ export function useEditorActiveDocument({
   onNavigationLocationRef: MutableRefObject<((rel: string, line: number, column: number) => void) | undefined>;
   active: boolean;
   focused: boolean;
+  /** False on the phone: its soft keyboard would cover the file just opened,
+   *  so only a tap into the text takes focus there. */
+  autoFocus: boolean;
   revealed: boolean;
   loaded: unknown;
   viewMode: string;
@@ -48,8 +52,8 @@ export function useEditorActiveDocument({
       editorLayoutSize.current = null;
       layoutEditorToHost(editor, layoutHost);
     }
-    if (focused && revealed && viewMode === 'source') editor?.focus();
-  }, [active, focused, layoutEditorToHost, loaded, revealed, viewMode]);
+    if (autoFocus && focused && revealed && viewMode === 'source') editor?.focus();
+  }, [active, autoFocus, focused, layoutEditorToHost, loaded, revealed, viewMode]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: editorRef and onNavigationLocationRef are stable refs owned by the pane; only the listed values re-run the publish.
   useEffect(() => {
     if (!modelUri) return;

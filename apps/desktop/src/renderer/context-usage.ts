@@ -13,6 +13,8 @@ interface ContextDisplayUsageInput extends ContextUsageInput {
   sessionId?: unknown;
   stats?: unknown;
   fallbackUsedTokens?: unknown;
+  /** Exact routed window; when set it is the displayed window. */
+  contextTokens?: unknown;
 }
 
 export function nonNegativeNumber(value: unknown): number {
@@ -21,8 +23,10 @@ export function nonNegativeNumber(value: unknown): number {
 }
 
 export function resolveContextDisplayUsage(input: ContextDisplayUsageInput) {
+  const exactWindow = nonNegativeNumber(input.contextTokens);
   return measuredContextUsage({
     ...input,
+    ...(exactWindow > 0 ? { displayContextWindow: exactWindow } : {}),
     stats: String(input.sessionId || '').trim() ? input.stats : {},
   }) as {
     used: number | null;

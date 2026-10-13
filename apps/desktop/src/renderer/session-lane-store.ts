@@ -173,6 +173,12 @@ function mergedLaneFrame(
   for (const field of LANE_PRESENTATION_FIELDS) {
     if (merged[field] == null && prior[field] != null) merged[field] = prior[field];
   }
+  // The exact window travels with contextPercent: a frame that reports the
+  // percent without it has cleared the exact value; only a frame with neither
+  // (a partial projection) keeps the prior one.
+  if (!Object.hasOwn(next, 'contextTokens') && next.contextPercent == null && prior.contextTokens != null) {
+    merged.contextTokens = prior.contextTokens;
+  }
   if (!Object.hasOwn(next, 'goal') && prior.goal != null) {
     merged.goal = prior.goal;
   }

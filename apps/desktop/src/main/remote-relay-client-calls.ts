@@ -244,6 +244,7 @@ export function createRelayClientCallDispatch(
     const statName = remoteCallStatName(String(call?.method ?? ''), call?.params);
     let queueKey = String(call?.method ?? '');
     if (statName.startsWith('invokeCapability:getTurnReviewDiff')) queueKey = 'invokeCapability:getTurnReviewDiff';
+    else if (statName === 'invokeCapability:getTurnChanges') queueKey = statName;
     else if (VOICE_CALLS.has(statName)) queueKey = statName;
     const methods = typeof deps.methods === 'function' ? deps.methods(clientId, client) : deps.methods;
     const execution = client.callQueue.run(queueKey, async () => {

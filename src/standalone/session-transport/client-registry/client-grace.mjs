@@ -5,11 +5,44 @@
  */
 import { isPidAlive } from '../../../runtime/shared/pid-liveness.mjs';
 
-export function createClientGrace({ clients, log, clientGraceMs, sweepMs, onClientsEmpty, isClosed, dropClient }) {
+const LEASE_MIN_MS = 3_000;
+const LEASE_MAX_MS = 600_000;
+const LEASE_DEFAULT_MS = 30_000;
+const REMOTE_CLIENT_GRACE_DEFAULT_MS = 1_800_000;
+
+/** A remote client's lease: the requested `leaseMs`, clamped to 3s..10min. */
+export function clampLeaseMs(value) {
+  const leaseMs = Number(value);
+  if (!Number.isFinite(leaseMs) || leaseMs <= 0) return LEASE_DEFAULT_MS;
+  return Math.min(LEASE_MAX_MS, Math.max(LEASE_MIN_MS, leaseMs));
+}
+
+// A remote desktop behind a flaky tunnel needs far longer to come back than a
+// local terminal restarting. Read at arm time so the env can change per run.
+function remoteClientGraceMs() {
+  const configured = Number(process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS);
+  return Number.isFinite(configured) && configured >= 0 && process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS
+    ? configured
+    : REMOTE_CLIENT_GRACE_DEFAULT_MS;
+}
+
+export function createClientGrace({
+  clients,
+  log,
+  clientGraceMs,
+  sweepMs,
+  nowMs = () => Date.now(),
+  onClientsEmpty,
+  isClosed,
+  dropClient,
+}) {
   let graceTimer = null;
   let sweepTimer = null;
   let everHadLifecycleClient = false;
   let signalled = false;
+  // Whether the most recently departed lifecycle client was remote; it picks
+  // the empty-clients grace.
+  let lastLifecycleWasRemote = false;
 
   function lifecycleClientCount() {
     let count = 0;
@@ -45,8 +78,12 @@ export function createClientGrace({ clients, log, clientGraceMs, sweepMs, onClie
       try {
         onClientsEmpty();
       } catch {}
-    }, clientGraceMs);
+    }, lastLifecycleWasRemote ? remoteClientGraceMs() : clientGraceMs);
     graceTimer.unref?.();
+  }
+
+  function noteLifecycleDropped(client) {
+    lastLifecycleWasRemote = client.remote === true;
   }
 
   /** A lifecycle client holds the daemon up: remember one ever attached and
@@ -61,6 +98,11 @@ export function createClientGrace({ clients, log, clientGraceMs, sweepMs, onClie
     if (sweepTimer || isClosed()) return;
     sweepTimer = setInterval(() => {
       for (const [token, c] of [...clients]) {
+        if (c.remote) {
+          // Its owning process is on another machine: liveness is the lease.
+          if (nowMs() - c.lastSeen > c.leaseMs) dropClient(token, 'lease expired');
+          continue;
+        }
         // A client whose owning process died can never read its stream again.
         if (c.leadPid && !isPidAlive(c.leadPid)) dropClient(token, 'lead pid gone');
       }
@@ -77,5 +119,5 @@ export function createClientGrace({ clients, log, clientGraceMs, sweepMs, onClie
     }
   }
 
-  return { lifecycleClientCount, cancel, maybeArm, noteLifecycleClient, startSweep, stopTimers };
+  return { lifecycleClientCount, cancel, maybeArm, noteLifecycleClient, noteLifecycleDropped, startSweep, stopTimers };
 }

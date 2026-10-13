@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { saveModelSettings } from '../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import { createModelRouteApi } from './model-route-api.mjs';
+import { makeResolveRoute } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 
 test('saveModelSettings updates modelSettings without a sync config write', () => {
   let saveCalls = 0;
@@ -56,9 +57,79 @@ test('a window left at the model default is not stored as a setting', () => {
   assert.equal(unknown.modelSettings['openai/gpt-5.4'].contextPercent, 30);
 });
 
+test('an exact token window and a percentage replace each other in saved settings', () => {
+  const cfgMod = { loadConfig: () => ({ modelSettings: {} }) };
+  const route = { provider: 'openai', model: 'gpt-5.4', contextDefaultPercent: 50 };
+  const saved = (next, setting) =>
+    saveModelSettings(cfgMod, { ...route, ...next }, { baseConfig: { modelSettings: { 'openai/gpt-5.4': setting } } })
+      .modelSettings['openai/gpt-5.4'];
+  // Tokens win over a percent sent alongside and drop a stored percent.
+  assert.deepEqual(saved({ contextTokens: 640_000, contextPercent: 60 }, { contextPercent: 30 }), {
+    fast: false,
+    contextTokens: 640_000,
+  });
+  // Choosing a percent drops stored tokens.
+  assert.deepEqual(saved({ contextPercent: 70 }, { contextTokens: 640_000 }), { fast: false, contextPercent: 70 });
+  // The default stop drops both.
+  assert.deepEqual(saved({ contextPercent: 50 }, { contextTokens: 640_000 }), { fast: false });
+});
+
+test('route resolution loads saved tokens and lets a percent or tokens replace the other', () => {
+  const resolveRoute = makeResolveRoute(() => 'openai');
+  const config = (setting) => ({ modelSettings: { 'openai/gpt-5.4': setting } });
+  const route = { provider: 'openai', model: 'gpt-5.4' };
+  const tokensSaved = resolveRoute(config({ contextTokens: 640_000 }), route);
+  assert.equal(tokensSaved.contextTokens, 640_000);
+  assert.equal(tokensSaved.contextPercent, undefined);
+  const percentChosen = resolveRoute(config({ contextTokens: 640_000 }), { ...route, contextPercent: 30 });
+  assert.equal(percentChosen.contextPercent, 30);
+  assert.equal(Object.hasOwn(percentChosen, 'contextTokens'), false);
+  const tokensChosen = resolveRoute(config({ contextPercent: 30 }), { ...route, contextTokens: 700_000 });
+  assert.equal(tokensChosen.contextTokens, 700_000);
+  assert.equal(tokensChosen.contextPercent, undefined);
+  assert.equal(Object.hasOwn(resolveRoute(config({ contextPercent: 30 }), route), 'contextTokens'), false);
+});
+
+test('setRoute saves an exact window clamped and drops it at the default window', async () => {
+  const run = async (requested, setting = {}) => {
+    let saved = null;
+    const api = stubRouteApi({
+      cfgMod: { loadConfig: () => ({ modelSettings: {} }) },
+      persistLeadRoute: () => null,
+      saveConfigAndAdopt: (next) => {
+        saved = next.modelSettings['openai/gpt-5.4'];
+      },
+      initialConfig: { modelSettings: { 'openai/gpt-5.4': setting } },
+      // 500k default of a 1M window.
+      lookupModelMeta: async (_provider, model) => ({ id: model, contextWindow: 1_000_000 }),
+    });
+    await api.setRoute({ provider: 'openai', model: 'gpt-5.4', ...requested });
+    return saved;
+  };
+  assert.equal((await run({ contextTokens: 640_000 }, { contextPercent: 30 })).contextTokens, 640_000);
+  assert.equal((await run({ contextTokens: 640_000 }, { contextPercent: 30 })).contextPercent, undefined);
+  assert.equal((await run({ contextTokens: 5_000 })).contextTokens, 100_000);
+  assert.equal((await run({ contextTokens: 9_000_000 })).contextTokens, 1_000_000);
+  const atDefault = await run({ contextTokens: 500_000 }, { contextTokens: 640_000 });
+  assert.equal(Object.hasOwn(atDefault, 'contextTokens'), false);
+  assert.equal(Object.hasOwn(atDefault, 'contextPercent'), false);
+  const percent = await run({ contextPercent: 70 }, { contextTokens: 640_000 });
+  assert.equal(percent.contextPercent, 70);
+  assert.equal(Object.hasOwn(percent, 'contextTokens'), false);
+});
+
 // `main` is the route a new task resolves to; it defaults to the live route.
-function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod, main, session = null, initialRoute }) {
-  let config = { modelSettings: {} };
+function stubRouteApi({
+  persistLeadRoute,
+  saveConfigAndAdopt,
+  cfgMod,
+  main,
+  session = null,
+  initialRoute,
+  initialConfig = { modelSettings: {} },
+  lookupModelMeta = async (_provider, model) => ({ id: model }),
+}) {
+  let config = initialConfig;
   let route = initialRoute || { provider: 'openai', model: 'gpt-5.4', effort: 'high', fast: false };
   return createModelRouteApi({
     getConfig: () => config,
@@ -77,7 +148,7 @@ function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod, main, sess
     statusRoutes: {},
     resolveRoute: (_cfg, requested) => (Object.keys(requested).length ? { ...route, ...requested } : (main ?? route)),
     webSearchCapableFor: () => false,
-    lookupModelMeta: async (_provider, model) => ({ id: model }),
+    lookupModelMeta,
     adoptConfig: (next) => {
       config = next;
       return next;

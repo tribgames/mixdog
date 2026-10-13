@@ -194,6 +194,7 @@ test('a corrupt or missing persisted layout falls back to the defaults', () => {
     ['source-control'],
     ['search'],
     ['webhooks'],
+    ['ports'],
   ]);
   assert.deepEqual(normalizeWorkbenchSideViewLayout(null, ['sessions', 'terminal', 'agents']), {
     left: [['sessions'], ['agents']],

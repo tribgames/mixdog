@@ -22,6 +22,8 @@ import {
 } from './usage-dashboard-store';
 import { displayUsagePercent, usageToneClass } from './usage-percent';
 import { ActivityRailNavigation } from './activity-rail-navigation';
+import { RemotePcSwitcher } from './RemotePcSwitcher';
+import { usePlainBrowserChrome } from './titlebar';
 import type { WorkbenchSideViewDescriptor, WorkbenchSideViewId } from './workbench-side-view-layout';
 
 // The flyout body loads in the post-boot warm-up lane, on hover/focus intent,
@@ -87,6 +89,7 @@ export function ActivityRail({
   // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
   // shared store below so the first open never starts from nothing.
   const [usageOpen, setUsageOpen] = useState(false);
+  const plainBrowserChrome = usePlainBrowserChrome();
   // ABB: the usage flyout closes on hardware back.
   useMobileBack(usageOpen, () => setUsageOpen(false));
   const usageSnapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
@@ -178,6 +181,8 @@ export function ActivityRail({
     : undefined;
   return (
     <aside className="activity-rail" aria-label={t('Activity Bar')} ref={railRef}>
+      {/* A plain browser tab has no title band: the PC switcher heads the rail. */}
+      {plainBrowserChrome && <RemotePcSwitcher placement="rail" />}
       <nav className="sidebar-primary-nav" aria-label={t('Sidebar')} ref={navRef}>
         <ActivityRailNavigation entries={navigationItems} activeId={activeNavigationId} onSelect={onSelectNavigation} />
       </nav>

@@ -6,7 +6,7 @@ import { TranscriptAssistantRow } from './TranscriptAssistantRow';
 import { TranscriptRow } from './transcript-row';
 import { ComposerDock } from './ComposerDock';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
-import { rememberAgentReviews } from './turn-review-cache';
+import { leadReviewCheckpointIdCache, leadReviewFilesCache, rememberAgentReviews } from './turn-review-cache';
 import { turnReviewScope } from './renderer-logic.mjs';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { parseStreamingMarkdownAst } from './markdown-worker-client';
@@ -61,16 +61,20 @@ test('settling an assistant preserves its rendered Markdown without an empty int
   assert.ok(document.querySelector('.response-footer'));
 });
 
-test('the island files segment appears only once the review read finds changes, including an empty final diff', async (t) => {
+test('the island files segment appears only once the session diff read finds changes, including an empty final diff', async (t) => {
   const { root, document, window } = mount(t);
   // ComposerDock loads the review module lazily; with the chunk cached it
   // mounts in the first commit.
   await import('./TurnReview');
   for (const hasDiff of [true, false]) {
+    // The island segment summarizes the whole session from the runtime's
+    // session diff; the turn review read still backs the expanded file list.
     const pending = [];
+    const sessionPending = [];
     window.mixdogDesktop.invokeCapability = (request) => {
-      assert.equal(request.capability, 'getTurnReviewDiff');
-      return new Promise((resolve) => pending.push(resolve));
+      const queue = { getTurnReviewDiff: pending, getSessionReviewDiff: sessionPending }[request.capability];
+      assert.ok(queue, `unexpected capability ${request.capability}`);
+      return new Promise((resolve) => queue.push(resolve));
     };
     const sessionId = `review-completion-${hasDiff}`;
     const items = [
@@ -109,12 +113,16 @@ test('the island files segment appears only once the review read finds changes, 
         agents: [],
       },
     });
+    const answerSession = (files) =>
+      act(async () => {
+        for (const resolve of sessionPending.splice(0)) resolve({ value: { ...response(files).value, checkpointId: '' } });
+      });
     await act(async () => pending.shift()(response([])));
     assert.equal(pending.length, 1);
     assert.equal(segment(), null, 'an empty response renders nothing');
-    await act(async () =>
-      pending.shift()(response(hasDiff ? [{ path: 'demo.ts', status: 'M', additions: 1, deletions: 1 }] : []))
-    );
+    const finalFiles = hasDiff ? [{ path: 'demo.ts', status: 'M', additions: 1, deletions: 1 }] : [];
+    await act(async () => pending.shift()(response(finalFiles)));
+    await answerSession(finalFiles);
     assert.equal(document.querySelector('.turn-review-bar'), null, 'the review bar left the composer stack');
     assert.equal(Boolean(segment()), hasDiff);
     if (hasDiff) assert.equal(segment().closest('.composer-island-pill')?.parentElement?.className, 'composer-island');
@@ -145,7 +153,9 @@ test('a transcript tail without its prompt row keeps the turn review of that tur
   const { root, document, window } = mount(t);
   await import('./TurnReview');
   const pending = [];
-  window.mixdogDesktop.invokeCapability = () => new Promise((resolve) => pending.push(resolve));
+  // Only the turn review read is observed; the session diff is left unanswered.
+  window.mixdogDesktop.invokeCapability = (request) =>
+    new Promise((resolve) => (request.capability === 'getTurnReviewDiff' ? pending : []).push(resolve));
   const sessionId = 'review-truncated';
   // An earlier read under the shared `none` scope left an unrelated review.
   rememberAgentReviews(
@@ -192,20 +202,25 @@ test('a transcript tail without its prompt row keeps the turn review of that tur
         });
       }
     });
-  // The segment names counts, not paths: this turn's demo.ts is +1, the
-  // unrelated stale review is +900.
-  const segmentText = () => document.querySelector('.turn-review-segment')?.textContent || '';
+  // The island segment is session-wide and no longer draws the turn review, so
+  // the turn's read is observed through the review cache it feeds, keyed by
+  // the turn's scope. Nothing is ever cached under the shared `none` scope.
+  const cached = (scope) => leadReviewFilesCache.get(`${sessionId}:${scope}`)?.map((file) => file.path);
   await render([{ kind: 'user', id: 'prompt', text: 'Change a file' }, edit('edit-1')]);
   await answer('prompt', 'demo.ts');
-  assert.match(segmentText(), /\+1(?!\d)/);
-  // The daemon re-cut its tail: the prompt row is gone, the turn goes on.
+  assert.deepEqual(cached('prompt'), ['demo.ts']);
+  // The daemon re-cut its tail: the prompt row is gone, the turn goes on, and
+  // its reads still land under the prompt's scope (not the shared `none`).
   await render([edit('edit-1'), edit('edit-2')]);
-  assert.match(segmentText(), /\+1(?!\d)/);
-  assert.doesNotMatch(segmentText(), /900/);
+  assert.equal(pending.length, 1, 'the truncated tail re-reads the turn review');
+  await answer('prompt', 'next.ts');
+  assert.deepEqual(cached('prompt'), ['next.ts']);
   // A previous turn's recorded review still fails the checkpoint check.
+  await render([edit('edit-1'), edit('edit-2'), edit('edit-3')]);
+  assert.equal(pending.length, 1);
   await answer('old', 'stale.ts', 900);
-  assert.match(segmentText(), /\+1(?!\d)/);
-  assert.doesNotMatch(segmentText(), /900/);
+  assert.deepEqual(cached('prompt'), ['next.ts']);
+  assert.equal(leadReviewCheckpointIdCache.get(`${sessionId}:none`), 'old', 'the unrelated `none` entry is untouched');
 });
 
 test('media preview frames survive decoding, metadata and fallback failures', async (t) => {
@@ -265,6 +280,41 @@ test('media cards keep the requested ratio until decoded and turn four or more i
   const cards = [...document.querySelectorAll('.transcript-artifact-grid > .transcript-artifact-media')];
   assert.equal(cards.length, 4);
   assert.ok(cards.every((card) => width(card) === '160px' && card.dataset.fit === 'cover'));
+});
+
+test('a restored visualize feedback message shows its pin lines and a pin-labelled crop placeholder', async (t) => {
+  const { root, document } = mount(t);
+  // What history restore yields for a message that carried a pin and a pick.
+  const item = {
+    kind: 'user',
+    id: 'hist_s_3_1',
+    text: [
+      '핀과 선택 함께 전송',
+      '📌 1 · input — 재로드 후에도 남는지 확인',
+      '☑ layout: 2안 · 여유 있게',
+      '[Image: visualize pin 1 · input, 177x21]',
+    ].join('\n'),
+  };
+  await act(async () => root.render(React.createElement(TranscriptRow, { item })));
+  const body = document.querySelector('.message-body').textContent;
+  assert.match(body, /📌 1 · input — 재로드 후에도 남는지 확인/);
+  assert.match(body, /☑ layout: 2안 · 여유 있게/);
+  assert.doesNotMatch(body, /\[image|\[Image/i);
+  assert.deepEqual(
+    [...document.querySelectorAll('.message-attachments > .attachment-card')].map((chip) => chip.textContent),
+    ['📌 1 · input177×21']
+  );
+});
+
+test('a tweaks line in a user message is drawn with an icon, not the emoji', async (t) => {
+  const { root, document } = mount(t);
+  const item = { kind: 'user', id: 'tweaks-message', text: 'Bake these\n🎚 card-radius: 24px (was 16px)' };
+  await act(async () => root.render(React.createElement(TranscriptRow, { item })));
+  const line = document.querySelector('.message-body .message-tweaks-line');
+  assert.equal(line.textContent.trim(), 'card-radius: 24px (was 16px)');
+  assert.ok(line.querySelector('svg'));
+  assert.doesNotMatch(document.querySelector('.message-body').textContent, /🎚/);
+  assert.equal(document.querySelector('.message-body > p').textContent, 'Bake these');
 });
 
 test('inline image markers preserve user text and attachment chips', async (t) => {

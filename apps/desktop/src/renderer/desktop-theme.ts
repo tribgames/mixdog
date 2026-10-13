@@ -2,6 +2,8 @@
 // @ts-expect-error -- the source .mjs intentionally has no separate declaration file.
 import { DEFAULT_THEME_ID, THEME_ALIASES, THEME_REGISTRY } from '../../../../src/tui/themes/index.mjs';
 
+import { DESKTOP_THEME_PREFERENCE_KEY } from '../shared/host-display-preferences';
+import { hasLocalDisplayChoice, markHostDisplayChoice, markLocalDisplayChoice } from './display-preference-source';
 import { refreshTitleBarDim } from './titlebar-dim';
 
 type ThemePalette = Record<string, string>;
@@ -102,15 +104,16 @@ function builtinTheme(resolved: string): boolean {
   return resolved === DEFAULT_THEME_ID || resolved === 'dark' || resolved === 'light';
 }
 
-// Android standalone browsers reuse theme-color for both system bars. Keep
-// those OS-owned bars black independently of the selected in-app surface ramp.
-const PWA_SYSTEM_BAR_COLOR = '#000000';
+// theme-color is the window band of the resolved theme (--mx-window-band,
+// desktop/01-tokens.css), the same color index.html, the manifest and the boot
+// gate start from: Android standalone browsers paint both system bars with it,
+// and the other-PC Electron window tints its caption buttons from it.
+const THEME_COLOR_DARK = '#18181b';
+const THEME_COLOR_LIGHT = '#f7f7f7';
 
 // 'system' | 'dark' | 'white' are the desktop surface modes; any TUI registry
 // theme id (nord, dracula, …) is also accepted as a desktop-local preference.
 export type DesktopThemePreference = 'system' | 'dark' | 'white' | (string & {});
-
-const DESKTOP_THEME_PREFERENCE_KEY = 'mixdog.desktop-theme-preference';
 
 function desktopThemeStorage(): Storage | null {
   try {
@@ -120,12 +123,23 @@ function desktopThemeStorage(): Storage | null {
   }
 }
 
-export function getDesktopThemePreference(): DesktopThemePreference | null {
-  const value = desktopThemeStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY) || '';
+/** A known preference for a raw stored/received value; null when unknown. */
+export function normalizeDesktopThemePreference(value: string): DesktopThemePreference | null {
   // The retired Gray theme collapsed into Dark: its ramp IS the dark ramp now.
   if (value === 'gray') return 'dark';
   if (value === 'system' || value === 'dark' || value === 'white') return value;
   return registry[value] ? value : null;
+}
+
+export function getDesktopThemePreference(): DesktopThemePreference | null {
+  return normalizeDesktopThemePreference(desktopThemeStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY) || '');
+}
+
+/** Whether this device's theme was chosen here (see display-preference-source.ts).
+ *  An unmarked stored value counts as a choice only when it is not the default 'dark'. */
+export function hasLocalThemeChoice(): boolean {
+  const stored = getDesktopThemePreference();
+  return hasLocalDisplayChoice('theme', stored !== null && stored !== 'dark');
 }
 
 export function desktopThemePreferenceForTheme(value: unknown): DesktopThemePreference {
@@ -174,9 +188,23 @@ export function applyDesktopThemePreference(preference: DesktopThemePreference):
 // App.tsx re-resolves the theme — the one-beat stale read self-heals.
 let systemPreferenceActive = false;
 
+/** The user's own choice on this device: it wins over the host PC from now on. */
 export function setDesktopThemePreference(preference: DesktopThemePreference): string {
   desktopThemeStorage()?.setItem(DESKTOP_THEME_PREFERENCE_KEY, preference);
+  markLocalDisplayChoice('theme');
   return applyDesktopThemePreference(preference);
+}
+
+/** Follow the host PC's theme. Stored (so the next boot paints it) but marked as
+ *  the host's, so a later host change still replaces it. Returns whether it changed. */
+export function adoptHostThemePreference(value: string): boolean {
+  const preference = normalizeDesktopThemePreference(value);
+  if (!preference) return false;
+  markHostDisplayChoice('theme');
+  if ((getDesktopThemePreference() ?? 'dark') === preference) return false;
+  desktopThemeStorage()?.setItem(DESKTOP_THEME_PREFERENCE_KEY, preference);
+  applyDesktopThemePreference(preference);
+  return true;
 }
 
 function applyDesktopTheme(value: unknown): string {
@@ -185,7 +213,9 @@ function applyDesktopTheme(value: unknown): string {
   suppressThemeSwapTransitions(root);
   root.dataset.mixdogTheme = resolved;
   root.style.colorScheme = resolved === 'light' ? 'light' : 'dark';
-  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', PWA_SYSTEM_BAR_COLOR);
+  document
+    .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    ?.setAttribute('content', resolved === 'light' ? THEME_COLOR_LIGHT : THEME_COLOR_DARK);
   // The Windows caption overlay (min/max/close) is native chrome: its symbol
   // color lives in the MAIN process. Without this notification a light theme
   // kept white symbols on a near-white band — the buttons "disappeared".

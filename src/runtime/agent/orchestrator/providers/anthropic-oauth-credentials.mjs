@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { claudeCliUserAgent, resolveCliVersion } from './anthropic-oauth-client-version.mjs';
 import {
@@ -148,6 +149,7 @@ export function _credentialsMaxMtime() {
 }
 
 export function loadCredentials() {
+  if (modelProxyClientMode()) return null;
   const loaded = credentialCandidates().map(_loadCredentialsFile).filter(Boolean);
   if (!loaded.length) return null;
   loaded.sort((a, b) => (Number(b.expiresAt) || 0) - (Number(a.expiresAt) || 0));
@@ -382,6 +384,7 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
 }
 
 export async function refreshOAuthCredentials(creds) {
+  if (modelProxyClientMode()) throw serverModelCredentialsDisabledError('Anthropic OAuth credentials');
   if (isAnthropicOAuthRefreshDisabled()) {
     throw new Error(
       'Anthropic OAuth refresh is disabled in this process; ' +

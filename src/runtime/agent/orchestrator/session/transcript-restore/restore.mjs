@@ -6,6 +6,7 @@
  */
 import { contextMeasurementStats } from '../../../../shared/context-measurement.mjs';
 import { toolResultText } from './tool-result-text.mjs';
+import { restoredUserText } from './user-text.mjs';
 import {
   completionCardFromExecution,
   parseModelVisibleCompletionWrapper,
@@ -48,12 +49,16 @@ function restoredTranscriptMetadata(message) {
   if (completionValue && completionStatus && Number.isFinite(completionElapsedMs)) {
     completion = { status: completionStatus, elapsedMs: Math.max(0, completionElapsedMs) };
     if (typeof completionValue.verb === 'string' && completionValue.verb) completion.verb = completionValue.verb;
+    if (typeof completionValue.checkpointId === 'string' && completionValue.checkpointId) {
+      completion.checkpointId = completionValue.checkpointId;
+    }
   }
   return {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
     ...(completion ? { completion } : {}),
   };
 }
@@ -303,7 +308,7 @@ function restoredUserTranscriptItems(message, nextId) {
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
   if (message?.meta === 'skill' || message?.meta === 'hook') return [];
-  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
+  const text = restoredUserText(message?.content).trim();
   // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live
   // Response card is an event-time push that does not survive a transcript

@@ -26,6 +26,9 @@ import {
   restoreAttachmentsFromRecord,
 } from './composer-attachment-restore';
 import { useComposerFileDrop } from './use-composer-file-drop';
+import { isSshConnectionWindow } from './desktop-connection';
+import { serverUploadScope } from './server-file-transfer';
+import { uploadFilesToServer } from './server-transfers';
 
 /** Insert a token at the caret, keep the draft mirror current, restore focus
  *  behind the caret and leave any history walk. */
@@ -196,18 +199,47 @@ export function useComposerAttachments({
       const fallbackPaths: string[] = [];
       const appendError = (message: string) =>
         setAttachmentError((current) => [current, message].filter(Boolean).join('\n'));
-      for (const file of Array.from(files)) {
+      let list = Array.from(files);
+      // A server window's sessions cannot reach this PC's disk: a file from
+      // this PC first uploads into the server's staging folder, and its server
+      // path then stands in wherever a local window would use the local path.
+      // Files read from the server itself (they carry a source path) stay put.
+      const serverWindow = isSshConnectionWindow();
+      const serverPaths = new Map<File, string>();
+      if (serverWindow) {
+        const fromThisPc = list.filter((file) => !sourcePaths?.has(file));
+        if (fromThisPc.length) {
+          const { uploaded, errors } = await uploadFilesToServer(fromThisPc, serverUploadScope(recoveryScope));
+          if (transitioningRef.current) return;
+          for (const [file, entry] of uploaded) serverPaths.set(file, entry.absolutePath);
+          for (const message of errors) appendError(message);
+          list = list.filter((file) => sourcePaths?.has(file) || serverPaths.has(file));
+        }
+      }
+      for (const file of list) {
         if (transitioningRef.current) return;
         let unsupported = false;
         try {
           if (attachmentsRef.current.length >= MAX_COMPOSER_ATTACHMENTS) {
             throw new Error(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`);
           }
-          const attachment = await attachmentFromFile(file, {
+          const inline = await attachmentFromFile(file, {
             id: attachmentSequence.current++,
             cancelled: () => transitioningRef.current,
           });
-          if (!attachment) return;
+          if (!inline) return;
+          // The model sees the (possibly downscaled) inline image; the note
+          // names the uploaded original the agent can open on the server.
+          const serverPath = serverPaths.get(file);
+          const attachment =
+            serverPath && inline.kind === 'image'
+              ? {
+                  ...inline,
+                  metadataText: [inline.metadataText, `[Uploaded to the server: ${serverPath}]`]
+                    .filter(Boolean)
+                    .join('\n'),
+                }
+              : inline;
           if (insertAttachment(attachment)) continue;
         } catch (reason) {
           if (transitioningRef.current) return;
@@ -224,7 +256,10 @@ export function useComposerAttachments({
         const name = file.name || 'Pasted file';
         // Native selections retain their OS path; materialized internal drops
         // need the source path carried separately from their in-memory File.
-        const path = sourcePaths?.get(file) || window.mixdogDesktop?.folderPathForFile?.(file);
+        const path =
+          sourcePaths?.get(file) ||
+          serverPaths.get(file) ||
+          (serverWindow ? '' : window.mixdogDesktop?.folderPathForFile?.(file));
         if (path) {
           fallbackPaths.push(path);
           if (unsupported) {
@@ -240,7 +275,25 @@ export function useComposerAttachments({
       }
       insertAbsolutePaths(fallbackPaths);
     },
-    [insertAbsolutePaths, insertAttachment, transitioningRef]
+    [insertAbsolutePaths, insertAttachment, recoveryScope, transitioningRef]
+  );
+
+  /** Folders dropped from this PC: their path in a local window; a server
+   *  window cannot upload a whole folder, so it says so instead. */
+  const insertLocalFolderPaths = useCallback(
+    (paths: string[]) => {
+      if (!paths.length) return;
+      if (!isSshConnectionWindow()) {
+        insertAbsolutePaths(paths);
+        return;
+      }
+      setAttachmentError((current) =>
+        [current, t("Folders from this PC can't be uploaded to the server. Attach the files inside instead.")]
+          .filter(Boolean)
+          .join('\n')
+      );
+    },
+    [insertAbsolutePaths]
   );
 
   const attachLocalPaths = useCallback(
@@ -283,6 +336,7 @@ export function useComposerAttachments({
     attachLocalPaths,
     attachProjectPaths,
     insertAbsolutePaths,
+    insertLocalFolderPaths,
   });
 
   const restoredAttachments = useCallback(

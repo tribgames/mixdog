@@ -290,26 +290,6 @@ test('the portalled menu closes when its owner is hidden, inert, display:none or
   }
 });
 
-test('the portalled menu carries the dock-owner marker the mobile outside-tap handler recognises', async () => {
-  const { root, restore } = await openMenu([action('a')], {
-    top: 10,
-    bottom: 38,
-    left: 0,
-    right: 28,
-    width: 28,
-    height: 28,
-  });
-  try {
-    assert.equal(document.querySelector('.dock-header-menu').hasAttribute('data-dock-menu-owner'), true);
-    const { readFile } = await import('node:fs/promises');
-    const dock = await readFile(new URL('./pane-side-dock-hooks.ts', import.meta.url), 'utf8');
-    assert.match(dock, /if \(hostRef\.current\?\.contains\(target\)\) return;[\s\S]*?\[data-dock-menu-owner\]/);
-  } finally {
-    await act(async () => root.unmount());
-    restore();
-  }
-});
-
 test('checked options are menuitemradio / menuitemcheckbox with aria-checked and stay keyboard reachable', async () => {
   const picked = [];
   const actions = [

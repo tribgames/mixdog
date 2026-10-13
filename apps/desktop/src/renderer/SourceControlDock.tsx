@@ -6,6 +6,8 @@ import { useErrorToast } from './notifications';
 import { commitImmediateOverlay } from './immediate-overlay';
 import type { DesktopGitFile, DesktopGitLogEntry, DesktopGitStatus } from '../shared/contract';
 import { t } from './i18n';
+import { isSshConnectionWindow } from './desktop-connection';
+import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import type { PullRequestOpenHandler } from './PullRequestsPane';
 import { GithubDock as PullRequestsPane } from './github/GithubDock';
 import {
@@ -321,10 +323,11 @@ export function SourceControlDock({
           void copyText(ctx, file.path, t('relative file path'));
         },
         onReveal: () => {
-          void api?.revealFile?.(projectPath, file.path);
+          void revealFileFromWindow(projectPath, file.path);
         },
         onOpenDefault: () => {
-          void api?.openFilePath?.(projectPath, file.path);
+          if (isSshConnectionWindow()) void downloadAndOpenServerFile(projectPath, file.path);
+          else void api?.openFilePath?.(projectPath, file.path);
         },
       });
     return (

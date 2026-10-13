@@ -160,6 +160,76 @@
 .workbench-side-icon-bar.is-vertical > button[data-drop-position="inside"] {
   box-shadow: inset 0 0 0 1px var(--mx-focus);
 }
+/* Plain browser tab (no title band): the PC switcher heads the rail as one
+   more 44px cell with the same tile grammar; the link dot rides the glyph's
+   lower-right corner. */
+.activity-rail > .remote-pc-switcher-rail {
+  flex: 0 0 auto;
+  display: block;
+  max-width: none;
+  margin: 0;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button {
+  position: relative;
+  isolation: isolate;
+  width: 47px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--mx-motion-ink);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button > svg {
+  width: 22px;
+  height: 22px;
+  color: inherit;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 4px 6px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-rail-tile-hover);
+  opacity: 0;
+  transition: opacity var(--mx-motion-ink);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  color: var(--mx-text);
+  background: transparent;
+  outline: 0;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button:is(:hover, :focus-visible)::before {
+  opacity: 1;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button[aria-expanded="true"]::before {
+  opacity: 1;
+  background: var(--mx-rail-tile-active);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button:focus-visible {
+  box-shadow: var(--mx-list-focus-ring);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button > .remote-pc-dot {
+  position: absolute;
+  top: 26px;
+  left: 29px;
+  box-shadow: 0 0 0 2px var(--mx-window-band);
+}
+/* The rail clips its column, so the PC menu floats beside the rail instead
+   of under the cell, and scrolls inside a short viewport. */
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-menu {
+  position: fixed;
+  top: 4px;
+  left: 52px;
+  max-width: calc(100vw - 60px);
+  max-height: calc(var(--vvh, 100dvh) - 8px);
+  overflow-y: auto;
+}
 .activity-rail-spacer {
   flex: 1 1 0;
   min-height: 0;

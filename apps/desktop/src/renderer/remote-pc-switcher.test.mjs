@@ -43,6 +43,17 @@ test('with one PC the title-bar button names the PC and carries no Remote badge 
   );
 });
 
+test('with no saved PC listed the menu opens on its actions, with no orphan separator', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  installBridge(window, [], []);
+  await act(async () => root.render(React.createElement(RemotePcSwitcher)));
+  await act(async () => document.querySelector('button.remote-pc-button').click());
+  const menu = document.querySelector('.remote-pc-menu');
+  assert.equal(menu.querySelector('.remote-pc-sep'), null);
+  assert.equal(menu.firstElementChild.getAttribute('role'), 'menuitem');
+  assert.ok([...menu.querySelectorAll('[role="menuitem"]')].every((item) => item.classList.contains('mx-menu-item')));
+});
+
 test('phone: the brand dot is green when connected and grey when the PC is offline', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root' });
   installBridge(window, [{ id: 'a', name: 'Home PC', online: true, lastConnectedAt: 1, current: true }], []);
@@ -101,7 +112,7 @@ test('phone drawer header: slim panel-title row with a hairline; the grid keeps 
   assert.match(css, /> \.remote-pc-card \{[^}]*border-bottom: 1px solid var\(--mx-border-muted\)/);
   assert.match(
     css,
-    /:has\(> \.remote-pc-card\) > :is\(\.workbench-side-panel, \.sidebar\.session-sidebar\) \{\s*width: auto;/
+    /:has\(> \.remote-pc-card\)\s*>\s*:is\(\.workbench-side-panel, \.sidebar\.session-sidebar\) \{\s*width: auto;/
   );
   const head = /\n\.remote-pc-card-head \{[^}]*\}/.exec(base)[0];
   assert.match(head, /height: 48px/);
@@ -140,9 +151,49 @@ test('without a saved-PC entry the name announced by the connected PC is used ev
 test('phone CSS: the title band takes no row and the first tab-strip row clears the status bar', () => {
   const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
   assert.match(css, /html\[data-mixdog-mobile-tabs\] \.topbar \{\s*display: none;/);
+  // Portrait and short-landscape tab strips both clear the status bar.
   const safe =
-    /padding(?:-top)?: max\(calc\(\d+px \* var\(--mx-device-scale, 2\.5\)\), env\(safe-area-inset-top, 0px\)\)/g;
+    /\.workspace-tabs-shell\[data-mobile="true"\] \{\s*[^}]*padding(?:-top)?: max\(\d+px, env\(safe-area-inset-top, 0px\)\)/g;
   assert.equal((css.match(safe) || []).length, 2);
+});
+
+test('rail placement: a compact rail cell named by the PC, whose menu opens beside the rail', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  installBridge(window, [{ id: 'a', name: 'Home PC', online: false, lastConnectedAt: 1, current: true }], []);
+  await act(async () => root.render(React.createElement(RemotePcSwitcher, { placement: 'rail' })));
+  const button = document.querySelector('.remote-pc-switcher-rail > button.remote-pc-rail-button');
+  assert.equal(button.getAttribute('aria-label'), 'Home PC');
+  assert.equal(button.textContent, '');
+  assert.ok(button.querySelector('.remote-pc-dot.off'));
+  await act(async () => button.click());
+  assert.match(document.querySelector('.remote-pc-switcher-rail > .remote-pc-menu').textContent, /Home PC/);
+  const css = readFileSync(new URL('./desktop/06-activity-rail.css', import.meta.url), 'utf8');
+  assert.match(css, /\.remote-pc-switcher-rail > \.remote-pc-menu \{\s*position: fixed;\s*top: 4px;\s*left: 52px;/);
+});
+
+test('plain browser tab: no title band, the rail carries the switcher; Electron keeps the band', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  installBridge(window, [{ id: 'a', name: 'Home PC', online: true, lastConnectedAt: 1, current: true }], []);
+  const { DesktopTitlebar } = await import('./titlebar.tsx');
+  await act(async () => root.render(React.createElement(DesktopTitlebar)));
+  assert.equal(document.querySelector('header.topbar'), null);
+  assert.equal(document.documentElement.getAttribute('data-mixdog-titlebar'), 'hidden');
+  await act(async () => root.render(null));
+  assert.equal(document.documentElement.hasAttribute('data-mixdog-titlebar'), false);
+  const rail = readFileSync(new URL('./ActivityRail.tsx', import.meta.url), 'utf8');
+  assert.match(rail, /\{plainBrowserChrome && <RemotePcSwitcher placement="rail" \/>\}\s*<nav/);
+  const css = readFileSync(new URL('./desktop/03-titlebar.css', import.meta.url), 'utf8');
+  assert.match(css, /html\[data-mixdog-titlebar="hidden"\] \{\s*--titlebar-height: 0px;/);
+});
+
+test('Electron renderer keeps the title band with the switcher at its leading edge', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root', globals: ELECTRON });
+  installBridge(window, [{ id: 'a', name: 'Home PC', online: true, lastConnectedAt: 1, current: true }], []);
+  const { DesktopTitlebar } = await import('./titlebar.tsx');
+  await act(async () => root.render(React.createElement(DesktopTitlebar)));
+  await settleChip();
+  assert.ok(document.querySelector('header.topbar > .remote-pc-switcher:not(.remote-pc-switcher-rail)'));
+  assert.equal(document.documentElement.hasAttribute('data-mixdog-titlebar'), false);
 });
 
 test('desktop-width CSS keeps the top bar height and safe-area padding', () => {
@@ -302,4 +353,54 @@ test('without the desktop bridge and outside a remote window the chip renders no
   const { root, document } = installTestDom(t, { rootId: 'root', globals: ELECTRON });
   await act(async () => root.render(React.createElement(RemotePcSwitcher)));
   assert.equal(document.querySelector('.remote-pc-switcher'), null);
+});
+
+test('main window: SSH servers join the PC menu with an "SSH · " detail; an open one is focused, a closed one opens the connect dialog; "Connect SSH server" is an action', async (t) => {
+  const { takeConnectionDialogRequest, takeSshHostRequest } = await import('./settings/connection-intent.ts');
+  const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['Event'], globals: ELECTRON });
+  installMainWindow(window);
+  const calls = [];
+  const ssh = [
+    { id: 's1', name: 'My VPS', target: 'root@vps.example.com', lastConnectedAt: Date.now() - 1000, open: true },
+    { id: 's2', name: 'gpu-box', target: 'gpu-box', lastConnectedAt: Date.now() - 5000, open: false },
+  ];
+  window.mixdogDesktop.sshListHosts = () => Promise.resolve(ssh);
+  window.mixdogDesktop.sshOpenHost = (id) => {
+    calls.push(['ssh-open', id]);
+    return Promise.resolve({ ok: true, host: ssh[0] });
+  };
+  await act(async () => root.render(React.createElement(RemotePcSwitcher)));
+  await settleChip();
+  const openMenu = () => act(async () => document.querySelector('button.remote-pc-button').click());
+  const items = () => [...document.querySelectorAll('[role="menuitem"]')];
+  await openMenu();
+  assert.match(items()[1].textContent, /My VPS.*SSH · Online · Window open/);
+  assert.match(items()[2].textContent, /gpu-box.*SSH · /);
+  assert.deepEqual(
+    items()
+      .slice(3)
+      .map((item) => item.textContent),
+    ['Open another PC', 'Connect SSH server', 'Connect a device', 'Connection settings']
+  );
+
+  await act(async () => items()[1].click());
+  assert.deepEqual(calls, [['ssh-open', 's1']]);
+  assert.equal(takeConnectionDialogRequest(), null, 'an open window is focused without leaving the page');
+
+  await openMenu();
+  await act(async () => items()[2].click());
+  assert.equal(takeConnectionDialogRequest(), 'ssh-host');
+  assert.deepEqual(
+    takeSshHostRequest(),
+    { id: 's2', name: 'gpu-box', target: 'gpu-box' },
+    'a closed one connects through the dialog'
+  );
+
+  await openMenu();
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === 'Connect SSH server')
+      .click()
+  );
+  assert.equal(takeConnectionDialogRequest(), 'ssh');
 });

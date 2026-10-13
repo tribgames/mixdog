@@ -1,0 +1,648 @@
+/* The side dock's visualize view: the agent's artifacts beside the chat. One
+   tab body holds 1-3 panes side by side, each under a small caption. */
+.visualize-pane {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.visualize-pane[hidden] {
+  display: none;
+}
+/* Many tabs scroll the strip instead of shrinking to icons: each chip keeps a
+   readable floor and ellipsizes past its cap (full label in the tooltip). */
+.visualize-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+/* The strip never yields below one readable chip (the active tab's label);
+   the header folds its secondary buttons into ⋯ to leave this room. */
+.visualize-pane .dock-header-left {
+  min-width: 120px;
+}
+.visualize-tabs::-webkit-scrollbar {
+  display: none;
+}
+.visualize-tabs .dock-header-chip,
+.visualize-tabs .dock-header-chip.is-active {
+  flex: 0 0 auto;
+  min-width: 96px;
+  max-width: 180px;
+}
+.visualize-tabs .dock-header-chip .browser-tab-select {
+  cursor: pointer;
+}
+.visualize-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 1px;
+  background: var(--mx-border);
+}
+/* Too narrow for side by side: panes stack and split the height. */
+.visualize-body.is-stacked {
+  flex-direction: column;
+}
+.visualize-pane-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--mx-bg-base);
+}
+.visualize-pane-label {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--mx-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--mx-border);
+}
+.visualize-pane-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+.visualize-pane-content iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+.visualize-pane-content img,
+.visualize-pane-content video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.visualize-pane-content audio {
+  width: calc(100% - 24px);
+}
+.visualize-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+}
+/* Page problems: a count badge on the tab chip, expanding to the list. */
+.visualize-problem-badge {
+  flex: 0 0 auto;
+  margin: 0 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  color: var(--mx-text-strong, inherit);
+  background: color-mix(in srgb, var(--mx-danger, #d9534f) 22%, transparent);
+}
+.visualize-problem-badge[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--mx-danger, #d9534f) 40%, transparent);
+}
+.visualize-problems {
+  flex: 0 0 auto;
+  max-height: 35%;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-y: auto;
+  font-size: 11px;
+  line-height: 16px;
+  border-bottom: 1px solid var(--mx-border);
+  background: var(--mx-bg-base);
+}
+.visualize-problems li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding: 2px 10px;
+}
+.visualize-problem-kind {
+  color: var(--mx-danger, #d9534f);
+}
+.visualize-problem-message {
+  flex: 1 1 12em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.visualize-problem-source,
+.visualize-problem-count {
+  color: var(--mx-text-muted);
+}
+/* Version history: a compact stepper row under the tab strip. A kept version
+   on screen is read-only and tinted so it never passes for the live file. */
+/* The row's own width decides the layout (container query), not the window. */
+.visualize-version {
+  flex: 0 0 auto;
+  min-width: 0;
+  container: visualize-version / inline-size;
+  font-size: 11px;
+  line-height: 18px;
+  border-bottom: 1px solid var(--mx-border);
+  background: var(--mx-bg-base);
+}
+.visualize-version.is-snapshot {
+  background: color-mix(in srgb, var(--mx-warning, #e0a030) 14%, var(--mx-bg-base));
+}
+/* The read-only state: a full-width strip with its whole text, never a
+   squeezed pill. */
+.visualize-snapshot-strip {
+  padding: 2px 8px;
+  color: var(--mx-text-strong, inherit);
+  background: color-mix(in srgb, var(--mx-warning, #e0a030) 26%, transparent);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.visualize-versionbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  min-width: 0;
+  padding: 2px 6px;
+}
+.visualize-version-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.visualize-version-action.is-primary {
+  border-color: var(--mx-border);
+}
+/* Narrow: stepper + Back to live on the first line, Compare/Restore on a
+   second line below. */
+@container visualize-version (max-width: 379px) {
+  .visualize-version-secondary {
+    order: 1;
+    flex: 1 0 100%;
+    justify-content: flex-end;
+  }
+}
+.visualize-version-step,
+.visualize-version-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.visualize-version-step {
+  padding: 0 2px;
+}
+.visualize-version-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.visualize-version-step:not(:disabled):hover,
+.visualize-version-action:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.visualize-version-action[aria-pressed='true'] {
+  border-color: var(--mx-border);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.visualize-version-count {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+.visualize-versionbar-spacer {
+  flex: 1 1 0;
+}
+.visualize-version-error {
+  padding: 0 8px 2px;
+  color: var(--mx-danger, #d9534f);
+  overflow-wrap: anywhere;
+}
+.visualize-pane-label.is-snapshot {
+  background: color-mix(in srgb, var(--mx-warning, #e0a030) 14%, transparent);
+}
+/* Comparing a 2-3 pane tab: version | live pairs in two columns. */
+.visualize-body.is-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: minmax(0, 1fr);
+}
+
+.visualize-problem-origin {
+  color: var(--mx-text-muted);
+}
+
+/* Outside network toggle in the toolbar: highlighted once something was blocked. */
+.visualize-pane .browser-pane-nav-button[data-attention='true'] {
+  color: var(--mx-warning, #e0a030);
+  background: color-mix(in srgb, var(--mx-warning, #e0a030) 16%, transparent);
+}
+/* A remote page that runs scripts: static until the user taps Run. */
+.visualize-script-pane {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+.visualize-script-gate {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--mx-border);
+}
+.visualize-script-pane iframe {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Inline (direct-renderer) panes: a failed render shows its error and source. */
+.visualize-inline-error {
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  overflow: auto;
+  text-align: left;
+  font-size: 12px;
+  color: var(--mx-text);
+}
+.visualize-inline-error strong {
+  color: var(--mx-danger, #d9534f);
+}
+.visualize-inline-error pre {
+  margin: 6px 0 12px;
+  padding: 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, Consolas, monospace;
+  border: 1px solid var(--mx-border);
+  border-radius: 4px;
+  background: var(--mx-bg-base);
+}
+.visualize-inline-error-label {
+  display: block;
+  color: var(--mx-text-muted);
+}
+
+/* "All visuals": every target the session opened, newest first. */
+.visualize-history {
+  flex: 0 0 auto;
+  max-height: 45%;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 18px;
+  border-bottom: 1px solid var(--mx-border);
+  background: var(--mx-bg-base);
+}
+.visualize-history-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 10px;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.visualize-history-item:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.visualize-history-item:not(.is-open) .visualize-history-label {
+  color: var(--mx-text-muted);
+}
+.visualize-history-kind {
+  flex: 0 0 auto;
+  min-width: 4.5em;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mx-text-muted);
+}
+.visualize-history-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.visualize-history-versions,
+.visualize-history-time,
+.visualize-history-state {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.visualize-history-item.is-open .visualize-history-state {
+  color: var(--mx-text-strong, inherit);
+}
+
+/* Export outcome: saved path (with Open) or the error. */
+.visualize-notice {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 18px;
+  border-bottom: 1px solid var(--mx-border);
+  background: var(--mx-bg-base);
+}
+.visualize-notice.is-error {
+  color: var(--mx-danger, #d9534f);
+}
+.visualize-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.visualize-notice-dismiss {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.visualize-notice-dismiss:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* Source view: read-only, line-numbered, highlighted. */
+.visualize-source {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--mx-bg-base);
+}
+.visualize-source-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--mx-border);
+}
+.visualize-source-note {
+  flex: 1 1 auto;
+  color: var(--mx-text-muted);
+}
+.visualize-source-copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.visualize-source-copy:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.visualize-source-code {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0;
+  overflow: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  tab-size: 2;
+  user-select: text;
+}
+.visualize-source-line {
+  display: flex;
+  min-width: max-content;
+}
+.visualize-source-no {
+  flex: 0 0 auto;
+  min-width: 4ch;
+  padding: 0 10px 0 8px;
+  text-align: right;
+  color: var(--mx-text-muted);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.visualize-source-line code {
+  white-space: pre;
+  font: inherit;
+}
+.visualize-source-code .hljs-comment,
+.visualize-source-code .hljs-quote {
+  color: var(--mx-syntax-comment);
+}
+.visualize-source-code .hljs-keyword,
+.visualize-source-code .hljs-selector-tag,
+.visualize-source-code .hljs-built_in,
+.visualize-source-code .hljs-literal,
+.visualize-source-code .hljs-tag {
+  color: var(--mx-syntax-keyword);
+}
+.visualize-source-code .hljs-doctag,
+.visualize-source-code .hljs-formula {
+  color: var(--mx-syntax-control);
+}
+.visualize-source-code .hljs-string,
+.visualize-source-code .hljs-regexp,
+.visualize-source-code .hljs-addition {
+  color: var(--mx-syntax-string);
+}
+.visualize-source-code .hljs-number,
+.visualize-source-code .hljs-symbol,
+.visualize-source-code .hljs-bullet {
+  color: var(--mx-syntax-number);
+}
+.visualize-source-code .hljs-title,
+.visualize-source-code .hljs-section {
+  color: var(--mx-syntax-function);
+}
+.visualize-source-code .hljs-type,
+.visualize-source-code .hljs-selector-class,
+.visualize-source-code .hljs-selector-id {
+  color: var(--mx-syntax-type);
+}
+.visualize-source-code .hljs-attr,
+.visualize-source-code .hljs-attribute,
+.visualize-source-code .hljs-variable,
+.visualize-source-code .hljs-template-variable,
+.visualize-source-code .hljs-name,
+.visualize-source-code .hljs-params {
+  color: var(--mx-syntax-variable);
+}
+.visualize-source-code .hljs-meta,
+.visualize-source-code .hljs-deletion {
+  color: var(--mx-syntax-meta);
+}
+.visualize-source-code .hljs-emphasis {
+  font-style: italic;
+}
+.visualize-source-code .hljs-strong {
+  font-weight: var(--mx-weight-strong);
+}
+
+/* Toolbar count badge (Elements findings). */
+.visualize-pane .browser-pane-nav-button {
+  position: relative;
+}
+.visualize-pane .dock-action-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 7px;
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+  color: var(--mx-bg-base);
+  background: var(--mx-warning, #e0a030);
+  pointer-events: none;
+}
+
+/* The Elements list: outline, interactive elements and layout findings. */
+.visualize-elements {
+  flex: 0 1 auto;
+  max-height: 42%;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--mx-border);
+  font-size: 12px;
+  background: var(--mx-bg-base);
+}
+.visualize-elements-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  background: var(--mx-bg-base);
+}
+.visualize-elements-title {
+  flex: 1;
+  font-weight: var(--mx-weight-strong);
+}
+.visualize-elements-head button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.visualize-elements-head button:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.visualize-elements h4 {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: var(--mx-weight-strong);
+  color: var(--mx-text-muted);
+}
+.visualize-elements ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.visualize-elements-pane-label,
+.visualize-elements-meta {
+  color: var(--mx-text-muted);
+  font-size: 11px;
+}
+.visualize-elements-empty {
+  margin: 4px 0;
+  color: var(--mx-text-muted);
+}
+.visualize-elements-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  text-align: start;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.visualize-elements-row:hover,
+.visualize-elements-row:focus-visible {
+  background: var(--mx-hover);
+  outline: none;
+}
+.visualize-elements-row svg {
+  flex: 0 0 auto;
+  align-self: center;
+}
+.visualize-elements-row.is-error svg {
+  color: var(--mx-danger, #d9534f);
+}
+.visualize-elements-row.is-warning svg {
+  color: var(--mx-warning, #e0a030);
+}
+.visualize-elements-role {
+  flex: 0 0 auto;
+  color: var(--mx-text-muted);
+}
+.visualize-elements-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.visualize-elements-row code {
+  flex: 0 1 40%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: 11px;
+}

@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process';
 import { serveWorkerRequests } from './worker-requests.mjs';
 
-function runGit({ args, cwd, input, env, timeoutMs, maxBytes }) {
+function runGit({ args, cwd, input, env, timeoutMs, maxBytes, stdoutEncoding = 'utf8' }) {
   return new Promise((resolvePromise, rejectPromise) => {
     const hasInput = (typeof input === 'string' || ArrayBuffer.isView(input)) && input.length > 0;
     const child = spawn('git', args, {
@@ -55,7 +55,8 @@ function runGit({ args, cwd, input, env, timeoutMs, maxBytes }) {
     child.once('close', (code) => {
       const result = {
         code: Number(code ?? 1),
-        stdout: Buffer.concat(stdout).toString('utf8'),
+        // 'base64' keeps non-UTF-8 bytes (a replayable patch) intact across the thread hop.
+        stdout: Buffer.concat(stdout).toString(stdoutEncoding === 'base64' ? 'base64' : 'utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
       };
       // A failed stdin write only matters when git otherwise reported success.

@@ -262,6 +262,7 @@ test('every bundled skill declares its mandatory existing tools without eagerly 
     'goal-management': ['goal'],
     'memory-management': ['memory'],
     'history-recall': ['recall'],
+    visualize: ['visualize'],
   };
   const root = new URL('../../../../defaults/skills/', import.meta.url);
   const names = readdirSync(root, { withFileTypes: true })

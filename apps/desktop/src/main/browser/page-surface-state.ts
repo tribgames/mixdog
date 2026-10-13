@@ -11,6 +11,8 @@ interface PageSurfaceStateHost {
   state: BrowserGuestStateStore;
   currentGuest?(sessionId: string): WebContents | null;
   resize(guest: WebContents, width: number, height: number): Size | null;
+  /** A streaming phone drives this page's viewport; pane geometry waits. */
+  remoteDriven?(guest: WebContents): boolean;
 }
 
 export function createPageSurfaceState(host: PageSurfaceStateHost) {
@@ -21,6 +23,8 @@ export function createPageSurfaceState(host: PageSurfaceStateHost) {
   const geometryRevisions = new WeakMap<WebContents, number>();
   const viewportChanges = new WeakMap<WebContents, number>();
   const paneSizes = new Map<string, { width: number; height: number }>();
+  /** The zoom factor the pane last asked for, kept while a phone drives. */
+  const paneZooms = new Map<string, number>();
   const presentedGuests = new Map<string, WebContents>();
   const invalidateGeometry = (guest: WebContents) => {
     geometryRevisions.set(guest, (geometryRevisions.get(guest) ?? 0) + 1);
@@ -40,7 +44,10 @@ export function createPageSurfaceState(host: PageSurfaceStateHost) {
   const bumpScale = () => {
     scaleGeneration += 1;
   };
-  const resizeGuest = (guest: WebContents, size: Size) => {
+  /** Pane-driven unless `remote`: while a phone drives the page, the pane's
+   *  size is only remembered (paneSizes) and comes back when it stops. */
+  const resizeGuest = (guest: WebContents, size: Size, remote = false) => {
+    if (!remote && host.remoteDriven?.(guest)) return;
     if ((sizedAtScale.get(guest) ?? 0) !== scaleGeneration && guest.isOffscreen()) {
       host.resize(guest, size.width, size.height + 1);
     }
@@ -67,6 +74,7 @@ export function createPageSurfaceState(host: PageSurfaceStateHost) {
     geometryRevisions,
     viewportChanges,
     paneSizes,
+    paneZooms,
     presentedGuests,
     invalidateGeometry,
     resizeGuest,

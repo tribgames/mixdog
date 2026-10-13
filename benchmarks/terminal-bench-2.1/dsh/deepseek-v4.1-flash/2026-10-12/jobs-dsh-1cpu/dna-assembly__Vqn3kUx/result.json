@@ -1,0 +1,130 @@
+{
+    "id": "cc73b7e9-7e41-43ce-ae2d-94a363d01d2f",
+    "task_name": "terminal-bench/dna-assembly",
+    "trial_name": "dna-assembly__Vqn3kUx",
+    "trial_uri": "file:///opt/hive-benchmark/results/jobs-dsh-1cpu/2026-10-12__07-24-49/dna-assembly__Vqn3kUx",
+    "task_id": {
+        "path": "/opt/hive-benchmark/payload/tasks-1cpu/dna-assembly"
+    },
+    "source": "tasks-1cpu",
+    "task_checksum": "e2acbc34aa5f20bbe3b10d2d297cdec9e6f2086c94a70068f2325e7bb7ab1212",
+    "config": {
+        "task": {
+            "path": "/opt/hive-benchmark/payload/tasks-1cpu/dna-assembly",
+            "git_url": null,
+            "git_commit_id": null,
+            "name": null,
+            "ref": null,
+            "overwrite": false,
+            "download_dir": null,
+            "source": "tasks-1cpu"
+        },
+        "trial_name": "dna-assembly__Vqn3kUx",
+        "trials_dir": "/opt/hive-benchmark/results/jobs-dsh-1cpu/2026-10-12__07-24-49",
+        "install_only": false,
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": "aws_agents:HiveDSH",
+            "import_path": null,
+            "model_name": "deepseek-ai/deepseek-v4.1-flash",
+            "n_concurrent": null,
+            "concurrency_group": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "resume_trajectory": false,
+            "load_trajectory": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "mcp_servers": []
+        },
+        "user_agent": null,
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "stream": false,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": [
+                {
+                    "type": "bind",
+                    "source": "/opt/hive-benchmark/payload",
+                    "target": "/opt/hive-runtime",
+                    "read_only": true
+                }
+            ],
+            "extra_docker_compose": [],
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "extra_instructions": [],
+        "job_id": "2ef692a2-d56e-4f59-b8c4-2412b98b15b7",
+        "source_trial": null
+    },
+    "agent_info": {
+        "name": "hive-dsh",
+        "version": "0.2.0-rc.2",
+        "model_info": {
+            "name": "deepseek-v4.1-flash",
+            "provider": "deepseek-ai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 31484,
+        "n_cache_tokens": null,
+        "n_output_tokens": 84526,
+        "cost_usd": null,
+        "model_usage": null,
+        "rollout_details": null,
+        "metadata": {
+            "usage_events": 14,
+            "context_window": 400000,
+            "endpoint": "https://api-cdn.thehive.ai/api/v3/"
+        }
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "verifier_environment_mode": "shared",
+    "exception_info": null,
+    "started_at": "2026-10-12T07:39:13.320911Z",
+    "finished_at": "2026-10-12T07:45:35.938594Z",
+    "environment_setup": {
+        "started_at": "2026-10-12T07:39:13.321905Z",
+        "finished_at": "2026-10-12T07:39:14.748653Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-10-12T07:39:14.748676Z",
+        "finished_at": "2026-10-12T07:39:14.843789Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-10-12T07:39:14.844070Z",
+        "finished_at": "2026-10-12T07:45:15.560409Z"
+    },
+    "verifier": {
+        "started_at": "2026-10-12T07:45:15.890879Z",
+        "finished_at": "2026-10-12T07:45:25.185511Z"
+    },
+    "step_results": null
+}

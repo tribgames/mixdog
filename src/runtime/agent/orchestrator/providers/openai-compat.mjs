@@ -12,6 +12,7 @@ import {
   useXaiResponsesWebSocket as preferXaiResponsesWebSocket,
   _shouldFallbackXaiWsToHttp,
 } from './openai-compat-xai.mjs';
+import { withEffortRejectionFallback } from './effort-rejection.mjs';
 import { sendCompatResponses } from './openai-compat-responses.mjs';
 import { sendCompatChat, recoverCompatNonStreaming } from './openai-compat-chat-send.mjs';
 import { sendXaiResponses, sendXaiResponsesWebSocket } from './openai-compat-xai-send.mjs';
@@ -161,7 +162,11 @@ export class OpenAICompatProvider {
   }
   async _doSend(messages, model, tools, sendOpts) {
     const useModel = model || this.defaultModel;
-    const opts = sendOpts || {};
+    return withEffortRejectionFallback(this.name, useModel, sendOpts || {}, this.config?.reasoningEffort, (opts) =>
+      this._sendWithOpts(messages, useModel, tools, opts)
+    );
+  }
+  async _sendWithOpts(messages, useModel, tools, opts) {
     // Re-warm a kept-alive socket to the provider origin before the turn so
     // the request hot path lands on a live socket instead of paying a cold
     // TLS handshake after an idle gap. Fire-and-forget; never awaited.

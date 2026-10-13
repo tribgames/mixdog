@@ -131,20 +131,19 @@ async function readRecordFile(path) {
   }
 }
 
-/** Oldest-first sweep so a long-lived install cannot accumulate records. */
-async function sweepRecords() {
-  if (sweepDone) return;
-  sweepDone = true;
+/** Oldest-first sweep of one record directory so a long-lived install cannot
+ *  accumulate records. */
+async function sweepDirectory(directory, ttlMs, maxFiles) {
   try {
-    const names = await readdir(recordRoot());
+    const names = await readdir(directory);
     const now = Date.now();
     const kept = [];
     for (const name of names) {
       if (!name.endsWith('.json')) continue;
-      const path = join(recordRoot(), name);
+      const path = join(directory, name);
       try {
         const info = await stat(path);
-        if (now - info.mtimeMs > RECORD_TTL_MS) {
+        if (now - info.mtimeMs > ttlMs) {
           await rm(path, { force: true });
           continue;
         }
@@ -154,12 +153,24 @@ async function sweepRecords() {
       }
     }
     kept.sort((left, right) => left.mtimeMs - right.mtimeMs);
-    for (const entry of kept.slice(0, Math.max(0, kept.length - MAX_RECORD_FILES))) {
+    for (const entry of kept.slice(0, Math.max(0, kept.length - maxFiles))) {
       await rm(entry.path, { force: true });
     }
   } catch {
     /* the store is best-effort: a revert falls back to memory */
   }
+}
+
+async function sweepRecords() {
+  if (sweepDone) return;
+  sweepDone = true;
+  await sweepDirectory(recordRoot(), RECORD_TTL_MS, MAX_RECORD_FILES);
+}
+
+async function writeJsonAtomically(path, payload) {
+  const temporary = `${path}.${process.pid}.tmp`;
+  await writeFile(temporary, JSON.stringify(payload), 'utf8');
+  await rename(temporary, path);
 }
 
 /**
@@ -219,9 +230,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
           .slice(-MAX_SESSION_SCOPES)
           .map(serializeScope),
       };
-      const temporary = `${path}.${process.pid}.tmp`;
-      await writeFile(temporary, JSON.stringify(payload), 'utf8');
-      await rename(temporary, path);
+      await writeJsonAtomically(path, payload);
       return true;
     } catch {
       return false;
@@ -305,13 +314,7 @@ export async function forgetTurnSnapshotRoot(root) {
           removed.push(path);
           return;
         }
-        const temporary = `${path}.${process.pid}.tmp`;
-        await writeFile(
-          temporary,
-          JSON.stringify({ ...record, turns, sessionScopes: remaining.map(serializeScope) }),
-          'utf8'
-        );
-        await rename(temporary, path);
+        await writeJsonAtomically(path, { ...record, turns, sessionScopes: remaining.map(serializeScope) });
         removed.push(`${path}#${target}`);
       } catch {
         kept.push(path);
@@ -321,8 +324,167 @@ export async function forgetTurnSnapshotRoot(root) {
   return { removed, kept };
 }
 
+// ── Per-turn change records ─────────────────────────────────────────────────
+//
+// One file per session holding every retained turn's frozen net diff, keyed by
+// checkpointId (the outer prompt id). Unlike the baseline index above these
+// carry their own complete patches, so they need no shadow object to survive.
+
+const CHANGES_VERSION = 1;
+// Byte budget of one session's change records; the oldest turns go first.
+const MAX_CHANGE_BYTES_PER_SESSION = 32 * 1024 * 1024;
+const MAX_CHANGE_RECORD_FILES = 512;
+const CHANGE_RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+let changesSweepDone = false;
+
+function changesRoot() {
+  return join(recordRoot(), 'changes');
+}
+
+function changesPath(sessionId) {
+  const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
+  return join(changesRoot(), `${hash}.json`);
+}
+
+async function readChangesFile(sessionId) {
+  try {
+    const parsed = JSON.parse(await readFile(changesPath(sessionId), 'utf8'));
+    if (parsed?.version !== CHANGES_VERSION || parsed.sessionId !== sessionId) return null;
+    return Array.isArray(parsed.records) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Evict the oldest turns until the session fits its byte budget; a turn that
+ *  alone exceeds it drops its largest patches (those files stop being
+ *  revertable) instead of the whole record. */
+function boundChangeRecords(records, keepCheckpointId) {
+  const sizes = records.map((record) => Buffer.byteLength(JSON.stringify(record), 'utf8'));
+  let total = sizes.reduce((sum, size) => sum + size, 0);
+  for (let index = 0; total > MAX_CHANGE_BYTES_PER_SESSION && index < records.length; ) {
+    if (records[index].checkpointId === keepCheckpointId) {
+      index += 1;
+      continue;
+    }
+    total -= sizes[index];
+    records.splice(index, 1);
+    sizes.splice(index, 1);
+  }
+  if (total <= MAX_CHANGE_BYTES_PER_SESSION) return;
+  const kept = records.find((record) => record.checkpointId === keepCheckpointId);
+  const largest = (kept?.files || [])
+    .filter((file) => typeof file.patch === 'string')
+    .sort((left, right) => right.patch.length - left.patch.length);
+  for (const file of largest) {
+    if (total <= MAX_CHANGE_BYTES_PER_SESSION) break;
+    total -= Buffer.byteLength(file.patch, 'utf8');
+    file.patch = null;
+    delete file.patchEncoding;
+    file.revertable = false;
+    file.reason = 'change is too large to keep for undo';
+    file.patchOmitted = true;
+  }
+}
+
+// Test seam: runs before every change-record write; a throw fails the write.
+let changeWriteHookForTest = null;
+
+async function writeChangeRecords(sessionId, records) {
+  await changeWriteHookForTest?.(sessionId, records);
+  await mkdir(changesRoot(), { recursive: true });
+  if (!changesSweepDone) {
+    changesSweepDone = true;
+    void sweepDirectory(changesRoot(), CHANGE_RECORD_TTL_MS, MAX_CHANGE_RECORD_FILES);
+  }
+  await writeJsonAtomically(changesPath(sessionId), { version: CHANGES_VERSION, sessionId, records });
+}
+
+const changeContent = (record) => JSON.stringify([record.kind, record.root, record.agents || [], record.files || []]);
+
+/**
+ * Upsert one turn's frozen changes. Every file of the new freeze is `applied`;
+ * a file the user had already undone and that the new net diff no longer
+ * contains keeps its `reverted` entry, so Reapply survives a re-seal. The
+ * revision bumps only when the record actually changed. Resolves to the
+ * stored record.
+ */
+export async function upsertTurnChangeRecord(sessionId, next) {
+  const id = clean(sessionId);
+  const checkpointId = clean(next?.checkpointId);
+  if (!id || !checkpointId) return null;
+  return await chain(`changes:${id}`, async () => {
+    const records = (await readChangesFile(id))?.records || [];
+    const index = records.findIndex((record) => record?.checkpointId === checkpointId);
+    const prior = index >= 0 ? records[index] : null;
+    const files = (Array.isArray(next.files) ? next.files : []).map((file) => ({ ...file, state: 'applied' }));
+    const present = new Set(files.map((file) => rootKey(file.path)));
+    for (const file of prior?.files || []) {
+      if (file.state === 'reverted' && !present.has(rootKey(file.path))) files.push(file);
+    }
+    files.sort((left, right) => left.path.localeCompare(right.path));
+    const candidate = {
+      checkpointId,
+      kind: clean(next.kind) || 'git',
+      root: clean(next.root),
+      agents: Array.isArray(next.agents) ? next.agents : [],
+      files,
+    };
+    if (prior && changeContent(prior) === changeContent(candidate)) return prior;
+    const now = Date.now();
+    const record = {
+      ...candidate,
+      revision: (Number(prior?.revision) || 0) + 1,
+      createdAt: Number(prior?.createdAt) || now,
+      updatedAt: now,
+    };
+    if (index >= 0) records[index] = record;
+    else records.push(record);
+    boundChangeRecords(records, checkpointId);
+    await writeChangeRecords(id, records);
+    return records.find((entry) => entry.checkpointId === checkpointId) || null;
+  });
+}
+
+/** Apply `mutate(record)` (returning the next files, or null for no change)
+ *  and bump the revision. Serialized with every other write of the session. */
+export async function updateTurnChangeRecord(sessionId, checkpointId, mutate) {
+  const id = clean(sessionId);
+  const key = clean(checkpointId);
+  if (!id || !key) return null;
+  return await chain(`changes:${id}`, async () => {
+    const records = (await readChangesFile(id))?.records || [];
+    const index = records.findIndex((record) => record?.checkpointId === key);
+    if (index < 0) return null;
+    const files = mutate(records[index]);
+    if (!files) return records[index];
+    records[index] = {
+      ...records[index],
+      files,
+      revision: (Number(records[index].revision) || 0) + 1,
+      updatedAt: Date.now(),
+    };
+    await writeChangeRecords(id, records);
+    return records[index];
+  });
+}
+
+/** One turn's change record by its exact checkpoint id; never a fallback. */
+export async function loadTurnChangeRecord(sessionId, checkpointId) {
+  const id = clean(sessionId);
+  const key = clean(checkpointId);
+  if (!id || !key) return null;
+  const records = (await readChangesFile(id))?.records || [];
+  return records.find((record) => record?.checkpointId === key) || null;
+}
+
+export function _setTurnChangeRecordWriteHookForTest(hook) {
+  changeWriteHookForTest = typeof hook === 'function' ? hook : null;
+}
+
 export function _setTurnSnapshotStoreRootForTest(directory) {
   recordRootOverride = clean(directory);
   writeChains.clear();
   sweepDone = false;
+  changesSweepDone = false;
 }

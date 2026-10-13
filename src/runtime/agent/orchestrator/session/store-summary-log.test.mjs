@@ -1,5 +1,15 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -118,7 +128,11 @@ test('compaction folds the log into the base; a crash before the log is emptied 
     assert.equal(readFileSync(logPath, 'utf8'), '', 'log emptied');
     assert.deepEqual(readCatalog(), before);
     const base = JSON.parse(readFileSync(indexPath, 'utf8'));
-    assert.equal(base.rows.some((row) => row.id === 's6'), false, 'removal folded into the base');
+    assert.equal(
+      base.rows.some((row) => row.id === 's6'),
+      false,
+      'removal folded into the base'
+    );
 
     // Crash between "base written" and "log emptied": the folded ops are still
     // in the log. Replay is last-writer-wins per id, so nothing changes.
@@ -214,4 +228,17 @@ test('the startup sweep removes only this store’s stale temp files and skips a
     assert.equal(existsSync(fresh), true, 'a young temp may belong to a live writer');
     assert.equal(existsSync(foreign), true, 'another file’s temp is never touched');
     assert.equal(existsSync(lookalike), true, 'only the exact temp-name pattern matches');
+  }));
+
+test('one-shot exec sessions stay out of the cold catalog', () =>
+  withDataDir(() => {
+    const lead = { owner: 'cli', agent: 'lead', sourceType: 'lead' };
+    _writeSummaryIndex([
+      { ...summaryRow('leadrow', 2_000, 'keep me'), ...lead },
+      { ...summaryRow('execrow', 3_000, 'hide me'), ...lead, sourceType: 'exec' },
+    ]);
+    assert.deepEqual(
+      readCatalog().map((row) => row.id),
+      ['leadrow']
+    );
   }));

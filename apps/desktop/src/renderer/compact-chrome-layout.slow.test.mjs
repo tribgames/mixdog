@@ -187,7 +187,6 @@ test('compact chrome preserves input growth, readable rows and accessible action
     });
     await page.evaluate(() => {
       document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
-      document.documentElement.style.setProperty('--mx-device-scale', '1');
       document.querySelector('textarea').value = '';
     });
     await settle();

@@ -1288,12 +1288,57 @@
   min-height: 0;
   height: 0;
   overflow: hidden;
-  padding: 8px 0 8px 12px;
   background: var(--mx-terminal-bg);
 }
+/* The inset lives on the xterm element itself: the fit addon subtracts only
+   that element's padding from its parent's height, so padding on the parent
+   overcounted rows and clipped the bottom line. */
 .dock-terminal .xterm {
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
+  padding: 8px 0 8px 12px;
+}
+/* Phone key bar: a compact row under the xterm, i.e. right above the soft
+   keyboard (the sheet shrinks to the visible viewport). Phone layout only. */
+.terminal-key-bar {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--mx-terminal-bg);
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar::-webkit-scrollbar {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar-key {
+  flex: 1 0 auto;
+  min-width: 38px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--mx-terminal-fg, #e9e9e9);
+  font: inherit;
+  font-size: 14px;
+  -webkit-tap-highlight-color: transparent;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar-key:active {
+  background: rgba(255, 255, 255, 0.22);
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar-key[aria-pressed="true"] {
+  background: var(--mx-accent, #3b8eea);
+  color: #fff;
 }
 .dock-terminal .xterm-viewport {
   overflow-y: scroll;

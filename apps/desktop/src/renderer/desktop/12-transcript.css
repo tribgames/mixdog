@@ -115,21 +115,13 @@
   gap: 8px;
 }
 /* Studio and the TASK header consume the full pane width. The TASK
-   conversation keeps its desktop 800/848px reading column; projected mobile
-   explicitly fills the pane below. */
+   conversation keeps its desktop 800/848px reading column on every surface —
+   a landscape phone included; its text insets live in 07-mobile-chrome.css. */
 .workspace > .session-header,
 .studio-shell {
   --pane-column: 100%;
   --pane-scroll-column: 100%;
   --pane-card: 100%;
-}
-html[data-mixdog-mobile-tabs] .conversation {
-  --pane-column: 100%;
-  --pane-scroll-column: 100%;
-  --pane-card: 100%;
-  /* A phone already contributes physical bezel: reclaim 4px per side for
-     transcript prose without moving the composer card or its typed text. */
-  --transcript-text-inset: 12px;
 }
 /* Conversation title is important info: one step up from tab chrome. */
 .session-header h1 {

@@ -4,6 +4,8 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import {
   _resetTurnWorktreeSnapshotsForTest,
   createTurnWorktreeSnapshot,
+  freezeTurnWorktreeChanges,
+  noteTurnWorktreeChange,
   refreshTurnWorktreeSnapshot,
   recordTurnWorktreeFileChange,
   resumeTurnWorktreeSnapshot,
@@ -11,7 +13,23 @@ import {
   revertTurnWorktreePaths,
   revertTurnWorktreeSnapshot,
 } from './turn-worktree-snapshot.mjs';
-import { loadSessionSnapshotRecords, loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
+import {
+  loadSessionSnapshotRecords,
+  loadTurnChangeRecord,
+  loadTurnSnapshotRecord,
+  saveTurnSnapshotRecord,
+  updateTurnChangeRecord,
+  upsertTurnChangeRecord,
+} from './turn-snapshot-store.mjs';
+import {
+  applyTurnChangeFiles,
+  changePathKey,
+  findChangeFile,
+  storedChangeFile,
+  trackedChangeFile,
+  turnChangesReply,
+  unknownStateChangeFile,
+} from './turn-changes.mjs';
 import { boundReviewPatch } from './review-diff.mjs';
 import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
@@ -39,6 +57,14 @@ const MAX_AGENT_REVIEW_BYTES_PER_TURN = 4 * 1024 * 1024;
 const _turnsBySession = new Map();
 const _diffTrackersBySession = new Map();
 let _agentTurnSeq = 0;
+// `${sessionId}\0${checkpointId}` → seals in flight. A sealing turn's change
+// record is `pending` and its session refuses Undo/Reapply until it lands.
+const _pendingFreezes = new Map();
+// Per-session Undo/Reapply chain.
+const _changeMutations = new Map();
+// `${sessionId}\0${checkpointId}` → path keys whose worktree state is unknown
+// and whose record could not even be marked so (the store refused every write).
+const _unknownChangeStates = new Map();
 
 function trimTurnCache() {
   while (_turnsBySession.size > TURN_CACHE_MAX) {
@@ -165,9 +191,16 @@ function createDiffTracker(meta = {}) {
     ownerGeneration: Number(meta.ownerGeneration) || 0,
     checkpointId: clean(meta.checkpointId),
     worktreeRequest: clean(meta.worktreeRequest),
+    // The directory the turn ran in: a non-Git record's patch root.
+    worktreeRoot: clean(meta.worktreeRoot),
     worktreeContended: false,
     valid: true,
     sealed: false,
+    // Bumped when a completion wake reopens the sealed turn, so a seal that
+    // started before the reopen cannot mark the reopened turn sealed.
+    sealEpoch: 0,
+    // The seal (refresh, record, freeze) in flight, if any.
+    freezing: null,
     revision: 0,
     baselineByPath: new Map(),
     currentByPath: new Map(),
@@ -417,6 +450,8 @@ async function revertTrackedPairs(tracker, worktree, pairs) {
   tracker.revision += 1;
   refreshUnifiedDiff(tracker);
   if (!tracker.unifiedDiff) releaseDiffTrackerContent(tracker);
+  // The absolute paths now back at their turn-start bytes.
+  return [...new Set(validated.flatMap(({ beforePath, afterPath }) => [beforePath, afterPath]))];
 }
 
 /** A path's first observed state is its baseline; later changes never replace it. */
@@ -435,7 +470,16 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
   if (!id) return '';
   const tracker = _diffTrackersBySession.get(id) || resetDiffTracker(id);
   if (!tracker?.valid || tracker.sealed) return tracker?.unifiedDiff || '';
-  const list = Array.isArray(changes) ? changes : [];
+  const snapshot = (tracker.ownerSessionId ? _diffTrackersBySession.get(tracker.ownerSessionId) : tracker)
+    ?.worktreeSnapshot;
+  foldTrackedChanges(tracker, Array.isArray(changes) ? changes : [], snapshot);
+  return tracker.unifiedDiff;
+}
+
+/** Fold exact before/after states into `tracker`. `snapshot` — the owning
+ *  Lead turn's Git baseline, when tools are writing — learns each written
+ *  path's first-before bytes. */
+function foldTrackedChanges(tracker, list, snapshot) {
   // The content ceiling is enforced BEFORE anything is stored: an over-budget
   // batch invalidates the tracker up front instead of retaining its buffers.
   const incomingBytes = list.reduce(
@@ -456,8 +500,6 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
     // batch only hands the worktree baseline a bounded value.
     const before = storeContent ? contentBuffer(raw?.before) : boundedBaselineContent(raw?.before);
     const destinationPath = clean(raw?.newPath);
-    const snapshot = (tracker.ownerSessionId ? _diffTrackersBySession.get(tracker.ownerSessionId) : tracker)
-      ?.worktreeSnapshot;
     recordTurnWorktreeFileChange(snapshot, sourcePath, before);
     if (destinationPath) recordTurnWorktreeFileChange(snapshot, destinationPath, null);
     // WHICH files this session wrote has to survive releasing their content —
@@ -522,7 +564,6 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
     releaseDiffTrackerContent(tracker);
   }
   refreshUnifiedDiff(tracker);
-  return tracker.unifiedDiff;
 }
 
 function trimAgentReviews(turn) {
@@ -569,18 +610,59 @@ function continueTurnSnapshot(ownerSessionId) {
   _turnsBySession.delete(ownerSessionId);
   _turnsBySession.set(ownerSessionId, turn);
   tracker.sealed = false;
+  tracker.sealEpoch += 1;
   markWorktreeContention(ownerSessionId, tracker);
   return true;
 }
 
 /** Start a new user turn and invalidate the prior turn's child review group.
- *  `continueTurn` (a completion wake) reopens the current turn instead. */
+ *  `continueTurn` (a completion wake) reopens the current turn instead.
+ *  Resolves to the turn's `{ generation, checkpointId }`: completing with it
+ *  can only ever seal this turn, never a newer one. */
 export async function beginTurnSnapshot(worktree, sessionId, options = {}) {
   const ownerSessionId = clean(sessionId);
-  if (DISABLED || !ownerSessionId) return;
-  if (options?.continueTurn === true && continueTurnSnapshot(ownerSessionId)) return;
+  if (DISABLED || !ownerSessionId) return undefined;
+  // Turn start and Undo/Reapply share the per-session lock: a start waits for
+  // an in-flight mutation, and a mutation queued after this start re-checks
+  // under the lock and finds the turn running.
+  // A late-worker re-seal still queued for the previous turn runs first, in
+  // this same step: the worker's edit stays in that turn's record and nothing
+  // the new turn writes can reach it. (A queued re-seal implies a chain.)
+  const { token, tracker } = _changeMutations.has(ownerSessionId)
+    ? await serializeChangeMutation(ownerSessionId, async () => {
+        const previous = _diffTrackersBySession.get(ownerSessionId);
+        if (previous?.resealQueued) await runQueuedReseal(ownerSessionId, previous).catch(() => {});
+        return openTurnSnapshot(worktree, ownerSessionId, options);
+      })
+    : openTurnSnapshot(worktree, ownerSessionId, options);
+  if (!tracker) return token;
+  try {
+    const snapshot = await createTurnWorktreeSnapshot(worktree);
+    if (_diffTrackersBySession.get(ownerSessionId) === tracker) {
+      tracker.worktreeSnapshot = snapshot;
+      if (snapshot?.root) markWorktreeContention(ownerSessionId, tracker);
+    }
+  } catch {
+    // Git is optional. Exact apply_patch tracking remains the fallback.
+  }
+  return token;
+}
+
+/** The synchronous half of a turn start: reopen (completion wake) or install
+ *  the turn's tracker. `tracker` is set only for a new turn, whose Git
+ *  baseline the caller captures next. */
+function openTurnSnapshot(worktree, ownerSessionId, options) {
+  if (options?.continueTurn === true && continueTurnSnapshot(ownerSessionId)) {
+    const reopened = _diffTrackersBySession.get(ownerSessionId);
+    return { token: { generation: reopened.ownerGeneration, checkpointId: reopened.checkpointId }, tracker: null };
+  }
   const generation = (_turnsBySession.get(ownerSessionId)?.generation || 0) + 1;
   const checkpointId = clean(options?.checkpointId);
+  // A turn replaced before it sealed (an abort whose delayed cleanup has not
+  // run yet) still keeps its edits as a record. Its capture is queued on the
+  // worktree lock ahead of this turn's baseline.
+  const prior = _diffTrackersBySession.get(ownerSessionId);
+  if (prior && prior.ownerGeneration > 0 && !prior.sealed) void sealTurn(ownerSessionId, prior).catch(() => {});
   for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
     if (tracker.ownerSessionId === ownerSessionId) _diffTrackersBySession.delete(trackedSessionId);
   }
@@ -595,19 +677,19 @@ export async function beginTurnSnapshot(worktree, sessionId, options = {}) {
     ownerGeneration: generation,
     checkpointId,
     worktreeRequest,
+    worktreeRoot: resolve(clean(worktree) || '.'),
   });
   trimTurnCache();
-  if (!tracker) return;
-  markWorktreeContention(ownerSessionId, tracker);
-  try {
-    const snapshot = await createTurnWorktreeSnapshot(worktree);
-    if (_diffTrackersBySession.get(ownerSessionId) === tracker) {
-      tracker.worktreeSnapshot = snapshot;
-      if (snapshot?.root) markWorktreeContention(ownerSessionId, tracker);
-    }
-  } catch {
-    // Git is optional. Exact apply_patch tracking remains the fallback.
-  }
+  if (tracker) markWorktreeContention(ownerSessionId, tracker);
+  _turnOpenedHookForTest?.(ownerSessionId, checkpointId);
+  return { token: { generation, checkpointId }, tracker };
+}
+
+// Test seam: runs synchronously the instant a new turn's tracker is installed,
+// i.e. the earliest moment that turn could touch the worktree.
+let _turnOpenedHookForTest = null;
+export function _setTurnOpenedHookForTest(hook) {
+  _turnOpenedHookForTest = typeof hook === 'function' ? hook : null;
 }
 
 /** Bind one worker execution to the Lead turn that launched it. */
@@ -673,6 +755,11 @@ export function completeAgentTurnReview(handle, patches = []) {
       for (const path of tracker.ownedPaths) ownerTracker.ownedPaths.add(path);
     }
     trimAgentReviews(turn);
+    // A worker that finishes after its Lead turn sealed re-seals that turn's
+    // change record (its edits are part of the turn's net worktree diff).
+    if (ownerTracker && ownerTracker !== tracker && ownerTracker.ownerGeneration === handle.generation) {
+      resealTurn(clean(handle.ownerSessionId), ownerTracker);
+    }
     return true;
   } finally {
     if (matchingTracker && _diffTrackersBySession.get(key) === tracker) {
@@ -694,7 +781,7 @@ async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
   if (owned.length === 0) return;
   try {
     await saveTurnSnapshotRecord(ownerSessionId, {
-      generation: _turnsBySession.get(ownerSessionId)?.generation || 0,
+      generation: tracker.ownerGeneration || _turnsBySession.get(ownerSessionId)?.generation || 0,
       checkpointId: tracker.checkpointId,
       root: snapshot.root,
       baselineTree: snapshot.baselineTree,
@@ -707,39 +794,174 @@ async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
   }
 }
 
-/** Freeze a completed Lead turn while retaining only its bounded review data. */
-export async function completeTurnSnapshot(sessionId) {
+/** Workers attributed to the tracker's own turn (identities only: their
+ *  patches stay review attribution and never join the net diff). */
+function attributedAgents(ownerSessionId, tracker) {
+  const turn = _turnsBySession.get(ownerSessionId);
+  if (!turn || turn.generation !== tracker.ownerGeneration) return [];
+  return [...turn.agents.values()].map((review) => ({
+    sessionId: review.sessionId,
+    agent: review.agent || null,
+    tag: review.tag || null,
+  }));
+}
+
+/** Path of a tracked entry relative to `root`, or '' outside it. */
+function trackedRelativePath(root, entry) {
+  const value = clean(entry?.path) || clean(entry?.displayPath);
+  if (!value) return '';
+  const rel = relative(root, isAbsolute(value) ? resolve(value) : resolve(root, value));
+  if (!rel || isAbsolute(rel) || rel.split(/[\\/]+/).includes('..')) return '';
+  return rel.replace(/\\/g, '/');
+}
+
+/** Record files of a non-Git turn, from the exact apply_patch buffers. */
+function trackedRecordFiles(tracker, root) {
+  if (!tracker.valid) {
+    return [...ownedPathsUnder(root, tracker.ownedPaths)].map((path) => ({
+      path,
+      status: 'M',
+      additions: 0,
+      deletions: 0,
+      revertable: false,
+      reason: 'file content exceeded the undo tracking limit',
+    }));
+  }
+  const files = [];
+  for (const pair of trackedPairs(tracker)) {
+    const before = pair.before?.content ?? null;
+    const after = pair.after?.content ?? null;
+    if (before === null && after === null) continue;
+    const oldPath = trackedRelativePath(root, pair.before || pair.after);
+    const newPath = trackedRelativePath(root, pair.after || pair.before);
+    if (oldPath === newPath && sameContent(before, after)) continue;
+    const omitted = [before, after].some(isOmittedContent);
+    if (omitted || !oldPath || !newPath) {
+      let status = 'M';
+      if (before === null) status = 'A';
+      else if (after === null) status = 'D';
+      else if (oldPath !== newPath) status = 'R';
+      files.push({
+        path: (status === 'D' ? oldPath : newPath) || displayPath(pair.after?.displayPath || pair.before?.displayPath),
+        ...(status === 'R' && oldPath ? { oldPath } : {}),
+        status,
+        additions: 0,
+        deletions: 0,
+        ...(omitted ? { binary: true } : {}),
+        revertable: false,
+        reason: omitted ? 'binary/large file content was not captured' : 'file is outside the recorded root',
+      });
+      continue;
+    }
+    files.push(trackedChangeFile({ oldPath, newPath, before, after }));
+  }
+  return files;
+}
+
+/** Freeze the turn's net diff into its durable change record. A Git turn
+ *  records the baseline→end worktree diff (workers' edits included, scoped to
+ *  session-owned paths when the worktree is shared); a non-Git turn records
+ *  the Lead's exact apply_patch pairs. */
+async function freezeTurnChanges(ownerSessionId, tracker, agents) {
+  const checkpointId = clean(tracker.checkpointId);
+  if (!checkpointId) return null;
+  let frozen = null;
+  if (tracker.worktreeSnapshot) {
+    const scope = worktreeSnapshotUsable(tracker)
+      ? null
+      : [...ownedPathsUnder(tracker.worktreeSnapshot.root, tracker.ownedPaths)];
+    const result = await freezeTurnWorktreeChanges(tracker.worktreeSnapshot, scope);
+    if (result) frozen = { kind: 'git', ...result };
+  } else if (tracker.worktreeRoot) {
+    frozen = { kind: 'tracked', root: tracker.worktreeRoot, files: trackedRecordFiles(tracker, tracker.worktreeRoot) };
+  }
+  if (!frozen) return null;
+  const record = await upsertTurnChangeRecord(ownerSessionId, {
+    checkpointId,
+    kind: frozen.kind,
+    root: frozen.root,
+    agents,
+    files: frozen.files.map(storedChangeFile),
+  });
+  // A fresh freeze measured the disk itself; nothing about it is unknown.
+  _unknownChangeStates.delete(pendingFreezeKey(ownerSessionId, checkpointId));
+  return record;
+}
+
+const pendingFreezeKey = (ownerSessionId, checkpointId) => `${ownerSessionId}\0${clean(checkpointId)}`;
+
+/**
+ * Seal a Lead turn: capture the worktree one last time, persist the review
+ * baseline and freeze the change record. Single-flight per tracker; a seal
+ * requested while another runs waits for it and then seals again only if a
+ * completion wake reopened the turn meanwhile. `reseal` (a late worker) only
+ * re-freezes a turn that is still sealed.
+ */
+function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
+  if (tracker.freezing) {
+    if (reseal) return tracker.freezing;
+    return tracker.freezing.then(() => (tracker.sealed ? undefined : sealTurn(ownerSessionId, tracker)));
+  }
+  const epoch = tracker.sealEpoch;
+  const agents = attributedAgents(ownerSessionId, tracker);
+  const key = pendingFreezeKey(ownerSessionId, tracker.checkpointId);
+  _pendingFreezes.set(key, (_pendingFreezes.get(key) || 0) + 1);
+  const run = (async () => {
+    if (tracker.worktreeSnapshot) {
+      try {
+        await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot, { force: true });
+      } catch {}
+    }
+    if (tracker.sealEpoch !== epoch || (reseal && !tracker.sealed)) return;
+    tracker.sealed = true;
+    await persistTurnSnapshotRecord(ownerSessionId, tracker);
+    try {
+      await freezeTurnChanges(ownerSessionId, tracker, agents);
+    } catch {
+      /* the change record adds Undo history; it never fails a turn */
+    }
+    // Only a usable Git baseline can replace the exact apply_patch buffers. A
+    // contended worktree — and a worktree with no Git baseline at all — retains
+    // this session's bounded before/after content so Review can still undo its
+    // own files after the turn completes.
+    if (worktreeSnapshotUsable(tracker)) releaseDiffTrackerContent(tracker);
+  })().finally(() => {
+    if (tracker.freezing === run) tracker.freezing = null;
+    const count = (_pendingFreezes.get(key) || 1) - 1;
+    if (count > 0) _pendingFreezes.set(key, count);
+    else _pendingFreezes.delete(key);
+  });
+  tracker.freezing = run;
+  return run;
+}
+
+function resealTurn(ownerSessionId, tracker) {
+  if (!tracker.sealed || tracker.freezing || !clean(tracker.checkpointId) || tracker.resealQueued) return;
+  // On the session lock: an in-flight Undo/Reapply lands before the re-freeze
+  // reads the worktree. A turn start queued ahead of it runs it before opening
+  // (beginTurnSnapshot), so one queued re-seal covers every late worker.
+  tracker.resealQueued = true;
+  void serializeChangeMutation(ownerSessionId, () => runQueuedReseal(ownerSessionId, tracker)).catch(() => {});
+}
+
+/** Run `tracker`'s queued re-seal once, whichever lock step reaches it first. */
+function runQueuedReseal(ownerSessionId, tracker) {
+  if (!tracker.resealQueued) return undefined;
+  tracker.resealQueued = false;
+  return sealTurn(ownerSessionId, tracker, { reseal: true });
+}
+
+/** Freeze a completed (or cancelled) Lead turn while retaining only its
+ *  bounded review data. `expected` — the `{ generation }` beginTurnSnapshot
+ *  resolved to — makes a delayed call a no-op once a newer turn began. */
+export async function completeTurnSnapshot(sessionId, expected = null) {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (!tracker) return false;
-  if (tracker.worktreeSnapshot) {
-    try {
-      await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot, { force: true });
-    } catch {}
-  }
-  tracker.sealed = true;
-  await persistTurnSnapshotRecord(ownerSessionId, tracker);
-  // Only a usable Git baseline can replace the exact apply_patch buffers. A
-  // contended worktree — and a worktree with no Git baseline at all — retains
-  // this session's bounded before/after content so Review can still undo its
-  // own files after the turn completes.
-  if (worktreeSnapshotUsable(tracker)) releaseDiffTrackerContent(tracker);
+  const generation = Number(expected?.generation) || 0;
+  if (generation && tracker.ownerGeneration !== generation) return false;
+  await sealTurn(ownerSessionId, tracker);
   return true;
-}
-
-/** Abandon an aborted Lead turn without waiting for optional Git snapshot IO. */
-export function cancelTurnSnapshot(sessionId) {
-  const ownerSessionId = clean(sessionId);
-  if (!ownerSessionId) return false;
-  let removed = false;
-  for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
-    if (trackedSessionId !== ownerSessionId && tracker.ownerSessionId !== ownerSessionId) continue;
-    releaseDiffTrackerContent(tracker);
-    _diffTrackersBySession.delete(trackedSessionId);
-    removed = true;
-  }
-  if (_turnsBySession.delete(ownerSessionId)) removed = true;
-  return removed;
 }
 
 /**
@@ -818,7 +1040,7 @@ function assertCheckpointMatches(expectedCheckpointId, actualCheckpointId) {
 }
 
 /** Restore recorded paths — every one of them, or just the file the user picked. */
-async function revertFromRecord(worktree, ownerSessionId, file, expectedCheckpointId = '') {
+async function revertFromRecord(ownerSessionId, file, expectedCheckpointId) {
   const resumed = await resumeRecordedSnapshot(ownerSessionId);
   if (!resumed) return null;
   assertCheckpointMatches(expectedCheckpointId, resumed.record.checkpointId);
@@ -827,8 +1049,8 @@ async function revertFromRecord(worktree, ownerSessionId, file, expectedCheckpoi
   if (targets.length === 0) {
     throw new Error('turn review revert cannot attribute this file to the session');
   }
-  await revertTurnWorktreePaths(resumed.snapshot, targets);
-  return await getTurnReviewDiff(worktree, ownerSessionId);
+  const paths = await revertTurnWorktreePaths(resumed.snapshot, targets);
+  return { checkpointId: clean(resumed.record.checkpointId), paths };
 }
 
 /** Return the authoritative Lead net diff plus attributed child reviews. */
@@ -970,59 +1192,347 @@ function unavailableTrackedRevertReason(tracker) {
     : 'turn review tracked file snapshot is unavailable';
 }
 
-/** Restore one reviewed file to this turn's worktree baseline, never to HEAD. */
-export async function revertTurnReviewFile(worktree, sessionId, file, expectedCheckpointId = '') {
-  const ownerSessionId = clean(sessionId);
+/** Restore the latest turn — every file it can attribute (`whole`) or the one
+ *  the user picked — to its turn-start state. Resolves to the restored turn's
+ *  checkpoint and the absolute paths actually restored: a contended worktree
+ *  restores only the Lead's own tracked files, never its workers'. */
+async function revertLatestTurnUnlocked(worktree, ownerSessionId, file, whole, expectedCheckpointId) {
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (tracker) assertCheckpointMatches(expectedCheckpointId, tracker.checkpointId);
+  const restored = (paths) => ({ checkpointId: clean(tracker.checkpointId), paths });
+  const recordFile = whole ? null : file;
   if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
     if (pairs.length > 0) {
-      const pair = pairs.find((entry) => pairMatchesFile(entry, worktree, file));
-      if (!pair) throw new Error('turn review tracked file snapshot is unavailable');
-      await revertTrackedPairs(tracker, worktree, [pair]);
-      return await getTurnReviewDiff(worktree, ownerSessionId);
+      let selected = pairs;
+      if (!whole) {
+        const pair = pairs.find((entry) => pairMatchesFile(entry, worktree, file));
+        if (!pair) throw new Error('turn review tracked file snapshot is unavailable');
+        selected = [pair];
+      }
+      return restored(await revertTrackedPairs(tracker, worktree, selected));
     }
-    const recorded = await revertFromRecord(worktree, ownerSessionId, file, expectedCheckpointId);
+    const recorded = await revertFromRecord(ownerSessionId, recordFile, expectedCheckpointId);
     if (recorded) return recorded;
     throw new Error(unavailableTrackedRevertReason(tracker));
   }
   if (tracker?.worktreeSnapshot) {
-    await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
-    return await getTurnReviewDiff(worktree, ownerSessionId);
+    return restored(
+      whole
+        ? await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot)
+        : await revertTurnWorktreeFile(tracker.worktreeSnapshot, file)
+    );
   }
-  const recorded = await revertFromRecord(worktree, ownerSessionId, file, expectedCheckpointId);
+  const recorded = await revertFromRecord(ownerSessionId, recordFile, expectedCheckpointId);
   if (recorded) return recorded;
   throw new Error('turn worktree snapshot is unavailable');
 }
 
-/** Restore every file in the reviewed turn to its turn-start state. */
-export async function revertTurnReview(worktree, sessionId, expectedCheckpointId = '') {
+/** Record a composer restore in the turn's change record: a record file whose
+ *  every side (a rename's old path too) was restored is back at its
+ *  turn-start bytes, i.e. `reverted`; every other file keeps its state. */
+async function recordComposerRevert(ownerSessionId, { checkpointId, paths }) {
+  if (!ownerSessionId || !checkpointId) return;
+  const record = await loadTurnChangeRecord(ownerSessionId, checkpointId);
+  if (!record) return;
+  const restored = new Set(paths.map((path) => changePathKey(relative(record.root, path))));
+  const keys = new Set(
+    (record.files || [])
+      .filter((entry) => [entry.path, entry.oldPath].filter(Boolean).every((side) => restored.has(changePathKey(side))))
+      .map((entry) => changePathKey(entry.path))
+  );
+  if (keys.size === 0) return;
+  try {
+    await writeTurnChangeState(ownerSessionId, checkpointId, keys, 'reverted');
+  } catch (error) {
+    await markTurnChangeStateUnknown(ownerSessionId, checkpointId, keys);
+    throw new Error(
+      `the turn's files were restored, but its change record could not be updated (${error.message}); Undo/Reapply of those files is disabled`,
+      { cause: error }
+    );
+  }
+}
+
+/** Composer Undo of the latest turn, on the per-session change lock shared
+ *  with historical Undo/Reapply, recorded in the turn's change record so the
+ *  historical view offers Reapply rather than a second Undo. */
+function revertLatestTurn(worktree, sessionId, file, whole, expectedCheckpointId) {
   const ownerSessionId = clean(sessionId);
-  const tracker = _diffTrackersBySession.get(ownerSessionId);
-  if (tracker) assertCheckpointMatches(expectedCheckpointId, tracker.checkpointId);
-  if (tracker && !worktreeSnapshotUsable(tracker)) {
-    const pairs = trackedPairs(tracker);
-    if (pairs.length > 0) {
-      await revertTrackedPairs(tracker, worktree, pairs);
-      return await getTurnReviewDiff(worktree, ownerSessionId);
-    }
-    const recorded = await revertFromRecord(worktree, ownerSessionId, null, expectedCheckpointId);
-    if (recorded) return recorded;
-    throw new Error(unavailableTrackedRevertReason(tracker));
-  }
-  if (tracker?.worktreeSnapshot) {
-    await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot);
+  return serializeChangeMutation(ownerSessionId, async () => {
+    // A seal still freezing would record the pre-restore disk after this.
+    const freezing = _diffTrackersBySession.get(ownerSessionId)?.freezing;
+    if (freezing) await freezing.catch(() => {});
+    const restored = await revertLatestTurnUnlocked(worktree, ownerSessionId, file, whole, expectedCheckpointId);
+    await recordComposerRevert(ownerSessionId, restored);
     return await getTurnReviewDiff(worktree, ownerSessionId);
+  });
+}
+
+/** Restore one reviewed file to this turn's worktree baseline, never to HEAD. */
+export function revertTurnReviewFile(worktree, sessionId, file, expectedCheckpointId = '') {
+  return revertLatestTurn(worktree, sessionId, file, false, expectedCheckpointId);
+}
+
+/** Restore every file in the reviewed turn to its turn-start state. */
+export function revertTurnReview(worktree, sessionId, expectedCheckpointId = '') {
+  return revertLatestTurn(worktree, sessionId, null, true, expectedCheckpointId);
+}
+
+// ── Historical turn changes (per-turn Undo/Reapply) ─────────────────────────
+
+/** A Lead turn of this session is running or still sealing. Only a tracker
+ *  beginTurnSnapshot opened counts: an orphan tool tracker is no turn. */
+function sessionTurnBusy(ownerSessionId) {
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (tracker && tracker.ownerGeneration > 0 && (!tracker.sealed || tracker.freezing)) return true;
+  for (const key of _pendingFreezes.keys()) {
+    if (key.startsWith(`${ownerSessionId}\0`)) return true;
   }
-  const recorded = await revertFromRecord(worktree, ownerSessionId, null, expectedCheckpointId);
-  if (recorded) return recorded;
-  throw new Error('turn worktree snapshot is unavailable');
+  return false;
+}
+
+function turnChangesPending(ownerSessionId, checkpointId) {
+  if (_pendingFreezes.has(pendingFreezeKey(ownerSessionId, checkpointId))) return true;
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
+  return Boolean(tracker && tracker.ownerGeneration > 0 && !tracker.sealed && tracker.checkpointId === checkpointId);
+}
+
+function requiredCheckpointId(value) {
+  const checkpointId = clean(value);
+  if (!checkpointId) throw new TypeError('checkpointId is required');
+  return checkpointId;
+}
+
+/** One turn's frozen changes by exact checkpoint id (TurnChangesReply). An
+ *  unknown checkpoint is `missing`; it never resolves to the latest turn. */
+export async function getTurnChanges(sessionId, options = {}) {
+  const ownerSessionId = clean(sessionId);
+  const checkpointId = requiredCheckpointId(options?.checkpointId);
+  const record = ownerSessionId
+    ? withUnknownChangeStates(ownerSessionId, await loadTurnChangeRecord(ownerSessionId, checkpointId))
+    : null;
+  let status = 'missing';
+  if (ownerSessionId && turnChangesPending(ownerSessionId, checkpointId)) status = 'pending';
+  else if (record) status = record.files?.length ? 'ready' : 'none';
+  return turnChangesReply({
+    status,
+    checkpointId,
+    record,
+    patch: options?.patch === true,
+    file: clean(options?.file) || null,
+  });
+}
+
+function serializeChangeMutation(ownerSessionId, task) {
+  const previous = _changeMutations.get(ownerSessionId) || Promise.resolve();
+  const next = previous.then(task, task);
+  const settled = next.then(
+    () => undefined,
+    () => undefined
+  );
+  _changeMutations.set(ownerSessionId, settled);
+  settled.then(() => {
+    if (_changeMutations.get(ownerSessionId) === settled) _changeMutations.delete(ownerSessionId);
+  });
+  return next;
+}
+
+const fileState = (file) => (file.state === 'reverted' ? 'reverted' : 'applied');
+
+/** Persist `state` for the record files under `keys`, bumping the revision
+ *  when anything changed: the one state write of composer and historical Undo. */
+function writeTurnChangeState(ownerSessionId, checkpointId, keys, state) {
+  return updateTurnChangeRecord(ownerSessionId, checkpointId, (current) => {
+    let changed = false;
+    const files = (current.files || []).map((entry) => {
+      if (!keys.has(changePathKey(entry.path)) || fileState(entry) === state) return entry;
+      changed = true;
+      return { ...entry, state };
+    });
+    return changed ? files : null;
+  });
+}
+
+const markUnknownStates = (files, keys) =>
+  (files || []).map((entry) => (keys.has(changePathKey(entry.path)) ? unknownStateChangeFile(entry) : entry));
+
+/** A state write failed after the worktree changed and could not be undone:
+ *  mark those files unknown in the record, or — when the store refuses that
+ *  write too — for the rest of this runtime, so no reply reads them as
+ *  cleanly applied or reverted. */
+async function markTurnChangeStateUnknown(ownerSessionId, checkpointId, keys) {
+  try {
+    await updateTurnChangeRecord(ownerSessionId, checkpointId, (current) => markUnknownStates(current.files, keys));
+    return;
+  } catch {}
+  const key = pendingFreezeKey(ownerSessionId, checkpointId);
+  _unknownChangeStates.set(key, new Set([...(_unknownChangeStates.get(key) || []), ...keys]));
+}
+
+function withUnknownChangeStates(ownerSessionId, record) {
+  const keys = record && _unknownChangeStates.get(pendingFreezeKey(ownerSessionId, record.checkpointId));
+  return keys ? { ...record, files: markUnknownStates(record.files, keys) } : record;
+}
+
+/** The exact-buffer review tracker (non-Git or contended worktree) an
+ *  Undo/Reapply must fold into, with the pre-mutation bytes of every moved
+ *  file under the tracker's root. Null when the review has a usable Git
+ *  baseline (it re-captures instead) or nothing to fold. */
+async function trackedReviewFold(ownerSessionId, root, targets, reverse) {
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (!tracker?.valid || worktreeSnapshotUsable(tracker) || !tracker.worktreeRoot) return null;
+  const inside = (path) => {
+    const rel = relative(tracker.worktreeRoot, path);
+    return Boolean(rel) && !rel.startsWith('..') && !isAbsolute(rel);
+  };
+  const moves = [];
+  for (const entry of targets) {
+    const path = resolve(root, entry.path);
+    const oldPath = entry.oldPath ? resolve(root, entry.oldPath) : path;
+    const move = reverse ? { source: path, destination: oldPath } : { source: oldPath, destination: path };
+    if (inside(move.source) && inside(move.destination)) moves.push(move);
+  }
+  if (moves.length === 0) return null;
+  try {
+    for (const move of moves) move.before = await currentTrackedContent(move.source);
+  } catch {
+    return { tracker, moves, unreadable: true };
+  }
+  return { tracker, moves };
+}
+
+/** One moved file as a tracked change: its pre-mutation bytes and what the
+ *  mutation left at its destination. */
+async function movedFileChange(root, move) {
+  const change = {
+    path: move.source,
+    displayPath: trackedRelativePath(root, { path: move.source }),
+    before: move.before,
+    after: await currentTrackedContent(move.destination),
+  };
+  if (move.destination === move.source) return change;
+  return {
+    ...change,
+    newPath: move.destination,
+    newDisplayPath: trackedRelativePath(root, { path: move.destination }),
+  };
+}
+
+/** Fold an applied Undo/Reapply into the exact tracker. A file the tracker
+ *  cannot read back exactly drops the tracked review rather than leaving it
+ *  describing the old disk. */
+async function foldReviewMutation({ tracker, moves, unreadable }) {
+  try {
+    if (unreadable) throw new Error('unreadable');
+    const changes = [];
+    for (const move of moves) changes.push(await movedFileChange(tracker.worktreeRoot, move));
+    foldTrackedChanges(tracker, changes, null);
+    if (!tracker.unifiedDiff) releaseDiffTrackerContent(tracker);
+  } catch {
+    tracker.valid = false;
+    releaseDiffTrackerContent(tracker);
+    refreshUnifiedDiff(tracker);
+  }
+}
+
+/** Bring the latest-turn review (composer bar, session Diff) in line with
+ *  the disk an Undo/Reapply just changed: signal the moved paths, fold the
+ *  mutation into the exact tracker, re-capture the Git snapshot (sealed ones
+ *  too) and persist its attribution. Best-effort: the mutation itself
+ *  already landed. */
+async function refreshLatestTurnReview(ownerSessionId, root, targets, fold) {
+  noteTurnWorktreeChange(
+    targets
+      .flatMap((entry) => [entry.path, entry.oldPath])
+      .filter(Boolean)
+      .map((path) => resolve(root, path))
+  );
+  if (fold?.tracker.valid) await foldReviewMutation(fold);
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (!tracker?.worktreeSnapshot) return;
+  try {
+    await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot, { force: true });
+  } catch {}
+  if (tracker.sealed) await persistTurnSnapshotRecord(ownerSessionId, tracker);
+}
+
+/** Undo (`reverse`) or Reapply one file or the whole turn, all-or-nothing. */
+async function mutateTurnChanges(sessionId, checkpointIdValue, fileValue, revision, reverse) {
+  const ownerSessionId = clean(sessionId);
+  if (!ownerSessionId) throw new Error('turn changes are unavailable without a session');
+  const checkpointId = requiredCheckpointId(checkpointIdValue);
+  if (!Number.isSafeInteger(revision)) throw new TypeError('revision must be an integer');
+  const file = fileValue === null || fileValue === undefined ? null : clean(fileValue);
+  const verb = reverse ? 'undone' : 'reapplied';
+  return await serializeChangeMutation(ownerSessionId, async () => {
+    if (sessionTurnBusy(ownerSessionId)) {
+      throw new Error('turn changes cannot change while this session is running a turn');
+    }
+    const record = withUnknownChangeStates(ownerSessionId, await loadTurnChangeRecord(ownerSessionId, checkpointId));
+    if (!record) throw new Error('turn changes are unavailable: no record for this turn');
+    if (Number(record.revision) !== revision) throw new Error('turn changes changed; refresh');
+    const from = reverse ? 'applied' : 'reverted';
+    let targets;
+    if (file) {
+      const match = findChangeFile(record, file);
+      if (!match) throw new Error(`${file} is not part of this turn's changes`);
+      if (fileState(match) !== from) throw new Error(`${match.path} is already ${verb}`);
+      targets = [match];
+    } else {
+      targets = (record.files || []).filter((entry) => fileState(entry) === from);
+      if (targets.length === 0) throw new Error(`this turn has no changes to be ${verb}`);
+    }
+    const blocked = targets.find((entry) => entry.revertable !== true);
+    if (blocked) {
+      throw new Error(`${blocked.path} cannot be ${verb}: ${blocked.reason || 'no replayable patch was recorded'}`);
+    }
+    const fold = await trackedReviewFold(ownerSessionId, record.root, targets, reverse);
+    const root = await applyTurnChangeFiles(record, targets, { reverse });
+    // State lands only after git applied every target; a state that cannot
+    // land takes the worktree change back with it.
+    const keys = new Set(targets.map((entry) => changePathKey(entry.path)));
+    let updated;
+    try {
+      updated = await writeTurnChangeState(ownerSessionId, checkpointId, keys, reverse ? 'reverted' : 'applied');
+    } catch (error) {
+      try {
+        await applyTurnChangeFiles(record, targets, { reverse: !reverse });
+      } catch (rollbackError) {
+        await markTurnChangeStateUnknown(ownerSessionId, checkpointId, keys);
+        await refreshLatestTurnReview(ownerSessionId, root, targets, fold);
+        throw new Error(
+          `turn changes were ${verb} but could not be recorded (${error.message}), and restoring the worktree failed (${rollbackError.message}); Undo/Reapply of those files is disabled`,
+          { cause: error }
+        );
+      }
+      throw error;
+    }
+    await refreshLatestTurnReview(ownerSessionId, root, targets, fold);
+    return turnChangesReply({
+      status: updated ? 'ready' : 'missing',
+      checkpointId,
+      record: withUnknownChangeStates(ownerSessionId, updated),
+    });
+  });
+}
+
+/** Reverse-apply one recorded file (`file`) or every applied file (`null`). */
+export function revertTurnChanges(sessionId, checkpointId, file, revision) {
+  return mutateTurnChanges(sessionId, checkpointId, file, revision, true);
+}
+
+/** Forward-apply one reverted file (`file`) or every reverted file (`null`). */
+export function reapplyTurnChanges(sessionId, checkpointId, file, revision) {
+  return mutateTurnChanges(sessionId, checkpointId, file, revision, false);
 }
 
 export function _resetTurnSnapshotForTest() {
   _turnsBySession.clear();
   _diffTrackersBySession.clear();
+  _pendingFreezes.clear();
+  _changeMutations.clear();
+  _unknownChangeStates.clear();
+  _turnOpenedHookForTest = null;
   _agentTurnSeq = 0;
   _resetTurnWorktreeSnapshotsForTest();
 }

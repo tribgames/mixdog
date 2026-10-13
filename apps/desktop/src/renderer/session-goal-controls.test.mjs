@@ -53,16 +53,15 @@ test('Goal tab controls stay in one visible row under the task list', async (t) 
       })
     )
   );
-  for (const { width, mobile, scale } of [
-    { width: 900, mobile: false, scale: 1 },
-    { width: 320, mobile: false, scale: 1 },
-    { width: 980, mobile: true, scale: 2.5 },
-    { width: 390, mobile: true, scale: 1 },
+  for (const { width, mobile } of [
+    { width: 900, mobile: false },
+    { width: 320, mobile: false },
+    { width: 390, mobile: true },
   ]) {
     await page.setViewport({ width, height: 760 });
     await page.setContent(`<!doctype html><html ${mobile ? 'data-mixdog-mobile-tabs' : ''}><head><style>
       :root {
-        --mx-device-scale: ${scale}; --mx-icon-md: 16px;
+        --mx-icon-md: 16px;
         --mx-font-category: 15px; --mx-font-minor: 14px; --mx-font-meta: 13px;
         --mx-line-emphasis: 22px; --mx-line-ui: 20px; --mx-line-minor: 18px;
         --mx-text: #ddd; --mx-text-muted: #aaa; --mx-border: #444;
@@ -301,7 +300,11 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
       }
       for (const entry of view.tasks) {
         // The running row reads at the label weight, as the mockup's current row does.
-        assert.deepEqual([entry.size, entry.weight, entry.line], ['14px', entry.current ? '500' : '400', '20px'], context);
+        assert.deepEqual(
+          [entry.size, entry.weight, entry.line],
+          ['14px', entry.current ? '500' : '400', '20px'],
+          context
+        );
         assert.equal(entry.fits, true, `${context}: long text wraps without horizontal clipping`);
         assert.equal(entry.iconLine, 20, `${context}: task glyph follows the first text line`);
         assert.ok(entry.topDifference < 1, `${context}: icon and first line align`);
@@ -384,7 +387,7 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
   await page.setViewport({ width: 900, height: 800 });
   await page.setContent(`<!doctype html><html><head><style>
     :root {
-      --mx-device-scale: 1; --mx-icon-md: 16px;
+      --mx-icon-md: 16px;
       --mx-font-category: 15px; --mx-font-minor: 14px; --mx-font-meta: 13px;
       --mx-line-emphasis: 22px; --mx-line-ui: 20px; --mx-line-minor: 18px;
       --mx-text: #ddd; --mx-text-muted: #aaa; --mx-border: #444;

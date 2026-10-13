@@ -119,7 +119,6 @@ function makeHarness(overrides = {}) {
     endComputerExecution: async (id) => record('computer.end', id),
     deferComputerSessionRelease: (id) => record('computer.defer', id),
     beginTurnSnapshotForTurn: (_cwd, id, opts) => record('snapshot.begin', id, opts.checkpointId),
-    cancelTurnSnapshotForTurn: (id) => record('snapshot.cancel', id),
     completeTurnSnapshotForTurn: (id) => record('snapshot.complete', id),
     turnCleanupSettleMs: 50,
     ...overrides,

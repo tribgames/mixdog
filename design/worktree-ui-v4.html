@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>시안 · 브랜치 칩 v4</title>
+<style>
+  /* Mixdog 다크 토큰 값 그대로 (01-tokens.css, ui/tokens.css, menu-items.css, 25-scm-dock.css) */
+  :root {
+    --bg-base:#222225; --layer1:#2a2a2d; --layer2:#323236; --layer3:#3d3d41; --canvas:#1b1b1d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff; --accent-bg:#1967d2;
+    --hover:rgba(255,255,255,.08); --border:rgba(255,255,255,.125); --border-muted:rgba(255,255,255,.09);
+    --popup-shadow:0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --r-md:6px; --r-xl:12px;
+    --font:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0e0e10; color:var(--text); font:14px/20px var(--font); padding:40px; }
+  h1 { font-size:20px; line-height:28px; margin:0 0 4px; }
+  .lead { color:var(--muted); font-size:13px; margin:0 0 32px; }
+  .grid { display:grid; grid-template-columns:repeat(2, 560px); gap:28px 24px; }
+  .cap { font-size:13px; color:var(--muted); margin:0 0 8px; }
+  svg.i { width:14px; height:14px; flex:none; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+  .canvas { position:relative; height:430px; background:var(--canvas); border-radius:10px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:20px; }
+  .comp { width:500px; position:relative; }
+
+  /* composer context chips: ghost, 28px, radius md, muted icon */
+  .chips { display:flex; align-items:center; gap:2px; margin:0 0 6px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 6px 0 8px; border-radius:var(--r-md); font-size:14px; color:var(--text); }
+  .chip svg { color:var(--muted); }
+  .chip .chev { width:12px; height:12px; }
+  .chip.open { background:var(--hover); }
+  .chip.split svg.lead-i { color:var(--accent); }
+
+  .box { background:var(--layer1); border-radius:var(--r-xl); padding:10px 12px 8px; }
+  .box .ph { color:var(--muted); height:28px; }
+  .box .ft { display:flex; align-items:center; gap:10px; font-size:14px; }
+  .box .ft .m { font-weight:600; } .box .ft .m span { color:var(--muted); font-weight:400; font-size:13px; }
+  .box .ft .g { flex:1; }
+  .send { width:24px; height:24px; border-radius:50%; background:#4a4a4e; display:grid; place-items:center; }
+
+  /* mx-menu: bg-base, no border, radius xl, inset 6, rows 30px radius md */
+  .wrap { position:relative; display:inline-flex; }
+  .menu { position:absolute; bottom:calc(100% + 2px); left:0; width:320px; background:var(--bg-base); border-radius:var(--r-xl); box-shadow:var(--popup-shadow); padding:6px; z-index:2; }
+  .filter { height:26px; margin:0 0 6px; padding:0 8px; border-radius:var(--r-md); background:var(--layer1); color:var(--muted); font-size:13px; display:flex; align-items:center; }
+  .item { min-height:30px; display:flex; align-items:center; gap:8px; padding:5px 10px; border-radius:var(--r-md); font-size:14px; }
+  .item svg { color:var(--muted); }
+  .item.sel { background:var(--layer2); }
+  .item.hover { background:var(--hover); }
+  .item small { margin-left:auto; color:var(--muted); font-size:13px; white-space:nowrap; }
+  .item.dim span { color:var(--muted); }
+  .label { height:22px; display:flex; align-items:center; margin:4px 0 0; padding:0 10px; border-top:1px solid var(--border-muted); color:var(--muted); font-size:13px; }
+  .label.first { border-top:0; margin-top:0; }
+  .hr { height:1px; background:var(--border-muted); margin:4px 0; }
+
+  .sw { margin-left:auto; width:28px; height:16px; border-radius:99px; background:rgba(255,255,255,.16); position:relative; flex:none; }
+  .sw::after { content:""; position:absolute; left:2px; top:2px; width:12px; height:12px; border-radius:50%; background:#fff; }
+  .sw.on { background:var(--accent-bg); } .sw.on::after { left:auto; right:2px; }
+
+  .tip { position:absolute; bottom:calc(100% + 2px); left:328px; background:var(--layer3); color:var(--text); font-size:13px; padding:4px 8px; border-radius:var(--r-md); white-space:nowrap; }
+  .msg { position:absolute; top:22px; right:30px; background:var(--layer1); border-radius:var(--r-xl); padding:8px 12px; font-size:14px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="br" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-12 7"/></symbol>
+  <symbol id="fk" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M6 7v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7M12 12v5"/></symbol>
+  <symbol id="fo" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="cv" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="pl" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="mg" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M6 9c0 3 6 3 10 3"/></symbol>
+  <symbol id="bk" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></symbol>
+  <symbol id="tr" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+</svg>
+
+<h1>브랜치 칩 v4</h1>
+<p class="lead">입력창 위 칩 줄 세 번째에 브랜치 칩 하나. 메뉴는 기존 선택 메뉴(mx-menu)와 소스 컨트롤 브랜치 목록의 모양을 그대로 따릅니다.</p>
+
+<div class="grid">
+  <!-- 1 -->
+  <div>
+    <p class="cap">새 작업 · 기본</p>
+    <div class="canvas">
+      <div class="comp">
+        <div class="chips">
+          <span class="chip"><svg class="i"><use href="#fo"/></svg>mixdog<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="chip">스웜<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="wrap"><span class="chip open"><svg class="i"><use href="#br"/></svg>main<svg class="i chev"><use href="#cv"/></svg></span>
+          <div class="menu">
+          <div class="filter">브랜치 검색</div>
+          <div class="item"><svg class="i"><use href="#fk"/></svg><span>별도 폴더에서 작업</span><span class="sw"></span></div>
+          <div class="label">기본 브랜치</div>
+          <div class="item sel"><svg class="i"><use href="#br"/></svg><span>main</span></div>
+          <div class="label">다른 브랜치</div>
+          <div class="item dim"><svg class="i"><use href="#br"/></svg><span>feat/ssh-remote</span><small>사용 중</small></div>
+          <div class="item"><svg class="i"><use href="#br"/></svg><span>next-patch</span></div>
+          <div class="hr"></div>
+          <div class="item"><svg class="i"><use href="#pl"/></svg><span>새 브랜치</span></div>
+          </div></span>
+        </div>
+        
+        <div class="box"><div class="ph">무엇이든 물어보세요...</div><div class="ft"><svg class="i"><use href="#pl"/></svg><span class="m">Claude Opus 5.5 <span>Auto</span></span><span class="g"></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div>
+    <p class="cap">새 작업 · 별도 폴더 켬</p>
+    <div class="canvas">
+      <div class="comp">
+        <div class="chips">
+          <span class="chip"><svg class="i"><use href="#fo"/></svg>mixdog<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="chip">스웜<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="wrap"><span class="chip split open"><svg class="i lead-i"><use href="#fk"/></svg>main<svg class="i chev"><use href="#cv"/></svg></span>
+          <div class="menu">
+          <div class="filter">브랜치 검색</div>
+          <div class="item"><svg class="i" style="color:var(--accent)"><use href="#fk"/></svg><span>별도 폴더에서 작업</span><span class="sw on"></span></div>
+          <div class="label">기준 브랜치</div>
+          <div class="item sel"><svg class="i"><use href="#br"/></svg><span>main</span></div>
+          <div class="item dim"><svg class="i"><use href="#br"/></svg><span>feat/ssh-remote</span><small>사용 중</small></div>
+          <div class="item"><svg class="i"><use href="#br"/></svg><span>next-patch</span></div>
+          </div></span>
+        </div>
+        
+        <div class="box"><div class="ph">무엇이든 물어보세요...</div><div class="ft"><svg class="i"><use href="#pl"/></svg><span class="m">Claude Opus 5.5 <span>Auto</span></span><span class="g"></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div>
+    <p class="cap">진행 중 · 별도 폴더</p>
+    <div class="canvas">
+      <div class="msg">BOM 처리 추가해줘</div>
+      <div class="comp">
+        <div class="chips">
+          <span class="chip"><svg class="i"><use href="#fo"/></svg>mixdog<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="chip">스웜<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="wrap"><span class="chip split open"><svg class="i lead-i"><use href="#fk"/></svg>mixdog/fix-bom<svg class="i chev"><use href="#cv"/></svg></span>
+          <div class="menu">
+          <div class="filter">브랜치 검색</div>
+          <div class="item sel"><svg class="i" style="color:var(--accent)"><use href="#fk"/></svg><span>mixdog/fix-bom</span><small>현재</small></div>
+          <div class="label">다른 브랜치</div>
+          <div class="item"><svg class="i"><use href="#br"/></svg><span>main</span></div>
+          <div class="item dim"><svg class="i"><use href="#br"/></svg><span>feat/ssh-remote</span><small>사용 중</small></div>
+          <div class="hr"></div>
+          <div class="item"><svg class="i"><use href="#mg"/></svg><span>main에 합치기</span></div>
+          <div class="item"><svg class="i"><use href="#bk"/></svg><span>프로젝트 폴더로 돌아가기</span></div>
+          <div class="item"><svg class="i"><use href="#tr"/></svg><span>폴더와 브랜치 지우기</span></div>
+          </div></span>
+        </div>
+        
+        <div class="box"><div class="ph">무엇이든 물어보세요...</div><div class="ft"><svg class="i"><use href="#pl"/></svg><span class="m">Claude Opus 5.5 <span>Auto</span></span><span class="g"></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <div>
+    <p class="cap">진행 중 · 프로젝트 폴더</p>
+    <div class="canvas">
+      <div class="msg">문서 오타 고쳐줘</div>
+      <div class="comp">
+        <div class="chips">
+          <span class="chip"><svg class="i"><use href="#fo"/></svg>mixdog<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="chip">스웜<svg class="i chev"><use href="#cv"/></svg></span>
+          <span class="wrap"><span class="chip open"><svg class="i"><use href="#br"/></svg>main<svg class="i chev"><use href="#cv"/></svg></span>
+          <div class="menu">
+          <div class="filter">브랜치 검색</div>
+          <div class="item sel"><svg class="i"><use href="#br"/></svg><span>main</span><small>현재</small></div>
+          <div class="label">다른 브랜치</div>
+          <div class="item dim hover"><svg class="i"><use href="#br"/></svg><span>feat/ssh-remote</span><small>사용 중</small></div>
+          <div class="item"><svg class="i"><use href="#br"/></svg><span>next-patch</span></div>
+          <div class="hr"></div>
+          <div class="item"><svg class="i"><use href="#fk"/></svg><span>별도 폴더로 옮기기</span></div>
+          <div class="item"><svg class="i"><use href="#pl"/></svg><span>새 브랜치</span></div>
+          </div></span>
+        </div>
+        
+        <div class="tip">SSH 원격 개발 착수에서 사용 중 · 누르면 이동</div>
+        <div class="box"><div class="ph">무엇이든 물어보세요...</div><div class="ft"><svg class="i"><use href="#pl"/></svg><span class="m">Claude Opus 5.5 <span>Auto</span></span><span class="g"></span><span class="send"><svg class="i"><use href="#up"/></svg></span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

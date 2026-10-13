@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
 import { createOAuthPkce } from './lib/oauth-pkce.mjs';
 import { accountIdentityFields, normalizeAccountIdentity } from './lib/oauth-token-utils.mjs';
@@ -75,6 +76,7 @@ export function cursorTokenIdentity(token) {
 }
 
 function loadStoredCredentials() {
+  if (modelProxyClientMode()) return null;
   if (process.env.CURSOR_ACCESS_TOKEN && !boundProviderAuthPath('cursor-oauth')) {
     return {
       access_token: process.env.CURSOR_ACCESS_TOKEN,

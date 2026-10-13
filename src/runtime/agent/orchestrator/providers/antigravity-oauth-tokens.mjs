@@ -18,6 +18,7 @@ import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 import {
   accountIdentityFields,
   normalizeExpiresAtMs as _normalizeExpiresAt,
@@ -192,6 +193,7 @@ function mtimeMs(path) {
 export { _normalizeExpiresAt };
 
 export function loadTokens() {
+  if (modelProxyClientMode()) return null;
   const path = getOwnTokenPath();
   if (!existsSync(path)) return null;
   try {

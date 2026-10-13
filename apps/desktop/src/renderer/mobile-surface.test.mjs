@@ -182,7 +182,6 @@ function assertPhoneBoot(dom, { ios = false } = {}) {
   assert.match(viewport.getAttribute('content'), /maximum-scale=1\.0/u);
   assert.match(viewport.getAttribute('content'), /user-scalable=no/u);
   assert.equal(dom.window.document.documentElement.hasAttribute('data-mixdog-mobile-tabs'), true);
-  assert.equal(dom.window.document.documentElement.style.getPropertyValue('--mx-device-scale'), '1');
   assert.equal(dom.window.document.documentElement.dataset.mixdogProjection, undefined);
   assert.equal(dom.window.document.documentElement.hasAttribute('data-mixdog-ios-web'), ios);
 }
@@ -328,7 +327,7 @@ test('only the Electron desktop promotes desktop-surface hints', () => {
 });
 
 test('phone finishing rules keep reading, touch and safe-area geometry aligned', () => {
-  assert.match(mobileChromeSource, /--mx-mobile-edge-main:\s*calc\(12px \* var\(--mx-device-scale/u);
+  assert.match(mobileChromeSource, /--mx-mobile-edge-main:\s*12px;/u);
   assert.match(
     mobileChromeSource,
     /html\[data-mixdog-mobile-tabs\] \.session-sidebar \.session-row\s*\{[^}]*height:\s*var\(--mx-touch-row\);[^}]*min-height:\s*var\(--mx-touch-row\);/su
@@ -352,17 +351,16 @@ test('phone finishing rules keep reading, touch and safe-area geometry aligned',
   );
   assert.match(
     mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest\s*\{[^}]*min-height:\s*var\(--mx-touch-main\);/su
+    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest::before\s*\{[^}]*inset:\s*calc\(\(var\(--mx-touch-main\) - 28px\) \/ -2\);/su
   );
   assert.match(mobileChromeSource, /settings-confirm-dialog > footer button,[\s\S]*?min-height:\s*var\(--mx-touch\);/u);
-  assert.match(mobileChromeSource, /orientation:\s*landscape[\s\S]*?grid-template-columns:\s*repeat\(3,/u);
   assert.match(
     mobileChromeSource,
-    /--mx-mobile-sheet-safe-bottom:\s*max\(\s*calc\(env\(safe-area-inset-bottom,\s*0px\) \/ var\(--mx-device-scale, 2\.5\)\),\s*calc\(env\(safe-area-max-inset-bottom,\s*0px\) \/ var\(--mx-device-scale, 2\.5\)\),\s*8px\s*\);/su
+    /--mx-mobile-sheet-safe-bottom:\s*max\(\s*env\(safe-area-inset-bottom,\s*0px\),\s*env\(safe-area-max-inset-bottom,\s*0px\),\s*8px\s*\);/su
   );
   assert.match(
     mobileChromeSource,
-    /\.sidebar-drawer-frame > \.sidebar\.session-sidebar[\s\S]*?\{[^}]*padding:\s*16px 8px var\(--mx-mobile-sheet-safe-bottom\);/u
+    /html\[data-mixdog-mobile-tabs\] \.sidebar-drawer-frame\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su
   );
   assert.match(
     mobileChromeSource,
@@ -428,36 +426,89 @@ test('every screen-pinned sheet takes the visible-height ceiling', () => {
     mobileChromeSource,
     /html\[data-mixdog-mobile-tabs\] \.pane-side-dock\s*\{[^}]*position:\s*fixed;[^}]*height:\s*var\(--mx-visible-height\);/su
   );
-  assert.match(
-    mobileChromeSource,
-    /\.sidebar-drawer-frame\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) \/ var\(--mx-device-scale, 2\.5\)\);/su
-  );
+  assert.match(mobileChromeSource, /\.sidebar-drawer-frame\s*\{[^}]*height:\s*var\(--mx-visible-height\);/su);
   // The narrow-band right sheet retired with the pane-embedded dock: a
   // narrow PANE overlays its own panel (pane-layout.css container query), so
   // no window-level fixed right sheet may return to the tab layer.
   assert.doesNotMatch(mobileTabsSource, /\.workbench-side-panel\[data-side="right"\][^{]*\{[^}]*position:\s*fixed/su);
 });
 
-test('desktop Chrome boot retains the canonical projection', () => {
+function bootDesktopLayout({ userAgent, platform, maxTouchPoints = 0, innerWidth, standalone = false }) {
   const dom = new JSDOM(
-    '<!doctype html><html><head><meta name="viewport" content="width=device-width"></head><body></body></html>',
-    { runScripts: 'outside-only', url: 'https://mixdog.test/' }
+    '<!doctype html><html><head><meta name="viewport" content="width=device-width"></head><body><div id="root"></div></body></html>',
+    { runScripts: 'outside-only', url: 'https://mixdog.test/d/device/' }
   );
-  Object.defineProperty(dom.window.navigator, 'userAgent', {
-    configurable: true,
-    value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131',
+  const define = (target, key, value) => Object.defineProperty(target, key, { configurable: true, value });
+  define(dom.window.navigator, 'userAgent', userAgent);
+  if (platform) define(dom.window.navigator, 'platform', platform);
+  define(dom.window.navigator, 'maxTouchPoints', maxTouchPoints);
+  if (innerWidth) define(dom.window, 'innerWidth', innerWidth);
+  dom.window.matchMedia = (query) => ({
+    matches:
+      (standalone && query === '(display-mode: standalone)') || (maxTouchPoints > 0 && query === '(pointer: coarse)'),
+    media: query,
+    addEventListener() {},
+    removeEventListener() {},
   });
   try {
     dom.window.eval(bootSource);
-    const viewport = dom.window.document.querySelector('meta[name="viewport"]');
-    assert.match(viewport.getAttribute('content'), /width=1040/u);
-    assert.match(viewport.getAttribute('content'), /maximum-scale=1\.0/u);
-    assert.match(viewport.getAttribute('content'), /user-scalable=no/u);
-    assert.equal(dom.window.document.documentElement.dataset.mixdogProjection, 'desktop');
-    assert.equal(dom.window.document.documentElement.hasAttribute('data-mixdog-mobile-tabs'), false);
+    const root = dom.window.document.documentElement;
+    return {
+      viewport: dom.window.document.querySelector('meta[name="viewport"]').getAttribute('content'),
+      projection: root.dataset.mixdogProjection,
+      phone: root.hasAttribute('data-mixdog-mobile-tabs'),
+      ios: root.hasAttribute('data-mixdog-ios-web'),
+      gated: root.hasAttribute('data-mixdog-booting'),
+    };
   } finally {
+    dom.window.mixdogRevealApp?.();
     dom.window.close();
   }
+}
+
+test('desktop Chrome boot lays out at device-width with no projection', () => {
+  const boot = bootDesktopLayout({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131',
+  });
+  assert.match(boot.viewport, /width=device-width/u);
+  assert.match(boot.viewport, /maximum-scale=1\.0/u);
+  assert.match(boot.viewport, /user-scalable=no/u);
+  assert.doesNotMatch(bootSource, /width=1040/u);
+  assert.equal(boot.projection, undefined);
+  assert.equal(boot.phone, false);
+});
+
+test('boot picks the tablet layout with the same classifier as the mounted app', async () => {
+  const { usesPhoneLayout } = await import('../shared/surface-class.ts');
+  const android = 'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/131 Safari/537.36';
+  const ipad = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
+  for (const [userAgent, platform, innerWidth] of [
+    [android, 'Linux armv8l', 800],
+    [android, 'Linux armv8l', 1280],
+    [android, 'Linux armv8l', 600],
+    [ipad, 'MacIntel', 1180],
+    [ipad, 'MacIntel', 820],
+    [ipad, 'MacIntel', 507],
+  ]) {
+    const boot = bootDesktopLayout({ userAgent, platform, maxTouchPoints: 5, innerWidth });
+    const probe = { userAgent, platform, maxTouchPoints: 5, coarsePointer: true };
+    assert.match(boot.viewport, /width=device-width/u);
+    assert.equal(boot.projection, undefined);
+    assert.equal(boot.phone, usesPhoneLayout(probe, innerWidth), `${platform} at ${innerWidth}`);
+    assert.equal(boot.phone, innerWidth < 640, `${platform} at ${innerWidth}`);
+    assert.equal(boot.ios, boot.phone && platform === 'MacIntel');
+  }
+  // An installed tablet app gets the boot gate like an installed phone app.
+  assert.equal(
+    bootDesktopLayout({
+      userAgent: android,
+      platform: 'Linux armv8l',
+      maxTouchPoints: 5,
+      innerWidth: 800,
+      standalone: true,
+    }).gated,
+    true
+  );
 });
 
 test('iOS web surfaces keep native scale through landscape rotation', async () => {
@@ -490,21 +541,19 @@ test('iOS web surfaces keep native scale through landscape rotation', async () =
       isInstalledMobileWebAppSurface,
       isInstalledWebAppSurface,
       isMobileRemoteSurface,
-      mobileSurfaceScale,
     } = await import(`./mobile-surface.ts?ios=${Date.now()}`);
     assert.equal(isIOSWebSurface(), true);
     assert.equal(isMobileRemoteSurface(), true);
     assert.equal(isInstalledWebAppSurface(), true);
     assert.equal(isInstalledMobileWebAppSurface(), true);
-    assert.equal(mobileSurfaceScale(), 1);
 
     const remove = installMobileSurfaceMarker();
     assert.equal(document.documentElement.hasAttribute('data-mixdog-mobile-tabs'), true);
     assert.equal(document.documentElement.hasAttribute('data-mixdog-ios-web'), true);
-    assert.equal(document.documentElement.style.getPropertyValue('--mx-device-scale'), '1');
 
     window.dispatchEvent(new dom.window.Event('orientationchange'));
-    assert.equal(document.documentElement.style.getPropertyValue('--mx-device-scale'), '1');
+    assert.equal(document.documentElement.hasAttribute('data-mixdog-mobile-tabs'), true);
+    assert.equal(document.documentElement.hasAttribute('data-mixdog-ios-web'), true);
     remove();
   } finally {
     restore();
@@ -683,53 +732,13 @@ test('Android phones keep native scale on Pixel and Samsung screens', async () =
   });
 
   try {
-    const { installMobileSurfaceMarker, isMobileRemoteSurface, mobileSurfaceScale } = await import(
+    const { installMobileSurfaceMarker, isMobileRemoteSurface } = await import(
       `./mobile-surface.ts?android=${Date.now()}`
     );
     assert.equal(isMobileRemoteSurface(), true);
-    assert.equal(mobileSurfaceScale(), 1);
     const remove = installMobileSurfaceMarker();
     assert.equal(document.documentElement.hasAttribute('data-mixdog-mobile-tabs'), true);
     assert.equal(document.documentElement.hasAttribute('data-mixdog-ios-web'), false);
-    assert.equal(document.documentElement.style.getPropertyValue('--mx-device-scale'), '1');
-    remove();
-  } finally {
-    restore();
-  }
-});
-
-// A cached older boot.js still pins the 1040px desktop projection. The bundle
-// must counter-scale it instead of assuming device-width, or the phone paints
-// dp-sized chrome into a canvas the browser shrinks onto a 412px screen.
-test('a stale projected boot keeps phone chrome at native size', async () => {
-  const { dom, restore } = installTestDom(null, {
-    html: '<!doctype html><html data-mixdog-projection="desktop"><body></body></html>',
-    expose: ['navigator'],
-    actEnvironment: false,
-  });
-  Object.defineProperty(dom.window.navigator, 'userAgent', {
-    configurable: true,
-    value: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile',
-  });
-  Object.defineProperty(dom.window.navigator, 'maxTouchPoints', {
-    configurable: true,
-    value: 5,
-  });
-  Object.defineProperty(dom.window.screen, 'width', { configurable: true, value: 412 });
-  Object.defineProperty(dom.window.screen, 'height', { configurable: true, value: 915 });
-  Object.defineProperty(dom.window.document.documentElement, 'clientWidth', {
-    configurable: true,
-    value: 1040,
-  });
-
-  try {
-    const { installMobileSurfaceMarker, mobileSurfaceScale } = await import(
-      `./mobile-surface.ts?projected=${Date.now()}`
-    );
-    assert.equal(mobileSurfaceScale(), 2.52);
-    const remove = installMobileSurfaceMarker();
-    assert.equal(document.documentElement.hasAttribute('data-mixdog-mobile-tabs'), true);
-    assert.equal(document.documentElement.style.getPropertyValue('--mx-device-scale'), '2.52');
     remove();
   } finally {
     restore();

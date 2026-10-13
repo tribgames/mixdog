@@ -32,24 +32,38 @@ export function HostFolderBrowser({
   const [draft, setDraft] = useState(startPath);
   const [folders, setFolders] = useState<string[]>([]);
   const [error, setError] = useState('');
+  // Canonical directory the host actually listed (an empty start is its home).
+  const [listed, setListed] = useState('');
 
   useEffect(() => {
-    if (!current) return undefined;
     let live = true;
-    const list = window.mixdogDesktop?.listProjectDir;
-    if (!list) {
-      setError(t('Folder browsing is unavailable.'));
+    const api = window.mixdogDesktop;
+    // The host-wide listing works with no project registered; the per-project
+    // listing only serves hosts that predate it.
+    let request: Promise<{ path: string; folders: string[] }> | undefined;
+    if (api?.listHostDirectories) {
+      request = api.listHostDirectories(current);
+    } else if (api?.listProjectDir && current) {
+      request = api.listProjectDir(current, '').then((entries) => ({
+        path: current,
+        folders: entries.filter((entry) => entry.dir).map((entry) => entry.name),
+      }));
+    }
+    if (!request) {
+      if (current) setError(t('Folder browsing is unavailable.'));
       return undefined;
     }
-    list(current, '').then(
-      (entries) => {
+    request.then(
+      (result) => {
         if (!live) return;
         setError('');
-        setFolders(entries.filter((entry) => entry.dir).map((entry) => entry.name));
+        setListed(result.path);
+        setFolders(result.folders);
       },
       () => {
         if (!live) return;
         setFolders([]);
+        setListed('');
         setError(t('This folder cannot be opened on the host computer.'));
       }
     );
@@ -58,10 +72,12 @@ export function HostFolderBrowser({
     };
   }, [current]);
 
-  const parent = current ? parentHostPath(current) : null;
+  const here = listed || current;
+  const parent = here ? parentHostPath(here) : null;
   const go = (path: string) => {
     setCurrent(path);
     setDraft(path);
+    setListed('');
   };
   return (
     <div className="host-folder-browser">
@@ -85,7 +101,7 @@ export function HostFolderBrowser({
       <ul className="host-folder-list" aria-label={t('Folders')}>
         {folders.map((name) => (
           <li key={name}>
-            <button type="button" className="extensions-action" onClick={() => go(joinHostPath(current, name))}>
+            <button type="button" className="extensions-action" onClick={() => go(joinHostPath(here, name))}>
               <Folder size={14} aria-hidden="true" /> {name}
             </button>
           </li>
@@ -95,7 +111,7 @@ export function HostFolderBrowser({
         <button type="button" className="secondary" onClick={onCancel}>
           {t('Cancel')}
         </button>
-        <button type="button" disabled={!current || Boolean(error)} onClick={() => onSelect(current)}>
+        <button type="button" disabled={!here} onClick={() => onSelect(here)}>
           {t('Select this folder')}
         </button>
       </div>

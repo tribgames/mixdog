@@ -9,7 +9,18 @@ test('Muse model-level levels override the provider list, so spark-1.3 offers ma
   const five = ['minimal', 'low', 'medium', 'high', 'xhigh'];
   assert.deepEqual(effortOptionsFor('muse-code-oauth', row([...five, 'max'])), [...five, 'max']);
   assert.deepEqual(effortOptionsFor('muse-code-oauth', row(five)), five);
-  assert.deepEqual(effortOptionsFor('muse-code-oauth', {}), five);
+  // The ladder comes from the model's catalog row; the provider has no blanket list.
+  assert.deepEqual(effortOptionsFor('muse-code-oauth', {}), []);
+});
+
+test('relay ladders come only from their own catalog rows', () => {
+  const row = (values) => ({ reasoningOptions: [{ type: 'effort', values }] });
+  const upToXhigh = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+  assert.deepEqual(effortOptionsFor('opencode-go', row(upToXhigh)), upToXhigh);
+  assert.deepEqual(effortOptionsFor('opencode-go', { id: 'muse-spark-1.3-contributor' }), []);
+  assert.deepEqual(effortOptionsFor('cursor-oauth', {}), []);
+  // A provider that publishes no effort metadata keeps its last-resort ladder.
+  assert.deepEqual(effortOptionsFor('mimo-oauth', {}), ['minimal', 'low', 'medium', 'high']);
 });
 
 test('Codex OAuth effort levels survive enrichment with public API options', async () => {

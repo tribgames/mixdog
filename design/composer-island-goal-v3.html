@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Composer island · Goal segment v3</title>
+<style>
+  /* Tokens: dark = composer-island-final.html; light = 01-tokens.css light theme */
+  :root, [data-theme="dark"] {
+    --page: #0f0f11; --bg: #161618; --text: #e9e9e9; --soft: #d6d6d6; --muted: #a8a8a8; --faint: #7a7a80;
+    --accent: #79b8ff; --warn: #f2cf76; --ok: #6bd586; --danger: #f17471;
+    --line: rgba(255,255,255,.08); --island: #232326; --track: #3d3d41; --hover: rgba(255,255,255,.08);
+    --sep: rgba(255,255,255,.09); --code: #19191c; --btn-line: rgba(255,255,255,.12);
+    --pill-shadow: 0 2px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3), 0 0 0 .5px rgba(255,255,255,.16), 0 -.5px 0 rgba(255,255,255,.06), 0 12px 24px -4px rgba(0,0,0,.22);
+    --panel-shadow: 0 0 0 1px rgba(255,255,255,.09), inset 0 1px 0 rgba(255,255,255,.06), 0 6px 18px rgba(0,0,0,.22);
+  }
+  [data-theme="light"] {
+    --page: #e8e8e8; --bg: #fcfcfc; --text: #222222; --soft: rgba(34,34,34,.85); --muted: #606060; --faint: #606060;
+    --accent: #185abc; --warn: #855900; --ok: #137333; --danger: #b82d35;
+    --line: rgba(0,0,0,.09); --island: #ffffff; --track: #dadada; --hover: rgba(119,119,119,.12);
+    --sep: rgba(0,0,0,.12); --code: #f3f3f3; --btn-line: rgba(0,0,0,.16);
+    --pill-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.18), 0 8px 18px -6px rgba(0,0,0,.16);
+    --panel-shadow: 0 0 0 1px rgba(0,0,0,.1), 0 6px 18px rgba(0,0,0,.12);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text); font: 400 14px/20px "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; padding: 32px 40px 80px; }
+  main { max-width: 1880px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 48px 0 6px; }
+  h2 em { font-style: normal; color: var(--ok); font-weight: 500; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 980px; }
+  .tools { position: absolute; right: 40px; top: 28px; display: flex; gap: 6px; }
+  .tools button { font: inherit; font-size: 12px; color: var(--muted); background: transparent; border: 0; border-radius: 7px; box-shadow: inset 0 0 0 1px var(--btn-line); padding: 3px 10px; cursor: pointer; }
+  .tools button[aria-pressed="true"] { color: var(--text); background: var(--hover); }
+
+  /* ── island pill (same language as composer-island-final) ── */
+  .pill { display: inline-flex; align-items: center; height: 34px; padding: 0 4px; border-radius: 999px; background: var(--island); box-shadow: var(--pill-shadow);
+    font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: -.005em; white-space: nowrap; max-width: 100%; min-width: 0; }
+  .seg { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 999px; color: var(--soft); font-variant-numeric: tabular-nums; flex: none; }
+  .seg + .seg { margin-left: 5px; }
+  .seg + .seg::before { content: ""; position: absolute; left: -3px; top: 50%; width: 1px; height: 14px; transform: translateY(-50%); background: var(--sep); }
+  .meta { color: var(--muted); font-weight: 400; }
+  .w { color: var(--warn); }
+  .pulse, .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .pulse { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  .dot.warn { background: var(--warn); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+  svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .seg > svg.bot { color: var(--muted); }
+
+  /* ── goal segment ── */
+  .seg.goal { color: var(--text); min-width: 0; flex: 0 1 auto; overflow: hidden; cursor: default; --c: var(--accent); --cf: var(--accent); }
+  .seg.goal:hover { background: var(--hover); }
+  .seg.goal[data-s="paused"]   { --c: var(--muted); --cf: var(--muted); }
+  .seg.goal[data-s="blocked"]  { --c: var(--danger); }
+  .seg.goal[data-s="waiting"]  { --c: var(--warn); }
+  .seg.goal[data-s="complete"] { --c: var(--ok); --cf: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+  .seg.goal[data-s="complete"]:hover { background: color-mix(in srgb, var(--ok) 20%, transparent); }
+  .gl { color: var(--c); }
+  .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; max-width: var(--tm, 240px); flex: 0 1 auto; }
+  .goal .title.flex { flex: 1 1 0; max-width: none; }
+  .sec { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 400; display: inline-flex; gap: 6px; }
+  .sec .st { color: var(--c); font-weight: 500; flex: none; }
+  .sec .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .goal[data-s="paused"] .st { color: var(--muted); }
+  .sec.fade, .sec.fade .tx { text-overflow: clip; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); }
+  .chev { color: var(--faint); font-weight: 400; flex: none; opacity: .8; }
+  .cnt { flex: none; }
+  .tm { flex: none; color: var(--muted); font-weight: 400; min-width: 3ch; text-align: right; }
+  .st-label { color: var(--c); flex: none; }
+  .goal[data-s="paused"] .st-label { color: var(--muted); }
+  .t-dim { color: var(--muted); font-weight: 400; }
+
+  /* pips: one per task */
+  .pips { display: flex; gap: 2px; width: 56px; height: 4px; flex: none; }
+  .pips.many { gap: 1px; }
+  .pips i { flex: 1 1 0; border-radius: 2px; background: var(--track); }
+  .pips i.c { background: var(--cf); }
+  .pips i.i { background: linear-gradient(90deg, var(--c) 50%, var(--track) 50%); }
+  .pips i.a { background: var(--warn); }
+  .pips i.d { align-self: center; height: 2px; opacity: .7; }
+  /* ring */
+  .ring { position: relative; width: 18px; height: 18px; flex: none; display: grid; place-items: center; color: var(--c); }
+  .ring::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--c) var(--p), var(--track) 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px)); }
+  .ring svg { width: 10px; height: 10px; stroke-width: 2.6; }
+  .ring svg { width: 11px; height: 11px; stroke-width: 2.2; }
+  .ring.fxr { color: var(--soft); }
+  .gl.fx { position: relative; display: inline-flex; }
+  .gl.fx svg { color: var(--soft); }
+  .gl.fx .sd { position: absolute; right: -3px; bottom: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1.5px var(--island); }
+  .gl.fx + .pips { margin-left: 2px; }
+  .icrow { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 8px 4px; }
+  .icrow + .icrow { border-top: 1px solid var(--line); }
+  .iclab { width: 150px; font-size: 12.5px; color: var(--muted); }
+  .iclab b { display: block; color: var(--text); font-weight: 500; }
+  .zoomwrap { display: flex; gap: 28px; flex-wrap: wrap; }
+  .zoom { position: relative; background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 14px 18px 14px; overflow: hidden; }
+  .zoom small { display: block; color: var(--faint); font-size: 11px; margin-bottom: 10px; }
+  .zoom .z { zoom: 2.6; display: inline-block; position: relative; }
+  .zoom .z::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: color-mix(in srgb, var(--danger) 55%, transparent); pointer-events: none; }
+  .ring .core { width: 4px; height: 4px; border-radius: 50%; background: var(--c); }
+  /* baseline progress (direction B) */
+  .base { position: absolute; left: 12px; right: 12px; bottom: 1px; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--track) 70%, transparent); overflow: hidden; }
+  .base i { display: block; height: 100%; width: var(--p); background: var(--cf); border-radius: 2px; }
+  .goal[data-s="blocked"] .base i, .goal[data-s="waiting"] .base i { background: var(--accent); }
+  /* current (shipped) */
+  .bar { width: 22px; height: 3px; border-radius: 99px; background: var(--track); overflow: hidden; flex: none; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+
+  /* ── layout of the matrix ── */
+  .grid { display: grid; grid-template-columns: 112px 360px 560px 760px; gap: 10px; align-items: stretch; overflow-x: auto; padding-bottom: 4px; }
+  .hd { font-size: 12px; color: var(--muted); padding: 0 4px; }
+  .rl { font-size: 12.5px; color: var(--muted); padding-top: 10px; }
+  .rl b { display: block; color: var(--text); font-weight: 500; }
+  .cell { background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 6px 10px 10px; display: grid; gap: 6px; align-content: start; }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .stage small { align-self: flex-start; font-size: 10.5px; color: var(--faint); line-height: 14px; }
+  .stage .row { width: 100%; display: flex; justify-content: center; }
+  .dirhead { display: flex; align-items: baseline; gap: 10px; }
+  .why { color: var(--soft); font-size: 13px; max-width: 980px; margin: 0 0 12px; }
+  .why b { color: var(--text); font-weight: 600; }
+
+  /* ── compare ── */
+  .cmp { display: grid; grid-template-columns: 120px 1fr 1fr; gap: 10px; max-width: 1180px; }
+  .cmp .cell { padding: 10px 12px 12px; }
+
+  /* ── panel (expanded) – same as final mockup .panel ── */
+  .panels { display: grid; grid-template-columns: repeat(auto-fill, 560px); gap: 22px; }
+  .shot { background: var(--bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 12px; width: 584px; }
+  .shot > small { display: block; color: var(--faint); font-size: 11px; margin-bottom: 8px; }
+  .shot .pillrow { display: flex; justify-content: center; margin-bottom: 8px; }
+  .panel { width: 560px; max-width: 100%; border-radius: 18px; background: var(--island); box-shadow: var(--panel-shadow); font-size: 14px; line-height: 20px; font-weight: 500; overflow: hidden; }
+  .phead { height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+  .tab { height: 26px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 999px; color: var(--text); background: var(--hover); font-variant-numeric: tabular-nums; --c: var(--accent); --cf: var(--accent); }
+  .tab[data-s="paused"] { --c: var(--muted); --cf: var(--muted); } .tab[data-s="blocked"] { --c: var(--danger); } .tab[data-s="waiting"] { --c: var(--warn); } .tab[data-s="complete"] { --c: var(--ok); --cf: var(--ok); }
+  .tab .st { color: var(--c); font-weight: 500; }
+  .x { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; color: var(--muted); }
+  .pbody { padding: 12px 14px 12px; display: grid; gap: 10px; }
+  .obj { margin: 0; font-size: 14px; line-height: 20px; color: var(--text); font-weight: 500; }
+  .sline { display: flex; gap: 6px; align-items: center; color: var(--muted); font-weight: 400; font-size: 12.5px; line-height: 18px; font-variant-numeric: tabular-nums; --c: var(--accent); }
+  .sline[data-s="paused"] { --c: var(--muted); } .sline[data-s="blocked"] { --c: var(--danger); } .sline[data-s="waiting"] { --c: var(--warn); } .sline[data-s="complete"] { --c: var(--ok); }
+  .sline .st { color: var(--c); font-weight: 500; }
+  ul.tasks { list-style: none; margin: 0; padding: 0; }
+  ul.tasks li { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 8px; margin: 0 -8px; border-radius: 9px; font-weight: 400; color: var(--soft); }
+  ul.tasks li + li { margin-top: 1px; }
+  ul.tasks li svg { color: var(--faint); }
+  ul.tasks li .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ul.tasks li[data-k="c"] { color: var(--muted); } ul.tasks li[data-k="c"] svg { color: var(--ok); }
+  ul.tasks li[data-k="i"] { color: var(--text); font-weight: 500; background: var(--hover); } ul.tasks li[data-k="i"] svg { color: var(--accent); }
+  ul.tasks li[data-k="n"] svg { color: var(--faint); }
+  ul.tasks li[data-k="d"] { color: var(--faint); } ul.tasks li[data-k="d"] .tt { text-decoration: line-through; text-decoration-thickness: 1px; }
+  ul.tasks li[data-k="a"] { color: var(--text); font-weight: 500; background: color-mix(in srgb, var(--warn) 12%, transparent); } ul.tasks li[data-k="a"] svg { color: var(--warn); }
+  ul.tasks li[data-k="x"] { color: var(--text); font-weight: 500; background: color-mix(in srgb, var(--danger) 10%, transparent); } ul.tasks li[data-k="x"] svg { color: var(--danger); }
+  .chip { font-size: 11px; height: 18px; padding: 0 7px; border-radius: 999px; display: inline-flex; align-items: center; font-weight: 400; flex: none; }
+  .chip.w { color: var(--warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 40%, transparent); }
+  .chip.r { color: var(--danger); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 40%, transparent); }
+  .blk { margin: 0; font-size: 12.5px; line-height: 18px; font-weight: 400; color: var(--warn); }
+  .ctrl { display: flex; justify-content: flex-end; gap: 6px; border-top: 1px solid var(--line); padding: 10px 14px; }
+  .btn { height: 24px; padding: 0 10px; border-radius: 7px; box-shadow: inset 0 0 0 1px var(--btn-line); display: inline-flex; align-items: center; font-size: 12px; font-weight: 500; color: var(--soft); }
+  .pbody.done { padding-bottom: 14px; }
+
+  /* tooltip sample + legend */
+  .tip { width: 300px; border-radius: 12px; background: var(--island); box-shadow: var(--panel-shadow); padding: 10px 12px; font-size: 12.5px; line-height: 18px; font-weight: 400; color: var(--muted); }
+  .tip b { display: block; color: var(--text); font-weight: 500; font-size: 13px; line-height: 18px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 26px; align-items: center; font-size: 12.5px; color: var(--soft); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  ul.rules { color: var(--soft); font-size: 13px; line-height: 22px; padding-left: 18px; margin: 0; max-width: 1100px; }
+  ul.rules b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="tools" role="group" aria-label="Preview options">
+  <button id="bTheme" type="button" aria-pressed="false">Light</button>
+  <button id="bLang" type="button" aria-pressed="false">한국어</button>
+</div>
+<main id="app"></main>
+
+<script>
+/* ───────── strings ───────── */
+const I = {
+  en: {
+    h1: 'Composer island · Goal segment v3',
+    lead: 'The collapsed Goal segment today is a 22px bar plus "3/5" and minutes. Three directions below add a status glyph, a per-task step indicator and the objective / current task, while staying inside the island pill (34px pill, 26px segment, 14px/500). Dark = app dark theme, light = app light theme (toggle top right).',
+    title: 'Migrate payments to the new API',
+    task: 'Updating client.ts retry handling',
+    blocker: 'Sandbox API token is missing',
+    Working: 'Working', Paused: 'Paused', Blocked: 'Blocked', Waiting: 'Waiting for your answer', Complete: 'Complete',
+    wShort: 'Your answer', cShort: 'Done',
+    s_active: 'Active', s_paused: 'Paused', s_blocked: 'Blocked', s_waiting: 'Waiting for answer', s_complete: 'Complete',
+    alone: 'Goal alone', shared: 'Goal + agents', agentsW: 'Working 2', agentsN: 'Needs you 1',
+    narrow: 'Narrow · 360px', medium: 'Medium · 560px', wide: 'Wide · 720px+',
+    tasks: ['Audit current payment API calls', 'Add new API client wrapper', 'Migrate checkout and refund flows', 'Update client.ts retry handling', 'Run the payment test suite'],
+    dropped: 'Remove legacy webhook shim',
+    approve: 'Needs your answer', blockedChip: 'Blocked',
+    pause: 'Pause', resume: 'Resume', edit: 'Edit', stop: 'Stop',
+    elapsed: 'elapsed', objFull: 'Migrate the payments module from the legacy REST client to the new payments API, keep refunds working, and make sure the payment test suite passes.',
+    cmpH: '0. Current vs. proposed (Direction A)', cmpLead: 'Same data, same pill. Left: what ships today. Right: Direction A.',
+    cur: 'Current', prop: 'Proposed A',
+    dA: 'A · Pips + status glyph', dB: 'B · Headline + current-task ticker', dC: 'C · Progress ring + status phrase',
+    dAw: '<b>Idea.</b> A status glyph (shape, not just colour) followed by one pip per task. Completed = solid, in progress = half-filled, pending = track, dropped = thin line, awaiting approval = amber. Title appears when there is room; in any non-active state the status label outranks the title; on wide the secondary slot shows the current task (active) or the blocker text (blocked).',
+    dBw: '<b>Idea.</b> Text first: glyph, bold objective, then the current task as a muted secondary that fades out at the right edge instead of ellipsizing mid-word. Progress is a 2px baseline under the text plus n/m. Narrow alone swaps the title for the current task (more useful than a truncated title).',
+    dCw: '<b>Idea.</b> A ring that carries the status glyph inside, then a sentence-style label — "Working 3/5" — that reads like the sibling segment "Working 2 · Needs you 1". Title is a muted trailing detail. Most compact, least granular (no per-task detail).',
+    pH: '5. Expanded Goal panel — Direction A (click the segment; hover shows the tooltip)',
+    pLead: 'Same 560px panel/header grammar as the agents panel. Header repeats glyph + pips + n/m · elapsed (seconds appear only here). Body: full objective (wrapped), status line, task list, blocker, controls. The current row has a soft fill; text carries the state, not colour alone.',
+    tipH: 'Hover tooltip (≈400ms delay, collapsed segment)', tipS: 'Task 4 of 5', 
+    lgH: 'Task states (pip ↔ panel glyph)', lg: ['Completed', 'In progress', 'Pending', 'Dropped', 'Awaiting approval'], lgMany: '12 tasks: pips share the same 56px',
+    icH: 'Leading Goal icon — state-encoded vs. fixed + status dot',
+    icRec: 'recommend: state-encoded',
+    icLead: 'Rows show all five states at the narrowest shared width (360px, text collapsed) for each direction. State-encoded: target (active) · pause · alert · chat bubble · check — one 14px glyph, shape carries the state. Fixed: a constant flag with a 7px status dot (colour only) on its corner. Below: ×2.6 zoom with a centre line (14px glyph, 1.6 stroke, centred in the 26px segment, same as the agents bot icon), the agents segment with its own icon at medium/wide, and the expanded-panel header with the fixed icon. The icon is the first element of the Goal segment in both collapsed and expanded states and is never dropped.',
+    icState: 'State-encoded', icFixed: 'Fixed + dot',
+    icStateSub: 'target · pause · alert · chat · check', icFixedSub: 'flag + 7px status dot',
+    icAgents: 'Next to agents icon', icAgentsSub: 'same 14px / 1.6 stroke / 10px padding',
+    icExp: 'Expanded header (fixed + dot)',
+    rH: '6. Rules',
+    rules: [
+      '<b>Sizes</b>: unchanged — pill 34px, segment 26px, 14px/500 text, 400 muted meta. Pips 56px × 4px total, so segment width is stable whatever the task count (&gt;8 tasks just get thinner pips).',
+      '<b>Colour</b>: accent = working, muted = paused, amber = waiting for you, red = blocked, green = complete. Every state also has its own glyph and, from medium up, a word — never colour alone.',
+      '<b>Motion</b>: none in the Goal segment (as today). Success tint on complete is a static 13% wash.',
+      '<b>Elapsed</b>: tabular numerals, minutes only (<code>12m</code>, <code>1h 05m</code>), hidden under 1 minute, min-width 3ch so the pill does not jitter.',
+      '<b>Drop order when crowded</b>: secondary text → title → label → time → pips shrink to glyph + n/m. Goal keeps glyph + n/m to the end.',
+      '<b>Attention outranks identity</b>: blocked / waiting show their label in place of the title when only one fits.',
+      '<b>Leading icon</b>: 14px, 1.6 stroke (same as the agents icon), 7px gap, always first, never dropped. Recommended: state-encoded — one element carries identity position + state shape, and survives colour-blindness; the fixed flag + 7px dot is colour-only at the one width (narrow) where nothing else names the state.'
+    ]
+  },
+  ko: {
+    h1: '컴포저 아일랜드 · Goal 칸 v3',
+    lead: '지금 Goal 칸은 22px 막대와 "3/5", 분 단위 시간뿐입니다. 아래 세 방향은 상태 아이콘, 작업별 단계 표시, 목표 / 현재 작업을 더하되 아일랜드 알약(34px, 칸 26px, 14px/500) 안에 머뭅니다. 오른쪽 위 버튼으로 테마와 언어를 바꿉니다.',
+    title: '결제 모듈을 새 API로 이전',
+    task: 'client.ts 재시도 처리 수정 중',
+    blocker: '샌드박스 API 토큰이 없습니다',
+    Working: '작업 중', Paused: '일시정지', Blocked: '막힘', Waiting: '답변 대기 중', Complete: '완료',
+    wShort: '답변 대기', cShort: '완료',
+    s_active: '진행 중', s_paused: '일시정지', s_blocked: '막힘', s_waiting: '답변 대기', s_complete: '완료',
+    alone: 'Goal 단독', shared: 'Goal + 에이전트', agentsW: '작업 중 2', agentsN: '확인 필요 1',
+    narrow: '좁음 · 360px', medium: '보통 · 560px', wide: '넓음 · 720px+',
+    tasks: ['현재 결제 API 호출 조사', '새 API 클라이언트 래퍼 추가', '결제·환불 흐름 이전', 'client.ts 재시도 처리 수정', '결제 테스트 실행'],
+    dropped: '레거시 웹훅 shim 제거',
+    approve: '답변이 필요합니다', blockedChip: '막힘',
+    pause: '일시정지', resume: '재개', edit: '편집', stop: '중지',
+    elapsed: '경과', objFull: '결제 모듈을 기존 REST 클라이언트에서 새 결제 API로 이전하고, 환불이 계속 동작하게 하며, 결제 테스트가 통과하도록 합니다.',
+    cmpH: '0. 현재 vs. 제안 (방향 A)', cmpLead: '같은 데이터, 같은 알약입니다. 왼쪽이 지금, 오른쪽이 방향 A입니다.',
+    cur: '현재', prop: '제안 A',
+    dA: 'A · 단계 점 + 상태 아이콘', dB: 'B · 제목 + 현재 작업 티커', dC: 'C · 진행 링 + 상태 문구',
+    dAw: '<b>아이디어.</b> 상태 아이콘(색이 아닌 모양)과 작업당 점 하나. 완료=꽉 참, 진행 중=반쯤, 대기=트랙, 제외=가는 선, 승인 대기=노랑. 공간이 있으면 제목, 정상이 아닌 상태에서는 상태 문구가 제목보다 앞서며, 넓을 때는 현재 작업(또는 막힘 사유)이 보조 글로 붙습니다.',
+    dBw: '<b>아이디어.</b> 글자 우선: 아이콘, 굵은 목표, 흐려지며 사라지는 현재 작업. 진행률은 글자 아래 2px 기준선과 n/m. 좁고 단독일 때는 잘린 제목 대신 현재 작업을 보여 줍니다.',
+    dCw: '<b>아이디어.</b> 안쪽에 상태 아이콘이 들어간 링과 "작업 중 3/5" 같은 문장형 라벨. 옆 칸 "작업 중 2 · 확인 필요 1"과 같은 어투입니다. 가장 작지만 작업별 정보는 없습니다.',
+    pH: '5. 펼친 Goal 패널 — 방향 A (칸을 누르면 열리고, 올리면 툴팁)',
+    pLead: '에이전트 패널과 같은 560px 패널·머리글 문법입니다. 머리글에 아이콘 + 점 + n/m · 경과(초 단위는 여기서만). 본문에 전체 목표, 상태 줄, 작업 목록, 막힘 사유, 제어 버튼.',
+    tipH: '호버 툴팁 (약 400ms 후, 접힌 칸)', tipS: '작업 4/5',
+    lgH: '작업 상태 (점 ↔ 패널 아이콘)', lg: ['완료', '진행 중', '대기', '제외', '승인 대기'], lgMany: '작업 12개: 점은 같은 56px를 나눠 씁니다',
+    icH: '앞쪽 Goal 아이콘 — 상태 반영형 vs. 고정 + 상태 점',
+    icRec: '추천: 상태 반영형',
+    icLead: '각 방향마다 가장 좁은 폭(360px, 글자가 접힌 상태)에서 다섯 상태를 보여 줍니다. 상태 반영형: 과녁(진행) · 일시정지 · 경고 · 말풍선 · 체크 — 14px 아이콘 하나가 모양으로 상태를 나타냅니다. 고정형: 항상 깃발이고 모서리에 7px 상태 점(색만)이 붙습니다. 아래는 가운데 선을 그은 ×2.6 확대, 에이전트 칸 아이콘 옆 정렬, 고정형 펼침 머리글입니다. 아이콘은 접힘·펼침 모두에서 Goal 칸의 첫 요소이며 절대 빠지지 않습니다.',
+    icState: '상태 반영형', icFixed: '고정 + 점',
+    icStateSub: '과녁 · 정지 · 경고 · 말풍선 · 체크', icFixedSub: '깃발 + 7px 상태 점',
+    icAgents: '에이전트 아이콘 옆', icAgentsSub: '14px / 선 1.6 / 좌우 10px 동일',
+    icExp: '펼침 머리글 (고정 + 점)',
+    rH: '6. 규칙',
+    rules: [
+      '<b>크기</b>: 그대로 — 알약 34px, 칸 26px, 14px/500, 보조 400 회색. 점은 합계 56px × 4px라 작업 수가 달라도 너비가 같습니다(8개 초과 시 더 가늘어짐).',
+      '<b>색</b>: 파랑=진행, 회색=일시정지, 노랑=내 답변 대기, 빨강=막힘, 초록=완료. 상태마다 고유 아이콘이 있고 보통 너비부터는 글자도 있어 색만으로 구분하지 않습니다.',
+      '<b>움직임</b>: Goal 칸에는 없음(지금과 동일). 완료 초록 배경은 고정된 13% 틴트입니다.',
+      '<b>경과</b>: 고정폭 숫자, 분 단위(<code>12m</code>, <code>1h 05m</code>), 1분 미만은 숨김, 최소 3ch.',
+      '<b>좁아지면 빠지는 순서</b>: 보조 글 → 제목 → 상태 문구 → 시간 → 점은 아이콘 + n/m으로. Goal은 끝까지 아이콘 + n/m을 유지합니다.',
+      '<b>주의가 정체성보다 앞</b>: 막힘 · 답변 대기는 하나만 들어갈 때 제목 대신 상태 문구를 보여 줍니다.',
+      '<b>앞쪽 아이콘</b>: 14px, 선 1.6(에이전트 아이콘과 동일), 간격 7px, 항상 맨 앞, 절대 빠지지 않음. 추천은 상태 반영형: 아이콘 하나가 자리와 모양으로 상태를 말해 색각 이상에도 안전합니다. 고정 깃발 + 7px 점은 다른 단서가 없는 좁은 폭에서 색만으로 상태를 전달합니다.'
+    ]
+  }
+};
+let L = 'en';
+
+/* ───────── data model ───────── */
+const STATES = {
+  active:   { glyph: 'work',  done: 3, time: '12m', p: '60%',  tasks: ['c','c','c','i','n'] },
+  paused:   { glyph: 'pause', done: 3, time: '12m', p: '60%',  tasks: ['c','c','c','i','n'] },
+  blocked:  { glyph: 'alert', done: 3, time: '12m', p: '60%',  tasks: ['c','c','c','i','n'] },
+  waiting:  { glyph: 'chat',  done: 3, time: '12m', p: '60%',  tasks: ['c','c','c','a','n'] },
+  complete: { glyph: 'check', done: 5, time: '32m', p: '100%', tasks: ['c','c','c','c','c'] },
+};
+const ORDER = ['active','paused','blocked','waiting','complete'];
+const lab = (s) => ({ active: 'Working', paused: 'Paused', blocked: 'Blocked', waiting: 'Waiting', complete: 'Complete' })[s];
+const shortLab = (s) => s === 'waiting' ? I[L].wShort : s === 'complete' ? I[L].cShort : I[L][lab(s)];
+
+const PATHS = {
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  pause: '<path d="M9 6v12M15 6v12"/>',
+  alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V13M12 16.5v.01"/>',
+  chat:  '<path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3.5V16H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>',
+  work:  '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.6"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/>',
+  flag:  '<path d="M6 21V4M6 4.5h11.5l-2.5 4 2.5 4H6"/>',
+  x:     '<path d="M7 7l10 10M17 7 7 17"/>',
+  circle:'<circle cx="12" cy="12" r="8.5"/>',
+  half:  '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/>',
+  bot:   '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
+};
+const svg = (n, cls = '') => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true">${PATHS[n]}</svg>`;
+/* Leading Goal icon. 'state': one glyph that changes shape per state.
+   'fixed': constant flag + a 7px status dot on its corner. */
+let ICON = 'state';
+const withIcon = (m, fn) => { const o = ICON; ICON = m; try { return fn(); } finally { ICON = o; } };
+const glyph = (s) => ICON === 'state'
+  ? `<span class="gl" style="display:inline-flex">${svg(STATES[s].glyph)}</span>`
+  : `<span class="gl fx">${svg('flag')}<b class="sd"></b></span>`;
+const pips = (s, tasks = STATES[s].tasks) => `<span class="pips${tasks.length > 8 ? ' many' : ''}" role="img" aria-label="${STATES[s].done}/${tasks.length}">${tasks.map(k => `<i class="${k}"></i>`).join('')}</span>`;
+const ring = (s) => `<span class="ring${ICON === 'fixed' ? ' fxr' : ''}" style="--p:${STATES[s].p}">${ICON === 'fixed' ? svg('flag') : s === 'active' ? svg('work') : svg(STATES[s].glyph)}</span>`;
+const cnt = (s) => `<span class="cnt">${STATES[s].done}/5</span>`;
+const tim = (s) => `<span class="tm">${STATES[s].time}</span>`;
+const goal = (s, inner, extra = '') => `<span class="seg goal" data-s="${s}" ${extra} aria-label="Goal">${inner}</span>`;
+const title = (flex = false, tm) => `<span class="title${flex ? ' flex' : ''}"${tm ? ` style="--tm:${tm}px"` : ''}>${I[L].title}</span>`;
+
+/* secondary slot: current task (active) or status label (+ blocker text on wide) */
+function secondary(s, detail, fade) {
+  const t = I[L];
+  if (s === 'active') return `<span class="sec${fade ? ' fade' : ''}"><span class="tx">${t.task}</span></span>`;
+  const d = detail && s === 'blocked' ? `<span class="tx">${t.blocker}</span>` : '';
+  return `<span class="sec${fade ? ' fade' : ''}"><span class="st">${t[lab(s)]}</span>${d}</span>`;
+}
+const sepChev = '<span class="chev" aria-hidden="true">›</span>';
+
+/* ───────── segment builders: dir × state × width × shared ───────── */
+function seg(dir, s, w, shared) {
+  const t = I[L];
+  if (dir === 'cur') {
+    const showTitle = w === 'w' && !shared;
+    const done = s === 'complete';
+    const lead = done ? `<span style="display:inline-flex;color:var(--ok)">${svg('check')}</span>` : `<span class="bar"><i style="width:${STATES[s].p}"></i></span>`;
+    return `<span class="seg goal" data-s="plain" style="--c:var(--accent)">${lead}${showTitle ? title(false) : ''}${cnt(s)}${tim(s)}</span>`;
+  }
+  if (dir === 'A') {
+    let mid = '';
+    if (!shared && w === 'w') mid = title(false, 220) + sepChev + secondary(s, true, false);
+    else if (!shared && w === 'm') mid = s === 'active' ? title(false, 240) : `<span class="st-label">${t[lab(s)]}</span>`;
+    else if (shared && w === 'w') mid = s === 'active' ? title(false, 170) : `<span class="st-label">${shortLab(s)}</span>`;
+    return goal(s, glyph(s) + pips(s) + mid + cnt(s) + tim(s));
+  }
+  if (dir === 'B') {
+    const attn = s !== 'active';
+    let mid = '';
+    if (!shared && w === 'n') mid = s === 'active' ? `<span class="sec"><span class="tx">${t.task}</span></span>` : `<span class="st-label">${t[lab(s)]}</span>`;
+    else if (!shared && w === 'm') mid = title(false, 210) + sepChev + (attn ? `<span class="st-label">${shortLab(s)}</span>` : secondary(s, false, true));
+    else if (!shared && w === 'w') mid = title(false, 260) + sepChev + secondary(s, true, true);
+    else if (shared && w === 'm') mid = title(true);
+    else if (shared && w === 'w') mid = title(false, 220) + sepChev + (attn ? `<span class="st-label">${shortLab(s)}</span>` : secondary(s, false, true));
+    const time = shared && w === 'n' ? '' : tim(s);
+    return goal(s, glyph(s) + mid + cnt(s) + time + `<span class="base" style="--p:${STATES[s].p}"></span>`);
+  }
+  if (dir === 'C') {
+    let label = '', ttl = '';
+    if (!shared && w === 'm') { label = `<span class="st-label">${shortLab(s)}</span>`; ttl = title(false, 200); }
+    else if (!shared && w === 'w') { label = `<span class="st-label">${t[lab(s)]}</span>`; ttl = title(false, 260); }
+    else if (shared && w === 'm') label = `<span class="st-label">${shortLab(s)}</span>`;
+    else if (shared && w === 'w') { label = `<span class="st-label">${shortLab(s)}</span>`; ttl = title(false, 170); }
+    const body = ring(s) + label + cnt(s);
+    const tail = ttl ? `<span class="t-dim" style="display:inline-flex;min-width:0">${ttl}</span>` : '';
+    return goal(s, body + tail + tim(s));
+  }
+}
+function agents(w, icon) {
+  const t = I[L];
+  if (icon && w !== 'n') return `<span class="seg">${svg('bot', 'bot')}${t.agentsW}<span class="meta">·</span><span class="w">${t.agentsN}</span></span>`;
+  if (w === 'n') return `<span class="seg">${svg('bot', 'bot')}2<span class="dot warn"></span><span class="w">1</span></span>`;
+  return `<span class="seg"><span class="pulse"></span>${t.agentsW}<span class="meta">·</span><span class="w">${t.agentsN}</span></span>`;
+}
+function pill(dir, s, w, shared, agentIcon) {
+  return `<span class="pill">${seg(dir, s, w, shared)}${shared ? agents(w, agentIcon) : ''}</span>`;
+}
+/* icon study: every direction, both icon modes, all states at the narrowest shared width */
+function iconStudy() {
+  const t = I[L];
+  let h = '';
+  ['A','B','C'].forEach(d => {
+    ['state','fixed'].forEach(m => {
+      h += `<div class="icrow"><div class="iclab"><b>${t['d' + d].split(' · ')[0]} · ${m === 'state' ? t.icState : t.icFixed}</b>${m === 'state' ? t.icStateSub : t.icFixedSub}</div>` +
+        ORDER.map(s => withIcon(m, () => pill(d, s, 'n', true))).join('') + '</div>';
+    });
+  });
+  const zoom = (m, s) => `<div class="zoom"><small>${m === 'state' ? t.icState : t.icFixed} · ${t['s_' + s]} · ×2.6</small><div class="z">${withIcon(m, () => pill('A', s, 'n', true, true))}</div></div>`;
+  h += `<div class="zoomwrap" style="margin-top:16px">${zoom('state','active')}${zoom('fixed','active')}${zoom('state','waiting')}${zoom('fixed','waiting')}</div>`;
+  h += `<div class="icrow" style="margin-top:10px"><div class="iclab"><b>${t.icAgents}</b>${t.icAgentsSub}</div>` +
+    ['m','w'].map(w => withIcon('state', () => pill('A', 'active', w, true, true)) ).join('') + '</div>';
+  h += `<div class="icrow"><div class="iclab"><b>${t.icExp}</b></div><div style="display:flex;gap:16px;flex-wrap:wrap">${withIcon('fixed', () => panel('waiting', t.icFixed))}</div></div>`;
+  return h;
+}
+const stage = (dir, s, w, shared) => `<div class="stage"><small>${shared ? I[L].shared : I[L].alone}</small><div class="row">${pill(dir, s, w, shared)}</div></div>`;
+
+function matrix(dir) {
+  const t = I[L];
+  let h = `<div class="grid"><div></div><div class="hd">${t.narrow}</div><div class="hd">${t.medium}</div><div class="hd">${t.wide}</div>`;
+  ORDER.forEach(s => {
+    h += `<div class="rl"><b>${t['s_' + s]}</b></div>`;
+    ['n','m','w'].forEach(w => { h += `<div class="cell">${stage(dir, s, w, false)}${stage(dir, s, w, true)}</div>`; });
+  });
+  return h + '</div>';
+}
+
+/* ───────── expanded panel ───────── */
+function panel(s, label) {
+  const t = I[L], S = STATES[s];
+  const kinds = S.tasks.slice();
+  const rows = t.tasks.map((txt, i) => {
+    let k = kinds[i], ic = { c: 'check', i: 'half', n: 'circle', a: 'pause' }[k], chip = '';
+    if (s === 'blocked' && k === 'i') { k = 'x'; ic = 'alert'; chip = `<span class="chip r">${t.blockedChip}</span>`; }
+    if (s === 'waiting' && k === 'a') chip = `<span class="chip w">${t.approve}</span>`;
+    return `<li data-k="${k}">${svg(ic)}<span class="tt">${txt}</span>${chip}</li>`;
+  });
+  if (s === 'active') rows.push(`<li data-k="d">${svg('x')}<span class="tt">${t.dropped}</span></li>`);
+  const done = s === 'complete';
+  const status = `<span class="st">${t[lab(s)]}</span><span>·</span><span>${done ? '32:08' : '12:34'} ${t.elapsed}</span>`;
+  const blk = s === 'blocked' ? `<p class="blk">${t.blocker}</p>` : '';
+  const ctrl = done ? '' : `<div class="ctrl"><span class="btn">${s === 'paused' ? t.resume : t.pause}</span><span class="btn">${t.edit}</span><span class="btn">${t.stop}</span></div>`;
+  return `<div class="shot"><small>${label || t['s_' + s]}</small><div class="panel">
+    <div class="phead"><span class="tab" data-s="${s}">${glyph(s)}${pips(s)}<span>${S.done}/5</span><span class="t-dim">· ${done ? '32:08' : '12:34'}</span></span><span class="x">✕</span></div>
+    <div class="pbody${done ? ' done' : ''}">
+      <p class="obj">${t.objFull}</p>
+      <div class="sline" data-s="${s}" role="status">${status}</div>
+      <ul class="tasks">${rows.join('')}</ul>${blk}
+    </div>${ctrl}</div></div>`;
+}
+
+function legend() {
+  const t = I[L];
+  const items = [
+    ['c', 'check', 'c'], ['i', 'half', 'i'], ['n', 'circle', 'n'], ['d', 'x', 'd'], ['a', 'pause', 'a']
+  ].map(([k, ic], i) => `<span><span class="pips" style="width:22px;--cf:var(--accent);--c:var(--accent)"><i class="${k}"></i></span><span class="seg goal" style="padding:0;height:auto;background:none;overflow:visible;color:${k==='a'?'var(--warn)':k==='c'?'var(--ok)':k==='i'?'var(--accent)':'var(--faint)'}">${svg(ic)}</span>${t.lg[i]}</span>`);
+  const many = `<span><span class="pips many" style="--cf:var(--accent);--c:var(--accent)">${'c'.repeat(7).split('').map(k=>`<i class="${k}"></i>`).join('')}<i class="i"></i>${'n'.repeat(4).split('').map(k=>`<i class="${k}"></i>`).join('')}</span>${t.lgMany}</span>`;
+  return `<div class="legend">${items.join('')}${many}</div>`;
+}
+
+/* ───────── page ───────── */
+function render() {
+  const t = I[L];
+  document.documentElement.lang = L;
+  const cmpRow = (label, w, shared, s) => `<div class="rl"><b>${label}</b></div>
+    <div class="cell"><div class="stage"><small>${t.cur}</small><div class="row">${pill('cur', s, w, shared)}</div></div></div>
+    <div class="cell"><div class="stage"><small>${t.prop}</small><div class="row">${pill('A', s, w, shared)}</div></div></div>`;
+  document.getElementById('app').innerHTML = `
+  <h1>${t.h1}</h1><p class="lead">${t.lead}</p>
+
+  <h2>${t.cmpH}</h2><p class="lead">${t.cmpLead}</p>
+  <div class="cmp">
+    ${cmpRow(t.s_active + ' · ' + t.narrow.split(' ·')[0], 'n', true, 'active')}
+    ${cmpRow(t.s_waiting + ' · ' + t.medium.split(' ·')[0], 'm', true, 'waiting')}
+    ${cmpRow(t.s_blocked + ' · ' + t.wide.split(' ·')[0], 'w', false, 'blocked')}
+    ${cmpRow(t.s_complete + ' · ' + t.medium.split(' ·')[0], 'm', false, 'complete')}
+  </div>
+
+  <h2>0b. ${t.icH} <em>★ ${t.icRec}</em></h2><p class="lead">${t.icLead}</p>${iconStudy()}
+
+  <h2>1. ${t.dA} <em>★</em></h2><p class="why">${t.dAw}</p>${matrix('A')}
+  <h2>2. ${t.dB}</h2><p class="why">${t.dBw}</p>${matrix('B')}
+  <h2>3. ${t.dC}</h2><p class="why">${t.dCw}</p>${matrix('C')}
+
+  <h2>4. ${t.lgH}</h2>${legend()}
+
+  <h2>${t.pH}</h2><p class="lead">${t.pLead}</p>
+  <div class="panels">${['active','waiting','blocked','complete'].map(panel).join('')}</div>
+
+  <h2 style="margin-top:34px">${t.tipH}</h2>
+  <div style="display:flex;gap:22px;align-items:flex-end;flex-wrap:wrap">
+    <div class="tip"><b>${t.title}</b>${t.tipS} · ${t.task}<br>${t.Working} · 12:34 ${t.elapsed}</div>
+    ${pill('A', 'active', 'm', false)}
+  </div>
+
+  <h2>${t.rH}</h2><ul class="rules">${t.rules.map(r => `<li>${r}</li>`).join('')}</ul>`;
+}
+const q = new URLSearchParams(location.hash.slice(1).replace(/,/g, '&').replace(/^(light|dark)$/, 'theme=$1'));
+const h = location.hash.slice(1).split(',');
+const bT = document.getElementById('bTheme'), bL = document.getElementById('bLang');
+function apply() {
+  document.documentElement.dataset.theme = bT.getAttribute('aria-pressed') === 'true' ? 'light' : 'dark';
+  bT.textContent = bT.getAttribute('aria-pressed') === 'true' ? 'Dark' : 'Light';
+  L = bL.getAttribute('aria-pressed') === 'true' ? 'ko' : 'en';
+  bL.textContent = L === 'ko' ? 'English' : '한국어';
+  render();
+}
+bT.setAttribute('aria-pressed', h.includes('light'));
+bL.setAttribute('aria-pressed', h.includes('ko'));
+bT.onclick = () => { bT.setAttribute('aria-pressed', bT.getAttribute('aria-pressed') !== 'true'); apply(); };
+bL.onclick = () => { bL.setAttribute('aria-pressed', bL.getAttribute('aria-pressed') !== 'true'); apply(); };
+apply();
+</script>
+</body>
+</html>

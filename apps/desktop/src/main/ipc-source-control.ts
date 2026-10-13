@@ -44,6 +44,9 @@ interface SourceControlIpcOptions {
     projectPath: unknown,
     relPath: unknown
   ) => Promise<{ root: string; rel: string; absolute: string }>;
+  /** A server window stages an attachment into the server's upload folder,
+   *  where its daemon (and the editor of that window) can reach it. */
+  stageAttachment?: (dataUrl: unknown, name: unknown) => Promise<DesktopLocalPathEntry>;
 }
 
 /** Channels registered from one `operations` table, in declaration order. */
@@ -61,13 +64,14 @@ export function registerSourceControlIpc({
   shell,
   grantedFile,
   describeLocalPaths,
+  stageAttachment,
 }: SourceControlIpcOptions): void {
   registerGitToolingIpc({ handle, operations });
   registerWorkingTreeIpc({ handle, operations });
   registerGitHubPullRequestIpc({ handle, operations });
   registerRepositorySyncIpc({ handle, operations });
   registerRepositoryHistoryIpc({ handle, operations });
-  registerRepositoryFileIpc({ app, handle, shell, grantedFile, describeLocalPaths });
+  registerRepositoryFileIpc({ app, handle, shell, grantedFile, describeLocalPaths, stageAttachment });
 }
 
 /** Presence, installation and identity of the Git/GitHub command-line tools. */
@@ -303,7 +307,11 @@ function registerRepositoryFileIpc({
   shell,
   grantedFile,
   describeLocalPaths,
-}: Pick<SourceControlIpcOptions, 'app' | 'handle' | 'shell' | 'grantedFile' | 'describeLocalPaths'>): void {
+  stageAttachment,
+}: Pick<
+  SourceControlIpcOptions,
+  'app' | 'handle' | 'shell' | 'grantedFile' | 'describeLocalPaths' | 'stageAttachment'
+>): void {
   const resolveInsideProject = (cwd: unknown, path: unknown): string => {
     const root = resolve(requiredRepositoryCwd(cwd));
     const absolute = resolve(root, requiredString(path, 'file path', 4_096));
@@ -345,6 +353,7 @@ function registerRepositoryFileIpc({
     if (failure) throw new Error(`Unable to open file: ${failure}`);
   });
   handle(DESKTOP_IPC.stageAttachmentFile, async (_event, dataUrl, name) => {
+    if (stageAttachment) return stageAttachment(dataUrl, name);
     const file = await writeAttachmentFile(tempDir(), dataUrl, name);
     const [row] = await describeLocalPaths([file]);
     if (!row) throw new Error('Unable to stage file.');

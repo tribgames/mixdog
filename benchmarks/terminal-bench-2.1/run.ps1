@@ -93,6 +93,11 @@ function Get-EffortJudgeBundleProblem([string]$Mode, [string]$TarPath, [string]$
     if ([string]$stamp.release -ne $Release) {
         return "effort-judge bundle holds $($stamp.release) but the manifest names $Release"
     }
+    $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
+    $runtime = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).dependencies.'onnxruntime-node')
+    if ([string]::IsNullOrWhiteSpace($runtime) -or [string]$stamp.onnxruntime -ne $runtime) {
+        return "effort-judge bundle ONNX Runtime $($stamp.onnxruntime) != pinned $runtime"
+    }
     if ($Mode -eq "steps" -and $stamp.steps -ne $true) {
         return "effort judge $Release is not step-trained; -EffortJudge steps needs one"
     }
@@ -208,15 +213,18 @@ if (-not [string]::IsNullOrWhiteSpace([string]$presetConfig.compareTo)) {
     if ($null -eq $baselineProperty) {
         throw "Preset '$Preset' references unknown baseline '$($presetConfig.compareTo)'."
     }
-    # The full local jobs directory when present, else the committed raw-runs/
+    # The full local jobs directory when present, else the committed <harness>/<model>/<date>/
     # export (the report then reads the pinned figures for what it omits).
     $baselineConfig = $baselineProperty.Value
     $baselineJobsDir = Resolve-JobsPath ([string]$baselineConfig.jobsDir)
     if (-not (Test-Path -LiteralPath $baselineJobsDir -PathType Container)) {
-        $archivedJobsDir = "raw-runs/$($baselineConfig.jobsDir)"
+        $jobsName, $subRun = ([string]$baselineConfig.jobsDir) -split '[\\/]+', 2
+        $historyIndex = Get-Content -LiteralPath (Join-Path $benchRoot "index.json") -Raw | ConvertFrom-Json
+        $historyEntry = @($historyIndex | Where-Object { $_.jobsDir -eq $jobsName })[0]
+        $archivedJobsDir = if ($null -ne $historyEntry) { (@($historyEntry.path, $subRun) | Where-Object { $_ }) -join "/" } else { [string]$baselineConfig.jobsDir }
         $baselineJobsDir = Resolve-JobsPath $archivedJobsDir
         if (-not (Test-Path -LiteralPath $baselineJobsDir -PathType Container)) {
-            throw "Pinned baseline jobs directory not found locally or in raw-runs: $($baselineConfig.jobsDir)"
+            throw "Pinned baseline jobs directory not found locally or in index.json: $($baselineConfig.jobsDir)"
         }
         $baselineConfig = $baselineConfig | Select-Object *
         $baselineConfig.jobsDir = $archivedJobsDir

@@ -184,6 +184,45 @@ test('geometry updates bypass blocked execution but still respect document and s
   assert.deepEqual(sizes, [[1000, 700]]);
 });
 
+test('while a phone drives the page, pane resize and zoom are remembered and only the drive sizes it', async () => {
+  const sizes = [];
+  let zoom = 1;
+  let driven = true;
+  const guest = {
+    isDestroyed: () => false,
+    isOffscreen: () => true,
+    getZoomFactor: () => zoom,
+    setZoomFactor: (factor) => {
+      zoom = factor;
+    },
+  };
+  const record = { documentGeneration: 1, pendingDialog: null };
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    currentGuest: () => guest,
+    remoteDriven: (page) => driven && page === guest,
+    state: { pageId: () => 'p1', for: () => record, invalidateInteraction: () => {} },
+    cdp: {},
+    resize: (_guest, width, height) => {
+      sizes.push([width, height]);
+      return { width, height };
+    },
+  });
+  surface.setGeometry(guest, { width: 390, height: 700 }, 1);
+  await surface.control('owner', { type: 'resize', width: 1000, height: 700, documentId: 'p1:1' });
+  await surface.control('owner', { type: 'zoom', factor: 0.6, documentId: 'p1:1' });
+  assert.deepEqual(sizes, [[390, 700]], 'the pane size waits');
+  assert.equal(zoom, 1, 'the pane zoom waits');
+  assert.deepEqual(surface.paneGeometry('owner'), { size: { width: 1000, height: 700 }, zoom: 0.6 });
+  driven = false;
+  const pane = surface.paneGeometry('owner');
+  surface.setGeometry(guest, pane.size, pane.zoom);
+  assert.deepEqual(sizes.at(-1), [1000, 700]);
+  assert.equal(zoom, 0.6);
+  await surface.control('owner', { type: 'resize', width: 800, height: 600, documentId: 'p1:1' });
+  assert.deepEqual(sizes.at(-1), [800, 600], 'the pane drives again');
+});
+
 test('native recovery bypasses cleanup and dialogs but still checks document ownership and cancellation', async () => {
   const sent = [];
   const guest = {
@@ -592,7 +631,11 @@ test('a page not presented during a scale change is re-scaled when it is shown a
   await surface.frame('s');
   current = tabs[1];
   await surface.frame('s');
-  assert.deepEqual(resizes.filter(([id]) => id === 2), [[2, 900, 700]], 'an already re-scaled page is only sized');
+  assert.deepEqual(
+    resizes.filter(([id]) => id === 2),
+    [[2, 900, 700]],
+    'an already re-scaled page is only sized'
+  );
 });
 
 test('a GPU frame that lands after the session moved on is refused and released', async () => {

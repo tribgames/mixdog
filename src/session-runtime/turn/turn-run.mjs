@@ -5,7 +5,7 @@
  * askSession callback bridge, and the settlement that always runs. The phases
  * live under turn-run/.
  */
-import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../../runtime/shared/turn-snapshot.mjs';
+import { beginTurnSnapshot, completeTurnSnapshot } from '../../runtime/shared/turn-snapshot.mjs';
 import { runWithCwdOverride } from '../../runtime/shared/user-cwd.mjs';
 import { createTurnTranscript } from './turn-run/transcript.mjs';
 import { createTurnTimingFactory } from './turn-run/turn-timing.mjs';
@@ -24,7 +24,6 @@ export function createTurnRunner(deps) {
     endComputerExecution = async () => false,
     deferComputerSessionRelease = () => false,
     beginTurnSnapshotForTurn = beginTurnSnapshot,
-    cancelTurnSnapshotForTurn = cancelTurnSnapshot,
     completeTurnSnapshotForTurn = completeTurnSnapshot,
     turnCleanupSettleMs = 2_000,
     getConfig = () => null,
@@ -36,7 +35,6 @@ export function createTurnRunner(deps) {
     createSnapshot: createSnapshotTrackerFactory({
       getCurrentCwd,
       beginTurnSnapshotForTurn,
-      cancelTurnSnapshotForTurn,
       completeTurnSnapshotForTurn,
       turnCleanupSettleMs,
     }),

@@ -1,0 +1,210 @@
+/* Visualize feedback: the region layer over PDF/image panes and the
+   composer's pin and choice chips. HTML panes draw their own marks inside
+   the page (shared/visualize-feedback.ts). */
+.visualize-pane-content {
+  position: relative;
+}
+.visualize-pane .browser-pane-nav-button[aria-pressed='true'] {
+  color: var(--mx-accent);
+  background: color-mix(in srgb, var(--mx-accent) 14%, transparent);
+}
+.visualize-region-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.visualize-region-layer.is-commenting {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+.visualize-region-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #ff3b6b;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+}
+.visualize-region-box.is-draft {
+  border-style: dashed;
+  background: rgba(255, 59, 107, 0.08);
+}
+.visualize-region-number {
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #ff3b6b;
+  color: #fff;
+  font: 700 11px/18px system-ui, -apple-system, sans-serif;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.visualize-region-note {
+  position: absolute;
+  width: 240px;
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--mx-border);
+  background: var(--mx-bg-base);
+  color: var(--mx-text);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+  cursor: auto;
+}
+.visualize-region-note-label {
+  margin-bottom: 6px;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.visualize-region-notice {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  max-width: calc(100% - 16px);
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--mx-bg-base);
+  border: 1px solid var(--mx-border);
+  color: var(--mx-text);
+  font-size: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+.visualize-region-note textarea {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 6px;
+  border: 1px solid var(--mx-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.visualize-region-note-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+.visualize-region-note-row button {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--mx-border);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.visualize-region-note-row button.is-primary {
+  border-color: transparent;
+  background: var(--mx-accent, #2f6feb);
+  color: #fff;
+}
+.visualize-region-note-row button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* A choice made without a gesture main could see waits for this bar. */
+.visualize-choice-confirm {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--mx-border);
+  background: var(--mx-bg-base);
+  color: var(--mx-text);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+}
+.visualize-choice-confirm-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.visualize-choice-confirm button {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--mx-border);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.visualize-choice-confirm button.is-primary {
+  border-color: transparent;
+  background: var(--mx-accent, #2f6feb);
+  color: #fff;
+}
+.visualize-feedback-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px 0;
+}
+.visualize-feedback-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 240px;
+  min-width: 0;
+  padding: 2px 2px 2px 8px;
+  border: 1px solid var(--mx-border);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mx-text);
+}
+.visualize-feedback-chip-icon {
+  flex: none;
+  margin-right: 4px;
+  color: var(--mx-text-muted);
+}
+.visualize-feedback-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.visualize-feedback-chip button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mx-text-muted);
+  cursor: pointer;
+}
+.visualize-feedback-chip button:hover {
+  color: var(--mx-text);
+  background: var(--mx-border);
+}

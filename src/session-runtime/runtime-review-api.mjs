@@ -2,7 +2,10 @@ import { registerCacheInvalidationListener } from '../runtime/agent/orchestrator
 import { turnReviewReply } from '../runtime/shared/turn-review-reply.mjs';
 import {
   getSessionReviewDiff,
+  getTurnChanges,
   getTurnReviewDiff,
+  reapplyTurnChanges,
+  revertTurnChanges,
   revertTurnReview,
   revertTurnReviewFile,
 } from '../runtime/shared/turn-snapshot.mjs';
@@ -22,5 +25,11 @@ export function createRuntimeReviewApi({ getCwd, getSessionId }) {
     getSessionReviewDiff: () => getSessionReviewDiff(getCwd(), getSessionId()),
     revertTurnReview: (checkpointId) => revertTurnReview(getCwd(), getSessionId(), checkpointId),
     revertTurnReviewFile: (file, checkpointId) => revertTurnReviewFile(getCwd(), getSessionId(), file, checkpointId),
+    // Historical per-turn changes, addressed by checkpointId (TurnChangesReply).
+    getTurnChanges: (options = {}) => getTurnChanges(getSessionId(), options),
+    revertTurnChanges: (checkpointId, file, revision) =>
+      revertTurnChanges(getSessionId(), checkpointId, file, revision),
+    reapplyTurnChanges: (checkpointId, file, revision) =>
+      reapplyTurnChanges(getSessionId(), checkpointId, file, revision),
   };
 }

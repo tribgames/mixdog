@@ -6,6 +6,7 @@ import { clean, hasOwn } from './session-text.mjs';
 import { modelSupportsServiceTier } from '../providers/model-service-tiers.mjs';
 import { openAiDirectSupportsFast, openAiDirectSupportsUltrafast } from '../providers/openai-direct-request.mjs';
 import { supportsAnthropicFastMode } from '../../../shared/llm/anthropic-betas.mjs';
+import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set([
   'anthropic',
@@ -141,13 +142,22 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   // pickers send the default stop with every selection; storing it froze each
   // model at whatever its default was that day, so a later default never
   // reached anyone who had already selected the model.
+  // An exact window in tokens replaces the percentage, and a percentage
+  // replaces it. A token selection at the default window reaches here already
+  // dropped (resolveRouteContextState answers no contextTokens for it).
+  const contextTokens = normalizeContextTokens(route.contextTokens);
   const requestedPercent = Number(route.contextPercent);
   const contextPercent = Math.round(requestedPercent / 10) * 10;
   const isDefault = contextPercent === Number(route.contextDefaultPercent);
-  if (requestedPercent >= 10 && requestedPercent <= 100 && !isDefault) {
+  if (contextTokens) {
+    nextSetting.contextTokens = contextTokens;
+    delete nextSetting.contextPercent;
+  } else if (requestedPercent >= 10 && requestedPercent <= 100 && !isDefault) {
     nextSetting.contextPercent = contextPercent;
+    delete nextSetting.contextTokens;
   } else {
     delete nextSetting.contextPercent;
+    delete nextSetting.contextTokens;
   }
   modelSettings[key] = nextSetting;
 

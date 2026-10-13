@@ -44,6 +44,17 @@ export interface RelayE2EEChallenge {
   /** This host serves the remote browser pane's tabs, history, saved-login
    *  fill and profile import. Absent on an older host. */
   browserParity?: 1;
+  /** This host takes the remote browser pane's `viewport` control: the
+   *  streamed page renders at the phone's size as a mobile page. Absent on an
+   *  older host, which rejects that control. */
+  browserDrive?: 1;
+  /** This host honors the terminal size-owner protocol (the 4th `termResize`
+   *  argument: phone claims, the 0x0 release). Absent on an older host, which
+   *  would resize the PTY to those grids: the phone sends only plain fits. */
+  termSizeOwner?: 1;
+  /** This host serves `listHostDirectories` (the project-less host folder
+   *  browser). Absent on an older host. */
+  hostDirectories?: 1;
   /** This host serves the HTTP media lane as end-to-end encrypted frames
    *  (shared/remote-media-crypto.ts) under keys derived from this session. */
   mediaE2ee?: 1;
@@ -53,6 +64,10 @@ export interface RelayE2EEChallenge {
   /** This host accepts per-route Auto reasoning (`autoEffort` in model
    *  selections, `+noauto` automation refs). Absent on an older host. */
   routeAutoEffort?: 1;
+  /** This host serves the agent visualize panel (`visualizeState`,
+   *  `visualizeCommand`, pane reads, the visualize push lane). Absent on an
+   *  older host. */
+  visualize?: 1;
 }
 
 interface RelayE2EEHello {
@@ -118,7 +133,7 @@ function binaryBytes(value: unknown): Uint8Array | null {
   return null;
 }
 
-function encodeBinaryBox(sequence: number, nonce: Uint8Array, ciphertext: Uint8Array): Uint8Array {
+function encodeBinaryBox(sequence: number, nonce: Uint8Array, ciphertext: Uint8Array): Uint8Array<ArrayBuffer> {
   const output = new Uint8Array(E2EE_BINARY_HEADER_BYTES + ciphertext.byteLength);
   output.set(E2EE_BINARY_MAGIC, 0);
   new DataView(output.buffer).setBigUint64(4, BigInt(sequence), false);
@@ -288,10 +303,10 @@ export class RelayE2EEChannel {
     readonly mediaKey: CryptoKey | null = null
   ) {}
 
-  private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array> {
-    let resolveResult!: (value: string | Uint8Array) => void;
+  private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array<ArrayBuffer>> {
+    let resolveResult!: (value: string | Uint8Array<ArrayBuffer>) => void;
     let rejectResult!: (reason: unknown) => void;
-    const result = new Promise<string | Uint8Array>((resolve, reject) => {
+    const result = new Promise<string | Uint8Array<ArrayBuffer>>((resolve, reject) => {
       resolveResult = resolve;
       rejectResult = reject;
     });
@@ -330,8 +345,8 @@ export class RelayE2EEChannel {
     return this.encrypt(value, false) as Promise<string>;
   }
 
-  encryptBinary(value: unknown): Promise<Uint8Array> {
-    return this.encrypt(value, true) as Promise<Uint8Array>;
+  encryptBinary(value: unknown): Promise<Uint8Array<ArrayBuffer>> {
+    return this.encrypt(value, true) as Promise<Uint8Array<ArrayBuffer>>;
   }
 
   decryptJson(raw: unknown): Promise<unknown> {

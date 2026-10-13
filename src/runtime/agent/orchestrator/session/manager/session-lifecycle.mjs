@@ -32,6 +32,7 @@ import {
   unusedModelEditToolName,
 } from '../../../../shared/edit-tool-dialect.mjs';
 import { resolveSessionContextMeta } from './context-meta.mjs';
+import { normalizeContextTokens } from '../../../../shared/llm/default-context-window.mjs';
 import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent-runtime-singleton.mjs';
 import { ensureCodexWireSessionId, mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
@@ -163,6 +164,7 @@ function resolveSessionRoute(opts, presetObj, profile) {
     modelParameters = { ...presetObj.modelParameters };
   }
   const contextPercent = normalizeContextPercent(opts.contextPercent);
+  const contextTokens = normalizeContextTokens(opts.contextTokens) || null;
   if (!providerName) throw new Error('createSession: provider is required');
   if (!modelName) throw new Error('createSession: model is required');
   const provider = getProvider(providerName);
@@ -185,6 +187,7 @@ function resolveSessionRoute(opts, presetObj, profile) {
     autoEffort,
     modelParameters,
     contextPercent,
+    contextTokens,
     id,
   };
 }
@@ -227,6 +230,7 @@ export function createSession(opts) {
   const contextMeta = resolveSessionContextMeta(provider, modelName, {
     selectedContextWindow: opts.selectedContextWindow,
     contextPercent: route.contextPercent,
+    contextTokens: route.contextTokens,
   });
   const session = buildSessionRecord({
     opts,
@@ -312,6 +316,8 @@ function applyRouteFields(session, route) {
       route.modelParameters && typeof route.modelParameters === 'object' ? { ...route.modelParameters } : {};
   }
   if (Object.hasOwn(route, 'contextPercent')) session.contextPercent = normalizeContextPercent(route.contextPercent);
+  if (Object.hasOwn(route, 'contextTokens'))
+    session.contextTokens = normalizeContextTokens(route.contextTokens) || null;
   if (Object.hasOwn(route, 'selectedContextWindow')) {
     session.selectedContextWindow = Number(route.selectedContextWindow) || null;
   }

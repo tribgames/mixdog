@@ -19,6 +19,20 @@ import {
   monacoTypescriptExternalEsbuildPlugin,
 } from './scripts/monaco-typescript-external.mjs';
 
+// The ECharts browser build, bundled into the main process as a lazily loaded
+// string: scripted inline chart pages get it from the local page server (the
+// shipped app has no node_modules for dev dependencies, and never a CDN).
+const ECHARTS_SOURCE_MODULE = 'virtual:mixdog-echarts-source';
+const echartsSourceModule: Plugin = {
+  name: 'mixdog-echarts-source',
+  resolveId: (id) => (id === ECHARTS_SOURCE_MODULE ? `\0${ECHARTS_SOURCE_MODULE}` : null),
+  load(id) {
+    if (id !== `\0${ECHARTS_SOURCE_MODULE}`) return null;
+    const source = readFileSync(resolve(__dirname, 'node_modules/echarts/dist/echarts.min.js'), 'utf8');
+    return `export default ${JSON.stringify(source)};`;
+  },
+};
+
 const selectedBuildTargets = new Set(
   String(process.env.MIXDOG_ELECTRON_BUILD_TARGETS || '')
     .split(',')
@@ -235,6 +249,7 @@ export default defineConfig({
     // the pairing QR silently never rendered. Pure JS, so bundling is safe.
     plugins: [
       computerSourceVitePlugin(),
+      echartsSourceModule,
       externalizeDepsPlugin({ exclude: ['qrcode'] }),
       devDesktopServiceBundle,
     ],

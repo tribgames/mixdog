@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { clampContextTokens, parseContextTokensInput } from './route-editor-context';
 import type { DesktopModelOption } from '../shared/contract';
 import { t, tExisting } from './i18n';
 import { wrappedNavigationIndex } from './list-navigation';
@@ -215,34 +216,116 @@ export function routeSpeedPane({
   });
 }
 
-export function routeContextPane({
-  contextDefaultPercent,
-  defaultContextTokens,
-  shownContextPercent,
-  shownContextTokens,
-  tuningDisabled,
-  onCommitDraft,
-  onDraftChange,
-  onResetDefault,
-}: {
+export function RouteContextTuneIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7" />
+      <circle cx="10.5" cy="4.5" r="1.5" />
+      <circle cx="5.5" cy="11.5" r="1.5" />
+    </svg>
+  );
+}
+
+export function routeContextPane(props: RouteContextPaneProps): ReactNode {
+  return <RouteContextPane {...props} />;
+}
+
+type RouteContextPaneProps = {
   contextDefaultPercent: number;
   defaultContextTokens: number;
+  contextMaxTokens: number;
   shownContextPercent: number;
   shownContextTokens: number;
+  contextCustom: boolean;
+  editing: boolean;
+  commitEditRef: { current: (() => void) | null };
   tuningDisabled: boolean;
+  onEditEnd(): void;
+  onApplyTokens(tokens: number): void;
   onCommitDraft(): void;
   onDraftChange(percent: number): void;
   onResetDefault(): void;
-}): ReactNode {
+};
+
+function RouteContextPane({
+  contextDefaultPercent,
+  defaultContextTokens,
+  contextMaxTokens,
+  shownContextPercent,
+  shownContextTokens,
+  contextCustom,
+  editing,
+  commitEditRef,
+  tuningDisabled,
+  onEditEnd,
+  onApplyTokens,
+  onCommitDraft,
+  onDraftChange,
+  onResetDefault,
+}: RouteContextPaneProps) {
+  const fieldRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState('');
+  const finished = useRef(true);
+  const prefill = useRef('');
+  const endEdit = (apply: boolean) => {
+    if (finished.current) return;
+    finished.current = true;
+    // An untouched field leaves the window exactly as it was.
+    const tokens = apply && text !== prefill.current ? parseContextTokensInput(text) : null;
+    if (tokens !== null && contextMaxTokens > 0) onApplyTokens(clampContextTokens(tokens, contextMaxTokens));
+    onEditEnd();
+  };
+  commitEditRef.current = editing ? () => endEdit(true) : null;
+  useEffect(() => {
+    if (!editing) return;
+    finished.current = false;
+    prefill.current = String(shownContextTokens / 1000);
+    setText(prefill.current);
+    fieldRef.current?.focus();
+    fieldRef.current?.select();
+    // Prefill once per edit session.
+  }, [editing]);
+  const atDefault = shownContextPercent === contextDefaultPercent && !contextCustom;
+  const tokensLabel = formatContextWindow(shownContextTokens).replace(/ Context$/, '');
   return (
     <>
       <div className="route-context-head">
         <strong aria-hidden="true">{shownContextPercent}%</strong>
-        <small aria-hidden="true">
-          {formatContextWindow(shownContextTokens).replace(/ Context$/, '')}
-          {shownContextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}
+        <small>
+          {editing ? (
+            <label className="route-context-num">
+              <input
+                ref={fieldRef}
+                inputMode="decimal"
+                value={text}
+                aria-label={t('Context size')}
+                onChange={(event) => setText(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') endEdit(true);
+                  if (event.key === 'Escape') {
+                    event.stopPropagation();
+                    endEdit(false);
+                  }
+                }}
+                onBlur={() => endEdit(true)}
+              />
+              <em>{/m$/i.test(text.trim()) ? '' : 'k'}</em>
+            </label>
+          ) : (
+            <span aria-hidden="true" className={contextCustom ? 'route-context-tokens is-custom' : undefined}>
+              {tokensLabel}
+            </span>
+          )}
+          <span aria-hidden="true">{atDefault ? ` · ${t('Default')}` : ''}</span>
         </small>
-        {shownContextPercent !== contextDefaultPercent && (
+        {!atDefault && (
           <button
             type="button"
             className="route-context-reset"
@@ -259,12 +342,12 @@ export function routeContextPane({
           type="range"
           min={10}
           max={100}
-          step={10}
+          step={contextCustom ? 0.1 : 10}
           value={shownContextPercent}
           disabled={tuningDisabled}
           aria-label={t('Context')}
           aria-valuetext={`${shownContextPercent}%`}
-          onChange={(event) => onDraftChange(Number(event.currentTarget.value))}
+          onChange={(event) => onDraftChange(Math.round(Number(event.currentTarget.value) / 10) * 10)}
           onPointerUp={onCommitDraft}
           onKeyUp={onCommitDraft}
           onBlur={onCommitDraft}

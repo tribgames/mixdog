@@ -218,7 +218,7 @@ test('built-in tool setting rejects names outside the first-party registry', asy
   const state = fixture();
   await assert.rejects(
     state.api.setBuiltinToolEnabled('shell', false),
-    /git, office, tidy, localProvider, or autoEffort/
+    /git, office, tidy, localProvider, autoEffort, or visualize/
   );
   assert.deepEqual(state.config(), {});
 });

@@ -1,4 +1,5 @@
 import type { TranscriptItem } from './desktop-types';
+import type { TurnChangesRef } from './turn-changes-model';
 import { completionTone } from './transcript-primitives';
 import { isVisibleTranscriptItem } from './transcript-row';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -33,6 +34,8 @@ export type TranscriptRowModel =
       completion?: TranscriptItem;
       active?: boolean;
       live?: boolean;
+      /** This row holds the last turndone of a checkpoint: its changed-files card follows. */
+      turnChanges?: TurnChangesRef;
     }
   | {
       _tag: 'ToolActivity';
@@ -52,6 +55,7 @@ export type TranscriptRowModel =
       turnKey: string;
       item?: TranscriptItem;
       failures: { turnKey: string; item?: TranscriptItem }[];
+      turnChanges?: TurnChangesRef;
     };
 
 export function isCompletionTranscriptItem(item: TranscriptItem | undefined): boolean {
@@ -105,7 +109,8 @@ function pushBuilderItem(
   item: TranscriptItem,
   index: number,
   turnKey: string,
-  completion?: TranscriptItem
+  completion?: TranscriptItem,
+  turnChanges?: TurnChangesRef
 ): void {
   beginBuilderTurn(builder, sessionKey, turnKey);
   if (item.kind === 'user') {
@@ -125,8 +130,46 @@ function pushBuilderItem(
     turnKey,
     item,
     completion,
+    ...(turnChanges ? { turnChanges } : {}),
   });
   builder.previousRowWasUser = false;
+}
+
+/** One changed-files card per checkpoint, at the LAST turndone carrying it
+ *  (a completion wake can close the same checkpoint again). A turndone names
+ *  its checkpoint, else its turn's prompt does (`checkpointId ?? id`). */
+function turnChangesByCompletion(
+  items: readonly TranscriptItem[],
+  turnKeys: readonly string[]
+): Map<number, TurnChangesRef> {
+  const promptCheckpoint = new Map<string, string>();
+  const lastByCheckpoint = new Map<string, number>();
+  let lastVisiblePrompt = -1;
+  items.forEach((item, index) => {
+    const turnKey = turnKeys[index] || '';
+    if (item?.kind === 'user') {
+      const id = item.checkpointId ?? item.id;
+      if (!promptCheckpoint.has(turnKey) && id !== undefined && id !== null && id !== '') {
+        promptCheckpoint.set(turnKey, String(id));
+      }
+      if (isVisibleTranscriptItem(item) && !isTranscriptCancelledStatusText(item.text)) lastVisiblePrompt = index;
+      return;
+    }
+    if (item?.kind !== 'turndone') return;
+    const checkpointId =
+      typeof item.checkpointId === 'string' && item.checkpointId ? item.checkpointId : promptCheckpoint.get(turnKey);
+    if (checkpointId) lastByCheckpoint.set(checkpointId, index);
+  });
+  const cards = new Map<number, TurnChangesRef>();
+  for (const [checkpointId, index] of lastByCheckpoint) {
+    const id = items[index]?.id;
+    cards.set(index, {
+      checkpointId,
+      boundary: id !== undefined && id !== null ? String(id) : `${checkpointId}:${index}`,
+      trailing: index > lastVisiblePrompt,
+    });
+  }
+  return cards;
 }
 
 interface PendingToolActivityItem {
@@ -252,6 +295,7 @@ export function projectSettledTranscriptRows({
   // row it closes, not to a row of its own.
   const completionByIndex = new Map<number, TranscriptItem>();
   const foldedCompletions = new Set<number>();
+  const turnChangesByIndex = turnChangesByCompletion(items, turnKeys);
   items.forEach((item, index) => {
     if (item?.kind !== 'turndone') return;
     const turnKey = turnKeys[index] || '';
@@ -260,6 +304,12 @@ export function projectSettledTranscriptRows({
     if (assistantIndex === undefined) return;
     completionByIndex.set(assistantIndex, item);
     foldedCompletions.add(index);
+    // A folded completion's card rides on the assistant row it folds into.
+    const card = turnChangesByIndex.get(index);
+    if (card) {
+      turnChangesByIndex.delete(index);
+      turnChangesByIndex.set(assistantIndex, card);
+    }
   });
   const builder: TranscriptRowBuilder = {
     rows: [],
@@ -272,16 +322,22 @@ export function projectSettledTranscriptRows({
     pushToolActivity(builder, sessionKey, pendingToolActivity);
     pendingToolActivity = [];
   };
-  const pushFailure = (turnKey: string, item?: TranscriptItem) => {
+  const pushFailure = (turnKey: string, item?: TranscriptItem, turnChanges?: TurnChangesRef) => {
     // Hidden continuation/recovery turns do not create another visible error
     // surface. Any visible prompt, output or tool activity seals this run.
+    // A run never swallows a distinct checkpoint's changes card, so two
+    // card-bearing checkpoints keep separate rows.
     const previous = builder.rows.at(-1);
-    if (previous?._tag === 'Error') {
+    if (
+      previous?._tag === 'Error' &&
+      !(previous.turnChanges && turnChanges && previous.turnChanges.checkpointId !== turnChanges.checkpointId)
+    ) {
       previous.failures.push({ turnKey, item });
       builder.rows[builder.rows.length - 1] = {
         ...previous,
         turnKey,
         item,
+        ...(turnChanges ? { turnChanges } : {}),
       };
       builder.currentTurnKey = turnKey;
       builder.previousRowWasUser = false;
@@ -294,6 +350,7 @@ export function projectSettledTranscriptRows({
       turnKey,
       item,
       failures: [{ turnKey, item }],
+      ...(turnChanges ? { turnChanges } : {}),
     });
     builder.previousRowWasUser = false;
   };
@@ -304,7 +361,7 @@ export function projectSettledTranscriptRows({
       // One status row per failed turn, at its last completion marker.
       if (index === lastCompletionByTurn.get(turnKey)) {
         flushToolActivity();
-        pushFailure(turnKey, item);
+        pushFailure(turnKey, item, turnChangesByIndex.get(index));
       }
       return;
     }
@@ -342,7 +399,15 @@ export function projectSettledTranscriptRows({
       return;
     }
     flushToolActivity();
-    pushBuilderItem(builder, sessionKey, item, index, turnKey, completionByIndex.get(index));
+    pushBuilderItem(
+      builder,
+      sessionKey,
+      item,
+      index,
+      turnKey,
+      completionByIndex.get(index),
+      turnChangesByIndex.get(index)
+    );
     // A turn that failed without ever emitting a completion marker still owes
     // the reader one status row after its last content row.
     if (failed && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {

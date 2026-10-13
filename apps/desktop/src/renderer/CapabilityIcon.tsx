@@ -30,6 +30,7 @@ const CAPABILITY_ARTWORK = {
   attach: '#9aa4b8',
   skill: '#a8afbf',
   tidy: '#2ec4b6',
+  visualize: '#f2a65a',
 } as const;
 
 type CapabilityArtwork = keyof typeof CAPABILITY_ARTWORK;
@@ -43,6 +44,7 @@ const BUILT_IN_ARTWORK: Record<string, CapabilityArtwork> = {
   localProvider: 'local',
   voice: 'voice',
   tidy: 'tidy',
+  visualize: 'visualize',
 };
 const SKILL_ARTWORK: Record<string, CapabilityArtwork> = {
   'browser-use': 'browser',
@@ -233,6 +235,18 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="m7.5 15 1.5-2.5M9 17.5l1.5-2.5" />
           <path d="M6 4.5l.6 1.9 1.9.6-1.9.6L6 9.5l-.6-1.9-1.9-.6 1.9-.6Z" {...SOLID} />
           <path d="M17 14.5l.4 1.1 1.1.4-1.1.4-.4 1.1-.4-1.1-1.1-.4 1.1-.4Z" {...SOLID} />
+        </>
+      );
+    // Visualize: a side panel beside the chat column showing a picture.
+    case 'visualize':
+      return (
+        <>
+          <rect x="3" y="4.5" width="18" height="15" rx="2.5" {...PLATE} />
+          <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+          <path d="M9.5 4.5v15" />
+          <path d="M5.25 8.5h2M5.25 11h2M5.25 13.5h2" />
+          <circle cx="13.5" cy="9.5" r="1.25" {...SOLID} />
+          <path d="m11.5 16.5 2.5-2.75 1.75 1.75 1.5-1.5 1.75 2.5Z" {...SOLID} />
         </>
       );
     // Generic skill: a full-frame hexagon module with a sparkle. The old flat

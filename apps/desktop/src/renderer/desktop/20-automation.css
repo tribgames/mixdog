@@ -789,6 +789,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+/* A field is a one-column grid whose implicit track is `auto`, which grows to
+   the widest unbreakable child (a long host path or folder name) and pushes the
+   row's buttons out of a phone-width dialog. Pin the track to the field. */
+.projects-add-dialog .schedules-field {
+  grid-template-columns: minmax(0, 1fr);
+}
+.projects-folder-row > button {
+  flex: none;
 }
 /* The chosen path is a read-only FIELD, so it wears the field plate: same
    32px box, same 8px text axis and same tone as the Name input above it
@@ -798,8 +808,13 @@
   min-width: 0;
   height: 32px;
   flex: 1;
-  display: flex;
-  align-items: center;
+  /* A block box (not flex) so text-overflow can paint its ellipsis; rtl puts
+     the ellipsis at the START so the end of a long path stays readable. The
+     <bdi> inside keeps the path itself left-to-right. */
+  display: block;
+  direction: rtl;
+  text-align: left;
+  line-height: 32px;
   overflow: hidden;
   padding: 0 8px;
   border-radius: var(--mx-radius-md);
@@ -807,6 +822,40 @@
   background: var(--mx-hover);
   box-shadow: none;
   font-size: var(--mx-font-minor);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Host folder browser (remote project add): one plain column of folder rows
+   that scrolls on its own, so the path row and actions stay in view. */
+.host-folder-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.host-folder-browser .projects-folder-row input {
+  flex: 1;
+  min-width: 0;
+}
+.host-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(320px, 45vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.host-folder-list li {
+  min-width: 0;
+}
+.host-folder-list button {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

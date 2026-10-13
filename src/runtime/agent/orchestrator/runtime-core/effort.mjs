@@ -1,6 +1,7 @@
 // Reasoning-effort catalogs and coercion. Pure helpers.
 import { clean } from './session-text.mjs';
 import { customEffortLevels, snapCustomEffort } from '../providers/custom-reasoning.mjs';
+import { rejectedEffortLevelsSync } from '../providers/effort-rejection.mjs';
 
 const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
 const ALL_EFFORT_LEVELS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
@@ -15,22 +16,15 @@ const EFFORT_LABELS = {
   ultra: 'Ultra',
 };
 
+// Last-resort ladders for routes whose endpoints publish no effort metadata
+// (no per-model levels on /models, no same-endpoint catalog row). Every other
+// provider's ladder comes from its own catalog rows (live roster, models.dev
+// via provider-catalog-registry, seeds); a route with none offers no effort.
 const EFFORT_OPTIONS_BY_PROVIDER = {
   openai: ['none', 'low', 'medium', 'high', 'xhigh'],
-  // gpt-5.6+ catalogs declare max/ultra; the openai-oauth transport folds
-  // ultra -> max on the wire (openai-oauth.mjs _normalizeReasoningEffort).
-  'openai-oauth': ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  anthropic: ['low', 'medium', 'high', 'xhigh', 'max'],
-  'anthropic-oauth': ['low', 'medium', 'high', 'xhigh', 'max'],
   // xAI Grok 4.6+: low/medium/high/xhigh. Reasoning cannot be disabled.
   xai: ['low', 'medium', 'high', 'xhigh'],
-  'grok-oauth': ['low', 'medium', 'high', 'xhigh'],
-  'muse-code-oauth': ['minimal', 'low', 'medium', 'high', 'xhigh'],
   'mimo-oauth': ['minimal', 'low', 'medium', 'high'],
-  // Antigravity carries the effort tier inside the wire model id
-  // (gemini-3-pro-high / -low, claude-*-thinking), so the route exposes none.
-  'antigravity-oauth': [],
-  'opencode-go': ['high', 'max'],
 };
 const EFFORT_BY_FAMILY = {
   opus: ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -73,7 +67,14 @@ export function normalizeEffortInput(value) {
   return v;
 }
 
+// Levels the endpoint has rejected for this route stop being offered.
 export function effortOptionsFor(provider, model) {
+  const options = catalogEffortOptions(provider, model);
+  const rejected = model?.id ? rejectedEffortLevelsSync(provider, model.id) : null;
+  return rejected?.size ? options.filter((level) => !rejected.has(level)) : options;
+}
+
+function catalogEffortOptions(provider, model) {
   // Custom-provider rows declare their levels authoritatively: an explicit []
   // (or no declaration) means none, with no family/provider fallback.
   if (model?.customReasoning) return customEffortLevels(model) || [];

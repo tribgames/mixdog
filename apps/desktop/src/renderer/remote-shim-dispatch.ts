@@ -29,6 +29,7 @@ import {
   REMOTE_BROWSER_TABS_EVENT,
 } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
+import { type DesktopVisualizeEvent, REMOTE_VISUALIZE_CHANGED_EVENT } from '../shared/visualize';
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
@@ -275,9 +276,36 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (request && typeof request === 'object' && typeof request.sessionId === 'string' && request.sessionId) {
         fanOut(ctx.browserOpenListeners, request);
       }
+    } else if (message.event === REMOTE_VISUALIZE_CHANGED_EVENT) {
+      if (!authenticated) return;
+      const event = message.payload as DesktopVisualizeEvent | null;
+      const state = event?.state;
+      if (
+        event &&
+        typeof event.sessionId === 'string' &&
+        event.sessionId &&
+        state &&
+        typeof state === 'object' &&
+        Array.isArray(state.tabs)
+      ) {
+        // Only state and reveal: web URLs reach a client through the browser handoff.
+        fanOut(ctx.visualizeListeners, {
+          sessionId: event.sessionId,
+          state: { ...state, sessionId: event.sessionId },
+          ...(event.reveal === true ? { reveal: true } : {}),
+        });
+      }
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
       fanOut(ctx.termListeners, { id: String(payload.id || ''), data: String(payload.data ?? '') });
+    } else if (message.event === 'termSizeOwner') {
+      const payload = (message.payload ?? {}) as { id?: unknown; cols?: unknown; rows?: unknown; own?: unknown };
+      fanOut(ctx.termSizeOwnerListeners, {
+        id: String(payload.id || ''),
+        cols: Number(payload.cols) || 0,
+        rows: Number(payload.rows) || 0,
+        own: payload.own === true,
+      });
     } else if (message.event === 'folderChanged') {
       const dir = String(message.payload || '');
       if (!dir) return;

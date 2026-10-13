@@ -75,11 +75,25 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
   const sessionId = active?.kind === 'session' ? active.id : '';
   const entry = sessionDockEntry(leaf.id, sessionId, context.paneSideDocks, context.sessionSurfaces);
   const prewarm = focused && context.dockBodyWarm;
+  const projectPath = context.paneProjectPathFor(leaf);
 
   return (
     <PaneSideDock
       leafId={leaf.id}
       entry={entry}
+      sessionBound={Boolean(sessionId)}
+      // The Files tree reopens on the folder it last revealed in this
+      // Project, else on the Project root.
+      onOpenFiles={
+        projectPath
+          ? () =>
+              context.paneSideDocks.openFolder(
+                leaf.id,
+                projectPath,
+                entry.folder?.project === projectPath ? entry.folder.rel : ''
+              )
+          : undefined
+      }
       groups={context.workbenchSideLayout.layout.right}
       descriptors={context.sideViewDescriptors}
       focused={focused}
@@ -111,7 +125,18 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           active={surfaceActive}
           // The side-dock rules: a tree file opens in this pane's side editor
           // behind the unsaved-edit guard.
-          onOpenFile={(project, rel) => context.sideFileGuard.openFileInSideDock(leaf.id, project, rel)}
+          onOpenFile={(project, rel, mode) =>
+            context.sideFileGuard.openFileInSideDock(
+              leaf.id,
+              project,
+              rel,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              mode === 'pinned'
+            )
+          }
           onRenameEntry={context.renameProjectEntry}
           onClose={side.onClose}
         />
@@ -200,7 +225,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           <SessionTerminalSlot
             controller={context.sessionSurfaces.terminalSurfaces}
             sessionId={sessionId}
-            cwd={resolveTerminalCwd(context.sessionWorkspaceCwdFor?.(sessionId), context.paneProjectPathFor(leaf))}
+            cwd={resolveTerminalCwd(context.sessionWorkspaceCwdFor?.(sessionId), projectPath)}
             active={surfaceActive}
             foreground={surfaceActive && focused}
           />
@@ -215,7 +240,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           titleDragProps,
           {
             leafId: leaf.id,
-            projectPath: context.paneProjectPathFor(leaf),
+            projectPath,
             sessionId,
             prewarm,
           }

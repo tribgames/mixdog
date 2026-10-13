@@ -1,5 +1,5 @@
 import { useEffect, type MutableRefObject } from 'react';
-import { isMobileRemoteSurface } from '../MobileTabOverview';
+import { isMobileRemoteSurface } from '../mobile-surface';
 import { resolveUnreadViewedSessionId } from '../app-unread-sessions';
 import type { DesktopSessionSummary } from '../../shared/contract';
 import type { NavigationSelection } from '../navigation';

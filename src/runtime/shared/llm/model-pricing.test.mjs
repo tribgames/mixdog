@@ -246,12 +246,18 @@ test('GPT-6 Sol and Luna price on both OpenAI routes, doubling input above 272K'
     near(priceUsage({ provider, model: 'gpt-6-luna', inputTokens: 100_000, outputTokens: 10_000 }).costUsd, 0.015);
   }
   const sol = catalog.getModelMetadataSync('gpt-6-sol', 'openai-oauth');
-  assert.equal(sol.supportsWebSearch, true);
-  assert.equal(sol.supportsVision, true);
-  // Public API limits come from the catalog; OAuth never inherits them.
-  assert.equal(catalog.getModelMetadataSync('gpt-6-sol', 'openai').contextWindow, 1050000);
+  const api = catalog.getModelMetadataSync('gpt-6-sol', 'openai');
+  assert.equal(api.supportsWebSearch, true);
+  assert.equal(api.supportsVision, true);
+  // Public API limits and capabilities come from the catalog; the OAuth
+  // backend is another endpoint: it borrows the prices and takes the
+  // capabilities as a first guess, never the limits.
+  assert.equal(api.contextWindow, 1050000);
   assert.equal(catalog.getModelMetadataSync('gpt-6-luna', 'openai').outputTokens, 128000);
   assert.equal(sol.contextWindow, null);
+  assert.equal(sol.supportsWebSearch, true);
+  assert.equal(sol.supportsVision, true);
+  assert.equal(sol.inputCostPerM, api.inputCostPerM);
 });
 
 test('a sent Priority tier prices at the published Priority rates; only an API downgrade bills Standard', () => {

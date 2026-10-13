@@ -13,6 +13,8 @@ export type TranscriptItem = RecordValue & {
   agent?: string;
   /** Device that submitted this prompt (user rows only). */
   device?: string;
+  /** The turn checkpoint a `user` prompt opened or a `turndone` closed. */
+  checkpointId?: string;
   name?: string;
   args?: unknown;
   result?: unknown;
@@ -129,6 +131,10 @@ export type Snapshot = RecordValue & {
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
+  /** Exact context window in force (only when it is a non-default value). */
+  contextTokens?: number;
+  contextDefaultPercent?: number;
+  selectedContextWindow?: number;
   thinking?: unknown;
   spinner?: RecordValue | null;
   commandStatus?: RecordValue | null;

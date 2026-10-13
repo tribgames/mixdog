@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Agents flow v2 — 기존 UI 기준 시안</title>
+<style>
+  /* Values copied from apps/desktop/src/renderer/desktop/01-tokens.css (dark). */
+  :root {
+    --mx-bg-deep: #101013; --mx-bg-base: #222225; --mx-bg-layer-1: #2a2a2d; --mx-bg-layer-2: #323236;
+    --mx-bg-layer-3: #3d3d41; --mx-surface-plate: rgba(255,255,255,.035);
+    --mx-text: #e9e9e9; --mx-text-muted: #a8a8a8; --mx-text-soft: rgba(233,233,233,.85);
+    --mx-text-accent: #79b8ff; --mx-border-muted: rgba(255,255,255,.09); --mx-border: rgba(255,255,255,.125);
+    --mx-border-strong: rgba(255,255,255,.24); --mx-hover: rgba(255,255,255,.08);
+    --mx-danger: #f17471; --mx-danger-bg: #461516; --mx-warning: #f2cf76; --mx-warning-bg: #443f2e;
+    --mx-success: #6bd586; --mx-success-bg: #14361d;
+    --mx-font-micro: 12px; --mx-font-meta: 13px; --mx-font-ui: 14px;
+    --mx-font-mono: "JetBrains Mono", Consolas, monospace;
+    --sans: "Pretendard", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a0a0b; font: var(--mx-font-ui)/1.45 var(--sans); color: var(--mx-text); padding: 24px; }
+  h2 { width: 1320px; margin: 0 auto 10px; font-size: 15px; font-weight: 600; color: var(--mx-text-soft); }
+  .scene { width: 1320px; height: 780px; margin: 0 auto 36px; position: relative; overflow: hidden;
+    background: var(--mx-bg-deep); border: 1px solid #222; border-radius: 10px; display: flex; flex-direction: column; }
+  .titlebar { height: 36px; flex: none; }
+  .shell { flex: 1; display: flex; min-height: 0; }
+
+  /* app chrome stand-ins */
+  .sidebar { width: 240px; background: var(--mx-bg-deep); padding: 8px 12px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+  .sidebar .it { height: 30px; display: flex; align-items: center; padding: 0 8px; border-radius: 7px; }
+  .sidebar .it.on { background: var(--mx-bg-layer-1); color: var(--mx-text); }
+  .sidebar .sec { margin: 14px 8px 6px; font-size: var(--mx-font-micro); }
+  .workspace { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--mx-bg-base);
+    border-radius: 10px 0 0 0; }
+  .tabs { height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 8px; flex: none; }
+  .tab { height: 28px; padding: 0 12px; border-radius: 7px; display: flex; align-items: center; gap: 7px;
+    color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+  .tab.on { background: var(--mx-bg-layer-2); color: var(--mx-text); }
+  .chat { flex: 1; padding: 20px 40px; color: var(--mx-text-soft); font-size: var(--mx-font-ui); line-height: 1.7; }
+  .chat p { margin: 0 0 12px; max-width: 640px; }
+  .composer { margin: 0 24px 18px; height: 92px; border-radius: 16px; background: var(--mx-bg-layer-1);
+    border: 1px solid var(--mx-border-muted); }
+
+  /* utility dock (right) */
+  .dock { width: 340px; background: var(--mx-bg-base); border-left: 1px solid var(--mx-border-muted);
+    display: flex; flex-direction: column; }
+  .dock-head { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; flex: none; }
+  .dock-head b { font-weight: 600; font-size: var(--mx-font-ui); }
+  .seg { margin-left: auto; display: flex; background: var(--mx-bg-layer-1); border-radius: 7px; padding: 2px; }
+  .seg span { font-size: var(--mx-font-micro); padding: 2px 9px; border-radius: 5px; color: var(--mx-text-muted); }
+  .seg span.on { background: var(--mx-bg-layer-3); color: var(--mx-text); }
+  .iconbtn { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--mx-text-muted); }
+  .iconbtn.hl { outline: 1.5px dashed var(--mx-text-accent); outline-offset: 2px; }
+  .dock-body { flex: 1; min-height: 0; padding: 4px 12px; position: relative; }
+  .group { font-size: var(--mx-font-micro); color: var(--mx-text-muted); margin: 6px 0 4px; }
+
+  /* agent row — mirrors AgentPoolRow: provider icon · Role · tag / model route / state */
+  .row { display: flex; align-items: center; gap: 10px; padding: 6px 6px; border-radius: 7px; }
+  .row .pv { width: 16px; height: 16px; flex: none; }
+  .row .copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .row b { font-weight: 400; color: var(--mx-text-soft); font-size: var(--mx-font-ui); line-height: 20px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+  .row small { color: var(--mx-text-muted); font-size: var(--mx-font-micro); white-space: nowrap; }
+  .count { font-size: 11px; min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px;
+    background: var(--mx-bg-layer-3); color: var(--mx-text-soft); display: inline-grid; place-items: center; }
+  .stt { font-size: var(--mx-font-micro); font-weight: 600; color: var(--mx-text-muted); white-space: nowrap;
+    font-variant-numeric: tabular-nums; }
+  /* data-state colours = 10-rail-pages.css .agent-activity-elapsed[data-state] */
+  [data-state="running"] { --st: var(--mx-text-accent); }
+  [data-state="waiting"] { --st: var(--mx-warning); }
+  [data-state="needs-user"] { --st: var(--mx-warning); }
+  [data-state="done"] { --st: var(--mx-success); }
+  [data-state="cancelled"] { --st: var(--mx-danger); }
+  [data-state="queued"], [data-state="idle"] { --st: var(--mx-text-muted); }
+  .stt[data-state] { color: var(--st); }
+
+  /* ---------- flow graph (shared by dock mini + full pane) ---------- */
+  .flow { position: relative; }
+  .flow svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .edge { fill: none; stroke: var(--mx-border-strong); stroke-width: 1.5; }
+  .edge[data-state="running"] { stroke: rgba(121,184,255,.55); }
+  .edge[data-state="needs-user"] { stroke: rgba(242,207,118,.6); stroke-dasharray: 5 4; }
+  .edge[data-state="done"] { stroke: rgba(107,213,134,.35); }
+  .edge[data-state="queued"] { stroke-dasharray: 2 5; }
+  .flowing { stroke-dasharray: 6 10; animation: dash 1s linear infinite; stroke: var(--mx-text-accent); stroke-width: 1.5; fill: none; opacity: .9; }
+  @keyframes dash { to { stroke-dashoffset: -16; } }
+
+  .node { position: absolute; width: 228px; transform: translate(-50%, -50%); background: var(--mx-bg-layer-1);
+    border: 1px solid var(--mx-border); border-radius: 10px; padding: 7px 10px; display: flex; align-items: center; gap: 10px; }
+  .node::before { content: ''; position: absolute; left: -1px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--st); }
+  .node[data-state="running"] { border-color: rgba(121,184,255,.45); box-shadow: 0 0 0 3px rgba(121,184,255,.08); }
+  .node[data-state="running"]::after { content: ''; position: absolute; inset: -1px; border-radius: 10px;
+    border: 1px solid var(--mx-text-accent); animation: ring 2s ease-out infinite; }
+  .node[data-state="needs-user"] { border-color: rgba(242,207,118,.55); background: #2e2b22; }
+  .node[data-state="done"], .node[data-state="idle"] { opacity: .7; }
+  .node[data-state="queued"] { border-style: dashed; background: var(--mx-surface-plate); }
+  .node.lead { width: 250px; background: var(--mx-bg-layer-2); }
+  .node .copy { flex: 1; min-width: 0; }
+  .node b { font-weight: 500; font-size: var(--mx-font-meta); display: flex; gap: 6px; align-items: center;
+    white-space: nowrap; overflow: hidden; }
+  .node small { display: block; color: var(--mx-text-muted); font-size: 11.5px; white-space: nowrap; }
+  .node .stt { font-size: 11.5px; }
+  @keyframes ring { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.06, 1.25); } }
+  .node .act { display: block; margin-top: 3px; font: 11px var(--mx-font-mono); color: var(--mx-text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .node .act.new { color: var(--mx-text-accent); }
+  .tagnew { position: absolute; top: -9px; right: 8px; font: 10px var(--mx-font-mono); padding: 0 5px; border-radius: 4px;
+    background: var(--mx-bg-layer-3); color: var(--mx-text-accent); border: 1px dashed var(--mx-text-accent); }
+
+  /* mini variant in dock */
+  .mini .node { transform: none; width: 286px; padding: 5px 9px; gap: 8px; }
+  .mini .node.lead { width: 316px; }
+  .mini .node[data-state="queued"] { width: 252px; }
+
+  /* ---------- lifecycle FSM strip ---------- */
+  .fsm { position: relative; height: 150px; flex: none; border-bottom: 1px solid var(--mx-border-muted); }
+  .fsm svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stbox { position: absolute; transform: translate(-50%, -50%); min-width: 112px; padding: 7px 12px 8px; border-radius: 10px;
+    background: var(--mx-bg-layer-1); border: 1px solid var(--mx-border); text-align: center; }
+  .stbox .nm { font-size: var(--mx-font-meta); font-weight: 600; color: var(--st, var(--mx-text-soft)); }
+  .stbox .chips { display: flex; justify-content: center; gap: 3px; margin-top: 5px; min-height: 16px; }
+  .stbox .chips i { width: 16px; height: 16px; border-radius: 50%; background: var(--mx-bg-layer-3); display: grid;
+    place-items: center; font: normal 700 9px var(--mx-font-mono); color: var(--mx-text); border: 1.5px solid var(--st, var(--mx-border)); }
+  .stbox .zero { font-size: 11px; color: var(--mx-text-muted); opacity: .6; }
+  .stbox.hot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--st) 18%, transparent); border-color: color-mix(in srgb, var(--st) 55%, transparent); }
+  .tr { fill: none; stroke: var(--mx-border-strong); stroke-width: 1.3; }
+  .trl { font: 10.5px var(--sans); fill: var(--mx-text-muted); text-anchor: middle; }
+
+  .pane-head { height: 44px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 18px;
+    border-bottom: 1px solid var(--mx-border-muted); }
+  .pane-head b { font-weight: 600; }
+  .pane-head .meta { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+  .pills { margin-left: auto; display: flex; gap: 6px; }
+  .pill { font-size: var(--mx-font-micro); padding: 2px 9px; border-radius: 999px; background: var(--mx-bg-layer-1);
+    color: var(--st); border: 1px solid var(--mx-border-muted); font-weight: 600; }
+  .graph-area { flex: 1; min-height: 0; position: relative;
+    background: radial-gradient(circle at 1px 1px, rgba(255,255,255,.05) 1px, transparent 0) 0 0 / 22px 22px; }
+
+  .approve { position: absolute; right: 16px; bottom: 16px; width: 330px; background: var(--mx-bg-layer-1);
+    border: 1px solid rgba(242,207,118,.4); border-radius: 12px; padding: 12px 14px; }
+  .approve h6 { margin: 0 0 6px; font-size: var(--mx-font-micro); color: var(--mx-warning); font-weight: 600; }
+  .approve p { margin: 0 0 10px; font-size: var(--mx-font-meta); color: var(--mx-text-soft); }
+  .approve code { font: 12px var(--mx-font-mono); color: var(--mx-text); background: var(--mx-bg-layer-3); padding: 1px 5px; border-radius: 4px; }
+  .approve .btns { display: flex; gap: 6px; justify-content: flex-end; }
+  .btn { font: 12.5px var(--sans); padding: 4px 12px; border-radius: 7px; background: var(--mx-bg-layer-3); color: var(--mx-text); border: 0; }
+  .btn.pri { background: #1967d2; }
+
+  .callout { position: absolute; z-index: 5; font-size: 12px; color: #0f0f11; background: #79b8ff; padding: 3px 9px;
+    border-radius: 6px; font-weight: 600; white-space: nowrap; }
+  .notes { width: 1320px; margin: -18px auto 36px; color: var(--mx-text-muted); font-size: 13px; line-height: 1.75; }
+  .notes b { color: var(--mx-text); font-weight: 600; }
+  .notes code { font: 12px var(--mx-font-mono); color: var(--mx-text-soft); }
+</style>
+</head>
+<body>
+
+<!-- reusable provider glyphs -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="pv-anthropic" viewBox="0 0 16 16"><path d="M8 1.5l1.3 4.2 4.2-1.6-2.6 3.6 3.6 2.6-4.4.1L8 14.5 6.9 10.4l-4.4-.1 3.6-2.6L3.5 4.1l4.2 1.6z" fill="#d97757"/></symbol>
+  <symbol id="pv-openai" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="#e9e9e9" stroke-width="1.6"/><circle cx="8" cy="8" r="2" fill="#e9e9e9"/></symbol>
+  <symbol id="pv-google" viewBox="0 0 16 16"><path d="M8 1.5c.6 3.4 3.1 5.9 6.5 6.5-3.4.6-5.9 3.1-6.5 6.5-.6-3.4-3.1-5.9-6.5-6.5 3.4-.6 5.9-3.1 6.5-6.5z" fill="#79b8ff"/></symbol>
+</svg>
+
+<h2>① 기존 Agents 독 — 상단에 「목록 | 흐름」 전환만 추가</h2>
+<div class="scene">
+  <div class="titlebar"></div>
+  <div class="shell">
+    <div class="sidebar">
+      <div class="it">새 작업</div><div class="sec">최근</div>
+      <div class="it on">결제 모듈 리팩터</div><div class="it">릴리스 노트 정리</div><div class="it">TB 벤치 분석</div>
+    </div>
+    <div class="workspace">
+      <div class="tabs"><div class="tab on">결제 모듈 리팩터</div><div class="tab">터미널</div></div>
+      <div class="chat">
+        <p>세 범위로 나눠서 병렬로 진행하겠습니다. auth 토큰 갱신은 Worker, checkout UI는 Worker, DB 마이그레이션은 Heavy Worker에게 맡깁니다.</p>
+        <p style="color:var(--mx-text-muted)">● agent spawn × 3</p>
+      </div>
+      <div class="composer"></div>
+    </div>
+    <div class="dock">
+      <div class="dock-head">
+        <b>에이전트</b>
+        <div class="seg"><span>목록</span><span class="on">흐름</span></div>
+        <div class="iconbtn hl" title="크게 보기">⤢</div>
+      </div>
+      <div class="dock-body">
+        <div class="group">결제 모듈 리팩터</div>
+        <div class="flow mini" style="height:300px">
+          <svg class="edges" viewBox="0 0 316 300" preserveAspectRatio="xMinYMin meet">
+            <path class="edge" data-state="running" d="M14,40 V80 Q14,88 22,88 H30"/>
+            <path class="flowing" d="M14,40 V80 Q14,88 22,88 H30"/>
+            <path class="edge" data-state="running" d="M14,40 V140 Q14,148 22,148 H30"/>
+            <path class="flowing" d="M14,40 V140 Q14,148 22,148 H30"/>
+            <path class="edge" data-state="needs-user" d="M14,40 V200 Q14,208 22,208 H30"/>
+            <path class="edge" data-state="queued" d="M48,106 V260 Q48,268 56,268 H64"/>
+          </svg>
+          <div class="node lead" data-state="waiting" style="left:0;top:4px">
+            <svg class="pv" width="16" height="16"><use href="#pv-anthropic"/></svg>
+            <div class="copy"><b>Lead <span class="count">4</span></b><small>Opus · high</small></div><span class="stt" data-state="waiting">작업 대기</span></div>
+          <div class="node" data-state="running" style="left:30px;top:68px">
+            <svg width="16" height="16"><use href="#pv-openai"/></svg>
+            <div class="copy"><b>Worker · auth-fix</b><small>GPT-5.5 · high</small></div><span class="stt" data-state="running">3m 12s</span></div>
+          <div class="node" data-state="running" style="left:30px;top:128px">
+            <svg width="16" height="16"><use href="#pv-anthropic"/></svg>
+            <div class="copy"><b>Worker · checkout</b><small>Sonnet · medium</small></div><span class="stt" data-state="running">1m 48s</span></div>
+          <div class="node" data-state="needs-user" style="left:30px;top:188px">
+            <svg width="16" height="16"><use href="#pv-anthropic"/></svg>
+            <div class="copy"><b>Heavy Worker · db-migrate</b><small>Opus · high</small></div><span class="stt" data-state="needs-user">승인 대기 중</span></div>
+          <div class="node" data-state="queued" style="left:64px;top:248px">
+            <svg width="16" height="16"><use href="#pv-google"/></svg>
+            <div class="copy"><b>Reviewer</b><small>auth-fix 뒤</small></div><span class="stt" data-state="queued">대기열</span></div>
+        </div>
+        <div class="group">릴리스 노트 정리</div>
+        <div class="row"><svg class="pv"><use href="#pv-openai"/></svg>
+          <div class="copy"><b>Writer · changelog</b><small>GPT-5.5 · medium</small></div><span class="stt" data-state="done">완료</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="callout" style="right:16px;top:84px">⤢ 크게 보기 → ② 패널 탭으로 열림</div>
+</div>
+<div class="notes">
+  위치·그룹·행 구성은 지금 Agents 독(<code>AgentActivityPane</code>) 그대로입니다. 세션별 그룹 안에서만 목록을 흐름으로 바꿔 보여줍니다.
+  노드 하나 = 기존 행 하나(모델 아이콘 · <b>역할 · 태그</b> · 상태 문구). 선은 기존 <code>parentSessionId</code> 부모-자식 관계, 상태 색은 기존 독 색(실행 중 파랑, 작업 대기 노랑, 완료 초록, 취소 빨강)을 그대로 씁니다.
+  클릭하면 세션 열기, 드래그하면 패널로 분할 — 행의 동작도 그대로입니다.
+</div>
+
+<h2>② 크게 보기 — 패널 탭(터미널·브라우저 탭과 같은 자리)</h2>
+<div class="scene">
+  <div class="titlebar"></div>
+  <div class="shell">
+    <div class="sidebar">
+      <div class="it">새 작업</div><div class="sec">최근</div>
+      <div class="it on">결제 모듈 리팩터</div><div class="it">릴리스 노트 정리</div>
+    </div>
+    <div class="workspace">
+      <div class="tabs"><div class="tab">결제 모듈 리팩터</div><div class="tab on">⤢ 에이전트 흐름</div><div class="tab">터미널</div></div>
+      <div class="pane-head">
+        <b>결제 모듈 리팩터</b><span class="meta">Default · Swarm</span>
+        <div class="pills">
+          <span class="pill" data-state="running">실행 중 2</span>
+          <span class="pill" data-state="needs-user">승인 대기 1</span>
+          <span class="pill" data-state="queued">대기열 1</span>
+          <span class="pill" data-state="done">완료 1</span>
+        </div>
+      </div>
+
+      <!-- lifecycle FSM: the real desktopAgentActivityState states -->
+      <div class="fsm">
+        <svg viewBox="0 0 1078 150" preserveAspectRatio="none">
+          <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="rgba(255,255,255,.35)"/></marker></defs>
+          <path class="tr" d="M150,62 H232" marker-end="url(#a)"/><text class="trl" x="191" y="54">시작</text>
+          <path class="tr" d="M352,52 C400,22 470,22 516,48" marker-end="url(#a)"/><text class="trl" x="434" y="22">도구 승인 요청</text>
+          <path class="tr" d="M516,78 C470,104 400,104 352,76" marker-end="url(#a)"/><text class="trl" x="434" y="110">허용 / 거절</text>
+          <path class="tr" d="M352,62 C520,62 640,62 760,62" marker-end="url(#a)" style="opacity:0"/>
+          <path class="tr" d="M300,88 C330,130 640,135 700,100" marker-end="url(#a)"/><text class="trl" x="520" y="140">하위 에이전트 대기</text>
+          <path class="tr" d="M820,62 H880" marker-end="url(#a)"/><text class="trl" x="850" y="54">하위 정리됨</text>
+          <path class="tr" d="M760,40 C700,8 360,8 320,36" marker-end="url(#a)" style="stroke-dasharray:3 4"/><text class="trl" x="545" y="9">결과 도착 → 다음 턴</text>
+          <path class="tr" d="M1010,62 H1040" style="opacity:0"/>
+        </svg>
+        <div class="stbox" data-state="queued" style="left:90px;top:62px"><div class="nm">대기열</div>
+          <div class="chips"><i title="Reviewer">R</i></div></div>
+        <div class="stbox hot" data-state="running" style="left:292px;top:62px"><div class="nm">실행 중</div>
+          <div class="chips"><i>W</i><i>W</i></div></div>
+        <div class="stbox hot" data-state="needs-user" style="left:576px;top:62px"><div class="nm">승인 대기 중</div>
+          <div class="chips"><i>H</i></div></div>
+        <div class="stbox" data-state="waiting" style="left:760px;top:62px"><div class="nm">작업 대기</div>
+          <div class="chips"><i>L</i></div></div>
+        <div class="stbox" data-state="done" style="left:960px;top:62px"><div class="nm">완료 · 대기 중</div>
+          <div class="chips"><i>W</i></div></div>
+      </div>
+
+      <div class="graph-area">
+        <div class="flow" style="position:absolute;inset:0">
+          <svg class="edges" viewBox="0 0 1078 510" preserveAspectRatio="xMinYMin meet">
+            <path class="edge" data-state="done" d="M539,70 C539,120 160,120 160,170"/>
+            <path class="edge" data-state="running" d="M539,70 C539,120 410,120 410,170"/><path class="flowing" d="M539,70 C539,120 410,120 410,170"/>
+            <path class="edge" data-state="running" d="M539,70 C539,120 660,120 660,170"/><path class="flowing" d="M539,70 C539,120 660,120 660,170"/>
+            <path class="edge" data-state="needs-user" d="M539,70 C539,120 910,120 910,170"/>
+            <path class="edge" data-state="queued" d="M410,224 C410,265 539,255 539,296"/>
+          </svg>
+          <div class="node lead" data-state="waiting" style="left:539px;top:46px">
+            <svg width="16" height="16"><use href="#pv-anthropic"/></svg>
+            <div class="copy"><b>Lead <span class="count">4</span></b><small>Opus · high</small></div><span class="stt" data-state="waiting">작업 대기</span></div>
+
+          <div class="node" data-state="done" style="left:160px;top:190px">
+            <svg width="16" height="16"><use href="#pv-openai"/></svg>
+            <div class="copy"><b>Worker · api-types</b><small>GPT-5.5 · medium</small></div><span class="stt" data-state="done">완료</span></div>
+          <div class="node" data-state="running" style="left:410px;top:196px">
+            <span class="tagnew">+ 추가 데이터</span>
+            <svg width="16" height="16"><use href="#pv-openai"/></svg>
+            <div class="copy"><b>Worker · auth-fix</b><small>GPT-5.5 · high</small><span class="act new">edit src/auth/token.mjs</span></div><span class="stt" data-state="running">3m 12s</span></div>
+          <div class="node" data-state="running" style="left:660px;top:196px">
+            <svg width="16" height="16"><use href="#pv-anthropic"/></svg>
+            <div class="copy"><b>Worker · checkout</b><small>Sonnet · medium</small><span class="act new">npm test checkout</span></div><span class="stt" data-state="running">1m 48s</span></div>
+          <div class="node" data-state="needs-user" style="left:910px;top:190px">
+            <svg width="16" height="16"><use href="#pv-anthropic"/></svg>
+            <div class="copy"><b>Heavy Worker · db-migrate</b><small>Opus · high</small></div><span class="stt" data-state="needs-user">승인 대기 중</span></div>
+          <div class="node" data-state="queued" style="left:539px;top:316px">
+            <svg width="16" height="16"><use href="#pv-google"/></svg>
+            <div class="copy"><b>Reviewer</b><small>Gemini · high</small></div><span class="stt" data-state="queued">대기열</span></div>
+        </div>
+
+        <div class="approve">
+          <h6>승인 대기 중 · Heavy Worker · db-migrate</h6>
+          <p><code>npm run migrate -- --env=staging</code> 실행을 허용할까요?</p>
+          <div class="btns"><button class="btn">세션 열기</button><button class="btn">거절</button><button class="btn pri">허용</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  위쪽 띠는 <b>에이전트 상태 머신(FSM)</b>입니다. 상자는 코드에 이미 있는 상태(<code>desktopAgentActivityState</code>: 대기열 · 실행 중 · 승인 대기 중 · 작업 대기 · 완료/대기 중)이고,
+  각 에이전트가 지금 상태 상자 안에 칩으로 들어가 있습니다. 상태가 바뀌면 칩이 화살표를 따라 옮겨 갑니다. 취소됨/취소 미확인은 해당할 때만 오른쪽 끝에 나타납니다.
+  아래 그래프와 상단 숫자, 승인 카드는 전부 지금 에이전트 목록 데이터(<code>awaitingUser: 'approval'</code> 포함)만으로 그릴 수 있습니다.
+  <b>점선 「+ 추가 데이터」</b> 표시가 붙은 “지금 실행 중인 도구” 한 줄만 새 데이터가 필요합니다(현재 에이전트 목록에는 도구 이름이 없음). 승인 카드의 명령 문구도 같은 이유로 런타임에서 넘겨줘야 합니다.
+  워크플로(Default·Headless)는 지침 문서일 뿐 단계 정보가 없어서, 지난 시안처럼 “상담→계획→실행” 단계를 그리려면 런타임에 단계 개념부터 만들어야 합니다 — 그래서 이번엔 실제 존재하는 상태 기계로 바꿨습니다.
+  Goal이 켜진 세션이라면 같은 띠를 Goal 작업 상태(대기 → 진행 중 → 승인 대기 → 완료/제외)로 바꿔 보여주는 탭을 하나 더 둘 수 있습니다.
+</div>
+</body>
+</html>

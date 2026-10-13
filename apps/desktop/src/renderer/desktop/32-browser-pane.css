@@ -449,6 +449,12 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
     width: 27px;
   }
 
+  /* "Open in system browser" lives in the More menu here, so the address
+     field keeps the room. */
+  .browser-remote-pane .browser-pane-address-form {
+    min-width: 120px;
+  }
+
   .browser-pane-viewport-picker,
   .browser-pane-viewport-control,
   .browser-pane-viewport-control .mx-select-trigger {
@@ -859,5 +865,25 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   background: var(--mx-workspace-sheet);
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
+  pointer-events: none;
+}
+
+/* A streaming phone sizes the page; the pane's own size returns after. */
+.browser-pane-remote-driving {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mx-surface-plate) 92%, transparent);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  box-shadow: var(--mx-floating);
+  transform: translateX(-50%);
   pointer-events: none;
 }

@@ -1,6 +1,8 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { sanitizeForWire } from './session-wire-values.mjs';
+import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
+import { getModelProxyChannel } from '../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 
 const requireDesktopModule = createRequire(import.meta.url);
 
@@ -185,7 +187,22 @@ export class DesktopServiceRegistry {
     if (this.#closed) throw new Error('session service is closed');
     const token = subscriberToken(ctx);
     if (token) service.subscribers.add(token);
+    this.#syncModelProxyPresence();
     return { desktopId: service.desktopId };
+  }
+
+  // Proxied model calls need a live desktop subscriber; tell the channel the
+  // moment the last one leaves instead of waiting for its claim timeout.
+  #syncModelProxyPresence() {
+    if (!modelProxyClientMode()) return;
+    let present = false;
+    for (const service of this.#servicesById.values()) {
+      if (service.subscribers.size) {
+        present = true;
+        break;
+      }
+    }
+    getModelProxyChannel().setClientPresent(present);
   }
 
   // Every addressed call also (re)subscribes its caller to the service lane.
@@ -211,6 +228,7 @@ export class DesktopServiceRegistry {
 
   ready({ desktopId } = {}, ctx = null) {
     const { service, token } = this.#requireSubscribed(desktopId, ctx);
+    this.#syncModelProxyPresence();
     this.#onReady({ desktopId: service.desktopId, clientToken: token || null });
     return { ok: true };
   }
@@ -219,6 +237,7 @@ export class DesktopServiceRegistry {
     const service = this.#require(desktopId);
     const token = subscriberToken(ctx);
     if (token) service.subscribers.delete(token);
+    this.#syncModelProxyPresence();
     return { ok: true, unsubscribed: true };
   }
 
@@ -228,6 +247,7 @@ export class DesktopServiceRegistry {
     for (const service of this.#servicesById.values()) {
       service.subscribers.delete(token);
     }
+    this.#syncModelProxyPresence();
   }
 
   notifySessionRuntimeReleased(sessionId, reason) {

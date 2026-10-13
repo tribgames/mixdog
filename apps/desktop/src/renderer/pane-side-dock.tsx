@@ -19,6 +19,7 @@ import type { SideFileChrome } from './side-surface-strip';
 import { DockHeaderRow, PaneDockExpandContext } from './pane-dock-chrome';
 import { PaneDockDiffColumn } from './pane-dock-diff-column';
 import { PaneDockFileSurface } from './PaneDockFileSurface';
+import { PaneDockToggles } from './pane-dock-toggles';
 import {
   commitWidthPref,
   useDiffColumnResize,
@@ -26,7 +27,6 @@ import {
   useDockCloseRequest,
   useDockExpansion,
   useDockMounting,
-  useMobileOutsideFold,
   usePanelWidthDrag,
   useSideFileProblems,
 } from './pane-side-dock-hooks';
@@ -1058,29 +1058,35 @@ function PaneDockChromeRow({
   );
 }
 
-/** The phone sheet's title row; it slides out with the unit. */
+/** The phone sheet's title row; it slides out with the unit. The sheet covers
+ *  the pane strip, so it carries the strip's dock toggles (plus the project
+ *  Files tree) itself: Changes/Terminal/… stay one tap away while the editor
+ *  or any other child shows, as they do beside the PC dock. */
 function MobileDockHeader({
   fileShowing,
+  filesShowing,
   descriptor,
+  toggles,
   onClose,
 }: {
   fileShowing: boolean;
+  filesShowing: boolean;
   descriptor: WorkbenchSideViewDescriptor | undefined;
+  toggles: ReactNode;
   onClose(): void;
 }) {
+  let title: string | null = null;
+  if (fileShowing) title = t('File');
+  else if (filesShowing) title = t('Files');
+  else if (descriptor) title = descriptor.title ?? descriptor.label;
   return (
     <header className="pane-side-dock-header">
-      {fileShowing ? (
+      {title && (
         <div className="pane-side-dock-title">
-          <span>{t('File')}</span>
+          <span>{title}</span>
         </div>
-      ) : (
-        descriptor && (
-          <div className="pane-side-dock-title">
-            <span>{descriptor.title ?? descriptor.label}</span>
-          </div>
-        )
       )}
+      {toggles}
       <button
         type="button"
         className="pane-side-dock-close"
@@ -1124,9 +1130,16 @@ export function PaneSideDock({
   renderFileProblems,
   renderView,
   renderDiffHeaderControls,
+  sessionBound = false,
+  onOpenFiles,
 }: {
   leafId: string;
   entry: PaneSideDockEntry;
+  /** A session stands behind the pane (its session-owned toggles are live). */
+  sessionBound?: boolean;
+  /** Phone sheet header: shows the pane project's Files tree. Absent without
+   *  a project, so no Files toggle is drawn. */
+  onOpenFiles?(): void;
   /** Optional controls rendered in the diff header's left slot after the
    *  file chip (the unified/split menu by default). */
   renderDiffHeaderControls?: () => ReactNode;
@@ -1193,7 +1206,9 @@ export function PaneSideDock({
   const diffShowing = surfaceShowing && paneDiffShowing(entry);
   // The Changes panel view draws its own DockHeaderRow (SessionDiffPane).
   const sessionDiffPanelShowing =
-    openNow && entry.surface === '' && (entry.view === 'session-diff' || entry.view === 'background-jobs');
+    openNow &&
+    entry.surface === '' &&
+    (entry.view === 'session-diff' || entry.view === 'background-jobs' || entry.view === 'visualize');
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
     useDockWidthPrefs();
@@ -1241,7 +1256,6 @@ export function PaneSideDock({
   // its wrapper's size and re-lays out every row on any change, so a width
   // going to zero on close would cost as much as the unmount did.
   const shownDiffWidth = useRef(0);
-  useMobileOutsideFold(hostRef, openNow, onClose);
   useDockCloseRequest(
     browserShowing || terminalShowing || sessionDiffPanelShowing,
     sessionDiffPanelShowing ? (entry.view ?? '') : entry.surface,
@@ -1286,7 +1300,9 @@ export function PaneSideDock({
         onOpenFile={openFileTab}
         chrome="side"
         onBack={stacked ? onCloseDiff : undefined}
-        headerControlsExternal
+        // The phone sheet draws no desktop chrome row, so the diff keeps its
+        // own strip there: file chip, back step and controls.
+        headerControlsExternal={!mobileSheet}
         viewState={diffView}
       />
     </DeferredPersistentSurface>
@@ -1410,7 +1426,19 @@ export function PaneSideDock({
         {headerShowing && mobileSheet && (
           <MobileDockHeader
             fileShowing={Boolean(dockFile)}
+            filesShowing={filesShowing}
             descriptor={activeDescriptor}
+            toggles={
+              <PaneDockToggles
+                groups={groups}
+                descriptors={descriptors}
+                activeRoot={activeRoot}
+                sessionBound={sessionBound}
+                files={onOpenFiles ? { active: filesShowing, onOpen: onOpenFiles } : undefined}
+                onSelect={onSelect}
+                onClose={onClose}
+              />
+            }
             onClose={dockFile && onCloseFile ? onCloseFile : onClose}
           />
         )}

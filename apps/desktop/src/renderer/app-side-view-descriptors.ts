@@ -1,6 +1,7 @@
 import {
   Bot,
   Clock,
+  Eye,
   FileDiff,
   GitCompare,
   Github,
@@ -8,6 +9,7 @@ import {
   Layers3,
   ListChecks,
   MessageSquare,
+  Network,
   Package,
   PanelsTopLeft,
   Search,
@@ -34,6 +36,7 @@ export function createAppSideViewDescriptors(
     ],
     ['schedules', { id: 'schedules', label: t('Schedules'), icon: Clock, onPrefetch: () => onPrefetch('schedules') }],
     ['webhooks', { id: 'webhooks', label: t('Webhooks'), icon: Webhook, onPrefetch: () => onPrefetch('webhooks') }],
+    ['ports', { id: 'ports', label: t('Ports'), icon: Network }],
     [
       'browser',
       {
@@ -68,6 +71,7 @@ export function createAppSideViewDescriptors(
         onPrefetch: () => onPrefetch('background-jobs'),
       },
     ],
+    ['visualize', { id: 'visualize', label: t('Visualize'), tooltip: t('Visualize'), icon: Eye }],
     ['agents', { id: 'agents', label: t('Agents'), icon: Bot, onPrefetch: () => onPrefetch('agents') }],
     ['search', { id: 'search', label: t('Search'), icon: Search, onPrefetch: () => onPrefetch('search') }],
     [

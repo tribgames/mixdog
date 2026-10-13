@@ -80,10 +80,13 @@
     "Ln {{line}}, Col {{column}}": "editor status line abbreviation",
     ", Col": "editor status column abbreviation fragment",
     "Auto": "effort-tier name kept in English by design",
-    "Worktree": "established Git CLI and feature term"
+    "Worktree": "established Git CLI and feature term",
+    "v{{value0}} / {{value1}}": "version counter, placeholders only"
   },
   "localeExceptions": {
     "de": {
+      "Ports": "same spelling for network ports in German UI",
+      "Port {{port}}": "same spelling for a network port in German UI",
       "Workflow": "established software term in German UI",
       "Webhooks": "established web term in German UI",
       "Browser": "established web loanword in German UI",
@@ -162,6 +165,7 @@
       "Version": "same spelling in German"
     },
     "es": {
+      "1 error": "same spelling in Spanish",
       "Workflow": "established software term in Spanish UI",
       "Webhooks": "established web term in Spanish UI",
       "Terminal": "established software term in Spanish UI",
@@ -208,6 +212,8 @@
       "Tokens (est.)": "established AI term in Spanish UI"
     },
     "fr": {
+      "Ports": "same spelling for network ports in French UI",
+      "Port {{port}}": "same spelling for a network port in French UI",
       "Sessions": "same spelling in French",
       "Workflow": "established software term in French UI",
       "Extensions": "same spelling in French",

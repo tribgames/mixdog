@@ -1,5 +1,6 @@
-import { Check } from 'lucide-react';
+import { ArrowUp, Check, Folder } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import type { DesktopRemoteAccessInfo } from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
@@ -11,6 +12,7 @@ import type { CapabilityApi } from './capability-data';
 import { ConnRow, KindIcon } from './connection-ui';
 import { AddressRow, PairCodeBlock, usePairCode } from './pair-code';
 import { errorMessage } from '../editor-pane-session-errors';
+import { joinHostPath, parentHostPath } from '../HostFolderBrowser';
 
 const FOCUSABLE = 'button:not(:disabled), input:not(:disabled)';
 
@@ -100,7 +102,7 @@ export function ConnDialog({
   );
 }
 
-function Steps({ items, start = 1 }: { items: ReactNode[]; start?: number }) {
+export function Steps({ items, start = 1 }: { items: ReactNode[]; start?: number }) {
   return (
     <ol className="conn-steps">
       {items.map((item, index) => (
@@ -360,12 +362,15 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onClose,
+  children,
 }: {
   title: string;
   description: string;
   confirmLabel: string;
   onConfirm(): void;
   onClose(): void;
+  /** Options that belong to the confirmation (a checkbox). */
+  children?: ReactNode;
 }) {
   return (
     <ConnDialog
@@ -391,7 +396,121 @@ export function ConfirmDialog({
           </button>
         </>
       }
-    />
+    >
+      {children}
+    </ConnDialog>
+  );
+}
+
+export interface ServerFolderListing {
+  /** Canonical directory the server listed. */
+  path: string;
+  entries: Array<{ name: string; git: boolean }>;
+  truncated: boolean;
+}
+
+/** Folder chooser for a server window (D1): the server's folders in place of
+ *  this PC's OS dialog. `list('')` starts at the user's home on the server. */
+export function ServerFolderDialog({
+  serverName,
+  list,
+  onSelect,
+  onClose,
+}: {
+  serverName: string;
+  list(path: string): Promise<ServerFolderListing>;
+  onSelect(path: string): void;
+  onClose(): void;
+}) {
+  const [target, setTarget] = useState('');
+  const [draft, setDraft] = useState('');
+  const [listing, setListing] = useState<ServerFolderListing | null>(null);
+  const [error, setError] = useState('');
+  const listRef = useRef(list);
+  listRef.current = list;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `target` is the trigger; the list function is read through its ref.
+  useEffect(() => {
+    let live = true;
+    setError('');
+    listRef.current(target).then(
+      (result) => {
+        if (!live) return;
+        setListing(result);
+        setDraft(result.path);
+      },
+      () => {
+        if (live) setError(t('This folder cannot be opened on the server.'));
+      }
+    );
+    return () => {
+      live = false;
+    };
+  }, [target]);
+  const here = listing?.path ?? '';
+  const parent = here ? parentHostPath(here) : null;
+  const pickRow = (name: string, git: boolean, onClick: () => void, icon: ReactNode, label?: string) => (
+    <button type="button" key={name} className="conn-row conn-row--pick" aria-label={label} onClick={onClick}>
+      <span className="conn-tile">{icon}</span>
+      <span className="conn-row-text">
+        <span className="conn-row-title">
+          <b>{name}</b>
+        </span>
+      </span>
+      {git && <span className="conn-row-meta">{t('Git')}</span>}
+    </button>
+  );
+  return createPortal(
+    <ConnDialog
+      title={t('Choose a Mixdog project folder')}
+      description={serverName ? t('These folders are on {{server}}.', { server: serverName }) : undefined}
+      onEscape={onClose}
+      footer={
+        <>
+          <span className="conn-grow" />
+          <button type="button" className="conn-btn" onClick={onClose}>
+            {t('Cancel')}
+          </button>
+          <button
+            type="button"
+            className="conn-btn conn-btn--primary"
+            disabled={!listing || Boolean(error)}
+            onClick={() => onSelect(here)}
+          >
+            {t('Choose')}
+          </button>
+        </>
+      }
+    >
+      <div className="conn-field">
+        <input
+          type="text"
+          className="conn-input"
+          data-autofocus
+          value={draft}
+          aria-label={t('Path')}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            setTarget(draft.trim());
+          }}
+        />
+        <div className="conn-list conn-list--picker">
+          {parent !== null && pickRow('..', false, () => setTarget(parent), <ArrowUp size={16} aria-hidden="true" />, t('Up'))}
+          {listing?.entries.map((entry) =>
+            pickRow(entry.name, entry.git, () => setTarget(joinHostPath(here, entry.name)), (
+              <Folder size={16} aria-hidden="true" />
+            ))
+          )}
+        </div>
+        <div className="conn-field-msg">
+          {error ? <ErrorNotice error={error} /> : listing && listing.entries.length === 0 ? t('No folders') : '\u00a0'}
+        </div>
+      </div>
+    </ConnDialog>,
+    document.body
   );
 }
 

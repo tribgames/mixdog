@@ -10,6 +10,7 @@ import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { accountIdentityFields, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 
 export const CLIENT_ID = '1031625952748946';
 export const DEVICE_AUTH_URL = 'https://auth.meta.com/oidc/device/authorization/';
@@ -44,6 +45,7 @@ const nonEmptyString = (value) => typeof value === 'string' && value.trim() !== 
 export const isValidMuseCredentialDocument = (doc) => nonEmptyString(doc?.accessToken) && nonEmptyString(doc?.apiKey);
 
 export function loadTokens() {
+  if (modelProxyClientMode()) return null;
   const path = getOwnTokenPath();
   if (!existsSync(path)) return null;
   try {

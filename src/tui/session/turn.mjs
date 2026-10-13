@@ -420,9 +420,12 @@ export function failTurn(ctx, error) {
 }
 
 export function turnDoneItem({ turn, stream, cards, getState, nextId }) {
+  // The outer prompt id is the turn's change-record key (runtime.ask `id`).
+  const checkpointId = turn.submittedIds[0] == null ? '' : String(turn.submittedIds[0]).trim();
   return {
     kind: 'turndone',
     id: nextId(),
+    ...(checkpointId ? { checkpointId } : {}),
     elapsedMs: Date.now() - turn.startedAt,
     status: turnOutcome(turn.cancelled, turn.failed),
     // Notifications resolve this exact terminal assistant item, never a

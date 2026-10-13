@@ -46,15 +46,21 @@ function chunk(type, data) {
   return result;
 }
 
-function encodePng(size, rgba) {
+function encodePng(size, rgba, opaque = false) {
+  const channels = opaque ? 3 : 4;
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
-  ihdr.set([8, 6, 0, 0, 0], 8);
+  ihdr.set([8, opaque ? 2 : 6, 0, 0, 0], 8);
 
-  const scanlines = Buffer.alloc((size * 4 + 1) * size);
+  const scanlines = Buffer.alloc((size * channels + 1) * size);
   for (let y = 0; y < size; y += 1) {
-    rgba.copy(scanlines, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
+    const row = y * (size * channels + 1) + 1;
+    if (opaque) {
+      for (let x = 0; x < size; x += 1) rgba.copy(scanlines, row + x * 3, (y * size + x) * 4, (y * size + x) * 4 + 3);
+    } else {
+      rgba.copy(scanlines, row, y * size * 4, (y + 1) * size * 4);
+    }
   }
 
   return Buffer.concat([
@@ -126,21 +132,35 @@ function insidePolygon(x, y, points) {
   return inside;
 }
 
-function renderIcon(size) {
+// shape: 'rounded' (desktop tile, with silver rim), 'rounded-flat' / 'circle' /
+// 'full' (no rim; the OS masks mobile icons), or 'none' (mark only, transparent).
+// markScale scales the mark about the tile centre.
+const shapeTests = {
+  rounded: insideRoundedSquare,
+  'rounded-flat': insideRoundedSquare,
+  circle: (x, y, size) => Math.hypot(x - size / 2, y - size / 2) <= size / 2,
+  full: () => true,
+  none: () => true,
+};
+
+function renderIcon(size, { shape = 'rounded', markScale = 1 } = {}) {
   const highSize = size * supersample;
   const highPixels = new Uint8Array(highSize * highSize * 4);
+  const transparentEdges = shape !== 'rounded';
 
   for (let y = 0; y < highSize; y += 1) {
     for (let x = 0; x < highSize; x += 1) {
-      const iconX = (x + 0.5) / supersample;
-      const iconY = (y + 0.5) / supersample;
+      const tileX = (x + 0.5) / supersample;
+      const tileY = (y + 0.5) / supersample;
+      const iconX = size / 2 + (tileX - size / 2) / markScale;
+      const iconY = size / 2 + (tileY - size / 2) / markScale;
       const offset = (y * highSize + x) * 4;
 
-      if (insideRoundedSquare(iconX, iconY, size)) {
+      if (shapeTests[shape](tileX, tileY, size)) {
         const scale = size / 256;
         const pointX = iconX / scale;
         const pointY = iconY / scale;
-        let color = insideRoundedSquareInset(iconX, iconY, size, 2.5 * scale) ? tile : [148, 163, 184];
+        let color = shape === 'none' ? null : shape !== 'rounded' || insideRoundedSquareInset(tileX, tileY, size, 2.5 * scale) ? tile : [148, 163, 184];
         for (let arc = 0; arc < 3; arc += 1) {
           const sample = arcSample(iconX, iconY, size, (arc * 120 * Math.PI) / 180);
           if (sample !== null) color = gradientColor(titanium[arc], sample);
@@ -158,7 +178,7 @@ function renderIcon(size) {
         if (insidePolygon(pointX, pointY, star)) color = [241, 245, 249];
         if (Math.hypot(pointX - 128, pointY - 128) <= 3.5) color = tile;
         if (Math.hypot(pointX - 128, pointY - 128) <= 1.5) color = [255, 255, 255];
-        highPixels.set([...color, 255], offset);
+        if (color) highPixels.set([...color, 255], offset);
       }
     }
   }
@@ -181,9 +201,12 @@ function renderIcon(size) {
         }
       }
       const offset = (y * size + x) * 4;
-      rgba[offset] = Math.round(red / samples);
-      rgba[offset + 1] = Math.round(green / samples);
-      rgba[offset + 2] = Math.round(blue / samples);
+      // Desktop keeps its original averaging; transparent-edge outputs weight
+      // colour by coverage so antialiased edges carry no dark fringe.
+      const covered = transparentEdges ? alpha / 255 || 1 : samples;
+      rgba[offset] = Math.round(red / covered);
+      rgba[offset + 1] = Math.round(green / covered);
+      rgba[offset + 2] = Math.round(blue / covered);
       rgba[offset + 3] = Math.round(alpha / samples);
     }
   }
@@ -254,4 +277,33 @@ await mkdir(buildDir, { recursive: true });
 await writeFile(`${buildDir}/mixdog.ico`, Buffer.concat([ico, ...pngEntries.map(({ png }) => png)]));
 await writeFile(`${buildDir}/mixdog.png`, pngEntries.at(-1).png);
 await writeFile(`${buildDir}/icon.icns`, Buffer.concat([icnsHeader, icnsBody]));
+// Mobile / PWA outputs: same drawing, no rim, shape left to the OS where possible.
+const mobileRoot = fileURLToPath(new URL('../../mobile/', import.meta.url));
+const androidRes = `${mobileRoot}android/app/src/main/res`;
+const publicDir = fileURLToPath(new URL('../src/renderer/public/', import.meta.url));
+// Mark diameter is 158 of 256 units; 0.96 keeps it inside the 66dp/108dp safe zone.
+const adaptiveMarkScale = 0.96;
+const androidDensities = [
+  ['ldpi', 36, 81],
+  ['mdpi', 48, 108],
+  ['hdpi', 72, 162],
+  ['xhdpi', 96, 216],
+  ['xxhdpi', 144, 324],
+  ['xxxhdpi', 192, 432],
+];
+for (const [density, legacySize, foregroundSize] of androidDensities) {
+  const dir = `${androidRes}/mipmap-${density}`;
+  await writeFile(`${dir}/ic_launcher.png`, encodePng(legacySize, renderIcon(legacySize, { shape: 'rounded-flat' })));
+  await writeFile(`${dir}/ic_launcher_round.png`, encodePng(legacySize, renderIcon(legacySize, { shape: 'circle' })));
+  await writeFile(
+    `${dir}/ic_launcher_foreground.png`,
+    encodePng(foregroundSize, renderIcon(foregroundSize, { shape: 'none', markScale: adaptiveMarkScale })),
+  );
+}
+await writeFile(
+  `${mobileRoot}ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`,
+  encodePng(1024, renderIcon(1024, { shape: 'full' }), true),
+);
+await writeFile(`${publicDir}mixdog-192.png`, encodePng(192, renderIcon(192, { shape: 'full' }), true));
+await writeFile(`${publicDir}mixdog-512.png`, encodePng(512, renderIcon(512, { shape: 'full' }), true));
 console.log(`BRAND_ICONS=Mixdog; ICO_BYTES=${offset}; ICNS_BYTES=${icnsBody.length + 8}`);

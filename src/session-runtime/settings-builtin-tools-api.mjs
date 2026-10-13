@@ -7,6 +7,7 @@ import {
   builtinInstalled,
   setBuiltinInstalledInConfig,
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
+import { featureEnvOverride, moduleEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 import {
   INSTRUCTION_FILES_MODES,
@@ -23,7 +24,7 @@ import {
   shutdownEffortJudge,
 } from '../runtime/effort-judge/judge-client.mjs';
 
-const TOGGLEABLE_BUILTINS = ['git', 'office', 'tidy', 'localProvider', 'autoEffort'];
+const TOGGLEABLE_BUILTINS = ['git', 'office', 'tidy', 'localProvider', 'autoEffort', 'visualize'];
 
 function setLocalProviderEnabledInConfig(configLike, enabled) {
   const next = { ...(configLike || {}) };
@@ -97,6 +98,12 @@ export function createBuiltinToolSettings(
           enabled: tidyToolEnabledFn ? tidyToolEnabledFn() : builtinFeatureActive(config, 'tidy'),
           installed: builtinInstalled(config, 'tidy'),
         },
+        // Ships with the runtime and needs no install; the toggle reflects the
+        // module flag, not live bridge presence.
+        visualize: {
+          enabled: featureEnvOverride('MIXDOG_FEATURE_VISUALIZE') ?? moduleEnabled(config, 'visualize', true),
+          installed: true,
+        },
         localProvider: {
           ...localProvider,
           ...localSettings.status(),
@@ -152,7 +159,7 @@ export function createBuiltinToolSettings(
     },
     async setBuiltinToolEnabled(name, enabled) {
       if (!TOGGLEABLE_BUILTINS.includes(name)) {
-        throw new TypeError('Built-in tool must be git, office, tidy, localProvider, or autoEffort.');
+        throw new TypeError('Built-in tool must be git, office, tidy, localProvider, autoEffort, or visualize.');
       }
       if (name === 'autoEffort' && enabled !== false && !onnxRuntimeSupported()) {
         throw new Error(EFFORT_JUDGE_UNSUPPORTED);

@@ -37,7 +37,10 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       const { createRuntimeReviewApi } = await import('../session-runtime/runtime-review-api.mjs');
       const review = createRuntimeReviewApi({ getCwd: () => metadata.cwd || '', getSessionId: () => sessionId });
       // The runtime review API answers `known`/`summary` itself (turnReviewReply).
-      return action === 'getSessionReviewDiff' ? review.getSessionReviewDiff() : review.getTurnReviewDiff(args[0]);
+      if (action === 'getSessionReviewDiff') return review.getSessionReviewDiff();
+      // A cold session runs no turn: its change record is final.
+      if (action === 'getTurnChanges') return review.getTurnChanges(args[0]);
+      return review.getTurnReviewDiff(args[0]);
     },
     forgetStoredSession: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();

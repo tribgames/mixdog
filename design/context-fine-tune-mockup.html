@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>컨텍스트 미세조정 버튼 시안</title>
+<style>
+  :root {
+    --bg: #1b1d21; --panel: #26282d; --border: #34373d; --hover: #33363c;
+    --text: #e8e9eb; --muted: #9a9ea6; --faint: #6b6f77; --accent: #e8e9eb; --blue: #6aa7ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px; background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 28px; }
+  .row { display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 36px; }
+  .col { width: 250px; }
+  .col h2 { font-size: 13px; margin: 0 0 4px; }
+  .col .note { color: var(--muted); font-size: 12px; margin: 0 0 12px; min-height: 36px; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 99px; margin-left: 6px; }
+  .tag.now { background: #3a3d44; color: var(--muted); }
+  .tag.new { background: #1f3555; color: var(--blue); }
+
+  /* Popover shell — same as the route sheet's context flyout */
+  .pane {
+    width: 196px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 6px 0 6px; box-shadow: 0 8px 24px #0006;
+  }
+  .pane.fine { width: 220px; }
+  .title-row { display: flex; align-items: center; padding: 0 6px 2px 10px; min-height: 24px; }
+  .title-row span { color: var(--muted); font-size: 12px; }
+  /* NEW: the fine-tune toggle in the top-right corner */
+  .tune {
+    margin-left: auto; width: 22px; height: 22px; border: 0; border-radius: 6px; padding: 0;
+    display: none; align-items: center; justify-content: center;
+    background: transparent; color: var(--faint); cursor: pointer;
+  }
+  .with-tune .tune { display: inline-flex; }
+  .tune:hover { color: var(--text); background: var(--hover); }
+  .tune[aria-pressed="true"] { color: var(--blue); background: #1f3555; }
+  .tune svg { width: 14px; height: 14px; }
+
+  .head { display: flex; align-items: baseline; gap: 6px; padding: 2px 10px 0; min-height: 26px; }
+  .head strong { font-size: 14px; font-weight: 600; }
+  .head small { color: var(--muted); font-size: 12px; }
+  .reset {
+    margin-left: auto; border: 0; padding: 1px 7px; border-radius: 99px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+  }
+  .reset:hover { color: var(--text); background: var(--hover); }
+
+  /* Editing: the token figure itself turns into the input, in place */
+  .num {
+    display: none; align-items: baseline; height: 20px; padding: 0 4px; margin: -1px 0;
+    border: 1px solid var(--blue); border-radius: 5px; background: #1f2125;
+  }
+  .num input {
+    width: 36px; border: 0; outline: 0; padding: 0; background: transparent; color: var(--text);
+    font: 12px/18px "Segoe UI", sans-serif; text-align: right;
+  }
+  .num em { font-style: normal; color: var(--muted); font-size: 12px; }
+  .pane.editing .num { display: inline-flex; }
+  .pane.editing .tokens { display: none; }
+  .head .tokens.custom { color: var(--blue); }
+
+  /* Thumb centered on the track: input box = thumb height, track drawn behind its middle */
+  .slider { position: relative; padding: 6px 10px 6px; }
+  .slider input {
+    -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 14px; margin: 0;
+    background: transparent; position: relative; z-index: 2; cursor: pointer;
+  }
+  .slider input::-webkit-slider-runnable-track { height: 14px; background: transparent; }
+  .slider input::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 0;
+  }
+  .track, .fill { position: absolute; left: 17px; right: 17px; top: 11px; height: 4px; border-radius: 2px; z-index: 1; }
+  .track { background: #4a4d55; }
+  .fill { right: auto; background: var(--accent); }
+
+  .legend { color: var(--muted); font-size: 12px; max-width: 900px; }
+  .legend li { margin: 4px 0; }
+  .legend b { color: var(--text); }
+</style>
+</head>
+<body>
+  <h1>컨텍스트 미세조정 버튼 시안</h1>
+  <p class="lead">우상단 아이콘을 누르면 그 자리의 숫자(872k)가 입력칸으로 바뀝니다. 직접 눌러 보세요.</p>
+
+  <div class="row" id="rows"></div>
+
+  <ul class="legend">
+    <li><b>우상단 아이콘</b>: 누르면 상단 토큰 숫자가 그 자리에서 입력칸이 되고, 바로 입력할 수 있게 커서가 들어갑니다. 따로 모드 전환은 없습니다.</li>
+    <li><b>입력</b>: <b>500</b>, <b>500k</b>, <b>0.5m</b> 모두 받습니다. Enter나 바깥 클릭이면 적용, Esc면 취소입니다. 범위는 최대치의 10%~100%이고, 벗어나면 끝값으로 맞춥니다.</li>
+    <li><b>입력한 값</b>: 숫자가 파란색으로 표시되고, 퍼센트는 <b>57.3%</b>처럼 실제 비율로 나옵니다. 핸들도 그 비율 위치에 놓입니다.</li>
+    <li><b>슬라이더를 다시 움직이면</b> 지금처럼 10% 칸으로 돌아가고, <b>↺ 기본</b>으로 서버 기본값으로 되돌릴 수 있습니다.</li>
+  </ul>
+
+<script>
+  const TUNE_ICON = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+    <path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><circle cx="10.5" cy="4.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></svg>`;
+  const models = [
+    { name: 'GPT-6.1 Sol', max: 872000, def: 500000 },
+    { name: 'Claude Opus 5.5', max: 1000000, def: 500000 },
+  ];
+  const fmt = (n) => n >= 1000000 ? +(n / 1000000).toFixed(2) + 'M' : Math.round(n / 1000) + 'k';
+  const defPercent = (m) => Math.min(100, Math.max(10, Math.round(m.def / m.max * 10) * 10));
+  const tokensFor = (m, p) => p === defPercent(m) ? m.def : Math.floor(m.max * p / 100);
+  const parseTokens = (text) => {
+    const s = String(text).trim().toLowerCase().replace(/,/g, '');
+    const n = parseFloat(s);
+    if (!Number.isFinite(n)) return null;
+    if (s.endsWith('m')) return n * 1e6;
+    return n * 1e3; // bare numbers and "k" are thousands
+  };
+
+  function pane(m, { withTune, startTokens, startEditing }) {
+    const minT = Math.ceil(m.max * 0.1 / 1000) * 1000;
+    let tokens = startTokens ?? m.def;
+    let editing = false;
+    const root = document.createElement('div');
+    root.className = 'pane' + (withTune ? ' with-tune' : '');
+    root.innerHTML = `
+      <div class="title-row"><span>컨텍스트</span>
+        <button class="tune" type="button" title="직접 입력" aria-label="직접 입력">${TUNE_ICON}</button></div>
+      <div class="head"><strong></strong>
+        <small><span class="tokens"></span><label class="num"><input inputmode="decimal" aria-label="컨텍스트 크기"><em>k</em></label><span class="def"></span></small>
+        <button class="reset" type="button"></button></div>
+      <div class="slider"><div class="track"></div><div class="fill"></div><input type="range" min="10" max="100" step="0.1"></div>`;
+    const q = (s) => root.querySelector(s);
+    const range = q('.slider input'), field = q('.num input');
+    const clamp = (t) => Math.max(minT, Math.min(m.max, Math.round(t / 1000) * 1000));
+    const stopFor = (t) => [10, 20, 30, 40, 50, 60, 70, 80, 90, 100].find((p) => tokensFor(m, p) === t);
+
+    const render = () => {
+      root.classList.toggle('editing', editing);
+      q('.tune').setAttribute('aria-pressed', String(editing));
+      const isDef = tokens === m.def;
+      const stop = stopFor(tokens);
+      const exact = Math.round(tokens / m.max * 1000) / 10;
+      const shownPercent = stop ?? exact;
+      q('strong').textContent = shownPercent + '%';
+      q('.tokens').textContent = fmt(tokens);
+      q('.tokens').classList.toggle('custom', stop == null);
+      q('.def').textContent = isDef ? ' · 기본' : '';
+      const reset = q('.reset');
+      reset.style.display = isDef ? 'none' : '';
+      reset.textContent = `↺ ${fmt(m.def)} · 기본`;
+      const pos = stop ?? Math.max(10, exact);
+      range.value = pos;
+      q('.fill').style.width = `calc((100% - 34px) * ${(pos - 10) / 90})`;
+    };
+    const startEdit = () => {
+      editing = true; render();
+      field.value = Math.round(tokens / 1000); field.focus(); field.select();
+    };
+    const endEdit = (apply) => {
+      if (!editing) return;
+      if (apply) { const t = parseTokens(field.value); if (t != null) tokens = clamp(t); }
+      editing = false; render();
+    };
+    range.addEventListener('input', () => { tokens = tokensFor(m, Math.round(Number(range.value) / 10) * 10); render(); });
+    q('.tune').addEventListener('mousedown', (e) => e.preventDefault());
+    q('.tune').addEventListener('click', () => (editing ? endEdit(true) : startEdit()));
+    field.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') endEdit(true);
+      if (e.key === 'Escape') endEdit(false);
+    });
+    field.addEventListener('blur', () => endEdit(true));
+    q('.reset').addEventListener('click', () => { tokens = m.def; render(); });
+    render();
+    if (startEditing) { editing = true; render(); field.value = Math.round(tokens / 1000); }
+    return root;
+  }
+
+  const rows = document.getElementById('rows');
+  for (const m of models) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const cases = [
+      ['현재', 'now', '10% 칸 단위로만 움직입니다.', { withTune: false, startTokens: m.max }],
+      ['시안 · 평소', 'new', '우상단에 아이콘만 추가됩니다. 나머지는 지금과 같습니다.', { withTune: true, startTokens: m.max }],
+      ['시안 · 아이콘 누름', 'new', '숫자 자리가 입력 상자로 바뀐 상태입니다. 입력 후 Enter를 누르면 적용됩니다.', { withTune: true, startTokens: m.max, startEditing: true }],
+      ['시안 · 입력한 값', 'new', '640k를 직접 입력한 뒤의 모습입니다. 아이콘을 누르면 숫자 자리가 입력칸이 됩니다.', { withTune: true, startTokens: 640000 }],
+    ];
+    for (const [label, tag, note, opts] of cases) {
+      const col = document.createElement('div');
+      col.className = 'col';
+      col.innerHTML = `<h2>${m.name}<span class="tag ${tag}">${label}</span></h2><p class="note">${note}</p>`;
+      col.appendChild(pane(m, opts));
+      row.appendChild(col);
+    }
+    rows.appendChild(row);
+  }
+</script>
+</body>
+</html>

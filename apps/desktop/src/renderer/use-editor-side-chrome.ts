@@ -14,6 +14,7 @@ import type { editorViewKindForPath } from './editor-delimited';
 import type { DocumentPreview } from './editor-document-model';
 import type { EditorFileLoad } from './editor-file-loader';
 import { openEditorFileExternally } from './editor-external-file';
+import { revealFileFromWindow } from './server-transfers';
 import { editorLanguageLabel, type FilePreview } from './editor-pane-model';
 import { explorerAbsolutePath } from './explorer-tree-model';
 import { isRemoteHostRenderer } from './remote-ui-projection';
@@ -141,7 +142,7 @@ export function useEditorSideChrome({
     language: sideTextEditor ? editorLanguageLabel(languageId) : undefined,
     format: formattingAvailable && sideEditable ? formatDocument : undefined,
     save: () => void sideChromeRef.current.save(),
-    reveal: remote ? undefined : () => void api?.revealFile?.(projectPath, relPath, accessToken),
+    reveal: remote ? undefined : () => void revealFileFromWindow(projectPath, relPath, accessToken),
     copyPath: remote ? () => void copyTextToClipboard(explorerAbsolutePath(projectPath, relPath)) : undefined,
     openDefault:
       sideOpenDefault && !remote ? () => void openEditorFileExternally(projectPath, relPath, accessToken) : undefined,

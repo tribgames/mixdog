@@ -22,7 +22,7 @@ import { DAYBREAK_PARAMETER_ID, formatContextWindow, ModelRouteLabel, routeDaybr
 import { useSurfaceActive } from './surface-activity';
 import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
 import { RouteAutoEffortToggle, RouteDaybreakToggle } from './route-editor-auto-effort';
-import { useContextDraft } from './route-editor-context';
+import { contextTokensChange, useContextDraft } from './route-editor-context';
 import { useRouteDismissal, useRouteFontWarmup } from './route-editor-effects';
 import { useRouteLayout } from './route-editor-layout';
 import {
@@ -42,6 +42,7 @@ import {
   routeSpeedClassName,
   routeSpeedPane,
   routeContextPane,
+  RouteContextTuneIcon,
   routeParameterPane,
   type RouteAutoEffort,
 } from './route-editor-panes';
@@ -62,10 +63,12 @@ export function RouteEditor({
   contextPercent,
   contextDefaultPercent,
   contextTokens,
+  contextExactTokens = 0,
   contextMaxTokens = 0,
   contextDefaultTokens = 0,
   modelParameterOptions = [],
   modelParameters = {},
+  providerNames,
   catalogLoaded,
   catalogRefreshing,
   catalogError,
@@ -104,10 +107,14 @@ export function RouteEditor({
   contextPercent: number;
   contextDefaultPercent: number;
   contextTokens: number;
+  /** Routed exact window (0 / absent = on a 10% stop or the default). */
+  contextExactTokens?: number;
   contextMaxTokens?: number;
   contextDefaultTokens?: number;
   modelParameterOptions?: DesktopModelOption['modelParameterOptions'];
   modelParameters?: Record<string, string>;
+  /** Setup-derived display names (custom providers), keyed by provider id. */
+  providerNames?: Record<string, string>;
   catalogLoaded: boolean;
   catalogRefreshing: boolean;
   catalogError: string;
@@ -118,7 +125,8 @@ export function RouteEditor({
   onSelectModel(option: DesktopModelOption): unknown;
   onChangeEffort(value: string): void;
   onChangeSpeed(speed: RouteSpeed): void;
-  onChangeContext(percent: number): void;
+  /** `tokens` is an exact window; omitted, the 10% stop applies and any exact window clears. */
+  onChangeContext(percent: number, tokens?: number): void;
   onChangeModelParameter?(id: string, value: string): void;
   onOpenProviders?: () => void;
   /** Opening the catalog is also the user's retry gesture: the owner may
@@ -212,16 +220,28 @@ export function RouteEditor({
     (rows.length + (autoEffortRow ? 1 : 0) + (daybreakRow ? 1 : 0)) * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
-  const { setContextDraft, shownContextPercent, shownContextTokens, defaultContextTokens, commitContextDraft } =
-    useContextDraft({
-      pane,
-      contextPercent,
-      contextDefaultPercent,
-      contextTokens,
-      contextMaxTokens,
-      contextDefaultTokens,
-      onChangeContext,
-    });
+  const {
+    setContextDraft,
+    shownContextPercent,
+    shownContextTokens,
+    defaultContextTokens,
+    commitContextDraft,
+    contextCustom,
+  } = useContextDraft({
+    pane,
+    contextPercent,
+    contextDefaultPercent,
+    contextTokens,
+    contextExactTokens,
+    contextMaxTokens,
+    contextDefaultTokens,
+    onChangeContext,
+  });
+  const [contextEditing, setContextEditing] = useState(false);
+  const contextCommitEdit = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (pane !== 'context') setContextEditing(false);
+  }, [pane]);
 
   const finishClose = useCallback(() => {
     hoverLock.current = null;
@@ -472,7 +492,30 @@ export function RouteEditor({
 
   // A drilled pane replaced the sheet, so its first row walks back up one
   // level; a flyout that opened beside the sheet keeps the plain title.
-  const paneHeader = (label: string, target: RouteSheetPane) =>
+  const paneHeader = (label: string, target: RouteSheetPane) => {
+    const header = paneTitle(label, target);
+    if (target !== 'context' || !contextMaxTokens) return header;
+    return (
+      <div className="route-context-titlebar">
+        {header}
+        <button
+          type="button"
+          className="route-context-tune"
+          aria-label={t('Edit context size')}
+          aria-pressed={contextEditing}
+          disabled={tuningDisabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (contextEditing) contextCommitEdit.current?.();
+            else setContextEditing(true);
+          }}
+        >
+          <RouteContextTuneIcon />
+        </button>
+      </div>
+    );
+  };
+  const paneTitle = (label: string, target: RouteSheetPane) =>
     drill ? (
       <button type="button" className="route-sheet-back" aria-label={t('Back')} onClick={() => closePane(target, true)}>
         <ChevronLeft size={14} aria-hidden="true" />
@@ -532,9 +575,24 @@ export function RouteEditor({
       return routeContextPane({
         contextDefaultPercent,
         defaultContextTokens,
+        contextMaxTokens,
         shownContextPercent,
         shownContextTokens,
+        contextCustom,
+        editing: contextEditing,
+        commitEditRef: contextCommitEdit,
         tuningDisabled,
+        onEditEnd: () => setContextEditing(false),
+        onApplyTokens: (tokens) => {
+          const change = contextTokensChange(tokens, {
+            defaultPercent: contextDefaultPercent,
+            defaultTokens: defaultContextTokens,
+            maxTokens: contextMaxTokens,
+          });
+          setContextDraft(null);
+          if (change.tokens === (contextExactTokens || undefined) && change.percent === contextPercent) return;
+          onChangeContext(change.percent, change.tokens);
+        },
         onCommitDraft: commitContextDraft,
         onDraftChange: setContextDraft,
         onResetDefault: () => {
@@ -565,6 +623,7 @@ export function RouteEditor({
       models={models}
       provider={provider}
       model={model}
+      providerNames={providerNames}
       active={active}
       catalogLoaded={catalogLoaded}
       catalogRefreshing={catalogRefreshing}
@@ -676,7 +735,13 @@ export function RouteEditor({
                     tuningDisabled
                   )
                 )}
-                {rows.includes('speed') && row('speed', t('Speed'), <span className={routeSpeedClassName(speed)}>{speedLabel}</span>, tuningDisabled)}
+                {rows.includes('speed') &&
+                  row(
+                    'speed',
+                    t('Speed'),
+                    <span className={routeSpeedClassName(speed)}>{speedLabel}</span>,
+                    tuningDisabled
+                  )}
                 {autoEffortRow && autoEffort && (
                   <RouteAutoEffortToggle
                     enabled={autoEffort.enabled}

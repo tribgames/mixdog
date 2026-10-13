@@ -10,6 +10,7 @@ import { startEditorDiskWatch } from './editor-disk-watch';
 import { errorMessage } from './editor-pane-session-errors';
 import { monaco } from './monaco-setup';
 import type { SideFileChrome } from './side-surface-strip';
+import { revealFileFromWindow } from './server-transfers';
 
 export default function EditorSideMarkdownPreview({
   projectPath,
@@ -119,7 +120,7 @@ export default function EditorSideMarkdownPreview({
       saving: false,
       save() {},
       toc: { open: tocOpen, onToggle: () => setTocOpen((open) => !open) },
-      reveal: () => void window.mixdogDesktop?.revealFile?.(projectPath, relPath, accessToken),
+      reveal: () => void revealFileFromWindow(projectPath, relPath, accessToken),
     });
   }, [onSideChrome, tocOpen, projectPath, relPath, accessToken]);
   useEffect(() => () => onSideChrome(null), [onSideChrome]);

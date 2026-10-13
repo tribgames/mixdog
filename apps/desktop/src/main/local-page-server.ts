@@ -71,9 +71,17 @@ export interface LocalPageAccess {
   owner?: object;
 }
 
+/** One in-memory file of a virtual page (nothing on disk). */
+export interface VirtualPageFile {
+  type: string;
+  body: Buffer;
+}
+
 interface PageLease {
   root: string;
   page: string;
+  /** In-memory page: exactly these files, by name, and nothing from disk. */
+  virtual?: ReadonlyMap<string, VirtualPageFile>;
   scope: LocalPageAccess['scope'];
   owner?: object;
   authorize(): Promise<void>;
@@ -155,6 +163,35 @@ async function pageLocation(root: string, rel: string): Promise<{ root: string; 
   return { root: realRoot, page };
 }
 
+async function serveVirtual(
+  request: IncomingMessage,
+  response: ServerResponse,
+  token: string,
+  lease: PageLease,
+  file: VirtualPageFile | undefined
+): Promise<void> {
+  if (!file) return reply(response, 404);
+  try {
+    await lease.authorize();
+  } catch (error) {
+    if (isLocalAccessDenied(error)) revokeLease(token);
+    return reply(response, activeLease(token, lease) ? 503 : 404);
+  }
+  if (!activeLease(token, lease)) return reply(response, 404);
+  leases.delete(token);
+  leases.set(token, lease);
+  response.writeHead(200, {
+    'Content-Type': file.type,
+    'Content-Length': file.body.length,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    // Like a single-file grant: scripts run, but in an opaque origin of their own.
+    'Content-Security-Policy': 'sandbox allow-scripts',
+  });
+  response.end(request.method === 'HEAD' ? undefined : file.body);
+}
+
 async function serve(request: IncomingMessage, response: ServerResponse, port: number): Promise<void> {
   if (request.method !== 'GET' && request.method !== 'HEAD') return reply(response, 405);
   // Only this loopback origin: a rebound DNS name never reaches the files.
@@ -172,6 +209,7 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
   } catch {
     return reply(response, 400);
   }
+  if (lease.virtual) return serveVirtual(request, response, token, lease, lease.virtual.get(segments.join('/')));
   const target = resolve(root, ...segments);
   if (!pageAssetType(root, target) || (lease.scope === 'file' && target !== lease.page)) {
     return reply(response, 404);
@@ -238,6 +276,45 @@ function serverPort(): Promise<number> {
     });
   });
   return listening;
+}
+
+/** `http://127.0.0.1:<port>`: the app renderer frames visualize pages from
+ *  this origin only, so its CSP names it exactly. Starts the server. */
+export async function localPageOrigin(): Promise<string> {
+  return `http://${LOOPBACK}:${await serverPort()}`;
+}
+
+/** A page held in memory (`index.html` plus any sibling files), served like a
+ *  single-file grant: its own lease, scripts allowed in an opaque origin, only
+ *  the named files, the same TTL, capacity and owner revocation. The caller
+ *  chooses the content; nothing is read from disk. */
+export async function localVirtualPageUrl(
+  files: Readonly<Record<string, VirtualPageFile>>,
+  access: Pick<LocalPageAccess, 'authorize' | 'owner'>
+): Promise<string> {
+  if (!access || typeof access.authorize !== 'function') {
+    throw new TypeError('An explicit local-page permission is required.');
+  }
+  if (!Object.hasOwn(files, 'index.html')) throw new TypeError('A virtual page needs an index.html.');
+  const { authorize, owner } = access;
+  await authorize();
+  const port = await serverPort();
+  for (const [token, lease] of leases) activeLease(token, lease);
+  while (leases.size >= MAX_LOCAL_PAGE_LEASES) revokeLease(leases.keys().next().value!);
+  const token = randomBytes(24).toString('base64url');
+  const lease: PageLease = {
+    root: '',
+    page: 'index.html',
+    virtual: new Map(Object.entries(files)),
+    scope: 'file',
+    owner,
+    authorize,
+    expiresAt: Date.now() + LOCAL_PAGE_TTL_MS,
+    timer: setTimeout(() => revokeLease(token), LOCAL_PAGE_TTL_MS),
+  };
+  lease.timer.unref();
+  leases.set(token, lease);
+  return `http://${LOOPBACK}:${port}/${token}/index.html`;
 }
 
 /** The caller must choose scope from verified authority, not renderer input.

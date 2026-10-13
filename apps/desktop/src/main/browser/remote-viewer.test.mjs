@@ -18,6 +18,9 @@ function fixture(t) {
   const calls = [];
   const dispatched = [];
   const ports = new Map();
+  /** The viewport each page is rendered at, and an optional hold on restores. */
+  const viewports = new Map();
+  const gates = { restore: undefined };
   const makeGuest = (id, url) => {
     const guest = Object.assign(new EventEmitter(), {
       id,
@@ -55,6 +58,17 @@ function fixture(t) {
       frames.push(frame);
     },
     assertResolvedUrlAllowed: async () => {},
+    drive: {
+      apply: async (sessionId, guest, viewport) => {
+        calls.push([guest.id, 'drive.apply', { sessionId, ...viewport }]);
+        viewports.set(guest.id, 'phone');
+      },
+      restore: async (guest) => {
+        calls.push([guest.id, 'drive.restore']);
+        await gates.restore;
+        viewports.set(guest.id, 'pane');
+      },
+    },
   });
   const screencastFrame = (guest, ackId = 1) =>
     ports.get(guest).emit('message', {}, 'Page.screencastFrame', {
@@ -66,7 +80,21 @@ function fixture(t) {
     t.mock.timers.tick(ms);
     await settle();
   };
-  return { remote, state, changes, frames, calls, dispatched, a, b, current, screencastFrame, advance };
+  return {
+    remote,
+    state,
+    changes,
+    frames,
+    calls,
+    dispatched,
+    viewports,
+    gates,
+    a,
+    b,
+    current,
+    screencastFrame,
+    advance,
+  };
 }
 
 const SIZE = { maxWidth: 800, maxHeight: 600 };
@@ -115,7 +143,9 @@ test('every screencast frame is acked and published with its document and viewpo
   await f.remote.remoteBrowserStream('s', SIZE);
   f.screencastFrame(f.a, 41);
   await settle();
-  assert.ok(f.calls.some(([id, method, params]) => id === 1 && method === 'Page.screencastFrameAck' && params.sessionId === 41));
+  assert.ok(
+    f.calls.some(([id, method, params]) => id === 1 && method === 'Page.screencastFrameAck' && params.sessionId === 41)
+  );
   assert.equal(f.frames.length, 1);
   assert.equal(f.frames[0].documentId, browserDocumentId(f.state, f.a));
   assert.equal(f.frames[0].url, 'https://a.test/');
@@ -134,7 +164,10 @@ test('a tab switch and a navigation each push a frame with the new document and 
   await f.advance(150);
   await f.advance(100);
   assert.ok(f.calls.some(([id, method]) => id === 1 && method === 'Page.stopScreencast'));
-  assert.ok(f.calls.some(([id, method]) => id === 2 && method === 'Page.startScreencast'), 'restarted on the new guest');
+  assert.ok(
+    f.calls.some(([id, method]) => id === 2 && method === 'Page.startScreencast'),
+    'restarted on the new guest'
+  );
   const afterSwitch = f.frames.at(-1);
   assert.equal(afterSwitch.documentId, browserDocumentId(f.state, f.b));
   assert.notEqual(afterSwitch.documentId, first.documentId);
@@ -154,6 +187,110 @@ test('a tab switch and a navigation each push a frame with the new document and 
   assert.equal(afterNavigation.url, 'https://b.test/next');
   assert.notEqual(afterNavigation.documentId, afterSwitch.documentId);
   assert.equal(afterNavigation.documentId, browserDocumentId(f.state, f.b));
+});
+
+const PHONE = { type: 'viewport', width: 390, height: 780, deviceScaleFactor: 3 };
+const methods = (f, guestId) =>
+  f.calls
+    .filter(([id, method]) => id === guestId && !['Page.screencastFrameAck', 'Page.getLayoutMetrics'].includes(method))
+    .map(([, method]) => method);
+
+test('a phone viewport drives the streamed page before a fresh screencast, once per page and document', async (t) => {
+  const f = fixture(t);
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a);
+  await settle();
+  f.calls.length = 0;
+  await f.remote.remoteBrowserControl('s', PHONE);
+  assert.deepEqual(methods(f, 1), ['Page.stopScreencast', 'drive.apply', 'Page.startScreencast']);
+  assert.deepEqual(f.calls.find(([, method]) => method === 'drive.apply')[2], {
+    sessionId: 's',
+    width: 390,
+    height: 780,
+    deviceScaleFactor: 3,
+  });
+
+  // The old size's view is gone: page facts wait for the new size's image.
+  const count = f.frames.length;
+  f.a.title = 'Renamed';
+  f.a.emit('page-title-updated');
+  await f.advance(200);
+  assert.equal(f.frames.length, count, 'no frame describes the new size with the old image');
+  f.screencastFrame(f.a);
+  await f.advance(100);
+  assert.equal(f.frames.length, count + 1);
+  assert.ok(f.frames.at(-1).image);
+
+  // The same viewport again (each renewal resends it) changes nothing.
+  f.calls.length = 0;
+  await f.remote.remoteBrowserControl('s', PHONE);
+  await f.advance(200);
+  assert.deepEqual(methods(f, 1), []);
+
+  // A new document does not keep the emulation: it is applied again.
+  f.state.beginDocument(f.a);
+  f.a.emit('did-navigate');
+  await f.advance(200);
+  assert.deepEqual(methods(f, 1), ['Page.stopScreencast', 'drive.apply', 'Page.startScreencast']);
+
+  // Another page of the session takes the drive; the previous one is restored.
+  f.calls.length = 0;
+  f.current.guest = f.b;
+  await f.advance(200);
+  assert.deepEqual(methods(f, 2), ['drive.apply', 'Page.startScreencast']);
+  assert.ok(methods(f, 1).includes('drive.restore'));
+
+  // An explicit stop hands the page back to its pane.
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', null);
+  await settle();
+  assert.deepEqual(methods(f, 2), ['Page.stopScreencast', 'drive.restore']);
+});
+
+test('a lapsed lease restores the driven page; a viewport without a stream is dropped', async (t) => {
+  const f = fixture(t);
+  await f.remote.remoteBrowserControl('s', PHONE);
+  assert.deepEqual(methods(f, 1), [], 'no stream, no drive');
+
+  await f.remote.remoteBrowserStream('s', SIZE);
+  await f.remote.remoteBrowserControl('s', PHONE);
+  assert.ok(methods(f, 1).includes('drive.apply'));
+  f.calls.length = 0;
+  await f.advance(4_000);
+  assert.deepEqual(f.changes.at(-1), ['s', false]);
+  assert.deepEqual(methods(f, 1), ['Page.stopScreencast', 'drive.restore']);
+
+  // A renewed stream is not driven until the client sends its viewport again.
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', SIZE);
+  assert.deepEqual(methods(f, 1), ['Page.startScreencast']);
+  await f.remote.remoteBrowserControl('s', PHONE);
+  assert.ok(methods(f, 1).includes('drive.apply'));
+});
+
+test('a stream restarted while the previous one still restores the pane ends at the phone viewport', async (t) => {
+  const f = fixture(t);
+  await f.remote.remoteBrowserStream('s', SIZE);
+  await f.remote.remoteBrowserControl('s', PHONE);
+  assert.equal(f.viewports.get(1), 'phone');
+
+  // The old stream's restore is still in flight when the phone streams again.
+  let release;
+  f.gates.restore = new Promise((resolve) => (release = resolve));
+  await f.remote.remoteBrowserStream('s', null);
+  const restarted = f.remote.remoteBrowserStream('s', SIZE);
+  const driven = f.remote.remoteBrowserControl('s', PHONE);
+  await settle();
+  release();
+  await Promise.all([restarted, driven]);
+  await settle();
+  assert.equal(f.viewports.get(1), 'phone', 'the stale restore did not undo the new stream');
+
+  // Unchanged renewals keep it.
+  await f.remote.remoteBrowserStream('s', SIZE);
+  await f.remote.remoteBrowserControl('s', PHONE);
+  await f.advance(200);
+  assert.equal(f.viewports.get(1), 'phone');
 });
 
 async function advance100(f) {

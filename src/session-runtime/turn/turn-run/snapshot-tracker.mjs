@@ -8,20 +8,14 @@ import { settleWithin } from '../../../runtime/shared/abort-race.mjs';
 export function createSnapshotTrackerFactory({
   getCurrentCwd,
   beginTurnSnapshotForTurn,
-  cancelTurnSnapshotForTurn,
   completeTurnSnapshotForTurn,
   turnCleanupSettleMs,
 }) {
   return function createSnapshotTracker(options) {
+    // `promise` resolves to the turn token beginTurnSnapshot returns
+    // (`{ generation, checkpointId }`), or undefined when nothing began.
     const tracker = { sessionId: null, promise: null };
-    // A completion wake continues the user turn whose review already exists;
-    // aborting the wake seals that review instead of discarding it.
     const continueTurn = options.continueTurn === true;
-    const cancel = () => {
-      try {
-        cancelTurnSnapshotForTurn(tracker.sessionId);
-      } catch {}
-    };
     tracker.start = (sessionId) => {
       const id = typeof sessionId === 'string' ? sessionId.trim() : '';
       if (!id || (tracker.promise && tracker.sessionId === id)) return;
@@ -40,19 +34,26 @@ export function createSnapshotTrackerFactory({
     tracker.finish = async (signal, awaitTurn) => {
       // A turn refused before its workspace was final never began a review.
       if (!tracker.promise) return;
+      // Captured now: a later start (or the next turn) cannot redirect this seal.
+      const sessionId = tracker.sessionId;
+      const started = Promise.resolve(tracker.promise);
       if (signal.aborted && !continueTurn) {
-        cancel();
-        void Promise.resolve(tracker.promise).catch(() => {});
+        // A cancelled turn keeps its edits as a change record. Sealing waits
+        // for the snapshot start, never for the abort's settlement, and only
+        // seals the generation this turn began: delayed cleanup cannot seal
+        // a newer turn.
+        void started
+          .then((token) => (token ? completeTurnSnapshotForTurn(sessionId, token) : undefined))
+          .catch(() => {});
         return;
       }
-      const cleanup = Promise.resolve(tracker.promise).then(() => completeTurnSnapshotForTurn(tracker.sessionId));
+      const cleanup = started.then((token) => completeTurnSnapshotForTurn(sessionId, token));
       cleanup.catch(() => {});
       try {
         await awaitTurn(() => settleWithin(cleanup, turnCleanupSettleMs));
       } catch {
         /* optional review cleanup never overrides turn settlement */
       }
-      if (signal.aborted && !continueTurn) cancel();
     };
     return tracker;
   };

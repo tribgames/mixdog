@@ -38,6 +38,8 @@ import {
   type ScmContextMenuState,
 } from './ScmContextMenu';
 import { ToolComputerReadinessCard } from './transcript-computer-card';
+import { ToolVisualizeCards } from './transcript-visualize-card';
+import { useToolOutcomeUnknown } from './connection-link-store';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
 import { CodeDiff } from './transcript-diff';
@@ -266,7 +268,8 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   );
   const { rendered, expanded } = useToolActivityDisclosure(open);
   const contentId = useId();
-  const pending = items.some((item) => !toolItemDone(item));
+  const outcomeUnknown = useToolOutcomeUnknown();
+  const pending = items.some((item) => !toolItemDone(item) && !outcomeUnknown(item.id));
   const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
   const label = summary || t('Tool use');
@@ -292,9 +295,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
           <ToolGroupIcon />
         </span>
         <span className="tool-title tool-activity-title" title={label}>
-          <b>
-            {label}
-          </b>
+          <b>{label}</b>
         </span>
         {pending && (
           <span className="sr-only" role="status">
@@ -316,6 +317,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         </div>
       )}
       {browserPage && <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />}
+      <ToolVisualizeCards items={items} sessionId={disclosureScope} />
       <ToolComputerReadinessCard items={items} taskKey={`${disclosureScope}|${turnKey}`} />
       <TranscriptArtifacts items={items} />
     </article>
@@ -331,7 +333,7 @@ function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPag
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   // What the in-app browser saw there: a screenshot leads the card; without
   // one the site icon and title stand in; without either, globe and address.
-  const identity = useBrowserPageIdentity(page.url);
+  const identity = useBrowserPageIdentity(page.url, { preview: true });
   const [faviconSrc, onFaviconError] = useLoadableFavicon(identity?.favicon);
   if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) !== 'pane') return null;
   const favicon = faviconSrc ? (
@@ -612,9 +614,7 @@ function renderToolActivityHeader({
         />
       )}
       <span className="tool-title tool-activity-item-title">
-        <b>
-          {presentation.verb}
-        </b>
+        <b>{presentation.verb}</b>
         {presentation.headerSubject &&
           !(open && presentation.hideSubjectWhenOpen) &&
           !(presentation.pending && !presentation.command) && (
@@ -1006,7 +1006,15 @@ function ToolActivityItem({
   contentId: string;
 }) {
   const [open, onToggle, chosen, keepOpen] = useRememberedDisclosure(disclosureKey, defaultOpen);
-  const presentation = useMemo(() => desktopToolActivityItemPresentation(item), [item]);
+  const outcomeUnknown = useToolOutcomeUnknown()(item.id);
+  const presentation = useMemo(() => {
+    const base = desktopToolActivityItemPresentation(item);
+    // A server window lost this call's result with its link: say so instead of
+    // running forever. It is never run again.
+    return outcomeUnknown && base.pending
+      ? { ...base, pending: false, tone: 'failed', resultLabel: t('Outcome unknown'), outcomeReason: '' }
+      : base;
+  }, [item, outcomeUnknown]);
   const panelOpen = open && presentation.hasDetails;
   const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
 

@@ -1,0 +1,24 @@
+{
+    "task": {
+        "path": "/opt/hive-benchmark/payload/tasks-4cpu/caffe-cifar-10",
+        "source": "tasks-4cpu"
+    },
+    "trial_name": "caffe-cifar-10__Zh8pp7C",
+    "trials_dir": "/opt/hive-benchmark/results/jobs-mixdog-4cpu/2026-10-12__11-07-14",
+    "agent": {
+        "name": "aws_agents:HiveMixdog",
+        "model_name": "deepseek-ai/deepseek-v4.1-flash"
+    },
+    "environment": {
+        "type": "docker",
+        "mounts": [
+            {
+                "type": "bind",
+                "source": "/opt/hive-benchmark/payload",
+                "target": "/opt/hive-runtime",
+                "read_only": true
+            }
+        ]
+    },
+    "job_id": "4df53109-913b-4da0-a04a-92010132ad5b"
+}

@@ -127,12 +127,14 @@ export const withShim = async ({ secure = true } = {}, run) => {
       pendingReconnectNotification: false,
       quietRecycledSockets: new WeakSet(),
       stateListeners: new Set(),
+      termSizeOwnerListeners: new Set(),
       activityRailPinsListeners: new Set(),
       providerModelsListeners: new Set(),
       remoteBrowserFrameListeners: new Set(),
       browserOpenListeners: new Set(),
       remoteBrowserTabListeners: new Set(),
       browserImportProgressListeners: new Set(),
+      visualizeListeners: new Set(),
       activeLanes: new Set(),
       compactFrames: { reset() {} },
       viewBaselines: { restore: (value) => value, clear() {} },
@@ -160,8 +162,12 @@ export const withShim = async ({ secure = true } = {}, run) => {
       binaryFrames = false,
       remoteParity = false,
       browserParity = false,
+      browserDrive = false,
+      termSizeOwner = false,
+      hostDirectories = false,
       nativePush = false,
       routeAutoEffort = false,
+      visualize = false,
       ready = {},
     } = {}) => {
       const known = FakeSocket.instances.length;
@@ -184,8 +190,12 @@ export const withShim = async ({ secure = true } = {}, run) => {
         ...(binaryFrames ? { binaryFrames: 1 } : {}),
         ...(remoteParity ? { remoteParity: 1 } : {}),
         ...(browserParity ? { browserParity: 1 } : {}),
+        ...(browserDrive ? { browserDrive: 1 } : {}),
+        ...(termSizeOwner ? { termSizeOwner: 1 } : {}),
+        ...(hostDirectories ? { hostDirectories: 1 } : {}),
         ...(nativePush ? { nativePush: 1 } : {}),
         ...(routeAutoEffort ? { routeAutoEffort: 1 } : {}),
+        ...(visualize ? { visualize: 1 } : {}),
       };
       ws.onmessage({ data: JSON.stringify(challenge) });
       await until(() => ws.sent.length === 1, 'the client hello');

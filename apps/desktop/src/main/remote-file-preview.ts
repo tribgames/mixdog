@@ -35,6 +35,35 @@ function integer(value: unknown, name: string, min: number, max: number): number
   return value;
 }
 
+/** One bounded base64 window of a file whose access the caller already
+ *  checked; `length` is capped at REMOTE_PREVIEW_MAX_READ_BYTES. Shared with
+ *  the remote visualize panes. */
+export async function readPreviewRange(
+  absolute: string,
+  mime: string,
+  rawOffset: unknown,
+  rawLength: unknown
+): Promise<{ data: string; mime: string; offset: number; mtimeMs: number; size: number }> {
+  const offset = integer(rawOffset, 'offset', 0, Number.MAX_SAFE_INTEGER);
+  const length = integer(rawLength, 'length', 1, REMOTE_PREVIEW_MAX_READ_BYTES);
+  const info = await stat(absolute);
+  if (!info.isFile()) throw new Error('The preview target is not a file.');
+  const handle = await open(absolute, 'r');
+  try {
+    const buffer = Buffer.alloc(Math.max(0, Math.min(length, info.size - offset)));
+    const { bytesRead } = buffer.length ? await handle.read(buffer, 0, buffer.length, offset) : { bytesRead: 0 };
+    return {
+      data: buffer.subarray(0, bytesRead).toString('base64'),
+      mime,
+      offset,
+      mtimeMs: info.mtimeMs,
+      size: info.size,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
 export function createRemoteFilePreviewMethods(deps: {
   host: Pick<DesktopService, 'projectDirectory'>;
   grants: PreviewGrants;
@@ -70,20 +99,13 @@ export function createRemoteFilePreviewMethods(deps: {
       return { kind: type.kind, mime: type.mime, ...info, ...(mediaAssetId ? { mediaAssetId } : {}) };
     },
     previewProjectFileRange: async ([projectPath, relPath, accessToken, rawOffset, rawLength]) => {
-      const offset = integer(rawOffset, 'offset', 0, Number.MAX_SAFE_INTEGER);
-      const length = integer(rawLength, 'length', 1, REMOTE_PREVIEW_MAX_READ_BYTES);
+      // Arguments are checked before any path work, as before.
+      integer(rawOffset, 'offset', 0, Number.MAX_SAFE_INTEGER);
+      integer(rawLength, 'length', 1, REMOTE_PREVIEW_MAX_READ_BYTES);
       const { root, absolute } = await target(projectPath, relPath, accessToken);
       const mime = filePreviewTypeForPath(absolute)?.mime || pageAssetType(root, absolute);
       if (!mime) throw new Error('This file type does not support an in-app preview.');
-      const info = await fileInfo(absolute);
-      const handle = await open(absolute, 'r');
-      try {
-        const buffer = Buffer.alloc(Math.max(0, Math.min(length, info.size - offset)));
-        const { bytesRead } = buffer.length ? await handle.read(buffer, 0, buffer.length, offset) : { bytesRead: 0 };
-        return { data: buffer.subarray(0, bytesRead).toString('base64'), mime, offset, ...info };
-      } finally {
-        await handle.close();
-      }
+      return readPreviewRange(absolute, mime, rawOffset, rawLength);
     },
   };
 }

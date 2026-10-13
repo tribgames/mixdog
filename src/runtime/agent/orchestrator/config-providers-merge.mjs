@@ -6,9 +6,21 @@
  * is dropped.
  */
 import { AGENT_PROVIDER_ENV, getAgentApiKey } from '../../shared/config.mjs';
+import { hasAgentApiKey } from '../../shared/provider-api-key.mjs';
 import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
 
-export function mergeStoredProviders({ raw, defaults, includeSecrets }) {
+/** `presenceOnly`: a stored key only marks its provider enabled; its value is
+ *  neither read nor attached. */
+export function mergeStoredProviders({ raw, defaults, includeSecrets, presenceOnly = false }) {
+  const storedKey = (name) => {
+    if (!presenceOnly) return getAgentApiKey(name);
+    return hasAgentApiKey(name) ? true : null;
+  };
+  const withKey = (entry, name, key) => ({
+    ...(entry || {}),
+    ...(presenceOnly ? {} : { apiKey: key }),
+    enabled: raw.providers?.[name]?.enabled !== false,
+  });
   // Deep-merge provider subkeys: unknown per-provider values are
   // preserved through save/load so future fields round-trip
   // without schema updates here.
@@ -39,14 +51,8 @@ export function mergeStoredProviders({ raw, defaults, includeSecrets }) {
   // stored key still ships 'no-key' → 401.
   if (includeSecrets) {
     for (const name of new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)])) {
-      const kc = getAgentApiKey(name);
-      if (kc) {
-        mergedProviders[name] = {
-          ...(mergedProviders[name] || {}),
-          apiKey: kc,
-          enabled: raw.providers?.[name]?.enabled !== false,
-        };
-      }
+      const kc = storedKey(name);
+      if (kc) mergedProviders[name] = withKey(mergedProviders[name], name, kc);
     }
   }
   // Custom providers: the keychain account is the generated custom-<uuid> id.
@@ -61,8 +67,8 @@ export function mergeStoredProviders({ raw, defaults, includeSecrets }) {
   if (includeSecrets) {
     for (const [name, val] of Object.entries(mergedProviders)) {
       if (val?.type !== 'custom' || !name.startsWith('custom-') || val.auth === 'none') continue;
-      const kc = getAgentApiKey(name);
-      if (kc) mergedProviders[name] = { ...val, apiKey: kc, enabled: raw.providers?.[name]?.enabled !== false };
+      const kc = storedKey(name);
+      if (kc) mergedProviders[name] = withKey(val, name, kc);
     }
   }
   // Cursor account access is OAuth-only. The dashboard's "API"

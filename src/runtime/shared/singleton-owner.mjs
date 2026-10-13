@@ -13,6 +13,9 @@ function writeJsonAtomic(path, value) {
 
 function acquireClaimLock(path) {
   const lockPath = `${path}.claim.lock`;
+  // A first boot (e.g. a daemon an ssh bootstrap starts on a fresh server)
+  // has no data directory yet: the lock's parent must exist.
+  mkdirSync(dirname(path), { recursive: true });
   for (let i = 0; i < 20; i++) {
     try {
       mkdirSync(lockPath, { recursive: false });

@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   normalizeRemoteBrowserControl,
   normalizeRemoteBrowserStreamOptions,
+  remoteBrowserDriveViewport,
   remoteBrowserImagePoint,
 } from './remote-browser.ts';
 
@@ -55,17 +56,17 @@ test('remote browser controls admit only bounded navigation and document-bound h
   ]) {
     assert.deepEqual(normalizeRemoteBrowserControl({ ...command, documentId }), { ...command, documentId });
     for (const bad of [undefined, '', 'p0:1', 'p2', 'p2:17\n', 17, null, `p2:${'1'.repeat(64)}`]) {
-      assert.throws(
-        () => normalizeRemoteBrowserControl({ ...command, documentId: bad }),
-        /document id is invalid/
-      );
+      assert.throws(() => normalizeRemoteBrowserControl({ ...command, documentId: bad }), /document id is invalid/);
     }
   }
   assert.throws(
     () => normalizeRemoteBrowserControl({ type: 'text', documentId, text: 'x'.repeat(2_001) }),
     /text is invalid/
   );
-  assert.throws(() => normalizeRemoteBrowserControl({ type: 'key', documentId, key: 'k'.repeat(65) }), /key is invalid/);
+  assert.throws(
+    () => normalizeRemoteBrowserControl({ type: 'key', documentId, key: 'k'.repeat(65) }),
+    /key is invalid/
+  );
   for (const bad of [
     { x: -1, y: 0 },
     { x: Number.NaN, y: 0 },
@@ -99,12 +100,58 @@ test('remote browser controls admit only bounded navigation and document-bound h
   );
 });
 
+test('a viewport control carries only a bounded integer size and device scale', () => {
+  assert.deepEqual(
+    normalizeRemoteBrowserControl({ type: 'viewport', width: 390, height: 780, deviceScaleFactor: 2.625, extra: 1 }),
+    { type: 'viewport', width: 390, height: 780, deviceScaleFactor: 2.625 }
+  );
+  for (const bad of [
+    { width: 390.5, height: 780, deviceScaleFactor: 3 },
+    { width: 199, height: 780, deviceScaleFactor: 3 },
+    { width: 390, height: 3_841, deviceScaleFactor: 3 },
+    { width: '390', height: 780, deviceScaleFactor: 3 },
+    { height: 780, deviceScaleFactor: 3 },
+  ]) {
+    assert.throws(() => normalizeRemoteBrowserControl({ type: 'viewport', ...bad }), /viewport size is invalid/);
+  }
+  for (const deviceScaleFactor of [0.4, 4.1, Number.NaN, '3', undefined]) {
+    assert.throws(
+      () => normalizeRemoteBrowserControl({ type: 'viewport', width: 390, height: 780, deviceScaleFactor }),
+      /viewport scale is invalid/
+    );
+  }
+});
+
+test('the phone asks for its content box, held inside the emulation bounds', () => {
+  assert.deepEqual(remoteBrowserDriveViewport({ width: 390.4, height: 700.6 }, 3), {
+    width: 390,
+    height: 701,
+    deviceScaleFactor: 3,
+  });
+  assert.deepEqual(remoteBrowserDriveViewport({ width: 120, height: 5_000 }, 9), {
+    width: 200,
+    height: 3_840,
+    deviceScaleFactor: 4,
+  });
+  assert.equal(remoteBrowserDriveViewport({ width: 0, height: 700 }, 2), null);
+  assert.equal(remoteBrowserDriveViewport(undefined, 2), null);
+  assert.equal(remoteBrowserDriveViewport({ width: 400, height: 700 }, Number.NaN).deviceScaleFactor, 1);
+  const viewport = remoteBrowserDriveViewport({ width: 412, height: 800 }, 2.625);
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'viewport', ...viewport }), { type: 'viewport', ...viewport });
+});
+
 test('stream options are bounded and rounded', () => {
   assert.deepEqual(normalizeRemoteBrowserStreamOptions({ maxWidth: 800.4, maxHeight: 600 }), {
     maxWidth: 800,
     maxHeight: 600,
   });
-  for (const bad of [null, {}, { maxWidth: 10, maxHeight: 600 }, { maxWidth: 800, maxHeight: 5_000 }, { maxWidth: '800', maxHeight: 600 }]) {
+  for (const bad of [
+    null,
+    {},
+    { maxWidth: 10, maxHeight: 600 },
+    { maxWidth: 800, maxHeight: 5_000 },
+    { maxWidth: '800', maxHeight: 600 },
+  ]) {
     assert.throws(() => normalizeRemoteBrowserStreamOptions(bad), /stream max/);
   }
 });

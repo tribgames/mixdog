@@ -6,10 +6,14 @@ import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
+import { normalizeChangeStatus, splitPatchSections } from './turn-changes.mjs';
 
 const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
 const PATCH_MAX_BYTES = 2 * 1024 * 1024;
+// The complete (replay-safe) patch a sealing turn records; per-file and
+// per-session bounds are applied on top of this by the change record.
+const FREEZE_PATCH_MAX_BYTES = 64 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
 // Largest tool-supplied baseline kept for `hash-object`: the apply_patch edit
 // limit. (2–64 MiB explicit untracked edits keep their exact revert.)
@@ -70,9 +74,16 @@ function commandError(args, stderr, code) {
 // call that would otherwise stall the event loop each time.
 async function runGit(
   args,
-  { cwd, input = '', timeoutMs = COMMAND_TIMEOUT_MS, maxBytes = COMMAND_MAX_BYTES, allowFailure = false } = {}
+  {
+    cwd,
+    input = '',
+    timeoutMs = COMMAND_TIMEOUT_MS,
+    maxBytes = COMMAND_MAX_BYTES,
+    allowFailure = false,
+    stdoutEncoding = 'utf8',
+  } = {}
 ) {
-  const result = await runGitOffThread(args, { cwd, input, timeoutMs, maxBytes });
+  const result = await runGitOffThread(args, { cwd, input, timeoutMs, maxBytes, stdoutEncoding });
   if (result.code !== 0 && !allowFailure) throw commandError(args, result.stderr, result.code);
   return result;
 }
@@ -664,6 +675,82 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null,
   return { patch, files, patchTruncated, currentTree, ...(omitPatch ? { patchOmitted: true } : {}) };
 }
 
+/**
+ * Freeze the snapshot's last captured net diff into replayable per-file
+ * patches: one complete `--binary --full-index` diff (independent of the
+ * bounded display patch), split back into its `diff --git` sections. `paths`
+ * scopes a contended worktree to the session-owned files. Callers refresh the
+ * snapshot first; this never captures. Files whose bytes cannot be replayed
+ * (an uncaptured baseline, a type change, an over-limit diff) stay in the
+ * record as non-revertable with a reason.
+ */
+export async function freezeTurnWorktreeChanges(snapshot, paths = null) {
+  if (!snapshot?.state || !snapshot.baselineTree) return null;
+  const scope = Array.isArray(paths) ? [...new Set(paths.filter(Boolean))] : null;
+  if (scope && scope.length === 0) return { root: snapshot.root, files: [] };
+  return await withStateLock(snapshot.state, async () => {
+    const { state, baselineTree, currentTree } = snapshot;
+    let review = { files: [], patch: '', patchTruncated: false };
+    let sections = [];
+    let unavailable = '';
+    if (currentTree && currentTree !== baselineTree) {
+      review = await diffTreesUnlocked(state, baselineTree, currentTree, scope, { omitPatch: true });
+      const args = [
+        'diff',
+        '--binary',
+        '--full-index',
+        '--no-color',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        '--find-renames',
+        baselineTree,
+        currentTree,
+        '--',
+        ...(scope || ['.']),
+      ];
+      try {
+        const result = await runGit(shadowArgs(state, args), {
+          cwd: state.root,
+          maxBytes: FREEZE_PATCH_MAX_BYTES,
+          stdoutEncoding: 'base64',
+        });
+        sections = splitPatchSections(Buffer.from(result.stdout, 'base64'));
+      } catch (error) {
+        if (error?.code !== 'EMAXBUFFER') throw error;
+        unavailable = 'the turn changed too much to keep its patches for undo';
+      }
+    }
+    const listed = withOmittedBaselines({ ...snapshot, scopePaths: scope }, { ...review, patchOmitted: true });
+    const byPath = new Map();
+    for (const section of sections) {
+      const key = pathKey(section.newPath ?? section.oldPath ?? '');
+      // A type change diffs as a delete plus an add of one path: not one patch.
+      byPath.set(key, byPath.has(key) ? null : section.patch);
+    }
+    const files = (listed.files || []).map((file) => {
+      const entry = {
+        path: file.path,
+        ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+        status: normalizeChangeStatus(file.status),
+        additions: Number(file.additions) || 0,
+        deletions: Number(file.deletions) || 0,
+        ...(file.binary ? { binary: true } : {}),
+      };
+      if (entry.status !== 'R') delete entry.oldPath;
+      if (file.omitted === true) {
+        return { ...entry, revertable: false, reason: 'binary/large file content was not captured' };
+      }
+      if (file.status === 'T') return { ...entry, revertable: false, reason: 'the file type changed' };
+      const patch = byPath.get(pathKey(file.path));
+      if (!patch) return { ...entry, revertable: false, reason: unavailable || 'no replayable patch was recorded' };
+      return { ...entry, revertable: true, patch };
+    });
+    return { root: snapshot.root, files };
+  });
+}
+
 // One maintenance pass per shadow repository per process, off the turn's
 // critical path. `--auto` does nothing until the repository actually needs it,
 // so the common case costs a process spawn and nothing else.
@@ -909,7 +996,8 @@ async function revertPathsUnlocked(snapshot, targets) {
       await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
     )
   );
-  return snapshot;
+  // The absolute paths now back at their baseline bytes.
+  return targets.map((target) => resolve(snapshot.root, target));
 }
 
 export async function revertTurnWorktreeFile(snapshot, value) {

@@ -13,7 +13,7 @@ import type { createBrowserInputDispatch } from './input-dispatch';
 import type { createBrowserLocalPrompts } from './local-prompts';
 import { createPageSurfaceState, type Size } from './page-surface-state';
 import { createPageSurfaceFrame } from './page-surface-frame';
-import { createPageSurfaceControl } from './page-surface-control';
+import { createPageSurfaceControl, zoomGuest } from './page-surface-control';
 
 export interface BrowserPageSurfaceHost {
   ensureGuest(sessionId: string, options: { reveal: false }): Promise<WebContents>;
@@ -41,12 +41,11 @@ export interface BrowserPageSurfaceHost {
     pixels: Size,
     signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture>;
-  captureTexture?(
-    guest: WebContents,
-    documentId: string,
-    pixels: Size
-  ): BrowserDisplayTexture | undefined;
+  captureTexture?(guest: WebContents, documentId: string, pixels: Size): BrowserDisplayTexture | undefined;
   currentGuest?(sessionId: string): WebContents | null;
+  /** A streaming phone drives this page's viewport: pane resizes and zoom
+   *  are remembered, not applied, until it stops. */
+  remoteDriven?(guest: WebContents): boolean;
   tabs?: {
     list(sessionId: string): DesktopBrowserTab[];
     select(sessionId: string, tabId: string): void;
@@ -57,13 +56,26 @@ export interface BrowserPageSurfaceHost {
 
 export function createBrowserPageSurface(host: BrowserPageSurfaceHost) {
   const state = createPageSurfaceState(host);
-  const { viewportChanges, paneSizes, presentedGuests, invalidateGeometry, resizeGuest, bumpScale } = state;
+  const { viewportChanges, paneSizes, paneZooms, presentedGuests, invalidateGeometry, resizeGuest, bumpScale } = state;
   const frame = createPageSurfaceFrame(host, state);
 
   return {
     frame,
     metadata: frame.metadata,
     control: createPageSurfaceControl(host, state),
+    /** The size and zoom the session's pane last asked for, if any. */
+    paneGeometry(sessionId: string): { size?: Size; zoom?: number } {
+      return { size: paneSizes.get(sessionId), zoom: paneZooms.get(sessionId) };
+    },
+    /** Size and zoom a page for a phone driving it, or back for its pane. */
+    setGeometry(guest: WebContents, size: Size | undefined, zoom: number | undefined): void {
+      if (guest.isDestroyed()) return;
+      if (size) {
+        invalidateGeometry(guest);
+        resizeGuest(guest, size, true);
+      }
+      if (zoom !== undefined) zoomGuest(host, state, guest, zoom);
+    },
     beginViewportChange(guest: WebContents): () => void {
       viewportChanges.set(guest, (viewportChanges.get(guest) ?? 0) + 1);
       invalidateGeometry(guest);
@@ -76,6 +88,7 @@ export function createBrowserPageSurface(host: BrowserPageSurfaceHost) {
     },
     release(sessionId: string) {
       paneSizes.delete(sessionId);
+      paneZooms.delete(sessionId);
       presentedGuests.delete(sessionId);
     },
     /** An offscreen page reads the display scale only when it resizes or

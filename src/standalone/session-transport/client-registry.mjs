@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { parsePid } from '../../runtime/shared/pid-liveness.mjs';
 import { createRegistrationReplays } from './client-registry/registration-replays.mjs';
-import { createClientGrace } from './client-registry/client-grace.mjs';
+import { createClientGrace, clampLeaseMs } from './client-registry/client-grace.mjs';
 
 export function createClientRegistry({
   log,
@@ -18,7 +18,7 @@ export function createClientRegistry({
   onClientRegistered,
   onClientDropped,
 }) {
-  // token -> { token, leadPid, cwd, lifecycle, sse, pending, lastSeen }
+  // token -> { token, leadPid, cwd, lifecycle, remote, leaseMs, sse, pending, lastSeen }
   const clients = new Map();
   let closed = false;
   const replays = createRegistrationReplays({ clients, log });
@@ -27,6 +27,7 @@ export function createClientRegistry({
     log,
     clientGraceMs,
     sweepMs,
+    nowMs,
     onClientsEmpty,
     isClosed: () => closed,
     dropClient: (token, reason) => dropClient(token, reason),
@@ -35,6 +36,7 @@ export function createClientRegistry({
   function removeClientRecord(token) {
     const c = clients.get(token);
     if (!c) return;
+    if (c.lifecycle) grace.noteLifecycleDropped(c);
     try {
       c.sse?.end?.();
     } catch {}
@@ -57,6 +59,14 @@ export function createClientRegistry({
     grace.maybeArm(reason);
   }
 
+  /** Refresh a client's lease clock (heartbeat). False for an unknown token. */
+  function touch(token) {
+    const c = clients.get(token);
+    if (!c) return false;
+    c.lastSeen = nowMs();
+    return true;
+  }
+
   function register({
     leadPid,
     cwd,
@@ -64,11 +74,14 @@ export function createClientRegistry({
     clientKind = 'session',
     registrationId = null,
     revision = 0,
+    remote = false,
+    leaseMs,
   } = {}) {
     const identity = {
       leadPid: parsePid(leadPid) || 0,
       cwd: cwd || null,
       lifecycle: lifecycle !== false,
+      remote: remote === true,
       clientKind: clientKind === 'desktop' ? 'desktop' : 'session',
       revision: Math.max(0, Number(revision) || 0),
     };
@@ -79,6 +92,7 @@ export function createClientRegistry({
     clients.set(token, {
       token,
       ...identity,
+      leaseMs: clampLeaseMs(leaseMs),
       sse: null,
       // True while the socket asked us to stop writing (see writeFrame).
       paused: false,
@@ -92,7 +106,8 @@ export function createClientRegistry({
     grace.startSweep();
     log(
       `client registered token=${token} lead=${identity.leadPid} cwd=${identity.cwd || '-'}` +
-        ` lifecycle=${identity.lifecycle} kind=${identity.clientKind}`
+        ` lifecycle=${identity.lifecycle} kind=${identity.clientKind}` +
+        (identity.remote ? ` remote leaseMs=${clients.get(token).leaseMs}` : '')
     );
     if (typeof onClientRegistered === 'function') {
       try {
@@ -102,6 +117,7 @@ export function createClientRegistry({
           cwd: identity.cwd,
           lifecycle: identity.lifecycle,
           clientKind: identity.clientKind,
+          ...(identity.remote ? { remote: true } : {}),
         });
       } catch {}
     }
@@ -124,6 +140,7 @@ export function createClientRegistry({
     forgetReplaysFor: replays.forgetFor,
     dropClient,
     register,
+    touch,
     close,
   };
 }
