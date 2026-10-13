@@ -145,9 +145,30 @@ export function sortedCatalogByMeasuredUsage(catalog) {
     .map((entry) => entry.tool);
 }
 
+const IMMUTABLE_SURFACE_TOOLS = new WeakSet();
+
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const key of Object.keys(value)) deepFreeze(value[key]);
+  }
+  return value;
+}
+
 export function activeToolForSurface(tool) {
   if (!tool || typeof tool !== 'object') return tool;
+  if (IMMUTABLE_SURFACE_TOOLS.has(tool)) return tool;
   return JSON.parse(JSON.stringify(tool));
+}
+
+// Clone once into a deep-frozen definition that activeToolForSurface passes
+// through without re-cloning. Safe to share: it can never be mutated in place.
+export function immutableToolForSurface(tool) {
+  if (!tool || typeof tool !== 'object') return tool;
+  if (IMMUTABLE_SURFACE_TOOLS.has(tool)) return tool;
+  const frozen = deepFreeze(JSON.parse(JSON.stringify(tool)));
+  IMMUTABLE_SURFACE_TOOLS.add(frozen);
+  return frozen;
 }
 
 export function deferredProviderMode(provider) {

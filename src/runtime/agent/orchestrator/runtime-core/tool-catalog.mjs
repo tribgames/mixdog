@@ -4,7 +4,7 @@
 import { clean } from './session-text.mjs';
 import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
 import { applyInitialDeferredToolManifestToBp2, stripDeferredToolManifestBlock } from '../context/collect.mjs';
-import { getMcpServerInstructionsMap, getMcpTools } from '../mcp/client.mjs';
+import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
 import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
 import { isResponsesFreeformTool, toResponsesCustomTool } from '../providers/custom-tool-wire.mjs';
@@ -23,6 +23,7 @@ import {
   routeToolRank,
   sortedCatalogByMeasuredUsage,
   activeToolForSurface,
+  immutableToolForSurface,
   deferredProviderMode,
   nativeProviderFamily,
 } from './tool-catalog-schema.mjs';
@@ -464,6 +465,56 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
  */
 export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   if (!session || !Array.isArray(session.tools)) return null;
+  const cached = RECONCILE_STATE.get(session);
+  if (cached && reconcileStateMatches(cached, reconcileStateOf(session, liveMcpTools))) return null;
+  const result = reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools);
+  RECONCILE_STATE.set(session, reconcileStateOf(session, liveMcpTools));
+  return result;
+}
+
+// Last reconciled inputs per session. A matching state means the surface that
+// reconciliation would rebuild is identical, so it is skipped outright.
+const RECONCILE_STATE = new WeakMap();
+const LIVE_CLONES = new WeakMap();
+
+function liveToolClone(tool) {
+  if (!tool || typeof tool !== 'object') return tool;
+  const generation = getMcpToolGeneration();
+  const hit = LIVE_CLONES.get(tool);
+  if (hit && hit.generation === generation) return hit.clone;
+  const clone = immutableToolForSurface(tool);
+  LIVE_CLONES.set(tool, { generation, clone });
+  return clone;
+}
+
+function reconcileStateOf(session, liveMcpTools) {
+  return {
+    generation: getMcpToolGeneration(),
+    live: Array.isArray(liveMcpTools) ? liveMcpTools.slice() : [],
+    tools: session.tools.slice(),
+    lateCatalog: session.deferredLateToolCatalog,
+    scope: clean(session.mcpScopeId),
+    cwd: clean(session.cwd),
+    mode: clean(session.deferredSurfaceMode),
+    providerMode: clean(session.deferredProviderMode),
+    provider: clean(session.provider),
+    model: clean(session.model),
+    disallowed: JSON.stringify(session.disallowedTools || []),
+    callable: JSON.stringify(parseToolSelection(session.deferredCallableTools)),
+    discovered: JSON.stringify(parseToolSelection(session.deferredDiscoveredTools)),
+  };
+}
+
+function reconcileStateMatches(a, b) {
+  for (const key of Object.keys(a)) {
+    if (key === 'live' || key === 'tools') {
+      if (a[key].length !== b[key].length || a[key].some((tool, i) => tool !== b[key][i])) return false;
+    } else if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
+function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
   const live = filterDisallowedTools(Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools);
   const hadSnapshot = Array.isArray(session.deferredMcpToolNames);
   const previousNames = new Set(
@@ -482,7 +533,7 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
     }
     for (const tool of live) {
       const name = clean(tool?.name);
-      if (name && isMcpToolName(name)) byName.set(name, activeToolForSurface(tool));
+      if (name && isMcpToolName(name)) byName.set(name, liveToolClone(tool));
     }
     const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
     const next = catalog.filter((tool) => session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool));
@@ -505,7 +556,7 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   for (const tool of live) {
     const name = clean(tool?.name);
     if (!name || !isMcpToolName(name) || liveMcpByName.has(name)) continue;
-    liveMcpByName.set(name, activeToolForSurface(tool));
+    liveMcpByName.set(name, liveToolClone(tool));
   }
 
   // Rebuild the LATE pool only (boot catalog stays frozen). It holds live MCP

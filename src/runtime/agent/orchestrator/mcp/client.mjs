@@ -66,8 +66,14 @@ let mcpSdkPromise = null;
 // mutation point (connectServer / disconnectAll) so a stale positive or
 // negative can never survive a tools-list change.
 const _mcpToolFieldMemo = new Map();
+let _mcpToolGeneration = 0;
 function _invalidateMcpToolFieldMemo() {
   _mcpToolFieldMemo.clear();
+  _mcpToolGeneration += 1;
+}
+/** Read-only counter bumped on every MCP tool registry mutation. */
+export function getMcpToolGeneration() {
+  return _mcpToolGeneration;
 }
 function normalizeMcpScopeId(value) {
   const raw = value && typeof value === 'object' ? value.scopeId : value;
