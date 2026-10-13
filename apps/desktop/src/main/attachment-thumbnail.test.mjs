@@ -26,7 +26,10 @@ function fakeImage(width, height, calls = {}) {
 
 test('invalid ref returns null without calling the service', async () => {
   let called = 0;
-  const read = async () => (called++, b64(PNG));
+  const read = async () => {
+    called++;
+    return b64(PNG);
+  };
   for (const ref of ['', 'A'.repeat(64), 'a'.repeat(63), '../x', 5, null]) {
     assert.equal(await readAttachmentThumbnail(ref, read, undecodable), null);
   }
@@ -39,7 +42,11 @@ test('service null returns null', async () => {
 
 test('decodable image is resized to a 320px JPEG data URL', async () => {
   const calls = {};
-  const url = await readAttachmentThumbnail(REF, async () => b64(PNG), () => fakeImage(1280, 640, calls));
+  const url = await readAttachmentThumbnail(
+    REF,
+    async () => b64(PNG),
+    () => fakeImage(1280, 640, calls)
+  );
   assert.equal(url, `data:image/jpeg;base64,${Buffer.from('jpeg').toString('base64')}`);
   assert.deepEqual([calls.resize.width, calls.resize.height], [320, 160]);
   assert.equal(calls.quality, 82);
@@ -47,13 +54,24 @@ test('decodable image is resized to a 320px JPEG data URL', async () => {
 
 test('small decodable image is not upscaled', async () => {
   const calls = {};
-  await readAttachmentThumbnail(REF, async () => b64(PNG), () => fakeImage(100, 50, calls));
+  await readAttachmentThumbnail(
+    REF,
+    async () => b64(PNG),
+    () => fakeImage(100, 50, calls)
+  );
   assert.equal(calls.resize, undefined);
 });
 
 test('undecodable small PNG/GIF/WebP returns the original data URL', async () => {
-  for (const [bytes, mime] of [[PNG, 'image/png'], [GIF, 'image/gif'], [WEBP, 'image/webp']]) {
-    assert.equal(await readAttachmentThumbnail(REF, async () => b64(bytes), undecodable), `data:${mime};base64,${b64(bytes)}`);
+  for (const [bytes, mime] of [
+    [PNG, 'image/png'],
+    [GIF, 'image/gif'],
+    [WEBP, 'image/webp'],
+  ]) {
+    assert.equal(
+      await readAttachmentThumbnail(REF, async () => b64(bytes), undecodable),
+      `data:${mime};base64,${b64(bytes)}`
+    );
   }
 });
 

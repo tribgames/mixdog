@@ -475,7 +475,13 @@ async function prepareDesktopNativeTools() {
     NATIVE_TOOL_KINDS.map(async (kind) => {
       if (overrideDir && embeddingTarget.platform === 'linux') {
         const override = join(resolve(overrideDir), nativeToolInstalledName(kind, embeddingTarget));
-        if (await access(override).then(() => true, () => false)) return override;
+        if (
+          await access(override).then(
+            () => true,
+            () => false
+          )
+        )
+          return override;
         if (requiredOverrides.has(kind)) {
           throw new Error(`Native tool ${kind} is required from ${overrideDir} but ${override} does not exist.`);
         }
