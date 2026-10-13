@@ -22,7 +22,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { type BigIntStats, constants } from 'node:fs';
 import { type FileHandle, lstat, open, readFile, realpath, stat } from 'node:fs/promises';
-import { basename, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import {
@@ -357,15 +357,22 @@ async function authorizeLinkedFile(
 
 /** Git's own store is never a download: a `.git` directory (or pointer file)
  *  anywhere on the path, or a git dir a `.git` file in one of the session's
- *  folders points to — a separate git dir, a worktree's gitdir and the common
- *  dir it shares. */
+ *  folders — or any folder above the file or above those folders — points to:
+ *  a separate git dir, a (nested) worktree's gitdir and the common dir it
+ *  shares. */
 async function refuseGitInternals(canonical: string, folders: readonly string[]): Promise<void> {
   const refused = (): FileDownloadError =>
     new FileDownloadError('outside-project', "Git's internal files cannot be downloaded.");
   if (canonical.split(/[\\/]/).some((segment) => segment.toLowerCase() === '.git')) throw refused();
-  for (const folder of folders) {
-    for (const gitDir of await pointedGitDirs(folder)) if (inside(gitDir, canonical)) throw refused();
-  }
+  const candidates = new Set([dirname(canonical), ...folders].flatMap(selfAndAncestors));
+  const gitDirs = (await Promise.all([...candidates].map(pointedGitDirs))).flat();
+  if (gitDirs.some((gitDir) => inside(gitDir, canonical))) throw refused();
+}
+
+function selfAndAncestors(folder: string): string[] {
+  const chain = [folder];
+  for (let parent = dirname(folder); parent !== chain[chain.length - 1]; parent = dirname(parent)) chain.push(parent);
+  return chain;
 }
 
 /** The git dirs a `.git` FILE in `folder` points to; none for a `.git`

@@ -151,7 +151,9 @@ export function sessionLinkedPaths(snapshot: SessionSnapshot, cwd: string): stri
   return [...paths];
 }
 
-const MEDIA_TOOL = /^(?:mcp__[^_]+(?:_[^_]+)*__)?media$/i;
+/** Mixdog's built-in media tool; an MCP server's `mcp__…__media` is not it. */
+const MEDIA_TOOL = 'media';
+const UNFINISHED_STATUSES = new Set(['running', 'failed', 'canceled', 'cancelled']);
 
 /** The structured records a tool result carries (renderer
  *  transcript-artifacts.ts reads the same shapes); prose yields none. */
@@ -178,9 +180,17 @@ function toolResultRecords(value: unknown, depth = 0): Record<string, unknown>[]
   return [record];
 }
 
-/** Gallery assets the session's own successful `media` tool calls generated
- *  — what its transcript shows as generated output. Prompts, replies and
- *  other tools' output name none. */
+/** A finished tool row (renderer transcript-tool-core.ts `toolItemDone`). */
+function toolItemDone(item: DesktopTranscriptItem): boolean {
+  if (item.completedAt != null) return true;
+  if (item.completedCount === undefined) return item.result != null || item.rawResult != null;
+  return Number(item.completedCount) >= (Number(item.count) || 1);
+}
+
+/** Gallery assets the session's own built-in `media` tool calls generated:
+ *  finished, error-free calls whose result reports a completed asset — the
+ *  same rows the renderer's transcriptArtifacts shows as generated media.
+ *  Prompts, replies, MCP tools and other tools' output name none. */
 export function sessionGeneratedAssetIds(snapshot: SessionSnapshot): Set<string> {
   const ids = new Set<string>();
   const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
@@ -188,12 +198,15 @@ export function sessionGeneratedAssetIds(snapshot: SessionSnapshot): Set<string>
     item?.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as DesktopTranscriptItem[]) : [item]
   );
   for (const item of tools) {
-    if (!item || item.kind === 'user' || item.kind === 'assistant' || item.isError === true) continue;
-    if (!MEDIA_TOOL.test(String(item.name ?? ''))) continue;
-    for (const record of toolResultRecords(item.result ?? item.rawResult)) {
-      if (record.ok === true && typeof record.assetId === 'string' && record.assetId && record.status !== 'failed') {
-        ids.add(record.assetId);
-      }
+    if (!item || item.kind === 'user' || item.kind === 'assistant' || item.name !== MEDIA_TOOL) continue;
+    if (!toolItemDone(item) || item.isError === true) continue;
+    if ([item.errorCount, item.callErrorCount, item.exitErrorCount].some((count) => Number(count || 0) > 0)) continue;
+    const value = typeof item.result === 'string' && item.result.trim() ? item.result : (item.result ?? item.rawResult);
+    for (const record of toolResultRecords(value)) {
+      if (UNFINISHED_STATUSES.has(String(record.status || ''))) continue;
+      if (record.ok !== true || typeof record.assetId !== 'string' || !record.assetId) continue;
+      if (!record.output && record.status !== 'done') continue;
+      ids.add(record.assetId);
     }
   }
   return ids;

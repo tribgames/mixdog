@@ -307,6 +307,32 @@ test("git's internal files are refused for project and linked downloads", async 
   assert.ok(await f.service.authorize(PHONE, f.project('b.txt', 's2')));
 });
 
+test('a git dir pointed to from a nested worktree, or from above a session folder, is refused', async (t) => {
+  const f = fixture(t);
+  // A worktree nested in the project keeps its git dir (no `.git` name) inside it.
+  const worktree = join(f.projectA, 'sub', 'wt');
+  mkdirSync(join(worktree, 'store', 'refs'), { recursive: true });
+  writeFileSync(join(worktree, '.git'), 'gitdir: store\n');
+  writeFileSync(join(worktree, 'store', 'refs', 'HEAD'), 'ref');
+  writeFileSync(join(worktree, 'readme.md'), 'readme');
+  await refusedAs(f.service.authorize(PHONE, f.project('sub/wt/store/refs/HEAD')), 'outside-project');
+  assert.ok(await f.service.authorize(PHONE, f.project('sub/wt/readme.md')), "the worktree's own files download");
+
+  // A session folder below a worktree root whose git dir lives elsewhere.
+  const gitDir = join(f.base, 'elsewhere-git');
+  mkdirSync(gitDir);
+  writeFileSync(join(gitDir, 'config'), 'config');
+  writeFileSync(join(f.projectB, '.git'), `gitdir: ${slash(gitDir)}\n`);
+  const cwd = join(f.projectB, 'app');
+  mkdirSync(cwd);
+  const listed = await f.host.listSessions();
+  f.host.listSessions = async () => [...listed, { id: 's3', cwd, projectPath: null, classification: 'task' }];
+  f.transcripts.set('s3', { items: [{ id: 'c1', kind: 'assistant', text: `See ${slash(join(gitDir, 'config'))}.` }] });
+  await refusedAs(f.service.authorize(PHONE, f.link('c1', slash(join(gitDir, 'config')), 's3')), 'outside-project');
+  f.transcripts.get('s3').items.push({ id: 'c2', kind: 'assistant', text: `See ${slash(join(f.outside, 'linked.bin'))}.` });
+  assert.ok(await f.service.authorize(PHONE, f.link('c2', slash(join(f.outside, 'linked.bin')), 's3')));
+});
+
 test('a linked file that is a symlink to an unlinked file is refused', async (t) => {
   const f = fixture(t);
   const leaf = join(f.outside, 'leaf.txt');

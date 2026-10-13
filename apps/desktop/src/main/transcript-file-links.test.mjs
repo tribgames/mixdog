@@ -13,21 +13,36 @@ import {
   settledAssistantItem,
 } from './transcript-file-links.ts';
 
-test('generated assets are read from successful media tool results only', () => {
+test("generated assets come only from the built-in media tool's completed, successful results", () => {
   const result = (assetId, extra = {}) => JSON.stringify({ ok: true, status: 'done', assetId, ...extra });
+  const tool = (id, assetId, row = {}, extra = {}) => ({ id, kind: 'tool', name: 'media', result: result(assetId, extra), ...row });
   const ids = sessionGeneratedAssetIds({
     items: [
-      { id: 1, kind: 'tool', name: 'media', result: result('own') },
-      { id: 2, kind: 'tool', name: 'mcp__mixdog__media', result: { structuredContent: { ok: true, assetId: 'mcp' } } },
+      tool(1, 'own'),
+      { id: 2, kind: 'tool', name: 'media', result: { structuredContent: { ok: true, assetId: 'structured', output: '/o.png' } } },
       { id: 3, kind: 'tool', aggregate: true, toolMembers: [{ name: 'media', result: result('member') }] },
-      { id: 4, kind: 'user', name: 'media', text: result('prompt'), result: result('prompt') },
-      { id: 5, kind: 'assistant', text: result('prose') },
-      { id: 6, kind: 'tool', name: 'shell', result: result('shell') },
-      { id: 7, kind: 'tool', name: 'media', isError: true, result: result('errored') },
-      { id: 8, kind: 'tool', name: 'media', result: result('failed', { ok: false }) },
+      tool(4, 'output-only', {}, { status: undefined, output: '/x.png' }),
+      // Counterexamples: none of these establish ownership.
+      { id: 10, kind: 'tool', name: 'mcp__evil__media', result: result('mcp') },
+      { id: 11, kind: 'tool', name: 'mcp__mixdog__media', result: result('mcp-mixdog') },
+      { id: 12, kind: 'user', name: 'media', text: result('prompt'), result: result('prompt') },
+      { id: 13, kind: 'assistant', text: result('prose') },
+      { id: 14, kind: 'tool', name: 'shell', result: result('shell') },
+      tool(15, 'errored', { isError: true }),
+      tool(16, 'not-ok', {}, { ok: false }),
+      tool(17, 'running', {}, { status: 'running' }),
+      tool(18, 'canceled', {}, { status: 'canceled' }),
+      tool(19, 'cancelled', {}, { status: 'cancelled' }),
+      tool(20, 'failed', {}, { status: 'failed' }),
+      tool(21, 'no-output', {}, { status: 'queued' }),
+      tool(22, 'error-count', { errorCount: 1 }),
+      tool(23, 'call-error', { callErrorCount: 1 }),
+      tool(24, 'exit-error', { exitErrorCount: 2 }),
+      tool(25, 'unfinished', { completedCount: 0, count: 1 }),
+      { id: 26, kind: 'tool', name: 'media', args: { action: 'generate' } },
     ],
   });
-  assert.deepEqual([...ids].sort(), ['mcp', 'member', 'own']);
+  assert.deepEqual([...ids].sort(), ['member', 'output-only', 'own', 'structured']);
 });
 
 test('link targets are read the way MarkdownLink decodes them, outside fenced code', () => {
