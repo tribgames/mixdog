@@ -48,6 +48,7 @@ import { SetiFileIcon } from './SetiFileIcon';
 import { useSurfaceActive } from './surface-activity';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { copyTextToClipboard } from './text-format';
+import { ProjectRecoverySurface } from './ProjectRecoverySurface';
 
 interface ExplorerMenu {
   x: number;
@@ -984,6 +985,8 @@ export const FilesRootPane = memo(function FilesRootPane({
   return (
     <>
       {headerPortal}
+      <ProjectRecoverySurface key={projectPath} projectPath={projectPath}
+        onOpenFile={(_project, rel, mode) => openFile(rel, mode)} />
       <div className="dock-files">
         {showRootHeader && (
           <div className="workbench-explorer-root-row">

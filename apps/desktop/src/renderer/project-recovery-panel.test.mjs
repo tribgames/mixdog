@@ -1,0 +1,267 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
+import { ProjectRecoveryPanel, recoveryMayRestore } from './ProjectRecoveryPanel.tsx';
+import { ProjectRecoverySurface } from './ProjectRecoverySurface.tsx';
+import { requiredProjectRecoveryRequest } from '../shared/project-recovery.ts';
+
+const id = '12345678-abcd-abcd-abcd-123456789abc';
+const revision = 'a'.repeat(64);
+const detail = {
+  id,
+  revision,
+  createdAt: 1,
+  phase: 'failed',
+  fileCount: 2,
+  active: false,
+  files: [
+    { relPath: 'a.txt', status: 'written' },
+    { relPath: 'b.txt', status: 'external', reason: 'Changed after the batch' },
+  ],
+};
+const labels = {
+  title: 'Recovery',
+  refresh: 'Refresh',
+  empty: 'No recovery records',
+  inspect: 'Inspect',
+  openFile: 'Open file',
+  restore: 'Restore unchanged files',
+  discard: 'Discard record',
+  busy: 'Loading',
+  observationWarning: 'Observed state; the host rechecks before writing.',
+  failure: 'Recovery request failed',
+  phases: Object.fromEntries(
+    ['interrupted', 'failed', 'recovered', 'completed', 'active', 'invalid', 'retired'].map((x) => [x, x])
+  ),
+  statuses: Object.fromEntries(
+    ['original', 'written', 'restored', 'external', 'missing', 'unavailable'].map((x) => [x, x])
+  ),
+};
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+async function mount(t, overrides = {}, Component = ProjectRecoveryPanel, setup = () => {}) {
+  const dom = new JSDOM('<!doctype html><div id="root"></div>');
+  const saved = new Map();
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  setup(dom.window);
+  const calls = [];
+  const request = async (project, input) => {
+    calls.push([project, input]);
+    return input.action === 'list' ? { records: [detail] } : { records: [detail], detail };
+  };
+  let props = { projectPath: '/project-a', request, confirm: async () => true, openFile() {}, labels, ...overrides };
+  t.after(async () => {
+    await act(async () => root.unmount());
+    dom.window.close();
+    for (const [key, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  });
+  await act(async () => root.render(React.createElement(Component, props)));
+  const button = (text) =>
+    [...dom.window.document.querySelectorAll('button')].find((node) => node.textContent === text);
+  return {
+    calls,
+    document: dom.window.document,
+    button,
+    async click(text) {
+      assert.ok(button(text), text);
+      await act(async () => button(text).click());
+    },
+    async render(change) {
+      props = { ...props, ...change };
+      await act(async () => root.render(React.createElement(Component, props)));
+    },
+  };
+}
+
+test('request validator rejects traversal IDs and unapproved mutations', () => {
+  for (const input of [
+    null,
+    [],
+    { action: 'inspect', id: '../manifest' },
+    { action: 'restore', id },
+    { action: 'discard', id, revision: 'stale' },
+    { action: 'other', id },
+  ]) {
+    assert.throws(() => requiredProjectRecoveryRequest(input), TypeError);
+  }
+  assert.deepEqual(requiredProjectRecoveryRequest({ action: 'list', path: '/ignored' }), { action: 'list' });
+  assert.deepEqual(requiredProjectRecoveryRequest({ action: 'restore', id, revision }), {
+    action: 'restore',
+    id,
+    revision,
+  });
+});
+
+test('restore availability does not treat missing or external files as safe', () => {
+  assert.equal(recoveryMayRestore(detail), true);
+  for (const phase of ['active', 'invalid', 'completed', 'retired'])
+    assert.equal(recoveryMayRestore({ ...detail, phase }), false);
+  assert.equal(recoveryMayRestore({ ...detail, active: true }), false);
+  for (const status of ['external', 'missing', 'unavailable', 'original', 'restored']) {
+    assert.equal(recoveryMayRestore({ ...detail, files: [{ relPath: 'a', status }] }), false);
+  }
+});
+
+test('inspection displays per-file outcomes and sends the observed revision', async (t) => {
+  const ui = await mount(t);
+  await ui.click('Inspect');
+  assert.match(ui.document.body.textContent, /a.txt.*written/s);
+  assert.match(ui.document.body.textContent, /b.txt.*external/s);
+  await ui.click('Restore unchanged files');
+  assert.deepEqual(ui.calls.at(-1), ['/project-a', { action: 'restore', id, revision }]);
+});
+
+test('cancelling confirmation sends no mutation and retains the inspection', async (t) => {
+  const ui = await mount(t, { confirm: async () => false });
+  await ui.click('Inspect');
+  const before = ui.calls.length;
+  await ui.click('Discard record');
+  assert.equal(ui.calls.length, before);
+  assert.ok(ui.button('Restore unchanged files'));
+});
+
+test('a failed refresh invalidates the previous approval', async (t) => {
+  let fail = false;
+  const request = async (_project, input) => {
+    if (fail) throw new Error('backend failed');
+    return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
+  };
+  const ui = await mount(t, { request });
+  await ui.click('Inspect');
+  fail = true;
+  await ui.click('Refresh');
+  assert.equal(ui.button('Restore unchanged files'), undefined);
+  assert.equal(ui.document.querySelector('[role="alert"]').textContent, labels.failure);
+});
+
+test('a project change while confirmation is pending never writes to either project', async (t) => {
+  const approval = deferred();
+  const ui = await mount(t, { confirm: () => approval.promise });
+  await ui.click('Inspect');
+  await act(async () => ui.button('Restore unchanged files').click());
+  await ui.render({ projectPath: '/project-b' });
+  await act(async () => approval.resolve(true));
+  assert.equal(
+    ui.calls.some(([, input]) => input.action === 'restore'),
+    false
+  );
+});
+
+test('an old project list cannot replace the new project list', async (t) => {
+  const old = deferred();
+  const request = (project) => (project === '/project-a' ? old.promise : Promise.resolve({ records: [] }));
+  const ui = await mount(t, { request });
+  await ui.render({ projectPath: '/project-b' });
+  await act(async () => old.resolve({ records: [detail] }));
+  assert.match(ui.document.body.textContent, /No recovery records/);
+  assert.equal(ui.button('Inspect'), undefined);
+});
+
+test('unmounting while approval is pending cannot send a mutation', async (t) => {
+  const approval = deferred();
+  const ui = await mount(t, { confirm: () => approval.promise });
+  await ui.click('Inspect');
+  await act(async () => ui.button('Discard record').click());
+  // Changing request identity tears down the previous operation generation,
+  // the same cleanup used on component unmount.
+  await ui.render({ request: async () => ({ records: [] }) });
+  await act(async () => approval.resolve(true));
+  assert.equal(
+    ui.calls.some(([, input]) => input.action === 'discard'),
+    false
+  );
+});
+
+test('path text is escaped rather than inserted as HTML', async (t) => {
+  const hostile = { ...detail, files: [{ relPath: '<img src=x onerror=alert(1)>', status: 'external' }] };
+  const ui = await mount(t, {
+    request: async (_project, input) => ({
+      records: [hostile],
+      ...(input.action === 'inspect' ? { detail: hostile } : {}),
+    }),
+  });
+  await ui.click('Inspect');
+  assert.equal(ui.document.querySelector('img'), null);
+  assert.match(ui.document.body.textContent, /<img src=x/);
+  assert.equal(ui.button('Restore unchanged files').disabled, true);
+});
+
+for (const phase of ['invalid', 'retired']) {
+  test(`${phase} records offer confirmed discard but never restore`, async (t) => {
+    const row = { ...detail, phase, files: [], fileCount: 0 };
+    const calls = [];
+    let confirmations = 0;
+    const ui = await mount(t, {
+      request: async (_project, input) => {
+        calls.push(input);
+        return { records: [row], ...(input.action === 'inspect' ? { detail: row } : {}) };
+      },
+      confirm: async (action) => {
+        assert.equal(action, 'discard');
+        confirmations++;
+        return true;
+      },
+    });
+    await ui.click('Inspect');
+    assert.equal(ui.button('Restore unchanged files').disabled, true);
+    await ui.click('Discard record');
+    assert.equal(confirmations, 1);
+    assert.deepEqual(calls.at(-1), { action: 'discard', id, revision });
+  });
+}
+
+test('the Files recovery surface invokes the host API only after inspection and confirmation', async (t) => {
+  const requests = [],
+    confirmations = [],
+    opened = [];
+  const ui = await mount(t, { onOpenFile: (...args) => opened.push(args) }, ProjectRecoverySurface, (window) => {
+    window.mixdogDesktop = {
+      projectRecovery: async (project, input) => {
+        requests.push([project, input]);
+        return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
+      },
+    };
+    window.confirm = (text) => {
+      confirmations.push(text);
+      return true;
+    };
+  });
+  assert.equal(requests.length, 0, 'closed surface is lazy');
+  await act(async () => {
+    const element = ui.document.querySelector('details');
+    element.open = true;
+    element.dispatchEvent(new window.Event('toggle'));
+  });
+  await ui.click('Inspect');
+  await ui.click('Open');
+  assert.deepEqual(opened, [['/project-a', 'a.txt', 'pinned']]);
+  await ui.click('Restore');
+  assert.equal(confirmations.length, 1);
+  assert.match(confirmations[0], /a\.txt/);
+  assert.deepEqual(requests.at(-1), ['/project-a', { action: 'restore', id, revision }]);
+});
+
+test('the Files recovery surface stays absent on a host without the API', async (t) => {
+  const ui = await mount(t, {}, ProjectRecoverySurface);
+  assert.equal(ui.document.querySelector('details'), null);
+});
