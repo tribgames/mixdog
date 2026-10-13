@@ -78,7 +78,8 @@ export function createMcpServerCatalog({
     const { servers, sources, entries } = resolveCatalog();
     const effective = servers[serverName];
     if (!effective) throw new Error(`MCP server not configured: ${serverName}`);
-    const owner = entries[serverName]?.owner || null;
+    // An unadopted plugin copy has an owner but stays the user's editable config.
+    const owner = sources[serverName] === 'plugin' ? entries[serverName]?.owner || null : null;
     if (owner) {
       return {
         name: serverName,

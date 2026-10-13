@@ -9,7 +9,7 @@ import { createResourceApi } from './resource-api.mjs';
 import { createPluginStatus } from './cwd-plugins/plugin-status.mjs';
 import { createSetupToolExecutor } from './setup-tool/executor.mjs';
 import { addPlugin, listRegisteredPlugins, pluginAdminStatus } from './services/plugin-admin.mjs';
-import { PLUGIN_MCP_NAME_MAX, pluginMcpServerBaseName } from './mcp-glue/plugin-servers.mjs';
+import { PLUGIN_MCP_NAME_MAX, pluginMcpServerBaseName, resolveMcpServerCatalog } from './mcp-glue/plugin-servers.mjs';
 import { countSkillFiles, pluginManifest } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 import { applyConfigPatch, diffConfig } from '../runtime/shared/config-patch.mjs';
 import * as realMcpClient from '../runtime/agent/orchestrator/mcp/client.mjs';
@@ -532,6 +532,33 @@ test('migration keeps a tokenized url as an applied override and leaves copies i
   assert.equal(cli.source, 'config');
   assert.match(cli.warnings[0], /"cwd" differ from the plugin declaration/);
   assert.deepEqual(one.live('plugin-tok--cli').args.at(-1), '--fast');
+});
+
+test('an unadoptable plugin copy keeps its transport and the plugin lifecycle (disable, project scope)', (t) => {
+  const shared = workspace(t);
+  const root = shared.plugin('own', { '.mcp.json': { cli: { command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/cli.mjs'] } } });
+  addPlugin(root, { dataDir: shared.dataDir });
+  const [registered] = listRegisteredPlugins({ dataDir: shared.dataDir });
+  const custom = shared.dir('custom');
+  const config = {
+    mcpServers: {
+      'plugin-own': {
+        command: 'node',
+        args: [`${root}/cli.mjs`],
+        cwd: custom,
+        env: { MIXDOG_PLUGIN_ROOT: root },
+      },
+    },
+  };
+  const on = resolveMcpServerCatalog({ config, plugins: [{ ...registered, enabled: true }] });
+  assert.equal(on.servers['plugin-own'].cwd, custom, 'the customized transport is honored');
+  assert.equal(on.servers['plugin-own'].enabled, true);
+  assert.equal(on.servers['plugin-own']._mixdogPlugin.id, registered.id, 'tools carry the plugin id for scoping');
+  assert.equal(on.entries['plugin-own'].owner.id, registered.id);
+  assert.equal(on.sources['plugin-own'], 'config');
+  const off = resolveMcpServerCatalog({ config, plugins: [{ ...registered, enabled: false }] });
+  assert.equal(off.servers['plugin-own'].enabled, false);
+  assert.equal(off.entries['plugin-own'].pluginEnabled, false);
 });
 
 test('user server CRUD reconciles plugin servers that move names; a collision name sticks', async (t) => {

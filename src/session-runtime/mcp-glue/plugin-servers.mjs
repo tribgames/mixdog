@@ -173,6 +173,9 @@ function planCopyAdoption(userServers, intents, declared) {
   const next = structuredClone(intents);
   const removed = [];
   const warnings = [];
+  // Copies of a registered plugin that cannot be adopted: left as configured
+  // (their own transport is honored) but still bound to the plugin's lifecycle.
+  const owned = new Map();
   for (const [name, copy] of Object.entries(userServers)) {
     const marker = isPlainObject(copy) && isPlainObject(copy.env) ? clean(copy.env.MIXDOG_PLUGIN_ROOT) : '';
     if (!marker) continue;
@@ -184,6 +187,7 @@ function planCopyAdoption(userServers, intents, declared) {
       continue;
     }
     const { key, reason } = copyKey(name, copy, owner.plugin, owner);
+    owned.set(name, { d: owner, key: key || name });
     if (!key) {
       leave(reason);
       continue;
@@ -212,8 +216,9 @@ function planCopyAdoption(userServers, intents, declared) {
       },
     };
     removed.push(name);
+    owned.delete(name);
   }
-  return { removed, intents: next, warnings };
+  return { removed, intents: next, warnings, owned };
 }
 
 function declarationsOf(plugins) {
@@ -351,9 +356,34 @@ export function resolveMcpServerCatalog({ config, plugins = [], cwd = '', dataDi
   const warnings = [...adoption.warnings];
   for (const [name, cfg] of Object.entries(configured)) {
     if (removed.has(name)) continue;
-    servers[name] = { ...cfg, ...(cfg?._mixdogPluginDisabled === true ? { enabled: false } : {}) };
+    const ownedBy = adoption.owned.get(name);
+    const entryWarnings = adoption.warnings.filter((w) => w.name === name).map((w) => w.message);
     sources[name] = 'config';
-    entries[name] = { owner: null, warnings: adoption.warnings.filter((w) => w.name === name).map((w) => w.message) };
+    if (!ownedBy) {
+      servers[name] = { ...cfg, ...(cfg?._mixdogPluginDisabled === true ? { enabled: false } : {}) };
+      entries[name] = { owner: null, warnings: entryWarnings };
+      continue;
+    }
+    const { plugin, format } = ownedBy.d;
+    const pluginEnabled = plugin.enabled !== false;
+    const serverEnabled = !(cfg.enabled === false || (cfg._mixdogPluginDisabled === true && pluginEnabled));
+    const marker = {
+      id: plugin.id,
+      key: ownedBy.key,
+      format,
+      root: clean(plugin.root),
+      source: 'config',
+      data: '',
+      cwdDependent: false,
+    };
+    servers[name] = { ...cfg, enabled: pluginEnabled && serverEnabled, _mixdogPlugin: marker };
+    entries[name] = {
+      owner: { kind: 'plugin', ...marker, name: clean(plugin.name) || plugin.id },
+      pluginEnabled,
+      serverEnabled,
+      declaredEnabled: true,
+      warnings: entryWarnings,
+    };
   }
   const {
     slots,
