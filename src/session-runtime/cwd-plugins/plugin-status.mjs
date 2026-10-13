@@ -58,7 +58,12 @@ export function createPluginStatus({
   function registeredPlugin(entry, mcpByPlugin) {
     const root = clean(entry.root);
     if (!root) return null;
-    if (!existsSync(root)) return { missing: true, id: clean(entry.id) || clean(entry.name) || root, name: clean(entry.name) || clean(entry.id) || root.split(/[\\/]/).pop() || root };
+    if (!existsSync(root))
+      return {
+        missing: true,
+        id: clean(entry.id) || clean(entry.name) || root,
+        name: clean(entry.name) || clean(entry.id) || root.split(/[\\/]/).pop() || root,
+      };
     const { manifest, invalid } = cachedPluginData(root);
     const name = clean(manifest.name) || clean(manifest.id) || clean(entry.name) || root.split(/[\\/]/).pop() || root;
     const { mcpScript, mcpInline } = discoverPluginMcp(root);

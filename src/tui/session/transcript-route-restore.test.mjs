@@ -89,11 +89,17 @@ test('restored user rows carry imageRefs keyed by the line that draws each image
           { type: 'image', mimeType: 'image/png', attachmentRef: other },
         ],
       },
-      { role: 'user', content: [{ type: 'text', text: 'b' }, { type: 'image', data: 'x' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'b' },
+          { type: 'image', data: 'x' },
+        ],
+      },
       { role: 'user', content: [{ type: 'text', text: 'c' }] },
       { role: 'user', content: 'd' },
     ],
-    { sessionId: 'image-refs' },
+    { sessionId: 'image-refs' }
   );
   assert.deepEqual(withRef.imageRefs, [
     { line: meta, ref },

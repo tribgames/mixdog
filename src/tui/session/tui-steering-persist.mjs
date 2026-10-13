@@ -22,9 +22,11 @@ function _serialize(key, task) {
   const prev = _persistChains.get(key) || Promise.resolve();
   const run = prev.then(task, task);
   // Never let a rejection poison the chain; each op logs its own error.
-  const tail = run.catch(() => {}).then(() => {
-    if (_persistChains.get(key) === tail) _persistChains.delete(key);
-  });
+  const tail = run
+    .catch(() => {})
+    .then(() => {
+      if (_persistChains.get(key) === tail) _persistChains.delete(key);
+    });
   _persistChains.set(key, tail);
   return run;
 }

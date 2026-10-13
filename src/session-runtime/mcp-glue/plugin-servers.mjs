@@ -116,7 +116,8 @@ function copyOverrides(copy, declared, root) {
     }
     if (field === 'cwd') {
       const declaredCwd = typeof form.cwd === 'string' && form.cwd ? form.cwd : '';
-      const generated = declaredCwd ? (isAbsolute(declaredCwd) ? declaredCwd : join(root, declaredCwd)) : root;
+      let generated = root;
+      if (declaredCwd) generated = isAbsolute(declaredCwd) ? declaredCwd : join(root, declaredCwd);
       if (copy.cwd !== undefined && comparablePath(copy.cwd) !== comparablePath(generated)) kept.push(field);
       continue;
     }

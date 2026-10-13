@@ -9,12 +9,15 @@ import test from 'node:test';
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-tui-steering-chain-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 
-const { appendTuiSteeringPersist, drainTuiSteeringPersist, dropTuiSteeringPersist, flushTuiSteeringPersist, _steeringPersistChainCount } =
-  await import('./tui-steering-persist.mjs');
+const {
+  appendTuiSteeringPersist,
+  drainTuiSteeringPersist,
+  dropTuiSteeringPersist,
+  flushTuiSteeringPersist,
+  _steeringPersistChainCount,
+} = await import('./tui-steering-persist.mjs');
 const { withFileLock } = await import('../../runtime/shared/atomic-file.mjs');
-const { pendingMessagesPath } = await import(
-  '../../runtime/agent/orchestrator/session/manager/pending-spool-path.mjs'
-);
+const { pendingMessagesPath } = await import('../../runtime/agent/orchestrator/session/manager/pending-spool-path.mjs');
 
 test.after(() => {
   try {

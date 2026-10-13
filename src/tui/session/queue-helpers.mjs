@@ -205,6 +205,8 @@ export function callCommitCallbacks(entries) {
   for (const entry of entries || []) {
     try {
       entry?.onCommitted?.();
-    } catch {}
+    } catch {
+      // A throwing commit callback must not block the remaining entries.
+    }
   }
 }

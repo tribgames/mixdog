@@ -421,6 +421,12 @@ function customProviderRow(id, entry, checkSecrets = true) {
   const keyless = (config?.auth ?? entry.auth) === 'none';
   const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(id)) : false;
   const unstoredStatus = configuredEnabled ? 'No Key' : 'Off';
+  let status = stored ? 'Set' : unstoredStatus;
+  let detail = stored ? 'stored in keychain' : 'custom endpoint';
+  if (keyless) {
+    status = configuredEnabled ? 'Keyless' : 'Off';
+    detail = 'no API key required';
+  }
   const row = {
     id,
     name: entry.name,
@@ -431,12 +437,12 @@ function customProviderRow(id, entry, checkSecrets = true) {
     group: 'api',
     type: 'api-key',
     enabled: configuredEnabled,
-    authenticated: keyless ? true : checkSecrets ? stored : configuredEnabled,
+    authenticated: keyless || (checkSecrets ? stored : configuredEnabled),
     stored,
     env: false,
     envName: null,
-    status: keyless ? (configuredEnabled ? 'Keyless' : 'Off') : stored ? 'Set' : unstoredStatus,
-    detail: keyless ? 'no API key required' : stored ? 'stored in keychain' : 'custom endpoint',
+    status,
+    detail,
   };
   row.schemaVersion = config?.schemaVersion ?? entry.schemaVersion;
   row.auth = keyless ? 'none' : 'key';
@@ -867,7 +873,8 @@ async function resolveCustomInput(cfgMod, rawInput, options) {
   const config = normalizeCustomProviderConfig(input, options);
   const typed = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
   const keyless = config.auth === 'none';
-  const apiKey = keyless ? '' : typed || (id ? getAgentApiKey(id) || '' : '');
+  let apiKey = '';
+  if (!keyless) apiKey = typed || (id ? getAgentApiKey(id) || '' : '');
   return { id, config, typed: keyless ? '' : typed, apiKey, keyless };
 }
 

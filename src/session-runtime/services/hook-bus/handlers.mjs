@@ -243,7 +243,9 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
         onTimeout: () => {
           try {
             controller.abort(new Error(`mcp_tool hook timed out: ${name}`));
-          } catch {}
+          } catch {
+            // Abort is best-effort; the timeout error below is what callers see.
+          }
           return new Error(`mcp_tool hook timed out: ${name}`);
         },
       }

@@ -107,7 +107,9 @@ function activeTurnControls(rt) {
         aborted = true;
         try {
           controller.abort(reason);
-        } catch {}
+        } catch {
+          // Best-effort: one throwing abort listener must not stop the others.
+        }
       }
       return aborted;
     },

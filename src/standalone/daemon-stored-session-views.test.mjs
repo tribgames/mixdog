@@ -10,12 +10,18 @@ import { createSessionActionCalls } from './session-service/session-calls/sessio
 function views() {
   const calls = [];
   const store = {
-    listStoredSessionSummaries: (options) => (calls.push(['sync', options]), [{ id: 'sync' }]),
-    listStoredSessionSummariesAsync: async (options) => (calls.push(['async', options]), [{ id: 'async' }]),
-    listStoredSessionSummaryPage: async (options) => (
-      calls.push(['page', options]),
-      { sessions: [{ id: 'page' }], nextCursor: 'next' }
-    ),
+    listStoredSessionSummaries: (options) => {
+      calls.push(['sync', options]);
+      return [{ id: 'sync' }];
+    },
+    listStoredSessionSummariesAsync: async (options) => {
+      calls.push(['async', options]);
+      return [{ id: 'async' }];
+    },
+    listStoredSessionSummaryPage: async (options) => {
+      calls.push(['page', options]);
+      return { sessions: [{ id: 'page' }], nextCursor: 'next' };
+    },
   };
   return { calls, views: createStoredSessionViews({ desktopRuntime: { loadSessionStore: async () => store } }) };
 }

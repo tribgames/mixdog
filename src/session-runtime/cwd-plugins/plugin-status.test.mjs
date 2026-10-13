@@ -52,7 +52,10 @@ test('a codex manifest skills list counts every listed root', async () => {
   const root = join(mkdtempSync(join(tmpdir(), 'plugin-status-codex-')), 'codex');
   mkdirSync(join(root, '.codex-plugin'), { recursive: true });
   writeFileSync(join(root, '.codex-plugin', 'plugin.json'), '{"name":"codex","skills":["./a","./b",""]}');
-  for (const [dir, name] of [['a', 'first'], ['b', 'second']]) {
+  for (const [dir, name] of [
+    ['a', 'first'],
+    ['b', 'second'],
+  ]) {
     mkdirSync(join(root, dir, name), { recursive: true });
     writeFileSync(join(root, dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: x\n---\n`);
   }

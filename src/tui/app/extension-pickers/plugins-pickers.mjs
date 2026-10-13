@@ -5,8 +5,10 @@ import { readStatus, withScope } from './scope-note.mjs';
 
 // A plugin's MCP servers are derived from its declarations (`mcpServers` on
 // the status row); older hosts only report `mcpScript`/`mcpServerName`.
-const mcpNames = (p) =>
-  Array.isArray(p.mcpServers) ? p.mcpServers.map((server) => server.name) : p.mcpServerName ? [p.mcpServerName] : [];
+function mcpNames(p) {
+  if (Array.isArray(p.mcpServers)) return p.mcpServers.map((server) => server.name);
+  return p.mcpServerName ? [p.mcpServerName] : [];
+}
 const hasMcp = (p) => mcpNames(p).length > 0 || Boolean(p.mcpScript || p.mcpInline);
 
 function serverState(server) {
@@ -43,7 +45,8 @@ function mcpActionItem(p) {
 
 function pluginSummary(plugin) {
   const version = plugin.version ? ` · ${plugin.version}` : '';
-  const mcp = hasMcp(plugin) ? ` · mcp ${mcpNames(plugin).length || 1}${plugin.mcpEnabled ? '' : ' off'}` : '';
+  const mcpOff = plugin.mcpEnabled ? '' : ' off';
+  const mcp = hasMcp(plugin) ? ` · mcp ${mcpNames(plugin).length || 1}${mcpOff}` : '';
   const warning = plugin.warning ? ` · ⚠ ${plugin.warning}` : '';
   return `${plugin.sourceType || plugin.source}${version} · skills ${plugin.skillCount || 0}${mcp}${warning}`;
 }

@@ -11,7 +11,7 @@ test('image meta carries attachmentRef only for reference parts', () => {
       { type: 'image', data: 'abc', mimeType: 'image/png' },
       { type: 'image', attachmentRef: 'bad', data: 'x' },
     ],
-    null,
+    null
   );
   assert.equal(meta[0].attachmentRef, ref);
   assert.equal(meta[0].bytes, 5);

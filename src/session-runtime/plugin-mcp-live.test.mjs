@@ -536,7 +536,9 @@ test('migration keeps a tokenized url as an applied override and leaves copies i
 
 test('an unadoptable plugin copy keeps its transport and the plugin lifecycle (disable, project scope)', (t) => {
   const shared = workspace(t);
-  const root = shared.plugin('own', { '.mcp.json': { cli: { command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/cli.mjs'] } } });
+  const root = shared.plugin('own', {
+    '.mcp.json': { cli: { command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/cli.mjs'] } },
+  });
   addPlugin(root, { dataDir: shared.dataDir });
   const [registered] = listRegisteredPlugins({ dataDir: shared.dataDir });
   const custom = shared.dir('custom');

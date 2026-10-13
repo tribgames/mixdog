@@ -111,9 +111,10 @@ export function createSessionActionCalls(ctx) {
     const page = listed && !Array.isArray(listed) && Array.isArray(listed.sessions) ? listed : null;
     const sessions = page ? page.sessions : listed;
     const remoteSession = typeof getRemoteSessionState === 'function' ? await getRemoteSessionState() : null;
+    const nextCursor = typeof page?.nextCursor === 'string' ? page.nextCursor : null;
     return {
       sessions: sanitizeForWire(Array.isArray(sessions) ? sessions : []),
-      ...(page ? { nextCursor: typeof page.nextCursor === 'string' ? page.nextCursor : null } : {}),
+      ...(page ? { nextCursor } : {}),
       remoteSession: sanitizeForWire(remoteSession) ?? null,
     };
   }

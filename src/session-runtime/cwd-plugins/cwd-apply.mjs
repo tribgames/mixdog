@@ -86,7 +86,9 @@ export function createCwdApply({
     if (changed) {
       try {
         void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd }));
-      } catch {}
+      } catch {
+        // Hook dispatch is fire-and-forget; a synchronous throw must not block the cwd switch.
+      }
       onCwdChanged?.(currentCwd);
     }
     return currentCwd;
