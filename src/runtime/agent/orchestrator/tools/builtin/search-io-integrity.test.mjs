@@ -90,6 +90,36 @@ test('raw source windows preserve cross-chunk UTF-8, CRLF and final unterminated
   );
 });
 
+test('adaptive source windows preserve split UTF-8 and CRLF across separated intervals', async () => {
+  const file = join(root, 'adaptive-boundary.txt');
+  // Seeking reads 64 KiB, then 128 KiB: split a codepoint at that seam.
+  const prefix = `${'x'.repeat(192 * 1024 - 2)}\n`;
+  const gap = 'skip\n'.repeat(300000);
+  await fs.writeFile(file, `${prefix}한글\r\n${gap}last`);
+  const result = await readSourceWindows(file, [{ start: 2, end: 2 }, { start: 300003, end: 300003 }]);
+  assert.deepEqual([...result], [[2, '한글'], [300003, 'last']]);
+});
+
+test('nearby source windows keep a single 64 KiB read on a large file', async (t) => {
+  const file = join(root, 'nearby-window.txt');
+  await fs.writeFile(file, 'line\n'.repeat(100000));
+  const open = fs.open;
+  const reads = [];
+  mockFs(t, 'open', async (...args) => {
+    const handle = await open(...args);
+    if (args[0] === file) {
+      const read = handle.read.bind(handle);
+      handle.read = async (...a) => {
+        reads.push(a[2]);
+        return read(...a);
+      };
+    }
+    return handle;
+  });
+  assert.deepEqual([...(await readSourceWindows(file, [{ start: 2, end: 3 }]))], [[2, 'line'], [3, 'line']]);
+  assert.deepEqual(reads, [65536]);
+});
+
 test('deep raw windows rescan large files and detect same-version suffix newline changes', async (t) => {
   const file = join(root, 'deep.txt');
   const rows = Array.from({ length: 30000 }, (_, i) => `row${i} ${'x'.repeat(240)}`);
@@ -127,7 +157,7 @@ test('deep raw windows rescan large files and detect same-version suffix newline
   });
   const repeated = await readSourceWindows(file, [{ start: 29980, end: 29981 }]);
   assert.equal(repeated.get(29980), rows[29979]);
-  // This near-EOF window needs the final 64KiB chunk: fresh coordinate
+  // This near-EOF window needs the final chunk: fresh coordinate
   // validation scans the file once rather than trusting a cached deep anchor.
   assert.equal(bytes, st.size);
   const newline = original.indexOf('\n', 65536);
