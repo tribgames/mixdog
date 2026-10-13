@@ -1,4 +1,4 @@
-import { normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
+import { anthropicEffortLevelsFor, normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
 import { CUSTOM_EFFORT_LEVELS, customEffortLevels, isCustomProviderName } from './custom-reasoning.mjs';
 import { codexModelSupportsEffortUpdates } from './openai-oauth-catalog.mjs';
 
@@ -147,8 +147,15 @@ export function customAutoEffortCapable(provider, protocol, model) {
 }
 
 /** The model auto effort reads its effort options from: a custom provider's
- *  effective row (its declared levels), the bare id for every other route. */
+ *  effective row (its declared levels); an Anthropic route's id with the
+ *  levels the wire builder accepts (provider rows ignored); the bare id for every other route. */
 export function autoEffortModel(providerName, providerImpl, model) {
+  if (ANTHROPIC_PROVIDERS.has(providerName)) {
+    // The wire builder ignores provider rows on first-party routes, so the
+    // ladder is exactly what it accepts. `customReasoning` keeps an empty
+    // list from falling back to a family ladder.
+    return { id: model, reasoningLevels: anthropicEffortLevelsFor(model), customReasoning: true };
+  }
   if (!isCustomProviderName(providerName)) return { id: model };
   return { ...(providerImpl?.getCachedModelInfo?.(model) || {}), id: model };
 }

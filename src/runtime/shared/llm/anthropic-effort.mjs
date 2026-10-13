@@ -96,6 +96,20 @@ function _catalogLevels(model) {
   return null;
 }
 
+/**
+ * Effort levels the wire builder sends unchanged for `model` (reserved `max`
+ * excluded), from the same capability gates normalizeAnthropicEffortInput and
+ * applyAnthropicEffortToBody use: catalog record first, regex ladder for an
+ * absent record. A model without effort support, or whose catalog record
+ * declares none, accepts none.
+ */
+export function anthropicEffortLevelsFor(model) {
+  if (!modelSupportsEffort(model)) return [];
+  const levels = ['low', 'medium', 'high'];
+  if (modelSupportsXhighEffort(model)) levels.push('xhigh');
+  return levels;
+}
+
 export const EFFORT_BETA_HEADER = 'effort-2025-11-24';
 
 export const LEGACY_EFFORT_BUDGET = Object.freeze({

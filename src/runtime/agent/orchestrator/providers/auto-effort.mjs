@@ -89,6 +89,15 @@ export function resolveAutoEffort({ base, options, probs }) {
   const ladder = autoEffortLadder(options);
   const at = ladder.indexOf(String(base ?? '').toLowerCase());
   if (at < 0) return null;
+  return resolveOnLadder(ladder, at, probs);
+}
+
+/** True when some judged outcome could apply: the base lies on the model's ladder. */
+export function autoEffortApplicable({ base, options }) {
+  return autoEffortLadder(options).includes(String(base ?? '').toLowerCase());
+}
+
+function resolveOnLadder(ladder, at, probs) {
   const { step, level, confidence } = judgedStep(probs);
   const effort = ladder[Math.max(0, Math.min(ladder.length - 1, at + step))];
   return { base: ladder[at], effort, step, level, confidence: Number(confidence.toFixed(3)) };
