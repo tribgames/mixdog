@@ -4,6 +4,7 @@
 // the starter guide's welcome is open above it.
 import { type ComponentType, useCallback, useEffect, useRef, useState } from 'react';
 
+import { isMobileDeviceSurface } from '../mobile-surface';
 import { useStarterGuideBlocking } from '../starter-guide-gate';
 import type { ChangelogRelease } from './changelog';
 import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } from './whats-new';
@@ -22,6 +23,8 @@ const loadWhatsNewDialog = (): Promise<WhatsNewDialogModule> => import('./whats-
 const updatePending = () => window.mixdogDesktop?.bootContext?.afterUpdate === true;
 
 function readWhatsNewStatus(version: string): WhatsNewStatus {
+  // Phones and tablets never announce: the notes describe the PC app.
+  if (isMobileDeviceSurface()) return 'mobile-device';
   try {
     return peekWhatsNew(window.localStorage, version, updatePending());
   } catch {

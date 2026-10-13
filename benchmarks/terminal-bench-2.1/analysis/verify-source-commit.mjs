@@ -28,6 +28,7 @@ import {
 import { platform, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { historyRunDir } from './run-dir.mjs';
 
 const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const BENCH_ROOT = resolve(HERE, '..');
@@ -41,12 +42,12 @@ function optionValue(name) {
   return index >= 0 && process.argv[index + 1] ? String(process.argv[index + 1]) : '';
 }
 
-// The archived digests are the run's own record; raw-runs/ is the committed
-// copy and the local jobs directory is the original.
+// The archived digests are the run's own record; the exported copy under
+// <harness>/<model>/<date>/ is the committed one (found through index.json) and the local jobs directory is the original.
 function recordedContract(jobsDir) {
+  const archived = historyRunDir(jobsDir, BENCH_ROOT);
   const candidates = [
-    join(BENCH_ROOT, 'raw-runs', jobsDir, 'preset-run.json'),
-    join(BENCH_ROOT, 'raw-runs', jobsDir, 'report.json'),
+    ...(archived ? [join(archived, 'preset-run.json'), join(archived, 'report.json')] : []),
     join(BENCH_ROOT, jobsDir, 'preset-run.json'),
     join(BENCH_ROOT, jobsDir, 'report.json'),
   ];

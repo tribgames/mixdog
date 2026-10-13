@@ -6,6 +6,8 @@ import { useErrorToast } from './notifications';
 import { commitImmediateOverlay } from './immediate-overlay';
 import type { DesktopGitFile, DesktopGitLogEntry, DesktopGitStatus } from '../shared/contract';
 import { t } from './i18n';
+import { isSshConnectionWindow } from './desktop-connection';
+import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import type { PullRequestOpenHandler } from './PullRequestsPane';
 import { GithubDock as PullRequestsPane } from './github/GithubDock';
 import {
@@ -95,6 +97,7 @@ export function SourceControlDock({
   onOpenPullRequest,
   projectSelect,
   surface = 'changes',
+  onOpenSession,
 }: {
   projectPath: string;
   status: DesktopGitStatus | null;
@@ -113,6 +116,8 @@ export function SourceControlDock({
   projectSelect?: React.ReactNode;
   /** `changes` is the Git panel; `prs` is the separate pull-request panel. */
   surface?: 'changes' | 'prs';
+  /** Opens the Mixdog session whose worktree holds a branch. */
+  onOpenSession?(sessionId: string): void;
 }) {
   const api = window.mixdogDesktop;
   const prOnly = surface === 'prs';
@@ -267,6 +272,7 @@ export function SourceControlDock({
     branchQuery: branches.query,
     closePicker: branches.closePicker,
     exitMergeMode: () => branches.setMergeMode(false),
+    currentBranch: status?.branch ?? '',
   });
   const { stashChanges, popStash } = stashActions(ctx);
   const historyBusyReason = repositoryBusyReason(busy, status);
@@ -317,10 +323,11 @@ export function SourceControlDock({
           void copyText(ctx, file.path, t('relative file path'));
         },
         onReveal: () => {
-          void api?.revealFile?.(projectPath, file.path);
+          void revealFileFromWindow(projectPath, file.path);
         },
         onOpenDefault: () => {
-          void api?.openFilePath?.(projectPath, file.path);
+          if (isSshConnectionWindow()) void downloadAndOpenServerFile(projectPath, file.path);
+          else void api?.openFilePath?.(projectPath, file.path);
         },
       });
     return (
@@ -435,13 +442,17 @@ export function SourceControlDock({
             defaultBranch={branches.defaultBranch}
             otherBranches={branches.otherBranches}
             mergeMode={branches.mergeMode}
+            occupancy={branches.occupancy}
+            onOpenSession={onOpenSession}
             capabilities={{
               list: Boolean(api?.gitBranches),
-              create: Boolean(api?.gitCreateBranch),
-              checkout: Boolean(api?.gitCheckoutBranch),
+              // Checkout, create and merge all go through the runtime's guarded
+              // project capabilities (selectProjectBranch / mergeProjectBranch).
+              create: Boolean(api?.invokeCapability),
+              checkout: Boolean(api?.invokeCapability),
               rename: Boolean(api?.gitRenameBranch),
               delete: Boolean(api?.gitDeleteBranch),
-              merge: Boolean(api?.gitMergeBranch),
+              merge: Boolean(api?.invokeCapability),
             }}
             rootRef={branches.rootRef}
             triggerRef={branches.triggerRef}

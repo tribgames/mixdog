@@ -1,0 +1,457 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import { createModelProxyHost, createModelProxyRuntime } from './model-proxy-host.ts';
+import {
+  MODEL_PROXY_REQUEST_EVENT,
+  ModelProxyChannel,
+} from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
+import {
+  ModelProxyProvider,
+  _resetModelProxyProviderConfigForTest,
+  loadModelProxyProviderConfig,
+} from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-provider.mjs';
+
+/** Daemon channel <-> PC host over a JSON hop, as the session connection does. */
+function connect(t, runtime, { intercept = null, channel = new ModelProxyChannel(), ...hostOptions } = {}) {
+  const operations = [];
+  const host = createModelProxyHost({
+    invoke: async (operation, args) => {
+      operations.push(operation);
+      await intercept?.(operation);
+      const wireArgs = JSON.parse(JSON.stringify(args));
+      return JSON.parse(JSON.stringify((await channel.handleOperation(operation, wireArgs)) ?? null));
+    },
+    loadRuntime: async () => runtime,
+    ...hostOptions,
+  });
+  const detach = channel.attachPublisher((snapshot) => {
+    const value = JSON.parse(JSON.stringify(snapshot));
+    setImmediate(() => host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, value));
+  });
+  t.after(() => {
+    detach();
+    host.dispose();
+  });
+  return { channel, host, operations };
+}
+
+function fakeRuntime(providers, extra = {}) {
+  return {
+    provider: async (name) => providers[name],
+    providerConfig: async () => ({ providers: {}, ready: true }),
+    finalizeTools: (tools) => tools,
+    ...extra,
+  };
+}
+
+test('the PC runs the call with its own provider and streams every callback back in order', async (t) => {
+  const calls = [];
+  const provider = {
+    async send(messages, model, tools, options) {
+      calls.push({ messages, model, tools, options: Object.keys(options).sort() });
+      options.onStageChange('streaming');
+      options.onTextDelta('Hel');
+      options.onTextDelta('lo');
+      const acked = await options.onTextReset({ chars: 5 });
+      options.onTextDelta(acked === true ? 'again' : 'unacked');
+      return { content: 'Hello again', usage: { inputTokens: 7, outputTokens: 2 } };
+    },
+  };
+  const { channel, host } = connect(t, fakeRuntime({ 'anthropic-oauth': provider }));
+  const seen = [];
+  const result = await new ModelProxyProvider('anthropic-oauth', {}, channel).send(
+    [{ role: 'user', content: 'hi' }],
+    'claude-test',
+    [{ name: 'read', input_schema: {} }],
+    {
+      sessionId: 'pc-session',
+      onStageChange: (stage) => {
+        seen.push(['stage', stage]);
+      },
+      onTextDelta: (text) => {
+        seen.push(['text', text]);
+      },
+      onTextReset: async ({ chars }) => {
+        seen.push(['reset', chars]);
+        return true;
+      },
+    }
+  );
+  assert.deepEqual(result, { content: 'Hello again', usage: { inputTokens: 7, outputTokens: 2 } });
+  assert.deepEqual(seen, [
+    ['stage', 'streaming'],
+    ['text', 'Hel'],
+    ['text', 'lo'],
+    ['reset', 5],
+    ['text', 'again'],
+  ]);
+  assert.deepEqual(calls, [
+    {
+      messages: [{ role: 'user', content: 'hi' }],
+      model: 'claude-test',
+      tools: [{ name: 'read', input_schema: {} }],
+      options: ['onStageChange', 'onTextDelta', 'onTextReset', 'sessionId', 'signal'],
+    },
+  ]);
+  // The daemon settles on the PC's resolve; the PC retires the call right after.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(host.running, 0);
+});
+
+test('the PC serves only the named provider and the allowed methods', async (t) => {
+  const listed = [];
+  const provider = {
+    send: async () => ({ content: 'x' }),
+    listModels: async () => {
+      listed.push('list');
+      return [{ id: 'model-a' }, { id: 'model-b' }];
+    },
+    getCachedModelInfo: (id) => (id === 'model-a' ? { contextWindow: 1000 } : null),
+  };
+  const { channel } = connect(
+    t,
+    fakeRuntime(
+      { openai: provider },
+      { providerConfig: async () => ({ providers: { openai: { enabled: true, modelProxy: {} } } }) }
+    )
+  );
+  await assert.rejects(new ModelProxyProvider('gemini', {}, channel).send([], 'g', undefined, {}), {
+    code: 'MODEL_PROXY_PROVIDER_UNAVAILABLE',
+    message: /"gemini" is not enabled on this PC/,
+  });
+  await assert.rejects(channel.request({ provider: 'openai', method: 'forgetCredentials' }), /not allowed/);
+  const proxied = new ModelProxyProvider('openai', {}, channel);
+  assert.deepEqual(await proxied.listModels(), [{ id: 'model-a' }, { id: 'model-b' }]);
+  assert.deepEqual(proxied.getCachedModelInfo('model-a'), { contextWindow: 1000 });
+  assert.equal(proxied.getCachedModelInfo('model-b'), null);
+  assert.deepEqual(await channel.request({ provider: '', method: 'providerConfig' }), {
+    providers: { openai: { enabled: true, modelProxy: {} } },
+    ready: true,
+  });
+});
+
+test('a daemon-side abort aborts the PC provider call', async (t) => {
+  const started = Promise.withResolvers();
+  const stopped = Promise.withResolvers();
+  const provider = {
+    send(_messages, _model, _tools, options) {
+      started.resolve();
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          stopped.resolve(options.signal.reason);
+          reject(options.signal.reason);
+        });
+      });
+    },
+  };
+  const { channel, host, operations } = connect(t, fakeRuntime({ openai: provider }), { heartbeatMs: 20 });
+  const controller = new AbortController();
+  const sending = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {
+    signal: controller.signal,
+  });
+  await started.promise;
+  assert.equal(host.running, 1);
+  controller.abort(new Error('user stop'));
+  await assert.rejects(sending, /user stop/);
+  const reason = await stopped.promise;
+  assert.equal(reason.name, 'AbortError');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(host.running, 0);
+  // The PC acknowledged, so the daemon holds nothing for the call.
+  assert.deepEqual(channel.snapshot(), { requests: [], cancelled: [] });
+  assert.ok(operations.includes('modelProxyResolve'));
+});
+
+/** Await a promise driven by the host's own timers. Those are unref'd (they
+ *  must never keep the app alive), so the test holds the event loop open
+ *  itself, and fails instead of hanging after `limitMs`. */
+async function settledWhileAlive(promise, limitMs = 2_000) {
+  let timer;
+  const limit = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`still pending after ${limitMs}ms`)), limitMs);
+  });
+  try {
+    return await Promise.race([promise, limit]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A PC provider call that only ends when its signal aborts. */
+function hangingProvider() {
+  const started = Promise.withResolvers();
+  const stopped = Promise.withResolvers();
+  return {
+    started: started.promise,
+    stopped: stopped.promise,
+    send(_messages, _model, _tools, options) {
+      started.resolve();
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          stopped.resolve(options.signal.reason);
+          reject(options.signal.reason);
+        });
+      });
+    },
+  };
+}
+
+test('a daemon silent past its lease makes the PC abandon every active call', async (t) => {
+  const provider = hangingProvider();
+  let now = 1_000;
+  let daemonSilent = false;
+  const { channel, host } = connect(t, fakeRuntime({ openai: provider }), {
+    heartbeatMs: 5,
+    leaseMs: 100,
+    now: () => now,
+    intercept: async (operation) => {
+      if (daemonSilent && operation === 'modelProxyHeartbeat') throw new Error('connection lost');
+    },
+  });
+  const daemonCall = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {});
+  await provider.started;
+  assert.equal(host.running, 1);
+  daemonSilent = true;
+  // Failed heartbeats inside the lease keep the call running.
+  now += 50;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(host.running, 1);
+  // Past the lease: aborted and dropped locally.
+  now += 100;
+  const reason = await settledWhileAlive(provider.stopped);
+  assert.equal(reason.code, 'MODEL_PROXY_UNAVAILABLE');
+  assert.equal(host.running, 0);
+  // Its settle still reached this (live) test daemon, so nothing is left over.
+  await assert.rejects(settledWhileAlive(daemonCall), /stopped answering/);
+});
+
+test('disposing the host aborts and drops every active call', async (t) => {
+  const provider = hangingProvider();
+  const { channel, host } = connect(t, fakeRuntime({ openai: provider }));
+  const daemonCall = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {});
+  await provider.started;
+  assert.equal(host.running, 1);
+  host.dispose();
+  assert.equal(host.running, 0);
+  const reason = await settledWhileAlive(provider.stopped);
+  assert.equal(reason.name, 'AbortError');
+  await assert.rejects(settledWhileAlive(daemonCall), /desktop app is closing/);
+});
+
+/** The PC's registry modules: empty until initProviders, keys read on demand. */
+function pcModules(available, keys = {}) {
+  const live = new Map();
+  const keyReads = [];
+  const inits = [];
+  return {
+    keyReads,
+    inits,
+    live,
+    loadConfig: (options) => {
+      assert.deepEqual(options, { secrets: 'presence' });
+      return { providers: structuredClone(available) };
+    },
+    initProviders: async (config) => {
+      inits.push(structuredClone(config));
+      live.clear();
+      const enabled = Object.entries(config).filter(([, entry]) => entry.enabled === true);
+      if (!enabled.length) throw Object.assign(new Error('all providers disabled in config'), { code: 'PROVIDERS_NONE_ENABLED' });
+      for (const [name, entry] of enabled) {
+        live.set(name, { send: async () => ({ content: `${name}:${entry.apiKey ?? 'no-key'}` }) });
+      }
+    },
+    getProvider: (name) => live.get(name),
+    getAllProviders: () => live,
+    readApiKey: async (name) => {
+      keyReads.push(name);
+      return keys[name] ?? null;
+    },
+    finalizeProviderRequestTools: (tools) => tools,
+  };
+}
+
+test('cold start: the daemon waits for a PC that connects late and loads its registry on demand', async (t) => {
+  _resetModelProxyProviderConfigForTest();
+  t.after(() => _resetModelProxyProviderConfigForTest());
+  const modules = pcModules({ openai: { enabled: true }, gemini: { enabled: false } });
+  const channel = new ModelProxyChannel();
+  // The daemon asks before any client is connected and the PC registry is empty.
+  const loading = loadModelProxyProviderConfig({ channel, waitMs: 2_000 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(modules.live.size, 0);
+  connect(t, createModelProxyRuntime(modules), { channel });
+  const config = await settledWhileAlive(loading);
+  assert.deepEqual(config, {
+    openai: { enabled: true, modelProxy: {} },
+    gemini: { enabled: false, modelProxy: {} },
+  });
+  // Availability needs no credential value.
+  assert.deepEqual(modules.keyReads, []);
+});
+
+test('the daemon retries an unready PC answer instead of reading it as "all disabled"', async (t) => {
+  _resetModelProxyProviderConfigForTest();
+  t.after(() => _resetModelProxyProviderConfigForTest());
+  let asked = 0;
+  const { channel } = connect(
+    t,
+    fakeRuntime(
+      {},
+      {
+        providerConfig: async () =>
+          ++asked === 1
+            ? { providers: {}, ready: false }
+            : { providers: { openai: { enabled: true, modelProxy: {} } }, ready: true },
+      }
+    )
+  );
+  const config = await settledWhileAlive(loadModelProxyProviderConfig({ channel, waitMs: 2_000 }));
+  assert.deepEqual(config, { openai: { enabled: true, modelProxy: {} } });
+  assert.equal(asked, 2);
+});
+
+test('a loaded PC registry with nothing enabled is an answer, not a wait', async (t) => {
+  _resetModelProxyProviderConfigForTest();
+  t.after(() => _resetModelProxyProviderConfigForTest());
+  const modules = pcModules({ openai: { enabled: false } });
+  const { channel } = connect(t, createModelProxyRuntime(modules));
+  const config = await settledWhileAlive(loadModelProxyProviderConfig({ channel, waitMs: 5_000 }), 1_000);
+  assert.deepEqual(config, { openai: { enabled: false, modelProxy: {} } });
+});
+
+test('only the requested provider\'s credential is read, on demand', async (t) => {
+  const modules = pcModules(
+    { openai: { enabled: true }, anthropic: { enabled: true } },
+    { openai: 'pc-openai-key', anthropic: 'pc-anthropic-key' }
+  );
+  const { channel } = connect(t, createModelProxyRuntime(modules));
+  const result = await new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {});
+  assert.deepEqual(result, { content: 'openai:pc-openai-key' });
+  assert.deepEqual(modules.keyReads, ['openai']);
+  assert.equal(modules.inits.at(-1).anthropic.apiKey, undefined);
+});
+
+test('server send options are reduced to the allowlist', async (t) => {
+  let seen = null;
+  const provider = {
+    async send(_messages, _model, _tools, options) {
+      seen = options;
+      return { content: 'ok' };
+    },
+  };
+  const { channel } = connect(t, fakeRuntime({ openai: provider }));
+  await new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {
+    sessionId: 's1',
+    temperature: 0.2,
+    baseURL: 'http://attacker.example',
+    requestHeaders: { authorization: 'Bearer x' },
+    extraBody: { stolen: true },
+    codexInstallationId: 'pc-identity',
+    _providerSeam: true,
+  });
+  assert.deepEqual(Object.keys(seen).sort(), ['sessionId', 'signal', 'temperature']);
+  assert.ok(seen.signal instanceof AbortSignal);
+});
+
+test('PC errors reach the server with only the recovery fields, credentials redacted', async (t) => {
+  const provider = {
+    async send() {
+      throw Object.assign(new Error('401 from upstream for key sk-abcdefghijklmnopqrstuvwxyz'), {
+        status: 401,
+        code: 'auth_failed',
+        retryAfter: 3,
+        partialContent: 'half an answer',
+        liveTextEmitted: true,
+        headers: { authorization: 'Bearer pc-secret-token' },
+        cause: new Error('socket to https://internal.pc.example'),
+        baseURL: 'https://internal.pc.example',
+      });
+    },
+  };
+  const { channel } = connect(t, fakeRuntime({ openai: provider }));
+  const error = await new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {}).then(
+    () => assert.fail('expected a failure'),
+    (failure) => failure
+  );
+  assert.equal(error.status, 401);
+  assert.equal(error.code, 'auth_failed');
+  assert.equal(error.retryAfter, 3);
+  assert.equal(error.partialContent, 'half an answer');
+  assert.equal(error.liveTextEmitted, true);
+  assert.equal(error.headers, undefined);
+  assert.equal(error.cause, undefined);
+  assert.equal(error.baseURL, undefined);
+  assert.match(error.message, /\[redacted\]/);
+  assert.doesNotMatch(error.message, /sk-abcdef/);
+});
+
+test('providerConfig tells a server availability and traits only; disallowed providers are refused', async (t) => {
+  const send = async () => ({ content: 'x' });
+  const { channel } = connect(
+    t,
+    fakeRuntime(
+      { openai: { send }, 'custom-1': { send } },
+      {
+        providerConfig: async () => ({
+          ready: true,
+          providers: {
+            openai: {
+              enabled: true,
+              baseURL: 'https://corp.example/v1',
+              organization: 'acme',
+              accountLabel: 'work@acme.example',
+              modelProxy: { nativePdf: true, extra: 'x' },
+            },
+            'custom-1': { type: 'custom', enabled: true, baseURL: 'http://10.0.0.5' },
+          },
+        }),
+      }
+    ),
+    { isProviderAllowed: (name) => name !== 'custom-1' }
+  );
+  // A provider the server may not use is not even named to it.
+  assert.deepEqual(await channel.request({ provider: '', method: 'providerConfig' }), {
+    providers: { openai: { enabled: true, modelProxy: { nativePdf: true } } },
+    ready: true,
+  });
+  await assert.rejects(new ModelProxyProvider('custom-1', {}, channel).send([], 'm', undefined, {}), {
+    code: 'MODEL_PROXY_PROVIDER_NOT_ALLOWED',
+  });
+  assert.deepEqual(await new ModelProxyProvider('openai', {}, channel).send([], 'm', undefined, {}), { content: 'x' });
+});
+
+test('at the concurrency cap nothing more is claimed; a freed slot takes up the next call', async (t) => {
+  const provider = hangingProvider();
+  const { channel, host, operations } = connect(t, fakeRuntime({ openai: provider }), { maxConcurrentCalls: 1 });
+  const firstAbort = new AbortController();
+  const first = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, { signal: firstAbort.signal });
+  first.catch(() => {});
+  await provider.started;
+  const second = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {});
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(operations.filter((operation) => operation === 'modelProxyClaim').length, 1);
+  assert.equal(channel.snapshot().requests.length, 1, 'the second call waits unclaimed on the daemon');
+  provider.send = async () => ({ content: 'second' });
+  firstAbort.abort(new Error('done'));
+  assert.deepEqual(await settledWhileAlive(second), { content: 'second' });
+  assert.equal(host.running, 0);
+});
+
+test('a call payload over the request cap is refused before any provider runs', async (t) => {
+  let sent = false;
+  const provider = {
+    async send() {
+      sent = true;
+      return { content: 'x' };
+    },
+  };
+  const { channel } = connect(t, fakeRuntime({ openai: provider }), { maxRequestBytes: 200 });
+  await assert.rejects(
+    settledWhileAlive(
+      new ModelProxyProvider('openai', {}, channel).send([{ role: 'user', content: 'x'.repeat(500) }], 'gpt', undefined, {})
+    ),
+    { code: 'MODEL_PROXY_REQUEST_TOO_LARGE' }
+  );
+  assert.equal(sent, false);
+});

@@ -303,6 +303,43 @@ test('tab controls refresh the displayed page while ordinary controls do not', a
   client.dispose();
 });
 
+test("a close-tab control resolves with the host's remaining tab count, other controls with nothing", async () => {
+  const client = createBrowserPageClient({
+    sessionId: 's',
+    update() {},
+    failure: (error) => assert.fail(error),
+    api: {
+      browserPageFrame: async () => frame('p1:1'),
+      browserPageControl: async (_session, input) => (input.type === 'close-tab' ? { remainingTabs: 0 } : undefined),
+    },
+  });
+  await client.poll();
+  assert.deepEqual(await client.control({ type: 'close-tab', tabId: 'p1' }), { remainingTabs: 0 });
+  assert.equal(await client.control({ type: 'new-tab' }), undefined);
+  client.dispose();
+});
+
+test('a navigation superseded by a newer one (ERR_ABORTED) is not reported as a failure, other errors are', async () => {
+  const failures = [];
+  const client = createBrowserPageClient({
+    sessionId: 's',
+    update() {},
+    failure: (message) => failures.push(message),
+    api: {
+      browserPageFrame: async () => frame('p1:1'),
+      browserPageControl: async (_session, input) => {
+        throw new Error(input.url.includes('blank') ? "ERR_ABORTED (-3) loading 'about:blank'" : 'refused');
+      },
+    },
+  });
+  await client.poll();
+  await assert.rejects(client.control({ type: 'navigate', url: 'about:blank' }), /ERR_ABORTED/);
+  await assert.rejects(client.control({ type: 'navigate', url: 'https://x.test/' }), /refused/);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(failures, ['refused']);
+  client.dispose();
+});
+
 test('a compositor miss on the display sample after a tab control is not reported as an input failure', async () => {
   const failures = [];
   let reads = 0;

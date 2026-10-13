@@ -247,15 +247,6 @@
   align-items: center;
   gap: 2px;
 }
-.browser-pane-nav-button.side-strip-text-button {
-  width: auto;
-  padding: 0 8px;
-  font-size: var(--mx-font-meta);
-}
-.side-strip-text-button[aria-pressed="true"] {
-  background: var(--mx-hover);
-  color: var(--mx-text);
-}
 
 .browser-pane-nav-button:disabled {
   opacity: 0.35;
@@ -334,6 +325,15 @@
 }
 .dock-header-chip .browser-tab-select {
   cursor: default;
+}
+/* Several chips in one strip (changes + opened files), and the changes pane's
+   own tabs: each keeps its whole label and the strip scrolls sideways, instead
+   of the tabs shrinking until names are cut. */
+.browser-tab-list > .dock-header-chip:not(:only-child),
+.session-diff-tabs > .browser-tab {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
 }
 /* Side-dock file tabs: a preview tab (the next link replaces it) is italic,
    like a preview tab in the pane workspace strip. */
@@ -422,11 +422,25 @@
   width: 14px;
   color: var(--mx-text-muted);
 }
-/* The phone sheet keeps its own dock header and X. */
-html[data-mixdog-mobile-tabs] .dock-header-close {
-  display: none;
+/* A ⋯ item that wants attention (blocked network, findings): warning glyph,
+   and a dot on the ⋯ button while the menu is closed. */
+.dock-header-menu > button[data-attention="true"] .dock-header-menu-glyph,
+.dock-header-menu > button[data-attention="true"] .dock-header-menu-detail {
+  color: var(--mx-warning, #e0a030);
 }
-
+.dock-header-more {
+  position: relative;
+}
+.dock-header-more-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-warning, #e0a030);
+  pointer-events: none;
+}
 /* ── Side file footer / status bar (side-file-status-row.tsx) ──
    Last row of the side file card, inside the rounded sheet (the card clips its
    bottom corners): fixed 24px, top hairline, no background of its own, small

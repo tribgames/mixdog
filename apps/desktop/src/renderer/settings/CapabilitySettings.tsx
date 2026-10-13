@@ -22,13 +22,18 @@ import {
   type PanelContext,
   type SettingsConfirmation,
   getCachedCapabilitySettings,
+  invalidateCapabilitySettings,
   preloadCapabilitySettings,
 } from './capability-data';
 import { CategoryPanel } from './capability-panels';
 import { friendlyCapabilityError } from './remote-capability-guard';
 import { errorMessage } from '../editor-pane-session-errors';
+import { isSshConnectionWindow } from '../desktop-connection';
 export { getCachedCapabilitySettings, preloadCapabilitySettings } from './capability-data';
 export { OAuthControl } from './capability-panels';
+
+// The updater is this PC's: a server window neither reads nor checks it.
+const serverWindow = isSshConnectionWindow();
 
 export const CapabilitySettings = memo(function CapabilitySettings({
   api,
@@ -108,7 +113,14 @@ export const CapabilitySettings = memo(function CapabilitySettings({
   }, [active, api, load, refreshNonce, revision]);
   // A setup-tool change rewrites settings outside this panel: re-read now
   // while visible; a hidden panel refreshes on its next opening.
-  useEffect(() => subscribeSetupChanges(() => setRevision((value) => value + 1)), []);
+  useEffect(
+    () =>
+      subscribeSetupChanges(() => {
+        invalidateCapabilitySettings(api);
+        setRevision((value) => value + 1);
+      }),
+    [api]
+  );
   useEffect(() => {
     let live = true;
     const receive = (snapshot: SessionSnapshot) => {
@@ -129,6 +141,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     };
   }, [api]);
   useEffect(() => {
+    if (serverWindow) return;
     let live = true;
     const receive = (next: DesktopUpdaterState) => {
       if (!live) return;
@@ -176,6 +189,9 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           // a resolved call invalidates the sidebar reference keys it makes
           // untrue (provider setup/model catalogs, search route, agents).
           invalidateSidebarReferenceForMutation(capability);
+          // The next load must re-read past the write instead of adopting a
+          // cached or still-running sweep that predates it.
+          invalidateCapabilitySettings(api, capability);
           if (refresh) setRevision((value) => value + 1);
           return result.value;
         } catch (rawReason) {
@@ -231,7 +247,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       updateChecked.current = false;
       return;
     }
-    if (hydrating || updateChecked.current) return;
+    if (serverWindow || hydrating || updateChecked.current) return;
     updateChecked.current = true;
     if (api.checkForDesktopUpdate) void checkDesktopUpdate();
     else void run('checkForUpdate', [{}]);
@@ -268,6 +284,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           ...(fast === undefined ? {} : { fast }),
           ...(autoEffort === undefined ? {} : { autoEffort }),
         });
+        invalidateCapabilitySettings(api);
         setRevision((value) => value + 1);
       } catch (reason) {
         setError(errorMessage(reason));
@@ -285,6 +302,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       setError('');
       try {
         await api.setFast(enabled);
+        invalidateCapabilitySettings(api);
         setRevision((value) => value + 1);
       } catch (reason) {
         setError(errorMessage(reason));

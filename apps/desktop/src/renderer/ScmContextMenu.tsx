@@ -4,7 +4,7 @@
 // button or by the keyboard (Menu / Shift+F10), dismissed by Escape, an
 // outside click, a resize or a scroll. The per-row "…" trigger buttons the
 // dock used to carry are gone; this menu replaces them.
-import { Check } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -34,6 +34,8 @@ export interface ScmContextMenuItem {
   pinned?: boolean;
   /** A separate pin control keeps the destination menu open. */
   onTogglePin?(): void;
+  /** Opens a second level in place of the menu (with a Back row on top). */
+  children?: ScmContextMenuItem[];
 }
 
 /** Item tooltip: the blocking reason when there is one, else the missing-channel note for an unsupported action. */
@@ -85,6 +87,78 @@ export function contextMenuRowProps(open: (point: { x: number; y: number }) => v
   };
 }
 
+/** Clamped against the window, exactly like the dock's other overlays: the
+ *  dock hugs the window edge, so a menu opened at the pointer would otherwise
+ *  run off-screen (anchored-panel.ts keeps the same rule for the panels). */
+function menuPosition(surface: HTMLElement | null, x: number, y: number): React.CSSProperties {
+  const width = surface?.offsetWidth || 0;
+  const height = surface?.scrollHeight || surface?.offsetHeight || 0;
+  const viewportWidth = window.innerWidth || 0;
+  const viewportHeight = window.innerHeight || 0;
+  const left = width && viewportWidth ? Math.max(8, Math.min(x, viewportWidth - width - 8)) : x;
+  const top = height && viewportHeight && y + height > viewportHeight - 8 ? Math.max(8, y - height) : y;
+  return {
+    position: 'fixed',
+    left,
+    top,
+    ...(viewportHeight ? { maxHeight: Math.max(120, viewportHeight - 16) } : {}),
+  };
+}
+
+/** One menu entry: its action button, plus the separate pin control when it has one. */
+function ScmContextMenuRow({
+  item,
+  onActivate,
+}: {
+  item: ScmContextMenuItem;
+  onActivate(item: ScmContextMenuItem): void;
+}) {
+  const hasChildren = Boolean(item.children?.length);
+  const action = (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is menuitemradio/menuitemcheckbox whenever checked is defined
+    <button
+      type="button"
+      data-action-id={item.id}
+      role={item.checked === undefined ? 'menuitem' : (item.checkRole ?? 'menuitemradio')}
+      aria-checked={item.checked}
+      aria-current={item.active ? 'page' : undefined}
+      className={
+        [item.danger ? 'danger' : '', item.separatorBefore ? 'menu-separator' : '', item.active ? 'active' : '']
+          .filter(Boolean)
+          .join(' ') || undefined
+      }
+      disabled={item.disabled}
+      aria-haspopup={hasChildren ? 'menu' : undefined}
+      title={item.title}
+      onClick={() => onActivate(item)}
+    >
+      <span className={`dock-scm-context-check${item.icon ? ' is-icon' : ''}`}>
+        {item.icon ?? (item.checked && <Check size={12} aria-hidden="true" />)}
+      </span>
+      <span className="dock-scm-context-label">{item.label}</span>
+      {hasChildren && <ChevronRight size={12} aria-hidden="true" />}
+    </button>
+  );
+  if (!item.onTogglePin) return action;
+  return (
+    <div className="dock-scm-context-menu-row" role="none">
+      {action}
+      <button
+        type="button"
+        className="dock-scm-context-pin"
+        data-pin-id={item.id}
+        role="menuitemcheckbox"
+        aria-checked={item.pinned}
+        aria-label={`${item.pinned ? t('Unpin') : t('Pin')}: ${item.label}`}
+        title={item.pinned ? t('Unpin') : t('Pin')}
+        onClick={item.onTogglePin}
+      >
+        <RailPinIcon pinned={Boolean(item.pinned)} size={14} />
+      </button>
+    </div>
+  );
+}
+
 export function ScmContextMenu({
   state,
   onClose,
@@ -97,28 +171,25 @@ export function ScmContextMenu({
   const panel = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({ position: 'fixed', left: 0, top: 0 });
   const open = Boolean(state);
+  // Id of the submenu item whose children are showing; a new menu starts at the root.
+  const [submenuId, setSubmenuId] = useState('');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: state identity is the trigger
+  useEffect(() => setSubmenuId(''), [state]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each submenu level refocuses its first item
+  useEffect(() => {
+    if (open)
+      queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR)?.focus());
+  }, [open, submenuId]);
   const x = state?.x ?? 0;
   const y = state?.y ?? 0;
 
-  // Clamped against the window, exactly like the dock's other overlays: the
-  // dock hugs the window edge, so a menu opened at the pointer would otherwise
-  // run off-screen (anchored-panel.ts keeps the same rule for the panels).
+  // Opening or leaving a submenu swaps the rendered items and so resizes the
+  // panel; placement is measured again so the taller list stays on screen.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: submenuId changes the measured panel size
   useLayoutEffect(() => {
     if (!open) return;
-    const surface = panel.current;
-    const width = surface?.offsetWidth || 0;
-    const height = surface?.scrollHeight || surface?.offsetHeight || 0;
-    const viewportWidth = window.innerWidth || 0;
-    const viewportHeight = window.innerHeight || 0;
-    const left = width && viewportWidth ? Math.max(8, Math.min(x, viewportWidth - width - 8)) : x;
-    const top = height && viewportHeight && y + height > viewportHeight - 8 ? Math.max(8, y - height) : y;
-    setStyle({
-      position: 'fixed',
-      left,
-      top,
-      ...(viewportHeight ? { maxHeight: Math.max(120, viewportHeight - 16) } : {}),
-    });
-  }, [open, x, y]);
+    setStyle(menuPosition(panel.current, x, y));
+  }, [open, x, y, submenuId]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -155,6 +226,27 @@ export function ScmContextMenu({
 
   if (!state) return null;
 
+  const submenuParent = submenuId ? state.items.find((item) => item.id === submenuId) : undefined;
+  const visibleItems: ScmContextMenuItem[] = submenuParent?.children
+    ? [
+        { id: '__back', label: t('Back'), icon: <ChevronLeft size={12} aria-hidden="true" /> },
+        ...submenuParent.children,
+      ]
+    : state.items;
+
+  const activate = (item: ScmContextMenuItem) => {
+    if (item.id === '__back') {
+      setSubmenuId('');
+      return;
+    }
+    if (item.children?.length) {
+      setSubmenuId(item.id);
+      return;
+    }
+    onClose();
+    item.onSelect?.();
+  };
+
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR) || [])];
     if (!entries.length) return;
@@ -187,53 +279,9 @@ export function ScmContextMenu({
           {state.heading}
         </div>
       )}
-      {state.items.map((item) => {
-        const action = (
-          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is menuitemradio/menuitemcheckbox whenever checked is defined
-          <button
-            type="button"
-            key={item.id}
-            data-action-id={item.id}
-            role={item.checked === undefined ? 'menuitem' : (item.checkRole ?? 'menuitemradio')}
-            aria-checked={item.checked}
-            aria-current={item.active ? 'page' : undefined}
-            className={
-              [item.danger ? 'danger' : '', item.separatorBefore ? 'menu-separator' : '', item.active ? 'active' : '']
-                .filter(Boolean)
-                .join(' ') || undefined
-            }
-            disabled={item.disabled}
-            title={item.title}
-            onClick={() => {
-              onClose();
-              item.onSelect?.();
-            }}
-          >
-            <span className={`dock-scm-context-check${item.icon ? ' is-icon' : ''}`}>
-              {item.icon ?? (item.checked && <Check size={12} aria-hidden="true" />)}
-            </span>
-            <span className="dock-scm-context-label">{item.label}</span>
-          </button>
-        );
-        if (!item.onTogglePin) return action;
-        return (
-          <div className="dock-scm-context-menu-row" role="none" key={item.id}>
-            {action}
-            <button
-              type="button"
-              className="dock-scm-context-pin"
-              data-pin-id={item.id}
-              role="menuitemcheckbox"
-              aria-checked={item.pinned}
-              aria-label={`${item.pinned ? t('Unpin') : t('Pin')}: ${item.label}`}
-              title={item.pinned ? t('Unpin') : t('Pin')}
-              onClick={item.onTogglePin}
-            >
-              <RailPinIcon pinned={Boolean(item.pinned)} size={14} />
-            </button>
-          </div>
-        );
-      })}
+      {visibleItems.map((item) => (
+        <ScmContextMenuRow key={item.id} item={item} onActivate={activate} />
+      ))}
     </div>,
     document.body
   );

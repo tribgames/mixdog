@@ -82,6 +82,7 @@ const TOOL_CATEGORY = new Map([
   ['office', 'Office'],
   ['media', 'Media'],
   ['tidy', 'Tidy'],
+  ['visualize', 'Visualize'],
   ['list_mcp_resources', 'Setup'],
   ['list_mcp_resource_templates', 'Setup'],
   ['cwd', 'Setup'],
@@ -124,6 +125,7 @@ const CATEGORY_COPY = new Map([
   ['Office', { active: 'Editing', done: 'Edited', noun: 'document action' }],
   ['Media', { active: 'Generating', done: 'Generated', noun: 'media action' }],
   ['Tidy', { active: 'Tidying', done: 'Tidied', noun: 'cleanup pass' }],
+  ['Visualize', { active: 'Showing', done: 'Showed', noun: 'artifact' }],
   ['Other', { active: 'Calling', done: 'Called', noun: 'tool' }],
 ]);
 
@@ -336,6 +338,17 @@ function officeUnit(a) {
   }
   const [active, done] = OFFICE_ACTION_VERBS.get(action) || ['Editing', 'Edited'];
   return unitDescriptor('Office', { count: 1, active, done, noun: 'document action', effect: true });
+}
+
+function visualizeUnit(a) {
+  const action = String(a.action || '').toLowerCase();
+  if (action === 'capture') return unitDescriptor('Visualize', { count: 1, active: 'Capturing', done: 'Captured', noun: 'screenshot' });
+  if (action === 'export') return unitDescriptor('Visualize', { count: 1, active: 'Exporting', done: 'Exported', noun: 'file' });
+  if (action === 'annotate') return unitDescriptor('Visualize', { count: 1, active: 'Marking', done: 'Marked', noun: 'annotation' });
+  if (action === 'check') return unitDescriptor('Visualize', { count: 1, active: 'Checking', done: 'Checked', noun: 'page' });
+  if (action === 'inspect') return unitDescriptor('Visualize', { count: 1, active: 'Inspecting', done: 'Inspected', noun: 'page' });
+  if (action === 'close') return unitDescriptor('Visualize', { count: 1, active: 'Closing', done: 'Closed', noun: 'tab' });
+  return unitDescriptor('Visualize', { count: 1, active: 'Showing', done: 'Showed', noun: 'artifact' });
 }
 
 function terminalUnit(a) {
@@ -642,6 +655,7 @@ const TOOL_UNITS = new Map([
   ['setup', setupUnit],
   ['media', mediaUnit],
   ['tidy', tidyUnit],
+  ['visualize', visualizeUnit],
   ['fetch', fetchUnit],
   ['recall', memoryReadUnit],
   ['recall_memory', memoryReadUnit],

@@ -6,6 +6,7 @@ import { clean } from './session-text.mjs';
 import { normalizeEffortInput } from './effort.mjs';
 import { isLikelyRawModelId } from './config-helpers.mjs';
 import { configuredAgentRouteCandidates } from '../../../shared/agent-route-config.mjs';
+import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
 import { normalizeAgentId, normalizeWorkflowId } from './workflow-ids.mjs';
 import { createWorkflowPacks } from './workflow/packs.mjs';
 import { createWorkflowAgents } from './workflow/agents.mjs';
@@ -194,6 +195,10 @@ export function normalizeWorkflowRoute(routeLike, fallback = {}) {
     Number.isFinite(requestedPercent) && requestedPercent >= 10 && requestedPercent <= 100
       ? Math.round(requestedPercent / 10) * 10
       : null;
+  // A percent on the route replaces the fallback's exact window.
+  const contextTokens = normalizeContextTokens(
+    routeLike?.contextTokens ?? (routeLike?.contextPercent == null ? fallback.contextTokens : undefined)
+  );
   return {
     provider,
     model,
@@ -202,6 +207,7 @@ export function normalizeWorkflowRoute(routeLike, fallback = {}) {
     ...(autoEffort === false ? { autoEffort: false } : {}),
     ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
     ...(contextPercent ? { contextPercent } : {}),
+    ...(contextTokens ? { contextTokens } : {}),
   };
 }
 

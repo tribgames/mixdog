@@ -1,6 +1,7 @@
 // Creation of one daemon-owned execution entry around an injected runtime;
 // disposal lives in ./disposal.mjs. Entries are never addressed by clients;
 // sessionId is the only identity outside the service.
+import { syncEntryWorkspace } from '../projection/workspace.mjs';
 import { createEntryDisposal } from './disposal.mjs';
 
 export function createEntryLifecycle({
@@ -49,15 +50,18 @@ export function createEntryLifecycle({
       autoEffort: params.autoEffort,
       modelParameters: params.modelParameters,
       contextPercent: params.contextPercent,
+      contextTokens: params.contextTokens,
       selectedContextWindow: params.selectedContextWindow,
       toolMode: params.toolMode || 'full',
       remote: params.remote === true,
       desktopSession: params.desktopSession ?? null,
       sessionProfile: params.sessionProfile ?? null,
+      worktree: params.worktree ?? null,
     });
     const entry = {
       runtime,
       cwd: params.cwd || process.cwd(),
+      workspaceRevision: null,
       timer: null,
       disposed: false,
       unsubscribe: null,
@@ -80,6 +84,7 @@ export function createEntryLifecycle({
       } catch {
         initialState = { busy: true };
       }
+      syncEntryWorkspace(entry, initialState);
       indexSessionEntry(entry, initialState.sessionId);
       updateEntryBusy(entry, initialState);
       addSubscriber(entry, ctx);

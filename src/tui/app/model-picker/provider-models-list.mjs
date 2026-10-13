@@ -2,7 +2,7 @@
 // One provider's model list: rows from the catalog, the footer for the
 // highlighted row, and the keys that change its selections (←/→ effort,
 // C/Shift+C context, Tab Fast, T thinking). Enter saves through the caller.
-import { buildProviderModelItems, providerDisplayName } from '../model-options.mjs';
+import { buildProviderModelItems, resolveProviderDisplayName } from '../model-options.mjs';
 import { modelFooter } from './model-footer.mjs';
 import { createRouteSelection } from './route-selection.mjs';
 
@@ -73,7 +73,7 @@ export function openProviderModelsPicker({ view, provider, onBack, saveRoute }) 
       )
     );
     view.paint({
-      title: providerDisplayName(provider),
+      title: resolveProviderDisplayName(provider, view.providerNames),
       description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
       footer: (item) => modelFooter(selection, item?._model),
       help:

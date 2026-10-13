@@ -55,18 +55,28 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
     };
   }
 
+  // The turn's change-record key rides the caller's transcript metadata (in
+  // place: the stream stamps assistantAt on this same object), so the
+  // persisted user row and completion carry it across restore.
+  function stampCheckpoint(options) {
+    const meta = options.transcriptMeta;
+    const checkpointId = String(options.id || '').trim();
+    if (checkpointId && meta && typeof meta === 'object') meta.checkpointId = checkpointId;
+    return meta;
+  }
+
   function askCallbacks(turn, session0, options) {
     return {
       beforeToolExecution: () => turn.snapshot.promise || Promise.resolve(),
-      transcriptMeta: options.transcriptMeta,
+      transcriptMeta: stampCheckpoint(options),
       promptSource: options.promptSource,
       retryFailedTurn: options.retryFailedTurn === true,
       onTextDelta: options.onTextDelta,
       onTextReset: options.onTextReset,
       onReasoningDelta: options.onReasoningDelta,
-      onAssistantText: (text) => {
+      onAssistantText: (text, detail) => {
         transcript.appendAssistantText(text);
-        return options.onAssistantText?.(text);
+        return options.onAssistantText?.(text, detail);
       },
       onUsageDelta: options.onUsageDelta,
       onAssistantToolCallObserved: options.onAssistantToolCallObserved,

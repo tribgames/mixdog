@@ -13,7 +13,7 @@ const URGENT_CALLS = new Set([
   'desktop.unsubscribe',
 ]);
 
-export function createAttachmentCalls({ request, port, serverToken, clientToken, stopStream, log }) {
+export function createAttachmentCalls({ request, port, serverToken, clientToken, stopStream, stopHeartbeat, log }) {
   let closed = false;
 
   async function call(name, args = {}, { timeoutMs = 300_000, callId = null } = {}) {
@@ -38,6 +38,7 @@ export function createAttachmentCalls({ request, port, serverToken, clientToken,
       // Preserve the daemon's machine-readable classification across the wire.
       const err = new Error(out.error);
       if (out.code) err.code = String(out.code);
+      if (out.details && typeof out.details === 'object') err.details = out.details;
       throw err;
     }
     return out?.result;
@@ -47,6 +48,7 @@ export function createAttachmentCalls({ request, port, serverToken, clientToken,
     if (closed) return;
     closed = true;
     stopStream();
+    stopHeartbeat?.();
     try {
       await request({
         port,

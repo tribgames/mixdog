@@ -15,9 +15,13 @@ export const imagePreviewCache = new RendererLruCache<string, string>({
   measure: (dataUrl) => dataUrl.length,
 });
 
-export function imagePreviewKey(id: number | null | undefined, bytes: number | undefined): string {
-  return `${id ?? 'x'}:${bytes ?? 0}`;
+export function imagePreviewKey(
+  submissionId: string,
+  id: number | null | undefined,
+  bytes: number | undefined
+): string {
+  return `${submissionId}|${id ?? 'x'}:${bytes ?? 0}`;
 }
-export function registerImagePreview(id: number, bytes: number, dataUrl: string) {
-  imagePreviewCache.set(imagePreviewKey(id, bytes), dataUrl);
+export function registerImagePreview(submissionId: string, id: number, bytes: number, dataUrl: string) {
+  imagePreviewCache.set(imagePreviewKey(submissionId, id, bytes), dataUrl);
 }

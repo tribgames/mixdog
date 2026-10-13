@@ -26,8 +26,37 @@ function coerceStringArray(value) {
   return Array.isArray(value) ? value.map((entry) => clean(entry)).filter(Boolean) : [];
 }
 
+function positiveNumber(value, label) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`${label} must be a positive number`);
+  return n;
+}
+
+// Per-server timeouts, stored under the keys client-config.mjs already reads:
+// startupTimeoutSec/startupTimeoutMs and timeoutMs. A stored value (save
+// merges the existing entry into the input) round-trips unchanged unless the
+// setup-facing startupTimeoutSec/toolTimeoutSec overrides it.
+function timeoutFields(input) {
+  const out = {};
+  const startupSec = input.startupTimeoutSec ?? input.startup_timeout_sec;
+  if (startupSec != null && startupSec !== '') out.startupTimeoutSec = positiveNumber(startupSec, 'startupTimeoutSec');
+  else if (input.startupTimeoutMs != null && input.startupTimeoutMs !== '')
+    out.startupTimeoutMs = positiveNumber(input.startupTimeoutMs, 'startupTimeoutMs');
+  if (input.toolTimeoutSec != null && input.toolTimeoutSec !== '')
+    out.timeoutMs = Math.round(positiveNumber(input.toolTimeoutSec, 'toolTimeoutSec') * 1000);
+  else if (input.timeoutMs != null && input.timeoutMs !== '')
+    out.timeoutMs = Math.round(positiveNumber(input.timeoutMs, 'timeoutMs'));
+  return out;
+}
+
 export function createMcpServerInput({ mcpClient, getCurrentCwd }) {
   function normalizeMcpServerInput(input = {}) {
+    const result = normalizeTransport(input);
+    Object.assign(result.config, timeoutFields(input));
+    return result;
+  }
+
+  function normalizeTransport(input) {
     const currentCwd = getCurrentCwd();
     const name = clean(input.name)
       .toLowerCase()

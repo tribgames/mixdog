@@ -4,6 +4,7 @@ import type { DockAction } from './pane-dock-chrome';
 
 import { type DiffStyle, readDiffStyle, writeDiffStyle } from './desktop-types';
 import { t } from './i18n';
+import { useMobileRemoteSurface } from './mobile-surface';
 
 export type DiffScope = 'unstaged' | 'staged' | 'commit' | 'session';
 
@@ -20,9 +21,13 @@ export function diffScopeLabel(scope: DiffScope): string {
 export type DiffViewState = {
   viewMode: DiffStyle;
   onViewModeChange(mode: DiffStyle): void;
+  /** False on the phone layout: a phone-wide column always reads unified, so
+   *  the Unified/Split choice is not offered (the stored choice is kept). */
+  splitAvailable?: boolean;
 };
 
 export function useDiffViewState(styleKey: string): DiffViewState {
+  const phone = useMobileRemoteSurface();
   const [viewMode, setViewMode] = useState<DiffStyle>(() => readDiffStyle(styleKey));
   useEffect(() => {
     setViewMode(readDiffStyle(styleKey));
@@ -34,11 +39,19 @@ export function useDiffViewState(styleKey: string): DiffViewState {
     },
     [styleKey]
   );
-  return { viewMode, onViewModeChange };
+  return phone
+    ? { viewMode: 'unified', onViewModeChange, splitAvailable: false }
+    : { viewMode, onViewModeChange, splitAvailable: true };
 }
 
-/** Unified/Split as a ⋯ menu radio pair (checked = the current mode). */
-export function diffModeActions(viewMode: DiffStyle, onViewModeChange: (mode: DiffStyle) => void): DockAction[] {
+/** Unified/Split as a ⋯ menu radio pair (checked = the current mode); none
+ *  where split is unavailable. */
+export function diffModeActions(
+  viewMode: DiffStyle,
+  onViewModeChange: (mode: DiffStyle) => void,
+  splitAvailable = true
+): DockAction[] {
+  if (!splitAvailable) return [];
   return (['unified', 'split'] as const).map((mode) => ({
     id: `diff-mode-${mode}`,
     label: mode === 'unified' ? t('Unified') : t('Split'),
@@ -48,12 +61,14 @@ export function diffModeActions(viewMode: DiffStyle, onViewModeChange: (mode: Di
   }));
 }
 
-export type DiffHeaderControlsProps = Pick<DiffViewState, 'viewMode' | 'onViewModeChange'>;
+export type DiffHeaderControlsProps = Pick<DiffViewState, 'viewMode' | 'onViewModeChange' | 'splitAvailable'>;
 
 /** The single-file diff header's only control: a ⋯ menu with the Unified/Split
- *  radio pair. The scope shows in the file chip's tooltip, not here. */
-export function DiffHeaderControls({ viewMode, onViewModeChange }: DiffHeaderControlsProps) {
+ *  radio pair. The scope shows in the file chip's tooltip, not here. Nothing
+ *  where split is unavailable (the phone layout). */
+export function DiffHeaderControls({ viewMode, onViewModeChange, splitAvailable = true }: DiffHeaderControlsProps) {
   const [moreOpen, setMoreOpen] = useState(false);
+  if (!splitAvailable) return null;
   return (
     <div className="diff-header-controls">
       <span className="diff-header-spacer" />

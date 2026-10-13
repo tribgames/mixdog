@@ -12,6 +12,7 @@ import {
 import { PRESET_ALIASES } from './tool-def.mjs';
 import { positiveInt } from '../../../runtime/shared/numbers.mjs';
 import { clean } from '../../../runtime/shared/clean.mjs';
+import { normalizeContextTokens } from '../../../runtime/shared/llm/default-context-window.mjs';
 
 export { positiveInt };
 
@@ -225,6 +226,9 @@ export function normalizeAgentRoute(routeLike) {
       ? { modelParameters: { ...routeLike.modelParameters } }
       : {}),
     ...(Number(routeLike?.contextPercent) > 0 ? { contextPercent: Number(routeLike.contextPercent) } : {}),
+    ...(normalizeContextTokens(routeLike?.contextTokens)
+      ? { contextTokens: normalizeContextTokens(routeLike.contextTokens) }
+      : {}),
   };
 }
 

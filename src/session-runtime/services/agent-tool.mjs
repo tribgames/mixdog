@@ -146,6 +146,7 @@ export function createStandaloneAgent({
     getStatus,
     recoverWorkers,
     upsertLeadSession: registry.upsertLeadSession,
+    updateLeadWorkerCwd: registry.updateLeadWorkerCwd,
     closeAll: closeFlow.closeAll,
     dispose: (options) => registry.dispose(options),
   };

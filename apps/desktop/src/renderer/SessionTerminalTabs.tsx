@@ -13,11 +13,19 @@ import { DockHeaderRow, requestPaneDockClose, scrollTabListByWheel, type DockAct
 import {
   closeSessionTerminalTab,
   getSessionTerminalTabs,
+  followSessionTerminalRoot,
   openSessionTerminalTab,
   selectSessionTerminalTab,
   subscribeSessionTerminalTabs,
+  type SessionTerminalTab,
+  terminalRootLabel,
 } from './session-terminal-tabs';
-import { cachedShellProfiles, loadShellProfiles, type ShellProfilesState } from './terminal-shell-profiles';
+import {
+  cachedShellProfiles,
+  loadShellProfiles,
+  type ShellProfile,
+  type ShellProfilesState,
+} from './terminal-shell-profiles';
 import {
   ScmContextMenu,
   elementMenuPoint,
@@ -28,6 +36,121 @@ import {
 import './tab-strip.css';
 
 const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
+
+// Tab names: the shell's own name (the default tab names the shell it
+// actually spawned); a repeated name gets " 2", " 3", … in tab order.
+function terminalTabTitles(
+  tabs: readonly SessionTerminalTab[],
+  profiles: readonly ShellProfile[] | null,
+  defaultProfile: ShellProfile | null
+): Map<string, string> {
+  const shellName = (shell: string) =>
+    shell
+      ? profiles?.find((profile) => profile.id === shell)?.label || shell
+      : defaultProfile?.label || t('Default shell');
+  const nameCounts = new Map<string, number>();
+  // Tabs in different roots (project folder vs. a worktree) show their folder.
+  const mixedRoots = new Set(tabs.map((tab) => tab.cwd || '')).size > 1;
+  return new Map(
+    tabs.map((tab) => {
+      const name = shellName(tab.shell);
+      const count = (nameCounts.get(name) ?? 0) + 1;
+      nameCounts.set(name, count);
+      const base = count > 1 ? `${name} ${count}` : name;
+      return [tab.id, mixedRoots && tab.cwd ? `${base} · ${terminalRootLabel(tab.cwd)}` : base];
+    })
+  );
+}
+
+// ⋯ = "open a new tab with this shell" (the former chevron picker).
+function shellMenuActions(
+  shells: ShellProfilesState,
+  defaultShellLabel: string,
+  openTab: (shell: string) => void,
+  retry: () => void
+): DockAction[] {
+  if (shells.status === 'loading') {
+    return [{ id: 'shell-detecting', label: t('Detecting shells…'), disabled: true, onSelect() {} }];
+  }
+  if (shells.status === 'failed') {
+    return [
+      { id: 'shell-failed', label: t('Could not load shells'), disabled: true, onSelect() {} },
+      { id: 'shell-retry', label: t('Try again'), onSelect: retry },
+    ];
+  }
+  if (shells.profiles.length === 0) {
+    return [{ id: 'shell-none', label: t('No shells detected'), disabled: true, onSelect() {} }];
+  }
+  return [
+    { id: 'shell-default', label: defaultShellLabel, icon: Plus, onSelect: () => openTab('') },
+    ...shells.profiles.map((profile) => ({
+      id: `shell-${profile.id}`,
+      label: profile.label,
+      icon: Plus,
+      onSelect: () => openTab(profile.id),
+    })),
+  ];
+}
+
+function TerminalTabItem({
+  id,
+  title,
+  isActive,
+  onSelect,
+  onClose,
+  onMenu,
+}: {
+  id: string;
+  title: string;
+  isActive: boolean;
+  onSelect(): void;
+  onClose(): void;
+  onMenu(title: string, point: { x: number; y: number }): void;
+}) {
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: middle-click close is a pointer shortcut; the tab's close button is the keyboard path.
+    <div
+      className={`browser-tab${isActive ? ' is-active' : ''}`}
+      onMouseDown={(event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        onClose();
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu(title, pointerMenuPoint(event));
+      }}
+    >
+      <button
+        type="button"
+        role="tab"
+        data-terminal-id={id}
+        aria-selected={isActive}
+        tabIndex={isActive ? 0 : -1}
+        className="browser-tab-select"
+        title={title}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (!isContextMenuKey(event)) return;
+          event.preventDefault();
+          onMenu(title, elementMenuPoint(event.currentTarget));
+        }}
+      >
+        <Terminal size={15} aria-hidden="true" />
+        <span>{title}</span>
+      </button>
+      <button
+        type="button"
+        className="browser-tab-close"
+        aria-label={`${t('Close tab')}: ${title}`}
+        data-tooltip={t('Close tab')}
+        onClick={onClose}
+      >
+        <X size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
 
 export function SessionTerminalTabs({
   sessionId,
@@ -44,6 +167,17 @@ export function SessionTerminalTabs({
 }) {
   const state = useSyncExternalStore(subscribeSessionTerminalTabs, () => getSessionTerminalTabs(sessionId));
   const strip = useRef<HTMLDivElement | null>(null);
+  const followedRoot = useRef<string | null>(null);
+  const hasTabs = state.tabs.length > 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hasTabs re-binds a tab reopened after the last one closed.
+  useEffect(() => {
+    followSessionTerminalRoot(sessionId, cwd, followedRoot.current !== null && followedRoot.current !== cwd);
+    followedRoot.current = cwd;
+  }, [sessionId, cwd, hasTabs]);
+  // Showing a closed terminal creates its fresh tab (in the execution root).
+  useEffect(() => {
+    if (active && !getSessionTerminalTabs(sessionId).tabs.length) openSessionTerminalTab(sessionId, '', cwd ?? '');
+  }, [active, sessionId, cwd]);
   const [shells, setShells] = useState<ShellProfilesState>(() => {
     const cached = cachedShellProfiles();
     return cached ? { status: 'ready', profiles: cached } : { status: 'loading' };
@@ -83,23 +217,10 @@ export function SessionTerminalTabs({
   const defaultShellLabel = defaultProfile
     ? t('Default ({{label}})', { label: defaultProfile.label })
     : t('Default shell');
-  // Tab names: the shell's own name (the default tab names the shell it
-  // actually spawned); a repeated name gets " 2", " 3", … in tab order.
-  const shellName = (shell: string) =>
-    shell
-      ? profiles?.find((profile) => profile.id === shell)?.label || shell
-      : defaultProfile?.label || t('Default shell');
-  const nameCounts = new Map<string, number>();
-  const tabTitles = new Map(
-    state.tabs.map((tab) => {
-      const name = shellName(tab.shell);
-      const count = (nameCounts.get(name) ?? 0) + 1;
-      nameCounts.set(name, count);
-      return [tab.id, count > 1 ? `${name} ${count}` : name];
-    })
-  );
+  const tabTitles = terminalTabTitles(state.tabs, profiles, defaultProfile);
   const closeTab = (id: string) => {
     if (!closeSessionTerminalTab(sessionId, id)) return;
+    if (!getSessionTerminalTabs(sessionId).tabs.length) requestPaneDockClose('terminal');
     // Dispose after the pane has unmounted so its cleanup cannot re-persist
     // the disposed terminal's view state.
     setTimeout(() => void disposeTerminalPane(id), 0);
@@ -121,29 +242,8 @@ export function SessionTerminalTabs({
         },
       ],
     });
-  const openTab = (shell: string) => openSessionTerminalTab(sessionId, shell);
-  // ⋯ = "open a new tab with this shell" (the former chevron picker).
-  let shellActions: DockAction[];
-  if (shells.status === 'loading') {
-    shellActions = [{ id: 'shell-detecting', label: t('Detecting shells…'), disabled: true, onSelect() {} }];
-  } else if (shells.status === 'failed') {
-    shellActions = [
-      { id: 'shell-failed', label: t('Could not load shells'), disabled: true, onSelect() {} },
-      { id: 'shell-retry', label: t('Try again'), onSelect: () => setShells({ status: 'loading' }) },
-    ];
-  } else if (shells.profiles.length === 0) {
-    shellActions = [{ id: 'shell-none', label: t('No shells detected'), disabled: true, onSelect() {} }];
-  } else {
-    shellActions = [
-      { id: 'shell-default', label: defaultShellLabel, icon: Plus, onSelect: () => openTab('') },
-      ...shells.profiles.map((profile) => ({
-        id: `shell-${profile.id}`,
-        label: profile.label,
-        icon: Plus,
-        onSelect: () => openTab(profile.id),
-      })),
-    ];
-  }
+  const openTab = (shell: string) => openSessionTerminalTab(sessionId, shell, cwd ?? '');
+  const shellActions = shellMenuActions(shells, defaultShellLabel, openTab, () => setShells({ status: 'loading' }));
 
   return (
     <div className="session-terminal-tabs">
@@ -172,54 +272,17 @@ export function SessionTerminalTabs({
                 strip.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
               }}
             >
-              {state.tabs.map((tab) => {
-                const isActive = tab.id === state.activeId;
-                const title = tabTitles.get(tab.id) ?? '';
-                return (
-                  // biome-ignore lint/a11y/noStaticElementInteractions: middle-click close is a pointer shortcut; the tab's close button is the keyboard path.
-                  <div
-                    key={tab.id}
-                    className={`browser-tab${isActive ? ' is-active' : ''}`}
-                    onMouseDown={(event) => {
-                      if (event.button !== 1) return;
-                      event.preventDefault();
-                      closeTab(tab.id);
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      openMenu(tab.id, title, pointerMenuPoint(event));
-                    }}
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      data-terminal-id={tab.id}
-                      aria-selected={isActive}
-                      tabIndex={isActive ? 0 : -1}
-                      className="browser-tab-select"
-                      title={title}
-                      onClick={() => selectSessionTerminalTab(sessionId, tab.id)}
-                      onKeyDown={(event) => {
-                        if (!isContextMenuKey(event)) return;
-                        event.preventDefault();
-                        openMenu(tab.id, title, elementMenuPoint(event.currentTarget));
-                      }}
-                    >
-                      <Terminal size={15} aria-hidden="true" />
-                      <span>{title}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="browser-tab-close"
-                      aria-label={`${t('Close tab')}: ${title}`}
-                      data-tooltip={t('Close tab')}
-                      onClick={() => closeTab(tab.id)}
-                    >
-                      <X size={16} aria-hidden="true" />
-                    </button>
-                  </div>
-                );
-              })}
+              {state.tabs.map((tab) => (
+                <TerminalTabItem
+                  key={tab.id}
+                  id={tab.id}
+                  title={tabTitles.get(tab.id) ?? ''}
+                  isActive={tab.id === state.activeId}
+                  onSelect={() => selectSessionTerminalTab(sessionId, tab.id)}
+                  onClose={() => closeTab(tab.id)}
+                  onMenu={(title, point) => openMenu(tab.id, title, point)}
+                />
+              ))}
             </div>
             <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
             <button
@@ -238,7 +301,7 @@ export function SessionTerminalTabs({
         {state.tabs.map((tab) => (
           <div key={tab.id} className="session-terminal-tab-panel" hidden={tab.id !== state.activeId}>
             <ReadyTerminalPane
-              cwd={cwd}
+              cwd={tab.cwd || cwd}
               terminalId={tab.id}
               shell={tab.shell}
               active={active && tab.id === state.activeId}

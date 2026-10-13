@@ -1,8 +1,2 @@
 // stderr diagnostics for the no-tool recovery ladders; never throws.
-export function writeLoopDiagnostic(line) {
-  try {
-    process.stderr.write(line);
-  } catch {
-    /* diagnostics only */
-  }
-}
+export { writeStderrBestEffort as writeLoopDiagnostic } from '../../../../../shared/best-effort-stderr.mjs';

@@ -382,6 +382,71 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
+/* Fine-tune: a tune button in the title row turns the token figure into an input. */
+.route-context-titlebar {
+  position: relative;
+}
+.route-context-tune {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text-faint);
+  cursor: pointer;
+}
+.route-context-tune svg {
+  width: 14px;
+  height: 14px;
+}
+.route-context-tune:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.route-context-tune[aria-pressed="true"] {
+  color: var(--mx-text-accent);
+  background: color-mix(in srgb, var(--mx-text-accent) 18%, transparent);
+}
+.route-context-tune:disabled {
+  cursor: default;
+  opacity: var(--mx-op-disabled);
+}
+.route-context-tokens.is-custom {
+  color: var(--mx-text-accent);
+}
+.route-context-num {
+  display: inline-flex;
+  align-items: baseline;
+  height: 20px;
+  padding: 0 4px;
+  margin: -1px 0;
+  border: 1px solid var(--mx-text-accent);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-deep);
+}
+.route-context-num input {
+  width: 36px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+  line-height: 18px;
+  text-align: right;
+}
+.route-context-num em {
+  font-style: normal;
+  color: var(--mx-text-muted);
+}
 .route-context-slider {
   display: flex;
   padding: 6px 10px 4px;

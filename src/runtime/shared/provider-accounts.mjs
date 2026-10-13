@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { updateJsonAtomicSync } from './atomic-file.mjs';
+import { parseJsonText, updateJsonAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 export const ACCOUNT_PROVIDERS = Object.freeze([
@@ -48,7 +48,7 @@ function validate(raw) {
 
 function read(dataDir) {
   try {
-    return validate(JSON.parse(readFileSync(file(dataDir), 'utf8')));
+    return validate(parseJsonText(readFileSync(file(dataDir), 'utf8')));
   } catch (error) {
     if (error.code === 'ENOENT') return validate(null);
     throw error;

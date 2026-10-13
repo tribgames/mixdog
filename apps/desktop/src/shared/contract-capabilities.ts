@@ -1,5 +1,6 @@
 // Session capability names the renderer may invoke and their request/result shapes.
 import type { SessionSnapshot } from './contract-session';
+import { DESKTOP_WORKTREE_CAPABILITIES, DESKTOP_WORKTREE_READ_CAPABILITIES } from './contract-worktree';
 
 // Public session features that are safe to expose to the renderer. Keeping this
 // list explicit prevents the desktop bridge from becoming arbitrary method
@@ -83,6 +84,9 @@ export const DESKTOP_CAPABILITIES = [
   'getTurnReviewDiff',
   'revertTurnReview',
   'revertTurnReviewFile',
+  'getTurnChanges',
+  'revertTurnChanges',
+  'reapplyTurnChanges',
   'memoryControl',
   'recall',
   'runDoctor',
@@ -168,6 +172,8 @@ export const DESKTOP_CAPABILITIES = [
   'deleteMediaAssets',
   'openMediaAsset',
   'openMediaFolder',
+  // Lead worktrees (contract-worktree.ts).
+  ...DESKTOP_WORKTREE_CAPABILITIES,
   'clear',
 ] as const;
 
@@ -199,6 +205,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'inheritancePreflight',
   'getSessionReviewDiff',
   'getTurnReviewDiff',
+  'getTurnChanges',
   'listPresets',
   'getWebSearchRoute',
   'listWebSearchModels',
@@ -228,6 +235,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'resolveMediaFile',
   'getMediaJob',
   'getMediaDefault',
+  ...DESKTOP_WORKTREE_READ_CAPABILITIES,
 ] as const satisfies ReadonlyArray<DesktopCapability>;
 
 export type DesktopReadCapability = (typeof DESKTOP_READ_CAPABILITIES)[number];
@@ -248,6 +256,48 @@ export interface DesktopCapabilityReadRequest {
 }
 
 export type DesktopCapabilityReadResult = { ok: true; value: unknown } | { ok: false; error: string };
+
+/** One recorded file of a turn's changes. */
+export interface TurnChangesFile {
+  /** Root-relative, forward slashes. */
+  path: string;
+  oldPath?: string;
+  status: 'A' | 'M' | 'D' | 'R';
+  additions: number;
+  deletions: number;
+  binary?: boolean;
+  state: 'applied' | 'reverted';
+  revertable: boolean;
+  /** Why the file is not revertable. */
+  reason?: string;
+  /** Its replay/preview patch was dropped for size (byte-budget eviction or an oversized single turn). */
+  patchOmitted?: true;
+  /** The record kept no line counts for it (an old outside-root edit). */
+  unmeasured?: true;
+}
+
+/**
+ * The reply of `getTurnChanges` (`[{ checkpointId, patch?, file? }]`),
+ * `revertTurnChanges` and `reapplyTurnChanges`
+ * (`[checkpointId, file | null, revision]`).
+ */
+export interface TurnChangesReply {
+  /** pending = turn still finalizing; none = changed nothing; missing = no record (evicted/unknown). */
+  status: 'ready' | 'pending' | 'none' | 'missing';
+  checkpointId: string;
+  revision: number;
+  /** Absolute recorded root. */
+  root: string;
+  files: TurnChangesFile[];
+  /** Only when `patch: true`; only that file's patch when `file` is given. */
+  patch?: string;
+  /** Some file applied and every applied file revertable. */
+  canUndo: boolean;
+  /** Some file reverted. */
+  canReapply: boolean;
+  /** Why canUndo is false when files exist. */
+  reason?: string;
+}
 
 export interface DesktopCapabilityResult<T = unknown> {
   value: T;

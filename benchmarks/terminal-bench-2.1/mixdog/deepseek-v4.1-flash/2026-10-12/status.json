@@ -1,0 +1,21 @@
+{
+  "state": "completed",
+  "context_window": 400000,
+  "tasks_per_harness": 89,
+  "run_id": "hive-20261012-xewnns",
+  "groups": {
+    "1": [
+      0,
+      0
+    ],
+    "2": [
+      0,
+      0
+    ],
+    "4": [
+      0,
+      0
+    ]
+  },
+  "current_cpus": 4
+}

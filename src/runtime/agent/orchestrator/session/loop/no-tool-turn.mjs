@@ -108,7 +108,8 @@ export function createNoToolTurnResolver({
         drainSteering('terminal', {
           maxPriority: 'next',
           beforeAppend: () => {
-            if (segments.commitIntermediate(response) && hasContent) segments.record(response.content);
+            if (segments.commitIntermediate(response) && hasContent)
+              segments.record(response.content, { committed: true });
           },
         })
       ) {

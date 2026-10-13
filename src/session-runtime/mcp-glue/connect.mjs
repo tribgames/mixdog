@@ -24,11 +24,10 @@ export function createMcpConnect({ mcpClient, getMcpScopeId, state, resolveEffec
     }
     const cfg = servers[target];
     if (!cfg) return;
-    // Drop any existing live entry first so connectMcpServers doesn't overwrite
-    // the registry Map entry and leak the old transport/process.
-    await mcpClient.disconnectMcpServer?.(target, scopeOptions());
+    // Close-then-connect as one generation-guarded op: a shutdown landing
+    // between the close and the connect never resurrects the server.
     try {
-      await mcpClient.connectMcpServers({ [target]: cfg }, scopeOptions());
+      await mcpClient.reconnectSingleMcpServer(getMcpScopeId(), target, cfg);
     } catch (error) {
       const failures = Array.isArray(error?.failures)
         ? error.failures
@@ -126,8 +125,14 @@ export function createMcpConnect({ mcpClient, getMcpScopeId, state, resolveEffec
     if (!inFlight) return;
     let budgetMs = 10000;
     try {
-      const resolved = mcpClient.resolveMcpStartupTimeoutMs?.({});
-      if (Number.isFinite(resolved)) budgetMs = resolved;
+      // The gate must outlast the slowest enabled server's own startup budget;
+      // a server with its budget disabled (0) means the connect may never
+      // settle, so the whole gate is disabled (handled below).
+      const configs = Object.values(resolveEffectiveMcpServers().servers).filter((cfg) => cfg?.enabled !== false);
+      const budgets = (configs.length > 0 ? configs : [{}])
+        .map((cfg) => mcpClient.resolveMcpStartupTimeoutMs?.(cfg))
+        .filter((value) => Number.isFinite(value));
+      if (budgets.length > 0) budgetMs = budgets.includes(0) ? 0 : Math.max(...budgets);
     } catch {
       /* fall back to default budget */
     }

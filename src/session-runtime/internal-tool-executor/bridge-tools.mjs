@@ -3,7 +3,8 @@
 import { executeBrowserTool } from '../../runtime/browser-bridge/client.mjs';
 import { executeComputerTool } from '../../runtime/computer-bridge/client.mjs';
 import { executeTerminalTool } from '../../runtime/terminal-bridge/client.mjs';
-import { featureEnvOverride } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import { executeVisualizeTool } from '../../runtime/visualize-bridge/client.mjs';
+import { featureEnvOverride, moduleEnabled } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
 
 export function createBridgeToolHandlers({ rt }) {
@@ -50,5 +51,29 @@ export function createBridgeToolHandlers({ rt }) {
     });
   };
 
-  return { browser, browser_devtools: browser, computer, terminal };
+  const visualize = async (args, { callerCtx, callerCwd }) => {
+    if (environmentDisabled(callerCtx, 'MIXDOG_FEATURE_VISUALIZE')) {
+      throw new Error('the visualize tool is disabled in this environment');
+    }
+    // A conversation keeps its frozen tool list, so honor the Settings toggle
+    // at execution time too (an env override wins, as in builtinFeatureActive).
+    if (!(featureEnvOverride('MIXDOG_FEATURE_VISUALIZE') ?? moduleEnabled(rt.config, 'visualize', true))) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Error: Visualize is turned off in Settings by the user. Do not turn it back on unless the user asks; give the file path instead.',
+          },
+        ],
+        isError: true,
+      };
+    }
+    return await executeVisualizeTool(args, {
+      sessionId: sessionIdFor(callerCtx),
+      cwd: callerCwd,
+      signal: signalFor(callerCtx),
+    });
+  };
+
+  return { browser, browser_devtools: browser, computer, terminal, visualize };
 }

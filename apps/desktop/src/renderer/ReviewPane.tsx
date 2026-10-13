@@ -1,7 +1,10 @@
-import { ChevronDown, FileDiff } from 'lucide-react';
+import { ChevronDown, FileDiff, MoreHorizontal } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t, uiFormatLocale } from './i18n';
+import { isSshConnectionWindow } from './desktop-connection';
+import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import { useMobileBack } from './mobile-back';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { DiffBoundary } from './transcript-diff';
 import { REVIEW_DIFF_STYLE_KEY } from './desktop-types';
 import { DiffView } from './lazy-widgets';
@@ -152,6 +155,11 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   }, [menu]);
   // ABB: hardware back closes the menu instead of leaving the PWA.
   useMobileBack(Boolean(menu), () => setMenu(null));
+  // A phone has no right-click: each header carries a visible ⋯ that opens the
+  // same menu under it, instead of hiding it behind a long-press.
+  const phone = useMobileRemoteSurface();
+  const openMenu = (file: GitReviewFile, x: number, y: number) =>
+    setMenu({ x: Math.min(x, window.innerWidth - 208), y: Math.min(y, window.innerHeight - 168), file });
   const [forced, setForced] = useState<string[]>([]);
   // null = loading; a failed read keeps its message apart from patch text.
   const [diffs, setDiffs] = useState<Record<string, string | null | { error: string }>>({});
@@ -418,11 +426,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                   className="review-file-header"
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    setMenu({
-                      x: Math.min(event.clientX, window.innerWidth - 208),
-                      y: Math.min(event.clientY, window.innerHeight - 168),
-                      file,
-                    });
+                    openMenu(file, event.clientX, event.clientY);
                   }}
                 >
                   <button
@@ -456,6 +460,21 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                     </span>
                     <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
                   </button>
+                  {phone && (
+                    <button
+                      type="button"
+                      className="review-file-more"
+                      aria-label={t('More actions')}
+                      aria-haspopup="menu"
+                      aria-expanded={menu?.file.path === file.path}
+                      onClick={(event) => {
+                        const box = event.currentTarget.getBoundingClientRect();
+                        openMenu(file, box.left, box.bottom);
+                      }}
+                    >
+                      <MoreHorizontal size={16} aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
                 {open && <div className="review-file-body">{fileBody}</div>}
               </section>
@@ -472,7 +491,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 role="menuitem"
                 onClick={() => {
                   setMenu(null);
-                  void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
+                  if (isSshConnectionWindow()) void downloadAndOpenServerFile(cwd, menu.file.path);
+                  else void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
                 }}
               >
                 {t('Open file')}
@@ -482,7 +502,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 role="menuitem"
                 onClick={() => {
                   setMenu(null);
-                  void window.mixdogDesktop.revealFile?.(cwd, menu.file.path).catch(() => {});
+                  void revealFileFromWindow(cwd, menu.file.path).catch(() => {});
                 }}
               >
                 {t('Reveal in Explorer')}

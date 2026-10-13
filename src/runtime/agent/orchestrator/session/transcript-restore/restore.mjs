@@ -6,6 +6,7 @@
  */
 import { contextMeasurementStats } from '../../../../shared/context-measurement.mjs';
 import { toolResultText } from './tool-result-text.mjs';
+import { restoredUserText } from './user-text.mjs';
 import {
   completionCardFromExecution,
   parseModelVisibleCompletionWrapper,
@@ -48,12 +49,19 @@ function restoredTranscriptMetadata(message) {
   if (completionValue && completionStatus && Number.isFinite(completionElapsedMs)) {
     completion = { status: completionStatus, elapsedMs: Math.max(0, completionElapsedMs) };
     if (typeof completionValue.verb === 'string' && completionValue.verb) completion.verb = completionValue.verb;
+    if (typeof completionValue.checkpointId === 'string' && completionValue.checkpointId) {
+      completion.checkpointId = completionValue.checkpointId;
+    }
   }
   return {
+    // The stable message id lets a live view map a compaction's dropped
+    // messages back to these rows.
+    ...(typeof value.messageId === 'string' && value.messageId ? { messageId: value.messageId } : {}),
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
     ...(completion ? { completion } : {}),
   };
 }
@@ -70,15 +78,16 @@ function restoredAssistantTranscriptItems(message, nextId) {
       ...completion,
       ...(completion.status === 'done' ? { finalAssistantId: items[0].id } : {}),
       ...(metadata.at ? { at: metadata.at } : {}),
+      ...(metadata.messageId ? { messageId: metadata.messageId } : {}),
     });
   }
   return items;
 }
 
 // Restored tool cards: stored assistant messages keep their (compacted)
-// tool_calls and the follow-up role:'tool' results, but resume used to drop
-// both — a reopened session lost every tool marker (user bug). Rebuild one
-// transcript tool item per call and attach its result by tool_call_id.
+// tool_calls and the follow-up role:'tool' results. Rebuild one transcript
+// tool item per call and attach its result by tool_call_id, so a reopened
+// session keeps its tool markers.
 function restoredMessageToolCalls(message) {
   if (Array.isArray(message?.tool_calls)) return message.tool_calls;
   if (Array.isArray(message?.toolCalls)) return message.toolCalls;
@@ -112,7 +121,12 @@ function restoredToolCallItems(message, nextId, pendingByCallId) {
       ...(Number.isFinite(at) ? { at, startedAt: at, completedAt: at } : {}),
     };
     const callId = typeof call?.id === 'string' ? call.id : '';
-    if (callId) pendingByCallId.set(callId, item);
+    // The call id ties the card to its call and result messages (a live view
+    // greys it when a compaction drops them).
+    if (callId) {
+      item.callId = callId;
+      pendingByCallId.set(callId, item);
+    }
     items.push(item);
   }
   return items;
@@ -203,6 +217,9 @@ function buildRestoredAggregateItem(members) {
       ...(loadingTargets.length > 0 ? { loadingTargets } : {}),
     },
     aggregate: true,
+    ...(members.some(({ item }) => item.callId)
+      ? { callIds: members.map(({ item }) => item.callId).filter(Boolean) }
+      : {}),
     categories: Object.fromEntries(header.categories),
     doneCategories: aggregateDoneCategories(calls),
     completedCount: calls.length,
@@ -219,8 +236,8 @@ function buildRestoredAggregateItem(members) {
 
 // Restored transcripts must mirror the live turn's category merging: the live
 // session runtime (turn.mjs) collapses consecutive same-bucket tool calls into one
-// aggregate card, but resume rebuilt one card per call, so a reopened session
-// un-merged every run (user bug). Walk the restored items and merge adjacent
+// aggregate card, so a reopened session must not show them un-merged. Walk the
+// restored items and merge adjacent
 // tool cards whose aggregateBucketForCategory matches; any non-tool item
 // (user/assistant/turndone) is a block boundary, same as the live seal rule.
 // Runs of 1 keep the plain per-call card (its argument summary stays visible).
@@ -279,9 +296,11 @@ function restoredMessageItemUpperBound(message) {
 function restoredNotificationToolItem(parsed, text, message, nextId, errorLabel) {
   const label = parsed.label || 'notification';
   const at = Number(message?.meta?.transcript?.at);
+  const messageId = message?.meta?.transcript?.messageId;
   return {
     kind: 'tool',
     id: nextId(),
+    ...(typeof messageId === 'string' && messageId ? { messageId } : {}),
     name: parsed.name || 'agent',
     args: parsed.args || {
       type: label,
@@ -303,7 +322,7 @@ function restoredUserTranscriptItems(message, nextId) {
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
   if (message?.meta === 'skill' || message?.meta === 'hook') return [];
-  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
+  const text = restoredUserText(message?.content).trim();
   // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live
   // Response card is an event-time push that does not survive a transcript
@@ -329,7 +348,8 @@ function restoredUserTranscriptItems(message, nextId) {
   // step, but render it like a live cancel tail (◈ Cancelled) instead of a
   // raw user bubble with bracketed internals.
   if (isTranscriptCancelledStatusText(text)) {
-    return [{ kind: 'turndone', id: nextId(), status: 'cancelled', elapsedMs: 0 }];
+    const { messageId } = restoredTranscriptMetadata(message);
+    return [{ kind: 'turndone', id: nextId(), status: 'cancelled', elapsedMs: 0, ...(messageId ? { messageId } : {}) }];
   }
   const synthetic = parseSyntheticAgentMessage(text);
   if (!synthetic) {

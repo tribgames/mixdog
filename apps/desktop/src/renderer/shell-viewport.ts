@@ -23,7 +23,19 @@ function syncViewportVars(): void {
   writeViewportVar(root, '--vvh', `${Math.round(height)}px`);
   writeViewportVar(root, '--vv-offset-left', `${Math.round(visual?.offsetLeft ?? 0)}px`);
   writeViewportVar(root, '--vv-offset-top', `${Math.round(visual?.offsetTop ?? 0)}px`);
+  // iOS keeps the layout viewport (and the home-indicator inset) while the
+  // soft keyboard covers the bottom; only the visual viewport shrinks. The
+  // composer must then drop its safe-area pad, or it floats one home-bar
+  // height above the keyboard. Android resizes the layout viewport with it.
+  const keyboard = window.innerHeight - height > KEYBOARD_MIN_HEIGHT;
+  if (keyboard !== (root.dataset.mixdogKeyboard === 'open')) {
+    if (keyboard) root.dataset.mixdogKeyboard = 'open';
+    else delete root.dataset.mixdogKeyboard;
+  }
 }
+
+/** Smaller visual-viewport losses are URL bars and zoom, not a keyboard. */
+const KEYBOARD_MIN_HEIGHT = 120;
 
 function syncShellFlags(): void {
   const root = document.documentElement;

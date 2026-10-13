@@ -5,6 +5,7 @@
  */
 import { presentErrorText } from '../../../runtime/shared/err-text.mjs';
 import { sessionActivityTimestamp } from '../queue-helpers.mjs';
+import { archiveItemsForCompaction, compactionArchivedRows } from '../compaction-view.mjs';
 
 // Upper bound on the awaited idle compaction. Without a bound a stalled
 // compaction wedges autoClearRunning/commandBusy and suppresses input drain.
@@ -52,23 +53,26 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     autoClearState,
     routeState,
     syncContextStats,
+    replaceItems,
   } = bag;
 
-  // Only an actual compaction resets the visible transcript; an unchanged
-  // success keeps it. The model transcript always belongs to runtime.compact.
+  // Only an actual compaction resets the visible activity; an unchanged
+  // success keeps it. The compacted rows stay in view, archived above the
+  // divider. The model transcript always belongs to runtime.compact.
   function applyAutoClearUi(result) {
     if (result.changed === false) return false;
-    const compactChanged = result.changed !== false;
-    if (compactChanged) {
-      reset.resetStats();
-      reset.clearUiActivityBeforeContextSync();
-    }
-    syncContextStats({ allowEstimated: true, invalidateExact: compactChanged });
+    const kept = getState().items;
+    reset.resetStats();
+    reset.clearUiActivityBeforeContextSync({ keepTranscript: true });
+    syncContextStats({ allowEstimated: true, invalidateExact: true });
+    const { items } = archiveItemsForCompaction(kept, { id: nextId() }, null, {
+      archived: compactionArchivedRows(result),
+    });
     set({
+      items: replaceItems(items, { preserveSpill: true }),
       ...routeState(),
       stats: { ...getState().stats },
     });
-    pushItem({ kind: 'statusdone', id: nextId(), label: 'Auto-clear complete' });
     return true;
   }
 
@@ -129,7 +133,9 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     }
   }
 
-  async function autoClearBeforeSubmit() {
+  // `ignorePending`: a completion-wake drain has already dequeued its own
+  // batch, so other queued entries must not veto the idle check.
+  async function autoClearBeforeSubmit({ ignorePending = false } = {}) {
     flushDeferredClearedSessionUi();
     const cfg = autoClearState();
     const now = Date.now();
@@ -138,7 +144,7 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     const notIdle =
       !cfg.enabled ||
       getState().busy ||
-      pending.length > 0 ||
+      (!ignorePending && pending.length > 0) ||
       flags.autoClearRunning ||
       flags.autoClearInFlight ||
       idleMs < cfg.idleMs;
@@ -188,5 +194,18 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     }
   }
 
-  return { autoClearBeforeSubmit, performAutoClear, flushDeferredClearedSessionUi };
+  // Same eligibility as a user submit, run before a completion wake turn so a
+  // cold cache after a long idle is compacted first. Never throws: a skipped or
+  // failed auto-clear must still let the wake run. A viewer mirroring another
+  // surface's owner leaves compaction to that owner.
+  async function autoClearBeforeWake() {
+    if (bag.liveShareMirroring?.() === true) return false;
+    try {
+      return await autoClearBeforeSubmit({ ignorePending: true });
+    } catch {
+      return false;
+    }
+  }
+
+  return { autoClearBeforeSubmit, autoClearBeforeWake, performAutoClear, flushDeferredClearedSessionUi };
 }

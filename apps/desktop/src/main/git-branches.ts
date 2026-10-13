@@ -1,3 +1,8 @@
+// Branch checkout, create (also at a history commit) and merge are not here:
+// the desktop and the remote relay go through the runtime's guarded,
+// project-authorized capabilities (selectProjectBranch / mergeProjectBranch:
+// repository lock, checkout admission gate, dirty and occupancy checks),
+// never by running git in the folder directly.
 export interface GitBranchEntry {
   name: string;
   current: boolean;
@@ -67,20 +72,6 @@ export function createGitBranchOperations({ run, currentGitOperation, gitStatus 
     }
   }
 
-  async function gitCheckoutBranch(cwd: string, value: string, remote = false): Promise<string> {
-    const branch = await checkedBranchName(cwd, value);
-    if (!remote) return run(cwd, ['switch', branch]);
-    const localBranch = branch.replace(/^[^/]+\//, '');
-    const localExists = await run(cwd, ['show-ref', '--verify', '--quiet', `refs/heads/${localBranch}`])
-      .then(() => true)
-      .catch(() => false);
-    return run(cwd, localExists ? ['switch', localBranch] : ['switch', '--track', branch]);
-  }
-
-  async function gitCreateBranch(cwd: string, value: string): Promise<string> {
-    return run(cwd, ['switch', '-c', await checkedBranchName(cwd, value)]);
-  }
-
   async function gitRenameBranch(cwd: string, value: string, nextValue: string): Promise<string> {
     const branch = await checkedBranchName(cwd, value);
     const nextBranch = await checkedBranchName(cwd, nextValue);
@@ -119,44 +110,12 @@ export function createGitBranchOperations({ run, currentGitOperation, gitStatus 
       .filter(Boolean);
   }
 
-  async function gitMergeBranch(cwd: string, value: string): Promise<string> {
-    const branch = await checkedBranchName(cwd, value);
-    await assertNoOperationInProgress(cwd, `merging ${branch}`);
-    await assertCleanWorktree(cwd, `merging ${branch}`);
-    try {
-      return await run(cwd, ['merge', '--no-edit', branch]);
-    } catch (reason) {
-      const message = reason instanceof Error ? reason.message : String(reason);
-      const conflicted =
-        /conflict/i.test(message) ||
-        (await currentGitOperation(cwd)
-          .then((operation) => operation === 'merge')
-          .catch(() => false));
-      if (!conflicted) throw reason instanceof Error ? reason : new Error(message);
-      const files = await conflictedPaths(cwd);
-      const current = await run(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
-        .then((name) => name.trim())
-        .catch(() => 'HEAD');
-      throw new Error(
-        [
-          `Merging ${branch} into ${current} hit conflicts`,
-          files.length ? ` in ${files.length} file(s): ${files.slice(0, 10).join(', ')}` : '',
-          '. Resolve them, then continue or abort the merge.',
-        ].join('')
-      );
-    }
-  }
-
   return {
-    checkedBranchName,
     assertNoOperationInProgress,
     assertCleanWorktree,
     conflictedPaths,
     gitBranches,
-    gitCheckoutBranch,
-    gitCreateBranch,
     gitRenameBranch,
     gitDeleteBranch,
-    gitMergeBranch,
   };
 }

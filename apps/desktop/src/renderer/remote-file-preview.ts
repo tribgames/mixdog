@@ -4,6 +4,12 @@
 // and become blob: URLs; local web pages become a self-contained srcdoc
 // document. See main/remote-file-preview.ts for the host half.
 import type { DesktopApi } from '../shared/contract';
+import {
+  MAX_VISUALIZE_SOURCE_BYTES,
+  type VisualizePaneSource,
+  type VisualizePaneText,
+  type VisualizeRemotePaneFile,
+} from '../shared/visualize';
 
 import { useSyncExternalStore } from 'react';
 
@@ -33,7 +39,7 @@ export function useMediaSessionEpoch(): number {
   return useSyncExternalStore(subscribeMediaSession, getMediaSessionEpoch, getMediaSessionEpoch);
 }
 
-type Call =<T = unknown>(method: string, params?: unknown[]) => Promise<T>;
+type Call = <T = unknown>(method: string, params?: unknown[]) => Promise<T>;
 
 /** Raw bytes requested per round trip (host clamps to 4 MiB). */
 export const REMOTE_PREVIEW_CHUNK_BYTES = 2 * 1024 * 1024;
@@ -179,6 +185,59 @@ export async function buildPageSrcdoc(
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
 
+/** A visualize pane's content for a paired client (main/remote-visualize.ts):
+ *  the same bounded range reads and caps as file previews, addressed by tab
+ *  and working-directory-relative path. Pages become a self-contained
+ *  document with their relative assets inlined; everything else (PDF, the
+ *  converted PDF of an Office file, image, audio, video) a blob: URL the
+ *  caller revokes. */
+export async function readRemoteVisualizePane(
+  call: Call,
+  sessionId: string,
+  tabId: string,
+  index: number
+): Promise<VisualizePaneSource> {
+  const meta = await call<VisualizeRemotePaneFile>('visualizePaneFile', [sessionId, tabId, index]);
+  // The page builder and the whole-file reader speak the preview range call;
+  // route it to the pane's own range method.
+  const paneCall: Call = <T>(method: string, params: unknown[] = []) => {
+    if (method !== 'previewProjectFileRange') return Promise.reject(new Error(`Unsupported pane call ${method}.`));
+    // The pane index scopes `rel` to that pane's root (a kept version's
+    // snapshot or the live files).
+    return call<T>('visualizePaneRange', [sessionId, tabId, params[1], params[3], params[4], index]);
+  };
+  if (meta.kind === 'html') {
+    return { kind: 'html', srcdoc: await buildPageSrcdoc(paneCall, '', meta.rel, null) };
+  }
+  if (meta.size > REMOTE_PREVIEW_MAX_FILE_BYTES)
+    throw new Error('This file is too large to preview over remote access.');
+  const file = await readRemoteFile(paneCall, ['', meta.rel, null], REMOTE_PREVIEW_MAX_FILE_BYTES);
+  return { kind: meta.kind, url: URL.createObjectURL(new Blob(file.parts as BlobPart[], { type: meta.mime })) };
+}
+
+/** An HTML pane's source for a paired client's source view: the start of the
+ *  page file (at most MAX_VISUALIZE_SOURCE_BYTES) through the pane's own range
+ *  method, so containment is checked by the host like any pane read. */
+export async function readRemoteVisualizePaneText(
+  call: Call,
+  sessionId: string,
+  tabId: string,
+  index: number
+): Promise<VisualizePaneText> {
+  const meta = await call<VisualizeRemotePaneFile>('visualizePaneFile', [sessionId, tabId, index]);
+  if (meta.kind !== 'html') throw new Error('Only HTML pages have a source view.');
+  const range = await call<RangeResult>('visualizePaneRange', [
+    sessionId,
+    tabId,
+    meta.rel,
+    0,
+    MAX_VISUALIZE_SOURCE_BYTES,
+    index,
+  ]);
+  const bytes = bytesFromBase64(range.data);
+  return { text: new TextDecoder().decode(bytes), truncated: range.size > bytes.length };
+}
+
 /** True when the encrypted media lane really answers for `url`. A relay or
  *  host that cannot (version skew) must leave the preview on the RPC path. */
 async function mediaLaneAnswers(url: string): Promise<boolean> {
@@ -197,10 +256,12 @@ async function mediaLaneAnswers(url: string): Promise<boolean> {
 export function createRemotePreviewApi(
   call: Call,
   laneUrl?: (assetId: string, variant?: string) => string
-): Pick<DesktopApi, 'previewProjectFile' | 'localPageSource'> {
+): Pick<DesktopApi, 'previewProjectFile' | 'localPageSource' | 'captureFileSnapshot'> {
   // key -> blob URL promise; revoked when evicted so a long session stays bounded.
   const blobs = new Map<string, Promise<string>>();
   return {
+    captureFileSnapshot: (projectPath, relPath, accessToken) =>
+      call('captureFileSnapshot', [projectPath, relPath, accessToken ?? null]),
     previewProjectFile: async (projectPath, relPath, accessToken) => {
       const target: [string, string, string | null] = [projectPath, relPath, accessToken ?? null];
       const meta = await call<{

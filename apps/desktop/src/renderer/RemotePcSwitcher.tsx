@@ -1,22 +1,35 @@
-import { Check, ChevronDown, ExternalLink, Plus, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, ExternalLink, Monitor, Plus, SlidersHorizontal, Terminal } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import type { DesktopRemoteHost } from '../shared/contract';
+import type { DesktopRemoteHost, DesktopSshHost } from '../shared/contract';
 import { nativeAppInfo } from '../shared/native-app';
 import { remoteWindowInfo, remoteWindowSwitcher } from '../shared/remote-window';
 import { t } from './i18n';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
-import { requestConnectionDialog } from './settings/connection-intent';
+import {
+  type ConnectionDialogRequest,
+  requestConnectionDialog,
+  type SshHostRequest,
+} from './settings/connection-intent';
+import { openSshHost } from './settings/ssh-hosts';
 import { relativeWhen } from './settings/relative-when';
 import { useRemoteAccessSettings } from './settings/remote-access-settings';
 import { useRemoteHostName } from './remote-host-access';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { desktopConnection } from './desktop-connection';
+import { useConnectionLink } from './connection-link-store';
 import { loadWebSwitcherPcs, type SwitcherPc } from './remote-saved-pcs';
 
 /** "In use" for the PC being driven ("This PC · In use" in the main window);
  *  else its presence and whether its window is open or when it last connected. */
 function switcherPcDetail(pc: SwitcherPc): string {
+  if (pc.ssh) {
+    let rest = '';
+    if (pc.windowOpen) rest = `${t('Online')} · ${t('Window open')}`;
+    else if (pc.lastConnectedAt) rest = relativeWhen(pc.lastConnectedAt);
+    return rest ? `SSH · ${rest}` : 'SSH';
+  }
   if (pc.current) return pc.thisPc ? t('This PC · In use') : t('In use');
   const state = pc.online === true ? t('Online') : t('Offline');
   if (pc.windowOpen) return `${state} · ${t('Window open')}`;
@@ -132,6 +145,25 @@ function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
       window.clearInterval(timer);
     };
   }, [listed, reloadOn]);
+  const [sshHosts, setSshHosts] = useState<DesktopSshHost[]>([]);
+  const sshListed = enabled && Boolean(api?.sshListHosts);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the list reloads when the menu opens, not on bridge identity.
+  useEffect(() => {
+    if (!sshListed) return undefined;
+    let live = true;
+    const load = () => {
+      void window.mixdogDesktop
+        ?.sshListHosts?.()
+        .then((next) => live && setSshHosts(next))
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, 15_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [sshListed, reloadOn]);
   const thisPc: SwitcherPc = {
     id: '',
     name: settings?.name || t('This PC'),
@@ -148,12 +180,27 @@ function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
     current: false,
     windowOpen: host.open,
   }));
-  return { main: listed && saved.length > 0, pcs: [thisPc, ...saved], name: thisPc.name };
+  const savedSsh: SwitcherPc[] = sshHosts.map((host) => ({
+    id: host.id,
+    name: host.name,
+    online: host.open ? true : null,
+    lastConnectedAt: host.lastConnectedAt,
+    current: false,
+    windowOpen: host.open,
+    ssh: true,
+  }));
+  return {
+    main: (listed && saved.length > 0) || (sshListed && savedSsh.length > 0),
+    pcs: [thisPc, ...saved, ...savedSsh],
+    name: thisPc.name,
+    sshHosts,
+    sshListed,
+  };
 }
 
 /** Opens Settings → Connection, optionally with one of its dialogs. */
-function openConnectionSettings(dialog?: 'connect' | 'open-pc'): void {
-  if (dialog) requestConnectionDialog(dialog);
+function openConnectionSettings(dialog?: ConnectionDialogRequest, sshHost?: SshHostRequest): void {
+  if (dialog) requestConnectionDialog(dialog, sshHost);
   window.dispatchEvent(new Event(OPEN_CONNECTION_SETTINGS_EVENT));
 }
 
@@ -161,12 +208,15 @@ function PcMenuItems({
   pcs,
   onSwitch,
   onOpenPc,
+  onSshConnect,
   onConnectDevice,
   onSettings,
 }: {
   pcs: SwitcherPc[];
   onSwitch(pc: SwitcherPc): void;
   onOpenPc(): void;
+  /** Only the main window's menu offers SSH servers. */
+  onSshConnect?(): void;
   onConnectDevice(): void;
   onSettings(): void;
 }) {
@@ -189,16 +239,22 @@ function PcMenuItems({
           {pc.current && <Check size={14} aria-hidden="true" />}
         </button>
       ))}
-      <div className="remote-pc-sep" />
-      <button type="button" role="menuitem" className="remote-pc-item remote-pc-action" onClick={onOpenPc}>
+      {pcs.length > 0 && <div className="remote-pc-sep" />}
+      <button type="button" role="menuitem" className="mx-menu-item remote-pc-action" onClick={onOpenPc}>
         <ExternalLink size={14} aria-hidden="true" />
         <span>{t('Open another PC')}</span>
       </button>
-      <button type="button" role="menuitem" className="remote-pc-item remote-pc-action" onClick={onConnectDevice}>
+      {onSshConnect && (
+        <button type="button" role="menuitem" className="mx-menu-item remote-pc-action" onClick={onSshConnect}>
+          <Terminal size={14} aria-hidden="true" />
+          <span>{t('Connect SSH server')}</span>
+        </button>
+      )}
+      <button type="button" role="menuitem" className="mx-menu-item remote-pc-action" onClick={onConnectDevice}>
         <Plus size={14} aria-hidden="true" />
         <span>{t('Connect a device')}</span>
       </button>
-      <button type="button" role="menuitem" className="remote-pc-item remote-pc-action" onClick={onSettings}>
+      <button type="button" role="menuitem" className="mx-menu-item remote-pc-action" onClick={onSettings}>
         <SlidersHorizontal size={14} aria-hidden="true" />
         <span>{t('Connection settings')}</span>
       </button>
@@ -265,14 +321,71 @@ export function RemotePcCard() {
   );
 }
 
-/** Title-bar PC button at the leading edge. A remote surface (another PC's
- *  window, tablet/browser) shows "● <PC name> ▾"; the main window shows this
- *  PC's name the same way once other PCs are saved, and nothing before. */
-export function RemotePcSwitcher() {
+/** The switcher's trigger: "● <PC name> ▾" in the title band; on the rail a
+ *  compact icon cell whose dot carries the link state and whose name is the
+ *  tooltip and accessible label. */
+function SwitcherButton({
+  rail,
+  open,
+  connected,
+  name,
+  title,
+  onToggle,
+}: {
+  rail: boolean;
+  open: boolean;
+  connected: boolean;
+  name: string;
+  title?: string;
+  onToggle(): void;
+}) {
+  if (rail) {
+    return (
+      <button
+        type="button"
+        className="remote-pc-button remote-pc-rail-button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={name}
+        data-tooltip={open ? undefined : title || name}
+        onClick={onToggle}
+      >
+        <Monitor size={24} aria-hidden="true" />
+        <PcDot connected={connected} />
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="remote-pc-name remote-pc-button"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      title={title}
+      onClick={onToggle}
+    >
+      <PcDot connected={connected} />
+      <span className="remote-pc-label">{name}</span>
+      <ChevronDown size={13} aria-hidden="true" />
+    </button>
+  );
+}
+
+/** PC button at the title band's leading edge, or at the top of the activity
+ *  rail in a plain browser tab (which has no band). A remote surface (another
+ *  PC's window, tablet/browser) shows "● <PC name> ▾"; the main window shows
+ *  this PC's name the same way once other PCs are saved, and nothing before. */
+export function RemotePcSwitcher({ placement = 'titlebar' }: { placement?: 'titlebar' | 'rail' } = {}) {
+  const rail = placement === 'rail';
+  const switcherClass = rail ? 'remote-pc-switcher remote-pc-switcher-rail' : 'remote-pc-switcher';
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const { remote, pcs, name, connected, connectAnother, switchTo } = useRemotePcs(open);
-  const mainPcs = useMainWindowPcs(open, !remote);
+  // A server (ssh) window names the server it drives, not this PC.
+  const server = desktopConnection();
+  const serverWindow = server?.kind === 'ssh';
+  const mainPcs = useMainWindowPcs(open, !remote && !serverWindow);
+  const serverLink = useConnectionLink();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -288,37 +401,76 @@ export function RemotePcSwitcher() {
     };
   }, [open]);
 
+  if (server && serverWindow) {
+    const linked = serverLink?.state.status !== 'reconnecting' && serverLink?.state.status !== 'lost';
+    const rtt = serverLink?.rttMs;
+    return (
+      <div className={switcherClass} ref={root}>
+        <SwitcherButton
+          rail={rail}
+          open={open}
+          connected={linked}
+          name={server.name}
+          title={rtt == null ? server.name : `${server.name} · ${t('Round trip {{ms}} ms', { ms: rtt })}`}
+          onToggle={() => setOpen((value) => !value)}
+        />
+        {open && (
+          <div className="remote-pc-menu" role="menu">
+            <button type="button" role="menuitem" className="remote-pc-item on" disabled>
+              <i className={`remote-pc-dot${linked ? '' : ' off'}`} aria-hidden="true" />
+              <span>
+                {server.name}
+                <small>{t('In use')}</small>
+                {/* Where each part of a server turn runs. */}
+                <small>{t('Model: this PC’s sign-in · Files & tools: {{name}}', { name: server.name })}</small>
+              </span>
+              <Check size={14} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const main = mainPcs.main;
   if (!remote && !main) return null;
 
   const shownPcs = main ? mainPcs.pcs : pcs;
+  // A window that is open is focused; otherwise Settings → Connection opens
+  // with the connect dialog on that server (progress and guidance live there).
+  const openSavedSsh = (pc: SwitcherPc): void => {
+    const host = mainPcs.sshHosts.find((entry) => entry.id === pc.id);
+    const api = window.mixdogDesktop;
+    if (!host || !api) return;
+    void openSshHost(api, host, () =>
+      openConnectionSettings('ssh-host', { id: host.id, name: host.name, target: host.target })
+    );
+  };
   const act = (run: () => void) => () => {
     setOpen(false);
     run();
   };
   return (
-    <div className="remote-pc-switcher" ref={root}>
-      <button
-        type="button"
-        className="remote-pc-name remote-pc-button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <PcDot connected={main || connected} />
-        <span className="remote-pc-label">{main ? mainPcs.name : name}</span>
-        <ChevronDown size={13} aria-hidden="true" />
-      </button>
+    <div className={switcherClass} ref={root}>
+      <SwitcherButton
+        rail={rail}
+        open={open}
+        connected={main || connected}
+        name={main ? mainPcs.name : name}
+        onToggle={() => setOpen((value) => !value)}
+      />
       {open && (
         <div className="remote-pc-menu" role="menu">
           <PcMenuItems
             pcs={shownPcs}
             onSwitch={(pc) => {
               setOpen(false);
-              if (main) void window.mixdogDesktop?.openRemoteHost?.(pc.id)?.catch(() => undefined);
-              else switchTo(pc);
+              if (!main) switchTo(pc);
+              else if (pc.ssh) openSavedSsh(pc);
+              else void window.mixdogDesktop?.openRemoteHost?.(pc.id)?.catch(() => undefined);
             }}
             onOpenPc={act(() => (main ? openConnectionSettings('open-pc') : connectAnother()))}
+            onSshConnect={main && mainPcs.sshListed ? act(() => openConnectionSettings('ssh')) : undefined}
             onConnectDevice={act(() => (main ? openConnectionSettings('connect') : connectAnother()))}
             onSettings={act(() => (main ? openConnectionSettings() : connectAnother()))}
           />

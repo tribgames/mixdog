@@ -45,13 +45,13 @@ const MAX_COOKIES = 4_000;
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1_000;
 const DEFAULT_AUTOSAVE_MS = 60_000;
 
-async function safeStorageEncrypt(text: string): Promise<Buffer | null> {
+export async function safeStorageEncrypt(text: string): Promise<Buffer | null> {
   const { safeStorage } = await import('electron');
   if (!safeStorage.isEncryptionAvailable()) return null;
   return safeStorage.encryptString(text);
 }
 
-async function safeStorageDecrypt(data: Buffer): Promise<string | null> {
+export async function safeStorageDecrypt(data: Buffer): Promise<string | null> {
   const { safeStorage } = await import('electron');
   if (!safeStorage.isEncryptionAvailable()) return null;
   return safeStorage.decryptString(data);

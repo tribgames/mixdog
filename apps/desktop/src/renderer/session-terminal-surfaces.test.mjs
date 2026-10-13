@@ -12,6 +12,8 @@ const { dom } = installTestDom(null, {
   },
   expose: ['HTMLElement'],
 });
+// Horizontal offset of the slot, as when the phone sheet is mid-slide.
+let slotShift = 0;
 dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
   const fixed = this.classList.contains('main-panel')
     ? { left: 10, top: 0, right: 1010, bottom: 700 }
@@ -31,12 +33,13 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingCli
     };
   }
   const visible = this.classList.contains('session-terminal-slot');
+  const shift = visible ? slotShift : 0;
   return {
-    x: visible ? 40 : 0,
+    x: visible ? 40 + shift : 0,
     y: visible ? 20 : 0,
-    left: visible ? 40 : 0,
+    left: visible ? 40 + shift : 0,
     top: visible ? 20 : 0,
-    right: visible ? 760 : 0,
+    right: visible ? 760 + shift : 0,
     bottom: visible ? 500 : 0,
     width: visible ? 720 : 0,
     height: visible ? 480 : 0,
@@ -181,6 +184,59 @@ test('one session terminal root parks and restores at Browser Use width', async 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+test('a slot that only moves is re-measured while it slides and after the transition ends', async () => {
+  const pending = new Map();
+  let nextFrame = 0;
+  window.requestAnimationFrame = (callback) => {
+    nextFrame += 1;
+    pending.set(nextFrame, callback);
+    return nextFrame;
+  };
+  window.cancelAnimationFrame = (id) => pending.delete(id);
+  const flushFrames = async (count) => {
+    for (let index = 0; index < count; index += 1) {
+      const batch = [...pending.values()];
+      pending.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    }
+  };
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    slotShift = 118;
+    await act(async () =>
+      root.render(React.createElement(Harness, { sessionId: 'slide', active: true, cwd: 'C:/slide' }))
+    );
+    const container = document.querySelector('.session-terminal-surface-container');
+    assert.equal(container.style.left, '158px');
+    await flushFrames(2);
+    assert.equal(container.style.left, '158px');
+
+    // The sheet slides: neither size nor window events change, only position.
+    window.dispatchEvent(new window.Event('transitionrun'));
+    slotShift = 60;
+    await flushFrames(1);
+    assert.equal(container.style.left, '100px');
+    slotShift = 0;
+    await flushFrames(1);
+    assert.equal(container.style.left, '40px');
+
+    // A move after the settle window is still picked up by the transition end.
+    await flushFrames(60);
+    slotShift = 10;
+    window.dispatchEvent(new window.Event('transitionend'));
+    await flushFrames(2);
+    assert.equal(container.style.left, '50px');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    slotShift = 0;
+    delete window.requestAnimationFrame;
+    delete window.cancelAnimationFrame;
   }
 });
 

@@ -2,8 +2,7 @@
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
 /* ── Rail destination panels (Projects/Workflows/Schedules/Webhooks) ────────
-   The rail keeps the app's SETTLED type scale (user: 기존 폰트 스타일이 훨씬
-   좋다 — 크기·색감): section headings 14px/500, row titles 13px/550 ink,
+   The rail keeps the app's SETTLED type scale: section headings 14px/500, row titles 13px/550 ink,
    meta 11px muted, controls 12px. Only the view title steps up one size.
    Every left edge — heading, row title, control — sits on the SAME 6px line
    the session rows use inside their pills. The old page grammar (720px
@@ -11,8 +10,7 @@
 .session-sidebar-surface {
   position: absolute;
   /* Opens right under the panel title band, so every destination starts on
-     the same 12px rhythm the Agents dock keeps (user: 헤더 아래 패딩이 메뉴마다
-     중구난방). The old fixed 36px predated the roomy band and tucked the
+     the same 12px rhythm the Agents dock keeps. The old fixed 36px predated the roomy band and tucked the
      content 16px up into it. */
   inset: var(--mx-rail-panel-band) 8px 8px;
   width: auto !important;
@@ -35,7 +33,7 @@
   inset: 0;
 }
 /* Full-height chain: an empty list centers its glyph and copy in the panel
-   instead of hugging the filters (user). */
+   instead of hugging the filters. */
 .session-sidebar-panels .schedules-pane {
   display: flex;
   flex: 1 0 auto;
@@ -47,7 +45,7 @@
   min-height: 0;
   flex: 1 0 auto;
   margin: 0;
-  /* Uniform panel start (user: 시작 패딩 중구난방): the panels container
+  /* Uniform panel start: the panels container
      already carries the shared 4px top inset, so the page adds none — every
      rail destination begins exactly 4px under the header like Sessions. */
   padding: 0 0 16px;
@@ -69,9 +67,8 @@
   place-items: center;
   color: var(--mx-icon-muted);
 }
-/* The mark stays centred on the row's full height, both lines (user: 아이콘
-   상하 중앙 정렬도 해야 해), and opens on the panel title's line; only the
-   hover wash reaches 6px past it (user: 좌측 패딩이 너무 넓은 거 아님?). */
+/* The mark stays centred on the row's full height, both lines, and opens on the panel title's line; only the
+   hover wash reaches 6px past it. */
 .session-sidebar-panels .schedules-row.utilities-row.utilities-row,
 .utility-dock .agent-activity-page .schedules-row.schedules-row {
   width: calc(100% + 6px);
@@ -85,8 +82,7 @@
 .session-sidebar,
 .session-sidebar-panels,
 .utility-dock {
-  /* Rail lists are flat rows, ChatGPT-desktop style (user: 프레임을 다
-     아이템에 써서 부하고 답답해 보이나): no plate and no outline at rest — the
+  /* Rail lists are flat rows, ChatGPT-desktop style: no plate and no outline at rest — the
      hover wash and the selected fill are the only surfaces a row wears. */
   --mx-rail-item-surface: transparent;
   --mx-rail-item-outline: transparent;
@@ -96,8 +92,7 @@
   gap: 6px;
 }
 /* Scrolled rail content fades out under the fixed title band and under a
-   page's pinned control instead of being cut hard against it (user: 헤더
-   고정, 스크롤했을 때). The fades paint the rail's own solid tone, so they
+   page's pinned control instead of being cut hard against it. The fades paint the rail's own solid tone, so they
    only cover the scroller's 12px top padding (and the 8px page gap under a
    pinned control). The title-band fades only appear once their list has
    scrolled — at rest some pages open a heading inside that strip. */
@@ -165,8 +160,7 @@ html[data-window-material="mica"] .session-sidebar {
   animation-range: 0 12px;
 }
 /* The fading tail only exists once the list scrolls; at rest the page's
-   first heading sits right under the control (user: 빌트인이 투명 영역에
-   걸친다, 경계가 너무 넓다). */
+   first heading sits right under the control. */
 @keyframes rail-pin-tail {
   from {
     box-shadow:
@@ -182,12 +176,12 @@ html[data-window-material="mica"] .session-sidebar {
 .session-sidebar-panels .schedules-page > .sidebar-section-toolbar {
   background-color: var(--mx-rail-pin-bg);
 }
-/* Rail pages list flat rows (user: 왼쪽 사이드 탭 아이템 답답하다) on a 4px
+/* Rail pages list flat rows on a 4px
    rhythm. A second line that is only prose (a workflow's description, a
    project's path) leaves the row for its tooltip; one that carries data (an
    agent's model, a schedule's cadence) stays on one ellipsized line, held
    2px under its title so a row binds tighter than its neighbours
-   (user: 너무 옹기종기 정신없다). */
+. */
 .session-sidebar-panels .schedules-pane .schedules-list {
   gap: 4px;
 }
@@ -224,8 +218,7 @@ html[data-window-material="mica"] .session-sidebar {
   display: none;
 }
 /* A data line sits a size AND an ink step under its title, so the name
-   leads and the model or cadence reads as a caption (user: 옹기종기
-   정신없다). It stays on the 13px supporting tier — 12 is reserved for
+   leads and the model or cadence reads as a caption. It stays on the 13px supporting tier — 12 is reserved for
    badges (01-tokens.css) — and the faint ink carries the step. The model
    label's own parts follow that ink instead of the brighter meta ink. */
 .session-sidebar-panels .schedules-pane .utilities-row-copy > small {
@@ -237,7 +230,10 @@ html[data-window-material="mica"] .session-sidebar {
   .utilities-row-copy
   > small
   :is(.model-route-label-model, .model-route-label-effort),
-.utility-dock .agent-activity-page .schedules-row-copy small :is(.model-route-label-model, .model-route-label-effort) {
+:is(.utility-dock .agent-activity-page, .composer-island-jobs)
+  .schedules-row-copy
+  small
+  :is(.model-route-label-model, .model-route-label-effort) {
   color: inherit;
 }
 .session-sidebar-panels .schedules-row[draggable="true"] {
@@ -249,24 +245,49 @@ html[data-window-material="mica"] .session-sidebar {
 .session-sidebar-panels .schedules-row[data-reordering="true"] {
   opacity: var(--mx-op-dim);
 }
-.session-sidebar-panels .schedules-row[data-drop-position="before"] {
-  box-shadow:
-    inset 0 2px 0 var(--mx-focus),
-    inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
+/* Accent insertion line with a left dot, same as session rows. */
+.session-sidebar-panels .schedules-row[data-drop-position] {
+  position: relative;
 }
-.session-sidebar-panels .schedules-row[data-drop-position="after"] {
-  box-shadow:
-    inset 0 -2px 0 var(--mx-focus),
-    inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
+.session-sidebar-panels .schedules-row[data-drop-position]::before,
+.session-sidebar-panels .schedules-row[data-drop-position]::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--mx-accent);
+}
+.session-sidebar-panels .schedules-row[data-drop-position]::after {
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+}
+.session-sidebar-panels .schedules-row[data-drop-position]::before {
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.session-sidebar-panels .schedules-row[data-drop-position="before"]::after {
+  top: -1px;
+}
+.session-sidebar-panels .schedules-row[data-drop-position="before"]::before {
+  top: -4px;
+}
+.session-sidebar-panels .schedules-row[data-drop-position="after"]::after {
+  bottom: -1px;
+}
+.session-sidebar-panels .schedules-row[data-drop-position="after"]::before {
+  bottom: -4px;
 }
 /* One rail gap between Common Memory and the first project card — the same
-   rhythm the cards keep among themselves (user: 간격이 어색하다). The page's
+   rhythm the cards keep among themselves. The page's
    own gap no longer reaches here: the Projects/Workflows section wrapper is
-   a plain block, so without this margin the two cards touched (user: 공통
-   메모리 아래 패딩이 적용 안 됨). */
+   a plain block, so without this margin the two cards touched. */
 .session-sidebar-panels .projects-common-instructions {
   /* Half the rail gap: with the page gap below it, the full step read as a
-     second section break (user: 공통 지침과 첫 프로젝트 사이 살짝 줄이기). */
+     second section break. */
   margin-bottom: calc(var(--mx-rail-gap) / 2);
 }
 .session-sidebar-panels .schedules-row {
@@ -293,8 +314,7 @@ html[data-window-material="mica"] .session-sidebar {
   line-height: 18px;
 }
 /* Hover is a background wash only — bumping the inset ring to the -active
-   tint made an outline flash in/out on every pass (user: 호버하면 불필요한
-   윤곽선이 나왔다 사라짐). The -active ring is reserved for persistent
+   tint made an outline flash in/out on every pass. The -active ring is reserved for persistent
    states (.selected) and real input focus. The doubled class keeps the wash
    one step above .selected, so a hovered selected card still shows it. */
 .session-sidebar-panels .schedules-row.schedules-row:hover {
@@ -396,7 +416,7 @@ html[data-window-material="mica"] .session-sidebar {
   font: inherit;
 }
 /* A disabled entry only dims its icon so the list still reads as one column
-   (user: 토글버튼 빼고, 비활성화 아이콘 딤). */
+. */
 .session-sidebar-panels .sidebar-resource-row[data-enabled="false"] .sidebar-resource-icon {
   opacity: var(--mx-op-disabled);
 }
@@ -526,8 +546,7 @@ html[data-window-material="mica"] .session-sidebar {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A group with work in progress shimmers its session name (user: 돌고있는거
-   강조애니 — 세션네임에) with the shared comet in 22-markdown.css. The
+/* A group with work in progress shimmers its session name with the shared comet in 22-markdown.css. The
    shimmer spans go block so a long name still ellipsizes like the plain
    heading (the glint's copy ellipsizes in its own box). */
 .utility-dock .agent-session-heading h2 [data-component="text-shimmer"],
@@ -560,8 +579,7 @@ html[data-window-material="mica"] .session-sidebar {
      the agent name/tag while retaining a stable right-aligned time column. */
   min-width: 42px;
   flex: 0 0 auto;
-  /* The state word ends where the group heading's overflow dots end (user:
-     ...이랑 안맞잖아): the 18px glyph's dots stop 6px inside the 24px trigger,
+  /* The state word ends where the group heading's overflow dots end: the 18px glyph's dots stop 6px inside the 24px trigger,
      which sits on the page edge, one card gutter outside this column. */
   margin-right: calc(6px - var(--mx-rail-gutter));
   display: grid;
@@ -586,7 +604,7 @@ html[data-window-material="mica"] .session-sidebar {
 }
 /* Keep clocks and state words at the live app's shared weight.
    The row centers this column across the name and model lines. */
-.utility-dock .agent-activity-elapsed {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-supporting);
   font-weight: var(--mx-weight-semibold);
@@ -595,28 +613,28 @@ html[data-window-material="mica"] .session-sidebar {
   white-space: nowrap;
 }
 /* Match the live app's accent for work in progress. */
-.utility-dock .agent-activity-elapsed[data-state="running"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="running"] {
   color: var(--mx-text-accent);
 }
 /* Waiting on child work has its own hue so it never reads like live work
-   (user: 작업중 작업대기는 다른색). */
-.utility-dock .agent-activity-elapsed[data-state="waiting"] {
+. */
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="waiting"] {
   color: var(--mx-warning);
 }
 /* Completion notice: an idle row whose session is still unseen reads in the
-   success hue (user: 완료가 녹색) — the hue alone marks it. It fades back to
+   success hue — the hue alone marks it. It fades back to
    the muted idle tone the moment the session is opened. */
-.utility-dock .agent-activity-elapsed[data-state="done"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="done"] {
   color: var(--mx-success);
 }
 /* A cancel is not a completion and not a rest. It never borrows the accented
    "done" tone or the live running tone: a stopped row reads as stopped. */
-.utility-dock .agent-activity-elapsed[data-state="cancelled"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="cancelled"] {
   color: var(--mx-danger);
 }
 /* Delivered but unproven (Windows git-bash survivors): the warning tone says
    the process could not be confirmed gone, never that the cancel succeeded. */
-.utility-dock .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
+:is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
   color: var(--mx-warning);
 }
 /* Agents dock reuses the Workflows rail grammar. */
@@ -631,7 +649,7 @@ html[data-window-material="mica"] .session-sidebar {
 /* The section is a grid, and an `auto` track sizes to its widest item — the
    nowrap session heading. A long title therefore stretched the track past the
    dock and the cards inherited that width, so the right gutter changed per
-   title (user: 제목에 따라 오른쪽 여백이 들쭉날쭉). minmax(0, 1fr) pins the
+   title. minmax(0, 1fr) pins the
    track to the dock width; the heading ellipsizes instead of pushing. */
 .utility-dock .agent-activity-page .workflows-models {
   grid-template-columns: minmax(0, 1fr);
@@ -685,7 +703,7 @@ html[data-window-material="mica"] .session-sidebar {
   font-weight: var(--mx-weight-regular);
   line-height: 20px;
 }
-.utility-dock .agent-activity-page .schedules-row-copy small {
+:is(.utility-dock .agent-activity-page, .composer-island-jobs) .schedules-row-copy small {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -713,8 +731,7 @@ html[data-window-material="mica"] .session-sidebar {
   margin: 6px 0 0;
   /* Bare section h2 (Default agents) walks the SAME gutter axis and ramp as
      the wrapped section heads — it sat at 14px on the 6px line while its
-     siblings moved to 13px on the 14px gutter (user: 워크플로우 폰트랑
-     에이전트 폰트만 왜 다르고). */
+     siblings moved to 13px on the 14px gutter. */
   padding: 0 var(--mx-rail-gutter);
   display: flex;
   align-items: center;
@@ -728,7 +745,7 @@ html[data-window-material="mica"] .session-sidebar {
 /* First category under the panel header (measured live): the 32px head
    centers a 20px text line, so the first label sat 12+6=18px under the
    header hairline while every BOX opens on the 12px rhythm — and only 8px
-   above its own list (user: 헤더 아래 첫시작 패딩이 어색). Pull exactly the
+   above its own list. Pull exactly the
    internal centering slack so the first category TEXT sits on the same
    12px line; spacing below and every later section stay untouched. */
 .sidebar.session-sidebar > .session-sidebar-scroll > .sidebar-recent:first-child > .sidebar-recent-heading:first-child,
@@ -841,7 +858,7 @@ html[data-window-material="mica"] .session-sidebar {
 }
 .session-row:hover .session-row-action,
 /* Keyboard-only focus reveal: plain click focus kept the SELECTED row's
-   archive/delete cluster visible without hover (user report). */
+   archive/delete cluster visible without hover. */
 .session-row:has(:focus-visible) .session-row-action,
 .session-row-action:focus-visible,
 .session-row.confirming-delete .session-row-action {
@@ -872,7 +889,7 @@ html[data-window-material="mica"] .session-sidebar {
   opacity: var(--mx-op-disabled);
   pointer-events: none;
 }
-/* Archive carries the red tone (user decision); restore stays neutral. */
+/* Archive carries the red tone; restore stays neutral. */
 .session-row-action.session-row-archive {
   color: var(--mx-danger);
 }
@@ -948,7 +965,7 @@ html[data-window-material="mica"] .session-sidebar {
   position: absolute;
   /* Centered in the 31px row and starting on the row's own text line: the
      old 6px/10px insets with a fixed 24px height hung 5px below the row and
-     began 8px right of the title (user: 이름 바꾸기 누르면 정렬 틀어짐). The
+     began 8px right of the title. The
      2px left inset plus the 6px inner padding lands the caret on the 8px
      title inset. */
   top: 50%;
@@ -1028,7 +1045,7 @@ html[data-window-material="mica"] .session-sidebar {
   color: var(--mx-text);
   background: var(--mx-pressed);
   /* Fill only, like the rail tile: a hairline around a one-line row read as
-     a boxed field (user: 프레임리스로 최대한). */
+     a boxed field. */
   box-shadow: none;
 }
 /* Idle titles rest one ink step under the selected row's full ink — the
@@ -1152,12 +1169,12 @@ html[data-window-material="mica"] .session-sidebar {
 .session-sidebar-scroll > .sidebar-recent:has(> .session-list) + .sidebar-recent {
   margin-top: 28px;
 }
-/* Fixed launcher block (user: 세션 위에 새 작업·새 스튜디오 고정): New Task
+/* Fixed launcher block: New Task
    and New Studio sit ABOVE the scroller as a real fixed block. The first
    cut kept them INSIDE it as a sticky block with a -12px margin, but the
    engine clamps a sticky box to its scroller's content box, so it stuck
    12px under the header hairline and scrolled rows showed through that band
-   (user: 고정이냐? 뭔가 이상한데). Out here nothing can scroll beneath it and
+. Out here nothing can scroll beneath it and
    the scrollbar starts under the launchers. The block owns the surface's
    12px top inset and an 8px bottom inset to separate creation actions from
    the categories; the scroller below retains its 2px sibling gap. */
@@ -1178,9 +1195,8 @@ html[data-window-material="mica"] .session-sidebar {
 /* Fixed launchers use item typography and leading icons on the same left
    edge as category headings, retaining the primary-link hit area. They sit
    between the panel title and the rows: the label weight, but the rows'
-   softer ink, so they no longer echo the title (user: 헤더 아래 것들이 헤더랑
-   굳이 웨이트가 같아야 하나) without dropping all the way to a plain row
-   (user: 지금은 과하게 차이 난다). */
+   softer ink, so they no longer echo the title without dropping all the way to a plain row
+. */
 .session-sidebar .task-link.session-launcher-row {
   display: flex;
   align-items: center;
@@ -1189,7 +1205,7 @@ html[data-window-material="mica"] .session-sidebar {
   color: var(--mx-row-title-ink);
   /* One size over the 14px rows and group labels: at 14 the primary actions
      shared a size with "최근" and read smaller than their 36px row and
-     16px glyph (user: 새 작업 새 스튜디오는 왜 작아). */
+     16px glyph. */
   font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-medium);
   text-align: left;
@@ -1293,6 +1309,18 @@ html[data-window-material="mica"] .session-sidebar {
   height: 28px;
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
 }
+/* Header actions appear on hover, keyboard focus or while their menu is open;
+   the slot keeps its width so the title never shifts. Touch keeps them shown. */
+@media (hover: hover) {
+  .sidebar-category-header > .row-overflow .row-overflow-trigger {
+    opacity: 0;
+  }
+  .sidebar-category-header:hover > .row-overflow .row-overflow-trigger,
+  .sidebar-category-header:focus-within > .row-overflow .row-overflow-trigger,
+  .sidebar-category-header > .row-overflow .row-overflow-trigger[aria-expanded="true"] {
+    opacity: 1;
+  }
+}
 /* Projects section: a folder row per project. The row is the drag handle;
    its trailing + starts a task in that project. */
 /* Grid/flex items default to min-width:auto, which lets a nowrap session
@@ -1324,8 +1352,7 @@ html[data-window-material="mica"] .session-sidebar {
   gap: 8px;
 }
 /* Folder names carry the launcher weight and full ink so a project reads
-   apart from the session titles it groups (user: 프로젝트명이 세션명이랑
-   완전히 같아서 헷갈림). */
+   apart from the session titles it groups. */
 .session-sidebar .project-folder-toggle .session-row-copy b {
   font-weight: var(--mx-weight-medium);
   color: var(--mx-text);
@@ -1362,7 +1389,7 @@ html[data-window-material="mica"] .session-sidebar {
   visibility: visible;
   pointer-events: auto;
 }
-/* + is always shown (user: 프로젝트명 오른쪽 +버튼 상시); the name
+/* + is always shown; the name
    truncates before it instead of running under it. */
 .session-sidebar .project-folder > .project-folder-toggle {
   padding-right: 40px;
@@ -1376,24 +1403,117 @@ html[data-window-material="mica"] .session-sidebar {
 .session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-reordering="true"] {
   opacity: var(--mx-op-dim);
 }
-.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="before"] {
-  box-shadow: inset 0 2px 0 var(--mx-focus);
+/* Session rows reorder inside their own list (custom order): same drop line. */
+.session-sidebar-sessions .session-row[data-reordering="true"] {
+  opacity: var(--mx-op-dim);
 }
-.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="after"] {
-  box-shadow: inset 0 -2px 0 var(--mx-focus);
+/* A straight accent line between rows (not a band bent by the row radius),
+   with the same left dot as the folder insertion line. */
+.session-sidebar-sessions .session-row[data-drop-position] {
+  position: relative;
+}
+.session-sidebar-sessions .session-row[data-drop-position]::before,
+.session-sidebar-sessions .session-row[data-drop-position]::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--mx-accent);
+}
+.session-sidebar-sessions .session-row[data-drop-position]::after {
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+}
+.session-sidebar-sessions .session-row[data-drop-position]::before {
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.session-sidebar-sessions .session-row[data-drop-position="before"]::after {
+  top: -1px;
+}
+.session-sidebar-sessions .session-row[data-drop-position="before"]::before {
+  top: -4px;
+}
+.session-sidebar-sessions .session-row[data-drop-position="after"]::after {
+  bottom: -1px;
+}
+.session-sidebar-sessions .session-row[data-drop-position="after"]::before {
+  bottom: -4px;
+}
+/* Folder reorder: an accent insertion line with a dot at its left end sits in
+   the gap at the drop position (replacing the plain inset bar above). */
+.session-sidebar-sessions :is(.sidebar-recent, .project-group) {
+  position: relative;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position] {
+  box-shadow: none;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position]::before,
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position]::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--mx-accent);
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position]::after {
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position]::before {
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="before"]::after {
+  top: -1px;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="before"]::before {
+  top: -4px;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="after"]::after {
+  bottom: -1px;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="after"]::before {
+  bottom: -4px;
+}
+/* A session dragged over a valid project folder outlines the whole group
+   (header + its sessions); invalid targets get nothing. */
+.session-sidebar-sessions .project-group[data-session-drop="true"] {
+  outline: 1.5px solid var(--mx-accent);
+  outline-offset: -1.5px;
+  border-radius: 8px;
+}
+/* The floating chip that follows a dragged row. */
+.pane-native-drag-image.workspace-tab-ghost {
+  border-radius: 8px;
+}
+/* Header ⋯ (session order) takes the header action's 28px box and trailing
+   centerline; the menu's group labels are inert captions. */
+.session-panel-header-actions > .row-overflow {
+  margin-left: 0;
+}
+.session-panel-header-actions > .row-overflow .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
+}
+.row-overflow-menu button[data-action-id$="-order-label"]:disabled {
+  color: var(--mx-text-muted);
+  opacity: 1;
+  cursor: default;
 }
 .project-group-more .session-row-copy b,
 .project-group-sessions .sidebar-section-empty {
   color: var(--mx-text-muted);
   font-weight: var(--mx-weight-regular);
-}
-/* Empty-state line matches the section rows' type (user). */
-.sidebar-section-empty {
-  margin: 2px 0 0;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-ui);
 }
 .session-sidebar .recent-session-list {
   padding: 0;
@@ -1402,7 +1522,7 @@ html[data-window-material="mica"] .session-sidebar {
   padding-left: 8px;
 }
 /* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
-   comfortable while the list stops reading airy (user request). */
+   comfortable while the list stops reading airy. */
 .session-sidebar .session-row {
   height: 31px;
   min-height: 31px;

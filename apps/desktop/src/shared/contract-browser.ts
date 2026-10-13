@@ -77,6 +77,9 @@ export interface DesktopBrowserGuestViewportChange {
 export interface DesktopBrowserRemoteViewerChange {
   sessionId: string;
   active: boolean;
+  /** Present when it changed: a streaming phone drives the page's viewport,
+   *  so its size wins over the pane's until it stops. */
+  driving?: boolean;
 }
 
 export interface DesktopBrowserOpenRequest {
@@ -217,6 +220,9 @@ export interface DesktopRemoteBrowserStreamFrame extends DesktopRemoteBrowserFra
   /** CSS viewport the image depicts; pointer and wheel coordinates use it. */
   viewportWidth: number;
   viewportHeight: number;
+  /** The session's tab strip, as the local pane shows it. Present on a host
+   *  advertising `browserSessionTabs`. */
+  tabs?: DesktopBrowserTab[];
 }
 
 /** Human page input from a paired client: the local pane's own input set,
@@ -226,7 +232,25 @@ export type DesktopRemoteBrowserPageInput = Extract<
   { type: 'pointer' | 'wheel' | 'text' | 'key' | 'composition' | 'composition-end' }
 > & { documentId: string };
 
+/** The phone pane's content box in CSS pixels and its device pixel ratio: a
+ * host advertising `browserDrive` renders the streamed page at this size as a
+ * mobile page while the client streams it. */
+export interface DesktopRemoteBrowserViewport {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+}
+
+/** Reply to a `close-tab` control: the session's tabs left once the host finished closing. */
+export interface DesktopBrowserTabControlResult {
+  remainingTabs: number;
+}
+
 export type DesktopRemoteBrowserControl =
   | { type: 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
+  | ({ type: 'viewport' } & DesktopRemoteBrowserViewport)
+  /** Tab chrome of the session's own browser; a host advertising `browserSessionTabs` takes these. */
+  | { type: 'new-tab' }
+  | { type: 'select-tab' | 'close-tab'; tabId: string }
   | DesktopRemoteBrowserPageInput;

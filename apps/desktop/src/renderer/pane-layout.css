@@ -26,19 +26,18 @@
   display: flex;
   flex: 1 1 0%;
   /* Chat-appropriate floor (the composer needs more than a 220x70 floor).
-     Height floor is 1.5x the width floor (user: 200px panes were too short
-     to read a conversation). */
+     Height floor is 1.5x the width floor. */
   min-width: min(320px, 100%);
   min-height: min(480px, 100%);
   /* The floor is the ONLY intrinsic size: without size containment the
      composer's content min-width bubbled up and overflowed the window even
-     when the floors fit (user report). */
+     when the floors fit. */
   contain: size;
   overflow: hidden;
   position: relative;
   isolation: isolate;
   /* Every leaf follows the same inset/column ladder from ITS width, not
-     the outer workbench (user: 데스크탑앱 전체 해상도대응). */
+     the outer workbench. */
   container-name: mixdog-pane;
   container-type: inline-size;
 }
@@ -55,8 +54,7 @@
   flex: 0 0 1px;
   /* Above the lifted FOCUSED leaf (4): the 6px hit target below lives inside
      the second cell, and with the browser pane focused that cell covered it,
-     leaving a 1px handle nobody could grab (user: 브라우저 창이 좌측으로
-     확장축소가 안 되네). */
+     leaving a 1px handle nobody could grab. */
   z-index: 5;
   background: transparent;
 }
@@ -137,15 +135,14 @@
   min-height: 0;
   overflow: hidden;
   /* One seam token for every workbench boundary (rail/sidebar/tab strip):
-     the stronger --mx-border here read as a visibly heavier line (user:
-     테두리 굵기 중구난방). */
+     the stronger --mx-border here read as a visibly heavier line. */
   border-top: 1px solid var(--mx-border-structure);
   position: relative;
   color: var(--mx-text);
   background: var(--mx-window-band);
 }
 /* Inline (wide) open is instant — same one-frame commit as the left sidebar
-   (user: 오른쪽/아래쪽만 튀듯이 붙는다). Only the ≤940px sheet below keeps
+. Only the ≤940px sheet below keeps
    its slide-in motion. */
 /* Floor-overlap state: the panel rides OVER the pane bottom once the pane is
    at its floor — lift it above the workspace and read as a covering sheet. */
@@ -153,8 +150,7 @@
   z-index: 7;
   box-shadow: 0 -8px 20px var(--mx-alpha-dark-30);
 }
-/* ≤940px: the bottom panel joins the SHEET grammar (user: 하단 탭도 좌우
-   탭과 같은 취급 — 레이아웃도 비슷하게, 애니하고): a fixed card over the
+/* ≤940px: the bottom panel joins the SHEET grammar: a fixed card over the
    workspace with the side sheets' rounding/ring/shadow language, sliding
    in from its own (bottom) edge. App-level exclusivity guarantees only
    one sheet at a time in this band. */
@@ -173,7 +169,7 @@
   .bottom-panel:not([data-settled="true"]) {
     animation: bottom-sheet-in var(--mx-sheet-motion);
   }
-  /* Exit mirrors the entry (user: 열리고 닫힐 때 부드럽게). The panel used to
+  /* Exit mirrors the entry. The panel used to
      unmount on close, so CSS never had an element left to animate; it is now
      held for the sheet clock with data-state="closed" and slides back out. */
   .bottom-panel {
@@ -608,7 +604,7 @@
 .pane-cell {
   position: relative;
   display: grid;
-  /* The MAIN content keeps the workspace floor (user: 최소 넓이 보장) — side
+  /* The MAIN content keeps the workspace floor — side
      columns yield or overlay before the conversation can be crushed. */
   grid-template-columns: minmax(min(360px, 100%), 1fr) auto;
   /* strip | surface stack | bottom panel (Problems…). The dock spans all
@@ -664,9 +660,7 @@
 }
 
 /* ── Per-pane right dock ──
-   The former window-level right side panel now belongs to each pane (user:
-   오른쪽 사이드탭을 PANE에 종속된 탭으로 — PANE 오른쪽에 붙고, PANE마다
-   하나씩, 스트립 추가 없이). Closed it renders nothing; expanded it docks a
+   The former window-level right side panel now belongs to each pane. Closed it renders nothing; expanded it docks a
    side surface with its own horizontal tab header to the pane's right edge. */
 .pane-side-dock {
   position: relative;
@@ -679,10 +673,9 @@
   overflow: visible;
   background: var(--mx-window-band);
 }
-/* ONE unit-wide header line (user: 헤더 한 줄) — just the child icons,
+/* ONE unit-wide header line — just the child icons,
    spanning [diff | panel], height matched to the PANE tab strip. */
-/* Same title band as the left side panel (user: 오른쪽 패널도 왼쪽 사이드
-   레일 패널처럼): the shared rail title band, flowing into its list with no hairline
+/* Same title band as the left side panel: the shared rail title band, flowing into its list with no hairline
    under it. */
 .pane-side-dock-header {
   flex: 0 0 var(--mx-rail-panel-band);
@@ -714,53 +707,6 @@
 html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="true"] {
   background: var(--mx-mica-panel-solid);
 }
-/* The header names the showing child only (user: 독 헤더는 뷰 이름 + X); the
-   child pickers ride the PANE strip's right end as .pane-dock-toggles. */
-.pane-side-dock-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  /* The left panel's title tier on its 12px box line. */
-  padding: 0 12px;
-  color: var(--mx-text);
-  font-size: var(--mx-rail-panel-title);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-emphasis);
-  white-space: nowrap;
-  overflow: hidden;
-}
-.pane-side-dock-title > svg {
-  flex: 0 0 auto;
-  color: var(--mx-text-muted);
-}
-.pane-side-dock-title > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Fold affordance (user: 오버레이까지 되는 판에 X가 있어야): the X folds the
-   unit; re-clicking the active icon does the same. */
-.pane-side-dock-close {
-  /* Island button parity: 28px box around a 20px lucide mark. */
-  width: 28px;
-  height: 28px;
-  margin-left: auto;
-  margin-right: 4px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-text-muted);
-  background: transparent;
-  cursor: pointer;
-}
-.pane-side-dock-close:hover {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-}
 .pane-side-dock-main {
   position: relative;
   flex: 1 1 auto;
@@ -775,7 +721,7 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   /* The content wrapper still clips its children; the resize edge must not
      be clipped by the panel itself. */
   overflow: visible;
-  /* Width is fully MEASURED by the dock host (user: 통합 넓이계산): the unit
+  /* Width is fully MEASURED by the dock host: the unit
      always leaves the conversation its floor, so no band cap is needed. */
   max-width: none;
 }
@@ -802,8 +748,7 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
 }
 /* The divider is the header's and panel's own left border, which runs the
    dock's full height; this resize edge covers only the panel body, so its
-   resting line stopped short of the header (user: 변경 사항 왼쪽 윤곽선
-   잘리는 거). It shows only while grabbed. The diff column keeps its line. */
+   resting line stopped short of the header. It shows only while grabbed. The diff column keeps its line. */
 .pane-side-dock .workbench-side-panel-resize::after {
   background: transparent;
 }
@@ -813,8 +758,7 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   background: var(--mx-focus);
 }
 /* ── Dock surface stack (browser / diff under the side-tab header) ──
-   The header's children render STANDALONE below it (user: 사이드탭 헤더
-   하위에 브라우저·DIFF — 탭줄 없이 단독). Surfaces stay mounted in a layer
+   The header's children render STANDALONE below it. Surfaces stay mounted in a layer
    stacked over the panel body — display:none would wedge a browser guest —
    and the showing side wins by z-index/opacity, like pane surface slots. */
 .pane-side-dock .workbench-side-panel-surfaces {
@@ -939,7 +883,7 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
 
 /* Narrow pane: even the minimum unit would crush the conversation below its
    360px floor, so the WHOLE unit — header, panel, browser, diff pair — floats
-   over the pane instead (user: 한몸 오버레이). The dock host MEASURES its own
+   over the pane instead. The dock host MEASURES its own
    cell, so this replaces the old fixed 720px/940px band rules. */
 .pane-side-dock[data-overlay="true"] {
   position: absolute;
@@ -951,8 +895,7 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   background: var(--mx-window-band);
 }
 /* ── Diff pair column ──
-   A diff opens PAIRED to the LEFT of the panel view (user: 디프는 하단
-   소스제어 패널 왼쪽에 쌍으로), under the same header selection. The column
+   A diff opens PAIRED to the LEFT of the panel view, under the same header selection. The column
    keeps its own draggable width; the unit total is the measured pair. */
 .pane-dock-diff-column {
   position: relative;
@@ -985,7 +928,7 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
      sheet background still painted, and with the dock folded that 480px box
      landed over the pane — covering the tab strip's labels, icons and dock
      toggles right of the active tab while hit-testing (pointer-events:none)
-     reported the labels as visible (user: 포커스하면 라벨이 날아간다). Clip
+     reported the labels as visible. Clip
      the box's own painting to nothing; unlike visibility:hidden this touches
      no descendant style, so the close commit stays as cheap as intended. */
   clip-path: inset(100%);
@@ -1004,7 +947,7 @@ html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="
   min-height: 0;
   overflow: hidden;
 }
-/* 2뎁스 back step (user: 1단계는 디프를 패널에 올리고 뒤로가기): a slim row
+/* 2뎁스 back step: a slim row
    above the stacked diff returns to the Source Control list. */
 .pane-dock-diff-back {
   flex: 0 0 30px;
@@ -1533,7 +1476,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
 
 /* ── Left sidebar diff column ──
    Source Control on the LEFT opens its diff paired to the RIGHT of the
-   sidebar (user: 왼쪽 소스컨트롤도 우측 확장 스타일), the same column grammar
+   sidebar, the same column grammar
    as the pane dock pair above: own draggable width, hidden-not-unmounted on
    close, overlay over the workspace when the pair would crush it. */
 .sidebar-diff-column {
@@ -1743,13 +1686,14 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   position: fixed;
   z-index: 240;
   pointer-events: none;
-  background: color-mix(in srgb, var(--mx-focus) 22%, transparent);
-  border-radius: 0;
+  background: color-mix(in srgb, var(--mx-accent) 8%, transparent);
+  outline: 1.5px solid var(--mx-accent);
+  outline-offset: -1.5px;
+  border-radius: var(--mx-radius-md);
   opacity: 1;
-  /* Editor drop-target grammar: borderless wash (outline is a
-     high-contrast-only affordance), 150ms fade-in per fresh overlay and a
-     70ms glide between zones. The element remounts per pane, so the
-     highlight never slides across panes. */
+  /* Accent outline + faint accent fill on the targeted half/quadrant, 150ms
+     fade-in per fresh overlay and a 70ms glide between zones. The element
+     remounts per pane, so the highlight never slides across panes. */
   transition:
     left 70ms ease-out,
     top 70ms ease-out,
@@ -1764,8 +1708,20 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
 }
 /* Foreign-strip insertion caret (tabs-drop index feedback). */
 .pane-drop-overlay.pane-drop-insert {
-  background: var(--mx-focus);
-  border-radius: var(--mx-radius-hair);
+  background: var(--mx-accent);
+  outline: none;
+  border-radius: 1px;
+}
+.pane-drop-overlay.pane-drop-insert::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--mx-accent);
 }
 
 /* Per-pane tab strips (editor groups): each pane cell stacks its own
@@ -1779,7 +1735,7 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
 /* The workspace column refuses to shrink below one pane floor — but ONLY
    while the bottom panel is actually competing for height; past the floor the
    panel overlays (BottomPanel syncOverlay) instead of squeezing the panes
-   into nothing (user decision). Scoping the floor to an open panel keeps
+   into nothing. Scoping the floor to an open panel keeps
    full-page takeover surfaces (settings/workflows) free to collapse the pane
    region exactly as before. */
 .main-panel[data-bottom-panel] > .pane-split,
@@ -1794,10 +1750,8 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   /* Strip: tabs sit flush in a square band — no inset. */
   padding: 0;
   /* The strip wears the pane surface itself — no darker band: the empty run
-     beside the tabs read as a dark bar even at a 14% step (user: 빈 탭
-     색깔, 그쪽 라인이 제일 문제). No hairline closes the row either — it
-     boxed the strip in (user: 구분선 없애거나 각진 느낌 줄이기 → 아래
-     테두리만 없애기); the cell seams and the selection plate
+     beside the tabs read as a dark bar even at a 14% step. No hairline closes the row either — it
+     boxed the strip in; the cell seams and the selection plate
      (04-workspace-tabs.css) carry the row. The 1px bottom edge keeps the strip on the side panel's title
      band height. */
   background: transparent;
@@ -1805,7 +1759,7 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
 }
 /* Workspace scrollbars follow the shell-wide square grammar (desktop.css). */
 
-/* Narrow-shell single-pane mode (user decision): below the phone breakpoint
+/* Narrow-shell single-pane mode: below the phone breakpoint
    a split tree would crush every pane under its floor, so the workspace
    shows ONE pane at a time and the strip-row pager steps through the panes
    in visual order. Hidden panes stay mounted (display only) so terminals,

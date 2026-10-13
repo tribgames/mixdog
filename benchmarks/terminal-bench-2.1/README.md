@@ -10,7 +10,7 @@ and for the Codex CLI baseline alike. The Opus run and the Claude Code
 baseline are single passes (`k=1`, 89 trials each), where per-task score
 differences sit within normal run-to-run variance. The leaderboard is not
 accepting community submissions, so these runs are published with their raw
-artifacts under `raw-runs/` instead of submitted.
+artifacts under `<harness>/<model>/<date>/` instead of submitted.
 
 These runs test whether Mixdog can match the native harnesses on results
 while spending far less to get there. The Mixdog side is a strict
@@ -109,12 +109,15 @@ neither Sol total is missing a priced component.
 - `analysis/trace-recovered-cost.json` — raw token splits for the timeout trials priced from the agent trace
 - `tb21-opus-vs-claude-code.svg` — Opus comparison graph
 - `tb21-sol-vs-codex.svg` — Sol comparison graph
-- `raw-runs/` — committed verification artifacts for every published run: Harbor
+- `mixdog/`, `claude-code/`, `codex/`, `dsh/` (`<harness>/<model>/<date>[-k5]/`)
+  and `index.json` — committed verification artifacts for every published run
+  (see "Results layout" below), including the external DeepSeek V4.1 Flash run
+  from PR #43 (Mixdog vs DSH, `mixdog/deepseek-v4.1-flash/2026-10-12/` and `dsh/deepseek-v4.1-flash/2026-10-12/`): Harbor
   `result.json`, `config.json` with the pinned task checksum, official verifier
   output, and the usage snapshot each cost figure is priced from; runs made
   after provenance capture also archive `runtime-provenance.json` and the
   per-file `runtime-manifest.json`
-- `analysis/export-raw.mjs` — rebuilds `raw-runs/` from the local run directories
+- `analysis/export-raw.mjs` — rebuilds the `<harness>/<model>/<date>[-k5]/` exports (and their `index.json` entries) from the local run directories
 - `jobs-*` — full local run directories, session transcripts included (not committed)
 
 ## Reproduce
@@ -237,14 +240,14 @@ also where a `clean=false` run or a lower-bound baseline is flagged.
 
 ### Verify the published numbers from the raw artifacts
 Run from `benchmarks/terminal-bench-2.1`. These work from the committed
-`raw-runs/` export alone (a full local `jobs-*` copy is used instead when present):
+committed export alone (a full local `jobs-*` copy is used instead when present):
 ```powershell
 node analysis/verify-source-commit.mjs  # each published run ↔ the source commit it ran
 node analysis/results-table.mjs   # regenerates results.md/.json
 node harness/cost-exact.mjs jobs-full-opus5-solo-20260825-155233/2026-08-26__00-52-35 cc-baseline-plus.json
 node harness/cost-exact.mjs jobs-full-sol-xhigh-k5-20260825-182921/2026-08-26__03-29-24
 ```
-These read session logs and traces, which `raw-runs/` does not archive, so
+These read session logs and traces, which the committed export does not archive, so
 they need the full local `jobs-*` directories and stop with an error without them:
 ```powershell
 node analysis/final-context.mjs   # final-context medians for all runs
@@ -259,16 +262,46 @@ tasks absent from it, mined from the raw Claude Code trajectories in
 `jobs-full-cc-n8/` (extraction validated field-for-field against the pinned
 entries on shared tasks); the pinned original is unmodified.
 
+### Results layout
+Published results are filed directly under this directory:
+
+```
+<harness>/<model>/<YYYY-MM-DD>[-k5]/
+```
+
+Every harness sits at the same level.
+
+- `<harness>`: `mixdog`, `claude-code`, `codex`, `dsh`, ...
+- `<model>`: the model the harness drove (`claude-opus-5`, `gpt-5.6-sol`, ...).
+- `<YYYY-MM-DD>[-k5]`: the run start date (the date in the run id when it has
+  one), plus `-k5` when the run used k=5 attempts.
+
+`index.json` lists every result with `jobsDir` (the run's original jobs
+directory name, as used by `presets.json` and the analysis tools), `path`
+(relative to this directory), `model`, `date`, `harness`, `harnessVersion` when
+known, `k`, `score` (passed/total) and `source` (`mixdog` or an external PR).
+Tools resolve a `jobsDir` (optionally followed by a sub-run such as
+`jobs-full-cc-n8/2026-08-02__19-20-02`) through this index; a full local
+`jobs-*` directory takes precedence when present.
+
+To add a result, put it under `<harness>/<model>/<date>[-k5]/` and add an
+`index.json` entry with the fields above, keeping `jobsDir` stable. For a local
+Mixdog run, `node benchmarks/terminal-bench-2.1/analysis/export-raw.mjs` (from the repo root, with the jobs
+directory listed in its `RUNS`) exports it and adds or updates the entry.
+External submissions keep their internal layout (see
+`mixdog/deepseek-v4.1-flash/2026-10-12/`) and use `"source": "external PR #N"`.
+
 ### Claim → raw evidence map
 | Claim | Raw artifacts |
 |---|---|
-| Mixdog Opus 5 79/89 (single-model, single-session) | `raw-runs/jobs-full-opus5-solo-20260825-155233/` |
-| Claude Code 77/89 | `raw-runs/jobs-full-cc-n8/` |
-| Mixdog Sol 385/445, `k=5` (single-model, single-session) | `raw-runs/jobs-full-sol-xhigh-k5-20260825-182921/` |
-| Codex CLI 383/445, `k=5` | `raw-runs/jobs-full-codex-k5-20260831-050151/` |
-| Codex CLI 75/89, archived `k=1` | `raw-runs/jobs-full-codex/` |
+| Mixdog Opus 5 79/89 (single-model, single-session) | `mixdog/claude-opus-5/2026-08-25/` |
+| Claude Code 77/89 | `claude-code/claude-opus-5/2026-08-02/` |
+| Mixdog Sol 385/445, `k=5` (single-model, single-session) | `mixdog/gpt-5.6-sol/2026-08-25-k5/` |
+| Codex CLI 383/445, `k=5` | `codex/gpt-5.6-sol/2026-08-31-k5/` |
+| Codex CLI 75/89, archived `k=1` | `codex/gpt-5.6-sol/2026-08-02/` |
+| DeepSeek V4.1 Flash, Mixdog 68/89 vs DSH 64/88 (external, PR #43) | `mixdog/deepseek-v4.1-flash/2026-10-12/`, `dsh/deepseek-v4.1-flash/2026-10-12/` |
 
-Every trial directory under `raw-runs/` archives `result.json` (Harbor verdict),
+Every trial directory under each result folder archives `result.json` (Harbor verdict),
 `config.json` (agent config + task checksum), the official verifier output, and
 the usage snapshot — scores, verifier results, and priced cost are
 recomputable from these files alone. Figures read from session logs or traces

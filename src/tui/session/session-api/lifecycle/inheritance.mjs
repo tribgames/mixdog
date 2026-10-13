@@ -25,6 +25,8 @@ export function createInheritanceActions(bag, { restoreTranscriptItems }) {
     set({
       sessionId,
       items: replaceItems(items),
+      // An heir carries the conversation, never the source's archive.
+      transcriptArchive: null,
       toasts: [],
       queued: [],
       thinking: null,

@@ -9,6 +9,11 @@
   "{{count}} checks failing": "{{count}} check failing",
   "{{count}} checks pending": "{{count}} check pending",
   "{{count}} commands": "{{count}} command",
+  "Change {{count}} files": "Change {{count}} file",
+  "Create {{count}} files": "Create {{count}} file",
+  "Delete {{count}} files": "Delete {{count}} file",
+  "Edit {{count}} files": "Edit {{count}} file",
+  "Run {{count}} commands": "Run {{count}} command",
   "{{count}} definitions": "{{count}} definition",
   "{{count}} entries": "{{count}} entry",
   "{{count}} failed": "{{count}} failed",
@@ -43,5 +48,6 @@
   "the following {{count}} items": "the following {{count}} item",
   "Island: {{count}} agents": "{{count}} agent",
   "Island: {{count}} shells": "{{count}} shell",
-  "Island: {{count}} files": "{{count}} file"
+  "Island: {{count}} files": "{{count}} file",
+  "Turn changes: {{count}} files changed": "{{count}} file changed"
 }

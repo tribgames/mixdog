@@ -108,6 +108,8 @@ export const SETUP_MCP_SCHEMA = object({
     additionalProperties: removableText,
     description: 'HTTP header names mapped to existing environment variable names.',
   },
+  startupTimeoutSec: { type: 'number', description: 'Connect/handshake timeout in seconds (>0, default 30).' },
+  toolTimeoutSec: { type: 'number', description: 'Per tool-call timeout in seconds (>0, default 120).' },
 });
 
 export const SETUP_EXTENDED_PROPERTIES = Object.freeze({

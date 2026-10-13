@@ -4,6 +4,7 @@
  * a turn is running). Each shows a command status while it holds the lock.
  */
 import { compactEventDetail } from '../labels.mjs';
+import { archiveItemsForCompaction, compactionArchivedRows } from '../compaction-view.mjs';
 
 export function createSessionCommandsApi(bag) {
   const {
@@ -108,8 +109,15 @@ export function createSessionCommandsApi(bag) {
           invalidateExact: compactChanged,
         });
         set({ ...routeState(), stats: { ...getState().stats } });
-        if (compactChanged) set({ items: replaceItems([]) });
-        pushItem(compactDoneItem(result, startedAt));
+        if (compactChanged) {
+          // The compacted rows stay visible (archived) above the divider.
+          const { items } = archiveItemsForCompaction(getState().items, compactDoneItem(result, startedAt), null, {
+            archived: compactionArchivedRows(result),
+          });
+          set({ items: replaceItems(items, { preserveSpill: true }) });
+        } else {
+          pushItem(compactDoneItem(result, startedAt));
+        }
         return result;
       });
     } finally {

@@ -62,6 +62,15 @@ export const STRINGS = {
     updateGet: 'Download update',
     updateLater: 'Later',
     updateAvailable: 'Mixdog {v} is available.',
+    updateBusy: 'Updating to Mixdog {v}…',
+    updateInstall: 'Install',
+    updateDownloadedText: 'Mixdog {v} has been downloaded. Install it to finish updating.',
+    updateDownloadingText: 'Downloading Mixdog {v}…',
+    updateDownloadingBtn: 'Downloading…',
+    updateInstallingBtn: 'Installing…',
+    updateFailedText: 'Mixdog {v} could not be downloaded.',
+    updateRetry: 'Try again',
+    updateBrowser: 'Get in browser',
     notLink: 'That is not a Mixdog QR code.',
     preparing: 'Preparing the QR scanner… try again in a moment.',
     scanFailed: 'Could not scan. Connect with a code instead.',
@@ -103,6 +112,15 @@ export const STRINGS = {
     updateGet: '업데이트 다운로드',
     updateLater: '나중에',
     updateAvailable: 'Mixdog {v} 버전을 사용할 수 있습니다.',
+    updateBusy: 'Mixdog {v} 버전으로 업데이트하는 중…',
+    updateInstall: '설치',
+    updateDownloadedText: 'Mixdog {v} 버전을 다운로드했습니다. 설치하여 업데이트를 완료하세요.',
+    updateDownloadingText: 'Mixdog {v} 버전을 다운로드하는 중…',
+    updateDownloadingBtn: '다운로드 중…',
+    updateInstallingBtn: '설치 중…',
+    updateFailedText: 'Mixdog {v} 버전을 다운로드하지 못했습니다.',
+    updateRetry: '다시 시도',
+    updateBrowser: '브라우저로 받기',
     notLink: 'Mixdog QR 코드가 아닙니다.',
     preparing: 'QR 스캐너를 준비하는 중… 잠시 후 다시 시도하세요.',
     scanFailed: '스캔하지 못했습니다. 코드로 연결하세요.',
@@ -116,15 +134,27 @@ export interface ScreenState {
   result?: ResultKind;
   /** Inline message under the subtitle (start) or the input (code). */
   error?: string;
-  update?: { version: string };
+  /** Mirrors the native update state; `percent` while downloading. */
+  update?: { version: string; phase: UpdatePhase; percent?: number };
   /** The PC being waited on, when its name is known. */
   pc?: string;
   /** A code is being redeemed: the input and button wait for the answer. */
   busy?: boolean;
 }
 
+export type UpdatePhase = 'available' | 'downloading' | 'downloaded' | 'installing' | 'failed';
+
 export interface Action {
-  id: 'scan' | 'enter-code' | 'cancel' | 'connect' | 'retry' | 'update-get' | 'update-later';
+  id:
+    | 'scan'
+    | 'enter-code'
+    | 'cancel'
+    | 'connect'
+    | 'retry'
+    | 'update-get'
+    | 'update-retry'
+    | 'update-browser'
+    | 'update-later';
   label: string;
   primary: boolean;
 }
@@ -142,6 +172,20 @@ export interface View {
 
 const act = (id: Action['id'], label: string, primary: boolean): Action => ({ id, label, primary });
 
+function updateActions(phase: UpdatePhase, s: Strings): Action[][] {
+  const later = [act('update-later', s.updateLater, false)];
+  if (phase === 'failed') {
+    return [[act('update-retry', s.updateRetry, true)], [act('update-browser', s.updateBrowser, false)], later];
+  }
+  const label = {
+    available: s.updateGet,
+    downloaded: s.updateInstall,
+    downloading: s.updateDownloadingBtn,
+    installing: s.updateInstallingBtn,
+  }[phase];
+  return [[act('update-get', label, true)], later];
+}
+
 /** What each step shows. Title, subtitle and actions exist for every step. */
 export function viewFor(state: ScreenState, s: Strings): View {
   const base = { extra: 'none', error: state.error ?? '' } as const;
@@ -151,9 +195,7 @@ export function viewFor(state: ScreenState, s: Strings): View {
       title: s.heading,
       sub: s.note,
       extra: state.update ? 'update' : 'none',
-      actions: state.update
-        ? [[act('update-get', s.updateGet, true)], [act('update-later', s.updateLater, false)]]
-        : [[act('scan', s.scan, true)], [act('enter-code', s.enterCode, false)]],
+      actions: state.update ? updateActions(state.update.phase, s) : [[act('scan', s.scan, true)], [act('enter-code', s.enterCode, false)]],
     };
   }
   if (state.step === 'code') {
@@ -372,7 +414,17 @@ export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hook
     extra.append(row);
   }
   if (view.extra === 'update' && input.state.update) {
-    extra.append(el(doc, 'p', 'mxp-fine', input.strings.updateAvailable.replace('{v}', input.state.update.version)));
+    const { version, phase, percent } = input.state.update;
+    const s = input.strings;
+    const pct = percent === undefined ? '' : ` ${percent}%`;
+    const text = {
+      available: s.updateAvailable,
+      downloading: `${s.updateDownloadingText}${pct}`,
+      downloaded: s.updateDownloadedText,
+      installing: s.updateBusy,
+      failed: s.updateFailedText,
+    }[phase].replace('{v}', version);
+    extra.append(el(doc, 'p', 'mxp-fine', text));
   }
   block.append(extra);
   main.append(block);
@@ -383,7 +435,9 @@ export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hook
     actions.append(actionButton(
         doc,
         action,
-        action.id === 'connect' && (input.codeValue.length !== 6 || Boolean(input.state.busy)),
+        (action.id === 'connect' && (input.codeValue.length !== 6 || Boolean(input.state.busy))) ||
+          (action.id === 'update-get' &&
+            (input.state.update?.phase === 'downloading' || input.state.update?.phase === 'installing')),
         hooks,
         action.id === 'connect' && input.state.busy ? input.strings.connecting : undefined
       ));

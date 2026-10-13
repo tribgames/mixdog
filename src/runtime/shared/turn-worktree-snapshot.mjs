@@ -6,10 +6,14 @@ import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
+import { normalizeChangeStatus, splitPatchSections } from './turn-changes.mjs';
 
 const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
 const PATCH_MAX_BYTES = 2 * 1024 * 1024;
+// The complete (replay-safe) patch a sealing turn records; per-file and
+// per-session bounds are applied on top of this by the change record.
+const FREEZE_PATCH_MAX_BYTES = 64 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
 // Largest tool-supplied baseline kept for `hash-object`: the apply_patch edit
 // limit. (2–64 MiB explicit untracked edits keep their exact revert.)
@@ -70,9 +74,16 @@ function commandError(args, stderr, code) {
 // call that would otherwise stall the event loop each time.
 async function runGit(
   args,
-  { cwd, input = '', timeoutMs = COMMAND_TIMEOUT_MS, maxBytes = COMMAND_MAX_BYTES, allowFailure = false } = {}
+  {
+    cwd,
+    input = '',
+    timeoutMs = COMMAND_TIMEOUT_MS,
+    maxBytes = COMMAND_MAX_BYTES,
+    allowFailure = false,
+    stdoutEncoding = 'utf8',
+  } = {}
 ) {
-  const result = await runGitOffThread(args, { cwd, input, timeoutMs, maxBytes });
+  const result = await runGitOffThread(args, { cwd, input, timeoutMs, maxBytes, stdoutEncoding });
   if (result.code !== 0 && !allowFailure) throw commandError(args, result.stderr, result.code);
   return result;
 }
@@ -94,11 +105,14 @@ async function repositoryRoot(worktree) {
   return root ? resolve(root) : null;
 }
 
+function shadowDirForKey(key) {
+  return join(snapshotRoot(), createHash('sha256').update(key).digest('hex').slice(0, 24));
+}
+
 function stateForRoot(root) {
   const key = pathKey(root);
   let state = states.get(key);
-  const hash = createHash('sha256').update(key).digest('hex').slice(0, 24);
-  const gitDir = join(snapshotRoot(), hash);
+  const gitDir = shadowDirForKey(key);
   if (state && state.gitDir === gitDir) return state;
   state = {
     root,
@@ -112,6 +126,11 @@ function stateForRoot(root) {
     // Bumped by every reported write under `root`; a capture records the
     // value it started from.
     changeStamp: 0,
+    // Set by forgetTurnWorktreeRoot(): the shadow repository must never be
+    // recreated for this state. A later snapshot of the same path gets a new one.
+    forgotten: false,
+    gcTimer: null,
+    gcRun: null,
   };
   states.set(key, state);
   return state;
@@ -156,7 +175,19 @@ async function sourceLineEndingArgs(root) {
   return [...values].flatMap(([key, value]) => ['-c', `${key}=${value}`]);
 }
 
+// A forgotten root's shadow repository is gone for good. Every git command and
+// every file write on it goes through shadowArgs/ensureState, so refusing there
+// keeps a snapshot object that outlived forgetTurnWorktreeRoot() from
+// recreating the directory.
+function assertStateLive(state) {
+  if (!state.forgotten) return;
+  const error = new Error(`turn worktree snapshot for ${state.root} was removed`);
+  error.code = 'TURN_WORKTREE_SNAPSHOT_REMOVED';
+  throw error;
+}
+
 function shadowArgs(state, args) {
+  assertStateLive(state);
   return [
     ...state.lineEndingArgs,
     // A conversion warning must never fail the snapshot `add`.
@@ -239,6 +270,7 @@ async function refreshSourceTracked(state, { force = false } = {}) {
 }
 
 async function ensureState(state) {
+  assertStateLive(state);
   if (state.initialized && (await exists(join(state.gitDir, 'config')))) return;
   await mkdir(dirname(state.gitDir), { recursive: true });
   if (!(await exists(join(state.gitDir, 'config')))) {
@@ -643,24 +675,141 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null,
   return { patch, files, patchTruncated, currentTree, ...(omitPatch ? { patchOmitted: true } : {}) };
 }
 
+/**
+ * Freeze the snapshot's last captured net diff into replayable per-file
+ * patches: one complete `--binary --full-index` diff (independent of the
+ * bounded display patch), split back into its `diff --git` sections. `paths`
+ * scopes a contended worktree to the session-owned files. Callers refresh the
+ * snapshot first; this never captures. Files whose bytes cannot be replayed
+ * (an uncaptured baseline, a type change, an over-limit diff) stay in the
+ * record as non-revertable with a reason.
+ */
+export async function freezeTurnWorktreeChanges(snapshot, paths = null) {
+  if (!snapshot?.state || !snapshot.baselineTree) return null;
+  const scope = Array.isArray(paths) ? [...new Set(paths.filter(Boolean))] : null;
+  if (scope && scope.length === 0) return { root: snapshot.root, files: [] };
+  return await withStateLock(snapshot.state, async () => {
+    const { state, baselineTree, currentTree } = snapshot;
+    let review = { files: [], patch: '', patchTruncated: false };
+    let sections = [];
+    let unavailable = '';
+    if (currentTree && currentTree !== baselineTree) {
+      review = await diffTreesUnlocked(state, baselineTree, currentTree, scope, { omitPatch: true });
+      const args = [
+        'diff',
+        '--binary',
+        '--full-index',
+        '--no-color',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        '--find-renames',
+        baselineTree,
+        currentTree,
+        '--',
+        ...(scope || ['.']),
+      ];
+      try {
+        const result = await runGit(shadowArgs(state, args), {
+          cwd: state.root,
+          maxBytes: FREEZE_PATCH_MAX_BYTES,
+          stdoutEncoding: 'base64',
+        });
+        sections = splitPatchSections(Buffer.from(result.stdout, 'base64'));
+      } catch (error) {
+        if (error?.code !== 'EMAXBUFFER') throw error;
+        unavailable = 'the turn changed too much to keep its patches for undo';
+      }
+    }
+    const listed = withOmittedBaselines({ ...snapshot, scopePaths: scope }, { ...review, patchOmitted: true });
+    const byPath = new Map();
+    for (const section of sections) {
+      const key = pathKey(section.newPath ?? section.oldPath ?? '');
+      // A type change diffs as a delete plus an add of one path: not one patch.
+      byPath.set(key, byPath.has(key) ? null : section.patch);
+    }
+    const files = (listed.files || []).map((file) => {
+      const entry = {
+        path: file.path,
+        ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+        status: normalizeChangeStatus(file.status),
+        additions: Number(file.additions) || 0,
+        deletions: Number(file.deletions) || 0,
+        ...(file.binary ? { binary: true } : {}),
+      };
+      if (entry.status !== 'R') delete entry.oldPath;
+      if (file.omitted === true) {
+        return { ...entry, revertable: false, reason: 'binary/large file content was not captured' };
+      }
+      if (file.status === 'T') return { ...entry, revertable: false, reason: 'the file type changed' };
+      const patch = byPath.get(pathKey(file.path));
+      if (!patch) return { ...entry, revertable: false, reason: unavailable || 'no replayable patch was recorded' };
+      return { ...entry, revertable: true, patch };
+    });
+    return { root: snapshot.root, files };
+  });
+}
+
 // One maintenance pass per shadow repository per process, off the turn's
 // critical path. `--auto` does nothing until the repository actually needs it,
 // so the common case costs a process spawn and nothing else.
 const maintainedShadowRepositories = new Set();
 
 function scheduleShadowGc(state) {
-  if (maintainedShadowRepositories.has(state.gitDir)) return;
+  if (state.forgotten || maintainedShadowRepositories.has(state.gitDir)) return;
   maintainedShadowRepositories.add(state.gitDir);
   const timer = setTimeout(() => {
+    state.gcTimer = null;
     // Deliberately outside the state lock: collection can run for minutes and
     // git serializes itself through gc.lock, so a clash just retries later.
-    void runGit(shadowArgs(state, ['gc', '--auto', `--prune=${SHADOW_GC_PRUNE}`, '--quiet']), {
-      cwd: state.root,
-      allowFailure: true,
-      timeoutMs: 300_000,
-    }).catch(() => {});
+    // forgetTurnWorktreeRoot() waits for `gcRun` before deleting the repository.
+    state.gcRun = Promise.resolve()
+      .then(() =>
+        runGit(shadowArgs(state, ['gc', '--auto', `--prune=${SHADOW_GC_PRUNE}`, '--quiet']), {
+          cwd: state.root,
+          allowFailure: true,
+          timeoutMs: 300_000,
+        })
+      )
+      .catch(() => {});
   }, 60_000);
   timer.unref?.();
+  state.gcTimer = timer;
+}
+
+async function removeShadowDir(gitDir, removed, kept) {
+  if (!(await exists(gitDir))) return;
+  await rm(gitDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
+  (await exists(gitDir) ? kept : removed).push(gitDir);
+}
+
+/** Drop every trace of one worktree root: serialize behind its pending capture
+ *  work, remove its shadow repository and in-memory state, and refuse any write
+ *  a snapshot object that still holds the old state attempts afterwards.
+ *  Only the exact root is touched. Returns `{ removed, kept }` shadow paths;
+ *  `kept` lists a shadow repository that could not be deleted. */
+export async function forgetTurnWorktreeRoot(root) {
+  const text = clean(root);
+  const removed = [];
+  const kept = [];
+  if (!text) return { removed, kept };
+  const keys = new Set([pathKey(resolve(text)), pathKey(canonicalPath(text))]);
+  const gitDirs = new Set([...keys].map(shadowDirForKey));
+  for (const [key, state] of [...states]) {
+    if (!keys.has(key) && !keys.has(pathKey(state.root))) continue;
+    gitDirs.add(state.gitDir);
+    await withStateLock(state, async () => {
+      state.forgotten = true;
+      if (states.get(key) === state) states.delete(key);
+      if (state.gcTimer) clearTimeout(state.gcTimer);
+      state.gcTimer = null;
+      await state.gcRun;
+      maintainedShadowRepositories.delete(state.gitDir);
+    });
+  }
+  for (const gitDir of gitDirs) await removeShadowDir(gitDir, removed, kept);
+  return { removed, kept };
 }
 
 export async function createTurnWorktreeSnapshot(worktree) {
@@ -847,7 +996,8 @@ async function revertPathsUnlocked(snapshot, targets) {
       await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
     )
   );
-  return snapshot;
+  // The absolute paths now back at their baseline bytes.
+  return targets.map((target) => resolve(snapshot.root, target));
 }
 
 export async function revertTurnWorktreeFile(snapshot, value) {

@@ -126,7 +126,8 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
    *  dock (the preview tab under Link preview; a file with a tab is just
    *  activated). A dirty tab the open would drop is confirmed first. A file
    *  already open in a main tab or another pane's dock stays there.
-   *  `from` is the tab the link was followed from. */
+   *  `from` is the tab the link was followed from; `pinned` opens a normal
+   *  tab even under Link preview (a phone Files-tree tap). */
   const openFileInSideDock = (
     leafId: string,
     project: string,
@@ -134,9 +135,10 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
     line?: number,
     accessToken?: string,
     column?: number,
-    from?: string
+    from?: string,
+    pinned?: boolean
   ) => {
-    const preview = deps.linkPreview?.() ?? true;
+    const preview = !pinned && (deps.linkPreview?.() ?? true);
     const request: SideFileDockRequest = { preview, ...(from ? { from } : {}) };
     const dockOpen = () => deps.dockOpenFile(leafId, project, rel, line, accessToken, column || undefined, request);
     const key = sideFileTargetKey({ project, rel, accessToken });

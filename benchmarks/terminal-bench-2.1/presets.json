@@ -167,6 +167,10 @@
       "routeProfile": "opus5-solo",
       "compareTo": "claude-code-opus5"
     },
+    "full-sol61": {
+      "suite": "full",
+      "routeProfile": "sol61-xhigh"
+    },
     "readprobe-opus5": {
       "suite": "readprobe",
       "routeProfile": "opus5-solo",

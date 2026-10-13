@@ -18,6 +18,7 @@ import { isRejected429, safeErrorDetails } from '../../runtime/shared/error-pres
 import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
+import { archiveItemsForCompaction, compactionArchivedRows } from './compaction-view.mjs';
 import {
   createTurnStream,
   flushStreamBatch,
@@ -105,7 +106,8 @@ function beginTurn({ flags, getState, transcriptRouteMetadata }, options) {
     completionVerb,
   };
   flags.pendingTranscriptMeta = null;
-  const { at: _userItemAt, ...routeMeta } = transcriptMeta;
+  // The prompt's own time and stable id stay on the prompt row.
+  const { at: _userItemAt, messageId: _promptMessageId, ...routeMeta } = transcriptMeta;
   return {
     index,
     startedAt,
@@ -182,6 +184,11 @@ function commitPromptRestore(flags, turn) {
 
 function steeringItemExtras(steeringMeta) {
   return {
+    // The steered message's stable id, so a compaction that drops it greys
+    // this row.
+    ...(typeof steeringMeta?.messageId === 'string' && steeringMeta.messageId
+      ? { messageId: steeringMeta.messageId }
+      : {}),
     // Queue mode + execution provenance: a task notification is rendered as
     // a tool card, never as an injected user bubble.
     ...(steeringMeta?.mode === 'task-notification' ? { mode: 'task-notification' } : {}),
@@ -261,10 +268,10 @@ function publishContextPressure({ syncContextStats, getState, set }, info) {
 }
 
 // Compaction itself remains owned by the pre-provider-send pass. This event
-// trims the visible transcript to the current turn and refreshes the gauge
-// from the already-mutated transcript before another render can show stale
-// pressure.
-function applyCompactEvent(ctx, event) {
+// archives the visible rows before the current turn (they stay in view above
+// the compaction divider) and refreshes the gauge from the already-mutated
+// transcript before another render can show stale pressure.
+export function applyCompactEvent(ctx, event) {
   const { turn, stream, cards, getState, set, replaceItems, pushItem, nextId, syncContextStats, routeState } = ctx;
   flushStreamBatch(stream);
   // Non-tool transcript item — same block-boundary rule as the steered user
@@ -272,12 +279,31 @@ function applyCompactEvent(ctx, event) {
   cards.aggregates.clearAggregateContinuation();
   const compactStatus = String(event?.status || '').toLowerCase();
   const compactChanged = !['failed', 'skipped', 'no_change'].includes(compactStatus);
+  const doneItem = {
+    kind: 'statusdone',
+    id: nextId(),
+    label: compactEventLabel(event),
+    detail: compactEventDetail(event),
+  };
   if (compactChanged) {
-    set({ items: replaceItems(getState().items.slice(turn.currentItemsStart), { preserveStreamingTail: true }) });
-    turn.currentItemsStart = 0;
+    // The current turn starts at its submitted row (spill paging may have
+    // shifted the index recorded at turn start).
+    const current = getState().items;
+    const submitted = new Set(turn.submittedIds.filter((id) => id != null));
+    const submittedIndex = submitted.size ? current.findIndex((item) => submitted.has(item?.id)) : -1;
+    const boundary = submittedIndex >= 0 ? submittedIndex : turn.currentItemsStart;
+    const { items, dividerIndex } = archiveItemsForCompaction(current, doneItem, boundary, {
+      archived: compactionArchivedRows(event),
+      // Only explicit identities name what left the current turn; a bare
+      // count says nothing about it.
+      archiveTail: Boolean(event?.droppedIdentities && typeof event.droppedIdentities === 'object'),
+    });
+    set({ items: replaceItems(items, { preserveStreamingTail: true, preserveSpill: true }) });
+    turn.currentItemsStart = dividerIndex + 1;
     turn.transcriptCompacted = true;
+  } else {
+    pushItem(doneItem);
   }
-  pushItem({ kind: 'statusdone', id: nextId(), label: compactEventLabel(event), detail: compactEventDetail(event) });
   syncContextStats({ allowEstimated: true, invalidateExact: compactChanged });
   // syncContextStats only STAGES its patch; publication is the caller's, and
   // without this set the post-compact gauge reached React only if some later
@@ -359,7 +385,7 @@ function streamHandlers(ctx) {
       appendTextDelta(stream, textChunk);
     },
     onTextReset: (reset = {}) => (isCurrentTurn() ? resetStreamedText(stream, reset) : false),
-    onAssistantText: (text) => {
+    onAssistantText: (text, detail) => {
       const full = String(text ?? '');
       if (!full.trim() || !isCurrentTurn()) return;
       // The streaming path owns this segment when it already produced text.
@@ -367,7 +393,7 @@ function streamHandlers(ctx) {
       // there across tool calls.
       if (stream.currentAssistantText.trim()) return;
       ctx.markPromptCommitted();
-      appendAssistantText(stream, full);
+      appendAssistantText(stream, full, { committed: detail?.committed === true });
     },
     onReasoningDelta: (chunk) => {
       if (isCurrentTurn()) appendReasoningDelta(stream, String(chunk ?? ''));
@@ -420,9 +446,12 @@ export function failTurn(ctx, error) {
 }
 
 export function turnDoneItem({ turn, stream, cards, getState, nextId }) {
+  // The outer prompt id is the turn's change-record key (runtime.ask `id`).
+  const checkpointId = turn.submittedIds[0] == null ? '' : String(turn.submittedIds[0]).trim();
   return {
     kind: 'turndone',
     id: nextId(),
+    ...(checkpointId ? { checkpointId } : {}),
     elapsedMs: Date.now() - turn.startedAt,
     status: turnOutcome(turn.cancelled, turn.failed),
     // Notifications resolve this exact terminal assistant item, never a

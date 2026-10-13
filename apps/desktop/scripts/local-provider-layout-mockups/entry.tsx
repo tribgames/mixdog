@@ -424,7 +424,6 @@ const root = createRoot(document.getElementById('root')!);
     setUiLanguagePreference('ko');
     await initUiLanguage();
     document.documentElement.dataset.mixdogTheme = theme;
-    document.documentElement.style.setProperty('--mx-device-scale', '1');
     const Body = VARIANTS[variant];
     flushSync(() =>
       root.render(

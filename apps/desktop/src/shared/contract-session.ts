@@ -1,4 +1,5 @@
 // Session state, transcript, agent pool, goal, model and prompt types.
+import type { DesktopNewTaskWorktree, DesktopSessionWorkspace } from './contract-worktree';
 
 export type DesktopUpdaterState =
   | { status: 'disabled' | 'idle' | 'checking' | 'up-to-date' }
@@ -26,6 +27,9 @@ export interface DesktopTranscriptItem extends Readonly<Record<string, unknown>>
   agent?: string;
   /** Device that submitted this prompt (user rows only). */
   device?: string;
+  /** The turn's change-record key (the outer prompt id) on `user` and
+   *  `turndone` rows: what getTurnChanges/revertTurnChanges address. */
+  checkpointId?: string;
 }
 
 export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
@@ -96,6 +100,16 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   cwd: string | null;
   clientHostPid: number | null;
   taskId: string | null;
+  /** Cumulative token usage over the agent session's turns so far; null when unknown. */
+  usage?: DesktopAgentPoolUsage | null;
+  /** Cumulative tool calls the agent session has made; null when unknown. */
+  toolCalls?: number | null;
+}
+
+export interface DesktopAgentPoolUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 
 export interface DesktopActiveToolState {
@@ -107,6 +121,9 @@ export interface DesktopShellJobsState {
   count: number;
   elapsedLabel: string;
   jobs?: DesktopShellJobRow[];
+  /** Recently finished background jobs of this session (rows carry status,
+   *  exitCode and finishedAt); never part of `count`. */
+  finished?: readonly DesktopShellJobRow[];
 }
 
 export interface DesktopShellJobRow extends Readonly<Record<string, unknown>> {
@@ -189,6 +206,10 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   autoEffort?: boolean;
   modelParameters?: Readonly<Record<string, string>>;
   contextPercent?: number;
+  /** Exact context window in force (only when it is a non-default value). */
+  contextTokens?: number;
+  contextDefaultPercent?: number;
+  selectedContextWindow?: number;
   desktopSessionTitle?: string;
   agentWorkers?: DesktopAgentWorker[];
   agentJobs?: DesktopAgentJob[];
@@ -211,6 +232,9 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
    *  that sent it (`ids` are that device's submission ids). */
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   providerAccountChange?: { provider: string; accountId: string; at: number };
+  /** The Lead's live workspace: execution root (`cwd`), worktree binding and
+   *  revision. Null while the session never left its project folder. */
+  workspace?: DesktopSessionWorkspace | null;
 }
 
 // These are the session runtime's real activity/completion fields, not a parallel
@@ -355,6 +379,8 @@ export interface DesktopModelSelection {
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
+  /** Exact window (positive integer); overrides contextPercent. */
+  contextTokens?: number;
 }
 
 export interface DesktopPromptTextPart {
@@ -438,6 +464,8 @@ export interface DesktopNewTaskDraft {
   route?: DesktopModelSelection;
   workflowId?: string;
   orchestrationMode?: DesktopOrchestrationMode;
+  /** The draft picked "Worktree": created and entered before the prompt is sent. */
+  worktree?: DesktopNewTaskWorktree;
 }
 
 export interface DesktopNewTaskSubmitResult {

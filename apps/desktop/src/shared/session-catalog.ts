@@ -21,6 +21,11 @@ function sessionSummaryVisibleEqual(left: DesktopSessionSummary, right: DesktopS
     // user-visible ordering signal, so a housekeeping save must not invalidate
     // the whole desktop tree.
     if (key === 'updatedAt') continue;
+    // A workspace record is rebuilt with every catalog; equal content keeps the row.
+    if (key === 'workspace') {
+      if (JSON.stringify(left.workspace ?? null) !== JSON.stringify(right.workspace ?? null)) return false;
+      continue;
+    }
     if ((left as unknown as Record<string, unknown>)[key] !== (right as unknown as Record<string, unknown>)[key])
       return false;
   }

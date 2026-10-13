@@ -79,10 +79,14 @@
     "[Ln": "editor status line abbreviation fragment",
     "Ln {{line}}, Col {{column}}": "editor status line abbreviation",
     ", Col": "editor status column abbreviation fragment",
-    "Auto": "effort-tier name kept in English by design"
+    "Auto": "effort-tier name kept in English by design",
+    "Worktree": "established Git CLI and feature term",
+    "v{{value0}} / {{value1}}": "version counter, placeholders only"
   },
   "localeExceptions": {
     "de": {
+      "Ports": "same spelling for network ports in German UI",
+      "Port {{port}}": "same spelling for a network port in German UI",
       "Workflow": "established software term in German UI",
       "Webhooks": "established web term in German UI",
       "Browser": "established web loanword in German UI",
@@ -158,9 +162,12 @@
       "Repository": "established Git term in German UI",
       "Secret": "established security term in German UI",
       "Server": "established IT loanword in German UI",
-      "Version": "same spelling in German"
+      "Version": "same spelling in German",
+      "Audio": "same spelling in German",
+      "Web": "same spelling in German"
     },
     "es": {
+      "1 error": "same spelling in Spanish",
       "Workflow": "established software term in Spanish UI",
       "Webhooks": "established web term in Spanish UI",
       "Terminal": "established software term in Spanish UI",
@@ -204,9 +211,13 @@
       "{{value0}} pull requests · {{value1}}": "established Git term in Spanish UI",
       "Error": "same spelling in Spanish",
       "Global": "same spelling in Spanish",
-      "Tokens (est.)": "established AI term in Spanish UI"
+      "Tokens (est.)": "established AI term in Spanish UI",
+      "Audio": "same spelling in Spanish",
+      "Web": "same spelling in Spanish"
     },
     "fr": {
+      "Ports": "same spelling for network ports in French UI",
+      "Port {{port}}": "same spelling for a network port in French UI",
       "Sessions": "same spelling in French",
       "Workflow": "established software term in French UI",
       "Extensions": "same spelling in French",
@@ -289,7 +300,9 @@
       "public": "same spelling in French",
       "Secret": "same spelling in French",
       "Types": "same spelling in French",
-      "Version": "same spelling in French"
+      "Version": "same spelling in French",
+      "Audio": "same spelling in French",
+      "Web": "same spelling in French"
     },
     "it": {
       "Workflow": "established software term in Italian UI",
@@ -346,10 +359,13 @@
       "Repository": "established Git term in Italian UI",
       "Server": "established tech loanword in Italian UI",
       "SSE (legacy)": "established protocol abbreviation in Italian UI",
-      "WebSocket (legacy)": "established protocol name in Italian UI"
+      "WebSocket (legacy)": "established protocol name in Italian UI",
+      "Audio": "same spelling in Italian",
+      "Web": "same spelling in Italian"
     },
     "ja": {
-      "OK": "standard confirmation button label in Japanese UI"
+      "OK": "standard confirmation button label in Japanese UI",
+      "Web": "established loanword in Japanese UI"
     },
     "pt-BR": {
       "{{count}} skills": "skill is kept in English per the Portuguese glossary",
@@ -407,7 +423,8 @@
       "Branch": "established Git term in Portuguese UI",
       "Global": "same spelling in Portuguese",
       "Hashing": "established computer science term in Portuguese UI",
-      "Tokens (est.)": "established AI term in Portuguese UI"
+      "Tokens (est.)": "established AI term in Portuguese UI",
+      "Web": "same spelling in Brazilian Portuguese"
     },
     "vi": {
       "Video": "established loanword in Vietnamese UI",
@@ -421,7 +438,8 @@
       "Vibe coder": "established developer persona term in Vietnamese UI",
       "PROMPT": "established AI term in Vietnamese UI",
       "Shell {{shell}}": "established developer term in Vietnamese UI",
-      "Prompt": "established AI term in Vietnamese UI"
+      "Prompt": "established AI term in Vietnamese UI",
+      "Web": "same spelling in Vietnamese"
     }
   }
 }

@@ -57,10 +57,12 @@ export async function builtinSkillNamesFor(runtime, calls) {
 }
 
 // Transcript spec for a standalone (non-aggregated) tool card.
-function standaloneCardSpec(itemId, name, args) {
+function standaloneCardSpec(itemId, name, args, callId = '') {
   return {
     kind: 'tool',
     id: itemId,
+    // Ties the card to its call (a compaction that drops it greys the card).
+    ...(callId ? { callId } : {}),
     name,
     args,
     result: null,
@@ -221,7 +223,13 @@ function openToolCard(cards, call, index, batch) {
     // Defer the visible push: the card enters the transcript when its real
     // header will paint (delay elapsed) or its result lands first, so no
     // blank placeholder height scrolls the body ahead of the glyphs.
-    const card = { itemId, callId: callKey, done: false, pushed: false, spec: standaloneCardSpec(itemId, name, args) };
+    const card = {
+      itemId,
+      callId: callKey,
+      done: false,
+      pushed: false,
+      spec: standaloneCardSpec(itemId, name, args, callId),
+    };
     cards.deferredCards.registerCard(card);
     trackCard(cards, callId, card);
     // Immediate row-reserve is deferred until every touched aggregate has its

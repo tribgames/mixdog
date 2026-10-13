@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mixdog 모바일 앱 업데이트 알림 — A안 시안</title>
+<style>
+  /* Tokens copied verbatim from apps/desktop/src/renderer/desktop/01-tokens.css (dark theme)
+     and ui/tokens.css (radius / space / control / icon ladders). */
+  :root {
+    --mx-bg-deep: #101013;
+    --mx-window-band: #18181b;
+    --mx-workspace-sheet: #111113;
+    --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d;
+    --mx-bg-layer-2: #323236;
+    --mx-text: #e9e9e9;
+    --mx-text-muted: #a8a8a8;
+    --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-text-accent: #79b8ff;
+    --mx-accent-bg: #1967d2;
+    --mx-icon: var(--mx-text);
+    --mx-icon-muted: var(--mx-text-muted);
+    --mx-border-muted: rgba(255,255,255,.09);
+    --mx-border: rgba(255,255,255,.125);
+    --mx-hover: rgba(255,255,255,.08);
+    --mx-pressed: rgba(255,255,255,.12);
+    --mx-danger: #f17471;
+    --mx-success: #6bd586;
+    --mx-meter-track: color-mix(in srgb, var(--mx-text) 13%, transparent);
+    --mx-meter-fill: color-mix(in srgb, var(--mx-text) 52%, transparent);
+    --mx-user-bubble: var(--mx-bg-layer-1);
+    --mx-popup-bg: var(--mx-bg-base);
+    --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 28%), 0 2px 6px rgb(0 0 0 / 16%);
+    --mx-raised: 0 2px 4px #0000004d, 0 1px 2px #0000004d, 0 0 0 1px #ffffff29, 0 -0.5px 0 #ffffff0f;
+    --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+    --mx-radius-sm: 3px; --mx-radius-md: 6px; --mx-radius-lg: 10px; --mx-radius-xl: 12px; --mx-radius-sheet: 16px; --mx-radius-pill: 999px;
+    --mx-font-prose: "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+    --mx-font-meta: 13px; --mx-font-ui: 14px; --mx-font-body: 15px; --mx-font-micro: 12px;
+    --mx-line-ui: 20px; --mx-line-meta: 16px; --mx-line-body: 24px;
+    --new: #79b8ff;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #0a0a0c; color: var(--mx-text); font: 400 14px/20px var(--mx-font-prose); padding: 36px 40px 72px; }
+  h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin-bottom: 4px; }
+  .lead { color: var(--mx-text-muted); font-size: 13px; line-height: 20px; max-width: 880px; margin-bottom: 14px; }
+  .legend { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; color: var(--mx-text-muted); margin-bottom: 28px; }
+  .legend i { width: 26px; height: 14px; border-radius: 5px; outline: 1px dashed var(--new); outline-offset: 2px; display: inline-block; }
+  .legend .sys { outline-color: #8b8b92; margin-left: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 44px 40px; align-items: flex-start; }
+  figure { width: 390px; }
+  figcaption { margin-top: 18px; font-size: 13px; line-height: 20px; color: var(--mx-text-muted); }
+  figcaption b { display: block; color: var(--mx-text); font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  figcaption b span { display: inline-block; min-width: 20px; padding: 0 6px; margin-right: 6px; border-radius: var(--mx-radius-md); background: var(--mx-accent-bg); color: #fff; font-size: 12px; text-align: center; }
+
+  /* ── phone frame 390×844 ── */
+  .phone { position: relative; width: 390px; height: 844px; border-radius: 44px; overflow: hidden; background: var(--mx-workspace-sheet); box-shadow: 0 0 0 8px #2a2a2f; display: flex; flex-direction: column; }
+  .sysbar { flex: none; height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 6px 22px 0; font-size: 12px; font-weight: 600; background: var(--mx-window-band); color: var(--mx-text); }
+  .sysbar .r { display: flex; gap: 6px; align-items: center; }
+
+  /* Tab strip — 07-mobile-chrome.css (.workspace-tabs-shell[data-mobile], .workspace-tab-home(-dot), .workspace-tab-compact-current, .workspace-tab-new, .pane-dock-toggle) */
+  .tabs { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px; background: var(--mx-window-band); }
+  .home { position: relative; width: 44px; height: 44px; display: grid; place-items: center; flex: none; }
+  .home svg.mark { width: 24px; height: 24px; color: var(--mx-text); }
+  .home .dot { position: absolute; right: 6px; bottom: 6px; box-sizing: content-box; width: 7px; height: 7px; border: 1.5px solid var(--mx-window-band); border-radius: 50%; background: var(--mx-success); }
+  .pill { flex: 1; min-width: 0; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: var(--mx-radius-pill); background: var(--mx-hover); font-size: 14px; }
+  .pill svg { width: 20px; height: 20px; color: var(--mx-icon-muted); flex: none; }
+  .pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tbtn { width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--mx-radius-pill); color: var(--mx-icon); flex: none; }
+  .tbtn.dim { color: var(--mx-icon-muted); }
+
+  /* Sheet / transcript — 12-transcript.css (.message.user .message-body, .message-body), 15-composer.css (.composer) */
+  .sheet { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--mx-workspace-sheet); }
+  .transcript { flex: 1; min-height: 0; overflow: hidden; padding: 16px 16px 8px; display: flex; flex-direction: column; justify-content: flex-end; gap: 20px; }
+  .msg-user { align-self: flex-end; max-width: 82%; padding: 9px 16px; border-radius: var(--mx-radius-sheet); background: var(--mx-user-bubble); font-size: var(--mx-font-body); line-height: var(--mx-line-body); }
+  .msg-asst { font-size: var(--mx-font-body); line-height: var(--mx-line-body); color: var(--mx-text); }
+  .msg-asst p + p { margin-top: 10px; }
+  .msg-asst code { font: 13px/1 "JetBrains Mono Variable","JetBrains Mono",Consolas,monospace; color: var(--mx-text-accent); }
+  .tool { display: flex; align-items: center; gap: 8px; font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); color: var(--mx-text-muted); }
+  .tool svg { width: 14px; height: 14px; }
+  .tool .ok { color: var(--mx-success); }
+  .composer-wrap { flex: none; padding: 0 12px 14px; }
+  .composer { min-height: 88px; border-radius: var(--mx-radius-sheet); background: var(--mx-bg-layer-1); box-shadow: var(--mx-raised), var(--mx-composer-lift); }
+  .composer .ph { padding: 10px 16px 0; height: 44px; font-size: var(--mx-font-body); line-height: var(--mx-line-body); color: var(--mx-text-muted); }
+  .composer .foot { height: 44px; display: flex; align-items: center; padding: 0 4px; gap: 0; }
+  .composer .foot .tbtn { width: 44px; height: 44px; }
+  .composer .model { display: flex; align-items: center; gap: 4px; font-size: var(--mx-font-ui); color: var(--mx-text-soft); }
+  .composer .model svg { width: 14px; height: 14px; color: var(--mx-icon-muted); }
+  .composer .send { margin-left: auto; width: 36px; height: 36px; margin-right: 4px; border-radius: 50%; display: grid; place-items: center; background: var(--mx-hover); color: var(--mx-icon-muted); }
+
+  svg.lu { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* ── NEW: update banner — toast skin of 16-overlays.css (.mx-toast / .remote-claim-notice) ── */
+  .banner { position: absolute; left: 12px; right: 12px; top: 86px; z-index: 5; display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: var(--mx-radius-xl); color: var(--mx-text); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow); outline: 1px dashed rgba(121,184,255,.55); outline-offset: 3px; }
+  .banner > .lead-ico { display: none !important; }
+  .banner > .lead-ico { flex: none; width: 24px; height: 24px; margin-top: -1px; border-radius: var(--mx-radius-pill); display: grid; place-items: center; color: var(--mx-text-accent); background: color-mix(in srgb, var(--mx-text-accent) 20%, transparent); } /* 03-titlebar.css .titlebar-update::before */
+  .banner > .lead-ico svg { width: 14px; height: 14px; }
+  .banner > .lead-ico.err { color: var(--mx-danger); background: color-mix(in srgb, var(--mx-danger) 20%, transparent); }
+  .banner > .lead-ico.ok { color: var(--mx-success); background: color-mix(in srgb, var(--mx-success) 20%, transparent); }
+  .copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+  .copy b { font-size: var(--mx-font-ui); font-weight: 600; line-height: var(--mx-line-ui); }
+  .copy .sub { font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); color: var(--mx-text-muted); font-variant-numeric: tabular-nums; }
+  .close { flex: none; width: 20px; height: 20px; padding: 2px; border-radius: var(--mx-radius-sm); color: var(--mx-icon-muted); display: grid; place-items: center; } /* .mx-toast-close */
+  .close svg { width: 16px; height: 16px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  /* ui/tokens.css .mx-button (+ .is-primary, flat default, .is-ghost); touch tier min-height 36 per error-notice.css (pointer: coarse) */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 36px; padding: 0 12px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: var(--mx-hover); font: inherit; font-size: var(--mx-font-ui); }
+  .btn.primary { color: #fff; background: var(--mx-accent-bg); }
+  .btn.ghost { background: transparent; color: var(--mx-text-muted); }
+  .btn svg { width: 14px; height: 14px; }
+  /* Progress — meter tokens */
+  .meter { height: 4px; border-radius: var(--mx-radius-pill); background: var(--mx-meter-track); overflow: hidden; margin-top: 4px; }
+  .meter i { display: block; height: 100%; border-radius: inherit; background: var(--mx-text-accent); }
+  .meter.done i { background: var(--mx-success); }
+  .spin { animation: spin 900ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+  /* ── Android system UI (not Mixdog — approximate) ── */
+  .scrim { position: absolute; inset: 0; z-index: 10; background: rgba(0,0,0,.5); display: grid; place-items: center; padding: 0 28px; }
+  .sys-dialog { width: 100%; padding: 24px; border-radius: 28px; background: #2b2d30; color: #e3e3e3; font-family: Roboto, "Noto Sans KR", system-ui, sans-serif; outline: 1px dashed #8b8b92; outline-offset: 4px; }
+  .sys-dialog .ico { width: 24px; height: 24px; color: #a8c7fa; margin: 0 auto 16px; display: block; }
+  .sys-dialog h3 { font-size: 24px; line-height: 32px; font-weight: 400; text-align: center; margin-bottom: 16px; }
+  .sys-dialog p { font-size: 14px; line-height: 20px; color: #c4c7c5; }
+  .sys-dialog .src { display: flex; align-items: center; gap: 12px; margin: 16px 0 0; padding: 12px; border-radius: 16px; background: #36383b; }
+  .sys-dialog .src .app { width: 36px; height: 36px; border-radius: 10px; background: var(--mx-bg-deep); display: grid; place-items: center; }
+  .sys-dialog .src .app svg { width: 22px; height: 22px; color: #fff; }
+  .sys-dialog .src div b { display: block; font-size: 14px; font-weight: 500; }
+  .sys-dialog .src div span { font-size: 12px; color: #c4c7c5; }
+  .sys-dialog .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+  .sys-dialog .acts span { padding: 10px 14px; font-size: 14px; font-weight: 500; color: #a8c7fa; }
+  .sys-tag { position: absolute; z-index: 11; left: 0; right: 0; bottom: 22px; text-align: center; font-size: 11px; color: #c4c7c5; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Lucide glyphs (stroke 1.75 like the phone tier in 07-mobile-chrome.css) -->
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="mx" viewBox="0 0 64 64"><path d="M40 12a22 22 0 0 1 14 12" stroke="currentColor" stroke-width="7" stroke-linecap="round" fill="none"/><path d="M54 40a22 22 0 0 1-14 12" stroke="currentColor" stroke-width="7" stroke-linecap="round" fill="none"/><path d="M22 16a22 22 0 0 0 0 32" stroke="currentColor" stroke-width="7" stroke-linecap="round" fill="none"/><path d="M32 25l2.2 4.8L39 32l-4.8 2.2L32 39l-2.2-4.8L25 32l4.8-2.2z" fill="currentColor"/></symbol>
+</svg>
+
+<!-- Shared "PC session" screen, cloned into every phone -->
+<template id="screen">
+  <div class="sysbar"><span>9:41</span><span class="r"><svg class="lu" style="width:13px;height:13px"><use href="#i-check"/></svg>LTE ▮</span></div>
+  <div class="tabs">
+    <div class="home"><svg class="mark"><use href="#mx"/></svg><i class="dot"></i></div>
+    <div class="pill"><svg class="lu"><use href="#i-msg"/></svg><span>로그인 오류 수정</span></div>
+    <div class="tbtn"><svg class="lu" style="width:22px;height:22px"><use href="#i-plus"/></svg></div>
+    <div class="tbtn dim"><svg class="lu" style="width:20px;height:20px"><use href="#i-panel"/></svg></div>
+  </div>
+  <div class="sheet">
+    <div class="transcript">
+      <div class="msg-user">세션 만료 후 로그인 화면이 계속 깜빡여요. 원인 좀 찾아줘</div>
+      <div class="tool"><svg class="lu ok"><use href="#i-check-circle"/></svg>auth/session.ts 읽음 · 2개 파일 검색</div>
+      <div class="msg-asst">
+        <p>토큰 갱신이 실패하면 <code>redirectToLogin()</code>이 다시 갱신을 호출하면서 루프가 생깁니다.</p>
+        <p>갱신 실패 시 한 번만 이동하도록 가드를 추가하겠습니다.</p>
+      </div>
+    </div>
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="ph">Mixdog에게 메시지 보내기</div>
+        <div class="foot">
+          <div class="tbtn"><svg class="lu" style="width:20px;height:20px"><use href="#i-plus"/></svg></div>
+          <div class="model">Claude Opus <svg class="lu"><use href="#i-chev"/></svg></div>
+          <div class="send"><svg class="lu"><use href="#i-up"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<h1>Mixdog 모바일 앱 업데이트 알림 — A안 시안</h1>
+<p class="lead">PC 세션을 쓰는 중에 화면 위쪽에 토스트 모양의 배너가 내려옵니다. 데스크톱 렌더러의 토스트(<code>.mx-toast</code>)·업데이트 배지(<code>.titlebar-update</code>)·버튼(<code>.mx-button</code>) 값을 그대로 쓰고, 폰 크롬은 <code>07-mobile-chrome.css</code>의 탭 스트립/컴포저를 따랐습니다.</p>
+<div class="legend"><i></i>이번에 새로 추가되는 요소<i class="sys"></i>Mixdog가 아닌 Android 시스템 화면</div>
+
+<div class="row">
+
+  <!-- a. 업데이트 가능 -->
+  <figure>
+    <div class="phone" data-screen>
+      <div class="banner" role="status">
+        <span class="lead-ico"><svg class="lu"><use href="#i-download"/></svg></span>
+        <div class="copy">
+          <b>Mixdog 앱 v1.4.0 버전을 사용할 수 있습니다</b>
+          <span class="sub">현재 설치된 버전 v1.3.2</span>
+          <div class="actions"><button class="btn primary">업데이트</button><button class="btn">나중에</button></div>
+        </div>
+      </div>
+    </div>
+    <figcaption><b><span>a</span>업데이트 가능</b>[업데이트]로 앱 안에서 APK 다운로드를 시작합니다. [나중에]는 이 버전(v1.4.0)에 대해서만 숨기고, 더 새 버전이 나오면 다시 표시합니다.</figcaption>
+  </figure>
+
+  <!-- b. 다운로드 중 -->
+  <figure>
+    <div class="phone" data-screen>
+      <div class="banner" role="status" aria-busy="true">
+        <span class="lead-ico"><svg class="lu spin"><use href="#i-loader"/></svg></span>
+        <div class="copy">
+          <b>v1.4.0 다운로드 중…</b>
+          <span class="sub">18.4 MB / 42.7 MB · 43%</span>
+          <div class="meter"><i style="width:43%"></i></div>
+          <div class="actions"><button class="btn">취소</button></div>
+        </div>
+      </div>
+    </div>
+    <figcaption><b><span>b</span>다운로드 중</b>같은 배너가 진행률로 바뀝니다(용량과 퍼센트, 얇은 진행 막대). 앱을 쓰는 동안 계속 받으며, [취소]하면 a 상태로 돌아갑니다.</figcaption>
+  </figure>
+
+  <!-- c1. 설치 준비 -->
+  <figure>
+    <div class="phone" data-screen>
+      <div class="banner" role="status">
+        <span class="lead-ico ok"><svg class="lu"><use href="#i-check-circle"/></svg></span>
+        <div class="copy">
+          <b>v1.4.0 다운로드 완료</b>
+          <span class="sub">설치하면 Android 설치 화면으로 넘어갑니다</span>
+          <div class="meter done"><i style="width:100%"></i></div>
+          <div class="actions"><button class="btn primary">설치</button><button class="btn">나중에</button></div>
+        </div>
+      </div>
+    </div>
+    <figcaption><b><span>c-1</span>설치 준비 완료</b>[설치]를 누르면 Android 시스템 설치 화면으로 넘어가고, 거기서 사용자가 확인해야 설치가 진행됩니다.</figcaption>
+  </figure>
+
+  <!-- c2. 알 수 없는 앱 설치 권한 -->
+  <figure>
+    <div class="phone" data-screen>
+      <div class="banner" role="status" style="opacity:.55">
+        <span class="lead-ico ok"><svg class="lu"><use href="#i-check-circle"/></svg></span>
+        <div class="copy">
+          <b>v1.4.0 다운로드 완료</b>
+          <span class="sub">설치하면 Android 설치 화면으로 넘어갑니다</span>
+          <div class="actions"><button class="btn primary">설치</button><button class="btn">나중에</button></div>
+        </div>
+      </div>
+      <div class="scrim">
+        <div class="sys-dialog">
+          <svg class="ico lu" style="width:24px;height:24px"><use href="#i-shield"/></svg>
+          <h3>이 출처의 앱 설치를 허용할까요?</h3>
+          <p>보안을 위해 휴대전화에서 이 출처의 알 수 없는 앱을 설치할 수 없습니다. 설정에서 이 앱의 설치 권한을 허용해야 합니다.</p>
+          <div class="src"><span class="app"><svg><use href="#mx"/></svg></span><div><b>Mixdog</b><span>알 수 없는 앱 설치</span></div></div>
+          <div class="acts"><span>취소</span><span>설정</span></div>
+        </div>
+        <div class="sys-tag">ANDROID 시스템 화면 (대략적인 모습)</div>
+      </div>
+    </div>
+    <figcaption><b><span>c-2</span>처음 설치할 때만: “알 수 없는 앱 설치” 권한</b>처음 [설치]를 누르면 Android가 권한 안내를 띄웁니다. [설정]에서 Mixdog를 허용하고 돌아오면 설치 화면이 이어집니다. 두 번째부터는 나오지 않습니다.</figcaption>
+  </figure>
+
+  <!-- d. 실패 -->
+  <figure>
+    <div class="phone" data-screen>
+      <div class="banner" role="alert">
+        <span class="lead-ico err"><svg class="lu"><use href="#i-alert"/></svg></span>
+        <div class="copy">
+          <b>업데이트를 다운로드하지 못했습니다</b>
+          <span class="sub">네트워크 연결을 확인한 뒤 다시 시도하세요</span>
+          <div class="actions"><button class="btn primary">다시 시도</button><button class="btn"><svg class="lu"><use href="#i-ext"/></svg>브라우저로 받기</button></div>
+        </div>
+        <span class="close"><svg class="lu"><use href="#i-x"/></svg></span>
+      </div>
+    </div>
+    <figcaption><b><span>d</span>다운로드 실패</b>[다시 시도]는 앱 안에서 다시 받고, 반복해서 실패하면 [브라우저로 받기]로 APK 링크를 브라우저에서 엽니다. 닫기(×)는 이 배너만 숨깁니다.</figcaption>
+  </figure>
+
+</div>
+
+<script>
+  // Every phone shows the same PC-session screen; the banner (already in the phone) overlays it.
+  document.querySelectorAll('[data-screen]').forEach(function (p) {
+    p.insertBefore(document.getElementById('screen').content.cloneNode(true), p.firstChild);
+  });
+</script>
+</body>
+</html>

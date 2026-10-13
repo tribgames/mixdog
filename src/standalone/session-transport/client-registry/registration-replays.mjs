@@ -31,6 +31,7 @@ export function createRegistrationReplays({ clients, log }) {
       replay.leadPid === identity.leadPid &&
       replay.cwd === identity.cwd &&
       replay.lifecycle === identity.lifecycle &&
+      replay.remote === identity.remote &&
       replay.clientKind === identity.clientKind &&
       replay.revision === identity.revision;
     if (sameIdentity && clients.has(replay.token)) {

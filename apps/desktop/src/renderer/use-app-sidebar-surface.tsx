@@ -8,6 +8,7 @@ import type { useAppShellPanels } from './use-app-shell-panels';
 import { useStableEvent } from './use-stable-event';
 import type { SidebarViewGroup } from './sidebar-view-layout';
 import { InitialSurface } from './InitialSurface';
+import { ProjectAddDialogHost, type ProjectAddDialogHandle } from './ProjectAddDialogHost';
 import { ProjectEditorDialog, type ProjectEditorDialogHandle } from './ProjectEditorDialog';
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
@@ -20,7 +21,11 @@ const SIDEBAR_PANEL_TITLES: Record<SidebarPanelKey, string> = {
   extensions: 'Extensions',
 };
 
-export function useAppSidebarSurface({
+type SidebarSurface = 'sessions' | 'schedules' | 'webhooks' | 'projects';
+
+/** Which sidebar surface is requested and which one is presented: a cold
+ *  destination keeps the outgoing surface's pixels until it can paint. */
+function useSidebarPresentation({
   schedulesOpen,
   webhooksOpen,
   projectsOpen,
@@ -29,22 +34,6 @@ export function useAppSidebarSurface({
   loadedSidebarPanels,
   failedSidebarPanels,
   mountedSidebarPanels,
-  sidebarPanes,
-  markSidebarPanelFailed,
-  retrySidebarPanel,
-  runningAutomationNames,
-  projects,
-  projectsReady,
-  selectedProjectPath,
-  extensionsSection,
-  onExtensionsSectionChange,
-  closeSidebarForNavigation,
-  startTask,
-  openStudio,
-  openSession,
-  refreshProjects,
-  renameProject,
-  removeProject,
 }: {
   schedulesOpen: boolean;
   webhooksOpen: boolean;
@@ -54,25 +43,7 @@ export function useAppSidebarSurface({
   loadedSidebarPanels: ReadonlySet<string>;
   failedSidebarPanels: ReadonlySet<string>;
   mountedSidebarPanels: ReadonlySet<string>;
-  sidebarPanes: ShellPanels['sidebarPanes'];
-  markSidebarPanelFailed(panel: SidebarPanelKey): void;
-  retrySidebarPanel(panel: SidebarPanelKey): void;
-  runningAutomationNames: { schedule: Set<string>; webhook: Set<string> };
-  projects: DesktopProjectSummary[];
-  projectsReady: boolean;
-  selectedProjectPath: string;
-  extensionsSection: ExtensionsSection;
-  onExtensionsSectionChange(section: ExtensionsSection): void;
-  closeSidebarForNavigation(): void;
-  startTask(): unknown;
-  /** Opens a Studio workspace tab in the focused pane. */
-  openStudio(): unknown;
-  openSession(sessionId: string): unknown;
-  refreshProjects(): Promise<DesktopProjectSummary[]>;
-  renameProject(path: string, alias: string): unknown;
-  removeProject(path: string): unknown;
 }) {
-  type SidebarSurface = 'sessions' | 'schedules' | 'webhooks' | 'projects';
   let requestedSidebarSurface: SidebarSurface = 'sessions';
   if (schedulesOpen) requestedSidebarSurface = 'schedules';
   else if (webhooksOpen) requestedSidebarSurface = 'webhooks';
@@ -177,6 +148,163 @@ export function useAppSidebarSurface({
   const presentedSidebarGroup = sidebarGroupFor(presentedSidebarSurface);
   const presentedSidebarPanel =
     presentedSidebarSurface === 'sessions' ? null : (presentedSidebarGroup[0] ?? presentedSidebarSurface);
+  return { sidebarPanel, sidebarTreeMounted, presentedSidebarPanel };
+}
+
+/** The project dialogs (editor and add) hosted outside the sidebar panels,
+ *  plus the project actions the Projects panel and those dialogs share. */
+function useSidebarProjectActions({
+  projects,
+  refreshProjects,
+  renameProject,
+  removeProject,
+}: {
+  projects: DesktopProjectSummary[];
+  refreshProjects(): Promise<DesktopProjectSummary[]>;
+  renameProject(path: string, alias: string): unknown;
+  removeProject(path: string): unknown;
+}) {
+  const [revealedProject, setRevealedProject] = useState({ path: '', nonce: 0 });
+  const onProjectAddedRef = useRef<((path: string) => void) | null>(null);
+  const projectsCreate = useStableEvent(async (path: string, name?: string) => {
+    const host = window.mixdogDesktop;
+    if (!host) throw new Error('Desktop bridge is unavailable.');
+    await host.addProject(path);
+    if (name) await host.renameProject(path, name);
+    await refreshProjects();
+    // The Sessions tab expands and scrolls to the added (or already known) folder.
+    setRevealedProject((current) => ({ path, nonce: current.nonce + 1 }));
+    // "Move to project → New project…" finishes by moving its session here.
+    const onAdded = onProjectAddedRef.current;
+    onProjectAddedRef.current = null;
+    onAdded?.(path);
+  });
+  // Project rows carry no open action (user: 클릭 없애 그냥) — the panel lists
+  // and edits projects; NEW TASK is minted from its own entries only.
+  const projectsRename = useStableEvent((path: string, alias: string) => void renameProject(path, alias));
+  const projectsRemove = useStableEvent((path: string) => void removeProject(path));
+  const projectsChooseFolder = useCallback(
+    // Remote surfaces browse the host in-app (ProjectListSection), never the OS chooser.
+    async () => (isRemoteHostRenderer() ? null : ((await window.mixdogDesktop?.chooseProject()) ?? null)),
+    []
+  );
+  const projectsMemoryControl = useCallback<
+    NonNullable<React.ComponentProps<ShellPanels['sidebarPanes']['projects']>['onMemoryControl']>
+  >(
+    async (input) =>
+      (
+        await window.mixdogDesktop.invokeCapability({
+          capability: 'memoryControl',
+          args: [input, { silent: true }],
+        })
+      ).value,
+    []
+  );
+  // One editor host outside the sidebar panels: opened by "Project settings"
+  // over the current screen, and never closed by panel activation changes.
+  const projectEditorRef = useRef<ProjectEditorDialogHandle>(null);
+  const openProjectSettings = useStableEvent((path: string) => projectEditorRef.current?.open(path));
+  const projectEditorHost = (
+    <ProjectEditorDialog
+      ref={projectEditorRef}
+      projects={projects}
+      onRename={projectsRename}
+      onRemove={projectsRemove}
+      onMemoryControl={projectsMemoryControl}
+    />
+  );
+  // One add-project dialog host outside the panels: the Projects panel action
+  // and the Sessions header menu both open it, and the phone drawer closing
+  // never unmounts it.
+  const projectAddRef = useRef<ProjectAddDialogHandle>(null);
+  // `onAdded` runs once if this open ends in an added project; every other
+  // open replaces it, so an abandoned dialog never moves a later add.
+  const openProjectAdd = useStableEvent((onAdded?: (path: string) => void) => {
+    onProjectAddedRef.current = onAdded ?? null;
+    projectAddRef.current?.open();
+  });
+  const projectAddHost = (
+    <ProjectAddDialogHost
+      ref={projectAddRef}
+      projects={projects}
+      onChooseFolder={projectsChooseFolder}
+      onCreateProject={projectsCreate}
+    />
+  );
+  return {
+    revealedProject,
+    projectsRename,
+    projectsRemove,
+    projectsMemoryControl,
+    openProjectSettings,
+    projectEditorHost,
+    openProjectAdd,
+    projectAddHost,
+  };
+}
+
+export function useAppSidebarSurface({
+  schedulesOpen,
+  webhooksOpen,
+  projectsOpen,
+  sidebarOpen,
+  viewGroups,
+  loadedSidebarPanels,
+  failedSidebarPanels,
+  mountedSidebarPanels,
+  sidebarPanes,
+  markSidebarPanelFailed,
+  retrySidebarPanel,
+  runningAutomationNames,
+  projects,
+  projectsReady,
+  selectedProjectPath,
+  extensionsSection,
+  onExtensionsSectionChange,
+  closeSidebarForNavigation,
+  startTask,
+  openStudio,
+  openSession,
+  refreshProjects,
+  renameProject,
+  removeProject,
+}: {
+  schedulesOpen: boolean;
+  webhooksOpen: boolean;
+  projectsOpen: boolean;
+  sidebarOpen: boolean;
+  viewGroups: readonly SidebarViewGroup[];
+  loadedSidebarPanels: ReadonlySet<string>;
+  failedSidebarPanels: ReadonlySet<string>;
+  mountedSidebarPanels: ReadonlySet<string>;
+  sidebarPanes: ShellPanels['sidebarPanes'];
+  markSidebarPanelFailed(panel: SidebarPanelKey): void;
+  retrySidebarPanel(panel: SidebarPanelKey): void;
+  runningAutomationNames: { schedule: Set<string>; webhook: Set<string> };
+  projects: DesktopProjectSummary[];
+  projectsReady: boolean;
+  selectedProjectPath: string;
+  extensionsSection: ExtensionsSection;
+  onExtensionsSectionChange(section: ExtensionsSection): void;
+  closeSidebarForNavigation(): void;
+  startTask(): unknown;
+  /** Opens a Studio workspace tab in the focused pane. */
+  openStudio(): unknown;
+  openSession(sessionId: string): unknown;
+  refreshProjects(): Promise<DesktopProjectSummary[]>;
+  renameProject(path: string, alias: string): unknown;
+  removeProject(path: string): unknown;
+}) {
+  const { sidebarPanel, sidebarTreeMounted, presentedSidebarPanel } = useSidebarPresentation({
+    schedulesOpen,
+    webhooksOpen,
+    projectsOpen,
+    sidebarOpen,
+    viewGroups,
+    loadedSidebarPanels,
+    failedSidebarPanels,
+    mountedSidebarPanels,
+  });
   const SchedulesPane = sidebarPanes.schedules;
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
@@ -204,45 +332,16 @@ export function useAppSidebarSurface({
     closeSidebarForNavigation();
     openSession(sessionId);
   });
-  const projectsCreate = useStableEvent(async (path: string, name?: string) => {
-    const host = window.mixdogDesktop;
-    if (!host) throw new Error('Desktop bridge is unavailable.');
-    await host.addProject(path);
-    if (name) await host.renameProject(path, name);
-    await refreshProjects();
-  });
-  // Project rows carry no open action (user: 클릭 없애 그냥) — the panel lists
-  // and edits projects; NEW TASK is minted from its own entries only.
-  const projectsRename = useStableEvent((path: string, alias: string) => void renameProject(path, alias));
-  const projectsRemove = useStableEvent((path: string) => void removeProject(path));
-  const projectsChooseFolder = useCallback(
-    // Remote surfaces browse the host in-app (ProjectListSection), never the OS chooser.
-    async () => (isRemoteHostRenderer() ? null : ((await window.mixdogDesktop?.chooseProject()) ?? null)),
-    []
-  );
-  const projectsMemoryControl = useCallback<NonNullable<React.ComponentProps<typeof ProjectsPane>['onMemoryControl']>>(
-    async (input) =>
-      (
-        await window.mixdogDesktop.invokeCapability({
-          capability: 'memoryControl',
-          args: [input, { silent: true }],
-        })
-      ).value,
-    []
-  );
-  // One editor host outside the sidebar panels: opened by "Project settings"
-  // over the current screen, and never closed by panel activation changes.
-  const projectEditorRef = useRef<ProjectEditorDialogHandle>(null);
-  const openProjectSettings = useStableEvent((path: string) => projectEditorRef.current?.open(path));
-  const projectEditorHost = (
-    <ProjectEditorDialog
-      ref={projectEditorRef}
-      projects={projects}
-      onRename={projectsRename}
-      onRemove={projectsRemove}
-      onMemoryControl={projectsMemoryControl}
-    />
-  );
+  const {
+    revealedProject,
+    projectsRename,
+    projectsRemove,
+    projectsMemoryControl,
+    openProjectSettings,
+    projectEditorHost,
+    openProjectAdd,
+    projectAddHost,
+  } = useSidebarProjectActions({ projects, refreshProjects, renameProject, removeProject });
   const renderSidebarPanel = (panel: SidebarPanelKey, active: boolean): React.ReactNode => {
     if (!mountedSidebarPanels.has(panel)) return null;
     const label = SIDEBAR_PANEL_TITLES[panel];
@@ -275,8 +374,7 @@ export function useAppSidebarSurface({
           projects={projects}
           projectsReady={projectsReady}
           selectedProjectPath={selectedProjectPath}
-          onChooseFolder={projectsChooseFolder}
-          onCreateProject={projectsCreate}
+          onAddProject={() => openProjectAdd()}
           onRename={projectsRename}
           onRemove={projectsRemove}
           onMemoryControl={projectsMemoryControl}
@@ -306,5 +404,8 @@ export function useAppSidebarSurface({
     renderSidebarPanel,
     openProjectSettings,
     projectEditorHost,
+    projectAddHost,
+    openProjectAdd,
+    revealedProject,
   };
 }

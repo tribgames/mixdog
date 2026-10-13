@@ -52,8 +52,7 @@
   --mx-red-1200: #461516;
   --mx-yellow-500: #f2cf76;
   /* Warning plate: the old #4b4025 was the single brownest patch in the
-     shell and set the warm cast the neutral ramp got blamed for (user:
-     그레이가 갈색빛이 있다). Same amber hue, less chroma. */
+     shell and set the warm cast the neutral ramp got blamed for. Same amber hue, less chroma. */
   --mx-yellow-1200: #443f2e;
   --mx-amber-500: #f59e0b;
   --mx-amber-600: #d97706;
@@ -82,6 +81,11 @@
      frame on whatever surface holds them. Controls and chips are flat fills. */
   --mx-item-surface: transparent;
   --mx-item-outline: var(--mx-card-outline);
+  /* A card's header row (a table's th, a tool call's row line) is the one
+     filled part of a card: a faint plate over the card's own (sheet)
+     background, so header and body stay one surface. Every theme gets it
+     through --mx-surface-plate. */
+  --mx-card-header-surface: var(--mx-surface-plate);
   /* Prompt card and user bubble: one step above the sheet, so the composer
      and the bubble read as the same raised plate; the card also carries a
      soft drop under the shell's raised edge. The drop's negative spread keeps
@@ -89,6 +93,9 @@
      the changed-files plate sits. */
   --mx-composer-surface: var(--mx-bg-layer-1);
   --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
+  /* The status island's frame keeps its original blend over the earlier
+     #1c1c1f sheet, so it still floats one step above the darker sheet. */
+  --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, #1c1c1f);
   --mx-user-bubble: var(--mx-bg-layer-1);
   /* Terminal canvas and ink stay dark-theme paired in every app theme. */
   --mx-terminal-bg: #121215;
@@ -102,7 +109,7 @@
      micro is RESERVED for counters/badges/pills — readable sentences,
      captions with names, and button labels start at meta. 12 is the Windows
      11 type ramp's floor for regular text (Caption 12/16); 11 sat under it
-     (user: 폰트 위계도 조사해 봐). Content scales (markdown headings,
+. Content scales (markdown headings,
      onboarding hero, editor titles) stay literal. */
   --mx-font-micro: 12px;
   --mx-font-meta: 13px;
@@ -113,32 +120,28 @@
   --mx-font-body: 15px;
   --mx-font-panel-title: 16px;
   /* Rail panel titles (세션, 에이전트 …): the 16px panel tier — 18 read too
-     large (user: 이건 또 너무 커) — in the title band (--mx-rail-panel-band).
+     large — in the title band (--mx-rail-panel-band).
      The band matches the PANE tab strip (43px row + 1px edge) so the side
      panel's head and the workspace's tab row read as one line; the old 52px
-     band stood taller than the strip and the two looked detached (user:
-     GPT 대비 사이드 패널이랑 동떨어진 느낌 → 높이 맞추기). 39px read
-     cramped once the selection became a plate (user: 위아래로 좁은 것 같다
-     → 44). */
+     band stood taller than the strip and the two looked detached. 39px read
+     cramped once the selection became a plate. */
   --mx-rail-panel-title: 16px;
   --mx-rail-panel-band: 44px;
   /* Air between that band and a panel's first box. The band's own lower
      half already leaves ~16px under the title, so the content adds only a
      small step — every rail page (Sessions, Agents, Schedules, Workflows,
-     Projects, Extensions) opens on this one value (user: 패널 헤더와 아래가
-     넓다). */
+     Projects, Extensions) opens on this one value. */
   --mx-rail-panel-content-top: 4px;
   /* Rail GROUP LABEL — the one style every list heading in a side panel
      wears (Sessions 자동화/최근, Workflows 작업 규칙/기본 에이전트/에이전트,
      Extensions 빌트인/플러그인, the Agents dock's session names). Change it
      here only; the panels read these three values and declare no type of
-     their own. What groups ranks ABOVE what it groups (user: 묶는 게 위),
+     their own. What groups ranks ABOVE what it groups,
      so every cue points one way: heavier AND brighter than the 14/400 rows,
      one size under the 16px panel title. */
   --mx-rail-label-size: var(--mx-font-item);
   /* 500, not 600: at 600 the labels out-shouted the rows and the panel
-     title together (user: 왼쪽 사이드패널 헤더랑 카테고리 굵기 넘 굵은 거
-     아니냐). Full ink and one weight step still rank them above the rows. */
+     title together. Full ink and one weight step still rank them above the rows. */
   --mx-rail-label-weight: var(--mx-weight-medium);
   --mx-rail-label-ink: var(--mx-text);
   /* Page-scale titles and figures: the Settings page title, the large
@@ -164,11 +167,11 @@
   --mx-line-body: 24px;
   /* PROSE ONLY, one step above the body rung. 15/24 is the same 1.6 the Latin
      references set, but Hangul (and CJK generally) fills its line box edge to
-     edge, so the identical ratio reads packed (user: 행간이 특히 빡빡하다).
+     edge, so the identical ratio reads packed.
      1.73 is the CJK reading band, and it also gives Thai/Devanagari/Arabic
      marks the vertical room the tighter box clipped. Chrome rows keep 24.
      Back to 24 beside Codex's tighter prose, chosen side by side with the
-     looser rhythm (user: 코덱스보다 안 이쁘네 → A안). */
+     looser rhythm. */
   --mx-line-prose: 24px;
   /* Tracking, two steps beside the 0 base: tight for 14px+ headings,
      wide for uppercase micro labels/badges. Sub-.015em strays dropped to
@@ -180,7 +183,7 @@
      Body/Label = 400, Strong = 600 — no middle step). The old ramp kept a
      500 tier that 121 rules used as their DEFAULT, so a 600 heading only
      ever cleared its rows by half a step and nothing read as emphasized
-     (user: 굵기가 잘 안 보인다). 500 is no longer the shell's DEFAULT — a
+. 500 is no longer the shell's DEFAULT — a
      control that needs emphasis takes 600 and everything else rests at 400 —
      but the tier survives where 13px chrome must hold its own: the transcript
      status line and the workspace tab labels. Pretendard Hangul at 600 reads
@@ -188,18 +191,18 @@
      13px/500 is the weight that sits right in both places. It is a LABEL
      tier — do not let it creep back into body text or row copy.
      Transcript prose reads at 400 like the reference chat apps: 450 made
-     every paragraph look bold beside Codex (user: 일부 글씨가 너무 굵나). */
+     every paragraph look bold beside Codex. */
   --mx-weight-regular: 400;
   --mx-weight-body: 400;
   --mx-weight-medium: 500;
   --mx-weight-semibold: 600;
   /* Markdown `strong` only. 600 over the 400 prose still did not register
-     as emphasis in Hangul (user: 볼드가 티가 안 나긴 하네); the variable faces
+     as emphasis in Hangul; the variable faces
      carry a real 650 instance — weight synthesis stays disabled —
      which clears the body by 250 while staying off the 700 display tier. */
   --mx-weight-strong: 650;
   /* A row or field LABEL beside its value (Settings rows). Semibold is the
-     heading tier; a label sits one step under it (user: 폰트 위계 · 웨이트). */
+     heading tier; a label sits one step under it. */
   --mx-weight-label: var(--mx-weight-medium);
   /* Opacity ladder, five tiers between the functional 0/1: ghost .35
      (always-visible disabled arrows) < dim .55 (cut/waiting content,
@@ -210,7 +213,7 @@
   --mx-op-ghost: 0.35;
   /* 0.6, not 0.45: at 0.45 a disabled row fell to ~2:1 in BOTH themes — an
      uninstalled extension, a busy action — and read as missing, not as
-     unavailable (user: 잘 안 보이는 것도 있고). 0.6 keeps the label near 4:1
+     unavailable. 0.6 keeps the label near 4:1
      and is still an unmistakable step under a live control. */
   --mx-op-disabled: 0.6;
   --mx-op-dim: 0.55;
@@ -223,7 +226,7 @@
   /* Faint IS muted. It was raised for legibility until it sat one shade under
      muted (#9b9b9b against #a8a8a8, 5.8 against 6.9:1) — a step no eye could
      read, which left three near-identical greys on screen and no real third
-     tier (user: 정리가 덜 된 느낌). AA leaves no room for a lighter one, so
+     tier. AA leaves no room for a lighter one, so
      the ladder is honest about having two greys: soft (85% of the ink) and
      muted. The name stays so its 130-odd call sites keep saying "this is the
      quietest text here". */
@@ -233,31 +236,30 @@
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
   /* Resting ink of an idle pane tab's label and glyph, under the selected
      tab's full ink. 78% still read as the same color as the selection
-     (user: 탭 선택하나 안 하나 색감 같아 보인다). 67% is the bottom of an
-     even 100 / 83 / 67 ladder with a background pane's selection (user:
-     폰트 3단계도 좀 명확하게, 비선택도 완전히 죽이진 말고). */
+. 67% is the bottom of an
+     even 100 / 83 / 67 ladder with a background pane's selection. */
   --mx-tab-idle-ink: color-mix(in srgb, var(--mx-text) 67%, transparent);
   /* List-row ink roles, ONE rule for every rail list (sessions, agents,
      workflows, projects, extensions): the title rests a step under full ink
      and lifts on hover or selection; the supporting line sits under it. The
      panels had drifted — sessions at soft, the rest at full ink with their
-     model line as bright as the name (user: 웨이트나 색감까지 포함해서). */
+     model line as bright as the name. */
   --mx-row-title-ink: var(--mx-text-soft);
   --mx-row-title-ink-active: var(--mx-text);
   --mx-row-meta-ink: var(--mx-text-muted);
-  /* Brand accent = Google's own blue (user: 구글색이 낫다). The Material 3
+  /* Brand accent = Google's own blue. The Material 3
      indigo tones this replaces sat near hue 275 and read pale violet rather
      than the Google indigo they were meant to echo. Dark takes the 400 rung
      #669df6: the 300 rung #8ab4f8 read pastel at 9:1 on the sheet, where the
      reference dark themes hold their link blue at 6-7:1 (VS Code #4daafc,
-     Primer #4493f8). The 400 rung itself then read too saturated (user:
-     블루 색감이 좀 진해보이는데), and the 300/400 midpoint #78a8f7 still read
-     dim and a shade violet, so dark takes GitHub's dark link blue #79b8ff —
-     the sky blue inline code wore before it joined the accent (user: 79b8ff
-     로해볼까). Paper takes the 800 rung (light block below).
+     Primer #4493f8). The 400 rung itself then read too saturated, and the 300/400 midpoint #78a8f7 still read
+     dim and a shade violet, so dark moved to GitHub's dark link blue #79b8ff
+     (the sky blue inline code wore before it joined the accent), then to the
+     deeper #5bb0ff at nearly the same hue, which reads crisper on the sheet.
+     Paper takes the 800 rung (light block below).
      It lives on the THEME, not on a surface attribute, so the web shell
      paints the same accent as the desktop window. */
-  --mx-text-accent: #79b8ff;
+  --mx-text-accent: #5bb0ff;
   --mx-accent: var(--mx-text-accent);
   /* Markdown inline-code ink stays a SEPARATE token from the brand accent.
      Both are blue now, but code ink answers to "reads as code/reference"
@@ -265,7 +267,7 @@
      the accent answers to the brand, so a future accent move must not drag
      inline code with it. The role stays its own token, but its value is the
      accent: #79b8ff beside #8ab4f8 was a second blue nobody could tell apart
-     (user: 팔레트도 깔끔한지 체크). */
+. */
   --mx-md-code: var(--mx-text-accent);
   /* Neutral glyphs share the same ink ramp as their companion labels so
      chrome icons never drift darker or pick up a separate color cast. */
@@ -276,13 +278,12 @@
   --mx-border-muted: rgba(255, 255, 255, 0.09);
   --mx-border: rgba(255, 255, 255, 0.125);
   /* Workbench seams (titlebar, rail, sidebar, docks, pane splits) share the
-     muted weight: fewer, lighter lines carry the structure (user: 선 정리). */
+     muted weight: fewer, lighter lines carry the structure. */
   --mx-border-structure: var(--mx-border-muted);
   --mx-border-strong: rgba(255, 255, 255, 0.24);
 
   /* ── 4. Interaction ── */
-  /* Neutral focus ring in BOTH themes (user: 파란 강조/선택 톤 제거, 입력 포커스
-     파란 하이라이트 제외). Only keyboard navigation onto a control swaps in
+  /* Neutral focus ring in BOTH themes. Only keyboard navigation onto a control swaps in
      the accent (02-base.css). Defined here once: a later :root override in
      19-studio.css used to neutralise dark only, and the light block's blue
      outranked it. */
@@ -332,15 +333,15 @@
     linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
 
   /* ── 5. Status ── */
-  --mx-danger-bg: var(--mx-red-1200);
-  --mx-danger: var(--mx-red-500);
-  --mx-warning-bg: var(--mx-yellow-1200);
-  --mx-warning: var(--mx-yellow-500);
-  --mx-success-bg: var(--mx-green-1200);
-  --mx-success: var(--mx-green-500);
+  --mx-danger-bg: #4a1618;
+  --mx-danger: #ff6e69;
+  --mx-warning-bg: #4a3913;
+  --mx-warning: #ffb52e;
+  --mx-success-bg: #123d20;
+  --mx-success: #3ddc6e;
   --mx-success-border: var(--mx-green-900);
   /* One rung above GitHub's #a371f7, which read 3.8:1 on the raised plates. */
-  --mx-merged: #b287f8;
+  --mx-merged: #bb94fa;
 
   /* ── 6. Elevation (dark values) ── */
   --mx-switch-off:
@@ -385,21 +386,19 @@
   /* Quiet chip/segmented-control plate. Dark lifts with a white wash; light
      overrides with an ink wash — a white wash vanishes on white. */
   --mx-chip-bg: var(--mx-alpha-light-6);
-  /* Buttons are flat (user): one hairline boundary, no drop or bevel. */
+  /* Buttons are flat: one hairline boundary, no drop or bevel. */
   --mx-button: 0 0 0 var(--mx-hairline) var(--mx-alpha-light-20);
   --mx-button-contrast: 0 0 0 var(--mx-hairline) var(--mx-alpha-light-40);
 
   /* ── Popup surface ──
      ONE skin for everything that floats or modals over the shell — menus,
-     popovers, pickers, tooltips, toasts, dialog cards (user: 팝업 디자인 공통
-     규격, 컨텍스트 창 톤으로). The context gauge card is the reference: the
+     popovers, pickers, tooltips, toasts, dialog cards. The context gauge card is the reference: the
      page's own base plate, a single half-pixel strong hairline, the floating
      elevation. Theme-neutral because every value resolves through a themed
      token. Dialog cards take the one-notch-larger card radius; everything
      that hangs off a control keeps the compact radius. */
   --mx-popup-bg: var(--mx-bg-base);
-  /* Popups are frameless: plate and drop only, no outline (user: 프레임리스로
-     최대한 팝업은 가는 게 좋아 보이고), one corner step rounder. */
+  /* Popups are frameless: plate and drop only, no outline, one corner step rounder. */
   --mx-popup-border: 0 solid transparent;
   /* The border owns the edge; elevation must not draw a second bright ring. */
   /* Same reach as before (the toast lane's padding holds 0 12px 28px), only
@@ -439,7 +438,7 @@
   --mx-popup-action-ring: none;
   --mx-popup-action-ring-hover: none;
   /* Hover bridge geometry — the transparent frame that JOINS a card to the
-     control it hangs off (user: 투명으로 중간에 이어주는 프레임). Reach clears
+     control it hangs off. Reach clears
      the card's 6px offset and still overlaps the control, so no hairline of
      unhovered ground survives a zoom rounding; spread runs the frame past both
      card edges, so an approach that drifts sideways lands on it too. Both stay
@@ -458,7 +457,8 @@
      the rhythm the Geist stack set is preserved. Only Pretendard and
      JetBrains Mono ship in the bundle (bootstrap-styles.ts); the rest of each
      stack is the OS fallback. Mono is the TUI stack. */
-  --mx-font-prose: "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  --mx-font-prose:
+    "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", -apple-system, "Apple SD Gothic Neo", sans-serif;
   --mx-font-sans: var(--mx-font-prose);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
@@ -468,7 +468,7 @@
   /* Pretendard has no italic face. Allow slanted emphasis/preview labels,
      but keep variable-font weights real rather than synthesizing bold. */
   font-synthesis: style;
-  --mx-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace;
+  --mx-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
   --titlebar-height: 35px;
   /* ── Motion scale ── THREE clocks and THREE curves for the whole shell. The
      numbers are the ones the shell had already converged on by hand: 85 for
@@ -507,8 +507,7 @@
      bar retracts, and on an edge-to-edge viewport that reaches behind system
      UI, it names more height than the screen actually shows. A sheet that
      trusts it alone pushes its own bottom — and any pinned footer, like Source
-     Control's commit button — under the browser chrome (user: 오른쪽 사이드바
-     하단이 프레임을 벗어나 내려간다). `dvh` is the browser's OWN answer to the
+     Control's commit button — under the browser chrome. `dvh` is the browser's OWN answer to the
      same question, so the smaller of the two always wins: the variable still
      shrinks a sheet for the soft keyboard, and the unit caps it at what is
      really on screen. */
@@ -520,7 +519,7 @@
      keeps a session row legible on a small screen; the ceiling is the desktop
      sidebar's own maximum (MAX_SIDEBAR_WIDTH, session-sidebar.tsx); and the
      peek guarantees the surface BEHIND the sheet never disappears entirely
-     (user: 최대 값이 없어서 너무 넓어지는 케이스). The phone layer
+. The phone layer
      re-declares the same expression in dp, with the projection factor
      divided out. */
   --mx-side-sheet-min: 260px;
@@ -565,6 +564,7 @@
   /* Paper: the prompt card stays white; the bubble is Grok's grey fill. */
   --mx-composer-surface: var(--mx-bg-base);
   --mx-composer-lift: 0 2px 8px -2px rgb(0 0 0 / 4%);
+  --mx-island-frame: color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
   --mx-user-bubble: var(--mx-bg-layer-2);
 
   /* ── 3. Ink ── */
@@ -576,7 +576,7 @@
   --mx-text-faint: var(--mx-text-muted);
   /* Google Blue 800 for INK: the 700 rung #1967d2 fell to 4.2:1 on the grey
      plates. The filled accent surface (--mx-accent-bg) keeps 700. */
-  --mx-text-accent: #185abc;
+  --mx-text-accent: #0a5fd1;
   --mx-accent: var(--mx-text-accent);
   --mx-md-code: var(--mx-text-accent);
   --mx-icon: var(--mx-text);
@@ -601,22 +601,22 @@
   --mx-contrast-hover: rgba(255, 255, 255, 0.122);
 
   /* ── 5. Status ── */
-  --mx-danger-bg: #fceceb;
-  --mx-danger: #b82d35;
-  --mx-warning-bg: #fefaec;
+  --mx-danger-bg: #fdeaea;
+  --mx-danger: #c8201f;
+  --mx-warning-bg: #fff3d9;
   /* #cb9f34 washed out for modified-file names on the white sheet (~2.5:1),
      and GitHub-light attention gold #9a6700 still fell under 4.5:1 on the
      band and raised plates; #8f6000 still dipped to 4.3 on layer-3, so one
      more rung keeps the warm hue legible on every plate. */
-  --mx-warning: #855900;
+  --mx-warning: #a35200;
   --mx-meter-track: #ededed;
   --mx-meter-fill: #737373;
   --mx-meter-warning: #b77900;
   --mx-meter-danger: #cf4249;
-  --mx-success-bg: #e7f9ea;
+  --mx-success-bg: #e1f7e7;
   /* Google Green 800: #198b43 read 3.7-4.4:1 on the paper plates. */
-  --mx-success: #137333;
-  --mx-success-border: #b8e9c1;
+  --mx-success: #077528;
+  --mx-success-border: #a9e5b8;
   --mx-merged: #6d3fc4;
 
   /* ── 6. Elevation (light values) ── */
@@ -672,7 +672,7 @@
   -moz-osx-font-smoothing: grayscale;
   /* Hinting stays ON shell-wide: geometricPrecision drops Windows hinting
      and lets 11-13px chrome stems land off-pixel, which renders them as
-     half-grey blur (user: 굵기가 잘 안 보인다). Linear metrics only pay off
+     half-grey blur. Linear metrics only pay off
      on the 15px+ reading surfaces, so the flag is scoped to those below. */
   text-rendering: auto;
 }

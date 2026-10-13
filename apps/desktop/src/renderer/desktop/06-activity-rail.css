@@ -14,11 +14,10 @@
   align-items: stretch;
   /* Nothing paints outside the rail column: a short window used to let the
      destination list spill past its squeezed box and draw over the usage
-     readout below it (user: 창을 상하로 줄이면 USAGE가 겹쳐 보임). */
+     readout below it. */
   overflow: hidden;
   border-right: 1px solid var(--mx-border-structure);
-  /* Activity-bar ink measured against VS Code side by side (user: 아이콘
-     색감이 다르다): inactive = white at 50% — the old 40% of the off-white
+  /* Activity-bar ink measured against VS Code side by side: inactive = white at 50% — the old 40% of the off-white
      text token read a step darker than VS Code's rail on its band.
      Hover/active = full foreground via the button rules below. */
   color: rgb(255 255 255 / 50%);
@@ -30,9 +29,8 @@
 :root[data-mixdog-theme="light"] .activity-rail {
   color: color-mix(in srgb, var(--mx-text) 65%, transparent);
 }
-/* Glyph and cell measured against VS Code on the same screen (user: 상하
-   간격이 다르다): a 44px cell pitch. The glyph steps down from the 24px
-   codicon em to 22px (user: 왼쪽 아이콘 살짝만 줄일까) — the rail read
+/* Glyph and cell measured against VS Code on the same screen: a 44px cell pitch. The glyph steps down from the 24px
+   codicon em to 22px — the rail read
    heavier than the 44px title band and the 14px tab glyphs beside it. The
    destinations render lucide at size 24, so CSS sets the box for every
    rail glyph. */
@@ -54,7 +52,7 @@
   height: 44px;
   /* The cell is fixed, never a flex budget: the column's default shrink
      squeezed the foot Settings button into a shorter box than the
-     destinations above it (user: 하단 설정버튼이 위쪽 아이콘이랑 크기가 달라). */
+     destinations above it. */
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -77,7 +75,7 @@
 .activity-rail > button.selected {
   color: var(--mx-text);
 }
-/* Selection grammar (user: 사이드레일 선택 UI 좀 바꾸자 — 코덱스처럼): a
+/* Selection grammar: a
    rounded tile inset in the cell carries hover and selection; the old 2px
    edge bar and full-cell wash are gone. */
 .activity-rail > button::before,
@@ -93,14 +91,12 @@
 }
 .activity-rail {
   --mx-rail-tile-hover: color-mix(in srgb, var(--mx-text) 6%, transparent);
-  /* Neutral selection — no blue in the chrome (user: 메뉴 선택 시 파란색은
-     쓰지 말자, 좀 더 모던풍이 좋아). */
+  /* Neutral selection — no blue in the chrome. */
   --mx-rail-tile-active: color-mix(in srgb, var(--mx-text) 11%, transparent);
 }
 /* The tile's z-index:-1 stays inside its own button. Isolating the whole
    rail instead trapped the usage flyout (a fixed child of the rail) in the
-   rail's layer, under the side panel (user: 유즈에이지는 왜 색 자체가
-   날라가버렸냐). */
+   rail's layer, under the side panel. */
 .activity-rail > button,
 .workbench-side-icon-bar.is-vertical > button {
   isolation: isolate;
@@ -124,7 +120,7 @@
 }
 /* The destination list is this icon bar; its own cell rule outranks the
    generic rail button rule above, so it carries the same measured 44px cell
-   (user: 간격이 너무 벌어져 — 48px가 여기서 살아남고 있었다). */
+. */
 .activity-rail > .workbench-side-icon-bar.is-vertical,
 .activity-rail > nav.workbench-side-icon-bar.is-vertical {
   display: flex;
@@ -151,14 +147,106 @@
 .activity-rail > button:focus-visible {
   box-shadow: var(--mx-list-focus-ring);
 }
+/* Reorder: 2px accent line with an 8px dot at its left end, drawn on the
+   button itself; "inside" outlines the whole target. */
 .workbench-side-icon-bar.is-vertical > button[data-drop-position="before"] {
-  box-shadow: inset 0 2px 0 var(--mx-focus);
+  background-image:
+    radial-gradient(circle 4px at 4px 4px, var(--mx-accent) 98%, transparent),
+    linear-gradient(var(--mx-accent), var(--mx-accent));
+  background-position:
+    0 0,
+    0 3px;
+  background-size:
+    8px 8px,
+    100% 2px;
+  background-repeat: no-repeat;
 }
 .workbench-side-icon-bar.is-vertical > button[data-drop-position="after"] {
-  box-shadow: inset 0 -2px 0 var(--mx-focus);
+  background-image:
+    radial-gradient(circle 4px at 4px 4px, var(--mx-accent) 98%, transparent),
+    linear-gradient(var(--mx-accent), var(--mx-accent));
+  background-position:
+    0 100%,
+    0 calc(100% - 3px);
+  background-size:
+    8px 8px,
+    100% 2px;
+  background-repeat: no-repeat;
 }
 .workbench-side-icon-bar.is-vertical > button[data-drop-position="inside"] {
-  box-shadow: inset 0 0 0 1px var(--mx-focus);
+  outline: 1.5px solid var(--mx-accent);
+  outline-offset: -1.5px;
+  border-radius: var(--mx-radius-md);
+}
+/* Plain browser tab (no title band): the PC switcher heads the rail as one
+   more 44px cell with the same tile grammar; the link dot rides the glyph's
+   lower-right corner. */
+.activity-rail > .remote-pc-switcher-rail {
+  flex: 0 0 auto;
+  display: block;
+  max-width: none;
+  margin: 0;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button {
+  position: relative;
+  isolation: isolate;
+  width: 47px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--mx-motion-ink);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button > svg {
+  width: 22px;
+  height: 22px;
+  color: inherit;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 4px 6px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-rail-tile-hover);
+  opacity: 0;
+  transition: opacity var(--mx-motion-ink);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  color: var(--mx-text);
+  background: transparent;
+  outline: 0;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button:is(:hover, :focus-visible)::before {
+  opacity: 1;
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button[aria-expanded="true"]::before {
+  opacity: 1;
+  background: var(--mx-rail-tile-active);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button:focus-visible {
+  box-shadow: var(--mx-list-focus-ring);
+}
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-rail-button > .remote-pc-dot {
+  position: absolute;
+  top: 26px;
+  left: 29px;
+  box-shadow: 0 0 0 2px var(--mx-window-band);
+}
+/* The rail clips its column, so the PC menu floats beside the rail instead
+   of under the cell, and scrolls inside a short viewport. */
+.activity-rail > .remote-pc-switcher-rail > .remote-pc-menu {
+  position: fixed;
+  top: 4px;
+  left: 52px;
+  max-width: calc(100vw - 60px);
+  max-height: calc(var(--vvh, 100dvh) - 8px);
+  overflow-y: auto;
 }
 .activity-rail-spacer {
   flex: 1 1 0;

@@ -275,6 +275,9 @@ export class CaptureService implements DesktopService {
   async cancelQuotaResume(): Promise<boolean> {
     return true;
   }
+  async stopShellJob(): Promise<{ stopped: boolean; error?: string }> {
+    return { stopped: false, error: 'unavailable' };
+  }
   async getQuotaAutoResume(): Promise<boolean> {
     return true;
   }
@@ -283,6 +286,7 @@ export class CaptureService implements DesktopService {
   }
   async setSessionArchived(): Promise<void> {}
   async setSessionFavorite(): Promise<void> {}
+  async setSessionProject(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> {
     return null;
   }

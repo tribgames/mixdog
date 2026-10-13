@@ -43,10 +43,18 @@ export function markEffortConfigurationUnsupported(provider, model) {
 
 /** True for a provider error that names the mid-conversation effort update. */
 export function isEffortConfigurationRejection(status, text) {
-  return (
-    status === 400 &&
-    /output_config|mid-conversation|configuration_update|reasoning_effort_update/i.test(String(text || ''))
-  );
+  const message = String(text || '');
+  if (status !== 400) return false;
+  if (/mid-conversation|configuration_update|reasoning_effort_update/i.test(message)) return true;
+  // A rejected `output_config.effort` VALUE (the error quotes a level) belongs
+  // to the effort-rejection fallback (effort-rejection.mjs); a rejected field
+  // ("output_config.effort is not supported") is still the update case.
+  if (
+    /output_config\.effort\b(?!_)/i.test(message) &&
+    /['"`](?:none|minimal|low|medium|high|xhigh|max|ultra)['"`]/i.test(message)
+  )
+    return false;
+  return /output_config/i.test(message);
 }
 
 /**

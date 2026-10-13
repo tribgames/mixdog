@@ -125,12 +125,14 @@ export async function createLocalSessionRuntime({
   autoEffort,
   modelParameters,
   contextPercent,
+  contextTokens,
   selectedContextWindow,
   toolMode = 'full',
   remote = false,
   cwd,
   desktopSession,
   sessionProfile,
+  worktree,
   executeAgentControl,
 } = {}) {
   const startedAt = performance.now();
@@ -154,12 +156,15 @@ export async function createLocalSessionRuntime({
     autoEffort,
     modelParameters,
     contextPercent,
+    contextTokens,
     selectedContextWindow,
     toolMode,
     remote,
     ...(cwd ? { cwd } : {}),
     ...(desktopSession ? { desktopSession } : {}),
     ...(sessionProfile && typeof sessionProfile === 'object' ? { sessionProfile } : {}),
+    // Session creation worktree intent; consumed by the workspace transition scope.
+    ...(worktree && typeof worktree === 'object' ? { worktree } : {}),
     ...(typeof executeAgentControl === 'function' ? { executeAgentControl } : {}),
   });
   bootProfile('session:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
@@ -398,6 +403,10 @@ export async function createLocalSessionRuntime({
     subscribeRuntimeNotifications,
   });
   Object.assign(bag, createSessionFlow(bag));
+  // Runtime-driven completion wakes (no attached surface acked the completion)
+  // get the same idle auto-clear as a user submit.
+  lifecycle.unsubscribeCompletionWakeGate =
+    runtime.setCompletionWakeGate?.(() => bag.autoClearBeforeWake()) || null;
   Object.assign(
     bag,
     createGoalContinuation({

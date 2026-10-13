@@ -1,5 +1,6 @@
 // Sessions, projects, workspaces, editor, LSP, renderer diagnostics, boot,
 // workspace text search, local files and document previews.
+import type { DesktopSessionWorkspace } from './contract-worktree';
 
 export type DesktopSessionClassification = 'task' | 'project' | null;
 
@@ -116,6 +117,10 @@ export interface DesktopSessionSummary {
   archived?: boolean;
   /** Favorite: pinned to the Favorites section above Recent. */
   favorite?: boolean;
+  /** User-chosen sidebar project (membership only — never the session's cwd).
+   *  A registered project path, or '' for "no project"; absent while the
+   *  project follows the session's folder. */
+  projectAssignment?: string;
   /** Automation origin: present on schedule/webhook runner sessions so the
    *  sidebar groups them under Automations instead of Recent. */
   sourceType?: 'schedule' | 'webhook';
@@ -126,6 +131,9 @@ export interface DesktopSessionSummary {
    *  snapshot, a peek, or pane focus. */
   provider?: string;
   model?: string;
+  /** The Lead's workspace: where it executes (`cwd`, possibly a managed
+   *  worktree) under its registered Project. Absent while it never moved. */
+  workspace?: DesktopSessionWorkspace;
 }
 
 export interface DesktopProjectSummary {
@@ -405,6 +413,16 @@ export interface DesktopBootContext {
   scenario?: string;
   /** This launch follows an app update (main-process record, not localStorage). */
   afterUpdate?: true;
+}
+
+/** The daemon connection a desktop window drives: this PC (`local`) or a
+ *  server reached over ssh. Fixed for the window's lifetime. */
+export interface DesktopConnectionIdentity {
+  /** `'local'` for this PC, the saved SSH host id otherwise. */
+  id: string;
+  kind: 'local' | 'ssh';
+  /** Display name: this PC's host name, or the saved server name. */
+  name: string;
 }
 
 export interface DesktopWorkspaceTextSearchOptions {

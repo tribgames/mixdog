@@ -6,23 +6,25 @@
  */
 import { formatBinaryReadPreviewFromBuffer } from './binary-file.mjs';
 import { readPrefixHash } from './read-single-fast-paths.mjs';
+import { canCacheReadFile } from './read-cache-policy.mjs';
 
 export function binaryPreviewResult(ctx, preview, helpers) {
   const { fullPath, filePath, st, cacheKey, readStateScope } = ctx;
   const { normalizeOutputPath, _recordReadSnapshot, _cacheSet } = helpers;
   const { text, snapshotMeta } = formatBinaryReadPreviewFromBuffer(preview, normalizeOutputPath(filePath), st.size);
   _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
-  _cacheSet(cacheKey, text, { paths: [fullPath], readSnapshotMeta: snapshotMeta });
+  if (canCacheReadFile(st)) _cacheSet(cacheKey, text, { paths: [fullPath], readSnapshotMeta: snapshotMeta });
   return text;
 }
 
 async function commitStreamResult(ctx, out, snapshotMeta, prefixHash, helpers) {
   const { fullPath, st, cacheKey, readStateScope } = ctx;
   const { _cacheSet, _recordReadSnapshot, _hashText } = helpers;
-  // Prefix hash for the race guard on the next cache hit; async so a 64KB
-  // read never blocks the event loop on the large-file streaming path.
-  const contentPrefixHash = prefixHash || (await readPrefixHash(fullPath, st, _hashText));
-  _cacheSet(cacheKey, out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
+  // Do not reopen a large file just to hash a prefix that cannot certify it.
+  if (canCacheReadFile(st)) {
+    const contentPrefixHash = prefixHash || (await readPrefixHash(fullPath, st, _hashText));
+    _cacheSet(cacheKey, out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
+  }
   _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
   return out;
 }
@@ -50,7 +52,8 @@ export async function streamRangeResult(ctx, { source, fileHandle, prefixBuffer 
     const ranges =
       res.firstEmitted && res.lastEmitted ? [{ startLine: res.firstEmitted, endLine: res.lastEmitted }] : [];
     const snapshotMeta = { source, ranges, rangeHashes: _rangeHashesFromRenderedReadText(res.text, ranges) };
-    return await commitStreamResult(ctx, res.text, snapshotMeta, res.prefixHash, helpers);
+    if (!res.readSnapshotStat) return res.text;
+    return await commitStreamResult({ ...ctx, st: res.readSnapshotStat }, res.text, snapshotMeta, res.prefixHash, helpers);
   } catch (err) {
     return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
   }

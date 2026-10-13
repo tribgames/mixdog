@@ -5,6 +5,7 @@ import { prefetchBrowserPane, prefetchDiffView, prefetchTerminalPane } from './l
 import { preloadUtilityDock } from './app-snapshot-views';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import { isSessionSidePanelView } from './session-side-surface-policy';
+import { allowVisualizeReveal } from './visualize-store';
 import type { useAppSideDocks } from './use-app-side-docks';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 import type { WorkbenchSideViewId, WorkbenchSide, WorkbenchSideViewPlacement } from './workbench-side-view-layout';
@@ -46,7 +47,7 @@ export function useSideViewPrefetch(
         void prefetchTerminalPane().catch(() => {});
         return;
       }
-      if (id === 'background-jobs') return;
+      if (id === 'visualize' || id === 'ports') return;
       if (id === 'session-diff') {
         void prefetchDiffView().catch(() => {});
         return;
@@ -103,6 +104,8 @@ export function useSideViewSelection({
           }
           setSessionSideSurface(selection.id, id);
         } else if (selection?.kind === 'session') {
+          // Opening the visualize view by hand lets agent opens reveal it again.
+          if (id === 'visualize') allowVisualizeReveal(selection.id);
           setSessionSideSurface(selection.id, null);
           // Session Diff selection belongs to this session, just like its browser
           // and terminal; another destination clears that session's selection.

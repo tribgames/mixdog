@@ -1,4 +1,4 @@
-import { FileText, FolderOpen, Play, X } from 'lucide-react';
+import { Download, FileText, FolderOpen, Play, X } from 'lucide-react';
 import { useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ImageLightbox, lightboxItemsFor, useLightboxRegistration, type LightboxItem } from './image-lightbox';
 import { openProjectFileInDefaultApp, useLocalImagePreview } from './local-image-preview';
@@ -8,11 +8,17 @@ import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
 import { DocSheet, FileTypeWord, TableThumbnail, delimitedSummary, fileTone } from './file-thumbnail-art';
 import { t } from './i18n';
+import { fileSnapshot, usePersistedThumbnail } from './persisted-thumbnail';
 import { verifyLocalLink } from './local-link-resolver';
-import { MarkdownLink, MarkdownProjectContext } from './MarkdownLink';
+import { MarkdownLink, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
+import { fileDownloadBlockedReason, startFileDownload, useFileDownloadSupport } from './file-download-panel';
+import { fileDownloadReasonMessage } from './file-download-transfer';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { MxIcon } from './MxIcon';
 import { parseLocalFileLocation } from '../shared/local-files';
 import { mediaUrl } from './studio-support';
+import { openMediaAssetFromWindow, openMediaFolderFromWindow } from './studio-pane-media-actions';
+import { isSshConnectionWindow } from './desktop-connection';
 import { transcriptArtifacts, type TranscriptArtifact } from './transcript-artifacts';
 
 /** file:// href for a local artifact path; a Windows drive segment stays unencoded. */
@@ -49,8 +55,9 @@ function mediaFrame(
   if (square) return { width: CARD_HEIGHT, fit: 'cover' };
   if (size && size.width < CARD_HEIGHT && size.height < CARD_HEIGHT) return { width: CARD_HEIGHT, fit: 'native' };
   const ratio = size ? size.width / size.height : hint || 1;
-  const fit: MediaFit =
-    ratio < MIN_RATIO ? (kind === 'video' ? 'center' : 'top') : ratio > MAX_RATIO ? 'center' : 'contain';
+  let fit: MediaFit = 'contain';
+  if (ratio < MIN_RATIO) fit = kind === 'video' ? 'center' : 'top';
+  else if (ratio > MAX_RATIO) fit = 'center';
   const width = Math.round(CARD_HEIGHT * Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio)));
   return { width: Math.max(MIN_CARD_WIDTH, width), fit };
 }
@@ -92,7 +99,18 @@ function MediaFigure({
     frameRef,
     !video && original && !failed ? { id, src: original, name: artifact.name, target, openDefault } : null
   );
-  const thumbnail = failed ? '' : video ? preview : preview || original;
+  // A picture that loaded is kept per session + file; when the source is gone
+  // (deleted file, expired media asset) the kept copy stands in.
+  const session = useContext(MarkdownSessionContext);
+  const [loadedSrc, setLoadedSrc] = useState('');
+  const kept = usePersistedThumbnail(
+    session,
+    `artifact|${artifact.assetId || artifact.path || artifact.name}`,
+    loadedSrc || undefined
+  );
+  let source = '';
+  if (!failed) source = video ? preview : preview || original;
+  const thumbnail = source || kept || '';
   const openable = Boolean(original) && (video || !failed);
   const frame = mediaFrame(artifact.kind, size, artifact.aspect, square);
   const label = video ? artifact.name : t('Open image');
@@ -109,19 +127,21 @@ function MediaFigure({
         className="transcript-artifact-frame"
         aria-label={label}
         disabled={!openable}
-        onClick={() => {
-          if (!video) setLightbox({ items: lightboxItemsFor(frameRef.current!), startId: id });
+        onClick={(event) => {
+          if (!video) setLightbox({ items: lightboxItemsFor(event.currentTarget), startId: id });
           setExpanded(true);
         }}
       >
         {thumbnail ? (
           <img
+            // Eager: the virtualized transcript only mounts nearby rows; a lazy
+            // image there stayed blank until it was clicked.
             src={thumbnail}
             alt={artifact.name}
-            loading="lazy"
             onLoad={(event) => {
               const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
               if (width > 0 && height > 0) setSize({ width, height });
+              if (!failed && event.currentTarget.currentSrc !== kept) setLoadedSrc(event.currentTarget.currentSrc);
             }}
             onError={(event) => {
               if (!video && event.currentTarget.src !== original) event.currentTarget.src = original;
@@ -174,14 +194,43 @@ function MediaFigure({
   );
 }
 
+/** A paired device's action on generated media: download the original to
+ *  this device (and share it), or the reason it cannot. */
+function MediaDownloadButton({ artifact }: { artifact: TranscriptArtifact }) {
+  const sessionId = useContext(MarkdownSessionContext);
+  const blocked =
+    fileDownloadBlockedReason(useFileDownloadSupport(true)) ||
+    (sessionId ? undefined : fileDownloadReasonMessage('unavailable'));
+  const label = blocked || t('Download / Share');
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={t('Download / Share')}
+      data-tooltip={label}
+      aria-disabled={blocked ? 'true' : undefined}
+      onClick={() => {
+        if (blocked) showDesktopToast(blocked, 'error');
+        else startFileDownload({ kind: 'media', sessionId, assetId: artifact.assetId! }, artifact.name);
+      }}
+    >
+      <Download size={14} aria-hidden="true" />
+    </button>
+  );
+}
+
 function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; square: boolean }) {
   const api = window.mixdogDesktop;
   const id = artifact.assetId!;
+  const remote = isRemoteHostRenderer();
+  const openLabel = isSshConnectionWindow() ? t('Download to this PC and open') : t('Open file');
+  const folderLabel = isSshConnectionWindow() ? t('Reveal in Files') : t('Open Folder');
   const open = async (folder = false) => {
     try {
       const action = folder ? api?.openMediaFolder : api?.openMediaAsset;
       if (!action) throw new Error(t('Local file links can only be opened in the desktop app.'));
-      await action(id);
+      // A server window downloads or reveals instead of handing a server path to this PC.
+      await (folder ? openMediaFolderFromWindow : openMediaAssetFromWindow)(api, id);
     } catch (error) {
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
     }
@@ -192,26 +241,31 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
       original={mediaUrl(api, id, 'original')}
       preview={mediaUrl(api, id, artifact.kind === 'video' ? 'thumb' : 'display')}
       square={square}
-      openDefault={() => void open()}
+      openDefault={remote ? undefined : () => void open()}
       actions={
         <>
           {/* Same icon-only action grammar as the response copy control: transparent
-            icon-button + tooltip, never a native grey text button. */}
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={t('Open file')}
-            data-tooltip={t('Open file')}
-            onClick={() => void open()}
-          >
-            <MxIcon name="open-file" size={14} />
-          </button>
+            icon-button + tooltip, never a native grey text button. The host's
+            OS cannot open anything for a paired device: it downloads instead. */}
+          {remote ? (
+            <MediaDownloadButton artifact={artifact} />
+          ) : (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={openLabel}
+              data-tooltip={openLabel}
+              onClick={() => void open()}
+            >
+              <MxIcon name="open-file" size={14} />
+            </button>
+          )}
           {api?.openMediaFolder && (
             <button
               type="button"
               className="icon-button"
-              aria-label={t('Open Folder')}
-              data-tooltip={t('Open Folder')}
+              aria-label={folderLabel}
+              data-tooltip={folderLabel}
               onClick={() => void open(true)}
             >
               <FolderOpen size={14} aria-hidden="true" />
@@ -265,9 +319,16 @@ const SLIDES = /\.(?:pptx?|pptm|odp)$/i;
 
 /** The first page through the document preview pipeline (PDF in place, office
  *  files converted), or for CSV/TSV a table drawn from the file's first rows. */
-async function documentThumb(match: ResolvedLocalLink, name: string): Promise<DocumentThumb> {
+async function documentThumb(match: ResolvedLocalLink, name: string, session: string): Promise<DocumentThumb> {
   const api = window.mixdogDesktop;
-  const delimiter = /\.tsv$/i.test(name) ? '\t' : /\.csv$/i.test(name) ? ',' : '';
+  // A web page has no document pages: the host renders the page itself.
+  if (/\.html?$/i.test(name)) {
+    const src = await fileSnapshot(session, match);
+    return src ? { phase: 'page', src, pageCount: 0 } : { phase: 'failed' };
+  }
+  let delimiter = '';
+  if (/\.tsv$/i.test(name)) delimiter = '\t';
+  else if (/\.csv$/i.test(name)) delimiter = ',';
   if (delimiter) {
     const file = await api?.readProjectFile?.(match.project, match.path, match.accessToken);
     if (!file || file.binary || file.tooLarge || !file.content.trim()) return { phase: 'failed' };
@@ -296,6 +357,7 @@ function byteSize(bytes: number): string {
  *  of offering an open that fails. */
 function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
   const project = useContext(MarkdownProjectContext);
+  const session = useContext(MarkdownSessionContext);
   const href = artifactHref(artifact.path);
   const [thumb, setThumb] = useState<DocumentThumb>({ phase: 'loading' });
   const [size, setSize] = useState<number | null>(null);
@@ -317,7 +379,7 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
           },
           () => undefined
         );
-        documentThumb(match, artifact.name).then(
+        documentThumb(match, artifact.name, session).then(
           (next) => {
             if (active) setThumb(next);
           },
@@ -333,7 +395,7 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
     return () => {
       active = false;
     };
-  }, [project, href, artifact.name]);
+  }, [project, href, artifact.name, session]);
   const missing = thumb.phase === 'missing';
   const format = formatLabel(artifact.name);
   const tone = fileTone(artifact.name);
@@ -341,7 +403,7 @@ function DocumentArtifact({ artifact }: { artifact: TranscriptArtifact }) {
   const facts: string[] = [];
   if (missing) facts.push(t('Deleted'));
   else if (thumb.phase === 'loading') facts.push(t('Preparing preview…'));
-  else if (thumb.phase === 'page') {
+  else if (thumb.phase === 'page' && thumb.pageCount > 0) {
     facts.push(
       SLIDES.test(artifact.name)
         ? t('{{count}} slides', { count: thumb.pageCount })

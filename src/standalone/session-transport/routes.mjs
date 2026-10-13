@@ -1,10 +1,12 @@
 /**
  * session-transport/routes.mjs — the HTTP front door: /health (identity
  * travels with every probe), the daemon-token gate, client register /
- * deregister, the /events SSE attach, /call, /shutdown and the /upgrade
+ * deregister / heartbeat, the /events SSE attach, /call, /shutdown, /stop and the /upgrade
  * handshake a newer build uses to replace this daemon.
  */
+import { readFileSync } from 'node:fs';
 import { sendJson, sendError } from '../../runtime/memory/lib/http-wire.mjs';
+import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -12,6 +14,32 @@ import {
   SESSION_REVISION,
   runtimeVersion,
 } from '../session-wire.mjs';
+
+let installBuildHash;
+/** Build hash of a desktop-installed server runtime: the `.install-complete`
+ *  marker the installer writes at the package root. Null for any other
+ *  install (npm, source checkout, packaged desktop). */
+function remoteInstallBuildHash() {
+  if (installBuildHash !== undefined) return installBuildHash;
+  try {
+    const marker = JSON.parse(readFileSync(new URL('../../../.install-complete', import.meta.url), 'utf8'));
+    installBuildHash = typeof marker?.buildHash === 'string' && marker.buildHash ? marker.buildHash : null;
+  } catch {
+    installBuildHash = null;
+  }
+  return installBuildHash;
+}
+
+/** Turns in flight: what makes a daemon too busy to replace without asking. */
+function busySessionCount(status) {
+  return Math.max(0, Number(status?.busy) || 0);
+}
+
+/** Leave through the embedder's own graceful SIGTERM path. */
+function requestProcessStop() {
+  if (process.listenerCount('SIGTERM') > 0) process.emit('SIGTERM', 'SIGTERM');
+  else process.kill(process.pid, 'SIGTERM');
+}
 
 export function createTransportRoutes({
   serverToken,
@@ -25,11 +53,23 @@ export function createTransportRoutes({
   transportMemory,
   onClientsEmpty,
   onUpgradeRequested,
+  admitWork = () => true,
 }) {
+  // Checked on every register/call, last right before the work is handed on
+  // (after the body is read): a daemon that lost (or cannot re-verify) its
+  // owner lease serves nothing.
+  const refuseUnadmitted = (res) => {
+    if (admitWork()) return false;
+    sendError(res, 'daemon owner lease is not held', 503);
+    return true;
+  };
+
   const health = (res) => {
     // Identity travels with EVERY health probe: a view negotiates version
     // skew before it attaches, so an embedder can never forget to publish
     // it and leave clients guessing.
+    const status = getStatus();
+    const busySessions = busySessionCount(status);
     sendJson(res, {
       status: 'ok',
       pid: process.pid,
@@ -38,10 +78,15 @@ export function createTransportRoutes({
       protocol: SESSION_PROTOCOL,
       revision: SESSION_REVISION,
       capabilityFingerprint: SESSION_CAPABILITY_FINGERPRINT,
+      modelProxy: modelProxyClientMode() ? 'client' : null,
       draining: drain.reason || null,
       drainCommitted: drain.committed,
       version: runtimeVersion(),
-      ...getStatus(),
+      packageVersion: runtimeVersion(),
+      buildHash: remoteInstallBuildHash(),
+      ...status,
+      busySessions,
+      idle: busySessions === 0,
       activeCalls: lanes.active,
       queuedCalls: lanes.queued,
       queuedUrgentCalls: lanes.queuedUrgent,
@@ -54,6 +99,7 @@ export function createTransportRoutes({
 
   const register = async (req, res) => {
     const body = await readBody(req);
+    if (refuseUnadmitted(res)) return;
     if (drain.committed) {
       sendError(res, `daemon is draining: ${drain.reason}`, 503);
       return;
@@ -70,6 +116,8 @@ export function createTransportRoutes({
       clientKind: body.clientKind,
       registrationId: body.registrationId,
       revision: body.revision,
+      remote: body.remote === true,
+      leaseMs: body.leaseMs,
     });
     sendJson(res, {
       token: clientToken,
@@ -85,6 +133,16 @@ export function createTransportRoutes({
     sendJson(res, { ok: true });
   };
 
+  // Lease keep-alive for remote clients (the daemon token gate already ran).
+  const heartbeat = async (req, res) => {
+    const body = await readBody(req);
+    if (!body.token || !registry.touch(String(body.token))) {
+      sendError(res, 'unknown client token', 404);
+      return;
+    }
+    sendJson(res, { ok: true });
+  };
+
   const events = (url, res) => {
     const clientToken = url.searchParams.get('token');
     if (!attachSse(clientToken, res)) sendError(res, 'unknown client token', 404);
@@ -92,11 +150,15 @@ export function createTransportRoutes({
   };
 
   const call = async (req, res) => {
+    if (refuseUnadmitted(res)) return;
     if (drain.committed) {
       sendError(res, `daemon is draining: ${drain.reason}`, 503);
       return;
     }
     const body = await readBody(req);
+    // Again right before dispatch: the lease may have been fenced while the
+    // body was still arriving.
+    if (refuseUnadmitted(res)) return;
     await callRoute(body, res);
   };
 
@@ -107,6 +169,19 @@ export function createTransportRoutes({
         onClientsEmpty();
       } catch {}
     }
+  };
+
+  // Authenticated stop for a desktop replacing this daemon with another
+  // build: refused while turns run unless forced (the user confirmed).
+  const stop = async (req, res) => {
+    const body = await readBody(req);
+    const busySessions = busySessionCount(getStatus());
+    if (busySessions > 0 && body.force !== true) {
+      sendError(res, `daemon is busy: ${busySessions} running session(s)`, 409);
+      return;
+    }
+    sendJson(res, { ok: true, pid: process.pid, busySessions });
+    setImmediate(requestProcessStop);
   };
 
   const upgrade = async (req, res) => {
@@ -150,8 +225,10 @@ export function createTransportRoutes({
   const tokenRoutes = {
     'POST /client/register': register,
     'POST /client/deregister': deregister,
+    'POST /client/heartbeat': heartbeat,
     'POST /call': call,
     'POST /shutdown': (_req, res) => shutdown(res),
+    'POST /stop': stop,
     'POST /upgrade': upgrade,
   };
 

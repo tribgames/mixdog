@@ -369,7 +369,9 @@
   min-height: 100%;
   display: block;
 }
-.mixdog-settings-v2 {
+/* Two classes, so the frame outranks the desktop layer's `.mixdog-settings`
+   whichever order this lazy sheet and desktop.css end up in. */
+.mixdog-settings.mixdog-settings-v2 {
   width: min(980px, calc(100vw - 32px));
   /* Grows with the window, but stops at 760 (user: 팝업 상하 최대 크기). */
   height: min(760px, var(--settings-panel-height));
@@ -596,7 +598,7 @@
     place-items: stretch;
     padding: 0;
   }
-  .mixdog-settings-v2 {
+  .mixdog-settings.mixdog-settings-v2 {
     width: 100vw;
     height: var(--vvh, 100vh);
     max-width: none;
@@ -620,7 +622,7 @@
 }
 
 @media (max-width: 760px) {
-  .mixdog-settings-v2 {
+  .mixdog-settings.mixdog-settings-v2 {
     grid-template-columns: 200px minmax(0, 1fr);
   }
   .mixdog-settings__rail {
@@ -640,7 +642,7 @@
 /* Very narrow DESKTOP window: use the main 48px Activity Bar grammar rather
    than spending 200px on labels. */
 @media (max-width: 640px) {
-  .mixdog-settings-v2 {
+  .mixdog-settings.mixdog-settings-v2 {
     --settings-narrow-value-column: minmax(0, 45%);
     grid-template-columns: 48px minmax(0, 1fr);
   }
@@ -862,6 +864,32 @@
 }
 .conn-row + .conn-row {
   box-shadow: inset 0 1px 0 var(--mx-border-muted);
+}
+/* Server folder chooser (D1): rows are buttons, the list scrolls. */
+.conn-list--picker {
+  max-height: 264px;
+  overflow-y: auto;
+}
+.conn-list--picker:empty {
+  display: none;
+}
+.conn-row--pick {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.conn-row--pick:hover,
+.conn-row--pick:focus-visible {
+  outline: none;
+  background: var(--mx-hover);
+}
+.conn-row-text {
+  min-width: 0;
 }
 .conn-row-title {
   display: flex;
@@ -1305,6 +1333,66 @@
   outline: none;
   box-shadow: inset 0 0 0 1.5px var(--mx-text);
 }
+.conn-input[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1px var(--mx-danger);
+}
+/* SSH connect: progress states on conn-steps, and the ~/.ssh/config
+   suggestions (mx-menu) attached under the address field. */
+.conn-steps li[data-state="done"]::before {
+  content: "✓";
+  color: var(--mx-success);
+}
+.conn-steps li[data-state="now"]::before {
+  color: var(--mx-text);
+  box-shadow: inset 0 0 0 1.5px var(--mx-text);
+  background: transparent;
+}
+.conn-steps li[data-state="wait"] {
+  color: var(--mx-text-muted);
+}
+.conn-steps li small {
+  margin-left: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+/* ssh's own words, kept as they came. */
+.conn-note--raw {
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.ssh-field-wrap {
+  position: relative;
+}
+/* `.mx-menu` (desktop layer, loaded after this sheet) is position: fixed with
+   no coordinates; the extra class makes the anchoring win. The dialog scrolls
+   (overflow: auto), which would clip an absolute child, so it is released while
+   the list is open. */
+.conn-dialog:has(.ssh-suggest) {
+  overflow: visible;
+}
+.ssh-field-wrap .ssh-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 44px; /* 40px input + 4px gap */
+  z-index: 10;
+  width: auto;
+  max-width: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.ssh-field-wrap .ssh-suggest .mx-menu-item {
+  display: flex;
+  gap: 10px;
+}
+.ssh-field-wrap .ssh-suggest .mx-menu-item small {
+  margin-left: auto;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+}
 .conn-otp {
   position: relative;
   display: grid;
@@ -1407,4 +1495,69 @@
 .settings-model-hidden span {
   opacity: 0.55;
   text-decoration: line-through;
+}
+.ssh-hops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.ssh-hops li {
+  display: grid;
+  gap: 2px;
+  line-height: 20px;
+}
+.ssh-hops li span {
+  color: var(--mx-text-muted);
+}
+.ssh-hops code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.ssh-hops li[data-status="changed"] b,
+.ssh-hops li[data-status="revoked"] b {
+  color: var(--mx-danger);
+}
+.ssh-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ssh-settings .conn-field > span {
+  color: var(--mx-text-muted);
+}
+.ssh-providers {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ssh-providers legend {
+  padding: 0 0 6px;
+  color: var(--mx-text-muted);
+}
+.ssh-forwards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ssh-forwards code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.ssh-log {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--mx-surface-sunken, rgba(127, 127, 127, 0.12));
+  font: 12px/1.5 var(--mx-font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }

@@ -83,13 +83,16 @@ test('desktop tool activity summary translates to natural verb phrases in Korean
     { kind: 'tool', id: 'grep-1', name: 'grep', args: { pattern: 'first' } },
     { kind: 'tool', id: 'grep-2', name: 'grep', args: { pattern: 'second' } },
     { kind: 'tool', id: 'bash-1', name: 'shell', args: { command: 'npm test' } },
+    { kind: 'tool', id: 'edit-1', name: 'edit', args: { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } },
   ];
   try {
+    // File changes lead; the rest keep call order, as one list.
     await i18n.changeLanguage('en');
-    assert.equal(desktopToolActivitySummary(items), 'Read file · Search 2 patterns · Run command');
+    // File changes and commands always carry their count.
+    assert.equal(desktopToolActivitySummary(items), 'Edit 1 file, Read file, Search 2 patterns, Run 1 command');
 
     await i18n.changeLanguage('ko');
-    assert.equal(desktopToolActivitySummary(items), '파일 읽기 · 패턴 2개 검색 · 명령어 실행');
+    assert.equal(desktopToolActivitySummary(items), '파일 1개 수정, 파일 읽기, 패턴 2개 검색, 명령어 1회 실행');
   } finally {
     await i18n.changeLanguage('en');
   }

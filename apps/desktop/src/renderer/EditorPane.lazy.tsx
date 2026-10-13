@@ -11,7 +11,8 @@ import { monaco } from './monaco-setup';
 import { EditorBreadcrumbs } from './editor-breadcrumbs';
 import type { SideFileChrome } from './side-surface-strip';
 import { SideFileStatusRow, sideFileHasFooter } from './side-file-status-row';
-import { sideEditorOptions } from './editor-side-options';
+import { editorSurfaceOptions } from './editor-side-options';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { useEditorCallHierarchy } from './editor-call-hierarchy';
 import { armMonoFontRemeasure, MIXDOG_EDITOR_SCROLLBAR } from './editor-monaco-bootstrap';
 import { EditorPaneDocumentSurface } from './editor-pane-document';
@@ -161,6 +162,7 @@ export default function EditorPane({
   // (monaco-react updateOptions), so a plain editor.updateOptions toggle
   // would be reverted immediately. null follows the settings value.
   const [wordWrapOverride, setWordWrapOverride] = useState<DesktopEditorSettings['wordWrap'] | null>(null);
+  const phoneLayout = useMobileRemoteSurface();
   const mediaForeground = useForegroundMedia(active);
   // SVG opens as an image, Markdown and CSV/TSV as text; the toggle shows the
   // other view while the hidden editor (and its unsaved edits) stays mounted.
@@ -186,6 +188,11 @@ export default function EditorPane({
   const focusedRef = useRef(focused);
   activeRef.current = active;
   focusedRef.current = focused;
+  // Opening or previewing a file on the phone never takes focus: the soft
+  // keyboard would cover half of it. A tap into the text does.
+  const autoFocus = !phoneLayout;
+  const autoFocusRef = useRef(autoFocus);
+  autoFocusRef.current = autoFocus;
   const callHierarchyContextKey = useRef<import('monaco-editor').editor.IContextKey<boolean> | null>(null);
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const graphContextRef = useRef<EditorGraphContext>({
@@ -340,6 +347,7 @@ export default function EditorPane({
     onNavigationLocationRef,
     active,
     focused,
+    autoFocus,
     revealed,
     loaded: load,
     viewMode,
@@ -370,7 +378,7 @@ export default function EditorPane({
     const column = reveal.column && reveal.column > 0 ? reveal.column : 1;
     editor.setPosition({ lineNumber: reveal.line, column });
     editor.revealPositionInCenter({ lineNumber: reveal.line, column });
-    editor.focus();
+    if (autoFocusRef.current) editor.focus();
     onNavigationLocationRef.current?.(relPath, reveal.line, column);
   }, [reveal?.line, reveal?.column, reveal?.nonce, load ? 1 : 0, relPath]);
   const revealBreadcrumbSymbol = useCallback((item: EditorOutlineItem) => {
@@ -424,6 +432,7 @@ export default function EditorPane({
     wireCommands: wireEditorCommands,
     activeRef,
     focusedRef,
+    autoFocusRef,
     savedText,
     projectPath,
     relPath,
@@ -578,7 +587,7 @@ export default function EditorPane({
   }
   const baseOptions = monacoEditorOptions(editorSettings, wordWrapOverride);
   const options = {
-    ...(onSideChrome ? sideEditorOptions(baseOptions, wordWrapOverride) : baseOptions),
+    ...editorSurfaceOptions(baseOptions, wordWrapOverride, { side: Boolean(onSideChrome), phone: phoneLayout }),
     readOnly: Boolean(load.readOnly),
   };
   // Main tab only: the footer is the last row of the workspace sheet, below the

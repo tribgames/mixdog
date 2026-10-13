@@ -24,10 +24,13 @@ check(gradle.includes('firebase-messaging'), 'gradle firebase-messaging dependen
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 check(manifest.includes('.MixdogMessagingService') && manifest.includes('com.google.firebase.MESSAGING_EVENT'), 'manifest FCM service');
 check(manifest.includes('android.permission.POST_NOTIFICATIONS'), 'manifest POST_NOTIFICATIONS');
-for (const name of ['MainActivity', 'MixdogMessagingService', 'MixdogNativeHost', 'MixdogKeys', 'NativePushCrypto']) {
+for (const name of ['MainActivity', 'MixdogMessagingService', 'MixdogNativeHost', 'MixdogKeys', 'NativePushCrypto', 'MixdogFileSave', 'FileSaveSessions']) {
   check(existsSync(join(root, `android/app/src/main/java/io/mixdog/app/${name}.java`)), `android ${name}.java`);
 }
 check(existsSync(join(root, 'android/app/src/main/res/drawable/ic_stat_mixdog.xml')), 'android notification icon');
+check(existsSync(join(root, 'android/app/src/main/java/io/mixdog/app/MixdogAppUpdater.java')), 'android MixdogAppUpdater.java');
+check(manifest.includes('android.permission.REQUEST_INSTALL_PACKAGES'), 'manifest REQUEST_INSTALL_PACKAGES');
+check(read('android/app/src/main/res/xml/file_paths.xml').includes('<external-files-path name="updates" path="updates/" />'), 'file_paths updates folder');
 
 // iOS
 const pbx = read('ios/App/App.xcodeproj/project.pbxproj');

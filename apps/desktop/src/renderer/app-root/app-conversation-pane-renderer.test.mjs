@@ -3,8 +3,67 @@ import assert from 'node:assert/strict';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
-import { createPaneConversationRenderer } from './app-conversation-pane-renderer.tsx';
+import { createPaneConversationRenderer, paneSideDockLinkRoutes } from './app-conversation-pane-renderer.tsx';
 import { setLinkPreview } from '../link-preview-preference.ts';
+import { isRemoteHostRenderer } from '../remote-ui-projection.ts';
+
+test('the phone/web (remote) renderer routes file, folder, diff and jobs links into the pane side dock', () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { mixdogRemoteServer: 'wss://relay.example' };
+  try {
+    assert.equal(isRemoteHostRenderer(), true);
+    const calls = [];
+    const record =
+      (name) =>
+      (...args) =>
+        calls.push([name, ...args]);
+    const handlers = {
+      openFileInSideDock: record('file'),
+      openFolderInSideDock: record('folder'),
+      openSessionDiffInSideDock: record('diff'),
+      openPreviewToSide: record('preview'),
+    };
+    const routes = paneSideDockLinkRoutes([['session-diff'], ['terminal']], handlers);
+    assert.deepEqual(routes, handlers, 'a remote renderer with a right layout offers every side-dock route');
+    const tabCalls = [];
+    let focused = 0;
+    const renderer = createPaneConversationRenderer({
+      conversationHandoff: null,
+      resolvedDraftPrefsFor: () => ({
+        projectPath: '',
+        modelSelection: null,
+        workflow: null,
+        orchestrationMode: 'none',
+      }),
+      sessions: [{ id: 's1', title: 'S', projectPath: '/p' }],
+      registeredProjectPath: (path) => path,
+      projectChromeLabel: (path) => path,
+      paneSubmitFor: () => async () => undefined,
+      paneDraftSubmitFor: () => async () => undefined,
+      submit: async () => undefined,
+      openFileTab: (...args) => tabCalls.push(args),
+      openAgentSession: () => {},
+      ...routes,
+    });
+    const props = renderer({ kind: 'session', id: 's1' }, true, () => (focused += 1), 'leaf-9').props.conversationProps;
+    props.onOpenFile('/p', 'src/a.ts', 3);
+    props.onOpenFolder('/p', 'src');
+    props.onOpenSessionDiff();
+    assert.deepEqual(calls, [
+      ['file', 'leaf-9', '/p', 'src/a.ts', 3, undefined],
+      ['folder', 'leaf-9', '/p', 'src'],
+      ['diff', 'leaf-9'],
+    ]);
+    assert.deepEqual(tabCalls, [], 'no main tab opens: the editor lives in the side dock');
+    assert.equal(focused, 3);
+
+    // No right side layout: no side-dock routes, so folder/diff/jobs links are
+    // not offered and files keep opening main tabs.
+    assert.deepEqual(paneSideDockLinkRoutes([], handlers), {});
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
 
 test('createPaneConversationRenderer builds conversation surface with appropriate titles and props', async () => {
   const { dom } = installTestDom(null, {
@@ -139,7 +198,7 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
   sessionElement.props.conversationProps.onOpenFile('C:/p', 'src/a.ts', 7, 'tok');
   assert.deepEqual(dockCalls, [['leaf-1', 'C:/p', 'src/a.ts', 7, 'tok']]);
   assert.deepEqual(tabCalls, []);
-  // Without a side dock (phone/remote) the link keeps opening a main tab.
+  // Without a side dock the link keeps opening a main tab.
   const noDock = createPaneConversationRenderer(baseOptions)(
     { kind: 'session', id: 'session-123' },
     true,

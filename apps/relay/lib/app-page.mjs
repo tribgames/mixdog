@@ -3,9 +3,10 @@
 // takes no parameters and grants nothing; pairing is the 6-digit code typed in
 // the app, approved on the PC. No link to any web client.
 import { readFileSync } from 'node:fs';
+import { LOGO_SRC, PAGE_BASE_CSS, PAIRING_CSS } from './connect-page.mjs';
 
 const APP_PAGE_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
 
 const TESTFLIGHT_URL = 'https://testflight.apple.com/join/UNPBM2hU';
 // Written beside server.mjs by deploy/deploy-release.sh: the newest Android
@@ -43,29 +44,25 @@ export const renderAppPage = (androidUrl) => `<!doctype html>
 <meta name="color-scheme" content="dark" />
 <title>Mixdog</title>
 <style>
-html,body{margin:0;background:#0e0e0e}
-body{min-height:100vh;min-height:100dvh;display:flex;justify-content:center;align-items:center;padding:env(safe-area-inset-top) 20px env(safe-area-inset-bottom);box-sizing:border-box;color:#e9e9e9;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:15px;line-height:22px}
-main{width:100%;max-width:340px;text-align:center}
-[hidden]{display:none!important}
-img{width:48px;height:48px;display:block;margin:0 auto}
-h1{margin:20px 0 8px;font-size:22px;line-height:30px;font-weight:700}
-p{margin:0;color:#a8a8a8}
-.opts{display:flex;flex-direction:column;gap:18px;margin:24px 0}
-.opt{display:flex;flex-direction:column;gap:6px}
-.btn{display:block;width:100%;box-sizing:border-box;padding:12px 16px;border-radius:12px;background:#e9e9e9;color:#0e0e0e;font-weight:600;text-align:center;text-decoration:none}
-.fine{font-size:12px;line-height:17px;color:#7a7a80}
+${PAGE_BASE_CSS}
+${PAIRING_CSS}
+.mxp-actions{gap:20px}
 </style>
 </head>
 <body>
-<main>
-<img src="/mixdog-logo-titanium.svg" alt="" draggable="false" />
-<h1 id="heading">Install Mixdog</h1>
-<div class="opts">
-<div class="opt" id="ios"><a class="btn" id="iosBtn" href="${TESTFLIGHT_URL}" rel="noopener">Get it for iPhone</a><p class="fine" id="iosNote">Installs through TestFlight (Apple’s official beta app).</p></div>
-<div class="opt" id="android"><a class="btn" id="androidBtn" href="${androidUrl}" rel="noopener">Get it for Android</a><p class="fine" id="androidNote">You may need to allow installs from unknown sources.</p></div>
+<div class="mxp-screen">
+<div class="mxp-col">
+<main class="mxp-main">
+<div class="mxp-block">
+<div class="mxp-vis"><img class="mxp-logo" src="${LOGO_SRC}" alt="" draggable="false" /></div><h1 class="mxp-title" id="heading">Install Mixdog</h1><p class="mxp-sub" id="after">After installing, open the app and tap Connect with a code.</p>
 </div>
-<p id="after">After installing, open the app and tap Connect with a code.</p>
 </main>
+<footer class="mxp-actions">
+<div class="mxp-opt" id="ios"><a class="mxp-btn" id="iosBtn" href="${TESTFLIGHT_URL}" rel="noopener">Get it for iPhone</a><p class="mxp-fine" id="iosNote">Installs through TestFlight (Apple’s official beta app).</p></div>
+<div class="mxp-opt" id="android"><a class="mxp-btn" id="androidBtn" href="${androidUrl}" rel="noopener">Get it for Android</a><p class="mxp-fine" id="androidNote">You may need to allow installs from unknown sources.</p></div>
+</footer>
+</div>
+</div>
 <script>
 (function () {
   var ko = (navigator.language || '').toLowerCase().indexOf('ko') === 0;

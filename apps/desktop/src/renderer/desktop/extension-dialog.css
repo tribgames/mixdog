@@ -22,7 +22,8 @@
 }
 .extensions-dialog[data-feature-id="localProvider"],
 .extensions-dialog[data-feature-id="git"],
-.extensions-plugin-detail-dialog {
+.extensions-plugin-detail-dialog,
+.projects-add-dialog:has(.host-folder-browser) {
   --mx-dialog-max-height: 600px;
 }
 .extensions-skill-dialog,

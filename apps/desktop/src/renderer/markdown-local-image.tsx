@@ -2,7 +2,13 @@ import { useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { ImageLightbox, lightboxItemsFor, useLightboxRegistration, type LightboxItem } from './image-lightbox';
 import { t } from './i18n';
 import { openProjectFileInDefaultApp, useLocalImagePreview } from './local-image-preview';
-import { documentRelativePath, MarkdownDocumentDirContext, MarkdownProjectContext } from './MarkdownLink';
+import {
+  documentRelativePath,
+  MarkdownDocumentDirContext,
+  MarkdownProjectContext,
+  MarkdownSessionContext,
+} from './MarkdownLink';
+import { usePersistedThumbnail } from './persisted-thumbnail';
 import { parseLocalFileLocation } from '../shared/local-files';
 
 /** `![alt](local/image.png)` as an inline thumbnail that opens the lightbox.
@@ -27,21 +33,16 @@ export function MarkdownLocalImage({
   const id = useId();
   const button = useRef<HTMLButtonElement>(null);
   const name = alt || path.split(/[\\/]/).at(-1) || path;
-  const ready = Boolean(preview.url) && !broken;
-  const { target } = preview;
-  useLightboxRegistration(
-    button,
-    ready
-      ? {
-          id,
-          src: preview.url,
-          name,
-          target,
-          openDefault: target ? () => void openProjectFileInDefaultApp(target) : undefined,
-        }
-      : null
-  );
-  if (preview.unavailable || broken) return <>{children}</>;
+  // The picture is kept per session + file; a deleted or moved image still
+  // shows the kept copy instead of falling back to a bare path link.
+  const session = useContext(MarkdownSessionContext);
+  const live = preview.url && !broken ? preview.url : '';
+  const url = usePersistedThumbnail(session, `markdown-image|${project}|${path}`, live || undefined) ?? '';
+  const ready = Boolean(url);
+  const target = live ? preview.target : null;
+  const openDefault = target ? () => void openProjectFileInDefaultApp(target) : undefined;
+  useLightboxRegistration(button, ready ? { id, src: url, name, target, openDefault } : null);
+  if (!ready && (preview.unavailable || broken)) return <>{children}</>;
   if (!ready) return <span className="markdown-local-image" data-state="loading" aria-hidden="true" />;
   return (
     <>
@@ -51,9 +52,11 @@ export function MarkdownLocalImage({
         className="markdown-local-image"
         aria-label={t('Open image')}
         title={name}
-        onClick={() => setOpened({ items: lightboxItemsFor(button.current!), startId: id })}
+        onClick={(event) => setOpened({ items: lightboxItemsFor(event.currentTarget), startId: id })}
       >
-        <img src={preview.url} alt={name} loading="lazy" onError={() => setBroken(true)} />
+        {/* Eager: the transcript only mounts rows near the viewport anyway, and a
+            lazy image inside the virtualized scroller stayed blank until clicked. */}
+        <img src={url} alt={name} onError={() => setBroken(true)} />
       </button>
       {opened && <ImageLightbox items={opened.items} startId={opened.startId} onClose={() => setOpened(null)} />}
     </>

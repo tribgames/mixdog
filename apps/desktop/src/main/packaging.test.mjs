@@ -87,6 +87,7 @@ test('Windows Crashpad starts locally before any renderer can be created', async
 test('production desktop uses only the packaged daemon service adapter', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+  const connection = await readFile(new URL('./connections/desktop-connection.ts', import.meta.url), 'utf8');
   const service = await readFile(new URL('./desktop-service.ts', import.meta.url), 'utf8');
   const ipc = await readFile(new URL('./ipc.ts', import.meta.url), 'utf8');
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
@@ -96,7 +97,8 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.equal(packageJson.scripts.start, 'npm run build && node scripts/dev-profile.mjs --preview');
   assert.doesNotMatch(vite, /'desktop-service':/);
   assert.match(daemonBuild, /src['"],\s*['"]main['"],\s*['"]desktop-service\.ts/);
-  assert.match(main, /new SessionTransport\(/);
+  // Every connection (this PC's and each server's) attaches through the daemon transport.
+  assert.match(connection, /new SessionTransport\(/);
   assert.match(main, /daemon\.cjs/);
   assert.match(main, /app\.asar\.unpacked/);
   assert.match(main, /moduleUrl\.searchParams\.set\('build', artifact\)/);
@@ -104,7 +106,7 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.doesNotMatch(vite, /terminal-worker/);
   assert.doesNotMatch(main, /startRemoteRelay|rotatePairingToken|rotateRemoteDevice/);
   assert.doesNotMatch(
-    main.slice(main.indexOf('registerDesktopIpc('), main.indexOf("diagnostics?.write('window-created'")),
+    main.slice(main.indexOf('function installWindowIpc('), main.indexOf('function installRendererLoadDiagnostics(')),
     /\bsettingsStore\b/,
     'product IPC settings use the daemon operation service'
   );

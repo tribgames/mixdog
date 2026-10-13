@@ -3,7 +3,7 @@ import { hasOwn } from '../../runtime/shared/object.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';
 import { normalizeWorkflowRoute } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { ensureProviderEnabled } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
-import { selectionFastCapable } from '../route-state.mjs';
+import { resolveRouteContextState, selectionFastCapable } from '../route-state.mjs';
 import { canonicalizeAgentRouteStorage, withAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId } from './shared.mjs';
 
@@ -43,21 +43,31 @@ export function createAgentRouteApi(deps) {
       clean(selectedRoute.provider) === clean(stored.provider) && clean(selectedRoute.model) === clean(stored.model);
     const inheritedEffort = sameModel ? stored.effort || null : null;
     const inheritedModelParameters = sameModel ? stored.modelParameters || {} : {};
-    const inheritedContextPercent = sameModel ? stored.contextPercent : undefined;
+    // A requested percent replaces the stored exact window and requested
+    // tokens replace the stored percent.
+    const requestsPercent = requested.contextPercent !== undefined;
+    const requestsTokens = requested.contextTokens !== undefined;
+    const inheritedContextPercent = sameModel && !requestsTokens ? stored.contextPercent : undefined;
+    const inheritedContextTokens = sameModel && !requestsPercent ? stored.contextTokens : undefined;
     selectedRoute = {
       ...selectedRoute,
       effort: requested.effort !== undefined ? selectedRoute.effort : inheritedEffort,
       fast: requested.fast !== undefined ? selectedRoute.fast === true : sameModel && stored.fast === true,
       // Main's modelSettings bucket must not decide an agent's Auto effort.
-      autoEffort: requested.autoEffort !== undefined ? requested.autoEffort !== false : !sameModel || stored.autoEffort !== false,
+      autoEffort:
+        requested.autoEffort !== undefined ? requested.autoEffort !== false : !sameModel || stored.autoEffort !== false,
       modelParameters:
         requested.modelParameters !== undefined ? selectedRoute.modelParameters : inheritedModelParameters,
       // resolveRoute reads contextPercent from Main's modelSettings bucket;
       // an agent route owns its own.
-      contextPercent: requested.contextPercent !== undefined ? requested.contextPercent : inheritedContextPercent,
+      contextPercent: requestsPercent ? requested.contextPercent : inheritedContextPercent,
+      contextTokens: requestsTokens ? requested.contextTokens : inheritedContextTokens,
     };
     await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
     const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
+    // Stored clamped, and not at all at the default window, as for Main.
+    const contextState = resolveRouteContextState(selectedRoute, modelMeta);
+    if (contextState.contextDefaultPercent !== undefined) selectedRoute.contextTokens = contextState.contextTokens;
     const fastCapable = selectionFastCapable(
       selectedRoute.provider,
       modelMeta,

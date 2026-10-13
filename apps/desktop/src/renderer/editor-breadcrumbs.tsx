@@ -15,6 +15,7 @@ import {
   type FilePreview,
 } from './editor-pane-model';
 import { openEditorFileExternally } from './editor-external-file';
+import { revealFileFromWindow } from './server-transfers';
 import { BreadcrumbPicker, BreadcrumbTrail } from './editor-breadcrumb-parts';
 import { DockOverflowMenu, type DockAction } from './pane-dock-chrome';
 import { EditorViewSwitch, EditorViewTools, type EditorViewControls } from './editor-view-switch';
@@ -25,7 +26,6 @@ import { copyTextToClipboard } from './text-format';
 /** Same grammar as the side header: Save is the only inline button (while
  *  dirty); everything else is a ⋯ item. */
 function breadcrumbMoreActions({
-  api,
   projectPath,
   relPath,
   accessToken,
@@ -35,7 +35,6 @@ function breadcrumbMoreActions({
   menuActions,
   onRevert,
 }: {
-  api: typeof window.mixdogDesktop;
   projectPath: string;
   relPath: string;
   accessToken?: string;
@@ -67,7 +66,7 @@ function breadcrumbMoreActions({
           id: 'reveal',
           label: t('Reveal in Explorer'),
           icon: FolderOpen,
-          onSelect: () => void api?.revealFile?.(projectPath, relPath, accessToken),
+          onSelect: () => void revealFileFromWindow(projectPath, relPath, accessToken),
         }
   );
   if (showRevert) {
@@ -139,7 +138,6 @@ export function EditorBreadcrumbs({
   const symbol = symbols[symbols.length - 1];
   const editable = Boolean(load && !preview && !load.binary && !load.tooLarge && !load.readOnly);
   const moreActions = breadcrumbMoreActions({
-    api,
     projectPath,
     relPath,
     accessToken,

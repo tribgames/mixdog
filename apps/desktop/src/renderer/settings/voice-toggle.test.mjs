@@ -828,3 +828,57 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
     host.remove();
   }
 });
+
+test('Visualize is a default-on, toggle-only built-in', async () => {
+  const { BUILT_IN_FEATURES } = await import('./built-in-feature-registry.ts');
+  const entry = BUILT_IN_FEATURES.find((feature) => feature.id === 'visualize');
+  assert.deepEqual(entry, {
+    id: 'visualize',
+    title: 'Visualize',
+    description: 'Show mockups, documents, and other results beside the chat.',
+  });
+
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const calls = [];
+  let visualize = {};
+  const run = async (capability, args) => {
+    calls.push([capability, args]);
+    visualize = { enabled: args[1] };
+    return { visualize };
+  };
+  const render = () =>
+    act(async () => {
+      root.render(
+        React.createElement(CategoryPanel, {
+          category: 'builtins',
+          context: context({ run, toolModules: { visualize } }),
+        })
+      );
+    });
+
+  try {
+    // No runtime entry yet: the feature reads as on, with no Install step.
+    await render();
+    const row = document.querySelector('button[data-built-in-feature="visualize"]');
+    assert.ok(row);
+    await openFeature('visualize');
+    assert.equal(labelled('visualize', 'button', 'Install Visualize'), null);
+    let toggle = labelled('visualize', 'input', 'Visualize');
+    assert.equal(toggle.checked, true);
+
+    await act(async () => toggle.click());
+    await render();
+    toggle = labelled('visualize', 'input', 'Visualize');
+    assert.equal(toggle.checked, false);
+    await act(async () => toggle.click());
+    assert.deepEqual(calls, [
+      ['setBuiltinToolEnabled', ['visualize', false]],
+      ['setBuiltinToolEnabled', ['visualize', true]],
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

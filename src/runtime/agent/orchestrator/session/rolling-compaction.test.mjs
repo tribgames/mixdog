@@ -10,6 +10,7 @@ import {
 import { estimateMessagesTokens } from './context-utils.mjs';
 import { freshContextCompactMessages } from './compact.mjs';
 import { runSessionCompaction } from './manager/compaction-runner.mjs';
+import { everyMessageStamped, withoutStampedIds } from './message-ids.test-support.mjs';
 import { inheritanceCompactionPlan } from '../../../../session-runtime/inheritance-fit.mjs';
 
 const summary = [
@@ -260,7 +261,10 @@ test('manual summary failure preserves the original session and provider continu
   assert.equal(result.changed, false);
   assert.match(result.error, /summary unavailable/);
   assert.equal(session.messages, originalMessages);
-  assert.deepEqual(session.messages, original);
+  // The conversation is untouched; only the stable ids stamped before the
+  // compaction ran remain (persisted bookkeeping).
+  assert.deepEqual(withoutStampedIds(session.messages), original);
+  assert.ok(everyMessageStamped(session.messages));
   assert.deepEqual(session.providerState, { previousResponse: 'keep-on-failure' });
 });
 

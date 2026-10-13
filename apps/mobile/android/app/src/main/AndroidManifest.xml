@@ -61,6 +61,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- In-app update: hand the downloaded, verified APK to the system installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- In-app pairing QR scanner (remote-shim.ts getUserMedia); Capacitor's
          WebChromeClient forwards the WebView capture request to this runtime
          permission. -->

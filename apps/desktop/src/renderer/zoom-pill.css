@@ -119,40 +119,40 @@
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
-/* Touch tier: 44dp hit boxes, no hover rest state. */
+/* Touch tier: a 36dp pill holding 32dp steps; no hover rest state. */
 html[data-mixdog-mobile-tabs] .browser-zoom-pill {
-  height: calc(36px * var(--mx-device-scale, 2.5));
-  bottom: calc(12px * var(--mx-device-scale, 2.5));
-  padding: 0 calc(6px * var(--mx-device-scale, 2.5)) 0 calc(2px * var(--mx-device-scale, 2.5));
+  height: 36px;
+  bottom: 12px;
+  padding: 0 6px 0 2px;
   opacity: var(--mx-op-soft);
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-step {
-  width: calc(32px * var(--mx-device-scale, 2.5));
-  height: calc(32px * var(--mx-device-scale, 2.5));
+  width: 32px;
+  height: 32px;
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-step > svg {
-  width: calc(14px * var(--mx-device-scale, 2.5));
-  height: calc(14px * var(--mx-device-scale, 2.5));
+  width: 14px;
+  height: 14px;
 }
 /* No pointer hover on a phone: the pill stays shown there. */
 html[data-mixdog-mobile-tabs] .browser-zoom-pill.is-hidden {
   pointer-events: auto;
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-percent {
-  height: calc(32px * var(--mx-device-scale, 2.5));
-  min-width: calc(56px * var(--mx-device-scale, 2.5));
-  padding: 0 calc(6px * var(--mx-device-scale, 2.5));
-  font-size: calc(12px * var(--mx-device-scale, 2.5));
+  height: 32px;
+  min-width: 56px;
+  padding: 0 6px;
+  font-size: 12px;
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-percent > svg {
-  width: calc(12px * var(--mx-device-scale, 2.5));
-  height: calc(12px * var(--mx-device-scale, 2.5));
+  width: 12px;
+  height: 12px;
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-menu {
-  bottom: calc(100% + 8px * var(--mx-device-scale, 2.5));
-  min-width: calc(140px * var(--mx-device-scale, 2.5));
+  bottom: calc(100% + 8px);
+  min-width: 140px;
 }
 html[data-mixdog-mobile-tabs] .browser-zoom-menu-item {
-  min-height: calc(32px * var(--mx-device-scale, 2.5));
-  font-size: calc(12px * var(--mx-device-scale, 2.5));
+  min-height: 32px;
+  font-size: 12px;
 }

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { type DesktopApi, NOTIFICATION_VOLUME_MAX } from '../../shared/contract';
 import { t } from '../i18n';
+import { isSshConnectionWindow } from '../desktop-connection';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { ActionButton, Group, ToggleRow } from './capability-controls';
@@ -19,8 +20,10 @@ export function DesktopNotificationToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(() => (cached ? cached.turnNotifications !== false : null));
   const [volume, setVolume] = useState<number | null>(() => (cached ? cached.notificationVolume : null));
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The volume only shapes the Windows notification sound Mixdog plays itself.
-  const volumeSupported = Boolean(api?.setNotificationVolume) && navigator.userAgent.includes('Windows');
+  // The volume only shapes the Windows notification sound Mixdog plays itself;
+  // that sound is this PC's, so a server window offers neither it nor its preview.
+  const volumeSupported =
+    Boolean(api?.setNotificationVolume) && navigator.userAgent.includes('Windows') && !isSshConnectionWindow();
   useEffect(() => {
     let live = true;
     const read = () =>

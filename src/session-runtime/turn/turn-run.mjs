@@ -1,10 +1,11 @@
 /**
  * src/session-runtime/turn/turn-run.mjs - one user turn end to end: viewer
- * forwarding, turn open (abort controller, timing, worktree snapshot, warmup
- * arming), session preparation, the askSession callback bridge, and the
- * settlement that always runs. The phases live under turn-run/.
+ * forwarding, turn open (abort controller, timing, warmup arming), session
+ * preparation (workspace provisioning, then the worktree review snapshot), the
+ * askSession callback bridge, and the settlement that always runs. The phases
+ * live under turn-run/.
  */
-import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../../runtime/shared/turn-snapshot.mjs';
+import { beginTurnSnapshot, completeTurnSnapshot } from '../../runtime/shared/turn-snapshot.mjs';
 import { runWithCwdOverride } from '../../runtime/shared/user-cwd.mjs';
 import { createTurnTranscript } from './turn-run/transcript.mjs';
 import { createTurnTimingFactory } from './turn-run/turn-timing.mjs';
@@ -23,7 +24,6 @@ export function createTurnRunner(deps) {
     endComputerExecution = async () => false,
     deferComputerSessionRelease = () => false,
     beginTurnSnapshotForTurn = beginTurnSnapshot,
-    cancelTurnSnapshotForTurn = cancelTurnSnapshot,
     completeTurnSnapshotForTurn = completeTurnSnapshot,
     turnCleanupSettleMs = 2_000,
     getConfig = () => null,
@@ -35,7 +35,6 @@ export function createTurnRunner(deps) {
     createSnapshot: createSnapshotTrackerFactory({
       getCurrentCwd,
       beginTurnSnapshotForTurn,
-      cancelTurnSnapshotForTurn,
       completeTurnSnapshotForTurn,
       turnCleanupSettleMs,
     }),
@@ -93,7 +92,7 @@ export function createTurnRunner(deps) {
     if (attachedSession?.remoteAttached) return forwardAttachedPrompt(attachedSession, prompt, options);
     const turn = openTurn(options);
     try {
-      const session0 = await prepareSession(turn, prompt);
+      const session0 = await prepareSession(turn, prompt, options);
       const turnContext = await dispatchPromptSubmit(turn, session0, prompt, options);
       const result = await mgr.askSession(
         session0.id,

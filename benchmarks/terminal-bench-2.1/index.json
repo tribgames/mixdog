@@ -1,0 +1,77 @@
+[
+  {
+    "jobsDir": "jobs-full-cc-n8",
+    "path": "claude-code/claude-opus-5/2026-08-02",
+    "harness": "claude-code",
+    "model": "claude-opus-5",
+    "date": "2026-08-02",
+    "harnessVersion": "2.1.220",
+    "k": 1,
+    "score": "77/89",
+    "source": "mixdog"
+  },
+  {
+    "jobsDir": "jobs-full-opus5-solo-20260825-155233",
+    "path": "mixdog/claude-opus-5/2026-08-25",
+    "harness": "mixdog",
+    "model": "claude-opus-5",
+    "date": "2026-08-25",
+    "k": 1,
+    "score": "79/89",
+    "source": "mixdog"
+  },
+  {
+    "jobsDir": "jobs-full-sol-xhigh-k5-20260825-182921",
+    "path": "mixdog/gpt-5.6-sol/2026-08-25-k5",
+    "harness": "mixdog",
+    "model": "gpt-5.6-sol",
+    "date": "2026-08-25",
+    "k": 5,
+    "score": "385/445",
+    "source": "mixdog"
+  },
+  {
+    "jobsDir": "jobs-full-codex-k5-20260831-050151",
+    "path": "codex/gpt-5.6-sol/2026-08-31-k5",
+    "harness": "codex",
+    "model": "gpt-5.6-sol",
+    "date": "2026-08-31",
+    "harnessVersion": "0.151",
+    "k": 5,
+    "score": "383/445",
+    "source": "mixdog"
+  },
+  {
+    "jobsDir": "jobs-full-codex",
+    "path": "codex/gpt-5.6-sol/2026-08-02",
+    "harness": "codex",
+    "model": "gpt-5.6-sol",
+    "date": "2026-08-02",
+    "harnessVersion": "0.146",
+    "k": 1,
+    "score": "75/89",
+    "source": "mixdog"
+  },
+  {
+    "jobsDir": "deepseek-v41-flash-mixdog",
+    "path": "mixdog/deepseek-v4.1-flash/2026-10-12",
+    "harness": "mixdog",
+    "model": "deepseek-v4.1-flash",
+    "date": "2026-10-12",
+    "harnessVersion": "1.1.0",
+    "k": 1,
+    "score": "68/89",
+    "source": "external PR #43"
+  },
+  {
+    "jobsDir": "deepseek-v41-flash-dsh",
+    "path": "dsh/deepseek-v4.1-flash/2026-10-12",
+    "harness": "dsh",
+    "model": "deepseek-v4.1-flash",
+    "date": "2026-10-12",
+    "harnessVersion": "0.2.0-rc.2",
+    "k": 1,
+    "score": "64/88",
+    "source": "external PR #43"
+  }
+]

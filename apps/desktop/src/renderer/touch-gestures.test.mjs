@@ -107,6 +107,35 @@ test('long-press opens the context menu once and its release clicks nothing', as
   dispose();
 });
 
+test('a blocking touchmove listener exists only while a long-press menu is up', async () => {
+  const dom = new JSDOM('<div id="row"><span id="title">Title</span></div>');
+  const win = dom.window;
+  const doc = win.document;
+  const title = doc.getElementById('title');
+  doc.getElementById('row').addEventListener('contextmenu', (event) => event.preventDefault());
+  const blocking = new Set();
+  const add = doc.addEventListener;
+  const remove = doc.removeEventListener;
+  doc.addEventListener = function (type, listener, options) {
+    if (type === 'touchmove' && options?.passive === false) blocking.add(listener);
+    return add.call(this, type, listener, options);
+  };
+  doc.removeEventListener = function (type, listener, options) {
+    if (type === 'touchmove') blocking.delete(listener);
+    return remove.call(this, type, listener, options);
+  };
+  const dispose = installTouchGestures(win, LONG_PRESS_MS);
+  // A plain scroll never meets a blocking touch region.
+  assert.equal(blocking.size, 0);
+  pointer(win, title, 'pointerdown', { x: 40, y: 8 });
+  assert.equal(blocking.size, 0);
+  await wait(LONG_PRESS_MS * 3);
+  assert.equal(blocking.size, 1, 'the open menu guards the resting finger');
+  pointer(win, title, 'pointerup', { x: 40, y: 8 });
+  assert.equal(blocking.size, 0, 'released with the press');
+  dispose();
+});
+
 test('moving the finger is a scroll, not a long-press', async () => {
   const { win, title, log, dispose } = setup();
   pointer(win, title, 'pointerdown', { x: 40, y: 8 });

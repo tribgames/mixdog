@@ -194,6 +194,7 @@ test('a corrupt or missing persisted layout falls back to the defaults', () => {
     ['source-control'],
     ['search'],
     ['webhooks'],
+    ['ports'],
   ]);
   assert.deepEqual(normalizeWorkbenchSideViewLayout(null, ['sessions', 'terminal', 'agents']), {
     left: [['sessions'], ['agents']],
@@ -371,6 +372,20 @@ test('a stored rail order drops the retired Studio launcher id on load', () => {
   );
   assert.deepEqual(layout, {
     left: [['sessions'], ['extensions']],
+    right: [['session-diff'], ['browser']],
+  });
+});
+
+test('a stored rail order drops the removed background-jobs view id on load', () => {
+  const layout = normalizeWorkbenchSideViewLayout(
+    {
+      left: [['sessions'], ['background-jobs']],
+      right: [['session-diff'], ['background-jobs'], ['browser']],
+    },
+    ['sessions', 'session-diff', 'browser']
+  );
+  assert.deepEqual(layout, {
+    left: [['sessions']],
     right: [['session-diff'], ['browser']],
   });
 });

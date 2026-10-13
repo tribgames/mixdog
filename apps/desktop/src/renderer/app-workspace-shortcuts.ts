@@ -105,6 +105,8 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       }
       if (plain && key === 'f' && actionsRef.current.tabs.length === 0) return openSessionSearch;
       if (plain && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        // Cmd+Up/Down in a text field is the macOS jump to the start/end of the text.
+        if (event.metaKey && target?.closest?.('textarea, input, [contenteditable="true"]')) return null;
         const direction = event.key === 'ArrowUp' ? 'up' : 'down';
         return () => actionsRef.current.focusVerticalPane(direction);
       }

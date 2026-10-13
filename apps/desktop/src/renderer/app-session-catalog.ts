@@ -5,7 +5,11 @@ import { startTransition, useCallback, useEffect, useRef, useState, type Dispatc
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import { mergeSessionCatalogPushRows, mergeSessionCatalogRows } from '../shared/session-catalog';
-import { readCachedSessionCatalog, scheduleCachedSessionCatalogWrite } from './session-catalog-cache';
+import {
+  purgeRemovedSessionPreviews,
+  readCachedSessionCatalog,
+  scheduleCachedSessionCatalogWrite,
+} from './session-catalog-cache';
 
 /** Push is the primary freshness path; the poll only guards hosts without it
  *  (the remote browser shim). */
@@ -160,6 +164,9 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     return host.subscribeSessions((next) => {
       refreshVersion.current += 1; // in-flight polls must not overwrite
       const rows = projectSessionRows(next);
+      // The push is an exact store scan: a session it dropped was deleted
+      // (here, in another window, from the phone, or by a sweep).
+      purgeRemovedSessionPreviews(sessionsRef.current, rows, new Set(pendingCreates.current.keys()));
       commitProjectedRows(rows, true);
     });
   }, [commitProjectedRows, projectSessionRows]);

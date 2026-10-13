@@ -37,6 +37,7 @@ process.env.MIXDOG_AGENT_TRACE_PATH = tracePath;
 delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
 
 const { runSessionCompaction } = await import('../manager/compaction-runner.mjs');
+const { withoutStampedIds } = await import('../message-ids.test-support.mjs');
 const contextUtils = await import('../context-utils.mjs');
 const { drainAgentTrace } = await import('../../agent-trace-io.mjs');
 const { SUMMARY_PREFIX } = await import('./constants.mjs');
@@ -239,7 +240,13 @@ async function compactFingerprint(session) {
       return { content: summaryFor(prompts.length), usage: { inputTokens: 100, outputTokens: 50 } };
     },
   };
-  const beforeJson = JSON.stringify(session.messages);
+  // A compaction stamps stable display ids on its input first
+  // (message-ids.mjs). They are bookkeeping, not output: the pinned values
+  // describe the transcript without them, and the trace numbers are checked
+  // against the real (stamped) bytes.
+  const plainBefore = JSON.stringify(withoutStampedIds(session.messages));
+  // The compaction stamps these very message objects.
+  const input = session.messages.slice();
   const result = await runSessionCompaction(session, {
     mode: 'manual',
     force: true,
@@ -248,23 +255,36 @@ async function compactFingerprint(session) {
     model: session.model,
   });
   const afterJson = JSON.stringify(session.messages);
+  const plainAfter = JSON.stringify(withoutStampedIds(session.messages));
   const trace = await lastCompactTrace();
-  assert.equal(trace.before_bytes, Buffer.byteLength(beforeJson, 'utf8'));
+  const stampedBefore = JSON.stringify(input);
+  assert.equal(JSON.stringify(withoutStampedIds(input)), plainBefore);
+  assert.equal(trace.before_bytes, Buffer.byteLength(stampedBefore, 'utf8'));
   assert.equal(trace.after_bytes, Buffer.byteLength(afterJson, 'utf8'));
-  assert.equal(trace.compact_changed, beforeJson !== afterJson);
+  assert.equal(trace.compact_changed, stampedBefore !== afterJson);
+  const idBytes = (stamped, plain) => Buffer.byteLength(stamped, 'utf8') - Buffer.byteLength(plain, 'utf8');
+  const beforeIdBytes = idBytes(stampedBefore, plainBefore);
+  const afterIdBytes = idBytes(afterJson, plainAfter);
   const numbers = Object.fromEntries(
-    Object.entries(result).filter(([, value]) => value === null || typeof value !== 'object')
+    Object.entries(result).filter(
+      // The dropped count/identities describe the display-only archive, not
+      // compaction output.
+      ([key, value]) =>
+        key !== 'droppedMessages' && key !== 'droppedIdentities' && (value === null || typeof value !== 'object')
+    )
   );
-  const { lastCheckedAt: _c, lastChangedAt: _g, lastCompactAt: _a, ...record } = session.compaction;
+  // `archive` is the display-only compaction archive's bookkeeping, not
+  // compaction output.
+  const { lastCheckedAt: _c, lastChangedAt: _g, lastCompactAt: _a, archive: _d, ...record } = session.compaction;
   return {
     numbers,
     messages: session.messages.length,
-    messagesSha: sha(normalize(afterJson)),
+    messagesSha: sha(normalize(plainAfter)),
     recordSha: sha(normalize(JSON.stringify(record))),
     sends: prompts.length,
     promptsSha: sha(JSON.stringify(prompts)),
     archives: archiveFiles(session.id),
-    traceBytes: [trace.before_bytes, trace.after_bytes],
+    traceBytes: [trace.before_bytes - beforeIdBytes, trace.after_bytes - afterIdBytes],
   };
 }
 

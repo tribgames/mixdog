@@ -21,15 +21,16 @@ import { mutationUnchangedStub, pathSnapshotUnchangedStub, readCachedResult } fr
 import { readMediaFile } from './read-single-media.mjs';
 import { binaryPreviewResult, smartStreamResult, streamRangeResult } from './read-single-stream.mjs';
 import { bufferedReadResult } from './read-single-render.mjs';
+import { runReadCachePublication } from './cache-layers.mjs';
 
 // Buffered reads take the whole body up front: the raw-content cache first,
 // else one readFile shared with in-flight reads of the same path AND version.
-async function prefetchRawBody(fullPath, st, helpers) {
+async function prefetchRawBody(fullPath, st, helpers, forceFresh = false) {
   const { _rawContentCacheGet, _runRawContentInFlight } = helpers;
-  const cachedRaw = _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
+  const cachedRaw = !forceFresh && _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
   if (cachedRaw) return { buf: cachedRaw, fromCache: true };
   try {
-    const buf = _runRawContentInFlight
+    const buf = !forceFresh && _runRawContentInFlight
       ? await _runRawContentInFlight(fullPath, readFile, st)
       : await readFile(fullPath);
     return { buf, fromCache: false };
@@ -39,6 +40,12 @@ async function prefetchRawBody(fullPath, st, helpers) {
 }
 
 export async function executeSingleReadTool(args, workDir, readStateScope, options = {}, helpers = {}) {
+  // A coalesced batch must not publish its union window as delivered evidence.
+  // Its internal recorder holds the producer's lease until the caller slots
+  // are sliced; ordinary reads retain their existing snapshot path.
+  if (typeof options._readSnapshotRecorder === 'function') {
+    helpers = { ...helpers, _recordReadSnapshot: options._readSnapshotRecorder };
+  }
   const {
     parseLineLimitArg,
     parseOffsetArg,
@@ -64,69 +71,76 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
   const fullPath = resolveAgainstCwd(filePath, workDir);
   const resolvedRejected = readResolvedPathGuard(fullPath, helpers);
   if (resolvedRejected) return resolvedRejected;
-  const hasOffsetArg = args.offset !== undefined && args.offset !== null;
-  const hasLimitArg = args.limit !== undefined && args.limit !== null;
-  const hasRangeArgs = hasOffsetArg || hasLimitArg;
-  const wantFull = args.full === true;
-  let offset = parseOffsetArg(args.offset);
-  // full:true bypasses the default 2000-line cap so the whole file can be
-  // returned in one call; the byte cap still emits a compact truncation
-  // marker when rendered bytes overflow READ_MAX_OUTPUT_BYTES.
-  let limit = parseLineLimitArg(args.limit, wantFull ? Infinity : 2000);
-  let widenNote = '';
-  const target = await statReadTarget(fullPath, filePath, options, helpers);
-  if (target.error) return target.error;
-  if (!target.st) return readNotFoundResponse(target.statErr, { fullPath, filePath, workDir }, helpers);
-  const st = target.st;
-  // Reactive widen + window-history bookkeeping (ranged text reads only).
-  if (
-    readStateScope &&
-    typeof readStateScope === 'object' &&
-    hasOffsetArg &&
-    hasLimitArg &&
-    Number.isFinite(limit) &&
-    limit > 0
-  ) {
-    ({ offset, limit, widenNote } = widenReadWindow(readStateScope, fullPath, { offset, limit }));
-  }
-  const unchanged = mutationUnchangedStub({ fullPath, filePath, st, readStateScope, options }, helpers);
-  if (unchanged) return unchanged;
-  // MEDIA-WINS: media dispatch runs before every cache/snapshot fast path so
-  // a stale text entry can never short-circuit a media read.
-  const media = await readMediaFile({ fullPath, st, args, readStateScope, options, hasRangeArgs }, helpers);
-  if (media) return media.result;
-  const cacheKey = `read|${fullPath}|${st.mtimeMs}|${st.ctimeMs}|${st.size}|${hasOffsetArg ? offset : 'd'}|${hasLimitArg ? limit : 'd'}|${wantFull ? 'f' : 's'}|base:${readOffsetBase}|budget:${readMaxOutputBytes}`;
-  const ctx = {
-    fullPath,
-    filePath,
-    st,
-    cacheKey,
-    readStateScope,
-    options,
-    offset,
-    limit,
-    hasRangeArgs,
-    wantFull,
-    readMaxOutputBytes,
-    readOffsetBase,
-    widenNote,
-  };
-  const cached = await readCachedResult(ctx, helpers);
-  if (cached) return cached.result;
-  const pathStub = await pathSnapshotUnchangedStub(ctx, helpers);
-  if (pathStub) return pathStub;
-  // Pre-read size cap: a small error response beats 25K tokens of truncated
-  // content (Anthropic #21841 reverted truncation). With offset/limit the
-  // requested window streams instead; without range args the cap still
-  // refuses so the small-file default path can't pull megabytes by accident.
-  const preferRangeStream =
-    hasRangeArgs && !wantFull && (options?.forceReadRangeStream === true || st.size > READ_STREAM_RANGE_MIN_BYTES);
-  const preferSmartStream = !hasRangeArgs && !wantFull && st.size >= READ_SMART_STREAM_MIN_BYTES;
-  const preferBufferedRead = st.size <= READ_MAX_SIZE_BYTES && !preferRangeStream && !preferSmartStream;
-  const prefetched = preferBufferedRead
-    ? await prefetchRawBody(fullPath, st, helpers)
-    : { buf: null, fromCache: false };
-  return await readBodyResult(ctx, { prefetched, preferRangeStream, preferSmartStream }, helpers);
+  return runReadCachePublication(fullPath, async () => {
+    const hasOffsetArg = args.offset !== undefined && args.offset !== null;
+    const hasLimitArg = args.limit !== undefined && args.limit !== null;
+    const hasRangeArgs = hasOffsetArg || hasLimitArg;
+    const wantFull = args.full === true;
+    let offset = parseOffsetArg(args.offset);
+    // full:true bypasses the default 2000-line cap so the whole file can be
+    // returned in one call; the byte cap still emits a compact truncation
+    // marker when rendered bytes overflow READ_MAX_OUTPUT_BYTES.
+    let limit = parseLineLimitArg(args.limit, wantFull ? Infinity : 2000);
+    let widenNote = '';
+    const target = await statReadTarget(fullPath, filePath, options, helpers);
+    if (target.error) return target.error;
+    if (!target.st) return readNotFoundResponse(target.statErr, { fullPath, filePath, workDir }, helpers);
+    const st = target.st;
+    // Reactive widen + window-history bookkeeping (ranged text reads only).
+    if (
+      readStateScope &&
+      typeof readStateScope === 'object' &&
+      hasOffsetArg &&
+      hasLimitArg &&
+      Number.isFinite(limit) &&
+      limit > 0
+    ) {
+      ({ offset, limit, widenNote } = widenReadWindow(readStateScope, fullPath, { offset, limit }));
+    }
+    const unchanged = mutationUnchangedStub({ fullPath, filePath, st, readStateScope, options }, helpers);
+    if (unchanged) return unchanged;
+    // MEDIA-WINS: media dispatch runs before every cache/snapshot fast path so
+    // a stale text entry can never short-circuit a media read.
+    const media = await readMediaFile({ fullPath, st, args, readStateScope, options, hasRangeArgs }, helpers);
+    if (media) return media.result;
+    const cacheKey = `read|${fullPath}|${st.mtimeMs}|${st.ctimeMs}|${st.size}|${hasOffsetArg ? offset : 'd'}|${hasLimitArg ? limit : 'd'}|${wantFull ? 'f' : 's'}|base:${readOffsetBase}|budget:${readMaxOutputBytes}`;
+    const ctx = {
+      fullPath,
+      filePath,
+      st,
+      cacheKey,
+      readStateScope,
+      options,
+      offset,
+      limit,
+      hasRangeArgs,
+      wantFull,
+      readMaxOutputBytes,
+      readOffsetBase,
+      widenNote,
+    };
+    const cached = await readCachedResult(ctx, helpers);
+    if (cached && !cached.rejected) return cached.result;
+    const finishRead = async () => {
+      const pathStub = await pathSnapshotUnchangedStub(ctx, helpers);
+      if (pathStub) return pathStub;
+      // Pre-read size cap: a small error response beats 25K tokens of truncated
+      // content (Anthropic #21841 reverted). With offset/limit the
+      // requested window streams instead; without range args the cap still
+      // refuses so the small-file default path can't pull megabytes by accident.
+      const preferRangeStream =
+        hasRangeArgs && !wantFull && (options?.forceReadRangeStream === true || st.size > READ_STREAM_RANGE_MIN_BYTES);
+      const preferSmartStream = !hasRangeArgs && !wantFull && st.size >= READ_SMART_STREAM_MIN_BYTES;
+      const preferBufferedRead = st.size <= READ_MAX_SIZE_BYTES && !preferRangeStream && !preferSmartStream;
+      const prefetched = preferBufferedRead
+        ? await prefetchRawBody(fullPath, st, helpers, cached?.rejected === true)
+        : { buf: null, fromCache: false };
+      return await readBodyResult(ctx, { prefetched, preferRangeStream, preferSmartStream }, helpers);
+    };
+    // Rejection invalidates this lease too. Only the fresh continuation gets
+    // a new generation; readers still holding earlier bytes remain fenced.
+    return cached?.rejected ? runReadCachePublication(fullPath, finishRead) : finishRead();
+  });
 }
 
 // Body read: binary/encoding inspection, then the streamed (range or smart)

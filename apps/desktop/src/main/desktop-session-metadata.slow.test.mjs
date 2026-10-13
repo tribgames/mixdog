@@ -51,12 +51,18 @@ test('concurrent metadata publications retain one complete JSON snapshot', async
     names: { session: value },
     archived: {},
     favorites: {},
+    projects: { session: value },
     reads: {},
   }));
   await Promise.all(maps.map((value) => writeSessionMetadata(root, value)));
   const saved = JSON.parse(await readFile(target, 'utf8'));
   assert.ok(
-    maps.some((value) => saved.titles.session === value.titles.session && saved.names.session === value.names.session)
+    maps.some(
+      (value) =>
+        saved.titles.session === value.titles.session &&
+        saved.names.session === value.names.session &&
+        saved.projects.session === value.projects.session
+    )
   );
 });
 
@@ -68,6 +74,7 @@ for (const mutation of ['name', 'archive', 'forget']) {
       names: { keeper: 'Preserved name', removed: 'Old name' },
       archived: { keeper: 100 },
       favorites: {},
+      projects: { keeper: 'C:\\work\\keeper-project' },
       reads: { keeper: { messageCount: 5, revision: 2 } },
     });
     const metadata = new DesktopSessionMetadata(() => root);
@@ -79,6 +86,10 @@ for (const mutation of ['name', 'archive', 'forget']) {
     assert.equal(reloaded.titles.keeper, 'Preserved title');
     assert.equal(reloaded.names.keeper, 'Preserved name');
     assert.equal(reloaded.archived.keeper, 100);
+    assert.equal(
+      reloaded.withProjectAssignments([{ id: 'keeper' }])[0].projectAssignment,
+      'C:\\work\\keeper-project'
+    );
     assert.deepEqual(reloaded.reads.keeper, { messageCount: 5, revision: 2 });
     if (mutation === 'name') assert.equal(reloaded.names.changed, 'New name');
     else if (mutation === 'archive') assert.ok(reloaded.archived.changed > 0);

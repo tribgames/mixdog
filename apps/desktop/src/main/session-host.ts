@@ -31,18 +31,20 @@ import { mixdogDataDirectory } from './computer/shared/common';
 import { SessionHostCatalog, catalogRelevantStoreEntry } from './session-host-catalog';
 import { SessionHostPublication } from './session-host-publication';
 import { SessionHostLifecycle } from './session-host-lifecycle';
-import { SessionHostTransport } from './session-host-transport';
+import { SessionHostTransport, sessionIdOf } from './session-host-transport';
 import { SessionTranscriptWindows } from './session-transcript-windows';
 import type { SessionCallOptions, SessionClient } from './session-host-transport';
 export type { SessionClient } from './session-host-transport';
 import {
   DESKTOP_TRANSCRIPT_ITEM_LIMIT,
   type MixdogProjectsModule,
+  type MixdogWorktreesModule,
   type MixdogSessionSearchModule,
   type MixdogSessionStoreModule,
   type StatuslineSegmentsModule,
 } from './desktop-support';
 import { DesktopProjectRegistry } from './desktop-project-registry';
+import { resolveManagedWorktree, type ManagedWorktreeScope } from './managed-worktree-path';
 import { DesktopSessionMetadata } from './desktop-session-metadata';
 import { SessionViewRegistry } from './session-view-registry';
 import { NewTaskRequests } from './new-task-requests';
@@ -66,6 +68,8 @@ interface SessionHostRuntime {
     onFatal?(reason: string): void;
   }): Promise<SessionClient>;
   loadProjects(): Promise<MixdogProjectsModule>;
+  /** Worktree registry; optional: an older daemon has no managed worktrees. */
+  loadWorktrees?(): Promise<MixdogWorktreesModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
   loadSessionSearch?(): Promise<MixdogSessionSearchModule>;
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
@@ -195,7 +199,8 @@ export class SessionHost implements DesktopService {
       enterProject: async (path) => {
         await this.projects.enter(path);
       },
-      knownProject: (path) => this.projects.knownPath(path),
+      knownProject: (path) => this.knownProjectPath(path),
+      registeredProject: (path) => this.projects.knownPath(path),
       touchProject: async (path) => {
         try {
           await this.projects.touchSelected(path);
@@ -336,15 +341,42 @@ export class SessionHost implements DesktopService {
     desktopSession: { classification: 'project'; projectPath: string } | { classification: 'task'; projectPath: null };
   }> {
     const requested = String(projectPath || '').trim();
-    const registeredProject = requested ? await this.projects.knownPath(requested) : '';
-    const cwd = registeredProject ? await this.canonicalDirectory(registeredProject) : await this.taskWorkspace();
+    if (!requested) {
+      return {
+        registeredProject: '',
+        cwd: await this.taskWorkspace(),
+        desktopSession: { classification: 'task', projectPath: null },
+      };
+    }
+    // A managed worktree executes in its own folder while the session's
+    // project identity stays the registered main Project.
+    const { projectPath: registeredProject, worktree } = await this.projectScope(requested);
+    const project = await this.canonicalDirectory(registeredProject);
     return {
       registeredProject,
-      cwd,
-      desktopSession: registeredProject
-        ? { classification: 'project', projectPath: cwd }
-        : { classification: 'task', projectPath: null },
+      cwd: worktree?.path ?? project,
+      desktopSession: { classification: 'project', projectPath: project },
     };
+  }
+
+  /** The registered Project a path belongs to: the path itself, or the owner of
+   *  the managed worktree it names. Any other path is rejected. */
+  private async projectScope(path: string): Promise<{ projectPath: string; worktree: ManagedWorktreeScope | null }> {
+    try {
+      return { projectPath: await this.projects.knownPath(path), worktree: null };
+    } catch (error) {
+      const worktree = await resolveManagedWorktree(
+        this.runtime.loadWorktrees ? () => this.runtime.loadWorktrees!() : undefined,
+        (projectPath) => this.projects.knownPath(projectPath),
+        path
+      );
+      if (!worktree) throw error;
+      return { projectPath: worktree.projectPath, worktree };
+    }
+  }
+
+  private async knownProjectPath(path: string): Promise<string> {
+    return (await this.projectScope(path)).projectPath;
   }
 
   private async canonicalDirectory(path: string): Promise<string> {
@@ -357,11 +389,18 @@ export class SessionHost implements DesktopService {
 
   private openHints(sessionId: string): Record<string, unknown> {
     const row = this.rawSessionRows.find((entry) => String(entry.id || '') === sessionId);
-    const cwd = String(row?.cwd || '');
-    const desktopSession =
+    const workspace =
+      row?.workspace && typeof row.workspace === 'object' ? (row.workspace as Record<string, unknown>) : null;
+    // The execution root may be a managed worktree; the project identity is
+    // always the registered main Project.
+    const cwd = String(workspace?.cwd || row?.cwd || '');
+    const stored =
       row?.desktopSession && typeof row.desktopSession === 'object'
         ? (row.desktopSession as Record<string, unknown>)
         : null;
+    const workspaceProject = String(workspace?.projectPath || '');
+    const desktopSession =
+      stored ?? (workspaceProject ? { classification: 'project', projectPath: workspaceProject } : null);
     return {
       ...(cwd ? { cwd } : {}),
       ...(desktopSession ? { desktopSession } : {}),
@@ -382,6 +421,12 @@ export class SessionHost implements DesktopService {
   async readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null> {
     // Read this session without selecting it or publishing a pane snapshot.
     return sessionFinalAnswer(await this.readSession(sessionId, false, false), startedAt);
+  }
+
+  async readSessionTranscript(sessionId: string): Promise<SessionSnapshot> {
+    const id = sessionIdOf(sessionId);
+    // The held projection is exactly what this host published to its views.
+    return this.publication.projections.get(id)?.snapshot ?? (await this.readSession(id, false, false));
   }
 
   async startProject(projectPath: string): Promise<SessionSnapshot> {
@@ -405,7 +450,8 @@ export class SessionHost implements DesktopService {
   }
 
   async projectDirectory(projectPath: string): Promise<string> {
-    return this.canonicalDirectory(await this.projects.knownPath(projectPath));
+    const { projectPath: known, worktree } = await this.projectScope(projectPath);
+    return worktree?.path ?? this.canonicalDirectory(known);
   }
 
   async renameProject(projectPath: string, alias: string): Promise<void> {
@@ -414,6 +460,7 @@ export class SessionHost implements DesktopService {
 
   async removeProject(projectPath: string): Promise<void> {
     await this.projects.remove(projectPath);
+    if (await this.sessionMetadata.clearProjectAssignments(projectPath)) await this.catalog.publishCatalogs();
   }
 
   async listProjectDir(projectPath: string, relDir: string): Promise<unknown> {
@@ -553,6 +600,10 @@ export class SessionHost implements DesktopService {
     return this.lifecycle.cancelQuotaResume(sessionId);
   }
 
+  async stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }> {
+    return this.lifecycle.stopShellJob(sessionId, taskId);
+  }
+
   async getQuotaAutoResume(): Promise<boolean> {
     return this.lifecycle.getQuotaAutoResume();
   }
@@ -563,6 +614,10 @@ export class SessionHost implements DesktopService {
 
   async setSessionFavorite(sessionId: string, favorite: boolean): Promise<void> {
     return this.lifecycle.setSessionFavorite(sessionId, favorite);
+  }
+
+  async setSessionProject(sessionId: string, projectPath: string | null): Promise<void> {
+    return this.lifecycle.setSessionProject(sessionId, projectPath);
   }
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
@@ -680,9 +735,11 @@ export class SessionHost implements DesktopService {
 
   private sessionCatalog(): DesktopSessionSummary[] {
     return this.sessionMetadata.withReadCursors(
-      this.sessionMetadata.withFavoriteFlags(
-        this.sessionMetadata.withArchiveFlags(
-          desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+      this.sessionMetadata.withProjectAssignments(
+        this.sessionMetadata.withFavoriteFlags(
+          this.sessionMetadata.withArchiveFlags(
+            desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+          )
         )
       )
     );

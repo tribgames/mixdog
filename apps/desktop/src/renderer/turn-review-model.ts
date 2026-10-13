@@ -2,6 +2,12 @@ import { t } from './i18n';
 import { findPatch, PATCH_CACHE_LIMIT } from './transcript-diff';
 import type { TranscriptItem } from './desktop-types';
 import { parseUnifiedDiff } from './renderer-logic.mjs';
+import {
+  buildSessionDiffRows,
+  isAbsolutePath,
+  type SessionDiffResult,
+  type SessionDiffRow,
+} from './session-diff-model';
 import { RendererLruCache } from './renderer-lru-cache';
 import { registerIdleReclaim } from './idle-reclaim';
 import {
@@ -264,6 +270,186 @@ export function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart
   };
 }
 
+/** Every successful patch-publishing tool call of the whole transcript (not
+ *  just the current turn): the file set from their patches, the line totals
+ *  from the same workload count the activity cards use. */
+export function summarizeSessionTranscriptReview(items: TranscriptItem[], cwd = ''): TurnReviewSummary {
+  const patches: string[] = [];
+  for (const item of items) {
+    if (item?.kind !== 'tool') continue;
+    // Grouped cards (`__aggregate__`) key their categories as
+    // `Patch|Editing|Edited|file|files`, never a bare `Patch`.
+    const patchCard =
+      toolPublishesPatch(item) ||
+      (item.aggregate === true && Object.keys(item.categories || {}).some((key) => key.startsWith('Patch|')));
+    const written = !patchCard && !item.aggregate && String(item.name || '').toLowerCase() === 'write';
+    if (!patchCard && !written) continue;
+    const count = Math.max(1, Number(item.count || 1));
+    if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
+    if (parseToolArgs(item.args)?.dry_run === true) continue;
+    if (written) {
+      // `write` publishes no diff: synthesize the added lines from its content
+      // the way the card counts them (a new file is all additions).
+      const args = parseToolArgs(item.args) || {};
+      const target = String(args.file_path ?? args.filePath ?? args.path ?? '').replace(/\\/g, '/');
+      const content = typeof args.content === 'string' ? args.content : '';
+      if (!target || !content) continue;
+      const lines = content.replace(/\n$/, '').split('\n');
+      const created = /^\s*Created\b/.test(String(item.result ?? ''));
+      patches.push(
+        `diff --git a/${target} b/${target}\n${created ? 'new file mode 100644\n--- /dev/null\n' : `--- a/${target}\n`}+++ b/${target}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line: string) => `+${line}`).join('\n')}\n`
+      );
+      continue;
+    }
+    // `edit`-dialect calls carry no patch in their arguments; the runtime's
+    // per-call `uiDiff` is the change they made. An explicit empty uiDiff means
+    // the call changed nothing.
+    const uiDiff = typeof item.uiDiff === 'string' ? item.uiDiff : null;
+    const patch = uiDiff !== null ? uiDiff : findPatch(item);
+    if (patch) patches.push(patch);
+  }
+  const summary = summarizeTurnReviewPatch(patches.join('\n'));
+  // Tool patches sometimes carry ABSOLUTE paths; the session diff's rows are
+  // project-relative, and the two sources must meet on the same key.
+  const root = String(cwd || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  if (!root) return summary;
+  const files: TurnReviewSummary['files'] = new Map();
+  for (const [name, entry] of summary.files) {
+    const normalized = name.replace(/\\/g, '/');
+    const relative = normalized.toLowerCase().startsWith(`${root}/`) ? normalized.slice(root.length + 1) : name;
+    const merged = files.get(relative);
+    if (!merged) {
+      files.set(relative, entry);
+      continue;
+    }
+    merged.additions += entry.additions;
+    merged.deletions += entry.deletions;
+    merged.lineStats ||= entry.lineStats;
+    merged.status ||= entry.status;
+    merged.binary ||= entry.binary;
+    merged.parts.push(...entry.parts);
+  }
+  return turnReviewSummaryOf(files);
+}
+
+/** The session's files: everything the loaded transcript's successful edits
+ *  touched, plus whatever the runtime's session diff knows beyond it (turns the
+ *  paged transcript no longer holds). Where both name a file the larger line
+ *  count wins, so the diff can only add lines. The runtime diff alone is not cumulative everywhere — a
+ *  non-Git folder only tracks the running turn and answers an authoritative
+ *  empty set when a new turn starts — so it can add files but never remove the
+ *  transcript's. */
+export function mergeSessionReviewSummaries(transcript: TurnReviewSummary, diff: TurnReviewSummary): TurnReviewSummary {
+  const files: TurnReviewSummary['files'] = new Map(transcript.files);
+  for (const [name, entry] of diff.files) {
+    const known = files.get(name);
+    if (!known) {
+      files.set(name, entry);
+      continue;
+    }
+    // The diff may only cover the running turn (non-Git), so it never lowers
+    // what the transcript's successful calls already add up to.
+    const additions = Math.max(known.additions, entry.additions);
+    const deletions = Math.max(known.deletions, entry.deletions);
+    files.set(name, {
+      ...known,
+      additions,
+      deletions,
+      lineStats: additions + deletions > 0,
+      status: known.status || entry.status,
+      binary: known.binary || entry.binary,
+    });
+  }
+  return turnReviewSummaryOf(files);
+}
+
+/** The session diff pane's rows (the runtime's session-wide, session-owned
+ *  paths) as a review summary. */
+export function summarizeSessionDiffRows(rows: readonly SessionDiffRow[]): TurnReviewSummary {
+  const files: TurnReviewSummary['files'] = new Map();
+  for (const row of rows) {
+    files.set(row.path, {
+      additions: row.additions,
+      deletions: row.deletions,
+      lineStats: row.additions + row.deletions > 0,
+      status: row.status,
+      binary: row.binary,
+      parts: row.parts,
+    });
+  }
+  return turnReviewSummaryOf(files);
+}
+
+/** A transcript file the runtime diff lacks becomes a row, and a row takes the
+ *  larger counts and the patch of the transcript's own edit — the island's
+ *  `mergeSessionReviewSummaries`, for a diff that is NOT the complete set (a
+ *  runtime without ownership metadata). */
+function mergeTranscriptIntoRows(rows: readonly SessionDiffRow[], transcript: TurnReviewSummary): SessionDiffRow[] {
+  const known = new Set(rows.map((row) => row.path));
+  const merged = rows.map((row) => {
+    const entry = transcript.files.get(row.path);
+    if (!entry) return row;
+    const additions = Math.max(row.additions, entry.additions);
+    const deletions = Math.max(row.deletions, entry.deletions);
+    const useParts = row.parts.length === 0 && entry.parts.length > 0;
+    return {
+      ...row,
+      additions,
+      deletions,
+      parts: useParts ? entry.parts : row.parts,
+      reason: useParts ? '' : row.reason,
+    };
+  });
+  for (const [path, entry] of transcript.files) {
+    if (known.has(path)) continue;
+    merged.push({
+      id: path,
+      path,
+      outside: isAbsolutePath(path),
+      oldPath: '',
+      status: statusCode(entry) || 'M',
+      additions: entry.additions,
+      deletions: entry.deletions,
+      binary: entry.binary,
+      reason: '',
+      unmeasured: false,
+      parts: entry.parts,
+    });
+  }
+  return merged;
+}
+
+/** THE session file list, shared by the pane, its title and the island.
+ *  A `complete` runtime result is the net change set and is final: the
+ *  transcript (historical activity, blind to Undo) never adds, drops or
+ *  recounts a file — it only completes a row the runtime flagged `unmeasured`
+ *  (an old record that kept no counts). Anything else falls back to the
+ *  transcript-merged list the island always showed. */
+export function resolveSessionRows(
+  result: SessionDiffResult | null,
+  items: TranscriptItem[],
+  cwd = ''
+): SessionDiffRow[] {
+  const rows = buildSessionDiffRows(result);
+  if (result?.supported === false || result?.authoritative !== true) return rows;
+  const transcript = summarizeSessionTranscriptReview(items, cwd);
+  if (result.complete !== true) return mergeTranscriptIntoRows(rows, transcript);
+  return rows.map((row) => {
+    const entry = row.unmeasured ? transcript.files.get(row.path) : undefined;
+    if (!entry) return row;
+    return {
+      ...row,
+      additions: entry.additions,
+      deletions: entry.deletions,
+      parts: entry.parts,
+      reason: entry.parts.length > 0 ? '' : row.reason,
+      unmeasured: false,
+    };
+  });
+}
 export type TurnReviewCapabilityValue = {
   /** The review is exactly the one tagged `etag` the bar already holds. */
   unchanged?: boolean;

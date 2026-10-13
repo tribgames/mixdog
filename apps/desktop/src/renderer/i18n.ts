@@ -6,6 +6,7 @@
 import i18next from 'i18next';
 import pluralSources from './ui-plurals.json';
 
+import { hasLocalDisplayChoice, markHostDisplayChoice, markLocalDisplayChoice } from './display-preference-source';
 import { publishUiLanguage } from './push-notification-bridge';
 import {
   SUPPORTED_UI_LANGUAGES,
@@ -34,16 +35,38 @@ export function getUiLanguagePreference(): UiLanguagePreference {
   return 'system';
 }
 
+/** The user's own choice on this device: it wins over the host PC from now on. */
 export function setUiLanguagePreference(preference: UiLanguagePreference): boolean {
   try {
     if (preference === 'system') window.localStorage.removeItem(UI_LANGUAGE_STORAGE_KEY);
     else window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, preference);
+    markLocalDisplayChoice('language');
     return true;
   } catch {
     // Language changes reload module-level labels. An in-memory choice would
     // disappear immediately, so the settings surface must report this failure.
     return false;
   }
+}
+
+/** Whether this device's UI language was chosen here (see display-preference-source.ts).
+ *  An unmarked stored language counts as a choice; 'system' (nothing stored) is the default. */
+export function hasLocalUiLanguageChoice(): boolean {
+  return hasLocalDisplayChoice('language', getUiLanguagePreference() !== 'system');
+}
+
+/** Follow the host PC's language: stored but marked as the host's, so a later host
+ *  change still replaces it. Returns true when the active language must change
+ *  (the caller reloads, like Settings → Display language does). */
+export function adoptHostUiLanguage(language: UiLanguage): boolean {
+  const previous = resolveUiLanguage();
+  try {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, language);
+  } catch {
+    return false;
+  }
+  markHostDisplayChoice('language');
+  return language !== previous;
 }
 
 export function resolveUiLanguage(preference: UiLanguagePreference = getUiLanguagePreference()): UiLanguage {
@@ -126,6 +149,8 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: {{count}} shells_other': '{{count}} shells',
   'Island: {{count}} files': '{{count}} files',
   'Island: {{count}} files_other': '{{count}} files',
+  'Turn changes: {{count}} files changed': '{{count}} files changed',
+  'Turn changes: {{count}} files changed_other': '{{count}} files changed',
 });
 
 /** Fetch the resolved language and switch onto it. The renderer entry awaits
@@ -158,6 +183,12 @@ export async function initUiLanguage(
 /** All UI formatting follows the loaded catalog, including its English fallback. */
 export function uiFormatLocale(): UiLanguage {
   return uiLanguageForLocale(i18next.language) || 'en';
+}
+
+/** Subscribe to active-language changes (catalog load finishing after first paint, or a switch). */
+export function subscribeUiLanguage(listener: () => void): () => void {
+  i18next.on('languageChanged', listener);
+  return () => i18next.off('languageChanged', listener);
 }
 
 export function t(key: string, options?: Record<string, unknown>): string {

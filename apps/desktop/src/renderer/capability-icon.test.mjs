@@ -11,7 +11,7 @@ function icon(name, kind = 'skill', size = 16) {
 }
 
 test('all built-in capabilities and shipped skills render self-contained scalable artwork', () => {
-  const features = ['git', 'memory', 'browser', 'computer', 'office', 'localProvider', 'voice', 'tidy'];
+  const features = ['git', 'memory', 'browser', 'computer', 'office', 'localProvider', 'voice', 'tidy', 'visualize'];
   const skills = [
     'browser-use',
     'computer-use',

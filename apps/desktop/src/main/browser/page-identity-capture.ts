@@ -1,8 +1,11 @@
 /** The pixels behind page identity: the site icon a page declared, read
  *  through the browser's own session (its HTTP cache first), and a small
  *  screenshot of the page itself. */
-import { nativeImage, type WebContents } from 'electron';
+import { nativeImage, type NativeImage, type WebContents } from 'electron';
+import type { DesktopBrowserPageIdentity } from '../../shared/contract';
 import { fetchDeclaredFavicon, looksLikeSvg } from './favicon-fetch';
+import type { BrowserPageIdentityPatch } from './page-identity';
+import { fetchPagePreviewMarkup, PREVIEW_IMAGE_MAX_BYTES } from './page-preview';
 
 /** 2x of the 104×66 card thumbnail. */
 export const PAGE_THUMBNAIL_SIZE = { width: 208, height: 132 } as const;
@@ -60,13 +63,47 @@ export async function captureBrowserPageThumbnail(guest: WebContents): Promise<s
     }),
   ]).finally(() => clearTimeout(timer));
   if (!image || image.isEmpty()) return null;
+  return cardThumbnail(image, 'top');
+}
+
+/** `image` cut to the card's aspect (from its top, or around its center) and
+ *  scaled to the card thumbnail, as a JPEG data URL. */
+function cardThumbnail(image: NativeImage, anchor: 'top' | 'center'): string | null {
   const { width, height } = image.getSize();
   const aspect = PAGE_THUMBNAIL_SIZE.width / PAGE_THUMBNAIL_SIZE.height;
   const cropHeight = Math.min(height, Math.round(width / aspect));
   const cropWidth = Math.min(width, Math.round(cropHeight * aspect));
   if (cropWidth < 1 || cropHeight < 1) return null;
+  const x = anchor === 'center' ? Math.floor((width - cropWidth) / 2) : 0;
+  const y = anchor === 'center' ? Math.floor((height - cropHeight) / 2) : 0;
   const thumbnail = image
-    .crop({ x: 0, y: 0, width: cropWidth, height: cropHeight })
+    .crop({ x, y, width: cropWidth, height: cropHeight })
     .resize({ ...PAGE_THUMBNAIL_SIZE, quality: 'good' });
   return `data:image/jpeg;base64,${thumbnail.toJPEG(72).toString('base64')}`;
+}
+
+/** What the page at `url` declares about itself, as identity facts the
+ *  store does not have yet (`known`): its preview image as a thumbnail, its
+ *  icon and its title. Read through the browser session; null when nothing
+ *  usable came back. */
+export async function readBrowserPagePreview(
+  session: Electron.Session,
+  url: string,
+  known: DesktopBrowserPageIdentity | null
+): Promise<BrowserPageIdentityPatch | null> {
+  const fetch = (target: string, init: RequestInit) => session.fetch(target, init);
+  const markup = await fetchPagePreviewMarkup(fetch, url);
+  if (!markup) return null;
+  const [thumbnail, favicon] = await Promise.all([
+    markup.image
+      ? fetchDeclaredFavicon(fetch, markup.image, markup.url, { maxBytes: PREVIEW_IMAGE_MAX_BYTES }).then((data) => {
+          const image = data ? nativeImage.createFromBuffer(data.bytes) : null;
+          return image && !image.isEmpty() ? cardThumbnail(image, 'center') : null;
+        })
+      : null,
+    markup.icon && !known?.favicon ? readBrowserFavicon(session, markup.icon, markup.url) : null,
+  ]);
+  const title = known?.title ? undefined : markup.title;
+  if (!thumbnail && !favicon && !title) return null;
+  return { ...(thumbnail ? { thumbnail } : {}), ...(favicon ? { favicon } : {}), ...(title ? { title } : {}) };
 }

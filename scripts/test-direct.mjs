@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Explicit Node test options and file paths, without discovery or lane filters.
-import { runNodeTests } from './lib/run-node-tests.mjs';
+import { explicitFilesTimeoutMs, runNodeTests } from './lib/run-node-tests.mjs';
 
 const argv = process.argv.slice(2);
 // The same defaults as scripts/test.mjs: `mock.module` is still flag-gated on
@@ -17,5 +17,7 @@ await runNodeTests(
     '--test',
     ...unlessGiven('--test-force-exit'),
   ],
-  argv
+  argv,
+  // A named slow-lane file keeps the slow lane's per-file bound.
+  { testTimeoutMs: explicitFilesTimeoutMs(argv) }
 );

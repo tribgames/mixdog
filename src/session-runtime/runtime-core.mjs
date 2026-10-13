@@ -20,6 +20,7 @@ function bootParams({
   fast,
   modelParameters,
   contextPercent,
+  contextTokens,
   selectedContextWindow,
   cwd = process.cwd(),
   toolMode = 'full',
@@ -30,6 +31,7 @@ function bootParams({
   initialConfig = null,
   desktopSession = null,
   sessionProfile = null,
+  worktree = null,
   executeAgentControl = null,
 } = {}) {
   return {
@@ -39,6 +41,7 @@ function bootParams({
     fast,
     modelParameters,
     contextPercent,
+    contextTokens,
     selectedContextWindow,
     cwd,
     toolMode,
@@ -49,6 +52,8 @@ function bootParams({
     initialConfig,
     desktopSession,
     sessionProfile,
+    // Creation-time worktree intent (workspace/transitions.mjs creationIntent).
+    worktree,
     executeAgentControl,
   };
 }

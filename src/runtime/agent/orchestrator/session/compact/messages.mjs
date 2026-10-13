@@ -2,13 +2,16 @@
 // construction helpers.
 import { SUMMARY_PREFIX, SUMMARY_PREFIX_ANCHOR } from './constants.mjs';
 import { sha16, roleCounts } from './text-utils.mjs';
+import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
 import {
   isInternalRuntimeNotificationText,
   isModelVisibleToolCompletionWrapper,
 } from '../../../../shared/tool-execution-contract.mjs';
 
 export function compactHeader(oldHistory) {
-  const encoded = JSON.stringify(oldHistory ?? []);
+  // Stable display ids are bookkeeping, not conversation: the header names
+  // the same history whether or not its messages were stamped.
+  const encoded = JSON.stringify(oldHistory ?? [], withoutMessageIdsReplacer);
   return [
     SUMMARY_PREFIX,
     `messages=${oldHistory.length} sha256=${sha16(encoded)} roles=${roleCounts(oldHistory) || 'none'}`,
@@ -130,16 +133,20 @@ function referenceFilesManifestMessage(message) {
   const paths = [...text.matchAll(/^###\s+(.+?)\s*$/gm)].map((match) => String(match[1] || '').trim()).filter(Boolean);
   if (paths.length === 0) return null;
   const uniquePaths = [...new Set(paths)];
-  return {
-    role: 'user',
-    content: [
-      '<system-reminder>',
-      '# Reference files',
-      'These files were attached when the session started. Re-read a path when its current contents are needed; the original bodies are not re-injected after Compact.',
-      ...uniquePaths.map((path) => `- ${path}`),
-      '</system-reminder>',
-    ].join('\n'),
-  };
+  // The manifest rewrites the reference-files message: it keeps that id.
+  return carryMessageId(
+    {
+      role: 'user',
+      content: [
+        '<system-reminder>',
+        '# Reference files',
+        'These files were attached when the session started. Re-read a path when its current contents are needed; the original bodies are not re-injected after Compact.',
+        ...uniquePaths.map((path) => `- ${path}`),
+        '</system-reminder>',
+      ].join('\n'),
+    },
+    message
+  );
 }
 
 export function splitProtectedContext(messages) {

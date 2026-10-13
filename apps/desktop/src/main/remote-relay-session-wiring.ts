@@ -4,6 +4,7 @@
 import { createPushNotifier, type NativePushMessage } from './push-notifier';
 import type { NativePushStore } from './native-push-store';
 import type { PushSubscriptionStore } from './push-subscription-store';
+import type { DesktopSessionSummary } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import type { RelayCatalogs } from './remote-relay-catalog';
 import type { RelayClientState, RelayClientRegistry, SendEncryptedFrame } from './remote-relay-clients';
@@ -31,6 +32,9 @@ export interface RelaySessionWiringDeps {
   sendEncryptedFrame: SendEncryptedFrame;
   broadcastEncrypted(payload: unknown, droppable: boolean, include?: (state: RelayClientState) => boolean): void;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
+  /** Every session catalog the host publishes (download grants end with
+   *  their session). */
+  onSessions?: (sessions: DesktopSessionSummary[]) => void;
 }
 
 export interface RelaySessionSubscriptions {
@@ -136,6 +140,7 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
       });
       const unsubscribeState = deps.host.subscribe((snapshot) => broadcastState(snapshot));
       const unsubscribeSessions = deps.host.subscribeSessions((sessions) => {
+        deps.onSessions?.(sessions);
         deps.catalogs.publishSessions(sessions);
         pushNotifier.onSessions(sessions);
       });

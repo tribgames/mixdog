@@ -107,7 +107,7 @@ test('a running tool shows its elapsed time from the transcript `at` start', asy
   }
 });
 
-test('desktop and mobile tool groups share details and a static task icon', async () => {
+test('desktop and mobile tool groups share details and a plain summary line', async () => {
   const userAgents = [
     'Mozilla/5.0 Electron/41.0.0',
     'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
@@ -133,9 +133,8 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
       });
       const group = document.querySelector('.tool-activity');
       assert.equal(group?.dataset.surface, 'desktop');
-      assert.ok(group?.querySelector('.tool-activity-header .tool-icon svg.tool-group-icon'));
-      // No leading-icon animation and no trailing dots: the title carries the state.
-      assert.equal(group?.querySelector('.tool-activity-header .tool-icon')?.hasAttribute('data-running'), false);
+      // No leading glyph and no trailing dots: the title carries the state.
+      assert.equal(group?.querySelector('.tool-activity-header .tool-icon'), null);
       assert.equal(group?.querySelector('.tool-working-dots'), null);
       assert.equal(group?.querySelector('.tool-activity-item-spinner'), null);
       assert.equal(group?.querySelector('.live-activity-logo'), null);
@@ -171,7 +170,7 @@ test('desktop activity shows repeated tool counts in natural phrase summary', as
     });
 
     const title = document.querySelector('.tool-activity-title')?.textContent?.trim() || '';
-    assert.equal(title, 'Read file · Search 2 patterns');
+    assert.equal(title, 'Read file, Search 2 patterns');
     assert.doesNotMatch(title, /×/);
   } finally {
     await act(async () => dom.root.unmount());
@@ -450,7 +449,7 @@ test('desktop activity lists every call as one row under the summary, without ca
       );
     });
     const group = document.querySelector('.tool-activity');
-    assert.equal(group?.querySelector('.tool-activity-title')?.textContent?.trim(), 'Search 2 patterns · Run command');
+    assert.equal(group?.querySelector('.tool-activity-title')?.textContent?.trim(), 'Search 2 patterns, Run 1 command');
     assert.equal(group?.querySelector('.tool-activity-failed'), null);
 
     await act(async () => {
@@ -985,6 +984,108 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
   });
   assert.deepEqual(write.sections, []);
   assert.equal(write.diffPatch.includes('src/a.ts'), true);
+
+  // An edit landing in a batch can carry the whole batch's patch: its body
+  // shows its own file, matched by relative or absolute path.
+  const batchPatch = [
+    'diff --git a/C:/tmp/out/outside-note.txt b/C:/tmp/out/outside-note.txt',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/C:/tmp/out/outside-note.txt',
+    '@@ -0,0 +1,1 @@',
+    '+Single line of text',
+    'diff --git a/note.txt b/note.txt',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/note.txt',
+    '@@ -0,0 +1,1 @@',
+    '+First line',
+  ].join('\n');
+  const edit = (filePath) =>
+    desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: `edit-${filePath}`,
+      name: 'edit',
+      args: { file_path: filePath, old_string: '', new_string: 'x' },
+      uiDiff: batchPatch,
+      result: 'Created',
+      completedAt: 1,
+    });
+  const outside = edit('C:\\tmp\\out\\outside-note.txt').diffPatch;
+  assert.equal(outside.includes('outside-note.txt'), true);
+  assert.equal(outside.includes('b/note.txt'), false);
+  const note = edit('note.txt').diffPatch;
+  assert.equal(note.startsWith('diff --git a/note.txt b/note.txt'), true);
+  assert.equal(note.includes('outside-note.txt'), false);
+  // No section for the target: the patch stays whole.
+  assert.equal(edit('other.txt').diffPatch, batchPatch);
+  // Exact path identity: `x.ts` never keeps `nested/x.ts`, in either direction.
+  const nested = ['x.ts', 'nested/x.ts']
+    .map((name) => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-1\n+2`)
+    .join('\n');
+  const pick = (filePath, extra = {}) =>
+    desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: `twin-${filePath}`,
+      name: 'edit',
+      args: { file_path: filePath, old_string: '1', new_string: '2', ...extra },
+      uiDiff: nested,
+      result: 'ok',
+      completedAt: 1,
+    }).diffPatch;
+  assert.equal(pick('x.ts').includes('nested/x.ts'), false);
+  assert.equal(pick('x.ts').includes('a/x.ts'), true);
+  assert.equal(pick('./nested\\x.ts').includes('a/x.ts'), false);
+  assert.equal(pick('nested/x.ts').includes('nested/x.ts'), true);
+  assert.equal(pick('C:\\repo\\x.ts', { cwd: 'C:\\repo' }).includes('nested/x.ts'), false);
+  assert.equal(pick('C:/repo/nested/x.ts', { cwd: 'C:/repo' }).includes('a/x.ts'), false);
+  // Relative `..`/`.` segments resolve without a root.
+  assert.equal(pick('a/../x.ts').includes('nested/x.ts'), false);
+  assert.equal(pick('a/../x.ts').includes('a/x.ts'), true);
+  assert.equal(pick('nested/./sub/../x.ts').includes('a/x.ts'), false);
+  // Windows-style paths ignore filename case.
+  const win = (name, filePath, cwd) =>
+    desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: `win-${filePath}`,
+      name: 'edit',
+      args: { file_path: filePath, old_string: '1', new_string: '2', cwd },
+      uiDiff: [name, 'other.ts']
+        .map((n) => `diff --git a/${n} b/${n}\n--- a/${n}\n+++ b/${n}\n@@ -1 +1 @@\n-1\n+2`)
+        .join('\n'),
+      result: 'ok',
+      completedAt: 1,
+    }).diffPatch;
+  assert.equal(win('C:/Repo/X.ts', 'c:\\repo\\x.ts').includes('other.ts'), false);
+  assert.equal(win('src/X.ts', 'SRC\\x.ts').includes('other.ts'), false);
+  assert.equal(win('src/X.ts', 'SRC/x.ts', 'C:\\Repo').includes('other.ts'), false);
+  // POSIX paths compare exactly, so differing case never merges.
+  const posix = (filePath) => win('/Repo/x.ts', filePath);
+  assert.equal(posix('/Repo/x.ts').includes('other.ts'), false);
+  assert.equal(posix('/repo/x.ts').includes('other.ts'), true);
+  // A change counts the lines its own diff adds and removes.
+  assert.deepEqual(edit('note.txt').diffCounts, { additions: 1, deletions: 0 });
+});
+
+test('a clean empty command run shows its command alone; a failed one keeps what it printed', () => {
+  const run = (rawResult, extra = {}) =>
+    desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: `shell-${rawResult}`,
+      name: 'shell',
+      args: { command: 'python make.py' },
+      result: rawResult,
+      rawResult,
+      completedAt: 1,
+      ...extra,
+    });
+  const clean = run('(no output)');
+  assert.equal(clean.outputText, '');
+  assert.equal(clean.command, 'python make.py');
+  assert.equal(clean.hasDetails, true);
+  const failed = run('[exit code: 2]\n(no output)', { isError: true });
+  assert.equal(failed.tone, 'error');
+  assert.notEqual(failed.outputNote, '');
 });
 
 test('desktop labels name the operation actually called and its real outcome', async () => {
@@ -1055,6 +1156,21 @@ test('desktop labels name the operation actually called and its real outcome', a
   assert.equal(desktopToolActivityRowVerb('terminal', { action: 'list' }), 'List tabs');
   assert.equal(desktopToolActivityRowVerb('terminal', { action: 'read', tab: 1 }), 'Read output');
 
+  // Visualize rows name the tab's title (the call's `input` arrives
+  // unwrapped), never a raw "Label" field.
+  const visualize = (input) => desktopToolActivityItemPresentation(item('visualize', { action: 'open', input }));
+  const diagram = visualize({
+    content: { kind: 'mermaid', source: 'graph TD', title: '주문 처리 흐름' },
+    label: '주문 처리 흐름',
+  });
+  assert.equal(diagram.subject, 'Showed tab · 주문 처리 흐름');
+  assert.deepEqual(diagram.fields, []);
+  assert.equal(visualize({ content: { kind: 'chart', source: '{}', title: 'Orders' } }).subject, 'Showed tab · Orders');
+  assert.equal(visualize({ content: { kind: 'mermaid', source: 'graph TD' } }).subject, 'Showed tab · Mermaid diagram');
+  assert.equal(visualize({ targets: ['site/index.html'], label: 'Home' }).subject, 'Showed tab · Home');
+  assert.deepEqual(visualize({ targets: ['site/index.html'], label: 'Home' }).fields, []);
+  assert.equal(visualize({ targets: ['site/index.html'] }).subject, 'Showed tab · site/index.html');
+
   // Public-schema subjects instead of first-field fallbacks.
   assert.equal(
     desktopToolActivityItemPresentation(item('github', { action: 'issue.create', repo: 'owner/repo', title: 'Bug' }))
@@ -1108,12 +1224,11 @@ test('the tool activity expansion setting opens command rows as previews and Ctr
     assert.deepEqual(rowOpen(), [true, true], 'a new Ctrl+O opens calls closed in an earlier one');
     await act(async () => toggleToolActivityExpandAll());
 
-    setToolActivityExpansion('collapsed');
-    await act(async () => {});
+    await act(async () => setToolActivityExpansion('collapsed'));
     assert.equal(document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'false');
   } finally {
-    setToolActivityExpansion('collapsed');
     await act(async () => dom.root.unmount());
+    setToolActivityExpansion('collapsed');
     dom.close();
   }
 });
@@ -1160,8 +1275,8 @@ test('a height-clamped preview builds only a bounded part, still offers show mor
     assert.ok(document.querySelector('.tool-activity-item-body').textContent.includes('item 40 of'));
     assert.equal(document.querySelector('.tool-activity-preview-more'), null);
   } finally {
-    setToolActivityExpansion('collapsed');
     await act(async () => dom.root.unmount());
+    setToolActivityExpansion('collapsed');
     dom.close();
   }
 });
@@ -1236,7 +1351,11 @@ test('the thinking spinner shows the runtime-resolved turn effort, falling back 
     // Auto off: the resolved effort, else the saved level — spelled like the model chip.
     await setAuto(false);
     assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'medium' }), /Thinking \(Medium\)/);
-    assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'low' }), /Thinking \(Low\)/, 're-judged step');
+    assert.match(
+      await thinkingText({ ...capable, effort: 'high', turnEffort: 'low' }),
+      /Thinking \(Low\)/,
+      're-judged step'
+    );
     assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: null }), /Thinking \(High\)/);
     assert.match(await thinkingText({ effort: 'xhigh' }), /Thinking \(XHigh\)/);
 
@@ -1265,7 +1384,10 @@ test('the spinner byline is translated on the desktop', async () => {
     await act(async () => {
       dom.root.render(
         React.createElement(LiveActivity, {
-          snapshot: { spinner: { active: true, startedAt: Date.now(), mode: 'thinking', outputTokens: 340 }, ...snapshot },
+          snapshot: {
+            spinner: { active: true, startedAt: Date.now(), mode: 'thinking', outputTokens: 340 },
+            ...snapshot,
+          },
         })
       );
     });
@@ -1277,7 +1399,13 @@ test('the spinner byline is translated on the desktop', async () => {
     assert.match(live, /생각 중 \(Medium\)/);
     assert.doesNotMatch(live, /tokens|thinking/);
     assert.match(await bylineFor({ thinking: true }), /생각 중$/);
-    assert.match(await bylineFor({ thinking: false, spinner: { active: true, startedAt: Date.now(), thinkingAccumulatedMs: 5000 } }), /5초 동안 생각함/);
+    assert.match(
+      await bylineFor({
+        thinking: false,
+        spinner: { active: true, startedAt: Date.now(), thinkingAccumulatedMs: 5000 },
+      }),
+      /5초 동안 생각함/
+    );
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -1286,3 +1414,198 @@ test('the spinner byline is translated on the desktop', async () => {
   }
 });
 
+const createdPatch =
+  'diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1,1 @@\n+x';
+const editedPatch = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-a\n+b';
+const deletedPatch =
+  'diff --git a/src/old.ts b/src/old.ts\ndeleted file mode 100644\n--- a/src/old.ts\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-x';
+
+test('a change opens the session diff on the file its own diff names', async () => {
+  const { diffTargetPath } = await import('./transcript-tool-model.ts');
+  assert.equal(diffTargetPath(editedPatch), 'src/a.ts');
+  assert.equal(diffTargetPath(createdPatch), 'src/new.ts');
+  assert.equal(diffTargetPath(deletedPatch), 'src/old.ts');
+});
+
+test('a file change row says what happened to the file, in progress then by its diff', () => {
+  const row = (name, args, extra) =>
+    desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: `${name}-${Object.keys(extra).join('')}`,
+      name,
+      args,
+      ...extra,
+    });
+  const editArgs = { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' };
+  assert.equal(row('edit', editArgs, { startedAt: 1 }).verb, 'Editing');
+  assert.equal(row('write', { file_path: 'src/new.ts', content: 'x' }, { startedAt: 1 }).verb, 'Writing file');
+  assert.equal(
+    row('edit', { ...editArgs, file_path: 'src/new.ts' }, { uiDiff: createdPatch, result: 'ok', completedAt: 1 }).verb,
+    'Created file'
+  );
+  assert.equal(row('edit', editArgs, { uiDiff: editedPatch, result: 'ok', completedAt: 1 }).verb, 'Edited file');
+  assert.equal(
+    row(
+      'apply_patch',
+      { patch: '*** Begin Patch\n*** Delete File: src/old.ts\n*** End Patch' },
+      { uiDiff: deletedPatch, result: 'ok', completedAt: 1 }
+    ).verb,
+    'Deleted file'
+  );
+  // A failed change keeps the plain verb and claims no lines.
+  const failed = row('edit', editArgs, { result: 'Error: old_string not found', isError: true, completedAt: 1 });
+  assert.equal(failed.verb, 'Edit');
+  assert.equal(failed.tone, 'error');
+  assert.equal(failed.diffCounts, null);
+});
+
+test('the group line says when a command failed, and a stop is not a failure', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  const shell = (id, result, extra = {}) => ({
+    kind: 'tool',
+    id,
+    name: 'shell',
+    args: { command: id },
+    result,
+    completedAt: 1,
+    ...extra,
+  });
+  assert.equal(
+    desktopToolActivitySummary([shell('a', '[exit code: 2]\nboom', { isError: true, exitErrorCount: 1 })]),
+    'Command failed'
+  );
+  assert.equal(
+    desktopToolActivitySummary([
+      shell('a', 'ok'),
+      shell('b', '[exit code: 2]\nboom', { isError: true, exitErrorCount: 1 }),
+    ]),
+    'Run 2 commands, 1 failed'
+  );
+  assert.equal(
+    desktopToolActivitySummary([shell('a', 'ok'), shell('b', 'cancelled', { isError: true })]),
+    'Run 2 commands'
+  );
+  // Still running: nothing has failed yet.
+  assert.equal(
+    desktopToolActivitySummary([{ kind: 'tool', id: 'r', name: 'shell', args: { command: 'r' }, startedAt: 1 }]),
+    'Run 1 command'
+  );
+});
+
+test('running, failed, stopped and other rows keep their states; read, search, web and agent rows stay one-liners', () => {
+  const row = (name, args, extra) =>
+    desktopToolActivityItemPresentation({ kind: 'tool', id: name, name, args, ...extra });
+  const running = row('shell', { command: 'npm test' }, { startedAt: Date.now() });
+  assert.equal(running.pending, true);
+  assert.equal(running.outputText, '');
+  const failed = row(
+    'shell',
+    { command: 'false' },
+    { result: '[exit code: 1]\nnope', isError: true, exitErrorCount: 1, completedAt: 1 }
+  );
+  assert.equal(failed.tone, 'error');
+  assert.match(failed.outputText, /nope/);
+  const stopped = row('shell', { command: 'sleep 9' }, { result: 'cancelled', completedAt: 1 });
+  assert.equal(stopped.tone, 'warning');
+  assert.equal(stopped.resultLabel, 'Stopped');
+  assert.equal(stopped.outputText, '');
+  for (const [name, args, verb] of [
+    ['read', { file_path: 'src/a.ts' }, 'Read'],
+    ['grep', { pattern: 'TODO' }, 'Search'],
+    ['web_search', { query: 'mixdog' }, 'Web search'],
+    ['agent', { prompt: 'Review', description: 'Reviewer' }, 'Agent'],
+  ]) {
+    const done = row(name, args, { result: 'ok', completedAt: 1 });
+    assert.equal(done.verb, verb, name);
+    assert.equal(done.diffCounts, null, name);
+  }
+});
+
+test('a group counts its settled changes while another call still runs', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    const items = [
+      {
+        kind: 'tool',
+        id: 'e1',
+        name: 'edit',
+        args: { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' },
+        uiDiff: editedPatch,
+        result: 'ok',
+        completedAt: 1,
+      },
+      {
+        kind: 'tool',
+        id: 'e2',
+        name: 'edit',
+        args: { file_path: 'src/b.ts', old_string: 'a', new_string: 'b' },
+        startedAt: Date.now(),
+      },
+      { kind: 'tool', id: 'r1', name: 'shell', args: { command: 'npm test' }, startedAt: Date.now() },
+    ];
+    await act(async () => {
+      dom.root.render(React.createElement(ToolActivityGroup, { disclosureScope: 'pending-counts', items }));
+    });
+    const header = document.querySelector('.tool-activity-header');
+    assert.equal(header.querySelector('.tool-diff-counts')?.textContent, '+1−1');
+    // The running readout stays its own part of the line.
+    assert.ok(header.querySelector('[role="status"]'));
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('an edit row opens in place under its path line; the path opens the side diff pane where there is one', async () => {
+  const { TurnChangesContext } = await import('./TurnChangesCard.tsx');
+  const items = [
+    {
+      kind: 'tool',
+      id: 'e1',
+      name: 'edit',
+      args: { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' },
+      uiDiff: editedPatch,
+      result: 'ok',
+      completedAt: 1,
+    },
+  ];
+  for (const withPane of [true, false]) {
+    const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+    let opened = 0;
+    try {
+      const group = React.createElement(ToolActivityGroup, { disclosureScope: `pane-${withPane}`, items });
+      await act(async () => {
+        dom.root.render(
+          withPane
+            ? React.createElement(
+                TurnChangesContext.Provider,
+                { value: { sessionId: 's1', busy: false, turnRunning: false, onOpenSessionDiff: () => (opened += 1) } },
+                group
+              )
+            : group
+        );
+      });
+      await act(async () => document.querySelector('.tool-activity-header').click());
+      const article = document.querySelector('.tool-activity-item');
+      assert.equal(article.querySelector('.tool-activity-item-header').textContent.includes('+1−1'), true);
+      await act(async () => article.querySelector('.tool-activity-item-toggle').click());
+      assert.equal(article.dataset.open, 'true');
+      const path = article.querySelector('.tool-diff-path');
+      assert.equal(path.textContent, 'src/a.ts');
+      assert.ok(path.querySelector('.tool-detail-copy'));
+      assert.ok(article.querySelector('.tool-diff-frame .code-diff'));
+      // The diff of the row's own file draws no second caption.
+      assert.equal(article.querySelector('.diff-file > header'), null);
+      if (withPane) {
+        await act(async () => article.querySelector('.tool-diff-path-link').click());
+        assert.equal(opened, 1);
+      } else {
+        assert.equal(article.querySelector('.tool-diff-path-link'), null);
+        assert.ok(article.querySelector('.tool-diff-path-text'));
+      }
+    } finally {
+      await act(async () => dom.root.unmount());
+      dom.close();
+    }
+  }
+});

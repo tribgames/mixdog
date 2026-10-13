@@ -121,12 +121,11 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
     // Short but wide: a compact height once dropped the bottom margin.
     { width: 1382, height: 593 },
     { width: 640, height: 400 },
-    { width: 980, height: 1800, mobile: true, scale: 2.5 },
+    { width: 412, height: 870, mobile: true },
   ]) {
     await page.setViewport({ width: viewport.width, height: viewport.height });
-    await page.evaluate(({ mobile, scale }) => {
+    await page.evaluate(({ mobile }) => {
       document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', Boolean(mobile));
-      document.documentElement.style.setProperty('--mx-device-scale', String(scale || 1));
     }, viewport);
     for (const state of ['loading', 'populated', 'empty']) {
       await page.evaluate((state) => window.renderStats(state), state);
@@ -177,7 +176,7 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       // the window and never close, however short it is; with content it
       // fills them.
       const caption = viewport.mobile ? 0 : 35;
-      const margin = viewport.mobile ? 12 * viewport.scale : Math.min(72, Math.max(16, viewport.height * 0.06));
+      const margin = viewport.mobile ? 12 : Math.min(72, Math.max(16, viewport.height * 0.06));
       assert.ok(
         Math.abs(layout.top - caption - (viewport.height - layout.bottom)) <= 1,
         `vertical center below the caption: ${label}, top=${layout.top}, bottom inset=${viewport.height - layout.bottom}`

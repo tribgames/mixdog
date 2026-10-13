@@ -142,7 +142,8 @@ export async function dispatchBatchReads({
           readOutputBudgetBytes: outputBudget,
           toolOutputMaxBytes: outputBudget,
         });
-        results[index] = { path: entry.path, mode: entry.mode || 'full', n: entry.n, body };
+        // Retain producer identity when caller slots are restored from a union.
+        results[index] = { path: entry.path, mode: entry.mode || 'full', n: entry.n, body, readEntry };
       };
       const key = entry.path || `#missing-${index}`;
       const prev = readChains.get(key) ?? Promise.resolve();

@@ -7,6 +7,7 @@ import { clean } from '../../../runtime/agent/orchestrator/runtime-core/session-
 import { forgetSessionSearch } from '../../../runtime/session-search/session-search-ingest.mjs';
 import { listLeadSessions } from '../session-catalog.mjs';
 import { SESSION_ID_PATTERN } from '../shared.mjs';
+import { replacementSessionCwd } from '../../workspace/workspace-state.mjs';
 
 export function createSessionDelete(deps, { cancelBackgroundTasks }) {
   const {
@@ -49,6 +50,14 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
     }
   }
 
+  // The deleted task's worktree: the autoCleanup setting decides (clean and
+  // merged → removed; otherwise kept). Off the deletion path; never fails it.
+  function releaseDeletedWorktree(sessionId) {
+    return Promise.resolve()
+      .then(() => deps.cleanupDeletedSessionWorktree?.(sessionId))
+      .catch(() => {});
+  }
+
   async function deleteSession(id) {
     const sessionId = clean(id);
     if (!sessionId || !SESSION_ID_PATTERN.test(sessionId)) return false;
@@ -68,8 +77,12 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
           mgr.deleteSession(childId);
         } catch {}
       }
+      void releaseDeletedWorktree(sessionId);
       return true;
     }
+    // Leaving a worktree-bound Lead: the replacement starts in the Project
+    // folder, and the worktree can go once nothing runs in it.
+    const projectFolder = replacementSessionCwd(current);
     const cleanupReason = 'desktop-session-delete';
     releaseSessionWork(sessionId, cleanupReason);
     // Active sessions retain a tombstone until the normal sweep. Unlinking
@@ -86,15 +99,18 @@ export function createSessionDelete(deps, { cancelBackgroundTasks }) {
       } catch {}
     }
     setSession(null);
+    if (projectFolder) await deps.applyResolvedCwd?.(projectFolder);
     invalidateContextStatusCache();
     invalidatePreSessionToolSurface();
     // An addressed runtime never mints a replacement under the deleted
     // address: it becomes terminal and a new conversation needs a new entry.
     if (deps.getAddressedSessionId?.()) {
       deps.markAddressTerminal?.();
+      void releaseDeletedWorktree(sessionId);
       return true;
     }
     await createCurrentSession();
+    void releaseDeletedWorktree(sessionId);
     return true;
   }
 

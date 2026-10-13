@@ -1,8 +1,9 @@
-import type { BrowserWindow, IpcMain, IpcMainEvent } from 'electron';
+import type { BrowserWindow, IpcMainEvent } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
+import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import { TerminalDataBufferer } from './terminal-data-buffer';
-import type { IpcHandle as Handle } from './ipc';
+import type { DesktopIpcMain, IpcHandle as Handle } from './ipc';
 import { requiredString } from './ipc-validation';
 
 export interface DesktopTerminalHost {
@@ -10,18 +11,22 @@ export interface DesktopTerminalHost {
     id: string | null,
     cwd: string | null,
     profile?: TerminalSpawnProfile | string | null
-  ): { id: string; replay: string } | Promise<{ id: string; replay: string }>;
+  ):
+    | { id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } }
+    | Promise<{ id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } }>;
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
   pauseOutput?(id: string): void;
   resumeOutput?(id: string): void;
   dispose(id: string): void;
   subscribe(listener: (event: { id: string; data: string }) => void): () => void;
+  /** A phone claimed, released or lost the PTY size; the PC window follows or re-fits. */
+  subscribeSizeOwner?(listener: (event: TerminalSizeOwnerEvent) => void): () => void;
 }
 
 interface TerminalIpcOptions {
   window: BrowserWindow;
-  ipcMain: Pick<IpcMain, 'on' | 'removeListener'>;
+  ipcMain: Pick<DesktopIpcMain, 'on' | 'removeListener'>;
   handle: Handle;
   terminals?: DesktopTerminalHost;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
@@ -86,9 +91,16 @@ export function registerTerminalIpc({
   ipcMain.on(DESKTOP_IPC.termResize, onResize);
   ipcMain.on(DESKTOP_IPC.termAcknowledge, onAcknowledge);
   const unsubscribe = terminals?.subscribe((event) => dataBuffer.push(event)) ?? (() => {});
+  const unsubscribeSizeOwner =
+    terminals?.subscribeSizeOwner?.((event) => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC.termSizeOwner, event);
+      }
+    }) ?? (() => {});
 
   return () => {
     unsubscribe();
+    unsubscribeSizeOwner();
     dataBuffer.dispose();
     ipcMain.removeListener(DESKTOP_IPC.termWrite, onWrite);
     ipcMain.removeListener(DESKTOP_IPC.termResize, onResize);

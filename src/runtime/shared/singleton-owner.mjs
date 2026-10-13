@@ -13,6 +13,9 @@ function writeJsonAtomic(path, value) {
 
 function acquireClaimLock(path) {
   const lockPath = `${path}.claim.lock`;
+  // A first boot (e.g. a daemon an ssh bootstrap starts on a fresh server)
+  // has no data directory yet: the lock's parent must exist.
+  mkdirSync(dirname(path), { recursive: true });
   for (let i = 0; i < 20; i++) {
     try {
       mkdirSync(lockPath, { recursive: false });
@@ -32,22 +35,32 @@ function acquireClaimLock(path) {
   return null;
 }
 
-export function readSingletonOwner(path) {
+// A live pid alone does not prove the record's process still owns it: the OS
+// reuses pids. `isStale(owner)` lets a caller with a stronger proof (the
+// daemon's published discovery) reject a live-pid record; `stale` reports it.
+export function readSingletonOwner(path, { isStale = null } = {}) {
   const owner = readJsonSafe(path);
-  if (!owner || typeof owner !== 'object') return { owner: null, alive: false };
-  return { owner, alive: isPidAlive(owner.pid) };
+  if (!owner || typeof owner !== 'object') return { owner: null, alive: false, stale: false };
+  const pidAlive = isPidAlive(owner.pid);
+  const stale = pidAlive && typeof isStale === 'function' && isStale(owner) === true;
+  return { owner, alive: pidAlive && !stale, stale };
 }
 
-export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid, meta = {} } = {}) {
+export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid, meta = {}, isStale = null } = {}) {
   const owner = {
     kind,
     pid,
     claimedAt: new Date().toISOString(),
     ...meta,
   };
+  const livePeer = (current) =>
+    Boolean(current?.pid) &&
+    Number(current.pid) !== Number(pid) &&
+    isPidAlive(current.pid) &&
+    !(typeof isStale === 'function' && isStale(current) === true);
 
   const current = readJsonSafe(path);
-  if (current?.pid && Number(current.pid) !== Number(pid) && isPidAlive(current.pid)) {
+  if (livePeer(current)) {
     return { owned: false, owner: current };
   }
 
@@ -55,7 +68,7 @@ export function claimSingletonOwner(path, { kind = 'runtime', pid = process.pid,
   if (!lockPath) return { owned: false, owner: readJsonSafe(path) };
   try {
     const lockedCurrent = readJsonSafe(path);
-    if (lockedCurrent?.pid && Number(lockedCurrent.pid) !== Number(pid) && isPidAlive(lockedCurrent.pid)) {
+    if (livePeer(lockedCurrent)) {
       return { owned: false, owner: lockedCurrent };
     }
     writeJsonAtomic(path, owner);
@@ -73,6 +86,23 @@ export function releaseSingletonOwner(path, pid = process.pid) {
     return true;
   } catch {
     return false;
+  }
+}
+
+// Rewrite the caller's own record (`owner.pid`) under the claim lock: when it
+// still names that pid or is gone, it becomes `owner` ('refreshed'); a record
+// naming another pid is reported, never overwritten ('superseded'); a claim
+// lock held past its wait leaves the record alone ('busy').
+export function refreshSingletonOwner(path, owner) {
+  const lockPath = acquireClaimLock(path);
+  if (!lockPath) return { status: 'busy', owner: null };
+  try {
+    const current = readJsonSafe(path);
+    if (current?.pid && Number(current.pid) !== Number(owner.pid)) return { status: 'superseded', owner: current };
+    writeJsonAtomic(path, owner);
+    return { status: 'refreshed', owner };
+  } finally {
+    rmSync(lockPath, { recursive: true, force: true });
   }
 }
 

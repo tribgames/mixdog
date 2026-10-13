@@ -27,8 +27,7 @@
   .main-panel {
     flex-direction: column;
   }
-  /* PC keeps the Activity Rail docked in this band too (user: 좁아져도 사이드
-     탭은 없애지 말 것): only the side panel leaves the row and floats beside
+  /* PC keeps the Activity Rail docked in this band too: only the side panel leaves the row and floats beside
      the rail as an overlay sheet, so the thread keeps its width. Like every
      desktop side panel it toggles in one frame — a slide would pass over the
      rail. The frame stays layout-transparent on PC (05-shell.css); phones
@@ -58,7 +57,7 @@
     position: fixed;
     /* Invisible outside-click catcher below the tab zone and right of the
        docked rail, so a rail click still lands. Side sheets do not dim the
-       working surface (user decision). Phones cover the whole screen
+       working surface. Phones cover the whole screen
        (07-mobile-chrome.css). */
     inset: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px)) 0 0 48px;
     z-index: 39;
@@ -88,7 +87,7 @@
   .studio-topbar-tools {
     grid-column: auto;
   }
-  /* A taller field gives the thumb a real target (user: too small to tap).
+  /* A taller field gives the thumb a real target.
      The type size stays the body size: the iOS zoom-on-focus floor lives in
      mobile-web-runtime.css under the iOS marker only, so a narrow desktop
      window or an Android phone no longer jumps the composer to 16px. */
@@ -258,9 +257,6 @@ html[data-mixdog-mobile-tabs]
     .changes-file-main,
     .turn-review-summary,
     .turn-review-file,
-    .settings-action,
-    .settings-form-controls button,
-    .settings-provider-secret button,
     .mx-select-trigger,
     .slash-palette > button,
     .workspace-tab-context-menu button,
@@ -270,7 +266,6 @@ html[data-mixdog-mobile-tabs]
   .mixdog-settings
   :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select),
 html[data-mixdog-mobile-tabs] .workbench-side-panel-tabs button,
-html[data-mixdog-mobile-tabs] .extensions-tabs button,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-pane .schedules-row.utilities-row,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-row.utilities-row,
 html[data-mixdog-mobile-tabs] .sidebar-section-toolbar button,
@@ -285,23 +280,39 @@ html[data-mixdog-mobile-tabs] .stats-range,
 html[data-mixdog-mobile-tabs] .settings-feedback-attach,
 html[data-mixdog-mobile-tabs] .settings-feedback-kinds label,
 html[data-mixdog-mobile-tabs] .settings-changelog-list button[aria-expanded],
-html[data-mixdog-mobile-tabs] .mixdog-settings__rail-group button {
+html[data-mixdog-mobile-tabs] .mixdog-settings__rail-group button,
+html[data-mixdog-mobile-tabs] .provider-account-grip {
   min-height: var(--mx-touch-min);
 }
 html[data-mixdog-mobile-tabs]
   :is(
     .session-panel-action,
     .browser-pane-nav-button,
-    .provider-account-add-button,
-    .provider-account-grip,
     .dock-scm-context-pin,
     .changes-file-open,
-    .turn-review-open,
-    .turn-review-revert,
     .starter-guide-close
   ) {
   min-width: var(--mx-touch-min);
   min-height: var(--mx-touch-min);
+}
+/* Labelled buttons keep the PC face (28px, desktop type and radius); only
+   their hit frame reaches the touch minimum, through a transparent ::after
+   that hangs past the face. Growing the face made every settings action read
+   one size larger than the PC. */
+html[data-mixdog-mobile-tabs]
+:is(.settings-action, .settings-form-controls button, .settings-provider-secret button, .provider-account-add-button) {
+  position: relative;
+}
+html[data-mixdog-mobile-tabs]
+  :is(
+    .settings-action,
+    .settings-form-controls button,
+    .settings-provider-secret button,
+    .provider-account-add-button
+  )::after {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc((100% - var(--mx-touch-min)) / 2));
 }
 html[data-mixdog-mobile-tabs] .browser-tab-new,
 html[data-mixdog-mobile-tabs] .settings-feedback-attach {
@@ -319,14 +330,16 @@ html[data-mixdog-mobile-tabs] .tool-header.tool-activity-header {
   min-height: var(--mx-touch-min);
   margin-block: -8px;
 }
+/* An inline file link ignores min-height and vertical margins; its hit frame
+   hangs off ::before instead. The code-copy and turn-review marks keep the
+   fixed 28dp tier from 07-mobile-chrome.css (a mark beside a line of text). */
 html[data-mixdog-mobile-tabs] .tool-path-link {
-  min-height: var(--mx-touch-min);
-  margin-block: -10px;
+  position: relative;
 }
-html[data-mixdog-mobile-tabs] .markdown-code-copy {
-  min-width: var(--mx-touch-min);
-  min-height: var(--mx-touch-min);
-  margin: -6px;
+html[data-mixdog-mobile-tabs] .tool-path-link::before {
+  content: "";
+  position: absolute;
+  inset: calc((var(--mx-touch-min) - 1lh) / -2) 0;
 }
 html[data-mixdog-mobile-tabs] :is(.agent-activity-page, .utility-dock-header) .row-overflow-trigger {
   min-width: var(--mx-touch-min);
@@ -379,13 +392,14 @@ html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .settings-resource {
 html[data-mixdog-mobile-tabs] .settings-resource-control {
   justify-content: flex-start;
 }
-html[data-mixdog-mobile-tabs] .settings-resource-control .settings-resource-actions,
-html[data-mixdog-mobile-tabs] .settings-resource-control .settings-provider-secret {
+html[data-mixdog-mobile-tabs] .settings-resource-control .settings-resource-actions {
   width: 100%;
   justify-content: flex-start;
 }
 html[data-mixdog-mobile-tabs] .settings-resource-control .settings-provider-secret {
+  width: 100%;
   flex-wrap: nowrap;
+  justify-content: flex-start;
 }
 html[data-mixdog-mobile-tabs] .settings-resource-control .settings-provider-secret input {
   flex: 1 1 0;
@@ -399,6 +413,69 @@ html[data-mixdog-mobile-tabs] .provider-account-row > .settings-resource-actions
   flex: 1 0 100%;
   margin-left: 0;
   justify-content: flex-end;
+}
+/* Provider card header: the title reads whole; when title + count + the
+   Auto-switch/+ cluster do not fit one line, the cluster takes the next line
+   at the right edge. The squeezed cluster used to wrap "자동 전환" one
+   character per line and cut the title to "Anthropic (…". */
+html[data-mixdog-mobile-tabs] .provider-accounts-heading {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+html[data-mixdog-mobile-tabs] .provider-accounts-auto {
+  white-space: nowrap;
+}
+/* A switch row needs only the switch's width: the shared 45% value column
+   left the label half the row and cut "한도가 리셋되면 자동으…". Long labels
+   wrap instead of ellipsizing on a phone. */
+html[data-mixdog-mobile-tabs]
+  .mixdog-settings-v2
+  .mixdog-settings__row:has(> .settings-row-control > .mixdog-settings__switch:only-child) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings-v2 .mixdog-settings__row-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Dialog text fields take the same touch minimum as the settings fields. */
+html[data-mixdog-mobile-tabs] .mx-dialog :is(.mx-input, input:not([type="checkbox"], [type="radio"], [type="range"])) {
+  min-height: var(--mx-touch-min);
+}
+
+/* File links wrap on a phone: a long path kept on one line ran past the
+   reading column, and the transcript does not scroll sideways. Pending and
+   resolved links share the rule, so resolving still never reflows a line. */
+html[data-mixdog-mobile-tabs] :is(.markdown .markdown-path-link, .tool-path-link) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Browser sheet toolbar: one 44dp row holding 36dp navigation slots, so the
+   40dp buttons no longer overhang the 34px desktop row and the address field
+   keeps the room they gave back. */
+html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar {
+  height: var(--mx-touch);
+  gap: 2px;
+  padding-inline: 6px;
+}
+html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar .browser-pane-nav-button {
+  width: var(--mx-touch-row);
+  min-width: var(--mx-touch-row);
+  height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-address-form {
+  margin-inline: 0;
+}
+/* The PC toolbar's glyph weight (1.5px stroke, tab-strip.css) at the touch
+   tier's size, and the page well on the sheet plate the PC webview sits on. */
+html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar .browser-pane-nav-button svg.lucide {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.5px;
+}
+html[data-mixdog-mobile-tabs] .browser-remote-content {
+  background: var(--mx-workspace-sheet);
 }
 
 /* Shortcuts: label left, keybind chip right, as on the PC. Only a chord that
@@ -445,12 +522,6 @@ html[data-mixdog-mobile-tabs] .workbench-search-mode button {
 html[data-mixdog-mobile-tabs] .dock-scm-tab[aria-checked="true"]::after,
 html[data-mixdog-mobile-tabs] .workbench-search-mode button[aria-selected="true"]::after {
   bottom: 0;
-}
-
-/* Assistant response footer: the desktop rule outranks the compact mobile tier (24px). */
-html[data-mixdog-mobile-tabs] .message.assistant .response-footer .message-actions {
-  width: var(--mx-touch-fixed-main);
-  height: var(--mx-touch-fixed-main);
 }
 
 /* OAuth login dialog: in phone landscape the card is taller than the viewport, so scroll it instead of clipping the footer. */

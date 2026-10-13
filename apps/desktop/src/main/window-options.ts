@@ -196,6 +196,32 @@ const webPreferences = Object.freeze({
   webviewTag: true,
 });
 
+/** The custom title-bar chrome every Mixdog window shares: the main window and
+ *  the other-PC remote windows draw the same DOM band under the same native
+ *  caption controls. */
+export const DESKTOP_TITLEBAR_WINDOW_OPTIONS = Object.freeze({
+  autoHideMenuBar: true,
+  titleBarStyle: 'hidden',
+  ...(HAS_TITLEBAR_OVERLAY
+    ? // `hidden` + Window Controls Overlay already provides the custom chrome.
+      // Retaining the native frame keeps Windows' DWM maximize/restore path and
+      // avoids the white edge exposed by fully frameless BrowserWindows; on
+      // Linux it supplies the min/max/close buttons the hidden title bar lacks.
+      { frame: true, titleBarOverlay: defaultTitleBarOverlay }
+    : { titleBarOverlay: false }),
+  backgroundColor: DESKTOP_BACKGROUND_COLOR,
+}) satisfies Readonly<BrowserWindowConstructorOptions>;
+
+/** Band and caption ink for a window that does not own the app-wide theme (an
+ *  other-PC remote window follows its page): unlike setDesktopTitleBarTheme it
+ *  neither pins the native theme nor persists the choice. */
+export function setWindowTitleBarBand(window: DesktopTitleBarWindow, light: boolean): void {
+  titleBarThemes.set(window as object, light);
+  window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
+  if (!HAS_TITLEBAR_OVERLAY) return;
+  window.setTitleBarOverlay(currentTitleBarOverlay(window));
+}
+
 // Shared by the real entry and the excluded capture harness so evidence uses
 // the same immutable window/chrome/security settings as production.
 export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
@@ -209,15 +235,6 @@ export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
   minWidth: DESKTOP_WINDOW_MIN_WIDTH,
   minHeight: 600,
   show: false,
-  autoHideMenuBar: true,
-  titleBarStyle: 'hidden',
-  ...(HAS_TITLEBAR_OVERLAY
-    ? // `hidden` + Window Controls Overlay already provides the custom chrome.
-      // Retaining the native frame keeps Windows' DWM maximize/restore path and
-      // avoids the white edge exposed by fully frameless BrowserWindows; on
-      // Linux it supplies the min/max/close buttons the hidden title bar lacks.
-      { frame: true, titleBarOverlay: defaultTitleBarOverlay }
-    : { titleBarOverlay: false }),
-  backgroundColor: DESKTOP_BACKGROUND_COLOR,
+  ...DESKTOP_TITLEBAR_WINDOW_OPTIONS,
   webPreferences,
 }) satisfies Readonly<BrowserWindowConstructorOptions>;

@@ -18,6 +18,7 @@ import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
 import {
   accountIdentityFields,
   decodeJwtPayload,
@@ -101,6 +102,7 @@ export function tokensFileMtimeMs() {
 }
 
 export function loadTokens() {
+  if (modelProxyClientMode()) return null;
   const ownPath = getOwnTokenPath();
   if (!existsSync(ownPath)) return null;
   try {
@@ -322,6 +324,7 @@ async function refreshUnderLock({ currentToken, force, reason, startingTokens })
  * the provider can hold off re-attempting until the expiry skew.
  */
 export async function refreshStoredTokens({ current = null, force = false, reason = 'preemptive' } = {}) {
+  if (modelProxyClientMode()) throw serverModelCredentialsDisabledError('OpenAI OAuth credentials');
   const currentToken = current?.access_token || null;
   const disk = loadTokens();
   const adopted = adoptableDiskTokens(currentToken, disk, force);

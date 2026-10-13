@@ -6,6 +6,48 @@ import { rememberAgentReviews } from './turn-review-cache';
 import { installReviewDom } from './turn-review-test-support.mjs';
 import { formatAggregateDetail, summarizeToolResult } from '../../../../src/runtime/shared/tool-surface.mjs';
 
+test('island segment accumulates across turns and survives a new turn with an empty session diff', async (t) => {
+  // A non-Git folder's runtime session diff only tracks the running turn: it
+  // answers authoritative-and-empty when turn 2 starts.
+  const empty = { supported: true, files: [], patch: '', snapshotKind: 'session', authoritative: true };
+  const { dom, root } = installReviewDom(t, {
+    desktop: {
+      invokeCapability: async ({ capability }) => ({
+        value: capability === 'getSessionReviewDiff' ? empty : { supported: true, files: [], patch: '', agents: [] },
+      }),
+    },
+  });
+  const diff = (file) =>
+    `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1,2 @@\n a\n+b\n`;
+  const edit = (id, file) => ({ kind: 'tool', id, name: 'edit', args: { file_path: file }, result: 'ok', uiDiff: diff(file) });
+  const turn1 = [{ kind: 'user', id: 'u1', text: 'create' }, edit('e1', 'mx-island-check.txt'), { kind: 'turndone', id: 'd1' }];
+  const turn2 = [...turn1, { kind: 'user', id: 'u2', text: 'append' }];
+  const render = async (items, busy) =>
+    act(async () => {
+      root.render(
+        React.createElement(TurnReviewBar, {
+          variant: 'segment',
+          items,
+          sessionId: 'island-session',
+          active: true,
+          busy,
+          cwd: 'C:\\demo\\cart-service',
+        })
+      );
+    });
+  const segment = () => dom.window.document.querySelector('.turn-review-segment');
+  await render(turn1, false);
+  assert.equal(segment()?.getAttribute('title'), 'Files 1');
+  await render(turn2, true);
+  assert.equal(segment()?.getAttribute('title'), 'Files 1', 'the segment stays while the new turn has changed nothing');
+  await render([...turn2, edit('e2', 'README.md')], true);
+  assert.equal(segment()?.getAttribute('title'), 'Files 2');
+  assert.equal(segment()?.querySelector('.diff-stats i')?.textContent, '+2');
+  await render([...turn2, edit('e2', 'README.md'), { kind: 'turndone', id: 'd2' }], false);
+  assert.equal(segment()?.getAttribute('title'), 'Files 2');
+  assert.equal(segment()?.querySelector('.diff-stats i')?.textContent, '+2');
+});
+
 test('turn review headlines exclude filename dates for individual and aggregated edits', async (t) => {
   const { dom, root } = installReviewDom(t);
   // The turn keeps its prompt row: rows without one are a cut-off tail, whose

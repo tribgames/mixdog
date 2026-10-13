@@ -206,6 +206,33 @@ test('one wake per session is in flight, and a suppressed wake replays afterward
   assert.equal(asks.length, 3);
 });
 
+test('beforeWake hook runs before the wake turn and a failing hook never blocks it', async () => {
+  const order = [];
+  const make = (beforeWake) =>
+    createCompletionWakeScheduler({
+      getCurrentSessionId: () => 'lead-wake',
+      getTurnApi: () => ({ ask: async () => order.push('ask') }),
+      beforeWake,
+    });
+  const slow = make(async () => {
+    await settled();
+    order.push('hook');
+  });
+  slow({ sessionId: 'lead-wake' });
+  await settled();
+  await settled();
+  assert.deepEqual(order, ['hook', 'ask']);
+
+  order.length = 0;
+  const failing = make(async () => {
+    throw new Error('compact failed');
+  });
+  failing({ sessionId: 'lead-wake' });
+  await settled();
+  await settled();
+  assert.deepEqual(order, ['ask']);
+});
+
 test('a completion whose owner is no longer the live session never starts a turn', async () => {
   const { wake, asks } = wakeFixture({ currentSessionId: 'lead-other' });
 

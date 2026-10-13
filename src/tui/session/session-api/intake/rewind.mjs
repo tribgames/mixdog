@@ -13,7 +13,8 @@ export function createRewindAction(bag) {
       if (getState().busy || getState().commandBusy) return null;
       const items = getState().items || [];
       const index = items.findIndex((item) => item?.kind === 'user' && String(item?.id) === target);
-      if (index < 0) return null;
+      // An archived prompt left the model context: there is nothing to rewind.
+      if (index < 0 || items[index]?.archived === true) return null;
       const text = String(items[index]?.text || '').trim();
       if (!text) return null;
       set({ commandBusy: true });

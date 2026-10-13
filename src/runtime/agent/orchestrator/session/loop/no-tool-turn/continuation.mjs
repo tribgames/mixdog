@@ -34,7 +34,7 @@ export function resumeContinuation(
     return false;
   }
   if (!segments.commitIntermediate(response)) return false;
-  if (hasContent) segments.record(response.content);
+  if (hasContent) segments.record(response.content, { committed: true });
   state.providerContinuationCount += 1;
   state.continuationsSinceToolBatch += 1;
   state.emptyNudgeStreak = 0;

@@ -6,6 +6,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
+import type { usePersistedListOrder } from './use-persisted-list-order';
 
 const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 
@@ -13,8 +14,12 @@ export function sessionLabel(session: DesktopSessionSummary) {
   return sessionSummaryTitle(session, t('Untitled session'));
 }
 
+/** Drag-reorder props for one row (see usePersistedListOrder.getReorderProps). */
+export type SessionRowReorder = ReturnType<ReturnType<typeof usePersistedListOrder>['getReorderProps']>;
+
 export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   session,
+  reorder,
   active,
   working,
   unread,
@@ -38,6 +43,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onOpenMenu,
 }: {
   session: DesktopSessionSummary;
+  reorder?: SessionRowReorder;
   active: boolean;
   working?: boolean;
   unread?: boolean;
@@ -64,6 +70,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   return (
     <SessionRow
       session={session}
+      reorder={reorder}
       active={active}
       working={working}
       unread={unread}
@@ -99,6 +106,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
 
 const SessionRow = React.memo(function SessionRow({
   session,
+  reorder,
   active,
   working,
   unread,
@@ -121,6 +129,7 @@ const SessionRow = React.memo(function SessionRow({
   onOpenMenu,
 }: {
   session: DesktopSessionSummary;
+  reorder?: SessionRowReorder;
   active: boolean;
   working?: boolean;
   unread?: boolean;
@@ -209,6 +218,10 @@ const SessionRow = React.memo(function SessionRow({
       className={`session-row ${active ? 'selected' : ''} ${working ? 'working' : ''} ${editing ? 'editing' : ''} ${confirmingDelete ? 'confirming-delete' : ''}`}
       data-session-id={session.id}
       data-dragging={dragging ? 'true' : undefined}
+      data-reordering={reorder?.['data-reordering']}
+      data-drop-position={reorder?.['data-drop-position']}
+      onDragOver={reorder?.onDragOver}
+      onDrop={reorder?.onDrop}
       aria-current={active ? 'page' : undefined}
       aria-grabbed={dragging ? 'true' : undefined}
       draggable={!editing && !confirmingDelete && !deleting}
@@ -221,6 +234,7 @@ const SessionRow = React.memo(function SessionRow({
           event.preventDefault();
           return;
         }
+        reorder?.onDragStart(event);
         const drag: PaneDragSession = {
           kind: 'session',
           key: `session:${session.id}`,
@@ -234,6 +248,7 @@ const SessionRow = React.memo(function SessionRow({
         document.body.dataset.tabDragging = '1';
       }}
       onDragEnd={() => {
+        reorder?.onDragEnd();
         finishPaneDrag();
       }}
       onClick={activateFromClick}

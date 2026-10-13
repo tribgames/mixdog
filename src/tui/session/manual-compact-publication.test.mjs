@@ -81,7 +81,7 @@ for (const outcome of ['success', 'no-change', 'error-result', 'throw']) {
       assert.equal(api.getState().commandBusy, false);
       assert.equal(api.getState().commandStatus, null);
       if (outcome !== 'throw') {
-        const labels = { success: 'Compact complete', 'no-change': 'Compact checked' };
+        const labels = { success: 'Conversation compacted', 'no-change': 'Compact checked' };
         assert.equal(api.getState().items.at(-1).label, labels[outcome] ?? 'Compact failed');
       }
     } finally {

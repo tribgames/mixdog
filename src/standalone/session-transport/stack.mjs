@@ -76,6 +76,7 @@ export function createTransportStack({
   onClientDropped,
   onUpgradeRequested,
   getStatus,
+  admitWork,
 }) {
   const body = createBodyReader();
   const callCache = createSessionCallCache({
@@ -125,6 +126,7 @@ export function createTransportStack({
     }),
     onClientsEmpty,
     onUpgradeRequested,
+    admitWork,
   });
 
   return { registry, clients, lanes, callCache, broadcast, handleRequest };

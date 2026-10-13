@@ -20,6 +20,7 @@ import { buildExecutionTail } from './execution-tail.mjs';
 import { latestSkillBodies } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
 import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
+import { carryMessageId } from '../message-ids.mjs';
 import { normalizeIngestRole, shouldExcludeIngestMessage } from '../../../../memory/lib/session-ingest.mjs';
 import { codexWireSendOpts } from '../manager/session-id.mjs';
 import { rebaseCompactedEffortConfiguration } from '../../providers/effort-configuration.mjs';
@@ -380,7 +381,8 @@ function skillLoaderPair(live, bodyIndex, name, retainedCallIds) {
     const call = owner?.toolCalls.find((entry) => entry.id === result.toolCallId);
     if (call?.name !== 'Skill' || call.arguments?.name !== name) continue;
     if (!result.nativeToolSearch || retainedCallIds.has(result.toolCallId)) return [];
-    return [{ role: 'assistant', content: '', toolCalls: [call] }, result];
+    // The re-attached call is part of its owner message: it keeps that id.
+    return [carryMessageId({ role: 'assistant', content: '', toolCalls: [call] }, owner), result];
   }
   return [];
 }
@@ -549,11 +551,17 @@ function assertHandoffFits(summaryMessage, room) {
 export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
   const startedAt = Date.now();
   const targetBudget = effectiveBudget(budgetTokens, opts);
-  let budget = targetBudget;
   const baseSanitized = reconcileDedupStubs(sanitizeToolPairs(messages));
   const baseTokens = safeEstimateMessagesTokens(baseSanitized);
-  if (baseTokens != null && baseTokens <= budget && opts.force !== true) {
-    return fitsBudgetResult({ startedAt, messages, baseSanitized, baseTokens, budget, query: opts.query || '' });
+  if (baseTokens != null && baseTokens <= targetBudget && opts.force !== true) {
+    return fitsBudgetResult({
+      startedAt,
+      messages,
+      baseSanitized,
+      baseTokens,
+      budget: targetBudget,
+      query: opts.query || '',
+    });
   }
 
   const source = splitFreshSource(baseSanitized);
@@ -562,7 +570,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     budgetTokens,
     opts
   );
-  budget = freshContextBudget({ targetBudget, budgetTokens, mandatoryCost, summaryMessage, opts });
+  const budget = freshContextBudget({ targetBudget, budgetTokens, mandatoryCost, summaryMessage, opts });
   assertMandatoryFits(budget, mandatoryCost, summaryMessage, opts.contextWindow);
   const handoff = handoffRoomFor(budget, mandatoryCost, opts);
   const summaryContent = String(summaryMessage?.content || '');

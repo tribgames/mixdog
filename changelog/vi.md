@@ -4,6 +4,68 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
+Bản phát hành này giới thiệu bảng thay đổi và thẻ thay đổi theo lượt với các nút hoàn tác và áp dụng lại theo lượt, giữ lại lịch sử cuộc trò chuyện trước đó sau khi nén và bổ sung công cụ trực quan hóa tích hợp cho các bản dựng giao diện và sơ đồ tương tác. Quy trình làm việc từ xa được mở rộng với kết nối máy chủ SSH, các phiên Git worktree riêng biệt, quản lý lệnh shell nền và tải tệp trực tiếp trên điện thoại đã ghép nối. Giao diện cũng mang lại độ tương phản cao hơn, cuộn mượt mà hơn trên thiết bị di động và tổ chức phiên linh hoạt.
+
+### Tính năng mới
+
+- Sau khi cuộc trò chuyện được nén, các tin nhắn, thẻ công cụ và diff trước đó vẫn có thể đọc được phía trên dải phân cách "Hội thoại đã được nén" thay vì biến mất. Chúng chỉ được giữ lại để hiển thị (không bao giờ gửi đến mô hình), tải lại khi cuộn lên sau khi khởi động lại, sử dụng tối đa khoảng 32 MB cho mỗi phiên (các mục cũ nhất được dọn dẹp trước), lọc các giá trị nhạy cảm như lịch sử thông thường và bị xóa cùng với phiên; các phiên tiếp tục sẽ liên kết lại thay vì sao chép. Hoàn tác, áp dụng lại và thử lại không khả dụng cho các lượt trước khi nén.
+- Bảng thay đổi mới cung cấp một chế độ xem cuộn duy nhất hiển thị diff của tất cả các tệp đã sửa đổi với các tab bên cạnh: tab "Thay đổi" hiển thị tất cả các tệp, trong khi nhấp vào một tệp trong thẻ lượt sẽ chỉ mở tab của tệp đó. Bảng hoạt động mà không cần Git nhờ sử dụng nhật ký thay đổi riêng của phiên, làm nổi bật cú pháp, ngắt dòng dài thay vì cuộn ngang, thu gọn hoặc mở rộng tệp khi nhấp vào hàng, mở tệp trong tab bằng `↗`, hoàn tác chỉnh sửa tệp bằng `↶` và liệt kê các tệp ngoài dự án ở chế độ chỉ đọc với đường dẫn đầy đủ trong chú giải công cụ. Đóng tab cuối cùng sẽ đóng bảng.
+- Thẻ thay đổi dưới mỗi lượt hiển thị số lượng tệp đã thay đổi, tóm tắt diff dòng +N −N, nút xem thay đổi và danh sách các tệp đã sửa đổi.
+- Thẻ công cụ được thiết kế lại hiển thị thay đổi do từng chỉnh sửa riêng lẻ tạo ra thay vì tổng tích lũy của lượt, được hiển thị trong cùng một chế độ xem diff như bảng thay đổi, và hiển thị số dòng thêm và bớt ngay khi công cụ đang chạy.
+- Công cụ trực quan hóa tích hợp tạo các bản dựng mô phỏng dự án và sơ đồ nội tuyến (Mermaid, SVG, ECharts, HTML và Markdown) trong các tab bảng điều khiển bên chuyên dụng. Bạn có thể kiểm tra phần tử, ghi lại lỗi trang, để lại phản hồi có ghim cùng lựa chọn dữ liệu cho tin nhắn tiếp theo, so sánh và khôi phục các phiên bản, đồng thời xuất thiết kế sang PNG hoặc PDF.
+- Các phiên Git worktree cho phép làm việc trên các nhánh độc lập mà không ảnh hưởng đến thư mục làm việc hiện tại. Thẻ nhánh phía trên ô nhập liệu cho phép chọn hoặc tạo nhánh worktree mới khi bắt đầu một tác vụ, với các lần hợp nhất được bảo vệ giúp ngăn ngừa xung đột tồn đọng.
+- Kết nối với các máy chủ từ xa qua SSH từ Cài đặt > Kết nối. Mixdog tự động cài đặt trên máy chủ, mở trong cửa sổ riêng với bảng Cổng có chuyển tiếp cổng, trình duyệt tệp từ xa và cửa sổ dòng lệnh, đồng thời ủy quyền các lệnh gọi mô hình qua PC của bạn để không cần lưu thông tin xác thực trên máy chủ.
+- Điện thoại đã ghép nối giờ đây có thể tải xuống và chia sẻ các tệp do trợ lý tạo ra và phương tiện được tạo trực tiếp từ các liên kết trong đoạn chat, có hiển thị tiến trình truyền, thử lại và hủy (lưu vào Tải xuống trên Android và bảng chia sẻ trên iOS; với bản cập nhật ứng dụng Android tiếp theo hoặc bản dựng iOS) (#40). Điện thoại đã ghép nối cũng bị giới hạn nghiêm ngặt trong các dự án đã đăng ký và các tệp được tạo trong phiên đó.
+- Các lệnh shell nền có thể được dừng trực tiếp từ ứng dụng hoặc từ xa. Các lệnh đã hoàn thành vẫn được liệt kê cho đến khi bị đóng thay vì biến mất ngay lập tức, và bảng công việc trên ô nhập liệu mở rộng nội tuyến để hiển thị các lệnh nền đang chạy cùng với các tác tử với số lượng mã token tích lũy và số lần gọi công cụ.
+- Di chuyển phiên sang dự án khác từ menu thanh bên hoặc bằng cách kéo và thả mà không làm thay đổi thư mục trên đĩa; các phiên trong thư mục con và worktree của dự án sẽ tự động được nhóm lại dưới dự án đó.
+- Các bảng điều khiển bên trên điện thoại (trình duyệt, cửa sổ dòng lệnh, thay đổi và xem trước) có cùng tiêu đề như trên PC: tab, menu chuyển đổi bảng điều khiển và nút đóng. Trong trình duyệt trên điện thoại, `+` mở một tab mới trong bảng bên của phiên đó, và các tab chuyển đổi cũng như đóng giống như trên PC (yêu cầu ứng dụng PC đã cập nhật).
+- Hình ảnh gửi trong đoạn chat vẫn giữ lại hình thu nhỏ sau khi khởi động lại ứng dụng, đồng thời thẻ tệp HTML và trực quan hóa hiển thị bản xem trước trực quan thực tế của trang được kết xuất cục bộ trong hộp cát cô lập không có kết nối mạng đối với các tệp trong dự án.
+- Ô nhập liệu liệt kê các tác tử đang chạy theo định dạng tương tự như cửa sổ tác tử và tự động ẩn phần shell khi không có lệnh nền nào đang hoạt động.
+- Đóng tab cửa sổ dòng lệnh, trình duyệt hoặc tệp cuối cùng sẽ tự động đóng bảng bên, và mở lại cửa sổ dòng lệnh sẽ khởi tạo một tab mới sạch sẽ (dựa trên #49 bởi @moveju112).
+- Thư mục dự án và các phần trên thanh bên vẫn mở theo mặc định và ghi nhớ trạng thái thu gọn, trong khi chọn một phiên trong thư mục bị thu gọn sẽ tự động mở thư mục đó ra. Các phiên cũng có thể được sắp xếp lại bằng cách kéo hoặc sắp xếp theo hoạt động gần đây.
+- Ứng dụng Android hiện có thể kiểm tra các bản cập nhật trong nền, tải xuống, xác minh chữ ký và cài đặt trực tiếp các phiên bản mới (với bản cập nhật ứng dụng Android tiếp theo).
+- Tính năng suy luận tự động hiện có thể được định cấu hình riêng cho từng lộ trình mô hình trong cài đặt lộ trình và bị vô hiệu hóa đối với các tự động hóa bằng `+noauto`. Trong Cài đặt > Kết nối, bạn cũng có thể gán biệt danh cục bộ tùy chỉnh cho các thiết bị từ xa đã ghép nối.
+
+### Thay đổi
+
+- Màu nhấn sắc nét hơn và độ tương phản văn bản cao hơn; tiêu đề thẻ công cụ và thẻ lượt sử dụng màu xám tinh tế với các khung viền nét mảnh; mã nội tuyến hiển thị dưới dạng khối xám và trích dẫn có đường viền bên trái; văn bản được chọn và số dòng diff đạt độ tương phản 4.5:1 ở cả hai chủ đề.
+- Ngăn kéo mở ra không có bóng đổ và làm tối màn hình phía sau 40%.
+- Thẻ nhánh và worktree phía trên ô nhập liệu chỉ xuất hiện trong các dự án Git và chỉ trước khi cuộc trò chuyện bắt đầu.
+- Số lượng tệp đã sửa đổi trên ô nhập liệu hiện bao gồm toàn bộ phiên thay vì được đặt lại sau mỗi lượt.
+- Nút chuyển đổi trực quan hóa đã được xóa khỏi tiêu đề bảng điều khiển; hình ảnh trực quan mở tự động hoặc từ thẻ của chúng trong cuộc trò chuyện.
+- Vòng tròn ngữ cảnh chỉ mở khi nhấp chuột, không mở khi di chuột (#48).
+- Trên điện thoại, phím Enter chèn dấu ngắt dòng; gửi tin nhắn bằng nút gửi.
+- Tin nhắn mờ dần dưới ô nhập liệu thay vì bị cắt đột ngột.
+- Các tệp ngoài dự án hiển thị tên của chúng với đường dẫn đầy đủ trong chú giải công cụ thay vì huy hiệu.
+- Cuộn mượt mà hơn, đặc biệt là trên Android: cuộc trò chuyện vẽ lại tối đa một lần mỗi khung hình, vòng xoay tải động trên GPU, vị trí cuộn được lưu khi dừng, thao tác chạm không còn bị chặn và hiệu ứng mờ không còn vẽ lại toàn bộ danh sách.
+- Các lệnh gọi công cụ MCP áp dụng thời gian chờ thực thi (mặc định 120 giây) mà không bị treo hoặc thử lại các yêu cầu bị hủy, báo cáo sự cố tiến trình stdio kèm theo chi tiết lỗi và hỗ trợ phân trang cho danh sách công cụ dài.
+- Tự động dọn các phiên không hoạt động chạy trước khi các tác vụ nền hoàn thành đánh thức cuộc trò chuyện.
+- Trên macOS, khởi chạy ứng dụng máy tính để bàn sẽ thêm các thư mục Homebrew vào `PATH` mà không làm mất các mục đường dẫn hiện có.
+- Cửa sổ dòng lệnh từ xa trên thiết bị di động có thanh phím chuyên dụng với các phím bổ trợ và phím điều hướng (với bản cập nhật ứng dụng Android tiếp theo hoặc bản dựng iOS).
+
+### Sửa lỗi
+
+- Chạm vào liên kết trong đoạn chat trước đây mở ra trình duyệt trong ứng dụng trống; trang hiện tải bình thường và trên điện thoại bảng trình duyệt mở toàn màn hình (#41).
+- Chỉ báo suy nghĩ vẫn hiển thị bằng tiếng Anh cho đến khi ngôn ngữ ứng dụng được tải; hoạt ảnh lấp lánh trên điện thoại đã được khắc phục.
+- Thẻ lượt, ô nhập liệu và bảng thay đổi có thể hiển thị số lượng tệp đã sửa đổi không khớp nhau.
+- Thao tác cuộn lên lần đầu tiên trong cuộc trò chuyện dài có thể bị giật vị trí.
+- Đóng tab cửa sổ dòng lệnh cuối cùng đã tạo ra một tab mới và nhấp nháy (#49).
+- Đọc tệp không còn trả về nội dung cũ hoặc khai báo các dải dòng không thực sự được phân phối, ngay cả khi một tệp lớn được ghi đè tại chỗ với cùng kích thước (#54, cảm ơn @22nsuk).
+- Lưu tệp và phục hồi hàng loạt duy trì mã hóa văn bản, từ chối lưu mất mát dữ liệu, bảo vệ bộ đệm đã sửa đổi khi có xung đột đọc và theo dõi ghi hàng loạt trong khi vẫn giữ quyền tệp và kiểu chữ đường dẫn (#39, cảm ơn @22nsuk).
+- Trên macOS, `Cmd+Up` và `Cmd+Down` di chuyển con trỏ trong các trường văn bản thay vì kích hoạt phím tắt điều hướng không gian làm việc.
+- Các tệp cấu hình và trạng thái bắt đầu bằng ký hiệu thứ tự byte (BOM) tải sạch sẽ thay vì bị lỗi hoặc khởi tạo lại.
+- Đăng nhập bằng OpenAI giữ lại danh mục mô hình khả dụng đầy đủ thay vì vô tình ẩn các mô hình hợp lệ.
+- Trên Linux, thao tác dán hoặc đọc hình ảnh từng làm sập dịch vụ nền của Mixdog và hủy lượt đang chạy; hình ảnh hiện được xử lý qua bản dựng thư viện hình ảnh hoạt động ổn định trên môi trường này (#56, #57, cảm ơn @cronoboris).
+- Sau khi Mixdog bị tắt bất thường (tắt máy Windows, trình cài đặt, kết thúc từ Task Manager), ứng dụng có thể gặp lỗi trong mọi thao tác với thông báo "daemon session endpoint is unavailable" và không hiển thị cuộc trò chuyện cho đến khi tệp khóa còn sót lại được xóa; ứng dụng hiện tự nhận biết khóa cũ và tự phục hồi. Tệp không thể đọc trong thư mục tạm thời cũng không còn ngăn dịch vụ nền khởi động, và khi vẫn không thể khởi động, chi tiết lỗi sẽ hiển thị nguyên nhân thực tế cùng vị trí lưu nhật ký.
+
+### Khác
+
+- Đã xem xét bản dịch của các chuỗi mới và đã thay đổi trên tất cả 11 ngôn ngữ được hỗ trợ.
+- Công bố kết quả đánh giá thô của Terminal-Bench cho DeepSeek V4.1 Flash trên 89 tác vụ so sánh Mixdog với DSH (#43), và bổ sung hồ sơ đánh giá đầy đủ cho GPT-6.1 Sol.
+- Biểu tượng ứng dụng di động được cập nhật để phù hợp với dấu ấn titan trên máy tính để bàn (với bản cập nhật ứng dụng Android tiếp theo).
+
 ## v1.1.2 - 2026-10-12
 
 Thông báo "Có gì mới" giờ xuất hiện sau khi cập nhật ngay cả khi bộ nhớ cục bộ của ứng dụng bị mất, chờ đến khi màn hình chào mừng hoặc phần giới thiệu ban đầu được đóng, và không xuất hiện lại sau khi hạ cấp.

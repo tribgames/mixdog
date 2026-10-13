@@ -1,14 +1,18 @@
-// Exports the verification-grade subset of the published runs into `raw-runs/`,
-// which is committed so anyone can recompute every number in the READMEs.
+// Exports the verification-grade subset of the published runs into
+// `<harness>/<model>/<date>[-k5]/` (located through `index.json`,
+// which this script adds to or updates), which is committed so anyone can recompute every number in the READMEs.
 //
 // Full `jobs-*` directories stay local. Their session transcripts (mixdog.txt,
 // trajectory.json, sessions/) are ~320MB and carry the entire agent prompt
 // surface, none of which is needed to re-derive a score or a cost figure.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { readHistoryIndex } from './run-dir.mjs';
 
 const ROOT = 'benchmarks/terminal-bench-2.1';
-const OUT = join(ROOT, 'raw-runs');
+const INDEX_FILE = join(ROOT, 'index.json');
+const index = readHistoryIndex(ROOT);
+const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
 const RUNS = [
   'jobs-full-sol-xhigh-k5-20260825-182921',
@@ -57,6 +61,52 @@ const TRANSCRIPTS = new Set(['agent/codex.txt', 'agent/claude-code.txt']);
 let files = 0;
 let bytes = 0;
 
+// A run without an index entry is filed from its own data: harness and model
+// from the first trial config, date from the jobs directory's run id. An
+// imported agent names no harness there, so its module path does; a Mixdog run
+// names no model either, so its model is the lead route in preset-run.json.
+const IMPORTED_HARNESS = [
+  [/mixdog_agent/, 'mixdog'],
+  [/claude_code/, 'claude-code'],
+];
+function newEntry(run, src) {
+  const day = readdirSync(src).find((d) => statSync(join(src, d)).isDirectory());
+  const trial = readdirSync(join(src, day)).find((t) => existsSync(join(src, day, t, 'config.json')));
+  const agent = readJson(join(src, day, trial, 'config.json')).agent;
+  const stamp = run.match(/(\d{4})(\d{2})(\d{2})-\d{6}/);
+  const date = stamp ? `${stamp[1]}-${stamp[2]}-${stamp[3]}` : day.slice(0, 10);
+  const imported = IMPORTED_HARNESS.find(([pattern]) => pattern.test(String(agent.import_path || '')));
+  const harness = agent.name || imported?.[1];
+  const presetRun = join(src, 'preset-run.json');
+  const lead = existsSync(presetRun) ? readJson(presetRun).definition?.routes?.lead : null;
+  const model = agent.model_name || lead?.model;
+  if (!harness || !model) {
+    throw new Error(`${run}: harness or model is not recorded; add its index.json entry by hand`);
+  }
+  return { jobsDir: run, path: '', model, date, harness, k: 1, score: '', source: 'mixdog' };
+}
+
+// Score and attempt count from the verdicts that were exported.
+function tally(src) {
+  let passed = 0;
+  let total = 0;
+  const perTask = new Map();
+  for (const day of readdirSync(src)) {
+    if (!statSync(join(src, day)).isDirectory()) continue;
+    for (const trial of readdirSync(join(src, day))) {
+      const file = join(src, day, trial, 'result.json');
+      if (!existsSync(file)) continue;
+      const reward = readJson(file).verifier_result?.rewards?.reward;
+      if (reward == null) continue;
+      total += 1;
+      if (reward === 1) passed += 1;
+      const task = trial.replace(/__[^_]+$/, '');
+      perTask.set(task, (perTask.get(task) ?? 0) + 1);
+    }
+  }
+  return { score: `${passed}/${total}`, k: Math.max(1, ...perTask.values()) };
+}
+
 const copy = (from, to) => {
   if (!existsSync(from)) return;
   mkdirSync(dirname(to), { recursive: true });
@@ -71,7 +121,16 @@ for (const run of RUNS) {
     console.log(`skip (missing): ${run}`);
     continue;
   }
-  for (const f of RUN_FILES) copy(join(src, f), join(OUT, run, f));
+  let entry = index.find((e) => e.jobsDir === run);
+  const result = tally(src);
+  if (!entry) {
+    entry = newEntry(run, src);
+    entry.path = `${entry.harness}/${entry.model}/${entry.date}${result.k > 1 ? `-k${result.k}` : ''}`;
+    index.push(entry);
+  }
+  Object.assign(entry, result);
+  const OUT = join(ROOT, entry.path);
+  for (const f of RUN_FILES) copy(join(src, f), join(OUT, f));
   for (const day of readdirSync(src)) {
     const dayDir = join(src, day);
     if (!statSync(dayDir).isDirectory()) continue;
@@ -81,11 +140,12 @@ for (const run of RUNS) {
       const task = trial.replace(/__[^_]+$/, '');
       for (const f of TRIAL_FILES) {
         if (TRANSCRIPT_DENY.has(task) && TRANSCRIPTS.has(f)) continue;
-        copy(join(trialDir, f), join(OUT, run, day, trial, f));
+        copy(join(trialDir, f), join(OUT, day, trial, f));
       }
     }
   }
   console.log(`exported ${run}`);
 }
 
-console.log(`raw-runs: ${files} files, ${(bytes / 1048576).toFixed(1)}MB`);
+writeFileSync(INDEX_FILE, `${JSON.stringify(index, null, 2)}\n`);
+console.log(`exported: ${files} files, ${(bytes / 1048576).toFixed(1)}MB`);

@@ -53,6 +53,7 @@ test('editor mount hook wires commands and model binding before publishing ready
       wireCommands: () => events.push('commands'),
       activeRef,
       focusedRef,
+      autoFocusRef: { current: true },
       savedText,
       projectPath: 'C:/Project/demo',
       relPath: 'src/App.tsx',

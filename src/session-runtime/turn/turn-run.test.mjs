@@ -119,7 +119,6 @@ function makeHarness(overrides = {}) {
     endComputerExecution: async (id) => record('computer.end', id),
     deferComputerSessionRelease: (id) => record('computer.defer', id),
     beginTurnSnapshotForTurn: (_cwd, id, opts) => record('snapshot.begin', id, opts.checkpointId),
-    cancelTurnSnapshotForTurn: (id) => record('snapshot.cancel', id),
     completeTurnSnapshotForTurn: (id) => record('snapshot.complete', id),
     turnCleanupSettleMs: 50,
     ...overrides,
@@ -150,10 +149,11 @@ test('a first turn creates the session, folds MCP once, bridges the callbacks an
     process.off('mixdog:turn-timing', onTiming);
   }
   assert.deepEqual(h.named('createSession'), [['createSession', 'turn']]);
-  assert.deepEqual(h.named('snapshot.begin'), [
-    ['snapshot.begin', 'sess_reserved', 'req-1'],
-    ['snapshot.begin', 'sess_new', 'req-1'],
-  ]);
+  assert.deepEqual(
+    h.named('snapshot.begin'),
+    [['snapshot.begin', 'sess_new', 'req-1']],
+    'the review baseline begins once the session and its workspace are final'
+  );
   assert.deepEqual(h.named('snapshot.complete'), [['snapshot.complete', 'sess_new']]);
   assert.deepEqual(h.named('mcpGrace'), [['mcpGrace', 250]], 'the fresh session takes the first-turn MCP fold once');
   assert.equal(h.state.session.deferredInitialRefreshPending, false);
@@ -288,6 +288,74 @@ test('a remote-attached session forwards the prompt into the owner spool instead
   assert.equal(h.runner.enqueueRemoteAttachedPrompt('plain'), true);
   h.state.session = { id: 'sess_local' };
   assert.equal(h.runner.enqueueRemoteAttachedPrompt('plain'), false);
+});
+
+test('workspace provisioning runs after session creation and before the user row, snapshot and hooks', async () => {
+  const h = makeHarness({
+    prepareTurnWorkspace: async ({ submissionId, signal, confirmLarge }) => {
+      h.calls.push(['workspace.prepare', submissionId, signal instanceof AbortSignal, confirmLarge]);
+      h.state.cwd = '/data/worktrees-v1/abc/fix';
+    },
+  });
+  await h.runner.ask('build it', { id: 'sub-7', confirmLarge: true });
+  const order = h.calls.map((entry) => entry[0]);
+  const at = (name) => order.indexOf(name);
+  assert.deepEqual(h.named('workspace.prepare'), [['workspace.prepare', 'sub-7', true, true]]);
+  assert.ok(at('createSession') < at('workspace.prepare'), 'the session exists before provisioning');
+  assert.ok(at('workspace.prepare') < at('transcript.user'), 'provisioning precedes the user row');
+  assert.ok(at('workspace.prepare') < at('snapshot.begin'), 'the review baseline begins after provisioning');
+  assert.ok(at('snapshot.begin') < at('dispatch'), 'hooks run after the baseline');
+  assert.equal(h.named('askSession')[0][1].cwd, '/data/worktrees-v1/abc/fix', 'the provider turn runs in the worktree');
+  assert.equal(h.named('emit')[0][2].cwd, '/data/worktrees-v1/abc/fix');
+});
+
+test('turn admission precedes the workspace gate and is released only when the turn settles', async () => {
+  const h = makeHarness({
+    admitTurnWorkspace: async ({ signal }) => {
+      h.calls.push(['workspace.admit', signal instanceof AbortSignal]);
+      return () => h.calls.push(['workspace.release']);
+    },
+    prepareTurnWorkspace: async () => {
+      h.calls.push(['workspace.prepare']);
+    },
+  });
+  await h.runner.ask('build it', { id: 'sub-9' });
+  const order = h.calls.map((entry) => entry[0]);
+  const at = (name) => order.indexOf(name);
+  assert.deepEqual(h.named('workspace.admit'), [['workspace.admit', true]]);
+  assert.ok(at('createSession') < at('workspace.admit'));
+  assert.ok(at('workspace.admit') < at('workspace.prepare'), 'admitted before any provisioning');
+  assert.ok(at('askSession') < at('workspace.release'), 'held for the whole turn');
+  assert.ok(at('snapshot.complete') < at('workspace.release'), 'the review snapshot completes first');
+  assert.equal(h.named('workspace.release').length, 1);
+
+  // A refused turn releases its admission too.
+  const refused = makeHarness({
+    admitTurnWorkspace: async () => () => refused.calls.push(['workspace.release']),
+    prepareTurnWorkspace: async () => {
+      throw Object.assign(new Error('missing'), { code: 'WORKTREE_MISSING' });
+    },
+  });
+  await assert.rejects(refused.runner.ask('build it', { id: 'sub-10' }), { code: 'WORKTREE_MISSING' });
+  assert.equal(refused.named('workspace.release').length, 1);
+});
+
+test('a refused workspace (recovery, large-repo confirm) never runs the turn and keeps the typed error', async () => {
+  const h = makeHarness({
+    prepareTurnWorkspace: async () => {
+      throw Object.assign(new Error('confirm'), { code: 'WORKTREE_LARGE_REPO_CONFIRM' });
+    },
+  });
+  await assert.rejects(h.runner.ask('build it', { id: 'sub-8' }), { code: 'WORKTREE_LARGE_REPO_CONFIRM' });
+  assert.deepEqual(h.named('askSession'), []);
+  assert.deepEqual(h.named('transcript.user'), [], 'no user row for a turn that never started');
+  assert.deepEqual(h.named('snapshot.begin'), []);
+  assert.deepEqual(h.named('snapshot.complete'), [], 'no review is sealed for a turn without a baseline');
+  assert.deepEqual(
+    h.named('dispatch').map((entry) => entry[1]),
+    ['StopFailure']
+  );
+  assert.equal(h.state.activeTurns, 0);
 });
 
 test('getTurnLiveness projects the manager progress snapshot for the current session', () => {

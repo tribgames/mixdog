@@ -9,6 +9,7 @@ import {
   paneDiffStacks,
   paneDockActiveFile,
   paneDockActiveRoot,
+  paneDockFileCloseEndsDock,
   paneDiffShowing,
   samePaneSideDocks,
   withPaneDockDiffClosed,
@@ -267,6 +268,23 @@ test('a transcript file link opens the file surface as a tab; the preview tab is
   assert.equal(entry.open, true);
 });
 
+test('closing the last file tab ends the dock unless the Changes tab remains', () => {
+  const a = { project: 'C:/p', rel: 'src/a.ts' };
+  const b = { project: 'C:/p', rel: 'src/b.ts' };
+  let entry = withPaneDockFileOpened(closed(), a, 1, { now: 1 });
+  const keyA = sideFileKey(entry.files[0]);
+  assert.equal(paneDockFileCloseEndsDock(entry, keyA, true), true);
+  assert.equal(paneDockFileCloseEndsDock({ ...entry, view: 'session-diff' }, keyA, true), false);
+  // Without a session there is no Changes tab, so the view never counts.
+  assert.equal(paneDockFileCloseEndsDock({ ...entry, view: 'session-diff' }, keyA, false), true);
+  entry = withPaneDockFileOpened(entry, b, 2, { now: 2 });
+  assert.equal(paneDockFileCloseEndsDock(entry, keyA, true), false);
+  entry = withPaneDockFileClosed(entry, keyA);
+  assert.equal(entry.open, true);
+  assert.equal(paneDockActiveFile(entry).rel, 'src/b.ts');
+  assert.equal(paneDockFileCloseEndsDock(entry, sideFileKey(entry.files[0]), true), true);
+});
+
 test('the side files persist, restore, and stay in front of a session surface', () => {
   const stored = JSON.parse(JSON.stringify({ 'pane-1': withPaneDockFileOpened(closed(), fileLink, 5, { now: 6 }) }));
   const restored = normalizePaneSideDocks(stored, ['pane-1'], RIGHT, false);
@@ -391,6 +409,77 @@ test('the side file header offers Open in main tab', async () => {
   }
 });
 
+test('phone sheet: the pane header row is the top row and its ⋯ menu switches panes', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
+  });
+  Object.defineProperty(dom.window.navigator, 'userAgent', {
+    configurable: true,
+    get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile',
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  const calls = [];
+  const Icon = () => React.createElement('span');
+  const descriptors = new Map([
+    ['session-diff', { id: 'session-diff', label: 'Changes', icon: Icon }],
+    ['terminal', { id: 'terminal', label: 'Terminal', icon: Icon }],
+  ]);
+  const root = createRoot(document.getElementById('root'));
+  const render = (entry) =>
+    act(async () =>
+      root.render(
+        React.createElement(PaneSideDock, {
+          leafId: 'pane-1',
+          groups: [['session-diff'], ['terminal']],
+          descriptors,
+          focused: true,
+          sessionBound: true,
+          onOpenFiles: () => calls.push(['files']),
+          onSelect: (id) => calls.push(['select', id]),
+          onClose: () => calls.push(['fold']),
+          onCloseDiff() {},
+          onCloseFile: () => calls.push(['close-file']),
+          onMoveGroup() {},
+          onMoveView() {},
+          onFocusPane() {},
+          openFileTab() {},
+          renderFileSurface: (file, _active, side) => React.createElement(SideFileStub, { rel: file.rel, side }),
+          renderView: () => null,
+          entry,
+        })
+      )
+    );
+  try {
+    await render(withPaneDockFileOpened(closed('session-diff'), fileLink, 1, { now: 2 }));
+    // No title/icon bar: the file's own PC header row is the top row, and the
+    // pane switch (Files, Changes, Terminal) lives in its ⋯ menu.
+    assert.equal(document.querySelector('.pane-side-dock-header'), null);
+    assert.equal(document.querySelectorAll('.dock-header-row').length, 1);
+    const openMenu = async () => {
+      await act(async () => document.querySelector('.dock-header-row .dock-header-more').click());
+      return [...document.querySelectorAll('.dock-header-menu [role="menuitem"]')];
+    };
+    let items = await openMenu();
+    const labels = items.map((item) => item.textContent);
+    assert.deepEqual(labels.slice(-3), ['Files', 'Changes', 'Terminal']);
+    await act(async () => items.find((item) => item.textContent === 'Changes').click());
+    items = await openMenu();
+    await act(async () => items.find((item) => item.textContent === 'Files').click());
+    assert.deepEqual(calls, [['select', 'session-diff'], ['files']]);
+    // The header X closes the showing file through the guarded path.
+    await act(async () => document.querySelector('.dock-header-row button[aria-label="Close panel"]').click());
+    assert.deepEqual(calls.at(-1), ['close-file']);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('file tabs: select, double-click keeps a preview, close and the menu act per tab', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
@@ -493,10 +582,10 @@ test('every side-dock surface draws exactly one shared DockHeaderRow, no inner h
   // Tabs live in the row's left slot; the strip draws no row of its own.
   assert.match(await read('./BrowserTabStrip.tsx'), /className="browser-tab-toolbar"/);
   assert.doesNotMatch(await read('./BrowserTabStrip.tsx'), /Maximize2|onToggleExpanded/);
-  // The dock draws the diff/panel row only; the legacy title row is phone-only.
+  // The dock draws the diff/panel row only; the phone has no title bar of its own.
   const dock = await read('./pane-side-dock.tsx');
-  assert.match(dock, /!mobileSheet && openNow && !sessionSurfaceShowing/);
-  assert.match(dock, /headerShowing && mobileSheet/);
+  assert.match(dock, /PhoneDockSwitchPublisher/);
+  assert.doesNotMatch(dock, /MobileDockHeader/);
   assert.match(dock, /renderDiffHeaderControls\?: \(\) => ReactNode/);
   assert.match(dock, /t\('Changes'\)/);
   // Diff in side chrome returns before its own <header>, and the dock passes it.
@@ -1821,6 +1910,141 @@ test('file surface (rendered): header → editor → problems → footer, hidden
     assert.equal(editor('src/b.ts'), dirty);
     assert.equal(dirty.dataset.edits, '1');
     assert.equal(editor('src/b.ts').dataset.active, 'false');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+// ── Phone header (behavioural) ──
+const PHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148';
+
+function mountPhoneDock() {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    globals: { navigator: { userAgent: PHONE_UA, platform: 'iPhone', maxTouchPoints: 5 } },
+    expose: ['Element', 'HTMLElement', 'Node', 'MutationObserver'],
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  return { dom, restore, root: createRoot(document.getElementById('root')) };
+}
+
+const phoneDescriptors = () => {
+  const Icon = () => React.createElement('span');
+  return new Map(
+    ['source-control', 'browser', 'terminal', 'pull-requests'].map((id) => [
+      id,
+      { id, label: id[0].toUpperCase() + id.slice(1), icon: Icon },
+    ])
+  );
+};
+
+function phoneDockProps(leafId, extra) {
+  return {
+    leafId,
+    groups: [['source-control'], ['browser'], ['terminal'], ['pull-requests']],
+    descriptors: phoneDescriptors(),
+    onSelect() {},
+    onClose() {},
+    onCloseDiff() {},
+    onMoveGroup() {},
+    onMoveView() {},
+    onFocusPane() {},
+    openFileTab() {},
+    renderView: () => null,
+    entry: { ...closed(), open: true },
+    ...extra,
+  };
+}
+
+const headerOf = (leafId) => document.querySelector(`[data-pane-id="${leafId}"] .dock-header-row`);
+async function openMore(leafId) {
+  await act(async () => headerOf(leafId).querySelector('.dock-header-more').click());
+  return [...document.querySelectorAll('.dock-header-menu button')];
+}
+const menuItem = (items, label) => items.find((button) => button.textContent === label);
+
+test('phone header: only the focused pane drives the ⋯ switch, never a hidden pane with a draft', async () => {
+  const { root, restore } = mountPhoneDock();
+  const selected = [];
+  const panes = (focusedLeaf) =>
+    React.createElement(
+      React.Fragment,
+      null,
+      // Pane A has a session; pane B is an unfocused New Task draft.
+      React.createElement(PaneSideDock, {
+        ...phoneDockProps('A', { focused: focusedLeaf === 'A', sessionBound: true }),
+        onSelect: (id) => selected.push(['A', id]),
+      }),
+      React.createElement(PaneSideDock, {
+        ...phoneDockProps('B', { focused: focusedLeaf === 'B', sessionBound: false }),
+        onSelect: (id) => selected.push(['B', id]),
+      })
+    );
+  try {
+    await act(async () => root.render(panes('A')));
+    let items = await openMore('A');
+    assert.equal(menuItem(items, 'Terminal').disabled, false, 'the hidden draft pane must not disable Terminal');
+    assert.equal(menuItem(items, 'Source-control').disabled, true, 'the showing pane is listed, not selectable');
+    await act(async () => menuItem(items, 'Browser').click());
+    assert.deepEqual(selected, [['A', 'browser']]);
+
+    // Focus moves to the draft pane: the store follows it, with nothing left from A.
+    await act(async () => root.render(panes('B')));
+    items = await openMore('B');
+    assert.equal(menuItem(items, 'Terminal').disabled, true, 'the focused draft pane disables Terminal');
+    assert.equal(menuItem(items, 'Browser').disabled, true, 'session-bound views are inert in the draft');
+    await act(async () => menuItem(items, 'Pull-requests').click());
+    assert.deepEqual(
+      selected,
+      [
+        ['A', 'browser'],
+        ['B', 'pull-requests'],
+      ],
+      'the menu now acts on the focused pane B'
+    );
+
+    // No focused pane: no stale switch entries, so neither header has a ⋯.
+    await act(async () => root.render(panes('none')));
+    assert.equal(document.querySelectorAll('.dock-header-more').length, 0);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('phone Changes panel: shared header with ⋯ switching and a × that closes the panel', async () => {
+  const { root, restore } = mountPhoneDock();
+  const selected = [];
+  function Harness() {
+    const [entry, setEntry] = React.useState({
+      ...closed(),
+      open: true,
+      surface: 'diff',
+      diff: diffA,
+    });
+    return React.createElement(PaneSideDock, {
+      ...phoneDockProps('A', { focused: true, sessionBound: true, entry }),
+      onSelect: (id) => selected.push(id),
+      onClose: () => setEntry((current) => ({ ...current, open: false })),
+    });
+  }
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const header = headerOf('A');
+    assert.ok(header, 'the Changes panel draws the shared header on the phone');
+    assert.equal(header.getAttribute('aria-label'), 'Changes');
+    assert.equal(header.querySelector('.browser-tab-select')?.textContent, 'a.ts');
+    const items = await openMore('A');
+    await act(async () => menuItem(items, 'Terminal').click());
+    assert.deepEqual(selected, ['terminal'], '⋯ switches the pane');
+    await act(async () => headerOf('A').querySelector('.dock-header-close').click());
+    assert.equal(headerOf('A'), null, '× closes the panel');
+    assert.equal(document.querySelector('[data-pane-id="A"]').getAttribute('data-open'), 'false');
   } finally {
     await act(async () => root.unmount());
     restore();

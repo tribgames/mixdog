@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { basename, isAbsolute, resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { filePreviewTypeForPath, type DesktopFilePreviewKind } from '../shared/file-preview';
 
@@ -11,6 +12,9 @@ interface FilePreviewRecord {
   kind: DesktopFilePreviewKind;
   mime: string;
   cacheKey: string;
+  /** When set, the file is served only while it still resolves inside this
+   *  folder: a parent swapped for a link to elsewhere must not leak bytes. */
+  root?: string;
 }
 
 const filePreviews = new Map<string, FilePreviewRecord>();
@@ -18,7 +22,8 @@ const filePreviewTokensByKey = new Map<string, string>();
 
 export function registerFilePreview(
   path: string,
-  cacheVersion: string | number = ''
+  cacheVersion: string | number = '',
+  options: { root?: string } = {}
 ): {
   url: string;
   kind: DesktopFilePreviewKind;
@@ -28,8 +33,11 @@ export function registerFilePreview(
   const absolute = resolve(path);
   const type = filePreviewTypeForPath(absolute);
   if (!type) return null;
-  const comparablePath = process.platform === 'win32' ? absolute.toLowerCase() : absolute;
-  const cacheKey = `${comparablePath}\0${String(cacheVersion)}`;
+  if (options.root !== undefined && !isAbsolute(options.root)) return null;
+  const root = options.root === undefined ? undefined : resolve(options.root);
+  const comparable = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value);
+  const comparablePath = comparable(absolute);
+  const cacheKey = `${comparablePath}\0${String(cacheVersion)}\0${root ? comparable(root) : ''}`;
   const existingToken = filePreviewTokensByKey.get(cacheKey);
   const existing = existingToken ? filePreviews.get(existingToken) : null;
   if (existingToken && existing) {
@@ -43,7 +51,7 @@ export function registerFilePreview(
   }
   if (existingToken) filePreviewTokensByKey.delete(cacheKey);
   const token = randomUUID();
-  filePreviews.set(token, { path: absolute, cacheKey, ...type });
+  filePreviews.set(token, { path: absolute, cacheKey, ...(root ? { root } : {}), ...type });
   filePreviewTokensByKey.set(cacheKey, token);
   while (filePreviews.size > MAX_REGISTERED_FILE_PREVIEWS) {
     const oldest = filePreviews.keys().next().value;
@@ -67,4 +75,17 @@ export function resolveFilePreview(token: string): FilePreviewRecord | null {
   filePreviews.delete(token);
   filePreviews.set(token, preview);
   return preview;
+}
+
+/** Whether a preview may be served now: a rooted preview must still resolve
+ *  (symlinks and junctions included) inside its root. Fails closed. */
+export async function filePreviewServable(preview: Pick<FilePreviewRecord, 'path' | 'root'>): Promise<boolean> {
+  if (!preview.root) return true;
+  try {
+    const [root, file] = await Promise.all([realpath(preview.root), realpath(preview.path)]);
+    const rel = relative(root, file);
+    return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  } catch {
+    return false;
+  }
 }

@@ -26,7 +26,7 @@ function truncateMid(value: string, length: number): string {
 
 /** Truncate a path to exactly `length` CHARACTERS,
  *  spending them on the file name first and the directory prefix last. */
-function truncateScmPath(path: string, length: number): string {
+export function truncateScmPath(path: string, length: number): string {
   if (path.length <= length) return path;
   if (length <= 0) return '';
   if (length === 1) return '…';
@@ -34,40 +34,35 @@ function truncateScmPath(path: string, length: number): string {
   // No directory prefix, fall back to middle ellipsis.
   if (lastSeparator === -1) return truncateMid(path, length);
   const fileNameLength = path.length - lastSeparator - 1;
-  // The file name prefixed with `…/` would already be too long.
-  if (fileNameLength + 2 > length) return truncateMid(path, length);
+  // The file name prefixed with `…/` would already be too long: the
+  // directory goes entirely and only the NAME shortens — a middle ellipsis
+  // across the whole path cut it mid-string (`src/co…nent.tsx`) and hid where
+  // the name starts.
+  if (fileNameLength + 2 > length) return truncateMid(path.substring(lastSeparator + 1), length);
   const pre = path.substring(0, length - fileNameLength - 2);
   const post = path.substring(lastSeparator);
   return `${pre}…${post}`;
 }
 
-/** Split the truncated text back into its dim
- *  directory prefix and its bright file name by matching the untruncated
- *  directory character by character; a `…` (and the `/` right after it) counts
- *  towards the directory, purely for looks. */
-function splitScmPath(
+/** Split the truncated text back into its dim directory prefix and its bright
+ *  file name: the whole directory, or its kept head up to the `…/` the
+ *  truncation inserted (the `…/` counts towards the directory, purely for
+ *  looks); a name-only truncation has no directory part. */
+export function splitScmPath(
   truncated: string,
   directory: string
 ): {
   directoryText: string;
   fileText: string;
 } {
-  let directoryLength = 0;
-  for (let i = 0; i < truncated.length && i < directory.length; i += 1) {
-    if (directory[i] === truncated[i]) {
-      directoryLength += 1;
-      continue;
-    }
-    if (truncated[i] === '…') {
-      directoryLength += 1;
-      if (truncated[i + 1] === '/') directoryLength += 1;
-    }
-    break;
+  if (directory && truncated.startsWith(directory)) {
+    return { directoryText: directory, fileText: truncated.slice(directory.length) };
   }
-  return {
-    directoryText: truncated.slice(0, directoryLength),
-    fileText: truncated.slice(directoryLength),
-  };
+  const cut = truncated.indexOf('…/');
+  if (directory && cut >= 0 && directory.startsWith(truncated.slice(0, cut))) {
+    return { directoryText: truncated.slice(0, cut + 2), fileText: truncated.slice(cut + 2) };
+  }
+  return { directoryText: '', fileText: truncated };
 }
 
 /** Binary search over character counts — the general fallback for a path
@@ -192,7 +187,10 @@ export function ScmPathText({
     // every row; an unchanged width is answered without touching layout.
     let lastAvailable = -1;
     const remeasure = () => {
-      const available = host.getBoundingClientRect().width;
+      // Layout width, not the painted box: the phone sheet scales its panel
+      // content with a transform, and a scaled rect against the unscaled
+      // font measure left the path untruncated and clipped mid-name.
+      const available = host.clientWidth;
       if (available === lastAvailable) return;
       lastAvailable = available;
       const width = available > 0 ? measurerFor(host) : null;

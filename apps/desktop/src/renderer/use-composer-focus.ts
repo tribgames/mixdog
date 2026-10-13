@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isMobileRemoteSurface } from './mobile-surface';
 import {
   modalDialogPresented,
   shouldFocusComposerFromWindowKey,
@@ -7,14 +7,19 @@ import {
   touchPrimaryPointer,
 } from './surface-input-focus';
 
-/** Browser focus can raise the keyboard or move the viewport even with
- *  preventScroll. Only the native, non-touch shell pre-focuses the composer;
- *  browser users focus it by tapping the field or starting to type. */
+/** On a touch or phone surface, focus raises the on-screen keyboard or moves
+ *  the viewport even with preventScroll, so there the user focuses the field
+ *  by tapping it. Keyboard-and-pointer surfaces (the desktop window, a PC
+ *  browser tab, an other-PC window) pre-focus the composer alike. */
+function composerAutoFocusBlocked(): boolean {
+  return touchPrimaryPointer() || isMobileRemoteSurface();
+}
+
 function scheduleComposerAutoFocus(
   textarea: RefObject<HTMLTextAreaElement | null>,
   preserveTyping = false
 ): (() => void) | undefined {
-  if (isRemoteBrowserRenderer() || touchPrimaryPointer()) return undefined;
+  if (composerAutoFocusBlocked()) return undefined;
   const timer = window.setTimeout(() => {
     const target = textarea.current;
     if (!target || !document.hasFocus() || target.closest('[inert]') || modalDialogPresented()) return;
@@ -53,7 +58,7 @@ export function useComposerFocus({
   }, [textarea, focusRequest, transitioning, paneActive]);
   useEffect(() => (paneActive ? scheduleComposerAutoFocus(textarea, true) : undefined), [textarea, paneActive]);
   useEffect(() => {
-    if (!paneActive || transitioning || isRemoteBrowserRenderer() || touchPrimaryPointer()) return undefined;
+    if (!paneActive || transitioning || composerAutoFocusBlocked()) return undefined;
     let cancel: (() => void) | undefined;
     const restoreFocus = () => {
       cancel?.();

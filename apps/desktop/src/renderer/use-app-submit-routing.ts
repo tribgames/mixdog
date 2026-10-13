@@ -10,6 +10,7 @@ import type { NavigationSelection } from './navigation';
 import type { PaneLeaf } from './pane-layout';
 import { asRecord, navigationKey } from './text-format';
 import type { ResolvedDraftPrefs } from './use-draft-pane-preferences';
+import { sendDraftWithWorktreeIntent } from './worktree-branch-model';
 
 const MAX_CACHED_SUBMIT_ENTRIES = 32;
 
@@ -111,13 +112,20 @@ export function useAppSubmitRouting({
         // prompt joins that engine queue instead of minting a second session.
         if (draftSessionId) return await host.submitToSession(draftSessionId, content, options);
         const settleDraftSession = claimDraftSubmission(draftKey);
+        // The draft's "Worktree" choice rides with its first prompt; it is
+        // given back when the task was not started, so a retry keeps it.
         try {
-          const result = await host.submitNewTask(content, options, {
-            ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
-            ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
-            ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
-            ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
-          });
+          const result = (await sendDraftWithWorktreeIntent(
+            draftPrefsKey,
+            (choice) =>
+              host.submitNewTask(content, options, {
+                ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
+                ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
+                ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
+                ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
+                ...(choice ? { worktree: choice } : {}),
+              })
+          )) ?? { accepted: false, sessionId: '', snapshot: null };
           accepted = result.accepted;
           startedSessionId = result.accepted ? String(result.sessionId || '') : '';
           if (result.accepted && !startedSessionId) {

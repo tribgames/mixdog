@@ -1,4 +1,5 @@
 import type { DesktopBrowserViewportConfig } from '../shared/contract';
+import { MOBILE_CHROME_USER_AGENT } from '../shared/remote-browser';
 import { t } from './i18n';
 
 /** Representative viewport sizes, not device names (user: 대표 해상도만, 폰
@@ -37,9 +38,7 @@ const IPHONE_USER_AGENT =
 const IPAD_USER_AGENT =
   'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) ' +
   'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
-const ANDROID_USER_AGENT =
-  'Mozilla/5.0 (Linux; Android 14; Pixel 7) ' +
-  'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
+const ANDROID_USER_AGENT = MOBILE_CHROME_USER_AGENT;
 
 export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   {

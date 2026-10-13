@@ -20,6 +20,7 @@ import { TOOL_DEFS as TERMINAL_BRIDGE_TOOL_DEFS } from '../../runtime/terminal-b
 import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../../runtime/office/tool-defs.mjs';
 import { TOOL_DEFS as MEDIA_TOOL_DEFS } from '../../runtime/media/tool-defs.mjs';
 import { TOOL_DEFS as TIDY_TOOL_DEFS } from '../../runtime/tidy/tool-defs.mjs';
+import { TOOL_DEFS as VISUALIZE_BRIDGE_TOOL_DEFS } from '../../runtime/visualize-bridge/tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from '../setup-tool/tool-defs.mjs';
 import { createSetupToolExecutor } from '../setup-tool/executor.mjs';
 import { bootProfile } from '../boot-profile.mjs';
@@ -156,6 +157,7 @@ function wireToolSurface(boot) {
     officeToolDefs: OFFICE_TOOL_DEFS,
     mediaToolDefs: MEDIA_TOOL_DEFS,
     tidyToolDefs: TIDY_TOOL_DEFS,
+    visualizeToolDefs: VISUALIZE_BRIDGE_TOOL_DEFS,
     setupToolDefs: SETUP_TOOL_DEFS,
     goalTools: goalRuntime.tools,
     agentTools: agentTool.tools,
@@ -246,6 +248,8 @@ function wireInternalTools(boot) {
       mcpStatus: boot.mcpStatus,
       applyResolvedCwd: boot.applyResolvedCwd,
       skillToolContent: boot.skillToolContent,
+      // Late-bound: the workspace authority is built with the API slices.
+      getWorkspaceApi: () => boot.workspaceApi || null,
     }),
   });
   Object.assign(boot, { setupTool, disposeInternalTools });

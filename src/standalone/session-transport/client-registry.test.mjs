@@ -80,6 +80,84 @@ test('the sweep drops clients whose lead pid is gone and a new lifecycle client 
   }
 });
 
+test('the sweep never applies the lead-pid check to a remote client', async () => {
+  const { registry, events } = harness();
+  try {
+    const token = registry.register({ leadPid: DEAD_PID, cwd: null, remote: true });
+    assert.equal(registry.clients.get(token).remote, true);
+    await sleep(60);
+    assert.deepEqual(events.dropped, [], 'a pid from another machine is meaningless here');
+    assert.ok(registry.clients.has(token));
+  } finally {
+    registry.close();
+  }
+});
+
+test('a remote client is dropped once its lease passes, and a heartbeat touch renews it', async () => {
+  const clock = { now: 1_000 };
+  const { registry, events } = harness({ nowMs: () => clock.now });
+  try {
+    const token = registry.register({ leadPid: 0, cwd: null, remote: true, leaseMs: 5_000 });
+    assert.equal(registry.clients.get(token).leaseMs, 5_000);
+    clock.now += 4_000;
+    assert.equal(registry.touch(token), true);
+    clock.now += 4_000;
+    await sleep(50);
+    assert.deepEqual(events.dropped, [], 'renewed lease is still valid');
+    clock.now += 2_000;
+    await sleep(50);
+    assert.deepEqual(events.dropped, [{ token, reason: 'lease expired' }]);
+    assert.equal(registry.touch(token), false, 'a dropped client cannot be touched');
+  } finally {
+    registry.close();
+  }
+});
+
+test('lease is clamped to 3000..600000 and defaults to 30000', () => {
+  const { registry } = harness();
+  try {
+    const lease = (leaseMs) => registry.clients.get(registry.register({ remote: true, leaseMs })).leaseMs;
+    assert.equal(lease(undefined), 30_000);
+    assert.equal(lease('garbage'), 30_000);
+    assert.equal(lease(10), 3_000);
+    assert.equal(lease(9_999_999), 600_000);
+    assert.equal(lease(45_000), 45_000);
+  } finally {
+    registry.close();
+  }
+});
+
+test('the empty-clients grace uses the remote grace only when the last lifecycle client was remote', async () => {
+  const previous = process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS;
+  process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS = '400';
+  try {
+    const remote = harness();
+    try {
+      const token = remote.registry.register({ remote: true, leadPid: 0 });
+      remote.registry.dropClient(token, 'test drop');
+      await sleep(120);
+      assert.equal(remote.events.empty, 0, 'remote grace outlasts clientGraceMs');
+      await sleep(400);
+      assert.equal(remote.events.empty, 1);
+    } finally {
+      remote.registry.close();
+    }
+
+    const local = harness();
+    try {
+      const token = local.registry.register({ leadPid: process.pid });
+      local.registry.dropClient(token, 'test drop');
+      await sleep(120);
+      assert.equal(local.events.empty, 1, 'local clients keep clientGraceMs');
+    } finally {
+      local.registry.close();
+    }
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS;
+    else process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS = previous;
+  }
+});
+
 test('close ends every stream, forgets replays and never fires grace afterwards', async () => {
   const { registry, events } = harness();
   let ended = 0;

@@ -40,12 +40,10 @@ html[data-mixdog-mobile-tabs] .transcript {
   overscroll-behavior: contain;
 }
 
-/* A stale cached boot can still project a phone into 1040 layout pixels.
-   Multiplying the main typing surface by its projection factor keeps the
-   composer at its native body size in that recovery case. */
+/* The phone's main typing surface takes the body size. */
 html[data-mixdog-mobile-tabs] .composer textarea,
 html[data-mixdog-mobile-tabs] .studio-composer textarea {
-  font-size: calc(var(--mx-font-body) * var(--mx-device-scale, 1));
+  font-size: var(--mx-font-body);
 }
 
 /* iOS auto-zooms focused form controls below 16 CSS px, so iOS ALONE keeps
@@ -60,5 +58,5 @@ html[data-mixdog-ios-web]
 }
 html[data-mixdog-ios-web] .composer textarea,
 html[data-mixdog-ios-web] .studio-composer textarea {
-  font-size: max(16px, calc(16px * var(--mx-device-scale, 1))) !important;
+  font-size: 16px !important;
 }

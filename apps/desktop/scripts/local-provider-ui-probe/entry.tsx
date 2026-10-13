@@ -96,7 +96,6 @@ const settle = () => settleFrames();
     await initUiLanguage();
     document.documentElement.dataset.mixdogTheme = theme;
     document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', mobile);
-    document.documentElement.style.setProperty('--mx-device-scale', '1');
     flushSync(() =>
       root.render(
         <div className="app-shell" key={`${theme}-${mobile}`}>

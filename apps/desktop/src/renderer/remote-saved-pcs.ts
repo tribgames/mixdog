@@ -80,6 +80,8 @@ export interface SwitcherPc {
   thisPc?: boolean;
   /** A window for this saved PC is open right now. */
   windowOpen?: boolean;
+  /** A saved SSH server rather than a paired PC. */
+  ssh?: boolean;
 }
 
 /** The current PC's name and every saved PC's online state, from the relay.

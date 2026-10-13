@@ -18,12 +18,17 @@ import {
 } from './ScmContextMenu';
 import { copyTextToClipboard } from './text-format';
 import { openEditorFileExternally } from './editor-external-file';
+import { isSshConnectionWindow } from './desktop-connection';
+import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { useBrowserSiteFavicon } from './browser-page-identity';
 import { linkOpenTarget } from './link-open-target';
 import { openConfirmedFile } from './file-launch-confirmation';
 import { openSandboxedPagePreview } from './sandboxed-page-preview';
+import type { FileDownloadSource } from '../shared/file-downloads';
+import { fileDownloadReasonMessage } from './file-download-transfer';
+import { fileDownloadBlockedReason, startFileDownload, useFileDownloadSupport } from './file-download-panel';
 
 /** Plain text of rendered children: highlighted code and link captions are
  *  hast-derived spans, so a String() cast would not yield their source. */
@@ -40,6 +45,9 @@ export const MarkdownProjectContext = createContext('');
 /** The owning conversation's session ('' for a draft): web pages open in its
  *  browser pane and code blocks run in its terminal. */
 export const MarkdownSessionContext = createContext('');
+/** Id of the settled assistant row being rendered ('' elsewhere): a paired
+ *  device downloads a reply's linked file by naming this row. */
+export const MarkdownTranscriptItemContext = createContext('');
 /** Project-relative folder of the document being rendered ('' for chat):
  *  relative links and images resolve against it instead of the Project root. */
 export const MarkdownDocumentDirContext = createContext('');
@@ -82,8 +90,7 @@ type MarkdownOpenFile = (
 ) => void;
 export const MarkdownOpenFileContext = createContext<MarkdownOpenFile | null>(null);
 /** Reveals a Project folder in the conversation pane's side-dock Files tree;
- *  absent where there is no dock (phone/remote), so folders keep the OS file
- *  manager. */
+ *  absent where there is no dock, so folders keep the OS file manager. */
 export const MarkdownOpenFolderContext = createContext<((project: string, rel: string) => void) | null>(null);
 
 /** A directory the dock can reveal: a trailing separator names one, an
@@ -239,6 +246,10 @@ interface LocalLinkTarget {
   openDefault: () => Promise<void>;
   reveal: () => Promise<void>;
   copyPath: () => Promise<void>;
+  /** Files only, offered on remote surfaces: download the host file to this device. */
+  download?: () => void;
+  /** Why `download` cannot run here (old host, no save sink). */
+  downloadBlocked?: string;
 }
 
 const DOCUMENT_PREFETCH_WINDOW_MS = 30_000;
@@ -314,6 +325,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const openFile = useContext(MarkdownOpenFileContext);
   const openFolder = useContext(MarkdownOpenFolderContext);
   const documentDir = useContext(MarkdownDocumentDirContext);
+  const itemId = useContext(MarkdownTranscriptItemContext);
   const [resolved, setResolved] = useState<{ key: string; title: string; target: ResolvedLocalLink | null }>({
     key: '',
     title: '',
@@ -347,6 +359,21 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       .split(/[\\/]/)
       .at(-1) || location.path) + (kind === 'folder' ? '/' : '');
   const title = resolvedTitle || (rel && !bare && projectPath ? displayPath(projectPath, rel, suffix) : undefined);
+  const downloadable = local && kind !== 'folder';
+  const downloadSupport = useFileDownloadSupport(downloadable && isRemoteHostRenderer());
+  const downloadBlocked = fileDownloadBlockedReason(downloadSupport);
+  // A paired device downloads the host file (GitHub #40): a reply's link by
+  // its row, anything else as a file of the conversation's project.
+  const download = () => {
+    let source: FileDownloadSource | null = null;
+    if (sessionId && itemId) source = { kind: 'link', sessionId, itemId, href: target };
+    else if (sessionId && rel && rel !== '.') source = { kind: 'project', sessionId, relPath: rel };
+    if (downloadBlocked || !source) {
+      showDesktopToast(downloadBlocked || fileDownloadReasonMessage('not-linked'), 'error');
+      return;
+    }
+    startFileDownload(source, name);
+  };
 
   // A filename-shaped mention is not an authored link. Keep it noninteractive
   // until the owning Project and actual file/folder are confirmed.
@@ -364,7 +391,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    verifyLocalLink(projectPath, location.path)
+    verifyLocalLink(projectPath, location.path, sessionId || undefined)
       .then((match) => {
         if (!active) return;
         setResolved({
@@ -390,7 +417,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [verify, local, projectPath, location.path, resolutionKey, suffix, attempt]);
+  }, [verify, local, projectPath, location.path, resolutionKey, suffix, attempt, sessionId]);
 
   // The first paint (verified mentions) and hover both resolve this exact
   // link already. Reusing that result keeps the click from paying a second
@@ -398,7 +425,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   // project-index search — before anything can start opening.
   const resolveTarget = async (): Promise<ResolvedLocalLink> => {
     if (resolvedTarget) return resolvedTarget;
-    const match = await resolveLocalLink(projectPath, location.path);
+    const match = await resolveLocalLink(projectPath, location.path, sessionId || undefined);
     setResolved({ key: resolutionKey, title: displayPath(match.project, match.path, suffix), target: match });
     return match;
   };
@@ -426,15 +453,26 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
           .catch(() => {});
       }
     : undefined;
-  const webPage = local && pageLink && typeof window !== 'undefined' && Boolean(window.mixdogDesktop?.localPageUrl);
+  // A server window's pages live on the server, out of reach of this PC's
+  // loopback page server: they open as source in the editor.
+  const serverWindow = isSshConnectionWindow();
+  const webPage =
+    local && pageLink && !serverWindow && typeof window !== 'undefined' && Boolean(window.mixdogDesktop?.localPageUrl);
   const open = async (external?: boolean) => {
     warmEditor();
+    const remote = isRemoteHostRenderer();
     try {
+      // Nothing on a paired device opens what only the host's OS could:
+      // download it instead, without resolving the path first.
+      if (remote && kind === 'file' && !pageLink && editorFileOpener(location.path) === 'os') {
+        download();
+        return;
+      }
       const { project, path: file, accessToken, directory } = await resolveTarget();
       // A web page opens in the session's browser pane from a loopback address
       // main serves; with no pane to reveal (a draft) the system browser takes
       // the same address. Without the server (a paired phone) it stays source.
-      const pageUrl = window.mixdogDesktop?.localPageUrl;
+      const pageUrl = serverWindow ? undefined : window.mixdogDesktop?.localPageUrl;
       if (!directory && pageLink && pageUrl) {
         const url = await pageUrl(project, file, accessToken);
         await openWebLink(sessionId, url, external);
@@ -462,10 +500,24 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       // A text file with an extension opens in the editor directly. Documents,
       // folders and extension-less names go through main, which launches the
       // OS app or file manager and hands text files back as 'editor'.
+      if (serverWindow && directory) {
+        // A server folder outside every project: its own tree in the dock.
+        if (!openFolder) throw new Error(t('Local file links can only be opened in the desktop app.'));
+        openFolder(project, '');
+        return;
+      }
+      if (serverWindow && kind === 'file' && editorFileOpener(file) === 'os') {
+        // This PC's app can open a server file only after an explicit download.
+        await downloadAndOpenServerFile(project, file, accessToken);
+        return;
+      }
       if (directory || kind !== 'file' || editorFileOpener(file) === 'os') {
         const api = window.mixdogDesktop;
         if (!api?.openLocalFileLink) {
-          throw new Error(t('Local file links can only be opened in the desktop app.'));
+          if (!remote) throw new Error(t('Local file links can only be opened in the desktop app.'));
+          if (directory) throw new Error(t('Folders on the PC cannot be downloaded to this device.'));
+          download();
+          return;
         }
         // Main reads the href as a URL path: `report #1.docx` must travel as
         // `report%20%231.docx` or the `#` would start a fragment.
@@ -475,7 +527,11 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         );
         if (opened !== 'editor') return;
       }
-      if (!openFile) throw new Error(t('Local file links can only be opened in the desktop app.'));
+      if (!openFile) {
+        if (!remote) throw new Error(t('Local file links can only be opened in the desktop app.'));
+        download();
+        return;
+      }
       if (location.line && location.column) openFile(project, file, location.line, accessToken, location.column);
       else if (accessToken) openFile(project, file, location.line, accessToken);
       else openFile(project, file, location.line);
@@ -508,6 +564,12 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const reveal = async () => {
     try {
       const { project, path: file, accessToken } = await resolveTarget();
+      // A server window reveals in the conversation's own Files tree.
+      if (serverWindow) {
+        if (openFolder) openFolder(project, file);
+        else await revealFileFromWindow(project, file, accessToken);
+        return;
+      }
       const api = window.mixdogDesktop;
       if (!api?.revealFile) throw new Error(t('Desktop file access is unavailable.'));
       await api.revealFile(project, file, accessToken);
@@ -527,6 +589,8 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     openDefault,
     reveal,
     copyPath,
+    download: downloadable ? download : undefined,
+    downloadBlocked,
     webPage,
     local,
     verified: verifiedKey === resolutionKey,
@@ -633,6 +697,17 @@ export function MarkdownLink({
           ? [
               { id: 'open-default', label: t('Open in default app'), onSelect: () => void link.openDefault() },
               { id: 'reveal', label: t('Reveal in Explorer'), onSelect: () => void link.reveal() },
+            ]
+          : []),
+        ...(link.download && !external
+          ? [
+              {
+                id: 'download',
+                label: t('Download / Share'),
+                onSelect: link.download,
+                disabled: Boolean(link.downloadBlocked),
+                title: link.downloadBlocked,
+              },
             ]
           : []),
         { id: 'copy-path', label: t('Copy path'), onSelect: () => void link.copyPath(), separatorBefore: true },

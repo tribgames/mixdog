@@ -4,6 +4,7 @@
 // shares transport-neutral validators so the remote surface cannot accept a shape
 // the in-process IPC surface would reject.
 import { randomUUID } from 'node:crypto';
+import { lstat, realpath } from 'node:fs/promises';
 import {
   basename as pathBasename,
   dirname as pathDirname,
@@ -21,8 +22,10 @@ import {
 } from '../shared/contract';
 import { REMOTE_BLOCKED_CAPABILITY_NAMES } from '../shared/remote-blocked-capabilities';
 import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
+import { readHostDisplayPreferences } from '../shared/host-display-preferences';
 import { browserParityRemoteMethods, type BrowserRemoteMethod } from './remote-browser-methods';
 import { pushRemoteMethods } from './remote-push-methods';
+import { validatedHostDirectoryPath } from './host-directories';
 import { sessionRemoteMethods } from './remote-session-methods';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { submitFeedback } from './feedback-client';
@@ -58,8 +61,14 @@ import {
   requiredWorkspaceTextWrites,
 } from './ipc-validation';
 import { absoluteLocalPath } from './local-files';
+import { LocalAccessDeniedError } from './local-access-denied';
+import { FileDownloadError } from '../shared/file-downloads';
+import { fileDownloadRemoteMethods, type FileDownloadRequester, type FileDownloadService } from './file-downloads';
+import { createLinkProvenance } from './transcript-file-links';
 import { createRemoteFilePreviewMethods } from './remote-file-preview';
+import { createRemoteVisualizeMethods, type RemoteVisualizeMirror } from './remote-visualize';
 import { projectEntryPathIn } from './project-files';
+import { clientSizeOwner, type TerminalSizeOwner } from '../shared/terminal-size-owner';
 import { MAX_SELECTED_FILE_GRANTS, owningProject, sameGrantedPath, selectedFileGrantKey } from './selected-file-grants';
 import {
   requiredCommitHash,
@@ -89,9 +98,15 @@ export interface RemoteMethodClient {
   /** The paired client (relay credential) behind this connection; '' when the
    *  relay did not name it. Native push registrations are bound to it. */
   credentialId?(): string;
+  /** The relay's id for THIS connection (one per phone/tab). Terminal size
+   *  ownership is claimed and released per connection. */
+  connectionId?(): string;
   /** Whether this connection has not yet been shown another device's prompt
    *  in the session. A stale view is re-sent as a side effect. */
   staleView?(sessionId: string, device: string): boolean;
+  /** Sessions this connection currently views (the host's own record of its
+   *  visible set): where a file link it opens can have come from. */
+  viewedSessionIds?(): readonly string[];
 }
 
 export { STALE_SESSION_VIEW_MESSAGE } from './remote-session-methods';
@@ -136,42 +151,72 @@ export interface RemoteMethodDependencies {
       id: string | null,
       cwd: string | null,
       profile?: TerminalSpawnProfile | string | null
-    ): { id: string; replay: string } | Promise<{ id: string; replay: string }>;
+    ):
+      | { id: string; replay: string; sizeOwner?: TerminalSizeOwner }
+      | Promise<{ id: string; replay: string; sizeOwner?: TerminalSizeOwner }>;
     write(id: string, data: string): void;
-    resize(id: string, cols: number, rows: number): void;
+    resize(id: string, cols: number, rows: number, client?: string): void;
   };
   browserRemote?: (method: BrowserRemoteMethod, args: unknown[], timeoutMs?: number) => Promise<unknown>;
   /** Electron-only host actions (OS trash, auto-updater) run in the window
    *  process; the daemon asks it and awaits the answer. */
   hostRequest?: (method: RemoteHostRequestMethod, args: unknown[]) => Promise<unknown>;
+  /** The daemon's mirror of the window's agent `visualize` tabs. */
+  visualize?: RemoteVisualizeMirror;
+  /** Host file downloads (file-downloads.ts), shared by every connection of
+   *  this relay so unpair and session deletion reach every grant. */
+  fileDownloads?: FileDownloadService;
 }
 
-export type RemoteHostRequestMethod = 'trashItem' | 'updaterState' | 'updaterCheck' | 'updaterInstall';
+export type RemoteHostRequestMethod =
+  | 'trashItem'
+  | 'updaterState'
+  | 'updaterCheck'
+  | 'updaterInstall'
+  | 'displayPreferences'
+  | 'visualizeState'
+  | 'visualizeCommand'
+  | 'captureFileSnapshot';
 
 export type RemoteMethod = (params: unknown[]) => unknown;
 type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown>;
 
 /** Permissions this bridge issued for paths outside every registered project. */
 interface SelectedFileGrants {
-  rememberFileGrant(absolutePath: string): string;
+  rememberFileGrant(absolutePath: string, sessionId: string): string;
   grantedFile(
     accessToken: unknown,
     projectPath: unknown,
     relPath: unknown
   ): { root: string; rel: string; absolute: string };
   grantedIf(accessToken: unknown): boolean;
+  /** Whether a live grant names exactly this file. */
+  holdsGrantFor(absolutePath: string): boolean;
 }
 
-/** Selected-file permissions for paths OUTSIDE any registered project. The
- *  desktop persists them under userData; a paired browser holds them for the
- *  life of this bridge, so a daemon restart simply asks the surface to
- *  resolve the path again. A token names one exact path and nothing else. */
-function createSelectedFileGrants(): SelectedFileGrants {
-  const fileGrants = new Map<string, string>();
+/** A bridge grant's lifetime; the connection ending (a new relay leg gets a
+ *  new method table) drops it sooner. */
+const BRIDGE_GRANT_TTL_MS = 60 * 60 * 1000;
+const NOT_LINKED = 'This file is outside every project and is not linked in this conversation.';
+
+/** One-file permissions for paths OUTSIDE any registered project, minted only
+ *  for a file an assistant reply in a conversation links (see
+ *  resolveLocalPathEntries). Held by this connection's method table, so they
+ *  bind to this paired device and connection; each records the conversation
+ *  it came from and ends with it, or after BRIDGE_GRANT_TTL_MS. A token names
+ *  one exact path and nothing else. */
+function createSelectedFileGrants(sessionRemoved: (sessionId: string) => boolean): SelectedFileGrants {
+  const fileGrants = new Map<string, { path: string; sessionId: string; expiresAt: number }>();
+  const live = (grant: { sessionId: string; expiresAt: number }): boolean =>
+    grant.expiresAt > Date.now() && !sessionRemoved(grant.sessionId);
   return {
-    rememberFileGrant: (absolutePath: string): string => {
+    rememberFileGrant: (absolutePath: string, sessionId: string): string => {
       const token = randomUUID();
-      fileGrants.set(selectedFileGrantKey(token), absolutePath);
+      fileGrants.set(selectedFileGrantKey(token), {
+        path: absolutePath,
+        sessionId,
+        expiresAt: Date.now() + BRIDGE_GRANT_TTL_MS,
+      });
       while (fileGrants.size > MAX_SELECTED_FILE_GRANTS) {
         const oldest = fileGrants.keys().next().value;
         if (!oldest) break;
@@ -181,15 +226,48 @@ function createSelectedFileGrants(): SelectedFileGrants {
     },
     grantedFile: (accessToken: unknown, projectPath: unknown, relPath: unknown) => {
       const token = requiredString(accessToken, 'file access token', 128);
-      const granted = fileGrants.get(selectedFileGrantKey(token));
-      if (!granted) throw new Error('The selected-file permission is unavailable.');
+      const key = selectedFileGrantKey(token);
+      const granted = fileGrants.get(key);
+      if (!granted || !live(granted)) {
+        fileGrants.delete(key);
+        throw new Error('The selected-file permission is unavailable.');
+      }
       const requested = resolvePath(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
-      if (!sameGrantedPath(granted, requested))
+      if (!sameGrantedPath(granted.path, requested))
         throw new Error('The selected-file permission does not match this path.');
-      return { root: pathDirname(granted), rel: pathBasename(granted), absolute: granted };
+      return { root: pathDirname(granted.path), rel: pathBasename(granted.path), absolute: granted.path };
     },
     grantedIf: (accessToken: unknown): boolean => typeof accessToken === 'string' && accessToken.length > 0,
+    holdsGrantFor: (absolutePath: string): boolean =>
+      [...fileGrants.values()].some((grant) => live(grant) && sameGrantedPath(grant.path, absolutePath)),
   };
+}
+
+/** Whether a lexically in-project path also stays inside the project once
+ *  symlinks and junctions are resolved. */
+function staysInProject(root: string, absolutePath: string): boolean {
+  try {
+    projectEntryPathIn(root, pathRelative(root, absolutePath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A host file a paired device may read as an attachment: inside a registered
+ *  project (symlink-guarded), or one this connection already holds a linked
+ *  grant for. Anything else is refused before the filesystem is touched. */
+async function readableLocalFile(raw: unknown, host: DesktopService, grants: SelectedFileGrants): Promise<string> {
+  const absolute = absoluteLocalPath(raw);
+  // Like the editor lanes: a granted name later swapped for a symlink out of
+  // its folder is refused.
+  if (grants.holdsGrantFor(absolute)) return projectEntryPathIn(pathDirname(absolute), pathBasename(absolute));
+  const owner = owningProject(await host.listProjects().catch(() => []), absolute);
+  if (!owner) throw new LocalAccessDeniedError(NOT_LINKED);
+  if (!staysInProject(owner.root, absolute)) {
+    throw new LocalAccessDeniedError('The file resolves outside the project.');
+  }
+  return absolute;
 }
 
 // Remote access is a transport client, not another service. Keep its
@@ -200,14 +278,10 @@ const GIT_OPERATION_NAMES = [
   'gitAmend',
   'gitApplyPatch',
   'gitBranches',
-  'gitCheckoutBranch',
-  'gitCheckoutCommit',
   'gitCherryPickCommit',
   'gitCommit',
   'gitCommitPaths',
   'gitContinue',
-  'gitCreateBranch',
-  'gitCreateBranchAtCommit',
   'gitCreateTag',
   'gitDeleteBranch',
   'gitDeleteTag',
@@ -215,7 +289,6 @@ const GIT_OPERATION_NAMES = [
   'gitFetch',
   'gitIgnore',
   'gitLog',
-  'gitMergeBranch',
   'gitPull',
   'gitPush',
   'gitRenameBranch',
@@ -317,14 +390,11 @@ function gitWorkingTreeRemoteMethods(
  *  can leave a merge or rebase in progress. */
 function gitBranchRemoteMethods(git: GitOperations): Record<string, RemoteMethod> {
   return {
+    // Checkout/create: the guarded selectProjectBranch capability (invokeCapability).
     gitBranches: ([cwd]) => git.gitBranches(requiredRepositoryCwd(cwd)),
-    gitCheckoutBranch: ([cwd, branch, remote]) =>
-      git.gitCheckoutBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), remote === true),
-    gitCreateBranch: ([cwd, branch]) => git.gitCreateBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
     gitRenameBranch: ([cwd, branch, nextBranch]) =>
       git.gitRenameBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredGitBranchName(nextBranch)),
     gitDeleteBranch: ([cwd, branch]) => git.gitDeleteBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
-    gitMergeBranch: ([cwd, branch]) => git.gitMergeBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
     gitCreateTag: ([cwd, tag, hash]) =>
       git.gitCreateTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512), requiredCommitHash(hash)),
     gitDeleteTag: ([cwd, tag]) => git.gitDeleteTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512)),
@@ -368,9 +438,6 @@ function gitHistoryRemoteMethods(
       ),
     gitRevertCommit: ([cwd, hash]) => git.gitRevertCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
     gitCherryPickCommit: ([cwd, hash]) => git.gitCherryPickCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitCheckoutCommit: ([cwd, hash]) => git.gitCheckoutCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitCreateBranchAtCommit: ([cwd, branch, hash]) =>
-      git.gitCreateBranchAtCommit(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredCommitHash(hash)),
     gitGlobalConfig: () => invokeDesktopOperation('gitGlobalConfig', []),
     setGitGlobalConfig: ([key, value]) => {
       // Empty is a real value here: it UNSETS the key.
@@ -436,19 +503,43 @@ function developerToolingRemoteMethods(invokeDesktopOperation: InvokeDesktopOper
 }
 
 /** Absolute paths as the file surface describes them: owned by the deepest
- *  registered project that contains them, otherwise named by a one-off grant
- *  this bridge can resolve on the calls that follow. */
+ *  registered project that contains them (symlinks resolved), otherwise only
+ *  when an assistant reply links them — in `sessionId`'s transcript when the
+ *  caller names it, else in a conversation this connection views — and then
+ *  named by a one-file grant the calls that follow can redeem. Any other path
+ *  is refused before it is even statted. */
 async function resolveLocalPathEntries(
   paths: unknown,
-  deps: { host: DesktopService; invokeDesktopOperation: InvokeDesktopOperation; grants: SelectedFileGrants }
+  sessionId: unknown,
+  deps: {
+    host: DesktopService;
+    invokeDesktopOperation: InvokeDesktopOperation;
+    grants: SelectedFileGrants;
+    viewedSessionIds: () => readonly string[];
+  }
 ): Promise<DesktopLocalPathEntry[]> {
   if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
     throw new TypeError('paths are invalid.');
   }
+  const named = optionalSessionId(sessionId);
+  const provenance = createLinkProvenance(deps.host, named ? [named] : [...deps.viewedSessionIds()]);
   const projects = await deps.host.listProjects().catch(() => []);
   const rows: DesktopLocalPathEntry[] = [];
   for (const raw of paths) {
-    const entry = (await deps.invokeDesktopOperation('statLocalEntryAbs', [absoluteLocalPath(raw)])) as {
+    const absolute = absoluteLocalPath(raw);
+    const owner = owningProject(projects, absolute);
+    const inProject = owner !== null && staysInProject(owner.root, absolute);
+    const linkedSession = inProject ? '' : ((await provenance.sessionFor(absolute)) ?? '');
+    if (!inProject && !linkedSession) throw new LocalAccessDeniedError(NOT_LINKED);
+    if (linkedSession && (await lstat(absolute)).isSymbolicLink()) {
+      // The link names the symlink, not whatever it points at.
+      const target = await realpath(absolute);
+      const targetOwner = owningProject(projects, target);
+      if (!(targetOwner && staysInProject(targetOwner.root, target)) && !(await provenance.sessionFor(target))) {
+        throw new LocalAccessDeniedError('The linked file is a symbolic link to a file that is not linked.');
+      }
+    }
+    const entry = (await deps.invokeDesktopOperation('statLocalEntryAbs', [absolute])) as {
       absolutePath: string;
       name: string;
       dir: boolean;
@@ -461,14 +552,13 @@ async function resolveLocalPathEntries(
       size: entry.size,
     };
     if (!row.dir) {
-      const owner = owningProject(projects, entry.absolutePath);
-      if (owner) {
+      if (owner && inProject) {
         row.projectPath = owner.project.path;
         row.relPath = pathRelative(owner.root, entry.absolutePath).replace(/\\/g, '/');
       } else {
         row.projectPath = pathDirname(entry.absolutePath);
         row.relPath = pathBasename(entry.absolutePath);
-        row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath);
+        row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath, linkedSession);
       }
     }
     rows.push(row);
@@ -657,22 +747,63 @@ export function createRemoteMethods(
     nativePush,
     browserRemote,
     hostRequest,
+    visualize,
+    fileDownloads,
   }: RemoteMethodDependencies,
   client?: RemoteMethodClient
 ): Record<string, RemoteMethod> {
   const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
     host.invokeDesktopOperation(name, args);
-  const requiredBrowserRemote = (): NonNullable<RemoteMethodDependencies['browserRemote']> => {
-    if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
-    return browserRemote;
-  };
   const requiredHostRequest = (): NonNullable<RemoteMethodDependencies['hostRequest']> => {
     if (!hostRequest) throw new TypeError('The desktop app is unavailable on this connection.');
     return hostRequest;
   };
-  const grants = createSelectedFileGrants();
-  const { grantedFile, grantedIf } = grants;
+  const grants = createSelectedFileGrants((sessionId) => fileDownloads?.sessionRemoved(sessionId) === true);
+  const viewedSessionIds = (): readonly string[] => client?.viewedSessionIds?.() ?? [];
+  // The paired device behind this connection, as the relay authenticated it.
+  const downloadRequester = (): FileDownloadRequester => {
+    const connection = client?.connectionId?.() ?? '';
+    const deviceId = client?.credentialId?.() || (connection ? `connection:${connection}` : '');
+    if (!deviceId) throw new FileDownloadError('unavailable', 'This connection has no paired device identity.');
+    return { deviceId };
+  };
   const methods: Record<string, RemoteMethod> = {
+    ...workspaceRemoteMethods({ host, invokeDesktopOperation, grants }),
+    ...pushRemoteMethods(push, nativePush, client),
+    listSessions: () => host.listSessions(),
+    listAgentPool: () => host.listAgentPool(),
+    searchSessionContent: ([query]) => host.searchSessionContent(requiredSessionContentQuery(query)),
+    ...sessionRemoteMethods(host, client, browserRemote),
+    ...hostCapabilityRemoteMethods(host, browserRemote),
+    ...browserParityRemoteMethods(browserRemote),
+    ...gitRemoteMethods(invokeDesktopOperation),
+    ...developerToolingRemoteMethods(invokeDesktopOperation),
+    ...localFileRemoteMethods({ host, invokeDesktopOperation, grants, viewedSessionIds }),
+    ...(fileDownloads ? fileDownloadRemoteMethods(fileDownloads, downloadRequester) : {}),
+    // ── Project entries and the editor ─────────────────────────────────────
+    ...projectEntryRemoteMethods(host, (method, args) => requiredHostRequest()(method, args)),
+    ...hostWindowRemoteMethods(requiredHostRequest, browserRemote),
+    ...editorRemoteMethods({ host, userDataPath, invokeDesktopOperation, grants }),
+    ...createRemoteFilePreviewMethods({ host, grants, hostRequest }),
+    ...createRemoteVisualizeMethods({ mirror: visualize, hostRequest, invokeDesktopOperation }),
+  };
+  if (settingsStore)
+    Object.assign(methods, settingsRemoteMethods(settingsStore, onDesktopSettingsChanged, invokeDesktopOperation));
+  if (terminals) Object.assign(methods, terminalRemoteMethods(terminals, invokeDesktopOperation, client));
+  return methods;
+}
+
+function workspaceRemoteMethods({
+  host,
+  invokeDesktopOperation,
+  grants,
+}: {
+  host: DesktopService;
+  invokeDesktopOperation: InvokeDesktopOperation;
+  grants: SelectedFileGrants;
+}): Record<string, RemoteMethod> {
+  const { grantedFile, grantedIf } = grants;
+  return {
     submitFeedback: ([input]) => submitFeedback(input),
     readActivityRailPins: () => invokeDesktopOperation('readActivityRailPins', []),
     // A web client writes normally; it never initializes from its local cache.
@@ -687,6 +818,8 @@ export function createRemoteMethods(
     renameProject: ([projectPath, alias]) =>
       host.renameProject(requiredString(projectPath, 'projectPath'), projectDisplayName(alias)),
     removeProject: ([projectPath]) => host.removeProject(requiredString(projectPath, 'projectPath')),
+    // Add-project browser: directories only, valid before any project exists.
+    listHostDirectories: ([path]) => invokeDesktopOperation('listHostDirectories', [validatedHostDirectoryPath(path)]),
     listProjectDir: ([projectPath, relDir]) =>
       host.listProjectDir(requiredString(projectPath, 'projectPath'), typeof relDir === 'string' ? relDir : ''),
     readProjectFile: ([projectPath, relPath, accessToken]) => {
@@ -721,11 +854,18 @@ export function createRemoteMethods(
         { pages: request.pages, maxWidth: request.maxWidth },
       ]);
     },
-    ...pushRemoteMethods(push, nativePush, client),
-    listSessions: () => host.listSessions(),
-    listAgentPool: () => host.listAgentPool(),
-    searchSessionContent: ([query]) => host.searchSessionContent(requiredSessionContentQuery(query)),
-    ...sessionRemoteMethods(host, client, browserRemote),
+  };
+}
+
+function hostCapabilityRemoteMethods(
+  host: DesktopService,
+  browserRemote: RemoteMethodDependencies['browserRemote']
+): Record<string, RemoteMethod> {
+  const requiredBrowserRemote = (): NonNullable<RemoteMethodDependencies['browserRemote']> => {
+    if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
+    return browserRemote;
+  };
+  return {
     searchProjectFiles: ([projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories]) => {
       if (typeof query !== 'string' || query.length > 1_024) {
         throw new TypeError('query is invalid.');
@@ -756,8 +896,9 @@ export function createRemoteMethods(
       // The daemon answers a session-addressed call with that session's whole
       // snapshot (transcript included). The turn review bar reads the value
       // only and the phone mirrors the session on its own lane, so each
-      // re-read crossed the relay carrying the entire conversation.
-      if (request.capability !== 'getTurnReviewDiff') return result;
+      // re-read crossed the relay carrying the entire conversation. The
+      // transcript card's turn-changes read is value-only for the same reason.
+      if (request.capability !== 'getTurnReviewDiff' && request.capability !== 'getTurnChanges') return result;
       return result.then(({ value }) => ({ value }));
     },
     readCapabilities: ([input]) => {
@@ -767,24 +908,47 @@ export function createRemoteMethods(
     },
     browserRemoteControl: ([sessionId, input]) =>
       requiredBrowserRemote()('control', [requiredSessionId(sessionId), normalizeRemoteBrowserControl(input)]),
-    ...browserParityRemoteMethods(browserRemote),
-    ...gitRemoteMethods(invokeDesktopOperation),
-    ...developerToolingRemoteMethods(invokeDesktopOperation),
+  };
+}
+
+function localFileRemoteMethods({
+  host,
+  invokeDesktopOperation,
+  grants,
+  viewedSessionIds,
+}: {
+  host: DesktopService;
+  invokeDesktopOperation: InvokeDesktopOperation;
+  grants: SelectedFileGrants;
+  viewedSessionIds: () => readonly string[];
+}): Record<string, RemoteMethod> {
+  return {
     folderWatch: ([dir, recursive]) =>
       invokeDesktopOperation('folderWatch', [absoluteLocalPath(dir), recursive === true]),
     folderUnwatch: ([dir, recursive]) =>
       invokeDesktopOperation('folderUnwatch', [absoluteLocalPath(dir), recursive === true]),
-    // File tabs and attachments for paths outside any project: the same
-    // describe-then-grant grammar the desktop uses for a chosen file.
-    resolveLocalPaths: ([paths]) => resolveLocalPathEntries(paths, { host, invokeDesktopOperation, grants }),
-    readLocalFile: ([path]) => invokeDesktopOperation('readLocalFileAbs', [absoluteLocalPath(path)]),
-    // ── Project entries and the editor ─────────────────────────────────────
-    ...projectEntryRemoteMethods(host, (method, args) => requiredHostRequest()(method, args)),
+    // File tabs and attachments: project files, or files an assistant reply
+    // links (one-file grants). Nothing else on this machine.
+    resolveLocalPaths: ([paths, sessionId]) =>
+      resolveLocalPathEntries(paths, sessionId, { host, invokeDesktopOperation, grants, viewedSessionIds }),
+    readLocalFile: async ([path]) =>
+      invokeDesktopOperation('readLocalFileAbs', [await readableLocalFile(path, host, grants)]),
+  };
+}
+
+function hostWindowRemoteMethods(
+  requiredHostRequest: () => NonNullable<RemoteMethodDependencies['hostRequest']>,
+  browserRemote: RemoteMethodDependencies['browserRemote']
+): Record<string, RemoteMethod> {
+  return {
     // Host updater: the window process owns it; these mirror the desktop
     // getUpdaterState / checkForDesktopUpdate / showDesktopUpdate calls.
     getUpdaterState: () => requiredHostRequest()('updaterState', []) as Promise<DesktopUpdaterState>,
     checkForDesktopUpdate: () => requiredHostRequest()('updaterCheck', []) as Promise<DesktopUpdaterState>,
     showDesktopUpdate: () => requiredHostRequest()('updaterInstall', []) as Promise<DesktopUpdaterState>,
+    // The host window's theme + UI language: a browser with no choice of its own follows them.
+    readHostDisplayPreferences: async () =>
+      readHostDisplayPreferences(await requiredHostRequest()('displayPreferences', [])),
     // Only main-workspace browser tabs are the client's to release.
     browserReleasePage: async ([pageId]) => {
       if (!browserRemote) return;
@@ -792,12 +956,17 @@ export function createRemoteMethods(
       if (!id.startsWith(MAIN_BROWSER_PAGE_PREFIX)) throw new TypeError('Browser page is not a main tab page.');
       await browserRemote('release', [id]);
     },
-    ...editorRemoteMethods({ host, userDataPath, invokeDesktopOperation, grants }),
-    ...createRemoteFilePreviewMethods({ host, grants }),
   };
-  if (settingsStore) {
-    methods.readSettings = () => settingsStore.read();
-    methods.updateSetting = ([key, enabled]) => {
+}
+
+function settingsRemoteMethods(
+  settingsStore: NonNullable<RemoteMethodDependencies['settingsStore']>,
+  onDesktopSettingsChanged: RemoteMethodDependencies['onDesktopSettingsChanged'],
+  invokeDesktopOperation: InvokeDesktopOperation
+): Record<string, RemoteMethod> {
+  return {
+    readSettings: () => settingsStore.read(),
+    updateSetting: ([key, enabled]) => {
       if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
       return settingsStore.update(requiredDesktopSettingKey(key), enabled).then(async (saved) => {
         onDesktopSettingsChanged?.(saved);
@@ -805,27 +974,39 @@ export function createRemoteMethods(
         await invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
         return saved;
       });
-    };
-  }
-  if (terminals) {
-    methods.termEnsure = ([id, cwd, shell]) =>
-      terminals.ensure(
+    },
+  };
+}
+
+function terminalRemoteMethods(
+  terminals: NonNullable<RemoteMethodDependencies['terminals']>,
+  invokeDesktopOperation: InvokeDesktopOperation,
+  client: RemoteMethodClient | undefined
+): Record<string, RemoteMethod> {
+  // Size ownership is per connection: this phone's claims and releases are
+  // keyed by the relay's id for THIS leg, never by anything it sends.
+  const connectionId = (): string => client?.connectionId?.() || 'remote';
+  return {
+    termEnsure: async ([id, cwd, shell]) => {
+      const { sizeOwner, ...ensured } = await terminals.ensure(
         typeof id === 'string' && id ? id : null,
         typeof cwd === 'string' && cwd ? cwd : null,
         typeof shell === 'string' && shell ? shell : null
       );
-    methods.termProfiles = () => invokeDesktopOperation('termProfiles', []);
-    methods.termWrite = ([id, data]) => {
+      const owner = clientSizeOwner(sizeOwner, connectionId());
+      return owner ? { ...ensured, sizeOwner: owner } : ensured;
+    },
+    termProfiles: () => invokeDesktopOperation('termProfiles', []),
+    termWrite: ([id, data]) => {
       terminals.write(String(id || ''), String(data ?? ''));
-    };
-    methods.termResize = ([id, cols, rows]) => {
-      terminals.resize(String(id || ''), Number(cols), Number(rows));
-    };
+    },
+    termResize: ([id, cols, rows, phoneOwner]) => {
+      terminals.resize(String(id || ''), Number(cols), Number(rows), phoneOwner === true ? connectionId() : '');
+    },
     // Closing a remote terminal pane must release its PTY; without this the
     // browser's dispose call answered "unknown method" and the shell lingered.
-    methods.termDispose = ([id]) => invokeDesktopOperation('termDispose', [requiredString(id, 'terminal id', 128)]);
-  }
-  return methods;
+    termDispose: ([id]) => invokeDesktopOperation('termDispose', [requiredString(id, 'terminal id', 128)]),
+  };
 }
 
 export interface RemoteFrameResponse {
@@ -912,7 +1093,8 @@ export async function executeRemoteFrame(
   }
   const method = typeof message.method === 'string' ? message.method : '';
   const params = Array.isArray(message.params) ? message.params : [];
-  const handler = methods[method];
+  // Own entries only: an inherited name (`constructor`, `toString`) is not a method.
+  const handler = Object.hasOwn(methods, method) ? methods[method] : undefined;
   if (typeof message.id !== 'number') {
     // Fire-and-forget lane (terminal keystrokes/resize): no response frame.
     if (handler && (method === 'termWrite' || method === 'termResize')) {

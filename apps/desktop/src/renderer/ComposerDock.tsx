@@ -9,6 +9,7 @@ import {
 } from './ComposerIsland';
 import type { TranscriptItem } from './desktop-types';
 import { SessionGoalHost } from './session-goal-submission';
+import { requestSessionDiffList } from './session-diff-focus';
 
 // The changed-files segment only paints for a file-touching turn, so its diff
 // analysis stays out of the first-screen bundle.
@@ -46,7 +47,6 @@ export function ComposerDock({
   reviewCwd,
   onOpenSessionDiff,
   onOpenAgentSession,
-  onOpenBackgroundJobs,
   children,
 }: {
   dockRef?: Ref<HTMLDivElement>;
@@ -75,9 +75,6 @@ export function ComposerDock({
   onOpenSessionDiff?: () => void;
   /** The jobs panel opens an agent's session. */
   onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
-  /** The agent/shell segments open the pane's side dock on the jobs list;
-   *  when absent they expand the island's popover. */
-  onOpenBackgroundJobs?: (kind: 'agent' | 'shell') => void;
   children: ReactNode;
 }) {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
@@ -101,6 +98,28 @@ export function ComposerDock({
   }, [reviewModule]);
   if (moduleFailure) throw moduleFailure.error;
   const TurnReviewBar = reviewModule?.TurnReviewBar;
+  const openChanges = onOpenSessionDiff
+    ? () => {
+        requestSessionDiffList(reviewSessionId);
+        onOpenSessionDiff();
+      }
+    : undefined;
+  // Keep the entry gate until the module and its authoritative read
+  // are ready, but do not let Suspense's reveal throttle hold an
+  // already loaded segment (and the entire transcript) for 300ms.
+  const files = TurnReviewBar ? (
+    <TurnReviewBar
+      variant="segment"
+      items={reviewItems}
+      active={reviewActive}
+      busy={reviewBusy}
+      sessionId={reviewSessionId}
+      cwd={reviewCwd}
+      onOpenChanges={openChanges}
+    />
+  ) : (
+    <span hidden data-entry-pending />
+  );
 
   return (
     <div className="composer-region" ref={dockRef}>
@@ -110,26 +129,8 @@ export function ComposerDock({
         <ComposerIsland
           sessionId={sessionId}
           onOpenAgentSession={onOpenAgentSession}
-          onOpenBackgroundJobs={onOpenBackgroundJobs}
           goal={<SessionGoalHost submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>}
-          files={
-            // Keep the entry gate until the module and its authoritative read
-            // are ready, but do not let Suspense's reveal throttle hold an
-            // already loaded segment (and the entire transcript) for 300ms.
-            TurnReviewBar ? (
-              <TurnReviewBar
-                variant="segment"
-                items={reviewItems}
-                active={reviewActive}
-                busy={reviewBusy}
-                sessionId={reviewSessionId}
-                cwd={reviewCwd}
-                onOpenChanges={onOpenSessionDiff}
-              />
-            ) : (
-              <span hidden data-entry-pending />
-            )
-          }
+          files={files}
           approval={approval}
           flash={islandFlash}
           modelMismatch={modelMismatch}

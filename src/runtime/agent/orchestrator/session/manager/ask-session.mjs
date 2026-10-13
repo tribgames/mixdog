@@ -40,13 +40,23 @@ const traceAskStart = (sessionId, explicitPrefetch) => {
 
 /** The transcript timestamps the caller supplied for this ask: the persisted
  *  user metadata plus a one-shot reader for the assistant metadata. */
-function createAskTranscriptMeta(rawTranscriptMeta) {
+export function createAskTranscriptMeta(rawTranscriptMeta) {
   return {
     raw: rawTranscriptMeta,
     user: persistedUserTranscriptMetadata(rawTranscriptMeta),
     takeAssistant: () => {
+      const live = rawTranscriptMeta && typeof rawTranscriptMeta === 'object';
+      // An id the live row already minted is the one persisted; otherwise the
+      // row has not been drawn yet and takes this message's id and time.
+      const rowKnowsId =
+        live && typeof rawTranscriptMeta.assistantMessageId === 'string' && rawTranscriptMeta.assistantMessageId;
       const metadata = persistedAssistantTranscriptMetadata(rawTranscriptMeta);
-      if (rawTranscriptMeta && typeof rawTranscriptMeta === 'object') delete rawTranscriptMeta.assistantAt;
+      if (live) {
+        // One-shot: the next reply gets its own time and stable id.
+        delete rawTranscriptMeta.assistantAt;
+        delete rawTranscriptMeta.assistantMessageId;
+        rawTranscriptMeta.persistedAssistant = rowKnowsId ? null : { messageId: metadata.messageId, at: metadata.at };
+      }
       return metadata;
     },
   };

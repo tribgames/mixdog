@@ -447,12 +447,14 @@ test('cwd and memory schemas stay minimal and direct', () => {
     CWD_TOOL.annotations?.title !== 'Project' ||
     !/active Project/i.test(CWD_TOOL.description || '') ||
     !/shell-local cd does not change the Project/i.test(CWD_TOOL.description || '') ||
-    Object.keys(cwdProps).join(',') !== 'action,path' ||
-    cwdProps.action?.enum?.join(',') !== 'get,set,list' ||
+    Object.keys(cwdProps).join(',') !== 'action,path,force' ||
+    cwdProps.action?.enum?.join(',') !==
+      'get,set,list,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
     cwdProps.path?.minLength !== undefined ||
+    cwdProps.force?.type !== 'boolean' ||
     CWD_TOOL.inputSchema?.additionalProperties !== false
   ) {
-    throw new Error('cwd schema must expose get/set/list and an optional Project path');
+    throw new Error('cwd schema must expose get/set/list, the worktree actions, and an optional Project path');
   }
   const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');
   const memoryProps = memoryTool?.inputSchema?.properties || {};

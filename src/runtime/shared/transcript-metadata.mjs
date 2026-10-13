@@ -21,14 +21,29 @@ export function createTranscriptRouteMetadata(session, route = {}, at = Date.now
   return { at, ...transcriptRouteMetadataFields({ modelId, model, provider, agent }) };
 }
 
+/** A new stable message id (`meta.transcript.messageId`). */
+export function newTranscriptMessageId() {
+  return `msg_${globalThis.crypto.randomUUID().replaceAll('-', '')}`;
+}
+
+export const stableMessageId = (value) => (typeof value === 'string' && value ? value : newTranscriptMessageId());
+
+// Every persisted prompt/reply carries a stable `messageId` from creation on.
+// Compaction rewrites copy `meta`, so the id survives them; the display-only
+// compaction archive and a live view tell dropped rows from rewritten ones
+// by it. A surface that drew the row first passes its id in.
 export function persistedUserTranscriptMetadata(value) {
   if (!value || typeof value !== 'object') return null;
   return {
+    messageId: stableMessageId(value.messageId),
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     // The device that submitted the prompt (host-stamped display name).
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    // The turn's change-record key (the outer prompt id), so a restored user
+    // row still addresses its turn's Undo/Reapply.
+    ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
   };
 }
 
@@ -37,5 +52,6 @@ export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.no
   const candidateAt = Number(value.assistantAt);
   const assistantAt = Number.isFinite(candidateAt) && candidateAt > 0 ? candidateAt : fallbackAt;
   value.assistantAt = assistantAt;
-  return { at: assistantAt, ...transcriptRouteMetadataFields(value) };
+  value.assistantMessageId = stableMessageId(value.assistantMessageId);
+  return { messageId: value.assistantMessageId, at: assistantAt, ...transcriptRouteMetadataFields(value) };
 }

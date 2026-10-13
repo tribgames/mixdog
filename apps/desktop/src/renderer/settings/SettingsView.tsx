@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
+import { isSshConnectionWindow } from '../desktop-connection';
 import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { t } from '../i18n';
 import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
@@ -31,6 +32,7 @@ import { preloadDesktopStatus } from './desktop-status-cache';
 import { preloadProviderPanel } from './provider-panel';
 import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
 import { preloadGitPanelInfo } from './git-panel-info';
+import { ServerSettingsScope } from './server-settings-scope';
 import { RemotePcLabel } from '../RemotePcSwitcher';
 import {
   DEVICE_SETTINGS_CATEGORY,
@@ -95,9 +97,16 @@ export const SettingsView = memo(function SettingsView({
   // A host that announces open access serves the Providers and Developer pages;
   // an older one refuses their calls, so they stay hidden.
   const hostOpenAccess = useRemoteHostOpenAccess();
-  const visibleCategories = settingsCategoriesForSurface(remoteSettings, hostOpenAccess);
-  const resolveCategory = (next: SettingsCategory): SettingsCategory =>
-    settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
+  // A server window has no phone access: Connection pairs phones with THIS PC.
+  const serverWindow = isSshConnectionWindow();
+  const visibleCategories = settingsCategoriesForSurface(remoteSettings, hostOpenAccess).filter(
+    (item) => !(serverWindow && item.value === 'connection')
+  );
+  const surfaceCategory = (next: SettingsCategory): SettingsCategory => {
+    const resolved = settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
+    return serverWindow && resolved === 'connection' ? 'general' : resolved;
+  };
+  const resolveCategory = (next: SettingsCategory): SettingsCategory => surfaceCategory(next);
   // On a remote surface the theme lives on the device's own Display page.
   const startCategory = (): SettingsCategory =>
     initialSection === 'theme' && remoteSettings
@@ -107,8 +116,11 @@ export const SettingsView = memo(function SettingsView({
         : 'general';
   const [category, setCategory] = useState<SettingsCategory>(resolveCategory(startCategory()));
   const openCategory = useCallback(
-    (next: SettingsCategory) => setCategory(settingsCategoryForSurface(next, remoteSettings, hostOpenAccess)),
-    [remoteSettings, hostOpenAccess]
+    (next: SettingsCategory) => {
+      const resolved = settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
+      setCategory(serverWindow && resolved === 'connection' ? 'general' : resolved);
+    },
+    [remoteSettings, hostOpenAccess, serverWindow]
   );
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -146,7 +158,7 @@ export const SettingsView = memo(function SettingsView({
   useEffect(() => {
     if (!open) return;
     void preloadGitPanelInfo(api);
-    void preloadConnectionInfo(api, undefined, { activate: false });
+    if (!isSshConnectionWindow()) void preloadConnectionInfo(api, undefined, { activate: false });
     void preloadDesktopStatus(api);
     void preloadProviderPanel(api).catch(() => undefined);
   }, [open, api]);
@@ -325,6 +337,7 @@ export const SettingsView = memo(function SettingsView({
           </header>
           <div ref={bodyRef} className="mixdog-settings__body">
             <div className="mixdog-settings__category-stage">
+              {serverWindow && <ServerSettingsScope />}
               <CapabilitySettings
                 api={api}
                 category={category}

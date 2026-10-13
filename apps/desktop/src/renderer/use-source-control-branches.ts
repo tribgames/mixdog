@@ -1,7 +1,13 @@
 // Branch state for the dock: the branch list and resolved default branch,
 // and the portaled picker's open/query/merge-mode state.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DesktopGitBranch, DesktopGitStatus } from '../shared/contract';
+import type {
+  DesktopBranchMenu,
+  DesktopBranchOccupancy,
+  DesktopGitBranch,
+  DesktopGitStatus,
+} from '../shared/contract';
+import { invokeWorktree } from './worktree-branch-model';
 import { useImmediateOverlayClickGuard } from './immediate-overlay';
 import type { ScmContextMenuState } from './ScmContextMenu';
 import { DEFAULT_BRANCH_NAMES, useAnchoredPanel } from './source-control-support';
@@ -29,6 +35,7 @@ export function useSourceControlBranches({
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
+  const [occupancy, setOccupancy] = useState<Map<string, DesktopBranchOccupancy>>(() => new Map());
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -70,6 +77,14 @@ export function useSourceControlBranches({
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setLoading(false);
+    }
+    // Which branches another worktree holds, for this Project. A backend
+    // without worktree support simply marks nothing.
+    try {
+      const menu = await invokeWorktree<DesktopBranchMenu>('getProjectBranchMenu', [{ projectPath }]);
+      setOccupancy(new Map(menu.occupancy.map((row) => [row.branch, row])));
+    } catch {
+      setOccupancy(new Map());
     }
   }, [api, projectPath, status?.branch, status?.upstreamName, setError]);
 
@@ -116,6 +131,7 @@ export function useSourceControlBranches({
   // biome-ignore lint/correctness/useExhaustiveDependencies: projectPath is the trigger that clears branch state
   useEffect(() => {
     setBranches([]);
+    setOccupancy(new Map());
     setDefaultBranchName('');
     setPickerOpen(false);
     setQuery('');
@@ -150,6 +166,7 @@ export function useSourceControlBranches({
     loading,
     mergeMode,
     setMergeMode,
+    occupancy,
     rootRef,
     triggerRef,
     panelRef,

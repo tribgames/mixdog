@@ -35,6 +35,9 @@ export function createSessionProxyFactory({ attachSession, ensureDaemon, closeId
       toolMode: options.toolMode || 'full',
       remote: options.remote === true,
       desktopSession: options.desktopSession ?? null,
+      // Worktree intent: `--worktree [name]` / `--no-worktree`, or `{ mode: 'default' }`
+      // (the TUI's interactive Lead follows the settings default); absent: none.
+      ...(options.worktree ? { worktree: options.worktree } : {}),
     };
     const attachment = await pool.ensure({ cwd, log });
     const created = await attachment.client.create(openParams, {

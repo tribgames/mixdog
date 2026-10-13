@@ -1,0 +1,187 @@
+// End to end against real git and the managed-worktree backend: a worktree
+// task provisions on its first turn (memory identity carried over), a project
+// branch returns to the project folder keeping the worktree, the retained
+// branch re-enters it, and removal returns first, then deletes.
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { after, test } from 'node:test';
+import { configureWorktreeManager } from '../../runtime/shared/worktrees/manager.mjs';
+import { samePath } from '../../runtime/shared/worktrees/paths.mjs';
+import {
+  cleanupTempDirs,
+  commitFile,
+  git,
+  makeRepo,
+  useTempDataDir,
+  writeFile,
+} from '../../runtime/shared/worktrees/test-support.mjs';
+import { createWorkspaceTransitions } from './transitions.mjs';
+import { workspaceCwdLock } from './admission-gate.mjs';
+
+after(() => cleanupTempDirs());
+
+test('lazy provisioning, branch return, re-entry and removal against a real repository', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const repo = makeRepo();
+    commitFile(repo, '.gitignore', '.mixdog/\n');
+    writeFile(repo, '.mixdog/project.id', `git-e2e-${process.pid}\n`);
+    git(repo, 'branch', 'dev');
+    const session = {
+      id: `sess_git_${process.pid}`,
+      cwd: repo,
+      desktopSession: { classification: 'project', projectPath: repo },
+      messages: [],
+    };
+    let cwd = repo;
+    const refreshed = [];
+    const api = createWorkspaceTransitions({
+      getSession: () => session,
+      getCurrentCwd: () => cwd,
+      applyResolvedCwd: (next) => {
+        cwd = next;
+        session.cwd = next;
+      },
+      persistSession: () => {},
+      refreshWorkspaceContext: async (_session, next) => refreshed.push(next),
+      getActiveTurnCount: () => 0,
+      agentStatusState: () => ({ agentWorkers: [], agentJobs: [] }),
+      countOwnShellJobs: async () => 0,
+      listLiveSessions: () => [],
+      findRegisteredProject: async (path) => (samePath(path, repo) ? repo : null),
+      initialIntent: { mode: 'worktree', name: null },
+    });
+
+    const first = await api.prepareTurnWorkspace({ submissionId: 'sub-git-1', prompt: 'Fix the login page' });
+    const worktree = first.workspace.cwd;
+    assert.equal(first.workspace.branch, 'mixdog/fix-the-login-page');
+    assert.equal(first.workspace.mergeTarget, 'main');
+    assert.ok(existsSync(worktree));
+    assert.equal(git(worktree, 'symbolic-ref', '--short', 'HEAD'), 'mixdog/fix-the-login-page');
+    assert.equal(readFileSync(join(worktree, '.mixdog', 'project.id'), 'utf8').trim(), `git-e2e-${process.pid}`);
+    assert.ok(samePath(workspaceCwdLock([session.id]), worktree));
+    assert.equal(session.desktopSession.projectPath, repo);
+
+    const back = await api.selectBranch({ branch: 'dev', expectedRevision: first.revision });
+    assert.equal(back.workspace.cwd, repo);
+    assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'dev');
+    assert.ok(existsSync(worktree), 'the worktree stays retained');
+
+    const menu = await api.getBranchMenu();
+    assert.equal(menu.retainedWorktree.branch, 'mixdog/fix-the-login-page');
+    assert.equal(menu.occupancy.find((row) => row.branch === 'dev').kind, 'current');
+    assert.equal(menu.occupancy.find((row) => row.branch === 'mixdog/fix-the-login-page').kind, 'session');
+    assert.deepEqual(
+      menu.branches.find((row) => row.name === 'dev'),
+      { name: 'dev', current: true, remote: false, upstream: '' },
+      'branch rows carry the DesktopGitBranch shape'
+    );
+
+    // The session-less (draft) menu and checkout read and guard the same folder.
+    const projectMenu = await api.getProjectBranchMenu({ projectPath: repo });
+    assert.equal(projectMenu.workspace.branch, 'dev');
+    assert.equal(projectMenu.retainedWorktree, null);
+    await assert.rejects(api.getProjectBranchMenu({ projectPath: join(repo, '..') }), {
+      code: 'WORKTREE_PROJECT_UNKNOWN',
+    });
+    assert.equal(projectMenu.occupancy.find((row) => row.branch === 'mixdog/fix-the-login-page').kind, 'session');
+    writeFile(repo, 'README.md', 'edited\n');
+    await assert.rejects(api.selectProjectBranch({ projectPath: repo, branch: 'main' }), { code: 'WORKTREE_DIRTY' });
+    assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'dev');
+    git(repo, 'checkout', '-q', '--', 'README.md');
+    assert.equal((await api.selectProjectBranch({ projectPath: repo, branch: 'main' })).changed, true);
+    assert.equal((await api.selectProjectBranch({ projectPath: repo, branch: 'dev' })).changed, true);
+
+    const again = await api.selectBranch({ branch: 'mixdog/fix-the-login-page' });
+    assert.ok(samePath(again.workspace.cwd, worktree));
+    assert.equal(again.revision, back.revision + 1);
+
+    const removed = await api.removeWorktree({});
+    assert.equal(removed.workspace.cwd, repo);
+    assert.equal(removed.removed.removed, true);
+    assert.equal(existsSync(worktree), false);
+    assert.deepEqual(refreshed.length, 4, 'every committed revision re-rooted the prompt');
+  } finally {
+    restore();
+  }
+});
+
+function realApi(session, projects, cwdRef) {
+  return createWorkspaceTransitions({
+    getSession: () => session,
+    getCurrentCwd: () => cwdRef.cwd,
+    applyResolvedCwd: (next) => {
+      cwdRef.cwd = next;
+      session.cwd = next;
+    },
+    persistSession: () => {},
+    refreshWorkspaceContext: async () => {},
+    getActiveTurnCount: () => 0,
+    agentStatusState: () => ({ agentWorkers: [], agentJobs: [] }),
+    countOwnShellJobs: async () => 0,
+    listLiveSessions: () => [],
+    findRegisteredProject: async (path) => projects.find((project) => samePath(project, path)) ?? null,
+  });
+}
+
+test('two repositories: a worktree retained from repository A is never merged into Project B', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const repoA = makeRepo();
+    const repoB = makeRepo();
+    commitFile(repoB, 'b.txt', 'b\n');
+    const session = {
+      id: `sess_two_${process.pid}`,
+      cwd: repoA,
+      desktopSession: { classification: 'project', projectPath: repoA },
+      messages: [],
+    };
+    const cwdRef = { cwd: repoA };
+    const api = realApi(session, [repoA, repoB], cwdRef);
+    const entered = await api.requestWorktree({ provision: true, prompt: 'Work in A', txId: 'two-repos' });
+    commitFile(entered.workspace.cwd, 'a-feature.txt', 'feature\n');
+    // Back to A's folder, then the Project switches to B (the session keeps its worktree of A).
+    await api.selectBranch({ branch: 'main' });
+    session.desktopSession = { classification: 'project', projectPath: repoB };
+    session.cwd = repoB;
+    cwdRef.cwd = repoB;
+    delete session.workspace;
+    const headA = git(repoA, 'rev-parse', 'HEAD');
+    const headB = git(repoB, 'rev-parse', 'HEAD');
+    await assert.rejects(api.mergeWorkspace({ confirmed: true, target: 'main' }), {
+      code: 'WORKTREE_PROJECT_MISMATCH',
+    });
+    assert.equal(git(repoA, 'rev-parse', 'HEAD'), headA);
+    assert.equal(git(repoB, 'rev-parse', 'HEAD'), headB);
+    assert.equal(existsSync(join(repoB, 'a-feature.txt')), false);
+  } finally {
+    restore();
+  }
+});
+
+test('the dock merge goes through the runtime: registered Project, confirmed target, --no-ff', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const repo = makeRepo();
+    git(repo, 'checkout', '-q', '-b', 'feature');
+    const tip = commitFile(repo, 'feature.txt', 'feature\n');
+    git(repo, 'checkout', '-q', 'main');
+    const api = realApi({ id: '' }, [repo], { cwd: repo });
+    await assert.rejects(api.mergeProjectBranch({ projectPath: join(repo, '..'), branch: 'feature', target: 'main' }), {
+      code: 'WORKTREE_PROJECT_UNKNOWN',
+    });
+    await assert.rejects(api.mergeProjectBranch({ projectPath: repo, branch: 'feature', target: 'release' }), {
+      code: 'WORKTREE_TARGET_MISMATCH',
+    });
+    const merged = await api.mergeProjectBranch({ projectPath: repo, branch: 'feature', target: 'main' });
+    assert.equal(merged.merged, true);
+    assert.equal(git(repo, 'rev-parse', 'HEAD^2'), tip);
+    assert.equal(merged.commit, git(repo, 'rev-parse', 'HEAD'));
+  } finally {
+    restore();
+  }
+});

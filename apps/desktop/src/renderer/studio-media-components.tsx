@@ -16,6 +16,7 @@ import {
 import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { ProgressSpinner } from './ProgressSpinner';
+import { isSshConnectionWindow } from './desktop-connection';
 import { t, uiFormatLocale } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { formatBytes, pillLabel, type MediaAsset, type MediaKind } from './studio-support';
@@ -402,7 +403,7 @@ export function StudioDetailViewer({
             ) : (
               <button type="button" onClick={() => onOpenFolder(asset)}>
                 <FolderOpen size={14} aria-hidden="true" />
-                <span>{t('Open Folder')}</span>
+                <span>{isSshConnectionWindow() ? t('Reveal in Files') : t('Open Folder')}</span>
               </button>
             )}
             <button type="button" className="studio-detail-danger" onClick={() => onRemove(asset)}>

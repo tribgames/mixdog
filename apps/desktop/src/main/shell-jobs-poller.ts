@@ -9,6 +9,8 @@ interface ShellJobsStatus {
   count: number;
   elapsedLabel: string;
   jobs: readonly DesktopShellJobRow[];
+  /** Recently finished background jobs (session buckets only). */
+  finished: readonly DesktopShellJobRow[];
 }
 
 /** Nothing running — shared so an unowned scope never allocates. */
@@ -16,6 +18,7 @@ const EMPTY_STATUS: ShellJobsStatus = Object.freeze({
   count: 0,
   elapsedLabel: '',
   jobs: Object.freeze([]),
+  finished: Object.freeze([]),
 });
 
 interface ShellJobsPollerOptions {
@@ -29,7 +32,7 @@ interface ShellJobsPollerOptions {
   onChange(changedSessionIds: readonly string[]): void;
 }
 
-function normalizedJobs(value: unknown): DesktopShellJobRow[] {
+function normalizedJobs(value: unknown, finished = false): DesktopShellJobRow[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return [];
@@ -42,6 +45,14 @@ function normalizedJobs(value: unknown): DesktopShellJobRow[] {
         command: String(row.command || '').trim(),
         cwd: String(row.cwd || '').trim(),
         startedAt: typeof row.startedAt === 'number' || typeof row.startedAt === 'string' ? row.startedAt : null,
+        ...(finished
+          ? {
+              status: String(row.status || ''),
+              exitCode: Number.isInteger(row.exitCode) ? (row.exitCode as number) : null,
+              finishedAt:
+                typeof row.finishedAt === 'number' || typeof row.finishedAt === 'string' ? row.finishedAt : null,
+            }
+          : {}),
       },
     ];
   });
@@ -51,6 +62,7 @@ interface RawShellJobsStatus {
   count?: unknown;
   elapsedLabel?: unknown;
   jobs?: unknown;
+  finished?: unknown;
 }
 
 function normalizedStatus(value: RawShellJobsStatus | null | undefined): ShellJobsStatus {
@@ -66,6 +78,7 @@ function normalizedStatus(value: RawShellJobsStatus | null | undefined): ShellJo
     // travels only then.
     elapsedLabel: count > jobs.length ? String(value?.elapsedLabel || '') : '',
     jobs,
+    finished: normalizedJobs(value?.finished, true),
   };
 }
 
@@ -76,7 +89,7 @@ function normalizedSessions(value: unknown): Map<string, ShellJobsStatus> {
     const id = String(sessionId || '').trim();
     if (!id) continue;
     const status = normalizedStatus(bucket as RawShellJobsStatus);
-    if (status.count > 0) sessions.set(id, status);
+    if (status.count > 0 || status.finished.length > 0) sessions.set(id, status);
   }
   return sessions;
 }

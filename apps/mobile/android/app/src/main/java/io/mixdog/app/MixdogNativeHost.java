@@ -36,10 +36,37 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   private static WeakReference<MixdogNativeHost> current = new WeakReference<>(null);
 
   private final MainActivity activity;
+  private final MixdogAppUpdater updater;
+  private final MixdogFileSave fileSave;
+  // One token per loaded page: file-save handles belong to the page that began
+  // them and die when the WebView navigates (touched on the UI thread only).
+  private Object pageEpoch = new Object();
 
   MixdogNativeHost(MainActivity activity) {
     this.activity = activity;
+    this.updater = new MixdogAppUpdater(activity, () -> dispatch("mixdognativeupdate"));
+    this.fileSave = new MixdogFileSave(activity);
     current = new WeakReference<>(this);
+  }
+
+  /** The activity came back to the foreground (settings / installer closed). */
+  void onResume() {
+    updater.onResume();
+    fileSave.onResume();
+  }
+
+  void onDestroy() {
+    updater.close();
+    fileSave.onDestroy();
+  }
+
+  /** The WebView started loading a page (UI thread): the previous page's save handles end. */
+  static void pageStarted() {
+    MixdogNativeHost host = current.get();
+    if (host == null) return;
+    Object previous = host.pageEpoch;
+    host.pageEpoch = new Object();
+    host.fileSave.release(previous);
   }
 
   /**
@@ -67,11 +94,25 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     try {
       JSONObject request = new JSONObject(message.getData());
       JSONObject args = request.optJSONObject("args");
-      String result =
-          handle(request.getString("method"), args == null ? new JSONObject() : args, OriginPolicy.isBundled(origin));
-      replyProxy.postMessage(new JSONObject().put("id", request.getInt("id")).put("result", new JSONTokener(result).nextValue()).toString());
+      int id = request.getInt("id");
+      String method = request.getString("method");
+      JSONObject safeArgs = args == null ? new JSONObject() : args;
+      if (MixdogFileSave.handles(method)) {
+        // Storage work runs off the UI thread; the reply arrives when it is done.
+        fileSave.handle(method, safeArgs, pageEpoch, result -> activity.runOnUiThread(() -> reply(replyProxy, id, result)));
+        return;
+      }
+      reply(replyProxy, id, handle(method, safeArgs, OriginPolicy.isBundled(origin)));
     } catch (Exception ignored) {
       // Malformed message: no answer.
+    }
+  }
+
+  private static void reply(JavaScriptReplyProxy replyProxy, int id, String result) {
+    try {
+      replyProxy.postMessage(new JSONObject().put("id", id).put("result", new JSONTokener(result).nextValue()).toString());
+    } catch (Exception ignored) {
+      // The page is gone.
     }
   }
 
@@ -82,12 +123,17 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
   }
 
   private void fireEvent() {
+    dispatch("mixdognativepush");
+  }
+
+  /** Fire a window event in the WebView (callable from any thread). */
+  private void dispatch(String event) {
     WebView webView = activity.getBridge() == null ? null : activity.getBridge().getWebView();
     if (webView == null) return;
     webView.post(
         () ->
             webView.evaluateJavascript(
-                "window.dispatchEvent(new Event('mixdognativepush'))", null));
+                "window.dispatchEvent(new Event('" + event + "'))", null));
   }
 
   private String permission() {
@@ -139,6 +185,8 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
           for (int i = 0; origins != null && i < origins.length(); i++) list.add(origins.optString(i));
           MixdogOrigins.save(activity, OriginPolicy.sanitize(list));
           return "true";
+        case "getNativeCapabilities":
+          return "{\"fileSave\":1}";
         case "getPushState":
           return state().toString();
         case "requestPush":
@@ -162,6 +210,18 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
         case "takePendingAction":
           JSONObject action = MixdogPushStore.takeAction(activity);
           return action == null ? "null" : action.toString();
+        case "getAppUpdate":
+          return updater.get(args.optBoolean("check", false)).toString();
+        case "startAppUpdate":
+          return updater.start().toString();
+        case "cancelAppUpdate":
+          return updater.cancel().toString();
+        case "installAppUpdate":
+          return updater.install().toString();
+        case "dismissAppUpdate":
+          return updater.dismiss(args.optString("version", "")).toString();
+        case "openAppUpdateInBrowser":
+          return updater.openInBrowser() ? "true" : "false";
         case "openHostPicker":
           activity.runOnUiThread(
               () ->

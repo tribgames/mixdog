@@ -33,7 +33,13 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
     if (guest.getURL()) return;
     // A newly constructed hidden BrowserWindow has no committed document and
     // will not emit dom-ready until its first explicit load.
-    await bounded(guest.loadURL('about:blank'), OPEN_SURFACE_TIMEOUT_MS, 'browser page initialization');
+    try {
+      await bounded(guest.loadURL('about:blank'), OPEN_SURFACE_TIMEOUT_MS, 'browser page initialization');
+    } catch (error) {
+      // An address loaded into the blank page supersedes this load (ERR_ABORTED,
+      // -3): the page is already navigating, which is not an initialization failure.
+      if (!/\bERR_ABORTED\b|\(-3\)/.test(String((error as Error)?.message))) throw error;
+    }
   }
 
   /** The debugger detached (page gone or Chromium dropped it): forget every

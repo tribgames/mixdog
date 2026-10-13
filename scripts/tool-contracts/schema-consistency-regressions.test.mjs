@@ -58,7 +58,7 @@ test('setup rejects missing reset values and unrelated action fields before acce
     [{ action: 'set_auto_update', enabled: false, route: { model: 'ignored' } }, /does not accept field\(s\): route/],
     [{ action: 'set_route', route: { model: 'valid' }, enabled: false }, /does not accept field\(s\): enabled/],
     [{ action: 'status', name: 'unused' }, /does not accept field\(s\): name/],
-    [{ action: 'reconnect_mcp', name: 'unused' }, /does not accept field\(s\): name/],
+    [{ action: 'reconnect_mcp', enabled: true }, /does not accept field\(s\): enabled/],
   ];
   for (const [args, error] of cases) await assert.rejects(executor.execute(args), error);
 });

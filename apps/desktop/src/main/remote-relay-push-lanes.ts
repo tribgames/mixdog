@@ -7,7 +7,14 @@ import { TerminalDataBufferer } from './terminal-data-buffer';
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
+import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
+import {
+  type DesktopVisualizeEvent,
+  REMOTE_VISUALIZE_CHANGED_EVENT,
+  REMOTE_VISUALIZE_LANE,
+  VISUALIZE_REMOTE_DESKTOP_EVENT,
+} from '../shared/visualize';
 
 export interface RelayPushLaneDeps {
   clients: ReadonlyMap<string, RelayClientState>;
@@ -23,6 +30,7 @@ const readsLane =
 const readsTerminal = readsLane('terminal');
 const readsFiles = readsLane('files');
 const readsEditor = readsLane('editor');
+const readsVisualize = readsLane(REMOTE_VISUALIZE_LANE);
 
 /** Desktop events every client receives under their own name. */
 const GLOBAL_DESKTOP_EVENTS = new Set<string>([
@@ -70,6 +78,40 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
         // An agent handoff (CAPTCHA): losing it leaves the user unaware the
         // page needs them, so it is never droppable.
         deps.broadcastEncrypted({ event: REMOTE_BROWSER_OPEN_EVENT, payload: value }, false);
+      } else if (name === TERMINAL_SIZE_OWNER_EVENT) {
+        // Each phone is told whether IT owns the size: the owner keeps fitting
+        // its own pane, every other terminal view follows the owner's grid.
+        const change = value as TerminalSizeOwnerChange;
+        const ownerState = deps.clients.get(change.owner);
+        const payload = { id: change.id, cols: change.cols, rows: change.rows };
+        deps.broadcastEncrypted(
+          { event: 'termSizeOwner', payload: { ...payload, own: true } },
+          false,
+          (state) => state === ownerState && readsTerminal(state)
+        );
+        deps.broadcastEncrypted(
+          { event: 'termSizeOwner', payload: { ...payload, own: false } },
+          false,
+          (state) => state !== ownerState && readsTerminal(state)
+        );
+      } else if (name === VISUALIZE_REMOTE_DESKTOP_EVENT) {
+        // The agent's visualize tabs (already path-free). Never droppable: a
+        // lost frame leaves a stale tab list or a missed reveal behind.
+        const { sessionId, state, reveal, openUrl } = value as DesktopVisualizeEvent;
+        if (state) {
+          deps.broadcastEncrypted(
+            {
+              event: REMOTE_VISUALIZE_CHANGED_EVENT,
+              payload: { sessionId, state, ...(reveal ? { reveal: true } : {}) },
+            },
+            false,
+            readsVisualize
+          );
+        }
+        // A web URL opened in the desktop's session browser panel: the
+        // existing browser handoff reveals that page on every client.
+        if (openUrl)
+          deps.broadcastEncrypted({ event: REMOTE_BROWSER_OPEN_EVENT, payload: { sessionId, reveal: true } }, false);
       } else if (name === 'folder-changed') {
         deps.broadcastEncrypted({ event: 'folderChanged', payload: value }, false, readsFiles);
       } else if (name === 'lsp-diagnostics') {

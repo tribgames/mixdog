@@ -32,6 +32,7 @@ import type { SessionHostPublication } from './session-host-publication';
 import { sessionIdOf, type SessionClient, type SessionCallOptions } from './session-host-transport';
 import type { SessionTranscriptWindows } from './session-transcript-windows';
 import type { SessionViewRegistry } from './session-view-registry';
+import { isProjectScopedCapability, worktreeErrorWithCode } from './worktree-validation';
 
 export type SessionWorkspaceResolution = {
   registeredProject: string;
@@ -55,6 +56,8 @@ export interface SessionHostLifecycleOwner {
   canonicalDirectory(path: string): Promise<string>;
   enterProject(path: string): Promise<void>;
   knownProject(path: string): Promise<string>;
+  /** A registered Project's path (never a managed worktree's), or a rejection. */
+  registeredProject(path: string): Promise<string>;
   touchProject(path: string): Promise<void>;
   resolveSessionWorkspace(projectPath?: string | null): Promise<SessionWorkspaceResolution>;
   projectDirectory(projectPath: string): Promise<string>;
@@ -194,6 +197,23 @@ export class SessionHostLifecycle {
     return value === true;
   }
 
+  /** Stop one background shell job through the runtime that owns the session
+   *  (the task tool's cancel path); never a direct pid kill from the app. */
+  async stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }> {
+    const id = sessionIdOf(sessionId);
+    try {
+      const { value } = await this.owner.invokeSession(id, 'stopShellJob', [taskId]);
+      const result = (value && typeof value === 'object' ? value : {}) as { stopped?: unknown; error?: unknown };
+      if (result.stopped === true) return { stopped: true };
+      return {
+        stopped: false,
+        error: typeof result.error === 'string' && result.error ? result.error : 'The job was not stopped.',
+      };
+    } catch (error) {
+      return { stopped: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   async getQuotaAutoResume(): Promise<boolean> {
     return (await this.owner.invokeControl('getQuotaAutoResume', [])) === true;
   }
@@ -206,6 +226,13 @@ export class SessionHostLifecycle {
     const id = sessionIdOf(sessionId);
     await this.owner.sessionMetadata.load();
     if (!(await this.owner.sessionMetadata.setFavorite(id, favorite))) return;
+    await this.republishSessionCatalog();
+  }
+
+  async setSessionProject(sessionId: string, projectPath: string | null): Promise<void> {
+    const id = sessionIdOf(sessionId);
+    await this.owner.sessionMetadata.load();
+    if (!(await this.owner.sessionMetadata.setProject(id, projectPath))) return;
     await this.republishSessionCatalog();
   }
 
@@ -400,16 +427,27 @@ export class SessionHostLifecycle {
   ): Promise<DesktopNewTaskSubmitResult> {
     const id = String(options.id || '').trim() || randomUUID();
     const stableOptions = { ...options, id, submittedAt: undefined };
-    return this.owner.newTaskRequests.run(id, { prompt, options: stableOptions, draft }, async (request) => {
-      if (request.phase === 'accepted') {
-        return {
-          accepted: true,
-          sessionId: request.sessionId,
-          snapshot: await this.owner.readSession(request.sessionId, false, false),
-        };
-      }
-      return this.createNewTask(prompt, { ...options, id }, draft, request);
-    });
+    // Acknowledging a large repository resends the SAME submission; the
+    // acknowledgement is not content, so it stays out of the signature.
+    const signedDraft = draft.worktree ? { ...draft, worktree: {} } : draft;
+    try {
+      return await this.owner.newTaskRequests.run(
+        id,
+        { prompt, options: stableOptions, draft: signedDraft },
+        async (request) => {
+          if (request.phase === 'accepted') {
+            return {
+              accepted: true,
+              sessionId: request.sessionId,
+              snapshot: await this.owner.readSession(request.sessionId, false, false),
+            };
+          }
+          return this.createNewTask(prompt, { ...options, id }, draft, request);
+        }
+      );
+    } catch (error) {
+      throw worktreeErrorWithCode(error);
+    }
   }
 
   /** Apply the draft's workflow, orchestration mode and route to a freshly
@@ -431,6 +469,7 @@ export class SessionHostLifecycle {
         ...(typeof draft.route.autoEffort === 'boolean' ? { autoEffort: draft.route.autoEffort } : {}),
         ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
         ...(typeof draft.route.contextPercent === 'number' ? { contextPercent: draft.route.contextPercent } : {}),
+        ...(typeof draft.route.contextTokens === 'number' ? { contextTokens: draft.route.contextTokens } : {}),
         applyToCurrentSession: true,
       },
     ]);
@@ -477,6 +516,33 @@ export class SessionHostLifecycle {
         await this.configureDraft(sessionId, draft);
         await request.commit('configured');
       }
+      const submissionId = String(options.id || '').trim() || `desktop-submit-${sessionId}-${Date.now()}`;
+      // The draft's "Worktree" choice: create and enter it before the prompt
+      // goes out, so a typed refusal (large repository, disk, busy) rejects
+      // this submission and the draft stays unsent. Runs on every attempt; the
+      // submission id makes a resend reuse the same worktree.
+      if (draft.worktree) {
+        const provisioned = await this.owner.invokeSession(sessionId, 'requestWorktree', [
+          {
+            provision: true,
+            confirmLarge: draft.worktree.confirmLarge === true,
+            prompt: promptTitle(prompt, options.displayText || ''),
+            txId: submissionId,
+          },
+        ]);
+        // Only a bound session may receive the prompt. A runtime that merely
+        // armed the lazy intent (pending) would run the turn in the project
+        // folder, and a turn that then fails before provisioning (no model,
+        // no provider) would drop the choice: refuse instead, so the draft
+        // keeps its text and its "Worktree" choice.
+        const value = provisioned.value as { pending?: unknown; workspace?: { worktreeId?: unknown } } | null;
+        if (value?.pending !== false || typeof value.workspace?.worktreeId !== 'string') {
+          throw Object.assign(
+            new Error('WORKTREE_NOT_IMPLEMENTED: The session did not enter its worktree before the first prompt.'),
+            { code: 'WORKTREE_NOT_IMPLEMENTED' }
+          );
+        }
+      }
       const goalCommand = String(options.goalCommand || '').trim();
       if (goalCommand) {
         const goalResult = await this.owner.invokeSession(sessionId, 'goalControl', [
@@ -502,7 +568,6 @@ export class SessionHostLifecycle {
         void this.owner.publishCatalogs();
         return { accepted: true, sessionId, snapshot: goalResult.snapshot };
       }
-      const submissionId = String(options.id || '').trim() || `desktop-submit-${sessionId}-${Date.now()}`;
       const prior = this.owner.publication.projections.get(sessionId);
       const result = await this.owner.client.submit(
         {
@@ -703,13 +768,35 @@ export class SessionHostLifecycle {
     args: unknown[] = [],
     sessionId?: string
   ): Promise<DesktopCapabilityResult<T>> {
-    const result = sessionId
-      ? await this.owner.invokeSession(sessionId, capability, args)
-      : await this.owner.invokeControlResult(capability, args);
+    let result: { value: unknown; snapshot: SessionSnapshot };
+    try {
+      const forwarded = isProjectScopedCapability(capability) ? await this.projectScopedArgs(args) : args;
+      result = sessionId
+        ? await this.owner.invokeSession(sessionId, capability, forwarded)
+        : await this.owner.invokeControlResult(capability, forwarded);
+    } catch (error) {
+      throw worktreeErrorWithCode(error);
+    }
     return {
       value: copyCapabilityValue(result.value) as T,
       snapshot: result.snapshot,
     };
+  }
+
+  /** The session-less worktree capabilities act on a registered Project only:
+   *  the requested path is resolved through the host's project registry (an
+   *  unknown path is refused here) and forwarded as the registered path. */
+  private async projectScopedArgs(args: unknown[]): Promise<unknown[]> {
+    const input = args[0] as { projectPath: string };
+    let projectPath: string;
+    try {
+      projectPath = await this.owner.registeredProject(input.projectPath);
+    } catch {
+      throw Object.assign(new Error('WORKTREE_PROJECT_UNKNOWN: Project is not available.'), {
+        code: 'WORKTREE_PROJECT_UNKNOWN',
+      });
+    }
+    return [{ ...input, projectPath }, ...args.slice(1)];
   }
 
   async readCapabilities(
@@ -723,7 +810,14 @@ export class SessionHostLifecycle {
         try {
           return {
             ok: true,
-            value: copyCapabilityValue(await this.owner.invokeControl(request.capability, request.args || [])),
+            value: copyCapabilityValue(
+              await this.owner.invokeControl(
+                request.capability,
+                isProjectScopedCapability(request.capability)
+                  ? await this.projectScopedArgs(request.args || [])
+                  : request.args || []
+              )
+            ),
           };
         } catch (error) {
           return {

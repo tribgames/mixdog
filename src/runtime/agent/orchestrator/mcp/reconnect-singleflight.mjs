@@ -13,6 +13,10 @@ export function createKeyedSingleflight() {
       pending.set(lane, tracked);
       return tracked;
     },
+    /** The in-flight task promise for `key`, or undefined. */
+    wait(key) {
+      return pending.get(String(key || ''));
+    },
     has(key) {
       return pending.has(String(key || ''));
     },

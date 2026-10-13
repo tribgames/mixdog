@@ -6,6 +6,7 @@ import { scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 import { PROVIDER_MAX_BEFORE_WARN_MS, STALL_ABORT_S, STALL_TICK_MS } from '../stall-policy.mjs';
 import { PACKAGE_VERSION } from '../../../web-search/lib/package-version.mjs';
 import { DEFAULT_MODEL } from './mimo-oauth-tokens.mjs';
+import { MIMO_SEED_MODELS, mimoSeedRow as seedRow } from '../../../shared/llm/provider-seed-rosters.mjs';
 
 const MIMO_EFFORT_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high']);
 const MIMO_DEFAULT_TEMPERATURE = 1.0;
@@ -15,25 +16,12 @@ const MIMO_DEFAULT_MAX_OUTPUT_TOKENS = 128_000;
 export const MIMO_FIRST_BYTE_TIMEOUT_MS = Math.min(300_000, PROVIDER_MAX_BEFORE_WARN_MS);
 export const MIMO_SEMANTIC_IDLE_TIMEOUT_MS = Math.min(480_000, Math.max(10_000, STALL_ABORT_S * 1000 - STALL_TICK_MS));
 
-// Local roster used when /models fails or comes back empty.
-const SEED_CONTEXT = 1_048_576;
-const SEED_OUTPUT = 131_072;
-export const SEED_MODELS = Object.freeze(
-  [
-    ['mimo-v2.6-pro', 'MiMo-V2.6-Pro', SEED_CONTEXT],
-    ['mimo-v2.6-flash', 'MiMo-V2.6-Flash', SEED_CONTEXT],
-    ['mimo-v2.6-pro-ultraspeed', 'MiMo-V2.6-Pro-Ultraspeed', SEED_CONTEXT],
-    ['mimo-v2.5-pro', 'MiMo-V2.5-Pro', SEED_CONTEXT],
-    ['mimo-v2.5', 'MiMo-V2.5', SEED_CONTEXT],
-    ['mimo-v2-pro', 'MiMo-V2-Pro', SEED_CONTEXT],
-    ['mimo-v2-omni', 'MiMo-V2-Omni', 262_144],
-  ].map(([id, display_name, context_window]) =>
-    Object.freeze({ id, display_name, context_window, max_output_tokens: SEED_OUTPUT })
-  )
-);
+// Local roster used when /models fails or comes back empty. Its limits are not
+// discovered data: decorateModelRows applies them only where nothing fetched did.
+export const SEED_MODELS = MIMO_SEED_MODELS;
 
 export function seedModelItems() {
-  return SEED_MODELS.map((item) => ({ ...item }));
+  return SEED_MODELS.map(({ id, display_name }) => ({ id, display_name }));
 }
 
 // Speech/transcription ids cannot serve a text chat turn.
@@ -50,28 +38,8 @@ export function chooseDefaultModel(ids) {
   return chat[0] || DEFAULT_MODEL;
 }
 
-// Exact seed id, else the longest seed whose id is a lineage prefix of the
-// model (dated or suffixed variants of a seeded model).
-function seedRow(model) {
-  const id = String(model || '').toLowerCase();
-  let seed = SEED_MODELS.find((item) => item.id === id) || null;
-  if (!seed) {
-    for (const item of SEED_MODELS) {
-      if (id.startsWith(`${item.id}-`) && (!seed || item.id.length > seed.id.length)) seed = item;
-    }
-  }
-  if (!seed) return null;
-  return {
-    id: String(model),
-    contextWindow: seed.context_window,
-    outputTokens: seed.max_output_tokens,
-    reasoning: true,
-    vision: true,
-    inputModalities: ['text', 'image'],
-  };
-}
-
-// Fill the gaps a /models row leaves (names, limits, effort levels).
+// Fill the gaps a /models row leaves (names, limits, effort levels); seeds
+// never replace a value the row already carries.
 export function decorateModelRows(rows, items) {
   const display = new Map();
   for (const item of items || []) {
@@ -89,7 +57,7 @@ export function decorateModelRows(rows, items) {
       ...(seed && row.reasoning === undefined ? { reasoning: seed.reasoning } : {}),
       ...(seed && row.vision === undefined ? { vision: seed.vision } : {}),
       ...(seed && row.inputModalities === undefined ? { inputModalities: seed.inputModalities } : {}),
-      reasoningLevels: [...MIMO_EFFORT_LEVELS],
+      reasoningLevels: row.reasoningLevels?.length ? row.reasoningLevels : [...MIMO_EFFORT_LEVELS],
       reasoningContentField: 'reasoning_content',
     };
   });

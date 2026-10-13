@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
-import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { updateJsonAtomicSync, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 
 // Shared model-catalog disk-cache CRUD, parameterized over the small bits each
 // provider varies: cache file name, TTL, an optional schema-version gate, and an
@@ -49,5 +49,40 @@ export function makeModelCache({ fileName, ttlMs, version = null, onSave = null 
     }
   }
 
-  return { path, loadEntrySync, loadSync, save };
+  // A discovery request claims a generation when it starts. Its roster is
+  // written only if no newer request started meanwhile — in this process
+  // (generation) or another one (`requestedAt` checked under the file lock) —
+  // and `isCurrent()` (the credential it was fetched with is still active) holds.
+  let generation = 0;
+  function beginSave(isCurrent) {
+    const claimed = ++generation;
+    const requestedAt = Date.now();
+    return (models, extra = {}) => {
+      if (claimed !== generation || !isCurrent()) return false;
+      let written = false;
+      try {
+        updateJsonAtomicSync(
+          path(),
+          (cur) => {
+            if (Number(cur?.requestedAt) > requestedAt) return undefined;
+            written = true;
+            return {
+              ...extra,
+              ...(version != null ? { version } : {}),
+              fetchedAt: Date.now(),
+              requestedAt,
+              models,
+            };
+          },
+          { fsyncDir: true }
+        );
+      } catch {
+        /* best-effort */
+      }
+      if (written && onSave) onSave(models);
+      return written;
+    };
+  }
+
+  return { path, loadEntrySync, loadSync, save, beginSave };
 }

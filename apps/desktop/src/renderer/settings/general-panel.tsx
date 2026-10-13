@@ -18,17 +18,19 @@ import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
 import { record } from '../record-utils';
-import { isRemoteHostRenderer } from '../remote-ui-projection';
+import { isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
 import {
   getSidePanelMode,
   setSidePanelMode,
   subscribeSidePanelMode,
   type SidePanelMode,
 } from '../side-panel-preferences';
-import { AutoSaveRow, Group, SelectRow, ToggleRow } from './capability-controls';
+import { followHostDisplay, HOST_DISPLAY_ADOPTED_EVENT } from '../host-display-sync';
+import { ActionButton, AutoSaveRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import { label, rows, type PanelContext } from './capability-data';
 import { DesktopNotificationToggle } from './desktop-notification-toggle';
 import { PushNotificationToggle } from './push-notification-toggle';
+import { WorktreeSettings } from './worktree-settings';
 import { NARROW_SHELL_QUERY } from '../use-responsive-shell-bands';
 
 function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
@@ -37,7 +39,11 @@ function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>)
     () => getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme)
   );
   useEffect(() => {
-    setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme));
+    const refresh = () => setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme));
+    refresh();
+    // The host PC's theme replaced this device's while the page was open.
+    window.addEventListener(HOST_DISPLAY_ADOPTED_EVENT, refresh);
+    return () => window.removeEventListener(HOST_DISPLAY_ADOPTED_EVENT, refresh);
   }, [loadedTheme]);
   const choose = (next: string) => {
     const selected = next as DesktopThemePreference;
@@ -168,8 +174,23 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
 /** Remote surfaces: the settings this device stores for itself (localStorage),
  *  split out of General so the page says where they apply. */
 export function DisplayPanel({ data, pending }: PanelContext) {
+  const hostApi = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const followable = isRemoteBrowserRenderer() && Boolean(hostApi?.readHostDisplayPreferences);
   return (
     <>
+      {followable && (
+        <Group title={t('Host computer')}>
+          <ResourceRow
+            title={t('Use host computer settings')}
+            meta={t('Take the theme and language of the computer you are connected to.')}
+            actions={
+              <ActionButton disabled={Boolean(pending)} onClick={() => void followHostDisplay(hostApi ?? {})}>
+                {t('Use host settings')}
+              </ActionButton>
+            }
+          />
+        </Group>
+      )}
       <UiLanguageChoices pending={pending} />
       <ThemeChoices data={data} pending={pending} />
       <Group title={t('Link preview')}>
@@ -232,8 +253,10 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
         />
         <SelectRow
-          title={t('Instruction files')}
-          description={t('Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.')}
+          title={t('Load instruction files')}
+          description={t(
+            'Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.'
+          )}
           value={instructionFilesMode}
           disabled={busy}
           options={[
@@ -248,6 +271,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
       </Group>
       <PushNotificationToggle api={api} />
       <DesktopNotificationToggle />
+      <WorktreeSettings />
       {!remoteSurface && (
         <>
           <UiLanguageChoices pending={pending} />

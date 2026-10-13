@@ -120,6 +120,26 @@ test('the first listing renders the sorted root and expanding lists only that fo
   assert.deepEqual(rowNames(), ['src', 'main.ts', 'readme.md']);
 });
 
+test('a touch tap opens a file pinned; a mouse click keeps the preview-then-double-click pin', async (t) => {
+  const view = fixture(t, { listings: { '': [{ name: 'a.ts', dir: false }] } });
+  await view.render();
+  const clickAs = (pointerType, type = 'click') =>
+    act(async () => {
+      const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, detail: 1 });
+      Object.defineProperty(event, 'pointerType', { value: pointerType });
+      rowFor('a.ts').dispatchEvent(event);
+    });
+  await clickAs('mouse');
+  assert.deepEqual(view.opened, [['a.ts', 'preview']]);
+  await clickAs('mouse', 'dblclick');
+  assert.deepEqual(view.opened.at(-1), ['a.ts', 'pinned']);
+  await clickAs('touch');
+  assert.deepEqual(view.opened.at(-1), ['a.ts', 'pinned']);
+  // A click with no pointer type (keyboard activation, older engines) previews.
+  await clickAs(undefined);
+  assert.deepEqual(view.opened.at(-1), ['a.ts', 'preview']);
+});
+
 test('a refresh re-lists the root and every expanded folder once and keeps rows a failed listing could not replace', async (t) => {
   const listings = {
     '': [

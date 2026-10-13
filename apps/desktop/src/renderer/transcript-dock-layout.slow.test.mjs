@@ -140,6 +140,32 @@ async function geometry(page, key) {
   }, key);
 }
 
+async function checkScrollFade(page) {
+  const fade = await page.evaluate(() => {
+    const shell = document.querySelector('.transcript-shell');
+    const viewport = document.querySelector('.transcript');
+    const dock = document.querySelector('.composer-region').getBoundingClientRect();
+    const style = getComputedStyle(shell, '::after');
+    const ramp = Number.parseFloat(getComputedStyle(shell).getPropertyValue('--transcript-fade'));
+    return {
+      top: shell.getBoundingClientRect().bottom - Number.parseFloat(style.bottom) - Number.parseFloat(style.height),
+      dockTop: dock.top,
+      ramp,
+      mask: getComputedStyle(viewport).maskImage,
+      gradient: style.backgroundImage,
+      pointerEvents: style.pointerEvents,
+      belowJump: Number(style.zIndex) < Number(getComputedStyle(document.querySelector('.jump-to-latest')).zIndex),
+    };
+  });
+  assert.equal(fade.mask, 'none', 'the scrolling content needs no per-frame viewport mask');
+  assert.equal(fade.ramp, 48, 'retain the bottom fade distance');
+  assert.ok(Math.abs(fade.top + fade.ramp - fade.dockTop) <= 1, 'the fade ends at the measured dock top');
+  assert.equal(fade.pointerEvents, 'none', 'the fade cannot intercept scrolling or selection');
+  assert.equal(fade.belowJump, true, 'jump-to-latest is not washed out');
+  assert.match(fade.gradient, /linear-gradient/);
+  return fade;
+}
+
 test('dock changes and delayed rich rows preserve real browser geometry', async (t) => {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const [bundle, styles] = await Promise.all([
@@ -220,9 +246,29 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     assert.equal(before.viewportHeight, height, 'the dock never reduces the scroll viewport');
     assert.equal(before.bottomInset, before.dockHeight, 'native scroll clearance is measured');
     assert.ok(Math.abs(before.lastBottom - (before.dockTop - 24)) <= 1, 'tail clears the composer');
+    const restingFade = await checkScrollFade(page);
 
     await page.evaluate(() => window.fixture.read());
     await settle(page);
+    assert.equal((await checkScrollFade(page)).top, restingFade.top, 'the fade stays stationary while content scrolls');
+    // Mica makes workspace-sheet transparent inside panes. The painted sheet
+    // remains opaque in both themes; the bottom fade must use its colour.
+    for (const surface of ['rgb(17, 17, 19)', 'rgb(252, 252, 252)']) {
+      await page.evaluate((surface) => {
+        const conversation = document.querySelector('.conversation');
+        conversation.style.setProperty('--mx-workspace-sheet', 'transparent');
+        conversation.style.setProperty('--mx-sheet-surface', surface);
+      }, surface);
+      assert.ok(
+        (await checkScrollFade(page)).gradient.includes(surface),
+        'fade matches the painted sheet, not clear Mica'
+      );
+    }
+    await page.evaluate(() => {
+      const conversation = document.querySelector('.conversation');
+      conversation.style.removeProperty('--mx-workspace-sheet');
+      conversation.style.removeProperty('--mx-sheet-surface');
+    });
     before = await geometry(page);
     assert.ok(before.key, 'a real reading anchor is visible');
     const stable = async () => {
@@ -240,13 +286,19 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
     await stable();
     const collapsed = await geometry(page, before.key);
-    assert.equal(empty.dockHeight < collapsed.dockHeight, true, 'an empty island reserves no space; content opens its slot');
+    await checkScrollFade(page);
+    assert.equal(
+      empty.dockHeight < collapsed.dockHeight,
+      true,
+      'an empty island reserves no space; content opens its slot'
+    );
     await page.click('.session-goal-trigger');
     await stable();
     assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'the Goal tab overlays the reader');
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.fixture.change({ composer: 156 }));
     await stable();
+    await checkScrollFade(page);
 
     await page.evaluate((key) => window.fixture.suspend(key), before.key);
     await page.waitForSelector('[data-transcript-pending]');
@@ -323,7 +375,10 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       // The clearance is the dock height rounded to a whole pixel (up to 0.5
       // off while it animates) and the end sits on a device pixel (under 1px
       // off fractional content). A frame behind misses by several pixels.
-      assert.ok(Math.abs(miss) <= 1.5, `slot opening: the tail stays pinned on every frame (missed by ${miss.toFixed(2)}px)`);
+      assert.ok(
+        Math.abs(miss) <= 1.5,
+        `slot opening: the tail stays pinned on every frame (missed by ${miss.toFixed(2)}px)`
+      );
     }
     await pinned('slot open');
     await page.evaluate(() => window.fixture.change({ goal: false, review: false }));

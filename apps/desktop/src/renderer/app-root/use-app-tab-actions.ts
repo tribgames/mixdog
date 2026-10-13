@@ -5,6 +5,7 @@ import type { SourceControlDiffRequest } from '../SourceControlDock';
 import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
 import { t } from '../i18n';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
+import { isSshConnectionWindow } from '../desktop-connection';
 import { navigationKey, newBrowserSelection, newStudioSelection } from '../text-format';
 import { onBrowserMainRequested, type BrowserMainRequest } from '../browser-main-request';
 import { canSplitPaneSize, paneActiveSelection } from '../pane-layout';
@@ -15,6 +16,7 @@ import { prefetchBrowserPane, prefetchDiffView, prefetchEditorPane, prefetchTerm
 import { useAgentBrowserSurfaceRequests } from '../use-agent-browser-surface-requests';
 import { browserSurfaceRevealPlan } from '../session-browser-policy';
 import { onTerminalRevealRequested } from '../terminal-command-request';
+import { onVisualizeRevealRequested } from '../visualize-store';
 import { useStableEvent } from '../use-stable-event';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
 import type { useAppSideDocks } from '../use-app-side-docks';
@@ -85,6 +87,11 @@ export function useAppTabActions({
   // folds. The tab gets its own browser page (user-only, same sign-in
   // partition), loaded at the URL.
   const openBrowserTab = (url: string, title: string | undefined, leafId = paneWorkspace.focusedLeafId) => {
+    // A server window has no browser pane (it drives this PC's browser).
+    if (isSshConnectionWindow()) {
+      void window.mixdogDesktop?.openExternal?.(url)?.catch(() => {});
+      return;
+    }
     void prefetchBrowserPane().catch(() => {});
     paneWorkspace.focusLeaf(leafId);
     openSelectionInFocusedPane(newBrowserSelection(url, title));
@@ -134,6 +141,18 @@ export function useAppTabActions({
     if (leafId) paneSideDocks.select(leafId, 'terminal');
   });
   useEffect(() => onTerminalRevealRequested(revealSessionTerminal), [revealSessionTerminal]);
+
+  // The agent's `visualize` open: the session's visualize view becomes its
+  // side panel. A pane showing the session reveals it now; otherwise it waits
+  // on the session and appears when the user returns to it — no other pane
+  // or session is touched. A panel the user closed never gets here (store).
+  const revealSessionVisualize = useStableEvent((sessionId: string) => {
+    sessionPaneSurfaces.setSessionSideSurface(sessionId, null);
+    sessionPaneSurfaces.setSessionPanelView(sessionId, 'visualize');
+    const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
+    if (leafId) paneSideDocks.select(leafId, 'visualize');
+  });
+  useEffect(() => onVisualizeRevealRequested(revealSessionVisualize), [revealSessionVisualize]);
 
   const openDiffTab = (project: string, rel: string, request: SourceControlDiffRequest) => {
     const target = cleanDiffTarget(project, rel);

@@ -20,6 +20,7 @@ import { FileText, FileDiff, Folder, Globe, MessageCircle, Plus, Sparkles, Termi
 import type { DesktopSessionSummary } from '../shared/contract';
 import type { WorkspaceTab } from './nav-types';
 import { t } from './i18n';
+import { revealFileFromWindow } from './server-transfers';
 import { prefetchSurfaceForSelection } from './lazy-widgets';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { useMobileBack } from './mobile-back';
@@ -410,7 +411,7 @@ function workspaceTabContextMenu({
                 {
                   label: t('Reveal in Explorer'),
                   run: () => {
-                    void window.mixdogDesktop?.revealFile?.(fileTarget.project, fileTarget.rel, fileTarget.accessToken);
+                    void revealFileFromWindow(fileTarget.project, fileTarget.rel, fileTarget.accessToken);
                   },
                 },
               ]),

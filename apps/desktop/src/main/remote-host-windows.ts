@@ -24,6 +24,12 @@ import {
   toDesktopRemoteHost,
   type RemoteHostStore,
 } from './remote-hosts';
+import {
+  DESKTOP_BACKGROUND_COLOR,
+  DESKTOP_LIGHT_BACKGROUND_COLOR,
+  DESKTOP_TITLEBAR_WINDOW_OPTIONS,
+  setWindowTitleBarBand,
+} from './window-options';
 
 const ALLOWED_PERMISSIONS = new Set(['notifications', 'clipboard-sanitized-write']);
 
@@ -118,8 +124,10 @@ export function createRemoteHostWindows(
       minWidth: 640,
       minHeight: 480,
       title,
-      backgroundColor: '#0e0e0e',
-      autoHideMenuBar: true,
+      // The same hidden title bar and native caption overlay as the main
+      // window: the page draws its own band, so an OS frame title bar above it
+      // stacked two title rows.
+      ...DESKTOP_TITLEBAR_WINDOW_OPTIONS,
       webPreferences: {
         partition,
         preload: preloadPath,
@@ -138,6 +146,12 @@ export function createRemoteHostWindows(
       if (windows.get(id) === window) windows.delete(id);
     });
     const contents = window.webContents;
+    // The page's theme-color is its window band (desktop-theme.ts): follow it
+    // so the caption buttons keep contrast on a light-theme page.
+    contents.on('did-change-theme-color', (_event, color) => {
+      if (window.isDestroyed()) return;
+      setWindowTitleBarBand(window, color?.toLowerCase() === DESKTOP_LIGHT_BACKGROUND_COLOR);
+    });
     contents.setWindowOpenHandler(({ url }) => {
       const target = externalLinkTarget(url);
       if (target) void shell.openExternal(target);
@@ -153,7 +167,7 @@ export function createRemoteHostWindows(
       // -3 is a navigation that was superseded, not a failure.
       if (!isMainFrame || code === -3 || window.isDestroyed()) return;
       const escapeHtml = (text: string): string => text.replace(/[&<>"']/gu, (char) => `&#${char.charCodeAt(0)};`);
-      const body = `<meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="margin:0;display:grid;place-items:center;height:100vh;background:#0e0e0e;color:#e9e9e9;font:15px system-ui"><p>${escapeHtml(nativeT('Could not reach {{name}}. Close this window and connect again.').replace('{{name}}', host.name))}</p>`;
+      const body = `<meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="margin:0;display:grid;place-items:center;height:100vh;background:${DESKTOP_BACKGROUND_COLOR};color:#e9e9e9;font:15px system-ui;-webkit-app-region:drag"><p>${escapeHtml(nativeT('Could not reach {{name}}. Close this window and connect again.').replace('{{name}}', host.name))}</p>`;
       void window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(body)}`);
     });
     // The one-time ticket rides the fragment, which is never sent to the relay

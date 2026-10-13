@@ -6,6 +6,7 @@ import {
 } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
+import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
@@ -31,6 +32,7 @@ export const SETUP_STATUS_DOMAINS = Object.freeze([
   'plugins',
   'update',
   'onboarding',
+  'worktree',
   ...SETUP_EXTENDED_DOMAINS,
 ]);
 
@@ -100,7 +102,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   save_mcp_server: 'server',
   remove_mcp_server: 'name',
   set_mcp_enabled: 'name enabled',
-  reconnect_mcp: '',
+  reconnect_mcp: 'name?',
   set_disabled_skills: 'skills',
   set_extension_scope: 'kind name projects',
   add_plugin: 'source',
@@ -108,6 +110,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_plugin_enabled: 'name enabled',
   remove_plugin: 'name',
   enable_plugin_mcp: 'name',
+  set_worktree_settings: 'worktree',
   ...SETUP_EXTENDED_ACTION_FIELDS,
 });
 
@@ -122,6 +125,7 @@ export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze([
   'browser',
   'computer',
   'voice',
+  'visualize',
 ]);
 
 const ROUTE_SCHEMA = {
@@ -136,6 +140,11 @@ const ROUTE_SCHEMA = {
     // A typed enum is unrepresentable on Gemini; the bounds project everywhere
     // and the executor rejects values that are not a multiple of 10.
     contextPercent: { type: 'integer', minimum: 10, maximum: 100, description: 'A multiple of 10.' },
+    contextTokens: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Exact context window in tokens; overrides contextPercent, clamped to 10%-100% of the model window.',
+    },
     disabled: {
       type: 'boolean',
       description: 'Agent routes only: true disables without losing the route; false re-enables.',
@@ -176,7 +185,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         route: {
           ...ROUTE_SCHEMA,
           description:
-            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent applies to Main and agent routes only.',
+            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent and contextTokens apply to Main and agent routes only.',
         },
         agent: { type: 'string', description: 'set_agent_route: agent id.' },
         workflow: { type: 'string', description: 'set_workflow: pack id.' },
@@ -222,7 +231,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         },
         name: {
           type: 'string',
-          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; else MCP/plugin/provider id.`,
+          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; reconnect_mcp: optional MCP server name (omit for all); else MCP/plugin/provider id.`,
         },
         accountId: {
           type: 'string',
@@ -319,6 +328,25 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'array',
           items: { type: 'string', minLength: 1, pattern: '\\S' },
           description: 'set_extension_scope: required project roots; [] = every project.',
+        },
+        worktree: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            newTaskDefault: {
+              type: 'string',
+              enum: [...WORKTREE_NEW_TASK_DEFAULTS],
+              description: 'branch = new tasks use the current branch (default); worktree = a new worktree.',
+            },
+            branchPrefix: { type: 'string', description: 'Ref prefix ending with "/"; default "mixdog/".' },
+            sizeWarnBytes: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Repository size that asks for confirmation first; 0 never asks.',
+            },
+            autoCleanup: { type: 'boolean', description: 'Remove clean, merged worktrees when their task ends.' },
+          },
+          description: 'set_worktree_settings: only the given fields change.',
         },
         ...SETUP_EXTENDED_PROPERTIES,
       },

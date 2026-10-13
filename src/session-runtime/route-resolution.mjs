@@ -5,6 +5,7 @@ import { ensureProviderEnabled } from '../runtime/agent/orchestrator/runtime-cor
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { effortItemsFor } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
+import { normalizeContextTokens } from '../runtime/shared/llm/default-context-window.mjs';
 import { resolveRouteContextState, resolveRouteEffortState, routeModelDisplay } from './route-state.mjs';
 
 export function createRouteResolution({ rt, collectProviderModels, ensureProvidersReady, lookupModelMeta }) {
@@ -53,14 +54,22 @@ export function createRouteResolution({ rt, collectProviderModels, ensureProvide
     const selectedContextWindow = [contextState.selectedContextWindow, contextOption?.contextWindow]
       .map(Number)
       .find((value) => value > 0);
+    // Without a known window the exact selection is kept as requested; with
+    // one it is the clamped value, absent when it is the default window.
+    const contextTokens =
+      contextState.contextDefaultPercent === undefined
+        ? normalizeContextTokens(targetRoute.contextTokens)
+        : contextState.contextTokens;
+    const { contextTokens: _requestedTokens, ...routeFields } = targetRoute;
     rt.route = {
-      ...targetRoute,
+      ...routeFields,
       fast: fastCapable ? targetRoute.fast === true : false,
       fastCapable,
       effectiveEffort,
       effortOptions: effortItemsFor(rt.route.provider, modelMeta, effectiveEffort),
       contextPercent: contextState.contextPercent,
       contextDefaultPercent: contextState.contextDefaultPercent,
+      ...(contextTokens ? { contextTokens } : {}),
       ...(selectedContextWindow ? { selectedContextWindow } : {}),
       ...(modelDisplay ? { modelDisplay } : {}),
     };

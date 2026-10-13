@@ -100,7 +100,7 @@ function highlightRuns(rows: readonly ToolOutputRow[], language: string, numbere
 /** Token spans per row from the transcript's own highlighter (the markdown
  *  worker). A row has no entry while its run is pending, unavailable, or the
  *  result is over the size cap. */
-function useHighlightedRows(rows: readonly ToolOutputRow[], language: string, numbered: boolean): ReactNode[][] {
+export function useHighlightedRows(rows: readonly ToolOutputRow[], language: string, numbered: boolean): ReactNode[][] {
   const runs = useMemo(() => highlightRuns(rows, language, numbered), [rows, language, numbered]);
   const [roots, setRoots] = useState<ReadonlyMap<string, MarkdownAstRoot>>(() => new Map());
   useEffect(() => {
@@ -312,11 +312,12 @@ export function ToolFileList({ entries }: { entries: readonly ToolFileEntry[] })
     <ul className="tool-file-list">
       {entries.map((entry, index) => {
         const name = entry.kind === 'dir' ? `${entry.name}/` : entry.name;
+        const path = entry.kind === 'dir' ? `${entry.path}/` : entry.path;
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: file rows are positional and never reorder; path alone may repeat
           <li className="tool-file-row" data-kind={entry.kind} key={`${entry.path}:${index}`} title={entry.path}>
             {index < TOOL_FILE_LIST_LINK_MAX ? (
-              <ToolFileName path={entry.kind === 'dir' ? `${entry.path}/` : entry.path} name={name} dir={entry.dir} />
+              <ToolFileName path={path} name={name} dir={entry.dir} />
             ) : (
               <>
                 <b>{name}</b>

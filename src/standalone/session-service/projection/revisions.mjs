@@ -5,6 +5,7 @@
 import { diffSessionState } from '../../session-state-patch.mjs';
 import { projectSessionState } from '../../session-state-projection.mjs';
 import { windowTranscriptSnapshot } from './transcript-window.mjs';
+import { syncEntryWorkspace } from './workspace.mjs';
 
 function snapshotOf(entry) {
   const raw = entry.runtime.getState?.() ?? null;
@@ -127,6 +128,7 @@ export function createRevisionSteps({ revisionEpoch, index, updateEntryBusy, log
       };
     }
     const snapshot = current;
+    syncEntryWorkspace(entry, snapshot);
     if (!addressedSessionId && projectedSessionId) {
       entry.addressedSessionId = projectedSessionId;
     }

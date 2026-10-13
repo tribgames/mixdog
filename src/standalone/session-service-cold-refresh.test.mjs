@@ -178,7 +178,7 @@ test('a cold session answers its review reads from disk without loading a runtim
   }
 });
 
-test('the stored transcript stamp is settled, and covers the record and its checkpoint', async () => {
+test('the stored transcript stamp is settled, and covers the record, its checkpoint and its archive', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-cold-stamp-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = dir;
@@ -193,7 +193,8 @@ test('the stored transcript stamp is settled, and covers the record and its chec
     assert.equal(await stamp(id), null, 'a fresh write is not yet settled');
     await delay(2_200);
     const settled = await stamp(id);
-    assert.match(String(settled), /\|absent$/);
+    // Record | checkpoint | compaction archive.
+    assert.match(String(settled), /\|absent\|absent$/);
     assert.equal(store.storedSessionTranscriptStamp(id), settled);
     assert.equal(await stamp(id), settled);
     await mkdir(join(dir, 'turn-checkpoints'), { recursive: true });
@@ -201,7 +202,12 @@ test('the stored transcript stamp is settled, and covers the record and its chec
     assert.equal(await stamp(id), null, 'a fresh checkpoint is not yet settled');
     await delay(2_200);
     const withCheckpoint = await stamp(id);
-    assert.ok(withCheckpoint && withCheckpoint !== settled && !withCheckpoint.endsWith('|absent'));
+    assert.ok(withCheckpoint && withCheckpoint !== settled && !withCheckpoint.endsWith('|absent|absent'));
+    await writeFile(join(dir, 'sessions', `${id}.compaction-archive.jsonl`), '');
+    assert.equal(await stamp(id), null, 'a fresh archive is not yet settled');
+    await delay(2_200);
+    const withArchive = await stamp(id);
+    assert.ok(withArchive && withArchive !== withCheckpoint && !withArchive.endsWith('|absent'));
     assert.equal(await stamp('../escape'), null);
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;

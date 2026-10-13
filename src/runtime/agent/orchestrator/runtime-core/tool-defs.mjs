@@ -40,17 +40,21 @@ export const CWD_TOOL = {
   },
   trigger: 'Show or switch the active Project; not a shell-local cd.',
   description:
-    'Show or switch the active Project. list returns the registered projects (name, path); a project name instead of a path → list first, then set the matching path, ask only if several match. path must be an existing directory. A shell-local cd does not change the Project.',
+    'Show or switch the active Project. list returns the registered projects (name, path); a project name instead of a path → list first, then set the matching path, ask only if several match. path must be an existing directory. A shell-local cd does not change the Project. merge-worktree / remove-worktree act on this session’s git worktree only when the user explicitly asks.',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['get', 'set', 'list'],
+        enum: ['get', 'set', 'list', 'merge-worktree', 'remove-worktree', 'list-worktrees', 'prune-worktrees'],
         description:
-          'get shows the active Project (default without path), set switches to path, list returns registered projects.',
+          'get shows the active Project (default without path), set switches to path, list returns registered projects; merge-worktree merges this session’s worktree into the project folder’s checked-out branch, remove-worktree deletes it (returning to the project folder; call again if it reports WORKTREE_REMOVAL_INCOMPLETE); list-worktrees lists every managed worktree and who retains it; prune-worktrees removes clean, merged ones no session retains.',
       },
       path: { type: 'string', description: 'Existing directory to switch to (implies action=set).' },
+      force: {
+        type: 'boolean',
+        description: 'remove-worktree: delete even with uncommitted or unmerged work (only when the user says so).',
+      },
     },
     additionalProperties: false,
   },
@@ -93,6 +97,7 @@ const TERMINAL_RUNTIME_TOOLS = ['terminal'];
 const OFFICE_RUNTIME_TOOLS = ['office'];
 const MEDIA_RUNTIME_TOOLS = ['media'];
 const TIDY_RUNTIME_TOOLS = ['tidy'];
+const VISUALIZE_RUNTIME_TOOLS = ['visualize'];
 
 const admitted = (tools, names) => (tools || []).filter((tool) => names.includes(tool?.name));
 
@@ -114,6 +119,7 @@ export function collectStandaloneToolDefs({
   officeToolDefs = [],
   mediaToolDefs = [],
   tidyToolDefs = [],
+  visualizeToolDefs = [],
   setupToolDefs = [],
   goalTools = [],
   agentTools = [],
@@ -133,6 +139,7 @@ export function collectStandaloneToolDefs({
     ...admitted(officeToolDefs, OFFICE_RUNTIME_TOOLS),
     ...admitted(mediaToolDefs, MEDIA_RUNTIME_TOOLS),
     ...admitted(tidyToolDefs, TIDY_RUNTIME_TOOLS),
+    ...admitted(visualizeToolDefs, VISUALIZE_RUNTIME_TOOLS),
     ...setupToolDefs,
     ...goalTools,
     ...agentTools,

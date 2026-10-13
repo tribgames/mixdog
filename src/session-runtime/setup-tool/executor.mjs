@@ -30,6 +30,7 @@ const PROFILE_VALUE_IDS = Object.freeze({
 const ACTION_APPLIES_TO = {
   set_recap_enabled: 'background Memory cycles; no restart required',
   set_auto_update: 'subsequent automatic update checks',
+  set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',
   set_system_shell: 'subsequent shell calls',
   save_automation: 'the automation worker; scheduled runs follow the saved timing',
   delete_automation: 'future automation runs',
@@ -93,6 +94,7 @@ function routeInput(source) {
   if (typeof source.fast === 'boolean') next.fast = source.fast;
   if (Object.hasOwn(source, 'modelParameters')) next.modelParameters = { ...source.modelParameters };
   if (Object.hasOwn(source, 'contextPercent')) next.contextPercent = source.contextPercent;
+  if (Object.hasOwn(source, 'contextTokens')) next.contextTokens = source.contextTokens;
   if (Object.hasOwn(source, 'disabled')) next.disabled = source.disabled;
   return next;
 }
@@ -178,6 +180,7 @@ const mainRoute = (rt) => ({
   fastCapable: rt.fastCapable === true,
   modelParameters: rt.modelParameters || {},
   contextPercent: rt.contextPercent ?? null,
+  contextTokens: rt.contextTokens ?? null,
 });
 
 async function automationStatus(rt, { domain }) {
@@ -303,6 +306,7 @@ const SETUP_STATUS_READERS = {
   plugins: (rt) => rt.pluginsStatus?.() || {},
   update: (rt) => rt.getUpdateSettings?.() || {},
   onboarding: (rt) => rt.getOnboardingStatus?.() || {},
+  worktree: (rt) => rt.getWorktreeSettings(),
   schedules: automationStatus,
   webhooks: automationStatus,
   hooks: hookStatus,
@@ -328,11 +332,13 @@ function validateSetupInput(args) {
     if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
       throw new Error('route.disabled is only accepted by set_agent_route');
     }
-    if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, 'contextPercent')) {
-      throw new Error('route.contextPercent is only accepted by set_route and set_agent_route');
+    for (const field of ['contextPercent', 'contextTokens']) {
+      if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, field)) {
+        throw new Error(`route.${field} is only accepted by set_route and set_agent_route`);
+      }
     }
   }
-  for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount']) {
+  for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount', 'worktree']) {
     if (args[field] && !Object.keys(args[field]).length) throw new Error(`${field} requires at least one setting`);
   }
   return action;
@@ -507,6 +513,7 @@ const SETUP_ACTION_HANDLERS = {
     rt.deleteLocalProviderModel(requireText(args.confirmationToken, 'confirmationToken')),
   set_system_shell: (rt, args) => rt.setSystemShell({ command: clean(args.command) }),
   set_auto_update: (rt, args) => rt.setAutoUpdate(requireBoolean(args.enabled)),
+  set_worktree_settings: (rt, args) => rt.setWorktreeSettings(args.worktree),
   forget_provider_auth: async (rt, args) => {
     const name = requireText(args.name, 'name');
     const setup = await rt.getProviderSetup({});
@@ -541,7 +548,7 @@ const SETUP_ACTION_HANDLERS = {
   set_mcp_enabled: async (rt, args) => ({
     mcp: mcpRows(await rt.setMcpServerEnabled(requireText(args.name, 'name'), requireBoolean(args.enabled))),
   }),
-  reconnect_mcp: async (rt) => ({ mcp: mcpRows(await rt.reconnectMcp()) }),
+  reconnect_mcp: async (rt, args) => ({ mcp: mcpRows(await rt.reconnectMcp(clean(args.name) || undefined)) }),
   set_disabled_skills: (rt, args) => {
     if (!Array.isArray(args.skills)) throw new Error('skills (array of names) is required');
     return rt.setDisabledSkills(args.skills.map(clean).filter(Boolean));

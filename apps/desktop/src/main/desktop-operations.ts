@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
 
 import { childEnvironment } from './child-environment';
+import { listHostDirectories, listServerDirectories } from './host-directories';
 import * as editorBackups from './editor-backups';
 import * as gh from './gh-cli';
 import * as git from './git-cli';
@@ -19,9 +20,12 @@ import * as workspaceConfig from './workspace-config';
 import * as workspaceSearch from './workspace-search';
 import { createDocumentPreviewOperations } from './document-preview';
 import type { DocumentPreviewModule } from './document-preview';
+import { createServerFileOperations } from './server-file-operations';
+import { listListeningPorts } from './server-ports';
 
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
+import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwner } from '../shared/terminal-size-owner';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 
 interface DesktopOperationEvent {
@@ -30,6 +34,7 @@ interface DesktopOperationEvent {
     | 'lsp-diagnostics'
     | 'lsp-status'
     | 'terminal-data'
+    | typeof TERMINAL_SIZE_OWNER_EVENT
     | typeof ACTIVITY_RAIL_PINS_EVENT
     | typeof PROVIDER_MODELS_EVENT
     | typeof SETTINGS_CHANGED_EVENT
@@ -218,14 +223,10 @@ const STATIC_OPERATIONS = {
   gitAmend: git.gitAmend,
   gitApplyPatch: git.gitApplyPatch,
   gitBranches: git.gitBranches,
-  gitCheckoutBranch: git.gitCheckoutBranch,
-  gitCheckoutCommit: git.gitCheckoutCommit,
   gitCherryPickCommit: git.gitCherryPickCommit,
   gitCommit: git.gitCommit,
   gitCommitPaths: git.gitCommitPaths,
   gitContinue: git.gitContinue,
-  gitCreateBranch: git.gitCreateBranch,
-  gitCreateBranchAtCommit: git.gitCreateBranchAtCommit,
   gitCreateTag: git.gitCreateTag,
   gitDeleteBranch: git.gitDeleteBranch,
   gitDeleteTag: git.gitDeleteTag,
@@ -233,7 +234,6 @@ const STATIC_OPERATIONS = {
   gitFetch: git.gitFetch,
   gitIgnore: git.gitIgnore,
   gitLog: git.gitLog,
-  gitMergeBranch: git.gitMergeBranch,
   gitPull: git.gitPull,
   gitPush: git.gitPush,
   gitRenameBranch: git.gitRenameBranch,
@@ -266,6 +266,8 @@ const STATIC_OPERATIONS = {
   replaceWorkspaceTextIn: workspaceSearch.replaceWorkspaceTextIn,
   searchWorkspaceTextIn: workspaceSearch.searchWorkspaceTextIn,
   statProjectFileIn: projectFiles.statProjectFileIn,
+  listHostDirectories,
+  listServerDirectories,
   writeEditorBackup: editorBackups.writeEditorBackup,
   writeProjectTextFileIn: projectFiles.writeProjectTextFileIn,
   writeProjectTextFilesIn: projectFiles.writeProjectTextFilesIn,
@@ -303,6 +305,8 @@ export function createDesktopOperations({
     loadDocumentPreview,
   });
   const folderWatchers = createFolderWatchRegistry(emit);
+  // Upload staging, ranged reads and trash for server windows' files.
+  const serverFiles = createServerFileOperations({ userDataPath });
   const unsubscribeDiagnostics = languageServers.subscribeDiagnostics((value) => {
     emit({ name: 'lsp-diagnostics', value });
   });
@@ -310,6 +314,9 @@ export function createDesktopOperations({
     emit({ name: 'lsp-status', value });
   });
   const terminalOutput = createTerminalOutputCoalescer(terminals, emit);
+  const unsubscribeSizeOwner = terminals.subscribeSizeOwner((value) => {
+    emit({ name: TERMINAL_SIZE_OWNER_EVENT, value });
+  });
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
     if (name === 'githubRequest') return executeGithub(args[0], args[1]);
@@ -317,6 +324,7 @@ export function createDesktopOperations({
       | ((...values: unknown[]) => unknown)
       | undefined;
     if (staticOperation) return await staticOperation(...args);
+    if (serverFiles.handles(name)) return serverFiles.invoke(name, args);
     if (name === 'documentPreviewIn') {
       return documentPreviews.documentPreviewIn(String(args[0] || ''), String(args[1] || ''));
     }
@@ -393,6 +401,8 @@ export function createDesktopOperations({
       );
     }
     if (name === 'termProfiles') return listShellProfiles();
+    // The Ports panel of a server window: what listens on this machine.
+    if (name === 'listListeningPorts') return listListeningPorts();
     // Read-only views for the agent `terminal` bridge (see terminal/bridge-server.ts).
     if (name === 'termSessionTabs') return terminals.sessionTabs(String(args[0] || ''));
     if (name === 'termSnapshot') {
@@ -403,7 +413,12 @@ export function createDesktopOperations({
       return null;
     }
     if (name === 'termResize') {
-      terminals.resize(String(args[0] || ''), Number(args[1]), Number(args[2]));
+      terminals.resize(
+        String(args[0] || ''),
+        Number(args[1]),
+        Number(args[2]),
+        typeof args[3] === 'string' ? args[3] : ''
+      );
       return null;
     }
     if (name === 'termPause') {
@@ -420,6 +435,14 @@ export function createDesktopOperations({
       terminals.dispose(terminalId);
       return null;
     }
+    if (name === 'termDisposeUnder') {
+      const ids = terminals.disposeTerminalsUnder(String(args[0] || ''));
+      for (const id of ids) terminalOutput.drop(id);
+      return ids;
+    }
+    if (name === 'lspDisposeUnder') {
+      return languageServers.disposeUnder(String(args[0] || ''));
+    }
     if (name === 'folderWatch') {
       folderWatchers.watch(localFiles.absoluteLocalPath(args[0]), args[1] === true);
       return null;
@@ -435,9 +458,11 @@ export function createDesktopOperations({
     unsubscribeDiagnostics();
     unsubscribeStatus();
     terminalOutput.dispose();
+    unsubscribeSizeOwner();
     folderWatchers.dispose();
     terminals.disposeAll();
     await languageServers.dispose();
+    await serverFiles.dispose();
   }
 
   const remoteTerminals = {
@@ -446,13 +471,18 @@ export function createDesktopOperations({
       cwd: string | null,
       profile?: import('./terminal-contract').TerminalSpawnProfile | string | null
     ) {
-      return invoke('termEnsure', [id, cwd, profile ?? null]) as Promise<{ id: string; replay: string }>;
+      return invoke('termEnsure', [id, cwd, profile ?? null]) as Promise<{
+        id: string;
+        replay: string;
+        sizeOwner?: TerminalSizeOwner;
+      }>;
     },
     write(id: string, data: string): void {
       void invoke('termWrite', [id, data]).catch(() => {});
     },
-    resize(id: string, cols: number, rows: number): void {
-      void invoke('termResize', [id, cols, rows]).catch(() => {});
+    /** `client` is the remote connection of a phone claiming the size; '' for any other view. */
+    resize(id: string, cols: number, rows: number, client = ''): void {
+      void invoke('termResize', [id, cols, rows, client]).catch(() => {});
     },
   };
 
@@ -462,6 +492,7 @@ export function createDesktopOperations({
     userDataPath,
     terminals: remoteTerminals,
     settingsStore,
+    serverFiles,
     subscribeTerminalData: (listener: (event: { id: string; data: string }) => void) => terminals.subscribe(listener),
   };
 }

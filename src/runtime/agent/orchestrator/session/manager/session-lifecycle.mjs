@@ -32,11 +32,13 @@ import {
   unusedModelEditToolName,
 } from '../../../../shared/edit-tool-dialect.mjs';
 import { resolveSessionContextMeta } from './context-meta.mjs';
+import { normalizeContextTokens } from '../../../../shared/llm/default-context-window.mjs';
 import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent-runtime-singleton.mjs';
 import { ensureCodexWireSessionId, mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { buildSessionRecord, normalizeDesktopSessionMetadata, sessionOriginFields } from './session-record.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
+import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
 
 // Owner liveness (attach-on-resume guard) and the durable turn-checkpoint
 // recovery it gates; re-exported so prior importers of this module stay
@@ -162,6 +164,7 @@ function resolveSessionRoute(opts, presetObj, profile) {
     modelParameters = { ...presetObj.modelParameters };
   }
   const contextPercent = normalizeContextPercent(opts.contextPercent);
+  const contextTokens = normalizeContextTokens(opts.contextTokens) || null;
   if (!providerName) throw new Error('createSession: provider is required');
   if (!modelName) throw new Error('createSession: model is required');
   const provider = getProvider(providerName);
@@ -184,6 +187,7 @@ function resolveSessionRoute(opts, presetObj, profile) {
     autoEffort,
     modelParameters,
     contextPercent,
+    contextTokens,
     id,
   };
 }
@@ -226,6 +230,7 @@ export function createSession(opts) {
   const contextMeta = resolveSessionContextMeta(provider, modelName, {
     selectedContextWindow: opts.selectedContextWindow,
     contextPercent: route.contextPercent,
+    contextTokens: route.contextTokens,
   });
   const session = buildSessionRecord({
     opts,
@@ -311,6 +316,8 @@ function applyRouteFields(session, route) {
       route.modelParameters && typeof route.modelParameters === 'object' ? { ...route.modelParameters } : {};
   }
   if (Object.hasOwn(route, 'contextPercent')) session.contextPercent = normalizeContextPercent(route.contextPercent);
+  if (Object.hasOwn(route, 'contextTokens'))
+    session.contextTokens = normalizeContextTokens(route.contextTokens) || null;
   if (Object.hasOwn(route, 'selectedContextWindow')) {
     session.selectedContextWindow = Number(route.selectedContextWindow) || null;
   }
@@ -458,13 +465,18 @@ function _applyDesktopResumeScope(session, options) {
   }
   // The host's summary may predate a cwd change. It supplies the
   // classification check, not permission to overwrite the session's
-  // newer execution Project. Task metadata always remains pathless.
+  // newer execution Project. Task metadata always remains pathless. A Lead
+  // in its worktree executes outside the Project: its registered Project
+  // stays the workspace record's projectPath, never the worktree cwd.
+  const workspace = session.workspace;
+  const executionProject =
+    isWorktreeBound(workspace) && typeof workspace.projectPath === 'string' ? workspace.projectPath : session.cwd;
   session.desktopSession =
     expectedDesktop.classification === 'project'
       ? normalizeDesktopSessionMetadata(
           {
             ...expectedDesktop,
-            projectPath: session.cwd || expectedDesktop.projectPath,
+            projectPath: executionProject || expectedDesktop.projectPath,
           },
           session.cwd
         )

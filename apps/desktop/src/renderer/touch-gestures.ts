@@ -88,11 +88,13 @@ export function installTouchGestures(
     current.origin.dispatchEvent(event);
     // Nothing handled it: the press keeps its native behavior.
     current.opened = event.defaultPrevented;
+    if (current.opened) armScrollGuard();
   };
 
   const onPointerDown = (event: PointerEvent): void => {
     if (event.pointerType !== 'touch') return;
     stopTimer();
+    disarmScrollGuard();
     const origin = event.target instanceof win.Element ? event.target : null;
     // A second finger makes a pinch or a pan, never a press.
     if (!event.isPrimary || !origin) {
@@ -110,10 +112,28 @@ export function installTouchGestures(
     if (!sameTouch(event) || !press) return;
     stopTimer();
     press.endedAt = Date.now();
+    disarmScrollGuard();
   };
   // An open menu closes on scroll; the finger still resting on it must not scroll.
   const onTouchMove = (event: TouchEvent): void => {
     if (press?.opened && press.endedAt === 0 && event.cancelable) event.preventDefault();
+  };
+  // The guard is a NON-passive document touchmove listener, so it exists only
+  // while a menu opened by the press is up. Registered for good, it made the
+  // whole page a blocking touch region: every scroll's first move waited for
+  // the main thread before the compositor could start it. The finger rests
+  // (within the touch slop) until the menu opens, so its first move past the
+  // slop is hit-tested against the region that now carries this listener.
+  let scrollGuardArmed = false;
+  const armScrollGuard = (): void => {
+    if (scrollGuardArmed) return;
+    scrollGuardArmed = true;
+    doc.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+  };
+  const disarmScrollGuard = (): void => {
+    if (!scrollGuardArmed) return;
+    scrollGuardArmed = false;
+    doc.removeEventListener('touchmove', onTouchMove, { capture: true });
   };
   const onContextMenu = (event: MouseEvent): void => {
     if (!fromPress(event) || !press) return;
@@ -126,8 +146,10 @@ export function installTouchGestures(
     stopTimer();
     const current = press;
     current.opened = true;
+    if (current.endedAt === 0) armScrollGuard();
     win.setTimeout(() => {
       current.opened = event.defaultPrevented;
+      if (!current.opened && press === current) disarmScrollGuard();
     }, 0);
   };
   const onMouseButton = (event: MouseEvent): void => {
@@ -169,7 +191,6 @@ export function installTouchGestures(
     [doc, 'pointermove', onPointerMove as EventListener, { capture: true, passive: true }],
     [doc, 'pointerup', onPointerEnd as EventListener, { capture: true }],
     [doc, 'pointercancel', onPointerEnd as EventListener, { capture: true }],
-    [doc, 'touchmove', onTouchMove as EventListener, { capture: true, passive: false }],
     [doc, 'contextmenu', onContextMenu as EventListener, { capture: true }],
     [doc, 'mousedown', onMouseButton as EventListener, { capture: true }],
     [doc, 'mouseup', onMouseButton as EventListener, { capture: true }],
@@ -178,6 +199,7 @@ export function installTouchGestures(
   for (const [target, type, listener, options] of listeners) target.addEventListener(type, listener, options);
   return () => {
     stopTimer();
+    disarmScrollGuard();
     press = null;
     for (const [target, type, listener, options] of listeners) target.removeEventListener(type, listener, options);
   };

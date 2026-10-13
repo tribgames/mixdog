@@ -24,8 +24,9 @@ import {
 } from './store-transcript-worker.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { dataDir, sessionHeartbeatMtimes } from './store-summary-locations.mjs';
-import { desktopSession, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
+import { desktopSession, isStoredSessionId, positiveNumber, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
+import { compactionArchivePath, readCompactionArchivePage } from './compaction-archive.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
   offerStrictSessionRecord,
@@ -127,6 +128,8 @@ function isLeadVisibleRow(row) {
   const sourceType = String(row.sourceType || '')
     .trim()
     .toLowerCase();
+  // Mirror listLeadSessions: one-shot `mixdog exec` runs stay out of Recent.
+  if (sourceType === 'exec') return false;
   const sourceName = String(row.sourceName || '')
     .trim()
     .toLowerCase();
@@ -195,6 +198,7 @@ function normalizedRow(row, heartbeatAt = 0) {
     clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
     cwd: row.cwd || '',
     desktopSession: desktopSession(row.desktopSession, row.cwd),
+    ...(workspaceSummary(row.workspace) ? { workspace: workspaceSummary(row.workspace) } : {}),
     provider: row.provider || null,
     model: row.model || null,
     agentTag: row.agentTag || null,
@@ -421,6 +425,7 @@ function storedSessionMetadata(sessionId, session) {
     visibility: sessionVisibility(session),
     agentTag: session.agentTag || null,
     cwd: session.cwd || '',
+    ...(workspaceSummary(session.workspace) ? { workspace: workspaceSummary(session.workspace) } : {}),
     provider: session.provider || null,
     model: session.model || null,
     presetName: session.presetName || session.profileId || null,
@@ -448,6 +453,9 @@ function storedTranscriptInputPaths(sessionId) {
   return {
     recordPath: join(dataDir(), 'sessions', `${sessionId}.json`),
     checkpointPath: join(dataDir(), 'turn-checkpoints', `${sessionId}.json`),
+    // Written after the compaction commit that names it, so its identity
+    // joins the projection's.
+    archivePath: compactionArchivePath(join(dataDir(), 'sessions'), sessionId),
   };
 }
 
@@ -460,7 +468,7 @@ const STAMP_ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 export function storedSessionTranscriptStamp(id) {
   const sessionId = String(id || '').trim();
   if (!isStoredSessionId(sessionId)) return null;
-  const { recordPath, checkpointPath } = storedTranscriptInputPaths(sessionId);
+  const { recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
   const settled = (path, absent) => {
     let stamp;
     try {
@@ -473,7 +481,8 @@ export function storedSessionTranscriptStamp(id) {
   };
   const record = settled(recordPath, null);
   const checkpoint = record && settled(checkpointPath, 'absent');
-  return checkpoint ? `${record}|${checkpoint}` : null;
+  const archive = checkpoint && settled(archivePath, 'absent');
+  return archive ? `${record}|${checkpoint}|${archive}` : null;
 }
 
 /** Read exactly one persisted session for a visible desktop pane. This never
@@ -485,8 +494,13 @@ export async function readStoredSessionTranscript(id, options = {}) {
   if (!isStoredSessionId(sessionId)) return null;
   // Same strict authority as the store, and the same fail-closed rule: an
   // absent, unreadable, ambiguous or foreign record yields no transcript.
-  const { recordPath, checkpointPath } = storedTranscriptInputPaths(sessionId);
+  const { recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
   if (options.metadataOnly === true) return readStoredSessionMetadata(recordPath, sessionId);
+  // One page of the display-only compaction archive (the live head loader
+  // pages it once a runtime's in-memory rows are exhausted).
+  if (options.compactionArchive && typeof options.compactionArchive === 'object') {
+    return readCompactionArchivePage(join(dataDir(), 'sessions'), sessionId, options.compactionArchive);
+  }
   // The checkpoint sidecar shapes the projection as much as the record does,
   // so its identity joins the cache fingerprint. Only a PROVABLY absent
   // checkpoint skips recovery: an unreadable probe must not silently
@@ -498,6 +512,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
   if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
   if (recordStat.state !== PROBE_PRESENT) return null;
   const checkpoint = probePath(checkpointPath);
+  const archive = probePath(archivePath);
   const requestedLimit = Number(options.transcriptItemLimit);
   const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : Number.POSITIVE_INFINITY;
   let readState = PROBE_PRESENT;
@@ -521,6 +536,9 @@ export async function readStoredSessionTranscript(id, options = {}) {
       checkpoint.size,
       checkpoint.ino,
       checkpoint.dev,
+      archive.state,
+      archive.mtimeMs,
+      archive.size,
     ].join(':'),
     fileStat: recordStat,
     loadText: async () => {

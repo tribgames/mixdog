@@ -8,8 +8,8 @@
   `src/app.ts:42`); files outside the Project always by absolute path; never a
   bare name, a path relative to another folder, or a `file://` URI.
 - Deliver requested visual artifacts (SVG, diagrams, HTML pages) as saved files
-  and give their path; never paste their source as the answer unless the user
-  asks for the code.
+  and give their path, which opens them in the browser panel; never open them
+  in the system browser or paste their source unless the user asks.
 
 <!-- tools: git -->
 - A commit request includes selecting and staging its changes; a stage-only

@@ -5,7 +5,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { FileDiffBody, buildDiffItems, parseHunk } from './inline-diff.tsx';
-import { SessionDiffFiles, SessionDiffPane } from './SessionDiffPane.tsx';
+import { SessionDiffPane } from './SessionDiffPane.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { DiffHeaderControls, diffModeActions } from './diff-header-controls.tsx';
 import { DockHeaderRow, splitDockActions } from './pane-dock-chrome.tsx';
@@ -29,15 +29,6 @@ const HUNK = [
 ].join('\n');
 
 const PATCH = `diff --git a/src/cart.js b/src/cart.js\n--- a/src/cart.js\n+++ b/src/cart.js\n${HUNK}\n`;
-const row = (path, patch) => ({
-  path,
-  oldPath: '',
-  status: 'M',
-  additions: 2,
-  deletions: 1,
-  binary: false,
-  parts: [{ patch }],
-});
 
 async function mount(element, setup) {
   const { dom, restore } = installTestDom(null, {
@@ -90,20 +81,8 @@ test('long unchanged runs fold into an "N unmodified lines" item', () => {
   assert.equal(gap.count, 4);
 });
 
-test('file list rows pick a file; the pane drills list → diff', async () => {
-  const rows = [row('src/cart.js', PATCH), row('src/receipt.js', PATCH)];
-  const picked = [];
-  const listView = await mount(h(SessionDiffFiles, { rows, onSelect: (path) => picked.push(path) }));
-  try {
-    const mains = [...listView.container.querySelectorAll('.changes-file-main')];
-    assert.equal(listView.container.querySelectorAll('.inline-diff').length, 0);
-    assert.match(mains[0].textContent, /cart\.js.*src.*\+2.*\u22121/);
-    await listView.click(mains[1]);
-    assert.deepEqual(picked, ['src/receipt.js']);
-  } finally {
-    await listView.done();
-  }
-  const view = await mount(h(SessionDiffPane, { sessionId: 'sd-drill', active: true, onClose() {} }), (win) => {
+test('the pane stacks every changed file with its diff in one scroll: no list level, no back button', async () => {
+  const view = await mount(h(SessionDiffPane, { sessionId: 'sd-stack', active: true, onClose() {} }), (win) => {
     win.mixdogDesktop = {
       invokeCapability: async () => ({
         value: {
@@ -112,7 +91,7 @@ test('file list rows pick a file; the pane drills list → diff', async () => {
             { path: 'src/cart.js', status: 'M', additions: 2, deletions: 1, binary: false },
             { path: 'src/receipt.js', status: 'M', additions: 2, deletions: 1, binary: false },
           ],
-          patch: PATCH,
+          patch: PATCH + PATCH.replaceAll('cart', 'receipt'),
         },
       }),
     };
@@ -120,46 +99,49 @@ test('file list rows pick a file; the pane drills list → diff', async () => {
   try {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
     const q = (selector) => view.container.querySelector(selector);
-    // Several changed files: the pane opens on the list, not on one diff.
-    assert.ok(q('.session-diff-files'));
-    assert.equal(q('.session-diff-body'), null);
-    assert.equal(view.container.querySelectorAll('.changes-file-main').length, 2);
-    await view.click(view.container.querySelectorAll('.changes-file-main')[0]);
+    const sections = [...view.container.querySelectorAll('.session-diff-section')];
+    assert.equal(sections.length, 2);
+    assert.deepEqual(
+      sections.map((section) => section.dataset.sessionDiffPath),
+      ['src/cart.js', 'src/receipt.js']
+    );
+    // Each section carries its own sticky header and its own diff.
+    for (const section of sections) {
+      assert.ok(section.querySelector('.session-diff-section-head'));
+      assert.ok(section.querySelector('.inline-diff'));
+    }
+    assert.match(sections[0].querySelector('.session-diff-section-head').textContent, /src\/.*cart\.js.*\+2.*\u22121/);
+    assert.equal(sections[0].querySelector('.session-diff-section-title').title, 'src/cart.js');
+    assert.equal(q('.session-diff-back'), null);
     assert.equal(q('.session-diff-files'), null);
-    assert.ok(q('.session-diff-body'));
-    assert.equal(q('.session-diff-path').textContent, 'cart.js');
-    assert.equal(q('.session-diff-path').title, 'src/cart.js');
-    await view.click(q('.session-diff-back'));
-    assert.equal(q('.session-diff-body'), null);
-    await view.click(view.container.querySelectorAll('.changes-file-main')[1]);
-    assert.equal(q('.session-diff-files'), null);
-    assert.equal(q('.session-diff-path').textContent, 'receipt.js');
-    // Escape is the keyboard way back to the list.
-    await act(async () => {
-      q('.session-diff-body').dispatchEvent(new view.container.ownerDocument.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    });
-    assert.ok(q('.session-diff-files'));
+    assert.match(q('.session-diff-count').textContent, /2 files changed/);
   } finally {
     await view.done();
   }
 });
-
-test('a single changed file opens straight on its diff', async () => {
-  const view = await mount(h(SessionDiffPane, { sessionId: 'sd-single', active: true, onClose() {} }), (win) => {
+test('a recorded file without a diff explains why instead of showing an empty diff', async () => {
+  const view = await mount(h(SessionDiffPane, { sessionId: 'sd-reason', active: true, onClose() {} }), (win) => {
     win.mixdogDesktop = {
       invokeCapability: async () => ({
         value: {
           supported: true,
-          files: [{ path: 'src/cart.js', status: 'M', additions: 2, deletions: 1, binary: false }],
-          patch: PATCH,
+          files: [
+            {
+              path: 'C:/outside/note.txt',
+              status: 'A',
+              additions: 1,
+              deletions: 0,
+              reason: 'file is outside the recorded root',
+            },
+          ],
+          patch: '',
         },
       }),
     };
   });
   try {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    assert.equal(view.container.querySelector('.session-diff-files'), null);
-    assert.equal(view.container.querySelector('.session-diff-path').textContent, 'cart.js');
+    assert.equal(view.container.querySelector('.inline-diff-empty').textContent, 'No diff was recorded for this file.');
   } finally {
     await view.done();
   }
@@ -240,14 +222,25 @@ test('split mode leaves the inline renderer', async () => {
   }
 });
 
-test('code lines wrap inside the code column (no horizontal scroll)', () => {
+test('code lines wrap in every shared diff: the session pane and tool cards never scroll sideways', () => {
   const css = readFileSync(new URL('./desktop/25-scm-dock.css', import.meta.url), 'utf8');
   const rule = css.match(/\.inline-diff-code\s*\{([^}]*)\}/u)?.[1] ?? '';
   assert.match(rule, /white-space:\s*pre-wrap/u);
   assert.match(rule, /overflow-wrap:\s*anywhere/u);
   assert.match(css.match(/\.inline-diff\s*\{([^}]*)\}/u)?.[1] ?? '', /var\(--mx-font-mono\)/u);
-  const list = readFileSync(new URL('./desktop/27-search-review.css', import.meta.url), 'utf8');
-  assert.match(list.match(/\.session-diff-files\s*\{([^}]*)\}/u)?.[1] ?? '', /overflow-x:\s*hidden/u);
+  // The session pane's sections and the chat's tool-card diffs share one rule
+  // set, which keeps the wrapping code column (no max-content rows, no
+  // sideways scroller).
+  const stack = readFileSync(new URL('./desktop/27-search-review.css', import.meta.url), 'utf8');
+  const shared = (part) =>
+    stack.match(
+      new RegExp(`:is\\(\\.session-diff-section, \\.tool-diff-frame\\) \\.${part}\\s*\\{([^}]*)\\}`, 'u')
+    )?.[1] ?? '';
+  assert.match(shared('inline-diff'), /font-size:\s*13px/u);
+  assert.doesNotMatch(shared('inline-diff'), /overflow-x/u);
+  assert.equal(shared('inline-diff-code'), '');
+  assert.equal(shared('inline-diff-row'), '');
+  assert.match(stack.match(/\.session-diff-section-head\s*\{([^}]*)\}/u)?.[1] ?? '', /position:\s*sticky/u);
 });
 
 test('DiffHeaderControls: only the ⋯ menu with Unified/Split; no scope text or search', async () => {
@@ -322,7 +315,15 @@ test('the dock draws no second header row for Changes; the header never wraps at
   assert.match(dock, /ariaLabel=\{diffShowing \? t\('Changes'\) : undefined\}/u);
   assert.match(dock, /browser-tab is-active dock-header-chip[\s\S]*?\bdiff\.rel[\s\S]*?<DiffHeaderControls/u);
   assert.doesNotMatch(dock, /diffShowing \? t\('Changes'\) : \(activeDescriptor/u);
-  assert.doesNotMatch(pane, /<DiffHeaderControls|diff-search-input|session-diff-scope|onQuery/u);
+  assert.doesNotMatch(pane, /<DiffHeaderControls|diff-search-input|onQuery/u);
+  // Row 2 is the toolbar row (browser nav-row geometry) with the scope pill.
+  assert.match(pane, /browser-pane-toolbar session-diff-toolbar/u);
+  // "Changes" is always a tab of the pane's own tab strip, never a title chip.
+  const tabStrip = readFileSync(new URL('./session-diff-tab-strip.tsx', import.meta.url), 'utf8');
+  assert.match(pane, /<SessionDiffTabStrip/u);
+  assert.match(tabStrip, /browser-tab-list session-diff-tabs" role="tablist"/u);
+  assert.doesNotMatch(tabStrip, /dock-header-chip/u);
+  assert.doesNotMatch(pane, /dock-header-chip/u);
   assert.match(dock, /title=\{`\$\{diff\.rel\}\\n\$\{diffScopeLabel\(diff\.source\)\}`\}/u);
   const css = readFileSync(new URL('./desktop/27-search-review.css', import.meta.url), 'utf8');
   const summary = css.match(/\.session-diff-summary\s*\{([^}]*)\}/u)?.[1] ?? '';
@@ -357,7 +358,7 @@ for (const [state, sessionId, invoke, expectCount, expectRefreshDisabled] of [
         patch: PATCH,
       },
     }),
-    false, // the diff view's header names the file instead of counting files
+    true, // the pane opens on the list, whose header counts the files
     false,
   ],
 ]) {
@@ -380,47 +381,29 @@ for (const [state, sessionId, invoke, expectCount, expectRefreshDisabled] of [
   });
 }
 
-test('the list-vs-diff choice latches on first data: file-count changes never flip the open view', async () => {
+test('file-count changes grow or shrink the stack in place', async () => {
   const files = (...paths) => paths.map((path) => ({ path, status: 'M', additions: 2, deletions: 1, binary: false }));
   let current = files('src/cart.js');
-  const mountWith = (sessionId) =>
-    mount(h(SessionDiffPane, { sessionId, active: true, onClose() {} }), (win) => {
-      win.mixdogDesktop = { invokeCapability: async () => ({ value: { supported: true, files: current, patch: PATCH } }) };
-    });
+  const view = await mount(h(SessionDiffPane, { sessionId: 'sd-count', active: true, onClose() {} }), (win) => {
+    win.mixdogDesktop = {
+      invokeCapability: async () => ({ value: { supported: true, files: current, patch: PATCH } }),
+    };
+  });
   const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  let revision = 0;
-  const bump = (sessionId) =>
-    act(async () => {
-      revision += 1;
+  try {
+    await settle();
+    assert.equal(view.container.querySelectorAll('.session-diff-section').length, 1);
+    current = files('src/cart.js', 'src/receipt.js');
+    await act(async () => {
       defaultSessionLaneStore.apply({
-        sessionId,
+        sessionId: 'sd-count',
         frameSource: 'live',
-        snapshot: { sessionId, items: [{ id: `rev-${revision}` }], contentRevision: revision },
+        snapshot: { sessionId: 'sd-count', items: [{ id: 'rev-1' }], contentRevision: 1 },
       });
     });
-  // 1 → 2: opened on the diff, stays on the diff.
-  let view = await mountWith('sd-latch-1');
-  try {
     await settle();
-    assert.ok(view.container.querySelector('.session-diff-body'));
-    current = files('src/cart.js', 'src/receipt.js');
-    await bump('sd-latch-1');
-    await settle();
-    assert.ok(view.container.querySelector('.session-diff-body'));
-    assert.equal(view.container.querySelector('.session-diff-files'), null);
-  } finally {
-    await view.done();
-  }
-  // 2 → 1: opened on the list, stays on the list.
-  view = await mountWith('sd-latch-2');
-  try {
-    await settle();
-    assert.ok(view.container.querySelector('.session-diff-files'));
-    current = files('src/cart.js');
-    await bump('sd-latch-2');
-    await settle();
-    assert.ok(view.container.querySelector('.session-diff-files'));
-    assert.equal(view.container.querySelector('.session-diff-body'), null);
+    assert.equal(view.container.querySelectorAll('.session-diff-section').length, 2);
+    assert.equal(view.container.querySelector('.session-diff-back'), null);
   } finally {
     await view.done();
   }

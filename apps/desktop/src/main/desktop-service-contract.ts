@@ -52,6 +52,10 @@ export interface DesktopService {
   codeGraphQuery(projectPath: string, mode: 'find_symbol' | 'references' | 'symbols', query: string): unknown;
   listSessions(): Promise<DesktopSessionSummary[]>;
   readSessionFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
+  /** The session's transcript as this host holds it (the window its views
+   *  were sent), read without publishing when nothing is held. Host-only:
+   *  the provenance behind remote file grants (transcript-file-links.ts). */
+  readSessionTranscript?(sessionId: string): Promise<SessionSnapshot>;
   markSessionRead(sessionId: string, messageCount: number, consumedUnread?: boolean): Promise<boolean>;
   listAgentPool(): Promise<DesktopAgentPoolRow[]>;
   searchSessionContent(query: string): Promise<DesktopSessionContentMatch[]>;
@@ -59,10 +63,12 @@ export interface DesktopService {
   continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean>;
   scheduleQuotaResume(sessionId: string): Promise<boolean>;
   cancelQuotaResume(sessionId: string): Promise<boolean>;
+  stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
   getQuotaAutoResume(): Promise<boolean>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   setSessionFavorite(sessionId: string, favorite: boolean): unknown;
+  setSessionProject(sessionId: string, projectPath: string | null): unknown;
   deleteSession(sessionId: string): unknown;
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** Transport-only recovery: capture current projections after refreshing
@@ -152,10 +158,12 @@ export const DESKTOP_SERVICE_METHODS = [
   'continueSessionInModel',
   'scheduleQuotaResume',
   'cancelQuotaResume',
+  'stopShellJob',
   'getQuotaAutoResume',
   'setQuotaAutoResume',
   'setSessionArchived',
   'setSessionFavorite',
+  'setSessionProject',
   'deleteSession',
   'prefetchSession',
   'setVisibleSessions',

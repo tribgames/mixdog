@@ -1,10 +1,9 @@
 import { FileDiff } from 'lucide-react';
-import { Component, Suspense, useMemo, useState, type ReactNode } from 'react';
+import { Component, useMemo, type ReactNode } from 'react';
 import type { TranscriptItem } from './desktop-types';
-import { t } from './i18n';
-import { DiffView } from './lazy-widgets';
-import { ProgressSpinner } from './ProgressSpinner';
+import { InlineDiff } from './inline-diff';
 import { normalizeApplyPatch, parseUnifiedDiff } from './renderer-logic.mjs';
+import { toolActivityCodeLanguage } from './transcript-tool-format';
 import { asRecord } from './text-format';
 import { CopyControl } from './transcript-primitives';
 import { registerIdleReclaim } from './idle-reclaim';
@@ -58,34 +57,27 @@ export class DiffBoundary extends Component<{ fallback: ReactNode; children: Rea
   }
 }
 
-function fileOperationLabel(status: string): string {
-  if (status === 'A') return t('Added');
-  if (status === 'D') return t('Deleted');
-  return status === 'M' ? t('Changed') : '';
+function baseName(path: string): string {
+  return path.replace(/\\/g, '/').split('/').pop() || path;
 }
 
-export function CodeDiff({ patch }: { patch: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const lineCount = patch.split('\n').length;
+/** Hunks with V4A-style rangeless `@@` headers rewritten to ranged ones, so
+ *  InlineDiff never draws the header as a context row. */
+function renderHunks(file: { hunks: string[]; renderPatch: string }): string[] {
+  return parseUnifiedDiff(file.renderPatch)[0]?.hunks ?? file.hunks;
+}
+
+/** A call's diff inside the scrolling frame under the row's path line, drawn
+ *  by the same renderer as the changes pane so both read identically.
+ *  `target` is the file that line already names (with its copy): a diff of
+ *  that one file draws no caption of its own. Other files of the same patch
+ *  keep a caption with their own copy. */
+export function CodeDiff({ patch, target = '' }: { patch: string; target?: string }) {
   const files = useMemo(() => parseUnifiedDiff(patch), [patch]);
-  // Collapsing changes only the clipping wrapper. Recreating `data` here
-  // made the diff library discard and rebuild every parsed line on each
-  // toggle, even though the patch (and its copy/selection contents) was unchanged.
-  const diffViews = useMemo(
-    () =>
-      files.map((file, index) => (
-        <DiffView
-          // biome-ignore lint/suspicious/noArrayIndexKey: parsed files are positional and never reorder for a given patch
-          key={index}
-          data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }}
-        />
-      )),
-    [files]
-  );
   const fallback = <pre className="diff-fallback">{patch}</pre>;
   return (
     <section className="code-diff">
-      <div className={expanded ? '' : 'diff-collapsed'}>
+      <div>
         <DiffBoundary key={patch} fallback={fallback}>
           {files.map((file, index) => {
             const additions = file.hunks
@@ -96,46 +88,39 @@ export function CodeDiff({ patch }: { patch: string }) {
               .join('\n')
               .split('\n')
               .filter((line) => line.startsWith('-') && !line.startsWith('---')).length;
-            const operation = fileOperationLabel(file.status);
+            // Workspace files are named relative; an absolute path (outside the
+            // workspace) would otherwise stretch the caption — the call row above carries the full path.
+            const displayName = /^(?:[A-Za-z]:)?\//.test(file.newFile.fileName)
+              ? baseName(file.newFile.fileName)
+              : file.newFile.fileName;
+            const copy = (
+              <CopyControl
+                value={file.patch}
+                label="Copy diff for {{value0}}"
+                labelOptions={{ value0: displayName }}
+                className="tool-detail-copy diff-copy"
+              />
+            );
+            const captionless =
+              files.length === 1 && Boolean(target) && baseName(target) === baseName(file.newFile.fileName);
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: parsed files are positional and never reorder for a given patch
               <div className="diff-file" key={`${file.newFile.fileName}-${index}`}>
-                <header>
-                  <FileDiff size={16} />
-                  <b>{file.newFile.fileName}</b>
-                  {operation && (
-                    <span className="diff-operation" data-status={file.status}>
-                      {operation}
-                    </span>
-                  )}
-                  {(additions > 0 || deletions > 0) && (
-                    <span className="diff-stats">
-                      {additions > 0 && <i>+{additions}</i>}
-                      {deletions > 0 && <em>-{deletions}</em>}
-                    </span>
-                  )}
-                  <CopyControl
-                    value={file.patch}
-                    label="Copy diff for {{value0}}"
-                    labelOptions={{ value0: file.newFile.fileName }}
-                    className="tool-detail-copy diff-copy"
-                  />
-                </header>
-                {file.renderable ? (
-                  <Suspense
-                    fallback={
-                      <div
-                        className="diff-loading"
-                        data-transcript-pending
-                        role="status"
-                        aria-label={t('Rendering diff…')}
-                      >
-                        <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
-                      </div>
-                    }
-                  >
-                    {diffViews[index]}
-                  </Suspense>
+                {captionless ? null : (
+                  <header>
+                    <FileDiff size={16} />
+                    <b>{displayName}</b>
+                    {(additions > 0 || deletions > 0) && (
+                      <span className="diff-stats">
+                        <i>+{additions}</i>
+                        <em>−{deletions}</em>
+                      </span>
+                    )}
+                    {copy}
+                  </header>
+                )}
+                {file.renderable && file.hunks.length > 0 ? (
+                  <InlineDiff hunks={renderHunks(file)} language={toolActivityCodeLanguage(file.newFile.fileName)} />
                 ) : (
                   <pre className="diff-fallback">{file.patch}</pre>
                 )}
@@ -144,16 +129,6 @@ export function CodeDiff({ patch }: { patch: string }) {
           })}
         </DiffBoundary>
       </div>
-      {lineCount > 14 && (
-        <button
-          type="button"
-          className="diff-toggle"
-          onClick={() => setExpanded((value) => !value)}
-          aria-expanded={expanded}
-        >
-          {expanded ? t('Collapse diff') : t('Show full diff')}
-        </button>
-      )}
     </section>
   );
 }

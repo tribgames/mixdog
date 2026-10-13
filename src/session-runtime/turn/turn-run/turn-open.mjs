@@ -1,13 +1,11 @@
 import { runAbortable } from '../../../runtime/shared/abort-race.mjs';
 
 // Opens one turn: abort controller registration, timing, the worktree
-// snapshot tracker, the active-turn count and the one-shot heavy-runtime
-// warmup arm.
+// snapshot tracker (started by session preparation once the turn's workspace
+// is final), the active-turn count and the one-shot heavy-runtime warmup arm.
 export function createTurnOpener({
   createTiming,
   createSnapshot,
-  getSession,
-  getReservedSessionId,
   registerActiveTurnController,
   getActiveTurnCount,
   setActiveTurnCount,
@@ -41,7 +39,6 @@ export function createTurnOpener({
     const signal = controller.signal;
     const snapshot = createSnapshot(options);
     const routeStartedAt = performance.now();
-    snapshot.start(getSession()?.id || getReservedSessionId?.());
     setActiveTurnCount(getActiveTurnCount() + 1);
     return {
       signal,
@@ -54,6 +51,8 @@ export function createTurnOpener({
       armHeavyRuntimeWarmup: heavyRuntimeWarmupArm(),
       session0: null,
       releaseFirstTitle: null,
+      /** Set by turn admission (admitTurnWorkspace); released by settleTurn. */
+      releaseWorkspace: null,
       startedAt: Date.now(),
     };
   };

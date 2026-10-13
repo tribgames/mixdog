@@ -14,33 +14,25 @@ function bootT(key) {
   return (BOOT_UI_CATALOGS[mixdogUiLanguage] || {})[key] || key;
 }
 
-// Remote phones (iOS and Android Chrome/PWA) keep device-width so the first
-// paint uses native CSS pixels. Desktop browsers still project 1040px.
+// Every browser lays out at device-width in native CSS pixels: phones, tablets
+// and PC browsers alike (a fixed desktop width cannot shrink onto a portrait
+// tablet). The phone LAYOUT marker comes from the classifier mobile-surface.ts
+// also uses (shared/surface-class.ts, prepended above), so the first paint
+// already has the layout the mounted app keeps.
+var mixdogSurface = null;
 if (!/Electron/i.test(navigator.userAgent)) {
+  mixdogSurface = readSurfaceProbe(navigator, window);
   var mixdogViewport = document.querySelector('meta[name="viewport"]');
-  var mixdogIos =
-    /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
-  var mixdogPhone =
-    mixdogIos ||
-    (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent)) ||
-    ((navigator.maxTouchPoints || 0) > 0 && Math.min(screen.width, screen.height) < 768);
-  if (mixdogPhone) {
-    if (mixdogViewport) {
-      mixdogViewport.setAttribute(
-        'content',
-        'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
-      );
-    }
-    document.documentElement.dataset.mixdogMobileTabs = '';
-    document.documentElement.style.setProperty('--mx-device-scale', '1');
-    if (mixdogIos) document.documentElement.dataset.mixdogIosWeb = '';
-  } else if (mixdogViewport) {
+  if (mixdogViewport) {
     mixdogViewport.setAttribute(
       'content',
-      'width=1040, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
+      'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
     );
-    document.documentElement.dataset.mixdogProjection = 'desktop';
+  }
+  var mixdogLayoutWidth = Number(window.innerWidth) || Number(document.documentElement.clientWidth) || 0;
+  if (usesPhoneLayout(mixdogSurface, mixdogLayoutWidth)) {
+    document.documentElement.dataset.mixdogMobileTabs = '';
+    if (isIosDevice(mixdogSurface)) document.documentElement.dataset.mixdogIosWeb = '';
   }
 }
 
@@ -91,7 +83,8 @@ if (/Electron/i.test(navigator.userAgent)) {
 var mixdogInstalledApp = false;
 try {
   mixdogInstalledApp =
-    mixdogPhone === true &&
+    mixdogSurface !== null &&
+    isTouchDevice(mixdogSurface) &&
     Boolean(
       (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true
     );
@@ -132,7 +125,7 @@ if (mixdogInstalledApp) {
   // the color the settled app keeps, so releasing it never changes the backdrop.
   mixdogGate.textContent =
     'html[data-mixdog-booting]{background:' +
-    (mixdogLight ? '#f7f7f7' : '#151518') +
+    (mixdogLight ? '#f7f7f7' : '#181818') +
     '}' +
     'html[data-mixdog-booting] #root{opacity:0}' +
     '#root{transition:opacity 160ms ease-out}';

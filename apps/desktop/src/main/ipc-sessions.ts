@@ -59,6 +59,54 @@ export function registerSessionIpc({
   handle(DESKTOP_IPC.searchSessionContent, (_event, query) =>
     host.searchSessionContent(requiredSessionContentQuery(query))
   );
+  registerRemoteAccessIpc({
+    handle,
+    invokeDesktopOperation,
+    remoteAccessInfo,
+    rotateRemoteAccess,
+    revokeRemoteAccessClient,
+    remoteHosts,
+  });
+  handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
+    host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title))
+  );
+  handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
+    if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
+    return host.setSessionArchived(requiredSessionId(sessionId), archived);
+  });
+  handle(DESKTOP_IPC.setSessionFavorite, (_event, sessionId, favorite) => {
+    if (typeof favorite !== 'boolean') throw new TypeError('favorite must be a boolean.');
+    return host.setSessionFavorite(requiredSessionId(sessionId), favorite);
+  });
+  handle(DESKTOP_IPC.setSessionProject, (_event, sessionId, projectPath) => {
+    if (projectPath !== null && typeof projectPath !== 'string') throw new TypeError('projectPath must be a string.');
+    return host.setSessionProject(requiredSessionId(sessionId), projectPath);
+  });
+  handle(DESKTOP_IPC.deleteSession, async (_event, sessionId) => {
+    const ownerSessionId = requiredSessionId(sessionId);
+    const snapshot = await host.deleteSession(ownerSessionId);
+    browserHost?.releaseSession(ownerSessionId);
+    return snapshot;
+  });
+  registerSessionRoutingIpc({ handle, host });
+}
+
+function registerRemoteAccessIpc({
+  handle,
+  invokeDesktopOperation,
+  remoteAccessInfo,
+  rotateRemoteAccess,
+  revokeRemoteAccessClient,
+  remoteHosts,
+}: Pick<
+  SessionIpcOptions,
+  | 'handle'
+  | 'invokeDesktopOperation'
+  | 'remoteAccessInfo'
+  | 'rotateRemoteAccess'
+  | 'revokeRemoteAccessClient'
+  | 'remoteHosts'
+>): void {
   // Settings → Connection: pairing card (null while the bridge is off).
   handle(
     DESKTOP_IPC.remoteAccessInfo,
@@ -111,23 +159,9 @@ export function registerSessionIpc({
     ]);
     return handled === true;
   });
-  handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
-    host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title))
-  );
-  handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
-    if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
-    return host.setSessionArchived(requiredSessionId(sessionId), archived);
-  });
-  handle(DESKTOP_IPC.setSessionFavorite, (_event, sessionId, favorite) => {
-    if (typeof favorite !== 'boolean') throw new TypeError('favorite must be a boolean.');
-    return host.setSessionFavorite(requiredSessionId(sessionId), favorite);
-  });
-  handle(DESKTOP_IPC.deleteSession, async (_event, sessionId) => {
-    const ownerSessionId = requiredSessionId(sessionId);
-    const snapshot = await host.deleteSession(ownerSessionId);
-    browserHost?.releaseSession(ownerSessionId);
-    return snapshot;
-  });
+}
+
+function registerSessionRoutingIpc({ handle, host }: Pick<SessionIpcOptions, 'handle' | 'host'>): void {
   handle(DESKTOP_IPC.submitNewTask, (_event, prompt, options, draft) =>
     host.submitNewTask(requiredPromptContent(prompt), requiredSubmitOptions(options), requiredNewTaskDraft(draft))
   );
@@ -163,6 +197,9 @@ export function registerSessionIpc({
     host.scheduleQuotaResume(requiredSessionId(sessionId))
   );
   handle(DESKTOP_IPC.cancelQuotaResume, (_event, sessionId) => host.cancelQuotaResume(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.stopShellJob, (_event, sessionId, taskId) =>
+    host.stopShellJob(requiredSessionId(sessionId), requiredString(taskId, 'taskId', 256))
+  );
   handle(DESKTOP_IPC.getQuotaAutoResume, () => host.getQuotaAutoResume());
   handle(DESKTOP_IPC.viewerDevice, () => hostDeviceName());
   handle(DESKTOP_IPC.setQuotaAutoResume, (_event, enabled) => {

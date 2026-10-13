@@ -101,6 +101,18 @@ public class MainActivity extends BridgeActivity {
   }
 
   @Override
+  public void onResume() {
+    super.onResume();
+    if (nativeHost != null) nativeHost.onResume();
+  }
+
+  @Override
+  public void onDestroy() {
+    if (nativeHost != null) nativeHost.onDestroy();
+    super.onDestroy();
+  }
+
+  @Override
   public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     if (requestCode == MixdogNativeHost.PERMISSION_REQUEST && nativeHost != null) nativeHost.onPermissionResult();

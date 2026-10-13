@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { sameFileVersion } from './file-version.mjs';
+import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
 import * as fsPromises from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { capShellOutput } from './shell-output.mjs';
@@ -55,7 +56,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   const anchor = nearestReadRangeAnchor(rangeIndex, offset);
   // Keep the first read large enough for the existing 64 KiB prefix hash.
   // Grow only while seeking distant lines; nearby windows avoid 1 MiB reads.
-  const MIN_CHUNK_BYTES = 64 * 1024;
+  const MIN_CHUNK_BYTES = READ_PREFIX_HASH_BYTES;
   const MAX_CHUNK_BYTES = 1024 * 1024;
   let chunkBytes = MIN_CHUNK_BYTES;
   let buf = Buffer.allocUnsafe(chunkBytes);
@@ -83,10 +84,14 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   while (!stop) {
     checkDeadline();
     if (buf.length < chunkBytes) buf = Buffer.allocUnsafe(chunkBytes);
+    // Process all bytes inside the absolute cap before rejecting a deeper
+    // window. At the cap, a one-byte probe distinguishes EOF from a partial
+    // final line; any returned byte is rejected before reaching the collector.
+    const readBytes = Math.min(chunkBytes, Math.max(1, READ_MAX_SCAN_BYTES - position));
     const prefix = position === 0 && Buffer.isBuffer(prefixBuffer) ? prefixBuffer : null;
     const bytesRead = prefix?.length
-      ? prefix.copy(buf, 0, 0, Math.min(prefix.length, chunkBytes))
-      : (await fh.read(buf, 0, chunkBytes, position)).bytesRead;
+      ? prefix.copy(buf, 0, 0, Math.min(prefix.length, readBytes))
+      : (await fh.read(buf, 0, readBytes, position)).bytesRead;
     if (bytesRead === 0) break;
     const chunkStart = position;
     position += bytesRead;
@@ -94,7 +99,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
       throw new Error(`read scan exceeds ${READ_MAX_SCAN_BYTES} bytes`);
     }
     if (!prefixHash && chunkStart === 0) {
-      prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
+      prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, READ_PREFIX_HASH_BYTES)));
       if (rangeIndex && rangeIndex.prefixHash !== prefixHash) {
         rangeIndex.prefixHash = prefixHash;
       }
@@ -131,7 +136,10 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
     if (start < bytesRead) lines.appendPartial(buf.subarray(start, bytesRead));
   }
   if (!stop) lines.finishTail();
-  if (!(await publishReadRangeIndex(rangeIndex, fh, null, checkDeadline))) checkDeadline();
+  let readSnapshotStat = null;
+  if (!(await publishReadRangeIndex(rangeIndex, fh, null, checkDeadline, (version) => {
+    readSnapshotStat = version;
+  }))) checkDeadline();
 
   ioTraceDone('read_range_stream', traceStart, {
     pathHash: hashText(fullPath).slice(0, 12),
@@ -147,6 +155,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
     firstEmitted: lines.firstEmitted,
     lastEmitted: lines.lastEmitted,
     prefixHash,
+    readSnapshotStat,
   };
 }
 
@@ -269,8 +278,8 @@ export async function countLogicalLinesBytesSync(fullPath, size, stHint = null, 
       const toRead = Math.min(buf.length, size - position);
       const { bytesRead } = await fh.read(buf, 0, toRead, position);
       if (bytesRead <= 0) break;
-      if (position === 0 && rangeIndex && !rangeIndex.prefixHash) {
-        rangeIndex.prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
+      if (position === 0 && rangeIndex && canCacheReadFile(rangeIndex.fileVersion) && !rangeIndex.prefixHash) {
+        rangeIndex.prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, READ_PREFIX_HASH_BYTES)));
       }
       let start = 0;
       while (start < bytesRead) {

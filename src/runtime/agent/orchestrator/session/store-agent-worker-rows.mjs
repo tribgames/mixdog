@@ -27,6 +27,7 @@ import {
   storedLeadWorkerIndexPath,
 } from './store-summary-locations.mjs';
 import { cleanValue, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
+import { sessionUsageTotals } from '../../../shared/session-usage-totals.mjs';
 
 const DEAD_AGENT_STATUS =
   /^(?:done|complete|completed|success|closed|error|fail|failed|cancelled|canceled|killed|timeout)$/i;
@@ -235,6 +236,9 @@ const WORKER_HEADER_FIELDS = [
   'startedAt',
   'cancelledAt',
   'finishedAt',
+  'totalInputTokens',
+  'totalOutputTokens',
+  'totalToolCalls',
   ...SESSION_CANCEL_FIELDS,
 ];
 
@@ -337,6 +341,7 @@ function projectChildWorkerRow(row, { now, heartbeatMtimes }) {
     cwd: cleanValue(row.cwd || session?.cwd) || null,
     clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
     taskId: cleanValue(row.task_id || row.taskId) || null,
+    ...sessionUsageTotals(session),
   };
 }
 
@@ -368,6 +373,7 @@ function sidecarWorkerRow(
     cwd: cleanValue(session?.cwd) || current.cwd || null,
     clientHostPid: positiveNumber(session?.clientHostPid, 0) || current.clientHostPid || null,
     taskId: cleanValue(session?.task_id || session?.taskId) || current.taskId || null,
+    ...sessionUsageTotals(session),
   };
 }
 
@@ -472,6 +478,7 @@ function projectLeadWorkerRow(row, { now, heartbeatMtimes }) {
     cwd: cleanValue(row.cwd) || null,
     clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
     taskId: cleanValue(row.task_id || row.taskId) || null,
+    ...sessionUsageTotals(readWorkerSessionHeader(sessionId)),
   };
 }
 

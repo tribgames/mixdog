@@ -44,6 +44,7 @@ import {
 } from './config-storage.mjs';
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
 import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
+import { normalizeWorktreeSettings } from '../../shared/worktrees/settings.mjs';
 
 export const {
   PROFILE_LANGUAGES,
@@ -204,6 +205,10 @@ function storedInstructionFiles(agent) {
 
 export function loadConfig(options = {}) {
   const includeSecrets = options.secrets !== false;
+  // `secrets: 'presence'`: credentials are detected (env, OAuth files, which
+  // keychain entries exist) but no keychain value is read or attached — the
+  // availability view the model proxy answers a server with.
+  const presenceOnly = options.secrets === 'presence';
   try {
     ensureDefaultsSeparated({ stripRouteDefaults: separateStoredAgent });
   } catch (err) {
@@ -219,7 +224,7 @@ export function loadConfig(options = {}) {
       const storageNeedsMigration = agentConfigStorageNeedsMigration(raw);
       raw = canonicalizeAgentStorage(raw);
       const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
-      const mergedProviders = mergeStoredProviders({ raw, defaults, includeSecrets });
+      const mergedProviders = mergeStoredProviders({ raw, defaults, includeSecrets, presenceOnly });
       // Drop unknown maintenance keys (e.g. truly legacy slot names from
       // pre-removal installs). Every valid fallback slot lives in
       // DEFAULT_MAINTENANCE, so the allow-list below is the single
@@ -274,6 +279,7 @@ export function loadConfig(options = {}) {
         shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
         update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
         recap: recapConfig,
+        worktree: normalizeWorktreeSettings(raw.worktree),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
         ...(raw.builtins && typeof raw.builtins === 'object'
@@ -316,6 +322,7 @@ export function loadConfig(options = {}) {
     shell: {},
     update: {},
     recap: { enabled: true },
+    worktree: normalizeWorktreeSettings(null),
     developer: {},
     modules: {},
     // No stored section at all is a brand-new profile: its built-ins start
@@ -421,6 +428,7 @@ function buildAgentSaveBuilder(config) {
       shell,
       update: config.update || {},
       recap: config.recap || {},
+      ...(config.worktree ? { worktree: config.worktree } : {}),
       modules,
       builtins,
     };

@@ -27,6 +27,26 @@ export function buildFacade(boot) {
       ...boot.modelRouteApi,
       ...boot.workflowAgentsApi,
       ...boot.sessionTurnApi,
+      // A surface registers its idle auto-clear here; returns an unregister.
+      setCompletionWakeGate: (gate) => {
+        const next = typeof gate === 'function' ? gate : null;
+        boot.completionWakeGate = next;
+        return () => {
+          if (boot.completionWakeGate === next) boot.completionWakeGate = null;
+        };
+      },
+      applyWorkspaceTransition: boot.workspaceApi.applyWorkspaceTransition,
+      getWorkspace: boot.workspaceApi.getWorkspace,
+      getBranchMenu: boot.workspaceApi.getBranchMenu,
+      getProjectBranchMenu: boot.workspaceApi.getProjectBranchMenu,
+      selectBranch: boot.workspaceApi.selectBranch,
+      selectProjectBranch: boot.workspaceApi.selectProjectBranch,
+      mergeProjectBranch: boot.workspaceApi.mergeProjectBranch,
+      requestWorktree: boot.workspaceApi.requestWorktree,
+      mergeWorkspace: boot.workspaceApi.mergeWorkspace,
+      removeWorktree: boot.workspaceApi.removeWorktree,
+      listWorktrees: boot.workspaceApi.listWorktrees,
+      pruneWorktrees: boot.workspaceApi.pruneWorktrees,
       claimSetupRequest: setupTool.claimSetupRequest,
       isSetupRequestActive: setupTool.isSetupRequestActive,
       completeSetupRequest: setupTool.completeSetupRequest,

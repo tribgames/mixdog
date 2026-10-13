@@ -52,138 +52,8 @@ export interface RelayClientLifecycle {
 }
 
 export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): RelayClientLifecycle {
-  const open = (clientId: string, credentialId = ''): void => {
-    const challenge = {
-      ...createRelayE2EEChallenge(),
-      ...(deps.relayBinaryFrames() ? { binaryFrames: 1 as const } : {}),
-      listDelta: 1 as const,
-      ...(relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
-      compactWire: 1 as const,
-      transcriptPaging: 1 as const,
-      transcriptPrepend: 1 as const,
-      remoteParity: 1 as const,
-      browserParity: 1 as const,
-      mediaE2ee: 1 as const,
-      routeAutoEffort: 1 as const,
-      // Only when the relay can deliver: a renderer calls registerNativePush
-      // on hosts that advertise it.
-      ...(deps.nativePushSupported?.() ? { nativePush: 1 as const } : {}),
-    };
-    if (!deps.clients.open(clientId, challenge, credentialId)) return;
-    deps.sendEnvelope({
-      type: 'frame',
-      clientId,
-      data: JSON.stringify(challenge),
-    });
-  };
-
-  const answerClaim = (envelope: Record<string, unknown>): void => {
-    const claimId = String(envelope.claimId || '');
-    const publicKey = envelope.publicKey;
-    if (!claimId || !isRelayClaimPublicKey(publicKey)) return;
-    const clientId = String(envelope.clientId || claimId).slice(0, 80);
-    const rawExpiresAt = Number(envelope.expiresAt);
-    const expiresAt = Number.isFinite(rawExpiresAt) && rawExpiresAt > Date.now() ? rawExpiresAt : Date.now() + 300_000;
-    void (async () => {
-      let sealed: unknown = null;
-      try {
-        const browser = String(envelope.browser || '').slice(0, 80);
-        const decision = await deps.onClientClaim?.({
-          claimId,
-          clientId,
-          name: String(envelope.name || 'Web app').slice(0, 80),
-          platform: String(envelope.platform || '').slice(0, 80),
-          browser,
-          desktop: browser === MIXDOG_DESKTOP_CLIENT_BROWSER,
-          method: envelope.method === 'code' || envelope.method === 'retry' ? envelope.method : 'qr',
-          requestedAt: Date.now(),
-          expiresAt,
-        });
-        if (decision?.approved) {
-          sealed = await sealRelayE2EEPairingMaterial(deps.pairing, publicKey);
-        }
-      } catch {
-        sealed = null;
-      }
-      deps.sendEnvelope(sealed ? { type: 'claim-approve', claimId, sealed } : { type: 'claim-deny', claimId });
-    })();
-  };
-
-  const completeHandshake = async (
-    clientId: string,
-    client: RelayClientState,
-    frame: string | ArrayBufferView
-  ): Promise<void> => {
-    if (typeof frame !== 'string') {
-      deps.clients.close(clientId, HANDSHAKE_REQUIRED);
-      return;
-    }
-    let hello: unknown;
-    try {
-      hello = JSON.parse(frame);
-    } catch {
-      deps.clients.close(clientId, HANDSHAKE_REQUIRED);
-      return;
-    }
-    if (!isRelayE2EEHello(hello)) {
-      deps.clients.close(clientId, HANDSHAKE_REQUIRED);
-      return;
-    }
-    try {
-      client.channel = await acceptRelayE2EEClientHello(deps.e2eeIdentity, client.challenge, hello);
-      client.binaryFrames = hello.binaryFrames === 1;
-      client.listDelta = hello.listDelta === 1;
-      client.compactWire = hello.compactWire === 1;
-      client.transcriptPaging = hello.transcriptPaging === 1;
-      client.transcriptPrepend = hello.transcriptPrepend === 1;
-      // Announced by the browser itself (like viewSync): its decoder applies
-      // head and runs patches to the prompt history. A build announcing only
-      // 1 decodes head patches but not runs, so it keeps the whole field.
-      client.promptHistoryPatch = (hello as typeof hello & { promptHistoryPatch?: unknown }).promptHistoryPatch === 2;
-      client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
-      // Which wire features this phone build announced: the only way to tell
-      // a stale cached build from a feature that fails on the live path.
-      console.info(
-        `[mixdog-remote-hello] client=${clientId.slice(0, 8)} features=` +
-          [
-            ['binaryFrames', client.binaryFrames],
-            ['listDelta', client.listDelta],
-            ['compactWire', client.compactWire],
-            ['transcriptPaging', client.transcriptPaging],
-            ['transcriptPrepend', client.transcriptPrepend],
-            ['promptHistoryPatch', client.promptHistoryPatch],
-            ['viewSync', client.viewSync],
-          ]
-            .filter(([, on]) => on)
-            .map(([name]) => name)
-            .join(',')
-      );
-      client.stateLane = createRemoteStateLane(
-        client.compactWire,
-        (payload, droppable) =>
-          deps.clients.attached(clientId, client)
-            ? deps.sendEncryptedFrame(clientId, payload, droppable, undefined, !droppable)
-            : Promise.resolve(),
-        client.promptHistoryPatch
-      );
-      clearTimeout(client.handshakeTimer);
-      const uplink = deps.relayRoutingCapsPayload();
-      await deps.sendEncryptedFrame(clientId, {
-        type: 'e2ee-ready',
-        version: 1,
-        ...(client.viewSync ? { viewSync: 1 } : {}),
-        // Pairing approval is the trust: this host serves the provider, MCP
-        // and developer lanes to every paired client.
-        remoteOpenAccess: 1,
-        // The PC's own name, for the phone's PC card (a label, not a credential).
-        hostName: (deps.hostName?.() ?? hostname()).slice(0, 80),
-        ...uplink,
-      });
-      if (!client.viewSync) deps.resyncClient(clientId, client);
-    } catch {
-      deps.clients.close(clientId, 'relay encryption authentication failed');
-    }
-  };
+  const open = (clientId: string, credentialId = ''): void => openRelayClient(deps, clientId, credentialId);
+  const answerClaim = (envelope: Record<string, unknown>): void => answerRelayClaim(deps, envelope);
 
   const receive = (clientId: string, client: RelayClientState, frame: string | ArrayBufferView): void => {
     const frameBytes = typeof frame === 'string' ? Buffer.byteLength(frame) : frame.byteLength;
@@ -192,7 +62,7 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
     const processFrame = async (): Promise<void> => {
       if (!deps.clients.attached(clientId, client)) return;
       if (!client.channel) {
-        await completeHandshake(clientId, client, frame);
+        await completeHandshake(deps, clientId, client, frame);
         return;
       }
       let clearPayload: unknown;
@@ -216,4 +86,148 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
   };
 
   return { open, answerClaim, receive };
+}
+
+function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, credentialId: string): void {
+  const challenge = {
+    ...createRelayE2EEChallenge(),
+    ...(deps.relayBinaryFrames() ? { binaryFrames: 1 as const } : {}),
+    listDelta: 1 as const,
+    ...(relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
+    compactWire: 1 as const,
+    transcriptPaging: 1 as const,
+    transcriptPrepend: 1 as const,
+    remoteParity: 1 as const,
+    browserParity: 1 as const,
+    browserDrive: 1 as const,
+    browserSessionTabs: 1 as const,
+    termSizeOwner: 1 as const,
+    hostDirectories: 1 as const,
+    mediaE2ee: 1 as const,
+    routeAutoEffort: 1 as const,
+    visualize: 1 as const,
+    fileDownloads: 1 as const,
+    // Only when the relay can deliver: a renderer calls registerNativePush
+    // on hosts that advertise it.
+    ...(deps.nativePushSupported?.() ? { nativePush: 1 as const } : {}),
+  };
+  if (!deps.clients.open(clientId, challenge, credentialId)) return;
+  deps.sendEnvelope({
+    type: 'frame',
+    clientId,
+    data: JSON.stringify(challenge),
+  });
+}
+
+function answerRelayClaim(deps: RelayClientLifecycleDeps, envelope: Record<string, unknown>): void {
+  const claimId = String(envelope.claimId || '');
+  const publicKey = envelope.publicKey;
+  if (!claimId || !isRelayClaimPublicKey(publicKey)) return;
+  const clientId = String(envelope.clientId || claimId).slice(0, 80);
+  const rawExpiresAt = Number(envelope.expiresAt);
+  const expiresAt = Number.isFinite(rawExpiresAt) && rawExpiresAt > Date.now() ? rawExpiresAt : Date.now() + 300_000;
+  void (async () => {
+    let sealed: unknown = null;
+    try {
+      const browser = String(envelope.browser || '').slice(0, 80);
+      const decision = await deps.onClientClaim?.({
+        claimId,
+        clientId,
+        name: String(envelope.name || 'Web app').slice(0, 80),
+        platform: String(envelope.platform || '').slice(0, 80),
+        browser,
+        desktop: browser === MIXDOG_DESKTOP_CLIENT_BROWSER,
+        method: envelope.method === 'code' || envelope.method === 'retry' ? envelope.method : 'qr',
+        requestedAt: Date.now(),
+        expiresAt,
+      });
+      if (decision?.approved) {
+        sealed = await sealRelayE2EEPairingMaterial(deps.pairing, publicKey);
+      }
+    } catch {
+      sealed = null;
+    }
+    deps.sendEnvelope(sealed ? { type: 'claim-approve', claimId, sealed } : { type: 'claim-deny', claimId });
+  })();
+}
+
+async function completeHandshake(
+  deps: RelayClientLifecycleDeps,
+  clientId: string,
+  client: RelayClientState,
+  frame: string | ArrayBufferView
+): Promise<void> {
+  if (typeof frame !== 'string') {
+    deps.clients.close(clientId, HANDSHAKE_REQUIRED);
+    return;
+  }
+  let hello: unknown;
+  try {
+    hello = JSON.parse(frame);
+  } catch {
+    deps.clients.close(clientId, HANDSHAKE_REQUIRED);
+    return;
+  }
+  if (!isRelayE2EEHello(hello)) {
+    deps.clients.close(clientId, HANDSHAKE_REQUIRED);
+    return;
+  }
+  try {
+    client.channel = await acceptRelayE2EEClientHello(deps.e2eeIdentity, client.challenge, hello);
+    client.binaryFrames = hello.binaryFrames === 1;
+    client.listDelta = hello.listDelta === 1;
+    client.compactWire = hello.compactWire === 1;
+    client.transcriptPaging = hello.transcriptPaging === 1;
+    client.transcriptPrepend = hello.transcriptPrepend === 1;
+    // Announced by the browser itself (like viewSync): its decoder applies
+    // head and runs patches to the prompt history. A build announcing only
+    // 1 decodes head patches but not runs, so it keeps the whole field.
+    client.promptHistoryPatch = (hello as typeof hello & { promptHistoryPatch?: unknown }).promptHistoryPatch === 2;
+    client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
+    logAnnouncedFeatures(clientId, client);
+    client.stateLane = createRemoteStateLane(
+      client.compactWire,
+      (payload, droppable) =>
+        deps.clients.attached(clientId, client)
+          ? deps.sendEncryptedFrame(clientId, payload, droppable, undefined, !droppable)
+          : Promise.resolve(),
+      client.promptHistoryPatch
+    );
+    clearTimeout(client.handshakeTimer);
+    const uplink = deps.relayRoutingCapsPayload();
+    await deps.sendEncryptedFrame(clientId, {
+      type: 'e2ee-ready',
+      version: 1,
+      ...(client.viewSync ? { viewSync: 1 } : {}),
+      // Pairing approval is the trust: this host serves the provider, MCP
+      // and developer lanes to every paired client.
+      remoteOpenAccess: 1,
+      // The PC's own name, for the phone's PC card (a label, not a credential).
+      hostName: (deps.hostName?.() ?? hostname()).slice(0, 80),
+      ...uplink,
+    });
+    if (!client.viewSync) deps.resyncClient(clientId, client);
+  } catch {
+    deps.clients.close(clientId, 'relay encryption authentication failed');
+  }
+}
+
+/** Which wire features this phone build announced: the only way to tell a
+ *  stale cached build from a feature that fails on the live path. */
+function logAnnouncedFeatures(clientId: string, client: RelayClientState): void {
+  console.info(
+    `[mixdog-remote-hello] client=${clientId.slice(0, 8)} features=` +
+      [
+        ['binaryFrames', client.binaryFrames],
+        ['listDelta', client.listDelta],
+        ['compactWire', client.compactWire],
+        ['transcriptPaging', client.transcriptPaging],
+        ['transcriptPrepend', client.transcriptPrepend],
+        ['promptHistoryPatch', client.promptHistoryPatch],
+        ['viewSync', client.viewSync],
+      ]
+        .filter(([, on]) => on)
+        .map(([name]) => name)
+        .join(',')
+  );
 }

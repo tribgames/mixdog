@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyDeferredToolSurface } from './tool-catalog.mjs';
 import { HEADLESS_MODEL_TOOL_NAMES, filterModelToolsForProfile, modelToolSchemaAllowlist } from './tool-profile.mjs';
@@ -14,6 +16,11 @@ import {
   withGrandfatheredBuiltins,
 } from './builtin-features.mjs';
 import { filterSkillsExcludingDisabled } from '../context/collect.mjs';
+
+// No desktop bridge is published for this file unless a test writes one.
+process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-features-'));
+delete process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
+delete process.env.MIXDOG_FEATURE_VISUALIZE;
 
 const { buildSharedToolContent } = createRequire(import.meta.url)('../../../../lib/rules-builder.cjs');
 
@@ -140,6 +147,7 @@ test('a fresh profile keeps every gated tool family off the session surface', ()
     'terminal',
     'office',
     'tidy',
+    'visualize',
   ]);
 });
 
@@ -147,12 +155,47 @@ test('installed features with live bridges expose the full tool surface', () => 
   // tidy ships after the grandfathering cut, so an upgraded profile still has
   // to install it; everything grandfathered stays available.
   const config = setBuiltinInstalledInConfig(withGrandfatheredBuiltins({ presets: [] }), 'tidy', true);
-  assert.deepEqual(
-    featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true, gitAvailable: true }),
-    []
-  );
+  process.env.MIXDOG_FEATURE_VISUALIZE = '1';
+  try {
+    assert.deepEqual(
+      featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true, gitAvailable: true }),
+      []
+    );
+  } finally {
+    delete process.env.MIXDOG_FEATURE_VISUALIZE;
+  }
   // A missing bridge keeps browser/computer out even on an installed profile.
-  assert.deepEqual(featureDisallowedToolsFor(config, { gitAvailable: true }), ['browser', 'browser_devtools', 'computer', 'terminal']);
+  assert.deepEqual(featureDisallowedToolsFor(config, { gitAvailable: true }), [
+    'browser',
+    'browser_devtools',
+    'computer',
+    'terminal',
+    'visualize',
+  ]);
+});
+
+test('visualize needs no install: bridge presence and the module toggle gate it, env wins', () => {
+  assert.equal(INSTALLABLE_BUILTIN_IDS.includes('visualize'), false);
+  const config = withGrandfatheredBuiltins({});
+  assert.equal(builtinFeatureActive(config, 'visualize'), false);
+  writeFileSync(
+    join(process.env.MIXDOG_DATA_DIR, 'visualize-bridge.json'),
+    JSON.stringify({ version: 1, port: 1, token: 't', pid: process.pid })
+  );
+  try {
+    assert.equal(builtinFeatureActive(config, 'visualize'), true);
+    assert.equal(featureDisallowedToolsFor(config).includes('visualize'), false);
+    const off = { ...config, modules: { visualize: { enabled: false } } };
+    assert.equal(builtinFeatureActive(off, 'visualize'), false);
+    assert.ok(featureDisallowedToolsFor(off).includes('visualize'));
+    process.env.MIXDOG_FEATURE_VISUALIZE = '0';
+    assert.equal(builtinFeatureActive(config, 'visualize'), false);
+    process.env.MIXDOG_FEATURE_VISUALIZE = '1';
+    assert.equal(builtinFeatureActive(off, 'visualize'), true);
+  } finally {
+    delete process.env.MIXDOG_FEATURE_VISUALIZE;
+    rmSync(join(process.env.MIXDOG_DATA_DIR, 'visualize-bridge.json'), { force: true });
+  }
 });
 
 test('Git needs no install marker but respects OFF and does not enable extension tools', () => {
@@ -195,6 +238,7 @@ test('a disabled toggle removes tools even while the feature stays installed', (
     'recall',
     'office',
     'tidy',
+    'visualize',
   ]);
 });
 
@@ -212,7 +256,7 @@ test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions'
         computerAvailable: true,
         terminalAvailable: true,
       }),
-      ['git', 'github']
+      ['git', 'github', 'visualize']
     );
   } finally {
     delete process.env.MIXDOG_FEATURE_OFFICE;

@@ -18,6 +18,7 @@ import type { RelayE2EEChannel, RelayE2EEPairingMaterial } from '../shared/remot
 import type { ActivityRailPinsState } from '../shared/activity-rail-pins';
 import type { ProviderModelsChange } from '../shared/provider-models';
 import type { SettingsChange } from '../shared/settings-changed';
+import type { DesktopVisualizeEvent } from '../shared/visualize';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import { createRemoteCatalog } from '../shared/remote-catalog';
 import { createRemoteRosterCache, createIndexedDbRosterStorage } from '../shared/remote-roster-cache';
@@ -40,6 +41,7 @@ import { createRemoteSessionInbox } from './remote-session-inbox';
 import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './remote-shim-payload-limit';
 import type { createRemotePairingScreen } from './remote-pairing-screen';
 import type { createRemoteViewSync } from './remote-view-sync';
+import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
 
 export const DEVICE_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.device;
 export const REMOTE_CREDENTIAL_READY_EVENT = 'mixdog:remote-credential-ready';
@@ -102,9 +104,29 @@ export interface RemoteShimState {
    *  the remote browser pane's tabs, history, saved-login fill and profile
    *  import. Absent means an older host: the pane keeps its single stream. */
   peerBrowserParity: boolean;
+  /** The current host advertised `browserDrive` in its challenge: it takes the
+   *  remote browser pane's `viewport` control. Absent means an older host,
+   *  which rejects that control: the pane never sends it. */
+  peerBrowserDrive: boolean;
+  /** The current host advertised `browserSessionTabs`: a conversation browser's
+   *  tabs ride its frames and its tab controls are accepted. */
+  peerBrowserSessionTabs: boolean;
+  /** The current host advertised `termSizeOwner`: it honors the size-owner
+   *  flag on `termResize`. Absent means an older host: never send the 0x0
+   *  release or owner heartbeats. */
+  peerTermSizeOwner: boolean;
+  /** The current host advertised `hostDirectories`: it serves
+   *  `listHostDirectories`. Absent means an older host. */
+  peerHostDirectories: boolean;
   /** The current host advertised `routeAutoEffort` in its challenge: it takes
    *  `autoEffort` in model selections and `+noauto` automation refs. */
   peerRouteAutoEffort: boolean;
+  /** The current host advertised `visualize`: it serves the agent visualize
+   *  panel's state, tab commands and pane reads. Absent means an older host. */
+  peerVisualize: boolean;
+  /** The current host advertised `fileDownloads`: it serves the host file
+   *  download lane (shared/file-downloads.ts). Absent means an older host. */
+  peerFileDownloads: boolean;
   /** The current host serves the encrypted HTTP media lane (`mediaE2ee` in
    *  its challenge). Absent means an older host: media stays on RPC. */
   peerMediaE2ee: boolean;
@@ -154,6 +176,7 @@ export interface RemoteShimCollaborators {
   agentsCatalog: ReturnType<typeof createRemoteCatalog<DesktopAgentPoolRow>>;
   sessionInbox: ReturnType<typeof createRemoteSessionInbox>;
   termListeners: Set<(event: { id: string; data: string }) => void>;
+  termSizeOwnerListeners: Set<(event: TerminalSizeOwnerEvent) => void>;
   folderChangeListeners: Set<(dir: string) => void>;
   activityRailPinsListeners: Set<(state: ActivityRailPinsState) => void>;
   providerModelsListeners: Set<(change: ProviderModelsChange) => void>;
@@ -165,6 +188,7 @@ export interface RemoteShimCollaborators {
   browserImportProgressListeners: Set<(progress: DesktopBrowserImportProgress) => void>;
   lspDiagnosticsListeners: Set<(event: DesktopLspDiagnosticEvent) => void>;
   lspStatusListeners: Set<(event: DesktopLspStatusEvent) => void>;
+  visualizeListeners: Set<(event: DesktopVisualizeEvent) => void>;
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
   // used to reach every paired phone regardless of what it had open, so a
@@ -351,7 +375,13 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerRemoteParity: false,
     peerNativePush: false,
     peerBrowserParity: false,
+    peerBrowserDrive: false,
+    peerBrowserSessionTabs: false,
+    peerTermSizeOwner: false,
+    peerHostDirectories: false,
     peerRouteAutoEffort: false,
+    peerVisualize: false,
+    peerFileDownloads: false,
     peerMediaE2ee: false,
     mediaSid: null,
     legacyVisibleSessionsQueue: Promise.resolve(),
@@ -380,6 +410,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     agentsCatalog: createRemoteCatalog<DesktopAgentPoolRow>(),
     sessionInbox: createRemoteSessionInbox({ onGap: () => ctx.requestResync() }),
     termListeners: new Set(),
+    termSizeOwnerListeners: new Set(),
     folderChangeListeners: new Set(),
     activityRailPinsListeners: new Set(),
     providerModelsListeners: new Set(),
@@ -391,6 +422,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     browserImportProgressListeners: new Set(),
     lspDiagnosticsListeners: new Set(),
     lspStatusListeners: new Set(),
+    visualizeListeners: new Set(),
     activeLanes: new Set(),
     viewBaselines: createRemoteViewBaselineCache(),
     sessionsDecoder,

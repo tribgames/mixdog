@@ -4,6 +4,68 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.2.0 - 2026-10-13
+
+Diese Version führt das Änderungen-Panel und änderungsbezogene Verlaufskarten pro Durchlauf mit Steuerelementen zum Rückgängigmachen und Wiederholen ein, hält den früheren Gesprächsverlauf nach einer Kompaktierung lesbar und fügt ein integriertes Visualisierungstool für interaktive UI-Entwürfe und Diagramme hinzu. Remote-Workflows werden durch SSH-Serververbindungen, isolierte Git-Worktree-Sitzungen, Steuerung von Hintergrund-Shells und direkte Dateidownloads auf gekoppelten Mobiltelefonen erweitert. Die Benutzeroberfläche bietet zudem kontrastreichere Farben, flüssigeres Scrollen auf Mobilgeräten und flexible Sitzungsorganisation.
+
+### Neue Funktionen
+
+- Nach dem Kompaktieren einer Unterhaltung bleiben frühere Nachrichten, Werkzeugkarten und Diffs oberhalb einer Trennlinie "Unterhaltung kompaktiert" lesbar, anstatt zu verschwinden. Sie dienen nur zur Anzeige (werden nie an das Modell gesendet), werden beim Hochscrollen nach einem Neustart wieder geladen, belegen bis zu etwa 32 MB pro Sitzung (älteste Einträge werden zuerst verworfen), filtern vertrauliche Werte wie der übrige Verlauf und werden mit der Sitzung gelöscht; fortgesetzte Sitzungen verknüpfen den Verlauf, anstatt ihn zu duplizieren. Für Durchläufe vor der Kompaktierung stehen Rückgängigmachen, Wiederholen und erneutes Ausführen nicht zur Verfügung.
+- Das neue Änderungen-Panel bietet eine fortlaufende Ansicht aller Diffs geänderter Dateien mit Reitern an der Seite: Der Reiter "Änderungen" zeigt alle Dateien, während das Anklicken einer Datei in einer Verlaufskarte nur deren Reiter öffnet. Das Panel funktioniert ohne Git über die sitzungseigenen Änderungsprotokolle, hebt Syntax hervor, bricht lange Zeilen um statt horizontal zu scrollen, klappt Dateien beim Klick auf eine Zeile ein oder aus, öffnet Dateien in einem Reiter mit `↗`, macht Dateiänderungen mit `↶` rückgängig und listet projektfremde Dateien schreibgeschützt mit vollständigem Pfad im Tooltip auf. Das Schließen des letzten Reiters schließt das Panel.
+- Eine Änderungskarte unter jedem Durchlauf zeigt die Anzahl geänderter Dateien, eine Diff-Zusammenfassung mit +N −N Zeilen, eine Schaltfläche zum Anzeigen der Änderungen sowie die Liste bearbeiteter Dateien an.
+- Überarbeitete Werkzeugkarten zeigen die genaue Änderung jedes einzelnen Bearbeitungsschritts anstelle der laufenden Gesamtsumme des Durchlaufs in derselben Diff-Ansicht wie das Änderungen-Panel und zeigen hinzugefügte sowie gelöschte Zeilen bereits während der Ausführung an.
+- Ein integriertes Visualisierungstool erstellt Projektentwürfe und Inline-Diagramme (Mermaid, SVG, ECharts, HTML und Markdown) in eigenen Reitern im Seitenbereich. Sie können Elemente untersuchen, Seitenfehler erfassen, angeheftetes Feedback mit Datenauswahlen für die nächste Nachricht hinterlassen, Versionen vergleichen und wiederherstellen sowie Designs als PNG oder PDF exportieren.
+- Git-Worktree-Sitzungen ermöglichen das Arbeiten auf isolierten Zweigen, ohne den aktuellen Arbeitsbereich zu verändern. Ein Zweig-Chip über dem Eingabefeld erlaubt das Auswählen oder Erstellen eines neuen Worktree-Zweigs beim Starten einer Aufgabe mit abgesicherten Zusammenführungen, die Konfliktreste verhindern.
+- Verbinden Sie sich über Einstellungen > Verbindung per SSH mit Remote-Servern. Mixdog installiert sich automatisch auf dem Server, öffnet sich in einem eigenen Fenster mit einem Ports-Panel samt Portweiterleitung, Remote-Dateiverwaltung und Terminals und leitet Modellaufrufe über Ihren PC weiter, sodass keine Zugangsdaten auf dem Server liegen müssen.
+- Gekoppelte Smartphones können nun vom Assistenten erstellte Dateien und generierte Medien direkt über Chat-Links herunterladen und teilen, inklusive Fortschrittsanzeige, Wiederholungsversuchen und Abbruch (Speichern im Download-Ordner unter Android und über das Share-Menü unter iOS; mit dem nächsten Update der Android-App oder iOS-App) (#40). Gekoppelte Mobiltelefone sind zudem strikt auf registrierte Projekte und in dieser Sitzung erstellte Dateien beschränkt.
+- Hintergrund-Shell-Befehle können direkt in der App oder aus der Ferne gestoppt werden. Beendete Befehle bleiben bis zum Schließen aufgelistet, anstatt sofort zu verschwinden, und die Aufgabenübersicht im Eingabebereich klappt inline auf, um laufende Hintergrundbefehle neben Agenten mit kumuliertem Token-Verbrauch und Werkzeugaufrufen anzuzeigen.
+- Verschieben Sie Sitzungen über das Seitenleistenmenü oder per Drag-and-Drop in ein anderes Projekt, ohne den Ordner auf der Festplatte zu verschieben; Sitzungen in Unterordnern und Worktrees eines Projekts werden automatisch darunter gruppiert.
+- Seitenbereiche auf Mobiltelefonen (Browser, Terminal, Änderungen und Vorschau) nutzen dieselbe Kopfzeile wie auf dem PC, inklusive Reiter, Menü zum Wechseln von Panels und Schließen-Schaltfläche. Im mobilen Browser öffnet `+` einen neuen Reiter im Seitenbereich dieser Sitzung, und Reiter lassen sich wie am PC wechseln und schließen (erfordert die aktualisierte PC-App).
+- Im Chat gesendete Bilder behalten nach einem Neustart ihre Miniaturansichten, und Karten für Visualisierungen sowie HTML-Dateien zeigen eine echte visuelle Vorschau der Seite, die lokal in einer isolierten Sandbox ohne Netzwerkzugriff für Dateien innerhalb des Projekts gerendert wird.
+- Der Eingabebereich listet aktive Agenten im selben Format wie das Agentenfenster auf und blendet den Shell-Bereich automatisch aus, wenn keine Hintergrund-Shells aktiv sind.
+- Das Schließen des letzten Terminal-, Browser- oder Datei-Reiters schließt den Seitenbereich automatisch, und das erneute Öffnen des Terminals startet einen neuen Reiter (basierend auf #49 von @moveju112).
+- Projektordner und Seitenleistenabschnitte bleiben standardmäßig geöffnet und merken sich ihren eingeklappten Zustand, während das Auswählen einer Sitzung in einem eingeklappten Ordner diesen automatisch öffnet. Sitzungen können zudem per Drag-and-Drop neu angeordnet oder nach letzter Aktivität sortiert werden.
+- Die Android-App kann nun im Hintergrund nach Updates suchen, Aktualisierungen herunterladen, Signaturen verifizieren und neue Versionen direkt installieren (mit dem nächsten Update der Android-App).
+- Die automatische Überlegungssteuerung lässt sich nun pro Modellroute in den Routeneinstellungen festlegen und für Automatisierungen mit `+noauto` deaktivieren. Unter Einstellungen > Verbindung können gekoppelten Geräten zudem benutzerdefinierte lokale Spitznamen zugewiesen werden.
+
+### Änderungen
+
+- Kräftigere Akzentfarben und höherer Textkontrast; Überschriften von Werkzeug- und Verlaufskarten nutzen ein dezentes Grau mit reinen Umrandungen; Inline-Code erscheint als graue Chips und Zitate mit einer linken Linie; ausgewählter Text und Diff-Zeilennummern erreichen in beiden Designs ein Kontrastverhältnis von mindestens 4.5:1.
+- Das Seitenmenü öffnet sich ohne Schattenwurf und dunkelt den Hintergrund um 40% ab.
+- Der Zweig- und Worktree-Chip über dem Eingabefeld erscheint nur in Git-Projekten und ausschließlich vor dem Beginn einer Unterhaltung.
+- Die Anzahl geänderter Dateien im Eingabebereich deckt nun die gesamte Sitzung ab, anstatt nach jedem Durchlauf zurückgesetzt zu werden.
+- Der Schalter für die Visualisierung wurde aus der Kopfzeile des Panels entfernt; Visualisierungen öffnen sich automatisch oder über ihre Karte in der Unterhaltung.
+- Der Kontextring öffnet sich nur noch beim Anklicken und nicht mehr beim Daraufzeigen mit der Maus (#48).
+- Auf Smartphones fügt die Eingabetaste einen Zeilenumbruch ein; das Senden erfolgt über die Schaltfläche.
+- Nachrichten werden unterhalb des Eingabebereichs sanft ausgeblendet, anstatt abrupt abgeschnitten zu werden.
+- Dateien außerhalb des Projekts zeigen ihren Namen mit dem vollständigen Pfad im Tooltip anstelle eines Abzeichens.
+- Flüssigeres Scrollen, insbesondere unter Android: Die Unterhaltung wird maximal einmal pro Bildwiederholung neu gezeichnet, die Ladeanzeige animiert auf der GPU, die Scrollposition wird beim Anhalten gespeichert, Toucheingaben werden nicht mehr blockiert und das Ausblenden unter dem Eingabebereich zeichnet nicht mehr die gesamte Liste neu.
+- MCP-Werkzeugaufrufe erzwingen Ausführungs-Timeouts (standardmäßig 120 Sekunden) ohne hängenzubleiben oder abgebrochene Anfragen zu wiederholen, melden Abstürze von stdio-Prozessen mit Fehlerdetails und unterstützen Paginierung für lange Werkzeuglisten.
+- Automatisch leeren wird für inaktive Sitzungen ausgeführt, bevor Hintergrundabschlüsse die Unterhaltung wieder aufwecken.
+- Beim Starten der Desktop-App unter macOS werden Homebrew-Verzeichnisse an `PATH` angehängt, ohne bestehende Pfadeinträge zu verwerfen.
+- Das mobile Remote-Terminal enthält eine eigene Tastenleiste mit Modifikatoren und Navigationstasten (mit dem nächsten Update der Android-App oder iOS-App).
+
+### Fehlerbehebungen
+
+- Das Antippen eines Links im Chat öffnete bisher einen leeren In-App-Browser; die Seite lädt nun zuverlässig und öffnet sich auf Smartphones im Vollbildmodus (#41).
+- Die Nachdenkanzeige blieb bis zum Laden der App-Sprache auf Englisch; der Schimmereffekt auf Smartphones wurde korrigiert.
+- Die Verlaufskarte, der Eingabebereich und das Änderungen-Panel konnten voneinander abweichende Anzahlen geänderter Dateien anzeigen.
+- Das erste Hochscrollen in langen Unterhaltungen konnte zu Darstellungsprüngen führen.
+- Das Schließen des letzten Terminal-Reiters erstellte fälschlicherweise einen neuen Reiter und flackerte (#49).
+- Das Lesen von Dateien liefert keine veralteten Inhalte mehr zurück und meldet keine Zeilenbereiche, die nicht tatsächlich übermittelt wurden, selbst wenn eine große Datei an derselben Stelle mit identischer Größe überschrieben wird (#54, danke an @22nsuk).
+- Das Speichern von Dateien und die Batch-Wiederherstellung behalten die Textkodierung bei, verwerfen verlustbehaftete Speicherungen, schützen geänderte Puffer bei Lesekonflikten und protokollieren Batch-Schreibvorgänge unter Beibehaltung von Dateiberechtigungen und Pfadschreibweise (#39, danke an @22nsuk).
+- Unter macOS bewegen `Cmd+Up` und `Cmd+Down` den Cursor innerhalb von Textfeldern, anstatt Tastenkürzel für die Arbeitsbereichsnavigation auszulösen.
+- Konfigurations- und Statusdateien, die mit einer Byte-Reihenfolge-Markierung (BOM) beginnen, laden fehlerfrei, anstatt abzustürzen oder neu initialisiert zu werden.
+- Bei der Anmeldung bei OpenAI bleibt der vollständige Modellkatalog erhalten, anstatt verfügbare Modelle versehentlich auszublenden.
+- Unter Linux führte das Einfügen oder Lesen von Bildern zum Absturz des Mixdog-Hintergrunddienstes und brach den laufenden Durchlauf ab; Bilder werden nun über ein Build der Bildbibliothek verarbeitet, das dort zuverlässig funktioniert (#56, #57, danke an @cronoboris).
+- Nach einem unvorhergesehenen Beenden von Mixdog (Herunterfahren von Windows, Installationsprogramme, Beenden über den Task-Manager) konnte jede Aktion mit dem Fehler "daemon session endpoint is unavailable" fehlschalgen und keine Unterhaltungen anzeigen, bis eine verbliebene Sperrdatei entfernt wurde; veraltete Sperren werden nun automatisch erkannt und behoben. Eine unlesbare Datei im temporären Ordner verhindert den Start des Hintergrunddienstes ebenfalls nicht mehr, und falls der Start dennoch fehlschlägt, zeigen die Fehlerdetails die tatsächliche Ursache und den Speicherort der Protokolle an.
+
+### Sonstiges
+
+- Übersetzungen neuer und geänderter Begriffe wurden in allen 11 Sprachen überarbeitet.
+- Rohdaten der Terminal-Bench-Auswertung für DeepSeek V4.1 Flash über 89 Aufgaben im Vergleich von Mixdog mit DSH veröffentlicht (#43) und die vollständige GPT-6.1 Sol-Evaluierungsvorlage hinzugefügt.
+- App-Symbole für Mobilgeräte an das Titan-Design der Desktop-Anwendung angepasst (mit dem nächsten Update der Android-App).
+
 ## v1.1.2 - 2026-10-12
 
 Der Hinweis „Neuigkeiten“ erscheint nach einem Update jetzt auch dann, wenn der lokale Speicher der App verloren gegangen ist, wartet, bis die Willkommensseite bzw. Tour des Starter-Guides geschlossen wurde, und erscheint nach einem Downgrade nicht mehr erneut.

@@ -17,6 +17,8 @@ const HELP_LINES = [
   '  --web-search        enable web search and page retrieval for headless exec',
   '  --json              emit headless exec events as JSONL',
   '  --workflow <name>   start with the given workflow active',
+  '  --worktree [name]   run this session in a new git worktree (optionally named)',
+  '  --no-worktree       run this session on the current branch in the project folder',
   '  --readonly          read-only tool surface',
   '  --remote            enable remote/channel mode for this session',
   '  --onboarding        re-run the first-run setup wizard',

@@ -1,6 +1,8 @@
+import { VISUALIZE_INLINE_KINDS } from '../shared/visualize';
 import { t, tExisting } from './i18n';
-import { formatElapsed, oneLine } from './text-format';
+import { asRecord, formatElapsed, oneLine } from './text-format';
 import { boundedTextOf } from './transcript-tool-core';
+import { visualizeInlineKindLabel } from './visualize-card-model';
 
 // Getters: each read resolves in the ACTIVE language, not the boot language.
 export const TOOL_DETAIL_LABELS = {
@@ -595,6 +597,13 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     ['browser', 'browser_devtools'],
     (args, _path, fallback) => localizeActionSubject(args, fallback.replace(/\bhttps?:\/\/(?:www\.)?/g, '')),
   ],
+  // "주문 처리 흐름", "mockup.html", "shots/home.png": the tab's title, else
+  // what the call acted on. The arguments arrive as the unwrapped `input`
+  // (the action rides beside it), so an action shows only when flat.
+  [
+    ['visualize'],
+    (args, _path, fallback) => visualizeRowSubject(toolActivityFirstText(args, 'action'), args, '') || fallback,
+  ],
   [
     [
       'setup',
@@ -613,6 +622,45 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     (args, _path, fallback) => localizeActionSubject(args, fallback),
   ],
 ]);
+
+/** The visualize tool's actions as past-tense verbs in the active language. */
+function visualizeActionLabel(action: string): string {
+  switch (action.toLowerCase()) {
+    case 'open':
+      return t('Showed tab');
+    case 'close':
+      return t('Closed tab');
+    case 'check':
+      return t('Checked tab');
+    case 'capture':
+      return t('Captured tab');
+    case 'annotate':
+      return t('Annotated tab');
+    case 'export':
+      return t('Exported tab');
+    case 'inspect':
+      return t('Inspected tab');
+    default:
+      return action ? toolActivityActionLabel(action) : '';
+  }
+}
+
+/** "Checked tab · 요금제 배치 시안 (3가지)": the action verb, then the tab's
+ *  title (the label given at open, which `tabTitle` resolves from the tab id),
+ *  else what the call acted on. A bare tab id is never shown. `args` is the
+ *  call's `input`; the action rides beside it. */
+export function visualizeRowSubject(action: string, args: Record<string, unknown>, tabTitle: string): string {
+  const content = asRecord(args.content);
+  const kind = VISUALIZE_INLINE_KINDS.find((candidate) => candidate === content?.kind);
+  const subject =
+    toolActivityFirstText(args, 'label') ||
+    (content ? toolActivityFirstText(content, 'title') : '') ||
+    toolActivityOneOrCount(toolActivityValues(args.targets), 'path') ||
+    tabTitle ||
+    toolActivityFirstText(args, 'output') ||
+    (kind ? visualizeInlineKindLabel(kind) : '');
+  return toolActivityCompact([visualizeActionLabel(action), subject]);
+}
 
 export function toolActivitySubject(normalizedName: string, args: Record<string, unknown>, fallback: string): string {
   const format = TOOL_SUBJECTS[normalizedName];
@@ -653,6 +701,7 @@ const TOOL_TARGETS = byToolName<ToolTargetsFormatter>([
     (args) => [toolActivityValues(args.query ?? args.queries ?? args.keywords).map(toolActivityQuoted)],
   ],
   [['web_fetch', 'fetch'], (args) => [toolActivityValues(args.url ?? args.urls ?? args.uri)]],
+  [['visualize'], (args) => [toolActivityValues(args.targets)]],
 ]);
 
 /** Every entry of each argument that carried more than one; empty when none did. */
@@ -735,6 +784,7 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
   ],
   [['git_stage'], ['files', 'paths']],
   [['github', 'setup', 'tidy', 'office', 'computer', 'media'], ['action']],
+  [['visualize'], ['action', 'targets', 'tab', 'output', 'label', 'content']],
   // The row's subject already names the page / element the call acted on.
   [
     ['browser', 'browser_devtools'],

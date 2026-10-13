@@ -97,10 +97,7 @@ function budgetedStart(items, end, maxItems, byteBudget, minItems) {
  *  goes below TRANSCRIPT_WINDOW_MIN_ITEMS. */
 function tailWindowStart(items, { limit, byteBudget = null, pageBase = 0 }) {
   const held = Math.min(pageBase || 0, limit, items.length);
-  if (held > 0) {
-    return budgetedStart(items, items.length - held, limit - held, byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
-  }
-  return budgetedStart(items, items.length, limit, byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+  return budgetedStart(items, items.length - held, limit - held, byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
 }
 
 /** A stored projection already holds at most `window.limit` items; the byte
@@ -120,6 +117,22 @@ export function budgetStoredWindow(wire, window) {
 function restoredAfterFirstMessage(item) {
   const match = RESTORED_ITEM_ID.exec(String(item?.id ?? ''));
   return Boolean(match) && Number(match[1]) > 0;
+}
+
+/** The compaction-archive segments (`{ after, before }`) a resumed runtime
+ *  holds none of, or null. */
+function runtimeArchiveRange(state) {
+  const range = state?.transcriptArchive;
+  const after = Number(range?.after);
+  const before = Number(range?.before);
+  return Number.isInteger(after) && Number.isInteger(before) && before - 1 > after ? { after, before } : null;
+}
+
+function resetLoadedHead(view) {
+  view.head = [];
+  view.headOlder = null;
+  view.headSource = null;
+  view.archiveHeld = 0;
 }
 
 /** Fold a read/subscribe request into a live entry's window. */
@@ -143,6 +156,10 @@ export function requestLiveTranscriptWindow(entry, request) {
       paged: false,
       head: [],
       headOlder: null,
+      // Where the loaded head came from: 'stored' (durable history aligned by
+      // restore ids) or 'archive' (compaction-archive pages).
+      headSource: null,
+      archiveHeld: 0,
       cache: null,
     };
     return;
@@ -183,14 +200,12 @@ export function windowTranscriptSnapshot(entry, wire) {
     // rewind, clear): follow the anchor, or restart from the tail.
     const moved = items.findIndex((item) => item?.id === view.anchorId);
     start = moved < 0 ? null : moved;
-    view.head = [];
-    view.headOlder = null;
+    resetLoadedHead(view);
   }
   if (start !== null && start > items.length) start = null;
   if (start === null) {
     start = tailWindowStart(items, view);
-    view.head = [];
-    view.headOlder = null;
+    resetLoadedHead(view);
   }
   // The sticky start lets appends travel as suffix patches, so an unpaged
   // tail grows past its byte budget while views stay attached (a worker
@@ -210,7 +225,8 @@ export function windowTranscriptSnapshot(entry, wire) {
   }
   view.start = start;
   view.anchorId = items[start]?.id;
-  const older = start > 0 || (view.headOlder ?? restoredAfterFirstMessage(view.head[0] ?? items[0]));
+  const older =
+    start > 0 || (view.headOlder ?? headSourceFor(view.head[0] ?? items[0], runtimeArchiveRange(wire)) !== null);
   const cache = view.cache;
   if (cache && cache.wire === wire && cache.start === start && cache.head === view.head && cache.older === older) {
     return cache.value;
@@ -223,10 +239,96 @@ export function windowTranscriptSnapshot(entry, wire) {
   return value;
 }
 
-/** Load durable history OLDER than the runtime's first item when a grown
- *  window reaches past what the runtime holds (a resumed runtime restores
- *  only a bounded tail). Items align by their deterministic restore ids.
- *  Returns whether durable history was read. */
+/** Where older rows above `first` come from: durable history aligned by
+ *  restore ids (which continues into the compaction archive), or — once the
+ *  runtime's rows are not restored ones (a live compaction archived them, or
+ *  nothing was restored) — compaction-archive pages alone. */
+function headSourceFor(first, archive) {
+  const restoredId = RESTORED_ITEM_ID.test(String(first?.id ?? ''));
+  if (restoredId && first?.archived !== true) return restoredAfterFirstMessage(first) || archive ? 'stored' : null;
+  if (archive) return 'archive';
+  // A compaction archived the first loaded restored row, but the runtime holds
+  // no archive range: older rows still align through durable history.
+  return restoredId && restoredAfterFirstMessage(first) ? 'stored' : null;
+}
+
+/** Whether a live row shows that a compaction rewrote this runtime's rows. */
+function isCompactionMark(item) {
+  return item?.archived === true || (item?.kind === 'statusdone' && item.status === 'compacted');
+}
+
+/** The runtime's compaction generation: it only grows, because every
+ *  compaction adds a divider and archives rows. A loaded head is valid only
+ *  for the generation it was loaded in. */
+function compactionGeneration(items) {
+  return items.reduce((count, item) => count + (isCompactionMark(item) ? 1 : 0), 0);
+}
+
+/** Where `first` sits in durable history, or -1. Restore ids are positional
+ *  and only comparable while no compaction touched the live rows (or when
+ *  `first` itself came from this durable history). Across a compaction the
+ *  live `hist_…` ids and the durable `arch…`/renumbered ids describe
+ *  different positions, so nothing but one verified stable identity aligns. */
+function alignedHistoryIndex(history, first, live, fromHistory) {
+  if (!first) return -1;
+  if (fromHistory || !live.some(isCompactionMark)) return history.findIndex((item) => item?.id === first.id);
+  const index = verifiedIdentityIndex(history, first, live);
+  return index >= 0 && !prefixRepeatsLiveRow(history.slice(0, index), live) ? index : -1;
+}
+
+/** Whether a proposed older prefix holds a row whose stable identity (kind +
+ *  `messageId`, or a tool call id) the live window already shows: joining it
+ *  would show that row twice. */
+function prefixRepeatsLiveRow(prefix, live) {
+  const messages = new Set();
+  const calls = new Set();
+  for (const item of live) {
+    if (item?.messageId) messages.add(`${item.kind}\0${item.messageId}`);
+    for (const callId of toolCallIds(item)) calls.add(callId);
+  }
+  return prefix.some(
+    (item) =>
+      (item?.messageId && messages.has(`${item.kind}\0${item.messageId}`)) ||
+      toolCallIds(item).some((callId) => calls.has(callId))
+  );
+}
+
+/** The tool call ids a tool row carries (single card or aggregate). */
+function toolCallIds(item) {
+  const ids = Array.isArray(item?.callIds) ? item.callIds : [];
+  return item?.callId ? [item.callId, ...ids] : ids;
+}
+
+/** The one durable row that is the copy of live row `first`, by stable
+ *  identity only: same kind and `messageId` for message rows; for tool rows
+ *  every call id of `first` is in the durable row, which holds no call the
+ *  live window lacks (an archive aggregate merging a call that is not live
+ *  would otherwise drop it). No identity, no match, or more than one match:
+ *  -1 — nothing is guessed. */
+function verifiedIdentityIndex(history, first, live) {
+  const calls = toolCallIds(first);
+  const liveCalls = new Set(live.flatMap(toolCallIds));
+  const matches = [];
+  history.forEach((item, index) => {
+    if (item?.kind !== first.kind) return;
+    if (calls.length) {
+      const own = toolCallIds(item);
+      if (calls.every((callId) => own.includes(callId)) && own.every((callId) => liveCalls.has(callId))) {
+        matches.push(index);
+      }
+    } else if (first.kind !== 'tool' && first.messageId && item.messageId === first.messageId) {
+      matches.push(index);
+    }
+  });
+  return matches.length === 1 ? matches[0] : -1;
+}
+
+/** Load history OLDER than the runtime's first item when a grown window
+ *  reaches past what the runtime holds (a resumed runtime restores only a
+ *  bounded tail; a compaction moved earlier rows to the display-only
+ *  archive). Durable items align by their deterministic restore ids; archive
+ *  pages continue below the archived rows already held. Returns whether
+ *  durable history was read. */
 export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession) {
   const view = entry.transcriptView;
   if (!view || view.full || !view.paged || typeof readStoredSession !== 'function' || view.headOlder === false) {
@@ -235,24 +337,52 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
   // Durable history continues the window only once it shows the runtime's
   // first item; a budgeted page may still be revealing runtime rows.
   if (view.start !== 0) return false;
-  const items = entry.runtime?.getState?.()?.items;
-  const runtimeItems = Array.isArray(items) ? items : [];
+  const state = entry.runtime?.getState?.();
+  const runtimeItems = Array.isArray(state?.items) ? state.items : [];
   const missing = view.limit - runtimeItems.length - view.head.length;
   const first = view.head[0] ?? runtimeItems[0];
-  if (missing <= 0 || !restoredAfterFirstMessage(first)) return false;
-  const pageBudget = view.grow ? view.grow.byteBudget : null;
-  const stored = await readStoredSession(sessionId, { transcriptItemLimit: view.limit + runtimeItems.length });
-  if (entry.transcriptView !== view || (view.head[0] ?? entry.runtime?.getState?.()?.items?.[0]) !== first) {
+  const archive = runtimeArchiveRange(state);
+  const source = view.headSource || headSourceFor(first, archive);
+  if (missing <= 0 || !source) return false;
+  const generation = compactionGeneration(runtimeItems);
+  if (view.head.length && view.headGeneration !== generation) {
+    // A compaction since the head was loaded: keep the rows as they are, and
+    // never join older rows across the generation.
+    view.headOlder = false;
     return true;
   }
+  const pageBudget = view.grow ? view.grow.byteBudget : null;
+  const currentItems = () => entry.runtime?.getState?.()?.items;
+  const stillCurrent = () =>
+    entry.transcriptView === view &&
+    (view.head[0] ?? currentItems()?.[0]) === first &&
+    compactionGeneration(Array.isArray(currentItems()) ? currentItems() : []) === generation;
+  if (source === 'archive') {
+    const page = await readStoredSession(sessionId, {
+      compactionArchive: { ...archive, skip: view.archiveHeld || 0, limit: missing },
+    });
+    if (!stillCurrent()) return true;
+    const rows = Array.isArray(page?.items) ? page.items : [];
+    const from = budgetedStart(rows, rows.length, missing, pageBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+    view.head = sanitizeForWire(rows.slice(from)).concat(view.head);
+    view.archiveHeld = (view.archiveHeld || 0) + rows.length - from;
+    view.headSource = 'archive';
+    view.headGeneration = generation;
+    view.headOlder = from > 0 || page?.hasOlder === true;
+    return true;
+  }
+  const stored = await readStoredSession(sessionId, { transcriptItemLimit: view.limit + runtimeItems.length });
+  if (!stillCurrent()) return true;
   const history = Array.isArray(stored?.items) ? stored.items : [];
-  const overlap = history.findIndex((item) => item?.id === first.id);
+  const overlap = alignedHistoryIndex(history, first, view.head.concat(runtimeItems), view.head.length > 0);
   if (overlap < 0) {
     view.headOlder = false;
     return true;
   }
   const from = budgetedStart(history, overlap, missing, pageBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
   view.head = sanitizeForWire(history.slice(from, overlap)).concat(view.head);
+  view.headSource = 'stored';
+  view.headGeneration = generation;
   view.headOlder = from > 0 || stored.transcriptHasOlder === true;
   return true;
 }

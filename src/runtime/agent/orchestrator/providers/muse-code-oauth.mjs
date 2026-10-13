@@ -10,6 +10,15 @@ import { createHash } from 'node:crypto';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { fileMtimeMs } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
+import { getModelMetadataSync } from './model-catalog.mjs';
+import { makeModelCache } from './model-cache.mjs';
+import { PRICING_RATE_KEYS } from '../../../shared/llm/model-pricing-rates.mjs';
+import {
+  MUSE_DEFAULT_EFFORT_LEVELS as FIVE_LEVELS,
+  MUSE_SEED_IDS as SEED_MODELS,
+  MUSE_SPARK_MAX_OUTPUT as SPARK_MAX_OUTPUT,
+  museSeedRow,
+} from '../../../shared/llm/provider-seed-rosters.mjs';
 import {
   API_VERSION,
   MODEL_API_BASE_URL,
@@ -27,108 +36,63 @@ export {
 export { beginOAuthLogin, loginOAuth } from './muse-code-oauth-login.mjs';
 
 export const DEFAULT_MODEL = 'muse-spark-1.3';
-const FIVE_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high', 'xhigh']);
-const SIX_LEVELS = Object.freeze([...FIVE_LEVELS, 'max']);
 const effortOptions = (levels) => [{ type: 'effort', values: [...levels] }];
 // Image and voice generation ids are served by the same catalog but are not chat models.
 const NON_CHAT_MODEL_RE = /^muse-(image|voice)-/i;
-const SPARK_CONTEXT = 1_048_576;
-const SPARK_MAX_OUTPUT = 131_072;
-const STANDARD_COST = { inputCostPerM: 1.25, outputCostPerM: 4.25, cacheReadCostPerM: 0.15, cacheWriteCostPerM: 0 };
-const CONTRIBUTOR_COST = { inputCostPerM: 0.1, outputCostPerM: 0.2, cacheReadCostPerM: 0.002, cacheWriteCostPerM: 0 };
 
-// Seeded roster: the discovery endpoint lists bare ids, so limits, pricing and
-// the effort ladder come from here. Only the 1.3 revisions accept `max`.
-const SEEDS = Object.freeze({
-  'muse-spark-1.1': { name: 'Muse Spark 1.1', levels: FIVE_LEVELS, cost: STANDARD_COST },
-  'muse-spark-1.2': { name: 'Muse Spark 1.2', levels: FIVE_LEVELS, cost: STANDARD_COST },
-  'muse-spark-1.2-contributor': { name: 'Muse Spark 1.2 (C)', levels: FIVE_LEVELS, cost: CONTRIBUTOR_COST },
-  'muse-spark-1.3': { name: 'Muse Spark 1.3', levels: SIX_LEVELS, cost: STANDARD_COST },
-  'muse-spark-1.3-contributor': { name: 'Muse Spark 1.3 (C)', levels: SIX_LEVELS, cost: CONTRIBUTOR_COST },
+// The discovered roster (fields /models returned, never seed values) is
+// persisted so the shared sync lookup sees what listModels found.
+const museModelCache = makeModelCache({
+  fileName: 'muse-code-oauth-models.json',
+  ttlMs: 24 * 60 * 60 * 1000,
+  version: 1,
 });
-const SEED_MODELS = Object.freeze(Object.keys(SEEDS));
 
-function seedRow(id) {
-  const seed = SEEDS[id];
-  return {
-    id,
-    name: seed.name,
-    provider: 'muse-code-oauth',
-    family: 'muse-spark',
-    contextWindow: SPARK_CONTEXT,
-    outputTokens: SPARK_MAX_OUTPUT,
-    supportsReasoning: true,
-    supportsVision: true,
-    supportsFunctionCalling: true,
-    reasoningLevels: [...seed.levels],
-    reasoningOptions: effortOptions(seed.levels),
-    ...seed.cost,
-  };
+// Row fields the shared metadata lookup resolves: live roster, models.dev
+// `meta`, verified corrections, then the offline seed (provider-seed-rosters).
+const LOOKUP_FIELDS = Object.freeze([
+  'contextWindow',
+  'outputTokens',
+  ...PRICING_RATE_KEYS,
+  'supportsReasoning',
+  'supportsVision',
+  'supportsFunctionCalling',
+  'reasoningOptions',
+]);
+
+// Labels compare without the trailing "(C)" tier marker, case or punctuation.
+const nameKey = (name) =>
+  String(name || '')
+    .replace(/\s*\(c\)\s*$/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
+// A discovered or catalog label naming the seeded model keeps the seed's "(C)" marker.
+function tierName(candidate, seedName) {
+  if (!candidate) return '';
+  return seedName && nameKey(candidate) === nameKey(seedName) ? seedName : candidate;
 }
 
-// Revisioned Spark ids the seed does not list inherit the newest seeded
-// revision of their tier (limits, vision, pricing) but take the five-level
-// ladder: only reviewed seeds advertise `max`.
-const SPARK_ID_RE = /^muse-spark-(\d+)\.(\d+)(?:\.(\d+))?(-contributor)?$/i;
-
-function revisionOf(id) {
-  const m = SPARK_ID_RE.exec(id);
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0)] : null;
-}
-
-function compareRevision(a, b) {
-  for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] - b[i];
-  return 0;
-}
-
-function lineageRow(id) {
-  if (SEEDS[id]) return null;
-  const match = SPARK_ID_RE.exec(id);
-  if (!match) return null;
-  const contributor = Boolean(match[4]);
-  let template = null;
-  let templateRevision = null;
-  for (const seedId of SEED_MODELS) {
-    if (SPARK_ID_RE.exec(seedId)[4] ? !contributor : contributor) continue;
-    const candidate = revisionOf(seedId);
-    if (!templateRevision || compareRevision(candidate, templateRevision) > 0) {
-      template = seedId;
-      templateRevision = candidate;
-    }
+// Discovered fields win, then the shared lookup (fetched catalogs before
+// seeds). Rows that report no effort ladder gain the default five levels
+// unless a source declares the model non-reasoning.
+function museRow(id, discovered = null) {
+  const meta = getModelMetadataSync(id, 'muse-code-oauth');
+  if (!meta && !discovered) return null;
+  const row = { id, provider: 'muse-code-oauth', family: 'muse-spark' };
+  for (const key of LOOKUP_FIELDS) {
+    const value = meta?.[key];
+    if (value != null && !(Array.isArray(value) && !value.length)) row[key] = value;
   }
-  if (!template) return null;
-  const revision =
-    match[3] && Number(match[3]) !== 0 ? `${match[1]}.${match[2]}.${match[3]}` : `${match[1]}.${match[2]}`;
-  return {
-    ...seedRow(template),
-    id,
-    name: `Muse Spark ${revision}${contributor ? ' (C)' : ''}`,
-    reasoningLevels: [...FIVE_LEVELS],
-    reasoningOptions: effortOptions(FIVE_LEVELS),
-  };
-}
-
-// Seeds win for the ids they cover; lineage rows yield to discovered metadata.
-// A name supplied by discovery is always kept. Other discovered rows keep
-// their own metadata and only gain the default effort ladder when they report none.
-function museRow(id, discovered) {
+  Object.assign(row, discovered || {});
   const discoveredName =
     typeof discovered?.name === 'string' && discovered.name && discovered.name !== id ? discovered.name : '';
-  if (SEEDS[id]) return { ...(discovered || {}), ...seedRow(id), ...(discoveredName ? { name: discoveredName } : {}) };
-  const lineage = lineageRow(id);
-  const row = {
-    id,
-    name: id,
-    provider: 'muse-code-oauth',
-    family: 'muse-spark',
-    ...(lineage || {}),
-    ...(discovered || {}),
-  };
-  if (discoveredName) row.name = discoveredName;
-  else if (lineage) row.name = lineage.name;
-  if (!row.reasoningOptions?.length) {
-    row.reasoningOptions = effortOptions(FIVE_LEVELS);
-    row.reasoningLevels = [...FIVE_LEVELS];
+  row.name = tierName(discoveredName || meta?.displayName, museSeedRow(id)?.name) || id;
+  // A model declared non-reasoning gets no default ladder.
+  if (!row.reasoningOptions?.length)
+    row.reasoningOptions = row.supportsReasoning === false ? [] : effortOptions(FIVE_LEVELS);
+  if (!row.reasoningLevels?.length) {
+    row.reasoningLevels = [...(row.reasoningOptions.find((o) => o?.type === 'effort')?.values || [])];
   }
   return row;
 }
@@ -414,12 +378,9 @@ export class MuseCodeOAuthProvider {
     });
     this._innerKey = apiKey;
     // The Responses builder reads limits and the effort ladder from the inner
-    // provider's cached model row; seeds fill in what discovery omits.
+    // provider's cached model row; the shared lookup fills what discovery omits.
     const innerRow = this._inner.getCachedModelInfo.bind(this._inner);
-    this._inner.getCachedModelInfo = (model) => {
-      const discovered = innerRow(model);
-      return discovered || SEEDS[model] || lineageRow(model) ? museRow(model, discovered) : null;
-    };
+    this._inner.getCachedModelInfo = (model) => museRow(model, innerRow(model));
     return this._inner;
   }
 
@@ -452,6 +413,8 @@ export class MuseCodeOAuthProvider {
   async listModels() {
     const { apiKey } = await this.ensureAuth();
     const inner = this._ensureInner(apiKey);
+    // Only the latest request, fetched with the still-active key, publishes.
+    const publish = museModelCache.beginSave(() => loadTokens()?.apiKey === apiKey);
     let items;
     try {
       items = await inner._fetchModelItems();
@@ -460,25 +423,29 @@ export class MuseCodeOAuthProvider {
       return SEED_MODELS.map((id) => museRow(id));
     }
     // A successful roster is authoritative, even when it holds no chat models.
-    const rows = (Array.isArray(items) ? items : [])
+    const discovered = (Array.isArray(items) ? items : [])
       .filter((m) => typeof m?.id === 'string' && m.id && !NON_CHAT_MODEL_RE.test(m.id))
       .map((m) => {
         const contextWindow = Number(m.context_window ?? m.max_context_window ?? m.context_length ?? 0);
         const outputTokens = Number(m.max_output_tokens ?? m.output_tokens ?? 0);
         const name = [m.name, m.display_name].find((v) => typeof v === 'string' && v.trim());
-        return museRow(m.id, {
+        return {
+          id: m.id,
+          provider: 'muse-code-oauth',
           ...(name ? { name: name.trim() } : {}),
           ...(contextWindow > 0 ? { contextWindow } : {}),
           ...(outputTokens > 0 ? { outputTokens } : {}),
           ...(typeof m.created === 'number' ? { created: m.created } : {}),
-        });
+        };
       });
-    inner._enrichedModels = rows;
+    const rows = discovered.map((row) => museRow(row.id, row));
+    // A superseded or other-credential response never replaces the live roster either.
+    if (publish(discovered)) inner._enrichedModels = rows;
     return rows;
   }
 
   getCachedModelInfo(model) {
-    return this._inner?.getCachedModelInfo?.(model) || (SEEDS[model] || lineageRow(model) ? museRow(model) : null);
+    return this._inner?.getCachedModelInfo?.(model) || museRow(model);
   }
 
   /** Subscription window/weekly usage, read from the key endpoint without onboarding. */

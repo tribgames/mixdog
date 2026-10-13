@@ -72,6 +72,20 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
     return true;
   }
 
+  /** A workspace transition moved the Lead: its existing row follows (status,
+   *  reap deadline and liveness stamps unchanged). No row: nothing to write. */
+  function updateLeadWorkerCwd(sessionId, cwd) {
+    const id = clean(sessionId);
+    const next = clean(cwd);
+    if (!id || !next) return false;
+    index.write((byKey) => {
+      const current = byKey.get(id);
+      if (!current || current.cwd === next) return;
+      byKey.set(id, { ...current, cwd: next });
+    });
+    return true;
+  }
+
   /** Graceful-exit settlement: every turn this process still claims goes idle
    *  before the runtime disappears. */
   function flushActiveLeadRows() {
@@ -147,6 +161,7 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
     /** Resolves once every queued Lead index write is on disk. */
     flushLeadWorkerIndexWrites: index.flush,
     upsertLeadSession,
+    updateLeadWorkerCwd,
     removeLeadWorkerRow,
     flushActiveLeadRows,
     recoverStaleLeadRows,

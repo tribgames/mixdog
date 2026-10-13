@@ -68,6 +68,11 @@ export function createContextState({
     rawContextWindow: runtime.rawContextWindow,
     effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,
     cwd: runtime.cwd || process.cwd(),
+    // Lead workspace record (worktrees/contract.mjs SessionWorkspace): the
+    // registered Project, the execution root, the worktree binding and its
+    // revision. Null while the session has never left its project folder.
+    // Identity-stable until a transition commits.
+    workspace: runtime.getWorkspace?.() ?? null,
     systemShell: runtime.systemShell || { source: 'auto', command: '', effective: '' },
     webSearchRoute: runtime.getWebSearchRoute?.() || runtime.webSearchRoute || null,
     autoClear: autoClearState(),

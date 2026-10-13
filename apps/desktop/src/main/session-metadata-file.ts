@@ -17,6 +17,8 @@ interface SessionMetadataMaps {
   names: Record<string, string>;
   archived: Record<string, number>;
   favorites: Record<string, number>;
+  /** Sidebar project membership overrides ('' = explicitly no project). */
+  projects: Record<string, string>;
   reads: Record<string, SessionReadCursor>;
   /** A stored title that no longer matches the current generator was rewritten
    *  in memory; the caller persists it. */
@@ -82,6 +84,13 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
       if (Number.isFinite(at) && at > 0) favorites[id] = at;
     }
   }
+  const projects = emptyMap<string>();
+  const projectsRaw = legacy ? null : parsed.projects;
+  if (projectsRaw && typeof projectsRaw === 'object' && !Array.isArray(projectsRaw)) {
+    for (const [id, value] of Object.entries(projectsRaw as Record<string, unknown>)) {
+      if (isSessionId(id) && typeof value === 'string' && value.length <= 32_768) projects[id] = value;
+    }
+  }
   const reads = emptyMap<SessionReadCursor>();
   const readsRaw = legacy ? null : parsed.reads;
   if (readsRaw && typeof readsRaw === 'object' && !Array.isArray(readsRaw)) {
@@ -100,6 +109,7 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
     names: legacy ? emptyMap<string>() : normalizedMap(parsed.names),
     archived,
     favorites,
+    projects,
     reads,
     rewritten: !legacy && rewritten,
   };
@@ -114,6 +124,7 @@ export async function writeSessionMetadata(
     names: Record<string, string>;
     archived: Record<string, number>;
     favorites: Record<string, number>;
+    projects: Record<string, string>;
     reads: Record<string, SessionReadCursor>;
   }
 ): Promise<void> {
@@ -124,6 +135,7 @@ export async function writeSessionMetadata(
     names: maps.names,
     ...(Object.keys(maps.archived).length ? { archived: maps.archived } : {}),
     ...(Object.keys(maps.favorites).length ? { favorites: maps.favorites } : {}),
+    ...(Object.keys(maps.projects).length ? { projects: maps.projects } : {}),
     ...(Object.keys(maps.reads).length ? { reads: maps.reads } : {}),
   };
   await writeJsonAtomicAsync(target, payload, { secret: true });

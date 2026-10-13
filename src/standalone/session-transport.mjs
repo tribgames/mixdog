@@ -32,6 +32,9 @@ export function createSessionTransport({
   onClientDropped = null,
   onUpgradeRequested = null,
   getStatus = () => ({}),
+  // Asked before every register/call; false answers 503 (the daemon's owner
+  // lease is not held — daemon-owner.mjs).
+  admitWork = () => true,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -52,6 +55,7 @@ export function createSessionTransport({
     onClientDropped,
     onUpgradeRequested,
     getStatus,
+    admitWork,
   });
 
   function beginDrain(reason = 'daemon replacement') {
@@ -69,10 +73,19 @@ export function createSessionTransport({
     return true;
   }
 
+  // MIXDOG_SESSION_PORT pins the port (an SSH forward needs a stable one).
+  function configuredPort() {
+    const port = Number(process.env.MIXDOG_SESSION_PORT);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 0;
+  }
+
   function start() {
     if (closed) return Promise.reject(new Error('session service transport is closed'));
+    const fixedPort = configuredPort();
     listener ??= createLoopbackListener({
       server: http.createServer(handleRequest),
+      basePort: fixedPort,
+      maxPort: fixedPort,
       onListening(port) {
         boundPort = port;
         log(`session service transport listening on 127.0.0.1:${boundPort} pid=${process.pid}`);
@@ -81,7 +94,17 @@ export function createSessionTransport({
         if (!fatal) log(`server error: ${error?.message || error}`);
       },
     });
-    return listener.start().then((port) => ({ port, token: serverToken }));
+    return listener.start().then(async (port) => {
+      // The listener falls back to an OS-chosen port when the range is busy;
+      // a pinned port must never silently become a different one.
+      if (fixedPort && port !== fixedPort) {
+        await listener.stop();
+        listener = null;
+        boundPort = null;
+        throw new Error(`session port ${fixedPort} (MIXDOG_SESSION_PORT) is unavailable`);
+      }
+      return { port, token: serverToken };
+    });
   }
 
   async function stop() {

@@ -130,9 +130,9 @@ test('session list selections stay per session', () => {
   assert.deepEqual([...views], [['beta', 'session-diff']]);
 });
 
-test('the background-jobs view rides its own session like the Session Diff list', () => {
-  const showing = { open: true, view: 'background-jobs', surface: '', diff: null };
-  assert.strictEqual(sessionSideDockEntryForSession(showing, 'alpha', null, null, 'background-jobs'), showing);
+test('the visualize view rides its own session like the Session Diff list', () => {
+  const showing = { open: true, view: 'visualize', surface: '', diff: null };
+  assert.strictEqual(sessionSideDockEntryForSession(showing, 'alpha', null, null, 'visualize'), showing);
   const other = sessionSideDockEntryForSession(showing, 'beta', null, null, null);
   assert.equal(other.open, false);
   assert.equal(other.surface, '');

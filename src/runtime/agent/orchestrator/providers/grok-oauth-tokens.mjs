@@ -10,6 +10,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { grokClientVersionHeaders } from './grok-client-version.mjs';
+import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
 import {
   accountIdentityFields,
   decodeJwtPayload,
@@ -174,6 +175,7 @@ export function _mtimeMs(path) {
 // mixdog's own login store (grok-oauth.json). Single writer, accurate
 // numeric expires_at from refresh.
 export function _loadOwnTokens() {
+  if (modelProxyClientMode()) return null;
   const path = getOwnTokenPath();
   if (!existsSync(path)) return null;
   try {
@@ -375,6 +377,7 @@ async function _postRefreshWithRetry(tokens) {
 // single-use. Hold a cross-process lease across the re-read, exchange, and
 // atomic save so only one process can spend a generation.
 export async function refreshTokens(tokens, { force = false } = {}) {
+  if (modelProxyClientMode()) throw serverModelCredentialsDisabledError('Grok OAuth credentials');
   if (!tokens?.refresh_token) {
     throw new Error('[grok-oauth] refresh token not available — open /providers in mixdog to sign in again');
   }

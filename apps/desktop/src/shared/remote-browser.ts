@@ -5,6 +5,7 @@ import type {
   DesktopRemoteBrowserControl,
   DesktopRemoteBrowserPageInput,
   DesktopRemoteBrowserStreamOptions,
+  DesktopRemoteBrowserViewport,
 } from './contract';
 
 /** Encrypted relay push carrying a DesktopRemoteBrowserStreamFrame. */
@@ -17,6 +18,17 @@ export const REMOTE_BROWSER_OPEN_EVENT = 'browserOpenRequested';
 export const REMOTE_BROWSER_TABS_EVENT = 'browserRemoteTabs';
 /** Encrypted relay push carrying a DesktopBrowserImportProgress. */
 export const REMOTE_BROWSER_IMPORT_PROGRESS_EVENT = 'browserProfileImportProgress';
+/** Relay-handshake flag: the host takes the `viewport` remote browser control
+ * and renders a streamed page at the phone pane's size as a mobile page. */
+export const REMOTE_BROWSER_DRIVE_FLAG = 'browserDrive';
+/** Relay-handshake flag: the host streams a conversation browser's tab strip
+ * in its frames and takes the `new-tab`, `select-tab` and `close-tab` controls. */
+export const REMOTE_BROWSER_SESSION_TABS_FLAG = 'browserSessionTabs';
+
+/** Chrome on Android: the mobile identity of the host's own Chromium engine. */
+export const MOBILE_CHROME_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 7) ' +
+  'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
 
 /** Desktop-service event carrying a DesktopBrowserOpenRequest to the relay,
  * which forwards it to paired clients as REMOTE_BROWSER_OPEN_EVENT. */
@@ -24,6 +36,27 @@ export const BROWSER_OPEN_REQUESTED_DESKTOP_EVENT = 'browser-open-requested';
 
 const MAX_REMOTE_BROWSER_TEXT = 2_000;
 const MAX_STREAM_DIMENSION = 4_096;
+/** The emulated viewport bounds the pane's own device presets use. */
+const MIN_DRIVE_DIMENSION = 200;
+const MAX_DRIVE_DIMENSION = 3_840;
+const MIN_DRIVE_SCALE = 0.5;
+const MAX_DRIVE_SCALE = 4;
+
+/** The viewport a phone pane asks the host for: its content box (CSS px) and
+ * device pixel ratio, held inside the emulation bounds; null without a box. */
+export function remoteBrowserDriveViewport(
+  box: { width: number; height: number } | null | undefined,
+  devicePixelRatio: number
+): DesktopRemoteBrowserViewport | null {
+  if (!box || !(box.width > 0) || !(box.height > 0)) return null;
+  const dimension = (value: number) => Math.min(MAX_DRIVE_DIMENSION, Math.max(MIN_DRIVE_DIMENSION, Math.round(value)));
+  const ratio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return {
+    width: dimension(box.width),
+    height: dimension(box.height),
+    deviceScaleFactor: Math.min(MAX_DRIVE_SCALE, Math.max(MIN_DRIVE_SCALE, Math.round(ratio * 1_000) / 1_000)),
+  };
+}
 
 /** Live-view size a client asks for, in device pixels. */
 export function normalizeRemoteBrowserStreamOptions(value: unknown): DesktopRemoteBrowserStreamOptions {
@@ -50,8 +83,32 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     }
     return { type, url: input.url };
   }
-  if (type === 'back' || type === 'forward' || type === 'reload' || type === 'stop') {
+  if (type === 'back' || type === 'forward' || type === 'reload' || type === 'stop' || type === 'new-tab') {
     return { type };
+  }
+  if (type === 'select-tab' || type === 'close-tab') {
+    // A session page id, as the local pane's tab controls take.
+    if (typeof input.tabId !== 'string' || input.tabId.length > 80 || !/^p\d+$/u.test(input.tabId)) {
+      throw new TypeError('remote browser tab id is invalid.');
+    }
+    return { type, tabId: input.tabId };
+  }
+  if (type === 'viewport') {
+    const { width, height, deviceScaleFactor } = input;
+    const dimension = (value: unknown): value is number =>
+      Number.isSafeInteger(value) && Number(value) >= MIN_DRIVE_DIMENSION && Number(value) <= MAX_DRIVE_DIMENSION;
+    if (!dimension(width) || !dimension(height)) {
+      throw new TypeError('remote browser viewport size is invalid.');
+    }
+    if (
+      typeof deviceScaleFactor !== 'number' ||
+      !Number.isFinite(deviceScaleFactor) ||
+      deviceScaleFactor < MIN_DRIVE_SCALE ||
+      deviceScaleFactor > MAX_DRIVE_SCALE
+    ) {
+      throw new TypeError('remote browser viewport scale is invalid.');
+    }
+    return { type, width, height, deviceScaleFactor };
   }
   if (
     type === 'pointer' ||

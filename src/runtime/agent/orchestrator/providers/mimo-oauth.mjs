@@ -10,6 +10,7 @@ import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { fileMtimeMs, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
 import { fetchCompatModelItems, listCompatModels } from './openai-compat-models.mjs';
+import { makeModelCache } from './model-cache.mjs';
 import {
   SOURCE_HEADER,
   ensureTokenPlanBaseUrl,
@@ -28,6 +29,23 @@ import {
 } from './mimo-oauth-profile.mjs';
 
 const isUnauthorized = (err) => Number(err?.httpStatus || err?.status) === 401;
+
+// The discovered roster (what /models returned, never seed values) is
+// persisted so the shared sync lookup sees what listModels found.
+const mimoModelCache = makeModelCache({ fileName: 'mimo-oauth-models.json', ttlMs: 24 * 60 * 60 * 1000, version: 1 });
+
+function rosterRow(item) {
+  const contextWindow = Number(item.context_window ?? item.max_context_window ?? item.context_length ?? 0);
+  const outputTokens = Number(item.max_output_tokens ?? item.output_tokens ?? 0);
+  const name = typeof item.display_name === 'string' ? item.display_name.trim() : '';
+  return {
+    id: item.id,
+    provider: 'mimo-oauth',
+    ...(name ? { name } : {}),
+    ...(contextWindow > 0 ? { contextWindow } : {}),
+    ...(outputTokens > 0 ? { outputTokens } : {}),
+  };
+}
 
 // Strip the key from an error (message plus any echoed gateway body).
 function scrubErrorSecrets(err, apiKey) {
@@ -101,6 +119,7 @@ export class MimoOAuthProvider {
   _inner = null;
   _innerKey = null;
   _rosterItems = [];
+  _rosterSeq = 0;
   _defaultModelKey = null;
   _defaultModel = null;
 
@@ -143,7 +162,7 @@ export class MimoOAuthProvider {
       clientOptions: { organization: null, project: null },
       extraHeaders: { ...SOURCE_HEADER, Accept: 'application/json' },
     });
-    inner._fetchModelItems = (args) => this._fetchRoster(inner, args);
+    inner._fetchModelItems = async (args) => (await this._fetchRoster(inner, args)).items;
     redactClientErrors(inner.client, apiKey);
     this._inner = inner;
     this._innerKey = key;
@@ -153,15 +172,28 @@ export class MimoOAuthProvider {
   // Chat models from /models; a failed or empty listing falls back to the local
   // seed roster. Only a rejected key is surfaced.
   async _fetchRoster(inner, args) {
+    // Only the latest request, fetched with the still-active key, publishes.
+    const apiKey = inner.apiKey;
+    const seq = ++this._rosterSeq;
+    const publish = mimoModelCache.beginSave(() => loadTokens()?.apiKey === apiKey);
     let items = [];
     try {
       items = (await fetchCompatModelItems(inner, args)).filter((item) => isChatModelId(item?.id));
     } catch (err) {
       if (isUnauthorized(err)) throw err;
     }
-    if (!items.length) items = seedModelItems();
-    this._rosterItems = items;
-    return items;
+    // `published` is false when disk kept a newer roster; the seed fallback
+    // publishes nothing. `_listRows` revalidates `seq` and the key before
+    // touching shared state, since enrichment runs after this returns.
+    let published = true;
+    if (items.length) published = publish(items.map(rosterRow));
+    else items = seedModelItems();
+    return { items, published, seq, apiKey };
+  }
+
+  // Still the latest request, fetched with the still-active key.
+  _isCurrentRoster({ published, seq, apiKey }) {
+    return published && seq === this._rosterSeq && loadTokens()?.apiKey === apiKey;
   }
 
   // Shared send/list error shaping, also applied to credential setup failures.
@@ -180,19 +212,26 @@ export class MimoOAuthProvider {
   // Configured model wins; otherwise pick from this credential's own roster.
   async _pickDefaultModel(inner) {
     if (this._defaultModel && this._defaultModelKey === this._innerKey) return this._defaultModel;
-    await this._listRows(inner);
-    this._defaultModel = chooseDefaultModel(this._enrichedIds(inner));
+    const rows = await this._listRows(inner);
+    this._defaultModel = chooseDefaultModel(rows.map((row) => row.id));
     this._defaultModelKey = this._innerKey;
     return this._defaultModel;
   }
 
-  _enrichedIds(inner) {
-    return (inner._enrichedModels || []).map((row) => row.id);
-  }
-
+  // The request keeps its own items and rows; only a request that is still
+  // current publishes them to the shared in-memory roster and metadata.
   async _listRows(inner) {
-    const rows = decorateModelRows(await listCompatModels(inner, { throwOnError: true }), this._rosterItems);
-    inner._enrichedModels = rows;
+    let fetched = null;
+    const request = Object.create(inner);
+    request._fetchModelItems = async (args) => {
+      fetched = await this._fetchRoster(inner, args);
+      return fetched.items;
+    };
+    const rows = decorateModelRows(await listCompatModels(request, { throwOnError: true }), fetched.items);
+    if (this._isCurrentRoster(fetched)) {
+      this._rosterItems = fetched.items;
+      inner._enrichedModels = rows;
+    }
     return rows;
   }
 

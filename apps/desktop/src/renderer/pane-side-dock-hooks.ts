@@ -1,6 +1,5 @@
 // Effect hooks of the per-pane right dock (PaneSideDock): cell measuring,
-// expanded sheet geometry, phone outside-press fold and the surface close
-// request. Each takes only the values it reads.
+// expanded sheet geometry and the surface close request. Each takes only the values it reads.
 import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -12,7 +11,6 @@ import {
 } from 'react';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
 import { expandedDockRect } from './surface-slots';
-import { useMobileRemoteSurface } from './mobile-surface';
 import { useResizeGesture } from './resize-gesture';
 import { SIDE_FILE_PROBLEMS_DEFAULT_HEIGHT } from './side-file-problems';
 import type { SideFileChrome } from './side-surface-strip';
@@ -256,40 +254,6 @@ export function useDockExpansion(
     };
   }, [hostRef, expanded, openNow]);
   return { expanded, expandedRect, restWidth, toggleExpanded };
-}
-
-/**
- * Phone sheet: a press OUTSIDE the unit folds it (user: 모바일 프레임 외
- * 영역 터치 시 접힘). This is a document-level hit test, not a backdrop
- * element: a fixed backdrop inside the sliding (transformed) root covered
- * only the sheet's own box, and one portaled to body stacked OVER the
- * sheet and ate its taps (user: 소스컨트롤창 클릭과 드래그가 안 됨). The
- * session surfaces and the strip's own toggles count as inside — the
- * toggle decides the fold itself. The Browser Use and Terminal surfaces are
- * FIXED containers positioned over their slot, not children of the unit,
- * so they are named explicitly (user: 브라우저창 누르면 나가짐).
- */
-export function useMobileOutsideFold(hostRef: RefObject<HTMLDivElement | null>, openNow: boolean, onClose: () => void) {
-  const mobile = useMobileRemoteSurface();
-  useEffect(() => {
-    if (!openNow || !mobile) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (hostRef.current?.contains(target)) return;
-      // The ⋯ menu is portalled to body; it still belongs to its dock.
-      if (
-        target instanceof Element &&
-        target.closest(
-          '.pane-dock-toggles, .session-terminal-surface-container, .session-browser-surface-container, [data-dock-menu-owner]'
-        )
-      )
-        return;
-      onClose();
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [hostRef, openNow, mobile, onClose]);
 }
 
 /**

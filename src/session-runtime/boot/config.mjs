@@ -33,6 +33,7 @@ export async function resolveConfig(boot) {
     autoEffort: params.autoEffort,
     modelParameters: params.modelParameters,
     contextPercent: params.contextPercent,
+    contextTokens: params.contextTokens,
     selectedContextWindow: params.selectedContextWindow,
   }));
   configureLocalProviderIdleTtl(rt.config.providers?.[LOCAL_PROVIDER_ID]?.idleTtlSeconds);

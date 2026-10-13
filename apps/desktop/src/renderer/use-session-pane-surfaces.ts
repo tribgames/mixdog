@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { noteBrowserRemoteViewer } from './browser-remote-drive';
 import { releaseSessionDiff } from './session-diff-cache';
 import { useSessionBrowserSurfaces } from './session-browser-surfaces';
 import {
@@ -91,6 +92,7 @@ export function useSessionPaneSurfaces() {
   useEffect(
     () =>
       window.mixdogDesktop?.onBrowserRemoteViewerChanged?.((change) => {
+        noteBrowserRemoteViewer(change);
         browserSurfaces.setRemoteViewed(String(change?.sessionId || ''), change?.active === true);
       }),
     [browserSurfaces]

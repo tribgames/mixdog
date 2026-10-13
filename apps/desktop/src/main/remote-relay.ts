@@ -24,6 +24,7 @@ import {
   relayPayloadRejectedFrame,
 } from '../shared/remote-payload-limit';
 import { createRemoteMethods, type RemoteMethodDependencies } from './remote-methods';
+import { createFileDownloadService } from './file-downloads';
 export { remoteTranscriptSnapshot } from './remote-transcript';
 import { createNativePushStore, type NativePushSubscription } from './native-push-store';
 import type { NativePushMessage } from './push-notifier';
@@ -34,7 +35,7 @@ import { createRelayConnectionCaps } from './remote-relay-capabilities';
 import { createRelayClientLifecycle } from './remote-relay-client-lifecycle';
 import { createRelayCatalogs } from './remote-relay-catalog';
 import { createRelayClientCallDispatch } from './remote-relay-client-calls';
-import { createRelayClientRegistry, type RelayClientState } from './remote-relay-clients';
+import { clientViewsSessionLane, createRelayClientRegistry, type RelayClientState } from './remote-relay-clients';
 import { createRelayControlRequests } from './remote-relay-control';
 import { createRelayEncryptedDelivery } from './remote-relay-delivery';
 import { createPairCodeManager, type PairCodeState, type PairCodeUnsupported } from './remote-pair-code';
@@ -111,6 +112,8 @@ export interface RemoteRelayHandle {
   /** The main-workspace browser tab list, pushed to every watching client. */
   publishBrowserTabs(tabs: DesktopRemoteBrowserTab[]): void;
   publishBrowserImportProgress(progress: DesktopBrowserImportProgress): void;
+  /** Whether a connected device registered `lane` and is showing `sessionId`. */
+  viewsSessionLane(sessionId: string, lane: string): boolean;
   listClients(): Promise<DesktopRemoteClientInfo[]>;
   /** The 6-digit pairing code of an open Settings → Connection screen:
    *  'ensure' returns the live one (minting if needed), 'renew' replaces it,
@@ -233,12 +236,18 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (name) deviceNames.set(credentialId, name);
     return name;
   };
-  const methodsFor = (_clientId: string, state: RelayClientState): ReturnType<typeof createRemoteMethods> => {
+  // Download grants and leases outlive one relay leg (a phone reconnects mid
+  // transfer) and are bound to the paired device, so one service serves every
+  // connection; unpair, session deletion and close end what it holds.
+  // Leases also stream on the encrypted media lane (remote-relay-media.ts).
+  const fileDownloads = createFileDownloadService({ host: options.host, mediaLane: true });
+  const methodsFor = (clientId: string, state: RelayClientState): ReturnType<typeof createRemoteMethods> => {
     let table = clientMethods.get(state);
     if (!table) {
       table = createRemoteMethods(
         {
           ...options,
+          fileDownloads,
           push: pushStore,
           nativePush: {
             platforms: () => caps.relayNativePlatforms(),
@@ -252,13 +261,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
                 (row) => row.clientId === clientId && (!tokenFilter || row.token === tokenFilter)
               );
               const removed = await nativeStore.remove(clientId, tokenFilter);
-              for (const row of rows) sendEnvelope({ type: 'native-push-unbind', token: row.token, clientId: row.clientId });
+              for (const row of rows)
+                sendEnvelope({ type: 'native-push-unbind', token: row.token, clientId: row.clientId });
               return removed;
             },
           },
         },
         {
           credentialId: () => state.credentialId,
+          connectionId: () => clientId,
           deviceName: () => deviceNameFor(state.credentialId),
           staleView: (sessionId, device) => {
             const held = (
@@ -268,6 +279,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             if (stale) sessionStates.refresh(sessionId);
             return stale;
           },
+          viewedSessionIds: () => [...state.visibleSessionIds],
         }
       );
       clientMethods.set(state, table);
@@ -431,6 +443,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sendEncryptedFrame,
     broadcastEncrypted,
     subscribeTerminalData: options.subscribeTerminalData,
+    onSessions: (sessions) => fileDownloads.retainSessions(sessions.map((session) => session.id)),
   });
   const drainQueuedRevocations = createRevocationDrain({
     relayUrl,
@@ -452,6 +465,17 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       }
       return null;
     },
+    // Download leases are bound to the paired device, named exactly as the
+    // RPC lane names it (remote-methods.ts downloadRequester): the relay
+    // credential, else this connection.
+    mediaDevice: (sid) => {
+      for (const [clientId, client] of clients.clients) {
+        if (client.challenge.challenge !== sid) continue;
+        return client.channel ? client.credentialId || `connection:${clientId}` : null;
+      }
+      return null;
+    },
+    downloads: fileDownloads,
   });
   const dispatchClientCall = createRelayClientCallDispatch({
     host: options.host,
@@ -711,11 +735,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     publishBrowserTabs: (tabs) => browserTabs.publish(tabs),
     publishBrowserImportProgress: (progress) =>
       broadcastEncrypted({ event: REMOTE_BROWSER_IMPORT_PROGRESS_EVENT, payload: progress }, false),
+    viewsSessionLane: (sessionId, lane) =>
+      [...clients.clients.values()].some((state) => clientViewsSessionLane(state, sessionId, lane)),
     revokeClient: async (clientId: string): Promise<void> => {
       browserStreams.dropClient(clientId);
       browserTabs.dropClient(clientId);
       deviceNames.delete(clientId);
       if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');
+      // Unpaired: its download grants and transfers end now.
+      fileDownloads.revokeDevice(clientId);
       // Per-browser credentials are isolated: revoking one deletes only that
       // browser's token on the relay. The QR bootstrap token never rotates
       // here, so every other paired browser keeps working untouched.
@@ -748,11 +776,13 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     },
     revoke: (): Promise<void> => {
       clients.dropParkedViews();
+      fileDownloads.revokeAll();
       return revokeDeviceOverSocket({ currentSocket: () => socket, closed: () => closed });
     },
     close: async (): Promise<void> => {
       if (closed) return;
       closed = true;
+      fileDownloads.revokeAll();
       resetTransportDeltas();
       // The socket close handler skips cleanup once `socket` is cleared below.
       mediaLane.destroyAll();

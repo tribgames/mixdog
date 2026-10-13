@@ -1,11 +1,15 @@
-import { Suspense, createContext, memo, useContext, useEffect, useRef } from 'react';
+import { SlidersHorizontal } from 'lucide-react';
+import { Suspense, createContext, memo, useContext, useEffect, useRef, useState } from 'react';
+import { submissionIdentity } from './transcript-rows';
+import { claimSentImage, persistentImagePreviews, previewKey, sentImageIdentity } from './image-preview-store';
 import { AttachmentCard, composerCardMeta } from './attachment-card';
 import { extractFileMarkers, fileChipKind, sentFileSource, sentPastedTextSource } from './attachment-menu';
 import { useAttachmentContextMenu } from './attachment-context-menu';
-import { MarkdownOpenFileContext } from './MarkdownLink';
+import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItemContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
 import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
+import { VISUALIZE_TWEAKS_MARK } from './visualize-feedback-store';
 import MarkdownBody from './MarkdownBody';
 import {
   createStreamingMarkdownCache,
@@ -113,15 +117,112 @@ function extractPastedTextMarkers(text: string): { text: string; chips: PastedTe
   return { text: cleaned, chips };
 }
 
+/** Tweaks lines of a feedback message (`<mark> accent: #fff (was #000)`) come out of the text, to be drawn with an icon. */
+function extractTweaksLines(text: string): { text: string; lines: string[] } {
+  const lines: string[] = [];
+  const kept: string[] = [];
+  for (const line of String(text || '').split('\n')) {
+    if (line.startsWith(`${VISUALIZE_TWEAKS_MARK} `)) lines.push(line.slice(VISUALIZE_TWEAKS_MARK.length + 1).trim());
+    else kept.push(line);
+  }
+  return lines.length ? { text: kept.join('\n').trim(), lines } : { text, lines };
+}
+
 interface ImageMarkerChip {
   name: string;
   dims: string;
   title: string;
+  /** The full `[Image: …]` metadata line: the key of the durable thumbnail. */
+  line?: string;
+}
+
+/** The durable thumbnail saved when this exact image was sent: this session,
+ *  this message (its submission id), this image. A thumbnail this window just
+ *  staged for a new chat is saved under the session on first sight. Loaded
+ *  async; the card keeps its size meanwhile. */
+function useStoredImagePreview(
+  session: string,
+  submissionId: string | number | undefined,
+  messageId: string | undefined,
+  index: number,
+  line: string | undefined
+): string | undefined {
+  const identity = line && messageId ? sentImageIdentity(messageId, index, line) : '';
+  const key = identity ? previewKey(session, identity) : '';
+  const sync = key ? persistentImagePreviews.peek(key) : undefined;
+  const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!key || !line || !messageId) return;
+    let active = true;
+    void (async () => {
+      const url =
+        (await persistentImagePreviews.get(key).catch(() => undefined)) ??
+        (submissionId === undefined
+          ? undefined
+          : await claimSentImage(session, submissionIdentity(String(submissionId)), messageId, index, line).catch(
+              () => undefined
+            ));
+      if (url && active) setLoaded({ key, url });
+    })();
+    return () => {
+      active = false;
+    };
+  }, [key, session, submissionId, messageId, index, line]);
+  return sync ?? (loaded?.key === key ? loaded.url : undefined);
+}
+
+function SentImageCard({
+  session,
+  submissionId,
+  messageId,
+  index,
+  line,
+  live,
+  name,
+  dims,
+  tooltip,
+  menuProps,
+}: {
+  session: string;
+  /** The live row's id: the composer's submission id (to claim its staged thumbnail). */
+  submissionId?: string | number;
+  /** The message's stable id, the same live and after a restore: keys the saved picture. */
+  messageId?: string;
+  /** The picture's position among the message's `[Image: …]` lines. */
+  index: number;
+  line?: string;
+  live?: string;
+  name: string;
+  dims?: string;
+  tooltip?: string;
+  menuProps: ReturnType<typeof useAttachmentContextMenu>['menuProps'];
+}) {
+  const stored = useStoredImagePreview(session, submissionId, messageId, index, line);
+  const preview = live || stored;
+  return (
+    <AttachmentCard
+      kind="image"
+      name={name}
+      imageUrl={preview || undefined}
+      tooltip={tooltip}
+      meta={preview ? undefined : dims}
+      menu={menuProps(preview ? { kind: 'image', name, dataUrl: preview } : { kind: 'image-marker', name })}
+      onOpen={
+        preview
+          ? () => void window.mixdogDesktop?.openAttachmentImage?.(preview, name)?.catch(() => undefined)
+          : undefined
+      }
+    />
+  );
 }
 
 // Chip for an `[Image: …]` / `[Image source: …]` metadata line: the file name
 // from its source path and its dimensions.
 function imageMetaChip(meta: string, line: string): ImageMarkerChip {
+  // A visualize pin's crop (`[Image: visualize pin N · label, WxH]`): named
+  // like its 📌 chip. Restored history has no crop thumbnail to show.
+  const pin = /^visualize pin (\d+) · (.+), (\d+)x(\d+)$/.exec(meta);
+  if (pin) return { name: `📌 ${pin[1]} · ${pin[2]}`, dims: `${pin[3]}\u00D7${pin[4]}`, title: line, line };
   const parts = meta.split(/,\s*/);
   const source =
     (parts.find((part) => part.startsWith('source: ')) || '').slice(8).trim() ||
@@ -133,7 +234,7 @@ function imageMetaChip(meta: string, line: string): ImageMarkerChip {
         .split(/[\\/]/)
         .pop() || 'Image'
     : 'Image';
-  return { name, dims: dims.replace('x', '\u00D7'), title: source || line };
+  return { name, dims: dims.replace('x', '\u00D7'), title: source || line, line };
 }
 
 function extractImageMarkers(text: string): { text: string; chips: ImageMarkerChip[] } {
@@ -245,6 +346,106 @@ export const TranscriptDevicesContext = createContext(false);
  *  sent from this device is never labelled "from <this device>". */
 export const TranscriptViewerDeviceContext = createContext<string | null>('');
 
+/** The cards above a sent prompt: its images, pasted text and files. */
+function SentAttachments({
+  item,
+  session,
+  images,
+  imageLines,
+  markerChips,
+  pastedChips,
+  fileChips,
+  menuProps,
+}: {
+  item: TranscriptItem;
+  session: string;
+  images: NonNullable<TranscriptItem['images']>;
+  imageLines: readonly ImageMarkerChip[];
+  markerChips: readonly ImageMarkerChip[];
+  pastedChips: readonly PastedTextChip[];
+  fileChips: ReturnType<typeof extractFileMarkers>['chips'];
+  menuProps: ReturnType<typeof useAttachmentContextMenu>['menuProps'];
+}) {
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
+    <div className="message-attachments" role="group" aria-label={t('Attachments')}>
+      {images.map((image, index) => {
+        const preview = imagePreviewCache.peek(
+          imagePreviewKey(submissionIdentity(String(item.id ?? '')), image.id, image.bytes)
+        );
+        const name = image.name || t('Attached image');
+        return (
+          <SentImageCard
+            // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
+            key={`${image.id ?? 'img'}-${index}`}
+            session={session}
+            submissionId={item.id}
+            messageId={item.messageId}
+            index={index}
+            line={imageLines[index]?.line}
+            live={preview || undefined}
+            name={preview ? name : image.name || 'Image'}
+            menuProps={menuProps}
+          />
+        );
+      })}
+      {markerChips.map((chip, index) => (
+        <SentImageCard
+          // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
+          key={`marker-${index}`}
+          session={session}
+          submissionId={item.id}
+          messageId={item.messageId}
+          index={index}
+          line={chip.line}
+          name={chip.name}
+          tooltip={chip.title}
+          dims={chip.dims}
+          menuProps={menuProps}
+        />
+      ))}
+      {pastedChips.map((chip, index) => {
+        const stored = sentPastedTextSource(chip.token, chip.name, item.id);
+        return (
+          <AttachmentCard
+            // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
+            key={`pasted-${index}`}
+            kind="pasted"
+            name={chip.name}
+            content={stored.kind === 'pasted-text' ? stored.text : undefined}
+            meta={t('{{count}} lines', { count: chip.lines })}
+            menu={menuProps(() => sentPastedTextSource(chip.token, chip.name, item.id))}
+          />
+        );
+      })}
+      {fileChips.map((chip, index) => {
+        const kind = fileChipKind(chip);
+        const stored = sentFileSource(chip, item.id);
+        let meta = '';
+        let content: string | undefined;
+        if (stored.kind === 'text-file' && stored.text !== undefined) {
+          content = stored.text;
+          meta = composerCardMeta({ kind: 'text', data: stored.text });
+        } else if ((stored.kind === 'pdf' || stored.kind === 'office') && stored.dataUrl) {
+          content = stored.dataUrl.split(',')[1] || '';
+          meta = composerCardMeta({ kind: stored.kind, data: content });
+        }
+        return (
+          <AttachmentCard
+            // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
+            key={`file-${index}`}
+            kind={kind === 'text-file' ? 'text' : kind}
+            name={chip.name}
+            content={content}
+            meta={meta}
+            menu={menuProps(() => sentFileSource(chip, item.id))}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export const TranscriptRow = memo(
   function TranscriptRow({
     item,
@@ -265,6 +466,7 @@ export const TranscriptRow = memo(
   }) {
     const multiDevice = useContext(TranscriptDevicesContext);
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
+    const sessionScope = useContext(MarkdownSessionContext);
     const previousStreaming = useRef(Boolean(item.streaming));
     const announceSettled = previousStreaming.current && !item.streaming;
     useEffect(() => {
@@ -306,6 +508,7 @@ export const TranscriptRow = memo(
       : { text: userDisplayText, chips: [] as PastedTextChip[] };
     const fileFold = user ? extractFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
     const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
+    const tweaksFold = user ? extractTweaksLines(webhookFold.text) : { text: webhookFold.text, lines: [] as string[] };
     return (
       <>
         <article
@@ -319,86 +522,34 @@ export const TranscriptRow = memo(
               markerChips.length > 0 ||
               pastedFold.chips.length > 0 ||
               fileFold.chips.length > 0) && (
-              // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
-              <div className="message-attachments" role="group" aria-label={t('Attachments')}>
-                {attachedImages.map((image, index) => {
-                  const preview = imagePreviewCache.peek(imagePreviewKey(image.id, image.bytes));
-                  const name = image.name || t('Attached image');
-                  return (
-                    <AttachmentCard
-                      // biome-ignore lint/suspicious/noArrayIndexKey: a sent message's attachments never reorder; the index separates images without an id.
-                      key={`${image.id ?? 'img'}-${index}`}
-                      kind="image"
-                      name={preview ? name : image.name || 'Image'}
-                      imageUrl={preview || undefined}
-                      menu={menuProps(
-                        preview ? { kind: 'image', name, dataUrl: preview } : { kind: 'image-marker', name }
-                      )}
-                      onOpen={
-                        preview
-                          ? () =>
-                              void window.mixdogDesktop?.openAttachmentImage?.(preview, name)?.catch(() => undefined)
-                          : undefined
-                      }
-                    />
-                  );
-                })}
-                {markerChips.map((chip, index) => (
-                  <AttachmentCard
-                    // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
-                    key={`marker-${index}`}
-                    kind="image"
-                    name={chip.name}
-                    tooltip={chip.title}
-                    meta={chip.dims}
-                    menu={menuProps({ kind: 'image-marker', name: chip.name })}
-                  />
-                ))}
-                {pastedFold.chips.map((chip, index) => {
-                  const stored = sentPastedTextSource(chip.token, chip.name, item.id);
-                  return (
-                    <AttachmentCard
-                      // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
-                      key={`pasted-${index}`}
-                      kind="pasted"
-                      name={chip.name}
-                      content={stored.kind === 'pasted-text' ? stored.text : undefined}
-                      meta={t('{{count}} lines', { count: chip.lines })}
-                      menu={menuProps(() => sentPastedTextSource(chip.token, chip.name, item.id))}
-                    />
-                  );
-                })}
-                {fileFold.chips.map((chip, index) => {
-                  const kind = fileChipKind(chip);
-                  const stored = sentFileSource(chip, item.id);
-                  let meta = '';
-                  let content: string | undefined;
-                  if (stored.kind === 'text-file' && stored.text !== undefined) {
-                    content = stored.text;
-                    meta = composerCardMeta({ kind: 'text', data: stored.text });
-                  } else if ((stored.kind === 'pdf' || stored.kind === 'office') && stored.dataUrl) {
-                    content = stored.dataUrl.split(',')[1] || '';
-                    meta = composerCardMeta({ kind: stored.kind, data: content });
-                  }
-                  return (
-                    <AttachmentCard
-                      // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
-                      key={`file-${index}`}
-                      kind={kind === 'text-file' ? 'text' : kind}
-                      name={chip.name}
-                      content={content}
-                      meta={meta}
-                      menu={menuProps(() => sentFileSource(chip, item.id))}
-                    />
-                  );
-                })}
-              </div>
+              <SentAttachments
+                item={item}
+                session={sessionScope}
+                images={attachedImages}
+                imageLines={imageMarkers.chips}
+                markerChips={markerChips}
+                pastedChips={pastedFold.chips}
+                fileChips={fileFold.chips}
+                menuProps={menuProps}
+              />
             )}
           {menuElement}
-          {(!user || webhookFold.text) && (
+          {(!user || tweaksFold.text || tweaksFold.lines.length > 0) && (
             // biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control.
             <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-              {user ? <p>{webhookFold.text}</p> : <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
+              {user && tweaksFold.text ? <p>{tweaksFold.text}</p> : null}
+              {tweaksFold.lines.map((line, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: lines are parsed from a sent message and never reorder.
+                <p key={`tweaks-${index}`} className="message-tweaks-line">
+                  <SlidersHorizontal size={12} aria-hidden="true" /> {line}
+                </p>
+              ))}
+              {!user && (
+                // Only a settled reply's links can be downloaded by its row id.
+                <MarkdownTranscriptItemContext.Provider value={item.streaming ? '' : String(item.id ?? '')}>
+                  <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
+                </MarkdownTranscriptItemContext.Provider>
+              )}
             </div>
           )}
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (

@@ -40,6 +40,7 @@ export function createAgentChildFactory({ registry, rehydrateAgentSessions, crea
       autoEffort: preset.autoEffort !== false,
       modelParameters: preset.modelParameters,
       contextPercent: spec.contextPercent,
+      contextTokens: spec.contextTokens,
       selectedContextWindow: spec.selectedContextWindow,
       toolMode: 'full',
       sessionProfile,

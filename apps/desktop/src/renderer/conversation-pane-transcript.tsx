@@ -1,0 +1,246 @@
+import type { ReactNode } from 'react';
+import { collapseSelectionOnPress, JumpToLatestButton } from './conversation-support';
+import { t } from './i18n';
+import {
+  MarkdownOpenFileContext,
+  MarkdownOpenFolderContext,
+  MarkdownProjectContext,
+  MarkdownSessionContext,
+} from './MarkdownLink';
+import { TranscriptDevicesContext, TranscriptViewerDeviceContext } from './transcript-row';
+import type { TranscriptRowModel } from './transcript-rows';
+import { TranscriptList } from './TranscriptList';
+import { TurnChangesContext, type TurnChangesSurface } from './TurnChangesCard';
+import type { ConversationTimeline } from './use-conversation-timeline';
+import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
+import type { ConversationViewport } from './use-conversation-viewport';
+import { TRANSCRIPT_HISTORY_TOP_PX } from './use-transcript-history';
+import { BrandTile } from './WorkspaceEmptyState';
+
+type OpenFile = (project: string, rel: string, line?: number, accessToken?: string, column?: number) => void;
+type OpenFolder = (project: string, rel: string) => void;
+
+/** An empty draft carries only the centered brand watermark; sessions and
+ *  transitions never show it. */
+function conversationShowsWelcome({
+  draftMode,
+  routeSessionId,
+  activeProjectPath,
+  itemCount,
+  pendingPromptCount,
+  streaming,
+  transitioning,
+  visibleWarmPaintHandoff,
+}: {
+  draftMode: boolean;
+  routeSessionId: string;
+  activeProjectPath: string;
+  itemCount: number;
+  pendingPromptCount: number;
+  streaming: boolean;
+  transitioning: boolean;
+  visibleWarmPaintHandoff: boolean;
+}): boolean {
+  if (visibleWarmPaintHandoff) return true;
+  return (
+    (draftMode || (!routeSessionId && Boolean(activeProjectPath))) &&
+    itemCount === 0 &&
+    pendingPromptCount === 0 &&
+    !streaming &&
+    !transitioning
+  );
+}
+
+function welcomeWatermark(visibleWarmPaintHandoff: boolean) {
+  return (
+    <div
+      className={`thread-welcome thread-welcome-task${visibleWarmPaintHandoff ? ' thread-welcome-paint-handoff' : ''}`}
+      aria-hidden="true"
+    >
+      <span className="welcome-logo">
+        <BrandTile crop />
+      </span>
+    </div>
+  );
+}
+
+/** The contexts every transcript row and file link reads. */
+function TranscriptRowContexts({
+  project,
+  sessionId,
+  openFile,
+  openFolder,
+  multiDevice,
+  viewerDevice,
+  turnChangesSurface,
+  children,
+}: {
+  project: string;
+  sessionId: string;
+  openFile?: OpenFile;
+  openFolder?: OpenFolder;
+  multiDevice: boolean;
+  viewerDevice: string | null;
+  turnChangesSurface: TurnChangesSurface | null;
+  children: ReactNode;
+}) {
+  return (
+    <MarkdownProjectContext.Provider value={project}>
+      <MarkdownSessionContext.Provider value={sessionId}>
+        <MarkdownOpenFileContext.Provider value={openFile ?? null}>
+          <MarkdownOpenFolderContext.Provider value={openFolder ?? null}>
+            <TranscriptDevicesContext.Provider value={multiDevice}>
+              <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
+                <TurnChangesContext.Provider value={turnChangesSurface}>{children}</TurnChangesContext.Provider>
+              </TranscriptViewerDeviceContext.Provider>
+            </TranscriptDevicesContext.Provider>
+          </MarkdownOpenFolderContext.Provider>
+        </MarkdownOpenFileContext.Provider>
+      </MarkdownSessionContext.Provider>
+    </MarkdownProjectContext.Provider>
+  );
+}
+
+/** The scrollable transcript log: welcome watermark, the virtual timeline and
+ *  the jump-to-latest control. */
+export function ConversationTranscript({
+  view,
+  source,
+  timeline,
+  links,
+  sessionKey,
+  busy,
+  draftMode,
+  routeSessionId,
+  activeProjectPath,
+  transitioning,
+  pendingPromptCount,
+  visibleWarmPaintHandoff,
+  project,
+  multiDevice,
+  viewerDevice,
+  renderRow,
+  itemCount,
+}: {
+  view: Pick<
+    ConversationViewport,
+    'viewport' | 'content' | 'follow' | 'composerDockHeight' | 'setTranscriptAnchorBottomRef' | 'scrollToEndRef'
+  >;
+  source: Pick<
+    ConversationTranscriptSource,
+    'requestEarlierTranscript' | 'showTranscriptTimeline' | 'transcriptIdentity' | 'activeStreamingTail'
+  >;
+  timeline: Pick<
+    ConversationTimeline,
+    'transcriptRows' | 'transcriptRevealed' | 'jumpToLatest' | 'shouldAnchorTranscriptBottom'
+  >;
+  links: { openFile?: OpenFile; openFolder?: OpenFolder; turnChangesSurface: TurnChangesSurface | null };
+  sessionKey: string;
+  busy: boolean;
+  draftMode: boolean;
+  routeSessionId: string;
+  activeProjectPath: string;
+  transitioning: boolean;
+  pendingPromptCount: number;
+  visibleWarmPaintHandoff: boolean;
+  project: string;
+  multiDevice: boolean;
+  viewerDevice: string | null;
+  renderRow: (row: TranscriptRowModel) => ReactNode;
+  itemCount: number;
+}) {
+  const { viewport, content, follow } = view;
+  const { requestEarlierTranscript } = source;
+  const revealed = timeline.transcriptRevealed;
+  const showWelcome = conversationShowsWelcome({
+    draftMode,
+    routeSessionId,
+    activeProjectPath,
+    itemCount,
+    pendingPromptCount,
+    streaming: Boolean(source.activeStreamingTail),
+    transitioning,
+    visibleWarmPaintHandoff,
+  });
+  return (
+    <div className="transcript-shell">
+      <div
+        className="transcript"
+        ref={viewport}
+        role="log"
+        aria-label={t('Conversation transcript')}
+        style={revealed ? undefined : { visibility: 'hidden' }}
+        data-session-key={sessionKey}
+        data-following={follow.following ? 'true' : 'false'}
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-atomic="false"
+        aria-busy={busy}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the scrollable log must take focus for keyboard paging.
+        tabIndex={0}
+        // The thread is a READING surface: a mouse drag may extend the
+        // selection, but it must never pick the text (or a code block, tool
+        // output, image chip) up and carry it as a native drag payload
+        // (user). Capture refuses the drag for every descendant, so no row
+        // needs its own guard.
+        onDragStartCapture={(event) => event.preventDefault()}
+        onMouseDownCapture={collapseSelectionOnPress}
+        onScroll={(event) => {
+          follow.handleScroll();
+          if (event.currentTarget.scrollTop <= TRANSCRIPT_HISTORY_TOP_PX) requestEarlierTranscript();
+        }}
+        onWheel={follow.handleWheel}
+        onPointerDown={follow.handlePointerDown}
+        onPointerMove={follow.handlePointerMove}
+        onPointerUp={follow.handlePointerUp}
+        onPointerCancel={follow.handlePointerUp}
+        onTouchStart={follow.handleTouchStart}
+        onTouchMove={follow.handleTouchMove}
+        onTouchEnd={follow.handleTouchEnd}
+        onTouchCancel={follow.handleTouchEnd}
+        onClick={follow.handleInteraction}
+        onKeyDown={follow.handleKeyDown}
+      >
+        <div className="thread">
+          {/* An empty draft carries only the centered brand watermark;
+            shortcuts live solely on the fully empty
+            workspace; secondary surfaces keep the quiet letterpress).
+            Sessions and transitions never show it. */}
+          {showWelcome && welcomeWatermark(visibleWarmPaintHandoff)}
+          {/* ONE mount per session, always with the real rows: a placeholder
+            shell mounted first made the virtual core resolve its end anchor
+            against an empty list and again on the 0 -> N row swap — the
+            visible up/down bounce on entering a session. */}
+          <TranscriptRowContexts
+            project={project}
+            sessionId={draftMode ? '' : routeSessionId}
+            openFile={links.openFile}
+            openFolder={links.openFolder}
+            multiDevice={multiDevice}
+            viewerDevice={viewerDevice}
+            turnChangesSurface={links.turnChangesSurface}
+          >
+            {source.showTranscriptTimeline && (
+              <TranscriptList
+                key={source.transcriptIdentity.current}
+                sessionKey={sessionKey}
+                rows={timeline.transcriptRows}
+                viewport={viewport}
+                content={content}
+                bottomInset={view.composerDockHeight}
+                shouldAnchorBottom={timeline.shouldAnchorTranscriptBottom}
+                markProgrammaticScroll={follow.markProgrammaticScroll}
+                hasScrollGesture={follow.hasScrollGesture}
+                onSelectionAutoScroll={follow.handleSelectionAutoScroll}
+                setAnchorBottomRef={view.setTranscriptAnchorBottomRef}
+                scrollToEndRef={view.scrollToEndRef}
+                renderRow={renderRow}
+              />
+            )}
+          </TranscriptRowContexts>
+        </div>
+      </div>
+      {itemCount > 0 && <JumpToLatestButton visible={follow.showJump} onJump={timeline.jumpToLatest} />}
+    </div>
+  );
+}

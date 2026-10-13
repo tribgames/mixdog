@@ -85,3 +85,134 @@ test('sessionTabs lists only one session in tab order and snapshot is read-only'
   assert.equal(manager.snapshot('session-terminal:missing'), null);
   assert.equal(manager.snapshot('session-terminal:a').text, 'hello pwsh');
 });
+
+test('disposeTerminalsUnder kills only terminals inside the removed root', () => {
+  const manager = new TerminalManager();
+  const killed = [];
+  const entry = (cwd) => ({
+    pty: { kill: () => killed.push(cwd) },
+    buffer: new TerminalReplayBuffer(),
+    disposed: false,
+    outputPaused: false,
+    shell: 'sh',
+    cwd,
+  });
+  const root = process.platform === 'win32' ? 'C:\\repo\\.wt\\a' : '/repo/.wt/a';
+  const sep = process.platform === 'win32' ? '\\' : '/';
+  manager.terminals.set('session-terminal:a', entry(root));
+  manager.terminals.set('session-terminal:a:2', entry(`${root}${sep}src`));
+  manager.terminals.set('session-terminal:a:3', entry(`${root}-sibling`));
+  manager.terminals.set('session-terminal:a:4', entry(null));
+  assert.deepEqual(manager.disposeTerminalsUnder(`${root}${sep}`).sort(), ['session-terminal:a', 'session-terminal:a:2']);
+  assert.equal(killed.length, 2);
+  assert.deepEqual([...manager.terminals.keys()].sort(), ['session-terminal:a:3', 'session-terminal:a:4']);
+});
+
+function managerWithPty(sizes) {
+  const manager = new TerminalManager();
+  manager.loadPtyBindings = async () => ({
+    spawn: () => ({
+      onData() {},
+      onExit() {},
+      write() {},
+      resize: (cols, rows) => sizes.push([cols, rows]),
+      kill() {},
+    }),
+  });
+  const data = [];
+  const owners = [];
+  manager.subscribe((event) => data.push(event));
+  manager.subscribeSizeOwner((change) => owners.push(change));
+  return { manager, data, owners };
+}
+
+test('a phone owning the PTY size wins over PC resizes and is announced as an event, not output', async () => {
+  const sizes = [];
+  const { manager, data, owners } = managerWithPty(sizes);
+  const id = 'session-terminal:own';
+  await manager.ensure(id, null);
+
+  manager.resize(id, 120, 40);
+  assert.deepEqual(sizes, [[120, 40]]);
+
+  manager.resize(id, 50, 20, 'phone-a');
+  assert.deepEqual(sizes.at(-1), [50, 20]);
+  assert.deepEqual(owners, [{ id, cols: 50, rows: 20, owner: 'phone-a' }]);
+
+  // The PC re-fitting its pane must not fight the phone's size.
+  manager.resize(id, 120, 40);
+  assert.equal(sizes.length, 2);
+
+  // A heartbeat at the same size renews the lease without another event.
+  manager.resize(id, 50, 20, 'phone-a');
+  assert.equal(owners.length, 1);
+
+  // A view attaching meanwhile learns the owner; its replay stays pure output.
+  const attached = await manager.ensure(id, null);
+  assert.deepEqual(attached.sizeOwner, { cols: 50, rows: 20, owner: 'phone-a' });
+  assert.equal(attached.replay, '');
+
+  manager.resize(id, 0, 0, 'phone-a');
+  assert.deepEqual(owners.at(-1), { id, cols: 0, rows: 0, owner: '' });
+  const released = await manager.ensure(id, null);
+  assert.equal(released.sizeOwner, undefined);
+  manager.resize(id, 120, 40);
+  assert.deepEqual(sizes.at(-1), [120, 40]);
+
+  assert.deepEqual(data, [], 'ownership never travels in the terminal output stream');
+  manager.disposeAll();
+});
+
+test('size claims are per client: the newest owns, a release passes it on or back to the PC', async () => {
+  const sizes = [];
+  const { manager, owners } = managerWithPty(sizes);
+  const id = 'session-terminal:two';
+  await manager.ensure(id, null);
+
+  manager.resize(id, 50, 20, 'phone-a');
+  manager.resize(id, 40, 30, 'phone-b');
+  assert.deepEqual(owners.at(-1), { id, cols: 40, rows: 30, owner: 'phone-b' });
+  assert.deepEqual(sizes.at(-1), [40, 30]);
+
+  // The older phone renewing (even at a new size) does not take ownership.
+  const announced = owners.length;
+  manager.resize(id, 55, 22, 'phone-a');
+  assert.equal(owners.length, announced);
+  assert.deepEqual(sizes.at(-1), [40, 30]);
+
+  // A client that never claimed cannot free anyone's claim.
+  manager.resize(id, 0, 0, 'phone-c');
+  assert.equal(owners.length, announced);
+
+  // phone-b leaves: ownership passes to phone-a at its latest renewed grid.
+  manager.resize(id, 0, 0, 'phone-b');
+  assert.deepEqual(owners.at(-1), { id, cols: 55, rows: 22, owner: 'phone-a' });
+  assert.deepEqual(sizes.at(-1), [55, 22]);
+  manager.resize(id, 120, 40);
+  assert.deepEqual(sizes.at(-1), [55, 22], 'the PC still follows phone-a');
+
+  manager.resize(id, 0, 0, 'phone-a');
+  assert.deepEqual(owners.at(-1), { id, cols: 0, rows: 0, owner: '' });
+  manager.resize(id, 120, 40);
+  assert.deepEqual(sizes.at(-1), [120, 40]);
+  manager.disposeAll();
+});
+
+test('a size claim that stops renewing lapses after 30s and hands over', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sizes = [];
+  const { manager, owners } = managerWithPty(sizes);
+  const id = 'session-terminal:lease';
+  await manager.ensure(id, null);
+  manager.resize(id, 50, 20, 'phone-a');
+  t.mock.timers.tick(20_000);
+  manager.resize(id, 40, 30, 'phone-b');
+  t.mock.timers.tick(15_000);
+  // phone-a's claim lapsed (35s), phone-b (15s) still owns.
+  assert.deepEqual(owners.at(-1), { id, cols: 40, rows: 30, owner: 'phone-b' });
+  t.mock.timers.tick(16_000);
+  assert.deepEqual(owners.at(-1), { id, cols: 0, rows: 0, owner: '' });
+  manager.resize(id, 120, 40);
+  assert.deepEqual(sizes.at(-1), [120, 40]);
+  manager.disposeAll();
+});

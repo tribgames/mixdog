@@ -1,9 +1,11 @@
-import type { DesktopQuotaResume, DesktopSessionSummary } from '../shared/contract';
+import type { DesktopQuotaResume, DesktopSessionSummary, DesktopSessionWorkspace } from '../shared/contract';
 
 export type RecordValue = Record<string, unknown>;
 export type Project = string;
 export type TranscriptItem = RecordValue & {
   id?: string | number;
+  /** Stable message identity, live and restored (unlike `id` of restored rows). */
+  messageId?: string;
   kind?: string;
   text?: string;
   at?: number;
@@ -13,6 +15,10 @@ export type TranscriptItem = RecordValue & {
   agent?: string;
   /** Device that submitted this prompt (user rows only). */
   device?: string;
+  /** The turn checkpoint a `user` prompt opened or a `turndone` closed. */
+  checkpointId?: string;
+  /** A row a compaction took out of the model context: display-only. */
+  archived?: boolean;
   name?: string;
   args?: unknown;
   result?: unknown;
@@ -101,6 +107,8 @@ export type Snapshot = RecordValue & {
   toolApprovalResult?: { id: string; approved: boolean; device: string; at: number } | null;
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   cwd?: string;
+  /** The Lead's live workspace (execution root, worktree binding, revision). */
+  workspace?: DesktopSessionWorkspace | null;
   project?: Project | null;
   currentProject?: Project | null;
   recentProjects?: Project[];
@@ -127,6 +135,10 @@ export type Snapshot = RecordValue & {
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
+  /** Exact context window in force (only when it is a non-default value). */
+  contextTokens?: number;
+  contextDefaultPercent?: number;
+  selectedContextWindow?: number;
   thinking?: unknown;
   spinner?: RecordValue | null;
   commandStatus?: RecordValue | null;
@@ -155,6 +167,17 @@ export type Snapshot = RecordValue & {
       command?: string;
       cwd?: string;
       startedAt?: number | string | null;
+    }>;
+    /** Recently finished background jobs; never part of `count`. */
+    finished?: Array<{
+      taskId?: string;
+      task_id?: string;
+      command?: string;
+      cwd?: string;
+      startedAt?: number | string | null;
+      status?: string;
+      exitCode?: number | null;
+      finishedAt?: number | string | null;
     }>;
   };
   workflow?: RecordValue | null;

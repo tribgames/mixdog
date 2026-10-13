@@ -6,6 +6,7 @@ import { requestOpenDoctor } from '../command-surface-doctor-event';
 import { t } from '../i18n';
 import { providerDisplayName } from '../provider-display';
 import { record } from '../record-utils';
+import { isSshConnectionWindow } from '../desktop-connection';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import {
@@ -417,7 +418,8 @@ function DesktopPowerGroup() {
 function SystemPanel(context: PanelContext) {
   return (
     <>
-      <UpdatePanel {...context} />
+      {/* The updater is this PC's: a server window has no update entry. */}
+      {!isSshConnectionWindow() && <UpdatePanel {...context} />}
       <DesktopPowerGroup />
       <Group title={t('Doctor')}>
         <ResourceRow

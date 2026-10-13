@@ -43,10 +43,17 @@ function readOrder(storageKey: string): string[] {
 export function usePersistedListOrder(
   storageKey: string,
   ids: readonly string[],
-  options: { dropAnchor?: string } = {}
+  options: {
+    dropAnchor?: string;
+    /** Caller owns ordering and persistence: `ids` is the displayed order and a
+     *  drop reports the reordered ids here instead of writing `storageKey`. */
+    onCommit?(next: string[], sourceId: string): void;
+    /** Whether a drag of `sourceId` may drop on `targetId` (default: always). */
+    accepts?(sourceId: string, targetId: string): boolean;
+  } = {}
 ) {
-  const { dropAnchor } = options;
-  const [storedOrder, setStoredOrder] = useState<string[]>(() => readOrder(storageKey));
+  const { dropAnchor, onCommit, accepts } = options;
+  const [storedOrder, setStoredOrder] = useState<string[]>(() => (onCommit ? [] : readOrder(storageKey)));
   const [draggingId, setDraggingId] = useState('');
   const [dropTarget, setDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
   const draggingIdRef = useRef('');
@@ -54,11 +61,12 @@ export function usePersistedListOrder(
   const dragClientYRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const orderedIds = useMemo(() => {
+    if (onCommit) return [...ids];
     const available = new Set(ids);
     const known = storedOrder.filter((id) => available.has(id));
     const knownSet = new Set(known);
     return [...known, ...ids.filter((id) => !knownSet.has(id))];
-  }, [ids, storedOrder]);
+  }, [ids, storedOrder, onCommit]);
 
   const runEdgeScroll = useCallback(() => {
     scrollFrameRef.current = null;
@@ -132,7 +140,7 @@ export function usePersistedListOrder(
     },
     onDragOver: (event: ReactDragEvent<HTMLElement>) => {
       const sourceId = draggingIdRef.current;
-      if (!sourceId || sourceId === id) return;
+      if (!sourceId || sourceId === id || accepts?.(sourceId, id) === false) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       const anchor = (dropAnchor && event.currentTarget.querySelector(dropAnchor)) || event.currentTarget;
@@ -144,7 +152,7 @@ export function usePersistedListOrder(
       event.preventDefault();
       const sourceId = draggingIdRef.current || event.dataTransfer.getData('text/plain');
       const position = dropTarget?.id === id ? dropTarget.position : 'before';
-      if (!sourceId || sourceId === id || !orderedIds.includes(sourceId)) {
+      if (!sourceId || sourceId === id || !orderedIds.includes(sourceId) || accepts?.(sourceId, id) === false) {
         finishDrag();
         return;
       }
@@ -155,6 +163,11 @@ export function usePersistedListOrder(
         return;
       }
       next.splice(targetIndex + (position === 'after' ? 1 : 0), 0, sourceId);
+      if (onCommit) {
+        onCommit(next, sourceId);
+        finishDrag();
+        return;
+      }
       setStoredOrder(next);
       try {
         window.localStorage.setItem(storageKey, JSON.stringify(next));

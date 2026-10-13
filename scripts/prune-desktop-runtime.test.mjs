@@ -36,6 +36,21 @@ test('desktop runtime prune removes production sources and native Sharp WASM fal
   }
 });
 
+test('desktop runtime prune keeps the Sharp WASM build on Linux, where Electron needs it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-desktop-runtime-prune-linux-'));
+  try {
+    await put(join(root, 'node_modules', '@img', 'sharp-linux-x64', 'lib', 'sharp.node'));
+    await put(join(root, 'node_modules', '@img', 'sharp-wasm32', 'lib', 'sharp.wasm'));
+
+    const result = await pruneDesktopRuntime(root, { platform: 'linux', arch: 'x64' });
+
+    await access(join(root, 'node_modules', '@img', 'sharp-wasm32', 'lib', 'sharp.wasm'));
+    assert.equal(result.removedSharpWasm, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('desktop runtime prune keeps the Node LSTM OCR and PDF entrypoints only', async () => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-desktop-runtime-variants-'));
   try {

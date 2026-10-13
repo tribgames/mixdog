@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 
-import type { DesktopBrowserTab, DesktopRemoteBrowserTab } from '../shared/contract';
+import type { DesktopBrowserTab, DesktopRemoteBrowserControl, DesktopRemoteBrowserTab } from '../shared/contract';
 import { MAIN_BROWSER_PAGE_PREFIX } from '../shared/contract-browser';
 import { normalizeAddressInput } from './browser-address';
 import { REMOTE_CONNECTION_READY_EVENT } from './use-remote-browser-stream';
@@ -17,6 +17,7 @@ export function useRemoteBrowserTabs({
   streamId,
   setStreamId,
   setActionFailure,
+  frameTabs,
 }: {
   api: typeof window.mixdogDesktop;
   active: boolean;
@@ -26,6 +27,8 @@ export function useRemoteBrowserTabs({
   streamId: string;
   setStreamId: Dispatch<SetStateAction<string>>;
   setActionFailure: Dispatch<SetStateAction<string>>;
+  /** The conversation browser's own tab strip, as its stream frames carry it. */
+  frameTabs?: DesktopBrowserTab[];
 }) {
   const [newTab, setNewTab] = useState(false);
   const [tabs, setTabs] = useState<DesktopRemoteBrowserTab[]>([]);
@@ -33,6 +36,25 @@ export function useRemoteBrowserTabs({
   // dock page stays its own.
   const tabsSupported =
     sessionId.startsWith(MAIN_BROWSER_PAGE_PREFIX) && Boolean(api?.remoteBrowserTabs && api.onRemoteBrowserTabs);
+  // A conversation's browser keeps its tabs inside its own side-panel browser:
+  // the host streams the strip and takes the same tab controls as the PC pane.
+  const sessionTabsSupported =
+    !sessionId.startsWith(MAIN_BROWSER_PAGE_PREFIX) &&
+    api?.remoteBrowserSessionTabs === true &&
+    Boolean(api.remoteBrowserControl);
+  const sessionTabControl = useCallback(
+    /** The host's reply (a close reports the tabs left), or null when it failed. */
+    async (control: DesktopRemoteBrowserControl): Promise<{ remainingTabs?: number } | null> => {
+      try {
+        const reply = await api?.remoteBrowserControl?.(sessionId, control);
+        return reply ?? {};
+      } catch (error) {
+        setActionFailure(error instanceof Error ? error.message : String(error));
+        return null;
+      }
+    },
+    [api, sessionId, setActionFailure]
+  );
   useEffect(() => {
     if (!active || !tabsSupported || !api?.remoteBrowserTabs || !api.onRemoteBrowserTabs) {
       setTabs([]);
@@ -65,10 +87,13 @@ export function useRemoteBrowserTabs({
   const selectTab = useCallback(
     (id: string) => {
       setNewTab(false);
-      setStreamId(id);
+      if (sessionTabsSupported) void sessionTabControl({ type: 'select-tab', tabId: id });
+      else setStreamId(id);
     },
-    [setStreamId]
+    [setStreamId, sessionTabsSupported, sessionTabControl]
   );
+  const createSessionTab = () => sessionTabControl({ type: 'new-tab' });
+  const closeSessionTab = (id: string) => sessionTabControl({ type: 'close-tab', tabId: id });
   const reportFailure = (error: unknown) => setActionFailure(error instanceof Error ? error.message : String(error));
   const openTab = async (raw: string) => {
     const url = normalizeAddressInput(raw);
@@ -95,9 +120,24 @@ export function useRemoteBrowserTabs({
     }
   };
   const stripTabs = useMemo<DesktopBrowserTab[]>(
-    () => tabs.map((tab) => ({ ...tab, active: tab.id === streamId, kind: 'page' })),
-    [tabs, streamId]
+    () =>
+      sessionTabsSupported
+        ? (frameTabs ?? [])
+        : tabs.map((tab) => ({ ...tab, active: tab.id === streamId, kind: 'page' })),
+    [tabs, streamId, sessionTabsSupported, frameTabs]
   );
 
-  return { newTab, setNewTab, tabs, tabsSupported, selectTab, openTab, closeTab, stripTabs };
+  return {
+    newTab,
+    setNewTab,
+    tabs,
+    tabsSupported,
+    sessionTabsSupported,
+    selectTab,
+    openTab,
+    closeTab,
+    createSessionTab,
+    closeSessionTab,
+    stripTabs,
+  };
 }

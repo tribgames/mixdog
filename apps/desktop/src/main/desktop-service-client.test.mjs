@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import { DesktopServiceClient } from './desktop-service-client.ts';
+import { RemoteBootstrapError } from './ssh/remote-bootstrap.ts';
 
 class TestTransport extends EventEmitter {
   constructor(onInit) {
@@ -127,6 +128,47 @@ test('pre-ready daemon handoff retries remain bounded by the startup timeout', a
     await assert.rejects(client.start(), /daemon session endpoint is unavailable/);
     assert.ok(connections > 1, 'startup should retry before reaching its deadline');
     assert.ok(Date.now() - startedAt < 500, 'startup timeout must stay bounded');
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
+test('a terminal remote failure stops reconnecting and shows its reason at once', async () => {
+  let connections = 0;
+  const refusal = new RemoteBootstrapError(
+    'daemon-not-proxy',
+    'A Mixdog daemon (pid 1667) is already running on the server without desktop model proxy mode.'
+  );
+  const client = new DesktopServiceClient({
+    connect() {
+      connections += 1;
+      return new TestTransport((transport) => {
+        transport.emit('exit', 1, refusal);
+      });
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    restartBaseDelayMs: 1,
+    restartMaxDelayMs: 1,
+    startupTimeoutMs: 1_000,
+    failureNoticeDelayMs: 1_000,
+  });
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(client.start(), (error) => error === refusal);
+    assert.ok(Date.now() - startedAt < 500, 'a terminal failure must not wait for the startup timeout');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(connections, 1);
+    await assert.rejects(client.start(), (error) => error === refusal);
+    assert.equal(connections, 1);
+    const toasts = client.getSnapshot().toasts;
+    assert.equal(toasts.at(-1).text, refusal.message);
   } finally {
     clearTimeout(keepAlive);
     await client.dispose();

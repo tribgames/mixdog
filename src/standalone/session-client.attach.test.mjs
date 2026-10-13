@@ -4,8 +4,9 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { attachSession } from './session-client.mjs';
-import { SESSION_PROTOCOL, SESSION_REVISION } from './session-wire.mjs';
+import { attachSession, probeSessionCompatibility } from './session-client.mjs';
+import { createLeaseHeartbeat } from './session-client/lease-heartbeat.mjs';
+import { SESSION_PROTOCOL, SESSION_REVISION, runtimeVersion } from './session-wire.mjs';
 
 // attachSession against a stub daemon: registration (with 5xx retry and 4xx
 // stop), frames on the event stream, calls, backed-off stream reconnects with
@@ -13,7 +14,7 @@ import { SESSION_PROTOCOL, SESSION_REVISION } from './session-wire.mjs';
 // replaced, reconnect budget exhausted), and deregister on close.
 
 function stubDaemon({ pid = process.pid, registerStatuses = [] } = {}) {
-  const state = { registers: [], deregisters: [], calls: [], streams: [], tokens: 0, waiters: [], eventStatus: 200 };
+  const state = { registers: [], deregisters: [], heartbeats: [], calls: [], streams: [], tokens: 0, waiters: [], eventStatus: 200 };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => {
@@ -36,12 +37,22 @@ function stubDaemon({ pid = process.pid, registerStatuses = [] } = {}) {
           state.tokens += 1;
           return json(200, { token: `tok-${state.tokens}`, protocol: SESSION_PROTOCOL, revision: 42 });
         }
+        case '/client/heartbeat':
+          state.heartbeats.push(parsed);
+          return json(200, { ok: true });
         case '/client/deregister':
           state.deregisters.push(parsed);
           return json(200, { ok: true });
         case '/call':
           state.calls.push(parsed);
           if (parsed.name === 'session.boom') return json(200, { error: 'exploded', code: 'E_BOOM' });
+          if (parsed.name === 'session.full') {
+            return json(200, {
+              error: 'no space',
+              code: 'WORKTREE_DISK_INSUFFICIENT',
+              details: { requiredBytes: 10, freeBytes: 2 },
+            });
+          }
           return json(200, { result: { echo: parsed.args } });
         case '/events': {
           if (state.eventStatus !== 200) return json(state.eventStatus, { error: 'no' });
@@ -150,6 +161,12 @@ test('attach registers with the wire identity, streams frames, calls with the cl
       callId: 'c1',
     });
     await assert.rejects(handle.call('session.boom'), (err) => err.message === 'exploded' && err.code === 'E_BOOM');
+    // Typed failures keep their details (sizes, holder path) across the daemon wire.
+    await assert.rejects(handle.call('session.full'), (err) => {
+      assert.equal(err.code, 'WORKTREE_DISK_INSUFFICIENT');
+      assert.deepEqual(err.details, { requiredBytes: 10, freeBytes: 2 });
+      return true;
+    });
 
     await handle.close('done');
     assert.deepEqual(daemon.state.deregisters, [{ token: 'tok-1' }]);
@@ -159,6 +176,100 @@ test('attach registers with the wire identity, streams frames, calls with the cl
   } finally {
     await daemon.close();
   }
+});
+
+test('remote attach registers lease identity, heartbeats until close, and reconnects without local pid or daemon.json', async (context) => {
+  isolatedRuntimeRoot(context); // no daemon.json here: a local read would find nothing
+  const daemon = await stubDaemon();
+  const remoteDiscovery = { port: daemon.port, token: 'daemon-secret', pid: 4_000_000 };
+  const reconnects = [];
+  const fatal = [];
+  const pidChecks = [];
+  try {
+    const handle = await attachSession({
+      discovery: remoteDiscovery,
+      leadPid: 4242,
+      cwd: '/work',
+      registrationId: 'reg-remote',
+      remote: true,
+      leaseMs: 6000,
+      heartbeatMs: 30,
+      ...fastStream,
+      pidAlive: (pid) => {
+        pidChecks.push(pid);
+        return true;
+      },
+      onStreamReconnect: (info) => reconnects.push(info),
+      onFatal: (reason) => fatal.push(reason),
+    });
+    assert.deepEqual(daemon.state.registers[0], {
+      leadPid: 0,
+      cwd: '/work',
+      lifecycle: true,
+      clientKind: 'session',
+      registrationId: 'reg-remote',
+      protocol: SESSION_PROTOCOL,
+      revision: SESSION_REVISION,
+      remote: true,
+      leaseMs: 6000,
+    });
+    await until(() => daemon.state.heartbeats.length >= 2);
+    assert.deepEqual(daemon.state.heartbeats[0], { token: 'tok-1' });
+
+    (await daemon.stream(0)).end();
+    await until(() => reconnects.length === 1);
+    assert.deepEqual(fatal, []);
+    assert.deepEqual(pidChecks, [4_000_000], 'the injected liveness check is used');
+
+    await handle.close();
+    const settled = daemon.state.heartbeats.length;
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(daemon.state.heartbeats.length, settled, 'heartbeat stops on detach');
+  } finally {
+    await daemon.close();
+  }
+});
+
+test('heartbeat cadence follows the clamped lease: leaseMs 3000 beats every 1000ms with a 500ms timeout', async () => {
+  const seen = [];
+  const heartbeat = createLeaseHeartbeat({
+    request: async (args) => {
+      seen.push(args);
+      return {};
+    },
+    port: 1,
+    serverToken: 's',
+    clientToken: 'c',
+    heartbeatMs: 10_000,
+    leaseMs: 3000,
+    log: () => {},
+  });
+  heartbeat.start();
+  try {
+    await new Promise((r) => setTimeout(r, 1150));
+  } finally {
+    heartbeat.stop();
+  }
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].timeoutMs, 500);
+  assert.equal(seen[0].path, '/client/heartbeat');
+});
+
+test('probeSessionCompatibility checks an explicit discovery through the injected probe', async () => {
+  const seen = [];
+  const reached = await probeSessionCompatibility(
+    { port: 1, token: 't' },
+    {
+      probeHealth: async (args) => {
+        seen.push(args);
+        return { status: 'ok', pid: 7, protocol: SESSION_PROTOCOL, revision: SESSION_REVISION, version: runtimeVersion() };
+      },
+    }
+  );
+  assert.equal(reached.compatibility.status, 'compatible');
+  assert.equal(seen[0].port, 1);
+  const missing = await probeSessionCompatibility({ port: 1, token: 't' }, { probeHealth: async () => null });
+  assert.deepEqual(missing, { health: null, compatibility: null });
 });
 
 test('a 4xx registration is not retried and surfaces its status', async (context) => {

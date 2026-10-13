@@ -6,6 +6,7 @@ import { createAccountPoolProvider } from './account-pool.mjs';
 import { isInclusiveProvider } from '../../../shared/llm/cost.mjs';
 import { noEnabledProvidersError } from './registry-errors.mjs';
 import { providerTakesNativePdf } from '../../../attachments/store.mjs';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
@@ -176,6 +177,12 @@ async function loadProviderCtor(name, signal = null, cfg = null) {
 }
 
 async function instantiateProvider(name, Ctor, cfg) {
+  // Remote mode: the client PC executes the call with its own credentials.
+  // Admission and usage accounting still wrap the daemon-side stand-in.
+  if (modelProxyClientMode()) {
+    const { createModelProxyProvider } = await import('./model-proxy-provider.mjs');
+    return wrapProviderAdmission(createModelProxyProvider(name, cfg), name);
+  }
   if (isCustomProviderConfig(name, cfg)) return wrapProviderAdmission(await Ctor(name, cfg), name);
   if (Object.hasOwn(OPENAI_COMPAT_PRESETS, name) && name !== 'opencode-go') {
     return wrapProviderAdmission(new Ctor(name, cfg), name);
@@ -185,6 +192,12 @@ async function instantiateProvider(name, Ctor, cfg) {
 
 export async function initProviders(config, { signal = null } = {}) {
   throwIfAborted(signal);
+  // Remote mode: provider availability and config are the PC's, never this
+  // server's credential probes. No connected client fails here, clearly.
+  if (modelProxyClientMode()) {
+    const { loadModelProxyProviderConfig } = await import('./model-proxy-provider.mjs');
+    config = await awaitWithAbort(loadModelProxyProviderConfig(), signal);
+  }
   const sig = configSignature(config);
   // Coalesce: an identical config is already mid-init — attach to it.
   if (sig !== null && _inFlightPromise && _inFlightSig === sig) {
@@ -254,7 +267,8 @@ async function _initProvidersUnsynchronized(config, signal = null) {
         return { name, inst: providers.get(name), sig };
       }
       try {
-        const Ctor = await loadProviderCtor(name, signal, cfg);
+        // A proxied provider never loads the real adapter module.
+        const Ctor = modelProxyClientMode() ? null : await loadProviderCtor(name, signal, cfg);
         throwIfAborted(signal);
         const inst = await instantiateProvider(name, Ctor, cfg);
         return { name, inst, sig };

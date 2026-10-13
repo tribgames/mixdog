@@ -30,6 +30,7 @@ import { setBuiltinInstalledInConfig, withGrandfatheredBuiltins } from '../../..
 const BROWSER_BRIDGE_DISCOVERY_FILE = 'browser-bridge.json';
 const COMPUTER_BRIDGE_DISCOVERY_FILE = 'computer-bridge.json';
 const TERMINAL_BRIDGE_DISCOVERY_FILE = 'terminal-bridge.json';
+const VISUALIZE_BRIDGE_DISCOVERY_FILE = 'visualize-bridge.json';
 
 function bridgePresent(file) {
   try {
@@ -116,6 +117,14 @@ export function builtinFeatureActive(configLike, id) {
   if (id === 'terminal') {
     return featureEnvOverride('MIXDOG_FEATURE_TERMINAL') ?? bridgePresent(TERMINAL_BRIDGE_DISCOVERY_FILE);
   }
+  // Visualize shows artifacts in the desktop side panel: no install step, on
+  // unless the user turns it off, and only while the desktop bridge is up.
+  if (id === 'visualize') {
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_VISUALIZE') ??
+      (moduleEnabled(configLike, 'visualize', true) && bridgePresent(VISUALIZE_BRIDGE_DISCOVERY_FILE))
+    );
+  }
   return false;
 }
 
@@ -148,6 +157,7 @@ export function featureDisallowedToolsFor(
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
     ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
     ...(builtinFeatureActive(configLike, 'tidy') ? [] : ['tidy']),
+    ...(builtinFeatureActive(configLike, 'visualize') ? [] : ['visualize']),
   ];
   // Headless exec uses the Lead surface and excludes Skill/MCP tools. When
   // only its eager defaults remain, neither schemas nor loader guidance help.

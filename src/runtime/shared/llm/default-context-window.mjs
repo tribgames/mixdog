@@ -24,6 +24,12 @@ function positiveTokens(value) {
   return Number.isFinite(tokens) && tokens > 0 ? Math.floor(tokens) : 0;
 }
 
+/** An exact context-window selection in tokens (`contextTokens`); undefined when unset or invalid. */
+export function normalizeContextTokens(value) {
+  const tokens = Math.round(Number(value));
+  return Number.isFinite(tokens) && tokens > 0 ? tokens : undefined;
+}
+
 /**
  * The default and the largest selectable window of one model row, in tokens.
  * `defaultWindow` is 0 when the row states no window to start from.

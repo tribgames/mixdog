@@ -1,0 +1,126 @@
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.5.0-2ubuntu10.15).
+0 upgraded, 0 newly installed, 0 to remove and 44 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+============================= test session starts ==============================
+platform linux -- Python 3.13.9, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 13 items
+
+../tests/test_outputs.py .............                                   [100%]
+
+=============================== warnings summary ===============================
+../root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276
+  /root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+    cpu = _conversion_method_template(device=torch.device("cpu"))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+_____________________ test_column_parallel_linear[1-True] ______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_____________________ test_column_parallel_linear[1-False] _____________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_____________________ test_column_parallel_linear[2-True] ______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_____________________ test_column_parallel_linear[2-False] _____________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_____________________ test_column_parallel_linear[4-True] ______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_____________________ test_column_parallel_linear[4-False] _____________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_______________________ test_row_parallel_linear[1-True] _______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+______________________ test_row_parallel_linear[1-False] _______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_______________________ test_row_parallel_linear[2-True] _______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+______________________ test_row_parallel_linear[2-False] _______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+_______________________ test_row_parallel_linear[4-True] _______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+______________________ test_row_parallel_linear[4-False] _______________________
+----------------------------- Captured stderr call -----------------------------
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/root/.cache/uv/archive-v0/SIY2C5H8vWznkkTVBDpsN/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:276: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:81.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_parallel_linear_exists
+PASSED ../tests/test_outputs.py::test_column_parallel_linear[1-True]
+PASSED ../tests/test_outputs.py::test_column_parallel_linear[1-False]
+PASSED ../tests/test_outputs.py::test_column_parallel_linear[2-True]
+PASSED ../tests/test_outputs.py::test_column_parallel_linear[2-False]
+PASSED ../tests/test_outputs.py::test_column_parallel_linear[4-True]
+PASSED ../tests/test_outputs.py::test_column_parallel_linear[4-False]
+PASSED ../tests/test_outputs.py::test_row_parallel_linear[1-True]
+PASSED ../tests/test_outputs.py::test_row_parallel_linear[1-False]
+PASSED ../tests/test_outputs.py::test_row_parallel_linear[2-True]
+PASSED ../tests/test_outputs.py::test_row_parallel_linear[2-False]
+PASSED ../tests/test_outputs.py::test_row_parallel_linear[4-True]
+PASSED ../tests/test_outputs.py::test_row_parallel_linear[4-False]
+======================== 13 passed, 1 warning in 43.52s ========================

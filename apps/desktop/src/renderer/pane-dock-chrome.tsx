@@ -18,7 +18,9 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { commitImmediateOverlay } from './immediate-overlay';
+import { usePhoneDockSwitchActions } from './phone-dock-switch';
 import './tab-strip.css';
 
 export interface DockAction {
@@ -32,6 +34,12 @@ export interface DockAction {
   menuOnly?: boolean;
   /** A menu check mark (selected option) / a pressed button. */
   checked?: boolean;
+  /** Draws attention (`data-attention`): an inline button is styled by the
+   *  pane; a ⋯ item marks its glyph and puts a dot on the ⋯ button. */
+  attention?: boolean;
+  /** A small count over an inline glyph (e.g. findings); a ⋯ item shows it
+   *  as its detail and dots the ⋯ button. */
+  badge?: number;
   /** Menu only: a `checked` item is a single-choice radio unless this marks
    *  it an independent checkbox. */
   checkbox?: boolean;
@@ -67,7 +75,7 @@ export function scrollTabListByWheel(
 }
 
 export const PANE_DOCK_CLOSE_EVENT = 'mixdog:pane-dock-close';
-export type PaneDockCloseSurface = 'browser' | 'terminal' | 'session-diff' | 'background-jobs';
+export type PaneDockCloseSurface = 'browser' | 'terminal' | 'session-diff' | 'visualize';
 export function requestPaneDockClose(surface: PaneDockCloseSurface): void {
   window.dispatchEvent(new CustomEvent(PANE_DOCK_CLOSE_EVENT, { detail: { surface } }));
 }
@@ -228,17 +236,13 @@ export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
         }
       >
         <MoreHorizontal size={15} aria-hidden="true" />
+        {items.some((item) => item.attention || item.badge) ? (
+          <span className="dock-header-more-dot" aria-hidden="true" />
+        ) : null}
       </button>
       {open &&
         createPortal(
-          <div
-            ref={menu}
-            className="dock-header-menu"
-            role="menu"
-            aria-label={t('More actions')}
-            data-dock-menu-owner=""
-            style={placement}
-          >
+          <div ref={menu} className="dock-header-menu" role="menu" aria-label={t('More actions')} style={placement}>
             {items.map((item) => {
               const Glyph = item.icon;
               let glyph: ReactNode = null;
@@ -252,6 +256,7 @@ export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
                   role={dockMenuItemRole(item)}
                   aria-checked={item.checked === undefined ? undefined : item.checked}
                   className={item.separatorBefore ? 'has-separator' : undefined}
+                  data-attention={item.attention || item.badge ? 'true' : undefined}
                   disabled={item.disabled}
                   onClick={() => {
                     close();
@@ -260,7 +265,9 @@ export function DockOverflowMenu({ items }: { items: readonly DockAction[] }) {
                 >
                   <span className="dock-header-menu-glyph">{glyph}</span>
                   <span>{item.label}</span>
-                  {item.detail && <small className="dock-header-menu-detail">{item.detail}</small>}
+                  {(item.detail || item.badge) && (
+                    <small className="dock-header-menu-detail">{item.detail || String(item.badge)}</small>
+                  )}
                 </button>
               );
             })}
@@ -301,9 +308,16 @@ export function DockHeaderRow({
   className?: string;
 }) {
   const dockExpand = useContext(PaneDockExpandContext);
-  const toggleExpanded = onToggleExpanded ?? dockExpand?.toggle;
+  // The phone sheet is already full-screen: expanding would only lift the
+  // header out of the sheet (fixed, over the transformed frame) and leave the
+  // body behind it.
+  const phone = useMobileRemoteSurface();
+  const toggleExpanded = phone ? undefined : (onToggleExpanded ?? dockExpand?.toggle);
   const isExpanded = onToggleExpanded ? expanded : (dockExpand?.expanded ?? expanded);
-  const { inline, menu } = splitDockActions(actions);
+  const phoneSwitch = usePhoneDockSwitchActions(phone);
+  const split = splitDockActions(actions);
+  const inline = split.inline;
+  const menu = [...split.menu, ...phoneSwitch];
   const closeText = closeLabel ?? t('Close panel');
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the row takes the group role whenever it carries a name.
@@ -318,6 +332,7 @@ export function DockHeaderRow({
         {controlsLead}
         {inline.map((action) => {
           const Glyph = action.icon;
+          const badgeText = action.badge && action.badge > 99 ? '99+' : action.badge;
           return (
             <button
               key={action.id}
@@ -325,11 +340,13 @@ export function DockHeaderRow({
               className="browser-pane-nav-button"
               aria-label={action.label}
               aria-pressed={action.checked === undefined ? undefined : action.checked}
+              data-attention={action.attention ? 'true' : undefined}
               data-tooltip={action.label}
               disabled={action.disabled}
               onClick={action.onSelect}
             >
               {Glyph ? <Glyph size={15} aria-hidden={true} /> : <span>{action.label}</span>}
+              {action.badge ? <span className="dock-action-badge">{badgeText}</span> : null}
             </button>
           );
         })}

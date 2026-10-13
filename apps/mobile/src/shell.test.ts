@@ -8,20 +8,6 @@ import {
   readHostBook,
   rememberHost,
 } from './hosts.ts';
-import { checkForUpdate, compareVersions, pickUpdate } from './update.ts';
-
-test('a launch-budgeted update check gives up on a stalled lookup instead of holding the launch', async () => {
-  const stalled: typeof fetch = (_input, init) =>
-    new Promise((_resolve, reject) => {
-      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
-    });
-  const started = Date.now();
-  // AbortSignal.timeout does not keep the loop alive on its own.
-  const keepAlive = setTimeout(() => {}, 5_000);
-  assert.equal(await checkForUpdate('1.0.0', stalled, 50), null);
-  clearTimeout(keepAlive);
-  assert.ok(Date.now() - started < 1_000);
-});
 
 const ID = '0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9';
 
@@ -51,28 +37,4 @@ test('paired hosts are remembered, ordered and forgotten', () => {
   assert.equal(readHostBook(JSON.stringify(book)).hosts.length, 2);
   assert.deepEqual(readHostBook('{bad'), emptyHostBook());
   assert.equal(forgetHost(book, a.url).last, '');
-});
-
-test('versions compare numerically', () => {
-  assert.equal(compareVersions('1.10.0', '1.9.9'), 1);
-  assert.equal(compareVersions('1.0', '1.0.0'), 0);
-  assert.equal(compareVersions('0.9.9', '1.0.0'), -1);
-});
-
-test('the newest published mobile APK release wins', () => {
-  const apk = (name: string) => [{ name, browser_download_url: `https://github.com/x/${name}` }];
-  const releases = [
-    { tag_name: 'v9.9.9', assets: apk('desktop.apk') },
-    { tag_name: 'mobile-v1.2.0', assets: apk('a.apk'), html_url: 'https://github.com/r/1.2.0' },
-    { tag_name: 'mobile-v1.3.0', draft: true, assets: apk('b.apk') },
-    { tag_name: 'mobile-v1.1.0', assets: apk('c.apk') },
-    { tag_name: 'mobile-v1.4.0', assets: [{ name: 'notes.txt', browser_download_url: 'https://x/notes.txt' }] },
-  ];
-  assert.deepEqual(pickUpdate(releases, '1.1.0'), {
-    version: '1.2.0',
-    apkUrl: 'https://github.com/x/a.apk',
-    releaseUrl: 'https://github.com/r/1.2.0',
-  });
-  assert.equal(pickUpdate(releases, '1.2.0'), null);
-  assert.equal(pickUpdate('nope', '0.0.1'), null);
 });

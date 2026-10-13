@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { probePath, PROBE_PRESENT, PROBE_ABSENT } from '../fs-probe.mjs';
 import { _queueSummaryIndexPrune } from '../summary-cache.mjs';
 import { deleteSession } from '../session-delete.mjs';
+import { COMPACTION_ARCHIVE_SUFFIX } from '../../compaction-archive.mjs';
 
 /** Retention cap: prune resumable open (non-tombstone) sessions newest-first
  *  — keep the most recent openMaxCount, prune anything older than openMaxAgeMs
@@ -47,18 +48,24 @@ export function pruneOpenCandidates({ plan, now, tally }) {
   }
 }
 
-/** Orphan .hb/.own reap: a heartbeat/presence sidecar whose .json no longer
+/** Orphan .hb/.own/compaction-archive reap: a sidecar whose .json no longer
  *  exists is dead weight once it is also stale (older than maxAge) — the
  *  session JSON was swept/closed but the sidecar lingered (crashed owner or
  *  pre-fix orphan). The staleness gate avoids nuking the sidecar of a session
  *  mid-create whose .json write has not landed yet. Yields between sidecars
  *  like the row loop. */
 export function* reapOrphanSidecars({ plan, dir, now, tally }) {
+  const recordOf = (sidecar) =>
+    sidecar.endsWith(COMPACTION_ARCHIVE_SUFFIX)
+      ? `${sidecar.slice(0, -COMPACTION_ARCHIVE_SUFFIX.length)}.json`
+      : sidecar.replace(/\.(hb|own)$/, '.json');
   try {
-    for (const h of readdirSync(dir).filter((f) => f.endsWith('.hb') || f.endsWith('.own'))) {
+    for (const h of readdirSync(dir).filter(
+      (f) => f.endsWith('.hb') || f.endsWith('.own') || f.endsWith(COMPACTION_ARCHIVE_SUFFIX)
+    )) {
       yield undefined;
       // Only a PROVEN-absent session file makes its sidecar an orphan.
-      if (probePath(join(dir, h.replace(/\.(hb|own)$/, '.json'))).state !== PROBE_ABSENT) continue;
+      if (probePath(join(dir, recordOf(h))).state !== PROBE_ABSENT) continue;
       const sidecarProbe = probePath(join(dir, h));
       if (sidecarProbe.state !== PROBE_PRESENT) continue;
       if (now - sidecarProbe.mtimeMs > plan.maxAge) {

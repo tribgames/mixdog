@@ -29,6 +29,9 @@ interface WindowSettingsIpcOptions {
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   /** Settings → Notifications: play the notification sound at the saved volume. */
   previewNotificationSound?: () => Promise<string>;
+  /** Onboarding status may come straight from this PC's status file: only
+   *  when `host` is this PC's daemon. Defaults to true. */
+  readsLocalOnboardingStatus?: boolean;
 }
 
 export function registerWindowSettingsIpc({
@@ -40,6 +43,7 @@ export function registerWindowSettingsIpc({
   settingsStore,
   onDesktopSettingsChanged,
   previewNotificationSound,
+  readsLocalOnboardingStatus = true,
 }: WindowSettingsIpcOptions): void {
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
@@ -98,8 +102,16 @@ export function registerWindowSettingsIpc({
   // theme. The engine/TUI theme is a separate user setting — the old
   // getTheme/setTheme capability hook let it overwrite this band with a
   // mismatched palette, so capabilities stay theme-neutral now.
+  let appliedTheme: string | undefined;
   handle(DESKTOP_IPC.applyTitleBarTheme, async (_event, theme, systemPreference) => {
-    setDesktopTitleBarTheme(window, requiredString(theme, 'theme'), systemPreference === true);
+    const resolved = requiredString(theme, 'theme');
+    setDesktopTitleBarTheme(window, resolved, systemPreference === true);
+    // The first apply is the window booting; a later change is the user's choice,
+    // which paired browsers without their own theme follow.
+    const applied = `${resolved}|${systemPreference === true}`;
+    const changed = appliedTheme !== undefined && appliedTheme !== applied;
+    appliedTheme = applied;
+    if (changed) void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
   });
   // Fullscreen-modal dim for the native WCO caption band: the renderer sends
   // pre-composited hex colors; anything malformed clears back to the theme.
@@ -118,7 +130,7 @@ export function registerWindowSettingsIpc({
   });
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
-    if (request.capability === 'getOnboardingStatus' && !request.sessionId) {
+    if (readsLocalOnboardingStatus && request.capability === 'getOnboardingStatus' && !request.sessionId) {
       const status = await readOnboardingStatusFromDisk();
       if (status) return { value: status, snapshot: host.getSnapshot() };
     }

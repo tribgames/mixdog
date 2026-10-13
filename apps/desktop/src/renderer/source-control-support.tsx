@@ -39,7 +39,7 @@ export function isDirtyResetRefusal(reason: unknown): boolean {
 }
 
 export function leavesStateBehind(key: string): boolean {
-  return /^(revert-commit|cherry-pick|reset|revert:|discard-all|resolve:|continue|abort-operation|branch-merge|pull|sync|stash)/.test(
+  return /^(revert-commit|cherry-pick|reset|revert:|discard-all|resolve:|continue|abort-operation|pull|sync|stash)/.test(
     key
   );
 }

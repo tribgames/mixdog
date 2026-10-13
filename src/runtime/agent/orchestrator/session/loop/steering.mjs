@@ -1,5 +1,6 @@
 // Steering-message normalization/merge helpers.
 // Merges queued steering entries into a single content payload + display text.
+import { stableMessageId } from '../../../../shared/transcript-metadata.mjs';
 
 function steeringContentText(content) {
   if (typeof content === 'string') return content;
@@ -135,10 +136,14 @@ function injectSteeringEntry(merged, { messages, opts, stage, onSkillPrompt }) {
   const rawSubmittedAt = Number(merged.submittedAt);
   const submittedAt = Number.isFinite(rawSubmittedAt) && rawSubmittedAt > 0 ? rawSubmittedAt : undefined;
   const injectedAt = Date.now();
+  // Every steered message carries a stable id from creation; the surface
+  // gets it back (onSteerMessage) for the row it draws. A steered prompt
+  // keeps the id the surface gave it, else gets one.
+  const messageId = stableMessageId(merged.transcriptMeta?.messageId);
   const steeringTranscriptMeta =
     merged.transcriptMeta && typeof merged.transcriptMeta === 'object'
-      ? { at: submittedAt ?? injectedAt, ...merged.transcriptMeta }
-      : null;
+      ? { at: submittedAt ?? injectedAt, ...merged.transcriptMeta, messageId }
+      : { messageId };
   // Tag steering-origin user messages so provider lowering keeps them
   // distinct from preceding tool results. Keep each queued command as
   // its own user turn instead of collapsing priority/mode buckets
@@ -158,7 +163,7 @@ function injectSteeringEntry(merged, { messages, opts, stage, onSkillPrompt }) {
       source: notification ? 'task-notification' : 'steering',
       ...(execution ? { execution } : {}),
       ...(submissionIds.length ? { submissionIds } : {}),
-      ...(steeringTranscriptMeta ? { transcript: steeringTranscriptMeta } : {}),
+      transcript: steeringTranscriptMeta,
     },
   });
   if (!notification) onSkillPrompt(merged.content);
@@ -172,9 +177,12 @@ function injectSteeringEntry(merged, { messages, opts, stage, onSkillPrompt }) {
       ...(notification ? { mode: 'task-notification' } : {}),
       ...(execution ? { execution } : {}),
       ...(Array.isArray(merged.images) && merged.images.length ? { images: merged.images } : {}),
-      ...(steeringTranscriptMeta ? { transcriptMeta: steeringTranscriptMeta } : {}),
+      transcriptMeta: steeringTranscriptMeta,
+      messageId,
     });
-  } catch {}
+  } catch {
+    /* best-effort host callback */
+  }
   return {
     count: Number(merged.count) || 1,
     textLength: String(text || '').length,
@@ -224,9 +232,11 @@ export function createSteeringDrain({ messages, opts, sessionId, onSkillPrompt }
       try {
         process.stderr.write(
           `[steer] sess=${sessionId} injected ${stage} user message(s)` +
-            ` (merged=${totalCount} len=${totalTextLen} waitMs=${Math.max(0, maxQueueWaitMs)})\n`
+            ` (merged=${totalCount} len=${totalTextLen} waitMs=${maxQueueWaitMs})\n`
         );
-      } catch {}
+      } catch {
+        /* best-effort diagnostics */
+      }
     }
     return true;
   };

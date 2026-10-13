@@ -63,6 +63,10 @@ export function createSessionControlsApi(bag) {
     taskControl: (args = {}) => {
       return runtime.taskControl?.(args) ?? null;
     },
+    // Structured stop of one background shell job: { stopped, error? }.
+    stopShellJob: async (taskId) => {
+      return (await runtime.stopShellJob?.(taskId)) ?? { stopped: false, error: 'shell job control is unavailable' };
+    },
     goalControl: async (args = {}) => {
       const result = await runtime.goalControl?.(args);
       if (['pause', 'stop'].includes(result?.action)) {

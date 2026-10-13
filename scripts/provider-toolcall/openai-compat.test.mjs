@@ -555,9 +555,9 @@ function assertDoSendUsesOnlyInjectedPreconnect() {
     .find((node) => node?.type === 'ClassDeclaration' && node.id?.name === 'OpenAICompatProvider');
   assert.ok(providerClass, 'OpenAICompatProvider class must be resolvable');
   const doSendMethod = providerClass.body.body.find(
-    (node) => node.type === 'MethodDefinition' && node.key?.type === 'Identifier' && node.key.name === '_doSend'
+    (node) => node.type === 'MethodDefinition' && node.key?.type === 'Identifier' && node.key.name === '_sendWithOpts'
   );
-  assert.ok(doSendMethod, 'OpenAICompatProvider._doSend must be resolvable');
+  assert.ok(doSendMethod, 'OpenAICompatProvider._sendWithOpts must be resolvable');
 
   let callsInjectedInstanceMember = false;
   const visit = (node) => {
@@ -583,8 +583,12 @@ function assertDoSendUsesOnlyInjectedPreconnect() {
       reference.identifier.start >= doSendMethod.value.body.start &&
       reference.identifier.end <= doSendMethod.value.body.end
   );
-  assert.equal(importedBindingReferences.length, 0, '_doSend must not reference the shared preconnect import binding');
-  assert.equal(callsInjectedInstanceMember, true, '_doSend must call the instance preconnect seam');
+  assert.equal(
+    importedBindingReferences.length,
+    0,
+    '_sendWithOpts must not reference the shared preconnect import binding'
+  );
+  assert.equal(callsInjectedInstanceMember, true, '_sendWithOpts must call the instance preconnect seam');
 }
 
 test('openai-compat/xai: constructor and HTTP send use only the injected preconnect seam', async () => {

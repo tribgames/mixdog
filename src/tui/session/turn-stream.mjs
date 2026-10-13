@@ -5,6 +5,7 @@
 // scalars); every function here takes it as its first argument.
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
 import { retryStatusLine } from '../../runtime/shared/err-text.mjs';
+import { newTranscriptMessageId } from '../../runtime/shared/transcript-metadata.mjs';
 
 // Share Ink's exact 120fps cadence with the frame-batched store. A separate
 // 16ms timer left every other terminal frame idle, so completed script lines
@@ -59,9 +60,27 @@ function ensureAssistant(stream, initialText = '') {
   if (!stream.currentAssistantId) {
     stream.currentAssistantId = stream.nextId();
     const meta = stream.transcriptMeta;
-    const assistantAt =
-      Number.isFinite(Number(meta.assistantAt)) && Number(meta.assistantAt) > 0 ? Number(meta.assistantAt) : Date.now();
-    meta.assistantAt = assistantAt;
+    // A non-streaming continuation was persisted before its text reached this
+    // row: the runtime left that message's id and time (ask-session
+    // takeAssistant), and the row carries them instead of minting new ones.
+    const persisted = stream.claimPersistedAssistant ? meta.persistedAssistant : null;
+    if (persisted) meta.persistedAssistant = null;
+    let assistantAt = persisted?.at;
+    let messageId = persisted?.messageId;
+    if (!persisted) {
+      assistantAt =
+        Number.isFinite(Number(meta.assistantAt)) && Number(meta.assistantAt) > 0
+          ? Number(meta.assistantAt)
+          : Date.now();
+      meta.assistantAt = assistantAt;
+      // The reply this segment becomes is persisted with this stable id (the
+      // runtime takes it with assistantAt), so a compaction that drops the
+      // reply greys this row.
+      if (!(typeof meta.assistantMessageId === 'string' && meta.assistantMessageId)) {
+        meta.assistantMessageId = newTranscriptMessageId();
+      }
+      messageId = meta.assistantMessageId;
+    }
     // Do NOT reset currentAssistantText here: the first onTextDelta has
     // already accumulated the opening chunk before this batched flush runs.
     // Segment resets are owned by closeAssistantSegment(). Seed the new row
@@ -70,6 +89,7 @@ function ensureAssistant(stream, initialText = '') {
     stream.updateStreamingTail(stream.currentAssistantId, {
       text: String(initialText || ''),
       at: assistantAt,
+      messageId,
       ...stream.routeMeta,
     });
   }
@@ -86,6 +106,7 @@ function resetLineScan(stream) {
 function closeAssistantSegment(stream) {
   stream.currentAssistantId = null;
   stream.currentAssistantText = '';
+  stream.claimPersistedAssistant = false;
   resetLineScan(stream);
 }
 
@@ -290,11 +311,18 @@ export function appendTextDelta(stream, textChunk) {
 // Mid-turn assistant text that precedes a tool call from a provider that only
 // returns the final response.content (no deltas); the streaming path owns
 // the render when it already produced text for this segment.
-export function appendAssistantText(stream, full) {
+export function appendAssistantText(stream, full, { committed = false } = {}) {
   endThinkingForText(stream);
   stream.assistantText += full;
   stream.currentAssistantText += full;
   stream.pendingTextFlush = true;
+  // Only post-commit text is the persisted message's own: its row takes that
+  // id. Any other text (a tool preamble published before its message commits)
+  // leaves an earlier recorded id unclaimed, so drop it.
+  stream.claimPersistedAssistant = committed;
+  if (!committed && stream.transcriptMeta && typeof stream.transcriptMeta === 'object') {
+    stream.transcriptMeta.persistedAssistant = null;
+  }
   flushStreamBatch(stream);
 }
 

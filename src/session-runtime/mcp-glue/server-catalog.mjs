@@ -68,13 +68,17 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
     const servers = [];
     for (const [name, cfg] of Object.entries(configured)) {
       const live = connected.get(name);
-      const fail = failures.get(name);
+      // A registered server whose client reports it not alive (runtime
+      // failure after connect) is surfaced as failed, not connected.
+      const dead = live && (live.alive === false || live.connected === false);
+      const fail =
+        failures.get(name) || (dead ? { msg: live.error || live.lastError || 'MCP server is not alive' } : undefined);
       servers.push({
         name,
         configured: true,
         enabled: cfg?.enabled !== false,
-        connected: Boolean(live),
-        status: mcpServerStatus(cfg, live, fail),
+        connected: Boolean(live) && !dead,
+        status: mcpServerStatus(cfg, live && !dead, fail),
         transport: mcpTransportLabel(cfg),
         toolCount: live?.toolCount || 0,
         tools: live?.tools || [],

@@ -12,7 +12,8 @@ export type WhatsNewStatus =
   | 'current'
   | 'already-shown'
   | 'downgrade'
-  | 'storage-unavailable';
+  | 'storage-unavailable'
+  | 'mobile-device';
 
 // Versions announced during this session, so a remount never repeats one even
 // when the stored mark could not be written.

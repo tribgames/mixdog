@@ -250,7 +250,13 @@ const openSocketAttempt = (
     ctx.peerRemoteParity = false;
     ctx.peerNativePush = false;
     ctx.peerBrowserParity = false;
+    ctx.peerBrowserDrive = false;
+    ctx.peerBrowserSessionTabs = false;
+    ctx.peerTermSizeOwner = false;
+    ctx.peerHostDirectories = false;
     ctx.peerRouteAutoEffort = false;
+    ctx.peerVisualize = false;
+    ctx.peerFileDownloads = false;
     dropMediaSession(ctx);
     ctx.limits.resetLearnedCaps();
     if (!ctx.e2eePairing) {
@@ -315,7 +321,13 @@ const openSocketAttempt = (
         ctx.peerRemoteParity = clear.remoteParity === 1;
         ctx.peerNativePush = clear.nativePush === 1;
         ctx.peerBrowserParity = clear.browserParity === 1;
+        ctx.peerBrowserDrive = clear.browserDrive === 1;
+        ctx.peerBrowserSessionTabs = clear.browserSessionTabs === 1;
+        ctx.peerTermSizeOwner = clear.termSizeOwner === 1;
+        ctx.peerHostDirectories = clear.hostDirectories === 1;
         ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;
+        ctx.peerVisualize = clear.visualize === 1;
+        ctx.peerFileDownloads = clear.fileDownloads === 1;
         // The previous leg's media session ended with it.
         dropMediaSession(ctx);
         ctx.peerMediaE2ee = clear.mediaE2ee === 1;
@@ -333,7 +345,10 @@ const openSocketAttempt = (
         // this browser. Only a host that advertised the lane derived one.
         if (ctx.peerMediaE2ee && handshake.channel.mediaKey) {
           ctx.mediaSid = clear.challenge;
-          publishMediaKey(clear.challenge, handshake.channel.mediaKey);
+          publishMediaKey(clear.challenge, handshake.channel.mediaKey, {
+            base: ctx.serverBase || location.origin,
+            token: () => ctx.currentToken(),
+          });
           notifyMediaSessionChanged();
         }
         // promptHistoryPatch: this build's snapshot decoder applies head

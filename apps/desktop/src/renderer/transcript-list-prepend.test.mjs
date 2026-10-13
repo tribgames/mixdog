@@ -337,11 +337,14 @@ test('a row first measured across the viewport top grows upward, not into the ro
     heights.clear();
     const total = Number.parseFloat(mount.viewport.querySelector('.transcript-virtual-space').style.height);
     await mount.jump(Math.floor(total / 2));
-    const crossing = mount.positioned().find((row, i, all) => {
-      const next = all[i + 1];
-      return next && next.index === row.index + 1 && next.top - row.top === 60 && real.get(row.key) > 60;
-    });
-    assert.ok(crossing, 'a row still at the estimate');
+    const positioned = mount.positioned();
+    const crossingAt = positioned.findIndex((row, i, all) => all[i + 1]?.index === row.index + 1);
+    const crossing = positioned[crossingAt];
+    assert.ok(crossing, 'a row still at its estimate');
+    // Rows of a measured shape now mount at their learned height; this one's
+    // content renders taller than any row of its shape did.
+    const estimate = positioned[crossingAt + 1].top - crossing.top;
+    real.set(crossing.key, estimate + 40);
     // The viewport top cuts through it.
     await mount.jump(crossing.top + 30);
     const next = mount.positioned().find((row) => row.index === crossing.index + 1);
@@ -350,6 +353,50 @@ test('a row first measured across the viewport top grows upward, not into the ro
     await mount.measure();
     const after = mount.positioned().find((row) => row.key === next.key).top - mount.viewport.scrollTop;
     assert.ok(Math.abs(after - before) <= 1, `the row below moved ${after - before} px`);
+  } finally {
+    await mount.cleanup();
+  }
+});
+
+test('rows never measured mount at the height their shape measured, so a first pass up writes no corrections', async () => {
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const items = turnItems(24);
+  const { rows } = projectSettledTranscriptRows({
+    sessionKey: 'learned-shapes',
+    items,
+    turnKeys: transcriptTurnKeys(items),
+    failedTurns: new Set(),
+  });
+  const real = new Map(rows.map((row) => [row.key, rowHeight(row)]));
+  const heights = new Map(real);
+  let gesture = false;
+  const mount = await mountTranscript(heights, 'learned-shapes', () => gesture);
+  try {
+    await mount.render(rows);
+    // The newest turns mount and are measured: their shapes are learned.
+    await mount.scrollTo(Number.MAX_SAFE_INTEGER);
+    // A fling into history the list never mounted: no box exists yet, so
+    // what is laid out is the estimate alone.
+    gesture = true;
+    heights.clear();
+    await mount.jump(Math.floor(mount.viewport.scrollTop / 3));
+    const placed = mount.positioned();
+    const wrong = placed.filter((row, i) => {
+      const next = placed[i + 1];
+      return next && next.index === row.index + 1 && next.top - row.top !== real.get(row.key);
+    });
+    assert.ok(placed.length > 4, 'rows mounted in the middle of history');
+    assert.deepEqual(wrong, [], 'every unmeasured row already holds its real height');
+    // Their boxes arrive: nothing above the reader moves, nothing is written.
+    const anchor = placed[Math.floor(placed.length / 2)];
+    const before = anchor.top - mount.viewport.scrollTop;
+    const offset = mount.viewport.scrollTop;
+    for (const [key, height] of real) heights.set(key, height);
+    await mount.measure();
+    const after = mount.positioned().find((row) => row.key === anchor.key).top - mount.viewport.scrollTop;
+    assert.equal(after, before);
+    assert.equal(mount.viewport.scrollTop, offset, 'no corrective scroll write');
   } finally {
     await mount.cleanup();
   }

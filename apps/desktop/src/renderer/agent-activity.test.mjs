@@ -13,6 +13,7 @@ import {
   liveAgentRows,
 } from './AgentActivityPane.tsx';
 import { createDesktopCancellationLedger, desktopAgentActivityState } from '../shared/agent-activity.ts';
+import { backgroundJobRows } from './background-jobs-model.ts';
 import {
   formatGoalDuration,
   goalCompletedTimeLabel,
@@ -2328,4 +2329,33 @@ test('the Agent tree supports arrow, Home/End and expand-collapse keyboard contr
     await act(async () => dom.root.unmount());
     dom.close();
   }
+});
+
+test('live agent rows carry cumulative usage and tool calls through to the background-job pool row', () => {
+  const usage = { inputTokens: 900, outputTokens: 100, totalTokens: 1000 };
+  const [row] = liveAgentRows({
+    agentWorkers: [{ tag: 'build', agent: 'builder', status: 'running', sessionId: 'sess-a', usage, toolCalls: 12 }],
+  });
+  assert.deepEqual(row.usage, usage);
+  assert.equal(row.toolCalls, 12);
+  // Unknown or malformed totals are null, never zero or partial.
+  const [unknown] = liveAgentRows({
+    agentWorkers: [{ tag: 'old', agent: 'builder', status: 'running', usage: { inputTokens: 1 }, toolCalls: 'x' }],
+  });
+  assert.equal(unknown.usage, null);
+  assert.equal(unknown.toolCalls, null);
+  // A twin job row without totals does not erase the worker row's.
+  const [merged] = liveAgentRows({
+    agentWorkers: [{ tag: 'build', agent: 'builder', status: 'queued', stage: 'queued', usage, toolCalls: 3 }],
+    agentJobs: [{ task_id: 'task-1', tag: 'build', agent: 'builder', status: 'running', stage: 'running' }],
+  });
+  assert.deepEqual(merged.usage, usage);
+  assert.equal(merged.toolCalls, 3);
+  // Background shell rows never carry agents: those come from the pool.
+  assert.deepEqual(
+    backgroundJobRows({
+      agentWorkers: [{ tag: 'build', agent: 'builder', status: 'running', sessionId: 'sess-a', usage, toolCalls: 12 }],
+    }),
+    []
+  );
 });

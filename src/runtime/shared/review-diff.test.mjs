@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -117,52 +117,140 @@ test('a completion wake continues the user turn review with its Lead edits and w
   }
 });
 
-test('apply_patch and edit publish additions, modifications and deletion semantics after a large edit', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-diff-tools-'));
+// Exact per-call patches: each card shows the change ITS call made, from that
+// call's own before and after, never the turn's running total.
+const added = (name, lines) =>
+  `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}\n`).join('')}`;
+const changed = (name, from, to) =>
+  `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1,1 +1,1 @@\n-${from}\n+${to}\n`;
+const deleted = (name, lines) =>
+  `diff --git a/${name} b/${name}\ndeleted file mode 100644\n--- a/${name}\n+++ /dev/null\n@@ -1,${lines.length} +0,0 @@\n${lines.map((line) => `-${line}\n`).join('')}`;
+
+async function callRunner(root, sessionId) {
+  let sequence = 0;
+  return async (tool, args) => {
+    const toolCallId = `${sessionId}-${++sequence}`;
+    const execute = tool === 'apply_patch' ? executePatchTool : executeBuiltinTool;
+    const result = await execute(tool, args, root, { sessionId, toolCallId });
+    assert.doesNotMatch(String(result), /^Error[\s:]/);
+    return takeApplyPatchUiDiff(toolCallId);
+  };
+}
+
+test('successive edits of one file each show their own step, in both edit dialects', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-call-diff-'));
+  try {
+    const edit = await callRunner(root, 'call-diff-edit');
+    assert.equal(
+      await edit('edit', { file_path: 'e.txt', old_string: '', new_string: 'old\n' }),
+      added('e.txt', ['old'])
+    );
+    assert.equal(
+      await edit('edit', { file_path: 'e.txt', old_string: 'old', new_string: 'middle' }),
+      changed('e.txt', 'old', 'middle')
+    );
+    assert.equal(
+      await edit('edit', { file_path: 'e.txt', old_string: 'middle', new_string: 'new' }),
+      changed('e.txt', 'middle', 'new')
+    );
+
+    const patch = await callRunner(root, 'call-diff-patch');
+    const update = (from, to) => ({
+      patch: `*** Begin Patch\n*** Update File: p.txt\n@@\n-${from}\n+${to}\n*** End Patch\n`,
+    });
+    assert.equal(
+      await patch('apply_patch', { patch: '*** Begin Patch\n*** Add File: p.txt\n+old\n*** End Patch\n' }),
+      added('p.txt', ['old'])
+    );
+    assert.equal(await patch('apply_patch', update('old', 'middle')), changed('p.txt', 'old', 'middle'));
+    assert.equal(await patch('apply_patch', update('middle', 'new')), changed('p.txt', 'middle', 'new'));
+  } finally {
+    _resetTurnSnapshotForTest();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('create then delete, rename then edit, several files, and a/ b/ named paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-call-diff-'));
+  try {
+    const run = await callRunner(root, 'call-diff-shapes');
+    assert.equal(
+      await run('apply_patch', { patch: '*** Begin Patch\n*** Add File: gone.txt\n+bye\n*** End Patch\n' }),
+      added('gone.txt', ['bye'])
+    );
+    assert.equal(
+      await run('apply_patch', { patch: '*** Begin Patch\n*** Delete File: gone.txt\n*** End Patch\n' }),
+      deleted('gone.txt', ['bye'])
+    );
+
+    await run('apply_patch', { patch: '*** Begin Patch\n*** Add File: from.txt\n+one\n*** End Patch\n' });
+    assert.equal(
+      await run('apply_patch', {
+        patch: '*** Begin Patch\n*** Update File: from.txt\n*** Move to: to.txt\n@@\n-one\n+two\n*** End Patch\n',
+      }),
+      'diff --git a/from.txt b/to.txt\nrename from from.txt\nrename to to.txt\n--- a/from.txt\n+++ b/to.txt\n@@ -1,1 +1,1 @@\n-one\n+two\n'
+    );
+    assert.equal(
+      await run('edit', { file_path: 'to.txt', old_string: 'two', new_string: 'three' }),
+      changed('to.txt', 'two', 'three')
+    );
+
+    assert.equal(
+      await run('apply_patch', {
+        patch: '*** Begin Patch\n*** Add File: m1.txt\n+1\n*** Add File: m2.txt\n+2\n*** End Patch\n',
+      }),
+      added('m1.txt', ['1']) + added('m2.txt', ['2'])
+    );
+
+    // A directory literally named "a" keeps its name in the header.
+    assert.equal(
+      await run('edit', { file_path: 'a/file.txt', old_string: '', new_string: 'x\n' }),
+      added('a/file.txt', ['x'])
+    );
+    assert.equal(
+      await run('edit', { file_path: 'b/file.txt', old_string: '', new_string: 'y\n' }),
+      added('b/file.txt', ['y'])
+    );
+  } finally {
+    _resetTurnSnapshotForTest();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('an empty file created or deleted is still a change', async () => {
+  const { callUiDiff } = await import('../agent/orchestrator/tools/patch/ui-diff.mjs');
+  assert.equal(
+    callUiDiff([{ displayPath: 'empty.txt', before: null, after: '' }]),
+    'diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n'
+  );
+  assert.equal(
+    callUiDiff([{ displayPath: 'empty.txt', before: Buffer.from(''), after: null }]),
+    'diff --git a/empty.txt b/empty.txt\ndeleted file mode 100644\n'
+  );
+  // Same bytes, same place: nothing to show.
+  assert.equal(callUiDiff([{ displayPath: 'same.txt', before: 'x\n', after: 'x\n' }]), '');
+});
+
+test('a large earlier change in the turn never rides on a later call', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-call-diff-'));
   try {
     for (const tool of ['apply_patch', 'edit']) {
-      const sessionId = `diff-tools-${tool}`;
-      let sequence = 0;
-      const run = async (args) => {
-        const toolCallId = `${sessionId}-${++sequence}`;
-        const execute = tool === 'edit' ? executeBuiltinTool : executePatchTool;
-        const result = await execute(tool, args, root, { sessionId, toolCallId });
-        assert.doesNotMatch(String(result), /^Error[\s:]/);
-        return takeApplyPatchUiDiff(toolCallId);
-      };
-      const file = `${tool}-z.txt`;
+      const run = await callRunner(root, `call-diff-large-${tool}`);
       const large = `${tool}-a.txt`;
+      const file = `${tool}-z.txt`;
       await run(
+        tool,
         tool === 'edit'
           ? { file_path: large, old_string: '', new_string: `${'x'.repeat(70000)}\n` }
           : { patch: `*** Begin Patch\n*** Add File: ${large}\n+${'x'.repeat(70000)}\n*** End Patch\n` }
       );
-      let patch = await run(
+      const patch = await run(
+        tool,
         tool === 'edit'
           ? { file_path: file, old_string: '', new_string: 'old\n' }
           : { patch: `*** Begin Patch\n*** Add File: ${file}\n+old\n*** End Patch\n` }
       );
-      assert.deepEqual(
-        parseUnifiedDiff(patch).map((part) => part.newFile.fileName),
-        [large, file]
-      );
-      patch = await run(
-        tool === 'edit'
-          ? { file_path: file, old_string: 'old', new_string: 'new' }
-          : { patch: `*** Begin Patch\n*** Update File: ${file}\n@@\n-old\n+new\n*** End Patch\n` }
-      );
-      assert.match(patch, /\+new/);
-      patch = await run(
-        tool === 'edit'
-          ? { file_path: file, old_string: 'new\n', new_string: '' }
-          : { patch: `*** Begin Patch\n*** Delete File: ${file}\n*** End Patch\n` }
-      );
-      if (tool === 'edit') {
-        assert.equal(await readFile(join(root, file), 'utf8'), '');
-        assert(parseUnifiedDiff(patch).some((part) => part.newFile.fileName === file && part.status === 'A'));
-      } else {
-        assert(!parseUnifiedDiff(patch).some((part) => part.newFile.fileName === file));
-      }
+      assert.equal(patch, added(file, ['old']));
     }
   } finally {
     _resetTurnSnapshotForTest();

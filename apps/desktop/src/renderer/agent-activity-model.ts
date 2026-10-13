@@ -1,12 +1,13 @@
 // Agent activity model: the shared agent-pool store, live agent/shell
 // summaries and the activity tree built from pool rows.
-import type { DesktopAgentPoolRow, DesktopApi } from '../shared/contract';
+import type { DesktopAgentPoolRow, DesktopAgentPoolUsage, DesktopApi } from '../shared/contract';
 import {
   createDesktopCancellationLedger,
   desktopAgentActivityState,
   desktopAgentCancelStatus,
   desktopAgentIdentity,
   desktopAgentStatus,
+  hasPendingDesktopAgentWork,
   isActiveDesktopAgentEntry,
   isCancelUnconfirmedDesktopAgentEntry,
   isCancelledDesktopAgentEntry,
@@ -135,6 +136,23 @@ interface LiveAgentSummary {
   turnStartedAt: number;
   sessionId: string;
   ownerSessionId: string;
+  /** Cumulative session totals; null when the runtime does not know them. */
+  usage: DesktopAgentPoolUsage | null;
+  toolCalls: number | null;
+}
+
+function countOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/** The runtime's cumulative token totals of one row, or null when absent or malformed. */
+export function agentUsageTotals(value: unknown): DesktopAgentPoolUsage | null {
+  const usage = record(value);
+  const inputTokens = countOrNull(usage.inputTokens);
+  const outputTokens = countOrNull(usage.outputTokens);
+  const totalTokens = countOrNull(usage.totalTokens);
+  if (inputTokens === null || outputTokens === null || totalTokens === null) return null;
+  return { inputTokens, outputTokens, totalTokens };
 }
 
 export function agentRoleLabel(value: unknown): string {
@@ -218,6 +236,8 @@ function liveAgentSummary(
     turnStartedAt: timeMs(entry.turnStartedAt),
     sessionId: String(entry.sessionId || '').trim(),
     ownerSessionId: String(entry.ownerSessionId || fallbackOwnerSessionId || '').trim(),
+    usage: agentUsageTotals(entry.usage),
+    toolCalls: countOrNull(entry.toolCalls),
   };
 }
 
@@ -258,6 +278,8 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
     turnStartedAt: current.turnStartedAt || next.turnStartedAt,
     sessionId: current.sessionId || next.sessionId,
     ownerSessionId: current.ownerSessionId || next.ownerSessionId,
+    usage: current.usage ?? next.usage,
+    toolCalls: current.toolCalls ?? next.toolCalls,
   };
 }
 
@@ -495,6 +517,43 @@ export function agentActivityGroups(
     agents,
     nodes: agentTreeNodes(ownerId, agents),
   }));
+}
+
+export interface IslandAgentRow {
+  node: AgentActivityNode;
+  state: DesktopAgentActivityState;
+  waitingForTasks: boolean;
+}
+
+const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
+  'queued',
+  'running',
+  'needs-user',
+  'waiting',
+  'cancel-unconfirmed',
+]);
+
+/** The agents the composer island lists for one session: its group in the
+ *  Agents window (same grouping, nesting and depth-first order), minus the
+ *  session's own Lead row and every agent that is idle, done or cancelled. */
+export function islandAgentRows(
+  pool: readonly DesktopAgentPoolRow[] | null | undefined,
+  ownerSessionId: string
+): IslandAgentRow[] {
+  const group = agentActivityGroups(pool, (id) => id === ownerSessionId).find(
+    (candidate) => candidate.ownerId === ownerSessionId
+  );
+  if (!group) return [];
+  const walk = (nodes: readonly AgentActivityNode[]): IslandAgentRow[] =>
+    nodes.flatMap((node) => {
+      const waitingForTasks = flattenAgentActivityNodes(node.children).some(({ agent }) =>
+        hasPendingDesktopAgentWork(agent)
+      );
+      const state = desktopAgentActivityState(node.agent, { waitingForTasks });
+      const own = node.sessionId === ownerSessionId || !ISLAND_AGENT_STATES.has(state);
+      return [...(own ? [] : [{ node, state, waitingForTasks }]), ...walk(node.children)];
+    });
+  return walk(group.nodes);
 }
 
 /** Depth-first render order: a parent is immediately followed by its subtree. */

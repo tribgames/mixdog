@@ -4,6 +4,7 @@
 // blob: URLs (or a sandboxed srcdoc page) itself. Authorization is exactly the
 // editor's: a registered project directory or a one-file selected-file grant.
 import { open, stat } from 'node:fs/promises';
+import { relative } from 'node:path';
 
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import { pageAssetType } from './local-page-server';
@@ -35,11 +36,42 @@ function integer(value: unknown, name: string, min: number, max: number): number
   return value;
 }
 
+/** One bounded base64 window of a file whose access the caller already
+ *  checked; `length` is capped at REMOTE_PREVIEW_MAX_READ_BYTES. Shared with
+ *  the remote visualize panes. */
+export async function readPreviewRange(
+  absolute: string,
+  mime: string,
+  rawOffset: unknown,
+  rawLength: unknown
+): Promise<{ data: string; mime: string; offset: number; mtimeMs: number; size: number }> {
+  const offset = integer(rawOffset, 'offset', 0, Number.MAX_SAFE_INTEGER);
+  const length = integer(rawLength, 'length', 1, REMOTE_PREVIEW_MAX_READ_BYTES);
+  const info = await stat(absolute);
+  if (!info.isFile()) throw new Error('The preview target is not a file.');
+  const handle = await open(absolute, 'r');
+  try {
+    const buffer = Buffer.alloc(Math.max(0, Math.min(length, info.size - offset)));
+    const { bytesRead } = buffer.length ? await handle.read(buffer, 0, buffer.length, offset) : { bytesRead: 0 };
+    return {
+      data: buffer.subarray(0, bytesRead).toString('base64'),
+      mime,
+      offset,
+      mtimeMs: info.mtimeMs,
+      size: info.size,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
 export function createRemoteFilePreviewMethods(deps: {
   host: Pick<DesktopService, 'projectDirectory'>;
   grants: PreviewGrants;
+  /** Electron-only work runs in the window process; the snapshot window lives there. */
+  hostRequest?: (method: 'captureFileSnapshot', args: unknown[]) => Promise<unknown>;
 }): Record<string, RemoteMethod> {
-  const { host, grants } = deps;
+  const { host, grants, hostRequest } = deps;
   const target = async (
     projectPath: unknown,
     relPath: unknown,
@@ -47,7 +79,9 @@ export function createRemoteFilePreviewMethods(deps: {
   ): Promise<{ root: string; absolute: string }> => {
     if (grants.grantedIf(accessToken)) {
       const granted = grants.grantedFile(accessToken, projectPath, relPath);
-      return { root: granted.root, absolute: granted.absolute };
+      // Re-resolved per read: a granted name later swapped for a symlink out
+      // of its folder is refused, exactly as the editor lanes refuse it.
+      return { root: granted.root, absolute: projectEntryPathIn(granted.root, granted.rel) };
     }
     const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     return { root, absolute: projectEntryPathIn(root, requiredString(relPath, 'relPath', 4_096)) };
@@ -69,21 +103,21 @@ export function createRemoteFilePreviewMethods(deps: {
       const mediaAssetId = type.kind === 'pdf' ? undefined : leaseMediaFile(absolute, type.mime);
       return { kind: type.kind, mime: type.mime, ...info, ...(mediaAssetId ? { mediaAssetId } : {}) };
     },
+    // Confined here by the same grants/projects as the desktop's; the capture
+    // itself runs in the window process (the daemon bundle has no Electron).
+    captureFileSnapshot: async ([projectPath, relPath, accessToken]) => {
+      if (!hostRequest) throw new TypeError('The desktop app is unavailable on this connection.');
+      const { root, absolute } = await target(projectPath, relPath, accessToken);
+      return hostRequest('captureFileSnapshot', [root, relative(root, absolute), grants.grantedIf(accessToken)]);
+    },
     previewProjectFileRange: async ([projectPath, relPath, accessToken, rawOffset, rawLength]) => {
-      const offset = integer(rawOffset, 'offset', 0, Number.MAX_SAFE_INTEGER);
-      const length = integer(rawLength, 'length', 1, REMOTE_PREVIEW_MAX_READ_BYTES);
+      // Arguments are checked before any path work, as before.
+      integer(rawOffset, 'offset', 0, Number.MAX_SAFE_INTEGER);
+      integer(rawLength, 'length', 1, REMOTE_PREVIEW_MAX_READ_BYTES);
       const { root, absolute } = await target(projectPath, relPath, accessToken);
       const mime = filePreviewTypeForPath(absolute)?.mime || pageAssetType(root, absolute);
       if (!mime) throw new Error('This file type does not support an in-app preview.');
-      const info = await fileInfo(absolute);
-      const handle = await open(absolute, 'r');
-      try {
-        const buffer = Buffer.alloc(Math.max(0, Math.min(length, info.size - offset)));
-        const { bytesRead } = buffer.length ? await handle.read(buffer, 0, buffer.length, offset) : { bytesRead: 0 };
-        return { data: buffer.subarray(0, bytesRead).toString('base64'), mime, offset, ...info };
-      } finally {
-        await handle.close();
-      }
+      return readPreviewRange(absolute, mime, rawOffset, rawLength);
     },
   };
 }

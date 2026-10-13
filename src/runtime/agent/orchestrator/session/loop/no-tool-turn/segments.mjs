@@ -21,14 +21,15 @@ export function createTurnSegments({ messages, opts, suppressMidTurnText }) {
     // live. A suppressed sub-agent session neither surfaces nor accumulates
     // text — except on the max-output ladder, whose parts must still rebuild
     // the complete answer the caller receives (keepWhenSuppressed).
-    record(text, { keepWhenSuppressed = false } = {}) {
+    // `committed: true` marks text that is the just-committed message's own.
+    record(text, { keepWhenSuppressed = false, committed = false } = {}) {
       if (suppressMidTurnText) {
         if (keepWhenSuppressed) parts.push(text);
         return;
       }
       parts.push(text);
       try {
-        opts.onAssistantText?.(text);
+        opts.onAssistantText?.(text, { committed });
       } catch {
         /* best-effort */
       }

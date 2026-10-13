@@ -7,6 +7,7 @@ import {
   latestActualUserInstructionIndex,
 } from './messages.mjs';
 import { staleObservations, supersedeObservation } from './observation-supersession.mjs';
+import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
 
 export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
 const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
@@ -34,7 +35,11 @@ export function executionTokens(messages) {
     const { uiDiff: _uiDiff, ...rest } = message;
     return rest;
   });
-  return Math.max(estimateMessagesTokens(budgetMessages), estimateTokens(JSON.stringify(budgetMessages)));
+  // Display ids never reach the model either.
+  return Math.max(
+    estimateMessagesTokens(budgetMessages),
+    estimateTokens(JSON.stringify(budgetMessages, withoutMessageIdsReplacer))
+  );
 }
 
 function requestStart(messages, index) {
@@ -123,7 +128,8 @@ function assembleTail(messages, kept, { anchor, firstKept, preserveConversation 
       // Omitted execution stays in the archive; its conversational text
       // remains verbatim without replaying an orphaned call or reasoning.
       if (message.toolCalls?.length) {
-        if (message.content) tail.push({ role: 'assistant', content: message.content });
+        // The text-only copy is this message's rewrite: it keeps its id.
+        if (message.content) tail.push(carryMessageId({ role: 'assistant', content: message.content }, message));
       } else {
         tail.push(message);
       }
@@ -158,7 +164,8 @@ export function buildExecutionTail(
       sessionId,
       toolCallId: 'compact-execution',
       channel: 'compact-execution',
-      content: JSON.stringify({ version: 1, messages: transcript }, null, 2),
+      // Model-readable evidence: display ids stay out of it.
+      content: JSON.stringify({ version: 1, messages: transcript }, withoutMessageIdsReplacer, 2),
     });
     if (!archive) throw new Error('compact: execution history could not be archived; original context preserved');
     recovery = [

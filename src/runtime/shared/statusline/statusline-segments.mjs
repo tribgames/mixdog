@@ -23,7 +23,13 @@ const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 // Session buckets ride along with the owner-wide totals: one host process can
 // own many sessions (the desktop pools every pane's engine), so a pane must be
 // able to ask for ITS OWN jobs instead of the process aggregate.
-const EMPTY_SHELL_JOBS_SESSION = Object.freeze({ count: 0, elapsedLabel: '', jobs: Object.freeze([]) });
+const FINISHED_SHELL_JOB_TTL_MS = 30 * 60 * 1000;
+const EMPTY_SHELL_JOBS_SESSION = Object.freeze({
+  count: 0,
+  elapsedLabel: '',
+  jobs: Object.freeze([]),
+  finished: Object.freeze([]),
+});
 const EMPTY_SHELL_JOBS = Object.freeze({
   count: 0,
   elapsedLabel: '',
@@ -31,8 +37,20 @@ const EMPTY_SHELL_JOBS = Object.freeze({
   sessions: Object.freeze({}),
 });
 
-let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: EMPTY_SHELL_JOBS };
-let _shellJobsRefreshInFlight = false;
+// One entry per owner pid: a desktop host polls under whichever session frame
+// arrived last, so the owner can alternate between processes. A single shared
+// slot answered every switch with "no jobs" and made the job list flicker.
+const _shellJobsSegmentCache = new Map();
+const _shellJobsRefreshInFlight = new Set();
+const SHELL_JOBS_OWNER_CACHE_TTL_MS = 60_000;
+
+function rememberShellJobs(ownerPid, value) {
+  const at = Date.now();
+  for (const [pid, entry] of _shellJobsSegmentCache) {
+    if (at - entry.at > SHELL_JOBS_OWNER_CACHE_TTL_MS) _shellJobsSegmentCache.delete(pid);
+  }
+  _shellJobsSegmentCache.set(ownerPid, { at, value });
+}
 
 function dataDir() {
   return process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
@@ -50,15 +68,15 @@ export function shellJobsStatus({ clientHostPid, sessionId } = {}) {
   const scope = String(sessionId ?? '').trim();
   if (!ownerPid) return scoped ? EMPTY_SHELL_JOBS_SESSION : EMPTY_SHELL_JOBS;
   const now = Date.now();
-  const sameOwner = _shellJobsSegmentCache.ownerPid === ownerPid;
-  const fresh = sameOwner && now - _shellJobsSegmentCache.at < SHELL_JOBS_SEGMENT_CACHE_MS;
-  if (!fresh && !_shellJobsRefreshInFlight) {
-    _shellJobsRefreshInFlight = true;
+  const cached = _shellJobsSegmentCache.get(ownerPid);
+  const fresh = cached && now - cached.at < SHELL_JOBS_SEGMENT_CACHE_MS;
+  if (!fresh && !_shellJobsRefreshInFlight.has(ownerPid)) {
+    _shellJobsRefreshInFlight.add(ownerPid);
     refreshShellJobsStatus(ownerPid).finally(() => {
-      _shellJobsRefreshInFlight = false;
+      _shellJobsRefreshInFlight.delete(ownerPid);
     });
   }
-  const value = sameOwner ? _shellJobsSegmentCache.value || EMPTY_SHELL_JOBS : EMPTY_SHELL_JOBS;
+  const value = cached?.value || EMPTY_SHELL_JOBS;
   if (!scoped) return value;
   return (scope && value.sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
 }
@@ -123,10 +141,10 @@ async function refreshShellJobsStatus(ownerPid) {
     try {
       names = await readdir(dir);
     } catch {
-      _shellJobsSegmentCache = { ownerPid, at: Date.now(), value };
+      rememberShellJobs(ownerPid, value);
       return;
     }
-    const { ids, ownerByJob } = listOpenShellJobs(names);
+    const { ids, ownerByJob, doneIds } = listOpenShellJobs(names);
     let count = 0;
     let oldestMs = Infinity;
     const jobs = [];
@@ -143,6 +161,10 @@ async function refreshShellJobsStatus(ownerPid) {
         continue;
       }
       if (!(await isShellJobAlive(detail, p, dir, id))) continue;
+      // A foreground command is awaited in its own tool card; listing it here
+      // made every short command flash in and out of the shell list. Only
+      // backgrounded jobs (including promoted ones) are background work.
+      if (detail?.foreground === true) continue;
       // Owner-wide totals stay this process's own; session buckets take every
       // live job regardless of which host published it.
       const ownedByThisHost = ownerByJob.get(id) === ownerPid;
@@ -162,10 +184,37 @@ async function refreshShellJobsStatus(ownerPid) {
       };
       if (ownedByThisHost) jobs.push(job);
       if (!owner) continue;
-      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [] };
+      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [], finished: [] };
       bucket.count += 1;
       if (jobMs < bucket.oldestMs) bucket.oldestMs = jobMs;
       bucket.jobs.push(job);
+      bySession.set(owner, bucket);
+    }
+    // Recently finished background jobs ride in their session bucket only;
+    // they never touch the running counts.
+    const finishedCutoff = Date.now() - FINISHED_SHELL_JOB_TTL_MS;
+    for (const id of doneIds) {
+      let detail;
+      try {
+        detail = JSON.parse(await readFile(join(dir, `${id}.json`), 'utf-8'));
+      } catch {
+        continue;
+      }
+      if (detail?.foreground === true) continue;
+      const owner = String(detail?.ownerSessionId ?? '').trim();
+      if (!owner) continue;
+      const finishedMs = Date.parse(detail?.finishedAt || detail?.recordedAt || '');
+      if (Number.isFinite(finishedMs) && finishedMs < finishedCutoff) continue;
+      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [], finished: [] };
+      bucket.finished.push({
+        taskId: id,
+        command: String(detail?.command || '').trim(),
+        cwd: String(detail?.cwd || '').trim(),
+        startedAt: detail?.startedAt || null,
+        status: String(detail?.status || ''),
+        exitCode: Number.isInteger(detail?.exitCode) ? detail.exitCode : null,
+        finishedAt: detail?.finishedAt || detail?.recordedAt || null,
+      });
       bySession.set(owner, bucket);
     }
     // A desktop pane's job lands in a session bucket while the owner-wide
@@ -175,7 +224,7 @@ async function refreshShellJobsStatus(ownerPid) {
   } catch {
     value = EMPTY_SHELL_JOBS;
   }
-  _shellJobsSegmentCache = { ownerPid, at: Date.now(), value };
+  rememberShellJobs(ownerPid, value);
 }
 
 // Newest-first, capped ids of job records with no `.done` marker, plus the
@@ -209,7 +258,11 @@ function listOpenShellJobs(names) {
     // the per-refresh cap doubles with it; a live (non-.done) record set is
     // a handful in practice and terminal ones age out on their own.
     .slice(0, 60);
-  return { ids, ownerByJob };
+  const doneIds = [...done]
+    .filter((id) => names.includes(`${id}.json`))
+    .sort((a, b) => jobStampMs(b) - jobStampMs(a))
+    .slice(0, 30);
+  return { ids, ownerByJob, doneIds };
 }
 
 function summarizeShellJobs({ count, oldestMs, jobs, bySession }) {
@@ -221,6 +274,7 @@ function summarizeShellJobs({ count, oldestMs, jobs, bySession }) {
       count: bucket.count,
       elapsedLabel: Number.isFinite(bucket.oldestMs) ? formatElapsed(now - bucket.oldestMs) : '',
       jobs: bucket.jobs,
+      finished: bucket.finished,
     };
   }
   return { count, elapsedLabel, jobs, sessions };

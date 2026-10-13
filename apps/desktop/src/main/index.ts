@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import * as nodeModule from 'node:module';
-import { constants as osConstants, freemem, homedir, setPriority, totalmem } from 'node:os';
+import { constants as osConstants, freemem, homedir, hostname, setPriority, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createNetworkWatcher, networkSignature } from './network-watch';
 import { inlineBootScriptHash, withInlineBootScript } from './renderer-csp';
@@ -21,10 +22,35 @@ import {
   shell,
 } from 'electron';
 
-import type { DesktopService } from './desktop-service-contract';
-import { DesktopServiceClient } from './desktop-service-client';
 import { isSessionId } from './desktop-state';
-import { SessionTransport } from './session-transport';
+import { remoteSessionConfigFromEnv } from './ssh/remote-session';
+import { allowedProvidersForHost, loadSshHostStore } from './ssh/ssh-host-store';
+import { currentSshContext, runWithSshContext } from './ssh/ssh-context';
+import { parseSshTarget } from './ssh/ssh-command';
+import { SshTunnel } from './ssh/tunnel';
+import {
+  ConnectionPool,
+  LOCAL_CONNECTION_ID,
+  WindowRouteRegistry,
+  createConnectionIpcRouter,
+  createConnectionManager,
+  createConnectionWindowOpener,
+  createDesktopConnection,
+  createPortForwardStore,
+  createServerNotifier,
+  createServerPortForwards,
+  createServerWindowRestore,
+  hostGraceMs,
+  forwardConnectionLink,
+  installConnectionManager,
+  registerConnectionLinkIpc,
+  registerServerPortsIpc,
+  resolveWindowConnection,
+  type ServerNotifier,
+  type ConnectionIdentity,
+  type DesktopConnection,
+  type DesktopConnectionDependencies,
+} from './connections';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createBackgroundWindow } from './background-window';
@@ -48,10 +74,15 @@ import {
   type GpuFallbackEnvironment,
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
+import { registerSshHostIpc } from './ipc-ssh-hosts';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { createComputerHost, type ComputerHost } from './computer';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import { TerminalBridgeServer } from './terminal/bridge-server';
+import { requiredVisualizeTabCommand } from './ipc-validation';
+import { VisualizeBridgeServer } from './visualize/bridge-server';
+import { createDesktopVisualize } from './visualize/host';
+import { localPageOrigin } from './local-page-server';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import type { SessionTerminalTab } from './terminal-manager';
 import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
@@ -63,6 +94,7 @@ import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
 import { installDefaultContextMenu } from './context-menu';
 import { nativeT, refreshNativeUiLanguage } from './native-i18n';
+import { readHostWindowDisplayPreferences } from './host-display-preferences';
 import { DesktopSettingsStore } from './settings-store';
 import { mixdogDataDirectory } from './computer/shared/common';
 import { desktopUpdater, startAutoUpdater } from './updater';
@@ -80,6 +112,8 @@ import {
   type DesktopSettings,
 } from '../shared/contract';
 import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMethod } from './remote-browser-methods';
+import { modelProxyRuntimeLoader } from './model-proxy-host';
+import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
 import {
   normalizeTranscriptReadDiagnostic,
@@ -354,10 +388,14 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
   });
 }
 
-function desktopServiceModuleUrl(): string {
-  const modulePath = app.isPackaged
+function desktopServiceModulePath(): string {
+  return app.isPackaged
     ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'main', 'daemon.cjs')
     : join(import.meta.dirname, 'daemon.cjs');
+}
+
+function desktopServiceModuleUrl(): string {
+  const modulePath = desktopServiceModulePath();
   const moduleUrl = pathToFileURL(modulePath);
   let artifact = app.getVersion();
   try {
@@ -401,8 +439,23 @@ function adoptLoginShellEnvironment(): Promise<void> {
     });
   });
 }
-const serviceClient = new DesktopServiceClient({
-  connect: () => new SessionTransport(desktopServiceModuleUrl(), process.cwd(), null, loginShellEnvironmentReady),
+// Several daemon connections live side by side: this PC's (`local`, the main
+// window's, always open) and one per ssh server window. Each connection owns
+// its service client, transport, RemoteSession and model proxy; desktop.init
+// paths are remapped to the server once its home is known (RemoteSession →
+// remoteSessionOptions), while sessionOptions() stays local because this
+// process still imports the local session client.
+// Port forwards of each saved server, started again when it reconnects.
+const portForwardStore = createPortForwardStore(desktopUserData);
+/** Ssh work started outside a connect attempt (a port forward) runs under the
+ *  server's saved settings (identity file), in batch mode: it never prompts. */
+async function runWithHostSettings<T>(hostId: string, run: () => Promise<T>): Promise<T> {
+  const host = (await loadSshHostStore(desktopUserData)).list().find((entry) => entry.id === hostId);
+  return runWithSshContext(host?.settings ? { settings: host.settings } : {}, run);
+}
+const connectionDependencies: DesktopConnectionDependencies = {
+  moduleUrl: desktopServiceModuleUrl,
+  environmentReady: () => loginShellEnvironmentReady,
   sessionOptions: () => ({
     userDataPath: app.getPath('userData'),
     packaged: app.isPackaged,
@@ -413,8 +466,39 @@ const serviceClient = new DesktopServiceClient({
       ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'renderer')
       : join(import.meta.dirname, '../renderer'),
   }),
-  initialSnapshot: readDesktopModelBootstrapSnapshot(),
-  onDiagnostic: (event, data) => {
+  // Model calls of every connected daemon run here, with this PC's credentials.
+  loadModelProxyRuntime: modelProxyRuntimeLoader({
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  }),
+  appVersion: app.getVersion(),
+  bundlePath: desktopServiceModulePath(),
+  remoteGraceMs: process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS?.trim() || '',
+  // A server's turns use only the providers its host entry allows (no list:
+  // every provider).
+  createPortForwards: (connection, target, scan) => {
+    const sshTarget = parseSshTarget(target);
+    return createServerPortForwards({
+      hostId: connection.id,
+      store: portForwardStore,
+      scan,
+      runSsh: (run) => runWithHostSettings(connection.id, run),
+      createTunnel: ({ freePort, onChange }) =>
+        new SshTunnel(sshTarget, {
+          freePort,
+          log: (line) => {
+            diagnostics?.write('port-forward', { connection: 'ssh', detail: line.slice(0, 300) });
+            onChange();
+          },
+        }),
+    });
+  },
+  isProviderAllowed: (connection, provider) => {
+    const allowed = allowedProvidersForHost(connection.id);
+    return allowed === null || allowed.includes(provider);
+  },
+  onDiagnostic: (connection, event, data) => {
     const entry =
       event === 'desktop-transport-error'
         ? {
@@ -426,24 +510,106 @@ const serviceClient = new DesktopServiceClient({
             generation: Number(data.generation) || 0,
           }
         : data;
-    // The daemon handshake starts before app.whenReady opens the sink: its
-    // first phases (client import, discovery probe, spawn) are exactly the
-    // ones a boot investigation needs, so they wait here and flush in order.
-    writeBootDiagnostic(event, entry);
-    console.error(`[mixdog] ${event}`, data);
+    if (connection.kind === 'local') {
+      // The daemon handshake starts before app.whenReady opens the sink: its
+      // first phases (client import, discovery probe, spawn) are exactly the
+      // ones a boot investigation needs, so they wait here and flush in order.
+      writeBootDiagnostic(event, entry);
+      console.error(`[mixdog] ${event}`, data);
+      return;
+    }
+    diagnostics?.write(event, { ...entry, connection: 'ssh' });
+    console.error(`[mixdog:${connection.name}] ${event}`, data);
   },
-  onServiceReady: ({ generation }) => {
+  onServiceReady: (connection, { generation }) => {
     // The FIRST attachment belongs to the deferred scheduler, so no early
     // interaction pays for relay startup. Every later one follows a daemon
     // replacement that dropped the relay leg with the old process, and
     // nothing else would ever dial it again: the deferred schedule runs once
-    // per window, and this window is already open.
-    if (generation <= 1) return;
+    // per window, and this window is already open. The relay is this PC's.
+    if (connection.kind !== 'local' || generation <= 1) return;
     diagnostics?.write('relay-redial-after-daemon-restart', { generation });
     void startDeferredDesktopServices();
   },
+};
+const connectionPool = new ConnectionPool<DesktopConnection>();
+// webContents.id → connection id; every IPC call resolves its connection here.
+const windowRoutes = new WindowRouteRegistry();
+const ipcRouter = createConnectionIpcRouter({
+  ipcMain,
+  resolveSender: (sender) => resolveWindowConnection(windowRoutes, connectionPool, sender.id),
 });
-const host: DesktopService = serviceClient;
+const localConnection = createDesktopConnection(
+  { id: LOCAL_CONNECTION_ID, kind: 'local', name: hostname() },
+  { ...connectionDependencies, initialSnapshot: readDesktopModelBootstrapSnapshot }
+);
+connectionPool.add(localConnection);
+/** This PC's daemon, for the features that exist once per machine (updater
+ *  relay, tray, OS notifications, phone access, Computer Use, Browser Use,
+ *  keep-awake). Window IPC never uses it directly: it resolves the sender's
+ *  connection through the route registry. */
+const localService = localConnection.client;
+// MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
+// and a server window for that target opens beside it at startup.
+const ENV_SSH_CONNECTION_ID = 'ssh-env-target';
+const envSshConfig = remoteSessionConfigFromEnv(process.env, {
+  appVersion: app.getVersion(),
+  bundlePath: desktopServiceModulePath(),
+});
+const connectionWindows = new Map<string, BrowserWindow>();
+const withGrace = (graceMs: number | null): { graceMs?: number } => (graceMs === null ? {} : { graceMs });
+const sshConnections = createConnectionManager<DesktopConnection>({
+  pool: connectionPool,
+  createConnection: (spec, onProgress, options) => {
+    // The connect attempt's per-host settings (default folder, reconnect).
+    const context = currentSshContext();
+    const settings = context?.settings;
+    return createDesktopConnection(
+      {
+        id: spec.id,
+        kind: 'ssh',
+        name: spec.name,
+        target: spec.target,
+        remoteCwd:
+          spec.id === ENV_SSH_CONNECTION_ID ? (envSshConfig?.remoteCwd ?? null) : settings?.remoteCwd?.trim() || null,
+        ...(settings?.autoReconnect === false ? { autoReconnect: false } : {}),
+        // The host's grace (minutes) caps the reconnect backoff and tells the
+        // server how long to keep its daemon for this PC.
+        ...withGrace(hostGraceMs((settings as { graceMinutes?: unknown } | undefined)?.graceMinutes)),
+      },
+      connectionDependencies,
+      {
+        ...(onProgress ? { onProgress } : {}),
+        ...(options?.forceRestart || context?.forceRestart ? { forceRestart: true } : {}),
+      }
+    );
+  },
+  showWindow: (connection) => showConnectionWindow(connection),
+  closeWindows: (connectionId) => {
+    const window = connectionWindows.get(connectionId);
+    if (window && !window.isDestroyed()) window.close();
+  },
+});
+installConnectionManager(sshConnections);
+// The server windows open at quit come back at the next launch (a setting in
+// this PC's window), connecting in the background with their progress shown
+// there.
+const serverWindowRestore = createServerWindowRestore({
+  userDataPath: desktopUserData,
+  savedServers: async () => (await loadSshHostStore(desktopUserData)).list(),
+  // Automatic, so ssh runs in batch mode: a server that now needs a password
+  // fails here and is reconnected from Settings → Connection.
+  open: (spec, onProgress, server) =>
+    runWithSshContext({ ...(server.settings ? { settings: server.settings } : {}) }, () =>
+      sshConnections.open(spec, onProgress)
+    ),
+  onProgress: (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send(DESKTOP_IPC.serverRestoreProgress, progress);
+  },
+});
+/** Each server window's OS notifications (final answers, approvals, link). */
+const serverNotifiers = new Map<BrowserWindow, ServerNotifier>();
 // The daemon handshake starts before app.whenReady, when the diagnostics sink
 // does not exist yet; the first start is stamped here and written as soon as
 // the sink opens, so the boot timeline keeps its daemon-service-start entry.
@@ -459,7 +625,8 @@ function reportDaemonServiceStart(): void {
 function startDaemonService(): void {
   if (!daemonServiceStartedAt) daemonServiceStartedAt = Date.now();
   reportDaemonServiceStart();
-  void serviceClient
+  visualizeBridge.start();
+  void localConnection
     .start()
     .then(() => {
       terminalBridge.start();
@@ -497,66 +664,61 @@ let computerControlApplied = false;
 // Observation-only opt-in travels with the host the same way, so a toggle made
 // before the window exists still reaches the bridge when it starts.
 let computerObserveOnly = false;
-let removeIpc: (() => void) | null = null;
+// Each window's IPC registration, removed when it closes or the app quits.
+const windowIpcDisposers = new Map<BrowserWindow, () => void>();
 let pendingPrimaryActivation = false;
 function activatePrimaryWindow(): void {
   pendingPrimaryActivation = !activateDesktopWindow(mainWindow);
 }
-// PTYs are daemon-owned; Electron forwards control and receives output events.
-const serviceTerminalManager = {
-  async ensure(
-    id: string | null,
-    cwd: string | null,
-    profile?: import('./terminal-contract').TerminalSpawnProfile | string | null
-  ): Promise<{ id: string; replay: string }> {
-    const value = await serviceClient.invokeDesktopOperation('termEnsure', [id, cwd, profile ?? null]);
-    if (!value || typeof value !== 'object') {
-      throw new Error('The service terminal did not return a session.');
-    }
-    const result = value as Record<string, unknown>;
-    return { id: String(result.id || ''), replay: String(result.replay || '') };
-  },
-  write(id: string, data: string): void {
-    // Keystrokes take the fire-and-forget lane: a response frame per keypress
-    // only queued the input behind whatever session request was in flight.
-    serviceClient.notifyDesktopOperation('termWrite', [id, data]);
-  },
-  resize(id: string, cols: number, rows: number): void {
-    serviceClient.notifyDesktopOperation('termResize', [id, cols, rows]);
-  },
-  pauseOutput(id: string): void {
-    void serviceClient.invokeDesktopOperation('termPause', [id]).catch(() => {});
-  },
-  resumeOutput(id: string): void {
-    void serviceClient.invokeDesktopOperation('termResume', [id]).catch(() => {});
-  },
-  dispose(id: string): void {
-    void serviceClient.invokeDesktopOperation('termDispose', [id]).catch(() => {});
-  },
-  subscribe(listener: (event: { id: string; data: string }) => void): () => void {
-    return serviceClient.subscribeDesktopEvents(({ name, value }) => {
-      if (name !== 'terminal-data' || !value || typeof value !== 'object') return;
-      const event = value as Record<string, unknown>;
-      listener({ id: String(event.id || ''), data: String(event.data || '') });
-    });
-  },
-};
 // Agent `terminal` tool: a read-only loopback bridge over the daemon-owned
 // PTYs. A hidden always-on built-in (like Media Studio): it runs for the app's
-// lifetime, so headless runs without the desktop app never see the tool.
+// lifetime, so headless runs without the desktop app never see the tool. It
+// serves this PC's agents, so it reads this PC's daemon.
 const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
   dataDirectory: bridgeDiscoveryDirectory,
   execute: createTerminalCommandExecutor({
     sessionTabs: async (sessionId) =>
-      (await serviceClient.invokeDesktopOperation('termSessionTabs', [sessionId])) as SessionTerminalTab[],
+      (await localService.invokeDesktopOperation('termSessionTabs', [sessionId])) as SessionTerminalTab[],
     snapshot: async (id, since) =>
-      (await serviceClient.invokeDesktopOperation('termSnapshot', since === undefined ? [id] : [id, since])) as {
+      (await localService.invokeDesktopOperation('termSnapshot', since === undefined ? [id] : [id, since])) as {
         text: string;
         cursor: number;
         reset: boolean;
       } | null,
   }),
 });
+// Agent `visualize` tool: shows produced artifacts in the session's side
+// panel. Default-on built-in; the runtime gates the tool by its toggle, and
+// the bridge runs for the app's lifetime like the terminal bridge.
+let browserFeatureInstalled = false;
+const visualize = createDesktopVisualize({
+  window: () => mainWindow,
+  invokeDesktopOperation: (method, args) => localService.invokeDesktopOperation(method, args),
+  browserAvailable: () => browserFeatureInstalled,
+  // Paired remote clients: the daemon mirrors the tabs and serves pane bytes.
+  publishRemote: (event) => {
+    void localService.invokeDesktopOperation('visualizeRemotePublish', [event]).catch(() => {});
+  },
+  remoteViewing: async (sessionId) =>
+    (await localService.invokeDesktopOperation('visualizeRemoteViewing', [sessionId])) === true,
+  // Kept versions of visualize tabs: app data, never the project.
+  versionsDirectory: join(app.getPath('userData'), 'visualize-versions'),
+  // A chat card reopening a closed tab: the session's own working directory.
+  sessionCwd: async (sessionId) =>
+    (await localService.listSessions()).find((session) => session.id === sessionId)?.cwd || null,
+});
+const visualizeBridge = new VisualizeBridgeServer<object>({
+  dataDirectory: bridgeDiscoveryDirectory,
+  execute: (command) => visualize.execute(command),
+});
+// The renderer frames visualize HTML from the local page server; its CSP
+// names that one origin, so the server starts with the app.
+let localPageFrameOrigin = '';
+void localPageOrigin()
+  .then((origin) => {
+    localPageFrameOrigin = origin;
+  })
+  .catch((error: unknown) => console.error('local page server failed to start:', error));
 // Keep-awake spans the app lifetime, not one window: agents keep working
 // while the window is closed on macOS and through renderer reloads.
 const awakeService = new AgentAwakeService(powerSaveBlocker);
@@ -599,7 +761,7 @@ const turnNotifier = createDesktopTurnNotifier({
       silent: process.platform === 'win32',
     }),
   ...(process.platform === 'win32' ? { playSound: playNotificationSound } : {}),
-  readFinalAnswer: (sessionId, startedAt) => serviceClient.readSessionFinalAnswer(sessionId, startedAt),
+  readFinalAnswer: (sessionId, startedAt) => localService.readSessionFinalAnswer(sessionId, startedAt),
   diagnostic: (event, details) => {
     diagnostics?.write(`turn-notification-${event}`, details);
     if (event === 'failed' || event === 'read-failed') console.error(`[mixdog-turn-notification] ${event}`, details);
@@ -609,6 +771,46 @@ const turnNotifier = createDesktopTurnNotifier({
   },
 });
 let unsubscribeTurnNotifier: (() => void) | null = null;
+/** A server window's notifications fire on this PC, labeled with the server
+ *  and following this PC's notification setting; a click brings that window
+ *  (and the session) to the front. */
+function createServerWindowNotifier(window: BrowserWindow, connection: DesktopConnection): ServerNotifier {
+  const client = connection.client;
+  const link = connection.link;
+  return createServerNotifier({
+    serverName: connection.name,
+    sources: {
+      subscribeSessions: (listener) => client.subscribeSessions(listener),
+      subscribeAgentPool: (listener) => client.subscribeAgentPool(listener),
+      subscribeSessionStates: (listener) => client.subscribeSessionStates(listener),
+      subscribeLink: (listener) => link?.subscribe(listener) ?? (() => {}),
+      readFinalAnswer: (sessionId, startedAt) => client.readSessionFinalAnswer(sessionId, startedAt),
+    },
+    isEnabled: () => turnNotificationsEnabled,
+    isSupported: () => Notification.isSupported(),
+    isForeground: () => !window.isDestroyed() && window.isVisible() && window.isFocused(),
+    createNotification: (content) =>
+      new Notification({
+        ...content,
+        ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
+        silent: process.platform === 'win32',
+      }),
+    ...(process.platform === 'win32' ? { playSound: playNotificationSound } : {}),
+    focus: (sessionId) => {
+      if (sessionId) openDesktopNotificationSession(window, sessionId);
+      else activateDesktopWindow(window);
+    },
+    text: {
+      approvalWaiting: () => nativeT('A tool is waiting for your approval.'),
+      lostTitle: () => nativeT('Connection to {{name}} lost'),
+      lostReconnecting: () => nativeT('Mixdog is reconnecting automatically.'),
+      lostStopped: () => nativeT('Open the server window to reconnect.'),
+      restoredTitle: () => nativeT('Reconnected to {{name}}'),
+      restoredBody: () => nativeT('The server window is working again.'),
+    },
+    diagnostic: (event, details) => diagnostics?.write(event, { ...details, connection: 'ssh' }),
+  });
+}
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
   turnNotificationsEnabled = settings.turnNotifications !== false;
@@ -618,6 +820,7 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
   applyComputerControlSetting(settings.computerControl === true);
   applyComputerObserveOnlySetting(settings.computerObserveOnly === true);
   browserControlEnabled = settings.browserControl === true;
+  browserFeatureInstalled = settings.browserInstalled !== false;
   browserHost?.setBridgeEnabled(browserControlEnabled);
 };
 // Computer use is opt-in and high risk, so the bridge (and thus the agent
@@ -638,17 +841,19 @@ function applyComputerControlSetting(enabled: boolean): void {
     enabled,
     app.isPackaged
       ? join(process.resourcesPath, 'gnome-extension', 'mixdog-windows@mixdog.io')
-      : join(app.getAppPath(), '..', '..', 'native', 'gnome-extension', 'mixdog-windows@mixdog.io'),
+      : join(app.getAppPath(), '..', '..', 'native', 'gnome-extension', 'mixdog-windows@mixdog.io')
   );
   computerHost?.setBridgeEnabled(computerControlEnabled);
 }
 // Observation only: the bridge keeps serving reads while every input action is
 // refused by the host, so a running agent turn is narrowed the moment it flips.
 function applyComputerObserveOnlySetting(enabled: boolean): void {
-  computerObserveOnly = enabled === true;
+  computerObserveOnly = enabled;
   computerHost?.setObserveOnly(computerObserveOnly);
 }
-unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
+// This PC's daemon drives the PC-wide features: the Browser Use host, the
+// updater and trash requests of paired phones, and the desktop settings.
+unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'session-runtime-released') {
     const event = value as { sessionId?: unknown; restore?: unknown } | null;
     if (isSessionId(event?.sessionId)) {
@@ -666,7 +871,11 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
       (request.method === 'trashItem' ||
         request.method === 'updaterState' ||
         request.method === 'updaterCheck' ||
-        request.method === 'updaterInstall')
+        request.method === 'updaterInstall' ||
+        request.method === 'displayPreferences' ||
+        request.method === 'visualizeState' ||
+        request.method === 'visualizeCommand' ||
+        request.method === 'captureFileSnapshot')
     ) {
       const hostMethod = request.method;
       void (async () => {
@@ -679,14 +888,23 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
             result = desktopUpdater.getState();
           } else if (hostMethod === 'updaterCheck') {
             result = await desktopUpdater.check();
+          } else if (hostMethod === 'displayPreferences') {
+            result = await readHostWindowDisplayPreferences(mainWindow, app.getLocale());
+          } else if (hostMethod === 'visualizeState') {
+            result = visualize.hostSnapshot();
+          } else if (hostMethod === 'visualizeCommand') {
+            result = (await visualize.command(requiredVisualizeTabCommand(args[0]))) ?? null;
+          } else if (hostMethod === 'captureFileSnapshot') {
+            // The daemon already confined the path; this only renders it.
+            result = await fileSnapshots.capture(String(args[0] || ''), String(args[1] || ''), args[2] === true);
           } else {
             result = desktopUpdater.getState();
             installAfterAnswer = desktopUpdater.getState().status === 'ready';
           }
-          await serviceClient.invokeDesktopOperation('browserRemoteResolve', [id, true, result, null]);
+          await localService.invokeDesktopOperation('browserRemoteResolve', [id, true, result, null]);
         } catch (error) {
           installAfterAnswer = false;
-          await serviceClient
+          await localService
             .invokeDesktopOperation('browserRemoteResolve', [
               id,
               false,
@@ -709,9 +927,9 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
       try {
         if (!browserHost) throw new Error('Desktop Browser Use is unavailable.');
         const result = await runBrowserRemoteRequest(browserHost, method, args);
-        await serviceClient.invokeDesktopOperation('browserRemoteResolve', [id, true, result ?? null, null]);
+        await localService.invokeDesktopOperation('browserRemoteResolve', [id, true, result ?? null, null]);
       } catch (error) {
-        await serviceClient
+        await localService
           .invokeDesktopOperation('browserRemoteResolve', [
             id,
             false,
@@ -729,7 +947,7 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
 });
 // Paired browsers show this machine's updater, so its state travels to the daemon.
 unsubscribeUpdaterRelay = desktopUpdater.subscribe((state) => {
-  void serviceClient.invokeDesktopOperation('publishUpdaterState', [state]).catch(() => {});
+  void localService.invokeDesktopOperation('publishUpdaterState', [state]).catch(() => {});
 });
 let quitAfterDispose = false;
 // Last-known runInBackground setting; the window's close listener reads it live.
@@ -768,7 +986,9 @@ function syncDesktopTray(): void {
 
 let disposalPromise: Promise<void> | null = null;
 const DESKTOP_DISPOSE_TIMEOUT_MS = 4_000;
-let windowState: ReturnType<typeof persistWindowState> | null = null;
+// Bounds persist per connection: each open window's writer, and the final
+// flushes of the ones already closed.
+const windowStates = new Map<BrowserWindow, ReturnType<typeof persistWindowState>>();
 let windowStateFlush: Promise<void> = Promise.resolve();
 let diagnosticsMemoryTimer: NodeJS.Timeout | null = null;
 let idleReclaim: IdleReclaim | null = null;
@@ -862,7 +1082,7 @@ function startDeferredDesktopServices(): Promise<void> {
   if (deferredServicesPromise) return deferredServicesPromise;
   const startedAt = Date.now();
   diagnostics?.write('deferred-services-start', {});
-  deferredServicesPromise = host
+  deferredServicesPromise = localService
     .invokeDesktopOperation('remoteAccessStart', [])
     .then(() => {
       diagnostics?.write('deferred-services-ready', { durationMs: Date.now() - startedAt });
@@ -881,28 +1101,36 @@ function startDeferredDesktopServices(): Promise<void> {
 }
 
 async function remoteAccessInfo(options?: { activate?: boolean }): Promise<DesktopRemoteAccessInfo | null> {
-  const descriptor = await host.invokeDesktopOperation('remoteAccessInfo', [options?.activate !== false]);
+  const descriptor = await localService.invokeDesktopOperation('remoteAccessInfo', [options?.activate !== false]);
   const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
   return remoteAccessInfoFromDescriptor(descriptor);
 }
 
 async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {
-  const descriptor = await host.invokeDesktopOperation('remoteAccessRotate', []);
+  const descriptor = await localService.invokeDesktopOperation('remoteAccessRotate', []);
   const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
   return remoteAccessInfoFromDescriptor(descriptor);
 }
 
 async function revokeRemoteAccessClient(clientId: string): Promise<DesktopRemoteAccessInfo | null> {
-  const descriptor = await host.invokeDesktopOperation('remoteAccessRevokeClient', [clientId]);
+  const descriptor = await localService.invokeDesktopOperation('remoteAccessRevokeClient', [clientId]);
   const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
   return remoteAccessInfoFromDescriptor(descriptor);
 }
 
 // Hosts saved for "Connect to another PC" live for the whole app, not one
 // window: closing and reopening the main window keeps their windows.
+/** Brings this PC's window to the front on Settings → Connection. */
+function showLocalConnectionSettings(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send(DESKTOP_IPC.showConnectionSettings);
+}
 let remoteHostWindows: Promise<RemoteHostWindows> | null = null;
 function remoteHostsHandle(): RemoteHostWindows {
-  const ready = (remoteHostWindows ??= (async () => {
+  remoteHostWindows ??= (async () => {
     const [{ loadRemoteHostStore, relayHttpOrigin }, { createRemoteHostWindows }] = await Promise.all([
       import('./remote-hosts'),
       import('./remote-host-windows'),
@@ -916,16 +1144,11 @@ function remoteHostsHandle(): RemoteHostWindows {
           const relayUrl = resolveRelayUrl(process.env);
           return relayUrl ? relayHttpOrigin(relayUrl) : null;
         },
-        showConnectionSettings: () => {
-          if (!mainWindow || mainWindow.isDestroyed()) return;
-          if (mainWindow.isMinimized()) mainWindow.restore();
-          mainWindow.show();
-          mainWindow.focus();
-          mainWindow.webContents.send(DESKTOP_IPC.showConnectionSettings);
-        },
+        showConnectionSettings: showLocalConnectionSettings,
       }
     );
-  })());
+  })();
+  const ready = remoteHostWindows;
   return {
     list: async () => (await ready).list(),
     connectByCode: async (code) => (await ready).connectByCode(code),
@@ -939,7 +1162,7 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
   if (deferredServicesScheduled || deferredServicesPromise) return;
   deferredServicesScheduled = true;
   scheduleAfterServiceQuiet(window, {
-    awaitServiceReady: () => serviceClient.start(),
+    awaitServiceReady: () => localConnection.start(),
     start: () => {
       void startDeferredDesktopServices().catch((error: unknown) => {
         console.error('Failed to start deferred Desktop services:', error);
@@ -997,12 +1220,17 @@ function disposeDesktopResources(): Promise<void> {
       await browserHostDisposal;
       await computerHost?.dispose();
       await terminalBridge.stop();
+      await visualizeBridge.stop();
+      visualize.dispose();
     })();
     const cleanup = Promise.all([
       browserAndComputerCleanup,
-      host.dispose(),
+      // Quit detaches from every server: the tunnels close, the servers'
+      // daemons keep running.
+      sshConnections.closeAll(),
+      localConnection.dispose(),
       windowStateFlush,
-      windowState?.flush(),
+      ...[...windowStates.values()].map((state) => state.flush()),
       diagnostics?.flush(),
     ])
       .then(() => undefined)
@@ -1148,7 +1376,9 @@ function resolveRendererTarget(): {
 function createMainBrowserWindow(
   savedState: Awaited<ReturnType<typeof readWindowState>>,
   brandIconPath: string | null,
-  afterUpdate: boolean
+  afterUpdate: boolean,
+  connection: ConnectionIdentity,
+  partition: string | undefined
 ): BrowserWindow {
   return new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
@@ -1160,14 +1390,99 @@ function createMainBrowserWindow(
     ...(brandIconPath ? { icon: brandIconPath } : {}),
     webPreferences: {
       ...DESKTOP_WINDOW_OPTIONS.webPreferences,
+      ...(partition ? { partition } : {}),
+      // The browser pane (the only <webview> user) exists in this PC's
+      // window only; a server window cannot attach one at all. Voice input
+      // keeps `media`: dictation records here and the server transcribes.
+      ...(connection.kind === 'ssh' ? { webviewTag: false } : {}),
       preload: join(import.meta.dirname, '../preload/index.js'),
       additionalArguments: [
         `--mixdog-boot-id=${desktopBootId}`,
         `--mixdog-process-started-at=${desktopProcessStartedAt}`,
         ...(desktopBootScenario ? [`--mixdog-boot-scenario=${desktopBootScenario}`] : []),
         ...(afterUpdate ? ['--mixdog-after-update=1'] : []),
+        // The window's identity: the title bar names the server it drives.
+        `--mixdog-connection-id=${encodeURIComponent(connection.id)}`,
+        `--mixdog-connection-kind=${connection.kind}`,
+        `--mixdog-connection-name=${encodeURIComponent(connection.name)}`,
       ],
     },
+  });
+}
+
+/** Per-connection storage name: ids are user data, file and partition names
+ *  are not. */
+function connectionStorageKey(connection: ConnectionIdentity): string {
+  return createHash('sha256').update(connection.id).digest('hex').slice(0, 16);
+}
+
+function connectionWindowStatePath(connection: ConnectionIdentity): string {
+  return join(
+    app.getPath('userData'),
+    connection.kind === 'local' ? 'window-state.json' : `window-state-ssh-${connectionStorageKey(connection)}.json`
+  );
+}
+
+/** A server window keeps its renderer storage (open session, drafts, panes)
+ *  in its own persistent partition: those ids belong to the server's daemon
+ *  and must never be read back by this PC's window, or the other way round. */
+function connectionPartition(connection: ConnectionIdentity): string | undefined {
+  return connection.kind === 'local' ? undefined : `persist:mixdog-ssh-${connectionStorageKey(connection)}`;
+}
+
+// Set once the app is ready; every renderer session uses the same policy.
+let rendererBootScriptHash: string | null = null;
+const policedRendererSessions = new WeakSet<Electron.Session>();
+
+/** The app renderer's CSP and permissions, for this PC's session and for each
+ *  server window's partition. */
+function installRendererSessionPolicy(target: Electron.Session): void {
+  if (policedRendererSessions.has(target)) return;
+  policedRendererSessions.add(target);
+  target.webRequest.onHeadersReceived((details, callback) => {
+    // The policy governs the app's own documents: the built renderer
+    // (file:) or the dev server. Other responses keep their headers —
+    // stamped onto a previewed PDF and onto Chromium's built-in viewer
+    // page, `frame-ancestors 'none'` left the editor's PDF preview blank.
+    const rendererOrigin = process.env.ELECTRON_RENDERER_URL;
+    if (!details.url.startsWith('file:') && !(rendererOrigin && details.url.startsWith(rendererOrigin))) {
+      callback({});
+      return;
+    }
+    const development = Boolean(process.env.ELECTRON_RENDERER_URL);
+    // Visualize panes frame project pages from the local page server only
+    // (tokenized, loopback); no other http origin may be framed.
+    const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}:${localPageFrameOrigin ? ` ${localPageFrameOrigin}` : ''}`;
+    // GitHub avatar hosts are allowed in img-src for the onboarding /
+    // settings account cards (github.com redirects to avatars host).
+    // media-src mirrors img-src: Studio tiles load from the mixdog-media
+    // byte lane, and older paths still inline data:/blob: URLs, which
+    // default-src 'self' would otherwise block.
+    const policy = development
+      ? `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ${MEDIA_SCHEME}: ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; ${frameSrc}; style-src 'self' 'unsafe-inline'; font-src 'self' data:`
+      : `default-src 'self'; script-src 'self'; connect-src 'self' ${MEDIA_SCHEME}:; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; ${frameSrc}; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`;
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [development ? policy : withInlineBootScript(policy, rendererBootScriptHash)],
+      },
+    });
+  });
+  // Push-to-talk/pairing use getUserMedia; transcript copy uses clipboard
+  // writes. Only the trusted desktop renderers (routed app windows) receive
+  // these permissions. Clipboard reads and every other permission still fail
+  // closed.
+  const trustedPermissionSender = (webContents: Electron.WebContents | null) =>
+    webContents && !webContents.isDestroyed() && windowRoutes.has(webContents.id) ? webContents : null;
+  target.setPermissionCheckHandler((webContents, permission) =>
+    desktopPermissionAllowed(permission, webContents, trustedPermissionSender(webContents))
+  );
+  target.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowed = desktopPermissionAllowed(permission, webContents, trustedPermissionSender(webContents));
+    if (!allowed) {
+      diagnostics?.write('permission-request', { permission });
+    }
+    callback(allowed);
   });
 }
 
@@ -1303,7 +1618,7 @@ function installNavigationGuards(window: BrowserWindow, isAllowedNavigation: (ca
  * plus did-finish-load is therefore sufficient; ready-to-show remains the
  * preferred compositor signal when it arrives first, and an absolute deadline
  * shows the window either way. */
-function createWindowPresentation(window: BrowserWindow, startupStartedAt: number) {
+function createWindowPresentation(window: BrowserWindow, startupStartedAt: number, afterRendererReady: () => void) {
   let readyToShow = false;
   let rendererCommitted = false;
   let rendererLoaded = false;
@@ -1370,11 +1685,8 @@ function createWindowPresentation(window: BrowserWindow, startupStartedAt: numbe
       });
     }
     rendererCommitted = true;
-    // Idempotent fallback for recreated windows; the primary boot starts this
-    // concurrently before renderer navigation.
-    startDaemonService();
     showWhenComposed();
-    scheduleDeferredDesktopServices(window);
+    afterRendererReady();
   };
   ipcMain.on(DESKTOP_IPC.rendererReady, onRendererReady);
   window.once('ready-to-show', () => {
@@ -1405,28 +1717,10 @@ function createWindowPresentation(window: BrowserWindow, startupStartedAt: numbe
   };
 }
 
-async function createWindow(): Promise<void> {
-  const startupStartedAt = desktopProcessStartedAt;
-  const { developmentUrl, packagedRendererPath, rendererUrl, brandIconPath, isAllowedNavigation } =
-    resolveRendererTarget();
-
-  const statePath = join(app.getPath('userData'), 'window-state.json');
-  const savedState = await readWindowState(statePath, screen.getAllDisplays());
-  diagnostics?.write('window-state-ready', {
-    totalMs: Date.now() - startupStartedAt,
-  });
-  configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
-  // Once per process: a later window must still know this launch was an update.
-  launchFollowsUpdate ??= recordLaunchVersion(
-    launchVersionPath(),
-    app.getVersion(),
-    process.argv,
-    launchRecordWriteFailure
-  );
-  const window = createMainBrowserWindow(savedState, brandIconPath, await launchFollowsUpdate);
-  installDesktopWindowMaterial(window);
-  if (savedState?.maximized) window.maximize();
-  windowState = persistWindowState(window, statePath);
+/** This PC's window carries the machine's single instances: Computer Use and
+ *  its overlay, the Browser Use pane host, taskbar attention, idle reclaim and
+ *  the close-to-background behavior. Returns its Browser Use host. */
+function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
   mainWindow = window;
   if (!computerHost) {
     computerHost = createComputerHost({
@@ -1450,7 +1744,7 @@ async function createWindow(): Promise<void> {
         async stop(sessionIds) {
           overlayComputerHost.takeOver('user_stop');
           await overlayComputerHost.stopAllSessions(
-            confirmComputerTurnsStopped(sessionIds, async (sessionId) => host.abortSession(sessionId))
+            confirmComputerTurnsStopped(sessionIds, async (sessionId) => localService.abortSession(sessionId))
           );
         },
       },
@@ -1462,28 +1756,25 @@ async function createWindow(): Promise<void> {
   // Browser pane host: registers this window's browser-pane webviews. The
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
-  const windowBrowserHost = (browserHost = createBrowserHost(window, {
+  const windowBrowserHost = createBrowserHost(window, {
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.
     publishRemoteFrame: async (frame) => {
-      await serviceClient.invokeDesktopOperation('browserRemoteFrame', [frame]);
+      await localService.invokeDesktopOperation('browserRemoteFrame', [frame]);
     },
     publishRemoteTabs: async (tabs) => {
-      await serviceClient.invokeDesktopOperation('browserRemoteTabs', [tabs]);
+      await localService.invokeDesktopOperation('browserRemoteTabs', [tabs]);
     },
     publishRemoteImportProgress: async (progress) => {
-      await serviceClient.invokeDesktopOperation('browserRemoteImportProgress', [progress]);
+      await localService.invokeDesktopOperation('browserRemoteImportProgress', [progress]);
     },
     onSurfaceRequest: (request) => {
-      void serviceClient.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
+      void localService.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
     },
-  }));
-  browserHost.setBridgeEnabled(browserControlEnabled);
-  // A dead capture/automation CDP client can leave the renderer frozen at a
-  // synthetic viewport (observed 800x600) while the native window resizes —
-  // the guard detects the persistent mismatch and self-heals.
-  installViewportGuard(window);
+  });
+  browserHost = windowBrowserHost;
+  windowBrowserHost.setBridgeEnabled(browserControlEnabled);
   // Taskbar attention: flash/bounce when the active turn finishes while this
   // window is unfocused; focusing it clears the signal.
   turnAttention = createTurnAttention({
@@ -1525,6 +1816,71 @@ async function createWindow(): Promise<void> {
   });
   window.on('blur', () => idleReclaim?.onBlur());
   window.on('close', (event) => backgroundWindow.onClose(event, () => window.hide()));
+  window.on('closed', () => {
+    computerUseOverlay?.dispose();
+    computerUseOverlay = null;
+    // This window's host dies with it (macOS 'activate' builds a new one);
+    // dispose is idempotent, so a later quit-time dispose is a no-op.
+    if (browserHost === windowBrowserHost) browserHost = null;
+    browserHostDisposal = Promise.all([browserHostDisposal, windowBrowserHost.dispose()]).then(() => undefined);
+    mainWindow = null;
+    turnAttention = null;
+  });
+  return windowBrowserHost;
+}
+
+/** Opens the connection's window, or brings back the one already open (or
+ *  still being created): one connection never gets two windows. */
+const showConnectionWindow = createConnectionWindowOpener<DesktopConnection, BrowserWindow>({
+  find: (connectionId) => {
+    const window = connectionWindows.get(connectionId);
+    return window && !window.isDestroyed() ? window : null;
+  },
+  focus: (window) => {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  },
+  create: (connection) => createWindow(connection),
+});
+
+async function createWindow(connection: DesktopConnection): Promise<void> {
+  const local = connection.kind === 'local';
+  // The main window measures against process start; a server window opens later.
+  const startupStartedAt = local ? desktopProcessStartedAt : Date.now();
+  const { developmentUrl, packagedRendererPath, rendererUrl, brandIconPath, isAllowedNavigation } =
+    resolveRendererTarget();
+
+  const statePath = connectionWindowStatePath(connection);
+  const savedState = await readWindowState(statePath, screen.getAllDisplays());
+  diagnostics?.write('window-state-ready', {
+    totalMs: Date.now() - startupStartedAt,
+  });
+  configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
+  // Once per process: a later window must still know this launch was an update.
+  launchFollowsUpdate ??= recordLaunchVersion(
+    launchVersionPath(),
+    app.getVersion(),
+    process.argv,
+    launchRecordWriteFailure
+  );
+  const partition = connectionPartition(connection);
+  if (partition) installRendererSessionPolicy(session.fromPartition(partition));
+  const window = createMainBrowserWindow(savedState, brandIconPath, await launchFollowsUpdate, connection, partition);
+  // Routed before anything can load: every IPC call from this window is
+  // answered by this connection, and nothing else.
+  windowRoutes.register(window.webContents, connection.id);
+  connectionWindows.set(connection.id, window);
+  installDesktopWindowMaterial(window);
+  if (savedState?.maximized) window.maximize();
+  const windowState = persistWindowState(window, statePath);
+  windowStates.set(window, windowState);
+  const windowBrowserHost = local ? installLocalWindowFeatures(window) : null;
+  if (!local) window.webContents.on('will-attach-webview', (event) => event.preventDefault());
+  // A dead capture/automation CDP client can leave the renderer frozen at a
+  // synthetic viewport (observed 800x600) while the native window resizes —
+  // the guard detects the persistent mismatch and self-heals.
+  installViewportGuard(window);
   // Windows logoff/shutdown: the OS ends the session, nobody is asked.
   window.on('session-end', () => {
     quitApproved = true;
@@ -1535,23 +1891,17 @@ async function createWindow(): Promise<void> {
   window.webContents.on('dom-ready', () => {
     window.webContents.setZoomFactor(1);
   });
-  removeIpc = registerDesktopIpc(window, host, {
-    app,
-    translateUi: nativeT,
-    ipcMain,
-    dialog,
-    shell,
-    powerMonitor,
-    onDesktopSettingsChanged: applyDesktopSettings,
-    ...(process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
-    browserHost,
-    computer: { readPermissions: readComputerPermissions, requestPermissions: requestComputerPermissions },
-    updater: desktopUpdater,
-    terminals: serviceTerminalManager,
-    remoteAccessInfo,
-    rotateRemoteAccess,
-    revokeRemoteAccessClient,
-    remoteHosts: remoteHostsHandle(),
+  const disposeWindowIpc = installWindowIpc(window, connection, windowBrowserHost);
+  // A server window hears its own link and notices, raises its own OS
+  // notifications, and is reopened at the next launch while it stays open.
+  const stopLinkForward = local ? () => {} : forwardConnectionLink(connection, window.webContents);
+  if (!local) {
+    serverNotifiers.set(window, createServerWindowNotifier(window, connection));
+    if (connection.id !== ENV_SSH_CONNECTION_ID) void serverWindowRestore.remember(connection.id).catch(() => {});
+  }
+  windowIpcDisposers.set(window, () => {
+    disposeWindowIpc();
+    stopLinkForward();
   });
   diagnostics?.write('window-created', {
     totalMs: Date.now() - startupStartedAt,
@@ -1564,11 +1914,13 @@ async function createWindow(): Promise<void> {
   const onRendererDiagnostic = rendererDiagnosticListener(window);
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
   // The renderer's notice was on screen: retire the pending update announcement.
-  installWhatsNewAcknowledge(ipcMain, window, {
-    version: app.getVersion(),
-    launchRecorded: () => Promise.resolve(launchFollowsUpdate),
-    acknowledge: (version) => acknowledgeAnnouncement(launchVersionPath(), version, launchRecordWriteFailure),
-  });
+  if (local) {
+    installWhatsNewAcknowledge(ipcMain, window, {
+      version: app.getVersion(),
+      launchRecorded: () => Promise.resolve(launchFollowsUpdate),
+      acknowledge: (version) => acknowledgeAnnouncement(launchVersionPath(), version, launchRecordWriteFailure),
+    });
+  }
   diagnostics?.write('ipc-ready', {
     totalMs: Date.now() - startupStartedAt,
   });
@@ -1576,56 +1928,23 @@ async function createWindow(): Promise<void> {
   installRendererConsoleErrorTail(window, startupStartedAt);
   installDefaultContextMenu(window.webContents);
 
-  window.webContents.on('did-start-loading', () => {
-    diagnostics?.write('renderer-load-start', {
-      totalMs: Date.now() - startupStartedAt,
-    });
-  });
-  window.webContents.on('dom-ready', () => {
-    void refreshNativeUiLanguage(window).then(() => {
-      if (!window.isDestroyed()) installDesktopMenu();
-      desktopTray?.relabel();
-    });
-    diagnostics?.write('renderer-dom-ready', {
-      totalMs: Date.now() - startupStartedAt,
-    });
-  });
-  window.webContents.on('did-finish-load', () => {
-    presentation.markRendererLoaded();
-    diagnostics?.write('renderer-load-finished', {
-      totalMs: Date.now() - startupStartedAt,
-    });
-    presentation.showWhenComposed();
-  });
-
-  window.on('unresponsive', () => {
-    diagnostics?.write('renderer-unresponsive', { processes: currentProcessMemory() });
-  });
-  window.on('responsive', () => {
-    diagnostics?.write('renderer-responsive');
-  });
+  installRendererLoadDiagnostics(window, local, startupStartedAt, () => presentation);
   installRendererCrashRecovery(window, reloadRenderer);
 
   installNavigationGuards(window, isAllowedNavigation);
-  const presentation = createWindowPresentation(window, startupStartedAt);
-  window.on('closed', () => {
-    presentation.cancelShowDeadline();
-    diagnostics?.write('window-closed');
-    presentation.detach();
-    ipcMain.removeListener(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);    const state = windowState;
-    windowState = null;
-    windowStateFlush = state?.flush().finally(() => state.dispose()) ?? Promise.resolve();
-    removeIpc?.();
-    removeIpc = null;
-    computerUseOverlay?.dispose();
-    computerUseOverlay = null;
-    // This window's host dies with it (macOS 'activate' builds a new one);
-    // dispose is idempotent, so a later quit-time dispose is a no-op.
-    if (browserHost === windowBrowserHost) browserHost = null;
-    browserHostDisposal = Promise.all([browserHostDisposal, windowBrowserHost.dispose()]).then(() => undefined);
-    mainWindow = null;
-    turnAttention = null;
-  });
+  const presentation = createWindowPresentation(
+    window,
+    startupStartedAt,
+    local
+      ? () => {
+          // Idempotent fallback for recreated windows; the primary boot starts
+          // this concurrently before renderer navigation.
+          startDaemonService();
+          scheduleDeferredDesktopServices(window);
+        }
+      : () => {}
+  );
+  installWindowCloseCleanup(window, connection, windowState, presentation, onRendererDiagnostic);
 
   try {
     diagnostics?.write('renderer-navigation-start', {
@@ -1641,6 +1960,122 @@ async function createWindow(): Promise<void> {
     if (!window.isDestroyed()) window.destroy();
     throw error;
   }
+}
+
+/** This window's handler table: one ipcMain registration per channel serves
+ *  every window, and the router hands each call to its sender's table.
+ *  Returns the disposer for both. */
+function installWindowIpc(
+  window: BrowserWindow,
+  connection: DesktopConnection,
+  windowBrowserHost: BrowserHost | null
+): () => void {
+  const local = connection.kind === 'local';
+  const ipcScope = ipcRouter.scope(window.webContents.id, connection.id);
+  const removeWindowIpc = registerDesktopIpc(window, connection.client, {
+    app,
+    translateUi: nativeT,
+    ipcMain: ipcScope,
+    dialog,
+    shell,
+    powerMonitor,
+    connectionKind: connection.kind,
+    serviceUserDataPath: () => connection.serviceUserDataPath(),
+    // The updater and the notification sound are this PC's: a server window
+    // gets neither (its channels are refused by the feature gates).
+    ...(local && process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
+    ...(local ? { updater: desktopUpdater } : {}),
+    // This PC's settings, Browser Use, Computer Use and phone access exist only
+    // in this PC's window; a server window refuses them (feature gates).
+    ...(windowBrowserHost
+      ? {
+          onDesktopSettingsChanged: applyDesktopSettings,
+          browserHost: windowBrowserHost,
+          computer: { readPermissions: readComputerPermissions, requestPermissions: requestComputerPermissions },
+          remoteAccessInfo,
+          rotateRemoteAccess,
+          revokeRemoteAccessClient,
+          visualize,
+        }
+      : {}),
+    terminals: connection.terminals,
+    remoteHosts: remoteHostsHandle(),
+  });
+  return () => {
+    removeWindowIpc();
+    ipcScope.dispose();
+  };
+}
+
+function installRendererLoadDiagnostics(
+  window: BrowserWindow,
+  local: boolean,
+  startupStartedAt: number,
+  presentation: () => ReturnType<typeof createWindowPresentation>
+): void {
+  window.webContents.on('did-start-loading', () => {
+    diagnostics?.write('renderer-load-start', {
+      totalMs: Date.now() - startupStartedAt,
+    });
+  });
+  window.webContents.on('dom-ready', () => {
+    void refreshNativeUiLanguage(window).then(() => {
+      if (!window.isDestroyed()) installDesktopMenu();
+      desktopTray?.relabel();
+      // A language change reloads this window: paired browsers re-read the host's display choice.
+      if (local) void localService.invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    });
+    diagnostics?.write('renderer-dom-ready', {
+      totalMs: Date.now() - startupStartedAt,
+    });
+  });
+  window.webContents.on('did-finish-load', () => {
+    presentation().markRendererLoaded();
+    diagnostics?.write('renderer-load-finished', {
+      totalMs: Date.now() - startupStartedAt,
+    });
+    presentation().showWhenComposed();
+  });
+
+  window.on('unresponsive', () => {
+    diagnostics?.write('renderer-unresponsive', { processes: currentProcessMemory() });
+  });
+  window.on('responsive', () => {
+    diagnostics?.write('renderer-responsive');
+  });
+}
+
+function installWindowCloseCleanup(
+  window: BrowserWindow,
+  connection: DesktopConnection,
+  windowState: ReturnType<typeof persistWindowState>,
+  presentation: ReturnType<typeof createWindowPresentation>,
+  onRendererDiagnostic: ReturnType<typeof rendererDiagnosticListener>
+): void {
+  window.on('closed', () => {
+    presentation.cancelShowDeadline();
+    diagnostics?.write('window-closed');
+    presentation.detach();
+    ipcMain.removeListener(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
+    windowStates.delete(window);
+    windowStateFlush = Promise.all([windowStateFlush, windowState.flush().finally(() => windowState.dispose())]).then(
+      () => undefined
+    );
+    windowIpcDisposers.get(window)?.();
+    windowIpcDisposers.delete(window);
+    if (connectionWindows.get(connection.id) === window) connectionWindows.delete(connection.id);
+    serverNotifiers.get(window)?.dispose();
+    serverNotifiers.delete(window);
+    // Closing a server window detaches: its tunnel closes, the server's
+    // daemon keeps running. Only the user's close forgets it for the next
+    // launch; quitting keeps it.
+    if (connection.kind !== 'local') {
+      if (!quitApproved) void serverWindowRestore.forget(connection.id).catch(() => {});
+      void sshConnections.close(connection.id).catch((error: unknown) => {
+        console.error(`Failed to detach from ${connection.name}:`, error);
+      });
+    }
+  });
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -1719,15 +2154,15 @@ if (!app.requestSingleInstanceLock()) {
       startCrashHandlerWatch();
       startDiagnosticsEventLoopMonitor();
       // Keep-awake + taskbar attention feed on the same session state lane.
-      unsubscribeAwake = host.subscribe((snapshot) => {
+      unsubscribeAwake = localService.subscribe((snapshot) => {
         awakeService.onSnapshot(snapshot);
         turnAttention?.onSnapshot(snapshot);
         idleReclaim?.onSnapshot(snapshot);
       });
       // Every session's roster and the agent pool, not just the active pane:
       // the final-answer rule needs background work as well as turn state.
-      const unsubscribeTurnSessions = host.subscribeSessions(turnNotifier.onSessions);
-      const unsubscribeTurnAgents = host.subscribeAgentPool(turnNotifier.onAgentPool);
+      const unsubscribeTurnSessions = localService.subscribeSessions(turnNotifier.onSessions);
+      const unsubscribeTurnAgents = localService.subscribeAgentPool(turnNotifier.onAgentPool);
       unsubscribeTurnNotifier = () => {
         unsubscribeTurnSessions();
         unsubscribeTurnAgents();
@@ -1746,7 +2181,13 @@ if (!app.requestSingleInstanceLock()) {
         // The blocker may have been dropped across sleep; re-assert it, and
         // redial the relay leg instead of waiting for the ping cycle.
         awakeService.reevaluate();
-        void host.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
+        void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
+        // Server links probe before touching their tunnel: a live one stays.
+        for (const connection of connectionPool.list()) void connection.link?.resume();
+      });
+      // Sleep pauses the server links: no attempts, no failure shown.
+      powerMonitor.on('suspend', () => {
+        for (const connection of connectionPool.list()) connection.link?.suspend();
       });
       // A dead network is otherwise noticed only by the ping cycle: redial the
       // relay leg the moment the machine is back online or its network changes.
@@ -1754,7 +2195,7 @@ if (!app.requestSingleInstanceLock()) {
         isOnline: () => net.isOnline(),
         signature: () => networkSignature(),
         onChange: () => {
-          void host.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
+          void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
         },
       });
       diagnosticsMemoryTimer = setInterval(
@@ -1779,56 +2220,53 @@ if (!app.requestSingleInstanceLock()) {
           handleGpuChildCrash(details.reason, details.exitCode);
         }
       });
-      const bootScriptHash = process.env.ELECTRON_RENDERER_URL
+      rendererBootScriptHash = process.env.ELECTRON_RENDERER_URL
         ? null
         : inlineBootScriptHash(join(import.meta.dirname, '../renderer'));
-      session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        // The policy governs the app's own documents: the built renderer
-        // (file:) or the dev server. Other responses keep their headers —
-        // stamped onto a previewed PDF and onto Chromium's built-in viewer
-        // page, `frame-ancestors 'none'` left the editor's PDF preview blank.
-        const rendererOrigin = process.env.ELECTRON_RENDERER_URL;
-        if (!details.url.startsWith('file:') && !(rendererOrigin && details.url.startsWith(rendererOrigin))) {
-          callback({});
-          return;
-        }
-        const development = Boolean(process.env.ELECTRON_RENDERER_URL);
-        // GitHub avatar hosts are allowed in img-src for the onboarding /
-        // settings account cards (github.com redirects to avatars host).
-        // media-src mirrors img-src: Studio tiles load from the mixdog-media
-        // byte lane, and older paths still inline data:/blob: URLs, which
-        // default-src 'self' would otherwise block.
-        const policy = development
-          ? `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ${MEDIA_SCHEME}: ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:`
-          : `default-src 'self'; script-src 'self'; connect-src 'self' ${MEDIA_SCHEME}:; img-src 'self' data: blob: ${MEDIA_SCHEME}: https://github.com https://avatars.githubusercontent.com; media-src 'self' data: blob: ${MEDIA_SCHEME}:; frame-src 'self' blob: ${MEDIA_SCHEME}:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`;
-        callback({
-          responseHeaders: {
-            ...details.responseHeaders,
-            'Content-Security-Policy': [development ? policy : withInlineBootScript(policy, bootScriptHash)],
-          },
-        });
-      });
+      installRendererSessionPolicy(session.defaultSession);
       // Gallery bytes leave the RPC lane here: tiles and clips become ordinary
-      // cacheable, range-able resources fetched straight by the DOM.
-      registerMediaProtocol(host);
-      // Push-to-talk/pairing use getUserMedia; transcript copy uses clipboard
-      // writes. Only the trusted desktop renderer receives these permissions.
-      // Clipboard reads and every other permission still fail closed.
-      const trustedPermissionSender = () => {
-        const window = mainWindow;
-        return window && !window.isDestroyed() ? window.webContents : null;
-      };
-      session.defaultSession.setPermissionCheckHandler((webContents, permission) =>
-        desktopPermissionAllowed(permission, webContents, trustedPermissionSender())
-      );
-      session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-        const allowed = desktopPermissionAllowed(permission, webContents, trustedPermissionSender());
-        if (!allowed) {
-          diagnostics?.write('permission-request', { permission });
-        }
-        callback(allowed);
+      // cacheable, range-able resources fetched straight by the DOM. The lane
+      // reads this PC's files, so only this PC's window session has it.
+      registerMediaProtocol(localService);
+      registerSshHostIpc({ ipcMain, routes: windowRoutes, userDataPath: desktopUserData, connections: sshConnections });
+      registerServerPortsIpc({
+        ipcMain,
+        routes: windowRoutes,
+        pool: connectionPool,
+        openExternal: (url) => shell.openExternal(url),
       });
-      await createWindow();
+      registerConnectionLinkIpc({
+        ipcMain,
+        routes: windowRoutes,
+        pool: connectionPool,
+        restore: serverWindowRestore,
+        closeWindow: (sender) => BrowserWindow.fromWebContents(sender)?.close(),
+        showConnectionSettings: showLocalConnectionSettings,
+        requestSignIn: (connection) => {
+          if (!mainWindow || mainWindow.isDestroyed() || !connection.target) return;
+          activateDesktopWindow(mainWindow);
+          mainWindow.webContents.send(DESKTOP_IPC.connectionSignIn, {
+            id: connection.id,
+            name: connection.name,
+            target: connection.target,
+          });
+        },
+      });
+      await showConnectionWindow(localConnection);
+      void serverWindowRestore.restore().catch((error: unknown) => {
+        console.error('Failed to reopen the server windows:', error);
+      });
+      // MIXDOG_SSH_TARGET: the server window opens beside this PC's.
+      if (envSshConfig) {
+        void sshConnections
+          .open({ id: ENV_SSH_CONNECTION_ID, name: envSshConfig.target, target: envSshConfig.target })
+          .catch((error: unknown) => {
+            diagnostics?.write('ssh-target-window-failed', {
+              errorName: error instanceof Error ? error.name : typeof error,
+            });
+            console.error('Failed to open the MIXDOG_SSH_TARGET server window:', error);
+          });
+      }
       if (pendingPrimaryActivation) activatePrimaryWindow();
       installDesktopMenu();
       // The settings read may have landed before the app was ready to host a tray.
@@ -1839,11 +2277,11 @@ if (!app.requestSingleInstanceLock()) {
           activatePrimaryWindow();
           return;
         }
-        if (BrowserWindow.getAllWindows().length === 0) {
-          void createWindow().catch((error: unknown) => {
-            console.error('Failed to recreate the Mixdog desktop window:', error);
-          });
-        }
+        // This PC's window is gone: bring it back even while server windows
+        // stay open. A second click while it is being built only waits.
+        void showConnectionWindow(localConnection).catch((error: unknown) => {
+          console.error('Failed to recreate the Mixdog desktop window:', error);
+        });
       });
     })
     .catch((error: unknown) => {
@@ -1871,8 +2309,8 @@ app.on('before-quit', (event) => {
   desktopTray = null;
   if (quitAfterDispose) return;
   event.preventDefault();
-  removeIpc?.();
-  removeIpc = null;
+  for (const removeWindowIpc of windowIpcDisposers.values()) removeWindowIpc();
+  windowIpcDisposers.clear();
   void disposeDesktopResources().finally(() => {
     quitAfterDispose = true;
     app.quit();

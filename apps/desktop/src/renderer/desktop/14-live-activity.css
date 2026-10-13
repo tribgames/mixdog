@@ -20,11 +20,11 @@
   min-height: 24px;
   display: flex;
   /* Same contract as the settled footer: verb and readout run at one size, so
-     centring the boxes centres the text too (user: 띵킹 스피너도 마찬가지). */
+     centring the boxes centres the text too. */
   align-items: center;
   gap: 7px;
   /* Muted like the tool rows: in full ink the verb read as transcript body
-     text (user: 본문이랑 띵킹스피너 색이 같은게 이상한데). */
+     text. */
   color: var(--mx-text-muted);
 }
 /* Only ongoing work has an entrance: completed statuses remain static.
@@ -625,7 +625,7 @@
   max-width: 100%;
   /* ONE 24px row for every state of the turn — settled status, live band and
      the 24px copy control all share it, so nothing shifts between states and
-     the icons line up (user: 같은 선상에서 정리 / 복사버튼 정렬). */
+     the icons line up. */
   min-height: 24px;
   /* The phrase — not the marker — has to carry the row's baseline out to the
      footer: a flex container reports its first baseline-aligned item, and the
@@ -645,8 +645,7 @@
 .turn-status.success {
   color: var(--mx-text-muted);
   /* A settled turn is history, not news: regular weight, so "Response
-     complete" stops reading as loud as the answer above it (user: 코덱스보다
-     안 이쁘네 → A안). The running band keeps its medium weight. */
+     complete" stops reading as loud as the answer above it. The running band keeps its medium weight. */
   font-weight: var(--mx-weight-regular);
 }
 .turn-status.complete .turn-status-icon,
@@ -735,7 +734,7 @@
   /* The clock is the settled twin of the live band's `4m 36s · 12.7k tokens`
      readout, so it takes that exact spec — 12px muted behind a quiet middot —
      instead of floating at the phrase's own size with no separator
-     (user: 시간이 정리가 안 되었잖아). */
+. */
   color: var(--mx-text-muted);
   /* One size and one 20px line box for every text on the settled row (phrase,
      detail, clock): a smaller face centred in the same row carries its own
@@ -757,7 +756,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  /* Breathing room on BOTH sides (user: 상하에 여백 좀 더): this row cuts the
+  /* Breathing room on BOTH sides: this row cuts the
      thread in two, and at 5px it read as just another line in the stream
      instead of a boundary between two halves of the conversation. */
   padding: 12px 0;
@@ -775,7 +774,7 @@
 .compaction-divider::after {
   content: "";
   min-width: 24px;
-  /* 2px on a solid hairline ink (user: 띠도 2px에 좀 명확히): the old 1px of
+  /* 2px on a solid hairline ink: the old 1px of
      48%-accent-tinted border was both thinner and paler than the seams around
      it, so the rule that is supposed to SPLIT the thread was the faintest
      line on screen. Neutral, because compaction is a timeline event that
@@ -949,8 +948,7 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
-.approval-actions button,
-.diff-toggle {
+.approval-actions button {
   min-height: 28px;
   padding: 0 11px;
   border: 0;
@@ -961,16 +959,13 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
-.approval-actions button:hover:not(:disabled),
-.diff-toggle:hover:not(:disabled) {
+.approval-actions button:hover:not(:disabled) {
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-chip-bg);
 }
-.approval-actions button:active:not(:disabled),
-.diff-toggle:active:not(:disabled) {
+.approval-actions button:active:not(:disabled) {
   background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-chip-bg);
 }
-.approval-actions button:disabled,
-.diff-toggle:disabled {
+.approval-actions button:disabled {
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
@@ -988,8 +983,7 @@
 /* A transcript diff is the same class of object as a fenced code card, so it
    wears that card's chrome: the muted hairline and the shared card surface.
    --mx-border plus a --mx-bg-layer-1 header band made it the brightest box in
-   the tool body while every neighbour was a flat tint (user: 프레임 디자인이
-   테마랑 어긋난다). The header also carried NO padding — its icon, file name
+   the tool body while every neighbour was a flat tint. The header also carried NO padding — its icon, file name
    and stat chip sat flush against the frame — and its border-bottom-color
    never painted, because no border-style was ever set. */
 .code-diff {

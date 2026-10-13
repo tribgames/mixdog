@@ -3,6 +3,8 @@ import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { openConfirmedFile } from './file-launch-confirmation';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { isSshConnectionWindow } from './desktop-connection';
+import { downloadAndOpenServerFile } from './server-transfers';
 
 export async function openEditorFileExternally(
   projectPath: string,
@@ -11,6 +13,11 @@ export async function openEditorFileExternally(
 ): Promise<void> {
   if (isRemoteHostRenderer()) {
     showDesktopToast(t('Opening files in the default app is only available on the host computer.'), 'info');
+    return;
+  }
+  // A server file reaches this PC's app only as an explicit download.
+  if (isSshConnectionWindow()) {
+    await downloadAndOpenServerFile(projectPath, relPath, accessToken);
     return;
   }
   try {

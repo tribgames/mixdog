@@ -185,8 +185,8 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
     return browserHost.browserCredentialFill(requiredSessionId(sessionId), normalizeBrowserCredentialId(credentialId));
   });
-  handle(DESKTOP_IPC.browserPageIdentity, (_event, url) => {
+  handle(DESKTOP_IPC.browserPageIdentity, (_event, url, preview) => {
     if (typeof url !== 'string' || url.length > 4096) throw new TypeError('Browser page address is invalid.');
-    return browserHost?.browserPageIdentity(url) ?? null;
+    return browserHost?.browserPageIdentity(url, preview === true) ?? null;
   });
 }

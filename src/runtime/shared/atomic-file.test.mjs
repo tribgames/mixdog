@@ -33,6 +33,18 @@ function fixture(t) {
 }
 
 for (const update of [updateJsonAtomicSync, updateJsonAtomic]) {
+  test(`${update.name} keeps BOM-prefixed JSON instead of reinitializing it`, async (t) => {
+    const { path } = fixture(t);
+    writeFileSync(path, '\uFEFF{"preserved":"user state"}');
+    const seen = [];
+    await update(path, (cur) => {
+      seen.push(cur);
+      return { ...cur, added: true };
+    });
+    assert.deepEqual(seen, [{ preserved: 'user state' }]);
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { preserved: 'user state', added: true });
+  });
+
   for (const code of ['EACCES', 'EIO']) {
     test(`${update.name} never mutates unreadable JSON after ${code}`, async (t) => {
       const { path, lock } = fixture(t);

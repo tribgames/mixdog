@@ -31,10 +31,13 @@ export default function LazyDiffView({
   data,
   mode,
   hideHunkHeader,
+  highlight = false,
 }: {
   data: DiffData;
   mode?: 'unified' | 'split';
   hideHunkHeader?: boolean;
+  /** Syntax colours by the file name's language (opt-in per surface). */
+  highlight?: boolean;
 }) {
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     window.getComputedStyle(document.documentElement).colorScheme === 'light' ? 'light' : 'dark'
@@ -54,9 +57,17 @@ export default function LazyDiffView({
       diffViewMode={diffViewMode}
       diffViewTheme={theme}
       diffViewWrap
+      diffViewHighlight={highlight}
       diffViewFontSize={12}
     />
   ) : (
-    <DiffView data={data} diffViewMode={diffViewMode} diffViewTheme={theme} diffViewWrap diffViewFontSize={12} />
+    <DiffView
+      data={data}
+      diffViewMode={diffViewMode}
+      diffViewTheme={theme}
+      diffViewWrap
+      diffViewHighlight={highlight}
+      diffViewFontSize={12}
+    />
   );
 }

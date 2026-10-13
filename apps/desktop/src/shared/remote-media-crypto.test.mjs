@@ -36,6 +36,16 @@ test('segments and meta round-trip, and every frame has its own nonce', async ()
   assert.notDeepEqual(first, second);
 });
 
+test('a download meta carries its authenticated file version', async () => {
+  const key = await newKey();
+  const download = { assetId: '11111111-2222-4333-8444-555555555555', variant: 'download' };
+  const meta = { size: 10, mime: 'a/b', start: 0, end: 9, version: 'v'.repeat(43) };
+  const body = bodyOf(await encryptMediaMeta(key, download, meta));
+  assert.deepEqual({ ...(await decryptMediaMeta(key, download, 0, body)) }, meta);
+  const bad = bodyOf(await encryptMediaMeta(key, download, { ...meta, version: 7 }));
+  await assert.rejects(decryptMediaMeta(key, download, 0, bad), /Invalid media window/);
+});
+
 test('tampered, truncated, swapped and replayed frames are rejected', async () => {
   const key = await newKey();
   const body = bodyOf(await encryptMediaSegment(key, asset, 65_536, 500_000, segment));

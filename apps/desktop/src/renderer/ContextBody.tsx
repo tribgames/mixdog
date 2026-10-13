@@ -43,6 +43,7 @@ function contextDisplayUsage(status: unknown, snapshot: unknown) {
         : contextMeasurementStats(context),
     autoCompactTokenLimit: state.autoCompactTokenLimit || compaction.triggerTokens,
     displayContextWindow: state.displayContextWindow || context.contextWindow,
+    contextTokens: state.contextTokens,
     contextWindow: state.contextWindow || context.effectiveContextWindow || context.contextWindow,
   });
 }

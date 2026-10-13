@@ -22,11 +22,13 @@ import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { appendAssistantTurnMessage, persistProviderState, recordAskUsage } from './ask-turn-commit.mjs';
 
-function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt = 0) {
+export function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt = 0) {
   if (!Array.isArray(messages) || !completion || typeof completion !== 'object') return false;
   const elapsedMs = Math.max(0, Number(completion.elapsedMs || 0));
   const status = typeof completion.status === 'string' && completion.status ? completion.status : 'done';
   const verb = typeof completion.verb === 'string' && completion.verb ? completion.verb : 'Thought';
+  const checkpointId =
+    typeof completion.checkpointId === 'string' && completion.checkpointId ? completion.checkpointId : '';
   let turnStart = -1;
   const expectedAt = Number(turnStartedAt || 0);
   if (expectedAt > 0) {
@@ -60,7 +62,7 @@ function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt
         ...meta,
         transcript: {
           ...transcript,
-          completion: { status, verb, elapsedMs },
+          completion: { status, verb, elapsedMs, ...(checkpointId ? { checkpointId } : {}) },
         },
       },
     };
@@ -145,6 +147,7 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
         status: 'done',
         verb: rawTranscriptMeta?.completionVerb,
         elapsedMs: Date.now() - turnStartedAt,
+        checkpointId: rawTranscriptMeta?.checkpointId,
       },
       turnStartedAt
     );

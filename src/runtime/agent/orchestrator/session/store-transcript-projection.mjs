@@ -7,11 +7,14 @@
  * Kept apart from the cache/fingerprint policy in store-summary-reader.mjs
  * because this runs exactly once per distinct content and is the only part
  * that lazily enters the heavier reconnect-recovery boundary (dynamic imports
- * preserved verbatim so the cold summary path stays leaf-only).
+ * keep the cold summary path leaf-only).
  */
 import { sessionContextMeasurement, contextMeasurementStats } from '../../../shared/context-measurement.mjs';
 import { nextProjectionStamp } from './store-transcript-cache.mjs';
+import { join } from 'node:path';
 import { cleanValue, desktopSession, positiveNumber } from './store-summary-fields.mjs';
+import { compactionArchiveRange, readCompactionArchivePage } from './compaction-archive.mjs';
+import { dataDir } from './store-summary-locations.mjs';
 
 /** The parse/recovery/projection body of a stored transcript read. Runs once
  *  per distinct content; its result is shared read-only through the cache. */
@@ -90,12 +93,25 @@ export async function projectStoredTranscript(sessionId, doc, options) {
   // tail is identical either way.
   const itemLimit = Number.isFinite(options.itemLimit) ? options.itemLimit : Number.POSITIVE_INFINITY;
   const restored = restoreTranscriptItems(messages, { sessionId, itemLimit: itemLimit + 1 });
-  const transcriptHasOlder = restored.length > itemLimit;
+  let transcriptHasOlder = restored.length > itemLimit;
+  let items = transcriptHasOlder ? restored.slice(-itemLimit) : restored;
+  // A paged window continues past the first stored message into the
+  // display-only compaction archive (newest segment first). A legacy whole
+  // read never receives it.
+  const archiveRange = Number.isFinite(itemLimit) && !transcriptHasOlder ? compactionArchiveRange(session) : null;
+  if (archiveRange) {
+    const archived = await readCompactionArchivePage(join(dataDir(), 'sessions'), sessionId, {
+      ...archiveRange,
+      limit: itemLimit - restored.length,
+    });
+    if (archived.items.length) items = [...archived.items, ...restored];
+    transcriptHasOlder = archived.hasOlder;
+  }
   return {
     sessionId,
     projectionStamp: nextProjectionStamp(),
     ...(options.includeMessages ? { messages } : {}),
-    items: transcriptHasOlder ? restored.slice(-itemLimit) : restored,
+    items,
     transcriptHasOlder,
     provider: session.provider || '',
     model: session.model || '',

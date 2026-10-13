@@ -61,10 +61,11 @@ function uniqueTarget(matches: ResolvedLocalLink[], name: string): ResolvedLocal
 /** An absolute path opens wherever it is: through the deepest registered
  *  Project that contains it, otherwise with a one-off file grant, the same
  *  access the native file picker gives. */
-async function resolveAbsolute(target: string, path: string): Promise<ResolvedLocalLink> {
+async function resolveAbsolute(target: string, path: string, sessionId?: string): Promise<ResolvedLocalLink> {
   const resolvePaths = window.mixdogDesktop?.resolveLocalPaths;
   if (!resolvePaths) throw new Error(t('Local file links can only be opened in the desktop app.'));
-  const [entry] = await resolvePaths([target]).catch((error: unknown) => {
+  // The conversation lets a paired device's host find the reply that links it.
+  const [entry] = await (sessionId ? resolvePaths([target], sessionId) : resolvePaths([target])).catch((error: unknown) => {
     if (missingFile(error)) return [];
     throw error;
   });
@@ -80,7 +81,7 @@ async function resolveAbsolute(target: string, path: string): Promise<ResolvedLo
 /** Relative names resolve in the conversation's folder, then by name in the
  *  registered Projects. Absolute paths, `../` paths and files of a folder that
  *  is not itself a registered Project open by their absolute location. */
-export async function resolveLocalLink(project: string, path: string): Promise<ResolvedLocalLink> {
+export async function resolveLocalLink(project: string, path: string, sessionId?: string): Promise<ResolvedLocalLink> {
   if (!isLocalMarkdownLink(path)) throw new Error(t("The file is outside the conversation's Project."));
   if (/^file:/i.test(path)) {
     const url = new URL(path);
@@ -88,7 +89,7 @@ export async function resolveLocalLink(project: string, path: string): Promise<R
   }
   // Markdown encodes `C:\a\b.png` as `C:%5Ca%5Cb.png`; judge the decoded path.
   const decoded = localMarkdownPath(path);
-  if (/^file:/i.test(path) || /^(?:[a-z]:\/|\/)/i.test(decoded)) return resolveAbsolute(decoded, path);
+  if (/^file:/i.test(path) || /^(?:[a-z]:\/|\/)/i.test(decoded)) return resolveAbsolute(decoded, path, sessionId);
   if (!project) throw new Error(t("The conversation's Project is unavailable."));
   const relative = projectRelativeFilePath(project, path);
   const searchable = Boolean(relative && localLinkKind(path) === 'file');
@@ -106,7 +107,7 @@ export async function resolveLocalLink(project: string, path: string): Promise<R
   } else {
     const target = `${project.replace(/\\/g, '/').replace(/\/+$/, '')}/${localMarkdownPath(path)}`;
     try {
-      return await resolveAbsolute(target, path);
+      return await resolveAbsolute(target, path, sessionId);
     } catch (error) {
       if (!searchable) throw error;
     }
@@ -146,7 +147,7 @@ const verifications = new WeakMap<object, Map<string, Verification>>();
  *  exact absolute path). Remote searches run in their own call lane, so this
  *  never queues other calls behind a Project index walk. Resolution results
  *  may be stale, so the resolved file is statted as well. */
-export function verifyLocalLink(project: string, path: string): Promise<ResolvedLocalLink> {
+export function verifyLocalLink(project: string, path: string, sessionId?: string): Promise<ResolvedLocalLink> {
   const api = window.mixdogDesktop;
   const statProjectFile = api?.statProjectFile;
   // Never trust the resolver's no-stat compatibility fallback.
@@ -158,14 +159,14 @@ export function verifyLocalLink(project: string, path: string): Promise<Resolved
     cache = new Map();
     verifications.set(api, cache);
   }
-  const key = `${project}\0${path}`;
+  const key = `${project}\0${path}\0${sessionId ?? ''}`;
   const cached = cache.get(key);
   cache.delete(key);
   if (cached && cached.expiresAt > Date.now()) {
     cache.set(key, cached);
     return cached.result;
   }
-  const result = resolveLocalLink(project, path).then(async (match) => {
+  const result = resolveLocalLink(project, path, sessionId).then(async (match) => {
     // External folders were already statted by resolveLocalPaths and open
     // in the file manager, without an editor access token.
     if (!match.directory) await statProjectFile(match.project, match.path, match.accessToken);

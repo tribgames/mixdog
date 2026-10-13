@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { parseMediaRequest } from './media-http.mjs';
 import { failMediaPending, forwardMediaFrame, handleMediaRequest } from './relay-media-proxy.mjs';
 import { recordingResponse } from './test-recording-response.mjs';
+
+test('the media route accepts the download variant and still refuses unknown ones', () => {
+  const route = (query) => parseMediaRequest('/media/0123456789abcdef', new URLSearchParams(query));
+  assert.deepEqual(route('variant=download'), { assetId: '0123456789abcdef', variant: 'download' });
+  assert.deepEqual(route(''), { assetId: '0123456789abcdef', variant: 'original' });
+  assert.equal(route('variant=bogus'), null);
+});
 
 test('malformed media paths answer 400 without consulting the store', () => {
   const response = recordingResponse();

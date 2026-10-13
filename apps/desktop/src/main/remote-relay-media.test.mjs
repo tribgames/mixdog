@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -10,10 +10,15 @@ import {
   decryptMediaMeta,
   decryptMediaSegment,
 } from '../shared/remote-media-crypto.ts';
+import { FileDownloadError } from '../shared/file-downloads.ts';
+import { createFileDownloadService } from './file-downloads.ts';
 import { leaseMediaFile } from './media-leases.ts';
-import { MEDIA_WINDOW_MAX_BYTES, createRelayMediaLane } from './remote-relay-media.ts';
+import { DOWNLOAD_WINDOW_MAX_BYTES, MEDIA_WINDOW_MAX_BYTES, createRelayMediaLane } from './remote-relay-media.ts';
 
 const SID = 'S'.repeat(43);
+const SID_OTHER = 'O'.repeat(43);
+const PHONE = { deviceId: 'phone-credential' };
+const OTHER = { deviceId: 'tablet-credential' };
 const ENC = 'e2ee1';
 const dir = mkdtempSync(join(tmpdir(), 'relay-media-'));
 const file = (name, size) => {
@@ -27,11 +32,14 @@ const file = (name, size) => {
 async function makeLane(options = {}) {
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   const sent = [];
+  const devices = options.devices ?? { [SID]: PHONE.deviceId, [SID_OTHER]: OTHER.deviceId };
   const lane = createRelayMediaLane({
-    host: { invokeCapability: async () => null },
+    host: options.host ?? { invokeCapability: async () => null },
     sendEnvelope: (envelope) => sent.push(envelope),
-    socketBacklog: () => options.backlog ?? 0,
-    mediaKey: (sid) => (sid === SID ? key : null),
+    socketBacklog: () => (typeof options.backlog === 'function' ? options.backlog() : (options.backlog ?? 0)),
+    mediaKey: (sid) => (sid in devices ? key : null),
+    mediaDevice: (sid) => devices[sid] ?? null,
+    downloads: options.downloads,
   });
   return { key, lane, sent };
 }
@@ -183,4 +191,202 @@ test('a backlogged socket holds the stream back and an abort ends it quietly', a
     sent.some((envelope) => envelope.type === 'media-end' || envelope.type === 'media-error'),
     false
   );
+});
+
+// ── Download leases (variant `download`, file-downloads.ts) ────────────────
+
+/** The real authorization service over one project with `name` of `size`. */
+async function downloadFixture(t, name, size) {
+  const project = realpathSync(mkdtempSync(join(tmpdir(), 'relay-download-')));
+  const bytes = Buffer.alloc(size);
+  for (let index = 0; index < size; index += 1) bytes[index] = (index * 7 + (index >> 12)) & 0xff;
+  writeFileSync(join(project, name), bytes);
+  const service = createFileDownloadService({
+    mediaLane: true,
+    host: {
+      listSessions: async () => [{ id: 's1', cwd: project, projectPath: project, classification: 'project' }],
+      projectDirectory: async (path) => path,
+      invokeCapability: async () => null,
+      readSessionTranscript: async () => null,
+    },
+  });
+  t.after(() => service.revokeAll());
+  const begin = async (requester = PHONE) => {
+    const grant = await service.authorize(requester, {
+      source: { kind: 'project', sessionId: 's1', relPath: name },
+      purpose: 'save',
+    });
+    return service.begin(requester, grant.grantId);
+  };
+  return { service, bytes, path: join(project, name), begin };
+}
+
+const downloadRequest = (transfer, extra = {}) => ({
+  id: 'd',
+  assetId: transfer.media.assetId,
+  variant: 'download',
+  method: 'GET',
+  range: '',
+  sid: SID,
+  enc: ENC,
+  ...extra,
+});
+
+test('a download lease streams its own file, version-bound, in larger windows of authenticated segments', async (t) => {
+  const f = await downloadFixture(t, 'out.bin', DOWNLOAD_WINDOW_MAX_BYTES + 70_000);
+  const transfer = await f.begin();
+  const { key, lane, sent } = await makeLane({ downloads: f.service });
+  const request = downloadRequest(transfer);
+  await lane.serve(request);
+  assert.equal(sent[0].status, 200);
+  assert.equal(sent.at(-1).type, 'media-end');
+  const { meta, plaintext } = await decodeWindow(key, request, sent);
+  assert.deepEqual(
+    { ...meta },
+    {
+      size: f.bytes.length,
+      mime: 'application/octet-stream',
+      start: 0,
+      end: DOWNLOAD_WINDOW_MAX_BYTES - 1,
+      version: transfer.version,
+    }
+  );
+  assert.deepEqual(plaintext, f.bytes.subarray(0, DOWNLOAD_WINDOW_MAX_BYTES));
+
+  // Resume from an acknowledged offset: the next window starts on its segment.
+  sent.length = 0;
+  const resume = downloadRequest(transfer, { id: 'd2', range: `bytes=${DOWNLOAD_WINDOW_MAX_BYTES + 100}-` });
+  await lane.serve(resume);
+  const tail = await decodeWindow(key, resume, sent);
+  assert.equal(tail.meta.start, DOWNLOAD_WINDOW_MAX_BYTES);
+  assert.equal(tail.meta.version, transfer.version);
+  assert.deepEqual(tail.plaintext, f.bytes.subarray(DOWNLOAD_WINDOW_MAX_BYTES));
+});
+
+test('a lease is served to its own device only, and never through the gallery resolution', async (t) => {
+  const f = await downloadFixture(t, 'mine.bin', 1000);
+  const transfer = await f.begin();
+  let galleryAsked = false;
+  const { lane, sent } = await makeLane({
+    downloads: f.service,
+    host: {
+      invokeCapability: async () => {
+        galleryAsked = true;
+        return null;
+      },
+    },
+  });
+  for (const extra of [
+    { sid: SID_OTHER },
+    { assetId: '00000000-0000-4000-8000-000000000000' },
+    { variant: 'original' },
+  ]) {
+    sent.length = 0;
+    await lane.serve(downloadRequest(transfer, extra));
+    assert.equal(sent[0].status, 404, JSON.stringify(extra));
+    assert.equal(
+      sent.some((envelope) => envelope.type === 'media-chunk'),
+      false
+    );
+  }
+  assert.equal(galleryAsked, true, 'only the original variant asked the gallery');
+  galleryAsked = false;
+  sent.length = 0;
+  await lane.serve(downloadRequest(transfer, { assetId: '00000000-0000-4000-8000-000000000000' }));
+  assert.equal(galleryAsked, false);
+  // Without a lane for downloads at all, nothing is served either.
+  const bare = await makeLane();
+  await bare.lane.serve(downloadRequest(transfer));
+  assert.equal(bare.sent[0].status, 404);
+});
+
+test('a file that changed is refused as 412 before any byte, and the lease then ends', async (t) => {
+  const f = await downloadFixture(t, 'moving.bin', 200_000);
+  const transfer = await f.begin();
+  const { lane, sent } = await makeLane({ downloads: f.service });
+  appendFileSync(f.path, '+');
+  await lane.serve(downloadRequest(transfer, { range: 'bytes=65536-' }));
+  assert.equal(sent[0].status, 412);
+  assert.equal(
+    sent.some((envelope) => envelope.type === 'media-chunk'),
+    false
+  );
+  sent.length = 0;
+  await lane.serve(downloadRequest(transfer));
+  assert.equal(sent[0].status, 404);
+});
+
+test('a file that changes mid-stream breaks the body off with an error', async () => {
+  const bytes = Buffer.alloc(300_000, 3);
+  let reads = 0;
+  const downloads = {
+    resolveMedia: () => ({
+      size: bytes.length,
+      mime: 'application/zip',
+      version: 'V'.repeat(43),
+      read: async (offset, length) => {
+        reads += 1;
+        if (reads > 2) throw new FileDownloadError('changed', 'The file changed on the host.');
+        return bytes.subarray(offset, offset + length);
+      },
+    }),
+  };
+  const { lane, sent } = await makeLane({ downloads });
+  await lane.serve({ ...downloadRequest({ media: { assetId: '00000000-0000-4000-8000-000000000001' } }) });
+  assert.equal(sent[0].status, 200);
+  assert.equal(sent.at(-1).type, 'media-error');
+  // Meta plus the two segments read before the change.
+  assert.equal(sent.filter((envelope) => envelope.type === 'media-chunk').length, 3);
+});
+
+test('an aborted download stops reading and leaves no read holding the lease handle', async () => {
+  const bytes = Buffer.alloc(DOWNLOAD_WINDOW_MAX_BYTES, 5);
+  const reads = [];
+  let inflight = 0;
+  let backlog = 0;
+  const downloads = {
+    resolveMedia: () => ({
+      size: bytes.length,
+      mime: 'application/octet-stream',
+      version: 'V'.repeat(43),
+      read: async (offset, length) => {
+        reads.push([offset, length]);
+        inflight += 1;
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inflight -= 1;
+        return bytes.subarray(offset, offset + length);
+      },
+    }),
+  };
+  const { lane, sent } = await makeLane({ downloads, backlog: () => backlog });
+  const request = downloadRequest({ media: { assetId: '00000000-0000-4000-8000-000000000002' } }, { id: 'ab' });
+  const serving = lane.serve(request);
+  // Let a few segments through, then stall the socket and abort.
+  while (sent.filter((envelope) => envelope.type === 'media-chunk').length < 4) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  backlog = 1e9;
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const readsAtStall = reads.length;
+  lane.abort('ab');
+  await serving;
+  assert.equal(inflight, 0);
+  assert.equal(reads.length, readsAtStall, 'nothing is read after the abort');
+  assert.ok(reads.length < bytes.length / MEDIA_SEGMENT_BYTES, 'the stalled pump did not read ahead');
+  // Every read is one bounded segment: the pump never buffers a window.
+  assert.ok(reads.every(([, length]) => length <= MEDIA_SEGMENT_BYTES));
+  assert.equal(
+    sent.some((envelope) => envelope.type === 'media-end' || envelope.type === 'media-error'),
+    false
+  );
+});
+
+test('a zero-byte lease answers with its meta and no segments', async (t) => {
+  const f = await downloadFixture(t, 'empty.bin', 0);
+  const transfer = await f.begin();
+  const { key, lane, sent } = await makeLane({ downloads: f.service });
+  const request = downloadRequest(transfer);
+  await lane.serve(request);
+  const { meta, bodies } = await decodeWindow(key, request, sent);
+  assert.deepEqual([meta.size, meta.start, meta.end, bodies.length], [0, 0, -1, 1]);
 });

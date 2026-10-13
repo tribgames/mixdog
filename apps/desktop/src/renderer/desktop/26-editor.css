@@ -30,7 +30,7 @@
 }
 /* Same control grammar as the session-header cluster (.session-dock-toggle):
    28px box, 6px radius, label ink, 4px rhythm — the file strip's icons must
-   not read lighter than the TASK row above (user decision). */
+   not read lighter than the TASK row above. */
 .editor-breadcrumb-actions {
   height: 30px;
   flex: 0 0 auto;
@@ -69,7 +69,7 @@
 }
 /* Same 18px optical frame as the header cluster (context/remote/panel):
    the previous 16px glyph read visibly lighter than the TASK-side icons in
-   the row above (user: 파일쪽 아이콘이 훨씬 잘 안 보인다). */
+   the row above. */
 .editor-breadcrumb-actions svg.lucide {
   width: var(--mx-icon-lg);
   height: var(--mx-icon-lg);
@@ -1029,7 +1029,7 @@
   width: min(600px, 62vw, calc(100vw - 32px));
   overflow: hidden;
   /* Outlined, unlike the frameless popup skin: a centered card over the
-     conversation needs a visible edge (user: 외곽선이 없어서 구분이 안 됨). */
+     conversation needs a visible edge. */
   border: var(--mx-hairline) solid var(--mx-border);
   border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
@@ -1288,12 +1288,64 @@
   min-height: 0;
   height: 0;
   overflow: hidden;
-  padding: 8px 0 8px 12px;
   background: var(--mx-terminal-bg);
 }
+/* The inset lives on the xterm element itself: the fit addon subtracts only
+   that element's padding from its parent's height, so padding on the parent
+   overcounted rows and clipped the bottom line. */
 .dock-terminal .xterm {
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
+  padding: 8px 0 8px 12px;
+}
+/* Phone key bar: a compact row under the xterm, i.e. right above the soft
+   keyboard (the sheet shrinks to the visible viewport). Phone layout only. */
+.terminal-key-bar {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--mx-terminal-bg);
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar::-webkit-scrollbar {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar-key {
+  flex: 1 0 auto;
+  min-width: 38px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  /* The app's own button grammar (.browser-pane-nav-button / .browser-tab):
+     --mx-radius-md plate, idle tab ink, --mx-hover resting plate,
+     --mx-pressed on press, and the active-tab plate + ring while armed. */
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-tab-idle-ink);
+  font: inherit;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  -webkit-tap-highlight-color: transparent;
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar-key:active {
+  background: var(--mx-pressed);
+  color: var(--mx-text);
+}
+html[data-mixdog-mobile-tabs] .terminal-key-bar-key[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-text) 18%, transparent);
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
 }
 .dock-terminal .xterm-viewport {
   overflow-y: scroll;
@@ -1351,7 +1403,7 @@
    below the aggregate floor the bottom panel overlays as a sheet instead of
    forcing the workbench into horizontal scroll (full-responsive shell). */
 @media (max-width: 940px) {
-  /* Flush to the window floor like the drawer (user: 안 비게). */
+  /* Flush to the window floor like the drawer. */
   .panel-backdrop {
     display: block;
     position: fixed;

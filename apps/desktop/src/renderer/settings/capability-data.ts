@@ -7,6 +7,7 @@ import type {
   DesktopUpdaterState,
   SessionSnapshot,
 } from '../../shared/contract';
+import { DESKTOP_READ_CAPABILITIES } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
 import { fetchProviderModels } from '../model-catalog-cache';
 import { t, uiFormatLocale } from '../i18n';
@@ -41,6 +42,23 @@ export type CapabilityApi = Partial<
     | 'openRemoteHost'
     | 'forgetRemoteHost'
     | 'renameRemoteHost'
+    | 'sshListHosts'
+    | 'sshRenameHost'
+    | 'sshForgetHost'
+    | 'sshOpenHost'
+    | 'sshConfigHosts'
+    | 'sshInspectHostKey'
+    | 'sshConnect'
+    | 'sshCancel'
+    | 'sshAskpassReply'
+    | 'sshCleanupHost'
+    | 'sshUpdateHostSettings'
+    | 'subscribeSshAskpass'
+    | 'subscribeSshCleanupProgress'
+    | 'sshDiagnosticsLog'
+    | 'sshDiagnosticsCopy'
+    | 'sshServerLog'
+    | 'subscribeSshProgress'
     | 'getRemoteAccessSettings'
     | 'setRemoteAccessEnabled'
     | 'setRemotePcName'
@@ -175,6 +193,16 @@ function trace(event: string, detail: Record<string, unknown> = {}): void {
 interface CapabilitySettingsCacheEntry {
   value?: CachedCapabilitySettings;
   inFlight?: Promise<CachedCapabilitySettings>;
+  /** Bumped by every resolved settings mutation. A sweep reflects only the
+   *  epoch it started in: its reads may have been answered before the write. */
+  epoch: number;
+  /** Epoch the in-flight sweep started in. */
+  inFlightEpoch: number;
+  /** Epoch the cached value was read in; behind `epoch` means stale. */
+  valueEpoch: number;
+  /** Sweep order, so an older sweep that lands late never replaces a newer one. */
+  sweeps: number;
+  adoptedSweep: number;
 }
 
 const CAPABILITY_SETTINGS_CACHE = new WeakMap<object, CapabilitySettingsCacheEntry>();
@@ -183,9 +211,26 @@ function settingsCacheEntry(api: CapabilityApi): CapabilitySettingsCacheEntry {
   const key = api as object;
   const cached = CAPABILITY_SETTINGS_CACHE.get(key);
   if (cached) return cached;
-  const created: CapabilitySettingsCacheEntry = {};
+  const created: CapabilitySettingsCacheEntry = {
+    epoch: 0,
+    inFlightEpoch: 0,
+    valueEpoch: 0,
+    sweeps: 0,
+    adoptedSweep: 0,
+  };
   CAPABILITY_SETTINGS_CACHE.set(key, created);
   return created;
+}
+
+const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
+
+/** A settings write resolved (`capability` omitted: one made outside the
+ *  capability channel): neither the cached sweep nor one still in flight may
+ *  answer the next load — both can hold the value from before the write, which
+ *  kept a toggle showing its old state until a full reload. Reads change nothing. */
+export function invalidateCapabilitySettings(api: CapabilityApi, capability?: DesktopCapability): void {
+  if (capability && READ_CAPABILITY_SET.has(capability)) return;
+  settingsCacheEntry(api).epoch += 1;
 }
 
 export function getCachedCapabilitySettings(api: CapabilityApi): CachedCapabilitySettings | undefined {
@@ -346,19 +391,26 @@ export function preloadCapabilitySettings(
   onPartial?: (data: Record<string, unknown>) => void
 ): Promise<CachedCapabilitySettings> {
   const entry = settingsCacheEntry(api);
-  if (entry.inFlight) {
+  if (entry.inFlight && entry.inFlightEpoch === entry.epoch) {
     // A second opener joins the in-flight sweep. Cold partials stay private:
     // exposing them as cache entries made rows pop into the dialog in batches.
     return entry.inFlight;
   }
-  if (entry.value && !force) return Promise.resolve(entry.value);
+  if (entry.value && !force && entry.valueEpoch === entry.epoch) return Promise.resolve(entry.value);
+  const epoch = entry.epoch;
+  const sweep = ++entry.sweeps;
   const request = readAllCapabilitySettings(api, force, entry.value, (partial) => {
     onPartial?.(partial);
   });
   entry.inFlight = request;
+  entry.inFlightEpoch = epoch;
   void request.then(
     (value) => {
-      entry.value = value;
+      if (sweep > entry.adoptedSweep) {
+        entry.value = value;
+        entry.valueEpoch = epoch;
+        entry.adoptedSweep = sweep;
+      }
       if (entry.inFlight === request) entry.inFlight = undefined;
     },
     () => {

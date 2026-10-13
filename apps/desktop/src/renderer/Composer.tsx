@@ -67,6 +67,8 @@ import { ComposerBanners } from './ComposerBanners';
 import { ComposerFooter } from './ComposerFooter';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
+import { VisualizeFeedbackChips } from './VisualizeFeedback';
+import { useVisualizeFeedback, visualizeFeedbackPending } from './visualize-feedback-store';
 
 // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency, logged
 // only when a frame is actually slow.
@@ -232,6 +234,7 @@ export type ComposerProps = {
   autoEffort?: boolean;
   modelParameters?: Record<string, string>;
   contextPercent?: number;
+  contextTokens?: number;
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
@@ -289,6 +292,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     autoEffort,
     modelParameters,
     contextPercent,
+    contextTokens,
     draftMode,
     onDraftModelSelection,
     onRoutePreferenceApplied,
@@ -555,7 +559,11 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onQueuedRestored,
     selectedSkill: skillSelection.name,
     onSkillSubmitted: skillSelection.submitted,
+    sessionId,
   });
+  // Pins and picks queued from the session's visualize panel make a message
+  // sendable on their own.
+  const feedbackPending = visualizeFeedbackPending(useVisualizeFeedback(sessionId));
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     void send('', 'form-submit');
@@ -606,6 +614,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // the take is queued/steered instead of the press interrupting the turn.
   const stopOnly =
     dictation.dictationState === 'idle' &&
+    !feedbackPending &&
     shouldStopComposerGeneration({
       turnBusy,
       text: draft,
@@ -729,6 +738,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             onOpenFile={onOpenFile}
           />
         )}
+        <VisualizeFeedbackChips sessionId={sessionId} />
         {editingPaste && (
           <ComposerPastedTextDialog
             anchor={textarea}
@@ -802,6 +812,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           voiceSend={voiceSend}
           draft={draft}
           attachments={attachments}
+          feedbackPending={feedbackPending}
           onStop={() => void stop()}
           modelAside={modelAside}
           provider={provider}
@@ -812,6 +823,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           autoEffort={autoEffort}
           modelParameters={modelParameters}
           contextPercent={contextPercent}
+          contextTokens={contextTokens}
           sessionId={sessionId}
           invokeResult={invokeResult}
           applySnapshot={applySnapshot}

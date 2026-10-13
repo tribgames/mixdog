@@ -1,6 +1,7 @@
 /** Renderer view of what the in-app browser saw of a page (title, site icon,
  *  thumbnail). Each address is asked for once, then again only when the
- *  browser reports a change on its site. Nothing here touches the network. */
+ *  browser reports a change on its site. Nothing here touches the network;
+ *  a page card's preview is read by the main process. */
 import { useCallback, useSyncExternalStore } from 'react';
 import type { DesktopBrowserPageIdentity } from '../shared/contract';
 
@@ -11,6 +12,8 @@ interface Entry {
   listeners: Set<() => void>;
   requested: boolean;
   generation: number;
+  /** A page card shows this address: a missing thumbnail may be previewed. */
+  preview: boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -30,7 +33,7 @@ function request(url: string, entry: Entry): void {
   if (!read) return;
   entry.requested = true;
   const generation = ++entry.generation;
-  read(url).then(
+  read(url, entry.preview ? { preview: true } : undefined).then(
     (identity) => {
       if (generation !== entry.generation) return;
       entry.identity = identity ?? null;
@@ -56,7 +59,7 @@ function watchChanges(): void {
 function entryFor(url: string): Entry {
   let entry = entries.get(url);
   if (!entry) {
-    entry = { identity: null, listeners: new Set(), requested: false, generation: 0 };
+    entry = { identity: null, listeners: new Set(), requested: false, generation: 0, preview: false };
     entries.set(url, entry);
     for (const [key, old] of entries) {
       if (entries.size <= ENTRY_LIMIT) break;
@@ -66,19 +69,29 @@ function entryFor(url: string): Entry {
   return entry;
 }
 
-function subscribe(url: string, listener: () => void): () => void {
+function subscribe(url: string, listener: () => void, preview: boolean): () => void {
   if (!url) return () => undefined;
   const entry = entryFor(url);
   entry.listeners.add(listener);
   watchChanges();
+  if (preview && !entry.preview) {
+    entry.preview = true;
+    entry.requested = false;
+  }
   if (!entry.requested) request(url, entry);
   return () => entry.listeners.delete(listener);
 }
 
-/** What the in-app browser recorded for `url`; null until (and unless) known. */
-export function useBrowserPageIdentity(url: string | undefined): DesktopBrowserPageIdentity | null {
+/** What the in-app browser recorded for `url`; null until (and unless) known.
+ *  `preview` (page cards only): a page without a screenshot gets its own
+ *  link-preview image, which arrives later as a change. */
+export function useBrowserPageIdentity(
+  url: string | undefined,
+  options: { preview?: boolean } = {}
+): DesktopBrowserPageIdentity | null {
   const key = url && originOf(url) ? url : '';
-  const watch = useCallback((listener: () => void) => subscribe(key, listener), [key]);
+  const preview = options.preview === true;
+  const watch = useCallback((listener: () => void) => subscribe(key, listener, preview), [key, preview]);
   const snapshot = () => (key ? (entries.get(key)?.identity ?? null) : null);
   return useSyncExternalStore(watch, snapshot, snapshot);
 }

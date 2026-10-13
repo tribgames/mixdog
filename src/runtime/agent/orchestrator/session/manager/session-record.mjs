@@ -92,7 +92,18 @@ export function sessionOriginFields(opts, { profile, presetObj, providerCacheOpt
 
 // The persisted session record.
 export function buildSessionRecord({ opts, route, presetObj, surface, prompt, messages, contextMeta, origin }) {
-  const { providerName, modelName, toolPreset, effort, fast, autoEffort, modelParameters, contextPercent, id } = route;
+  const {
+    providerName,
+    modelName,
+    toolPreset,
+    effort,
+    fast,
+    autoEffort,
+    modelParameters,
+    contextPercent,
+    contextTokens,
+    id,
+  } = route;
   return {
     id,
     codexWireSessionId: providerName === 'openai-oauth' ? mintUuidV7() : null,
@@ -119,6 +130,7 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     ...(autoEffort === false ? { autoEffort: false } : {}),
     modelParameters,
     contextPercent,
+    ...(contextTokens ? { contextTokens } : {}),
     selectedContextWindow: opts.selectedContextWindow || null,
     agent: opts.agent,
     owner: opts.owner || 'user',
@@ -146,6 +158,7 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     lastHeartbeatAt: null,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalToolCalls: 0,
     // Refreshed on each completed ask() — surfaced by agent type=list for
     // debugging + consumed by store.mjs's idle-sweep to reclaim stalled
     // agent sessions past RUNNING_STALL_MS.

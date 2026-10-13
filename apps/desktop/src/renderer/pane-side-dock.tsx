@@ -10,15 +10,18 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
 } from 'react';
-import { X } from 'lucide-react';
+import { FolderTree } from 'lucide-react';
 import type { SideFileChrome } from './side-surface-strip';
 import { DockHeaderRow, PaneDockExpandContext } from './pane-dock-chrome';
 import { PaneDockDiffColumn } from './pane-dock-diff-column';
 import { PaneDockFileSurface } from './PaneDockFileSurface';
+import { SESSION_BOUND_VIEWS } from './pane-dock-toggles';
+import { publishPhoneDockSwitch, type PhoneDockSwitchItem } from './phone-dock-switch';
 import {
   commitWidthPref,
   useDiffColumnResize,
@@ -26,7 +29,6 @@ import {
   useDockCloseRequest,
   useDockExpansion,
   useDockMounting,
-  useMobileOutsideFold,
   usePanelWidthDrag,
   useSideFileProblems,
 } from './pane-side-dock-hooks';
@@ -378,12 +380,12 @@ export function normalizePaneSideDocks(
       surface = PANE_DOCK_FILES_SURFACE;
     }
     const open = (entry ? entry.open === true : defaultOpen) && (view !== null || surface !== '');
-    const activeFile =
-      entry && typeof entry.activeFile === 'string' && files.some((file) => sideFileKey(file) === entry.activeFile)
-        ? entry.activeFile
-        : files.length > 0
-          ? sideFileKey(files[files.length - 1])
-          : undefined;
+    let activeFile: string | undefined;
+    if (entry && typeof entry.activeFile === 'string' && files.some((file) => sideFileKey(file) === entry.activeFile)) {
+      activeFile = entry.activeFile;
+    } else if (files.length > 0) {
+      activeFile = sideFileKey(files[files.length - 1]);
+    }
     next[leafId] = {
       open,
       view,
@@ -459,6 +461,15 @@ export function withPaneDockFileClosed(entry: PaneSideDockEntry, fileKey?: strin
   if (rest.files.length > 0 && rest.active) return { ...entry, files: rest.files, activeFile: rest.active };
   const { files: _files, activeFile: _activeFile, ...bare } = entry;
   return { ...bare, surface: entry.surface === PANE_DOCK_FILE_SURFACE ? '' : entry.surface };
+}
+
+/** True when closing `fileKey` removes the dock's last tab: the last file tab
+ *  with no other surface tab (the session's Changes) left in the strip. The
+ *  dock then closes instead of falling back to its panel view. */
+export function paneDockFileCloseEndsDock(entry: PaneSideDockEntry, fileKey: string, sessionBound: boolean): boolean {
+  const files = entry.files ?? [];
+  if (files.length !== 1 || sideFileKey(files[0]) !== fileKey) return false;
+  return !(sessionBound && entry.view === 'session-diff');
 }
 
 /** Open-or-replace: a transcript folder link shows the project's Files tree
@@ -644,20 +655,21 @@ function usePaneSideDockPatch({
   );
 }
 
-/** Every command a dock header, tab, or project tool can issue. */
-function usePaneSideDockCommands({
-  groupsRef,
-  dirtyKeysRef,
-  setDocks,
-  setTemporary,
-}: {
-  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
-  /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
-  dirtyKeysRef: { current: ReadonlySet<string> };
-  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
-  setTemporary: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>;
-}) {
-  const patch = usePaneSideDockPatch({ groupsRef, setDocks, setTemporary });
+type PaneSideDockPatch = ReturnType<typeof usePaneSideDockPatch>;
+
+/** A diff or file target from a project tool or transcript link: a trimmed
+ *  project and a forward-slash, project-relative path. */
+function cleanDockTarget(project: string, rel: string): { project: string; rel: string } {
+  return {
+    project: String(project || '').trim(),
+    rel: String(rel || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, ''),
+  };
+}
+
+/** Header-tab, open, and fold commands for the unit as a whole. */
+function usePaneDockViewCommands(patch: PaneSideDockPatch) {
   /** Header-tab click contract: a panel view lands in the body, the browser lands as its stacked
    *  surface; folding stays with the dock's own toggle/close controls. */
   const select = useCallback(
@@ -699,12 +711,14 @@ function usePaneSideDockCommands({
     },
     [patch]
   );
+  return { select, open, setOpen, toggle };
+}
+
+/** Opens and closes the unit's single file diff. */
+function usePaneDockDiffCommands(patch: PaneSideDockPatch) {
   const openDiff = useCallback(
     (leafId: string, project: string, rel: string, request: PaneSideDiffRequest) => {
-      const cleanProject = String(project || '').trim();
-      const cleanRel = String(rel || '')
-        .replace(/\\/g, '/')
-        .replace(/^\/+/, '');
+      const { project: cleanProject, rel: cleanRel } = cleanDockTarget(project, rel);
       if (!cleanProject || !cleanRel) return;
       patch(leafId, (entry) =>
         withPaneDockDiffOpened(entry, {
@@ -723,6 +737,15 @@ function usePaneSideDockCommands({
     },
     [patch]
   );
+  return { openDiff, closeDiff };
+}
+
+/** The side file tabs: open, close, activate, and keep. */
+function usePaneDockFileCommands(
+  patch: PaneSideDockPatch,
+  /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
+  dirtyKeysRef: { current: ReadonlySet<string> }
+) {
   const openFile = useCallback(
     (
       leafId: string,
@@ -733,10 +756,7 @@ function usePaneSideDockCommands({
       column?: number,
       request?: { preview?: boolean; from?: string; sidePreview?: boolean }
     ) => {
-      const cleanProject = String(project || '').trim();
-      const cleanRel = String(rel || '')
-        .replace(/\\/g, '/')
-        .replace(/^\/+/, '');
+      const { project: cleanProject, rel: cleanRel } = cleanDockTarget(project, rel);
       if (!cleanProject || !cleanRel) return;
       const nonce = Date.now();
       patch(leafId, (entry) =>
@@ -780,6 +800,11 @@ function usePaneSideDockCommands({
     },
     [patch]
   );
+  return { openFile, closeFile, activateFile, keepFile };
+}
+
+/** The Files tree a transcript folder link opens. */
+function usePaneDockFolderCommands(patch: PaneSideDockPatch) {
   const openFolder = useCallback(
     (leafId: string, project: string, rel: string) => {
       const cleanProject = String(project || '').trim();
@@ -799,19 +824,28 @@ function usePaneSideDockCommands({
     },
     [patch]
   );
+  return { openFolder, closeFolder };
+}
+
+/** Every command a dock header, tab, or project tool can issue. */
+function usePaneSideDockCommands({
+  groupsRef,
+  dirtyKeysRef,
+  setDocks,
+  setTemporary,
+}: {
+  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
+  /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
+  dirtyKeysRef: { current: ReadonlySet<string> };
+  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
+  setTemporary: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>;
+}) {
+  const patch = usePaneSideDockPatch({ groupsRef, setDocks, setTemporary });
   return {
-    select,
-    open,
-    setOpen,
-    toggle,
-    openDiff,
-    closeDiff,
-    openFile,
-    closeFile,
-    activateFile,
-    keepFile,
-    openFolder,
-    closeFolder,
+    ...usePaneDockViewCommands(patch),
+    ...usePaneDockDiffCommands(patch),
+    ...usePaneDockFileCommands(patch, dirtyKeysRef),
+    ...usePaneDockFolderCommands(patch),
   };
 }
 
@@ -1058,75 +1092,55 @@ function PaneDockChromeRow({
   );
 }
 
-/** The phone sheet's title row; it slides out with the unit. */
-function MobileDockHeader({
-  fileShowing,
-  descriptor,
-  onClose,
-}: {
-  fileShowing: boolean;
-  descriptor: WorkbenchSideViewDescriptor | undefined;
-  onClose(): void;
-}) {
-  return (
-    <header className="pane-side-dock-header">
-      {fileShowing ? (
-        <div className="pane-side-dock-title">
-          <span>{t('File')}</span>
-        </div>
-      ) : (
-        descriptor && (
-          <div className="pane-side-dock-title">
-            <span>{descriptor.title ?? descriptor.label}</span>
-          </div>
-        )
-      )}
-      <button
-        type="button"
-        className="pane-side-dock-close"
-        aria-label={t('Close panel')}
-        data-tooltip={t('Close panel')}
-        onClick={onClose}
-      >
-        {/* Same voice as the island buttons: lucide line work at 20px — the
-            codicon font glyph read thinner and off-size beside them. A bare two-stroke X
-            at the pictograms' weight reads HEAVIER than they do, so it takes
-            one step less stroke to sit at the same optical weight. */}
-        <X size={20} aria-hidden="true" />
-      </button>
-    </header>
-  );
-}
-
-export function PaneSideDock({
-  leafId,
-  entry,
+/** Phone sheet: no title/icon bar of its own — each pane's PC header row is the
+ *  top row, and the pane switch (Changes / Browser / Terminal / …, plus the
+ *  project Files tree) rides in that row's ⋯ menu through phone-dock-switch. */
+function PhoneDockSwitchPublisher({
   groups,
   descriptors,
-  focused,
-  prewarm = false,
+  activeRoot,
+  sessionBound,
+  files,
   onSelect,
-  onClose,
-  onCloseDiff,
-  onCloseFile,
-  onCloseFileTab,
-  onActivateFile,
-  onKeepFile,
-  onCloseFolder,
-  onMoveGroup,
-  onMoveView,
-  onFocusPane,
-  openFileTab,
-  renderBrowserSurface,
-  renderTerminalSurface,
-  renderFilesSurface,
-  renderFileSurface,
-  renderFileProblems,
-  renderView,
-  renderDiffHeaderControls,
 }: {
+  groups: readonly WorkbenchSideViewGroup[];
+  descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
+  activeRoot: WorkbenchSideViewId | null;
+  sessionBound: boolean;
+  files?: { active: boolean; onOpen(): void };
+  onSelect(id: WorkbenchSideViewId): void;
+}) {
+  const items: PhoneDockSwitchItem[] = [];
+  if (files) items.push({ id: 'files', label: t('Files'), icon: FolderTree, active: files.active, disabled: false });
+  for (const group of groups) {
+    const root = group[0];
+    const descriptor = root === undefined ? undefined : descriptors.get(root);
+    if (!root || !descriptor) continue;
+    items.push({
+      id: root,
+      label: descriptor.tooltip || descriptor.label,
+      icon: descriptor.icon,
+      active: activeRoot !== null && group.includes(activeRoot),
+      disabled: !sessionBound && SESSION_BOUND_VIEWS.includes(root),
+    });
+  }
+  useEffect(() => {
+    publishPhoneDockSwitch(items, (id) => {
+      if (id === 'files') files?.onOpen();
+      else onSelect(id as WorkbenchSideViewId);
+    });
+  });
+  useEffect(() => () => publishPhoneDockSwitch([], () => {}), []);
+  return null;
+}
+type PaneSideDockProps = {
   leafId: string;
   entry: PaneSideDockEntry;
+  /** A session stands behind the pane (its session-owned toggles are live). */
+  sessionBound?: boolean;
+  /** Phone sheet header: shows the pane project's Files tree. Absent without
+   *  a project, so no Files toggle is drawn. */
+  onOpenFiles?(): void;
   /** Optional controls rendered in the diff header's left slot after the
    *  file chip (the unified/split menu by default). */
   renderDiffHeaderControls?: () => ReactNode;
@@ -1179,11 +1193,10 @@ export function PaneSideDock({
    *  editor, never in the main pane's bottom panel. */
   renderFileProblems?(file: PaneSideDockFile): ReactNode;
   renderView(id: WorkbenchSideViewId, active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
-}) {
-  const openNow = entry.open && (entry.view !== null || entry.surface !== '');
-  const { panelMounted, dockBodyMounted } = useDockMounting(openNow, prewarm);
-  const fileProblems = useSideFileProblems((entry.files?.length ?? 0) > 0);
-  const activeFile = paneDockActiveFile(entry);
+};
+
+/** Which child of an open unit is showing; every flag is false while folded. */
+function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
   const surfaceShowing = openNow && entry.surface !== '';
   const browserShowing = surfaceShowing && entry.surface === PANE_DOCK_BROWSER_SURFACE;
   const terminalShowing = surfaceShowing && entry.surface === PANE_DOCK_TERMINAL_SURFACE;
@@ -1193,7 +1206,337 @@ export function PaneSideDock({
   const diffShowing = surfaceShowing && paneDiffShowing(entry);
   // The Changes panel view draws its own DockHeaderRow (SessionDiffPane).
   const sessionDiffPanelShowing =
-    openNow && entry.surface === '' && (entry.view === 'session-diff' || entry.view === 'background-jobs');
+    openNow && entry.surface === '' && (entry.view === 'session-diff' || entry.view === 'visualize');
+  return {
+    browserShowing,
+    terminalShowing,
+    fileShowing,
+    filesShowing,
+    sessionSurfaceShowing,
+    diffShowing,
+    sessionDiffPanelShowing,
+  };
+}
+
+/** Width bounds and preference of the session surface column (terminal or browser). */
+function dockSessionWidths(terminalShowing: boolean, terminalPref: number, browserPref: number) {
+  return {
+    min: terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH : PANE_SIDE_DOCK_BROWSER_MIN_WIDTH,
+    max: terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MAX_WIDTH : PANE_SIDE_DOCK_BROWSER_MAX_WIDTH,
+    pref: terminalShowing ? terminalPref : browserPref,
+    initial: terminalShowing ? PANE_SIDE_DOCK_TERMINAL_DEFAULT_WIDTH : PANE_SIDE_DOCK_BROWSER_DEFAULT_WIDTH,
+  };
+}
+
+/** The panel column's drag range: the session surface's own, else the classic panel's. */
+function dockWidthRange(sessionSurfaceShowing: boolean, session: ReturnType<typeof dockSessionWidths>) {
+  if (sessionSurfaceShowing) return { min: session.min, max: session.max, initial: session.initial };
+  return {
+    min: PANE_SIDE_DOCK_MIN_WIDTH,
+    max: PANE_SIDE_DOCK_PANEL_MAX_WIDTH,
+    initial: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
+  };
+}
+
+/** Expanded, the panel fills the sheet (minus its borders and the diff pair column). */
+function expandedAsideWidth(
+  baseAsideWidth: number,
+  expandedRect: { width: number } | null | undefined,
+  pairColumnWidth: number
+): number {
+  if (!expandedRect) return baseAsideWidth;
+  return Math.max(baseAsideWidth, Math.round(expandedRect.width) - 2 - pairColumnWidth);
+}
+
+type DockDiffSurfaceContext = {
+  diffShowing: boolean;
+  diffView: ReturnType<typeof useDiffViewState>;
+  openFileTab: PaneSideDockProps['openFileTab'];
+  onCloseDiff(): void;
+};
+
+/** The same deferred diff body serves the stacked 2뎁스 layer and the pair column. */
+function renderDockDiffSurface(selection: PaneSideDockDiff, context: DockDiffSurfaceContext, stacked = false) {
+  return (
+    <DeferredPersistentSurface
+      active
+      startupDelayMs={DIFF_STARTUP_DELAY_MS}
+      fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
+    >
+      <ReadyGitDiffPane
+        selection={selection}
+        active={context.diffShowing}
+        onOpenFile={context.openFileTab}
+        chrome="side"
+        onBack={stacked ? context.onCloseDiff : undefined}
+        // The shared chrome row (chip, controls, ⋯ switch, ×) serves the phone too.
+        headerControlsExternal
+        viewState={context.diffView}
+      />
+    </DeferredPersistentSurface>
+  );
+}
+
+/** The stacked children over the panel body — Files tree, file card, browser,
+ *  terminal, and the 2뎁스 diff; falsy when none is mounted. */
+function renderPaneDockSurfaces(
+  props: Pick<
+    PaneSideDockProps,
+    | 'entry'
+    | 'sessionBound'
+    | 'onSelect'
+    | 'onClose'
+    | 'onCloseFile'
+    | 'onCloseFileTab'
+    | 'onActivateFile'
+    | 'onKeepFile'
+    | 'onCloseFolder'
+    | 'openFileTab'
+    | 'renderBrowserSurface'
+    | 'renderTerminalSurface'
+    | 'renderFilesSurface'
+    | 'renderFileSurface'
+    | 'renderFileProblems'
+  >,
+  {
+    showing,
+    dockBodyMounted,
+    twoDepth,
+    fileProblems,
+    diffContext,
+  }: {
+    showing: ReturnType<typeof paneDockShowing>;
+    dockBodyMounted: boolean;
+    twoDepth: boolean;
+    fileProblems: ReturnType<typeof useSideFileProblems>;
+    diffContext: DockDiffSurfaceContext;
+  }
+) {
+  const {
+    entry,
+    sessionBound,
+    onSelect,
+    onClose,
+    onCloseFile,
+    onCloseFileTab,
+    onActivateFile,
+    onKeepFile,
+    onCloseFolder,
+    openFileTab,
+    renderBrowserSurface,
+    renderTerminalSurface,
+    renderFilesSurface,
+    renderFileSurface,
+    renderFileProblems,
+  } = props;
+  const { browserShowing, terminalShowing, fileShowing, filesShowing, diffShowing } = showing;
+  const activeFile = paneDockActiveFile(entry);
+  // Browser: standalone under the header — a
+  // persistent layer stacked over the panel body. In the narrow 2뎁스 stage
+  // the diff rides the same layer, with a back step to the list.
+  const twoDepthDiff = dockBodyMounted && twoDepth && entry.diff && (
+    <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
+      {renderDockDiffSurface(entry.diff, diffContext, true)}
+    </div>
+  );
+  const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing) ?? null) : null;
+  const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing) ?? null) : null;
+  const leadingTab =
+    sessionBound && entry.view === 'session-diff'
+      ? { label: t('Changes'), onSelect: () => onSelect('session-diff') }
+      : undefined;
+  const fileSurface =
+    dockBodyMounted && entry.files?.length ? (
+      <PaneDockFileSurface
+        files={entry.files}
+        activeFile={activeFile}
+        active={fileShowing}
+        problems={fileProblems}
+        renderFileSurface={renderFileSurface}
+        renderFileProblems={renderFileProblems}
+        onActivateFile={onActivateFile}
+        onCloseFileTab={onCloseFileTab}
+        onKeepFile={onKeepFile}
+        onCloseFile={onCloseFile}
+        onClose={onClose}
+        openFileTab={openFileTab}
+        leadingTab={leadingTab}
+      />
+    ) : null;
+  const filesSurface =
+    dockBodyMounted && entry.folder
+      ? (renderFilesSurface?.(entry.folder, filesShowing, { onClose: onCloseFolder ?? onClose }) ?? null)
+      : null;
+  const surfaces = (browserSurface || terminalSurface || fileSurface || filesSurface || twoDepthDiff) && (
+    <>
+      {filesSurface && <PaneDockSurfaceSlot active={filesShowing}>{filesSurface}</PaneDockSurfaceSlot>}
+      {fileSurface}
+      {browserSurface && (
+        <div
+          className="workbench-side-surface-slot"
+          data-surface-active={browserShowing ? 'true' : 'false'}
+          inert={browserShowing ? undefined : true}
+          aria-hidden={browserShowing ? undefined : true}
+        >
+          {browserSurface}
+        </div>
+      )}
+      {terminalSurface && <PaneDockSurfaceSlot active={terminalShowing}>{terminalSurface}</PaneDockSurfaceSlot>}
+      {twoDepthDiff}
+    </>
+  );
+  return surfaces;
+}
+
+/** The [diff | panel] row under the header: the paired diff column and the
+ *  embedded right-side panel that hosts the views and the stacked surfaces. */
+function renderPaneDockMain(
+  props: Pick<
+    PaneSideDockProps,
+    'entry' | 'groups' | 'descriptors' | 'onSelect' | 'onMoveGroup' | 'onMoveView' | 'renderView'
+  >,
+  {
+    openNow,
+    dockBodyMounted,
+    diffColumn,
+    surfaces,
+    surfacesActive,
+    asideWidth,
+    panelWidthDrag,
+    widthRange,
+  }: {
+    openNow: boolean;
+    dockBodyMounted: boolean;
+    diffColumn: ReactNode;
+    surfaces: ReactNode;
+    surfacesActive: boolean;
+    asideWidth: number;
+    panelWidthDrag: ReturnType<typeof usePanelWidthDrag>;
+    widthRange: ReturnType<typeof dockWidthRange>;
+  }
+) {
+  const { entry, groups, descriptors, onSelect, onMoveGroup, onMoveView, renderView } = props;
+  return (
+    <div className="pane-side-dock-main">
+      {diffColumn}
+      <WorkbenchSidePanel
+        side="right"
+        embedded
+        hideTabs
+        open={openNow}
+        groups={groups}
+        activeRoot={entry.view}
+        surfaces={surfaces}
+        surfacesActive={surfacesActive}
+        descriptors={descriptors}
+        onSelect={onSelect}
+        onMoveGroup={onMoveGroup}
+        onMoveView={onMoveView}
+        widthOverride={asideWidth}
+        onWidthDrag={panelWidthDrag}
+        widthRange={widthRange}
+        renderView={(id, active, titleDragProps) => (dockBodyMounted ? renderView(id, active, titleDragProps) : null)}
+      />
+    </div>
+  );
+}
+
+/** The two header pieces of the unit: the desktop chrome row and, on the
+ *  focused phone sheet, the pane switch publisher. */
+function renderPaneDockHeader(
+  props: Pick<
+    PaneSideDockProps,
+    | 'entry'
+    | 'groups'
+    | 'descriptors'
+    | 'focused'
+    | 'sessionBound'
+    | 'onOpenFiles'
+    | 'onSelect'
+    | 'onClose'
+    | 'renderDiffHeaderControls'
+  >,
+  {
+    openNow,
+    mobileSheet,
+    showing,
+    diffView,
+  }: {
+    openNow: boolean;
+    mobileSheet: boolean;
+    showing: ReturnType<typeof paneDockShowing>;
+    diffView: ReturnType<typeof useDiffViewState>;
+  }
+) {
+  const {
+    entry,
+    groups,
+    descriptors,
+    focused,
+    sessionBound = false,
+    onOpenFiles,
+    onSelect,
+    onClose,
+    renderDiffHeaderControls,
+  } = props;
+  const { sessionSurfaceShowing, sessionDiffPanelShowing, diffShowing, filesShowing } = showing;
+  // ONE header line for the whole unit, spanning
+  // [diff | panel] at the PANE strip's height. The child icons moved to the
+  // pane strip's right end (PaneDockToggles), so the header names only the
+  // showing child and carries the fold X — the Claude Desktop card grammar.
+  // The title is text-only: the strip icon already identifies the view.
+  const activeRoot = paneDockActiveRoot(entry);
+  // The phone sheet names the last shown child through its exit.
+  const titleRoot = activeRoot ?? (mobileSheet ? entry.view : null);
+  const activeDescriptor = titleRoot ? descriptors.get(titleRoot) : undefined;
+  // Desktop: ONE header row per side surface. File, browser and terminal
+  // draw their own DockHeaderRow in their slot; the dock draws the row
+  // only for the diff and the panel views.
+  const chromeRow = openNow && !sessionSurfaceShowing && !sessionDiffPanelShowing && (
+    <PaneDockChromeRow
+      diffShowing={diffShowing}
+      diff={entry.diff}
+      diffView={diffView}
+      panelTitle={activeDescriptor?.title ?? activeDescriptor?.label ?? ''}
+      renderDiffHeaderControls={renderDiffHeaderControls}
+      onClose={onClose}
+    />
+  );
+  const phoneSwitch = mobileSheet && focused && (
+    <PhoneDockSwitchPublisher
+      groups={groups}
+      descriptors={descriptors}
+      activeRoot={activeRoot}
+      sessionBound={sessionBound}
+      files={onOpenFiles ? { active: filesShowing, onOpen: onOpenFiles } : undefined}
+      onSelect={onSelect}
+    />
+  );
+  return { chromeRow, phoneSwitch };
+}
+
+/** Expanded, the dock sheet is pinned to the measured expansion rect. */
+function expandedHostStyle(
+  dockExpanded: boolean,
+  expandedRect: { left: number; top: number; width: number; height: number } | null | undefined
+): CSSProperties | undefined {
+  if (!dockExpanded || !expandedRect) return undefined;
+  return {
+    position: 'fixed',
+    left: expandedRect.left,
+    top: expandedRect.top,
+    width: expandedRect.width,
+    height: expandedRect.height,
+  };
+}
+
+export function PaneSideDock(props: PaneSideDockProps) {
+  const { leafId, entry, groups, focused, prewarm = false, onClose, onCloseDiff, onFocusPane, openFileTab } = props;
+  const openNow = entry.open && (entry.view !== null || entry.surface !== '');
+  const { panelMounted, dockBodyMounted } = useDockMounting(openNow, prewarm);
+  const fileProblems = useSideFileProblems((entry.files?.length ?? 0) > 0);
+  const showing = paneDockShowing(entry, openNow);
+  const { browserShowing, terminalShowing, sessionSurfaceShowing, diffShowing, sessionDiffPanelShowing } = showing;
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
     useDockWidthPrefs();
@@ -1241,7 +1584,6 @@ export function PaneSideDock({
   // its wrapper's size and re-lays out every row on any change, so a width
   // going to zero on close would cost as much as the unmount did.
   const shownDiffWidth = useRef(0);
-  useMobileOutsideFold(hostRef, openNow, onClose);
   useDockCloseRequest(
     browserShowing || terminalShowing || sessionDiffPanelShowing,
     sessionDiffPanelShowing ? (entry.view ?? '') : entry.surface,
@@ -1251,9 +1593,7 @@ export function PaneSideDock({
   const mobileSheet = useMobileRemoteSurface();
   if (groups.length === 0) return null;
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
-  const sessionMin = terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH : PANE_SIDE_DOCK_BROWSER_MIN_WIDTH;
-  const sessionMax = terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MAX_WIDTH : PANE_SIDE_DOCK_BROWSER_MAX_WIDTH;
-  const sessionPref = terminalShowing ? terminalPref : browserPref;
+  const session = dockSessionWidths(terminalShowing, terminalPref, browserPref);
   const room = cellWidth > 0 ? cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame : Number.POSITIVE_INFINITY;
   const { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth } = resolveDockLayout({
     cellWidth,
@@ -1262,84 +1602,16 @@ export function PaneSideDock({
     mobileSheet,
     diffShowing,
     sessionSurfaceShowing,
-    sessionMin,
-    sessionPref,
+    sessionMin: session.min,
+    sessionPref: session.pref,
     panelPref,
     diffPref,
   });
   const dockExpanded = expanded && openNow && !mobileSheet;
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
-  // Expanded, the panel fills the sheet (minus its borders and the diff pair column).
-  const asideWidth = expandedRect
-    ? Math.max(baseAsideWidth, Math.round(expandedRect.width) - 2 - (pairShowing ? diffWidth : 0))
-    : baseAsideWidth;
-  // The same deferred diff body serves the stacked 2뎁스 layer and the pair column.
-  const diffSurface = (selection: PaneSideDockDiff, stacked = false) => (
-    <DeferredPersistentSurface
-      active
-      startupDelayMs={DIFF_STARTUP_DELAY_MS}
-      fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
-    >
-      <ReadyGitDiffPane
-        selection={selection}
-        active={diffShowing}
-        onOpenFile={openFileTab}
-        chrome="side"
-        onBack={stacked ? onCloseDiff : undefined}
-        headerControlsExternal
-        viewState={diffView}
-      />
-    </DeferredPersistentSurface>
-  );
-  // Browser: standalone under the header — a
-  // persistent layer stacked over the panel body. In the narrow 2뎁스 stage
-  // the diff rides the same layer, with a back step to the list.
-  const twoDepthDiff = dockBodyMounted && twoDepth && entry.diff && (
-    <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
-      {diffSurface(entry.diff, true)}
-    </div>
-  );
-  const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing) ?? null) : null;
-  const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing) ?? null) : null;
-  const fileSurface =
-    dockBodyMounted && entry.files?.length ? (
-      <PaneDockFileSurface
-        files={entry.files}
-        activeFile={activeFile}
-        active={fileShowing}
-        problems={fileProblems}
-        renderFileSurface={renderFileSurface}
-        renderFileProblems={renderFileProblems}
-        onActivateFile={onActivateFile}
-        onCloseFileTab={onCloseFileTab}
-        onKeepFile={onKeepFile}
-        onCloseFile={onCloseFile}
-        onClose={onClose}
-        openFileTab={openFileTab}
-      />
-    ) : null;
-  const filesSurface =
-    dockBodyMounted && entry.folder
-      ? (renderFilesSurface?.(entry.folder, filesShowing, { onClose: onCloseFolder ?? onClose }) ?? null)
-      : null;
-  const surfaces = (browserSurface || terminalSurface || fileSurface || filesSurface || twoDepthDiff) && (
-    <>
-      {filesSurface && <PaneDockSurfaceSlot active={filesShowing}>{filesSurface}</PaneDockSurfaceSlot>}
-      {fileSurface}
-      {browserSurface && (
-        <div
-          className="workbench-side-surface-slot"
-          data-surface-active={browserShowing ? 'true' : 'false'}
-          inert={browserShowing ? undefined : true}
-          aria-hidden={browserShowing ? undefined : true}
-        >
-          {browserSurface}
-        </div>
-      )}
-      {terminalSurface && <PaneDockSurfaceSlot active={terminalShowing}>{terminalSurface}</PaneDockSurfaceSlot>}
-      {twoDepthDiff}
-    </>
-  );
+  const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
+  const diffContext: DockDiffSurfaceContext = { diffShowing, diffView, openFileTab, onCloseDiff };
+  const surfaces = renderPaneDockSurfaces(props, { showing, dockBodyMounted, twoDepth, fileProblems, diffContext });
   // File Diff: PAIRED to the LEFT of the panel view under the same header
   // selection; a project-tool click replaces the file in place. The narrow
   // 2뎁스 stage retires the pair column — the diff stacks over the panel.
@@ -1348,21 +1620,10 @@ export function PaneSideDock({
   const columnWidth = pairShowing ? diffWidth : shownDiffWidth.current || diffDesired;
   const diffColumn = dockBodyMounted && columnDiff && !twoDepth && (
     <PaneDockDiffColumn showing={diffShowing} width={columnWidth} resizeProps={diffResizeProps}>
-      {diffSurface(columnDiff)}
+      {renderDockDiffSurface(columnDiff, diffContext)}
     </PaneDockDiffColumn>
   );
-  // ONE header line for the whole unit, spanning
-  // [diff | panel] at the PANE strip's height. The child icons moved to the
-  // pane strip's right end (PaneDockToggles), so the header names only the
-  // showing child and carries the fold X — the Claude Desktop card grammar.
-  // The title is text-only: the strip icon already identifies the view.
-  const activeRoot = paneDockActiveRoot(entry);
-  // The phone sheet slides out as ONE piece, header included, so the header
-  // stays mounted through the exit and names the last shown child.
-  const headerShowing = openNow || mobileSheet;
-  const titleRoot = activeRoot ?? (mobileSheet ? entry.view : null);
-  const activeDescriptor = titleRoot ? descriptors.get(titleRoot) : undefined;
-  const dockFile = fileShowing ? activeFile : null;
+  const { chromeRow, phoneSwitch } = renderPaneDockHeader(props, { openNow, mobileSheet, showing, diffView });
   return (
     <PaneDockExpandContext.Provider value={dockExpandValue}>
       {dockExpanded && expandedRect && (
@@ -1375,17 +1636,7 @@ export function PaneSideDock({
         data-open={openNow ? 'true' : 'false'}
         data-overlay={overlay ? 'true' : 'false'}
         data-expanded={dockExpanded ? 'true' : 'false'}
-        style={
-          dockExpanded && expandedRect
-            ? {
-                position: 'fixed',
-                left: expandedRect.left,
-                top: expandedRect.top,
-                width: expandedRect.width,
-                height: expandedRect.height,
-              }
-            : undefined
-        }
+        style={expandedHostStyle(dockExpanded, expandedRect)}
         onPointerDownCapture={
           focused
             ? undefined
@@ -1394,65 +1645,19 @@ export function PaneSideDock({
               }
         }
       >
-        {/* Desktop: ONE header row per side surface. File, browser and terminal
-          draw their own DockHeaderRow in their slot; the dock draws the row
-          only for the diff and the panel views. */}
-        {!mobileSheet && openNow && !sessionSurfaceShowing && !sessionDiffPanelShowing && (
-          <PaneDockChromeRow
-            diffShowing={diffShowing}
-            diff={entry.diff}
-            diffView={diffView}
-            panelTitle={activeDescriptor?.title ?? activeDescriptor?.label ?? ''}
-            renderDiffHeaderControls={renderDiffHeaderControls}
-            onClose={onClose}
-          />
-        )}
-        {headerShowing && mobileSheet && (
-          <MobileDockHeader
-            fileShowing={Boolean(dockFile)}
-            descriptor={activeDescriptor}
-            onClose={dockFile && onCloseFile ? onCloseFile : onClose}
-          />
-        )}
-        {panelMounted && (
-          <div className="pane-side-dock-main">
-            {diffColumn}
-            <WorkbenchSidePanel
-              side="right"
-              embedded
-              hideTabs
-              open={openNow}
-              groups={groups}
-              activeRoot={entry.view}
-              surfaces={surfaces}
-              surfacesActive={sessionSurfaceShowing || twoDepth}
-              descriptors={descriptors}
-              onSelect={onSelect}
-              onMoveGroup={onMoveGroup}
-              onMoveView={onMoveView}
-              widthOverride={asideWidth}
-              onWidthDrag={panelWidthDrag}
-              widthRange={
-                sessionSurfaceShowing
-                  ? {
-                      min: sessionMin,
-                      max: sessionMax,
-                      initial: terminalShowing
-                        ? PANE_SIDE_DOCK_TERMINAL_DEFAULT_WIDTH
-                        : PANE_SIDE_DOCK_BROWSER_DEFAULT_WIDTH,
-                    }
-                  : {
-                      min: PANE_SIDE_DOCK_MIN_WIDTH,
-                      max: PANE_SIDE_DOCK_PANEL_MAX_WIDTH,
-                      initial: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
-                    }
-              }
-              renderView={(id, active, titleDragProps) =>
-                dockBodyMounted ? renderView(id, active, titleDragProps) : null
-              }
-            />
-          </div>
-        )}
+        {chromeRow}
+        {phoneSwitch}
+        {panelMounted &&
+          renderPaneDockMain(props, {
+            openNow,
+            dockBodyMounted,
+            diffColumn,
+            surfaces,
+            surfacesActive: sessionSurfaceShowing || twoDepth,
+            asideWidth,
+            panelWidthDrag,
+            widthRange: dockWidthRange(sessionSurfaceShowing, session),
+          })}
       </div>
     </PaneDockExpandContext.Provider>
   );

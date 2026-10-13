@@ -44,10 +44,13 @@ export function useHoverPopover({
   open: controlledOpen,
   onOpenChange,
   closeDelayMs = HOVER_POPOVER_CLOSE_DELAY_MS,
+  hoverOpens = true,
 }: {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   closeDelayMs?: number;
+  /** False makes the card click-only, like the composer's chip menus. */
+  hoverOpens?: boolean;
 } = {}): HoverPopover {
   const [localOpen, setLocalOpen] = useState(false);
   const [pinned, setPinnedState] = useState(false);
@@ -60,7 +63,7 @@ export function useHoverPopover({
   pinnedRef.current = pinned;
   // A coarse pointer has no hover to read the card with, so there a tap opens
   // the same card the desktop shows on hover.
-  const touch = touchPrimaryPointer();
+  const touch = touchPrimaryPointer() || !hoverOpens;
 
   const cancelClose = useCallback(() => {
     if (closeTimer.current === null) return;
@@ -155,7 +158,9 @@ export function useHoverPopover({
     },
     triggerProps: {
       onClick: toggle,
-      onFocus: () => setOpen(true),
+      onFocus: () => {
+        if (hoverOpens) setOpen(true);
+      },
       onBlur: (event: FocusEvent<HTMLElement>) => {
         if (pinnedRef.current || host.current?.contains(event.relatedTarget)) return;
         setOpen(false);

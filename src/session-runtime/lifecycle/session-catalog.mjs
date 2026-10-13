@@ -8,7 +8,12 @@ import {
   isRootLeadSession,
 } from '../../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
 import { listSessionHeartbeatMtimes } from '../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
-import { sessionMessageText, isSessionPreviewNoise, cleanSessionPreview, clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import {
+  sessionMessageText,
+  isSessionPreviewNoise,
+  cleanSessionPreview,
+  clean,
+} from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 
 const VISIBLE_OWNERS = ['cli', 'user', 'mixdog'];
 
@@ -58,6 +63,8 @@ function leadSessionRow(s, heartbeatMtimes) {
   // it remains an ordinary resumable session, not a child dispatch.
   if (!isRootLeadSession(s) && owner && !VISIBLE_OWNERS.includes(owner)) return null;
   const sourceType = clean(s.sourceType || '').toLowerCase();
+  // One-shot `mixdog exec` runs are never resumable conversations.
+  if (sourceType === 'exec') return null;
   if (!isLeadShaped(s, owner, sourceType)) return null;
   const { preview, messageCount } = previewOf(s);
   if (!preview && messageCount === 0) return null;

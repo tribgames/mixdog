@@ -6,8 +6,18 @@ import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch';
 import { childEnvironment } from './child-environment';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import type { TerminalDataEvent } from './terminal-data-buffer';
+import type { TerminalSizeOwner, TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
 
 const REPLAY_BUFFER_LIMIT = 200_000;
+/** A phone re-claims every 10s while it shows the terminal; a claim that
+ *  stops renewing (lost connection) lapses so the PC fits its pane again. */
+const SIZE_OWNER_LEASE_MS = 30_000;
+
+interface SizeClaim {
+  cols: number;
+  rows: number;
+  lease: NodeJS.Timeout;
+}
 
 /** Retain only the newest terminal output without copying the whole replay
  * window on every PTY chunk. Materialize one string only when a view reattaches. */
@@ -130,6 +140,19 @@ function shellLabel(shell: string): string {
   );
 }
 
+/** Slash-normalized, trailing-slash-free path; case-folded on Windows/macOS. */
+function normalizeRoot(value: string): string {
+  const path = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  return process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
+}
+
+/** True when `path` is `root` or lies inside it (the rule disposeTerminalsUnder uses). */
+export function isPathUnderRoot(root: string, path: string): boolean {
+  const base = normalizeRoot(root);
+  const target = path ? normalizeRoot(path) : '';
+  return !!base && !!target && (target === base || target.startsWith(`${base}/`));
+}
+
 /** 1000 cursor units per wall-clock millisecond: a terminal would have to
  *  print over 1000 characters per millisecond of its lifetime to reach the
  *  epoch of a terminal created after it. Stays a safe integer for centuries. */
@@ -141,6 +164,10 @@ export class TerminalManager {
   private readonly terminals = new Map<string, ManagedTerminal>();
   private readonly listeners = new Set<(event: TerminalDataEvent) => void>();
   private readonly cursorFloors = new Map<string, number>();
+  /** Per PTY, the remote connections claiming its size, oldest claim first;
+   *  the newest claim owns. */
+  private readonly sizeClaims = new Map<string, Map<string, SizeClaim>>();
+  private readonly sizeOwnerListeners = new Set<(change: TerminalSizeOwnerChange) => void>();
   private readonly spawning = new Map<string, Promise<{ id: string; replay: string }>>();
   private sequence = 0;
   private ptyModule: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> | null = null;
@@ -149,6 +176,21 @@ export class TerminalManager {
   subscribe(listener: (event: TerminalDataEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Ownership of a PTY's size changed (a phone claimed, released or lapsed). */
+  subscribeSizeOwner(listener: (change: TerminalSizeOwnerChange) => void): () => void {
+    this.sizeOwnerListeners.add(listener);
+    return () => this.sizeOwnerListeners.delete(listener);
+  }
+
+  /** Who owns this PTY's size right now, if anyone. */
+  sizeOwner(id: string): TerminalSizeOwner | null {
+    const claims = this.sizeClaims.get(id);
+    if (!claims) return null;
+    let owner: TerminalSizeOwner | null = null;
+    for (const [client, claim] of claims) owner = { cols: claim.cols, rows: claim.rows, owner: client };
+    return owner;
   }
 
   /** Load the native PTY bindings, forgetting a FAILED load. A cached rejected
@@ -175,11 +217,15 @@ export class TerminalManager {
     id: string | null,
     cwd: string | null,
     profile?: TerminalSpawnProfile | null
-  ): Promise<{ id: string; replay: string }> {
+  ): Promise<{ id: string; replay: string; sizeOwner?: TerminalSizeOwner }> {
     if (this.disposed) throw new Error('Terminal manager is disposed.');
     if (id) {
       const existing = this.terminals.get(id);
-      if (existing && !existing.disposed) return { id, replay: existing.buffer.read() };
+      if (existing && !existing.disposed) {
+        // A view attaching while a phone owns the size must follow it.
+        const sizeOwner = this.sizeOwner(id);
+        return { id, replay: existing.buffer.read(), ...(sizeOwner ? { sizeOwner } : {}) };
+      }
       // Concurrent ensures for one id (remount, retry timer, second surface)
       // must share a single spawn; each extra spawn printed another banner
       // through the same id and orphaned the earlier PTY.
@@ -278,17 +324,78 @@ export class TerminalManager {
     if (entry && !entry.disposed) entry.pty.write(data);
   }
 
-  resize(id: string, cols: number, rows: number): void {
-    const entry = this.terminals.get(id);
+  /** `client` is the remote connection of a phone showing this terminal ('' =
+   *  any other view). A phone's resize claims the PTY size (renewing its lease)
+   *  and the newest claim owns; every other view follows it, so non-phone
+   *  resizes are ignored while a claim stands. A phone call with a non-positive
+   *  size releases that phone's claim; ownership then passes to the next
+   *  claimant still renewing, or back to the PC. */
+  resize(id: string, cols: number, rows: number, client = ''): void {
+    if (client && !(cols > 0 && rows > 0)) {
+      this.releaseSizeClaim(id, client);
+      return;
+    }
     const safeCols = Math.max(2, Math.min(500, Math.floor(cols) || 80));
     const safeRows = Math.max(2, Math.min(200, Math.floor(rows) || 24));
-    if (entry && !entry.disposed) {
-      try {
-        entry.pty.resize(safeCols, safeRows);
-      } catch {
-        /* racing exit */
-      }
+    if (client) {
+      this.claimSize(id, client, safeCols, safeRows);
+      return;
     }
+    if (this.sizeClaims.has(id)) return;
+    this.resizePty(id, safeCols, safeRows);
+  }
+
+  private resizePty(id: string, cols: number, rows: number): void {
+    const entry = this.terminals.get(id);
+    if (!entry || entry.disposed) return;
+    try {
+      entry.pty.resize(cols, rows);
+    } catch {
+      /* racing exit */
+    }
+  }
+
+  private claimSize(id: string, client: string, cols: number, rows: number): void {
+    const before = this.sizeOwner(id);
+    let claims = this.sizeClaims.get(id);
+    if (!claims) {
+      claims = new Map();
+      this.sizeClaims.set(id, claims);
+    }
+    const previous = claims.get(client);
+    if (previous) clearTimeout(previous.lease);
+    const lease = setTimeout(() => this.releaseSizeClaim(id, client), SIZE_OWNER_LEASE_MS);
+    lease.unref();
+    // Renewing keeps the claim's place in the order; only a NEW claim takes over.
+    claims.set(client, { cols, rows, lease });
+    this.ownerChanged(id, before);
+  }
+
+  private releaseSizeClaim(id: string, client: string): void {
+    const claims = this.sizeClaims.get(id);
+    const claim = claims?.get(client);
+    if (!claims || !claim) return;
+    const before = this.sizeOwner(id);
+    clearTimeout(claim.lease);
+    claims.delete(client);
+    if (claims.size === 0) this.sizeClaims.delete(id);
+    this.ownerChanged(id, before);
+  }
+
+  /** Applies and announces the new effective owner when it differs. */
+  private ownerChanged(id: string, before: TerminalSizeOwner | null): void {
+    const after = this.sizeOwner(id);
+    if (before?.owner === after?.owner && before?.cols === after?.cols && before?.rows === after?.rows) return;
+    if (after) this.resizePty(id, after.cols, after.rows);
+    const change = { id, cols: after?.cols ?? 0, rows: after?.rows ?? 0, owner: after?.owner ?? '' };
+    for (const listener of this.sizeOwnerListeners) listener(change);
+  }
+
+  private forgetSizeClaims(id: string): void {
+    const claims = this.sizeClaims.get(id);
+    if (!claims) return;
+    for (const claim of claims.values()) clearTimeout(claim.lease);
+    this.sizeClaims.delete(id);
   }
 
   /** Pause the producer itself so a sustained flood backs up into the shell
@@ -338,6 +445,23 @@ export class TerminalManager {
     }
     this.cursorFloors.set(id, Math.max(this.cursorFloors.get(id) ?? -1, entry.buffer.cursor));
     this.terminals.delete(id);
+    this.forgetSizeClaims(id);
+  }
+
+  /** Dispose every terminal whose cwd is `root` or inside it (a removed
+   * managed worktree), so no PTY keeps the directory locked. Returns the ids. */
+  disposeTerminalsUnder(root: string): string[] {
+    const base = normalizeRoot(root);
+    if (!base) return [];
+    const ids: string[] = [];
+    for (const [id, entry] of [...this.terminals]) {
+      const cwd = entry.cwd ? normalizeRoot(entry.cwd) : '';
+      if (cwd && (cwd === base || cwd.startsWith(`${base}/`))) {
+        this.dispose(id);
+        ids.push(id);
+      }
+    }
+    return ids;
   }
 
   disposeAll(): void {
@@ -359,6 +483,8 @@ export class TerminalManager {
       }
     }
     this.terminals.clear();
+    for (const id of [...this.sizeClaims.keys()]) this.forgetSizeClaims(id);
     this.listeners.clear();
+    this.sizeOwnerListeners.clear();
   }
 }

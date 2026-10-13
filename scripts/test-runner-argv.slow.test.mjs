@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ARG_BUDGET,
   chunkFileArgs,
+  explicitFilesTimeoutMs,
   ownedProcesses,
   testConcurrencyArg,
   testTimeoutArg,
@@ -56,6 +57,12 @@ test('test concurrency: share of cores under a shell cap, explicit choices win, 
   assert.equal(testConcurrencyArg([], { MIXDOG_TEST_CONCURRENCY: '3' }, 20), '--test-concurrency=3');
   assert.equal(testConcurrencyArg(['--test-concurrency=9'], { ...capped, MIXDOG_TEST_CONCURRENCY: '6' }, 20), null);
   assert.equal(testConcurrencyArg(['--test-concurrency', '9'], capped, 20), null);
+});
+
+test('explicitly named slow-lane files keep the long per-file bound under test-direct', () => {
+  assert.equal(explicitFilesTimeoutMs(['src/a.test.mjs', 'scripts/b-test.mjs']), 120_000);
+  assert.equal(explicitFilesTimeoutMs(['src/a.test.mjs', 'src/x/manager.slow.test.mjs']), 600_000);
+  assert.equal(explicitFilesTimeoutMs(['src/y.live.test.mjs']), 600_000);
 });
 
 test('per-file timeout: flag wins, env overrides the lane default, 0 disables', () => {

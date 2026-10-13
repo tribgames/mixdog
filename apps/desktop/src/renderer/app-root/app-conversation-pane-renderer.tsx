@@ -83,12 +83,18 @@ export interface PaneConversationRendererOptions {
   /** Opens the pane's side dock on the session diff (the composer island's
    *  files segment); absent where the surface has no dock. */
   openSessionDiffInSideDock?: (leafId: string) => void;
-  /** Opens the pane's side dock on the background-jobs list (the island's
-   *  agent/shell segments); absent where the surface has no dock. */
-  openBackgroundJobsInSideDock?: (leafId: string, sessionId: string, kind: 'agent' | 'shell') => void;
   /** Opens an agent's session (the composer island's jobs panel rows). */
   openAgentSession: (sessionId: string, title: string, ownerSessionId: string) => void;
   replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
+}
+
+/** The side-dock open routes a renderer offers transcript links and editors:
+ *  every surface with a right side layout — the phone/web renderer's
+ *  full-screen sheet included — opens files, folders and the session diff
+ *  in the pane's side dock, exactly like the PC. Without one,
+ *  none are offered and links keep opening main tabs. */
+export function paneSideDockLinkRoutes<T extends object>(rightGroups: readonly unknown[], routes: T): Partial<T> {
+  return rightGroups.length > 0 ? routes : {};
 }
 
 export function createPaneConversationRenderer(options: PaneConversationRendererOptions) {
@@ -211,12 +217,6 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
             ? () => {
                 focusPane();
                 options.openSessionDiffInSideDock?.(leafId);
-              }
-            : undefined,
-          onOpenBackgroundJobs: options.openBackgroundJobsInSideDock
-            ? (kind) => {
-                focusPane();
-                options.openBackgroundJobsInSideDock?.(leafId, paneSessionId, kind);
               }
             : undefined,
           onOpenAgentSession: (sessionId, title, ownerSessionId) => {

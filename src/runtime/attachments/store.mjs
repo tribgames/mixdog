@@ -8,9 +8,13 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import {
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -301,6 +305,40 @@ function attachmentBlobSize(value, claimed = 0) {
 
 function readAttachmentText(value) {
   return readAttachmentBuffer(value).toString('utf8');
+}
+
+/**
+ * A referenced blob's UTF-8 text when the blob on disk holds at most
+ * `maxBytes`, else null. The size comes from the opened file, never from the
+ * reference's claimed sizeBytes, and at most `maxBytes + 1` bytes are read, so
+ * a blob that grows between the check and the read is rejected too. Missing,
+ * invalid or tampered blobs throw like readAttachmentBuffer.
+ */
+export function readAttachmentTextWithin(value, maxBytes) {
+  const ref = typeof value === 'string' ? value : value?.attachmentRef;
+  const fd = openSync(attachmentPath(ref), 'r');
+  try {
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.size <= 0) {
+      throw Object.assign(new Error('prompt attachment blob is invalid'), { code: ATTACHMENT_INVALID });
+    }
+    if (info.size > maxBytes) return null;
+    const buffer = Buffer.alloc(info.size + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const read = readSync(fd, buffer, length, buffer.length - length, length);
+      if (read === 0) break;
+      length += read;
+    }
+    if (length > maxBytes) return null;
+    const bytes = buffer.subarray(0, length);
+    if (attachmentRefForBuffer(bytes) !== ref) {
+      throw Object.assign(new Error('prompt attachment integrity check failed'), { code: ATTACHMENT_INTEGRITY });
+    }
+    return bytes.toString('utf8');
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function attachmentTextForPart(part) {

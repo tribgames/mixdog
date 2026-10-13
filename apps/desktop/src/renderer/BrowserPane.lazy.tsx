@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { DockHeaderRow, DockOverflowMenu, requestPaneDockClose, type DockAction } from './pane-dock-chrome';
 import { requestBrowserInMain } from './browser-main-request';
+import { useBrowserRemoteDriving } from './browser-remote-drive';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
 import { t } from './i18n';
@@ -476,6 +477,8 @@ function DesktopBrowserPane({
   } = useBrowserCredentials(desktopApi, sessionId);
   const { historySuggestions, setHistorySuggestions } = useHistorySuggestions(desktopApi, address, addressHasFocus);
   const viewportPreset = resolveBrowserViewportPreset(viewportPresetId);
+  // A streaming phone sizes the page meanwhile; the pane's preset returns after.
+  const remoteDriving = useBrowserRemoteDriving(sessionId);
   useEffect(() => {
     if (!active || !expanded || !onToggleExpanded || importOpen) return undefined;
     const onEscape = (event: KeyboardEvent) => {
@@ -673,7 +676,10 @@ function DesktopBrowserPane({
                 await webviewRef.current?.selectTab(id);
               }}
               onClose={async (id) => {
-                await webviewRef.current?.closeTab(id);
+                // The host's count after the close decides, not the frame this
+                // click was made from: tabs may have changed in between.
+                const result = await webviewRef.current?.closeTab(id);
+                if (result?.remainingTabs === 0) requestPaneDockClose('browser');
               }}
               onCreate={async () => {
                 await webviewRef.current?.createTab();
@@ -799,6 +805,12 @@ function DesktopBrowserPane({
           )}
         </div>
         {currentUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
+        {remoteDriving && (
+          <div className="browser-pane-remote-driving" role="status">
+            <Smartphone size={13} aria-hidden="true" />
+            <span>{t('Controlled from phone')}</span>
+          </div>
+        )}
       </div>
     </div>
   );

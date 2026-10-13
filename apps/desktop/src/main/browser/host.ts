@@ -32,6 +32,7 @@ import {
   type DesktopBrowserPageIdentity,
   type DesktopBrowserPageResample,
   type DesktopBrowserPageControl,
+  type DesktopBrowserTabControlResult,
   type DesktopRemoteBrowserControl,
   type DesktopBrowserOpenRequest,
   type DesktopRemoteBrowserStreamFrame,
@@ -79,6 +80,7 @@ import { createBrowserIntercept } from './intercept';
 import { createBrowserNetworkReports } from './network-report';
 import { createBrowserPageState } from './page-state';
 import { createBrowserPageSurface } from './page-surface';
+import { isSessionTabControl, type SessionTabStrip } from './tabs-close-result';
 import { createBrowserLocalPrompts } from './local-prompts';
 import {
   BROWSER_INPUT_WAIT_MS,
@@ -104,10 +106,13 @@ import { createBrowserRefActions } from './ref-actions';
 import { redactBrowserText } from './redaction';
 import { createBrowserRefPoints } from './ref-points';
 import { createBrowserRemoteControl } from './remote-control';
+import { createBrowserRemoteDrive } from './remote-drive';
 import { createBrowserRemoteTabs } from './remote-tabs';
 import { createPageInputDispatcher } from './page-surface-control';
 import { createBrowserPageIdentityStore, trackBrowserPageIdentity } from './page-identity';
-import { captureBrowserPageThumbnail, readBrowserFavicon } from './page-identity-capture';
+import { captureBrowserPageThumbnail, readBrowserFavicon, readBrowserPagePreview } from './page-identity-capture';
+import { createBrowserPageIdentityFile } from './page-identity-file';
+import { createBrowserPagePreviews } from './page-preview';
 import { createBrowserReply } from './reply';
 import { createBrowserScreenshotService } from './screenshot';
 import { createBrowserVisualPrivacy } from './visual-privacy';
@@ -137,7 +142,10 @@ export interface BrowserHost {
     previousFrameId?: string,
     texture?: boolean
   ): Promise<DesktopBrowserPageFrame | DesktopBrowserPageResample>;
-  browserPageControl(sessionId: string, input: DesktopBrowserPageControl): Promise<void>;
+  browserPageControl(
+    sessionId: string,
+    input: DesktopBrowserPageControl
+  ): Promise<DesktopBrowserTabControlResult | void>;
   /** Page facts without pixels, for a pane whose page is natively presented. */
   browserPageMetadata(sessionId: string): Promise<DesktopBrowserPageFrame>;
   /** Show the session's current page natively at `rect` (shell CSS pixels), or
@@ -155,11 +163,16 @@ export interface BrowserHost {
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
   browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult>;
-  /** Title, site icon and thumbnail this browser recorded for `url`, or null. */
-  browserPageIdentity(url: string): DesktopBrowserPageIdentity | null;
+  /** Title, site icon and thumbnail this browser recorded for `url`, or null.
+   *  `preview`: a page card asks; without a thumbnail, the page's own preview
+   *  is read in the background and announced as a change. */
+  browserPageIdentity(url: string, preview?: boolean): DesktopBrowserPageIdentity | null;
   /** Start/renew (options) or stop (null) streaming a session's live frames. */
   remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
-  remoteBrowserControl(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
+  remoteBrowserControl(
+    sessionId: string,
+    input: DesktopRemoteBrowserControl
+  ): Promise<DesktopBrowserTabControlResult | void>;
   /** The main-workspace browser tabs a paired client may switch between. */
   remoteTabs(): DesktopRemoteBrowserTab[];
   /** Start/stop publishing tab changes; returns the current list. */
@@ -386,15 +399,30 @@ export function createBrowserHost(
   // One change notice per site and tick: a load reports title, icon and
   // thumbnail in quick succession.
   const changedOrigins = new Set<string>();
+  const announceIdentityChange = (origin: string) => {
+    if (!changedOrigins.size)
+      setImmediate(() => {
+        for (const changed of changedOrigins) sendToRenderer(DESKTOP_IPC.browserPageIdentityChanged, changed);
+        changedOrigins.clear();
+      });
+    changedOrigins.add(origin);
+  };
   const pageIdentity = createBrowserPageIdentityStore({
     onChange: (origin) => {
-      if (!changedOrigins.size)
-        setImmediate(() => {
-          for (const changed of changedOrigins) sendToRenderer(DESKTOP_IPC.browserPageIdentityChanged, changed);
-          changedOrigins.clear();
-        });
-      changedOrigins.add(origin);
+      announceIdentityChange(origin);
+      pageIdentityFile.schedule();
     },
+  });
+  const pageIdentityFile = createBrowserPageIdentityFile({
+    store: pageIdentity,
+    directory: join(app.getPath('userData'), 'browser-state'),
+  });
+  void pageIdentityFile.loaded.then((origins) => origins.forEach(announceIdentityChange));
+  const pagePreviews = createBrowserPagePreviews({
+    ready: pageIdentityFile.loaded,
+    lookup: (url) => pageIdentity.lookup(url),
+    read: (url) => readBrowserPagePreview(partitionSession, url, pageIdentity.lookup(url)),
+    record: (url, patch) => pageIdentity.update(url, patch),
   });
   const refreshSessionPower = (sessionId: string) => {
     for (const guest of browserSessions.visibleGuests(sessionId)) pagePower.refresh(guest);
@@ -592,7 +620,47 @@ export function createBrowserHost(
     forgetSecret: (guest, secret) => state.forgetSecret(guest, secret),
     redactText: (guest, value) => state.redactText(guest, value),
   });
+  // A streaming phone's viewport wins over the PC pane's size and preset; the
+  // pane's come back when the phone stops (explicit stop or lapsed lease).
+  const remoteDrive = createBrowserRemoteDrive({
+    setGeometry: (guest, size, zoom) => pageSurface.setGeometry(guest, size, zoom),
+    paneGeometry: (sessionId) => pageSurface.paneGeometry(sessionId),
+    emulate: async (guest, config) => {
+      await emulation.configureEmulation(guest, browserViewportEmulation(config));
+    },
+    drivingChanged: (sessionId, driving) =>
+      sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, {
+        sessionId,
+        active: remoteViewingSessions.has(sessionId),
+        driving,
+      }),
+  });
+  // One session tab strip for the local pane and for paired clients' tab controls.
+  const sessionTabs: SessionTabStrip = {
+    list: (sessionId) => tabs.displayTabs(sessionId),
+    select: (sessionId, tabId) => {
+      tabs.selectDisplayTab(sessionId, tabId);
+      const guest = browserSessions.currentGuest(sessionId);
+      if (guest) {
+        lifecycle.claimPage(sessionId, guest);
+        retainGuest(guest);
+      }
+    },
+    create: (sessionId) => {
+      tabs.createDisplayTab(sessionId);
+      // "+" may reuse the blank stand-in page: it is the user's tab from now on.
+      const guest = browserSessions.currentGuest(sessionId);
+      if (guest) lifecycle.claimPage(sessionId, guest);
+    },
+    close: (sessionId, tabId) => tabs.closeDisplayTab(sessionId, tabId),
+    isReplacement: (sessionId, tabId) => {
+      const guest = lifecycle.replacementPage(sessionId);
+      return guest !== null && !guest.isDestroyed() && state.pageId(guest) === tabId;
+    },
+  };
   const remote = createBrowserRemoteControl({
+    tabs: sessionTabs,
+    drive: remoteDrive,
     state,
     cdp,
     urlPolicy: browserUrlPolicy,
@@ -629,16 +697,8 @@ export function createBrowserHost(
   const pageSurface = createBrowserPageSurface({
     ensureGuest: lifecycle.ensureGuest,
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
-    tabs: {
-      list: (sessionId) => tabs.displayTabs(sessionId),
-      select: (sessionId, tabId) => {
-        tabs.selectDisplayTab(sessionId, tabId);
-        const guest = browserSessions.currentGuest(sessionId);
-        if (guest) retainGuest(guest);
-      },
-      create: (sessionId) => tabs.createDisplayTab(sessionId),
-      close: (sessionId, tabId) => tabs.closeDisplayTab(sessionId, tabId),
-    },
+    remoteDriven: (guest) => remoteDrive.driven(guest),
+    tabs: sessionTabs,
     state,
     cdp,
     dispatchInput,
@@ -890,8 +950,7 @@ export function createBrowserHost(
       if (
         !guest ||
         guest.isDestroyed() ||
-        (!['new-tab', 'select-tab', 'close-tab'].includes(input.type) &&
-          input.documentId !== browserDocumentId(state, guest))
+        (!isSessionTabControl(input) && input.documentId !== browserDocumentId(state, guest))
       ) {
         return Promise.reject(new Error('Browser page changed; input was not sent.'));
       }
@@ -973,7 +1032,7 @@ export function createBrowserHost(
       if (!guest || guest.id !== webContentsId) {
         throw new Error('Browser guest is unavailable.');
       }
-      await emulation.configureEmulation(guest, browserViewportEmulation(config));
+      await remoteDrive.configurePane(guest, config);
     },
     async browserImportSources(): Promise<BrowserImportSource[]> {
       return await profileImporter.sources();
@@ -999,7 +1058,11 @@ export function createBrowserHost(
         credentialFill.fillCredentialInGuest(guest, credential)
       );
     },
-    browserPageIdentity: (url) => pageIdentity.lookup(url),
+    browserPageIdentity(url, preview = false) {
+      const identity = pageIdentity.lookup(url);
+      if (preview && !identity?.thumbnail) pagePreviews.request(url);
+      return identity;
+    },
     remoteBrowserStream(sessionId: string, streamOptions: DesktopRemoteBrowserStreamOptions | null): Promise<void> {
       const owner = browserSessionId(sessionId);
       if (streamOptions) remoteViewingSessions.add(owner);
@@ -1007,7 +1070,16 @@ export function createBrowserHost(
       refreshSessionPower(owner);
       return remote.remoteBrowserStream(owner, streamOptions);
     },
-    remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
+    remoteBrowserControl(
+      sessionId: string,
+      control: DesktopRemoteBrowserControl
+    ): Promise<DesktopBrowserTabControlResult | void> {
+      // Sizing the view is presentation, like the pane's own resize: it neither
+      // waits behind nor interrupts an agent command. Tab chrome is the same,
+      // as the local pane's tab controls are.
+      if (control.type === 'viewport' || isSessionTabControl(control)) {
+        return remote.remoteBrowserControl(browserSessionId(sessionId), control);
+      }
       return executeSerialized({ action: 'remote_control', session_id: browserSessionId(sessionId) }, undefined, () =>
         remote.remoteBrowserControl(browserSessionId(sessionId), control)
       );
@@ -1031,6 +1103,8 @@ export function createBrowserHost(
       presentationReads.dispose();
       stopSessionAutosave();
       await sessionStore.save().catch(() => undefined);
+      pagePreviews.dispose();
+      await pageIdentityFile.flush().catch(() => undefined);
       await cookieJar.dispose();
       partition.dispose();
       for (const guest of browserSessions.visibleGuests()) {

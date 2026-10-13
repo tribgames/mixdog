@@ -190,6 +190,9 @@ async function prunePdfRuntime(nodeModules) {
 }
 
 async function pruneSharpWasmFallback(nodeModules, target) {
+  // The Linux daemon runs on Electron, whose system GLib breaks the native
+  // addon; src/runtime/shared/sharp-electron-linux.mjs routes it to wasm.
+  if (target.platform === 'linux') return false;
   const imgRoot = join(nodeModules, '@img');
   let packages;
   try {

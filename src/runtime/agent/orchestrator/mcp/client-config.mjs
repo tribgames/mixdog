@@ -15,8 +15,16 @@ export const AUTO_DETECT_PORTS = {
   'mixdog-memory': { discovery: 'memory', endpoint: '/mcp' },
 };
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
-// Per-server STARTUP handshake budget (connect + listTools): 10s.
-const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
+// Per-server STARTUP handshake budget (connect + paginated listTools): 30s.
+// Cold npx/uvx wrappers routinely need well over 10s to install and boot.
+const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 30000;
+// Hard ceiling for a request that keeps reporting progress (each progress
+// notification resets the per-call timeout, this caps the total): 30min.
+const DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS = 1_800_000;
+// Largest delay setTimeout honours; anything larger fires after 1ms. Used as
+// the SDK request timeout when our own call timeout is disabled, so the SDK's
+// built-in 60s default never applies.
+export const MCP_MAX_TIMER_MS = 2_147_483_647;
 
 function isLoopbackMcpHost(hostname) {
   const host = String(hostname || '')
@@ -204,8 +212,9 @@ export function resolveMcpTransportKind(cfg) {
 // (e.g. a busy editor) must not stall a tool call indefinitely. Genuinely
 // long-running tools can raise/disable it via MIXDOG_MCP_CALL_TIMEOUT_MS or a
 // per-server timeoutMs/callTimeoutMs config value (0/off/none/false disables).
-// On expiry we close the transport so the next dispatch reconnects fresh, but
-// we do not retry the timed-out call automatically (avoids side-effect dupes).
+// On expiry only the timed-out request is cancelled (notifications/cancelled);
+// the server and its other in-flight calls stay up, and the timed-out call is
+// never retried automatically (avoids side-effect dupes).
 export function resolveMcpCallTimeoutMs(cfg = {}, env = process.env) {
   const raw =
     cfg?.timeoutMs ?? cfg?.timeout_ms ?? cfg?.callTimeoutMs ?? cfg?.call_timeout_ms ?? env?.MIXDOG_MCP_CALL_TIMEOUT_MS;
@@ -213,11 +222,42 @@ export function resolveMcpCallTimeoutMs(cfg = {}, env = process.env) {
   if (typeof raw === 'string' && /^(0|off|none|false)$/i.test(raw.trim())) return 0;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MCP_CALL_TIMEOUT_MS;
-  return Math.round(parsed);
+  return Math.min(Math.round(parsed), MCP_MAX_TIMER_MS);
+}
+
+// Total cap for a call whose server keeps reporting progress. Default 30min.
+// Per-server override: maxTotalTimeoutMs / max_total_timeout_ms. Global env:
+// MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS. 0/off/none/false removes the cap.
+export function resolveMcpMaxTotalTimeoutMs(cfg = {}, env = process.env) {
+  const raw = cfg?.maxTotalTimeoutMs ?? cfg?.max_total_timeout_ms ?? env?.MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS;
+  if (raw == null || raw === '' || raw === false) return DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS;
+  if (raw === 0 || (typeof raw === 'string' && /^(0|off|none|false)$/i.test(raw.trim()))) return 0;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS;
+  return Math.min(Math.round(parsed), MCP_MAX_TIMER_MS);
+}
+
+/**
+ * The effective limits of one MCP request:
+ *  - callTimeoutMs: our per-call timeout (0 = disabled), reset on progress;
+ *  - sdkTimeoutMs: what the SDK gets as `timeout` — the call timeout, or the
+ *    largest timer when disabled so the SDK's 60s default never applies;
+ *  - maxTotalTimeoutMs: the progress-reset ceiling (never below the call
+ *    timeout), or undefined when the call is unbounded or the cap is off.
+ */
+export function resolveMcpRequestTimeouts(cfg = {}, env = process.env) {
+  const callTimeoutMs = resolveMcpCallTimeoutMs(cfg, env);
+  if (!(callTimeoutMs > 0)) return { callTimeoutMs: 0, sdkTimeoutMs: MCP_MAX_TIMER_MS, maxTotalTimeoutMs: undefined };
+  const cap = resolveMcpMaxTotalTimeoutMs(cfg, env);
+  return {
+    callTimeoutMs,
+    sdkTimeoutMs: callTimeoutMs,
+    maxTotalTimeoutMs: cap > 0 ? Math.max(cap, callTimeoutMs) : undefined,
+  };
 }
 
 // MCP per-server STARTUP timeout: bounds the connect + listTools handshake so a
-// slow or hung server can't stall boot or the first turn. Default 10s.
+// slow or hung server can't stall boot or the first turn. Default 30s.
 // Per-server override: startupTimeoutMs / startupTimeoutSec. Global
 // env: MIXDOG_MCP_STARTUP_TIMEOUT_MS. A value of 0/off/none/false disables it.
 export function resolveMcpStartupTimeoutMs(cfg = {}, env = process.env) {
@@ -235,5 +275,5 @@ export function resolveMcpStartupTimeoutMs(cfg = {}, env = process.env) {
   if (raw === 0 || (typeof raw === 'string' && /^(0|off|none|false)$/i.test(raw.trim()))) return 0;
   const parsed = Number(raw) * scale;
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MCP_STARTUP_TIMEOUT_MS;
-  return Math.round(parsed);
+  return Math.min(Math.round(parsed), MCP_MAX_TIMER_MS);
 }

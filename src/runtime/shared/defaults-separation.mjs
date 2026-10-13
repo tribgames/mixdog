@@ -21,6 +21,7 @@ import { DEFAULTS_VERSION, DEFAULTS_VERSION_KEY, configPath, readConfig, updateC
 import { DEFAULT_DISABLED_AGENT_ROSTER, disabledAgentDelta, disabledAgentIds } from './agent-route-config.mjs';
 import { withGrandfatheredBuiltins } from './builtin-grandfathering.mjs';
 import { DEFAULT_ORCHESTRATION_MODE, legacyWorkflowOrchestrationMode } from './orchestration.mjs';
+import { WORKTREE_SETTINGS_DEFAULTS } from './worktrees/settings.mjs';
 
 export { DEFAULTS_VERSION, DEFAULTS_VERSION_KEY };
 
@@ -33,6 +34,7 @@ const AGENT_SECTION_DEFAULTS = Object.freeze({
   update: Object.freeze({ auto: true }),
   recap: Object.freeze({ enabled: true }),
   memoryTools: Object.freeze({ enabled: true }),
+  worktree: WORKTREE_SETTINGS_DEFAULTS,
 });
 const MODULE_DEFAULTS = Object.freeze({ enabled: true });
 
