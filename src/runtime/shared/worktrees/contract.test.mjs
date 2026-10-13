@@ -11,7 +11,6 @@ import {
   managedWorktreePath,
   managedWorktreeRoot,
   nextRevision,
-  normalizeBranchOccupancy,
   normalizeSessionWorkspace,
   normalizeWorktreeEntry,
   normalizeWorktreeOwner,
@@ -103,25 +102,6 @@ test('registry entries and owner records validate their shapes', () => {
   });
   assert.throws(() => normalizeWorktreeOwner({ sessionId: 's', runtimeToken: '', pid: 1 }), TypeError);
   assert.throws(() => normalizeWorktreeOwner({ sessionId: 's', runtimeToken: 't', pid: 0 }), TypeError);
-});
-
-test('branch occupancy carries a session id only for session holders', () => {
-  assert.deepEqual(normalizeBranchOccupancy({ branch: 'main', kind: 'free' }), { branch: 'main', kind: 'free' });
-  assert.deepEqual(normalizeBranchOccupancy({ branch: 'x', kind: 'session', sessionId: 's', path: '/w' }), {
-    branch: 'x',
-    kind: 'session',
-    sessionId: 's',
-    path: '/w',
-  });
-  assert.deepEqual(normalizeBranchOccupancy({ branch: 'main', kind: 'current', path: '/repo' }), {
-    branch: 'main',
-    kind: 'current',
-    path: '/repo',
-  });
-  assert.throws(() => normalizeBranchOccupancy({ branch: 'x', kind: 'session' }), TypeError);
-  assert.throws(() => normalizeBranchOccupancy({ branch: 'x', kind: 'free', path: '/w' }), TypeError);
-  assert.throws(() => normalizeBranchOccupancy({ branch: 'x', kind: 'external', sessionId: 's' }), TypeError);
-  assert.throws(() => normalizeBranchOccupancy({ branch: 'x', kind: 'other' }), TypeError);
 });
 
 test('typed errors carry stable codes and default messages', () => {

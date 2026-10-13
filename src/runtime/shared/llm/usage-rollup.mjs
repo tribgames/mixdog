@@ -59,7 +59,6 @@ const MAX_SESSION_TOKENS_PER_DAY = 400;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-// Shared with usage-session-history.mjs, which folds the same bucket shape.
 export function num(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;
