@@ -8,7 +8,7 @@ import { normalizeOutputPath, resolveAgainstCwd } from '../path-utils.mjs';
 /** Report the requested path's result; suggestions never retarget the operation. */
 export async function readFamilyPathEnoentOrError(workDir, fullPath, inputPath, err) {
   const safeMsg = normalizeErrorMessage(err instanceof Error ? err.message : String(err));
-  const hint = buildNotFoundHint(workDir, fullPath, 'List', err?.code);
+  const hint = await buildNotFoundHint(workDir, fullPath, 'List', err?.code);
   const tail = finalizeReadFamilyEnoentTail(hint, inputPath, err?.code);
   // Conclusive absence is the list's ANSWER, not a tool failure (matches
   // read's `[path absent]` and git's `repo:false` policy). Genuine

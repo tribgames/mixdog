@@ -148,12 +148,12 @@ export async function statReadTarget(fullPath, filePath, options, helpers) {
  * recovery mode for an ordinary absence probe. Genuine not-found only —
  * EACCES/EPERM etc. keep failure semantics.
  */
-export function readNotFoundResponse(err, { fullPath, filePath, workDir }, helpers) {
+export async function readNotFoundResponse(err, { fullPath, filePath, workDir }, helpers) {
   const { findSimilarFile, normalizeErrorMessage, normalizeOutputPath } = helpers;
   const similar = findSimilarFile(fullPath);
   let hint = similar
     ? appendNotFoundCwdNote(` Did you mean "${normalizeOutputPath(similar)}"?`, workDir, err?.code)
-    : buildNotFoundHint(workDir, fullPath, 'Read', err?.code);
+    : await buildNotFoundHint(workDir, fullPath, 'Read', err?.code);
   hint = finalizeReadFamilyEnoentTail(hint, filePath, err?.code);
   const safeMsg = normalizeErrorMessage(err instanceof Error ? err.message : String(err), workDir);
   if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') return `[path absent] ${safeMsg}${hint}`;

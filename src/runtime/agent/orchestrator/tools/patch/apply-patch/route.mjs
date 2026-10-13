@@ -7,11 +7,11 @@ import { pathKey, resolveV4AEntryPath } from '../paths.mjs';
 import { rewriteV4AReadRedirects } from '../read-redirects.mjs';
 import { isV4ARenameSection } from '../v4a-convert.mjs';
 
-export function selectApplyPatchRoute({ args, patchStr, requestedFormat, basePath }) {
+export async function selectApplyPatchRoute({ args, patchStr, requestedFormat, basePath }) {
   let preParsedV4ASections = null;
   if (isV4APatchInput(patchStr, requestedFormat)) {
     try {
-      preParsedV4ASections = rewriteV4AReadRedirects(parseV4APatch(patchStr), basePath);
+      preParsedV4ASections = await rewriteV4AReadRedirects(parseV4APatch(patchStr), basePath);
     } catch {
       // The selected execution path reports the authoritative parse error.
     }

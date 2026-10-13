@@ -211,7 +211,7 @@ async function runGrepSearch(request, sharedSignal) {
 
 async function grepMissingPathResult({ workDir, grepResolvedPath, searchPath, executeChildBuiltinTool }, err) {
   const msg = `Error: path does not exist: ${normalizeOutputPath(grepResolvedPath)} (${err?.code || 'ENOENT'})`;
-  let hint = buildNotFoundHintBody(workDir, grepResolvedPath, 'Search', err?.code, {});
+  let hint = await buildNotFoundHintBody(workDir, grepResolvedPath, 'Search', err?.code, {});
   if (!hint) hint = await _suggestIndexedPaths(grepResolvedPath, executeChildBuiltinTool, workDir);
   return msg + finalizeReadFamilyEnoentTail(appendNotFoundCwdNote(hint, workDir, err?.code), searchPath, err?.code);
 }

@@ -84,7 +84,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     let widenNote = '';
     const target = await statReadTarget(fullPath, filePath, options, helpers);
     if (target.error) return target.error;
-    if (!target.st) return readNotFoundResponse(target.statErr, { fullPath, filePath, workDir }, helpers);
+    if (!target.st) return await readNotFoundResponse(target.statErr, { fullPath, filePath, workDir }, helpers);
     const st = target.st;
     // Reactive widen + window-history bookkeeping (ranged text reads only).
     if (

@@ -97,7 +97,7 @@ const BASENAME_SCAN_SKIP_DIRS = new Set([
 // directories scanned and wall-clock. `visitEntry` decides what counts as a
 // match and which directories to queue, and returns true to stop reading the
 // current directory (its own limit break).
-function scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, visitEntry) {
+async function scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, visitEntry) {
   const matches = [];
   const queue = [searchRoot];
   const stopAt = Date.now() + Math.max(1, deadlineMs);
@@ -112,7 +112,7 @@ function scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, visitEntry) 
     scanned++;
     let entries;
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = await readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -127,7 +127,7 @@ function scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, visitEntry) 
   return matches;
 }
 
-export function findFileByBasename(
+export async function findFileByBasename(
   searchRoot,
   fullPath,
   { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {}
@@ -136,7 +136,7 @@ export function findFileByBasename(
     if (typeof searchRoot !== 'string' || !searchRoot) return [];
     const target = basename(fullPath).toLowerCase();
     if (!target) return [];
-    return scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, (dir, ent, matches, queue) => {
+    return await scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, (dir, ent, matches, queue) => {
       const name = ent.name;
       if (ent.isDirectory()) {
         if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) return false;
@@ -205,7 +205,7 @@ export function findBySuffixStrip(searchRoot, fullPath, { maxIterations = 12 } =
 
 // Same as findFileByBasename but for directories sharing the missing path's
 // final segment name (e.g. guessed `src/shared` → the real `lib/shared`).
-export function findDirectoryByBasename(
+export async function findDirectoryByBasename(
   searchRoot,
   fullPath,
   { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {}
@@ -214,7 +214,7 @@ export function findDirectoryByBasename(
     if (typeof searchRoot !== 'string' || !searchRoot) return [];
     const target = basename(fullPath).toLowerCase();
     if (!target) return [];
-    return scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, (dir, ent, matches, queue) => {
+    return await scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, (dir, ent, matches, queue) => {
       const name = ent.name;
       if (!ent.isDirectory()) return false;
       if (name.toLowerCase() === target) {
