@@ -1,0 +1,61 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 4,
+            "passed": 1,
+            "failed": 3,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1791802311.000875,
+            "stop": 1791802319.9867702
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_network_status",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.005482819997268962,
+                "start": 1791802311.065827,
+                "stop": 1791802311.0831432,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "netstat_output = 'Active Internet connections (only servers)\\nProto Recv-Q Send-Q Local Address           Foreign Address         State...ginx: master  \\ntcp        0      0 127.0.0.11:37339        0.0.0.0:*               LISTEN      -                   \\n'\n\n    def test_network_status(netstat_output):\n        \"\"\"Test network status and VNC services\"\"\"\n        # Check VNC connections (port 5901)\n        # Check if VNC port 5901 is listening\n>       assert \":5901\" in netstat_output, \"VNC service not listening on port 5901\"\nE       AssertionError: VNC service not listening on port 5901\nE       assert ':5901' in 'Active Internet connections (only servers)\\nProto Recv-Q Send-Q Local Address           Foreign Address         State...ginx: master  \\ntcp        0      0 127.0.0.11:37339        0.0.0.0:*               LISTEN      -                   \\n'\n\n/tests/test_outputs.py:84: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_qemu_running_with_correct_params",
+                "status": "failed",
+                "duration": 0.0027737879972846713,
+                "start": 1791802311.0833397,
+                "stop": 1791802311.0903902,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "@pytest.fixture\n    def qemu_pid():\n        result = subprocess.run([\"pgrep\", \"qemu-system\"], capture_output=True, text=True)\n>       assert result.returncode == 0, (\n            \"QEMU process not found - Windows 3.11 VM is not running\"\n        )\nE       AssertionError: QEMU process not found - Windows 3.11 VM is not running\nE       assert 1 == 0\nE        +  where 1 = CompletedProcess(args=['pgrep', 'qemu-system'], returncode=1, stdout='', stderr='').returncode\n\n/tests/test_outputs.py:22: AssertionError"
+            },
+            {
+                "name": "test_outputs.py::test_windows_311_core_files_verification",
+                "status": "passed",
+                "duration": 8.890451687002496,
+                "start": 1791802311.0905597,
+                "stop": 1791802319.981264,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_windows_keys_with_visual_feedback",
+                "status": "failed",
+                "duration": 0.00041313499968964607,
+                "start": 1791802319.981476,
+                "stop": 1791802319.98659,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "@pytest.fixture\n    def monitor_socket():\n        # Instruction specifies this exact path\n        socket_path = \"/tmp/qemu-monitor.sock\"\n>       assert Path(socket_path).is_socket(), (\n            f\"QEMU monitor socket not found at {socket_path}. \"\n            \"Configure QEMU with: -monitor unix:/tmp/qemu-monitor.sock,server,nowait\"\n        )\nE       AssertionError: QEMU monitor socket not found at /tmp/qemu-monitor.sock. Configure QEMU with: -monitor unix:/tmp/qemu-monitor.sock,server,nowait\nE       assert False\nE        +  where False = is_socket()\nE        +    where is_socket = PosixPath('/tmp/qemu-monitor.sock').is_socket\nE        +      where PosixPath('/tmp/qemu-monitor.sock') = Path('/tmp/qemu-monitor.sock')\n\n/tests/test_outputs.py:73: AssertionError"
+            }
+        ]
+    }
+}

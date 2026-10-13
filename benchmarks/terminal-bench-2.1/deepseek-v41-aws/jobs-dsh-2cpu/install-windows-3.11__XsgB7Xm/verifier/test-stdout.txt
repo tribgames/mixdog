@@ -1,0 +1,138 @@
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.5.0-2ubuntu10.15).
+0 upgraded, 0 newly installed, 0 to remove and 218 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Reading package lists...
+Building dependency tree...
+Reading state information...
+vncsnapshot is already the newest version (1.2a-5.2).
+tesseract-ocr is already the newest version (5.3.4-1build5).
+Suggested packages:
+  floppyd
+The following NEW packages will be installed:
+  mtools socat
+0 upgraded, 2 newly installed, 0 to remove and 218 not upgraded.
+Need to get 571 kB of archives.
+After this operation, 2052 kB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu noble/main amd64 mtools amd64 4.0.43-1build1 [197 kB]
+Get:2 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 socat amd64 1.8.0.0-4ubuntu0.1 [374 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 571 kB in 1s (578 kB/s)
+Selecting previously unselected package mtools.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 43787 files and directories currently installed.)
+Preparing to unpack .../mtools_4.0.43-1build1_amd64.deb ...
+Unpacking mtools (4.0.43-1build1) ...
+Selecting previously unselected package socat.
+Preparing to unpack .../socat_1.8.0.0-4ubuntu0.1_amd64.deb ...
+Unpacking socat (1.8.0.0-4ubuntu0.1) ...
+Setting up mtools (4.0.43-1build1) ...
+Setting up socat (1.8.0.0-4ubuntu0.1) ...
+Downloading cpython-3.13.9-linux-x86_64-gnu (download) (32.0MiB)
+ Downloading cpython-3.13.9-linux-x86_64-gnu (download)
+Downloading pillow (6.6MiB)
+Downloading pygments (1.2MiB)
+Downloading numpy (15.9MiB)
+Downloading opencv-python (60.1MiB)
+ Downloading pillow
+ Downloading pygments
+ Downloading opencv-python
+ Downloading numpy
+Installed 10 packages in 49ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.9, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 4 items
+
+../tests/test_outputs.py FE.E                                            [100%]
+
+==================================== ERRORS ====================================
+___________ ERROR at setup of test_qemu_running_with_correct_params ____________
+
+    @pytest.fixture
+    def qemu_pid():
+        result = subprocess.run(["pgrep", "qemu-system"], capture_output=True, text=True)
+>       assert result.returncode == 0, (
+            "QEMU process not found - Windows 3.11 VM is not running"
+        )
+E       AssertionError: QEMU process not found - Windows 3.11 VM is not running
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['pgrep', 'qemu-system'], returncode=1, stdout='', stderr='').returncode
+
+/tests/test_outputs.py:22: AssertionError
+___________ ERROR at setup of test_windows_keys_with_visual_feedback ___________
+
+    @pytest.fixture
+    def monitor_socket():
+        # Instruction specifies this exact path
+        socket_path = "/tmp/qemu-monitor.sock"
+>       assert Path(socket_path).is_socket(), (
+            f"QEMU monitor socket not found at {socket_path}. "
+            "Configure QEMU with: -monitor unix:/tmp/qemu-monitor.sock,server,nowait"
+        )
+E       AssertionError: QEMU monitor socket not found at /tmp/qemu-monitor.sock. Configure QEMU with: -monitor unix:/tmp/qemu-monitor.sock,server,nowait
+E       assert False
+E        +  where False = is_socket()
+E        +    where is_socket = PosixPath('/tmp/qemu-monitor.sock').is_socket
+E        +      where PosixPath('/tmp/qemu-monitor.sock') = Path('/tmp/qemu-monitor.sock')
+
+/tests/test_outputs.py:73: AssertionError
+=================================== FAILURES ===================================
+_____________________________ test_network_status ______________________________
+
+netstat_output = 'Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address           Foreign Address         State...ginx: master  \ntcp        0      0 127.0.0.11:37339        0.0.0.0:*               LISTEN      -                   \n'
+
+    def test_network_status(netstat_output):
+        """Test network status and VNC services"""
+        # Check VNC connections (port 5901)
+        # Check if VNC port 5901 is listening
+>       assert ":5901" in netstat_output, "VNC service not listening on port 5901"
+E       AssertionError: VNC service not listening on port 5901
+E       assert ':5901' in 'Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address           Foreign Address         State...ginx: master  \ntcp        0      0 127.0.0.11:37339        0.0.0.0:*               LISTEN      -                   \n'
+
+/tests/test_outputs.py:84: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_windows_311_core_files_verification
+ERROR ../tests/test_outputs.py::test_qemu_running_with_correct_params - Asser...
+ERROR ../tests/test_outputs.py::test_windows_keys_with_visual_feedback - Asse...
+FAILED ../tests/test_outputs.py::test_network_status - AssertionError: VNC se...
+==================== 1 failed, 1 passed, 2 errors in 8.99s =====================
