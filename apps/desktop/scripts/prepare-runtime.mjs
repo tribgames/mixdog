@@ -68,6 +68,16 @@ const browserImportNativeFileNames = [
   'browser-import-NOTICE.txt',
 ];
 const NATIVE_BINARY_NAME = /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i;
+// onnxruntime's Windows binaries import the MSVC C++ runtime, which Windows
+// does not ship; without the VC++ Redistributable the addon fails to load.
+// Deploy these redistributable DLLs app-local beside onnxruntime.dll.
+const WINDOWS_ONNX_VC_RUNTIME_DLLS = Object.freeze([
+  'msvcp140.dll',
+  'msvcp140_1.dll',
+  'msvcp140_atomic_wait.dll',
+  'vcruntime140.dll',
+  'vcruntime140_1.dll',
+]);
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
 const preparedRuntimeSchema = 2;
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
@@ -110,6 +120,32 @@ async function timed(label, operation) {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/** The Visual Studio redistributable CRT directory for one Windows architecture. */
+async function windowsVcRuntimeDir(arch) {
+  if (process.platform !== 'win32') {
+    throw new Error('Windows runtime packaging requires a Windows host with Visual Studio C++ Build Tools.');
+  }
+  const vswhere = join(process.env['ProgramFiles(x86)'], 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+  const { stdout } = await execFileAsync(vswhere, [
+    '-latest',
+    '-products',
+    '*',
+    '-requires',
+    'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+    '-property',
+    'installationPath',
+  ]);
+  const installation = stdout.trim();
+  if (!installation) throw new Error('vswhere found no Visual Studio installation with C++ Build Tools.');
+  const version = (
+    await readFile(join(installation, 'VC', 'Auxiliary', 'Build', 'Microsoft.VCRedistVersion.default.txt'), 'utf8')
+  ).trim();
+  const archRoot = join(installation, 'VC', 'Redist', 'MSVC', version, arch);
+  const crt = (await readdir(archRoot)).find((name) => /^Microsoft\.VC\d+\.CRT$/.test(name));
+  if (!crt) throw new Error(`Visual C++ ${arch} redistributable CRT is missing under ${archRoot}`);
+  return join(archRoot, crt);
 }
 
 async function resolveBrowserImportInputIdentity() {
@@ -618,6 +654,14 @@ async function prepareRuntime(manifest, fingerprint) {
       prunedEmbedding = await timed('dependency-prune', () => pruneEmbeddingRuntime(stagingDir, embeddingTarget));
       await timed('dependency-cache-store', () => storeRuntimeDependencies());
     }
+    if (prunedEmbedding.onnx && embeddingTarget.platform === 'win32') {
+      await timed('vc-runtime-copy', async () => {
+        const crtDir = await windowsVcRuntimeDir(embeddingTarget.arch);
+        for (const name of WINDOWS_ONNX_VC_RUNTIME_DLLS) {
+          await cp(join(crtDir, name), join(prunedEmbedding.targetBinaryDir, name));
+        }
+      });
+    }
 
     await timed('runtime-package-copy', () =>
       copyRuntimePackagePayload({
@@ -736,6 +780,9 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
       `/${ortArchiveRoot}/package.json`,
       ...(prunedEmbedding.onnx ? [`${embeddingBinaryRoot}/onnxruntime_binding.node`] : []),
+      ...(prunedEmbedding.onnx && embeddingTarget.platform === 'win32'
+        ? WINDOWS_ONNX_VC_RUNTIME_DLLS.map((name) => `${embeddingBinaryRoot}/${name}`)
+        : []),
     ]) {
       if (!archiveEntries.has(required)) {
         throw new Error(`Runtime archive is incomplete: missing ${required}`);
