@@ -5,6 +5,43 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Bring your Codex and Claude Code conversations into Mixdog, sign in to Command Code, and call a skill by typing `$` in the composer.
+
+### New features
+
+- **Import conversations** — Settings > General > Import conversations brings in Codex and Claude Code chats from this PC.
+- **Command Code** — Sign in with a Command Code account as a new provider.
+- **Account switching** — With multiple accounts, choose Manual, Switch at limit, or Most headroom first.
+- **`$` skills** — Type `$` in the composer (or the TUI) to apply a skill to that message.
+- **Usage menu** — Pin usage to the sidebar rail and choose short or long bars (#66).
+- **Plugin MCP servers** — Claude Code and Codex plugin servers connect automatically, and Claude Code plugin skills load too (#58).
+- **Dismiss Goal** — Dismiss a finished Goal from the composer island; its progress mark always shows five cells.
+
+### Changes
+
+- The session list opens faster.
+- `@` file mentions list folders first.
+- Muse Code and MiMo show their own icons.
+- On SSH servers, skills that call a model use your PC's models, so the server needs no credentials.
+- Long sessions stay more responsive: MCP tools, file searches, and account updates no longer stall the background service.
+
+### Bug fixes
+
+- Bundled skill scripts, including the skill validator, failed in some installs and shells (#62).
+- A new task that remembered a deleted workflow now starts on Default (#64).
+- Auto reasoning did not apply on Claude routes, and one slow judgment could make the next ones time out.
+- A second message sent right after a new task started could open a separate session instead of continuing it.
+- Renaming a session listed in both a project folder and Recent closed the editor immediately.
+- In restored conversations with several images, a thumbnail could show the wrong image.
+- Hook commands inherited Mixdog's internal runtime settings and could fail.
+- Headless runs, such as model calls from skill scripts, could not use Muse Code or MiMo.
+- Removing an MCP server or plugin could not be confirmed because the dialog never appeared.
+- On Windows, the ONNX runtime could fail to load without the Visual C++ runtime installed.
+
+### Other
+
+- Translations reviewed across all 11 languages.
+
 ## v1.2.0 - 2026-10-13
 
 This release introduces the Changes panel and per-turn change cards with per-turn undo and reapply controls, keeps earlier conversation history visible after compaction, and adds a built-in visualization tool for interactive UI mockups and diagrams. Remote workflows expand with SSH server connections, isolated Git worktree sessions, background shell management, and direct file downloads on paired phones. The interface also brings higher contrast styling, smoother mobile scrolling, and flexible session organization.

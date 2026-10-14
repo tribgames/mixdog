@@ -4,6 +4,43 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Traga suas conversas do Codex e do Claude Code para o Mixdog, conecte-se ao Command Code e chame uma skill digitando `$` no compositor.
+
+### Novos recursos
+
+- **Importar conversas** — Configurações > Geral > Importar conversas traz chats do Codex e do Claude Code deste PC.
+- **Command Code** — Faça login com uma conta do Command Code como um novo provedor.
+- **Troca de contas** — Com várias contas, escolha Manualmente, Trocar no limite ou Mais folga primeiro.
+- **`$` skills** — Digite `$` no compositor (ou na TUI) para aplicar uma skill à mensagem.
+- **Menu de uso** — Fixe o uso na barra lateral e escolha barras curtas ou longas (#66).
+- **Servidores MCP de plugins** — Servidores de plugins do Claude Code e Codex conectam-se automaticamente e carregam suas skills (#58).
+- **Fechar Goal** — Dispense um Goal concluído diretamente na ilha do compositor; seu indicador de progresso sempre exibe cinco células.
+
+### Alterações
+
+- A lista de sessões abre mais rápido.
+- Menções de arquivos com `@` listam pastas primeiro.
+- Muse Code e MiMo exibem seus próprios ícones.
+- Em servidores SSH, skills que chamam modelos usam os do seu PC, sem exigir credenciais no servidor.
+- Sessões longas continuam mais responsivas: ferramentas MCP, buscas de arquivos e atualizações de conta não travam mais o serviço em segundo plano.
+
+### Correções de bugs
+
+- Scripts de skills incluídos, como o validador, falhavam em algumas instalações e shells (#62).
+- Uma nova tarefa que lembrava um fluxo excluído agora inicia no Default (#64).
+- O raciocínio automático não era aplicado em rotas do Claude, e um julgamento lento podia causar tempo limite nos seguintes.
+- Uma segunda mensagem enviada logo após iniciar uma nova tarefa podia abrir uma sessão separada em vez de continuá-la.
+- Renomear uma sessão listada em uma pasta de projeto e em Recentes fechava o editor imediatamente.
+- Em conversas restauradas com várias imagens, uma miniatura podia exibir a imagem errada.
+- Comandos de hook herdavam configurações internas de runtime do Mixdog e podiam falhar.
+- Execuções headless, como chamadas de modelo a partir de scripts de skills, não conseguiam usar Muse Code ou MiMo.
+- A remoção de um servidor MCP ou plugin não podia ser confirmada porque o diálogo não aparecia.
+- No Windows, o runtime do ONNX podia falhar ao carregar sem o runtime do Visual C++ instalado.
+
+### Outros
+
+- Revisão de traduções em todos os 11 idiomas.
+
 ## v1.2.0 - 2026-10-13
 
 Esta versão introduz o painel de alterações e cartões de alterações por turno com controles de desfazer e reaplicar por turno, mantém o histórico anterior visível após a compactação e adiciona uma ferramenta integrada de visualização para maquetes interativas de interface e diagramas. Os fluxos de trabalho remotos são expandidos com conexões de servidor SSH, sessões isoladas de worktree do Git, gerenciamento de shells em segundo plano e downloads diretos de arquivos em telefones pareados. A interface também traz maior contraste, rolagem mais suave em dispositivos móveis e organização flexível de sessões.

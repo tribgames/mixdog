@@ -4,6 +4,43 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đưa các cuộc trò chuyện từ Codex và Claude Code vào Mixdog, đăng nhập Command Code và gọi kỹ năng bằng cách nhập `$` trong trình soạn thảo.
+
+### Tính năng mới
+
+- **Nhập cuộc trò chuyện** — Cài đặt > Chung > Nhập cuộc trò chuyện để chuyển các cuộc trò chuyện Codex và Claude Code từ PC này.
+- **Command Code** — Đăng nhập bằng tài khoản Command Code như một nhà cung cấp mới.
+- **Chuyển đổi tài khoản** — Khi có nhiều tài khoản, hãy chọn Thủ công, Chuyển khi chạm giới hạn hoặc Ưu tiên còn nhiều nhất.
+- **Kỹ năng `$`** — Nhập `$` trong trình soạn thảo (hoặc TUI) để áp dụng một kỹ năng cho tin nhắn đó.
+- **Menu sử dụng** — Ghim mức sử dụng vào thanh bên và chọn thanh ngắn hoặc dài (#66).
+- **Máy chủ MCP plugin** — Máy chủ plugin của Claude Code và Codex tự động kết nối và tải luôn các kỹ năng plugin (#58).
+- **Đóng Goal** — Đóng một Goal đã hoàn thành ngay từ đảo trình soạn thảo; chỉ báo tiến độ luôn hiển thị năm ô.
+
+### Thay đổi
+
+- Danh sách phiên mở nhanh hơn.
+- Nhắc đến tệp bằng `@` sẽ liệt kê các thư mục trước.
+- Muse Code và MiMo hiển thị biểu tượng riêng.
+- Trên máy chủ SSH, các kỹ năng gọi mô hình sử dụng các mô hình của PC bạn nên máy chủ không cần thông tin xác thực.
+- Các phiên dài duy trì tốc độ phản hồi tốt hơn: công cụ MCP, tìm kiếm tệp và cập nhật tài khoản không còn làm treo dịch vụ nền.
+
+### Sửa lỗi
+
+- Các tập lệnh kỹ năng đi kèm, bao gồm trình xác thực, bị lỗi trên một số bản cài đặt và shell (#62).
+- Tác vụ mới từng ghi nhớ quy trình làm việc đã xóa nay sẽ khởi động với Default (#64).
+- Suy luận tự động không được áp dụng trên các tuyến Claude, và một lần phán đoán chậm có thể khiến các lần kế tiếp bị quá thời gian.
+- Tin nhắn thứ hai gửi ngay sau khi bắt đầu tác vụ mới có thể mở ra một phiên riêng thay vì tiếp tục phiên đó.
+- Đổi tên một phiên xuất hiện ở cả thư mục dự án lẫn mục Gần đây sẽ khiến trình chỉnh sửa bị đóng ngay lập tức.
+- Trong các cuộc trò chuyện được khôi phục có nhiều hình ảnh, hình thu nhỏ có thể hiển thị sai ảnh.
+- Các lệnh hook kế thừa cấu hình runtime nội bộ của Mixdog và có thể bị lỗi.
+- Các lần chạy headless, chẳng hạn như lệnh gọi mô hình từ tập lệnh kỹ năng, không thể sử dụng Muse Code hoặc MiMo.
+- Không thể xác nhận gỡ bỏ máy chủ MCP hoặc plugin do hộp thoại không xuất hiện.
+- Trên Windows, runtime ONNX có thể không tải được nếu chưa cài đặt Visual C++ runtime.
+
+### Khác
+
+- Đã rà soát bản dịch trên toàn bộ 11 ngôn ngữ.
+
 ## v1.2.0 - 2026-10-13
 
 Bản phát hành này giới thiệu bảng thay đổi và thẻ thay đổi theo lượt với các nút hoàn tác và áp dụng lại theo lượt, giữ lại lịch sử cuộc trò chuyện trước đó sau khi nén và bổ sung công cụ trực quan hóa tích hợp cho các bản dựng giao diện và sơ đồ tương tác. Quy trình làm việc từ xa được mở rộng với kết nối máy chủ SSH, các phiên Git worktree riêng biệt, quản lý lệnh shell nền và tải tệp trực tiếp trên điện thoại đã ghép nối. Giao diện cũng mang lại độ tương phản cao hơn, cuộn mượt mà hơn trên thiết bị di động và tổ chức phiên linh hoạt.
