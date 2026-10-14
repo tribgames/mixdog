@@ -50,6 +50,7 @@ Se añadió la importación de conversaciones de Codex y Claude Code, el proveed
 ### Otros
 
 - Se revisaron las traducciones en los 11 idiomas.
+- Se eliminaron helpers sin usar y se formatearon las pruebas de escritorio (#68, gracias a @22nsuk).
 
 ## v1.2.0 - 2026-10-13
 

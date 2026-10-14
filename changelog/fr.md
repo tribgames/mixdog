@@ -50,6 +50,7 @@ Ajout de l'importation de conversations depuis Codex et Claude Code, du fourniss
 ### Divers
 
 - Révision des traductions dans l'ensemble des 11 langues.
+- Suppression des helpers inutilisés et formatage des tests de bureau (#68, merci à @22nsuk).
 
 ## v1.2.0 - 2026-10-13
 

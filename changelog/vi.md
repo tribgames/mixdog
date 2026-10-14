@@ -49,6 +49,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 ### Khác
 
 - Đã rà soát bản dịch trên toàn bộ 11 ngôn ngữ.
+- Đã loại bỏ các helper không sử dụng và định dạng lại các bài kiểm thử desktop (#68, cảm ơn @22nsuk).
 
 ## v1.2.0 - 2026-10-13
 

@@ -50,6 +50,7 @@ Added conversation import from Codex and Claude Code, the Command Code provider,
 ### Other
 
 - Reviewed translations across all 11 languages.
+- Removed unused helpers and formatted desktop tests (#68, thanks @22nsuk).
 
 ## v1.2.0 - 2026-10-13
 

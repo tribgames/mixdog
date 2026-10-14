@@ -49,6 +49,7 @@ Unterhaltungsimport aus Codex und Claude Code, den Command Code-Anbieter sowie `
 ### Sonstiges
 
 - Übersetzungen in allen 11 Sprachen überprüft.
+- Nicht verwendete Helfer entfernt und Desktop-Tests formatiert (#68, danke an @22nsuk).
 
 ## v1.2.0 - 2026-10-13
 

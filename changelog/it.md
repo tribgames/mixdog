@@ -49,6 +49,7 @@ Aggiunta l'importazione di conversazioni da Codex e Claude Code, il provider Com
 ### Altro
 
 - Revisione delle traduzioni in tutte le 11 lingue.
+- Rimossi gli helper non utilizzati e formattati i test desktop (#68, grazie a @22nsuk).
 
 ## v1.2.0 - 2026-10-13
 
