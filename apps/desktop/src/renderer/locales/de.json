@@ -210,7 +210,6 @@
   "{{points}} pts ahead of an even pace": "{{points}} Pkt. schneller als gleichmäßiges Tempo",
   "{{points}} pts behind an even pace": "{{points}} Pkt. langsamer als gleichmäßiges Tempo",
   "{{project}} {{number}}": "{{project}} {{number}}",
-  "{{provider}} usage limit reached": "{{provider}}-Limit vollständig aufgebraucht",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "Noch {{remaining}}. Die Reservierung bleibt auch nach dem Schließen und Öffnen der App erhalten.",
   "{{rows}} rows × {{columns}} columns": "{{rows}} Zeilen × {{columns}} Spalten",
   "{{size}} · recommended": "{{size}} · empfohlen",
@@ -3166,6 +3165,9 @@
   "Reset to default ({{percent}}%)": "Auf Standard zurücksetzen ({{percent}} %)",
   "Reset zoom": "Zoom zurücksetzen",
   "Resume at {{time}}": "Um {{time}} fortsetzen",
+  "· resets {{time}} ({{remaining}})": "· wird um {{time}} zurückgesetzt ({{remaining}})",
+  "Switch to another provider's model to continue now": "Wechsle zum Modell eines anderen Anbieters, um sofort weiterzumachen",
+  "Switch accounts or to another provider's model to continue now": "Wechsle das Konto oder zum Modell eines anderen Anbieters, um sofort weiterzumachen",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "Zurücksetzung um {{time}}. Mit einem anderen Modell wird diese Unterhaltung unverändert fortgesetzt.",
   "resets in {{time}}": "Zurücksetzung in {{time}}",
   "Resets in {{time}}": "Reset in {{time}}",
@@ -4416,8 +4418,6 @@
   "Forking…": "Wird abgezweigt…",
   "Session forked": "Sitzung abgezweigt",
   "Switched to {{model}}": "Zu {{model}} gewechselt",
-  "Switch model": "Modell wechseln",
-  "Resets at {{time}} · {{remaining}} left.": "Wird um {{time}} zurückgesetzt · noch {{remaining}}.",
   "Auto-compact on model change": "Bei Modellwechsel automatisch kompaktieren",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "Kompaktiert die Unterhaltung mit dem aktuellen Modell, bevor der Chat zu einem anderen Modell wechselt. Wird übersprungen, wenn das aktuelle Modell sein Nutzungslimit erreicht hat."
 }

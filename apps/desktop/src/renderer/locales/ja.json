@@ -171,7 +171,6 @@
   "{{points}} pts ahead of an even pace": "均等ペースより{{points}}ポイント速い",
   "{{points}} pts behind an even pace": "均等ペースより{{points}}ポイント遅い",
   "{{project}} {{number}}": "{{project}} {{number}}件",
-  "{{provider}} usage limit reached": "{{provider}} の利用上限に達しました",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "残り{{remaining}}。アプリを閉じて開き直しても予約は維持されます。",
   "{{rows}} rows × {{columns}} columns": "{{rows}}行 × {{columns}}列",
   "{{size}} · recommended": "{{size}} · 推奨",
@@ -3111,6 +3110,9 @@
   "Reset to default ({{percent}}%)": "デフォルトにリセット ({{percent}}%)",
   "Reset zoom": "ズームをリセット",
   "Resume at {{time}}": "{{time}} に再開",
+  "· resets {{time}} ({{remaining}})": "· {{time}} にリセット（{{remaining}}）",
+  "Switch to another provider's model to continue now": "別のプロバイダーのモデルに切り替えるとすぐに続けられます",
+  "Switch accounts or to another provider's model to continue now": "別のアカウントか別のプロバイダーのモデルに切り替えるとすぐに続けられます",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "{{time}} にリセットされます。別のモデルで続けると、この会話をそのまま引き継いで進めます。",
   "resets in {{time}}": "{{time}}後にリセット",
   "Resets in {{time}}": "{{time}}後にリセット",
@@ -4355,8 +4357,6 @@
   "Forking…": "分割中…",
   "Session forked": "セッションを分割しました",
   "Switched to {{model}}": "{{model}} に変更",
-  "Switch model": "モデルを変更",
-  "Resets at {{time}} · {{remaining}} left.": "{{time}} にリセット · 残り {{remaining}}。",
   "Auto-compact on model change": "モデル変更時に自動コンパクト",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "チャットを別のモデルに切り替える前に、現在のモデルで会話をコンパクトにします。現在のモデルの使用量が上限に達している場合はスキップします。"
 }

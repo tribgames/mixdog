@@ -87,10 +87,7 @@ export function RouteEditor({
   onChangeAutoEffort = () => {},
   onOpenSheet,
   answersModelPickerRequests = false,
-  onClosed,
 }: {
-  /** The sheet went from open to closed (after any selection it started). */
-  onClosed?: () => void;
   /** Only the focused conversation's composer sets this; it is the single
    *  responder to the open-model-picker event. */
   answersModelPickerRequests?: boolean;
@@ -362,13 +359,6 @@ export function RouteEditor({
     show();
     openPane('model');
   };
-  const wasOpen = useRef(false);
-  const onClosedRef = useRef(onClosed);
-  onClosedRef.current = onClosed;
-  useEffect(() => {
-    if (wasOpen.current && !open) onClosedRef.current?.();
-    wasOpen.current = open;
-  }, [open]);
   const respondsToModelPicker = answersModelPickerRequests && surfaceActive && !modelDisabled;
   useEffect(() => {
     if (!respondsToModelPicker) return undefined;

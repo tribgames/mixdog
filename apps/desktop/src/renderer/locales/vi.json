@@ -171,7 +171,6 @@
   "{{points}} pts ahead of an even pace": "Nhanh hơn nhịp đều {{points}} điểm",
   "{{points}} pts behind an even pace": "Chậm hơn nhịp đều {{points}} điểm",
   "{{project}} {{number}}": "{{project}} {{number}}",
-  "{{provider}} usage limit reached": "Đã dùng hết hạn mức {{provider}}",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "Còn {{remaining}}. Lịch hẹn vẫn được giữ dù bạn đóng rồi mở lại ứng dụng.",
   "{{rows}} rows × {{columns}} columns": "{{rows}} hàng × {{columns}} cột",
   "{{size}} · recommended": "{{size}} · khuyến nghị",
@@ -3111,6 +3110,9 @@
   "Reset to default ({{percent}}%)": "Đặt lại về mặc định ({{percent}}%)",
   "Reset zoom": "Đặt lại thu phóng",
   "Resume at {{time}}": "Tiếp tục lúc {{time}}",
+  "· resets {{time}} ({{remaining}})": "· đặt lại lúc {{time}} ({{remaining}})",
+  "Switch to another provider's model to continue now": "Chuyển sang mô hình của nhà cung cấp khác để tiếp tục ngay",
+  "Switch accounts or to another provider's model to continue now": "Chuyển tài khoản hoặc sang mô hình của nhà cung cấp khác để tiếp tục ngay",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "Đặt lại lúc {{time}}. Tiếp tục bằng mô hình khác sẽ giữ nguyên cuộc trò chuyện này.",
   "resets in {{time}}": "đặt lại sau {{time}}",
   "Resets in {{time}}": "Reset sau {{time}}",
@@ -4355,8 +4357,6 @@
   "Forking…": "Đang tách…",
   "Session forked": "Đã tách phiên",
   "Switched to {{model}}": "Đã chuyển sang {{model}}",
-  "Switch model": "Đổi mô hình",
-  "Resets at {{time}} · {{remaining}} left.": "Đặt lại lúc {{time}} · còn {{remaining}}.",
   "Auto-compact on model change": "Tự động nén khi đổi mô hình",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "Nén cuộc trò chuyện bằng mô hình hiện tại trước khi chuyển cuộc trò chuyện sang mô hình khác. Bỏ qua khi mô hình hiện tại đã hết lượt sử dụng."
 }

@@ -32,6 +32,7 @@ export function useConversationIsland({
     snapshot,
     sessionId: String(routeSnapshot.sessionId || ''),
     chatProvider: String(routeSnapshot.sessionProvider || ''),
+    chatModel: String(routeSnapshot.sessionModel || ''),
     settledItems,
     settledTurnKeys,
     pendingPromptCount,

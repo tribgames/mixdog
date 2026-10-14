@@ -248,7 +248,6 @@
   "{{points}} pts ahead of an even pace": "{{points}} punti avanti rispetto al ritmo costante",
   "{{points}} pts behind an even pace": "{{points}} punti indietro rispetto al ritmo costante",
   "{{project}} {{number}}": "{{project}} {{number}}",
-  "{{provider}} usage limit reached": "Limite di {{provider}} esaurito",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "Mancano {{remaining}}. La prenotazione resta anche se chiudi e riapri l’app.",
   "{{rows}} rows × {{columns}} columns": "{{rows}} righe × {{columns}} colonne",
   "{{size}} · recommended": "{{size}} · consigliato",
@@ -3220,6 +3219,9 @@
   "Reset to default ({{percent}}%)": "Ripristina ai valori predefiniti ({{percent}}%)",
   "Reset zoom": "Reimposta zoom",
   "Resume at {{time}}": "Riprendi alle {{time}}",
+  "· resets {{time}} ({{remaining}})": "· si azzera alle {{time}} ({{remaining}})",
+  "Switch to another provider's model to continue now": "Passa al modello di un altro provider per continuare subito",
+  "Switch accounts or to another provider's model to continue now": "Cambia account o passa al modello di un altro provider per continuare subito",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "Si azzera alle {{time}}. Continuando con un altro modello, questa conversazione prosegue così com’è.",
   "resets in {{time}}": "si azzera tra {{time}}",
   "Resets in {{time}}": "Si reimposta tra {{time}}",
@@ -4475,8 +4477,6 @@
   "Forking…": "Diramazione…",
   "Session forked": "Sessione diramata",
   "Switched to {{model}}": "Passato a {{model}}",
-  "Switch model": "Cambia modello",
-  "Resets at {{time}} · {{remaining}} left.": "Si azzera alle {{time}} · {{remaining}} rimanenti.",
   "Auto-compact on model change": "Compatta al cambio di modello",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "Compatta la conversazione con il modello attuale prima che la chat passi a un altro modello. Saltato quando il modello attuale ha esaurito l'utilizzo."
 }

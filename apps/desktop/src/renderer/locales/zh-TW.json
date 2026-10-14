@@ -171,7 +171,6 @@
   "{{points}} pts ahead of an even pace": "比均勻節奏快 {{points}} 個百分點",
   "{{points}} pts behind an even pace": "比均勻節奏慢 {{points}} 個百分點",
   "{{project}} {{number}}": "{{project}} {{number}} 個",
-  "{{provider}} usage limit reached": "{{provider}} 額度已用完",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "剩餘 {{remaining}}。關閉並重新開啟應用程式後預約仍會保留。",
   "{{rows}} rows × {{columns}} columns": "{{rows}} 列 × {{columns}} 欄",
   "{{size}} · recommended": "{{size}} · 建議",
@@ -3111,6 +3110,9 @@
   "Reset to default ({{percent}}%)": "重設為預設值 ({{percent}}%)",
   "Reset zoom": "重設縮放",
   "Resume at {{time}}": "{{time}} 恢復",
+  "· resets {{time}} ({{remaining}})": "· {{time}} 重設（{{remaining}}）",
+  "Switch to another provider's model to continue now": "切換到其他供應商的模型即可立即繼續",
+  "Switch accounts or to another provider's model to continue now": "切換帳號或其他供應商的模型即可立即繼續",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "將於 {{time}} 重置。改用其他模型繼續，會原樣接著目前對話進行。",
   "resets in {{time}}": "{{time}}後重置",
   "Resets in {{time}}": "{{time}} 後重置",
@@ -4355,8 +4357,6 @@
   "Forking…": "正在分割…",
   "Session forked": "工作階段已分割",
   "Switched to {{model}}": "已切換到 {{model}}",
-  "Switch model": "切換模型",
-  "Resets at {{time}} · {{remaining}} left.": "{{time}} 重設 · 剩餘 {{remaining}}。",
   "Auto-compact on model change": "切換模型時自動壓縮",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "在對話切換到其他模型之前，先用目前的模型壓縮對話。目前模型用量已耗盡時略過。"
 }

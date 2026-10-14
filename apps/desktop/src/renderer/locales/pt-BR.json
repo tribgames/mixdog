@@ -249,7 +249,6 @@
   "{{points}} pts ahead of an even pace": "{{points}} pts à frente do ritmo uniforme",
   "{{points}} pts behind an even pace": "{{points}} pts atrás do ritmo uniforme",
   "{{project}} {{number}}": "{{project}} {{number}}",
-  "{{provider}} usage limit reached": "O limite de {{provider}} foi totalmente usado",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "Faltam {{remaining}}. A reserva é mantida mesmo se você fechar e abrir o app novamente.",
   "{{rows}} rows × {{columns}} columns": "{{rows}} linhas × {{columns}} colunas",
   "{{size}} · recommended": "{{size}} · recomendado",
@@ -3221,6 +3220,9 @@
   "Reset to default ({{percent}}%)": "Redefinir para o padrão ({{percent}}%)",
   "Reset zoom": "Redefinir zoom",
   "Resume at {{time}}": "Retomar às {{time}}",
+  "· resets {{time}} ({{remaining}})": "· redefine às {{time}} ({{remaining}})",
+  "Switch to another provider's model to continue now": "Troque para o modelo de outro provedor para continuar agora",
+  "Switch accounts or to another provider's model to continue now": "Troque de conta ou para o modelo de outro provedor para continuar agora",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "Reinicia às {{time}}. Continuar em outro modelo segue esta conversa como está.",
   "resets in {{time}}": "redefine em {{time}}",
   "Resets in {{time}}": "Redefine em {{time}}",
@@ -4477,8 +4479,6 @@
   "Forking…": "Ramificando…",
   "Session forked": "Sessão ramificada",
   "Switched to {{model}}": "Alterado para {{model}}",
-  "Switch model": "Trocar modelo",
-  "Resets at {{time}} · {{remaining}} left.": "Redefine às {{time}} · restam {{remaining}}.",
   "Auto-compact on model change": "Compactar ao trocar de modelo",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "Compacta a conversa com o modelo atual antes que o chat troque para outro modelo. Ignorado quando o modelo atual esgotou o uso."
 }

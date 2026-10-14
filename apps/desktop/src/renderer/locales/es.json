@@ -248,7 +248,6 @@
   "{{points}} pts ahead of an even pace": "{{points}} pts por delante del ritmo uniforme",
   "{{points}} pts behind an even pace": "{{points}} pts por detrás del ritmo uniforme",
   "{{project}} {{number}}": "{{project}} {{number}}",
-  "{{provider}} usage limit reached": "Has agotado el límite de {{provider}}",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "Quedan {{remaining}}. La reserva se mantiene aunque cierres y vuelvas a abrir la app.",
   "{{rows}} rows × {{columns}} columns": "{{rows}} filas × {{columns}} columnas",
   "{{size}} · recommended": "{{size}} · recomendado",
@@ -3220,6 +3219,9 @@
   "Reset to default ({{percent}}%)": "Restablecer al valor predeterminado ({{percent}}%)",
   "Reset zoom": "Restablecer zoom",
   "Resume at {{time}}": "Reanudar a las {{time}}",
+  "· resets {{time}} ({{remaining}})": "· se restablece a las {{time}} ({{remaining}})",
+  "Switch to another provider's model to continue now": "Cambia al modelo de otro proveedor para continuar ahora",
+  "Switch accounts or to another provider's model to continue now": "Cambia de cuenta o al modelo de otro proveedor para continuar ahora",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "Se restablece a las {{time}}. Si continúas con otro modelo, esta conversación sigue tal cual.",
   "resets in {{time}}": "se restablece en {{time}}",
   "Resets in {{time}}": "Se reinicia en {{time}}",
@@ -4475,8 +4477,6 @@
   "Forking…": "Bifurcando…",
   "Session forked": "Sesión bifurcada",
   "Switched to {{model}}": "Cambiado a {{model}}",
-  "Switch model": "Cambiar modelo",
-  "Resets at {{time}} · {{remaining}} left.": "Se restablece a las {{time}} · quedan {{remaining}}.",
   "Auto-compact on model change": "Compactar al cambiar de modelo",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "Compacta la conversación con el modelo actual antes de que el chat cambie a otro modelo. Se omite cuando el modelo actual ha agotado su uso."
 }

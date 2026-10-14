@@ -614,20 +614,25 @@ button.composer-island-tab {
   flex: none;
   text-align: right;
 }
-.composer-island-quota .composer-island-pbody,
-.composer-quota-card .composer-island-pbody {
+.composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;
 }
-:is(.composer-island-quota, .composer-quota-card) .composer-island-ptitle svg {
+.composer-island-quota .composer-island-ptitle svg {
   color: var(--mx-warning);
   flex: none;
 }
-/* The quota card: the island's material at the composer's width, between
-   the island and the prompt input. */
+/* The quota banner: one pill line in the island's material at the
+   composer's width, between the island and the prompt input. Only the icon
+   carries the warning hue. */
 .composer-quota-card {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  box-sizing: border-box;
   margin-bottom: 8px;
-  border-radius: 18px;
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
   color: var(--mx-text);
   background: var(--mx-island-frame);
   box-shadow:
@@ -637,30 +642,52 @@ button.composer-island-tab {
   font-weight: var(--mx-weight-label);
   line-height: var(--mx-line-ui);
   letter-spacing: -0.005em;
+  white-space: nowrap;
   transform-origin: 50% 100%;
   animation: composer-island-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.composer-quota-card .composer-island-ptitle {
-  padding-right: 28px;
+.composer-quota-card-icon {
+  flex: none;
+  color: var(--mx-warning);
 }
-.composer-quota-card-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
+/* Title, reset and guidance never wrap. Title and reset keep their full
+   width (the text block cannot shrink below them); only the guidance takes
+   the remaining room, and when it runs out it is hidden (keeping its box, so
+   the overflow measurement stays stable). */
+.composer-quota-card-text {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.composer-quota-card-text > * {
+  flex: none;
+}
+/* `contain: inline-size` keeps the guidance's text out of the line's
+   minimum width, so it is the only part that gives way. */
+.composer-quota-card-text > .composer-quota-card-guide {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  contain: inline-size;
+}
+.composer-quota-card-title {
+  font-weight: var(--mx-weight-semibold);
+}
+.composer-quota-card-reset,
+.composer-quota-card-guide {
   color: var(--mx-text-muted);
-  background: transparent;
-  cursor: pointer;
 }
-.composer-quota-card-close:hover {
-  color: var(--mx-text);
-  background: var(--mx-hover);
+.composer-quota-card[data-guidance-hidden="true"] .composer-quota-card-guide {
+  visibility: hidden;
+}
+/* The island's primary button, as a pill. */
+.composer-quota-card .composer-quota-card-resume {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-weight: var(--mx-weight-semibold);
 }
 @media (prefers-reduced-motion: reduce) {
   .composer-quota-card {
@@ -792,7 +819,7 @@ html[data-mixdog-mobile-tabs] .composer-island-button {
 html[data-mixdog-mobile-tabs] .composer-island-pbody {
   padding: 10px 14px 12px;
 }
-html[data-mixdog-mobile-tabs] :is(.composer-island-quota, .composer-quota-card) .composer-island-pbody {
+html[data-mixdog-mobile-tabs] .composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-pfoot {

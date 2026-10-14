@@ -288,7 +288,6 @@
   "{{points}} pts ahead of an even pace": "На {{points}} п. п. быстрее равномерного темпа",
   "{{points}} pts behind an even pace": "На {{points}} п. п. медленнее равномерного темпа",
   "{{project}} {{number}}": "{{project}} {{number}}",
-  "{{provider}} usage limit reached": "Лимит {{provider}} полностью исчерпан",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "Осталось {{remaining}}. Резервирование сохранится, даже если закрыть и снова открыть приложение.",
   "{{rows}} rows × {{columns}} columns": "{{rows}} строк × {{columns}} столбцов",
   "{{size}} · recommended": "{{size}} · рекомендуется",
@@ -3276,6 +3275,9 @@
   "Reset to default ({{percent}}%)": "Сбросить до значения по умолчанию ({{percent}}%)",
   "Reset zoom": "Сбросить масштаб",
   "Resume at {{time}}": "Возобновить в {{time}}",
+  "· resets {{time}} ({{remaining}})": "· сброс в {{time}} ({{remaining}})",
+  "Switch to another provider's model to continue now": "Переключитесь на модель другого провайдера, чтобы продолжить сейчас",
+  "Switch accounts or to another provider's model to continue now": "Переключитесь на другой аккаунт или модель другого провайдера, чтобы продолжить сейчас",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "Сброс в {{time}}. Если продолжить в другой модели, этот чат продолжится как есть.",
   "resets in {{time}}": "сброс через {{time}}",
   "Resets in {{time}}": "Сброс через {{time}}",
@@ -4538,8 +4540,6 @@
   "Forking…": "Ответвление…",
   "Session forked": "Сессия ответвлена",
   "Switched to {{model}}": "Переключено на {{model}}",
-  "Switch model": "Сменить модель",
-  "Resets at {{time}} · {{remaining}} left.": "Сброс в {{time}} · осталось {{remaining}}.",
   "Auto-compact on model change": "Автосжатие при смене модели",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "Сжимает разговор текущей моделью перед переключением чата на другую модель. Пропускается, если лимит использования текущей модели исчерпан."
 }

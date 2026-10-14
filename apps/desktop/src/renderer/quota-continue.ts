@@ -1,7 +1,5 @@
-import type { DesktopModelSelection } from '../shared/contract';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
-import { requestOpenModelPicker } from './model-picker-event';
 
 export type QuotaFailure = {
   turnKey: string;
@@ -66,30 +64,4 @@ export function quotaRemainingLabel(resetAt: number, now = Date.now()): string {
   if (hours > 0) return t('{{hours}}h', { hours });
   if (minutes > 0) return t('{{minutes}}m', { minutes });
   return t('Under 1m');
-}
-
-type PendingContinue = { sessionId: string; onApplied(selection: DesktopModelSelection): void };
-let pending: PendingContinue | null = null;
-
-/** Opens the composer's model picker. The next explicit model selection for
- *  `sessionId` applies to the chat as usual (in place), and once another
- *  model is applied `onApplied` runs. False when no picker answered. */
-export function beginQuotaContinue(sessionId: string, onApplied: (selection: DesktopModelSelection) => void): boolean {
-  pending = { sessionId, onApplied };
-  if (requestOpenModelPicker()) return true;
-  pending = null;
-  return false;
-}
-
-/** Claims the pending continue for an explicit model selection. */
-export function takeQuotaContinue(sessionId: string): ((selection: DesktopModelSelection) => void) | null {
-  if (!pending || pending.sessionId !== sessionId) return null;
-  const { onApplied } = pending;
-  pending = null;
-  return onApplied;
-}
-
-/** The picker closed without a selection. */
-export function cancelQuotaContinue(sessionId: string): void {
-  if (pending?.sessionId === sessionId) pending = null;
 }

@@ -42,10 +42,6 @@ export type ComposerIslandQuotaResume = {
   resetAt: number;
   /** Drop the reservation; the session stays stopped. */
   onCancel(): void;
-  /** Switch this chat to another model instead (the quota card's switch). */
-  onContinue(): void;
-  /** A model switch of this chat is in flight: both actions wait. */
-  busy?: boolean;
 };
 
 const FLASH_MS = 2_500;
@@ -425,19 +421,6 @@ function QuotaPanelFrame({
   );
 }
 
-function ContinueButton({ onClick, disabled }: { onClick(): void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      className="composer-island-button composer-island-button-primary"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {t('Switch model')}
-    </button>
-  );
-}
-
 /** Time left until `resetAt`, refreshed once a minute; '' without a reset. */
 export function useQuotaRemaining(resetAt: number | null): string {
   const [now, setNow] = useState(() => Date.now());
@@ -465,10 +448,9 @@ function ResumePanel({ resume }: { resume: ComposerIslandQuotaResume }) {
         remaining: quotaRemainingLabel(resume.resetAt),
       })}
     >
-      <button type="button" className="composer-island-button" disabled={resume.busy} onClick={resume.onCancel}>
+      <button type="button" className="composer-island-button" onClick={resume.onCancel}>
         {t('Cancel resume')}
       </button>
-      <ContinueButton onClick={resume.onContinue} disabled={resume.busy} />
     </QuotaPanelFrame>
   );
 }

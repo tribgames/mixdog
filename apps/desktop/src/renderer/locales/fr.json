@@ -249,7 +249,6 @@
   "{{points}} pts ahead of an even pace": "{{points}} pts d'avance sur un rythme régulier",
   "{{points}} pts behind an even pace": "{{points}} pts de retard sur un rythme régulier",
   "{{project}} {{number}}": "{{project}} {{number}}",
-  "{{provider}} usage limit reached": "Limite {{provider}} entièrement utilisée",
   "{{remaining}} left. The reservation is kept even if you close and reopen the app.": "{{remaining}} restantes. La réservation est conservée même si vous fermez puis rouvrez l’app.",
   "{{rows}} rows × {{columns}} columns": "{{rows}} lignes × {{columns}} colonnes",
   "{{size}} · recommended": "{{size}} · recommandé",
@@ -3221,6 +3220,9 @@
   "Reset to default ({{percent}}%)": "Rétablir la valeur par défaut ({{percent}} %)",
   "Reset zoom": "Réinitialiser le zoom",
   "Resume at {{time}}": "Reprendre à {{time}}",
+  "· resets {{time}} ({{remaining}})": "· réinitialisation à {{time}} ({{remaining}})",
+  "Switch to another provider's model to continue now": "Passez au modèle d’un autre fournisseur pour continuer maintenant",
+  "Switch accounts or to another provider's model to continue now": "Changez de compte ou passez au modèle d’un autre fournisseur pour continuer maintenant",
   "Resets at {{time}}. Continuing in another model carries on this chat as it is.": "Réinitialisation à {{time}}. Poursuivre avec un autre modèle reprend cette conversation telle quelle.",
   "resets in {{time}}": "réinitialisation dans {{time}}",
   "Resets in {{time}}": "Se réinitialise dans {{time}}",
@@ -4477,8 +4479,6 @@
   "Forking…": "Bifurcation…",
   "Session forked": "Session bifurquée",
   "Switched to {{model}}": "Passé à {{model}}",
-  "Switch model": "Changer de modèle",
-  "Resets at {{time}} · {{remaining}} left.": "Réinitialisation à {{time}} · {{remaining}} restant.",
   "Auto-compact on model change": "Compacter au changement de modèle",
   "Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.": "Compacte la conversation avec le modèle actuel avant que le chat passe à un autre modèle. Ignoré lorsque le modèle actuel a épuisé son utilisation."
 }
