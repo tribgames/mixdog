@@ -87,11 +87,107 @@ export function restorePaneFramesScript(prefixes: string[]): string {
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** A card picture is taken once two captures this far apart match… */
-const THUMBNAIL_QUIET_MS = 500;
-/** …or as the page looks after this many rounds (about 6 s). */
-const THUMBNAIL_SETTLE_ROUNDS = 12;
+const THUMBNAIL_QUIET_MS = 400;
+/** …or as the page looks after this many rounds (about 1.2 s): a page that
+ *  never holds still (an animation) costs at most this many captures. */
+const THUMBNAIL_SETTLE_ROUNDS = 4;
+/** Captures are compared at this width: whether the picture still moves, not
+ *  every pixel of a full-resolution bitmap. */
+const THUMBNAIL_COMPARE_WIDTH = 64;
+
+/** `sleep` that ends early once `signal` aborts. */
+const pause = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
 
 type BodyRect = { x: number; y: number; width: number; height: number };
+
+/** The displayed tab body's rect right now, or null when it is not on screen. */
+async function bodyRectNow(window: BrowserWindow, sessionId: string, tabId: string): Promise<BodyRect | null> {
+  const query = `(() => {
+    const nodes = document.querySelectorAll('[data-visualize-body]');
+    for (const node of nodes) {
+      if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;
+      if (node.dataset.visualizeTab !== ${JSON.stringify(tabId)}) continue;
+      if (node.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width >= 1 && rect.height >= 1) return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    }
+    return null;
+  })()`;
+  return (await window.webContents.executeJavaScript(query)) as BodyRect | null;
+}
+
+/** Whether every page pane of the tab has loaded, and a chart page has
+ *  drawn its last frame (ECharts `finished`, animations included). */
+async function pagesReady(window: BrowserWindow, tab: VisualizeTabView): Promise<boolean> {
+  const frames = window.webContents.mainFrame.framesInSubtree;
+  for (const pane of tab.panes) {
+    if (pane.kind !== 'html' || !pane.url) continue;
+    const prefix = leasePrefix(pane.url);
+    const frame = frames.find((candidate) => !candidate.isDestroyed() && candidate.url.startsWith(prefix));
+    if (!frame) return false;
+    const check =
+      pane.inline?.kind === 'chart'
+        ? `document.readyState === 'complete' && document.documentElement.hasAttribute(${JSON.stringify(INLINE_CHART_RENDERED)})`
+        : `document.readyState === 'complete'`;
+    if (!(await frame.executeJavaScript(check).catch(() => false))) return false;
+  }
+  return true;
+}
+
+/** A small bitmap of `image` for the settle comparison. */
+function settleSample(image: NativeImage): Buffer {
+  const { width } = image.getSize();
+  return (width > THUMBNAIL_COMPARE_WIDTH ? image.resize({ width: THUMBNAIL_COMPARE_WIDTH, quality: 'good' }) : image).toBitmap();
+}
+
+/** The shown tab body once its picture holds still: pages loaded (charts
+ *  done drawing), then two captures THUMBNAIL_QUIET_MS apart whose downscaled
+ *  samples match. A page that never settles is taken as it is after the last
+ *  round. Null when the tab is not (or no longer) on screen, or once `signal`
+ *  aborts (checked between every step of every round). The picture returned
+ *  is always a real full-size capture. */
+export async function settledBodyImage(
+  window: BrowserWindow,
+  sessionId: string,
+  tab: VisualizeTabView,
+  signal: AbortSignal,
+  wait: (ms: number, signal: AbortSignal) => Promise<void> = pause
+): Promise<NativeImage | null> {
+  let image: NativeImage | null = null;
+  let previous: Buffer | null = null;
+  for (let round = 0; round < THUMBNAIL_SETTLE_ROUNDS; round += 1) {
+    if (signal.aborted || window.isDestroyed()) return null;
+    const rect = await bodyRectNow(window, sessionId, tab.id).catch(() => null);
+    if (!rect || signal.aborted) return null;
+    const last = round === THUMBNAIL_SETTLE_ROUNDS - 1;
+    if (last || (await pagesReady(window, tab))) {
+      if (signal.aborted) return null;
+      const zoom = window.webContents.getZoomFactor();
+      image = await window.webContents.capturePage({
+        x: Math.round(rect.x * zoom),
+        y: Math.round(rect.y * zoom),
+        width: Math.max(1, Math.round(rect.width * zoom)),
+        height: Math.max(1, Math.round(rect.height * zoom)),
+      });
+      if (signal.aborted) return null;
+      const sample = settleSample(image);
+      if (previous?.equals(sample)) return image;
+      previous = sample;
+    }
+    if (!last) await wait(THUMBNAIL_QUIET_MS, signal);
+  }
+  return signal.aborted ? null : image;
+}
 
 /** `http://127.0.0.1:port/<token>/` of a local page URL: every page and asset
  *  of that lease shares it. */
@@ -167,87 +263,23 @@ export function createDesktopVisualize(options: {
     return retry(() => bodyRectNow(window, sessionId, tab.id));
   };
 
-  /** The displayed tab body's rect right now, or null when it is not on screen. */
-  const bodyRectNow = async (window: BrowserWindow, sessionId: string, tabId: string): Promise<BodyRect | null> => {
-    const query = `(() => {
-      const nodes = document.querySelectorAll('[data-visualize-body]');
-      for (const node of nodes) {
-        if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;
-        if (node.dataset.visualizeTab !== ${JSON.stringify(tabId)}) continue;
-        if (node.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
-        const rect = node.getBoundingClientRect();
-        if (rect.width >= 1 && rect.height >= 1) return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-      }
-      return null;
-    })()`;
-    return (await window.webContents.executeJavaScript(query)) as BodyRect | null;
-  };
-
-  /** Whether every page pane of the tab has loaded, and a chart page has
-   *  drawn its last frame (ECharts `finished`, animations included). */
-  const pagesReady = async (window: BrowserWindow, tab: VisualizeTabView): Promise<boolean> => {
-    const frames = window.webContents.mainFrame.framesInSubtree;
-    for (const pane of tab.panes) {
-      if (pane.kind !== 'html' || !pane.url) continue;
-      const prefix = leasePrefix(pane.url);
-      const frame = frames.find((candidate) => !candidate.isDestroyed() && candidate.url.startsWith(prefix));
-      if (!frame) return false;
-      const check =
-        pane.inline?.kind === 'chart'
-          ? `document.readyState === 'complete' && document.documentElement.hasAttribute(${JSON.stringify(INLINE_CHART_RENDERED)})`
-          : `document.readyState === 'complete'`;
-      if (!(await frame.executeJavaScript(check).catch(() => false))) return false;
-    }
-    return true;
-  };
-
-  /** The shown tab body once its picture holds still: pages loaded (charts
-   *  done drawing), then two captures THUMBNAIL_QUIET_MS apart that match.
-   *  A page that never settles is taken as it is after the last round; null
-   *  when the tab is not (or no longer) on screen. */
-  const settledBodyImage = async (
-    window: BrowserWindow,
-    sessionId: string,
-    tab: VisualizeTabView
-  ): Promise<NativeImage | null> => {
-    let image: NativeImage | null = null;
-    let previous: Buffer | null = null;
-    for (let round = 0; round < THUMBNAIL_SETTLE_ROUNDS; round += 1) {
-      if (window.isDestroyed()) return null;
-      const rect = await bodyRectNow(window, sessionId, tab.id).catch(() => null);
-      if (!rect) return null;
-      const last = round === THUMBNAIL_SETTLE_ROUNDS - 1;
-      if (last || (await pagesReady(window, tab))) {
-        const zoom = window.webContents.getZoomFactor();
-        image = await window.webContents.capturePage({
-          x: Math.round(rect.x * zoom),
-          y: Math.round(rect.y * zoom),
-          width: Math.max(1, Math.round(rect.width * zoom)),
-          height: Math.max(1, Math.round(rect.height * zoom)),
-        });
-        const bitmap = image.toBitmap();
-        if (previous?.equals(bitmap)) return image;
-        previous = bitmap;
-      }
-      if (!last) await sleep(THUMBNAIL_QUIET_MS);
-    }
-    return image;
-  };
-
   /** The tab's chat-card picture: the panel's own rendering when the tab is
    *  on screen; otherwise its first pane file stands in (an image itself, the
-   *  OS thumbnail of a PDF or video); null when nothing can. */
+   *  OS thumbnail of a PDF or video); null when nothing can, or once `signal`
+   *  aborts (a newer job, revision or a closed tab). */
   const thumbnailOf = async (
     sessionId: string,
     tab: VisualizeTabView,
-    targets: Array<{ kind: string; path: string }>
+    targets: Array<{ kind: string; path: string }>,
+    signal: AbortSignal
   ): Promise<Buffer | null> => {
     const window = liveWindow();
     if (window && window.isVisible() && !window.isMinimized()) {
-      const image = await settledBodyImage(window, sessionId, tab);
+      const image = await settledBodyImage(window, sessionId, tab, signal);
       const png = image ? fitVisualizeThumbnail(image) : null;
       if (png) return png;
     }
+    if (signal.aborted) return null;
     const first = targets[0];
     if (!first || !['image', 'pdf', 'video'].includes(first.kind)) return null;
     const { nativeImage } = await import('electron');

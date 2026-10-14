@@ -32,7 +32,7 @@
    scrolling repaint the masked content. The measured dock height includes
    the floating island, so the fade ends at whichever sits on top. */
 .conversation {
-  --transcript-fade: 48px;
+  --transcript-fade: 24px;
 }
 .conversation > .transcript-shell::after {
   content: "";

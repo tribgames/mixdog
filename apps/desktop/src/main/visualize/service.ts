@@ -6,7 +6,6 @@
  * request handling, containment and routing stay testable without a window.
  */
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { realpathSync } from 'node:fs';
 import { open as openFileHandle, realpath, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, sep } from 'node:path';
 
@@ -112,8 +111,10 @@ export interface VisualizeServiceDeps {
   versions?: { directory: string } & VisualizeVersionLimits;
   /** A downscaled PNG of the tab for its chat card (at most
    *  VISUALIZE_THUMBNAIL_MAX_BYTES), or null when none can be taken (the
-   *  session is not shown and no pane file can stand in). */
-  thumbnail?(sessionId: string, tab: VisualizeTabView, targets: FileTarget[]): Promise<Buffer | null>;
+   *  session is not shown and no pane file can stand in). `signal` aborts
+   *  when the picture is no longer wanted (a newer revision, a newer job for
+   *  the tab, the tab closed): the taker stops and its result is dropped. */
+  thumbnail?(sessionId: string, tab: VisualizeTabView, targets: FileTarget[], signal: AbortSignal): Promise<Buffer | null>;
   /** The session's working directory, for reopening a closed tab from its
    *  chat card when this run never saw the session. */
   sessionCwd?(sessionId: string): Promise<string | null>;
@@ -179,6 +180,13 @@ interface TabState {
   /** Identity for reuse: the resolved targets in order. */
   key: string;
   cwd: string;
+  /** `cwd` with links resolved, read (asynchronously) whenever the tab's panes
+   *  are prepared: the display-only path math of a publish never touches the
+   *  file system. Containment checks re-resolve on their own. */
+  realCwd?: string;
+  /** Start order (`loadStamp`) of the open or reload whose files, `cwd` and
+   *  `realCwd` the tab holds: an older reload finishing late never overwrites them. */
+  loadedStamp?: number;
   revision: number;
   /** Web URL tabs live in the browser panel and carry no panes. */
   url?: string;
@@ -246,7 +254,7 @@ function exportSummary(tab: TabState, cwd: string): VisualizeTabSummary {
   return {
     ...base,
     label: localizeProblemText(base.label, [cwd, tab.cwd]),
-    target: tab.inline ? base.target : tab.targets.map((target) => remoteTargetOf(tab.cwd, target)).join(' | '),
+    target: tab.inline ? base.target : tab.targets.map((target) => remoteTargetOf(realCwdOfTab(tab), target)).join(' | '),
   };
 }
 
@@ -278,15 +286,16 @@ const inlineKey = (content: VisualizeInlineContent): string =>
 const sameInline = (a: VisualizeInlineContent, b: VisualizeInlineContent): boolean =>
   a.kind === b.kind && a.source === b.source && a.title === b.title;
 
-/** A target as a remote client may see it: relative to the (resolved) cwd,
- *  or the file name when it is not representable that way. */
-function remoteTargetOf(cwd: string, target: FileTarget): string {
-  let root = cwd;
-  try {
-    root = realpathSync(cwd);
-  } catch {
-    // An unreadable cwd falls back to the file name below.
-  }
+/** `cwd` with links resolved; an unreadable cwd stays as given. */
+const realCwdOf = (cwd: string): Promise<string> => realpath(cwd).catch(() => cwd);
+
+/** The tab's resolved cwd as last read (`realCwdOf`), no file system access. */
+const realCwdOfTab = (tab: TabState): string => tab.realCwd ?? tab.cwd;
+
+/** A target as a remote client may see it: relative to `root` (the cwd with
+ *  links resolved, see `realCwdOf`), or the file name when it is not
+ *  representable that way. Pure path math: called on every publish. */
+function remoteTargetOf(root: string, target: FileTarget): string {
   const rel = relative(root, target.path);
   if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return basename(target.path);
   return rel.split(sep).join('/');
@@ -461,7 +470,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     const previous = state.history.find((entry) => entry.key === tab.key);
     const live = tab.inline
       ? tab.panes.map((pane) => ({ target: pane.target, remoteTarget: pane.target }))
-      : tab.targets.map((target) => ({ target: target.target, remoteTarget: remoteTargetOf(tab.cwd, target) }));
+      : tab.targets.map((target) => ({ target: target.target, remoteTarget: remoteTargetOf(realCwdOfTab(tab), target) }));
     const entry: HistoryEntry = {
       id: historyId(tab.key),
       key: tab.key,
@@ -514,7 +523,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
               label: target.label,
               target: target.target,
               path: target.path,
-              remoteTarget: remoteTargetOf(tab.cwd, target),
+              remoteTarget: remoteTargetOf(realCwdOfTab(tab), target),
             }));
         // A kept version's panes are served from its snapshot folder.
         const shown = tab.shown;
@@ -542,7 +551,31 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     };
   };
 
+  /** The in-flight chat-card picture of each tab: at most one per tab. */
+  const thumbnailJobs = new WeakMap<TabState, { revision: number; controller: AbortController }>();
+  const cancelThumbnail = (tab: TabState) => {
+    thumbnailJobs.get(tab)?.controller.abort();
+    thumbnailJobs.delete(tab);
+  };
+  /** The tab's view changes: a newer revision, and its old picture stops now,
+   *  not at the next publish (snapshot I/O may come first). */
+  const invalidate = (tab: TabState) => {
+    tab.revision += 1;
+    cancelThumbnail(tab);
+  };
+  /** Start order of opens and file reloads (`TabState.loadedStamp`). */
+  let loadStamp = 0;
+  /** A load started at `stamp` may commit to `tab` only when no load started
+   *  later already did: `loadedStamp` only ever grows. */
+  const loadIsCurrent = (tab: TabState, stamp: number) => stamp > (tab.loadedStamp ?? 0);
+
   const publish = (sessionId: string, reveal = false) => {
+    // Every revision change is published: a picture of an older revision is
+    // stopped here, mid-capture, instead of running to its end.
+    for (const tab of sessions.get(sessionId)?.tabs ?? []) {
+      const job = thumbnailJobs.get(tab);
+      if (job && job.revision !== tab.revision) cancelThumbnail(tab);
+    }
     deps.publish({ sessionId, state: stateOf(sessionId), ...(reveal ? { reveal: true } : {}) });
     deps.publishHost?.({ sessionId, state: hostStateOf(sessionId), ...(reveal ? { reveal: true } : {}) });
   };
@@ -563,37 +596,51 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
   const sessionCwds = new Map<string, string>();
 
   /** Take the tab's chat-card picture once the shown page had time to
-   *  settle; a newer reload or a closed tab drops it. Tracked by `settled()`. */
+   *  settle. One job per tab: a new job, a newer revision or a closed tab
+   *  aborts the old one (the taker sees its signal between capture rounds).
+   *  Tracked by `settled()`. */
   const refreshThumbnail = (sessionId: string, tab: TabState) => {
     const take = deps.thumbnail;
     if (!take || tab.url) return;
+    cancelThumbnail(tab);
     const revision = tab.revision;
-    const current = () => sessions.get(sessionId)?.tabs.includes(tab) === true && tab.revision === revision;
+    const job = { revision, controller: new AbortController() };
+    thumbnailJobs.set(tab, job);
+    const { signal } = job.controller;
+    const current = () =>
+      !signal.aborted && sessions.get(sessionId)?.tabs.includes(tab) === true && tab.revision === revision;
     const run = (async () => {
       await delay(ACTIVATE_SETTLE_MS);
       if (!current()) return;
-      const png = await take(sessionId, view(tab), tab.shown ? tab.shown.targets : tab.targets);
+      const png = await take(sessionId, view(tab), tab.shown ? tab.shown.targets : tab.targets, signal);
       const thumbnail = png?.length ? visualizeThumbnail(`data:image/png;base64,${png.toString('base64')}`) : '';
-      if (!thumbnail || !current()) return;
+      if (!thumbnail || !current() || thumbnail === tab.thumbnail) return;
       tab.thumbnail = thumbnail;
       publish(sessionId);
-    })().catch((error: unknown) => {
-      console.warn('visualize thumbnail failed:', (error as Error).message);
-    });
+    })()
+      .catch((error: unknown) => {
+        console.warn('visualize thumbnail failed:', (error as Error).message);
+      })
+      .finally(() => {
+        if (thumbnailJobs.get(tab) === job) thumbnailJobs.delete(tab);
+      });
     pendingReloads.add(run);
     void run.then(() => pendingReloads.delete(run));
   };
 
   /** A tab that was not on screen when its picture was due (another tab
-   *  opened right after it) gets it once it is shown. */
+   *  opened right after it) gets it once it is shown; never a second job
+   *  while one for its revision is still running. */
   const thumbnailWhenMissing = (sessionId: string, tab: TabState) => {
-    if (!tab.thumbnail) refreshThumbnail(sessionId, tab);
+    if (tab.thumbnail || thumbnailJobs.get(tab)?.revision === tab.revision) return;
+    refreshThumbnail(sessionId, tab);
   };
 
   const dispose = (tab: TabState) => {
     for (const stop of tab.unwatch) stop();
     tab.unwatch = [];
     cancelScheduledReload(tab);
+    cancelThumbnail(tab);
   };
 
   /** Every page-server lease a tab's HTML panes were ever served from, so a
@@ -640,17 +687,20 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     return '';
   };
 
-  const preparePanes = async (targets: FileTarget[], cwd: string): Promise<VisualizePaneView[]> =>
-    Promise.all(
+  /** `root` is `cwd` already resolved (`realCwdOf`), when the caller has it. */
+  const preparePanes = async (targets: FileTarget[], cwd: string, root?: string): Promise<VisualizePaneView[]> => {
+    const real = root ?? (await realCwdOf(cwd));
+    return Promise.all(
       targets.map(async (target) => ({
         kind: target.kind,
         label: target.label,
         target: target.target,
         url: await deps.preparePane(target, cwd),
         // What the user's panel feedback names: never a host path.
-        file: remoteTargetOf(cwd, target),
+        file: remoteTargetOf(real, target),
       }))
     );
+  };
 
   const reload = async (sessionId: string, tab: TabState, versionLabel?: string) => {
     const state = sessions.get(sessionId);
@@ -667,20 +717,28 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
       }
       return;
     }
+    // Everything below is resolved against this cwd; a reopen in another cwd,
+    // or a reload started later, that commits first makes this result stale.
+    const cwd = tab.cwd;
+    const stamp = (loadStamp += 1);
+    const superseded = () => tab.cwd !== cwd || !loadIsCurrent(tab, stamp);
     try {
       // Re-resolve from the original request every time: a parent folder
       // swapped for a link must not carry the tab outside cwd.
       const targets = (await Promise.all(
-        tab.targets.map((target) => resolveVisualizeTarget(tab.cwd, target.target))
+        tab.targets.map((target) => resolveVisualizeTarget(cwd, target.target))
       )) as FileTarget[];
-      const panes = await preparePanes(targets, tab.cwd);
-      if (!state.tabs.includes(tab)) return;
+      const realCwd = await realCwdOf(cwd);
+      const panes = await preparePanes(targets, cwd, realCwd);
+      if (!state.tabs.includes(tab) || superseded()) return;
       const moved = targets.some((target, index) => target.path !== tab.targets[index]?.path);
+      tab.loadedStamp = stamp;
+      tab.realCwd = realCwd;
       tab.targets = targets;
       tab.panes = panes;
       claimLeases(sessionId, tab, panes);
       tab.problems = [];
-      tab.revision += 1;
+      invalidate(tab);
       if (moved) {
         for (const stop of tab.unwatch) stop();
         watchTab(sessionId, tab);
@@ -689,6 +747,8 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
       publish(sessionId);
       refreshThumbnail(sessionId, tab);
     } catch (error) {
+      // A newer open or reload already decided what the tab shows.
+      if (superseded()) return;
       if (error instanceof OutsideWorkingDirectoryError) {
         // Fail closed: the tab stops showing anything from that path.
         console.warn('visualize tab closed:', error.message);
@@ -788,11 +848,11 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
           claimLeases(sessionId, tab, panes);
         }
         tab.compare = compare;
-        tab.revision += 1;
+        invalidate(tab);
         return;
       }
     }
-    if (tab.shown) tab.revision += 1;
+    if (tab.shown) invalidate(tab);
     tab.shown = null;
     tab.compare = false;
   };
@@ -820,11 +880,11 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
           claimLeases(sessionId, tab, panes);
         }
         tab.compare = compare;
-        tab.revision += 1;
+        invalidate(tab);
         return;
       }
     }
-    if (tab.shown) tab.revision += 1;
+    if (tab.shown) invalidate(tab);
     tab.shown = null;
     tab.compare = false;
   };
@@ -881,7 +941,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
       }
       restored.push(change.rel);
     }
-    if (tab.shown) tab.revision += 1;
+    if (tab.shown) invalidate(tab);
     tab.shown = null;
     tab.compare = false;
     tab.pendingReload = false;
@@ -908,20 +968,11 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     }
   };
 
-  const rootsByCwd = new Map<string, string[]>();
-  const rootsOf = (cwd: string): string[] => {
-    let roots = rootsByCwd.get(cwd);
-    if (!roots) {
-      let real = cwd;
-      try {
-        real = realpathSync(cwd);
-      } catch {
-        // An unreadable cwd is still stripped as given.
-      }
-      roots = real === cwd ? [cwd] : [cwd, real];
-      rootsByCwd.set(cwd, roots);
-    }
-    return roots;
+  /** The tab's cwd as given and as resolved: both are stripped from problem
+   *  text (an unreadable cwd only as given). */
+  const rootsOf = (tab: TabState): string[] => {
+    const real = realCwdOfTab(tab);
+    return real === tab.cwd ? [tab.cwd] : [tab.cwd, real];
   };
 
   /** The tab and HTML pane whose page-server lease any of `urls` belongs to,
@@ -948,7 +999,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     draft: { kind: VisualizeProblem['kind']; message: string; source: string; line: number }
   ) => {
     const { sessionId, tab, index, version } = found;
-    const next = recordProblem(tab.problems, buildProblem({ ...draft, pane: index, version }, rootsOf(tab.cwd)));
+    const next = recordProblem(tab.problems, buildProblem({ ...draft, pane: index, version }, rootsOf(tab)));
     tab.problems = next.list;
     tab.problemSeq += 1;
     if (next.added) publish(sessionId);
@@ -993,15 +1044,16 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     const { sessionId, cwd } = request;
     const state = sessionOf(sessionId);
     const key = inlineKey(content);
+    const [pane, realCwd] = await Promise.all([inlinePaneFor(content), realCwdOf(cwd)]);
     let tab = state.tabs.find((candidate) => candidate.key === key);
-    const pane = await inlinePaneFor(content);
     if (tab) {
       tab.label = request.label ?? tab.label;
       tab.cwd = cwd;
+      tab.realCwd = realCwd;
       tab.inline = content;
       tab.panes = [pane];
       tab.problems = [];
-      tab.revision += 1;
+      invalidate(tab);
       state.tabs.splice(state.tabs.indexOf(tab), 1);
       state.tabs.push(tab);
     } else {
@@ -1011,6 +1063,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
         label: request.label ?? pane.label,
         key,
         cwd,
+        realCwd,
         revision: 0,
         inline: content,
         inlineHistory: [],
@@ -1065,6 +1118,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     if (!deps.windowAvailable()) throw new Error('the Mixdog desktop window is not open');
     if (request.content) return openInline(request, request.content);
     const { sessionId, cwd } = request;
+    const stamp = (loadStamp += 1);
     const targets = await Promise.all(request.targets.map((target) => resolveVisualizeTarget(cwd, target)));
     const web = targets.filter((target) => target.kind === 'url');
     if (web.length) {
@@ -1102,18 +1156,29 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     }
     const files = targets as FileTarget[];
     const key = files.map((target) => target.path).join('\0');
-    const panes = await preparePanes(files, cwd);
+    const realCwd = await realCwdOf(cwd);
+    const panes = await preparePanes(files, cwd, realCwd);
     const state = sessionOf(sessionId);
     let tab = state.tabs.find((candidate) => candidate.key === key);
     const label = request.label ?? files.map((target) => target.label).join(' · ');
-    if (tab) {
+    // A reload or reopen started after this open already committed newer
+    // files and cwd: this open's resolution is stale and is dropped.
+    const stale = tab !== undefined && !loadIsCurrent(tab, stamp);
+    if (tab && stale) {
+      tab.label = request.label ?? tab.label;
+      state.tabs.splice(state.tabs.indexOf(tab), 1);
+      state.tabs.push(tab);
+    } else if (tab) {
       dispose(tab);
       tab.label = request.label ?? tab.label;
+      // cwd and realCwd always come from the same open, committed together.
       tab.cwd = cwd;
+      tab.realCwd = realCwd;
+      tab.loadedStamp = stamp;
       tab.targets = files;
       tab.panes = panes;
       tab.problems = [];
-      tab.revision += 1;
+      invalidate(tab);
       // Reopening moves the tab to the end, like a fresh open.
       state.tabs.splice(state.tabs.indexOf(tab), 1);
       state.tabs.push(tab);
@@ -1124,6 +1189,8 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
         label,
         key,
         cwd,
+        realCwd,
+        loadedStamp: stamp,
         revision: 0,
         targets: files,
         panes,
@@ -1134,10 +1201,12 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
       };
       addTab(sessionId, tab);
     }
-    claimLeases(sessionId, tab, panes);
-    watchTab(sessionId, tab);
+    if (!stale) {
+      claimLeases(sessionId, tab, panes);
+      watchTab(sessionId, tab);
+    }
     // An agent open shows the live files; a kept version only on request.
-    if (tab.shown) tab.revision += 1;
+    if (tab.shown) invalidate(tab);
     tab.shown = null;
     tab.compare = false;
     tab.pendingReload = false;
@@ -1159,7 +1228,10 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
       .join(', ');
     // Give a fresh page a moment to load, so its first errors ride this result.
     if (panes.some((pane) => pane.kind === 'html')) await settle(tab, 1);
-    sessionCwds.set(sessionId, cwd);
+    // A dropped open's cwd is as stale as its files: the session keeps the
+    // cwd of the load that committed. A later open that overtook this one
+    // during settle owns the tab's cwd now, and records its own.
+    if (!stale && tab.cwd === cwd) sessionCwds.set(sessionId, cwd);
     refreshThumbnail(sessionId, tab);
     return {
       text: withProblems(
@@ -1655,6 +1727,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
         if (!state || !entry) throw new Error('that visual is no longer in this session\'s list');
         const live = state.tabs.find((candidate) => candidate.key === entry.key && !candidate.url);
         if (live) {
+          if (state.active === live.id) return;
           state.active = live.id;
           publish(command.sessionId);
           return;
@@ -1680,7 +1753,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
         // Inline pages are held in memory, not reloaded from files: remount them.
         if (tab.shown || tab.inline) {
           // A kept version is on screen: remount its pages under the new policy.
-          tab.revision += 1;
+          invalidate(tab);
           tab.problems = [];
           tab.problemSeq += 1;
           publish(command.sessionId);
@@ -1694,6 +1767,8 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
         await afterSelect(command.sessionId, tab);
         return;
       }
+      // Activating the tab already shown changes nothing: no publish, no job.
+      if (state.active === command.tabId) return;
       state.active = command.tabId;
       publish(command.sessionId);
       thumbnailWhenMissing(command.sessionId, tab);

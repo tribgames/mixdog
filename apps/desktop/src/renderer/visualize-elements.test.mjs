@@ -60,7 +60,7 @@ const inspection = {
   partial: false,
 };
 
-async function mount(t) {
+async function mount(t, { enabled = true } = {}) {
   resetVisualizeFeedback();
   resetVisualizeElementPins();
   const state = { findingCount: -1, comment: false };
@@ -68,7 +68,7 @@ async function mount(t) {
     const [body, setBody] = useState(null);
     const [comment, setComment] = useState(false);
     state.comment = comment;
-    const reading = useVisualizeInspection({ body, tab });
+    const reading = useVisualizeInspection({ body, tab, enabled });
     state.findingCount = reading.findingCount;
     state.refresh = reading.refresh;
     return React.createElement(
@@ -139,6 +139,19 @@ test('a ready page is read and its findings, outline and elements are listed', a
   assert.match(text, /Dashboard/);
   assert.match(text, /Interactive \(1\)/);
   assert.match(text, /button.*Save.*#save/);
+});
+
+test('no page is read on ready while the Elements view is closed, but an explicit refresh still reads', async (t) => {
+  const page = await mount(t, { enabled: false });
+  const reads = () => page.toPage.filter((message) => message.type === 'inspect');
+  await page.fromPage({ type: 'ready' });
+  await page.fromPage({ type: 'ready' });
+  await settle(450);
+  assert.equal(reads().length, 0, 'ready alone reads nothing');
+  await act(async () => page.state.refresh());
+  assert.equal(reads().length, 1, 'refresh reads');
+  await page.fromPage({ type: 'inspected', id: reads()[0].id, inspection });
+  assert.equal(page.state.findingCount, 1);
 });
 
 test('answers from other windows, with another id, or malformed are ignored', async (t) => {

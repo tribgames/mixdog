@@ -100,6 +100,83 @@ test('layout findings: overflow, clipped text, overlap, tap targets, contrast, a
   assert.equal(result.findingCount, result.findings.length);
 });
 
+test('the walk stops at the node cap instead of listing the whole document', () => {
+  const spans = '<i></i>'.repeat(4100);
+  const window = page(`<html><body data-box="0,0,375,812"><main data-box="0,0,375,100"><button id="first" data-box="0,0,100,44">Go</button></main>${spans}</body></html>`);
+  let steps = 0;
+  const create = window.document.createTreeWalker.bind(window.document);
+  window.document.createTreeWalker = (...args) => {
+    const walker = create(...args);
+    const next = walker.nextNode.bind(walker);
+    walker.nextNode = () => {
+      steps += 1;
+      return next();
+    };
+    return walker;
+  };
+  const every = window.Element.prototype.querySelectorAll;
+  window.Element.prototype.querySelectorAll = function (selector) {
+    assert.notEqual(selector, '*', 'the whole document is never materialized');
+    return every.call(this, selector);
+  };
+  const result = run(window);
+  assert.equal(result.partial, true);
+  assert.equal(steps, 4001, 'one step past the cap, then it stops');
+  assert.equal(result.elements.find((element) => element.selector === '#first').name, 'Go');
+  const small = run(page('<html><body data-box="0,0,375,812"><i></i><i></i></body></html>'));
+  assert.equal(small.partial, false);
+});
+
+test('overlap findings match an all-pairs check across grid cells, wide boxes and nesting', () => {
+  const targets = [
+    ['p1', '120,0,40,40'], ['p2', '130,10,40,40'], // straddle a cell edge: overlap
+    ['q1', '300,300,50,50'], ['q2', '340,340,50,50'], // 100px² of 2500: below the threshold
+    ['r1', '500,500,60,60'], ['r2', '505,505,60,60'], // overlap
+    ['u', '200,1200,40,40'], // before the wide box
+  ];
+  const html = `<html data-cw="375" data-sw="375"><body data-box="0,0,375,812">
+    ${targets.map(([id, box]) => `<button id="${id}" data-box="${box}">${id}</button>`).join('')}
+    <a id="n1" href="#" data-box="700,0,100,50"><button id="n2" data-box="710,5,50,30">in</button></a>
+    <div id="w" onclick="0" data-box="0,1000,3000,3000"><button id="s" data-box="10,1010,40,40">s</button></div>
+    <button id="t" data-box="100,1100,40,40">t</button>
+  </body></html>`;
+  const boxes = new Map([...targets, ['n1', '700,0,100,50'], ['n2', '710,5,50,30'], ['w', '0,1000,3000,3000'], ['s', '10,1010,40,40'], ['t', '100,1100,40,40']]
+    .map(([id, box]) => [id, box.split(',').map(Number)]));
+  const nested = new Set(['n1>n2', 'w>s']);
+  const order = ['p1', 'p2', 'q1', 'q2', 'r1', 'r2', 'u', 'n1', 'n2', 'w', 's', 't'];
+  const expected = [];
+  for (let a = 0; a < order.length; a += 1) {
+    for (let b = a + 1; b < order.length; b += 1) {
+      if (nested.has(`${order[a]}>${order[b]}`)) continue;
+      const [ax, ay, aw, ah] = boxes.get(order[a]);
+      const [bx, by, bw, bh] = boxes.get(order[b]);
+      const width = Math.min(ax + aw, bx + bw) - Math.max(ax, bx);
+      const height = Math.min(ay + ah, by + bh) - Math.max(ay, by);
+      if (width > 0 && height > 0 && width * height > 0.2 * Math.min(aw * ah, bw * bh)) expected.push(`${order[a]}>${order[b]}`);
+    }
+  }
+  assert.deepEqual(expected, ['p1>p2', 'r1>r2', 'u>w', 'w>t']);
+  const result = run(page(html));
+  const found = result.findings
+    .filter((finding) => finding.kind === 'overlap')
+    .map((finding) => `${finding.selector.slice(1)}>${/\((#\w+)\)$/.exec(finding.message)[1].slice(1)}`);
+  assert.deepEqual(found, expected);
+});
+
+test('stacked large controls sharing many grid cells still report overlaps and stay complete', () => {
+  const buttons = Array.from({ length: 84 }, (_, i) => `<button id="b${i}" data-box="0,0,800,800">b${i}</button>`).join('');
+  const result = run(page(`<html><body data-box="0,0,375,812">${buttons}</body></html>`));
+  assert.equal(result.partial, false);
+  assert.ok(result.findings.some((finding) => finding.kind === 'overlap'));
+});
+
+test('an exhausted overlap budget marks the result partial instead of reporting it complete', () => {
+  const wide = Array.from({ length: 1500 }, (_, i) => `<button id="w${i}" data-box="0,0,3000,3000">w${i}</button>`).join('');
+  const result = run(page(`<html><body data-box="0,0,375,812">${wide}</body></html>`));
+  assert.equal(result.partial, true);
+  assert.ok(result.findings.some((finding) => finding.kind === 'overlap'), 'rows before the budget ran out are still checked');
+});
+
 test('a page that fits has no findings; a selector scopes the read-out', () => {
   const fits = run(page('<html data-cw="375" data-sw="375"><body><main data-box="0,0,375,100"><button data-box="0,0,100,44">Go</button></main></body></html>'));
   assert.equal(fits.findingCount, 0);
