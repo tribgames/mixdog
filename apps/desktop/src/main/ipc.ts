@@ -384,6 +384,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.lspStatus,
     DESKTOP_IPC.remoteClientClaim,
     DESKTOP_IPC.remoteAccessSettingsChanged,
+    DESKTOP_IPC.conversationImportProgress,
   ]);
   const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));
   let removed = false;

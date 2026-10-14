@@ -5,7 +5,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { downloadToFile } from './ipc-file-dialogs.ts';
+import { DESKTOP_IPC } from '../shared/contract.ts';
+import { downloadToFile, registerFileDialogIpc } from './ipc-file-dialogs.ts';
+
+test('a server window rejects the conversation import picker with a localized local-only message', async () => {
+  const handlers = new Map();
+  let opened = 0;
+  registerFileDialogIpc({
+    window: {},
+    app: {},
+    connectionKind: 'ssh',
+    dialog: { showOpenDialog: async () => void opened++ },
+    host: {},
+    handle: (channel, fn) => handlers.set(channel, fn),
+    invokeDesktopOperation: async () => undefined,
+    nativeT: (key) => `[ko] ${key}`,
+    describeLocalPaths: async () => [],
+  });
+  await assert.rejects(
+    handlers.get(DESKTOP_IPC.chooseConversationImportFile)({}),
+    /^Error: \[ko\] Importing conversations is available only on this PC\.$/
+  );
+  assert.equal(opened, 0);
+});
 
 async function withServer(handler, run) {
   const dir = await mkdtemp(join(tmpdir(), 'save-as-'));

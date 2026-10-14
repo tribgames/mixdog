@@ -28,6 +28,7 @@ import {
 import { followHostDisplay, HOST_DISPLAY_ADOPTED_EVENT } from '../host-display-sync';
 import { ActionButton, AutoSaveRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import { label, rows, type PanelContext } from './capability-data';
+import { ImportConversationsDialog } from './import-conversations-dialog';
 import { DesktopNotificationToggle } from './desktop-notification-toggle';
 import { PushNotificationToggle } from './push-notification-toggle';
 import { WorktreeSettings } from './worktree-settings';
@@ -201,6 +202,25 @@ export function DisplayPanel({ data, pending }: PanelContext) {
   );
 }
 
+/** Opens the dialog that copies Codex / Claude Code conversations into new sessions. */
+function ImportConversationsRow({ pending }: Pick<PanelContext, 'pending'>) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ResourceRow
+        title={t('Import conversations from other apps')}
+        meta={t('Bring in conversations from Codex or Claude Code and continue them here.')}
+        actions={
+          <ActionButton disabled={Boolean(pending)} onClick={() => setOpen(true)}>
+            {t('Import…')}
+          </ActionButton>
+        }
+      />
+      {open && <ImportConversationsDialog onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
 export function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const remoteSurface = isRemoteHostRenderer();
   const profile = record(data.profile);
@@ -252,6 +272,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           disabled={busy}
           onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
         />
+        {!remoteSurface && <ImportConversationsRow pending={pending} />}
         <SelectRow
           title={t('Load instruction files')}
           description={t(

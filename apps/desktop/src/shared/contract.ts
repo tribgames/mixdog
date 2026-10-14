@@ -30,6 +30,7 @@ import type {
   DesktopCapabilityResult,
 } from './contract-capabilities';
 import type { DesktopSettingKey, DesktopSettings } from './contract-settings';
+import type { ConversationImportJob } from './contract-import';
 import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
@@ -146,6 +147,7 @@ export * from './contract-git';
 export * from './contract-computer';
 export * from './contract-workspace';
 export * from './contract-worktree';
+export * from './contract-import';
 export * from './contract-ssh';
 export * from './contract-connection-link';
 
@@ -164,6 +166,10 @@ export interface DesktopApi {
    *  remote host, which rejects both. */
   readonly routeAutoEffort?: boolean;
   chooseProject(): Promise<string | null>;
+  /** Native open-file dialog for a `.jsonl` conversation export; the chosen path or null. */
+  chooseConversationImportFile?(): Promise<string | null>;
+  /** Fires with each changed conversation-import job snapshot while a job is active. */
+  subscribeConversationImportProgress?(listener: (job: ConversationImportJob) => void): () => void;
   chooseFile?(defaultPath?: string | null): Promise<{
     projectPath: string;
     relPath: string;

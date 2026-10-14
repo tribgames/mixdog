@@ -3,6 +3,8 @@
 export const DESKTOP_IPC = {
   chooseProject: 'mixdog:choose-project',
   chooseFile: 'mixdog:choose-file',
+  chooseConversationImportFile: 'mixdog:choose-conversation-import-file',
+  conversationImportProgress: 'mixdog:conversation-import-progress',
   chooseFiles: 'mixdog:choose-files',
   chooseWorkspace: 'mixdog:choose-workspace',
   saveWorkspace: 'mixdog:save-workspace',

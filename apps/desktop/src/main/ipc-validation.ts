@@ -44,6 +44,7 @@ import {
 } from '../shared/visualize';
 import { requiredSessionId } from './desktop-state';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
+import { IMPORT_CAPABILITY_ARITY, isImportCapability, validateImportCapabilityArgs } from './import-validation';
 
 const visualizeVersionNumber = (value: unknown): number => {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 1_000_000_000) {
@@ -443,6 +444,7 @@ const CAPABILITY_ARITY = {
   openMediaAsset: [1, 1],
   openMediaFolder: [0, 1],
   ...WORKTREE_CAPABILITY_ARITY,
+  ...IMPORT_CAPABILITY_ARITY,
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 
 /** Optional `{ openBrowser?: boolean }` for GitHub CLI sign-in. */
@@ -991,6 +993,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   }
   validateStructuredValue(args);
   if (isWorktreeCapability(capability)) validateWorktreeCapabilityArgs(capability, args);
+  if (isImportCapability(capability)) validateImportCapabilityArgs(capability, args);
   if (capability === 'contextStatus' && args.length) {
     const options = args[0];
     if (!options || typeof options !== 'object' || Array.isArray(options)) {

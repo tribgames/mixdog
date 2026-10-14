@@ -60,6 +60,10 @@ import { createGoalFacadeApi } from '../goal-facade-api.mjs';
 import { createRuntimeReviewApi } from '../runtime-review-api.mjs';
 import { createWorkspaceTransitions, refreshWorkspacePrompt } from '../workspace/transitions.mjs';
 import { saveSession } from '../../runtime/agent/orchestrator/session/store.mjs';
+import { modelToolSchemaAllowlist } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import { sessionOptions } from '../session-create/session-options.mjs';
+import { createConversationImportApi } from '../conversation-import/service.mjs';
+import { importError } from '../conversation-import/discovery.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
 import {
@@ -88,6 +92,7 @@ export function wireApis(boot) {
   });
   boot.providerAuthApi = providerAuthApiFor(boot);
   boot.mediaApi = createMediaApi();
+  boot.conversationImportApi = conversationImportApiFor(boot);
   boot.sessionTitles = createSessionTitleController({
     dataRoot: () => dataDirOf(boot.cfgMod),
     promoteGeneratedTitle: (sessionId, title, stage) => boot.mgr.updateSessionGeneratedTitle(sessionId, title, stage),
@@ -288,6 +293,45 @@ function settingsApiFor(boot) {
     runUpdateNowInternal: selfUpdate.runUpdateNow,
     reloadChannelsSoon: (...a) => boot.reloadChannelsSoon(...a),
     ONBOARDING_VERSION,
+  });
+}
+
+// Conversation import: imported sessions are built with the Lead options a new
+// session of this runtime would get (current route, tools, workflow, memory),
+// minus its reservation, profile ownership and desktop placement.
+function conversationImportApiFor(boot) {
+  const { rt, mgr } = boot;
+  return createConversationImportApi({
+    // The async catalog (the daemon's SQLite catalog worker, else JSON),
+    // loaded on first use so boot does not pull in the cold reader.
+    listSessionSummaries: async () => {
+      const reader = await import('../../runtime/agent/orchestrator/session/store-summary-reader.mjs');
+      return reader.listStoredSessionSummariesAsync();
+    },
+    createSession: (options) => mgr.createSession(options),
+    prepareLeadOptions: async () => {
+      await boot.awaitKeychainPrewarm();
+      const route = rt.route?.provider && rt.route?.model ? rt.route : resolveRoute(rt.config, {});
+      if (!route?.provider || !route?.model) throw importError('noModelRoute');
+      await boot.ensureProvidersReady(rt.config.providers || {});
+      const coreMemoryContext = await boot.loadCoreMemoryContext();
+      const leadView = Object.assign(Object.create(rt), {
+        route,
+        reservedSessionId: null,
+        sessionProfile: null,
+        desktopSession: null,
+      });
+      return sessionOptions(
+        {
+          rt: leadView,
+          cfgMod: boot.cfgMod,
+          activeWorkflowContext: workflowHelpers.activeWorkflowContext,
+          schemaAllowedTools: modelToolSchemaAllowlist(rt.toolProfile),
+          featureDisallowedTools: boot.featureDisallowedTools,
+        },
+        coreMemoryContext
+      );
+    },
   });
 }
 

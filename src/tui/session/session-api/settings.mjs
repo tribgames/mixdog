@@ -154,6 +154,13 @@ export function createSessionSettingsApi(bag) {
     inspectHuggingFaceModel: (options) => runtime.inspectHuggingFaceModel(options),
     registerHuggingFaceModel: (previewId, licenseAccepted) =>
       runtime.registerHuggingFaceModel(previewId, licenseAccepted),
+    // Conversation import (advertised session actions; one object argument).
+    // Background jobs, so never behind commandBusy.
+    listImportableConversations: (params) => runtime.listImportableConversations(params),
+    getConversationImportJobs: (params) => runtime.getConversationImportJobs(params),
+    registerConversationImportFile: (params) => runtime.registerConversationImportFile(params),
+    startConversationImport: (params) => runtime.startConversationImport(params),
+    cancelConversationImport: (params) => runtime.cancelConversationImport(params),
     getChannelSettings: (options = {}) => {
       return (
         runtime.getChannelSettings?.(options) || {

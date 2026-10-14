@@ -18,7 +18,12 @@ import {
 import { applySummaryLogText, encodeSummaryOps, summaryLogPath } from './store-summary-log.mjs';
 import { cleanSessionPreview, isSessionPreviewNoise, sessionMessageText } from '../runtime-core/session-text.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
-import { isStoredSessionId, positiveNumber as _positiveNumber, workspaceSummary } from './store-summary-fields.mjs';
+import {
+  importKey,
+  isStoredSessionId,
+  positiveNumber as _positiveNumber,
+  workspaceSummary,
+} from './store-summary-fields.mjs';
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
@@ -201,6 +206,9 @@ export function _sessionSummary(session) {
     // Lifecycle provenance for catalog filters: resume-machinery scratch
     // forks (detachedReason='cli-resume') must never surface in Recent.
     detachedReason: session.detachedReason || null,
+    // Imported-conversation identity, so "already imported" is answered
+    // from summaries without loading sessions.
+    importKey: importKey(session),
   };
 }
 
@@ -249,6 +257,7 @@ function _normalizeSummaryRow(row) {
     storageMtimeMs: _positiveNumber(row.storageMtimeMs, 0),
     storageSize: _positiveNumber(row.storageSize, 0),
     detachedReason: row.detachedReason || null,
+    importKey: importKey(row),
   };
 }
 

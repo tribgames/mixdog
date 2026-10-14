@@ -38,6 +38,7 @@ import {
 } from '../../../../shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../../../shared/tool-status.mjs';
 import { transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
+import { isImportedMessage } from '../imported-message.mjs';
 
 function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
@@ -326,6 +327,11 @@ function restoredUserTranscriptItems(message, nextId) {
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
   if (message?.meta === 'skill' || message?.meta === 'hook') return [];
+  // Imported prose renders verbatim: never a control row, card or display rewrite.
+  if (isImportedMessage(message)) {
+    const text = (typeof message.content === 'string' ? message.content : toolResultText(message.content)).trim();
+    return text ? [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }] : [];
+  }
   const text = restoredUserText(message?.content).trim();
   // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live

@@ -84,6 +84,9 @@ const api: DesktopApi = {
   routeAutoEffort: true,
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
   chooseFile: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFile, defaultPath),
+  chooseConversationImportFile: () => ipcRenderer.invoke(DESKTOP_IPC.chooseConversationImportFile),
+  subscribeConversationImportProgress: (listener) =>
+    subscribeIpc(DESKTOP_IPC.conversationImportProgress, listener),
   chooseFiles: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFiles, defaultPath),
   chooseWorkspace: () => ipcRenderer.invoke(DESKTOP_IPC.chooseWorkspace),
   saveWorkspace: (workspaceFile, folders) => ipcRenderer.invoke(DESKTOP_IPC.saveWorkspace, workspaceFile, folders),

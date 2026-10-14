@@ -143,6 +143,16 @@ export function registerFileDialogIpc({
     if (!file) return null;
     return (await describeLocalPaths([file]))[0] ?? null;
   });
+  handle(DESKTOP_IPC.chooseConversationImportFile, async () => {
+    // Importing reads this PC's Codex / Claude Code files; a server window has none.
+    if (connectionKind === 'ssh') throw new Error(nativeT('Importing conversations is available only on this PC.'));
+    const result = await dialog.showOpenDialog(window, {
+      title: nativeT('Choose a conversation file'),
+      properties: ['openFile'],
+      filters: [{ name: nativeT('Conversation file'), extensions: ['jsonl'] }],
+    });
+    return result.canceled ? null : resolvePath(result.filePaths[0] || '') || null;
+  });
   handle(DESKTOP_IPC.chooseFiles, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Open files'),

@@ -16,6 +16,7 @@
 import { isActualUserInstructionMessage, isInjectedSkillBodyMessage, isSummaryMessage } from './compact/messages.mjs';
 import { ACTIVE_TURN_CONTINUATION_ANCHOR, ACTIVE_TURN_CONTINUATION_SOURCE } from './compact/continuation.mjs';
 import { parseTaskNotification } from '../../../shared/task-notification-envelope.mjs';
+import { isImportedMessage } from './imported-message.mjs';
 
 export const SYNTHETIC_USER_ENVELOPE_TAG = 'mixdog-runtime';
 
@@ -62,7 +63,8 @@ function isAlreadyEnveloped(text) {
 
 // null => a real user instruction (or nothing to wrap); otherwise the kind.
 export function classifySyntheticUserMessage(message) {
-  if (message?.role !== 'user') return null;
+  // Imported prose stays the user's own (unwrapped) voice.
+  if (message?.role !== 'user' || isImportedMessage(message)) return null;
   const text = messageText(message);
   if (!text.trim()) return null;
   if (isAlreadyEnveloped(text)) return null;

@@ -18,7 +18,13 @@ import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
 import { applySummaryLogText, summaryLogPath } from './store-summary-log.mjs';
 import { dataDir } from './store-summary-locations.mjs';
-import { desktopSession, isStoredSessionId, positiveNumber, workspaceSummary } from './store-summary-fields.mjs';
+import {
+  desktopSession,
+  importKey,
+  isStoredSessionId,
+  positiveNumber,
+  workspaceSummary,
+} from './store-summary-fields.mjs';
 import { byActivityThenId } from './catalog-db/schema.mjs';
 import {
   sessionStampOf,
@@ -181,6 +187,7 @@ export function normalizedRow(row, heartbeatAt = 0) {
     storageMtimeMs: positiveNumber(row.storageMtimeMs, 0),
     storageSize: positiveNumber(row.storageSize, 0),
     detachedReason: row.detachedReason || null,
+    importKey: importKey(row),
   };
 }
 
