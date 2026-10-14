@@ -136,9 +136,11 @@ function reserveAndSend(raw, frame, timeoutMs = 20_000) {
   const line = typeof frame === 'string' ? frame : `${JSON.stringify(frame)}\n`;
   const { id } = JSON.parse(line);
   raw.send({ type: 'reserve', id, bytes: Buffer.byteLength(line) });
-  return raw.next((f) => f.type === 'grant' && f.id === id, timeoutMs).then(() => {
-    raw.socket.write(line);
-  });
+  return raw
+    .next((f) => f.type === 'grant' && f.id === id, timeoutMs)
+    .then(() => {
+      raw.socket.write(line);
+    });
 }
 
 async function waitFor(predicate, timeoutMs = 5_000) {
@@ -156,7 +158,10 @@ test('a bridged send streams every callback in order, relays bytes and keeps the
   let replies = null;
   t.after(
     attachPc(channel, async ({ id, provider, method, model }) => {
-      assert.deepEqual({ provider, method, model }, { provider: 'anthropic-oauth', method: 'send', model: 'claude-test' });
+      assert.deepEqual(
+        { provider, method, model },
+        { provider: 'anthropic-oauth', method: 'send', model: 'claude-test' }
+      );
       call = decodeModelProxyWire(op(channel, 'claim', id).payload);
       const reply = await op(
         channel,
@@ -176,7 +181,11 @@ test('a bridged send streams every callback in order, relays bytes and keeps the
         'resolve',
         id,
         true,
-        encodeModelProxyWire({ content: 'Hello', blob: Buffer.from([7, 8]), usage: { inputTokens: 3, outputTokens: 2 } }),
+        encodeModelProxyWire({
+          content: 'Hello',
+          blob: Buffer.from([7, 8]),
+          usage: { inputTokens: 3, outputTokens: 2 },
+        }),
         null
       );
     })
@@ -254,7 +263,9 @@ test('a bridged send streams every callback in order, relays bytes and keeps the
   assert.deepEqual(finalized.callbacks, []);
 
   // Logs carry identifiers only.
-  assert.ok(logs.some((line) => /model-proxy bridge send id=r1 provider=anthropic-oauth model=claude-test \d+ms$/.test(line)));
+  assert.ok(
+    logs.some((line) => /model-proxy bridge send id=r1 provider=anthropic-oauth model=claude-test \d+ms$/.test(line))
+  );
   assert.ok(logs.every((line) => !line.includes(endpoint.token) && !line.includes('Hello') && !line.includes('hi')));
 });
 
@@ -264,7 +275,12 @@ test('a thrown callback error reaches the PC and PC errors keep every property',
   t.after(
     attachPc(channel, async ({ id }) => {
       op(channel, 'claim', id);
-      const reply = await op(channel, 'event', id, encodeModelProxyWire([{ name: 'onTextReset', args: [{ chars: 1 }] }]));
+      const reply = await op(
+        channel,
+        'event',
+        id,
+        encodeModelProxyWire([{ name: 'onTextReset', args: [{ chars: 1 }] }])
+      );
       replies = decodeModelProxyWire(reply.results);
       const error = Object.assign(new Error('stream stalled'), {
         name: 'StreamStalledError',
@@ -445,7 +461,10 @@ test('the bridge rejects a bad token, a missing hello and an oversized frame', a
   wrong.send({ type: 'hello', v: 1, token: 'f'.repeat(64) });
   assert.equal((await wrong.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_UNAUTHORIZED');
   await wrong.closed;
-  assert.equal(wrong.frames.some((frame) => frame.type === 'state'), false);
+  assert.equal(
+    wrong.frames.some((frame) => frame.type === 'state'),
+    false
+  );
 
   const malformed = await rawClient(t, endpoint.port);
   malformed.send({ type: 'hello', v: 1, token: `${endpoint.token}00` });
@@ -505,16 +524,31 @@ test('the bridge refuses unknown methods, malformed callbacks, duplicate ids and
   t.after(attachPc(channel, ({ id }) => pending.push(id), snapshots));
   const raw = await authenticated(t, endpoint);
 
-  await reserveAndSend(raw, { type: 'req', id: 'm1', callbacks: [], call: { provider: 'openai', method: 'deleteEverything' } });
+  await reserveAndSend(raw, {
+    type: 'req',
+    id: 'm1',
+    callbacks: [],
+    call: { provider: 'openai', method: 'deleteEverything' },
+  });
   const unknown = await raw.next((frame) => frame.type === 'done' && frame.id === 'm1');
   assert.equal(unknown.ok, false);
   assert.equal(unknown.error.props.code, 'MODEL_PROXY_BRIDGE_METHOD');
 
-  await reserveAndSend(raw, { type: 'req', id: 'c1', callbacks: ['send'], call: { provider: 'openai', method: 'send' } });
+  await reserveAndSend(raw, {
+    type: 'req',
+    id: 'c1',
+    callbacks: ['send'],
+    call: { provider: 'openai', method: 'send' },
+  });
   const badNames = await raw.next((frame) => frame.type === 'done' && frame.id === 'c1');
   assert.equal(badNames.error.props.code, 'MODEL_PROXY_BRIDGE_BAD_REQUEST');
 
-  await reserveAndSend(raw, { type: 'req', id: 'a', callbacks: [], call: { provider: 'openai', method: 'send', model: 'm' } });
+  await reserveAndSend(raw, {
+    type: 'req',
+    id: 'a',
+    callbacks: [],
+    call: { provider: 'openai', method: 'send', model: 'm' },
+  });
   assert.ok(await waitFor(() => pending.length === 1));
   raw.send({ type: 'reserve', id: 'b', bytes: 100 });
   const capped = await raw.next((frame) => frame.type === 'done' && frame.id === 'b');
@@ -529,7 +563,12 @@ test('the bridge refuses unknown methods, malformed callbacks, duplicate ids and
 
   // A client that never acknowledges a callback fails that call in bounded time.
   const mute = await authenticated(t, endpoint);
-  await reserveAndSend(mute, { type: 'req', id: 'x', callbacks: ['onTextDelta'], call: { provider: 'openai', method: 'send' } });
+  await reserveAndSend(mute, {
+    type: 'req',
+    id: 'x',
+    callbacks: ['onTextDelta'],
+    call: { provider: 'openai', method: 'send' },
+  });
   assert.ok(await waitFor(() => pending.length === 2));
   op(channel, 'claim', pending[1]);
   const reply = await op(channel, 'event', pending[1], encodeModelProxyWire([{ name: 'onTextDelta', args: ['a'] }]));
@@ -668,7 +707,10 @@ test('a slowly but steadily arriving request frame is not expired, up to the gra
   }
   assert.ok(Date.now() - startedAt > 1_000);
   assert.ok(await waitFor(() => claimed.length === 1), 'served, not expired');
-  assert.equal(slow.frames.some((f) => f.type === 'error'), false);
+  assert.equal(
+    slow.frames.some((f) => f.type === 'error'),
+    false
+  );
   release.get('m0')();
   await slow.next((f) => f.type === 'done' && f.id === 'm0');
 
@@ -708,7 +750,9 @@ test('with a request queued behind the cap, an active request’s callback ackno
   assert.deepEqual(decodeModelProxyWire((await reply).results), [{ ok: true, value: 'ack' }]);
   assert.ok(Date.now() - startedAt < 1_000, 'acknowledged without waiting for budget');
   release.get('m0')();
-  assert.deepEqual((await streaming.next((frame) => frame.type === 'done' && frame.id === 'm0')).value, { content: 'm0' });
+  assert.deepEqual((await streaming.next((frame) => frame.type === 'done' && frame.id === 'm0')).value, {
+    content: 'm0',
+  });
   // m0's budget goes to the head of the queue, then m3 after m1.
   assert.ok(await waitFor(() => claimed.length === 3));
   assert.deepEqual(claimed, ['m0', 'm1', 'm2']);

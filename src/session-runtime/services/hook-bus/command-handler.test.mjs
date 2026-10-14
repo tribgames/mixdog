@@ -94,7 +94,12 @@ test('hook commands never inherit the host runtime root, identity or Electron no
       else process.env[key] = value;
     }
   });
-  const running = runCommandHandler({ type: 'command', command: 'fixture', args: [], timeout: 2 }, { cwd: tmpdir() }, 'Stop', null);
+  const running = runCommandHandler(
+    { type: 'command', command: 'fixture', args: [], timeout: 2 },
+    { cwd: tmpdir() },
+    'Stop',
+    null
+  );
   child.emit('close', 0, null);
   await running;
   for (const key of Object.keys(leaked)) assert.equal(env[key], undefined, key);

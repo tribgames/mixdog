@@ -45,7 +45,12 @@ test('skillsStatus({ cwd }) lists and scopes skills for that folder; anything bu
     currentCwd: other,
     skillsStatus: (options) => {
       listed.push(options?.cwd ?? null);
-      return { skills: [{ name: 'proj-only', enabled: true }, { name: 'everywhere', enabled: true }] };
+      return {
+        skills: [
+          { name: 'proj-only', enabled: true },
+          { name: 'everywhere', enabled: true },
+        ],
+      };
     },
   });
   t.after(() => api.disposeGlobalExtensionSubscription());
@@ -57,7 +62,14 @@ test('skillsStatus({ cwd }) lists and scopes skills for that folder; anything bu
   assert.deepEqual(activeHere(api.skillsStatus({ cwd: project })), { 'proj-only': true, everywhere: true });
   assert.deepEqual(listed, [null, project]);
 
-  for (const options of [{ cwd: 'relative/path' }, { cwd: '' }, { cwd: 3 }, { cwd: join(root, 'missing') }, { cwd: join(root, 'file.txt') }, 'x']) {
+  for (const options of [
+    { cwd: 'relative/path' },
+    { cwd: '' },
+    { cwd: 3 },
+    { cwd: join(root, 'missing') },
+    { cwd: join(root, 'file.txt') },
+    'x',
+  ]) {
     assert.throws(() => api.skillsStatus(options), TypeError, JSON.stringify(options));
   }
   assert.deepEqual(listed, [null, project]);

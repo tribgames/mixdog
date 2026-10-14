@@ -320,7 +320,7 @@ export function createModelProxyBridgeServer({
 
   function armStall(conn) {
     if (conn.lines.size === 0) {
-      if (conn.stallTimer) clearTimeout(conn.stallTimer);
+      clearTimeout(conn.stallTimer);
       conn.stallTimer = null;
       return;
     }
@@ -646,13 +646,16 @@ export function createModelProxyBridgeServer({
     conn.closed = true;
     connections.delete(conn);
     clearTimeout(conn.helloTimer);
-    if (conn.stallTimer) clearTimeout(conn.stallTimer);
+    clearTimeout(conn.stallTimer);
     const reason = unavailable('the bridge client disconnected');
     for (const entry of conn.requests.values()) abortEntry(entry, reason);
     for (const reservation of [...conn.reservations.values()]) dropReservation(conn, reservation);
-    if (flush) conn.socket.end();
-    else conn.socket.destroy();
-    if (flush) setTimeout(() => conn.socket.destroy(), 1_000).unref?.();
+    if (flush) {
+      conn.socket.end();
+      setTimeout(() => conn.socket.destroy(), 1_000).unref?.();
+    } else {
+      conn.socket.destroy();
+    }
     drain();
   }
 
@@ -715,7 +718,13 @@ export function readModelProxyBridgeDiscovery(runtimeRoot) {
   }
   const endpoint = record?.endpoints?.modelProxy;
   const port = Number(endpoint?.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535 || typeof endpoint?.token !== 'string' || !TOKEN_RE.test(endpoint.token)) {
+  if (
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    typeof endpoint?.token !== 'string' ||
+    !TOKEN_RE.test(endpoint.token)
+  ) {
     throw unavailable('the daemon publishes no model proxy bridge endpoint', 'endpoint-missing');
   }
   return { port, token: endpoint.token, pid: Number(record.pid) };
@@ -850,7 +859,11 @@ export class ModelProxyBridgeChannel {
     }
     const bytes = Buffer.byteLength(line) + 1;
     if (bytes > this.#maxFrameBytes) {
-      this.#settle(entry, false, bridgeError('MODEL_PROXY_REQUEST_TOO_LARGE', 'the model call exceeds the bridge limit'));
+      this.#settle(
+        entry,
+        false,
+        bridgeError('MODEL_PROXY_REQUEST_TOO_LARGE', 'the model call exceeds the bridge limit')
+      );
       return;
     }
     // The frame follows its grant; a cancel from here on also withdraws the reservation.
@@ -978,8 +991,8 @@ export class ModelProxyBridgeChannel {
       const callback = entry.callbacks[String(frame.name || '')];
       let reply;
       try {
-        const value =
-          typeof callback === 'function' ? await callback(...(Array.isArray(frame.args) ? frame.args : [])) : null;
+        const args = Array.isArray(frame.args) ? frame.args : [];
+        const value = typeof callback === 'function' ? await callback(...args) : null;
         reply = { type: 'result', id: entry.id, seq, ok: true, value: modelProxyWireValue(value) ?? null };
       } catch (error) {
         reply = { type: 'result', id: entry.id, seq, ok: false, error: modelProxyErrorToWire(error) };

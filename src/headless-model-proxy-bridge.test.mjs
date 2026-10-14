@@ -52,7 +52,10 @@ async function remoteDaemon(t, reply) {
   const server = createModelProxyBridgeServer({ channel });
   const endpoint = await server.start();
   t.after(() => server.close());
-  writeFileSync(join(runtimeRoot, 'daemon.json'), JSON.stringify({ pid: process.pid, endpoints: { modelProxy: endpoint } }));
+  writeFileSync(
+    join(runtimeRoot, 'daemon.json'),
+    JSON.stringify({ pid: process.pid, endpoints: { modelProxy: endpoint } })
+  );
   const calls = [];
   const handled = new Set();
   t.after(
@@ -68,7 +71,13 @@ async function remoteDaemon(t, reply) {
           else if (call.method === 'listModels' || call.method === 'refreshModels') {
             value = { models: [{ id: MODEL, name: MODEL }], modelInfo: {} };
           } else if (call.method === 'isAvailable') value = true;
-          else value = { content: reply(call), model: MODEL, stopReason: 'end_turn', usage: { inputTokens: 10, outputTokens: 5 } };
+          else
+            value = {
+              content: reply(call),
+              model: MODEL,
+              stopReason: 'end_turn',
+              usage: { inputTokens: 10, outputTokens: 5 },
+            };
           channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [id, true, encodeModelProxyWire(value), null]);
         });
       }
