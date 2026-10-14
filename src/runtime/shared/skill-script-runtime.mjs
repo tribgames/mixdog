@@ -154,17 +154,35 @@ function psQuote(value) {
  * function starts this daemon's executable directly instead, and hands the
  * arguments over in SKILL_ARGV_ENV (UTF-8 base64) rather than argv: Windows
  * PowerShell 5.1 drops empty native arguments and does not escape embedded
- * double quotes. Electron node mode and the argument variable exist only for
- * the call. A failing script ends the command with its exit code (`exit`),
+ * double quotes.
+ *
+ * The child is started through ProcessStartInfo so the argument variable and
+ * Electron node mode live in ITS environment block only; setting them on
+ * $env would reach every process the pipeline starts while this one streams.
+ * Its stdout is relayed line by line into the pipeline (as PowerShell does
+ * for a native command); stdin and stderr are inherited and stay live. The
+ * working directory is the current FileSystem location, as for a native
+ * command. A failing script ends the command with its exit code (`exit`),
  * because a PowerShell function cannot fail `$?` or the -Command exit code.
  */
 export function renderPowerShellSkillFunction({ interpreter, entry, electron }) {
   const body = [
     `$__mxa = '${SKILL_ARGV_TAG}'`,
     'foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += \',\' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }',
-    '$__mxp = $env:ELECTRON_RUN_AS_NODE',
-    '$__mxc = 1',
-    `try { $env:${SKILL_ARGV_ENV} = $__mxa; ${electron ? "$env:ELECTRON_RUN_AS_NODE = '1'; " : ''}& ${psQuote(interpreter)} ${psQuote(entry)}; $__mxc = $LASTEXITCODE } finally { $env:${SKILL_ARGV_ENV} = $null${electron ? '; $env:ELECTRON_RUN_AS_NODE = $__mxp' : ''} }`,
+    '$__mxi = New-Object System.Diagnostics.ProcessStartInfo',
+    `$__mxi.FileName = ${psQuote(interpreter)}`,
+    // ArgumentList (PowerShell 7) passes the path verbatim; 5.1 only has the
+    // command-line string, where a quoted Windows path cannot contain `"`.
+    `if ($__mxi.PSObject.Properties['ArgumentList']) { $__mxi.ArgumentList.Add(${psQuote(entry)}) } else { $__mxi.Arguments = ${psQuote(`"${entry}"`)} }`,
+    '$__mxi.UseShellExecute = $false',
+    '$__mxi.RedirectStandardOutput = $true',
+    '$__mxi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false',
+    '$__mxi.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath',
+    `$__mxi.EnvironmentVariables['${SKILL_ARGV_ENV}'] = $__mxa`,
+    ...(electron ? ["$__mxi.EnvironmentVariables['ELECTRON_RUN_AS_NODE'] = '1'"] : []),
+    '$__mxp = [System.Diagnostics.Process]::Start($__mxi)',
+    'try { while ($null -ne ($__mxl = $__mxp.StandardOutput.ReadLine())) { $__mxl }; $__mxp.WaitForExit(); $__mxc = $__mxp.ExitCode } finally { if (-not $__mxp.HasExited) { try { $__mxp.Kill() } catch { } }; $__mxp.Dispose() }',
+    '$global:LASTEXITCODE = $__mxc',
     'if ($__mxc) { exit $__mxc }',
   ];
   return `function ${SKILL_LAUNCHER_COMMAND} { ${body.join('; ')} }`;

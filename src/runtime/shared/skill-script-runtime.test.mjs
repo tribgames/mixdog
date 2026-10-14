@@ -292,9 +292,12 @@ test('PowerShell model commands carry a mixdog-skill-node function that the disp
   assert.equal(displayShellCommand(plan.wrappedCommand), command);
   assert.equal(displayShellCommand(`${fn}\n${command}`), command);
   assert.equal(displayShellCommand('function other { }\nls'), 'function other { }\nls');
-  // Electron node mode appears only in an Electron daemon's function.
-  assert.doesNotMatch(fn, /ELECTRON_RUN_AS_NODE = '1'/);
-  assert.match(renderPowerShellSkillFunction({ ...skillScriptRuntime(), electron: true }), /ELECTRON_RUN_AS_NODE = '1'/);
+  // Electron node mode appears only in an Electron daemon's function, and
+  // only in the child's ProcessStartInfo environment, never on $env.
+  assert.doesNotMatch(fn, /ELECTRON_RUN_AS_NODE/);
+  const electronFn = renderPowerShellSkillFunction({ ...skillScriptRuntime(), electron: true });
+  assert.match(electronFn, /EnvironmentVariables\['ELECTRON_RUN_AS_NODE'\] = '1'/);
+  assert.doesNotMatch(electronFn, /\$env:(ELECTRON_RUN_AS_NODE|MIXDOG_SKILL_ARGV)\s*=/);
   assert.match(renderPowerShellSkillFunction({ interpreter: "C:\\it's\u2019\\n.exe", entry: 'e', electron: false }), /'C:\\it''s\u2019\u2019\\n\.exe'/);
 });
 
@@ -335,27 +338,46 @@ for (const shell of powerShells()) {
       const prefix = process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : '';
       const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'];
       const state = '"state:$($null -eq $env:MIXDOG_SKILL_ARGV):$($null -eq $env:ELECTRON_RUN_AS_NODE):$LASTEXITCODE"';
+      // A downstream pipeline child and the parent itself, while the script
+      // still streams, must see neither variable.
+      const childProbe = psQuote(
+        "console.log('child:' + ('MIXDOG_SKILL_ARGV' in process.env) + ':' + ('ELECTRON_RUN_AS_NODE' in process.env))"
+      );
+      const downstream = `ForEach-Object { $_; ${state.replace(':$LASTEXITCODE', '')}; & ${psQuote(process.execPath)} -e ${childProbe} }`;
       const command = [
         `${prefix}${fn}`,
         `mixdog-skill-node 'ok.mjs'; ${state}`,
-        `mixdog-skill-node ${[script, ...PS_ARGS].map(psQuote).join(' ')}`,
+        `mixdog-skill-node ${[script, ...PS_ARGS].map(psQuote).join(' ')} | ${downstream}`,
         "'not reached'",
       ].join('\n');
       const result = await run(shell, [...flags, command], { cwd: root, env });
       assert.equal(result.code, 7, result.stderr);
       const lines = result.stdout.trim().split(/\r?\n/);
-      assert.equal(lines.length, 2, result.stdout);
+      assert.equal(lines.length, 4, result.stdout);
       assert.equal(lines[0], 'state:True:True:0');
       assert.deepEqual(JSON.parse(lines[1]), { args: PS_ARGS, main: true, electronMode: false, argvEnv: false });
+      assert.equal(lines[2], 'state:True:True');
+      assert.equal(lines[3], 'child:false:false');
 
       // The reviewed failure: cmd used to split `missing&ver` and run `ver`.
-      const failing = await run(shell, [...flags, `${prefix}${fn}\nmixdog-skill-node 'missing&ver'\n'not reached'`], {
-        cwd: root,
-        env,
-      });
-      assert.equal(failing.code, 1, failing.stderr);
-      assert.equal(failing.stdout.trim(), '');
-      assert.match(failing.stderr, /missing&ver/);
+      // Through the real planner, with and without the UTF-8 prefix already
+      // in the command, and with the output discarded.
+      for (const text of [
+        "mixdog-skill-node 'missing&ver'\n'not reached'",
+        `${POWERSHELL_UTF8_PREFIX}\nmixdog-skill-node 'missing&ver'\n'not reached'`,
+        "mixdog-skill-node 'missing&ver' | Out-Null\n'not reached'",
+      ]) {
+        const plan = await planShellInvocation({
+          command: text,
+          resolvedSpec: { shell, shellArg: '-Command', shellArgs: flags, shellType: 'powershell' },
+          cwd: root,
+        });
+        assert.equal(plan.wrappedCommand.split('function mixdog-skill-node {').length, 2, plan.wrappedCommand);
+        const failing = await run(shell, [...flags, plan.wrappedCommand], { cwd: root, env });
+        assert.equal(failing.code, 1, `${text}\n${failing.stdout}\n${failing.stderr}`);
+        assert.equal(failing.stdout.trim(), '');
+        assert.match(failing.stderr, /missing&ver/);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

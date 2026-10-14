@@ -9,14 +9,19 @@ import { formatShellToolFailure } from './result-format.mjs';
 
 // Every PowerShell model command defines `mixdog-skill-node` first, so the
 // skill launcher runs without the .cmd's cmd.exe argument re-parsing.
+// Injected whenever absent, independent of the UTF-8 prefix deduplication.
 function prefixPowerShellSkillFunction(command) {
-  return `${renderPowerShellSkillFunction(skillScriptRuntime())}\n${command}`;
+  const fn = renderPowerShellSkillFunction(skillScriptRuntime());
+  const text = String(command || '');
+  return text.trimStart().startsWith(`${fn}\n`) ? text : `${fn}\n${text}`;
 }
 
 function prefixPowerShellUtf8(command) {
   const prefix = POWERSHELL_UTF8_PREFIX;
   const text = String(command || '');
-  return text.trimStart().startsWith(prefix) ? text : `${prefix}\n${prefixPowerShellSkillFunction(text)}`;
+  const trimmed = text.trimStart();
+  const body = trimmed.startsWith(prefix) ? trimmed.slice(prefix.length).replace(/^[ \t]*\r?\n/, '') : text;
+  return `${prefix}\n${prefixPowerShellSkillFunction(body)}`;
 }
 
 // How the command reaches the child: a direct exe spawn, PowerShell with the
