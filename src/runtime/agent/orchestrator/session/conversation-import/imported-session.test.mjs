@@ -19,9 +19,7 @@ const { listLeadSessions } = await import('../../../../../session-runtime/lifecy
 const { convertConversationText } = await import('./convert.mjs');
 const { buildImportOrigin, createImportedSession, importedSessionOptions } = await import('./imported-session.mjs');
 const { restoreTranscriptItems } = await import('../transcript-restore/restore.mjs');
-const { classifySyntheticUserMessage, projectSyntheticUserEnvelopes } = await import(
-  '../synthetic-user-envelope.mjs'
-);
+const { classifySyntheticUserMessage, projectSyntheticUserEnvelopes } = await import('../synthetic-user-envelope.mjs');
 const { isActualUserInstructionMessage } = await import('../compact/messages.mjs');
 process.on('exit', () => {
   try {

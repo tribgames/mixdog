@@ -21,9 +21,7 @@ process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
 const { createConversationImportApi, resetConversationImportJobs } = await import('./service.mjs');
-const { candidateId, convertCandidateFile, getCandidate, resetConversationDiscovery } = await import(
-  './discovery.mjs'
-);
+const { candidateId, convertCandidateFile, getCandidate, resetConversationDiscovery } = await import('./discovery.mjs');
 const { deleteSession, listStoredSessionSummaries, loadSession } = await import(
   '../../runtime/agent/orchestrator/session/store.mjs'
 );

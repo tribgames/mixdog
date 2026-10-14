@@ -175,9 +175,7 @@ export async function enumerateCandidates(source, env = process.env) {
     const real = await containedRealpath(rootReal, path);
     if (!real) return null;
     const info = await stat(real).catch(() => null);
-    return info?.isFile()
-      ? { path: real, size: info.size, mtimeMs: info.mtimeMs, fileId: fileIdentity(info) }
-      : null;
+    return info?.isFile() ? { path: real, size: info.size, mtimeMs: info.mtimeMs, fileId: fileIdentity(info) } : null;
   });
   const unique = new Map();
   for (const file of stamped) {
