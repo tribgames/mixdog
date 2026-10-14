@@ -5,6 +5,7 @@ import { useMobileBack } from './mobile-back';
 import { desktopComposerSlashCommands } from './slash-commands';
 import type { ComposerSkill } from './composer-skill';
 import { filterSkillMentions } from './composer-skill-mentions';
+import { isInMarkdownCode } from '../../../../src/runtime/shared/skill-mentions.mjs';
 
 type MentionMatch = { start: number; end: number; query: string };
 
@@ -24,12 +25,15 @@ function mentionMatchAt(draft: string, caretOffset: number): MentionMatch | null
 
 /** A `$` skill mention being typed at the caret: the same openers as `@`
  *  (plus the backtick the shared parser accepts) and only skill-name
- *  characters after it, so `$HOME` or `@x$y` never open the skill palette. */
+ *  characters after it, so `$HOME` or `@x$y` never open the skill palette.
+ *  A `$` inside Markdown code (judged on the whole draft, as the runtime
+ *  will) is never a mention, so the palette stays shut there. */
 export function skillMentionMatchAt(draft: string, caretOffset: number): MentionMatch | null {
   const beforeCaret = draft.slice(0, Math.max(0, Math.min(caretOffset, draft.length)));
   const match = /(^|[\s([{"'`])\$([a-z0-9-]*)$/.exec(beforeCaret);
   if (!match) return null;
   const start = match.index + match[1].length;
+  if (isInMarkdownCode(draft, start)) return null;
   return { start, end: beforeCaret.length, query: match[2] };
 }
 

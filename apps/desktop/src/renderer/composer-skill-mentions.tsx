@@ -17,7 +17,11 @@ import { CapabilityIcon } from './CapabilityIcon';
 import { selectableComposerSkills, skillAvailable, skillTitle, type ComposerSkill } from './composer-skill';
 import { t } from './i18n';
 import { subscribeSetupChanges } from './setup-change-refresh';
-import { mentionedSkillNames, skillMentions } from '../../../../src/runtime/shared/skill-mentions.mjs';
+import {
+  isReservedMentionName,
+  mentionedSkillNames,
+  skillMentions,
+} from '../../../../src/runtime/shared/skill-mentions.mjs';
 
 export type ComposerSkillCatalog = {
   /** The user's available custom skills: the `$` palette and the + menu. */
@@ -196,12 +200,15 @@ export function useSkillCatalog(
 export type SkillMentionResult = { skill: ComposerSkill; start: number };
 
 /** Palette rows for `query`: name-prefix matches first, then names that
- *  contain it, each group in the catalog's order. `start` locates the match. */
+ *  contain it, each group in the catalog's order. `start` locates the match.
+ *  Names reserved for inline mentions (env vars, numbers) are left out: the
+ *  runtime ignores them when typed, so they stay `+`-chip only. */
 export function filterSkillMentions(skills: ComposerSkill[], query: string): SkillMentionResult[] {
   const needle = query.toLowerCase();
   const prefix: SkillMentionResult[] = [];
   const contains: SkillMentionResult[] = [];
   for (const skill of skills) {
+    if (isReservedMentionName(skill.name)) continue;
     const start = skill.name.toLowerCase().indexOf(needle);
     if (start === 0) prefix.push({ skill, start });
     else if (start > 0) contains.push({ skill, start });

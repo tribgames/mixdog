@@ -53,6 +53,42 @@ test('$ matches at the caret after start, whitespace, brackets and quotes, never
   }
 });
 
+test('$ inside Markdown code never opens the skill palette', () => {
+  const at = (text, caret = text.length) => skillMentionMatchAt(text, caret);
+  // Inside a fenced block (open or closed), inline code, or a span closed after the caret.
+  for (const text of ['```\n$rel', '```js\nx\n$rel', '~~~\n$rel']) {
+    assert.equal(at(text), null, text);
+  }
+  assert.equal(at('```\n$rel\n```', 8), null);
+  assert.equal(at('see `$rel` now', 9), null);
+  assert.equal(at('see `` a $rel `` now', 13), null);
+  // Outside code it still opens: after a closed fence or span, or an unmatched backtick.
+  assert.equal(at('```\nx\n```\n$rel')?.query, 'rel');
+  assert.equal(at('`code` $rel')?.query, 'rel');
+  assert.equal(at('a `$rel')?.query, 'rel');
+});
+
+test('reserved mention names are never palette rows or highlighted, but stay + chip skills', () => {
+  const status = {
+    skills: ['home', 'path', '300', 'release-notes'].map((name) => ({ name, enabled: true, description: '' })),
+  };
+  const catalog = composerSkillCatalog(status);
+  assert.deepEqual(
+    catalog.selectable.map((skill) => skill.name),
+    ['home', 'path', '300', 'release-notes']
+  );
+  assert.deepEqual(
+    filterSkillMentions(catalog.selectable, '').map(({ skill }) => skill.name),
+    ['release-notes']
+  );
+  assert.deepEqual(filterSkillMentions(catalog.selectable, 'ho'), []);
+  const isSkill = (name) => catalog.enabled.has(name);
+  assert.deepEqual(
+    skillMentionSegments('$home $path $300 $release-notes', isSkill).filter((s) => s.skill).map((s) => s.skill),
+    ['release-notes']
+  );
+});
+
 test('palette filter: prefix matches first, then contains, in catalog order', () => {
   const skills = ['api-review', 'release-notes', 'pre-release', 'review'].map((name) => ({ name, description: '' }));
   assert.deepEqual(
