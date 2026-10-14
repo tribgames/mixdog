@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
 Adicionados login OAuth explícito para MCP, troca de modelo no local e um banner de cota de linha única.
 
 ### Novos recursos

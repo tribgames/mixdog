@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
 Đã thêm đăng nhập OAuth MCP rõ ràng, chuyển đổi mô hình tại chỗ và biểu ngữ giới hạn một dòng.
 
 ### Tính năng mới

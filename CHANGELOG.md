@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
 Added explicit MCP OAuth sign-in, in-place model switching, and a one-line quota banner.
 
 ### New features

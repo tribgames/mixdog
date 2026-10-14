@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
 Ajout de la connexion OAuth MCP explicite, du changement de modèle sur place et d'une bannière de quota sur une seule ligne.
 
 ### Nouvelles fonctionnalités

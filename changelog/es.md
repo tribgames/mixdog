@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
 Se agregaron inicio de sesión explícito mediante OAuth para MCP, cambio de modelo en el lugar y un banner de cuota de una sola línea.
 
 ### Nuevas funciones

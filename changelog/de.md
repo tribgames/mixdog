@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
 Explizite MCP-OAuth-Anmeldung, Modellwechsel an Ort und Stelle und einzeiliges Kontingent-Banner hinzugefügt.
 
 ### Neue Funktionen

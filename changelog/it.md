@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.2 - 2026-10-14
+
 Aggiunti l'accesso OAuth esplicito per MCP, il cambio modello sul posto e un banner di quota a riga singola.
 
 ### Nuove funzionalità
