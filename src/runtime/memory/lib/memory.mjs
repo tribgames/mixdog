@@ -161,7 +161,7 @@ async function _migrateRecallIndexesIfStale(db) {
 }
 
 // One-time cleanup: attachment-only placeholder rows ('(attachment)' user
-// content, e.g. Discord provider discord.mjs:724) predate the
+// content from the former channel provider) predate the
 // shouldExcludeIngestMessage() ingest-time filter (session-ingest.mjs).
 // Delete any already-persisted rows so they stop polluting recall/cycle1.
 // Idempotent (no-op once cleaned); best-effort so a failure never blocks boot.
