@@ -4343,5 +4343,18 @@
   "Zoom options": "Opzioni di zoom",
   "Zoom out": "Riduci",
   "Zoom Out": "Rimpicciolisci",
-  "Zoom to {{value0}}%": "Zoom al {{value0}}%"
+  "Zoom to {{value0}}%": "Zoom al {{value0}}%",
+  "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.": "I registri di recupero conservati impediscono la rimozione del worktree, anche forzata. Esaminali ed eliminali esplicitamente prima di procedere.",
+  "Recovery changed. Inspect again before confirming.": "Lo stato di recupero è cambiato. Esaminalo di nuovo prima di confermare.",
+  "A running operation owns this record. Retry after it finishes.": "Un’operazione in corso utilizza questo registro. Riprova al termine.",
+  "Recovery storage is full. Inspect and explicitly delete records before editing again.": "Lo spazio di recupero è pieno. Esamina ed elimina esplicitamente i registri prima di continuare a modificare.",
+  "This edit exceeds recovery limits. Split it into smaller edits.": "Questa modifica supera i limiti di recupero. Suddividila in modifiche più piccole.",
+  "Recovery storage could not be read or written. Check disk space and permissions before retrying.": "Impossibile leggere o scrivere nello spazio di recupero. Controlla spazio su disco e permessi prima di riprovare.",
+  "This record cannot restore files. Inspect it before deleting its backups.": "Questo registro non può ripristinare file. Esaminalo prima di eliminare i backup.",
+  "Recovery record unavailable. Refresh the list.": "Registro di recupero non disponibile. Aggiorna l’elenco.",
+  "File recovery records need review. No files are restored automatically.": "Alcuni registri di recupero file richiedono una verifica. Nessun file viene ripristinato automaticamente.",
+  "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "La cartella del progetto manca o non è disponibile. I backup restano conservati; esamina il registro prima di eliminarlo.",
+  "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Registri di recupero: {{used}} / {{limit}} · Da verificare: {{unresolved}} · Risolti: {{resolved}}",
+  "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Dati registrati: {{bytes}} MiB · Registri di dimensione sconosciuta: {{unknown}} · Per modifica: {{files}} file / {{limit}} MiB",
+  "Inspect file recovery": "Esamina il recupero file"
 }

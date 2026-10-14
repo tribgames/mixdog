@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, realpath, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 
 import type {
   DesktopAbortOptions,
@@ -447,6 +447,30 @@ export class SessionHost implements DesktopService {
 
   async addProject(projectPath: string): Promise<void> {
     await this.projects.register(await this.canonicalDirectory(projectPath));
+  }
+
+  async projectRecoveryDirectory(projectPath: string): Promise<string> {
+    try { return resolve(await this.projects.knownPath(projectPath)); }
+    catch (error) {
+      if (!isAbsolute(projectPath) || !this.runtime.loadWorktrees) throw error;
+      const worktrees = await this.runtime.loadWorktrees();
+      const requested = resolve(projectPath);
+      const entry = await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(requested);
+      if (!entry || !['ready', 'deleting', 'recovery'].includes(entry.state ?? 'ready')) throw error;
+      await this.projects.knownPath(entry.projectPath);
+      const key = (path: string) => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+      if (key(requested) !== key(entry.path) && !key(requested).startsWith(key(entry.path) + sep)) throw error;
+      // Resolve existing casing/aliases just like the writer, but never follow
+      // a replacement outside the managed root into another recovery scope.
+      let canonical: string;
+      try { canonical = await realpath(requested); }
+      catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return requested;
+        throw cause;
+      }
+      return key(canonical) === key(entry.path) || key(canonical).startsWith(key(entry.path) + sep)
+        ? canonical : requested;
+    }
   }
 
   async projectDirectory(projectPath: string): Promise<string> {

@@ -11,6 +11,7 @@ import { writeProjectTextFilesIn } from './project-files.ts';
 import { projectRecoveryIn } from './project-recovery.ts';
 import {
   beginProjectRecovery,
+  projectRecoveryStorePath,
   readRecoveryRecord,
   recoveryIdentity,
   recoveryLocation,
@@ -73,7 +74,7 @@ test('successful journaled writes preserve the void contract and clear completed
   const f = await fixture(t);
   assert.equal(await writeProjectTextFilesIn(f.root, writes, f.data), undefined);
   assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A1');
-  assert.deepEqual(await projectRecoveryIn(f.data, f.root, { action: 'list' }), { records: [] });
+  assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
 });
 
 test('failed batches retain structured per-file recovery evidence', async (t) => {
@@ -417,4 +418,96 @@ test('a root change after a prepared file read is rejected before any target mut
   assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A0');
   assert.equal(await fs.readFile(join(f.root + '-old', 'a.txt'), 'utf8'), 'A0');
   assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
+});
+
+
+test('list reports bounded metadata, unknown sizes and resolved slots without reading payloads', async (t) => {
+  const f = await fixture(t);
+  await record(f);
+  await record(f, 'recovered');
+  const damaged = await record(f);
+  const dir = await recoveryLocation(f.data, f.root, damaged);
+  await fs.writeFile(join(dir, 'manifest.json'), '{}');
+  hook(t, 'open', (open, file, ...args) => {
+    assert.doesNotMatch(String(file), /\.(before|after)$/);
+    return open(file, ...args);
+  });
+  const result = await projectRecoveryIn(f.data, f.root, { action: 'list' });
+  assert.deepEqual(result.storage, {
+    usedRecords: 3, maxRecords: 20, unresolvedRecords: 2, resolvedRecords: 1,
+    payloadBytes: 16, unknownSizeRecords: 1, maxBatchBytes: 16777216, maxBatchFiles: 100,
+  });
+  assert.equal(result.rootAvailable, true);
+});
+
+test('missing project keeps its inventory and supports only inspected backup disposal', async (t) => {
+  const f = await fixture(t);
+  const id = await record(f);
+  await fs.rename(f.root, f.root + '-moved');
+  const listed = await projectRecoveryIn(f.data, f.root, { action: 'list' });
+  assert.equal(listed.rootAvailable, false);
+  assert.equal(listed.records.length, 1);
+  const detail = await inspect(f, id);
+  assert.ok(detail.files.every((file) => file.status === 'missing'));
+  const result = await projectRecoveryIn(f.data, f.root, { action: 'discard', id, revision: detail.revision });
+  assert.equal(result.records.length, 0);
+  assert.equal(await fs.readFile(join(f.root + '-moved', 'a.txt'), 'utf8'), 'A0');
+});
+
+for (const method of ['writeFile', 'sync', 'close']) {
+  test(`state ${method} failure cleans only the temp file this write created`, async (t) => {
+    const f = await fixture(t);
+    const id = await record(f);
+    const directory = await recoveryLocation(f.data, f.root, id);
+    const before = await fs.readdir(directory);
+    hook(t, 'open', async (open, file, ...args) => {
+      const handle = await open(file, ...args);
+      if (String(file).endsWith('.tmp')) {
+        const close = handle.close.bind(handle);
+        handle[method] = async () => { if (method === 'close') await close(); throw new Error('injected state failure'); };
+      }
+      return handle;
+    });
+    await assert.rejects(writeRecoveryState(directory, { phase: 'failed', message: '', restored: [] }), /injected/);
+    assert.deepEqual(await fs.readdir(directory), before);
+  });
+}
+
+test('capacity errors retain all records and leave target bytes unchanged', async (t) => {
+  const f = await fixture(t);
+  for (let i = 0; i < RECOVERY_MAX_RECORDS; i++) await record(f, i % 2 ? 'recovered' : 'failed');
+  const before = await fs.readdir(projectRecoveryStorePath(f.data, f.root));
+  await assert.rejects(writeProjectTextFilesIn(f.root, writes, f.data), { code: 'RECOVERY_CAPACITY' });
+  assert.deepEqual(await fs.readdir(projectRecoveryStorePath(f.data, f.root)), before);
+  assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A0');
+});
+
+
+test('a failed exclusive temp creation does not delete another owner’s file', async (t) => {
+  const f = await fixture(t);
+  const id = await record(f);
+  const directory = await recoveryLocation(f.data, f.root, id);
+  let foreign;
+  hook(t, 'open', async (open, file, ...args) => {
+    if (String(file).endsWith('.tmp')) {
+      foreign = file;
+      const handle = await open(file, ...args);
+      await handle.writeFile('foreign');
+      await handle.close();
+      throw Object.assign(new Error('already exists'), { code: 'EEXIST' });
+    }
+    return open(file, ...args);
+  });
+  await assert.rejects(writeRecoveryState(directory, { phase: 'failed', message: '', restored: [] }), { code: 'EEXIST' });
+  assert.equal(await fs.readFile(foreign, 'utf8'), 'foreign');
+});
+
+test('storage exhaustion is actionable and never starts target mutation', async (t) => {
+  const f = await fixture(t);
+  hook(t, 'mkdir', (mkdir, path, ...args) => {
+    if (String(path).includes('editor-recovery')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+    return mkdir(path, ...args);
+  });
+  await assert.rejects(writeProjectTextFilesIn(f.root, writes, f.data), { code: 'RECOVERY_STORAGE' });
+  assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A0');
 });

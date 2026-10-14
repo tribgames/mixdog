@@ -4235,5 +4235,18 @@
   "Zoom options": "縮放選項",
   "Zoom out": "縮小",
   "Zoom Out": "縮小",
-  "Zoom to {{value0}}%": "縮放至 {{value0}}%"
+  "Zoom to {{value0}}%": "縮放至 {{value0}}%",
+  "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.": "保留的檔案復原記錄會阻止刪除工作樹，包括強制刪除。請先檢查並明確刪除這些記錄。",
+  "Recovery changed. Inspect again before confirming.": "復原狀態已變更。請重新檢查後再確認。",
+  "A running operation owns this record. Retry after it finishes.": "執行中的操作正在使用此記錄。請在操作結束後重試。",
+  "Recovery storage is full. Inspect and explicitly delete records before editing again.": "復原儲存空間已滿。請先檢查並明確刪除記錄，再繼續編輯。",
+  "This edit exceeds recovery limits. Split it into smaller edits.": "此編輯超過復原限制。請拆分成較小的編輯。",
+  "Recovery storage could not be read or written. Check disk space and permissions before retrying.": "無法讀寫復原儲存空間。重試前請檢查磁碟空間和權限。",
+  "This record cannot restore files. Inspect it before deleting its backups.": "此記錄無法還原檔案。刪除其備份前請先檢查。",
+  "Recovery record unavailable. Refresh the list.": "復原記錄無法使用。請重新整理清單。",
+  "File recovery records need review. No files are restored automatically.": "有檔案復原記錄需要檢查。不會自動還原檔案。",
+  "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "專案資料夾遺失或無法使用。備份仍保留；刪除記錄前請先檢查。",
+  "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "復原記錄：{{used}} / {{limit}} · 待檢查：{{unresolved}} · 已解決：{{resolved}}",
+  "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "已記錄的資料：{{bytes}} MiB · 大小未知的記錄：{{unknown}} · 每次編輯：{{files}} 個檔案 / {{limit}} MiB",
+  "Inspect file recovery": "檢查檔案復原"
 }

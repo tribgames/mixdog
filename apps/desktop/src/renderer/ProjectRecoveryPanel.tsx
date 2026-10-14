@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { recoveryFailureCode, type RecoveryErrorCode } from '../shared/project-recovery';
 import type {
   ProjectRecoveryDetail,
   ProjectRecoveryFileStatus,
@@ -21,12 +22,14 @@ export interface ProjectRecoveryLabels {
   busy: string;
   observationWarning: string;
   failure: string;
+  failures?: Partial<Record<RecoveryErrorCode, string>>;
   phases: Record<ProjectRecoverySummary['phase'], string>;
   statuses: Record<ProjectRecoveryFileStatus, string>;
 }
 
 export interface ProjectRecoveryPanelProps {
   projectPath: string;
+  initialRecordId?: string;
   request(projectPath: string, request: ProjectRecoveryRequest): Promise<ProjectRecoveryResponse>;
   confirm(action: 'restore' | 'discard', detail: ProjectRecoveryDetail): Promise<boolean>;
   openFile(projectPath: string, relPath: string): void;
@@ -41,11 +44,12 @@ export function recoveryMayRestore(detail: ProjectRecoveryDetail): boolean {
   );
 }
 
-export function ProjectRecoveryPanel({ projectPath, request, confirm, openFile, labels }: ProjectRecoveryPanelProps) {
+export function ProjectRecoveryPanel({ projectPath, initialRecordId, request, confirm, openFile, labels }: ProjectRecoveryPanelProps) {
   const [records, setRecords] = useState<ProjectRecoverySummary[]>([]);
   const [detail, setDetail] = useState<ProjectRecoveryDetail | null>(null);
   const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  const failed = failure !== null;
   const epoch = useRef(0);
   const lock = useRef(false);
   const currentProject = useRef(projectPath);
@@ -56,15 +60,18 @@ export function ProjectRecoveryPanel({ projectPath, request, confirm, openFile, 
     lock.current = false;
     setRecords([]);
     setDetail(null);
-    setFailed(false);
+    setFailure(null);
     setPending(true);
-    void request(projectPath, { action: 'list' })
+    void request(projectPath, initialRecordId ? { action: 'inspect', id: initialRecordId } : { action: 'list' })
       .then(
         (result) => {
-          if (epoch.current === ownEpoch) setRecords(result.records);
+          if (epoch.current === ownEpoch) {
+            setRecords(result.records);
+            setDetail(result.detail ?? null);
+          }
         },
-        () => {
-          if (epoch.current === ownEpoch) setFailed(true);
+        (error) => {
+          if (epoch.current === ownEpoch) setFailure(error ?? new Error());
         }
       )
       .finally(() => {
@@ -73,14 +80,14 @@ export function ProjectRecoveryPanel({ projectPath, request, confirm, openFile, 
     return () => {
       epoch.current++;
     };
-  }, [projectPath, request]);
+  }, [projectPath, initialRecordId, request]);
 
   const invoke = async (input: ProjectRecoveryRequest): Promise<void> => {
     if (lock.current) return;
     lock.current = true;
     const ownEpoch = ++epoch.current;
     setPending(true);
-    setFailed(false);
+    setFailure(null);
     // Never retain an old approval after a failed refresh or inspect request.
     setDetail(null);
     try {
@@ -88,8 +95,8 @@ export function ProjectRecoveryPanel({ projectPath, request, confirm, openFile, 
       if (epoch.current !== ownEpoch || currentProject.current !== projectPath) return;
       setRecords(result.records);
       setDetail(result.detail ?? null);
-    } catch {
-      if (epoch.current === ownEpoch) setFailed(true);
+    } catch (error) {
+      if (epoch.current === ownEpoch) setFailure(error ?? new Error());
     } finally {
       if (epoch.current === ownEpoch) {
         lock.current = false;
@@ -105,7 +112,7 @@ export function ProjectRecoveryPanel({ projectPath, request, confirm, openFile, 
     const inspected = detail;
     const ownEpoch = ++epoch.current;
     setPending(true);
-    setFailed(false);
+    setFailure(null);
     try {
       const approved = await confirm(action, inspected);
       if (epoch.current !== ownEpoch || currentProject.current !== projectPath) return;
@@ -115,10 +122,10 @@ export function ProjectRecoveryPanel({ projectPath, request, confirm, openFile, 
       if (epoch.current !== ownEpoch || currentProject.current !== projectPath) return;
       setRecords(result.records);
       setDetail(result.detail ?? null);
-    } catch {
+    } catch (error) {
       if (epoch.current === ownEpoch) {
         setDetail(null);
-        setFailed(true);
+        setFailure(error ?? new Error());
       }
     } finally {
       if (epoch.current === ownEpoch) {
@@ -137,7 +144,7 @@ export function ProjectRecoveryPanel({ projectPath, request, confirm, openFile, 
         </button>
       </header>
       {pending && <p role="status">{labels.busy}</p>}
-      {failed && <p role="alert">{labels.failure}</p>}
+      {failed && <p role="alert">{labels.failures?.[recoveryFailureCode(failure)!] ?? labels.failure}</p>}
       {!pending && !failed && !records.length && <p>{labels.empty}</p>}
       <ul>
         {records.map((record) => (

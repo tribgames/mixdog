@@ -92,6 +92,8 @@ export function worktreeFailureText(
           })
         : t('Not enough free disk space to create the worktree.');
     }
+    case 'WORKTREE_FILE_RECOVERY':
+      return t('Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.');
     case 'WORKTREE_BUSY_JOBS':
       return t('Background tasks are still running. Wait for them or stop them, then try again.');
     case 'WORKTREE_BRANCH_OCCUPIED': {

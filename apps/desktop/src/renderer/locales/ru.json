@@ -4400,5 +4400,18 @@
   "Zoom options": "Параметры масштаба",
   "Zoom out": "Уменьшить",
   "Zoom Out": "Уменьшить масштаб",
-  "Zoom to {{value0}}%": "Масштаб {{value0}}%"
+  "Zoom to {{value0}}%": "Масштаб {{value0}}%",
+  "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.": "Сохранённые записи восстановления файлов запрещают удаление worktree, в том числе принудительное. Сначала проверьте и явно удалите эти записи.",
+  "Recovery changed. Inspect again before confirming.": "Состояние восстановления изменилось. Проверьте его ещё раз перед подтверждением.",
+  "A running operation owns this record. Retry after it finishes.": "Эта запись используется выполняющейся операцией. Повторите попытку после её завершения.",
+  "Recovery storage is full. Inspect and explicitly delete records before editing again.": "Хранилище восстановления заполнено. Перед продолжением редактирования проверьте и явно удалите записи.",
+  "This edit exceeds recovery limits. Split it into smaller edits.": "Эта правка превышает лимиты восстановления. Разделите её на более мелкие правки.",
+  "Recovery storage could not be read or written. Check disk space and permissions before retrying.": "Не удалось прочитать хранилище восстановления или записать в него. Перед повторной попыткой проверьте место на диске и права доступа.",
+  "This record cannot restore files. Inspect it before deleting its backups.": "Эта запись не позволяет восстановить файлы. Проверьте её перед удалением резервных копий.",
+  "Recovery record unavailable. Refresh the list.": "Запись восстановления недоступна. Обновите список.",
+  "File recovery records need review. No files are restored automatically.": "Записи восстановления файлов требуют проверки. Файлы не восстанавливаются автоматически.",
+  "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "Папка проекта отсутствует или недоступна. Резервные копии сохранены; проверьте запись перед удалением.",
+  "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Записи восстановления: {{used}} / {{limit}} · Требуют проверки: {{unresolved}} · Решены: {{resolved}}",
+  "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Записанные данные: {{bytes}} MiB · Записи неизвестного размера: {{unknown}} · На правку: {{files}} файлов / {{limit}} MiB",
+  "Inspect file recovery": "Проверить восстановление файлов"
 }

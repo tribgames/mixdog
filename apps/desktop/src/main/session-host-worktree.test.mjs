@@ -178,3 +178,24 @@ test('open hints carry the worktree cwd under the main project identity', async 
   assert.equal(hints.cwd, worktree);
   assert.deepEqual(hints.desktopSession, { classification: 'project', projectPath: project });
 });
+
+
+test('recovery lookup retains a registered missing folder without granting general file access', async (t) => {
+  const { host, project, worktree, arbitrary } = await fixture(t);
+  await rm(project, { recursive: true });
+  await rm(worktree, { recursive: true });
+  assert.equal(await host.projectRecoveryDirectory(project), project);
+  assert.equal(await host.projectRecoveryDirectory(worktree), worktree);
+  await assert.rejects(host.projectDirectory(project));
+  await assert.rejects(host.projectDirectory(worktree));
+  await assert.rejects(host.projectRecoveryDirectory(arbitrary));
+});
+
+test('recovery lookup accepts a deleting managed record but never an unregistered parent', async (t) => {
+  const f = await fixture(t, { entryFor: ({ project, worktree }) => ({ projectPath: project, path: worktree, state: 'deleting' }) });
+  assert.equal(await f.host.projectRecoveryDirectory(f.worktree), f.worktree);
+  await assert.rejects(f.host.projectDirectory(f.worktree));
+  await assert.rejects(f.host.projectRecoveryDirectory(f.arbitrary));
+  const removed = await fixture(t, { registerProject: false });
+  await assert.rejects(removed.host.projectRecoveryDirectory(removed.worktree));
+});

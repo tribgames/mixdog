@@ -4235,5 +4235,18 @@
   "Zoom options": "ズームオプション",
   "Zoom out": "縮小",
   "Zoom Out": "ズームアウト",
-  "Zoom to {{value0}}%": "{{value0}}%にする"
+  "Zoom to {{value0}}%": "{{value0}}%にする",
+  "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.": "保存されたファイル復旧記録があるため、強制削除を含む worktree の削除はできません。先に記録を確認して明示的に削除してください。",
+  "Recovery changed. Inspect again before confirming.": "復旧状態が変わりました。確定する前に再検査してください。",
+  "A running operation owns this record. Retry after it finishes.": "実行中の処理がこの記録を使用しています。終了後に再試行してください。",
+  "Recovery storage is full. Inspect and explicitly delete records before editing again.": "復旧ストレージが満杯です。編集を再開する前に記録を確認して明示的に削除してください。",
+  "This edit exceeds recovery limits. Split it into smaller edits.": "この編集は復旧の上限を超えています。小さな編集に分割してください。",
+  "Recovery storage could not be read or written. Check disk space and permissions before retrying.": "復旧ストレージを読み書きできません。再試行する前に空き容量と権限を確認してください。",
+  "This record cannot restore files. Inspect it before deleting its backups.": "この記録ではファイルを復元できません。バックアップを削除する前に記録を確認してください。",
+  "Recovery record unavailable. Refresh the list.": "復旧記録を利用できません。一覧を更新してください。",
+  "File recovery records need review. No files are restored automatically.": "確認が必要なファイル復旧記録があります。ファイルは自動では復元されません。",
+  "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "プロジェクトフォルダーが見つからないか利用できません。バックアップは残っています。削除前に記録を確認してください。",
+  "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "復旧記録: {{used}} / {{limit}} · 要確認: {{unresolved}} · 解決済み: {{resolved}}",
+  "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "記録されたデータ: {{bytes}} MiB · サイズ不明の記録: {{unknown}} · 編集ごとの上限: {{files}} ファイル / {{limit}} MiB",
+  "Inspect file recovery": "ファイル復旧を検査"
 }

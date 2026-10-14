@@ -1,24 +1,81 @@
-import { useCallback, useState } from 'react';
-import type { ProjectRecoveryRequest, ProjectRecoveryDetail } from '../shared/project-recovery';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ProjectRecoveryRequest, ProjectRecoveryDetail, ProjectRecoveryResponse } from '../shared/project-recovery';
 import { ProjectRecoveryPanel, type ProjectRecoveryLabels } from './ProjectRecoveryPanel';
 import { t } from './i18n';
 
 export function ProjectRecoverySurface({
   projectPath,
   onOpenFile,
+  initialRecordId,
+  initiallyOpen = false,
 }: {
   projectPath: string;
+  initialRecordId?: string;
+  initiallyOpen?: boolean;
   onOpenFile(project: string, rel: string, mode?: 'preview' | 'pinned'): void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen || Boolean(initialRecordId));
+  const [overview, setOverview] = useState<ProjectRecoveryResponse | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const generation = useRef(0);
   const api = window.mixdogDesktop;
   const request = useCallback(
     (project: string, input: ProjectRecoveryRequest) => {
       if (!api?.projectRecovery) return Promise.reject(new Error('Recovery is not supported by this host.'));
-      return api.projectRecovery(project, input);
+      const ticket = ++generation.current;
+      return api.projectRecovery(project, input).then((result) => {
+        if (ticket === generation.current) {
+          setOverview(result);
+          setUnavailable(false);
+        }
+        return result;
+      }, (error) => {
+        if (ticket === generation.current) {
+          setOverview(null);
+          setUnavailable(true);
+        }
+        throw error;
+      });
     },
     [api]
   );
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending = false;
+    let again = false;
+    setOverview(null);
+    setUnavailable(false);
+    setOpen(initiallyOpen || Boolean(initialRecordId));
+    const refresh = async () => {
+      if (disposed || !api?.projectRecovery) return;
+      if (pending) { again = true; return; }
+      pending = true;
+      try { await request(projectPath, { action: 'list' }); }
+      catch { /* The request publishes an unavailable state, never an empty inventory. */ }
+      finally {
+        pending = false;
+        if (again && !disposed) { again = false; void refresh(); }
+      }
+    };
+    // Discovery reads bounded manifest metadata only. It never inspects target
+    // files, accepts a mutation, or takes focus away from an editor.
+    void refresh();
+    const focus = () => void refresh();
+    window.addEventListener('focus', focus);
+    const off = api?.subscribeFolderChanges?.((dir) => {
+      if (dir !== projectPath) return;
+      clearTimeout(timer);
+      timer = setTimeout(focus, 250);
+    });
+    return () => {
+      disposed = true;
+      generation.current++;
+      clearTimeout(timer);
+      window.removeEventListener('focus', focus);
+      off?.();
+    };
+  }, [api, projectPath, initialRecordId, initiallyOpen, request]);
   const confirm = useCallback(
     async (action: 'restore' | 'discard', detail: ProjectRecoveryDetail) => {
       const warning =
@@ -47,6 +104,15 @@ export function ProjectRecoverySurface({
     busy: t('Loading…'),
     observationWarning: t('Observed state. Recovery rechecks files; unsaved editor buffers are not replaced.'),
     failure: t('Recovery request failed. Refresh before retrying.'),
+    failures: {
+      RECOVERY_CHANGED: t('Recovery changed. Inspect again before confirming.'),
+      RECOVERY_BUSY: t('A running operation owns this record. Retry after it finishes.'),
+      RECOVERY_CAPACITY: t('Recovery storage is full. Inspect and explicitly delete records before editing again.'),
+      RECOVERY_BATCH_LIMIT: t('This edit exceeds recovery limits. Split it into smaller edits.'),
+      RECOVERY_STORAGE: t('Recovery storage could not be read or written. Check disk space and permissions before retrying.'),
+      RECOVERY_NOT_RESTORABLE: t('This record cannot restore files. Inspect it before deleting its backups.'),
+      RECOVERY_UNAVAILABLE: t('Recovery record unavailable. Refresh the list.'),
+    },
     phases: {
       interrupted: t('Interrupted'),
       failed: t('Failed'),
@@ -68,13 +134,32 @@ export function ProjectRecoverySurface({
   return (
     <details
       style={{ padding: '8px 12px', overflowWrap: 'anywhere' }}
+      open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>{labels.title}</summary>
+      <summary>{labels.title}{overview?.records.length ? ` · ${overview.records.length}` : ''}</summary>
+      {unavailable && <p role="status">{labels.failure}</p>}
+      {overview && overview.records.some((record) => !['completed', 'recovered', 'retired'].includes(record.phase)) &&
+        <p role="status">{t('File recovery records need review. No files are restored automatically.')}</p>}
+      {open && overview?.rootAvailable === false &&
+        <p role="alert">{t('Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.')}</p>}
+      {open && overview?.storage && <div className="project-recovery-inventory">
+        <p>{t('Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}', {
+          used: overview.storage.usedRecords, limit: overview.storage.maxRecords,
+          unresolved: overview.storage.unresolvedRecords, resolved: overview.storage.resolvedRecords,
+        })}</p>
+        <p>{t('Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB', {
+          bytes: (overview.storage.payloadBytes / 1048576).toFixed(2), unknown: overview.storage.unknownSizeRecords,
+          files: overview.storage.maxBatchFiles, limit: overview.storage.maxBatchBytes / 1048576,
+        })}</p>
+        {overview.storage.usedRecords >= overview.storage.maxRecords &&
+          <p role="alert">{labels.failures?.RECOVERY_CAPACITY}</p>}
+      </div>}
       {open && (
         <ProjectRecoveryPanel
           key={projectPath}
           projectPath={projectPath}
+          initialRecordId={initialRecordId}
           request={request}
           confirm={confirm}
           labels={labels}

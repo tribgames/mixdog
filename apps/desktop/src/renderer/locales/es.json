@@ -4343,5 +4343,18 @@
   "Zoom options": "Opciones de zoom",
   "Zoom out": "Alejar",
   "Zoom Out": "Alejar",
-  "Zoom to {{value0}}%": "Zoom al {{value0}}%"
+  "Zoom to {{value0}}%": "Zoom al {{value0}}%",
+  "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.": "Los registros de recuperación conservados impiden eliminar el worktree, incluso de forma forzada. Revísalos y elimínalos explícitamente primero.",
+  "Recovery changed. Inspect again before confirming.": "El estado de recuperación ha cambiado. Inspecciónalo de nuevo antes de confirmar.",
+  "A running operation owns this record. Retry after it finishes.": "Una operación en curso utiliza este registro. Reinténtalo cuando termine.",
+  "Recovery storage is full. Inspect and explicitly delete records before editing again.": "El almacenamiento de recuperación está lleno. Revisa y elimina explícitamente registros antes de seguir editando.",
+  "This edit exceeds recovery limits. Split it into smaller edits.": "Esta edición supera los límites de recuperación. Divídela en ediciones más pequeñas.",
+  "Recovery storage could not be read or written. Check disk space and permissions before retrying.": "No se pudo leer ni escribir el almacenamiento de recuperación. Comprueba el espacio y los permisos antes de reintentarlo.",
+  "This record cannot restore files. Inspect it before deleting its backups.": "Este registro no puede restaurar archivos. Revísalo antes de eliminar sus copias de seguridad.",
+  "Recovery record unavailable. Refresh the list.": "El registro de recuperación no está disponible. Actualiza la lista.",
+  "File recovery records need review. No files are restored automatically.": "Hay registros de recuperación de archivos pendientes de revisión. No se restauran archivos automáticamente.",
+  "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "La carpeta del proyecto falta o no está disponible. Las copias de seguridad se conservan; revisa el registro antes de eliminarlo.",
+  "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Registros de recuperación: {{used}} / {{limit}} · Por revisar: {{unresolved}} · Resueltos: {{resolved}}",
+  "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Datos registrados: {{bytes}} MiB · Registros de tamaño desconocido: {{unknown}} · Por edición: {{files}} archivos / {{limit}} MiB",
+  "Inspect file recovery": "Inspeccionar recuperación de archivos"
 }

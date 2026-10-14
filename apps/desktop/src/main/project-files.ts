@@ -9,6 +9,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { toUSVString } from 'node:util';
 
 import { codeGraphModuleUrl } from './desktop-support';
+import { ProjectRecoveryError } from '../shared/project-recovery';
 import { withProjectMutationPaths } from './project-mutation-queue';
 import {
   beginProjectRecovery, RECOVERY_MAX_BYTES, recoveryIdentity, recoveryReadBytes,
@@ -486,7 +487,7 @@ export async function writeProjectTextFilesIn(
         }
         const after = encodeProjectText(write.content, current.encoding, current.hasBom);
         recoveryBytes += before.length + after.length;
-        if (recoveryBytes > RECOVERY_MAX_BYTES) throw new Error('Workspace edit exceeds the 16 MiB recovery budget. Split the edit.');
+        if (recoveryBytes > RECOVERY_MAX_BYTES) throw new ProjectRecoveryError('RECOVERY_BATCH_LIMIT', 'Workspace edit exceeds the 16 MiB recovery budget. Split the edit.');
         const info = await lstat(file);
         if (!info.isFile() || info.isSymbolicLink()) throw new Error('Journaled workspace edits require regular files.');
         prepared.push({ relPath: write.relPath, destination, parent, mode: info.mode, before, after });
@@ -567,11 +568,14 @@ export async function writeProjectTextFilesIn(
       try { await releaseRecoveryDirectory(journal.directory); } catch (error) { journalErrors.push(error); }
       if (journalErrors.length) {
         throw new AggregateError(failed ? [failure, ...journalErrors] : journalErrors,
-          failed ? 'Workspace edit failed; recovery bookkeeping also failed. Inspect retained recovery records.'
-            : 'Files were saved, but recovery bookkeeping failed. Inspect retained recovery records before retrying.');
+          (failed ? 'Workspace edit failed; recovery bookkeeping also failed. Inspect retained recovery records.'
+            : 'Files were saved, but recovery bookkeeping failed. Inspect retained recovery records before retrying.') + `\n[file-recovery] ${journal.id}`);
       }
     }
-    if (failed) throw failure;
+    if (failed) {
+      if (journal && failure instanceof Error) failure.message += `\n[file-recovery] ${journal.id}`;
+      throw failure;
+    }
   });
 }
 

@@ -21,7 +21,10 @@ for (const transport of ['ipc', 'remote']) {
     await fs.mkdir(injected);
     await fs.writeFile(join(root, 'a.txt'), 'A0');
     await fs.writeFile(join(root, 'b.txt'), 'B0');
-    const operations = createDesktopOperations({ userDataPath: data, emit() {} });
+    const scopes = [], events = [];
+    const operations = createDesktopOperations({ userDataPath: data, emit(event) { events.push(event); },
+      withRecoveryStore: async (root, action, run) => { scopes.push([root, action]); return run(); },
+    });
     t.after(() => operations.dispose());
     const host = {
       projectDirectory: async (project) => {
@@ -114,5 +117,9 @@ for (const transport of ['ipc', 'remote']) {
     }
     assert.equal((await invoke('projectRecovery', 'registered-project', { action: 'list' })).records.length, 1);
     assert.deepEqual(await fs.readdir(injected), []);
+    assert.equal(scopes.filter(([, action]) => action === 'write').length, 2);
+    assert.ok(scopes.some(([path, action]) => path === root && action === 'discard'));
+    assert.ok(scopes.every(([path]) => path === root));
+    assert.equal(events.filter((event) => event.name === 'folder-changed' && event.value === root).length, 3);
   });
 }

@@ -37,6 +37,8 @@ export interface ManagedWorktreeEntry {
 
 /** The worktree manager's registry, the only authority on managed folders. */
 export interface MixdogWorktreesModule {
+  withWorktreeRecoveryStore?<T>(root: string, directory: string,
+    action: 'write' | 'restore' | 'inspect' | 'discard', run: () => Promise<T>): Promise<T>;
   /** The registry entry whose folder is `path`, or null when none is. */
   getWorktreeByPath(path: string): ManagedWorktreeEntry | null | Promise<ManagedWorktreeEntry | null>;
   /** The registry entry whose folder is `path` or contains it (a subfolder

@@ -3,6 +3,8 @@ import { realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
   requiredProjectRecoveryRequest,
+  recoveryStorageError,
+  ProjectRecoveryError,
   type ProjectRecoveryDetail,
   type ProjectRecoveryResponse,
 } from '../shared/project-recovery';
@@ -10,6 +12,8 @@ import { projectEntryPathIn, replaceProjectFileBytes } from './project-files';
 import { withProjectMutationPaths } from './project-mutation-queue';
 import {
   claimRecoveryDirectory,
+  RECOVERY_MAX_RECORDS,
+  RECOVERY_MAX_BYTES,
   listRecoveryRecords,
   readRecoveryPayload,
   readRecoveryRecord,
@@ -94,7 +98,7 @@ async function inspectDirectory(root: string, directory: string, leased = false)
     }
   }
   const again = await readRecoveryRecord(directory);
-  if (again.fingerprint !== fingerprint) throw new Error('Recovery record changed while inspecting. Refresh it.');
+  if (again.fingerprint !== fingerprint) throw new ProjectRecoveryError('RECOVERY_CHANGED', 'Recovery record changed while inspecting. Refresh it.');
   return {
     id: manifest.id,
     createdAt: manifest.createdAt,
@@ -115,19 +119,37 @@ async function inspectDirectory(root: string, directory: string, leased = false)
   };
 }
 
+async function recoveryOverview(userDataPath: string, root: string): Promise<ProjectRecoveryResponse> {
+  const records = await listRecoveryRecords(userDataPath, root);
+  let rootAvailable = false;
+  try { rootAvailable = (await lstat(root)).isDirectory() && realpathSync(root) === root; } catch { /* Observational only. */ }
+  const resolved = records.filter((record) => ['completed', 'recovered', 'retired'].includes(record.phase)).length;
+  return {
+    records,
+    rootAvailable,
+    storage: {
+      usedRecords: records.length, maxRecords: RECOVERY_MAX_RECORDS,
+      unresolvedRecords: records.length - resolved, resolvedRecords: resolved,
+      payloadBytes: records.reduce((sum, record) => sum + (record.payloadBytes ?? 0), 0),
+      unknownSizeRecords: records.filter((record) => record.payloadBytes === undefined).length,
+      maxBatchBytes: RECOVERY_MAX_BYTES, maxBatchFiles: 100,
+    },
+  };
+}
+
 /** The caller must resolve root through the project registry on every request.
  * No renderer path or backup body is ever accepted as restoration authority. */
-export async function projectRecoveryIn(
+async function executeProjectRecovery(
   userDataPath: string,
   root: string,
   input: unknown
 ): Promise<ProjectRecoveryResponse> {
   const request = requiredProjectRecoveryRequest(input);
-  if (request.action === 'list') return { records: await listRecoveryRecords(userDataPath, root) };
+  if (request.action === 'list') return recoveryOverview(userDataPath, root);
   const directory = await recoveryLocation(userDataPath, root, request.id);
   if (request.action === 'inspect') {
     const detail = await inspectDirectory(root, directory);
-    return { records: await listRecoveryRecords(userDataPath, root), detail };
+    return { ...(await recoveryOverview(userDataPath, root)), detail };
   }
   let owned = await claimRecoveryDirectory(directory);
   let removed = false;
@@ -136,19 +158,19 @@ export async function projectRecoveryIn(
     if (request.action === 'discard') {
       const approved = await inspectDirectory(root, owned, true);
       if (approved.revision !== request.revision)
-        throw new Error('Files or recovery data changed since inspection. Inspect and confirm again.');
+        throw new ProjectRecoveryError('RECOVERY_CHANGED', 'Files or recovery data changed since inspection. Inspect and confirm again.');
       owned = await retireRecoveryDirectory(owned);
       await removeRecoveryDirectory(owned);
       removed = true;
     } else {
       if (recoveryIsRetired(owned)) {
-        throw new Error('This record cannot restore files; recovery is not an undo command.');
+        throw new ProjectRecoveryError('RECOVERY_NOT_RESTORABLE', 'This record cannot restore files; recovery is not an undo command.');
       }
       const { manifest, state } = await readRecoveryRecord(owned).catch((cause) => {
-        throw new Error('This record cannot restore files; recovery is not an undo command.', { cause });
+        throw new ProjectRecoveryError('RECOVERY_NOT_RESTORABLE', 'This record cannot restore files; recovery is not an undo command.', { cause });
       });
       if (state?.phase === 'complete')
-        throw new Error('This batch completed successfully; recovery is not an undo command.');
+        throw new ProjectRecoveryError('RECOVERY_NOT_RESTORABLE', 'This batch completed successfully; recovery is not an undo command.');
       // Journal ownership prevents concurrent recovery/discard. The project claim
       // also serializes this restore against the existing editor mutation queue.
       const paths = manifest.files.flatMap((entry) => {
@@ -164,9 +186,9 @@ export async function projectRecoveryIn(
       await withProjectMutationPaths(paths, async () => {
         const approved = await inspectDirectory(root, owned, true);
         if (approved.revision !== request.revision)
-          throw new Error('Files or recovery data changed since inspection. Inspect and confirm again.');
+          throw new ProjectRecoveryError('RECOVERY_CHANGED', 'Files or recovery data changed since inspection. Inspect and confirm again.');
         if (['invalid', 'retired', 'completed'].includes(approved.phase))
-          throw new Error('Recovery record is no longer restorable.');
+          throw new ProjectRecoveryError('RECOVERY_NOT_RESTORABLE', 'Recovery record is no longer restorable.');
         const restored = new Set(
           approved.files.filter((file) => file.status === 'restored').map((file) => file.relPath)
         );
@@ -224,7 +246,12 @@ export async function projectRecoveryIn(
     throw error;
   }
   if (primaryError) throw primaryError;
-  const records = await listRecoveryRecords(userDataPath, root);
-  if (removed) return { records };
-  return { records, detail: await inspectDirectory(root, await recoveryLocation(userDataPath, root, request.id)) };
+  const overview = await recoveryOverview(userDataPath, root);
+  if (removed) return overview;
+  return { ...overview, detail: await inspectDirectory(root, await recoveryLocation(userDataPath, root, request.id)) };
+}
+
+export async function projectRecoveryIn(userDataPath: string, root: string, input: unknown): Promise<ProjectRecoveryResponse> {
+  try { return await executeProjectRecovery(userDataPath, root, input); }
+  catch (error) { throw recoveryStorageError(error); }
 }

@@ -26,6 +26,7 @@
  * -d` forgets it).
  */
 import { existsSync } from 'node:fs';
+import { assertRecoveryStoresClear, recoveryScopes, validateRecoveryScope } from './file-recovery.mjs';
 import { lstat, mkdir, readdir, readFile, rm, rmdir } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import {
@@ -327,6 +328,7 @@ async function deleteBranchIfFree(record) {
  * still present (empty when everything is gone).
  */
 async function removeCheckout(record) {
+  await assertRecoveryStoresClear(record);
   await assertManagedCheckoutPath(record);
   const remaining = [];
   for (const path of await removeIncludeLinks(record.resources?.includes)) remaining.push({ kind: 'link', path });
@@ -437,6 +439,7 @@ async function rollbackCreation(record, cause) {
  * and retried with the deletion; it never keeps the checkout.
  */
 async function finishDeletion(record) {
+  await assertRecoveryStoresClear(record);
   const remaining = [];
   try {
     await removeOwnerLease(record);
@@ -514,6 +517,34 @@ export async function findWorktreeContaining(path) {
   if (typeof path !== 'string' || !path.trim()) return null;
   const record = Object.values((await readRegistry()).entries).find((item) => isWithin(item.path, path));
   return record ? entryView(record) : null;
+}
+
+/** File-host seam, not a user capability. Persist the host-owned scope before
+ * preparing a byte journal, and hold the same repository lock as every removal
+ * through the operation. The descriptor survives daemon exit/startup reconcile.
+ * @template T
+ * @param {string} root
+ * @param {string} directory
+ * @param {'write'|'restore'|'inspect'|'discard'} action
+ * @param {() => Promise<T>} run
+ * @returns {Promise<T>}
+ */
+export async function withWorktreeRecoveryStore(root, directory, action, run) {
+  const entry = await findWorktreeContaining(root);
+  if (!entry) return run();
+  return withRepoLock(entry.repoCommonDir, async () => {
+    const record = await getRecord(entry.id);
+    if (!record || ((action === 'write' || action === 'restore') && record.state !== 'ready'))
+      throw worktreeError('WORKTREE_MISSING', undefined, { entryId: entry.id });
+    const scope = validateRecoveryScope(record, { root, directory });
+    const scopes = recoveryScopes(record);
+    if (!scopes.some((item) => item.root === root && item.directory === directory)) {
+      if (scopes.length >= 64) throw worktreeError('WORKTREE_FILE_RECOVERY');
+      record.editorRecoveryStores = [...scopes, scope];
+      await putRecord(record);
+    }
+    return run();
+  });
 }
 
 /** Mark an entry disposable: startup reconcile may remove it once clean and merged. */
@@ -1054,12 +1085,14 @@ async function assertRemovable(record) {
 /**
  * The refusal removeManagedWorktree would raise, checked before anything
  * moves (a session leaves its worktree only for a removal that can proceed).
- * Unknown entries are WORKTREE_MISSING; `force` and non-ready entries pass.
+ * Unknown entries are WORKTREE_MISSING. Recovery records block even `force`
+ * and non-ready entries; ordinary dirty/unmerged checks apply only to ready ones.
  * @param {{ entryId: string, force?: boolean }} input
  */
 export async function assertWorktreeRemovable({ entryId, force = false } = {}) {
   const record = await getRecord(entryId);
   if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  await assertRecoveryStoresClear(record);
   if (record.state !== 'ready') return;
   await assertManagedCheckoutPath(record);
   if (!force) await assertRemovable(record);
@@ -1067,7 +1100,8 @@ export async function assertWorktreeRemovable({ entryId, force = false } = {}) {
 
 /**
  * Remove a managed worktree. Refuses dirty (incl. untracked and modified
- * include copies) or unmerged worktrees unless `force`.
+ * include copies) or unmerged worktrees unless `force`. Retained file recovery
+ * data blocks removal regardless of force.
  * @param {{ entryId: string, force?: boolean }} input
  * @returns {Promise<{ removed: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean }>}
  */
@@ -1082,6 +1116,7 @@ export async function removeManagedWorktree({ entryId, force = false } = {}) {
       return rollback.complete ? { removed: true } : { removed: false, retryable: true, remaining: rollback.remaining };
     }
     if (current.state === 'ready') {
+      await assertRecoveryStoresClear(current);
       await assertManagedCheckoutPath(current);
       if (!force) await assertRemovable(current);
       current.state = 'deleting';
@@ -1194,6 +1229,7 @@ export async function reconcileManagedWorktrees({
                 report.kept.push({ id: record.id, reason: dirty.length ? 'dirty' : 'unmerged' });
                 continue;
               }
+              await assertRecoveryStoresClear(record);
               record.state = 'deleting';
               record.deleting = { force: false, startedAt: Date.now(), remaining: [] };
               await putRecord(record);

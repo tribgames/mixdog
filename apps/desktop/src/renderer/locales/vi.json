@@ -4235,5 +4235,18 @@
   "Zoom options": "Tùy chọn thu phóng",
   "Zoom out": "Thu nhỏ",
   "Zoom Out": "Thu nhỏ",
-  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%"
+  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
+  "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.": "Các bản ghi khôi phục được giữ lại sẽ chặn việc xóa worktree, kể cả xóa cưỡng bức. Hãy kiểm tra và chủ động xóa chúng trước.",
+  "Recovery changed. Inspect again before confirming.": "Trạng thái khôi phục đã thay đổi. Hãy kiểm tra lại trước khi xác nhận.",
+  "A running operation owns this record. Retry after it finishes.": "Một thao tác đang chạy đang sử dụng bản ghi này. Thử lại sau khi thao tác kết thúc.",
+  "Recovery storage is full. Inspect and explicitly delete records before editing again.": "Bộ nhớ khôi phục đã đầy. Hãy kiểm tra và chủ động xóa các bản ghi trước khi tiếp tục chỉnh sửa.",
+  "This edit exceeds recovery limits. Split it into smaller edits.": "Chỉnh sửa này vượt giới hạn khôi phục. Hãy chia thành các chỉnh sửa nhỏ hơn.",
+  "Recovery storage could not be read or written. Check disk space and permissions before retrying.": "Không thể đọc hoặc ghi bộ nhớ khôi phục. Kiểm tra dung lượng đĩa và quyền truy cập trước khi thử lại.",
+  "This record cannot restore files. Inspect it before deleting its backups.": "Bản ghi này không thể khôi phục tệp. Hãy kiểm tra trước khi xóa các bản sao lưu của nó.",
+  "Recovery record unavailable. Refresh the list.": "Bản ghi khôi phục không khả dụng. Hãy làm mới danh sách.",
+  "File recovery records need review. No files are restored automatically.": "Có các bản ghi khôi phục tệp cần kiểm tra. Không tệp nào được khôi phục tự động.",
+  "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "Thư mục dự án bị thiếu hoặc không khả dụng. Bản sao lưu vẫn được giữ lại; hãy kiểm tra bản ghi trước khi xóa.",
+  "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Bản ghi khôi phục: {{used}} / {{limit}} · Cần kiểm tra: {{unresolved}} · Đã giải quyết: {{resolved}}",
+  "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Dữ liệu đã ghi: {{bytes}} MiB · Bản ghi chưa rõ kích thước: {{unknown}} · Mỗi lần sửa: {{files}} tệp / {{limit}} MiB",
+  "Inspect file recovery": "Kiểm tra khôi phục tệp"
 }

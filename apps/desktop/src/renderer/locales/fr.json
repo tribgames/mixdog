@@ -4345,5 +4345,18 @@
   "Zoom options": "Options de zoom",
   "Zoom out": "Zoom arrière",
   "Zoom Out": "Zoom arrière",
-  "Zoom to {{value0}}%": "Zoom à {{value0}} %"
+  "Zoom to {{value0}}%": "Zoom à {{value0}} %",
+  "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.": "Les enregistrements de récupération conservés empêchent la suppression du worktree, même forcée. Examinez-les et supprimez-les explicitement au préalable.",
+  "Recovery changed. Inspect again before confirming.": "L’état de récupération a changé. Examinez-le de nouveau avant de confirmer.",
+  "A running operation owns this record. Retry after it finishes.": "Une opération en cours utilise cet enregistrement. Réessayez après sa fin.",
+  "Recovery storage is full. Inspect and explicitly delete records before editing again.": "Le stockage de récupération est plein. Examinez et supprimez explicitement des enregistrements avant de poursuivre les modifications.",
+  "This edit exceeds recovery limits. Split it into smaller edits.": "Cette modification dépasse les limites de récupération. Divisez-la en modifications plus petites.",
+  "Recovery storage could not be read or written. Check disk space and permissions before retrying.": "Impossible de lire ou d’écrire dans le stockage de récupération. Vérifiez l’espace disque et les autorisations avant de réessayer.",
+  "This record cannot restore files. Inspect it before deleting its backups.": "Cet enregistrement ne permet pas de restaurer des fichiers. Examinez-le avant de supprimer ses sauvegardes.",
+  "Recovery record unavailable. Refresh the list.": "Enregistrement de récupération indisponible. Actualisez la liste.",
+  "File recovery records need review. No files are restored automatically.": "Des enregistrements de récupération de fichiers doivent être examinés. Aucun fichier n’est restauré automatiquement.",
+  "Project folder is missing or unavailable. Backups remain; inspect the record before deleting it.": "Le dossier du projet est absent ou indisponible. Les sauvegardes sont conservées ; examinez l’enregistrement avant de le supprimer.",
+  "Recovery records: {{used}} / {{limit}} · Need review: {{unresolved}} · Resolved: {{resolved}}": "Enregistrements de récupération : {{used}} / {{limit}} · À examiner : {{unresolved}} · Résolus : {{resolved}}",
+  "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Données enregistrées : {{bytes}} MiB · Enregistrements de taille inconnue : {{unknown}} · Par modification : {{files}} fichiers / {{limit}} MiB",
+  "Inspect file recovery": "Examiner la récupération de fichiers"
 }

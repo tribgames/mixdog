@@ -5,7 +5,8 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { ProjectRecoveryPanel, recoveryMayRestore } from './ProjectRecoveryPanel.tsx';
 import { ProjectRecoverySurface } from './ProjectRecoverySurface.tsx';
-import { requiredProjectRecoveryRequest } from '../shared/project-recovery.ts';
+import { ProjectRecoveryNotice } from './ProjectRecoveryNotice.tsx';
+import { requiredProjectRecoveryRequest, recoveryFailureCode, recoveryFailureRecord } from '../shared/project-recovery.ts';
 
 const id = '12345678-abcd-abcd-abcd-123456789abc';
 const revision = 'a'.repeat(64);
@@ -246,7 +247,9 @@ test('the Files recovery surface invokes the host API only after inspection and 
       return true;
     };
   });
-  assert.equal(requests.length, 0, 'closed surface is lazy');
+  assert.deepEqual(requests, [['/project-a', { action: 'list' }]], 'closed discovery reads metadata only');
+  assert.match(ui.document.body.textContent, /need review/);
+  assert.equal(ui.button('Restore'), undefined);
   await act(async () => {
     const element = ui.document.querySelector('details');
     element.open = true;
@@ -264,4 +267,93 @@ test('the Files recovery surface invokes the host API only after inspection and 
 test('the Files recovery surface stays absent on a host without the API', async (t) => {
   const ui = await mount(t, {}, ProjectRecoverySurface);
   assert.equal(ui.document.querySelector('details'), null);
+});
+
+
+test('stable recovery hints survive IPC wrappers without granting path authority', () => {
+  assert.equal(recoveryFailureCode(new Error("Error invoking remote method: RECOVERY_BUSY: wait")), 'RECOVERY_BUSY');
+  assert.equal(recoveryFailureCode(new Error('storage full prose')), null);
+  assert.equal(recoveryFailureRecord(new Error(`failed\n[file-recovery] ${id}`)), id);
+  for (const message of ['failed', '[file-recovery] ../x', `failed\n[file-recovery] ${id}/../x`])
+    assert.equal(recoveryFailureRecord(new Error(message)), null);
+});
+
+test('a coded mutation failure invalidates approval and gives an actionable reason', async (t) => {
+  const ui = await mount(t, {
+    labels: { ...labels, failures: { RECOVERY_CHANGED: 'Inspect again before confirming' } },
+    request: async (_root, input) => {
+      if (input.action === 'restore') throw new Error('IPC: RECOVERY_CHANGED: changed');
+      return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
+    },
+  });
+  await ui.click('Inspect');
+  await ui.click('Restore unchanged files');
+  assert.equal(ui.button('Restore unchanged files'), undefined);
+  assert.match(ui.document.querySelector('[role=alert]').textContent, /Inspect again/);
+});
+
+test('closed discovery ignores the old project and old host responses', async (t) => {
+  const old = deferred();
+  const ui = await mount(t, {}, ProjectRecoverySurface, (window) => {
+    window.mixdogDesktop = { projectRecovery: (project) => project === '/project-a' ? old.promise : Promise.resolve({ records: [] }) };
+  });
+  await ui.render({ projectPath: '/project-b' });
+  await act(async () => old.resolve({ records: [detail] }));
+  assert.equal(ui.document.querySelector('summary').textContent, 'File recovery');
+  const oldHost = deferred();
+  window.mixdogDesktop = { projectRecovery: () => oldHost.promise };
+  await ui.render({});
+  window.mixdogDesktop = { projectRecovery: async () => ({ records: [] }) };
+  await ui.render({});
+  await act(async () => oldHost.resolve({ records: [detail] }));
+  assert.equal(ui.document.querySelector('summary').textContent, 'File recovery');
+});
+
+test('capacity and missing-folder notices distinguish retained and resolved records', async (t) => {
+  const ui = await mount(t, {}, ProjectRecoverySurface, (window) => {
+    window.mixdogDesktop = { projectRecovery: async () => ({
+      records: [detail], rootAvailable: false,
+      storage: { usedRecords: 20, maxRecords: 20, unresolvedRecords: 18, resolvedRecords: 2,
+        payloadBytes: 1048576, unknownSizeRecords: 1, maxBatchBytes: 16777216, maxBatchFiles: 100 },
+    }) };
+  });
+  await act(async () => {
+    const element = ui.document.querySelector('details');
+    element.open = true;
+    element.dispatchEvent(new window.Event('toggle'));
+  });
+  assert.match(ui.document.body.textContent, /20 \/ 20.*Need review: 18.*Resolved: 2/s);
+  assert.match(ui.document.body.textContent, /Recorded payload: 1.00 MiB/);
+  assert.match(ui.document.body.textContent, /Unknown-size records: 1/);
+  assert.match(ui.document.body.textContent, /storage is full/);
+  assert.match(ui.document.body.textContent, /folder is missing or unavailable/);
+});
+
+test('batch failure affordance opens the exact record only after a user click', async (t) => {
+  const calls = [];
+  const ui = await mount(t, { message: `batch failed\n[file-recovery] ${id}`, onOpenFile() {} }, ProjectRecoveryNotice, (window) => {
+    window.mixdogDesktop = { projectRecovery: async (project, input) => {
+      calls.push([project, input]);
+      return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
+    } };
+  });
+  assert.equal(calls.length, 0);
+  await ui.click('Inspect file recovery');
+  assert.ok(calls.some(([, input]) => input.action === 'inspect' && input.id === id));
+  assert.equal(calls.some(([, input]) => ['discard', 'restore'].includes(input.action)), false);
+});
+
+test('focus refresh failure never reports zero records as a successful inventory', async (t) => {
+  let failed = false;
+  const ui = await mount(t, {}, ProjectRecoverySurface, (window) => {
+    window.mixdogDesktop = { projectRecovery: async () => {
+      if (failed) throw new Error('offline');
+      return { records: [detail] };
+    } };
+  });
+  assert.match(ui.document.querySelector('summary').textContent, /1/);
+  failed = true;
+  await act(async () => window.dispatchEvent(new window.Event('focus')));
+  assert.match(ui.document.body.textContent, /Recovery request failed/);
+  assert.doesNotMatch(ui.document.body.textContent, /No file recovery records/);
 });
