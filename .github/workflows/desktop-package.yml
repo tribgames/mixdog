@@ -66,6 +66,9 @@ jobs:
       ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/../electron-builder-cache
       MIXDOG_RUNTIME_DEPENDENCY_CACHE: >-
         ${{ github.workspace }}/.cache/runtime-dependencies/${{ inputs.platform }}-${{ inputs.arch }}
+      # The macOS Computer Use backend's toolchain; its build cache key below
+      # names it, so a toolchain bump rebuilds the backend.
+      RUST_TOOLCHAIN: "1.95.0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -132,18 +135,45 @@ jobs:
         with:
           path: apps/desktop/.cache/browser-import
           key: desktop-browser-import-v1-${{ inputs.arch }}-${{ hashFiles('native/mixdog-browser-import/**', '!native/mixdog-browser-import/dist/**', '!native/mixdog-browser-import/target/**') }}
-      # macOS and Linux bundle the native Computer Use backend, which
-      # prepare-runtime builds from native/mixdog-computer for the target.
+      # macOS bundles the native Computer Use backend, which prepare-runtime
+      # builds from native/mixdog-computer for the target. Linux packages the
+      # glibc 2.28 build instead (MIXDOG_COMPUTER_NATIVE_BIN below), and
+      # prepare-runtime returns before any cargo call when that is set, so
+      # Linux needs no toolchain.
       - name: Install Rust for the Computer Use backend
         if: >-
-          inputs.platform != 'win32'
+          inputs.platform == 'darwin'
           && steps.prepared-runtime.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
-          toolchain: "1.95.0"
-          targets: ${{ inputs.platform == 'darwin' && (inputs.arch == 'x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin') || (inputs.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu') }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ inputs.arch == 'x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+      # Every source change misses the prepared-runtime key above, and the
+      # backend's release build then ran again although its own crate had not
+      # changed. prepare-runtime keeps a source-hash marker beside the built
+      # binary and skips the build when it matches, as with the Windows
+      # browser importer; the restored binary is still checked for the target
+      # architecture before it is packaged and signed.
+      - name: Restore built Computer Use backend
+        id: computer-native
+        if: >-
+          inputs.platform == 'darwin'
+          && steps.prepared-runtime.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.cache/computer-native
+          key: desktop-computer-native-v1-${{ inputs.platform }}-${{ inputs.arch }}-${{ inputs.runner }}-rust${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('native/mixdog-computer/**', '!native/mixdog-computer/target/**') }}
+      # Retried for a transient registry failure; a deterministic one fails
+      # all three attempts.
       - name: Install desktop dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm ci --prefer-offline --no-audit --no-fund && exit 0
+            echo "npm ci failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
         working-directory: apps/desktop
       # Linux ships mixdog-computer/-graph/-patch built in manylinux_2_28
       # (native tools glibc 2.28; the package floor is 2.31 because of the
@@ -163,13 +193,23 @@ jobs:
           echo "MIXDOG_COMPUTER_NATIVE_BIN=$PWD/native-out/mixdog-computer" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
           echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph,patch" >> "$GITHUB_ENV"
+      # The network-bound parts (the staging npm ci with onnxruntime-node's
+      # NuGet download of the CUDA provider libraries the linux-x64 app ships,
+      # native tool and importer source downloads) are retried. A failed
+      # attempt removes its partial state; a deterministic failure fails all
+      # three attempts.
       - name: Prepare platform runtime
         if: steps.prepared-runtime.outputs.cache-hit != 'true'
         shell: bash
         working-directory: apps/desktop
         run: |
-          MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" \
-          npm run prepare:runtime -- --platform=${{ inputs.platform }} --arch=${{ inputs.arch }}
+          for attempt in 1 2 3; do
+            MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" \
+            npm run prepare:runtime -- --platform=${{ inputs.platform }} --arch=${{ inputs.arch }} && exit 0
+            echo "prepare:runtime failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 15))
+          done
+          exit 1
       - name: Save pruned runtime dependencies
         if: >-
           steps.prepared-runtime.outputs.cache-hit != 'true'
@@ -193,6 +233,15 @@ jobs:
         with:
           path: apps/desktop/.cache/browser-import
           key: ${{ steps.browser-import.outputs.cache-primary-key }}
+      - name: Save built Computer Use backend
+        if: >-
+          inputs.platform == 'darwin'
+          && steps.prepared-runtime.outputs.cache-hit != 'true'
+          && steps.computer-native.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.cache/computer-native
+          key: ${{ steps.computer-native.outputs.cache-primary-key }}
       - name: Download common desktop output
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

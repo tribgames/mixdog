@@ -82,7 +82,14 @@ jobs:
           test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
           git fetch --tags --force origin
           test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
-          npm ci --ignore-scripts --no-audit --no-fund
+          # Retried for a transient registry failure; a deterministic one
+          # fails all three attempts.
+          for attempt in 1 2 3; do
+            npm ci --ignore-scripts --no-audit --no-fund && break
+            if [[ "$attempt" -eq 3 ]]; then exit 1; fi
+            echo "npm ci failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
           node --test scripts/release-gate-test.mjs
 
       # A release ships only a commit the gate passed. The gate starts on the

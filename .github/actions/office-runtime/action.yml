@@ -25,12 +25,41 @@ runs:
     # down for hours at a time. When the cask fails, the same release comes from
     # TDF mirrors and is checked against the cask's own sha256. Every macOS
     # runner using this action is arm64 (macos-14).
+    #
+    # Fetching the ~350 MB disk image took ~45s of every macOS shard, the
+    # gate's longest leg. The download is restored into Homebrew's own cache,
+    # where brew reuses it only under the name it derives from the cask's URL
+    # and still verifies the cask's sha256 before installing it.
+    # The four cache steps only save time: a failure in any of them falls
+    # back to the plain download below instead of failing the job.
+    - name: Locate the Homebrew download cache
+      id: brew-cache
+      if: runner.os == 'macOS'
+      continue-on-error: true
+      shell: bash
+      run: |
+        echo "dir=$(brew --cache)/downloads" >> "$GITHUB_OUTPUT"
+        echo "prefix=office-brew-downloads-v1-${RUNNER_OS}-${RUNNER_ARCH}-" >> "$GITHUB_OUTPUT"
+    - name: Restore the cached LibreOffice download
+      id: brew-restore
+      if: runner.os == 'macOS' && steps.brew-cache.outputs.dir != ''
+      continue-on-error: true
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.brew-cache.outputs.dir }}
+        key: ${{ steps.brew-cache.outputs.prefix }}
+        restore-keys: ${{ steps.brew-cache.outputs.prefix }}
     - name: Install fonts and LibreOffice
       if: runner.os == 'macOS'
       shell: bash
       run: |
         set -euo pipefail
-        brew install --cask font-carlito
+        for attempt in 1 2 3; do
+          brew install --cask font-carlito && break
+          if [ "$attempt" -eq 3 ]; then exit 1; fi
+          echo "font-carlito install failed (attempt ${attempt}/3)" >&2
+          sleep $((attempt * 10))
+        done
         if brew install --cask libreoffice; then
           exit 0
         fi
@@ -43,6 +72,42 @@ runs:
         mount=$(hdiutil attach -nobrowse -readonly "$dmg" | awk -F'\t' '/\/Volumes\//{print $NF}')
         cp -R "$mount/LibreOffice.app" /Applications/
         hdiutil detach "$mount"
+    # Only the files the current casks download to stay in the cache, so an
+    # older LibreOffice image is dropped instead of accumulating. The key
+    # names that set: a new release saves a new entry, an unchanged one
+    # saves nothing. (After a mirror fallback there is nothing to keep.)
+    - name: Keep only the current downloads for the cache
+      id: brew-keep
+      if: runner.os == 'macOS' && steps.brew-cache.outputs.dir != ''
+      continue-on-error: true
+      shell: bash
+      env:
+        DOWNLOADS: ${{ steps.brew-cache.outputs.dir }}
+        PREFIX: ${{ steps.brew-cache.outputs.prefix }}
+      run: |
+        set -euo pipefail
+        keep=""
+        for cask in font-carlito libreoffice; do
+          file="$(brew --cache --cask "$cask")"
+          if [ -f "$file" ]; then keep="${keep}$(basename "$(realpath "$file")")"$'\n'; fi
+        done
+        for file in "$DOWNLOADS"/*; do
+          [ -e "$file" ] || continue
+          if ! grep -qxF "$(basename "$file")" <<< "$keep"; then rm -rf "$file"; fi
+        done
+        if [ -n "$keep" ]; then
+          echo "key=${PREFIX}$(printf '%s' "$keep" | sort | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Save the LibreOffice download
+      if: >-
+        runner.os == 'macOS'
+        && steps.brew-keep.outputs.key != ''
+        && steps.brew-keep.outputs.key != steps.brew-restore.outputs.cache-matched-key
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.brew-cache.outputs.dir }}
+        key: ${{ steps.brew-keep.outputs.key }}
     - name: Install fonts and LibreOffice
       if: runner.os == 'Linux'
       shell: bash
@@ -75,14 +140,23 @@ runs:
     # face's Hangul measures in Noto Sans KR where Malgun Gothic is missing.
     # The runtime's own provisioner installs them into the user font directory,
     # as it does for a user, so audits and the rendered review see the faces a
-    # document declares.
+    # document declares. The faces are downloaded, so a failed run is retried;
+    # one that keeps failing still fails the step.
     - name: Provision the Office Noto fonts
       shell: bash
       run: |
-        node --input-type=module <<'NODE'
+        provision() {
+          node --input-type=module <<'NODE'
         import { NOTO_FONT_DEFINITIONS, prepareOfficeFonts } from './src/runtime/office/portable/font-provisioner.mjs';
         const ids = new Set(['noto-sans-latin', 'noto-sans-kr', 'noto-sans-jp']);
         const results = await prepareOfficeFonts({ targets: NOTO_FONT_DEFINITIONS.filter((font) => ids.has(font.id)) });
         console.log(JSON.stringify(results, null, 2));
         if (!Object.values(results).every((font) => font.installed)) process.exit(1);
         NODE
+        }
+        for attempt in 1 2 3; do
+          provision && exit 0
+          echo "Noto font provisioning failed (attempt ${attempt}/3)" >&2
+          sleep $((attempt * 10))
+        done
+        exit 1

@@ -609,7 +609,14 @@ jobs:
           key: patch-test-cargo-1.95.0-${{ hashFiles('native/mixdog-patch/Cargo.lock', 'native/mixdog-patch/src/**') }}
           restore-keys: patch-test-cargo-1.95.0-
       - name: Install root dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm ci --prefer-offline --no-audit --no-fund && exit 0
+            echo "npm ci failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
       - name: Test and build the checked-out patch engine
         run: |
           cargo test --locked --manifest-path native/mixdog-patch/Cargo.toml

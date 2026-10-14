@@ -1,0 +1,41 @@
+name: apt packages
+description: >-
+  Installs Ubuntu packages through bounded, retried apt-get calls, and makes
+  every later apt-get in the job (a local .deb install that resolves its
+  dependencies, for one) retry a failed download instead of failing the job.
+inputs:
+  packages:
+    description: Space-separated package names
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install system packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        # Per-download retries and stall timeouts for every apt-get in this job.
+        printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+          | sudo tee /etc/apt/apt.conf.d/80-ci-network > /dev/null
+        # man-db re-indexes every installed manual page afterwards; nothing on
+        # a CI runner reads them.
+        sudo rm -f /var/lib/man-db/auto-update
+        # Each call is bounded by timeout and retried, which fails over to
+        # another mirror address (as in the office-runtime action).
+        apt_retry() {
+          local limit="$1" attempt
+          shift
+          for attempt in 1 2 3; do
+            if sudo timeout -k 10 "$limit" apt-get "$@"; then
+              return 0
+            fi
+            echo "apt-get $1 failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 5))
+          done
+          return 1
+        }
+        read -ra packages <<< "$PACKAGES"
+        apt_retry 120 update -qq
+        apt_retry 480 install -y "${packages[@]}"
