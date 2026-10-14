@@ -243,8 +243,24 @@ export class ModelProxyChannel {
     });
   }
 
+  #stateListeners = new Set();
+
+  /** `listener()` runs after every presence/generation change (the model
+   *  proxy bridge pushes it to its clients). Returns the unsubscribe. */
+  onStateChange(listener) {
+    this.#stateListeners.add(listener);
+    return () => this.#stateListeners.delete(listener);
+  }
+
   #connectionChanged() {
     this.#generation += 1;
+    for (const listener of [...this.#stateListeners]) {
+      try {
+        listener();
+      } catch {
+        /* a listener never breaks the transport that reported the change */
+      }
+    }
     if (!this.connected) return;
     for (const waiter of [...this.#connectionWaiters]) waiter(true);
   }
@@ -518,4 +534,23 @@ const CHANNEL_KEY = Symbol.for('mixdog.modelProxyChannel.v1');
 export function getModelProxyChannel() {
   globalThis[CHANNEL_KEY] ??= new ModelProxyChannel();
   return globalThis[CHANNEL_KEY];
+}
+
+/**
+ * Make `channel` the process-wide channel (a headless child talks through the
+ * daemon's model proxy bridge instead). The returned restore puts the previous
+ * channel back once, unless another install replaced this one since.
+ */
+export function installModelProxyChannel(channel) {
+  const hadPrevious = Object.hasOwn(globalThis, CHANNEL_KEY);
+  const previous = globalThis[CHANNEL_KEY];
+  globalThis[CHANNEL_KEY] = channel;
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    if (globalThis[CHANNEL_KEY] !== channel) return;
+    if (hadPrevious) globalThis[CHANNEL_KEY] = previous;
+    else delete globalThis[CHANNEL_KEY];
+  };
 }
