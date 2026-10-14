@@ -58,5 +58,6 @@ html[data-mixdog-ios-web]
 }
 html[data-mixdog-ios-web] .composer textarea,
 html[data-mixdog-ios-web] .studio-composer textarea {
-  font-size: 16px !important;
+  /* The zoom floor; a larger chat text size still grows the composer. */
+  font-size: max(16px, var(--mx-font-body)) !important;
 }

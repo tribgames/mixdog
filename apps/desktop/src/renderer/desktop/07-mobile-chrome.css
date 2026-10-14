@@ -175,7 +175,7 @@ html[data-mixdog-mobile-tabs] .composer textarea {
   max-height: 180px;
   padding-top: 10px;
   padding-bottom: 10px;
-  line-height: 24px;
+  line-height: calc(24px * var(--mx-content-scale, 1));
 }
 html[data-mixdog-mobile-tabs] .composer-tool,
 html[data-mixdog-mobile-tabs] .send-button,
@@ -1196,6 +1196,27 @@ html[data-mixdog-mobile-tabs] .markdown-code > header {
 }
 html[data-mixdog-mobile-tabs] .turn-review-action-slot {
   width: auto;
+}
+/* Turn changes header: on a phone the two labelled buttons took the title's
+   whole width, so they collapse to compact icon marks and the title stays. */
+html[data-mixdog-mobile-tabs] .turn-changes-action,
+html[data-mixdog-mobile-tabs] .turn-changes-view {
+  width: var(--mx-touch-fixed-main);
+  height: var(--mx-touch-fixed-main);
+  justify-content: center;
+  padding: 0;
+}
+html[data-mixdog-mobile-tabs] .turn-changes-label {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .turn-changes-view svg {
+  display: block;
+}
+/* The totals drop under the title only when both no longer fit on one line
+   (the smallest phones at the largest chat text size); otherwise unchanged. */
+html[data-mixdog-mobile-tabs] .turn-changes-title {
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 
 /* ── 4. Session drawer ─────────────────────────────────────────────────────

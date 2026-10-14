@@ -454,12 +454,12 @@ html[data-window-material="mica"] .jump-to-latest {
    two-line title closed up on itself. */
 .markdown h1 {
   margin: 24px 0 8px;
-  font-size: 18px;
-  line-height: 26px;
+  font-size: calc(18px * var(--mx-content-scale, 1));
+  line-height: calc(26px * var(--mx-content-scale, 1));
 }
 .markdown h2 {
   margin: 20px 0 8px;
-  font-size: 16px;
+  font-size: calc(16px * var(--mx-content-scale, 1));
   line-height: var(--mx-line-body);
 }
 .markdown h3 {
@@ -475,14 +475,14 @@ html[data-window-material="mica"] .jump-to-latest {
 }
 .markdown h5 {
   margin: 14px 0 6px;
-  font-size: 14px;
+  font-size: calc(14px * var(--mx-content-scale, 1));
   line-height: var(--mx-line-body);
 }
 /* h6 remains the quiet final rung through ink rather than another size. */
 .markdown h6 {
   margin: 14px 0 6px;
   color: var(--mx-text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--mx-content-scale, 1));
   line-height: var(--mx-line-body);
 }
 /* Inline emphasis stays on the prose size but must READ as bold: 500, then 600,
