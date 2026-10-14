@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import keychain from '../../../../lib/keychain-cjs.cjs';
 import { createMcpTransport as buildTransport } from './client-transport.mjs';
 import {
   clearMcpOAuth,
@@ -39,6 +40,14 @@ function memoryStore(values = new Map()) {
       values.delete(key);
     },
   };
+}
+// The explicit sign-in tests drive the real client, whose OAuth store is the
+// OS keychain. A runner without one (Linux CI has no Secret Service) fails
+// every challenge as sign-in required, by design (see the unreadable-keychain
+// test), so this file backs the keychain with memory.
+{
+  const { values: _values, ...store } = memoryStore();
+  Object.assign(keychain, store);
 }
 // A credential store another process can share: one file per account. The
 // second process below builds the same store from this source.
