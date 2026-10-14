@@ -13,8 +13,7 @@ import { isInMarkdownCode, isReservedMentionName } from '../../runtime/shared/sk
 // A mention being typed just before the caret: `$` plus a partial name.
 const MENTION_TAIL = /(^|[\s([{"'`])\$([a-z0-9][a-z0-9-]{0,63})?$/;
 
-const caretIn = (text, caret) =>
-  Number.isInteger(caret) ? Math.max(0, Math.min(text.length, caret)) : text.length;
+const caretIn = (text, caret) => (Number.isInteger(caret) ? Math.max(0, Math.min(text.length, caret)) : text.length);
 
 /** The mention being typed before `caret` (default: end of `value`), or null.
  *  `start` is the `$`, `end` the caret. */

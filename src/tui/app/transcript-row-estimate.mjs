@@ -101,7 +101,9 @@ function toolDisplayedResultTextForRows(item) {
   const backgroundError = String(bgArgs.error || '');
   const normalizedName = String(normalizeToolName(item?.name) || '').toLowerCase();
   const errorOnlyResult =
-    Boolean(rt) && hasBackgroundMetaForRows(normalizedName, bgArgs, rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
+    Boolean(rt) &&
+    hasBackgroundMetaForRows(normalizedName, bgArgs, rt) &&
+    isBackgroundErrorOnlyBody(rt, backgroundError);
   if (!toolItemPendingForRows(item) && isBackgroundTaskTool(normalizedName)) {
     const meta = parseBackgroundTaskResultForRows(rt);
     if (meta?.hasResponse && String(meta.body || '').trim()) {
@@ -217,7 +219,9 @@ export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, at
     case 'user': {
       // UserMessage: marginTop + wrapped text + the applied-skills line.
       const skillsLine = appliedSkillsLine(item.appliedSkills);
-      return 1 + estimateWrappedRows(item.text, columns, 4) + (skillsLine ? estimateWrappedRows(skillsLine, columns, 4) : 0);
+      return (
+        1 + estimateWrappedRows(item.text, columns, 4) + (skillsLine ? estimateWrappedRows(skillsLine, columns, 4) : 0)
+      );
     }
     case 'assistant':
       // marginTop={1} (AssistantMessage <Box>) + rendered body height.

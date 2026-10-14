@@ -20,7 +20,9 @@ async function fixture(t, kind = 'prompt') {
   const receiptPath = join(root, 'new-task-receipts', `${key}.json`);
   const metadataPath = join(root, 'desktop-session-metadata.json');
   const original = JSON.stringify({
-    version: 2, titles: { keeper: 'Existing title' }, names: { keeper: 'User name' },
+    version: 2,
+    titles: { keeper: 'Existing title' },
+    names: { keeper: 'User name' },
   });
   await fsp.writeFile(metadataPath, original);
   const state = { accepted: false, allow: true, creates: [], submits: [], goals: [], unsubscribes: [] };
@@ -48,7 +50,9 @@ async function fixture(t, kind = 'prompt') {
       state.goals.push(params.sessionId);
       state.accepted = state.allow;
       return {
-        sessionId, revision: 1, full: full(),
+        sessionId,
+        revision: 1,
+        full: full(),
         value: state.accepted
           ? { ok: true, goal: { objective: 'Approved goal title' } }
           : { ok: false, message: 'Goal refused' },
@@ -94,7 +98,16 @@ async function fixture(t, kind = 'prompt') {
     }
   });
   return {
-    host, createHost, state, warnings, errors, sessionId, receiptPath, metadataPath, original, options,
+    host,
+    createHost,
+    state,
+    warnings,
+    errors,
+    sessionId,
+    receiptPath,
+    metadataPath,
+    original,
+    options,
     submit: (target = host) => target.submitNewTask('Accepted work', options),
     receipt: () => JSON.parse(fs.readFileSync(receiptPath, 'utf8')),
   };
@@ -127,7 +140,10 @@ for (const kind of ['prompt', 'goal']) {
       assert.deepEqual(concurrent, first);
       assert.equal(f.receipt().phase, 'accepted');
       assert.ok(fault.phases.length > 0);
-      assert.ok(fault.phases.every((phase) => phase === 'accepted'), 'persist acceptance before advisory IO');
+      assert.ok(
+        fault.phases.every((phase) => phase === 'accepted'),
+        'persist acceptance before advisory IO'
+      );
       assert.ok(f.warnings.some(([, error]) => error?.cause === fault.failure));
       assert.equal(fs.readFileSync(f.metadataPath, 'utf8'), f.original);
       assert.equal((await f.submit()).accepted, true);
@@ -155,7 +171,9 @@ for (const kind of ['prompt', 'goal']) {
   test(`${kind}: failure to persist rewritten metadata during load is advisory`, async (t) => {
     const f = await fixture(t, kind);
     const original = JSON.stringify({
-      version: 2, titles: { keeper: 'x'.repeat(100) }, names: { keeper: 'User name' },
+      version: 2,
+      titles: { keeper: 'x'.repeat(100) },
+      names: { keeper: 'User name' },
     });
     await fsp.writeFile(f.metadataPath, original);
     const rename = fsp.rename;
@@ -174,7 +192,10 @@ for (const kind of ['prompt', 'goal']) {
     assert.equal(f.receipt().phase, 'accepted');
     assert.deepEqual(f.state.unsubscribes, []);
     assert.ok(f.warnings.some(([, error]) => error === failure));
-    assert.ok(f.errors.some(([, error]) => error === failure), 'metadata writer still reports its failed save');
+    assert.ok(
+      f.errors.some(([, error]) => error === failure),
+      'metadata writer still reports its failed save'
+    );
     assert.equal(fs.readFileSync(f.metadataPath, 'utf8'), original);
     assert.equal((await f.submit(await f.createHost())).accepted, true);
   });
@@ -249,7 +270,13 @@ test('a worktree draft enters its worktree before the prompt is submitted; a lar
   const accepted = await f.host.submitNewTask('Accepted work', f.options, { worktree: { confirmLarge: true } });
   assert.equal(accepted.accepted, true);
   assert.deepEqual(
-    requests.map(({ provision, confirmLarge, prompt, txId, submitted }) => [provision, confirmLarge, prompt, txId, submitted]),
+    requests.map(({ provision, confirmLarge, prompt, txId, submitted }) => [
+      provision,
+      confirmLarge,
+      prompt,
+      txId,
+      submitted,
+    ]),
     [
       [true, false, 'Accepted work', f.options.id, 0],
       [true, true, 'Accepted work', f.options.id, 0],
@@ -289,7 +316,12 @@ test('a worktree draft whose session cannot be created (no model) or is not boun
       throw new Error('No provider models available. Open /providers to sign in, then /model to choose a model.');
     }
     // A runtime that only armed the lazy intent.
-    return { sessionId: f.sessionId, revision: 1, full: { sessionId: f.sessionId, items: [] }, value: { pending: true } };
+    return {
+      sessionId: f.sessionId,
+      revision: 1,
+      full: { sessionId: f.sessionId, items: [] },
+      value: { pending: true },
+    };
   };
   await assert.rejects(
     f.host.submitNewTask('Accepted work', f.options, { worktree: {} }),

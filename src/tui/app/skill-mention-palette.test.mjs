@@ -11,7 +11,8 @@ const SKILLS = [
   { name: 'pdf', description: 'Built-in', source: 'builtin', enabled: true },
 ];
 
-const palette = (promptDraft, extra = {}) => deriveSlashPalette({ promptDraft, slashDismissedFor: '', skills: SKILLS, ...extra });
+const palette = (promptDraft, extra = {}) =>
+  deriveSlashPalette({ promptDraft, slashDismissedFor: '', skills: SKILLS, ...extra });
 
 test('a $ mention is the token being typed before the caret (default: end), after a boundary', () => {
   assert.deepEqual(skillMentionQuery('$'), { query: '', start: 0, end: 1 });

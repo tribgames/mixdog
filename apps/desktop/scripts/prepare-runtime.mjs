@@ -1,6 +1,19 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { access, chmod, cp, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -887,7 +900,9 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
       '/node_modules/mixdog/src/runtime/local-provider/data/manifest.json',
       `/node_modules/mixdog/${skillValidatorPackagePath}`,
-      ...[...skillScriptEntryPackagePaths, ...pptxSkillScriptPackagePaths].map((path) => `/node_modules/mixdog/${path}`),
+      ...[...skillScriptEntryPackagePaths, ...pptxSkillScriptPackagePaths].map(
+        (path) => `/node_modules/mixdog/${path}`
+      ),
       ...unpackedArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
@@ -954,7 +969,12 @@ async function prepareRuntime(manifest, fingerprint) {
     // The mirror holds only the skill files, not the runtime's shared modules,
     // so validating a skill from it proves the shipped validator is self-contained.
     await timed('skill-validator-check', async () => {
-      const skillCreatorDir = join(builderNativeModulesDir, 'mixdog', ...builtinSkillsPackageRoot.split('/'), 'skill-creator');
+      const skillCreatorDir = join(
+        builderNativeModulesDir,
+        'mixdog',
+        ...builtinSkillsPackageRoot.split('/'),
+        'skill-creator'
+      );
       await execFileAsync(process.execPath, [join(skillCreatorDir, 'scripts', 'validate-skill.mjs'), skillCreatorDir], {
         windowsHide: true,
       });
