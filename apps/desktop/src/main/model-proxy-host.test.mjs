@@ -247,6 +247,7 @@ function pcModules(available, keys = {}) {
   const inits = [];
   return {
     keyReads,
+    probeAuth: () => 'present',
     inits,
     live,
     loadConfig: (options) => {
@@ -284,8 +285,8 @@ test('cold start: the daemon waits for a PC that connects late and loads its reg
   connect(t, createModelProxyRuntime(modules), { channel });
   const config = await settledWhileAlive(loading);
   assert.deepEqual(config, {
-    openai: { enabled: true, modelProxy: {} },
-    gemini: { enabled: false, modelProxy: {} },
+    openai: { enabled: true, authState: 'present', modelProxy: {} },
+    gemini: { enabled: false, authState: 'present', modelProxy: {} },
   });
   // Availability needs no credential value.
   assert.deepEqual(modules.keyReads, []);
@@ -318,7 +319,7 @@ test('a loaded PC registry with nothing enabled is an answer, not a wait', async
   const modules = pcModules({ openai: { enabled: false } });
   const { channel } = connect(t, createModelProxyRuntime(modules));
   const config = await settledWhileAlive(loadModelProxyProviderConfig({ channel, waitMs: 5_000 }), 1_000);
-  assert.deepEqual(config, { openai: { enabled: false, modelProxy: {} } });
+  assert.deepEqual(config, { openai: { enabled: false, authState: 'present', modelProxy: {} } });
 });
 
 test('only the requested provider\'s credential is read, on demand', async (t) => {
@@ -561,4 +562,33 @@ test('all built-in provider families and custom protocols use the same PC catalo
     assert.deepEqual(await proxy.listModels(), [{ id: `${name}-model` }]);
     assert.equal((await proxy.send([], `${name}-model`, [], {})).content, `${name}:no-key`);
   }
+});
+
+
+test('proxy readiness distinguishes missing credentials, transient probes, and explicit disables', async (t) => {
+  const available = { 'openai-oauth': { enabled: true } };
+  const modules = pcModules(available);
+  let state = 'present';
+  modules.probeAuth = () => state;
+  const init = modules.initProviders;
+  modules.initProviders = async (config) => {
+    if (config['openai-oauth'].credentialProbeUnavailable) return; // registry preserves the prior adapter
+    return init(config);
+  };
+  const runtime = createModelProxyRuntime(modules);
+  const { channel } = connect(t, runtime);
+  const read = async () => (await channel.request({ provider: '', method: 'providerConfig' })).providers['openai-oauth'];
+  assert.equal((await read()).enabled, true);
+  state = 'unreadable';
+  available['openai-oauth'] = { enabled: false, credentialProbeUnavailable: true };
+  assert.deepEqual(await read(), { enabled: true, authState: 'unreadable', modelProxy: {} });
+  assert.ok(await runtime.provider('openai-oauth'));
+  state = 'absent';
+  available['openai-oauth'] = { enabled: true }; // a persisted enable is not authentication
+  assert.deepEqual(await read(), { enabled: false, authState: 'absent', modelProxy: {} });
+  assert.equal(await runtime.provider('openai-oauth'), undefined);
+  state = 'present';
+  available['openai-oauth'] = { enabled: false };
+  assert.equal((await read()).enabled, false);
+  assert.equal(await runtime.provider('openai-oauth'), undefined);
 });

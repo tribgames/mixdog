@@ -214,7 +214,8 @@ test('fast mode stays optimistic until the authoritative snapshot paints', async
   }
 });
 
-test('an installed Local Provider model appears without remounting the picker', async () => {
+for (const recovery of ['local-install', 'desktop-reconnect', 'proxy-poll']) {
+  test(`a mounted picker refreshes its provider setup and models after ${recovery}`, async (t) => {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -230,6 +231,17 @@ test('an installed Local Provider model appears without remounting the picker', 
     savedModelParameters: {},
   };
 
+  let retry;
+  if (recovery !== 'local-install') {
+    providerSetup = { managedByClient: true, unavailable: true, api: [], local: [] };
+  }
+  if (recovery === 'proxy-poll') {
+    const schedule = window.setTimeout.bind(window);
+    t.mock.method(window, 'setTimeout', (callback, ms, ...args) => {
+      if (ms === 7_000) { retry = callback; return 700007; }
+      return schedule(callback, ms, ...args);
+    });
+  }
   try {
     await act(async () =>
       root.render(
@@ -258,11 +270,14 @@ test('an installed Local Provider model appears without remounting the picker', 
 
     availableModels = [model, localModel];
     providerSetup = {
-      api: [{ id: 'openai', authenticated: true }],
-      local: [{ id: 'mixdog-local', detected: true, enabled: true }],
+      managedByClient: recovery !== 'local-install',
+      api: [{ id: 'openai', authenticated: true, usable: true }],
+      local: [{ id: 'mixdog-local', detected: true, enabled: true, usable: true }],
     };
     await act(async () => {
-      invalidateSharedModelCatalogRequest();
+      if (recovery === 'local-install') invalidateSharedModelCatalogRequest();
+      else if (recovery === 'desktop-reconnect') window.dispatchEvent(new window.Event('mixdog:remote-reconnected'));
+      else { assert.ok(retry, 'failed proxy setup schedules a retry'); retry(); }
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -281,6 +296,8 @@ test('an installed Local Provider model appears without remounting the picker', 
     host.remove();
   }
 });
+
+}
 
 for (const outcome of ['success', 'failure']) {
   test(`model selection closes immediately and a late ${outcome} cannot disturb a newer menu or preference`, async () => {

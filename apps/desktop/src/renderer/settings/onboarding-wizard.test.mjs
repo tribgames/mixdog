@@ -361,3 +361,39 @@ for (const unavailable of [false, true]) {
     }
   });
 }
+
+
+for (const event of ['focus', 'mixdog:remote-reconnected', 'poll']) {
+  test(`SSH onboarding updates desktop availability on ${event}`, async (t) => {
+    let connected = false;
+    let poll;
+    if (event === 'poll') {
+      const schedule = window.setInterval.bind(window);
+      t.mock.method(window, 'setInterval', (callback, ms, ...args) => {
+        if (ms === 7_000) { poll = callback; return 700007; }
+        return schedule(callback, ms, ...args);
+      });
+    }
+    const reads = [];
+    await mount(t, {
+      step: 1,
+      readCapabilities: async (requests) => requests.map(({ capability, args }) => {
+        reads.push({ capability, args });
+        return { ok: true, value: capability === 'getProviderSetup'
+          ? { managedByClient: true, unavailable: !connected,
+              oauth: connected ? [{ id: 'anthropic-oauth', name: 'Anthropic OAuth', usable: true }] : [] }
+          : profile };
+      }),
+    });
+    assert.match(document.body.textContent, /Connect the desktop to view its providers/);
+    connected = true;
+    await act(async () => {
+      if (event === 'poll') { assert.ok(poll); poll(); }
+      else window.dispatchEvent(new window.Event(event));
+    });
+    assert.match(document.body.textContent, /Anthropic OAuth/);
+    assert.doesNotMatch(document.body.textContent, /Connect the desktop to view its providers/);
+    assert.deepEqual(reads.at(-1), { capability: 'getProviderSetup', args: [{ force: true }] });
+    assert.equal(document.querySelector('input[type="password"]'), null);
+  });
+}

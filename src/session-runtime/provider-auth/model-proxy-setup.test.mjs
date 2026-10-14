@@ -81,6 +81,17 @@ test('SSH setup uses PC availability through the session API and follows refresh
   providers['openai-oauth'] = { enabled: true };
   assert.equal((await api.getProviderSetup({ recheckKeychain: true })).oauth[0].authenticated, true);
 
+  providers['openai-oauth'] = { enabled: true, authState: 'unreadable' };
+  const uncertain = (await api.getProviderSetup({ force: true })).oauth[0];
+  assert.equal(uncertain.authenticated, false);
+  assert.equal(uncertain.usable, true, 'a preserved adapter is not removed on a transient probe');
+  assert.equal(uncertain.status, 'Checking…');
+  providers['openai-oauth'] = { enabled: true, authState: 'absent' };
+  const missing = (await api.getProviderSetup({ force: true })).oauth[0];
+  assert.equal(missing.authenticated, false);
+  assert.equal(missing.usable, false, 'enabled alone cannot authenticate a missing credential');
+  assert.equal(missing.status, 'Not connected');
+
   detach();
   assert.deepEqual(await api.getProviderSetup(), {
     managedByClient: true, unavailable: true, api: [], oauth: [], local: [],
@@ -146,7 +157,7 @@ test('SSH setup covers every built-in API, OAuth, local and custom provider, ena
     }
     for (const custom of customProviders) {
       const row = setup.api.find(({ id }) => id === custom.id);
-      assert.equal(row.name, custom.name);
+      assert.equal(row.name, custom.id);
       assert.equal(row.custom, true);
     }
     assert.equal(setup.local[0].detected, state);

@@ -21,8 +21,8 @@ test('SSH provider settings display PC availability without account or credentia
   const setup = {
     managedByClient: true,
     oauth: [
-      { id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, status: 'Connected' },
-      { id: 'cursor-oauth', name: 'Cursor OAuth', authenticated: true, status: 'Connected' },
+      { id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, usable: true, status: 'Connected' },
+      { id: 'cursor-oauth', name: 'Cursor OAuth', authenticated: true, usable: true, status: 'Connected' },
     ],
     api: [{ id: 'openai', name: 'OpenAI API', authenticated: false, status: 'Not connected' }],
   };

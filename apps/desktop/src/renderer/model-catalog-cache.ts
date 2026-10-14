@@ -263,8 +263,18 @@ function dropSharedModelCatalogRequest(request: SharedModelCatalogRequest): void
 }
 
 export function subscribeModelCatalogInvalidation(listener: () => void): () => void {
+  if (invalidationListeners.size === 0) {
+    window.addEventListener?.('mixdog:remote-reconnected', invalidateSharedModelCatalogRequest);
+    window.addEventListener?.('mixdog:remote-state-gap', invalidateSharedModelCatalogRequest);
+  }
   invalidationListeners.add(listener);
-  return () => invalidationListeners.delete(listener);
+  return () => {
+    invalidationListeners.delete(listener);
+    if (invalidationListeners.size === 0) {
+      window.removeEventListener?.('mixdog:remote-reconnected', invalidateSharedModelCatalogRequest);
+      window.removeEventListener?.('mixdog:remote-state-gap', invalidateSharedModelCatalogRequest);
+    }
+  };
 }
 
 /** Drops the shared request and wakes mounted pickers after provider changes. */

@@ -14,6 +14,7 @@ import {
   SHARED_MODEL_CATALOG_MAX_AGE_MS,
   readCachedModelCatalog,
   requestModelCatalog,
+  invalidateSharedModelCatalogRequest,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
 import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
@@ -551,6 +552,14 @@ export const ModelSelector = memo(function ModelSelector({
       }),
     [loadCatalog]
   );
+
+  useEffect(() => {
+    if (providerSetupError !== 'unavailable') return;
+    // The SSH transport can stay up while its desktop proxy reconnects. Retry
+    // failed setup reads even when no transport-reconnected event is emitted.
+    const timer = window.setTimeout(invalidateSharedModelCatalogRequest, 7_000);
+    return () => window.clearTimeout(timer);
+  }, [providerSetupError, catalogRefreshing]);
 
   useEffect(() => {
     if (model && !startupCatalogSettled) return;

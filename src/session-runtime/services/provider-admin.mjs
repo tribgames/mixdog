@@ -524,18 +524,23 @@ async function modelProxyProviderSetup(options) {
       .filter(({ id }) => Object.hasOwn(providers, id))
       .map(({ id, name }) => {
         const enabled = providers[id]?.enabled === true;
+        const authState = providers[id]?.authState;
+        // Older desktops advertise only enabled; new desktops distinguish a
+        // missing credential from a transiently unreadable, preserved adapter.
+        const authenticated = authState == null ? enabled : authState === 'present';
+        const usable = enabled && authState !== 'absent';
         return {
           id, name, group, type, enabled,
-          authenticated: enabled,
-          usable: enabled,
+          authenticated,
+          usable,
           ...(group === 'local' ? { detected: enabled } : {}),
           ...(type === 'custom' ? { custom: true } : {}),
-          status: enabled ? 'Connected' : 'Not connected',
+          status: enabled && authState === 'unreadable' ? 'Checking…' : usable ? 'Connected' : 'Not connected',
         };
       });
   const custom = Object.entries(providers)
     .filter(([id, entry]) => isCustomProviderId(id) && entry?.type === 'custom')
-    .map(([id, entry]) => ({ id, name: typeof entry.name === 'string' && entry.name.trim() ? entry.name : id }));
+    .map(([id]) => ({ id, name: id }));
   return {
     managedByClient: true,
     api: [...project(API_PROVIDERS, 'api', 'api-key'), ...project(custom, 'api', 'custom')],
