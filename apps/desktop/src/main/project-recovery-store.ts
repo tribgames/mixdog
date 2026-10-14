@@ -274,9 +274,10 @@ export async function recoveryReadBytes(file: string, maxBytes: number): Promise
     await handle.close();
   }
 }
-async function privateFile(file: string, bytes: Buffer): Promise<void> {
+async function privateFile(file: string, bytes: Buffer, onCreated?: () => void): Promise<void> {
   const handle = await open(file, 'wx', 0o600);
   try {
+    onCreated?.();
     await handle.writeFile(bytes);
     await handle.sync();
   } finally {
@@ -298,8 +299,11 @@ export async function writeRecoveryState(directory: string, state: RecoveryState
   const temp = join(directory, `state-${randomUUID()}.tmp`);
   let owned = false;
   try {
-    await privateFile(temp, Buffer.from(JSON.stringify({ ...state, message: state.message.slice(0, 8000) })));
-    owned = true;
+    await privateFile(temp, Buffer.from(JSON.stringify({ ...state, message: state.message.slice(0, 8000) })), () => {
+      // Own the temp as soon as exclusive creation succeeds, including failed
+      // writes, syncs and closes. A failed open must never authorize deletion.
+      owned = true;
+    });
     await validateRecoveryDirectory(directory);
     await rename(temp, join(directory, 'state.json'));
     owned = false;

@@ -418,3 +418,71 @@ test('a root change after a prepared file read is rejected before any target mut
   assert.equal(await fs.readFile(join(f.root + '-old', 'a.txt'), 'utf8'), 'A0');
   assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
 });
+
+for (const stage of ['writeFile', 'sync', 'close', 'rename']) {
+  test(`recovery state ${stage} failure removes its temporary file and preserves the published state`, async (t) => {
+    const f = await fixture(t);
+    const id = await record(f);
+    const directory = await recoveryLocation(f.data, f.root, id);
+    const previous = await fs.readFile(join(directory, 'state.json'));
+    const entries = (await fs.readdir(directory)).sort();
+    const failure = new Error(`injected state ${stage} failure`);
+    let injected = false;
+    const restore = stage === 'rename'
+      ? hook(t, 'rename', async (rename, from, to) => {
+          if (dirname(from) === directory && from.endsWith('.tmp')) {
+            injected = true;
+            throw failure;
+          }
+          return rename(from, to);
+        })
+      : hook(t, 'open', async (open, path, ...args) => {
+          const handle = await open(path, ...args);
+          if (dirname(path) === directory && path.endsWith('.tmp')) {
+            assert.equal(args[0], 'wx');
+            const original = handle[stage].bind(handle);
+            handle[stage] = async (...values) => {
+              injected = true;
+              if (stage === 'writeFile') await original(values[0].subarray(0, 3));
+              // A close error can be reported after the descriptor is closed.
+              // Close the real handle so this injection also works on Windows.
+              if (stage === 'close') await original();
+              throw failure;
+            };
+          }
+          return handle;
+        });
+    await assert.rejects(writeRecoveryState(directory, { phase: 'recovered', message: 'retry', restored: [] }),
+      (error) => error === failure);
+    assert.equal(injected, true);
+    restore();
+    assert.deepEqual(await fs.readFile(join(directory, 'state.json')), previous);
+    assert.deepEqual((await fs.readdir(directory)).sort(), entries);
+    await writeRecoveryState(directory, { phase: 'recovered', message: 'retry', restored: [] });
+    assert.equal(JSON.parse(await fs.readFile(join(directory, 'state.json'), 'utf8')).phase, 'recovered');
+    assert.deepEqual((await fs.readdir(directory)).sort(), entries);
+  });
+}
+
+test('recovery state exclusive-create failure preserves the file it did not create', async (t) => {
+  const f = await fixture(t);
+  const id = await record(f);
+  const directory = await recoveryLocation(f.data, f.root, id);
+  const previous = await fs.readFile(join(directory, 'state.json'));
+  let collision;
+  const restore = hook(t, 'open', async (open, path, ...args) => {
+    if (dirname(path) === directory && path.endsWith('.tmp')) {
+      collision = path;
+      const other = await open(path, 'wx', 0o600);
+      try { await other.writeFile('existing file owned by another operation'); }
+      finally { await other.close(); }
+    }
+    return open(path, ...args);
+  });
+  await assert.rejects(writeRecoveryState(directory, { phase: 'recovered', message: '', restored: [] }),
+    { code: 'EEXIST' });
+  restore();
+  assert.ok(collision);
+  assert.equal(await fs.readFile(collision, 'utf8'), 'existing file owned by another operation');
+  assert.deepEqual(await fs.readFile(join(directory, 'state.json')), previous);
+});
