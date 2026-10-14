@@ -4,6 +4,7 @@ import { mentionedSkillNames, skillMentionCandidates } from '../../../shared/ski
 import { isAttachmentReference } from '../../../attachments/store.mjs';
 import { collectPromptSkillsCached } from '../context/collect.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
+import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { parseNativeToolSearchPayload } from './loop/tool-helpers.mjs';
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { throwIfAborted } from '../../../shared/abort-race.mjs';
@@ -91,6 +92,10 @@ export async function prepareExplicitSkills(
 ) {
   throwIfAborted(signal);
   const applied = [];
+  // A session that cannot call Skill (schema allowlist, denied tools, read-only
+  // surface — the dispatcher's own gate) has nothing to select: preparing would
+  // only push a refused-tool reminder into history on every matching turn.
+  if (preDispatchDenyForSession(session, { name: 'Skill' })) return applied;
   const source = selection === undefined || selection === null ? prompt : selection;
   for (const name of explicitSkillNames(source, cwd)) {
     const id = `skill-selection-${randomUUID()}`;

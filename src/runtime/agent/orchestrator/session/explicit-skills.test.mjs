@@ -516,18 +516,50 @@ test('header-only selections populate appliedSkills; failed loads never do', asy
   });
 });
 
-test('missing, denied and cancelled selections never become successful skill bodies or schema grants', async () => {
+test('a session that cannot call Skill skips explicit selection entirely and records nothing', async () => {
   await withSkill(async ({ root }) => {
-    for (const setup of [
+    addSkill(root, 'setup');
+    addSkill(root, 'image');
+    const prompt = `${skillSelectionHeader('selected-guide')}Use $setup $image $HOME today.`;
+    for (const restrict of [
       (session) => {
-        session.beforeToolHook = async () => ({ action: 'deny', reason: 'policy' });
+        session.schemaAllowedTools = ['read', 'office']; // headless allowlist without Skill
       },
       (session) => {
-        session.schemaAllowedTools = ['read'];
+        session.disallowedTools = ['Skill']; // a role that denies it
       },
     ]) {
       const session = newSession('openai-oauth', root);
-      setup(session);
+      restrict(session);
+      const user = { role: 'user', content: prompt, meta: { transcript: { messageId: 'm1' } } };
+      session.messages.push(user);
+      const before = structuredClone(session.messages);
+      const applied = await prepareExplicitSkills(prompt, session.messages, session, {
+        execute() {
+          assert.fail('a session without Skill must not attempt it');
+        },
+      });
+      assert.deepEqual(applied, []);
+      assert.deepEqual(session.messages, before, 'no reminder, tool pair or body is pushed');
+      assert.equal(recordAppliedSkills(session.messages, user, applied), user);
+      assert.equal(user.meta.transcript.appliedSkills, undefined);
+    }
+    // Control: the same prompt on a session that has Skill loads all three.
+    const session = newSession('openai-oauth', root);
+    assert.deepEqual(await prepareExplicitSkills(prompt, session.messages, session), [
+      'selected-guide',
+      'setup',
+      'image',
+    ]);
+    assert.deepEqual(skillBodyNames(session), ['selected-guide', 'setup', 'image']);
+  });
+});
+
+test('missing, denied and cancelled selections never become successful skill bodies or schema grants', async () => {
+  await withSkill(async ({ root }) => {
+    {
+      const session = newSession('openai-oauth', root);
+      session.beforeToolHook = async () => ({ action: 'deny', reason: 'policy' });
       const originalTools = structuredClone(session.tools);
       await prepareExplicitSkills(skillSelectionHeader('selected-guide'), session.messages, session);
       assert.equal(bodies(session).length, 0);
