@@ -330,7 +330,11 @@ const STREAMS_SCRIPT = [
   "import { writeSync } from 'node:fs';",
   'const [mode, code] = process.argv.slice(2);',
   'const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);',
-  "if (mode === 'big') {",
+  "if (mode === 'order') {",
+  "  for (const [fd, text] of [[2, 'first'], [2, 'second 한글'], [1, 'third']]) { writeSync(fd, `${text}\\n`); pause(); }",
+  "} else if (mode.startsWith('seq:')) {",
+  "  [...mode.slice(4)].forEach((kind, i) => { writeSync(kind === 'o' ? 1 : 2, `${kind}${i}\\n`); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15); });",
+  "} else if (mode === 'big') {",
   '  for (let i = 0; i < 20000; i++) { writeSync(1, `o${i} ${"x".repeat(40)}\\n`); writeSync(2, `e${i} ${"y".repeat(40)}\\n`); }',
   '} else {',
   "  for (const [fd, text] of [[1, 'out1 한글'], [2, 'err1 üñí 한글'], [1, 'out2'], [2, 'err2']]) { writeSync(fd, `${text}\\n`); pause(); }",
@@ -356,6 +360,22 @@ for (const shell of powerShells()) {
       assert.equal(merged.code, 0, merged.stderr);
       assert.deepEqual(lines(merged.stdout), ['O:out1 한글', 'E:err1 üñí 한글', 'O:out2', 'E:err2', 'after:0']);
       assert.equal(merged.stderr.trim(), '');
+
+      // Lines leave in arrival order even when both streams have lines ready
+      // while a slow consumer holds the first one: never stdout first.
+      const ordered = await ps(
+        `mixdog-skill-node 'streams.mjs' order 0 2>&1 | ForEach-Object { Start-Sleep -Milliseconds 400; if ($_ -is [System.Management.Automation.ErrorRecord]) { "E:$_" } else { "O:$_" } }`
+      );
+      assert.equal(ordered.code, 0, ordered.stderr);
+      assert.deepEqual(lines(ordered.stdout), ['E:first', 'E:second 한글', 'O:third']);
+
+      // Randomized interleaving, consumed slowly.
+      const seq = Array.from({ length: 40 }, () => (Math.random() < 0.5 ? 'o' : 'e')).join('');
+      const random = await ps(
+        `mixdog-skill-node 'streams.mjs' 'seq:${seq}' 0 2>&1 | ForEach-Object { Start-Sleep -Milliseconds 20; if ($_ -is [System.Management.Automation.ErrorRecord]) { "$_" } else { "$_" } }`
+      );
+      assert.equal(random.code, 0, random.stderr);
+      assert.deepEqual(lines(random.stdout), [...seq].map((kind, i) => `${kind}${i}`), `sequence ${seq}`);
 
       // Not redirected: stderr prints as the bare text (PowerShell 7 colours
       // error records; the shell tool strips ANSI), success stays success.

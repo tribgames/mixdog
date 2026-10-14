@@ -159,9 +159,10 @@ function psQuote(value) {
  * The child is started through ProcessStartInfo so the argument variable and
  * Electron node mode live in ITS environment block only; setting them on
  * $env would reach every process the pipeline starts while this one streams.
- * Both output streams are redirected and drained concurrently (one pending
- * ReadLineAsync per stream, polled so a stopped pipeline is noticed), line by
- * line in arrival order: stdout lines go to the pipeline, stderr lines to the
+ * Both output streams are redirected and read continuously by .NET's own
+ * line readers into one queue, so lines come out in the order they arrived
+ * whichever stream they are on and however slow the pipeline downstream is:
+ * stdout lines go to the pipeline, stderr lines to the
  * error stream as NativeCommandErrorMessage records, which is what PowerShell
  * makes of a native command's stderr, so `2>&1`, `2>$null` and `2>file`
  * behave the same and the records print as plain text. They are written with
@@ -176,6 +177,8 @@ function psQuote(value) {
  */
 export function renderPowerShellSkillFunction({ interpreter, entry, electron }) {
   const body = [
+    // Setup failures end the call instead of waiting on a queue no reader feeds.
+    "$ErrorActionPreference = 'Stop'",
     `$__mxa = '${SKILL_ARGV_TAG}'`,
     'foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += \',\' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }',
     '$__mxi = New-Object System.Diagnostics.ProcessStartInfo',
@@ -192,17 +195,33 @@ export function renderPowerShellSkillFunction({ interpreter, entry, electron }) 
     `$__mxi.EnvironmentVariables['${SKILL_ARGV_ENV}'] = $__mxa`,
     ...(electron ? ["$__mxi.EnvironmentVariables['ELECTRON_RUN_AS_NODE'] = '1'"] : []),
     '$__mxw = { [CmdletBinding()] param($__mxr) $PSCmdlet.WriteError($__mxr) }',
-    '$__mxp = [System.Diagnostics.Process]::Start($__mxi)',
+    // One queue, fed in arrival order by both streams' line handlers. The
+    // handlers run on .NET reader threads, where a PowerShell scriptblock
+    // cannot, so they are compiled expression trees: (s, d) => q.Add(new
+    // DictionaryEntry(stream, d.Data)), a null Data marking that stream's end.
+    "$__mxq = New-Object 'System.Collections.Concurrent.BlockingCollection[object]'",
+    '$__mxx = [System.Linq.Expressions.Expression]',
+    "$__mxs = $__mxx::Parameter([object], 's'); $__mxd = $__mxx::Parameter([System.Diagnostics.DataReceivedEventArgs], 'd')",
+    // Expression.New through reflection: `$type::New` would call a constructor.
+    "$__mxm = $__mxx.GetMethod('New', [type[]]@([System.Reflection.ConstructorInfo], [System.Linq.Expressions.Expression[]]))",
+    "$__mxh = foreach ($__mxk in 0, 1) { $__mxx::Lambda([System.Diagnostics.DataReceivedEventHandler], $__mxx::Call($__mxx::Constant($__mxq), $__mxq.GetType().GetMethod('Add', [type[]]@([object])), [System.Linq.Expressions.Expression[]]@($__mxx::Convert($__mxm.Invoke($null, @([System.Collections.DictionaryEntry].GetConstructor([type[]]@([object], [object])), [System.Linq.Expressions.Expression[]]@($__mxx::Constant($__mxk, [object]), $__mxx::Property($__mxd, 'Data')))), [object]))), [System.Linq.Expressions.ParameterExpression[]]@($__mxs, $__mxd)).Compile() }",
+    '$__mxp = New-Object System.Diagnostics.Process',
+    '$__mxp.StartInfo = $__mxi',
+    '$__mxp.add_OutputDataReceived($__mxh[0]); $__mxp.add_ErrorDataReceived($__mxh[1])',
+    '[void]$__mxp.Start()',
     [
       'try {',
-      '$__mxo = $__mxp.StandardOutput.ReadLineAsync(); $__mxe = $__mxp.StandardError.ReadLineAsync();',
-      'while ($__mxo -or $__mxe) {',
-      'if ([System.Threading.Tasks.Task]::WaitAny([System.Threading.Tasks.Task[]]@(@($__mxo, $__mxe) | Where-Object { $_ }), 200) -lt 0) { continue };',
-      'if ($__mxo -and $__mxo.IsCompleted) { $__mxl = $__mxo.Result; if ($null -eq $__mxl) { $__mxo = $null } else { $__mxo = $__mxp.StandardOutput.ReadLineAsync(); $__mxl } };',
-      "if ($__mxe -and $__mxe.IsCompleted) { $__mxl = $__mxe.Result; if ($null -eq $__mxl) { $__mxe = $null } else { $__mxe = $__mxp.StandardError.ReadLineAsync(); & $__mxw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.RemoteException $__mxl), 'NativeCommandErrorMessage', 'NotSpecified', $null)) -ErrorAction Continue } }",
+      '$__mxp.BeginOutputReadLine(); $__mxp.BeginErrorReadLine();',
+      '$__mxn = 0;',
+      'while ($__mxn -lt 2) {',
+      // The timeout only lets a stopped pipeline be noticed; it is no busy poll.
+      '$__mxy = $null; if (-not $__mxq.TryTake([ref]$__mxy, 200)) { continue };',
+      'if ($null -eq $__mxy.Value) { $__mxn++ }',
+      'elseif ($__mxy.Key -eq 0) { $__mxy.Value }',
+      "else { & $__mxw (New-Object System.Management.Automation.ErrorRecord ((New-Object System.Management.Automation.RemoteException $__mxy.Value), 'NativeCommandErrorMessage', 'NotSpecified', $null)) -ErrorAction Continue }",
       '};',
       '$__mxp.WaitForExit(); $__mxc = $__mxp.ExitCode',
-      '} finally { if (-not $__mxp.HasExited) { try { $__mxp.Kill() } catch { } }; $__mxp.Dispose() }',
+      '} finally { if (-not $__mxp.HasExited) { try { $__mxp.Kill() } catch { } }; $__mxp.Dispose(); $__mxq.Dispose() }',
     ].join(' '),
     '$global:LASTEXITCODE = $__mxc',
     'if ($__mxc) { exit $__mxc }',
