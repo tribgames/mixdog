@@ -32,8 +32,8 @@ export function createExtensionSync({
   // added, renamed or removed can move a plugin server to another name, and
   // only the reconcile connects it there and drops the stale name. Servers
   // whose resolved config is unchanged stay untouched.
-  async function applyMcpChanges(changes) {
-    for (const { name, enabled } of changes) await connectConfiguredMcp({ only: name, enabled });
+  async function applyMcpChanges(changes, interactive = false) {
+    for (const { name, enabled } of changes) await connectConfiguredMcp({ only: name, enabled, ...(interactive ? { interactive: enabled !== false } : {}) });
     return connectConfiguredMcp({ reconcile: true });
   }
 
@@ -67,7 +67,7 @@ export function createExtensionSync({
           let want;
           do {
             want = chain.desired;
-            status = await connectConfiguredMcp({ only: serverName, enabled: want });
+            status = await connectConfiguredMcp({ only: serverName, enabled: want, interactive: want !== false });
           } while (chain.desired !== want);
           await refreshSurface('mcp');
         } finally {
@@ -98,11 +98,11 @@ export function createExtensionSync({
         ...drop.map((name) => ({ name, enabled: false })),
         ...(only ? [{ name: only, enabled }] : []),
       ];
-      const status = await applyMcpChanges(mcpChanges);
+      const status = await applyMcpChanges(mcpChanges, true);
       await announce('mcp', { detail: { mcpChanges } });
       return status;
     }
-    const status = await connectConfiguredMcp({ reset: true });
+    const status = await connectConfiguredMcp({ reset: true, interactive: true });
     await announce('mcp');
     return status;
   }

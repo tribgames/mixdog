@@ -84,7 +84,14 @@ export function createPageInputDispatcher(
         );
         break;
       case 'key':
-        await keyboard.pressKey(guest, input.key, signal);
+        if (['Control+c', 'Control+C', 'Meta+c', 'Meta+C'].includes(input.key)) {
+          // A human copy gesture uses Chromium's native edit command, not a
+          // synthetic key event in the shell's hidden input field.
+          assertDispatch();
+          guest.copy();
+        } else {
+          await keyboard.pressKey(guest, input.key, signal);
+        }
         break;
       case 'pointer':
         await send(

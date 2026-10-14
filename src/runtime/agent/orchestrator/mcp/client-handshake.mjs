@@ -6,6 +6,7 @@
 import { markServiceUnreachable, isConnRefuseError } from '../../../shared/service-discovery.mjs';
 import { MCP_MAX_TIMER_MS, resolveMcpStartupTimeoutMs } from './client-config.mjs';
 import { appendMcpStderrTail } from './client-transport.mjs';
+import { MCP_OAUTH_TIMEOUT_MS } from './oauth.mjs';
 
 // tools/list pagination bounds: a server that never stops handing out cursors
 // (or repeats one) cannot loop the client forever.
@@ -73,17 +74,26 @@ export async function runBoundedHandshake({
 }) {
   const startupTimeoutMs = resolveMcpStartupTimeoutMs(cfg);
   const guard = { timer: null, timedOut: false };
+  let rejectDeadline;
+  const armDeadline = (ms) => {
+    if (guard.timer) clearTimeout(guard.timer);
+    guard.timer = setTimeout(() => {
+      guard.timedOut = true;
+      rejectDeadline(startupTimeoutError(name, ms));
+    }, ms);
+  };
+  const deadline = new Promise((_, reject) => { rejectDeadline = reject; });
+  const cancelOAuth = () => rejectDeadline(new Error('MCP OAuth login failed, cancelled, or timed out'));
+  transport.oauth?.signal.addEventListener('abort', cancelOAuth, { once: true });
+  if (transport.oauth?.signal.aborted) cancelOAuth();
+  if (startupTimeoutMs > 0) armDeadline(startupTimeoutMs);
+  // Human authorization gets a separate, finite budget. The ordinary startup
+  // budget still applies until the server actually challenges authentication.
+  if (transport.oauth) transport.oauth.onStart = () => armDeadline(MCP_OAUTH_TIMEOUT_MS);
   const handshake = performHandshake(client, transport, {
-    timeout: startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
+    timeout: transport.oauth ? MCP_MAX_TIMER_MS : startupTimeoutMs > 0 ? startupTimeoutMs : MCP_MAX_TIMER_MS,
   });
   try {
-    if (startupTimeoutMs <= 0) return await handshake;
-    const deadline = new Promise((_, rej) => {
-      guard.timer = setTimeout(() => {
-        guard.timedOut = true;
-        rej(startupTimeoutError(name, startupTimeoutMs));
-      }, startupTimeoutMs);
-    });
     return await Promise.race([handshake, deadline]);
   } catch (err) {
     // A discovery-advert port that fails to connect is a corpse (recycled
@@ -92,7 +102,7 @@ export async function runBoundedHandshake({
     // ONLY — a startup/handshake timeout is a slow-but-alive server.
     if (autoDetectAdvert && isConnRefuseError(err))
       markServiceUnreachable(autoDetectAdvert.service, autoDetectAdvert.port);
-    if (guard.timedOut) {
+    if (guard.timedOut || transport.oauth?.signal.aborted) {
       // Tear down the pending transport/child so a hung handshake never
       // leaks a stdio process or socket — fire-and-forget (like the
       // tool-call timeout path) so a slow tree-kill never delays this
@@ -112,6 +122,9 @@ export async function runBoundedHandshake({
     }
     throw tail ? new Error(appendMcpStderrTail(String(err), tail)) : err;
   } finally {
+    transport.oauth?.finishConnect?.();
     if (guard.timer) clearTimeout(guard.timer);
+    transport.oauth?.signal.removeEventListener('abort', cancelOAuth);
+    if (transport.oauth) transport.oauth.onStart = () => {};
   }
 }

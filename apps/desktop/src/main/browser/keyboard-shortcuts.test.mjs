@@ -39,6 +39,20 @@ test('a letter shortcut names its own key, never Shift plus that key', async () 
   );
 });
 
+test('Command+A supplies the macOS editor select-all command without typing or changing other shortcuts', async () => {
+  const events = [];
+  const driver = createBrowserInputDriver(async (_guest, _method, params) => {
+    events.push(params);
+    return 'completed';
+  });
+  await driver.pressKey({}, 'Meta+A');
+  await driver.pressKey({}, 'Control+A');
+  const downs = events.filter((event) => event.type === 'rawKeyDown');
+  assert.deepEqual(downs[0].commands, process.platform === 'darwin' ? ['selectAll'] : undefined);
+  assert.equal(downs[1].commands, undefined);
+  assert.equal(events.some((event) => event.type === 'char'), false);
+});
+
 test('punctuation presses carry their real key codes and only Shift still types', async () => {
   const events = [];
   const driver = createBrowserInputDriver(async (_guest, _method, params) => {
