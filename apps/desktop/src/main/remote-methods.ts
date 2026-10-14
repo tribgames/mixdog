@@ -1059,6 +1059,10 @@ const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
   'cancelOAuthProviderLogin',
   'loginOAuthProvider',
   'authenticateProvider',
+  // A pasted MCP OAuth redirect URL carries the authorization code.
+  'completeMcpOAuthLogin',
+  // A probed MCP config may carry header credentials.
+  'probeMcpServerAuth',
 ]);
 
 /** Every string a secret-bearing capability call carried. An upstream failure

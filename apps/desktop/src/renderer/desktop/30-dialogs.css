@@ -46,7 +46,8 @@
   animation: mx-scrim-in var(--mx-motion-chrome);
 }
 /* A confirmation always paints above the card that raised it. */
-.settings-confirm-layer {
+.settings-confirm-layer,
+.settings-oauth-layer[data-over-dialog] {
   z-index: calc(var(--mx-dialog-z-index) + 10);
 }
 /* The topbar's drag region ignores paint order: a scrim covering it still

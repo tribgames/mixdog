@@ -10,6 +10,7 @@ import {
 import { resolveMcpOAuthUrl } from '../runtime/agent/orchestrator/mcp/client-config.mjs';
 import { withAdoptedCopies, withPinnedCollisionNames, withPluginServerIntent } from './mcp-glue/plugin-servers.mjs';
 import { findRegisteredPlugin } from './resource-plugins-api.mjs';
+import { createMcpOAuthLogins } from './mcp-oauth-login.mjs';
 
 /** The URL a server's OAuth credentials are stored under, or null. */
 function oauthUrlOf(cfg) {
@@ -78,7 +79,36 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     resolveConfiguredMcpCatalog = resolveMcpCatalog,
     pluginMcpServer = () => null,
     flushSkillsSave,
+    cancelMcpLogin = () => {},
+    completeMcpLogin,
+    getMcpServerOAuthState = () => null,
+    probeMcpServerAuth,
   } = deps;
+
+  // Explicit OAuth sign-in: the one interactive MCP connect. On success the
+  // other runtimes reconnect the server non-interactively with the new tokens.
+  const oauthLogins = createMcpOAuthLogins({
+    async connect(name, openBrowser) {
+      const status = await connectConfiguredMcp({ only: name, enabled: true, login: { openBrowser } });
+      const row = status?.servers?.find((server) => server.name === name);
+      return { connected: row?.connected === true, error: row?.error || null };
+    },
+    cancel: (name) => cancelMcpLogin(name),
+    completeCallback: completeMcpLogin,
+    onComplete: (name) => sync.announce('mcp', { detail: { mcpChanges: [{ name, enabled: true }] } }),
+  });
+  /** The effective config of a server that signs in with MCP OAuth (HTTP/SSE
+   *  without configured authentication). */
+  const oauthServerConfig = async (name) => {
+    const serverName = clean(name);
+    if (!serverName) throw new Error('MCP server name is required');
+    await awaitKeychainPrewarm();
+    reloadFullConfig();
+    const cfg = resolveMcpCatalog().servers[serverName];
+    if (!cfg) throw new Error(`MCP server not configured: ${serverName}`);
+    if (!getMcpServerOAuthState(cfg)) throw new Error(`MCP server "${serverName}" does not use OAuth sign-in`);
+    return { serverName, cfg };
+  };
 
   /** The config with any adoptable plugin server copies already adopted, so
    *  every write also persists the adoption and never re-adds a copy. */
@@ -127,6 +157,49 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       if (!serverName) return sync.reconnectMcpAndAnnounce();
       const { enabled } = getMcpServerConfig(serverName);
       return sync.reconnectMcpAndAnnounce({ only: serverName, enabled });
+    },
+    /** `{ flowId, state: 'pending', url }` once the browser login starts
+     *  (`options.openBrowser === false` leaves opening `url` to the caller), or
+     *  `{ flowId, state: 'complete' }` when stored credentials sufficed. */
+    async beginMcpOAuthLogin(name, options = {}) {
+      const { serverName, cfg } = await oauthServerConfig(name);
+      if (cfg.enabled === false) throw new Error(`MCP server is disabled: ${serverName}`);
+      return oauthLogins.begin(serverName, options);
+    },
+    /** `{ flowId, state: 'pending' | 'complete' | 'failed' | 'cancelled', error? }` */
+    getMcpOAuthLoginStatus(flowId) {
+      return oauthLogins.status(flowId);
+    },
+    cancelMcpOAuthLogin(flowId) {
+      return oauthLogins.cancel(flowId);
+    },
+    /** Remote / headless sign-in: complete the pending flow with the redirect
+     *  URL pasted from the browser. `{ flowId, state: 'complete' | 'failed',
+     *  error? }`; an invalid paste throws a fixed message and stays pending. */
+    completeMcpOAuthLogin(flowId, callbackUrl) {
+      return oauthLogins.complete(flowId, callbackUrl);
+    },
+    /** Forget the server's stored OAuth credentials (shared by every server
+     *  with the same exact URL) and reconnect without a login, here and on
+     *  peers, so it reports sign-in required. */
+    async signOutMcpServer(name) {
+      const { serverName, cfg } = await oauthServerConfig(name);
+      // A begin issued meanwhile waits until the credentials are gone.
+      return oauthLogins.cancelServer(serverName, async () => {
+        await clearMcpServerOAuth(cfg);
+        return sync.reconnectMcpAndAnnounce({ only: serverName, enabled: cfg.enabled !== false });
+      });
+    },
+    /** `{ auth: 'oauth' | 'none' | 'configured' | 'unreachable', error? }` for an
+     *  HTTP/SSE config, without credentials or a browser. */
+    probeMcpServerAuth(cfg) {
+      if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) throw new TypeError('MCP server config is required');
+      const probe = {};
+      for (const key of ['type', 'url', 'headers', 'bearer_token_env_var', 'env_http_headers']) {
+        if (cfg[key] !== undefined) probe[key] = cfg[key];
+      }
+      if (probe.type !== 'http' && probe.type !== 'sse') throw new TypeError("type must be 'http' or 'sse'");
+      return probeMcpServerAuth(probe);
     },
     async addMcpServer(input = {}) {
       const { name, config: serverConfig } = normalizeMcpServerInput(input);

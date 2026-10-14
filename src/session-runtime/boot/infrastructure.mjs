@@ -47,6 +47,7 @@ function wireMcp(boot) {
     connectConfiguredMcp,
     awaitInitialMcpConnect,
     cancelMcpLogin,
+    completeMcpLogin,
     normalizeMcpServerInput,
   } = createMcpGlue({
     mcpClient,
@@ -68,6 +69,7 @@ function wireMcp(boot) {
     connectConfiguredMcp,
     awaitInitialMcpConnect,
     cancelMcpLogin,
+    completeMcpLogin,
     normalizeMcpServerInput,
   });
 }

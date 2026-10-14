@@ -5,9 +5,11 @@ import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-tex
 import { envFlag } from '../../runtime/shared/env.mjs';
 import { resolveMcpServerCatalog } from './plugin-servers.mjs';
 
-function mcpServerStatus(cfg, live, fail) {
+function mcpServerStatus(cfg, live, fail, loginPending) {
   if (cfg?.enabled === false) return 'disabled';
   if (live) return 'connected';
+  // Until an interactive sign-in completes the server still needs it.
+  if (loginPending || fail?.authRequired) return 'sign-in required';
   return fail ? 'failed' : 'disconnected';
 }
 
@@ -121,20 +123,28 @@ export function createMcpServerCatalog({
       const fail =
         failures.get(name) || (dead ? { msg: live.error || live.lastError || 'MCP server is not alive' } : undefined);
       const entry = entries[name] || {};
+      const loginPending = !(live && !dead) && mcpClient.isMcpLoginPending?.(name, getMcpScopeId()) === true;
+      const status = mcpServerStatus(cfg, live && !dead, fail, loginPending);
+      // Needing an OAuth sign-in is a state, not an error.
+      const authRequired = status === 'sign-in required';
       const row = {
         name,
         configured: true,
         enabled: cfg?.enabled !== false,
         connected: Boolean(live) && !dead,
-        status: mcpServerStatus(cfg, live && !dead, fail),
+        status,
         transport: mcpTransportLabel(cfg),
         toolCount: live?.toolCount || 0,
         tools: live?.tools || [],
         capabilities: live?.capabilities || { tools: false, prompts: false, resources: false },
-        error: fail?.msg || null,
+        error: authRequired ? null : fail?.msg || null,
         warnings: [...(entry.warnings || []), ...(live?.warnings || [])],
         source: sources[name] || 'config',
       };
+      if (authRequired) row.authRequired = true;
+      const oauth = mcpClient.getMcpServerOAuthState?.(cfg);
+      // Why the last sign-in did not complete (already credential-scrubbed).
+      if (oauth) row.oauth = authRequired && fail?.msg ? { ...oauth, lastError: fail.msg } : oauth;
       if (entry.owner) {
         row.owner = entry.owner;
         row.pluginEnabled = entry.pluginEnabled;
