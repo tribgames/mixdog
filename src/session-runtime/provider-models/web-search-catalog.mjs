@@ -4,6 +4,8 @@
 // the already-loaded provider rows over a provider round-trip.
 import { isSelectableLlmModel } from '../model-recency.mjs';
 import { catalogRevision } from '../provider-catalog-cache.mjs';
+import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
+import { loadModelProxyProviderConfig } from '../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs';
 
 export function createWebSearchCatalog({
   caches,
@@ -14,15 +16,22 @@ export function createWebSearchCatalog({
   quickHelpers,
   normalizeWebSearchProviderId,
   isWebSearchCapableProvider,
+  collectProviderModels,
   ensureFullConfig,
   awaitKeychainPrewarm,
   ensureProvidersReady,
 }) {
   async function enabledWebSearchProviderConfig() {
-    await awaitKeychainPrewarm();
-    ensureFullConfig();
+    let providers;
+    if (modelProxyClientMode()) {
+      providers = await loadModelProxyProviderConfig();
+    } else {
+      await awaitKeychainPrewarm();
+      ensureFullConfig();
+      providers = config().providers;
+    }
     const out = {};
-    for (const [name, providerConfig] of Object.entries(config().providers || {})) {
+    for (const [name, providerConfig] of Object.entries(providers || {})) {
       const providerName = normalizeWebSearchProviderId(name);
       if (!providerConfig?.enabled || !isWebSearchCapableProvider(providerName)) continue;
       out[providerName] = { ...providerConfig, enabled: true };
@@ -66,6 +75,12 @@ export function createWebSearchCatalog({
   }
 
   async function loadWebSearchProviderModelsFresh({ forceRefresh = false } = {}) {
+    if (modelProxyClientMode()) {
+      // Share the desktop-backed catalog's readiness, force refresh and retry
+      // semantics. Server-local quick rows cannot describe desktop accounts.
+      const models = await collectProviderModels({ force: forceRefresh });
+      return quickHelpers.webSearchRowsWithDefault(quickHelpers.webSearchModelsFromRows(models));
+    }
     const webSearchProviders = await enabledWebSearchProviderConfig();
     const providerNames = Object.keys(webSearchProviders);
     if (!providerNames.length) return [];
@@ -89,6 +104,11 @@ export function createWebSearchCatalog({
   }
 
   async function collectWebSearchProviderModels({ force = false } = {}) {
+    if (modelProxyClientMode()) {
+      // The main catalog owns caching in client mode, including incomplete
+      // loads; do not pin an empty/offline projection in a second cache.
+      return rows.providerModelsFromCacheRows(await loadWebSearchProviderModelsFresh({ forceRefresh: force }));
+    }
     const revision = meta.syncCatalogRevision();
     if (force) {
       const models = await loadWebSearchProviderModelsFresh({ forceRefresh: true });

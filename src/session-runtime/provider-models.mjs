@@ -63,6 +63,7 @@ export function createProviderModels({
     quickHelpers,
     normalizeWebSearchProviderId,
     isWebSearchCapableProvider,
+    collectProviderModels,
     ...readiness,
   });
   const loadProviderModelsFresh = createCatalogLoader({ caches, config, reg, meta, rows, profile, ...readiness });
