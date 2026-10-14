@@ -1,0 +1,8 @@
+export interface SkillMention {
+  name: string;
+  start: number;
+  end: number;
+}
+export function skillMentionCandidates(text: unknown): SkillMention[];
+export function skillMentions(text: unknown, isSkill: (name: string) => boolean): SkillMention[];
+export function mentionedSkillNames(text: unknown, isSkill: (name: string) => boolean): string[];
