@@ -487,7 +487,37 @@ test('resize recovers onto the latest document and queued resizes retain only th
   assert.deepEqual(failures, []);
 });
 
-test('page-change edits report rejection after refresh without replay, and resize recovery is bounded', async () => {
+test('a requested address from a stale frame loads into the page the host shows now', async () => {
+  // A parked pane keeps its last frame while the host selects a new blank tab.
+  let latest = frame();
+  const sent = [];
+  const failures = [];
+  const client = createBrowserPageClient({
+    sessionId: 's',
+    update() {},
+    failure: (error) => failures.push(error),
+    api: {
+      browserPageFrame: async () => latest,
+      browserPageControl: async (_session, input) => {
+        sent.push({ ...input });
+        if (input.documentId !== latest.documentId) throw new Error('Browser page changed; input was not sent.');
+      },
+    },
+  });
+  await client.poll();
+  latest = { ...frame('p2:1'), webContentsId: 2, url: 'about:blank' };
+  await client.control({ type: 'navigate', url: 'https://example.test/requested' });
+  assert.deepEqual(
+    sent.map(({ type, url, documentId }) => ({ type, url, documentId })),
+    [
+      { type: 'navigate', url: 'https://example.test/requested', documentId: 'p1:1' },
+      { type: 'navigate', url: 'https://example.test/requested', documentId: 'p2:1' },
+    ]
+  );
+  assert.deepEqual(failures, []);
+});
+
+test('page-change edits report rejection after refresh without replay, and resize/navigation recovery is bounded', async () => {
   for (const action of [
     { type: 'pointer', phase: 'mousePressed', x: 1, y: 1, button: 'left', buttons: 1, modifiers: 0, clickCount: 1 },
     { type: 'text', text: 'do not replay' },
@@ -515,7 +545,7 @@ test('page-change edits report rejection after refresh without replay, and resiz
     const deliberate = action.type === 'pointer' || action.type === 'text';
     if (deliberate) await assert.rejects(client.control(action), /input was not sent/);
     else await client.control(action);
-    assert.equal(calls, action.type === 'resize' ? 2 : 1);
+    assert.equal(calls, action.type === 'resize' || action.type === 'navigate' ? 2 : 1);
     assert.equal(reads, 2);
     assert.equal(client.frame().documentId, 'p1:2');
     assert.deepEqual(failures, deliberate ? ['Browser page changed; input was not sent.'] : []);

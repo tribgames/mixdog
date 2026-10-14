@@ -244,9 +244,11 @@ export function createBrowserPageClient(options: {
           if (motion) return;
           await refreshAfterControl();
           if (disposed) return;
-          // Geometry belongs to the pane, not the old document. Retry once
-          // only after the host proved it had not dispatched the resize.
-          if (action.type === 'resize') {
+          // Geometry belongs to the pane, not the old document, and a requested
+          // address is meant for whichever page the pane shows now (a parked
+          // pane's last frame may name a tab the host has since replaced).
+          // Retry once only after the host proved it had not dispatched it.
+          if (action.type === 'resize' || action.type === 'navigate') {
             await options.api.browserPageControl!(options.sessionId, { ...action, documentId: current!.documentId });
             return;
           }
