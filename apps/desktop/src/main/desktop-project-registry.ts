@@ -3,7 +3,8 @@
 import { isAbsolute, resolve } from 'node:path';
 import { LocalAccessDeniedError } from './local-access-denied';
 
-import type { DesktopProjectSummary } from '../shared/contract';
+import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
+import { projectIdentity, sessionProjectKey } from '../shared/project-identity';
 import { readProjectPreferences, writeProjectPreferences } from './project-preferences-file';
 import type { DesktopProjectPreferences, MixdogProject, MixdogProjectsModule } from './desktop-support';
 import { matchingProjectPath, normalizedProjectKey, projectAlias, withoutMatchingProject } from './desktop-support';
@@ -56,6 +57,14 @@ export class DesktopProjectRegistry {
   async knownPath(projectPath: string): Promise<string> {
     const store = await this.loadProjectsModule();
     return this.known(store, projectPath).path;
+  }
+
+  /** Use the sidebar's membership rule without hiding registry read errors. */
+  async sessionProjectPath(session?: DesktopSessionSummary): Promise<string | null> {
+    const store: ProjectAuthorityStore = await this.loadProjectsModule();
+    const projects = this.registered(store, typeof store.listProjectsStrict === 'function');
+    const key = sessionProjectKey(session ?? {}, projects.map((project) => projectIdentity(project.path)));
+    return projects.find((project) => projectIdentity(project.path) === key)?.path ?? null;
   }
 
   /** Mark an already-registered project as most-recently selected. */

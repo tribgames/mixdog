@@ -60,6 +60,7 @@ export interface SessionHostLifecycleOwner {
   registeredProject(path: string): Promise<string>;
   touchProject(path: string): Promise<void>;
   resolveSessionWorkspace(projectPath?: string | null): Promise<SessionWorkspaceResolution>;
+  sessionProjectPath(session?: DesktopSessionSummary): Promise<string | null>;
   projectDirectory(projectPath: string): Promise<string>;
   openHints(sessionId: string): Record<string, unknown>;
   readSession(
@@ -619,9 +620,8 @@ export class SessionHostLifecycle {
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
     const source = sessionIdOf(sourceSessionId);
     const rows = await this.owner.listSessions();
-    const { cwd, desktopSession } = await this.owner.resolveSessionWorkspace(
-      rows.find((entry) => entry.id === source)?.projectPath
-    );
+    const projectPath = await this.owner.sessionProjectPath(rows.find((entry) => entry.id === source));
+    const { cwd, desktopSession } = await this.owner.resolveSessionWorkspace(projectPath);
     const created = await this.owner.client.create(
       {
         cwd,

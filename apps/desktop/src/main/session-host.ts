@@ -221,6 +221,7 @@ export class SessionHost implements DesktopService {
         }
       },
       resolveSessionWorkspace: (path) => this.resolveSessionWorkspace(path),
+      sessionProjectPath: (session) => this.projects.sessionProjectPath(session),
       projectDirectory: (path) => this.projectDirectory(path),
       openHints: (sessionId) => this.openHints(sessionId),
       readSession: (sessionId, forceFull, publish, readTraceId, page) =>
