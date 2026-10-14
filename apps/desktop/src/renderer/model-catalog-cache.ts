@@ -173,6 +173,7 @@ type ProviderModelsApi = Partial<Pick<DesktopApi, 'listProviderModels'>>;
 interface ProviderModelsFetchState {
   scope: string;
   generation: number;
+  requestId: number;
   quick?: Promise<DesktopModelOption[]>;
   full?: Promise<DesktopModelOption[]>;
   complete?: { models: DesktopModelOption[]; at: number };
@@ -186,7 +187,7 @@ function providerModelsFetchState(api: object): ProviderModelsFetchState {
   const current = PROVIDER_MODEL_FETCHES.get(api);
   if (current && current.scope === scope && current.generation === providerModelsGeneration) return current;
   // Another device route or a provider change: nothing held answers for it.
-  const created: ProviderModelsFetchState = { scope, generation: providerModelsGeneration };
+  const created: ProviderModelsFetchState = { scope, generation: providerModelsGeneration, requestId: 0 };
   PROVIDER_MODEL_FETCHES.set(api, created);
   return created;
 }
@@ -205,6 +206,7 @@ export function fetchProviderModels(
   { quick = false, force = false }: { quick?: boolean; force?: boolean } = {}
 ): Promise<DesktopModelOption[]> {
   if (typeof api.listProviderModels !== 'function') return Promise.resolve([]);
+  lastProviderModelsApi = api;
   const state = providerModelsFetchState(api);
   if (!force) {
     const complete = state.complete;
@@ -212,11 +214,13 @@ export function fetchProviderModels(
     const joined = quick ? state.quick : state.full;
     if (joined) return joined;
   }
+  const requestId = ++state.requestId;
   // Issued now, so the slot below is visible to the very next caller.
-  const issued = new Promise<unknown>((resolve) => resolve(api.listProviderModels!({ quick })));
+  const issued = new Promise<unknown>((resolve) => resolve(api.listProviderModels!({ quick, ...(force ? { force: true } : {}) })));
   const request = issued.then((value) => {
     const models: DesktopModelOption[] = Array.isArray(value) ? value : [];
-    if (PROVIDER_MODEL_FETCHES.get(api) === state && (!quick || completeQuickAnswer(models))) {
+    if (PROVIDER_MODEL_FETCHES.get(api) === state && state.requestId === requestId &&
+        (!quick || completeQuickAnswer(models))) {
       state.complete = { models, at: Date.now() };
     }
     return models;
@@ -254,7 +258,8 @@ type SharedModelCatalogRequest = {
 export const SHARED_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60_000;
 let sharedModelCatalogRequest: SharedModelCatalogRequest | null = null;
 let catalogGeneration = 0;
-let forceNextProviderSetup = false;
+let forceProviderSetupFor: object | null = null;
+let lastProviderModelsApi: object | null = null;
 const invalidationListeners = new Set<() => void>();
 
 /** Forgets the shared request, so the next caller fetches again. Guarded by
@@ -282,7 +287,7 @@ export function subscribeModelCatalogInvalidation(listener: () => void): () => v
 /** Drops the shared request and wakes mounted pickers after provider changes. */
 export function invalidateSharedModelCatalogRequest(): void {
   catalogGeneration += 1;
-  forceNextProviderSetup = true;
+  forceProviderSetupFor = lastProviderModelsApi;
   providerModelsGeneration += 1;
   sharedModelCatalogRequest = null;
   for (const listener of [...invalidationListeners]) {
@@ -303,8 +308,8 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
   ) {
     return current;
   }
-  const forceSetup = forceNextProviderSetup;
-  forceNextProviderSetup = false;
+  const forceSetup = forceProviderSetupFor === api;
+  forceProviderSetupFor = null;
   const generation = ++catalogGeneration;
   const isCurrent = () => generation === catalogGeneration && scope === catalogStorageScope();
   const quick = fetchProviderModels(api, { quick: true }).then(normalizeModelCatalog);
@@ -312,7 +317,7 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
   // A quick answer that was already the full catalog leaves this read to the
   // shared result instead of the wire.
   const full = quickSettled
-    .then(() => fetchProviderModels(api, { quick: false }))
+    .then(() => fetchProviderModels(api, { quick: false, force: forceSetup }))
     .then((models) => {
       if (!isCurrent()) return normalizeModelCatalog(models);
       return writeCachedModelCatalog(Array.isArray(models) ? models : [], scope).models;

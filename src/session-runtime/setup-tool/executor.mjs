@@ -118,6 +118,7 @@ function publicProviderRows(setup) {
     ...extra,
   });
   return {
+    ...(setup?.managedByClient === true ? { managedByClient: true, unavailable: setup.unavailable === true } : {}),
     pendingSecrets: setup?.pendingSecrets === true,
     api: (setup?.api || []).map((row) =>
       pick(row, {
@@ -302,6 +303,7 @@ const SETUP_STATUS_READERS = {
   shell: (rt) => rt.getSystemShell?.() || {},
   providers: async (rt) => {
     const rows = publicProviderRows(await rt.getProviderSetup?.({}));
+    if (rows.managedByClient) return rows;
     rows.oauth = rows.oauth.map((row) =>
       row.authenticated ? { ...row, accounts: publicAccounts(rt.getProviderAccounts(row.id)) } : row
     );
@@ -524,6 +526,7 @@ const SETUP_ACTION_HANDLERS = {
   forget_provider_auth: async (rt, args) => {
     const name = requireText(args.name, 'name');
     const setup = await rt.getProviderSetup({});
+    if (setup?.managedByClient) throw new Error('Manage provider accounts in the local desktop window.');
     if (!(setup?.oauth || []).some((row) => row.id === name)) {
       if (Object.hasOwn(args, 'accountId')) throw new Error('accountId applies only to OAuth providers');
       return rt.forgetProviderAuth(name);
@@ -536,8 +539,12 @@ const SETUP_ACTION_HANDLERS = {
     const accountId = Object.hasOwn(args, 'accountId') ? requireText(args.accountId, 'accountId') : accounts[0].id;
     return { ...(await rt.forgetProviderAuth(name, accountId)), accountId };
   },
-  set_provider_account: async (rt, args) =>
-    publicAccounts(await rt.updateProviderAccounts(requireText(args.name, 'name'), args.providerAccount)),
+  set_provider_account: async (rt, args) => {
+    if ((await rt.getProviderSetup?.({}))?.managedByClient) {
+      throw new Error('Manage provider accounts in the local desktop window.');
+    }
+    return publicAccounts(await rt.updateProviderAccounts(requireText(args.name, 'name'), args.providerAccount));
+  },
   add_mcp_server: async (rt, args) => {
     const server = mcpServerInput(args);
     requireText(server.name, 'server.name');

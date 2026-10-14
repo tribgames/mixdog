@@ -164,3 +164,65 @@ test('SSH setup covers every built-in API, OAuth, local and custom provider, ena
     assert.doesNotMatch(JSON.stringify(setup), /secret-must-stay|private-identity|apiKey|accountId/);
   }
 });
+
+
+test('client mode rejects server-side provider account reads and mutations before touching credentials', async (t) => {
+  const prior = process.env.MIXDOG_MODEL_PROXY;
+  process.env.MIXDOG_MODEL_PROXY = 'client';
+  t.after(() => {
+    if (prior === undefined) delete process.env.MIXDOG_MODEL_PROXY;
+    else process.env.MIXDOG_MODEL_PROXY = prior;
+  });
+  const admin = await import('../services/provider-admin.mjs');
+  assert.throws(() => admin.listProviderAccounts('openai-oauth'), { code: 'MODEL_CREDENTIALS_DISABLED' });
+  for (const name of ['authenticateProvider', 'loginOAuthProvider', 'beginOAuthProviderLogin',
+    'materializeProviderAccounts', 'updateProviderAccounts', 'saveProviderApiKey', 'saveCustomProvider',
+    'updateCustomProviderModel', 'removeCustomProvider', 'testCustomProvider', 'discoverCustomProviderModels',
+    'saveOpenAIUsageSessionKey', 'saveOpenCodeGoUsageAuth', 'forgetProviderAuth']) {
+    await assert.rejects(admin[name](), { code: 'MODEL_CREDENTIALS_DISABLED' }, name);
+  }
+});
+
+
+test('a forced remote model catalog refresh replaces cached PC configuration before rebuilding the registry', async (t) => {
+  const prior = process.env.MIXDOG_MODEL_PROXY;
+  process.env.MIXDOG_MODEL_PROXY = 'client';
+  t.after(() => {
+    if (prior === undefined) delete process.env.MIXDOG_MODEL_PROXY;
+    else process.env.MIXDOG_MODEL_PROXY = prior;
+    _resetModelProxyProviderConfigForTest();
+  });
+  const channel = new ModelProxyChannel();
+  t.after(installModelProxyChannel(channel));
+  _resetModelProxyProviderConfigForTest();
+  let providers = {};
+  t.after(channel.attachPublisher((snapshot) => {
+    for (const { id } of snapshot.requests) {
+      if (!channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id])) continue;
+      queueMicrotask(() => channel.handleOperation(MODEL_PROXY_OPERATIONS.resolve, [
+        id, true, encodeModelProxyWire({ providers, ready: true }), null,
+      ]));
+    }
+  }));
+  const { loadModelProxyProviderConfig } = await import('../../runtime/agent/orchestrator/providers/model-proxy-provider.mjs');
+  assert.deepEqual(await loadModelProxyProviderConfig(), {});
+  providers = { gemini: { enabled: true } };
+  const live = new Map();
+  const registry = {
+    providerCatalogRevision: () => 999,
+    initProviders: async () => {
+      const fresh = await loadModelProxyProviderConfig();
+      assert.equal(fresh.gemini?.enabled, true, 'rebuild must use post-invalidation PC availability');
+      live.set('gemini', { listModels: async () => [{ id: 'gemini-test' }] });
+    },
+    getAllProviders: () => live,
+  };
+  const { createCatalogLoader } = await import('../provider-models/catalog-load.mjs');
+  const load = createCatalogLoader({
+    caches: { providerModelsLoadSeq: 0 }, config: () => ({ providers: {} }), reg: () => registry,
+    meta: { syncCatalogRevision: () => 999, snapshotIsCurrent: () => false },
+    rows: { providerModelCacheRow: (provider, row) => ({ ...row, provider }) },
+    profile() {}, ensureFullConfig() {}, awaitKeychainPrewarm: async () => {}, ensureProvidersReady: async () => {},
+  });
+  assert.deepEqual(await load({ forceRefresh: true }), [{ id: 'gemini-test', provider: 'gemini' }]);
+});

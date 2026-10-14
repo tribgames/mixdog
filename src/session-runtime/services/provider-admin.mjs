@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { renameSync } from 'node:fs';
-import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
+import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../runtime/shared/model-proxy-mode.mjs';
 import { sameAccountIdentity } from '../../runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs';
 import {
   AGENT_PROVIDER_ENV,
@@ -617,7 +617,12 @@ export function renderProviderStatus(config = {}) {
     .join('\n');
 }
 
+function requireLocalProviderManagement() {
+  if (modelProxyClientMode()) throw serverModelCredentialsDisabledError('Provider account management');
+}
+
 export async function authenticateProvider(provider, secret) {
+  requireLocalProviderManagement();
   const id = String(provider || '').trim();
   if (!id) throw new Error('provider id is required');
 
@@ -638,6 +643,7 @@ export async function authenticateProvider(provider, secret) {
 }
 
 export async function loginOAuthProvider(cfgMod, provider) {
+  requireLocalProviderManagement();
   const id = String(provider || '').trim();
   const oauth = availableOAuthProvider(id);
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
@@ -724,6 +730,7 @@ async function settleOAuthLogin(
 }
 
 export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
+  requireLocalProviderManagement();
   const id = String(provider || '').trim();
   const oauth = availableOAuthProvider(id);
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
@@ -796,6 +803,7 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
 }
 
 export function listProviderAccounts(provider) {
+  requireLocalProviderManagement();
   const oauth = availableOAuthProvider(provider);
   if (!oauth) throw new TypeError('Unknown OAuth provider.');
   const pool = readProviderAccountPool(provider);
@@ -840,6 +848,7 @@ function defaultAccountRows(provider, oauth) {
 // Store the implicit signed-in `default` account in the roster, so a change or
 // a usage measurement has a row to land on. Returns the current roster view.
 export async function materializeProviderAccounts(provider) {
+  requireLocalProviderManagement();
   const current = listProviderAccounts(provider);
   if (readProviderAccountPool(provider).accounts.length || !current.accounts.length) return current;
   await registerProviderAccount(provider, 'default', { label: 'Account 1' });
@@ -847,6 +856,7 @@ export async function materializeProviderAccounts(provider) {
 }
 
 export async function updateProviderAccounts(provider, change) {
+  requireLocalProviderManagement();
   await materializeProviderAccounts(provider);
   await changeProviderAccounts(provider, change);
   // Picking an account by hand is a decision to use it NOW, so the refusal
@@ -858,6 +868,7 @@ export async function updateProviderAccounts(provider, change) {
 }
 
 export async function saveProviderApiKey(cfgMod, provider, secret) {
+  requireLocalProviderManagement();
   const id = String(provider || '').trim();
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);
   const value = String(secret || '').trim();
@@ -955,6 +966,7 @@ async function resolveCustomInput(cfgMod, rawInput, options) {
 }
 
 export async function saveCustomProvider(cfgMod, rawInput) {
+  requireLocalProviderManagement();
   const {
     id: existingId,
     config,
@@ -1008,6 +1020,7 @@ function plainPatch(value, allowed, label) {
 // removes the whole override; reasoning is merged key by key with the same
 // tri-state rules. Semantic validation is the runtime normalizer's.
 export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch) {
+  requireLocalProviderManagement();
   const id = String(rawId || '').trim();
   const modelId = typeof rawModelId === 'string' ? rawModelId.trim() : '';
   if (!modelId) throw new TypeError('model id is required');
@@ -1067,6 +1080,7 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
 }
 
 export async function removeCustomProvider(cfgMod, rawId) {
+  requireLocalProviderManagement();
   const id = String(rawId || '').trim();
   existingCustomEntry(cfgMod, id);
   const current = cfgMod.loadConfig();
@@ -1077,6 +1091,7 @@ export async function removeCustomProvider(cfgMod, rawId) {
 }
 
 export async function testCustomProvider(cfgMod, rawInput) {
+  requireLocalProviderManagement();
   const { id, config, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
   try {
     // The first visible manual model needs no discovery; otherwise the first
@@ -1107,6 +1122,7 @@ export async function testCustomProvider(cfgMod, rawInput) {
 }
 
 export async function discoverCustomProviderModels(cfgMod, rawInput) {
+  requireLocalProviderManagement();
   const { id, config, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
   try {
     const { createCustomProvider } = await loadCustomProviderModule();
@@ -1132,6 +1148,7 @@ function discoveryErrorView(error, apiKey) {
 }
 
 export async function saveOpenAIUsageSessionKey(cfgMod, secret) {
+  requireLocalProviderManagement();
   const value = String(secret || '').trim();
   if (!value) throw new Error('OpenAI usage session key is required for credit lookup');
   await saveSecretAsync(SECRET_ACCOUNTS.openaiUsageSessionKey, value);
@@ -1140,6 +1157,7 @@ export async function saveOpenAIUsageSessionKey(cfgMod, secret) {
 }
 
 export async function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
+  requireLocalProviderManagement();
   const secret = String(apiKey || '').trim();
   if (!secret) throw new Error('OpenCode console API key is required for usage lookup');
   // Subscription meters are read with a console service-account key holding the
@@ -1156,6 +1174,7 @@ export async function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
 }
 
 export async function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {
+  requireLocalProviderManagement();
   const cfgMod = maybeProvider === undefined ? null : cfgModOrProvider;
   const id = String(maybeProvider === undefined ? cfgModOrProvider : maybeProvider || '').trim();
   const oauth = availableOAuthProvider(id);

@@ -268,6 +268,10 @@ test('provider invalidation bypasses the server setup TTL before sharing the ref
   let authenticated = false;
   let serverCached = false;
   const requests = [];
+  api.listProviderModels = async (options) => {
+    if (options.force) return authenticated ? CATALOG : [];
+    return []; // daemon's stale model catalog before the provider was connected
+  };
   api.invokeCapability = async (request) => {
     requests.push(request);
     if (request.args[0]?.force) serverCached = authenticated;
@@ -279,6 +283,6 @@ test('provider invalidation bypasses the server setup TTL before sharing the ref
   invalidateSharedModelCatalogRequest();
   const next = requestModelCatalog(api);
   assert.equal((await next.setup).api[0].usable, true);
-  await next.full;
+  assert.equal((await next.full)[0].model, CATALOG[0].model);
   assert.deepEqual(requests.at(-1).args, [{ force: true }]);
 });
